@@ -1,0 +1,242 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// 全顧客マスタ (Stella Companies)
+// ============================================
+
+model MasterStellaCompany {
+  id            Int      @id @default(autoincrement())
+  companyCode   String   @unique @db.VarChar(20)  // SC-1, SC-2...
+  name          String   @db.VarChar(200)         // 企業名
+  contactPerson String?  @db.VarChar(100)         // 担当者名
+  email         String?  @db.VarChar(255)         // メールアドレス
+  phone         String?  @db.VarChar(20)          // 電話番号
+  note          String?                           // メモ
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  stpCompanies    StpCompany[]
+  stellaContracts StellaContract[]
+
+  @@map("master_stella_companies")
+}
+
+// ============================================
+// 代理店マスタ (STP Agents)
+// ============================================
+
+model StpAgent {
+  id            Int      @id @default(autoincrement())
+  agentCode     String   @unique @db.VarChar(20)  // SA-1, SA-2...
+  name          String   @db.VarChar(200)         // 代理店名
+  contactPerson String?  @db.VarChar(100)         // 担当者名
+  email         String?  @db.VarChar(255)         // メールアドレス
+  phone         String?  @db.VarChar(20)          // 電話番号
+  note          String?                           // メモ
+  isActive      Boolean  @default(true)           // 有効フラグ
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  stpCompanies    StpCompany[]
+  contactHistories StpContactHistory[]
+
+  @@map("stp_agents")
+}
+
+// ============================================
+// 商談ステージマスタ (STP)
+// ============================================
+
+model StpStage {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(50)
+  displayOrder Int
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  currentStageCompanies StpCompany[]       @relation("CurrentStage")
+  targetStageCompanies  StpCompany[]       @relation("TargetStage")
+  fromStageHistories    StpStageHistory[]  @relation("FromStage")
+  toStageHistories      StpStageHistory[]  @relation("ToStage")
+
+  @@map("stp_stages")
+}
+
+// ============================================
+// 接触方法マスタ (STP)
+// ============================================
+
+model StpContactMethod {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(50)
+  displayOrder Int
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  // Relations
+  contactHistories StpContactHistory[]
+
+  @@map("stp_contact_methods")
+}
+
+// ============================================
+// 採用ブーストプロジェクト企業 (STP Companies)
+// ============================================
+
+model StpCompany {
+  id                Int       @id @default(autoincrement())
+  companyId         Int                                    // master_stella_companiesへの外部キー
+  note              String?                                // 企業メモ
+  leadAcquiredDate  DateTime? @db.Date                     // リード獲得日
+  meetingDate       DateTime? @db.Date                     // 商談日
+  currentStageId    Int?                                   // 現在のステージ
+  nextTargetStageId Int?                                   // ネクストステージコミット
+  nextTargetDate    DateTime? @db.Date                     // 次の商談日コミット
+  agentId           Int?                                   // 代理店ID（stp_agentsへの外部キー）
+  assignedTo        String?   @db.VarChar(100)             // 担当者
+  priority          String?   @db.VarChar(10)              // 優先度
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  company         MasterStellaCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  currentStage    StpStage?           @relation("CurrentStage", fields: [currentStageId], references: [id])
+  nextTargetStage StpStage?           @relation("TargetStage", fields: [nextTargetStageId], references: [id])
+  agent           StpAgent?           @relation(fields: [agentId], references: [id])
+  contactHistories StpContactHistory[]
+  stageHistories  StpStageHistory[]
+
+  @@map("stp_companies")
+}
+
+// ============================================
+// 接触履歴 (STP Contact Histories)
+// 企業・代理店両方の接触履歴を管理
+// ============================================
+
+model StpContactHistory {
+  id              Int       @id @default(autoincrement())
+  stpCompanyId    Int?                                     // stp_companiesへの外部キー（企業の場合）
+  agentId         Int?                                     // stp_agentsへの外部キー（代理店の場合）
+  contactDate     DateTime                                 // 接触日時
+  contactMethodId Int?                                     // 接触方法
+  assignedTo      String?   @db.VarChar(100)               // 担当者
+  meetingMinutes  String?                                  // 議事録
+  note            String?                                  // 備考
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  stpCompany    StpCompany?       @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
+  agent         StpAgent?         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  contactMethod StpContactMethod? @relation(fields: [contactMethodId], references: [id])
+
+  @@map("stp_contact_histories")
+}
+
+// ============================================
+// ステージ変更履歴 (STP Stage Histories)
+// ============================================
+
+model StpStageHistory {
+  id           Int       @id @default(autoincrement())
+  stpCompanyId Int                                        // stp_companiesへの外部キー
+  eventType    String    @db.VarChar(20)                  // commit, achieved, recommit, back
+  fromStageId  Int?                                       // 変更前ステージ
+  toStageId    Int?                                       // 変更後ステージ
+  targetDate   DateTime? @db.Date                         // 目標日
+  recordedAt   DateTime  @default(now())                  // 記録日時
+  changedBy    String?   @db.VarChar(100)                 // 変更者
+  note         String?                                    // 備考
+
+  // Relations
+  stpCompany StpCompany @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
+  fromStage  StpStage?  @relation("FromStage", fields: [fromStageId], references: [id])
+  toStage    StpStage?  @relation("ToStage", fields: [toStageId], references: [id])
+
+  @@map("stp_stage_histories")
+}
+
+// ============================================
+// 社内スタッフ (Staff)
+// 担当者選択・ログイン機能で使用
+// ============================================
+
+model Staff {
+  id           Int       @id @default(autoincrement())
+  name         String    @db.VarChar(100)                 // 名前
+  email        String?   @unique @db.VarChar(255)         // メールアドレス
+  phone        String?   @db.VarChar(20)                  // 電話番号
+  loginId      String?   @unique @db.VarChar(100)         // ログインID
+  passwordHash String?   @db.VarChar(255)                 // パスワード（ハッシュ化）
+  isActive     Boolean   @default(true)                   // 有効フラグ
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  permissions        StaffPermission[]
+  salesContracts     StellaContract[]   @relation("SalesStaff")
+  operationContracts StellaContract[]   @relation("OperationStaff")
+
+  @@map("staff")
+}
+
+// ============================================
+// スタッフ権限 (Staff Permissions)
+// プロジェクトごとの閲覧・変更権限を管理
+// ============================================
+
+model StaffPermission {
+  id              Int      @id @default(autoincrement())
+  staffId         Int                                     // staffへの外部キー
+  projectCode     String   @db.VarChar(50)                // プロジェクトコード（例: stp, stella）
+  permissionLevel String   @db.VarChar(20)                // none, view, edit, admin
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, projectCode])
+  @@map("staff_permissions")
+}
+
+// ============================================
+// Stella契約履歴 (Stella Contracts)
+// ============================================
+
+model StellaContract {
+  id                Int       @id @default(autoincrement())
+  companyId         Int                                    // master_stella_companiesへの外部キー
+  industryType      String    @db.VarChar(20)              // general（一般）, dispatch（派遣）
+  contractPlan      String    @db.VarChar(20)              // monthly（月額）, performance（成果報酬）
+  contractStartDate DateTime  @db.Date                     // 契約開始日
+  contractEndDate   DateTime? @db.Date                     // 契約終了日（nullの場合アクティブ）
+  initialFee        Int                                    // 初期費用（0, 100000, 150000）
+  monthlyFee        Int                                    // 月額（契約時点の金額を保存）
+  performanceFee    Int                                    // 成果報酬単価（契約時点の金額を保存）
+  salesStaffId      Int?                                   // 担当営業（staffへの外部キー）
+  operationStaffId  Int?                                   // 担当運用（staffへの外部キー）
+  status            String    @db.VarChar(20)              // active, cancelled, dormant
+  note              String?                                // 備考
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  company        MasterStellaCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  salesStaff     Staff?              @relation("SalesStaff", fields: [salesStaffId], references: [id])
+  operationStaff Staff?              @relation("OperationStaff", fields: [operationStaffId], references: [id])
+
+  @@map("stella_contracts")
+}
