@@ -14,9 +14,9 @@ type Company = {
   id: number;
   companyCode: string;
   name: string;
-  contactPerson: string | null;
-  email: string | null;
-  phone: string | null;
+  websiteUrl: string | null;
+  industry: string | null;
+  revenueScale: string | null;
   note: string | null;
 };
 
@@ -36,9 +36,9 @@ export function CompanyForm({ company }: Props) {
     const formData = new FormData(e.currentTarget);
     const data = {
       name: formData.get("name") as string,
-      contactPerson: (formData.get("contactPerson") as string) || undefined,
-      email: (formData.get("email") as string) || undefined,
-      phone: (formData.get("phone") as string) || undefined,
+      websiteUrl: (formData.get("websiteUrl") as string) || undefined,
+      industry: (formData.get("industry") as string) || undefined,
+      revenueScale: (formData.get("revenueScale") as string) || undefined,
       note: (formData.get("note") as string) || undefined,
     };
 
@@ -79,31 +79,31 @@ export function CompanyForm({ company }: Props) {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="contactPerson">担当者名</Label>
+          <Label htmlFor="industry">業界</Label>
           <Input
-            id="contactPerson"
-            name="contactPerson"
-            defaultValue={company?.contactPerson || ""}
-            placeholder="山田太郎"
+            id="industry"
+            name="industry"
+            defaultValue={company?.industry || ""}
+            placeholder="IT・通信"
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="email">メールアドレス</Label>
+          <Label htmlFor="revenueScale">売上規模</Label>
           <Input
-            id="email"
-            name="email"
-            type="email"
-            defaultValue={company?.email || ""}
-            placeholder="info@example.co.jp"
+            id="revenueScale"
+            name="revenueScale"
+            defaultValue={company?.revenueScale || ""}
+            placeholder="10億〜50億"
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="phone">電話番号</Label>
+          <Label htmlFor="websiteUrl">企業HP</Label>
           <Input
-            id="phone"
-            name="phone"
-            defaultValue={company?.phone || ""}
-            placeholder="03-1234-5678"
+            id="websiteUrl"
+            name="websiteUrl"
+            type="url"
+            defaultValue={company?.websiteUrl || ""}
+            placeholder="https://example.co.jp"
           />
         </div>
         <div className="space-y-2 sm:col-span-2">

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ContactMethodsTable } from "./contact-methods-table";
 
 export default async function ContactMethodsPage() {
-  const methods = await prisma.stpContactMethod.findMany({
+  const methods = await prisma.contactMethod.findMany({
     orderBy: { displayOrder: "asc" },
   });
 

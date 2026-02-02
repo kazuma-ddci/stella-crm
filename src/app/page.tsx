@@ -7,19 +7,20 @@ export default async function DashboardPage() {
     await Promise.all([
       prisma.masterStellaCompany.count(),
       prisma.stpCompany.count(),
-      prisma.stpContactHistory.count(),
+      prisma.contactHistory.count({ where: { deletedAt: null } }),
       prisma.stpAgent.count(),
-      prisma.stpContactHistory.findMany({
+      prisma.contactHistory.findMany({
+        where: { deletedAt: null },
         take: 5,
         orderBy: { contactDate: "desc" },
         include: {
-          stpCompany: {
+          company: true,
+          contactMethod: true,
+          roles: {
             include: {
-              company: true,
+              customerType: true,
             },
           },
-          agent: true,
-          contactMethod: true,
         },
       }),
     ]);
@@ -79,26 +80,29 @@ export default async function DashboardPage() {
             <p className="text-sm text-muted-foreground">接触履歴がありません</p>
           ) : (
             <div className="space-y-4">
-              {recentContacts.map((contact) => (
-                <div
-                  key={contact.id}
-                  className="flex items-center justify-between border-b pb-4 last:border-0"
-                >
-                  <div>
-                    <p className="font-medium">
-                      {contact.stpCompany
-                        ? contact.stpCompany.company.name
-                        : contact.agent?.name}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {contact.stpCompany ? "企業" : "代理店"} - {contact.contactMethod?.name} - {contact.assignedTo}
-                    </p>
+              {recentContacts.map((contact) => {
+                // 顧客種別のラベルを取得
+                const customerTypeLabels = contact.roles
+                  .map((r) => r.customerType.name)
+                  .join(", ");
+
+                return (
+                  <div
+                    key={contact.id}
+                    className="flex items-center justify-between border-b pb-4 last:border-0"
+                  >
+                    <div>
+                      <p className="font-medium">{contact.company.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {customerTypeLabels || "-"} - {contact.contactMethod?.name || "-"} - {contact.assignedTo || "-"}
+                      </p>
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {new Date(contact.contactDate).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })}
+                    </div>
                   </div>
-                  <div className="text-sm text-muted-foreground">
-                    {new Date(contact.contactDate).toLocaleDateString("ja-JP")}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

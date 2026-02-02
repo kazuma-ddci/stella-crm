@@ -32,5 +32,22 @@ services:
       timeout: 5s
       retries: 5
 
+  prisma-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5555:5555"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/crm_db
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "npx prisma generate && npx prisma studio --port 5555 --hostname 0.0.0.0"
+    restart: unless-stopped
+
 volumes:
   postgres_data:

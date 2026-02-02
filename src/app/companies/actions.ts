@@ -19,14 +19,16 @@ async function generateCompanyCode(): Promise<string> {
 
 export async function addCompany(data: Record<string, unknown>) {
   const companyCode = await generateCompanyCode();
+  const staffId = data.staffId ? parseInt(data.staffId as string, 10) : null;
 
   await prisma.masterStellaCompany.create({
     data: {
       companyCode,
       name: data.name as string,
-      contactPerson: (data.contactPerson as string) || null,
-      email: (data.email as string) || null,
-      phone: (data.phone as string) || null,
+      websiteUrl: (data.websiteUrl as string) || null,
+      industry: (data.industry as string) || null,
+      revenueScale: (data.revenueScale as string) || null,
+      staffId,
       note: (data.note as string) || null,
     },
   });
@@ -34,13 +36,16 @@ export async function addCompany(data: Record<string, unknown>) {
 }
 
 export async function updateCompany(id: number, data: Record<string, unknown>) {
+  const staffId = data.staffId ? parseInt(data.staffId as string, 10) : null;
+
   await prisma.masterStellaCompany.update({
     where: { id },
     data: {
       name: data.name as string,
-      contactPerson: (data.contactPerson as string) || null,
-      email: (data.email as string) || null,
-      phone: (data.phone as string) || null,
+      websiteUrl: (data.websiteUrl as string) || null,
+      industry: (data.industry as string) || null,
+      revenueScale: (data.revenueScale as string) || null,
+      staffId,
       note: (data.note as string) || null,
     },
   });
@@ -57,9 +62,9 @@ export async function deleteCompany(id: number) {
 // For backward compatibility with company-form.tsx
 export async function createCompany(data: {
   name: string;
-  contactPerson?: string;
-  email?: string;
-  phone?: string;
+  websiteUrl?: string;
+  industry?: string;
+  revenueScale?: string;
   note?: string;
 }) {
   const companyCode = await generateCompanyCode();
@@ -68,9 +73,9 @@ export async function createCompany(data: {
     data: {
       companyCode,
       name: data.name,
-      contactPerson: data.contactPerson || null,
-      email: data.email || null,
-      phone: data.phone || null,
+      websiteUrl: data.websiteUrl || null,
+      industry: data.industry || null,
+      revenueScale: data.revenueScale || null,
       note: data.note || null,
     },
   });

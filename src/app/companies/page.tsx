@@ -1,23 +1,80 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CompaniesTable } from "./companies-table";
-import type { MasterStellaCompany } from "@prisma/client";
 
 export default async function CompaniesPage() {
-  const companies = await prisma.masterStellaCompany.findMany({
-    orderBy: { id: "asc" },
+  // AS種別のスタッフを取得
+  const asRoleType = await prisma.staffRoleType.findFirst({
+    where: { code: "AS" },
   });
 
-  const data = companies.map((c: MasterStellaCompany) => ({
+  const asStaff = asRoleType
+    ? await prisma.masterStaff.findMany({
+        where: {
+          isActive: true,
+          roleAssignments: {
+            some: { roleTypeId: asRoleType.id },
+          },
+        },
+        orderBy: { name: "asc" },
+      })
+    : [];
+
+  const staffOptions = asStaff.map((s) => ({
+    value: String(s.id),
+    label: s.name,
+  }));
+
+  const companies = await prisma.masterStellaCompany.findMany({
+    orderBy: { id: "asc" },
+    include: {
+      staff: true,
+      locations: {
+        where: { deletedAt: null },
+        orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
+      },
+      contacts: {
+        where: { deletedAt: null },
+        orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
+      },
+    },
+  });
+
+  const data = companies.map((c) => ({
     id: c.id,
     companyCode: c.companyCode,
     name: c.name,
-    contactPerson: c.contactPerson,
-    email: c.email,
-    phone: c.phone,
+    staffId: c.staffId,
+    websiteUrl: c.websiteUrl,
+    industry: c.industry,
+    revenueScale: c.revenueScale,
     note: c.note,
-    createdAt: c.createdAt.toISOString(),
-    updatedAt: c.updatedAt.toISOString(),
+    // 拠点情報（モーダル用 + 表示用）
+    locations: c.locations.map((location) => ({
+      id: location.id,
+      companyId: location.companyId,
+      name: location.name,
+      address: location.address,
+      phone: location.phone,
+      email: location.email,
+      isPrimary: location.isPrimary,
+      note: location.note,
+      createdAt: location.createdAt.toISOString(),
+      updatedAt: location.updatedAt.toISOString(),
+    })),
+    // 企業担当者情報（モーダル用 + 表示用）
+    contacts: c.contacts.map((contact) => ({
+      id: contact.id,
+      companyId: contact.companyId,
+      name: contact.name,
+      email: contact.email,
+      phone: contact.phone,
+      department: contact.department,
+      isPrimary: contact.isPrimary,
+      note: contact.note,
+      createdAt: contact.createdAt.toISOString(),
+      updatedAt: contact.updatedAt.toISOString(),
+    })),
   }));
 
   return (
@@ -28,7 +85,7 @@ export default async function CompaniesPage() {
           <CardTitle>顧客一覧</CardTitle>
         </CardHeader>
         <CardContent>
-          <CompaniesTable data={data} />
+          <CompaniesTable data={data} staffOptions={staffOptions} />
         </CardContent>
       </Card>
     </div>

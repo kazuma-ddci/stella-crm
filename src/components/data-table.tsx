@@ -33,16 +33,28 @@ function getValue(item: Record<string, unknown>, key: string): unknown {
 
 function formatValue(value: unknown): string {
   if (value === null || value === undefined) return "-";
+  const dateOptions: Intl.DateTimeFormatOptions = {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  };
+  const dateTimeOptions: Intl.DateTimeFormatOptions = {
+    ...dateOptions,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  };
   if (value instanceof Date) {
-    return value.toLocaleDateString("ja-JP");
+    return value.toLocaleDateString("ja-JP", dateOptions);
   }
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
     const date = new Date(value);
     if (!isNaN(date.getTime())) {
       if (value.includes("T")) {
-        return date.toLocaleString("ja-JP");
+        return date.toLocaleString("ja-JP", dateTimeOptions);
       }
-      return date.toLocaleDateString("ja-JP");
+      return date.toLocaleDateString("ja-JP", dateOptions);
     }
   }
   if (typeof value === "boolean") {

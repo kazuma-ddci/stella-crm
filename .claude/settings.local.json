@@ -17,7 +17,17 @@
       "Bash(docker-compose ps:*)",
       "Bash(docker-compose exec app npx prisma migrate:*)",
       "Bash(kill:*)",
-      "Bash(lsof:*)"
+      "Bash(lsof:*)",
+      "Bash(git merge:*)",
+      "Bash(git push:*)",
+      "Bash(docker-compose exec:*)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:postgres@localhost:5432/crm_db\" npx prisma migrate:*)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:postgres@localhost:5432/crm_db\" npx prisma db push:*)",
+      "Bash(docker-compose restart:*)",
+      "Bash(pkill:*)",
+      "Bash(npx tsc:*)",
+      "Bash(docker-compose logs:*)",
+      "Bash(npx eslint:*)"
     ]
   }
 }

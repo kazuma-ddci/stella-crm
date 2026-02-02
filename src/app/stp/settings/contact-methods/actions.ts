@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 
 export async function addContactMethod(data: Record<string, unknown>) {
-  await prisma.stpContactMethod.create({
+  await prisma.contactMethod.create({
     data: {
       name: data.name as string,
       displayOrder: data.displayOrder ? Number(data.displayOrder) : 0,
@@ -15,7 +15,7 @@ export async function addContactMethod(data: Record<string, unknown>) {
 }
 
 export async function updateContactMethod(id: number, data: Record<string, unknown>) {
-  await prisma.stpContactMethod.update({
+  await prisma.contactMethod.update({
     where: { id },
     data: {
       name: data.name as string,
@@ -27,7 +27,7 @@ export async function updateContactMethod(id: number, data: Record<string, unkno
 }
 
 export async function deleteContactMethod(id: number) {
-  await prisma.stpContactMethod.delete({
+  await prisma.contactMethod.delete({
     where: { id },
   });
   revalidatePath("/stp/settings/contact-methods");

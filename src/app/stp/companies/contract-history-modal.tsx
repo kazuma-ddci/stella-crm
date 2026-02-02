@@ -1,0 +1,759 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Plus, Pencil, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import {
+  getContractHistories,
+  addContractHistory,
+  updateContractHistory,
+  deleteContractHistory,
+  getStaffList,
+  ContractHistoryData,
+} from "./contract-history-actions";
+
+// 選択肢の定義
+const industryTypeOptions = [
+  { value: "general", label: "一般" },
+  { value: "dispatch", label: "派遣" },
+];
+
+const contractPlanOptions = [
+  { value: "monthly", label: "月額" },
+  { value: "performance", label: "成果報酬" },
+];
+
+const initialFeeOptions = [
+  { value: "0", label: "0円" },
+  { value: "100000", label: "100,000円" },
+  { value: "150000", label: "150,000円" },
+];
+
+const statusOptions = [
+  { value: "active", label: "契約中" },
+  { value: "cancelled", label: "解約" },
+  { value: "dormant", label: "休眠" },
+];
+
+// 月額費用の自動計算
+// 一般+成果報酬→¥0, 一般+月額→¥150,000, 派遣+成果報酬→¥0, 派遣+月額→¥300,000
+function calculateMonthlyFee(industryType: string, contractPlan: string): number {
+  if (contractPlan === "performance") {
+    return 0;
+  }
+  // 月額プランの場合
+  if (industryType === "dispatch") {
+    return 300000;
+  }
+  return 150000; // 一般
+}
+
+// 成果報酬単価の自動計算
+// 月額→¥0, 成果報酬→¥150,000
+function calculatePerformanceFee(contractPlan: string): number {
+  if (contractPlan === "performance") {
+    return 150000;
+  }
+  return 0;
+}
+
+type ContractHistory = {
+  id: number;
+  companyId: number;
+  industryType: string;
+  contractPlan: string;
+  contractStartDate: string;
+  contractEndDate: string | null;
+  initialFee: number;
+  monthlyFee: number;
+  performanceFee: number;
+  salesStaffId: number | null;
+  salesStaffName: string | null;
+  operationStaffId: number | null;
+  operationStaffName: string | null;
+  status: string;
+  note: string | null;
+};
+
+type Props = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  companyId: number;
+  companyName: string;
+};
+
+function formatDate(dateString: string): string {
+  const date = new Date(dateString);
+  return date.toLocaleDateString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function formatCurrency(value: number): string {
+  return value.toLocaleString() + "円";
+}
+
+export function ContractHistoryModal({
+  open,
+  onOpenChange,
+  companyId,
+  companyName,
+}: Props) {
+  const [histories, setHistories] = useState<ContractHistory[]>([]);
+  const [staffOptions, setStaffOptions] = useState<{ value: string; label: string }[]>([]);
+  const [isAddMode, setIsAddMode] = useState(false);
+  const [editHistory, setEditHistory] = useState<ContractHistory | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<ContractHistory | null>(null);
+  const [editConfirm, setEditConfirm] = useState(false);
+  const [pendingEditData, setPendingEditData] = useState<Partial<ContractHistoryData> | null>(null);
+  const [formData, setFormData] = useState<Partial<ContractHistoryData>>({});
+  const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [isManualMonthlyFee, setIsManualMonthlyFee] = useState(false);
+  const [isManualPerformanceFee, setIsManualPerformanceFee] = useState(false);
+
+  // データ取得
+  const loadData = useCallback(async () => {
+    setInitialLoading(true);
+    try {
+      const [historiesData, staffData] = await Promise.all([
+        getContractHistories(companyId),
+        getStaffList(),
+      ]);
+      setHistories(historiesData);
+      setStaffOptions(staffData);
+    } catch {
+      toast.error("データの取得に失敗しました");
+    } finally {
+      setInitialLoading(false);
+    }
+  }, [companyId]);
+
+  useEffect(() => {
+    if (open) {
+      loadData();
+    }
+  }, [open, loadData]);
+
+  const getDefaultFormData = (): Partial<ContractHistoryData> => {
+    const defaultIndustryType = "general";
+    const defaultContractPlan = "monthly";
+    return {
+      industryType: defaultIndustryType,
+      contractPlan: defaultContractPlan,
+      contractStartDate: new Date().toISOString().split("T")[0],
+      contractEndDate: null,
+      initialFee: 0,
+      monthlyFee: calculateMonthlyFee(defaultIndustryType, defaultContractPlan),
+      performanceFee: calculatePerformanceFee(defaultContractPlan),
+      salesStaffId: null,
+      operationStaffId: null,
+      status: "active",
+      note: null,
+    };
+  };
+
+  const openAddForm = () => {
+    setFormData(getDefaultFormData());
+    setIsManualMonthlyFee(false);
+    setIsManualPerformanceFee(false);
+    setIsAddMode(true);
+  };
+
+  const openEditForm = (history: ContractHistory) => {
+    // 既存データが自動計算値と一致するかどうかで手動入力フラグを判定
+    const autoMonthlyFee = calculateMonthlyFee(history.industryType, history.contractPlan);
+    const autoPerformanceFee = calculatePerformanceFee(history.contractPlan);
+
+    setFormData({
+      industryType: history.industryType,
+      contractPlan: history.contractPlan,
+      contractStartDate: history.contractStartDate,
+      contractEndDate: history.contractEndDate,
+      initialFee: history.initialFee,
+      monthlyFee: history.monthlyFee,
+      performanceFee: history.performanceFee,
+      salesStaffId: history.salesStaffId,
+      operationStaffId: history.operationStaffId,
+      status: history.status,
+      note: history.note,
+    });
+
+    // 自動計算値と異なる場合は手動入力モードにする
+    setIsManualMonthlyFee(history.monthlyFee !== autoMonthlyFee);
+    setIsManualPerformanceFee(history.performanceFee !== autoPerformanceFee);
+    setEditHistory(history);
+  };
+
+  // 業種区分変更時のハンドラ
+  const handleIndustryTypeChange = (value: string) => {
+    const newFormData = { ...formData, industryType: value };
+    if (!isManualMonthlyFee) {
+      newFormData.monthlyFee = calculateMonthlyFee(value, formData.contractPlan || "monthly");
+    }
+    setFormData(newFormData);
+  };
+
+  // 契約プラン変更時のハンドラ
+  const handleContractPlanChange = (value: string) => {
+    const newFormData = { ...formData, contractPlan: value };
+    if (!isManualMonthlyFee) {
+      newFormData.monthlyFee = calculateMonthlyFee(formData.industryType || "general", value);
+    }
+    if (!isManualPerformanceFee) {
+      newFormData.performanceFee = calculatePerformanceFee(value);
+    }
+    setFormData(newFormData);
+  };
+
+  // 手動入力モード切り替え時のハンドラ
+  const handleManualMonthlyFeeChange = (checked: boolean) => {
+    setIsManualMonthlyFee(checked);
+    if (!checked) {
+      // 自動計算モードに戻す場合、値を再計算
+      setFormData({
+        ...formData,
+        monthlyFee: calculateMonthlyFee(formData.industryType || "general", formData.contractPlan || "monthly"),
+      });
+    }
+  };
+
+  const handleManualPerformanceFeeChange = (checked: boolean) => {
+    setIsManualPerformanceFee(checked);
+    if (!checked) {
+      // 自動計算モードに戻す場合、値を再計算
+      setFormData({
+        ...formData,
+        performanceFee: calculatePerformanceFee(formData.contractPlan || "monthly"),
+      });
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!formData.industryType || !formData.contractPlan || !formData.contractStartDate) {
+      toast.error("必須項目を入力してください");
+      return;
+    }
+    setLoading(true);
+    try {
+      await addContractHistory(companyId, {
+        industryType: formData.industryType,
+        contractPlan: formData.contractPlan,
+        contractStartDate: formData.contractStartDate,
+        contractEndDate: formData.contractEndDate || null,
+        initialFee: formData.initialFee || 0,
+        monthlyFee: formData.monthlyFee || 0,
+        performanceFee: formData.performanceFee || 0,
+        salesStaffId: formData.salesStaffId || null,
+        operationStaffId: formData.operationStaffId || null,
+        status: formData.status || "active",
+        note: formData.note || null,
+      });
+      await loadData();
+      toast.success("契約履歴を追加しました");
+      setIsAddMode(false);
+      setFormData({});
+      setIsManualMonthlyFee(false);
+      setIsManualPerformanceFee(false);
+    } catch {
+      toast.error("追加に失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmEdit = () => {
+    setPendingEditData(formData);
+    setEditConfirm(true);
+  };
+
+  const handleUpdate = async () => {
+    if (!editHistory || !pendingEditData?.industryType || !pendingEditData?.contractPlan || !pendingEditData?.contractStartDate) {
+      toast.error("必須項目を入力してください");
+      return;
+    }
+    setLoading(true);
+    try {
+      await updateContractHistory(editHistory.id, {
+        industryType: pendingEditData.industryType,
+        contractPlan: pendingEditData.contractPlan,
+        contractStartDate: pendingEditData.contractStartDate,
+        contractEndDate: pendingEditData.contractEndDate || null,
+        initialFee: pendingEditData.initialFee || 0,
+        monthlyFee: pendingEditData.monthlyFee || 0,
+        performanceFee: pendingEditData.performanceFee || 0,
+        salesStaffId: pendingEditData.salesStaffId || null,
+        operationStaffId: pendingEditData.operationStaffId || null,
+        status: pendingEditData.status || "active",
+        note: pendingEditData.note || null,
+      });
+      await loadData();
+      toast.success("契約履歴を更新しました");
+      setEditHistory(null);
+      setFormData({});
+      setEditConfirm(false);
+      setPendingEditData(null);
+      setIsManualMonthlyFee(false);
+      setIsManualPerformanceFee(false);
+    } catch {
+      toast.error("更新に失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    setLoading(true);
+    try {
+      await deleteContractHistory(deleteConfirm.id);
+      await loadData();
+      toast.success("契約履歴を削除しました");
+      setDeleteConfirm(null);
+    } catch {
+      toast.error("削除に失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getLabelByValue = (options: { value: string; label: string }[], value: string): string => {
+    const option = options.find((opt) => opt.value === value);
+    return option?.label || value;
+  };
+
+  const renderForm = () => (
+    <div className="space-y-4 border rounded-lg p-4 bg-muted/50">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>
+            業種区分 <span className="text-destructive">*</span>
+          </Label>
+          <Select
+            value={formData.industryType || ""}
+            onValueChange={handleIndustryTypeChange}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="選択してください" />
+            </SelectTrigger>
+            <SelectContent>
+              {industryTypeOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>
+            契約プラン <span className="text-destructive">*</span>
+          </Label>
+          <Select
+            value={formData.contractPlan || ""}
+            onValueChange={handleContractPlanChange}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="選択してください" />
+            </SelectTrigger>
+            <SelectContent>
+              {contractPlanOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>
+            契約開始日 <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            type="date"
+            value={formData.contractStartDate || ""}
+            onChange={(e) => setFormData({ ...formData, contractStartDate: e.target.value })}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>契約終了日</Label>
+          <Input
+            type="date"
+            value={formData.contractEndDate || ""}
+            onChange={(e) => setFormData({ ...formData, contractEndDate: e.target.value || null })}
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-4">
+        <div className="space-y-2">
+          <Label>初期費用</Label>
+          <Select
+            value={String(formData.initialFee || 0)}
+            onValueChange={(v) => setFormData({ ...formData, initialFee: Number(v) })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="選択してください" />
+            </SelectTrigger>
+            <SelectContent>
+              {initialFeeOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label>月額</Label>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="manualMonthlyFee"
+                checked={isManualMonthlyFee}
+                onCheckedChange={(checked) => handleManualMonthlyFeeChange(checked === true)}
+              />
+              <label
+                htmlFor="manualMonthlyFee"
+                className="text-xs text-muted-foreground cursor-pointer"
+              >
+                手動入力
+              </label>
+            </div>
+          </div>
+          <Input
+            type="number"
+            value={formData.monthlyFee ?? ""}
+            onChange={(e) => setFormData({ ...formData, monthlyFee: Number(e.target.value) || 0 })}
+            placeholder="0"
+            disabled={!isManualMonthlyFee}
+            className={!isManualMonthlyFee ? "bg-muted" : ""}
+          />
+          {!isManualMonthlyFee && (
+            <p className="text-xs text-muted-foreground">
+              自動計算: {formatCurrency(calculateMonthlyFee(formData.industryType || "general", formData.contractPlan || "monthly"))}
+            </p>
+          )}
+        </div>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label>成果報酬単価</Label>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="manualPerformanceFee"
+                checked={isManualPerformanceFee}
+                onCheckedChange={(checked) => handleManualPerformanceFeeChange(checked === true)}
+              />
+              <label
+                htmlFor="manualPerformanceFee"
+                className="text-xs text-muted-foreground cursor-pointer"
+              >
+                手動入力
+              </label>
+            </div>
+          </div>
+          <Input
+            type="number"
+            value={formData.performanceFee ?? ""}
+            onChange={(e) => setFormData({ ...formData, performanceFee: Number(e.target.value) || 0 })}
+            placeholder="0"
+            disabled={!isManualPerformanceFee}
+            className={!isManualPerformanceFee ? "bg-muted" : ""}
+          />
+          {!isManualPerformanceFee && (
+            <p className="text-xs text-muted-foreground">
+              自動計算: {formatCurrency(calculatePerformanceFee(formData.contractPlan || "monthly"))}
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>担当営業</Label>
+          <Select
+            value={formData.salesStaffId ? String(formData.salesStaffId) : "none"}
+            onValueChange={(v) => setFormData({ ...formData, salesStaffId: v === "none" ? null : Number(v) })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="選択してください" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">選択なし</SelectItem>
+              {staffOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>担当運用</Label>
+          <Select
+            value={formData.operationStaffId ? String(formData.operationStaffId) : "none"}
+            onValueChange={(v) => setFormData({ ...formData, operationStaffId: v === "none" ? null : Number(v) })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="選択してください" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">選択なし</SelectItem>
+              {staffOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label>ステータス</Label>
+        <Select
+          value={formData.status || "active"}
+          onValueChange={(v) => setFormData({ ...formData, status: v })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="選択してください" />
+          </SelectTrigger>
+          <SelectContent>
+            {statusOptions.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label>備考</Label>
+        <Textarea
+          value={formData.note || ""}
+          onChange={(e) => setFormData({ ...formData, note: e.target.value || null })}
+          rows={3}
+          placeholder="備考を入力"
+        />
+      </div>
+      <div className="flex gap-2 justify-end">
+        <Button
+          variant="outline"
+          onClick={() => {
+            setIsAddMode(false);
+            setEditHistory(null);
+            setFormData({});
+            setIsManualMonthlyFee(false);
+            setIsManualPerformanceFee(false);
+          }}
+        >
+          キャンセル
+        </Button>
+        <Button
+          onClick={isAddMode ? handleAdd : confirmEdit}
+          disabled={loading}
+        >
+          {loading ? "保存中..." : isAddMode ? "追加" : "更新"}
+        </Button>
+      </div>
+    </div>
+  );
+
+  // 契約開始日でソート（降順）
+  const sortedHistories = [...histories].sort(
+    (a, b) => new Date(b.contractStartDate).getTime() - new Date(a.contractStartDate).getTime()
+  );
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>契約履歴管理 - {companyName}</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* 追加ボタン */}
+            {!isAddMode && !editHistory && (
+              <div className="flex justify-end">
+                <Button onClick={openAddForm}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  契約履歴を追加
+                </Button>
+              </div>
+            )}
+
+            {/* 追加/編集フォーム */}
+            {(isAddMode || editHistory) && renderForm()}
+
+            {/* 契約履歴一覧 */}
+            {initialLoading ? (
+              <div className="text-center text-muted-foreground py-8">
+                読み込み中...
+              </div>
+            ) : sortedHistories.length === 0 ? (
+              <div className="text-center text-muted-foreground py-8">
+                契約履歴が登録されていません
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>業種区分</TableHead>
+                    <TableHead>契約プラン</TableHead>
+                    <TableHead>契約開始日</TableHead>
+                    <TableHead>契約終了日</TableHead>
+                    <TableHead className="text-right">初期費用</TableHead>
+                    <TableHead className="text-right">月額</TableHead>
+                    <TableHead className="text-right">成果報酬単価</TableHead>
+                    <TableHead>担当営業</TableHead>
+                    <TableHead>担当運用</TableHead>
+                    <TableHead>ステータス</TableHead>
+                    <TableHead>備考</TableHead>
+                    <TableHead className="w-[100px]">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedHistories.map((history) => (
+                    <TableRow key={history.id}>
+                      <TableCell>{getLabelByValue(industryTypeOptions, history.industryType)}</TableCell>
+                      <TableCell>{getLabelByValue(contractPlanOptions, history.contractPlan)}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {formatDate(history.contractStartDate)}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {history.contractEndDate ? formatDate(history.contractEndDate) : "-"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatCurrency(history.initialFee)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatCurrency(history.monthlyFee)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatCurrency(history.performanceFee)}
+                      </TableCell>
+                      <TableCell>{history.salesStaffName || "-"}</TableCell>
+                      <TableCell>{history.operationStaffName || "-"}</TableCell>
+                      <TableCell>{getLabelByValue(statusOptions, history.status)}</TableCell>
+                      <TableCell className="max-w-xs">
+                        <div
+                          className="overflow-y-auto whitespace-pre-wrap text-sm"
+                          style={{ maxHeight: "4.5em", lineHeight: "1.5" }}
+                        >
+                          {history.note || "-"}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openEditForm(history)}
+                            disabled={isAddMode || !!editHistory}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setDeleteConfirm(history)}
+                            disabled={isAddMode || !!editHistory}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 編集確認ダイアログ */}
+      <AlertDialog open={editConfirm} onOpenChange={setEditConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>契約履歴を更新しますか？</AlertDialogTitle>
+            <AlertDialogDescription>
+              変更内容を保存します。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setEditConfirm(false)}>
+              キャンセル
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleUpdate} disabled={loading}>
+              {loading ? "更新中..." : "はい"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 削除確認ダイアログ */}
+      <AlertDialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>契約履歴を削除しますか？</AlertDialogTitle>
+            <AlertDialogDescription>
+              削除された履歴は一覧に表示されなくなります。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteConfirm(null)}>
+              キャンセル
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={loading}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {loading ? "削除中..." : "はい"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}

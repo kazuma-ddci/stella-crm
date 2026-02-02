@@ -14,15 +14,21 @@ export async function updateCompany(
   id: number,
   data: {
     name: string;
-    contactPerson?: string;
-    email?: string;
-    phone?: string;
+    websiteUrl?: string;
+    industry?: string;
+    revenueScale?: string;
     note?: string;
   }
 ) {
   await prisma.masterStellaCompany.update({
     where: { id },
-    data,
+    data: {
+      name: data.name,
+      websiteUrl: data.websiteUrl || null,
+      industry: data.industry || null,
+      revenueScale: data.revenueScale || null,
+      note: data.note || null,
+    },
   });
   revalidatePath("/companies");
   revalidatePath(`/companies/${id}`);

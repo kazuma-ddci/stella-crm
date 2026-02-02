@@ -16,6 +16,11 @@ import {
   History,
   Phone,
   Layers,
+  UserCog,
+  Tags,
+  FolderKanban,
+  UserSquare2,
+  FileCheck,
 } from "lucide-react";
 
 type NavItem = {
@@ -28,12 +33,25 @@ type NavItem = {
 const navigation: NavItem[] = [
   { name: "ダッシュボード", href: "/", icon: Home },
   { name: "Stella全顧客マスタ", href: "/companies", icon: Building2 },
+  { name: "スタッフ一覧", href: "/staff", icon: Users },
+  {
+    name: "設定",
+    icon: Settings,
+    children: [
+      { name: "スタッフ役割種別", href: "/staff/role-types", icon: Tags },
+      { name: "連絡手段", href: "/settings/contact-methods", icon: Phone },
+      { name: "プロジェクト管理", href: "/settings/projects", icon: FolderKanban },
+      { name: "顧客種別", href: "/settings/customer-types", icon: UserSquare2 },
+      { name: "契約書ステータス", href: "/settings/contract-statuses", icon: FileCheck },
+    ],
+  },
   {
     name: "STP(採用ブースト)",
     icon: Briefcase,
     children: [
       { name: "企業情報", href: "/stp/companies", icon: Building2 },
       { name: "代理店情報", href: "/stp/agents", icon: Users },
+      { name: "契約書情報", href: "/stp/contracts", icon: FileCheck },
       {
         name: "記録",
         icon: FileText,
