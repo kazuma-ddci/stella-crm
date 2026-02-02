@@ -52,7 +52,7 @@ async function main() {
   ];
 
   for (let i = 0; i < leadSources.length; i++) {
-    await prisma.masterStpLeadSource.upsert({
+    await prisma.stpLeadSource.upsert({
       where: { id: i + 1 },
       update: {},
       create: leadSources[i],
