@@ -212,6 +212,21 @@ async function main() {
   }
   console.log('Staff role assignments seeded');
 
+  // プロジェクトの初期データ
+  const projects = [
+    { id: 1, name: 'STP', description: '採用支援サービスの商談・契約管理', displayOrder: 1 },
+    { id: 2, name: 'Stella', description: '全顧客の基本情報管理', displayOrder: 2 },
+  ];
+
+  for (const project of projects) {
+    await prisma.masterProject.upsert({
+      where: { id: project.id },
+      update: {},
+      create: project,
+    });
+  }
+  console.log('Projects seeded');
+
   // スタッフプロジェクト割り当て（STPプロジェクトに全スタッフを割り当て）
   const STP_PROJECT_ID = 1;
   for (let staffId = 1; staffId <= 15; staffId++) {
