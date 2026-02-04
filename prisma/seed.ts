@@ -214,8 +214,10 @@ async function main() {
 
   // プロジェクトの初期データ
   const projects = [
-    { id: 1, name: 'STP', description: '採用支援サービスの商談・契約管理', displayOrder: 1 },
-    { id: 2, name: 'Stella', description: '全顧客の基本情報管理', displayOrder: 2 },
+    { id: 1, name: '採用ブースト', description: '採用支援サービス（STP）', displayOrder: 1 },
+    { id: 2, name: 'コンサルティング', description: '経営・業務コンサルティングサービス', displayOrder: 2 },
+    { id: 3, name: 'マーケティング支援', description: '広告・マーケティング支援サービス', displayOrder: 3 },
+    { id: 4, name: 'システム開発', description: 'システム開発・DX支援サービス', displayOrder: 4 },
   ];
 
   for (const project of projects) {
