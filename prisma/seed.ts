@@ -546,23 +546,6 @@ async function main() {
   }
   console.log('STP Company contracts seeded (100 contracts)');
 
-  // プロジェクトマスタの初期データ（接触履歴より先に必要）
-  const projects = [
-    { name: '採用ブースト', description: '採用支援サービス（STP）', displayOrder: 1 },
-    { name: 'コンサルティング', description: '経営・業務コンサルティングサービス', displayOrder: 2 },
-    { name: 'マーケティング支援', description: '広告・マーケティング支援サービス', displayOrder: 3 },
-    { name: 'システム開発', description: 'システム開発・DX支援サービス', displayOrder: 4 },
-  ];
-
-  for (let i = 0; i < projects.length; i++) {
-    await prisma.masterProject.upsert({
-      where: { id: i + 1 },
-      update: { name: projects[i].name, description: projects[i].description, displayOrder: projects[i].displayOrder },
-      create: projects[i],
-    });
-  }
-  console.log('Projects seeded');
-
   // 顧客種別マスタの初期データ（プロジェクトごと）（接触履歴より先に必要）
   const customerTypes = [
     // 採用ブースト（STP）
