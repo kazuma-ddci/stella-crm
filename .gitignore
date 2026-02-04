@@ -42,3 +42,10 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# uploads (keep .gitkeep files)
+/public/uploads/**/*
+!/public/uploads/**/.gitkeep
+
+# Playwright MCP screenshots and logs
+.playwright-mcp/

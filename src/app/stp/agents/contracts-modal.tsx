@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +35,7 @@ import {
   addContract,
   updateContract,
   deleteContract,
+  getContracts,
 } from "./contract-actions";
 
 registerLocale("ja", ja);
@@ -55,7 +56,6 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   agentId: number;
   agentName: string;
-  contracts: Record<string, unknown>[];
 };
 
 const contractStatusOptions = [
@@ -86,16 +86,33 @@ export function ContractsModal({
   onOpenChange,
   agentId,
   agentName,
-  contracts: initialContracts,
 }: Props) {
-  const [contracts, setContracts] = useState<Contract[]>(
-    initialContracts as unknown as Contract[]
-  );
+  const [contracts, setContracts] = useState<Contract[]>([]);
   const [isAddMode, setIsAddMode] = useState(false);
   const [editContract, setEditContract] = useState<Contract | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Contract | null>(null);
   const [formData, setFormData] = useState<Partial<Contract>>({});
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+
+  // モーダルが開くたびにサーバーから最新データを取得
+  const loadContracts = useCallback(async () => {
+    setInitialLoading(true);
+    try {
+      const data = await getContracts(agentId);
+      setContracts(data);
+    } catch {
+      toast.error("契約書データの取得に失敗しました");
+    } finally {
+      setInitialLoading(false);
+    }
+  }, [agentId]);
+
+  useEffect(() => {
+    if (open) {
+      loadContracts();
+    }
+  }, [open, loadContracts]);
 
   const openAddForm = () => {
     setFormData({
@@ -305,7 +322,11 @@ export function ContractsModal({
           {(isAddMode || editContract) && renderForm()}
 
           {/* 契約書一覧 */}
-          {contracts.length === 0 ? (
+          {initialLoading ? (
+            <div className="text-center text-muted-foreground py-8">
+              読み込み中...
+            </div>
+          ) : contracts.length === 0 ? (
             <div className="text-center text-muted-foreground py-8">
               契約書が登録されていません
             </div>

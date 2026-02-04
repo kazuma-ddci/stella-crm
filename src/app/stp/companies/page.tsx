@@ -5,7 +5,7 @@ import { StpCompaniesTable } from "./stp-companies-table";
 export default async function StpCompaniesPage() {
   const STP_PROJECT_ID = 1; // 採用ブースト
 
-  const [companies, masterCompanies, stages, agents, staff, staffProjectAssignments, allStaffProjectAssignments, leadSources, communicationMethods, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes] = await Promise.all([
+  const [companies, masterCompanies, stages, agents, staff, staffProjectAssignments, allStaffProjectAssignments, leadSources, communicationMethods, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, contractHistoriesData] = await Promise.all([
     prisma.stpCompany.findMany({
       include: {
         company: {
@@ -107,6 +107,18 @@ export default async function StpCompaniesPage() {
         { displayOrder: "asc" },
       ],
     }),
+    // 契約履歴（契約終了日がnullのアクティブな契約のみ）
+    prisma.stpContractHistory.findMany({
+      where: {
+        deletedAt: null,
+        contractEndDate: null, // アクティブな契約のみ
+      },
+      include: {
+        salesStaff: true,
+        operationStaff: true,
+      },
+      orderBy: { contractStartDate: "desc" },
+    }),
   ]);
 
   // companyIdでMasterContractをグループ化
@@ -127,9 +139,20 @@ export default async function StpCompaniesPage() {
     contactHistoriesByCompanyId[history.companyId].push(history);
   });
 
+  // companyIdで契約履歴をグループ化
+  const contractHistoriesByCompanyId: Record<number, typeof contractHistoriesData> = {};
+  contractHistoriesData.forEach((history) => {
+    if (!contractHistoriesByCompanyId[history.companyId]) {
+      contractHistoriesByCompanyId[history.companyId] = [];
+    }
+    contractHistoriesByCompanyId[history.companyId].push(history);
+  });
+
   const data = companies.map((c) => {
     // この企業の接触履歴を取得
     const companyContactHistories = contactHistoriesByCompanyId[c.companyId] || [];
+    // この企業のアクティブな契約履歴を取得
+    const companyContractHistories = contractHistoriesByCompanyId[c.companyId] || [];
 
     return {
     id: c.id,
@@ -137,7 +160,6 @@ export default async function StpCompaniesPage() {
     companyName: `（${c.companyId}）${c.company.name}`,
     note: c.note,
     leadAcquiredDate: c.leadAcquiredDate?.toISOString(),
-    meetingDate: c.meetingDate?.toISOString(),
     // 最終接触日（接触履歴の最新日時）
     latestContactDate: companyContactHistories.length > 0
       ? companyContactHistories[0].contactDate.toISOString()
@@ -148,23 +170,11 @@ export default async function StpCompaniesPage() {
     nextTargetStageName: c.nextTargetStage?.name,
     nextTargetDate: c.nextTargetDate?.toISOString(),
     forecast: c.forecast,
-    contractNote: c.contractNote,
-    industryType: c.industryType,
     plannedHires: c.plannedHires,
-    // 契約プラン（後でロジック構築・自動入力）
-    contractPlan: c.contractPlan,
-    media: c.media,
-    // 契約開始日・終了日（後でロジック構築・自動入力）
-    contractStartDate: c.contractStartDate?.toISOString(),
-    contractEndDate: c.contractEndDate?.toISOString(),
     // 契約書情報
     contracts: c.contracts,
-    initialFee: c.initialFee,
-    monthlyFee: c.monthlyFee,
-    performanceFee: c.performanceFee,
     salesStaffId: c.salesStaffId,
     salesStaffName: c.salesStaff?.name,
-    operationStaffList: c.operationStaffList,
     agentId: c.agentId,
     agentCompanyId: c.agent?.companyId || null, // 代理店の全顧客マスタID（リンク用）
     agentName: c.agent?.companyId ? `（${c.agent.companyId}）${c.agent.company?.name}` : null,
@@ -172,32 +182,24 @@ export default async function StpCompaniesPage() {
     industry: c.company.industry,
     revenueScale: c.company.revenueScale,
     websiteUrl: c.company.websiteUrl,
-    firstKoDate: c.firstKoDate?.toISOString(),
-    operationStatus: c.operationStatus,
-    accountId: c.accountId,
-    accountPass: c.accountPass,
-    jobPostingStartDate: c.jobPostingStartDate,
     // 請求先情報
     billingLocationId: c.billingLocationId,
-    billingContactId: c.billingContactId,
     billingAddress: c.billingAddress,
     // billingRepresentativeには担当者IDが保存されている
     billingContactIds: c.billingRepresentative,
-    // 担当者名を取得（IDから名前に変換）
-    billingContactNames: (() => {
+    // 請求先担当者（名前とメールを統合表示）
+    billingContacts: (() => {
       if (!c.billingRepresentative) return null;
       const contactIds = c.billingRepresentative.split(",").map((id) => Number(id.trim()));
-      const names = contactIds
-        .map((id) => c.company.contacts.find((contact) => contact.id === id)?.name)
-        .filter((name): name is string => !!name);
-      return names.length > 0 ? names.join(",") : null;
+      const contactInfoList = contactIds
+        .map((id) => {
+          const contact = c.company.contacts.find((contact) => contact.id === id);
+          if (!contact) return null;
+          return contact.email ? `${contact.name} (${contact.email})` : contact.name;
+        })
+        .filter((info): info is string => !!info);
+      return contactInfoList.length > 0 ? contactInfoList : null;
     })(),
-    // 担当者メールはbillingEmailに保存されている
-    billingContactEmails: c.billingEmail,
-    paymentTerms: c.paymentTerms,
-    // 連絡方法
-    communicationMethodId: c.communicationMethodId,
-    communicationMethodName: c.communicationMethod?.name,
     // 検討理由・失注理由
     pendingReason: c.pendingReason,
     lostReason: c.lostReason,
@@ -247,6 +249,23 @@ export default async function StpCompaniesPage() {
       fileName: mc.fileName,
       assignedTo: mc.assignedTo,
       note: mc.note,
+    })),
+    // 契約履歴（アクティブな契約のみ）- 契約関連データ用
+    activeContractHistories: companyContractHistories.map((ch) => ({
+      id: ch.id,
+      industryType: ch.industryType,
+      contractPlan: ch.contractPlan,
+      jobMedia: ch.jobMedia,
+      contractStartDate: ch.contractStartDate.toISOString(),
+      initialFee: ch.initialFee,
+      monthlyFee: ch.monthlyFee,
+      performanceFee: ch.performanceFee,
+      salesStaffName: ch.salesStaff?.name || null,
+      operationStaffName: ch.operationStaff?.name || null,
+      note: ch.note,
+      operationStatus: ch.operationStatus,
+      accountId: ch.accountId,
+      accountPass: ch.accountPass,
     })),
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
@@ -308,30 +327,10 @@ export default async function StpCompaniesPage() {
     label: ls.name,
   }));
 
-  const communicationMethodOptions = communicationMethods.map((cm) => ({
-    value: String(cm.id),
-    label: cm.name,
-  }));
-
   const contactMethodOptions = contactMethods.map((m) => ({
     value: String(m.id),
     label: m.name,
   }));
-
-  // 全顧客マスタの拠点・担当者の選択肢（企業ごと）
-  const companyLocationOptions: Record<string, { value: string; label: string }[]> = {};
-  const companyContactOptions: Record<string, { value: string; label: string }[]> = {};
-
-  masterCompanies.forEach((mc) => {
-    companyLocationOptions[mc.id] = mc.locations.map((loc) => ({
-      value: String(loc.id),
-      label: `${loc.name}: ${loc.address || '(住所なし)'}`,
-    }));
-    companyContactOptions[mc.id] = mc.contacts.map((contact) => ({
-      value: String(contact.id),
-      label: `${contact.name}: ${contact.email || '(メールなし)'}`,
-    }));
-  });
 
   // 請求先住所の選択肢（企業ごと）- キーは文字列
   const billingAddressByCompany: Record<string, { value: string; label: string }[]> = {};
@@ -373,9 +372,6 @@ export default async function StpCompaniesPage() {
             staffOptions={staffOptions}
             contractStaffOptions={contractStaffOptions}
             leadSourceOptions={leadSourceOptions}
-            communicationMethodOptions={communicationMethodOptions}
-            companyLocationOptions={companyLocationOptions}
-            companyContactOptions={companyContactOptions}
             billingAddressByCompany={billingAddressByCompany}
             billingContactByCompany={billingContactByCompany}
             contactMethodOptions={contactMethodOptions}

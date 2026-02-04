@@ -9,6 +9,8 @@ services:
       - .:/app
       - /app/node_modules
       - /app/.next
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/crm_db
     depends_on:

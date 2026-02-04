@@ -51,12 +51,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Pencil, Trash2, ChevronsUpDown, Check, AlertTriangle, X } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronsUpDown, Check, AlertTriangle, X, FileText, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
 import { addAgentContact, updateAgentContact, deleteAgentContact } from "./actions";
+import { TextPreviewCell } from "@/components/text-preview-cell";
+import { FileDisplay, type FileInfo } from "@/components/multi-file-upload";
 
 registerLocale("ja", ja);
 
@@ -332,7 +334,7 @@ export function AgentContactsTable({
             <PopoverContent className="w-[400px] p-0">
               <Command>
                 <CommandInput placeholder="代理店を検索..." />
-                <CommandList>
+                <CommandList maxHeight={300}>
                   <CommandEmpty>見つかりませんでした</CommandEmpty>
                   <CommandGroup>
                     {agentOptions.map((opt) => (
@@ -452,7 +454,7 @@ export function AgentContactsTable({
           <PopoverContent className="w-[400px] p-0">
             <Command>
               <CommandInput placeholder="担当者を検索..." />
-              <CommandList>
+              <CommandList maxHeight={300}>
                 <CommandEmpty>
                   {availableStaffOptions.length === 0
                     ? "選択されたプロジェクトに担当者が割り当てられていません"
@@ -591,13 +593,14 @@ export function AgentContactsTable({
               <TableHead>先方参加者</TableHead>
               <TableHead>議事録</TableHead>
               <TableHead>備考</TableHead>
+              <TableHead>添付</TableHead>
               <TableHead className="w-[100px]">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredData.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center text-muted-foreground">
+                <TableCell colSpan={10} className="text-center text-muted-foreground">
                   {data.length === 0 ? "接触履歴がありません" : "検索条件に一致するデータがありません"}
                 </TableCell>
               </TableRow>
@@ -621,15 +624,14 @@ export function AgentContactsTable({
                     )}
                   </TableCell>
                   <TableCell>{(item.customerParticipants as string) || "-"}</TableCell>
-                  <TableCell className="max-w-xs">
-                    <div className="overflow-y-auto whitespace-pre-wrap text-sm" style={{ maxHeight: "4.5em" }}>
-                      {(item.meetingMinutes as string) || "-"}
-                    </div>
+                  <TableCell>
+                    <TextPreviewCell text={item.meetingMinutes as string | null} title="議事録" />
                   </TableCell>
-                  <TableCell className="max-w-xs">
-                    <div className="overflow-y-auto whitespace-pre-wrap text-sm" style={{ maxHeight: "4.5em" }}>
-                      {(item.note as string) || "-"}
-                    </div>
+                  <TableCell>
+                    <TextPreviewCell text={item.note as string | null} title="備考" />
+                  </TableCell>
+                  <TableCell>
+                    <FileDisplay files={(item.files as FileInfo[]) || []} />
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">

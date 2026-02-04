@@ -71,6 +71,13 @@ export function Combobox({
     inputValue &&
     !options.find(o => o.value.toLowerCase() === inputValue.toLowerCase());
 
+  // 選択されたvalueに対応するlabelを取得
+  const selectedLabel = React.useMemo(() => {
+    if (!value) return null;
+    const option = options.find(o => o.value === value);
+    return option?.label || value; // optionが見つからない場合はvalueをそのまま表示
+  }, [value, options]);
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -80,11 +87,11 @@ export function Combobox({
           aria-expanded={open}
           className="w-full justify-between font-normal"
         >
-          {value || <span className="text-muted-foreground">{placeholder}</span>}
+          {selectedLabel || <span className="text-muted-foreground">{placeholder}</span>}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
         <Command shouldFilter={false}>
           <CommandInput
             placeholder={placeholder}
@@ -92,7 +99,7 @@ export function Combobox({
             onValueChange={handleInputChange}
             onKeyDown={handleKeyDown}
           />
-          <CommandList>
+          <CommandList maxHeight={300}>
             <CommandEmpty>
               {allowCustom && inputValue ? (
                 <span className="text-muted-foreground">

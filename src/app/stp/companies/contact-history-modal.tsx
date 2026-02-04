@@ -50,7 +50,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Pencil, Trash2, ChevronsUpDown, Check, AlertCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronsUpDown, Check, AlertCircle, FileText, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
@@ -60,6 +60,8 @@ import {
   updateCompanyContactHistory,
   deleteCompanyContactHistory,
 } from "./contact-history-actions";
+import { TextPreviewCell } from "@/components/text-preview-cell";
+import { MultiFileUpload, FileDisplay, type FileInfo } from "@/components/multi-file-upload";
 
 registerLocale("ja", ja);
 
@@ -90,6 +92,7 @@ type ContactHistory = {
   meetingMinutes: string | null;
   note: string | null;
   customerTypeIds?: number[];
+  files?: FileInfo[];
 };
 
 type Props = {
@@ -153,13 +156,14 @@ export function CompanyContactHistoryModal({
 
   const openAddForm = () => {
     setFormData({
-      contactDate: new Date().toISOString(),
+      contactDate: undefined,
       contactMethodId: null,
       assignedTo: "",
       customerParticipants: "",
       meetingMinutes: "",
       note: "",
       customerTypeIds: [REQUIRED_CUSTOMER_TYPE_ID], // デフォルトで「企業」を選択
+      files: [],
     });
     setRequiredWarning(false);
     setIsAddMode(true);
@@ -169,6 +173,7 @@ export function CompanyContactHistoryModal({
     setFormData({
       ...history,
       customerTypeIds: history.customerTypeIds || [REQUIRED_CUSTOMER_TYPE_ID],
+      files: history.files || [],
     });
     setRequiredWarning(false);
     setEditHistory(history);
@@ -224,6 +229,7 @@ export function CompanyContactHistoryModal({
         meetingMinutes: formData.meetingMinutes,
         note: formData.note,
         customerTypeIds: formData.customerTypeIds,
+        files: formData.files,
       });
       const historyWithNames = {
         ...newHistory,
@@ -264,6 +270,7 @@ export function CompanyContactHistoryModal({
         meetingMinutes: pendingEditData.meetingMinutes,
         note: pendingEditData.note,
         customerTypeIds: pendingEditData.customerTypeIds,
+        files: pendingEditData.files,
       });
       const updatedWithNames = {
         ...updated,
@@ -409,10 +416,10 @@ export function CompanyContactHistoryModal({
               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-[400px] p-0">
+          <PopoverContent className="w-[400px] p-0" align="start">
             <Command>
               <CommandInput placeholder="担当者を検索..." />
-              <CommandList>
+              <CommandList maxHeight={300}>
                 <CommandEmpty>
                   {availableStaffOptions.length === 0
                     ? "選択されたプロジェクトに担当者が割り当てられていません"
@@ -532,6 +539,14 @@ export function CompanyContactHistoryModal({
           placeholder="備考"
         />
       </div>
+      <div className="space-y-2">
+        <Label>添付ファイル</Label>
+        <MultiFileUpload
+          value={formData.files || []}
+          onChange={(files) => setFormData({ ...formData, files })}
+          contactHistoryId={editHistory?.id}
+        />
+      </div>
       <div className="flex gap-2 justify-end">
         <Button
           variant="outline"
@@ -561,11 +576,24 @@ export function CompanyContactHistoryModal({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-5xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent
+          className="max-w-4xl p-0 overflow-hidden"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            height: '90vh',
+            maxHeight: '90vh'
+          }}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
+          <DialogHeader className="px-6 py-4 border-b shrink-0">
             <DialogTitle>接触履歴管理 - {companyName}</DialogTitle>
           </DialogHeader>
 
+          <div
+            className="px-6 py-4"
+            style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}
+          >
           <div className="space-y-4">
             {/* 追加ボタン */}
             {!isAddMode && !editHistory && (
@@ -586,16 +614,18 @@ export function CompanyContactHistoryModal({
                 接触履歴が登録されていません
               </div>
             ) : (
+              <div className="overflow-x-auto border rounded-lg">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>接触日時</TableHead>
-                    <TableHead>接触方法</TableHead>
-                    <TableHead>担当者</TableHead>
-                    <TableHead>先方参加者</TableHead>
-                    <TableHead>議事録</TableHead>
-                    <TableHead>備考</TableHead>
-                    <TableHead className="w-[100px]">操作</TableHead>
+                    <TableHead className="whitespace-nowrap">接触日時</TableHead>
+                    <TableHead className="whitespace-nowrap">接触方法</TableHead>
+                    <TableHead className="whitespace-nowrap">担当者</TableHead>
+                    <TableHead className="whitespace-nowrap">先方参加者</TableHead>
+                    <TableHead className="whitespace-nowrap">議事録</TableHead>
+                    <TableHead className="whitespace-nowrap">備考</TableHead>
+                    <TableHead className="whitespace-nowrap">添付</TableHead>
+                    <TableHead className="w-[100px] whitespace-nowrap">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -607,21 +637,14 @@ export function CompanyContactHistoryModal({
                       <TableCell>{history.contactMethodName || "-"}</TableCell>
                       <TableCell>{history.assignedToNames || getStaffNames(history.assignedTo)}</TableCell>
                       <TableCell>{history.customerParticipants || "-"}</TableCell>
-                      <TableCell className="max-w-xs">
-                        <div
-                          className="overflow-y-auto whitespace-pre-wrap text-sm"
-                          style={{ maxHeight: "4.5em", lineHeight: "1.5" }}
-                        >
-                          {history.meetingMinutes || "-"}
-                        </div>
+                      <TableCell>
+                        <TextPreviewCell text={history.meetingMinutes} title="議事録" />
                       </TableCell>
-                      <TableCell className="max-w-xs">
-                        <div
-                          className="overflow-y-auto whitespace-pre-wrap text-sm"
-                          style={{ maxHeight: "4.5em", lineHeight: "1.5" }}
-                        >
-                          {history.note || "-"}
-                        </div>
+                      <TableCell>
+                        <TextPreviewCell text={history.note} title="備考" />
+                      </TableCell>
+                      <TableCell>
+                        <FileDisplay files={history.files || []} />
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
@@ -647,7 +670,9 @@ export function CompanyContactHistoryModal({
                   ))}
                 </TableBody>
               </Table>
+              </div>
             )}
+          </div>
           </div>
         </DialogContent>
       </Dialog>

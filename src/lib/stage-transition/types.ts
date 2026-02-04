@@ -139,6 +139,11 @@ export interface StageManagementData {
   nextTargetStage: StageInfo | null;
   nextTargetDate: Date | null;
 
+  // 理由（検討中・失注の場合）
+  pendingReason: string | null;
+  lostReason: string | null;
+  pendingResponseDate: Date | null;
+
   // 履歴
   histories: StageHistoryRecord[];
 

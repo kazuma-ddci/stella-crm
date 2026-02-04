@@ -123,3 +123,16 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* cmdk スクロール修正 */
+[cmdk-list] {
+  --cmdk-list-height: 300px !important;
+  max-height: 300px !important;
+  height: auto !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+[cmdk-list-sizer] {
+  height: auto !important;
+}

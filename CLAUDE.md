@@ -2,6 +2,11 @@
 
 このファイルはCursor/Claude Codeがプロジェクトを理解するためのガイドです。
 
+> **⚠️ 実装前の必須確認**
+>
+> 1. このファイルの「確定仕様（変更禁止）」セクションを確認
+> 2. 実装内容に応じて、関連するドキュメントを読む（無関係なものは読まない）
+
 ## プロジェクト概要
 
 社内CRMシステム - 複数プロジェクトを横断して顧客を一元管理
@@ -12,6 +17,8 @@
 |-------------|------|------|
 | Stella（全顧客マスタ） | `/companies` | 全顧客の基本情報管理 |
 | STP（採用ブースト） | `/stp/*` | 採用支援サービスの商談・契約管理 |
+| 外部ポータル | `/portal/*` | クライアント・代理店向けポータル |
+| 管理画面 | `/admin/*` | 外部ユーザー管理・登録トークン管理 |
 
 ## 技術スタック
 
@@ -19,6 +26,7 @@
 - PostgreSQL 15
 - Prisma ORM
 - Tailwind CSS + shadcn/ui
+- NextAuth.js（認証）
 - Docker / Docker Compose
 
 ## 開発環境
@@ -30,38 +38,15 @@ docker-compose up -d
 # 停止
 docker-compose down
 
-# ログ
-docker-compose logs -f app
-
 # マイグレーション
 docker-compose exec app npx prisma migrate dev --name <name>
 
 # シードデータ
 docker-compose exec app npx prisma db seed
-
-# Prisma Studio
-docker-compose exec app npx prisma studio
 ```
 
 - http://localhost:3000 - アプリケーション
 - http://localhost:5555 - Prisma Studio（DB確認用）
-
-### Prisma Studio（DB確認用）
-
-Prisma StudioはDocker Composeで自動起動されます。
-
-**重要: スキーマ変更時は必ず以下を実行してDBを最新に更新すること**
-
-```bash
-# 1. Prisma Client再生成
-docker-compose exec app npx prisma generate
-
-# 2. マイグレーション実行（インタラクティブモードが必要な場合はdb pushを使用）
-docker-compose exec app npx prisma db push
-
-# 3. Prisma Studioを再起動（変更を反映）
-docker-compose restart prisma-studio
-```
 
 ---
 
@@ -69,9 +54,28 @@ docker-compose restart prisma-studio
 
 このプロジェクトはDocker環境で開発しています。**ローカルではなくDockerコンテナ内でコマンドを実行すること。**
 
-### npmパッケージ追加時
+### 実装前の確認事項
 
-新しいパッケージをインストールする場合は、**必ずDockerコンテナ内で実行**：
+**実装内容に関連するドキュメントを読む（複数あれば複数読む、無関係なものは読まない）：**
+
+| 実装内容 | 読むドキュメント |
+|---------|-----------------|
+| インライン編集 | `docs/components/inline-edit.md` **（⚠️必読・過去ミス多発）** |
+| テーブル表示 | `docs/components/crud-table.md` |
+| ステージ・認証 | `docs/business-logic.md` |
+| DB変更 | `docs/DATABASE.md` |
+| UI/モーダル問題 | `docs/troubleshooting.md` |
+| 選択肢 | `docs/master-data.md` |
+
+**例**: 「インライン編集でDBカラムも追加」→ inline-edit.md + DATABASE.md の両方を読む
+
+**注意**: インライン編集は過去に何度も同じミスが発生。必ずドキュメントを読んでから実装すること。
+
+### 実装後の記録
+
+重要な決定、エラー修正、仕様確定があった場合は `/record` で記録する。
+
+### npmパッケージ追加時
 
 ```bash
 docker-compose exec app npm install <パッケージ名>
@@ -80,8 +84,6 @@ docker-compose exec app npm install <パッケージ名>
 **ローカルで `npm install` を実行しても、Dockerコンテナには反映されません。**
 
 ### Prismaスキーマ変更時
-
-`prisma/schema.prisma` を変更した場合は、**必ず以下を実行**：
 
 ```bash
 # Prisma Client再生成（必須）
@@ -96,493 +98,152 @@ docker-compose exec app npx prisma db push
 
 ### shadcn/uiコンポーネント追加時
 
-shadcn/uiのコンポーネントを追加する場合：
-
 ```bash
 docker-compose exec app npx shadcn@latest add <コンポーネント名>
 ```
 
 ### 変更が反映されない場合
 
-コンテナを再起動：
-
 ```bash
 docker-compose restart app
 ```
 
----
+### ドキュメント追記ルール（重要）
 
-## データベース構成（15テーブル）
+実装完了後にドキュメントを追記する際は、**関連する全ての重要ポイントを最初から網羅的に含めること。**
 
-```
-master_stella_companies（全顧客マスタ）
-    │
-    ├── 1:N → stp_companies（STPプロジェクト企業）
-    │              │
-    │              ├── N:1 → stp_stages（商談ステージ）
-    │              ├── N:1 → stp_agents（代理店）
-    │              ├── N:1 → stp_lead_sources（流入経路）
-    │              ├── N:1 → stp_communication_methods（連絡方法）
-    │              ├── N:1 → master_staff（担当営業）
-    │              ├── 1:N → stp_company_contracts（企業契約書）
-    │              ├── 1:N → stp_contact_histories（企業接触履歴）
-    │              │              └── N:1 → stp_contact_methods（接触方法）
-    │              └── 1:N → stp_stage_histories（ステージ変更履歴）
-    │
-    ├── 1:1 → stp_agents（代理店企業）
-    │              │
-    │              ├── 1:N → stp_agent_contracts（代理店契約書）
-    │              ├── N:N → staff（担当者）via stp_agent_staff
-    │              ├── N:1 → master_stella_companies（紹介者）
-    │              └── 1:N → stp_contact_histories（代理店接触履歴）
-    │
-    └── 1:N → stp_contract_histories（契約履歴）
-                   └── N:1 → staff（担当スタッフ）
+**❌ やってはいけないこと：**
+- 基本的な内容だけ書いて、ユーザーに「これは追加した？」と何度も確認させる
+- 指摘されてから追記する（後出し）
 
-staff（社内スタッフ）
-    ├── 1:N → staff_permissions（権限）
-    ├── 1:N → stp_companies（担当営業）
-    └── N:N → stp_agents（担当代理店）via stp_agent_staff
-```
+**✅ やるべきこと：**
+- 実装中に起きた問題・ミス・修正内容を**全て**記載する
+- 具体的なコード例（❌間違い例と✅正しい例の両方）を含める
+- 「なぜその実装が必要か」の理由を含める
 
-### テーブル説明
+### 日付入力フィールドの実装
 
-| テーブル | 説明 |
-|---------|------|
-| master_stella_companies | 全顧客の基本情報（企業名、連絡先等） |
-| stp_stages | STP商談ステージマスタ（リード〜受注/失注） |
-| stp_contact_methods | STP接触方法マスタ（電話、メール、訪問等）- 接触履歴用 |
-| stp_lead_sources | STP流入経路マスタ |
-| stp_communication_methods | STP連絡方法マスタ - 企業との連絡方法 |
-| stp_agents | STP代理店マスタ（MasterStellaCompanyと1:1で連携） |
-| stp_agent_contracts | STP代理店契約書（複数件管理、外部サービス連携対応） |
-| stp_agent_staff | STP代理店担当者（中間テーブル、複数担当者対応） |
-| stp_companies | STPプロジェクト企業（商談情報、ステージ管理） |
-| stp_company_contracts | STP企業契約書（複数件管理、締結ステータス管理） |
-| stp_contact_histories | STP接触履歴（企業・代理店両対応） |
-| stp_stage_histories | STPステージ変更履歴（イベント記録） |
-| stp_contract_histories | STP契約履歴 |
-| staff | 社内スタッフ（担当者、ログイン情報） |
-| staff_permissions | スタッフ権限（プロジェクトごとのアクセス制御） |
+日付入力フィールドは、HTMLの`<input type="date">`ではなく、**react-datepicker**を使用すること。
 
-### 代理店（stp_agents）の主要カラム
+```tsx
+import DatePicker, { registerLocale } from "react-datepicker";
+import { ja } from "date-fns/locale";
+import "react-datepicker/dist/react-datepicker.css";
 
-| カラム | 型 | 説明 |
-|--------|-----|------|
-| companyId | Int | 代理店企業（MasterStellaCompanyへの外部キー、1:1） |
-| status | String | ステータス: アクティブ / 休止 / 解約 |
-| category1 | String | 区分①: 代理店 / 顧問 |
-| category2 | String | 区分②: 法人 / 個人 |
-| meetingDate | DateTime? | 商談日 |
-| contractStatus | String? | 契約ステータス: 契約済み / 商談済み / 未商談 / 日程調整中 |
-| contractNote | String? | 契約内容メモ |
-| referrerCompanyId | Int? | 紹介者（MasterStellaCompanyへの外部キー） |
-| note | String? | 代理店メモ |
+registerLocale("ja", ja);
 
-**表示用データ（MasterStellaCompanyから取得）:**
-- 代理店名 → company.name
-- メールアドレス → company.email
-- 電話番号 → company.phone
-- 紹介者名 → referrerCompany.name
-
-### 代理店契約書（stp_agent_contracts）
-
-| カラム | 型 | 説明 |
-|--------|-----|------|
-| agentId | Int | 代理店への外部キー |
-| contractUrl | String | 契約書URL |
-| signedDate | DateTime? | 締結日（未締結の場合null） |
-| title | String? | 契約書タイトル |
-| externalId | String? | 外部サービスID（クラウドサイン等） |
-| externalService | String? | 外部サービス名 |
-| status | String | ステータス: draft / pending / signed / expired |
-| note | String? | 備考 |
-
-### STP企業（stp_companies）の主要カラム
-
-#### 基本情報
-| カラム | 型 | 説明 |
-|--------|-----|------|
-| companyId | Int | 全顧客マスタへの外部キー |
-| agentId | Int? | 代理店ID |
-| note | String? | 企業メモ |
-
-#### ステージ管理
-| カラム | 型 | 説明 |
-|--------|-----|------|
-| currentStageId | Int? | 現在のステージ |
-| nextTargetStageId | Int? | ネクストステージコミット |
-| nextTargetDate | DateTime? | 次の商談日コミット |
-
-#### 日付情報
-| カラム | 型 | 説明 |
-|--------|-----|------|
-| leadAcquiredDate | DateTime? | リード獲得日 |
-| meetingDate | DateTime? | 初回商談日 |
-| firstKoDate | DateTime? | 初回KO日 |
-| jobPostingStartDate | String? | 求人掲載開始日（テキスト入力） |
-
-#### 契約情報
-| カラム | 型 | 説明 |
-|--------|-----|------|
-| forecast | String? | ヨミ（MIN,落とし,MAX,来月,辞退） |
-| contractNote | String? | 契約メモ |
-| industryType | String? | 業種区分（一般,派遣） |
-| plannedHires | Int? | 採用予定人数 |
-| contractPlan | String? | 契約プラン（後でロジック構築・自動入力） |
-| media | String? | 媒体（テキスト入力） |
-| contractStartDate | DateTime? | 契約開始日（後でロジック構築・自動入力） |
-| contractEndDate | DateTime? | 契約終了日（後でロジック構築・自動入力） |
-| initialFee | Int? | 初期費用（0, 100000, 150000） |
-| monthlyFee | Int? | 月額 |
-| performanceFee | Int? | 成果報酬単価 |
-| salesStaffId | Int? | 担当営業（Staffから選択） |
-| operationStaffList | String? | 担当運用（複数選択：indeed,運用2等） |
-
-#### アカウント情報
-| カラム | 型 | 説明 |
-|--------|-----|------|
-| operationStatus | String? | 運用ステータス（テスト1,テスト2） |
-| accountId | String? | アカウントID |
-| accountPass | String? | アカウントPASS |
-
-#### 請求先情報
-| カラム | 型 | 説明 |
-|--------|-----|------|
-| billingLocationId | Int? | 請求先住所（拠点ID） |
-| billingContactId | Int? | 請求先代表者（担当者ID） |
-| billingAddress | String? | 請求先住所（選択時にコピー） |
-| billingRepresentative | String? | 請求先代表者（選択時にコピー） |
-| billingEmail | String? | 請求先アドレス（選択時にコピー） |
-| paymentTerms | String? | 支払いサイト |
-
-#### その他
-| カラム | 型 | 説明 |
-|--------|-----|------|
-| communicationMethodId | Int? | 連絡方法（マスタから選択） |
-| pendingReason | String? | 検討理由（検討中ステージ時） |
-| lostReason | String? | 失注理由（失注ステージ時） |
-| leadSourceId | Int? | 流入経路（マスタから選択） |
-
-**全顧客マスタから表示されるデータ:**
-- 業界 → company.industry
-- 売上規模 → company.revenueScale
-- 企業HP → company.websiteUrl
-
-### STP企業契約書（stp_company_contracts）
-
-| カラム | 型 | 説明 |
-|--------|-----|------|
-| stpCompanyId | Int | STP企業への外部キー |
-| contractUrl | String? | 契約書URL |
-| signedDate | DateTime? | 締結日（未締結の場合null） |
-| title | String? | 契約書タイトル |
-| externalId | String? | 外部サービスID（クラウドサイン等） |
-| externalService | String? | 外部サービス名 |
-| status | String | ステータス: draft / 送付済み / 先方情報待ち / signed / expired等 |
-| note | String? | 備考 |
-
----
-
-## ディレクトリ構成
-
-```
-stella-crm/
-├── docker-compose.yml
-├── Dockerfile
-├── prisma/
-│   ├── schema.prisma
-│   ├── seed.ts
-│   └── migrations/
-├── src/
-│   ├── app/
-│   │   ├── layout.tsx
-│   │   ├── page.tsx                    # ダッシュボード
-│   │   ├── companies/                  # 全顧客マスタ
-│   │   │   ├── page.tsx
-│   │   │   ├── companies-table.tsx
-│   │   │   ├── actions.ts
-│   │   │   ├── new/
-│   │   │   └── [id]/
-│   │   └── stp/                        # STPプロジェクト
-│   │       ├── companies/              # STP企業管理
-│   │       │   ├── page.tsx
-│   │       │   ├── stp-companies-table.tsx
-│   │       │   ├── actions.ts
-│   │       │   └── stage-management/   # ステージ管理
-│   │       │       └── actions.ts
-│   │       ├── agents/                 # 代理店管理
-│   │       │   ├── page.tsx
-│   │       │   ├── agents-table.tsx
-│   │       │   ├── actions.ts
-│   │       │   ├── contracts-modal.tsx  # 契約書管理モーダル
-│   │       │   └── contract-actions.ts  # 契約書CRUD処理
-│   │       ├── records/                # 履歴管理
-│   │       │   ├── company-contacts/   # 企業接触履歴
-│   │       │   ├── agent-contacts/     # 代理店接触履歴
-│   │       │   └── stage-histories/    # ステージ変更履歴
-│   │       └── settings/               # マスタ管理
-│   │           ├── stages/             # ステージマスタ
-│   │           └── contact-methods/    # 接触方法マスタ
-│   ├── components/
-│   │   ├── ui/                         # shadcn/ui
-│   │   ├── layout/
-│   │   │   └── sidebar.tsx
-│   │   ├── crud-table.tsx              # 汎用CRUDテーブル
-│   │   ├── data-table.tsx              # 読み取り専用テーブル
-│   │   └── stage-management/           # ステージ管理モーダル
-│   │       ├── stage-management-modal.tsx
-│   │       ├── current-status-section.tsx
-│   │       ├── stage-progress-visual.tsx
-│   │       ├── stage-history-section.tsx
-│   │       ├── statistics-section.tsx
-│   │       ├── stage-update-form.tsx
-│   │       └── alert-dialog.tsx
-│   ├── lib/
-│   │   ├── prisma.ts
-│   │   ├── utils.ts
-│   │   └── stage-transition/           # ステージ遷移ロジック
-│   │       ├── types.ts
-│   │       ├── constants.ts
-│   │       ├── event-detector.ts
-│   │       ├── alert-validator.ts
-│   │       └── index.ts
-│   └── types/
-├── docs/
-│   ├── REQUIREMENTS.md
-│   └── SETUP.md
-└── CLAUDE.md
+<DatePicker
+  selected={value ? new Date(value) : null}
+  onChange={(date) => setValue(date ? date.toISOString().split("T")[0] : null)}
+  dateFormat="yyyy/MM/dd"
+  locale="ja"
+  placeholderText="日付を選択"
+  isClearable
+/>
 ```
 
 ---
 
-## 画面一覧
+## 確定仕様（変更禁止）
 
-```
-/                                        → ダッシュボード
+> **📍 単一情報源（Source of Truth）**
+>
+> 確定仕様の詳細は **[docs/specs/](docs/specs/index.md)** を参照してください。
+> このセクションは参照用サマリーです。
 
-# 全顧客マスタ
-/companies                               → 全顧客一覧
-/companies/new                           → 全顧客新規登録
-/companies/[id]                          → 全顧客詳細
-/companies/[id]/edit                     → 全顧客編集
+以下の仕様はユーザー承認済みの確定仕様です。**ユーザーから明示的な変更要望がない限り、勝手に変更しないでください。**
 
-# STPプロジェクト - 企業管理
-/stp/companies                           → STP企業一覧（ステージ管理ボタン付き）
+| SPEC ID | タイトル | 概要 |
+|---------|----------|------|
+| [SPEC-STP-001](docs/specs/SPEC-STP-001.md) | 顧問の区分表示形式 | `顧問（件数 / 金額）` 形式で統一 |
+| [SPEC-UI-001](docs/specs/SPEC-UI-001.md) | Textarea/モーダル長文編集 | 高さ制限とスクロール設定 |
 
-# STPプロジェクト - 代理店管理
-/stp/agents                              → 代理店一覧
-
-# STPプロジェクト - 履歴管理
-/stp/records/company-contacts            → 企業接触履歴一覧
-/stp/records/agent-contacts              → 代理店接触履歴一覧
-/stp/records/stage-histories             → ステージ変更履歴一覧
-
-# STPプロジェクト - マスタ管理
-/stp/settings/stages                     → 商談ステージマスタ
-/stp/settings/contact-methods            → 接触方法マスタ
-```
+<!--
+  旧記載は docs/specs/SPEC-STP-001.md に移行済み。
+  詳細は上記の一覧リンクから参照してください。
+-->
 
 ---
 
-## 重要なロジック
+## カスタムコマンド
 
-### ステージ遷移ロジック
+このプロジェクト専用のコマンドが利用可能です。
 
-`src/lib/stage-transition/` にステージ遷移の判定・検証ロジックを実装。
+### /quick - 通常実装モード
 
-#### イベント種別（event_type）
-
-| 値 | 意味 | 発生タイミング |
-|----|------|---------------|
-| commit | 新規目標設定 | 目標がない状態から新しく目標を設定 |
-| achieved | 目標達成 | 現在のステージが目標ステージに到達 |
-| recommit | 目標変更 | 目標ステージまたは目標日を変更 |
-| progress | 前進 | 目標とは関係なくステージが前に進んだ |
-| back | 後退 | 現在のステージが前のステージに戻った |
-| cancel | 目標取消 | 目標を達成せずに削除した |
-
-#### イベント検出フローチャート
+最小限の調査で実装へ進みます（重大変更時は確認あり）。
+Playwrightは原則実行しないが、UI変更が大きい場合は提案する。
 
 ```
-保存ボタンが押された
-        │
-        ▼
-current_stage_idは変更された？
-        │
-   ┌────┴────┐
-   YES       NO
-   │         │
-   ▼         ▼
-目標と一致？ 目標関連は変更された？
-   │              │
- ┌─┴─┐       ┌────┴────┐
-YES  NO     YES        NO
- │   │       │         │
- ▼   ▼       ▼         ▼
-achieved  順番を比較  以前目標あり？  何もしない
- │         │           │
- │    ┌────┴────┐   ┌──┴──┐
- │   上がった  下がった  YES    NO
- │    │         │      │     │
- │    ▼         ▼      ▼     ▼
- │  progress   back  目標残った？ commit
- │                      │
- │                 ┌────┴────┐
- │                YES       NO
- │                 │         │
- │                 ▼         ▼
- │              recommit   cancel
- │
- ▼
-次の目標も同時に設定された？ → YES → +commit
+/quick                     # 通常モードに切り替え
 ```
 
-### アラート機能
+### /deep - 厳密実装モード
 
-ステージ変更時に18種類のアラートルールでバリデーションを実行。
+調査 → 計画 → 承認 → 実装の順で進めます。
 
-| カテゴリ | ID | 深刻度 | 概要 |
-|---------|-----|--------|-----|
-| 論理エラー | L-001〜L-005 | ERROR/WARNING | 目標設定の矛盾チェック |
-| 時系列エラー | T-001〜T-003 | ERROR/WARNING/INFO | 目標日の妥当性チェック |
-| 遷移エラー | S-001〜S-004 | WARNING/INFO | ステージ遷移の妥当性チェック |
-| 目標管理 | G-001〜G-005 | ERROR/WARNING/INFO | 目標変更パターンのチェック |
-| データ整合性 | D-001, D-003 | ERROR/WARNING | 必須項目・理由入力チェック |
-
-**深刻度と対応：**
-- **ERROR**: 保存ブロック、修正必須
-- **WARNING**: 警告表示、確認後に保存可能（一部は理由入力必須）
-- **INFO**: 情報表示、そのまま保存可能
-
-### ステージ管理モーダル
-
-STP企業一覧の📊ボタンから開く専用モーダル。
-
-**機能：**
-1. 現在の状況（ステージ、滞在日数、目標情報）
-2. ステージ進捗ビジュアル（横一列のプログレス表示）
-3. ステージ履歴（最新5件、全件表示可能）
-4. 統計情報（達成回数、達成率、後退回数）
-5. ステージ更新フォーム（リアルタイムバリデーション）
-
-**操作分離：**
-- **新規登録時**: フォームでステージ入力可能
-- **編集時**: ステージ関連は読み取り専用、変更はモーダルから
-
----
-
-## 汎用コンポーネント
-
-### CrudTable（`src/components/crud-table.tsx`）
-
-汎用CRUDテーブルコンポーネント。
-
-**主な機能：**
-- 一覧表示（フィルタリング、ソート）
-- 新規追加ダイアログ
-- 編集ダイアログ
-- 削除確認ダイアログ
-- 簡易/詳細入力モード切り替え
-- カスタムアクションボタン
-
-**ColumnDefの主要プロパティ：**
-
-```typescript
-type ColumnDef = {
-  key: string;
-  header: string;
-  type?: "text" | "number" | "date" | "datetime" | "boolean" | "textarea" | "select";
-  editable?: boolean;           // 編集可否（デフォルトtrue）
-  editableOnCreate?: boolean;   // 新規作成時のみ編集可能
-  editableOnUpdate?: boolean;   // 編集時のみ編集可能
-  options?: { value: string; label: string }[];
-  required?: boolean;
-  searchable?: boolean;         // selectで検索可能にする
-  simpleMode?: boolean;         // 簡易入力モードで表示するか
-};
+```
+/deep                      # 厳密モード開始（要望入力を待つ）
+/deep ステージ表示を変更したい  # 厳密モードで即座に調査開始
 ```
 
----
+**厳密モードのフロー:**
+1. 要望を分解
+2. 影響ファイル候補を列挙（理由つき）
+3. 候補ファイルごとに確定仕様チェック
+4. 関連SPECと禁止事項を整理
+5. 実装計画を提示
+6. E2E実行判定（必要/不要と理由・確認観点を提示）
+7. **承認待ち**
+8. **ユーザー承認後に実装**
+9. `docker-compose exec app npm run test:specs` 実行
+10. Playwright実行（判定が「必要」の場合のみ）
+11. 最終報告（テスト結果 + Playwright実行/未実行と理由）
+12. `/record --dry-run` を提案
 
-## 初期データ
+### /record - 決定事項の記録
 
-### stp_stages（商談ステージ）
+実装中の重要な決定やエラー修正を適切なドキュメントに記録します。
 
-| id | name | display_order | 分類 |
-|----|------|---------------|------|
-| 1 | リード | 1 | 進行ステージ |
-| 2 | 商談化 | 2 | 進行ステージ |
-| 3 | 提案中 | 3 | 進行ステージ |
-| 4 | 見積提示 | 4 | 進行ステージ |
-| 5 | 受注 | 5 | 終了ステージ |
-| 6 | 失注 | 6 | 終了ステージ |
-| 7 | 検討中 | 7 | 保留ステージ |
-
-**注意：** 失注（6）、検討中（7）は目標に設定不可
-
-### stp_contact_methods（接触方法 - 接触履歴用）
-
-| id | name | display_order |
-|----|------|---------------|
-| 1 | 電話 | 1 |
-| 2 | メール | 2 |
-| 3 | 訪問 | 3 |
-| 4 | Web会議 | 4 |
-| 5 | その他 | 5 |
-
-### stp_lead_sources（流入経路）
-
-| id | name | display_order |
-|----|------|---------------|
-| 1 | 流入経路1 | 1 |
-| 2 | 流入経路2 | 2 |
-| 3 | 流入経路3 | 3 |
-| 4 | 流入経路4 | 4 |
-| 5 | 流入経路5 | 5 |
-
-### stp_communication_methods（連絡方法 - 企業との連絡方法）
-
-| id | name | display_order |
-|----|------|---------------|
-| 1 | 連絡方法1 | 1 |
-| 2 | 連絡方法2 | 2 |
-| 3 | 連絡方法3 | 3 |
-| 4 | 連絡方法4 | 4 |
-| 5 | 連絡方法5 | 5 |
-
----
-
-## 選択肢
-
-```typescript
-// ヨミ（forecast）
-const FORECASTS = ['MIN', '落とし', 'MAX', '来月', '辞退'] as const;
-
-// 運用ステータス（operationStatus）
-const OPERATION_STATUSES = ['テスト1', 'テスト2'] as const;
-
-// 業種区分（industryType）
-const INDUSTRY_TYPES = ['一般', '派遣'] as const;
-
-// 初期費用（initialFee）
-const INITIAL_FEES = [0, 100000, 150000] as const;
-
-// 担当運用（operationStaffList）
-const OPERATION_STAFF_OPTIONS = ['indeed', '運用2'] as const;
-
-// イベント種別（eventType）
-const EVENT_TYPES = ['commit', 'achieved', 'recommit', 'progress', 'back', 'cancel'] as const;
-
-// 企業契約書ステータス（stp_company_contracts.status）
-const CONTRACT_STATUSES = ['draft', '送付済み', '先方情報待ち', 'signed', 'expired'] as const;
 ```
+/record                    # 直前の会話から記録内容を提案
+/record 確定仕様: ○○の表示形式は△△で統一  # 指定内容を記録
+```
+
+### /check-specs - 確定仕様の確認
+
+ファイルや機能に関連する確定仕様を確認します。**変更前に必ず確認すること。**
+
+```
+/check-specs src/app/stp/agents/agents-table.tsx  # ファイル関連の仕様確認
+/check-specs 顧問表示                               # 機能関連の仕様確認
+/check-specs                                        # 全確定仕様の一覧
+```
+
+### 使い分けガイド
+
+| 状況 | 使うコマンド |
+|------|-------------|
+| 普通の開発 | `/quick` |
+| 確定仕様に関わりそうな変更 | `/deep` → 要望入力 → 計画確認 → 承認 → 実装 |
+| セッション終了前 | `/record`（必要なら「セッション全体を対象に」と明示）|
 
 ---
 
 ## 参照ドキュメント
 
-- `docs/REQUIREMENTS.md` - 詳細な要件定義
-- `docs/SETUP.md` - セットアップ手順
-- `prisma/schema.prisma` - DBスキーマ
-- `status_transition_logic_v2.md` - ステージ遷移ロジック仕様書
+詳細情報は以下のドキュメントを参照してください：
+
+| ドキュメント | 内容 |
+|-------------|------|
+| **`docs/specs/index.md`** | **確定仕様一覧（Source of Truth）** |
+| `docs/DATABASE.md` | データベース設計詳細（テーブル一覧、ER図、カラム定義） |
+| `docs/architecture.md` | ディレクトリ構成、画面一覧 |
+| `docs/business-logic.md` | ステージ遷移ロジック、認証フロー、設計パターン |
+| `docs/components/crud-table.md` | CrudTable使用方法 |
+| `docs/components/inline-edit.md` | **インライン編集詳細（⚠️実装前に必読）** |
+| `docs/troubleshooting.md` | 既知の問題と解決方法 |
+| `docs/master-data.md` | 初期データ、選択肢定義 |
+| `docs/REQUIREMENTS.md` | 詳細な要件定義 |
+| `docs/SETUP.md` | セットアップ手順 |
+| `prisma/schema.prisma` | DBスキーマ |

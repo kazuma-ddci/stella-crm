@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   Table,
   TableBody,
@@ -42,6 +42,9 @@ import {
 import { Label } from "@/components/ui/label";
 import { Plus, Pencil, Trash2, ChevronsUpDown, X, Check, ArrowUpDown } from "lucide-react";
 import { SortableListModal, SortableItem } from "@/components/sortable-list-modal";
+import { TextPreviewCell } from "@/components/text-preview-cell";
+import { EditableCell, EditableCellType, EditableCellOption, formatDisplayValue } from "@/components/editable-cell";
+import { ChangeConfirmationDialog, ChangeItem } from "@/components/change-confirmation-dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import DatePicker, { registerLocale } from "react-datepicker";
@@ -66,6 +69,7 @@ export type ColumnDef = {
   filterable?: boolean; // フィルタリング対象にするか（デフォルトtrue）
   simpleMode?: boolean; // 簡易入力モードで表示するかどうか
   hidden?: boolean; // テーブル一覧で非表示にするか
+  inlineEditable?: boolean; // インライン編集可能にするか（enableInlineEdit時に使用）
 };
 
 // カスタムアクションの定義
@@ -85,7 +89,8 @@ export type CustomFormField = {
   render: (
     value: unknown,
     onChange: (value: unknown) => void,
-    formData: Record<string, unknown>
+    formData: Record<string, unknown>,
+    setFormData: (data: Record<string, unknown>) => void
   ) => React.ReactNode;
 };
 
@@ -98,6 +103,20 @@ export type DynamicOptionsMap = {
   [optionsKey: string]: Record<string, { value: string; label: string }[]>;
 };
 
+// インライン編集用の設定
+export type InlineEditConfig = {
+  // インライン編集対象のカラムキーリスト（指定しない場合はinlineEditable=trueのカラムすべて）
+  columns?: string[];
+  // セルクリック時のカスタムハンドラ（ステージセルクリックでモーダルを開く等）
+  onCellClick?: (row: Record<string, unknown>, columnKey: string) => boolean | void;
+  // 動的に選択肢を取得する関数（row情報から選択肢を決定する場合）
+  getOptions?: (row: Record<string, unknown>, columnKey: string) => EditableCellOption[];
+  // 編集可能かどうかを動的に判定する関数
+  isEditable?: (row: Record<string, unknown>, columnKey: string) => boolean;
+  // 表示用カラムから編集用カラムへのマッピング（例: leadSourceName -> leadSourceId）
+  displayToEditMapping?: Record<string, string>;
+};
+
 type CrudTableProps = {
   data: Record<string, unknown>[];
   columns: ColumnDef[];
@@ -106,6 +125,7 @@ type CrudTableProps = {
   onUpdate?: (id: number, data: Record<string, unknown>) => Promise<void>;
   onDelete?: (id: number) => Promise<void>;
   title?: string;
+  addButtonLabel?: string; // 追加ボタンのラベル
   enableInputModeToggle?: boolean; // 簡易/詳細入力モード切り替えを有効にする
   customActions?: CustomAction[]; // カスタムアクションボタン
   customRenderers?: CustomRenderers; // カスタムセルレンダラー
@@ -115,6 +135,10 @@ type CrudTableProps = {
   sortableItems?: SortableItem[]; // 並び替え用のアイテムリスト
   onReorder?: (orderedIds: number[]) => Promise<void>; // 並び替え完了時のコールバック
   sortableGrouped?: boolean; // グループ内並び替えモード（顧客種別など）
+  customAddButton?: React.ReactNode; // カスタム追加ボタン（onAddの代わりにカスタムの追加処理を行う場合）
+  // インライン編集機能
+  enableInlineEdit?: boolean; // インライン編集を有効にする
+  inlineEditConfig?: InlineEditConfig; // インライン編集の設定
 };
 
 function formatValue(value: unknown, type?: string): string {
@@ -176,6 +200,7 @@ export function CrudTable({
   onUpdate,
   onDelete,
   title,
+  addButtonLabel = "追加",
   enableInputModeToggle = false,
   customActions = [],
   customRenderers = {},
@@ -184,6 +209,9 @@ export function CrudTable({
   sortableItems,
   onReorder,
   sortableGrouped = false,
+  customAddButton,
+  enableInlineEdit = false,
+  inlineEditConfig,
 }: CrudTableProps) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editItem, setEditItem] = useState<Record<string, unknown> | null>(null);
@@ -192,6 +220,18 @@ export function CrudTable({
   const [loading, setLoading] = useState(false);
   const [isSimpleMode, setIsSimpleMode] = useState(true); // デフォルトは簡易入力モード
   const [isSortModalOpen, setIsSortModalOpen] = useState(false);
+
+  // インライン編集用の状態
+  const [editingCell, setEditingCell] = useState<{ rowId: number; columnKey: string } | null>(null);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [pendingChange, setPendingChange] = useState<{
+    rowId: number;
+    columnKey: string;
+    oldValue: unknown;
+    newValue: unknown;
+    fieldName: string;
+  } | null>(null);
+  const [inlineLoading, setInlineLoading] = useState(false);
 
   // 新規作成時の編集可能カラム
   const editableColumnsForCreate = columns.filter((col) => {
@@ -221,6 +261,195 @@ export function CrudTable({
     ? editableColumnsForUpdate.filter((col) => col.simpleMode === true)
     : editableColumnsForUpdate;
 
+  // インライン編集可能なカラムを取得
+  const getInlineEditableColumns = useCallback(() => {
+    if (!enableInlineEdit) return [];
+    if (inlineEditConfig?.columns) {
+      return columns.filter((col) => inlineEditConfig.columns!.includes(col.key));
+    }
+    return columns.filter((col) => col.inlineEditable === true);
+  }, [enableInlineEdit, inlineEditConfig?.columns, columns]);
+
+  // カラムがインライン編集可能かチェック
+  const isColumnInlineEditable = useCallback(
+    (columnKey: string, row: Record<string, unknown>) => {
+      if (!enableInlineEdit) {
+        return false;
+      }
+
+      // カラム設定から判定
+      const col = columns.find((c) => c.key === columnKey);
+      if (!col) {
+        return false;
+      }
+
+      // 表示用→編集用のマッピングがある場合
+      const mappedEditKey = inlineEditConfig?.displayToEditMapping?.[columnKey];
+      if (mappedEditKey) {
+        if (inlineEditConfig?.columns) {
+          if (!inlineEditConfig.columns.includes(mappedEditKey)) {
+            return false;
+          }
+        }
+        if (inlineEditConfig?.isEditable) {
+          return inlineEditConfig.isEditable(row, mappedEditKey);
+        }
+        return true;
+      }
+
+      // inlineEditConfig.columnsが指定されている場合は、まずそのリストに含まれているかチェック
+      if (inlineEditConfig?.columns) {
+        if (!inlineEditConfig.columns.includes(columnKey)) {
+          return false; // リストに含まれていなければ編集不可
+        }
+        // カスタム判定関数がある場合は追加のチェック
+        if (inlineEditConfig.isEditable) {
+          return inlineEditConfig.isEditable(row, columnKey);
+        }
+        return true;
+      }
+
+      // カスタム判定関数がある場合
+      if (inlineEditConfig?.isEditable) {
+        return inlineEditConfig.isEditable(row, columnKey);
+      }
+
+      // カラムのinlineEditable設定を参照
+      return col.inlineEditable === true;
+    },
+    [enableInlineEdit, inlineEditConfig, columns]
+  );
+
+  // インライン編集用の選択肢を取得
+  const getInlineEditOptions = useCallback(
+    (row: Record<string, unknown>, columnKey: string): EditableCellOption[] => {
+      // カスタム選択肢取得関数がある場合
+      if (inlineEditConfig?.getOptions) {
+        return inlineEditConfig.getOptions(row, columnKey);
+      }
+
+      const col = columns.find((c) => c.key === columnKey);
+      if (!col) return [];
+
+      // 動的選択肢
+      if (col.dynamicOptionsKey && col.dependsOn) {
+        const dependsOnValue = row[col.dependsOn];
+        if (dependsOnValue != null && dynamicOptions[col.dynamicOptionsKey]) {
+          return dynamicOptions[col.dynamicOptionsKey][String(dependsOnValue)] || [];
+        }
+        return [];
+      }
+
+      return col.options || [];
+    },
+    [inlineEditConfig, columns, dynamicOptions]
+  );
+
+  // セルクリックハンドラ
+  const handleCellClick = useCallback(
+    (row: Record<string, unknown>, columnKey: string) => {
+      // カスタムクリックハンドラがある場合
+      if (inlineEditConfig?.onCellClick) {
+        const handled = inlineEditConfig.onCellClick(row, columnKey);
+        if (handled === true) return; // カスタムハンドラで処理済み
+      }
+
+      // インライン編集可能かチェック（元のカラムで判定）
+      if (!isColumnInlineEditable(columnKey, row)) return;
+
+      // 表示用→編集用のマッピングを適用
+      const editColumnKey = inlineEditConfig?.displayToEditMapping?.[columnKey] || columnKey;
+
+      // 同じセルをクリックした場合は何もしない（既に編集中）
+      if (
+        editingCell?.rowId === (row.id as number) &&
+        editingCell?.columnKey === editColumnKey
+      ) {
+        return;
+      }
+
+      // 別のセルをクリック → 新しい編集セルを設定（前の編集は自動的にキャンセル）
+      setEditingCell({ rowId: row.id as number, columnKey: editColumnKey });
+    },
+    [editingCell, inlineEditConfig, isColumnInlineEditable]
+  );
+
+  // インライン編集の保存処理
+  const handleInlineSave = useCallback(
+    (row: Record<string, unknown>, columnKey: string, newValue: unknown, displayFieldName?: string) => {
+      const col = columns.find((c) => c.key === columnKey);
+      if (!col) return;
+
+      const oldValue = row[columnKey];
+
+      // 値が変わっていない場合はキャンセル
+      if (oldValue === newValue) {
+        setEditingCell(null);
+        return;
+      }
+
+      // 配列の比較（multiselect用）
+      if (Array.isArray(oldValue) && Array.isArray(newValue)) {
+        const oldArr = oldValue as string[];
+        const newArr = newValue as string[];
+        if (
+          oldArr.length === newArr.length &&
+          oldArr.every((v) => newArr.includes(v))
+        ) {
+          setEditingCell(null);
+          return;
+        }
+      }
+
+      // 確認ダイアログを表示（表示用カラムのヘッダー名を優先使用）
+      setPendingChange({
+        rowId: row.id as number,
+        columnKey,
+        oldValue,
+        newValue,
+        fieldName: displayFieldName || col.header,
+      });
+      setConfirmDialogOpen(true);
+    },
+    [columns]
+  );
+
+  // 確認ダイアログでの保存実行
+  const handleConfirmSave = async () => {
+    if (!pendingChange || !onUpdate) return;
+
+    setInlineLoading(true);
+    try {
+      await onUpdate(pendingChange.rowId, { [pendingChange.columnKey]: pendingChange.newValue });
+      toast.success("更新しました");
+      setEditingCell(null);
+      setConfirmDialogOpen(false);
+      setPendingChange(null);
+    } catch {
+      toast.error("更新に失敗しました");
+    } finally {
+      setInlineLoading(false);
+    }
+  };
+
+  // 確認ダイアログキャンセル
+  const handleConfirmCancel = () => {
+    setConfirmDialogOpen(false);
+    setPendingChange(null);
+    setEditingCell(null);
+  };
+
+  // 値を表示用にフォーマット（確認ダイアログ用）
+  const formatValueForConfirmation = (value: unknown, columnKey: string, row: Record<string, unknown>): string => {
+    const col = columns.find((c) => c.key === columnKey);
+    if (!col) return String(value ?? "-");
+
+    const type = (col.type || "text") as EditableCellType;
+    const options = getInlineEditOptions(row, columnKey);
+
+    return formatDisplayValue(value, type, options);
+  };
+
   const handleAdd = async () => {
     if (!onAdd) return;
     setLoading(true);
@@ -229,8 +458,9 @@ export function CrudTable({
       toast.success("追加しました");
       setIsAddOpen(false);
       setFormData({});
-    } catch {
-      toast.error("追加に失敗しました");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "追加に失敗しました";
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -409,7 +639,8 @@ export function CrudTable({
       return customFormFields[col.key].render(
         value,
         (newValue) => setFormData({ ...formData, [col.key]: newValue }),
-        formData
+        formData,
+        setFormData
       );
     }
 
@@ -471,10 +702,10 @@ export function CrudTable({
               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-[400px] p-0">
-            <Command>
+          <PopoverContent className="w-[400px] p-0" align="start">
+            <Command shouldFilter={false}>
               <CommandInput placeholder="検索..." />
-              <CommandList>
+              <CommandList maxHeight={300}>
                 <CommandEmpty>
                   {col.dependsOn && !formData[col.dependsOn] ? "先に企業を選択してください" : "見つかりませんでした"}
                 </CommandEmpty>
@@ -527,10 +758,10 @@ export function CrudTable({
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[400px] p-0">
+            <PopoverContent className="w-[400px] p-0" align="start">
               <Command>
                 <CommandInput placeholder="検索..." />
-                <CommandList>
+                <CommandList maxHeight={300}>
                   <CommandEmpty>{col.dependsOn && !formData[col.dependsOn] ? "先に企業を選択してください" : "見つかりませんでした"}</CommandEmpty>
                   <CommandGroup>
                     <CommandItem
@@ -688,12 +919,14 @@ export function CrudTable({
               並び替え
             </Button>
           )}
-          {onAdd && (
+          {customAddButton ? (
+            customAddButton
+          ) : onAdd ? (
             <Button onClick={openAddDialog}>
               <Plus className="mr-2 h-4 w-4" />
-              新規追加
+              {addButtonLabel}
             </Button>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -724,13 +957,51 @@ export function CrudTable({
             ) : (
               filteredData.map((item, index) => (
                 <TableRow key={(item.id as number) || index}>
-                  {visibleColumns.map((col) => (
-                    <TableCell key={col.key} className="whitespace-nowrap max-w-xs overflow-auto">
-                      {customRenderers[col.key]
-                        ? customRenderers[col.key](item[col.key], item)
-                        : formatValue(item[col.key], col.type)}
-                    </TableCell>
-                  ))}
+                  {visibleColumns.map((col) => {
+                    // 表示用カラムから編集用カラムへのマッピングを取得
+                    const editColumnKey = inlineEditConfig?.displayToEditMapping?.[col.key] || col.key;
+                    // 編集中かどうか（マッピングを考慮）
+                    const isEditing =
+                      editingCell?.rowId === (item.id as number) &&
+                      (editingCell?.columnKey === col.key || editingCell?.columnKey === editColumnKey);
+                    const isInlineEditable = isColumnInlineEditable(col.key, item);
+                    // 編集用カラムの定義を取得（マッピングがある場合）
+                    const editCol = editColumnKey !== col.key
+                      ? columns.find((c) => c.key === editColumnKey)
+                      : col;
+
+                    return (
+                      <TableCell
+                        key={col.key}
+                        className={cn(
+                          col.type === "textarea" ? "" : "whitespace-nowrap max-w-xs overflow-auto",
+                          isInlineEditable && !isEditing && "cursor-pointer hover:bg-muted/50 transition-colors"
+                        )}
+                        onClick={
+                          isInlineEditable && !isEditing
+                            ? () => handleCellClick(item, col.key)
+                            : undefined
+                        }
+                      >
+                        {isEditing ? (
+                          <EditableCell
+                            value={item[editColumnKey]}
+                            type={((editCol?.type || col.type) || "text") as EditableCellType}
+                            options={getInlineEditOptions(item, editColumnKey)}
+                            searchable={editCol?.searchable ?? col.searchable}
+                            onSave={(newValue) => handleInlineSave(item, editColumnKey, newValue, col.header)}
+                            onCancel={() => setEditingCell(null)}
+                          />
+                        ) : customRenderers[col.key] ? (
+                          customRenderers[col.key](item[col.key], item)
+                        ) : col.type === "textarea" ? (
+                          <TextPreviewCell text={item[col.key] as string | null | undefined} title={col.header} />
+                        ) : (
+                          formatValue(item[col.key], col.type)
+                        )}
+                      </TableCell>
+                    );
+                  })}
                   {(onUpdate || onDelete || customActions.length > 0) && (
                     <TableCell>
                       <div className="flex gap-1">
@@ -878,6 +1149,33 @@ export function CrudTable({
           items={sortableItems}
           onReorder={onReorder}
           grouped={sortableGrouped}
+        />
+      )}
+
+      {/* Inline Edit Confirmation Dialog */}
+      {enableInlineEdit && pendingChange && (
+        <ChangeConfirmationDialog
+          open={confirmDialogOpen}
+          onOpenChange={(open) => {
+            if (!open) handleConfirmCancel();
+          }}
+          changes={[
+            {
+              fieldName: pendingChange.fieldName,
+              oldValue: formatValueForConfirmation(
+                pendingChange.oldValue,
+                pendingChange.columnKey,
+                data.find((d) => d.id === pendingChange.rowId) || {}
+              ),
+              newValue: formatValueForConfirmation(
+                pendingChange.newValue,
+                pendingChange.columnKey,
+                data.find((d) => d.id === pendingChange.rowId) || {}
+              ),
+            },
+          ]}
+          onConfirm={handleConfirmSave}
+          loading={inlineLoading}
         />
       )}
     </div>

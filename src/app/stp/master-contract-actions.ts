@@ -2,6 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
+import {
+  generateContractNumber,
+  getNextContractNumber as getNextNumber,
+} from "@/lib/contracts/generate-number";
+import {
+  recordStatusChangeIfNeeded,
+  recordContractCreationInTx,
+} from "@/lib/contract-status/record-status-change";
 
 const STP_PROJECT_ID = 1; // 採用ブースト
 
@@ -11,7 +20,6 @@ type ContractInput = {
   startDate?: string | null;
   endDate?: string | null;
   currentStatusId?: number | null;
-  targetDate?: string | null;
   signedDate?: string | null;
   signingMethod?: string | null;
   filePath?: string | null;
@@ -21,33 +29,10 @@ type ContractInput = {
 };
 
 /**
- * 契約番号を自動生成
- * フォーマット: STP-YYYYMM-XXX（XXXは月ごとの連番）
- */
-async function generateContractNumber(): Promise<string> {
-  const now = new Date();
-  const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const prefix = `STP-${yearMonth}-`;
-
-  // 今月の契約書の数を取得
-  const count = await prisma.masterContract.count({
-    where: {
-      projectId: STP_PROJECT_ID,
-      contractNumber: {
-        startsWith: prefix,
-      },
-    },
-  });
-
-  const sequenceNumber = String(count + 1).padStart(3, "0");
-  return `${prefix}${sequenceNumber}`;
-}
-
-/**
  * 次の契約番号をプレビュー取得（保存前に表示用）
  */
 export async function getNextContractNumber(): Promise<string> {
-  return generateContractNumber();
+  return getNextNumber();
 }
 
 /**
@@ -75,7 +60,6 @@ export async function getMasterContracts(companyId: number) {
     endDate: c.endDate?.toISOString() || null,
     currentStatusId: c.currentStatusId,
     currentStatusName: c.currentStatus?.name || null,
-    targetDate: c.targetDate?.toISOString() || null,
     signedDate: c.signedDate?.toISOString() || null,
     signingMethod: c.signingMethod,
     filePath: c.filePath,
@@ -97,28 +81,45 @@ export async function addMasterContract(companyId: number, data: ContractInput):
   // 契約番号を自動生成
   const contractNumber = await generateContractNumber();
 
-  await prisma.masterContract.create({
-    data: {
-      companyId,
-      projectId: STP_PROJECT_ID,
-      contractNumber,
-      contractType: data.contractType,
-      title: data.title,
-      startDate: data.startDate ? new Date(data.startDate) : null,
-      endDate: data.endDate ? new Date(data.endDate) : null,
-      currentStatusId: data.currentStatusId || null,
-      targetDate: data.targetDate ? new Date(data.targetDate) : null,
-      signedDate: data.signedDate ? new Date(data.signedDate) : null,
-      signingMethod: data.signingMethod || null,
-      filePath: data.filePath || null,
-      fileName: data.fileName || null,
-      assignedTo: data.assignedTo || null,
-      note: data.note || null,
-    },
+  // セッションからユーザー名を取得
+  const session = await auth();
+  const changedBy = session?.user?.name ?? null;
+
+  // トランザクションで作成と履歴記録を実行
+  await prisma.$transaction(async (tx) => {
+    const contract = await tx.masterContract.create({
+      data: {
+        companyId,
+        projectId: STP_PROJECT_ID,
+        contractNumber,
+        contractType: data.contractType,
+        title: data.title,
+        startDate: data.startDate ? new Date(data.startDate) : null,
+        endDate: data.endDate ? new Date(data.endDate) : null,
+        currentStatusId: data.currentStatusId || null,
+        signedDate: data.signedDate ? new Date(data.signedDate) : null,
+        signingMethod: data.signingMethod || null,
+        filePath: data.filePath || null,
+        fileName: data.fileName || null,
+        assignedTo: data.assignedTo || null,
+        note: data.note || null,
+      },
+    });
+
+    // ステータスが設定されている場合は履歴を記録
+    if (data.currentStatusId) {
+      await recordContractCreationInTx(
+        tx,
+        contract.id,
+        data.currentStatusId,
+        changedBy ?? undefined
+      );
+    }
   });
 
   revalidatePath("/stp/companies");
   revalidatePath("/stp/agents");
+  revalidatePath("/stp/contracts");
 
   return contractNumber;
 }
@@ -129,26 +130,53 @@ export async function addMasterContract(companyId: number, data: ContractInput):
  * @param data 契約書データ
  */
 export async function updateMasterContract(id: number, data: ContractInput) {
-  await prisma.masterContract.update({
-    where: { id },
-    data: {
-      contractType: data.contractType,
-      title: data.title,
-      startDate: data.startDate ? new Date(data.startDate) : null,
-      endDate: data.endDate ? new Date(data.endDate) : null,
-      currentStatusId: data.currentStatusId || null,
-      targetDate: data.targetDate ? new Date(data.targetDate) : null,
-      signedDate: data.signedDate ? new Date(data.signedDate) : null,
-      signingMethod: data.signingMethod || null,
-      filePath: data.filePath || null,
-      fileName: data.fileName || null,
-      assignedTo: data.assignedTo || null,
-      note: data.note || null,
-    },
+  const newStatusId = data.currentStatusId || null;
+
+  // セッションからユーザー名を取得
+  const session = await auth();
+  const changedBy = session?.user?.name ?? null;
+
+  // トランザクションで更新と履歴記録を実行
+  await prisma.$transaction(async (tx) => {
+    // 更新前のステータスを取得
+    const currentContract = await tx.masterContract.findUnique({
+      where: { id },
+      select: { currentStatusId: true },
+    });
+
+    const currentStatusId = currentContract?.currentStatusId ?? null;
+
+    // 契約書を更新
+    await tx.masterContract.update({
+      where: { id },
+      data: {
+        contractType: data.contractType,
+        title: data.title,
+        startDate: data.startDate ? new Date(data.startDate) : null,
+        endDate: data.endDate ? new Date(data.endDate) : null,
+        currentStatusId: newStatusId,
+        signedDate: data.signedDate ? new Date(data.signedDate) : null,
+        signingMethod: data.signingMethod || null,
+        filePath: data.filePath || null,
+        fileName: data.fileName || null,
+        assignedTo: data.assignedTo || null,
+        note: data.note || null,
+      },
+    });
+
+    // ステータスが変更された場合は履歴を記録
+    await recordStatusChangeIfNeeded(
+      tx,
+      id,
+      currentStatusId,
+      newStatusId,
+      changedBy ?? undefined
+    );
   });
 
   revalidatePath("/stp/companies");
   revalidatePath("/stp/agents");
+  revalidatePath("/stp/contracts");
 }
 
 /**
@@ -162,6 +190,7 @@ export async function deleteMasterContract(id: number) {
 
   revalidatePath("/stp/companies");
   revalidatePath("/stp/agents");
+  revalidatePath("/stp/contracts");
 }
 
 /**

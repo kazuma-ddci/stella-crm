@@ -96,6 +96,10 @@ export async function getStageManagementData(
       ? mapStageToInfo(company.nextTargetStage)
       : null,
     nextTargetDate: company.nextTargetDate,
+    // 理由（検討中・失注の場合）
+    pendingReason: company.pendingReason,
+    lostReason: company.lostReason,
+    pendingResponseDate: company.pendingResponseDate,
     histories: company.stageHistories.map(mapHistoryToRecord),
     statistics: {
       ...statistics,
@@ -374,4 +378,96 @@ function mapHistoryToRecord(history: {
     fromStage: history.fromStage ? mapStageToInfo(history.fromStage) : null,
     toStage: history.toStage ? mapStageToInfo(history.toStage) : null,
   };
+}
+
+/**
+ * 理由のみを更新（ステージ変更なし）
+ * 履歴にreason_updatedイベントを記録する
+ */
+export async function updateReasonOnly(params: {
+  stpCompanyId: number;
+  lostReason?: string | null;
+  pendingReason?: string | null;
+  pendingResponseDate?: Date | null;
+}): Promise<{ success: boolean; error?: string }> {
+  const { stpCompanyId, lostReason, pendingReason, pendingResponseDate } = params;
+
+  // 現在の状態を取得
+  const company = await prisma.stpCompany.findUnique({
+    where: { id: stpCompanyId },
+    select: { pendingReason: true, lostReason: true, pendingResponseDate: true },
+  });
+
+  if (!company) {
+    return { success: false, error: "企業が見つかりません" };
+  }
+
+  // 変更があるかチェック
+  const isPendingReasonChanged = pendingReason !== undefined && company.pendingReason !== pendingReason;
+  const isLostReasonChanged = lostReason !== undefined && company.lostReason !== lostReason;
+  const isPendingResponseDateChanged = pendingResponseDate !== undefined &&
+    (company.pendingResponseDate?.getTime() !== pendingResponseDate?.getTime());
+
+  if (!isPendingReasonChanged && !isLostReasonChanged && !isPendingResponseDateChanged) {
+    return { success: false, error: "変更がありません" };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 検討理由が変更された場合、履歴を記録
+      if (isPendingReasonChanged) {
+        await tx.stpStageHistory.create({
+          data: {
+            stpCompanyId,
+            eventType: "reason_updated",
+            fromStageId: null,
+            toStageId: null,
+            targetDate: null,
+            note: null,
+            alertAcknowledged: false,
+            pendingReason: pendingReason ?? null,
+          },
+        });
+      }
+
+      // 失注理由が変更された場合、履歴を記録
+      if (isLostReasonChanged) {
+        await tx.stpStageHistory.create({
+          data: {
+            stpCompanyId,
+            eventType: "reason_updated",
+            fromStageId: null,
+            toStageId: null,
+            targetDate: null,
+            note: null,
+            alertAcknowledged: false,
+            lostReason: lostReason ?? null,
+          },
+        });
+      }
+
+      // 企業情報を更新
+      const updateData: Record<string, unknown> = {};
+      if (pendingReason !== undefined) {
+        updateData.pendingReason = pendingReason;
+      }
+      if (lostReason !== undefined) {
+        updateData.lostReason = lostReason;
+      }
+      if (pendingResponseDate !== undefined) {
+        updateData.pendingResponseDate = pendingResponseDate;
+      }
+
+      await tx.stpCompany.update({
+        where: { id: stpCompanyId },
+        data: updateData,
+      });
+    });
+
+    revalidatePath("/stp/companies");
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to update reason:", error);
+    return { success: false, error: "理由の更新に失敗しました" };
+  }
 }

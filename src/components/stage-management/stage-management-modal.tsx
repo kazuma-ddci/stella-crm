@@ -25,6 +25,7 @@ import { StageHistorySection } from "./stage-history-section";
 import { StatisticsSection } from "./statistics-section";
 import { StageUpdateForm } from "./stage-update-form";
 import { StageAlertDialog } from "./alert-dialog";
+import { ReasonEditSection } from "./reason-edit-section";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
@@ -246,6 +247,15 @@ export function StageManagementModal({
                   stages={data.stages}
                   currentStageId={data.currentStageId}
                   targetStageId={data.nextTargetStageId}
+                />
+                <ReasonEditSection
+                  data={data}
+                  onUpdateSuccess={async () => {
+                    // データを再取得
+                    const result = await getStageManagementData(stpCompanyId!);
+                    setData(result);
+                    onUpdateSuccess?.();
+                  }}
                 />
                 <StageHistorySection histories={data.histories} />
                 <StatisticsSection statistics={data.statistics} />

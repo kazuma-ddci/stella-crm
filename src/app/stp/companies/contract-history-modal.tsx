@@ -39,6 +39,9 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import DatePicker, { registerLocale } from "react-datepicker";
+import { ja } from "date-fns/locale";
+import "react-datepicker/dist/react-datepicker.css";
 import {
   getContractHistories,
   addContractHistory,
@@ -47,6 +50,10 @@ import {
   getStaffList,
   ContractHistoryData,
 } from "./contract-history-actions";
+import { TextPreviewCell } from "@/components/text-preview-cell";
+
+// 日本語ロケールを登録
+registerLocale("ja", ja);
 
 // 選択肢の定義
 const industryTypeOptions = [
@@ -69,6 +76,26 @@ const statusOptions = [
   { value: "active", label: "契約中" },
   { value: "cancelled", label: "解約" },
   { value: "dormant", label: "休眠" },
+];
+
+const operationStatusOptions = [
+  { value: "テスト1", label: "テスト1" },
+  { value: "テスト2", label: "テスト2" },
+];
+
+const jobMediaOptions = [
+  { value: "Indeed", label: "Indeed" },
+  { value: "Wantedly", label: "Wantedly" },
+  { value: "リクナビNEXT", label: "リクナビNEXT" },
+  { value: "マイナビ転職", label: "マイナビ転職" },
+  { value: "doda", label: "doda" },
+  { value: "エン転職", label: "エン転職" },
+  { value: "ビズリーチ", label: "ビズリーチ" },
+  { value: "Green", label: "Green" },
+  { value: "type転職エージェント", label: "type転職エージェント" },
+  { value: "求人ボックス", label: "求人ボックス" },
+  { value: "バイトル", label: "バイトル" },
+  { value: "はたらいく", label: "はたらいく" },
 ];
 
 // 月額費用の自動計算
@@ -98,6 +125,7 @@ type ContractHistory = {
   companyId: number;
   industryType: string;
   contractPlan: string;
+  jobMedia: string | null;
   contractStartDate: string;
   contractEndDate: string | null;
   initialFee: number;
@@ -109,6 +137,9 @@ type ContractHistory = {
   operationStaffName: string | null;
   status: string;
   note: string | null;
+  operationStatus: string | null;
+  accountId: string | null;
+  accountPass: string | null;
 };
 
 type Props = {
@@ -180,7 +211,8 @@ export function ContractHistoryModal({
     return {
       industryType: defaultIndustryType,
       contractPlan: defaultContractPlan,
-      contractStartDate: new Date().toISOString().split("T")[0],
+      jobMedia: null,
+      contractStartDate: "",
       contractEndDate: null,
       initialFee: 0,
       monthlyFee: calculateMonthlyFee(defaultIndustryType, defaultContractPlan),
@@ -189,6 +221,9 @@ export function ContractHistoryModal({
       operationStaffId: null,
       status: "active",
       note: null,
+      operationStatus: null,
+      accountId: null,
+      accountPass: null,
     };
   };
 
@@ -207,6 +242,7 @@ export function ContractHistoryModal({
     setFormData({
       industryType: history.industryType,
       contractPlan: history.contractPlan,
+      jobMedia: history.jobMedia,
       contractStartDate: history.contractStartDate,
       contractEndDate: history.contractEndDate,
       initialFee: history.initialFee,
@@ -216,6 +252,9 @@ export function ContractHistoryModal({
       operationStaffId: history.operationStaffId,
       status: history.status,
       note: history.note,
+      operationStatus: history.operationStatus,
+      accountId: history.accountId,
+      accountPass: history.accountPass,
     });
 
     // 自動計算値と異なる場合は手動入力モードにする
@@ -275,9 +314,10 @@ export function ContractHistoryModal({
     }
     setLoading(true);
     try {
-      await addContractHistory(companyId, {
+      const result = await addContractHistory(companyId, {
         industryType: formData.industryType,
         contractPlan: formData.contractPlan,
+        jobMedia: formData.jobMedia || null,
         contractStartDate: formData.contractStartDate,
         contractEndDate: formData.contractEndDate || null,
         initialFee: formData.initialFee || 0,
@@ -287,15 +327,25 @@ export function ContractHistoryModal({
         operationStaffId: formData.operationStaffId || null,
         status: formData.status || "active",
         note: formData.note || null,
+        operationStatus: formData.operationStatus || null,
+        accountId: formData.accountId || null,
+        accountPass: formData.accountPass || null,
       });
+      if (!result.success) {
+        console.error("契約履歴追加エラー:", result.error);
+        toast.error(`追加に失敗しました: ${result.error}`);
+        return;
+      }
       await loadData();
       toast.success("契約履歴を追加しました");
       setIsAddMode(false);
       setFormData({});
       setIsManualMonthlyFee(false);
       setIsManualPerformanceFee(false);
-    } catch {
-      toast.error("追加に失敗しました");
+    } catch (error) {
+      console.error("契約履歴追加エラー:", error);
+      const errorMessage = error instanceof Error ? error.message : "不明なエラー";
+      toast.error(`追加に失敗しました: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
@@ -313,9 +363,10 @@ export function ContractHistoryModal({
     }
     setLoading(true);
     try {
-      await updateContractHistory(editHistory.id, {
+      const result = await updateContractHistory(editHistory.id, {
         industryType: pendingEditData.industryType,
         contractPlan: pendingEditData.contractPlan,
+        jobMedia: pendingEditData.jobMedia || null,
         contractStartDate: pendingEditData.contractStartDate,
         contractEndDate: pendingEditData.contractEndDate || null,
         initialFee: pendingEditData.initialFee || 0,
@@ -325,7 +376,15 @@ export function ContractHistoryModal({
         operationStaffId: pendingEditData.operationStaffId || null,
         status: pendingEditData.status || "active",
         note: pendingEditData.note || null,
+        operationStatus: pendingEditData.operationStatus || null,
+        accountId: pendingEditData.accountId || null,
+        accountPass: pendingEditData.accountPass || null,
       });
+      if (!result.success) {
+        console.error("契約履歴更新エラー:", result.error);
+        toast.error(`更新に失敗しました: ${result.error}`);
+        return;
+      }
       await loadData();
       toast.success("契約履歴を更新しました");
       setEditHistory(null);
@@ -334,8 +393,10 @@ export function ContractHistoryModal({
       setPendingEditData(null);
       setIsManualMonthlyFee(false);
       setIsManualPerformanceFee(false);
-    } catch {
-      toast.error("更新に失敗しました");
+    } catch (error) {
+      console.error("契約履歴更新エラー:", error);
+      const errorMessage = error instanceof Error ? error.message : "不明なエラー";
+      toast.error(`更新に失敗しました: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
@@ -345,12 +406,19 @@ export function ContractHistoryModal({
     if (!deleteConfirm) return;
     setLoading(true);
     try {
-      await deleteContractHistory(deleteConfirm.id);
+      const result = await deleteContractHistory(deleteConfirm.id);
+      if (!result.success) {
+        console.error("契約履歴削除エラー:", result.error);
+        toast.error(`削除に失敗しました: ${result.error}`);
+        return;
+      }
       await loadData();
       toast.success("契約履歴を削除しました");
       setDeleteConfirm(null);
-    } catch {
-      toast.error("削除に失敗しました");
+    } catch (error) {
+      console.error("契約履歴削除エラー:", error);
+      const errorMessage = error instanceof Error ? error.message : "不明なエラー";
+      toast.error(`削除に失敗しました: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
@@ -405,23 +473,64 @@ export function ContractHistoryModal({
           </Select>
         </div>
       </div>
+      <div className="space-y-2">
+        <Label>求人媒体</Label>
+        <Select
+          value={formData.jobMedia || "none"}
+          onValueChange={(v) => setFormData({ ...formData, jobMedia: v === "none" ? null : v })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="選択してください" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">選択なし</SelectItem>
+            {jobMediaOptions.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>
             契約開始日 <span className="text-destructive">*</span>
           </Label>
-          <Input
-            type="date"
-            value={formData.contractStartDate || ""}
-            onChange={(e) => setFormData({ ...formData, contractStartDate: e.target.value })}
+          <DatePicker
+            selected={formData.contractStartDate ? new Date(formData.contractStartDate) : null}
+            onChange={(date: Date | null) => {
+              setFormData({
+                ...formData,
+                contractStartDate: date ? date.toISOString().split("T")[0] : "",
+              });
+            }}
+            dateFormat="yyyy/MM/dd"
+            locale="ja"
+            placeholderText="日付を選択"
+            isClearable
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            wrapperClassName="w-full"
+            calendarClassName="shadow-lg"
           />
         </div>
         <div className="space-y-2">
           <Label>契約終了日</Label>
-          <Input
-            type="date"
-            value={formData.contractEndDate || ""}
-            onChange={(e) => setFormData({ ...formData, contractEndDate: e.target.value || null })}
+          <DatePicker
+            selected={formData.contractEndDate ? new Date(formData.contractEndDate) : null}
+            onChange={(date: Date | null) => {
+              setFormData({
+                ...formData,
+                contractEndDate: date ? date.toISOString().split("T")[0] : null,
+              });
+            }}
+            dateFormat="yyyy/MM/dd"
+            locale="ja"
+            placeholderText="日付を選択"
+            isClearable
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            wrapperClassName="w-full"
+            calendarClassName="shadow-lg"
           />
         </div>
       </div>
@@ -566,6 +675,45 @@ export function ContractHistoryModal({
         </Select>
       </div>
       <div className="space-y-2">
+        <Label>運用ステータス</Label>
+        <Select
+          value={formData.operationStatus || "none"}
+          onValueChange={(v) => setFormData({ ...formData, operationStatus: v === "none" ? null : v })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="選択してください" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">選択なし</SelectItem>
+            {operationStatusOptions.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>アカウントID</Label>
+          <Input
+            type="text"
+            value={formData.accountId || ""}
+            onChange={(e) => setFormData({ ...formData, accountId: e.target.value || null })}
+            placeholder="アカウントIDを入力"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>アカウントPASS</Label>
+          <Input
+            type="text"
+            value={formData.accountPass || ""}
+            onChange={(e) => setFormData({ ...formData, accountPass: e.target.value || null })}
+            placeholder="パスワードを入力"
+          />
+        </div>
+      </div>
+      <div className="space-y-2">
         <Label>備考</Label>
         <Textarea
           value={formData.note || ""}
@@ -605,11 +753,23 @@ export function ContractHistoryModal({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent
+          className="max-w-6xl p-0 overflow-hidden"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            height: '90vh',
+            maxHeight: '90vh'
+          }}
+        >
+          <DialogHeader className="px-6 py-4 border-b shrink-0">
             <DialogTitle>契約履歴管理 - {companyName}</DialogTitle>
           </DialogHeader>
 
+          <div
+            className="px-6 py-4"
+            style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}
+          >
           <div className="space-y-4">
             {/* 追加ボタン */}
             {!isAddMode && !editHistory && (
@@ -634,21 +794,26 @@ export function ContractHistoryModal({
                 契約履歴が登録されていません
               </div>
             ) : (
+              <div className="overflow-x-auto border rounded-lg">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>業種区分</TableHead>
-                    <TableHead>契約プラン</TableHead>
-                    <TableHead>契約開始日</TableHead>
-                    <TableHead>契約終了日</TableHead>
-                    <TableHead className="text-right">初期費用</TableHead>
-                    <TableHead className="text-right">月額</TableHead>
-                    <TableHead className="text-right">成果報酬単価</TableHead>
-                    <TableHead>担当営業</TableHead>
-                    <TableHead>担当運用</TableHead>
-                    <TableHead>ステータス</TableHead>
-                    <TableHead>備考</TableHead>
-                    <TableHead className="w-[100px]">操作</TableHead>
+                    <TableHead className="whitespace-nowrap">業種区分</TableHead>
+                    <TableHead className="whitespace-nowrap">契約プラン</TableHead>
+                    <TableHead className="whitespace-nowrap">求人媒体</TableHead>
+                    <TableHead className="whitespace-nowrap">契約開始日</TableHead>
+                    <TableHead className="whitespace-nowrap">契約終了日</TableHead>
+                    <TableHead className="text-right whitespace-nowrap">初期費用</TableHead>
+                    <TableHead className="text-right whitespace-nowrap">月額</TableHead>
+                    <TableHead className="text-right whitespace-nowrap">成果報酬単価</TableHead>
+                    <TableHead className="whitespace-nowrap">担当営業</TableHead>
+                    <TableHead className="whitespace-nowrap">担当運用</TableHead>
+                    <TableHead className="whitespace-nowrap">ステータス</TableHead>
+                    <TableHead className="whitespace-nowrap">運用ステータス</TableHead>
+                    <TableHead className="whitespace-nowrap">アカウントID</TableHead>
+                    <TableHead className="whitespace-nowrap">アカウントPASS</TableHead>
+                    <TableHead className="whitespace-nowrap">備考</TableHead>
+                    <TableHead className="w-[100px] whitespace-nowrap">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -656,6 +821,7 @@ export function ContractHistoryModal({
                     <TableRow key={history.id}>
                       <TableCell>{getLabelByValue(industryTypeOptions, history.industryType)}</TableCell>
                       <TableCell>{getLabelByValue(contractPlanOptions, history.contractPlan)}</TableCell>
+                      <TableCell>{history.jobMedia || "-"}</TableCell>
                       <TableCell className="whitespace-nowrap">
                         {formatDate(history.contractStartDate)}
                       </TableCell>
@@ -674,13 +840,11 @@ export function ContractHistoryModal({
                       <TableCell>{history.salesStaffName || "-"}</TableCell>
                       <TableCell>{history.operationStaffName || "-"}</TableCell>
                       <TableCell>{getLabelByValue(statusOptions, history.status)}</TableCell>
-                      <TableCell className="max-w-xs">
-                        <div
-                          className="overflow-y-auto whitespace-pre-wrap text-sm"
-                          style={{ maxHeight: "4.5em", lineHeight: "1.5" }}
-                        >
-                          {history.note || "-"}
-                        </div>
+                      <TableCell>{history.operationStatus || "-"}</TableCell>
+                      <TableCell>{history.accountId || "-"}</TableCell>
+                      <TableCell>{history.accountPass || "-"}</TableCell>
+                      <TableCell>
+                        <TextPreviewCell text={history.note} title="備考" />
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
@@ -706,7 +870,9 @@ export function ContractHistoryModal({
                   ))}
                 </TableBody>
               </Table>
+              </div>
             )}
+          </div>
           </div>
         </DialogContent>
       </Dialog>

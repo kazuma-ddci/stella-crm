@@ -14,7 +14,7 @@ const Command = React.forwardRef<
   <CommandPrimitive
     ref={ref}
     className={cn(
-      "flex h-full w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground",
+      "flex h-full w-full flex-col rounded-md bg-popover text-popover-foreground",
       className
     )}
     {...props}
@@ -58,14 +58,48 @@ CommandInput.displayName = CommandPrimitive.Input.displayName
 
 const CommandList = React.forwardRef<
   React.ComponentRef<typeof CommandPrimitive.List>,
-  React.ComponentPropsWithoutRef<typeof CommandPrimitive.List>
->(({ className, ...props }, ref) => (
-  <CommandPrimitive.List
-    ref={ref}
-    className={cn("max-h-[300px] overflow-y-auto overflow-x-hidden", className)}
-    {...props}
-  />
-))
+  React.ComponentPropsWithoutRef<typeof CommandPrimitive.List> & { maxHeight?: number }
+>(({ className, maxHeight = 300, style, ...props }, ref) => {
+  const listRef = React.useRef<HTMLDivElement>(null)
+
+  // マウスホイールイベントを手動で処理
+  React.useEffect(() => {
+    const el = listRef.current
+    if (!el) return
+
+    const handleWheel = (e: WheelEvent) => {
+      e.stopPropagation()
+      el.scrollTop += e.deltaY
+    }
+
+    el.addEventListener("wheel", handleWheel, { passive: true })
+    return () => el.removeEventListener("wheel", handleWheel)
+  }, [])
+
+  // refを結合
+  const combinedRef = (node: HTMLDivElement) => {
+    listRef.current = node
+    if (typeof ref === "function") {
+      ref(node)
+    } else if (ref) {
+      ref.current = node
+    }
+  }
+
+  return (
+    <CommandPrimitive.List
+      ref={combinedRef}
+      className={cn("overflow-y-auto overflow-x-hidden", className)}
+      style={{
+        maxHeight: `${maxHeight}px`,
+        overflowY: "auto",
+        overscrollBehavior: "contain",
+        ...style,
+      }}
+      {...props}
+    />
+  )
+})
 
 CommandList.displayName = CommandPrimitive.List.displayName
 
@@ -89,7 +123,7 @@ const CommandGroup = React.forwardRef<
   <CommandPrimitive.Group
     ref={ref}
     className={cn(
-      "overflow-hidden p-1 text-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground",
+      "p-1 text-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground",
       className
     )}
     {...props}

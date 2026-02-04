@@ -2,62 +2,105 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import crypto from "crypto";
+
+// ユニークなトークンを生成
+function generateToken(): string {
+  return crypto.randomBytes(32).toString("hex");
+}
 
 export async function addAgent(data: Record<string, unknown>) {
   // staffAssignmentsを分離
   const staffAssignmentsRaw = data.staffAssignments as string | string[] | null;
   const staffIds = parseStaffIds(staffAssignmentsRaw);
 
-  await prisma.stpAgent.create({
-    data: {
-      companyId: Number(data.companyId),
-      status: (data.status as string) || "アクティブ",
-      category1: (data.category1 as string) || "代理店",
-      category2: (data.category2 as string) || "法人",
-      meetingDate: data.meetingDate ? new Date(data.meetingDate as string) : null,
-      contractStatus: (data.contractStatus as string) || null,
-      contractNote: (data.contractNote as string) || null,
-      referrerCompanyId: data.referrerCompanyId ? Number(data.referrerCompanyId) : null,
-      note: (data.note as string) || null,
-      staffAssignments: {
-        create: staffIds.map((staffId) => ({ staffId })),
-      },
-    },
-  });
-  revalidatePath("/stp/agents");
-}
-
-export async function updateAgent(id: number, data: Record<string, unknown>) {
-  // staffAssignmentsを分離
-  const staffAssignmentsRaw = data.staffAssignments as string | string[] | null;
-  const staffIds = parseStaffIds(staffAssignmentsRaw);
-
   await prisma.$transaction(async (tx) => {
-    // 代理店情報を更新
-    await tx.stpAgent.update({
-      where: { id },
+    // 代理店を作成
+    const agent = await tx.stpAgent.create({
       data: {
         companyId: Number(data.companyId),
         status: (data.status as string) || "アクティブ",
         category1: (data.category1 as string) || "代理店",
-        category2: (data.category2 as string) || "法人",
-        meetingDate: data.meetingDate ? new Date(data.meetingDate as string) : null,
         contractStatus: (data.contractStatus as string) || null,
-        contractNote: (data.contractNote as string) || null,
         referrerCompanyId: data.referrerCompanyId ? Number(data.referrerCompanyId) : null,
         note: (data.note as string) || null,
+        minimumCases: data.minimumCases ? Number(data.minimumCases) : null,
+        monthlyFee: data.monthlyFee ? Number(data.monthlyFee) : null,
+        staffAssignments: {
+          create: staffIds.map((staffId) => ({ staffId })),
+        },
       },
     });
 
-    // 担当者を更新（既存を全削除してから追加）
-    await tx.stpAgentStaff.deleteMany({
-      where: { agentId: id },
+    // リード獲得フォームのトークンを自動生成
+    await tx.stpLeadFormToken.create({
+      data: {
+        token: generateToken(),
+        agentId: agent.id,
+        status: "active",
+      },
     });
+  });
 
-    if (staffIds.length > 0) {
-      await tx.stpAgentStaff.createMany({
-        data: staffIds.map((staffId) => ({ agentId: id, staffId })),
+  revalidatePath("/stp/agents");
+}
+
+export async function updateAgent(id: number, data: Record<string, unknown>) {
+  // 更新データを動的に構築（渡されたフィールドのみ更新）
+  const updateData: Record<string, unknown> = {};
+
+  if ("status" in data) {
+    updateData.status = (data.status as string) || "アクティブ";
+  }
+  if ("category1" in data) {
+    updateData.category1 = (data.category1 as string) || "代理店";
+  }
+  if ("contractStatus" in data) {
+    updateData.contractStatus = (data.contractStatus as string) || null;
+  }
+  if ("referrerCompanyId" in data) {
+    updateData.referrerCompanyId = data.referrerCompanyId ? Number(data.referrerCompanyId) : null;
+  }
+  if ("note" in data) {
+    updateData.note = (data.note as string) || null;
+  }
+  if ("minimumCases" in data) {
+    updateData.minimumCases = data.minimumCases !== null && data.minimumCases !== undefined
+      ? Number(data.minimumCases)
+      : null;
+  }
+  if ("monthlyFee" in data) {
+    updateData.monthlyFee = data.monthlyFee !== null && data.monthlyFee !== undefined
+      ? Number(data.monthlyFee)
+      : null;
+  }
+
+  // staffAssignmentsが渡された場合は担当者も更新
+  const hasStaffAssignments = "staffAssignments" in data;
+  const staffIds = hasStaffAssignments
+    ? parseStaffIds(data.staffAssignments as string | string[] | null)
+    : [];
+
+  await prisma.$transaction(async (tx) => {
+    // 代理店情報を更新（渡されたフィールドのみ）
+    if (Object.keys(updateData).length > 0) {
+      await tx.stpAgent.update({
+        where: { id },
+        data: updateData,
       });
+    }
+
+    // 担当者を更新（staffAssignmentsが渡された場合のみ）
+    if (hasStaffAssignments) {
+      await tx.stpAgentStaff.deleteMany({
+        where: { agentId: id },
+      });
+
+      if (staffIds.length > 0) {
+        await tx.stpAgentStaff.createMany({
+          data: staffIds.map((staffId) => ({ agentId: id, staffId })),
+        });
+      }
     }
   });
 

@@ -33,6 +33,8 @@ model MasterStellaCompany {
   referredAgents       StpAgent[]           @relation("ReferrerCompany")
   contracts            MasterContract[]
   contactHistories     ContactHistory[]
+  externalUsers        ExternalUser[]
+  registrationTokens   RegistrationToken[]
 
   @@map("master_stella_companies")
 }
@@ -79,7 +81,8 @@ model StellaCompanyContact {
   deletedAt  DateTime?                              // 論理削除日時
 
   // Relations
-  company MasterStellaCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company      MasterStellaCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  externalUser ExternalUser?
 
   @@map("stella_company_contacts")
 }
@@ -91,14 +94,14 @@ model StellaCompanyContact {
 model StpAgent {
   id                Int       @id @default(autoincrement())
   companyId         Int       @unique                          // 代理店企業（MasterStellaCompanyへの外部キー）
-  status            String    @db.VarChar(20)                   // アクティブ/休止/解約
+  status            String    @db.VarChar(20)                   // アクティブ/非アクティブ/解約
   category1         String    @db.VarChar(20)                   // 代理店/顧問
-  category2         String    @db.VarChar(20)                   // 法人/個人
-  meetingDate       DateTime? @db.Date                          // 商談日
   contractStatus    String?   @db.VarChar(20)                   // 契約済み/商談済み/未商談/日程調整中
-  contractNote      String?                                     // 契約内容メモ
   referrerCompanyId Int?                                        // 紹介者（MasterStellaCompanyへの外部キー）
   note              String?                                     // 代理店メモ
+  minimumCases      Int?                                        // 最低件数（顧問のみ）
+  monthlyFee        Int?                                        // 月額費用（顧問のみ）
+  hearingUrl        String?   @db.VarChar(500)                  // ヒアリングURL
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -108,6 +111,7 @@ model StpAgent {
   stpCompanies     StpCompany[]
   contracts        StpAgentContract[]
   staffAssignments StpAgentStaff[]
+  leadFormToken    StpLeadFormToken?
 
   @@map("stp_agents")
 }
@@ -283,12 +287,9 @@ model StpCompany {
 
   // 請求先情報（全顧客マスタの拠点・担当者から選択）
   billingLocationId      Int?                              // 請求先住所（拠点ID）
-  billingContactId       Int?                              // 請求先代表者（担当者ID）
-  billingEmailSource     String?  @db.VarChar(50)          // 請求先アドレス元（location/contact）
   billingCompanyName     String?  @db.VarChar(200)         // 請求先企業名
   billingAddress         String?                           // 請求先住所（選択時にコピー）
-  billingRepresentative  String?  @db.VarChar(100)         // 請求先代表者（選択時にコピー）
-  billingEmail           String?  @db.VarChar(255)         // 請求先アドレス（選択時にコピー）
+  billingRepresentative  String?  @db.VarChar(100)         // 請求先担当者ID（カンマ区切りで複数保存）
   paymentTerms           String?  @db.VarChar(100)         // 支払いサイト
 
   // 連絡方法
@@ -315,6 +316,8 @@ model StpCompany {
   salesStaff          MasterStaff?            @relation("SalesStaffCompanies", fields: [salesStaffId], references: [id])
   stageHistories      StpStageHistory[]
   contracts           StpCompanyContract[]
+  proposals           StpProposal[]
+  kpiSheets           StpKpiSheet[]
 
   @@map("stp_companies")
 }
@@ -365,12 +368,34 @@ model ContactHistory {
   contactMethod ContactMethod?      @relation(fields: [contactMethodId], references: [id])
   staff         MasterStaff?        @relation(fields: [staffId], references: [id])
   roles         ContactHistoryRole[]
+  files         ContactHistoryFile[]
 
   @@index([companyId], map: "idx_contact_histories_company_id")
   @@index([contactDate], map: "idx_contact_histories_contact_date")
   @@index([deletedAt], map: "idx_contact_histories_deleted_at")
   @@index([staffId], map: "idx_contact_histories_staff_id")
   @@map("contact_histories")
+}
+
+// ============================================
+// 接触履歴ファイル (Contact History Files)
+// 接触履歴に添付されたファイルを管理
+// ============================================
+
+model ContactHistoryFile {
+  id               Int       @id @default(autoincrement())
+  contactHistoryId Int       @map("contact_history_id")
+  filePath         String    @db.VarChar(500) @map("file_path")
+  fileName         String    @db.VarChar(200) @map("file_name")
+  fileSize         Int       @map("file_size")
+  mimeType         String    @db.VarChar(100) @map("mime_type")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  contactHistory ContactHistory @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
+
+  @@index([contactHistoryId], map: "idx_contact_history_files_contact_history_id")
+  @@map("contact_history_files")
 }
 
 // ============================================
@@ -468,8 +493,10 @@ model MasterStaff {
   phone        String?   @db.VarChar(20)                  // 電話番号
   contractType String?   @db.VarChar(50)                  // 契約形態（正社員、契約社員、業務委託など）
   loginId      String?   @unique @db.VarChar(100)         // ログインID
-  passwordHash String?   @db.VarChar(255)                 // パスワード（ハッシュ化）
-  isActive     Boolean   @default(true)                   // 有効フラグ
+  passwordHash         String?   @db.VarChar(255)                 // パスワード（ハッシュ化）
+  inviteToken          String?   @unique @db.VarChar(64)          // 招待トークン
+  inviteTokenExpiresAt DateTime?                                  // 招待トークン有効期限
+  isActive             Boolean   @default(true)                   // 有効フラグ
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -483,6 +510,9 @@ model MasterStaff {
   assignedCompanies           MasterStellaCompany[]
   salesStpCompanies           StpCompany[]           @relation("SalesStaffCompanies")
   contactHistories            ContactHistory[]
+  approvedExternalUsers       ExternalUser[]
+  issuedRegistrationTokens    RegistrationToken[]
+  processedLeadSubmissions    StpLeadFormSubmission[]
 
   @@map("master_staff")
 }
@@ -574,6 +604,7 @@ model StpContractHistory {
   companyId         Int                                    // master_stella_companiesへの外部キー
   industryType      String    @db.VarChar(20)              // general（一般）, dispatch（派遣）
   contractPlan      String    @db.VarChar(20)              // monthly（月額）, performance（成果報酬）
+  jobMedia          String?   @db.VarChar(50)              // 求人媒体（Indeed, Wantedly等）
   contractStartDate DateTime  @db.Date                     // 契約開始日
   contractEndDate   DateTime? @db.Date                     // 契約終了日（nullの場合アクティブ）
   initialFee        Int                                    // 初期費用（0, 100000, 150000）
@@ -583,6 +614,9 @@ model StpContractHistory {
   operationStaffId  Int?                                   // 担当運用（master_staffへの外部キー）
   status            String    @db.VarChar(20)              // active, cancelled, dormant
   note              String?                                // 備考
+  operationStatus   String?   @db.VarChar(20)              // 運用ステータス（テスト1,テスト2）
+  accountId         String?   @db.VarChar(100)             // アカウントID
+  accountPass       String?   @db.VarChar(100)             // アカウントPASS
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   deletedAt         DateTime?                              // 論理削除日時
@@ -704,4 +738,415 @@ model MasterContractStatusHistory {
   @@index([contractId], map: "idx_master_contract_status_histories_contract_id")
   @@index([recordedAt], map: "idx_master_contract_status_histories_recorded_at")
   @@map("master_contract_status_histories")
+}
+
+// ============================================
+// 外部ユーザー (External Users)
+// クライアント・代理店担当者向けログインアカウント
+// ============================================
+
+model ExternalUser {
+  id                  Int       @id @default(autoincrement())
+  companyId           Int                                      // 所属企業（MasterStellaCompanyへの外部キー）
+  registrationTokenId Int?                                     // 登録に使用されたトークン
+  contactId           Int?      @unique                        // 担当者情報（任意、StellaCompanyContactへの外部キー）
+  name                String    @db.VarChar(100)               // 名前
+  position            String?   @db.VarChar(100)               // 役職
+  email               String    @unique @db.VarChar(255)       // ログイン用メールアドレス
+  passwordHash        String    @db.VarChar(255)               // パスワード（ハッシュ化）
+  status              String    @default("pending_email") @db.VarChar(20)  // pending_email/pending_approval/active/suspended
+  emailVerifiedAt     DateTime?                                // メール認証日時
+  approvedAt          DateTime?                                // 管理者承認日時
+  approvedBy          Int?                                     // 承認者（MasterStaffへの外部キー）
+  lastLoginAt         DateTime?                                // 最終ログイン日時
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  company                   MasterStellaCompany              @relation(fields: [companyId], references: [id])
+  registrationToken         RegistrationToken?               @relation(fields: [registrationTokenId], references: [id])
+  contact                   StellaCompanyContact?            @relation(fields: [contactId], references: [id])
+  approver                  MasterStaff?                     @relation(fields: [approvedBy], references: [id])
+  displayPermissions        ExternalUserDisplayPermission[]
+  loginHistories            LoginHistory[]
+  emailVerificationTokens   EmailVerificationToken[]
+  passwordResetTokens       PasswordResetToken[]
+
+  @@index([companyId])
+  @@index([status])
+  @@map("external_users")
+}
+
+// ============================================
+// 表示ビュー定義 (Display Views)
+// 外部ユーザー向け画面の定義
+// ============================================
+
+model DisplayView {
+  id           Int      @id @default(autoincrement())
+  viewKey      String   @unique @db.VarChar(50)     // stp_client, stp_agent
+  viewName     String   @db.VarChar(100)            // 採用ブースト（クライアント版）
+  projectCode  String   @db.VarChar(50)             // stp, stella
+  description  String?                              // 説明
+  isActive     Boolean  @default(true)              // 有効フラグ
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  userPermissions            ExternalUserDisplayPermission[]
+  registrationTokenDefaults  RegistrationTokenDefaultView[]
+
+  @@map("display_views")
+}
+
+// ============================================
+// 外部ユーザー表示権限 (External User Display Permissions)
+// ユーザー×ビューの権限管理
+// ============================================
+
+model ExternalUserDisplayPermission {
+  id             Int      @id @default(autoincrement())
+  externalUserId Int
+  displayViewId  Int
+  createdAt      DateTime @default(now())
+
+  // Relations
+  externalUser ExternalUser @relation(fields: [externalUserId], references: [id], onDelete: Cascade)
+  displayView  DisplayView  @relation(fields: [displayViewId], references: [id])
+
+  @@unique([externalUserId, displayViewId])
+  @@map("external_user_display_permissions")
+}
+
+// ============================================
+// 登録トークン (Registration Tokens)
+// 外部ユーザー登録用の招待トークン
+// ============================================
+
+model RegistrationToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique @db.VarChar(64)       // 招待トークン
+  companyId Int                                     // 対象企業（MasterStellaCompanyへの外部キー）
+  name      String?  @db.VarChar(100)              // 管理名（誰向けか等）
+  note      String?                                 // 備考
+  expiresAt DateTime                                // 有効期限
+  maxUses   Int      @default(1)                    // 最大使用回数
+  useCount  Int      @default(0)                    // 使用回数
+  status    String   @default("active") @db.VarChar(20)  // active/expired/exhausted/revoked
+  issuedBy  Int                                     // 発行者（MasterStaffへの外部キー）
+  createdAt DateTime @default(now())
+
+  // Relations
+  company       MasterStellaCompany            @relation(fields: [companyId], references: [id])
+  issuer        MasterStaff                    @relation(fields: [issuedBy], references: [id])
+  defaultViews  RegistrationTokenDefaultView[]
+  externalUsers ExternalUser[]
+
+  @@index([token])
+  @@map("registration_tokens")
+}
+
+// ============================================
+// 登録トークンデフォルトビュー (Registration Token Default Views)
+// トークン発行時に指定するデフォルトの表示権限
+// ============================================
+
+model RegistrationTokenDefaultView {
+  id                  Int      @id @default(autoincrement())
+  registrationTokenId Int
+  displayViewId       Int
+  createdAt           DateTime @default(now())
+
+  // Relations
+  registrationToken RegistrationToken @relation(fields: [registrationTokenId], references: [id], onDelete: Cascade)
+  displayView       DisplayView       @relation(fields: [displayViewId], references: [id])
+
+  @@unique([registrationTokenId, displayViewId])
+  @@map("registration_token_default_views")
+}
+
+// ============================================
+// メール認証トークン (Email Verification Tokens)
+// メールアドレス確認用トークン
+// ============================================
+
+model EmailVerificationToken {
+  id             Int      @id @default(autoincrement())
+  token          String   @unique @db.VarChar(64)  // 認証トークン
+  externalUserId Int                                // 外部ユーザー（ExternalUserへの外部キー）
+  expiresAt      DateTime                           // 有効期限
+  isUsed         Boolean  @default(false)           // 使用済みフラグ
+  createdAt      DateTime @default(now())
+
+  // Relations
+  externalUser ExternalUser @relation(fields: [externalUserId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@map("email_verification_tokens")
+}
+
+// ============================================
+// パスワードリセットトークン (Password Reset Tokens)
+// パスワード再設定用トークン
+// ============================================
+
+model PasswordResetToken {
+  id             Int      @id @default(autoincrement())
+  token          String   @unique @db.VarChar(64)  // リセットトークン
+  externalUserId Int                                // 外部ユーザー（ExternalUserへの外部キー）
+  expiresAt      DateTime                           // 有効期限
+  isUsed         Boolean  @default(false)           // 使用済みフラグ
+  createdAt      DateTime @default(now())
+
+  // Relations
+  externalUser ExternalUser @relation(fields: [externalUserId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@map("password_reset_tokens")
+}
+
+// ============================================
+// ログイン履歴 (Login Histories)
+// 外部ユーザーのログイン記録
+// ============================================
+
+model LoginHistory {
+  id             Int      @id @default(autoincrement())
+  externalUserId Int                                // 外部ユーザー（ExternalUserへの外部キー）
+  loginAt        DateTime @default(now())           // ログイン日時
+  ipAddress      String?  @db.VarChar(45)           // IPアドレス
+  userAgent      String?                            // ユーザーエージェント
+  result         String   @db.VarChar(20)           // success/failure
+  failureReason  String?  @db.VarChar(50)           // 失敗理由
+
+  // Relations
+  externalUser ExternalUser @relation(fields: [externalUserId], references: [id], onDelete: Cascade)
+
+  @@index([externalUserId])
+  @@index([loginAt])
+  @@map("login_histories")
+}
+
+// ============================================
+// STPリード獲得フォームトークン (STP Lead Form Tokens)
+// 代理店ごとのユニークフォームURL管理
+// ============================================
+
+model StpLeadFormToken {
+  id        Int       @id @default(autoincrement())
+  token     String    @unique @db.VarChar(64)       // URLトークン
+  agentId   Int       @unique                       // 代理店ID（1代理店につき1トークン）
+  status    String    @default("active") @db.VarChar(20)  // active/paused/revoked
+  expiresAt DateTime?                               // 有効期限（nullは無期限）
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relations
+  agent       StpAgent              @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  submissions StpLeadFormSubmission[]
+
+  @@index([token])
+  @@map("stp_lead_form_tokens")
+}
+
+// ============================================
+// STPリード獲得フォーム回答 (STP Lead Form Submissions)
+// フォーム回答データ
+// ============================================
+
+model StpLeadFormSubmission {
+  id              Int       @id @default(autoincrement())
+  tokenId         Int                                     // フォームトークンへのFK
+  stpCompanyId    Int?                                    // 作成されたSTP企業ID
+  masterCompanyId Int?                                    // 紐付けられた全顧客マスタID
+
+  // 回答者情報
+  companyName     String    @db.VarChar(200)              // 会社名
+  contactName     String    @db.VarChar(100)              // 担当者氏名
+  contactEmail    String    @db.VarChar(255)              // メールアドレス
+  contactPhone    String?   @db.VarChar(50)               // 電話番号
+
+  // 採用実績情報
+  pastHiringJobTypes       String?                        // 過去採用経験のある職種（JSON）
+  pastRecruitingCostAgency Int?                           // 人材紹介費用（円）
+  pastRecruitingCostAds    Int?                           // 求人広告費用（円）
+  pastRecruitingCostReferral Int?                         // リファラル費用（円）
+  pastRecruitingCostOther  Int?                           // その他費用（円）
+  pastHiringCount          Int?                           // 過去採用人数
+
+  // 希望情報
+  desiredJobTypes          String?                        // 希望職種（JSON）
+  annualBudget             Int?                           // 年間採用予算（円）
+  annualHiringTarget       Int?                           // 年間希望採用人数
+  hiringAreas              String?                        // 採用エリア（JSON: 都道府県）
+  hiringTimeline           String?   @db.VarChar(100)     // 採用希望時期（月）
+  ageRangeMin              Int?                           // 採用可能年齢: 下限（旧フォーム互換用）
+  ageRangeMax              Int?                           // 採用可能年齢: 上限（旧フォーム互換用）
+  ageRange                 String?   @db.VarChar(10)      // 採用可能年齢幅（不問, 〜30, 〜35, etc.）
+  requiredConditions       String?                        // 必須条件
+  preferredConditions      String?                        // 希望条件
+
+  // メタ情報
+  status          String    @default("pending") @db.VarChar(20)  // pending/processed/rejected
+  processedAt     DateTime?                               // 処理日時
+  processedBy     Int?                                    // 処理者（MasterStaffへのFK）
+  processingNote  String?                                 // 処理メモ
+  submittedAt     DateTime  @default(now())               // 回答日時
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  token         StpLeadFormToken @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  processor     MasterStaff?     @relation(fields: [processedBy], references: [id])
+  proposals     StpProposal[]
+
+  @@index([tokenId])
+  @@index([status])
+  @@index([submittedAt])
+  @@map("stp_lead_form_submissions")
+}
+
+// ============================================
+// STP提案書 (STP Proposals)
+// ヒアリングフォームからの自動生成および手動作成
+// ============================================
+
+model StpProposal {
+  id              Int       @id @default(autoincrement())
+
+  // 紐付け（両方nullable、アプリ層でバリデーション）
+  stpCompanyId    Int?                                    // STP企業への外部キー
+  submissionId    Int?                                    // フォーム回答への外部キー
+
+  // 基本情報
+  title           String    @db.VarChar(200)              // 提案書タイトル
+  proposalNumber  String?   @db.VarChar(50)               // 提案書番号（自動採番）
+
+  // ファイル情報（PDFアップロード時）
+  filePath        String?   @db.VarChar(500)
+  fileName        String?   @db.VarChar(200)
+
+  // 外部URL（Canva, Google Docs等）
+  externalUrl     String?   @db.VarChar(500)
+  externalService String?   @db.VarChar(50)               // canva/google_docs/other
+
+  // ステータス
+  status          String    @default("draft") @db.VarChar(20)  // draft/sent/viewed/accepted/rejected
+  sentAt          DateTime?                               // 送付日時
+
+  // その他
+  assignedTo      String?   @db.VarChar(100)              // 担当者
+  note            String?                                 // 備考
+  isAutoGenerated Boolean   @default(false)               // 自動生成フラグ
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  stpCompany      StpCompany?            @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
+  submission      StpLeadFormSubmission? @relation(fields: [submissionId], references: [id])
+
+  @@index([stpCompanyId])
+  @@index([submissionId])
+  @@map("stp_proposals")
+}
+
+// ============================================
+// 短縮URL (Short URLs)
+// リード獲得フォームURL等の短縮用
+// ============================================
+
+model ShortUrl {
+  id          Int      @id @default(autoincrement())
+  shortCode   String   @unique @db.VarChar(10)    // 短縮コード（6文字英数字）
+  originalUrl String   @db.VarChar(500)           // 元のURL
+  createdAt   DateTime @default(now())
+
+  @@map("short_urls")
+}
+
+// ============================================
+// STP KPIシート (STP KPI Sheets)
+// 企業ごとの運用KPIシート（1企業に複数作成可能）
+// ============================================
+
+model StpKpiSheet {
+  id            Int       @id @default(autoincrement())
+  stpCompanyId  Int                                    // stp_companiesへの外部キー
+  name          String    @db.VarChar(100)             // シート名（自由入力: "Indeed", "Wantedly"等）
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  stpCompany    StpCompany          @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
+  weeklyData    StpKpiWeeklyData[]
+  shareLinks    StpKpiShareLink[]
+
+  @@index([stpCompanyId])
+  @@map("stp_kpi_sheets")
+}
+
+// ============================================
+// STP KPI週次データ (STP KPI Weekly Data)
+// 週単位の目標値・実績値を管理
+// ============================================
+
+model StpKpiWeeklyData {
+  id              Int       @id @default(autoincrement())
+  kpiSheetId      Int                                     // stp_kpi_sheetsへの外部キー
+  weekStartDate   DateTime  @db.Date                      // 週開始日
+  weekEndDate     DateTime  @db.Date                      // 週終了日
+
+  // 目標値
+  targetImpressions   Int?                                // 表示回数（目標）
+  targetCpm           Decimal?  @db.Decimal(10,2)         // 表示単価（目標）
+  targetClicks        Int?                                // クリック数（目標）
+  targetCtr           Decimal?  @db.Decimal(5,2)          // クリック率（目標）
+  targetCpc           Decimal?  @db.Decimal(10,2)         // クリック単価（目標）
+  targetApplications  Int?                                // 応募数（目標）
+  targetCvr           Decimal?  @db.Decimal(5,2)          // 応募率（目標）
+  targetCpa           Decimal?  @db.Decimal(10,2)         // 応募単価（目標）
+  targetCost          Int?                                // 費用（目標）
+
+  // 実績値
+  actualImpressions   Int?                                // 表示回数（実績）
+  actualCpm           Decimal?  @db.Decimal(10,2)         // 表示単価（実績）
+  actualClicks        Int?                                // クリック数（実績）
+  actualCtr           Decimal?  @db.Decimal(5,2)          // クリック率（実績）
+  actualCpc           Decimal?  @db.Decimal(10,2)         // クリック単価（実績）
+  actualApplications  Int?                                // 応募数（実績）
+  actualCvr           Decimal?  @db.Decimal(5,2)          // 応募率（実績）
+  actualCpa           Decimal?  @db.Decimal(10,2)         // 応募単価（実績）
+  actualCost          Int?                                // 費用（実績）
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  kpiSheet      StpKpiSheet @relation(fields: [kpiSheetId], references: [id], onDelete: Cascade)
+
+  @@unique([kpiSheetId, weekStartDate])
+  @@index([kpiSheetId])
+  @@map("stp_kpi_weekly_data")
+}
+
+// ============================================
+// STP KPI共有リンク (STP KPI Share Links)
+// 時間制限付きの公開共有リンク
+// ============================================
+
+model StpKpiShareLink {
+  id           Int       @id @default(autoincrement())
+  kpiSheetId   Int                                     // stp_kpi_sheetsへの外部キー
+  token        String    @unique @db.VarChar(64)       // 共有トークン
+  expiresAt    DateTime                                // 有効期限
+  createdAt    DateTime  @default(now())
+  createdBy    Int?                                    // 発行者（master_staffへの外部キー）
+
+  // Relations
+  kpiSheet     StpKpiSheet @relation(fields: [kpiSheetId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([kpiSheetId])
+  @@map("stp_kpi_share_links")
 }

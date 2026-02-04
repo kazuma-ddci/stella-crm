@@ -17,6 +17,7 @@ DBスキーマに変更があった場合は、このファイルを更新して
    - [スタッフ・権限系](#3-スタッフ権限系)
    - [共通マスタ系](#4-共通マスタ系)
    - [契約書管理系](#5-契約書管理系)
+   - [外部ユーザー系](#6-外部ユーザー系)
 4. [リレーション一覧](#リレーション一覧)
 5. [インデックス一覧](#インデックス一覧)
 6. [選択肢・Enum値](#選択肢enum値)
@@ -53,6 +54,17 @@ DBスキーマに変更があった場合は、このファイルを更新して
 | 24 | master_contracts | MasterContract | 契約書 | 契約書管理系 |
 | 25 | master_contract_statuses | MasterContractStatus | 契約書ステータスマスタ | 契約書管理系 |
 | 26 | master_contract_status_histories | MasterContractStatusHistory | 契約書ステータス変更履歴 | 契約書管理系 |
+| 27 | external_users | ExternalUser | 外部ユーザー | 外部ユーザー系 |
+| 28 | display_views | DisplayView | 表示ビュー定義 | 外部ユーザー系 |
+| 29 | external_user_display_permissions | ExternalUserDisplayPermission | 外部ユーザー表示権限（中間） | 外部ユーザー系 |
+| 30 | registration_tokens | RegistrationToken | 登録トークン | 外部ユーザー系 |
+| 31 | registration_token_default_views | RegistrationTokenDefaultView | 登録トークンデフォルトビュー（中間） | 外部ユーザー系 |
+| 32 | email_verification_tokens | EmailVerificationToken | メール認証トークン | 外部ユーザー系 |
+| 33 | password_reset_tokens | PasswordResetToken | パスワードリセットトークン | 外部ユーザー系 |
+| 34 | login_histories | LoginHistory | ログイン履歴 | 外部ユーザー系 |
+| 35 | stp_kpi_sheets | StpKpiSheet | KPIシート | STP系 |
+| 36 | stp_kpi_weekly_data | StpKpiWeeklyData | KPI週次データ | STP系 |
+| 37 | stp_kpi_share_links | StpKpiShareLink | KPI共有リンク | STP系 |
 
 ---
 
@@ -154,6 +166,29 @@ DBスキーマに変更があった場合は、このファイルを更新して
 │  │History (ステータス履歴) │───→│     (ステータス)        │                       │
 │  └────────────────────────┘    └────────────────────────┘                       │
 └─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              外部ユーザー系                                      │
+│                                                                                  │
+│  ┌──────────────────┐         ┌──────────────────┐                              │
+│  │   ExternalUser   │←────────│RegistrationToken │                              │
+│  │   (外部ユーザー)  │         │   (登録トークン)  │                              │
+│  └────────┬─────────┘         └────────┬─────────┘                              │
+│           │                            │                                        │
+│     ┌─────┼─────────────┐              ▼                                        │
+│     ▼     ▼             ▼     ┌──────────────────┐                              │
+│  ┌──────┐┌─────────┐┌──────┐  │  DefaultViews    │                              │
+│  │Email ││Password ││Login │  │  (デフォルトビュー)│                              │
+│  │Token ││Reset    ││History│  └─────────┬────────┘                              │
+│  │(認証) ││(リセット)||(履歴) │            │                                        │
+│  └──────┘└─────────┘└──────┘            ▼                                        │
+│           │                    ┌──────────────────┐                              │
+│           ▼                    │   DisplayView    │                              │
+│  ┌──────────────────┐          │   (表示ビュー)    │                              │
+│  │DisplayPermission │─────────→└──────────────────┘                              │
+│  │ (表示権限)        │                                                            │
+│  └──────────────────┘                                                            │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 詳細リレーション図
@@ -173,7 +208,11 @@ MasterStellaCompany (1) ──────┬────── (N) StellaCompan
                               │
                               ├────── (N) ContactHistory
                               │
-                              └────── (N) MasterContract
+                              ├────── (N) MasterContract
+                              │
+                              ├────── (N) ExternalUser
+                              │
+                              └────── (N) RegistrationToken
 
 
 StpAgent (1) ─────────────────┬────── (N) StpAgentContract
@@ -213,7 +252,11 @@ MasterStaff (1) ──────────────┬────── 
                               │
                               ├────── (N) StpContractHistory [OperationStaff]
                               │
-                              └────── (N) ContactHistory
+                              ├────── (N) ContactHistory
+                              │
+                              ├────── (N) ExternalUser [Approver]
+                              │
+                              └────── (N) RegistrationToken [Issuer]
 
 
 ContactHistory (1) ───────────┴────── (N) ContactHistoryRole
@@ -239,6 +282,28 @@ MasterContractStatus (1) ─────┬────── (N) MasterContract
                               ├────── (N) MasterContractStatusHistory [FromStatus]
                               │
                               └────── (N) MasterContractStatusHistory [ToStatus]
+
+
+StellaCompanyContact (1) ─────┴────── (1) ExternalUser
+
+
+ExternalUser (1) ─────────────┬────── (N) ExternalUserDisplayPermission
+                              │
+                              ├────── (N) LoginHistory
+                              │
+                              ├────── (N) EmailVerificationToken
+                              │
+                              └────── (N) PasswordResetToken
+
+
+DisplayView (1) ──────────────┬────── (N) ExternalUserDisplayPermission
+                              │
+                              └────── (N) RegistrationTokenDefaultView
+
+
+RegistrationToken (1) ────────┬────── (N) RegistrationTokenDefaultView
+                              │
+                              └────── (N) ExternalUser
 ```
 
 ---
@@ -274,6 +339,8 @@ MasterContractStatus (1) ─────┬────── (N) MasterContract
 - `referredAgents` ← StpAgent (1:N) - 紹介した代理店
 - `contracts` ← MasterContract (1:N) - 契約書
 - `contactHistories` ← ContactHistory (1:N) - 接触履歴
+- `externalUsers` ← ExternalUser (1:N) - 外部ユーザー
+- `registrationTokens` ← RegistrationToken (1:N) - 登録トークン
 
 ---
 
@@ -324,6 +391,7 @@ MasterContractStatus (1) ─────┬────── (N) MasterContract
 
 **リレーション**:
 - `company` → MasterStellaCompany (N:1, CASCADE削除) - 親企業
+- `externalUser` ← ExternalUser (1:1) - 外部ユーザーとの紐付け
 
 **特記事項**:
 - 論理削除対応（deletedAt）
@@ -709,6 +777,91 @@ MasterContractStatus (1) ─────┬────── (N) MasterContract
 
 ---
 
+#### 2.14 stp_kpi_sheets（KPIシート）
+
+**概要**: STP企業の運用KPIを管理するシート。媒体ごと（Indeed、Wantedly等）にシートを作成可能。
+
+| カラム名 | 型 | NULL | デフォルト | 制約 | 説明 |
+|---------|-----|------|-----------|------|------|
+| id | INT | NO | auto_increment | PK | 主キー |
+| stpCompanyId | INT | NO | - | FK(stp_companies) | STP企業ID |
+| name | VARCHAR(100) | NO | - | - | シート名（Indeed、Wantedly等） |
+| createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
+| updatedAt | TIMESTAMP | NO | auto | - | 更新日時 |
+
+**リレーション**:
+- `stpCompany` → StpCompany (N:1, CASCADE削除) - 親STP企業
+- `weeklyData` ← StpKpiWeeklyData (1:N) - 週次データ
+- `shareLinks` ← StpKpiShareLink (1:N) - 共有リンク
+
+---
+
+#### 2.15 stp_kpi_weekly_data（KPI週次データ）
+
+**概要**: 週単位のKPI目標値・実績値を管理。手入力項目（表示回数、クリック数、応募数、費用）と自動計算項目（CPM、CTR、CPC、CVR、CPA）がある。
+
+| カラム名 | 型 | NULL | デフォルト | 制約 | 説明 |
+|---------|-----|------|-----------|------|------|
+| id | INT | NO | auto_increment | PK | 主キー |
+| kpiSheetId | INT | NO | - | FK(stp_kpi_sheets) | KPIシートID |
+| weekStartDate | DATE | NO | - | UK | 週開始日 |
+| weekEndDate | DATE | NO | - | - | 週終了日 |
+| targetImpressions | INT | YES | - | - | 表示回数（目標） |
+| targetCpm | DECIMAL(10,2) | YES | - | - | 表示単価（目標）※計算 |
+| targetClicks | INT | YES | - | - | クリック数（目標） |
+| targetCtr | DECIMAL(5,2) | YES | - | - | クリック率（目標）※計算 |
+| targetCpc | DECIMAL(10,2) | YES | - | - | クリック単価（目標）※計算 |
+| targetApplications | INT | YES | - | - | 応募数（目標） |
+| targetCvr | DECIMAL(5,2) | YES | - | - | 応募率（目標）※計算 |
+| targetCpa | DECIMAL(10,2) | YES | - | - | 応募単価（目標）※計算 |
+| targetCost | INT | YES | - | - | 費用（目標） |
+| actualImpressions | INT | YES | - | - | 表示回数（実績） |
+| actualCpm | DECIMAL(10,2) | YES | - | - | 表示単価（実績）※計算 |
+| actualClicks | INT | YES | - | - | クリック数（実績） |
+| actualCtr | DECIMAL(5,2) | YES | - | - | クリック率（実績）※計算 |
+| actualCpc | DECIMAL(10,2) | YES | - | - | クリック単価（実績）※計算 |
+| actualApplications | INT | YES | - | - | 応募数（実績） |
+| actualCvr | DECIMAL(5,2) | YES | - | - | 応募率（実績）※計算 |
+| actualCpa | DECIMAL(10,2) | YES | - | - | 応募単価（実績）※計算 |
+| actualCost | INT | YES | - | - | 費用（実績） |
+| createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
+| updatedAt | TIMESTAMP | NO | auto | - | 更新日時 |
+
+**制約**: `UNIQUE(kpiSheetId, weekStartDate)` - 同一シート内で週の重複を防止
+
+**リレーション**:
+- `kpiSheet` → StpKpiSheet (N:1, CASCADE削除) - 親KPIシート
+
+**特記事項**:
+- 手入力項目: impressions, clicks, applications, cost
+- 計算項目（フロントエンドで自動計算）: cpm, ctr, cpc, cvr, cpa
+- 計算式は `docs/business-logic.md` 参照
+
+---
+
+#### 2.16 stp_kpi_share_links（KPI共有リンク）
+
+**概要**: KPIシートの時間制限付き共有リンク。トークン経由で外部公開。
+
+| カラム名 | 型 | NULL | デフォルト | 制約 | 説明 |
+|---------|-----|------|-----------|------|------|
+| id | INT | NO | auto_increment | PK | 主キー |
+| kpiSheetId | INT | NO | - | FK(stp_kpi_sheets) | KPIシートID |
+| token | VARCHAR(64) | NO | - | UNIQUE | 共有トークン（64文字ランダム） |
+| expiresAt | TIMESTAMP | NO | - | - | 有効期限 |
+| createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
+| createdBy | INT | YES | - | FK(master_staff) | 発行者スタッフID |
+
+**リレーション**:
+- `kpiSheet` → StpKpiSheet (N:1, CASCADE削除) - 親KPIシート
+
+**特記事項**:
+- 有効期限は発行時に1時間/6時間/24時間/7日間から選択
+- 期限切れリンクは表示されない（取得時にフィルタ）
+- 公開URL: `/s/kpi/[token]`
+
+---
+
 ### 3. スタッフ・権限系
 
 #### 3.1 master_staff（スタッフマスタ）
@@ -726,10 +879,14 @@ MasterContractStatus (1) ─────┬────── (N) MasterContract
 | loginId | VARCHAR(100) | YES | - | UNIQUE | ログインID |
 | passwordHash | VARCHAR(255) | YES | - | - | パスワード（ハッシュ化） |
 | isActive | BOOLEAN | NO | true | - | 有効フラグ |
+| inviteToken | VARCHAR(64) | YES | - | UNIQUE | 招待トークン |
+| inviteTokenExpiresAt | TIMESTAMP | YES | - | - | 招待トークン有効期限 |
 | createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
 | updatedAt | TIMESTAMP | NO | auto | - | 更新日時 |
 
 **contractType選択肢**: `正社員`, `契約社員`, `業務委託` など
+
+**招待トークン**: スタッフ招待メール送信時に生成され、パスワード設定完了後にクリア。有効期限は24時間。
 
 **リレーション**:
 - `permissions` ← StaffPermission (1:N) - 権限
@@ -741,6 +898,8 @@ MasterContractStatus (1) ─────┬────── (N) MasterContract
 - `assignedCompanies` ← MasterStellaCompany (1:N) - 担当企業
 - `salesStpCompanies` ← StpCompany (1:N) - 担当STP企業
 - `contactHistories` ← ContactHistory (1:N) - 接触履歴
+- `approvedExternalUsers` ← ExternalUser (1:N) - 承認した外部ユーザー
+- `issuedRegistrationTokens` ← RegistrationToken (1:N) - 発行した登録トークン
 
 ---
 
@@ -1069,6 +1228,211 @@ MasterContractStatus (1) ─────┬────── (N) MasterContract
 
 ---
 
+### 6. 外部ユーザー系
+
+#### 6.1 external_users（外部ユーザー）
+
+**概要**: クライアント・代理店担当者向けのログインアカウントを管理。メール認証と管理者承認の2段階認証フローに対応。
+
+| カラム名 | 型 | NULL | デフォルト | 制約 | 説明 |
+|---------|-----|------|-----------|------|------|
+| id | INT | NO | auto_increment | PK | 主キー |
+| companyId | INT | NO | - | FK(master_stella_companies) | 所属企業ID |
+| registrationTokenId | INT | YES | - | FK(registration_tokens) | 登録に使用されたトークン |
+| contactId | INT | YES | - | FK(stella_company_contacts), UNIQUE | 担当者情報（任意） |
+| name | VARCHAR(100) | NO | - | - | 名前 |
+| position | VARCHAR(100) | YES | - | - | 役職 |
+| email | VARCHAR(255) | NO | - | UNIQUE | ログイン用メールアドレス |
+| passwordHash | VARCHAR(255) | NO | - | - | パスワード（ハッシュ化） |
+| status | VARCHAR(20) | NO | 'pending_email' | - | ステータス |
+| emailVerifiedAt | TIMESTAMP | YES | - | - | メール認証日時 |
+| approvedAt | TIMESTAMP | YES | - | - | 管理者承認日時 |
+| approvedBy | INT | YES | - | FK(master_staff) | 承認者 |
+| lastLoginAt | TIMESTAMP | YES | - | - | 最終ログイン日時 |
+| createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
+| updatedAt | TIMESTAMP | NO | auto | - | 更新日時 |
+
+**status選択肢**: `pending_email`（メール認証待ち）, `pending_approval`（管理者承認待ち）, `active`（有効）, `suspended`（停止）
+
+**リレーション**:
+- `company` → MasterStellaCompany (N:1) - 所属企業
+- `registrationToken` → RegistrationToken (N:1) - 登録トークン
+- `contact` → StellaCompanyContact (1:1) - 担当者情報
+- `approver` → MasterStaff (N:1) - 承認者
+- `displayPermissions` ← ExternalUserDisplayPermission (1:N) - 表示権限
+- `loginHistories` ← LoginHistory (1:N) - ログイン履歴
+- `emailVerificationTokens` ← EmailVerificationToken (1:N) - メール認証トークン
+- `passwordResetTokens` ← PasswordResetToken (1:N) - パスワードリセットトークン
+
+**インデックス**:
+- `idx_external_users_company_id` (companyId)
+- `idx_external_users_status` (status)
+
+**特記事項**:
+- 登録フロー: 登録 → メール認証（pending_email → pending_approval） → 管理者承認（→ active）
+- contactIdはオプション（担当者情報と紐付けない場合もある）
+
+---
+
+#### 6.2 display_views（表示ビュー定義）
+
+**概要**: 外部ユーザー向け画面の定義を管理。プロジェクトごとに異なるビューを設定可能。
+
+| カラム名 | 型 | NULL | デフォルト | 制約 | 説明 |
+|---------|-----|------|-----------|------|------|
+| id | INT | NO | auto_increment | PK | 主キー |
+| viewKey | VARCHAR(50) | NO | - | UNIQUE | ビューキー |
+| viewName | VARCHAR(100) | NO | - | - | ビュー表示名 |
+| projectCode | VARCHAR(50) | NO | - | - | プロジェクトコード |
+| description | TEXT | YES | - | - | 説明 |
+| isActive | BOOLEAN | NO | true | - | 有効フラグ |
+| createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
+| updatedAt | TIMESTAMP | NO | auto | - | 更新日時 |
+
+**viewKey例**: `stp_client`（STPクライアント版）, `stp_agent`（STP代理店版）
+
+**リレーション**:
+- `userPermissions` ← ExternalUserDisplayPermission (1:N) - ユーザー権限
+- `registrationTokenDefaults` ← RegistrationTokenDefaultView (1:N) - トークンデフォルト
+
+---
+
+#### 6.3 external_user_display_permissions（外部ユーザー表示権限）
+
+**概要**: 外部ユーザーと表示ビューの多対多関係を管理する中間テーブル。
+
+| カラム名 | 型 | NULL | デフォルト | 制約 | 説明 |
+|---------|-----|------|-----------|------|------|
+| id | INT | NO | auto_increment | PK | 主キー |
+| externalUserId | INT | NO | - | FK(external_users) | 外部ユーザーID |
+| displayViewId | INT | NO | - | FK(display_views) | 表示ビューID |
+| createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
+
+**制約**: `UNIQUE(externalUserId, displayViewId)`
+
+**リレーション**:
+- `externalUser` → ExternalUser (N:1, CASCADE削除)
+- `displayView` → DisplayView (N:1)
+
+---
+
+#### 6.4 registration_tokens（登録トークン）
+
+**概要**: 外部ユーザー登録用の招待トークンを管理。使用回数制限と有効期限に対応。
+
+| カラム名 | 型 | NULL | デフォルト | 制約 | 説明 |
+|---------|-----|------|-----------|------|------|
+| id | INT | NO | auto_increment | PK | 主キー |
+| token | VARCHAR(64) | NO | - | UNIQUE | 招待トークン |
+| companyId | INT | NO | - | FK(master_stella_companies) | 対象企業ID |
+| expiresAt | TIMESTAMP | NO | - | - | 有効期限 |
+| maxUses | INT | NO | 1 | - | 最大使用回数 |
+| useCount | INT | NO | 0 | - | 使用回数 |
+| status | VARCHAR(20) | NO | 'active' | - | ステータス |
+| issuedBy | INT | NO | - | FK(master_staff) | 発行者 |
+| createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
+
+**status選択肢**: `active`（有効）, `expired`（期限切れ）, `exhausted`（使用回数超過）, `revoked`（無効化）
+
+**リレーション**:
+- `company` → MasterStellaCompany (N:1) - 対象企業
+- `issuer` → MasterStaff (N:1) - 発行者
+- `defaultViews` ← RegistrationTokenDefaultView (1:N) - デフォルトビュー
+- `externalUsers` ← ExternalUser (1:N) - 登録されたユーザー
+
+**インデックス**:
+- `idx_registration_tokens_token` (token)
+
+---
+
+#### 6.5 registration_token_default_views（登録トークンデフォルトビュー）
+
+**概要**: 登録トークン発行時に指定するデフォルトの表示権限を管理する中間テーブル。
+
+| カラム名 | 型 | NULL | デフォルト | 制約 | 説明 |
+|---------|-----|------|-----------|------|------|
+| id | INT | NO | auto_increment | PK | 主キー |
+| registrationTokenId | INT | NO | - | FK(registration_tokens) | 登録トークンID |
+| displayViewId | INT | NO | - | FK(display_views) | 表示ビューID |
+| createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
+
+**制約**: `UNIQUE(registrationTokenId, displayViewId)`
+
+**リレーション**:
+- `registrationToken` → RegistrationToken (N:1, CASCADE削除)
+- `displayView` → DisplayView (N:1)
+
+---
+
+#### 6.6 email_verification_tokens（メール認証トークン）
+
+**概要**: メールアドレス確認用のトークンを管理。
+
+| カラム名 | 型 | NULL | デフォルト | 制約 | 説明 |
+|---------|-----|------|-----------|------|------|
+| id | INT | NO | auto_increment | PK | 主キー |
+| token | VARCHAR(64) | NO | - | UNIQUE | 認証トークン |
+| externalUserId | INT | NO | - | FK(external_users) | 外部ユーザーID |
+| expiresAt | TIMESTAMP | NO | - | - | 有効期限 |
+| isUsed | BOOLEAN | NO | false | - | 使用済みフラグ |
+| createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
+
+**リレーション**:
+- `externalUser` → ExternalUser (N:1, CASCADE削除)
+
+**インデックス**:
+- `idx_email_verification_tokens_token` (token)
+
+---
+
+#### 6.7 password_reset_tokens（パスワードリセットトークン）
+
+**概要**: パスワード再設定用のトークンを管理。
+
+| カラム名 | 型 | NULL | デフォルト | 制約 | 説明 |
+|---------|-----|------|-----------|------|------|
+| id | INT | NO | auto_increment | PK | 主キー |
+| token | VARCHAR(64) | NO | - | UNIQUE | リセットトークン |
+| externalUserId | INT | NO | - | FK(external_users) | 外部ユーザーID |
+| expiresAt | TIMESTAMP | NO | - | - | 有効期限 |
+| isUsed | BOOLEAN | NO | false | - | 使用済みフラグ |
+| createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
+
+**リレーション**:
+- `externalUser` → ExternalUser (N:1, CASCADE削除)
+
+**インデックス**:
+- `idx_password_reset_tokens_token` (token)
+
+---
+
+#### 6.8 login_histories（ログイン履歴）
+
+**概要**: 外部ユーザーのログイン記録を管理。成功・失敗を問わず記録。
+
+| カラム名 | 型 | NULL | デフォルト | 制約 | 説明 |
+|---------|-----|------|-----------|------|------|
+| id | INT | NO | auto_increment | PK | 主キー |
+| externalUserId | INT | NO | - | FK(external_users) | 外部ユーザーID |
+| loginAt | TIMESTAMP | NO | now() | - | ログイン日時 |
+| ipAddress | VARCHAR(45) | YES | - | - | IPアドレス |
+| userAgent | TEXT | YES | - | - | ユーザーエージェント |
+| result | VARCHAR(20) | NO | - | - | 結果 |
+| failureReason | VARCHAR(50) | YES | - | - | 失敗理由 |
+
+**result選択肢**: `success`, `failure`
+
+**failureReason例**: `invalid_password`, `account_suspended`, `email_not_verified`
+
+**リレーション**:
+- `externalUser` → ExternalUser (N:1, CASCADE削除)
+
+**インデックス**:
+- `idx_login_histories_external_user_id` (externalUserId)
+- `idx_login_histories_login_at` (loginAt)
+
+---
+
 ## リレーション一覧
 
 ### 1:1 リレーション
@@ -1120,6 +1484,24 @@ MasterContractStatus (1) ─────┬────── (N) MasterContract
 | MasterContractStatus | MasterContractStatusHistory (to) | toStatusId | - | ステータス→履歴先 |
 | MasterContract | MasterContractStatusHistory | contractId | - | 契約→履歴 |
 | MasterContract | MasterContract (child) | parentContractId | - | 契約→子契約 |
+| MasterStellaCompany | ExternalUser | companyId | - | 企業→外部ユーザー |
+| MasterStellaCompany | RegistrationToken | companyId | - | 企業→登録トークン |
+| MasterStaff | ExternalUser (approver) | approvedBy | - | スタッフ→承認外部ユーザー |
+| MasterStaff | RegistrationToken (issuer) | issuedBy | - | スタッフ→発行トークン |
+| ExternalUser | ExternalUserDisplayPermission | externalUserId | CASCADE | 外部ユーザー→表示権限 |
+| ExternalUser | LoginHistory | externalUserId | CASCADE | 外部ユーザー→ログイン履歴 |
+| ExternalUser | EmailVerificationToken | externalUserId | CASCADE | 外部ユーザー→認証トークン |
+| ExternalUser | PasswordResetToken | externalUserId | CASCADE | 外部ユーザー→リセットトークン |
+| DisplayView | ExternalUserDisplayPermission | displayViewId | - | ビュー→ユーザー権限 |
+| DisplayView | RegistrationTokenDefaultView | displayViewId | - | ビュー→トークンデフォルト |
+| RegistrationToken | RegistrationTokenDefaultView | registrationTokenId | CASCADE | トークン→デフォルトビュー |
+| RegistrationToken | ExternalUser | registrationTokenId | - | トークン→登録ユーザー |
+
+### 1:1 リレーション（追加）
+
+| 親テーブル | 子テーブル | 外部キー | 説明 |
+|-----------|-----------|---------|------|
+| StellaCompanyContact | ExternalUser | contactId (UNIQUE) | 担当者→外部ユーザー |
 
 ---
 
@@ -1142,6 +1524,13 @@ MasterContractStatus (1) ─────┬────── (N) MasterContract
 | master_contracts | idx_master_contracts_cloudsign_document_id | cloudsign_document_id | CS連携検索 |
 | master_contract_status_histories | idx_master_contract_status_histories_contract_id | contract_id | 契約別検索 |
 | master_contract_status_histories | idx_master_contract_status_histories_recorded_at | recorded_at | 日時検索 |
+| external_users | idx_external_users_company_id | companyId | 企業別検索 |
+| external_users | idx_external_users_status | status | ステータス別検索 |
+| registration_tokens | idx_registration_tokens_token | token | トークン検索 |
+| email_verification_tokens | idx_email_verification_tokens_token | token | トークン検索 |
+| password_reset_tokens | idx_password_reset_tokens_token | token | トークン検索 |
+| login_histories | idx_login_histories_external_user_id | externalUserId | ユーザー別検索 |
+| login_histories | idx_login_histories_login_at | loginAt | 日時検索 |
 
 ---
 
@@ -1237,6 +1626,44 @@ const CONTRACT_TYPES = ['正社員', '契約社員', '業務委託'] as const;
 const SIGNING_METHODS = ['cloudsign', 'paper', 'other'] as const;
 ```
 
+### 外部ユーザー関連
+
+```typescript
+// 外部ユーザーステータス（ExternalUser.status）
+const EXTERNAL_USER_STATUSES = [
+  'pending_email',    // メール認証待ち
+  'pending_approval', // 管理者承認待ち
+  'active',           // 有効
+  'suspended'         // 停止
+] as const;
+
+// 登録トークンステータス（RegistrationToken.status）
+const REGISTRATION_TOKEN_STATUSES = [
+  'active',    // 有効
+  'expired',   // 期限切れ
+  'exhausted', // 使用回数超過
+  'revoked'    // 無効化
+] as const;
+
+// ログイン結果（LoginHistory.result）
+const LOGIN_RESULTS = ['success', 'failure'] as const;
+
+// ログイン失敗理由（LoginHistory.failureReason）
+const LOGIN_FAILURE_REASONS = [
+  'invalid_password',
+  'account_suspended',
+  'email_not_verified',
+  'approval_pending',
+  'account_not_found'
+] as const;
+
+// ビューキー（DisplayView.viewKey）
+const VIEW_KEYS = [
+  'stp_client',  // STPクライアント版
+  'stp_agent'    // STP代理店版
+] as const;
+```
+
 ---
 
 ## 更新履歴
@@ -1244,3 +1671,4 @@ const SIGNING_METHODS = ['cloudsign', 'paper', 'other'] as const;
 | 日付 | 変更内容 |
 |------|---------|
 | 2026-02-02 | 初版作成 |
+| 2026-02-02 | 外部ユーザー系テーブル追加（ExternalUser, DisplayView, ExternalUserDisplayPermission, RegistrationToken, RegistrationTokenDefaultView, EmailVerificationToken, PasswordResetToken, LoginHistory） |

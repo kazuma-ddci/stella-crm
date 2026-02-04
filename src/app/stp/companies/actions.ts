@@ -52,71 +52,44 @@ export async function addStpCompany(data: Record<string, unknown>) {
     throw new Error(errorMessages || "バリデーションエラー");
   }
 
+  // 企業IDの重複チェック
+  const companyId = Number(data.companyId);
+  const existingStpCompany = await prisma.stpCompany.findFirst({
+    where: { companyId },
+    select: { id: true },
+  });
+
+  if (existingStpCompany) {
+    throw new Error(
+      `この企業はすでにSTPプロジェクトに登録されています（プロジェクトNo. ${existingStpCompany.id}）`
+    );
+  }
+
   // トランザクションで企業作成と履歴作成を実行
   await prisma.$transaction(async (tx) => {
-    // 請求先担当者IDからメールアドレスを取得
+    // 請求先担当者ID
     const billingContactIds = toCommaSeparatedString(data.billingContactIds);
-    let billingEmail: string | null = null;
-    if (billingContactIds) {
-      const contactIdList = billingContactIds.split(",").map((id) => Number(id.trim())).filter((id) => !isNaN(id));
-      if (contactIdList.length > 0) {
-        const contacts = await tx.stellaCompanyContact.findMany({
-          where: { id: { in: contactIdList } },
-          select: { id: true, email: true },
-        });
-        // IDの順序を保持してメールを取得
-        const emailMap = new Map(contacts.map((c) => [c.id, c.email]));
-        const emails = contactIdList
-          .map((id) => emailMap.get(id))
-          .filter((email): email is string => !!email);
-        billingEmail = emails.length > 0 ? emails.join(",") : null;
-      }
-    }
 
     // 1. 企業を作成
     const company = await tx.stpCompany.create({
       data: {
-        companyId: Number(data.companyId),
+        companyId,
         agentId: data.agentId ? Number(data.agentId) : null,
         currentStageId,
         nextTargetStageId,
         nextTargetDate,
         leadAcquiredDate: data.leadAcquiredDate ? new Date(data.leadAcquiredDate as string) : null,
-        meetingDate: data.meetingDate ? new Date(data.meetingDate as string) : null,
-        firstKoDate: data.firstKoDate ? new Date(data.firstKoDate as string) : null,
-        jobPostingStartDate: (data.jobPostingStartDate as string) || null,
         forecast: (data.forecast as string) || null,
-        operationStatus: (data.operationStatus as string) || null,
-        industryType: (data.industryType as string) || null,
         plannedHires: data.plannedHires ? Number(data.plannedHires) : null,
         leadSourceId: data.leadSourceId ? Number(data.leadSourceId) : null,
-        // 契約情報
-        contractPlan: (data.contractPlan as string) || null,
-        media: (data.media as string) || null,
-        contractStartDate: data.contractStartDate ? new Date(data.contractStartDate as string) : null,
-        contractEndDate: data.contractEndDate ? new Date(data.contractEndDate as string) : null,
-        initialFee: data.initialFee ? Number(data.initialFee) : null,
-        monthlyFee: data.monthlyFee ? Number(data.monthlyFee) : null,
-        performanceFee: data.performanceFee ? Number(data.performanceFee) : null,
         salesStaffId: data.salesStaffId ? Number(data.salesStaffId) : null,
-        operationStaffList: (data.operationStaffList as string) || null,
-        // アカウント情報
-        accountId: (data.accountId as string) || null,
-        accountPass: (data.accountPass as string) || null,
         // 請求先情報（複数選択はカンマ区切りで保存）
         billingLocationId: data.billingLocationId ? Number(data.billingLocationId) : null,
-        billingContactId: data.billingContactId ? Number(data.billingContactId) : null,
         billingAddress: toCommaSeparatedString(data.billingAddress),
         // billingContactIds（担当者ID）をbillingRepresentativeに保存
         billingRepresentative: billingContactIds,
-        // billingEmailは担当者IDから自動導出
-        billingEmail,
-        paymentTerms: (data.paymentTerms as string) || null,
-        // 連絡方法
-        communicationMethodId: data.communicationMethodId ? Number(data.communicationMethodId) : null,
         // その他
         note: (data.note as string) || null,
-        contractNote: (data.contractNote as string) || null,
         pendingReason: (data.pendingReason as string) || null,
         lostReason: (data.lostReason as string) || null,
       },
@@ -144,72 +117,135 @@ export async function addStpCompany(data: Record<string, unknown>) {
 }
 
 export async function updateStpCompany(id: number, data: Record<string, unknown>) {
-  // 請求先担当者IDからメールアドレスを取得
-  const billingContactIds = toCommaSeparatedString(data.billingContactIds);
-  let billingEmail: string | null = null;
-  if (billingContactIds) {
-    const contactIdList = billingContactIds.split(",").map((id) => Number(id.trim())).filter((id) => !isNaN(id));
-    if (contactIdList.length > 0) {
-      const contacts = await prisma.stellaCompanyContact.findMany({
-        where: { id: { in: contactIdList } },
-        select: { id: true, email: true },
-      });
-      // IDの順序を保持してメールを取得
-      const emailMap = new Map(contacts.map((c) => [c.id, c.email]));
-      const emails = contactIdList
-        .map((id) => emailMap.get(id))
-        .filter((email): email is string => !!email);
-      billingEmail = emails.length > 0 ? emails.join(",") : null;
-    }
+  // 更新データを動的に構築（渡されたフィールドのみを更新）
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updateData: Record<string, any> = {};
+
+  // 企業ID（companyIdが渡された場合のみ）
+  if ("companyId" in data) {
+    updateData.companyId = Number(data.companyId);
   }
 
-  // ステージ関連フィールドは除外（ステージ管理モーダルから更新）
-  await prisma.stpCompany.update({
-    where: { id },
-    data: {
-      companyId: Number(data.companyId),
-      agentId: data.agentId ? Number(data.agentId) : null,
-      // currentStageId, nextTargetStageId, nextTargetDate は更新しない
-      leadAcquiredDate: data.leadAcquiredDate ? new Date(data.leadAcquiredDate as string) : null,
-      meetingDate: data.meetingDate ? new Date(data.meetingDate as string) : null,
-      firstKoDate: data.firstKoDate ? new Date(data.firstKoDate as string) : null,
-      jobPostingStartDate: (data.jobPostingStartDate as string) || null,
-      forecast: (data.forecast as string) || null,
-      operationStatus: (data.operationStatus as string) || null,
-      industryType: (data.industryType as string) || null,
-      plannedHires: data.plannedHires ? Number(data.plannedHires) : null,
-      leadSourceId: data.leadSourceId ? Number(data.leadSourceId) : null,
-      // 契約情報
-      contractPlan: (data.contractPlan as string) || null,
-      media: (data.media as string) || null,
-      contractStartDate: data.contractStartDate ? new Date(data.contractStartDate as string) : null,
-      contractEndDate: data.contractEndDate ? new Date(data.contractEndDate as string) : null,
-      initialFee: data.initialFee ? Number(data.initialFee) : null,
-      monthlyFee: data.monthlyFee ? Number(data.monthlyFee) : null,
-      performanceFee: data.performanceFee ? Number(data.performanceFee) : null,
-      salesStaffId: data.salesStaffId ? Number(data.salesStaffId) : null,
-      operationStaffList: (data.operationStaffList as string) || null,
-      // アカウント情報
-      accountId: (data.accountId as string) || null,
-      accountPass: (data.accountPass as string) || null,
-      // 請求先情報（複数選択はカンマ区切りで保存）
-      billingLocationId: data.billingLocationId ? Number(data.billingLocationId) : null,
-      billingContactId: data.billingContactId ? Number(data.billingContactId) : null,
-      billingAddress: toCommaSeparatedString(data.billingAddress),
-      // billingContactIds（担当者ID）をbillingRepresentativeに保存
-      billingRepresentative: billingContactIds,
-      // billingEmailは担当者IDから自動導出
-      billingEmail,
-      paymentTerms: (data.paymentTerms as string) || null,
-      // 連絡方法
-      communicationMethodId: data.communicationMethodId ? Number(data.communicationMethodId) : null,
-      // その他
-      note: (data.note as string) || null,
-      contractNote: (data.contractNote as string) || null,
-      pendingReason: (data.pendingReason as string) || null,
-      lostReason: (data.lostReason as string) || null,
-    },
-  });
+  // 代理店ID
+  if ("agentId" in data) {
+    updateData.agentId = data.agentId ? Number(data.agentId) : null;
+  }
+
+  // リード獲得日
+  if ("leadAcquiredDate" in data) {
+    updateData.leadAcquiredDate = data.leadAcquiredDate ? new Date(data.leadAcquiredDate as string) : null;
+  }
+
+  // ヨミ
+  if ("forecast" in data) {
+    updateData.forecast = (data.forecast as string) || null;
+  }
+
+  // 採用予定人数
+  if ("plannedHires" in data) {
+    updateData.plannedHires = data.plannedHires ? Number(data.plannedHires) : null;
+  }
+
+  // 流入経路ID
+  if ("leadSourceId" in data) {
+    updateData.leadSourceId = data.leadSourceId ? Number(data.leadSourceId) : null;
+  }
+
+  // 担当営業ID
+  if ("salesStaffId" in data) {
+    updateData.salesStaffId = data.salesStaffId ? Number(data.salesStaffId) : null;
+  }
+
+  // 請求先住所（複数選択はカンマ区切りで保存）
+  if ("billingAddress" in data) {
+    updateData.billingAddress = toCommaSeparatedString(data.billingAddress);
+  }
+
+  // 請求先拠点ID
+  if ("billingLocationId" in data) {
+    updateData.billingLocationId = data.billingLocationId ? Number(data.billingLocationId) : null;
+  }
+
+  // 請求先担当者IDs（複数）- billingRepresentativeに保存
+  if ("billingContactIds" in data) {
+    const billingContactIds = toCommaSeparatedString(data.billingContactIds);
+    updateData.billingRepresentative = billingContactIds;
+  }
+
+  // 企業メモ
+  if ("note" in data) {
+    updateData.note = (data.note as string) || null;
+  }
+
+  // 検討理由・失注理由の更新時は履歴も記録する
+  const isPendingReasonChanged = "pendingReason" in data;
+  const isLostReasonChanged = "lostReason" in data;
+
+  if (isPendingReasonChanged || isLostReasonChanged) {
+    // 現在の値を取得
+    const company = await prisma.stpCompany.findUnique({
+      where: { id },
+      select: { pendingReason: true, lostReason: true },
+    });
+
+    // トランザクションで企業更新と履歴作成を実行
+    await prisma.$transaction(async (tx) => {
+      // 検討理由
+      if (isPendingReasonChanged) {
+        const newValue = (data.pendingReason as string) || null;
+        // 値が変更された場合のみ履歴を記録
+        if (company?.pendingReason !== newValue) {
+          await tx.stpStageHistory.create({
+            data: {
+              stpCompanyId: id,
+              eventType: "reason_updated",
+              fromStageId: null,
+              toStageId: null,
+              targetDate: null,
+              note: null,
+              alertAcknowledged: false,
+              pendingReason: newValue,
+            },
+          });
+        }
+        updateData.pendingReason = newValue;
+      }
+
+      // 失注理由
+      if (isLostReasonChanged) {
+        const newValue = (data.lostReason as string) || null;
+        // 値が変更された場合のみ履歴を記録
+        if (company?.lostReason !== newValue) {
+          await tx.stpStageHistory.create({
+            data: {
+              stpCompanyId: id,
+              eventType: "reason_updated",
+              fromStageId: null,
+              toStageId: null,
+              targetDate: null,
+              note: null,
+              alertAcknowledged: false,
+              lostReason: newValue,
+            },
+          });
+        }
+        updateData.lostReason = newValue;
+      }
+
+      // データベースを更新
+      await tx.stpCompany.update({
+        where: { id },
+        data: updateData,
+      });
+    });
+  } else {
+    // 理由の変更がない場合は通常の更新
+    await prisma.stpCompany.update({
+      where: { id },
+      data: updateData,
+    });
+  }
+
   revalidatePath("/stp/companies");
 }
 
@@ -218,4 +254,17 @@ export async function deleteStpCompany(id: number) {
     where: { id },
   });
   revalidatePath("/stp/companies");
+}
+
+// 企業IDの重複チェック（リアルタイム用）
+export async function checkDuplicateCompanyId(companyId: number): Promise<{ isDuplicate: boolean; stpCompanyId?: number }> {
+  const existing = await prisma.stpCompany.findFirst({
+    where: { companyId },
+    select: { id: true },
+  });
+
+  if (existing) {
+    return { isDuplicate: true, stpCompanyId: existing.id };
+  }
+  return { isDuplicate: false };
 }

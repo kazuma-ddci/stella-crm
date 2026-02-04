@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Dialog,
@@ -32,9 +32,12 @@ import {
   updateMasterContract,
   deleteMasterContract,
   getNextContractNumber,
+  getMasterContracts,
 } from "@/app/stp/master-contract-actions";
-import { Plus, Pencil, Trash2, X } from "lucide-react";
+import { Plus, Pencil, Trash2, X, FileText, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
+import { TextPreviewCell } from "@/components/text-preview-cell";
+import { FileUpload } from "@/components/file-upload";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
@@ -51,7 +54,6 @@ type Contract = {
   endDate?: string | null;
   currentStatusId?: number | null;
   currentStatusName?: string | null;
-  targetDate?: string | null;
   signedDate?: string | null;
   signingMethod?: string | null;
   filePath?: string | null;
@@ -65,7 +67,6 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   companyId: number;
   companyName: string;
-  contracts: Contract[];
   contractStatusOptions: { value: string; label: string }[];
   staffOptions: { value: string; label: string }[];
 };
@@ -90,7 +91,6 @@ type FormData = {
   startDate: Date | null;
   endDate: Date | null;
   currentStatusId: string;
-  targetDate: Date | null;
   signedDate: Date | null;
   signingMethod: string;
   filePath: string;
@@ -105,7 +105,6 @@ const EMPTY_FORM_DATA: FormData = {
   startDate: null,
   endDate: null,
   currentStatusId: "",
-  targetDate: null,
   signedDate: null,
   signingMethod: "",
   filePath: "",
@@ -119,7 +118,6 @@ export function MasterContractModal({
   onOpenChange,
   companyId,
   companyName,
-  contracts,
   contractStatusOptions,
   staffOptions,
 }: Props) {
@@ -128,13 +126,28 @@ export function MasterContractModal({
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formData, setFormData] = useState<FormData>(EMPTY_FORM_DATA);
-  const [localContracts, setLocalContracts] = useState<Contract[]>(contracts);
+  const [localContracts, setLocalContracts] = useState<Contract[]>([]);
   const [nextContractNumber, setNextContractNumber] = useState<string>("");
+  const [initialLoading, setInitialLoading] = useState(true);
 
-  // 親からcontractsが更新された場合にlocalContractsを同期
+  // モーダルが開くたびにサーバーから最新データを取得
+  const loadContracts = useCallback(async () => {
+    setInitialLoading(true);
+    try {
+      const data = await getMasterContracts(companyId);
+      setLocalContracts(data);
+    } catch (error) {
+      console.error("Error fetching contracts:", error);
+    } finally {
+      setInitialLoading(false);
+    }
+  }, [companyId]);
+
   useEffect(() => {
-    setLocalContracts(contracts);
-  }, [contracts]);
+    if (open) {
+      loadContracts();
+    }
+  }, [open, loadContracts]);
 
   const resetForm = () => {
     setFormData(EMPTY_FORM_DATA);
@@ -167,7 +180,6 @@ export function MasterContractModal({
       startDate: parseDate(contract.startDate),
       endDate: parseDate(contract.endDate),
       currentStatusId: contract.currentStatusId ? String(contract.currentStatusId) : "",
-      targetDate: parseDate(contract.targetDate),
       signedDate: parseDate(contract.signedDate),
       signingMethod: contract.signingMethod || "",
       filePath: contract.filePath || "",
@@ -208,7 +220,6 @@ export function MasterContractModal({
         startDate: formData.startDate?.toISOString() || null,
         endDate: formData.endDate?.toISOString() || null,
         currentStatusId: formData.currentStatusId ? Number(formData.currentStatusId) : null,
-        targetDate: formData.targetDate?.toISOString() || null,
         signedDate: formData.signedDate?.toISOString() || null,
         signingMethod: formData.signingMethod || null,
         filePath: formData.filePath || null,
@@ -219,19 +230,6 @@ export function MasterContractModal({
 
       if (editingId) {
         await updateMasterContract(editingId, data);
-        // ローカルステートを更新
-        setLocalContracts((prev) =>
-          prev.map((c) =>
-            c.id === editingId
-              ? {
-                  ...c,
-                  ...data,
-                  currentStatusName:
-                    contractStatusOptions.find((s) => s.value === String(data.currentStatusId))?.label || null,
-                }
-              : c
-          )
-        );
         toast.success("契約書を更新しました");
       } else {
         const savedContractNumber = await addMasterContract(companyId, data);
@@ -239,6 +237,8 @@ export function MasterContractModal({
       }
 
       resetForm();
+      // 最新データを再取得
+      await loadContracts();
       router.refresh();
     } catch (error) {
       console.error("Error saving contract:", error);
@@ -359,22 +359,6 @@ export function MasterContractModal({
                     </Select>
                   </div>
 
-                  {/* 目標日 */}
-                  <div>
-                    <Label htmlFor="targetDate">目標日</Label>
-                    <DatePicker
-                      selected={formData.targetDate}
-                      onChange={(date: Date | null) => setFormData({ ...formData, targetDate: date })}
-                      dateFormat="yyyy/MM/dd"
-                      locale="ja"
-                      placeholderText="日付を選択"
-                      isClearable
-                      className={datePickerClassName}
-                      wrapperClassName="w-full"
-                      calendarClassName="shadow-lg"
-                    />
-                  </div>
-
                   {/* 締結方法 */}
                   <div>
                     <Label htmlFor="signingMethod">締結方法</Label>
@@ -443,25 +427,22 @@ export function MasterContractModal({
                     />
                   </div>
 
-                  {/* ファイルパス */}
-                  <div>
-                    <Label htmlFor="filePath">ファイルパス/URL</Label>
-                    <Input
-                      id="filePath"
-                      value={formData.filePath}
-                      onChange={(e) => setFormData({ ...formData, filePath: e.target.value })}
-                      placeholder="ファイルパスまたはURL"
-                    />
-                  </div>
-
-                  {/* ファイル名 */}
-                  <div>
-                    <Label htmlFor="fileName">ファイル名</Label>
-                    <Input
-                      id="fileName"
-                      value={formData.fileName}
-                      onChange={(e) => setFormData({ ...formData, fileName: e.target.value })}
-                      placeholder="ファイル名"
+                  {/* 契約書ファイル */}
+                  <div className="col-span-2">
+                    <Label htmlFor="fileUpload">契約書ファイル</Label>
+                    <FileUpload
+                      value={{
+                        filePath: formData.filePath || null,
+                        fileName: formData.fileName || null,
+                      }}
+                      onChange={(newValue) => {
+                        setFormData({
+                          ...formData,
+                          filePath: newValue.filePath || "",
+                          fileName: newValue.fileName || "",
+                        });
+                      }}
+                      contractId={editingId || undefined}
                     />
                   </div>
 
@@ -511,7 +492,11 @@ export function MasterContractModal({
           )}
 
           {/* 契約書一覧テーブル */}
-          {localContracts.length > 0 ? (
+          {initialLoading ? (
+            <div className="text-center py-8 text-gray-500">
+              読み込み中...
+            </div>
+          ) : localContracts.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -519,10 +504,11 @@ export function MasterContractModal({
                   <TableHead>種別</TableHead>
                   <TableHead>タイトル</TableHead>
                   <TableHead>ステータス</TableHead>
-                  <TableHead>目標日</TableHead>
                   <TableHead>締結日</TableHead>
                   <TableHead>締結方法</TableHead>
                   <TableHead>担当者</TableHead>
+                  <TableHead>ファイル</TableHead>
+                  <TableHead>備考</TableHead>
                   <TableHead className="w-[100px]">操作</TableHead>
                 </TableRow>
               </TableHeader>
@@ -533,10 +519,27 @@ export function MasterContractModal({
                     <TableCell className="font-medium">{contract.contractType}</TableCell>
                     <TableCell>{contract.title}</TableCell>
                     <TableCell>{contract.currentStatusName || "-"}</TableCell>
-                    <TableCell>{formatDate(contract.targetDate)}</TableCell>
                     <TableCell>{formatDate(contract.signedDate)}</TableCell>
                     <TableCell>{getSigningMethodLabel(contract.signingMethod)}</TableCell>
                     <TableCell>{getStaffName(contract.assignedTo)}</TableCell>
+                    <TableCell>
+                      {contract.filePath && contract.fileName ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => window.open(contract.filePath!, "_blank")}
+                          className="flex items-center gap-1 text-blue-600"
+                        >
+                          <FileText className="h-4 w-4" />
+                          <ExternalLink className="h-3 w-3" />
+                        </Button>
+                      ) : (
+                        "-"
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <TextPreviewCell text={contract.note} title="備考" />
+                    </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
                         <Button

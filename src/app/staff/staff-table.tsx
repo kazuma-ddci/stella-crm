@@ -1,7 +1,11 @@
 "use client";
 
-import { CrudTable, ColumnDef } from "@/components/crud-table";
-import { addStaff, updateStaff, deleteStaff } from "./actions";
+import { useState } from "react";
+import { CrudTable, ColumnDef, CustomRenderers } from "@/components/crud-table";
+import { Button } from "@/components/ui/button";
+import { addStaff, updateStaff, deleteStaff, sendStaffInvite } from "./actions";
+import { Mail, Check, Clock, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 type Props = {
   data: Record<string, unknown>[];
@@ -17,6 +21,98 @@ const CONTRACT_TYPES = [
   { value: "アルバイト", label: "アルバイト" },
 ];
 
+const PERMISSION_LEVELS = [
+  { value: "none", label: "なし" },
+  { value: "view", label: "閲覧" },
+  { value: "edit", label: "編集" },
+  { value: "admin", label: "管理者" },
+];
+
+function InviteButton({ row }: { row: Record<string, unknown> }) {
+  const [loading, setLoading] = useState(false);
+
+  const hasEmail = !!row.email;
+  const hasPassword = row.hasPassword as boolean;
+  const hasInviteToken = row.hasInviteToken as boolean;
+  const inviteTokenExpired = row.inviteTokenExpired as boolean;
+
+  // パスワード設定済み → 招待不要
+  if (hasPassword) {
+    return (
+      <span className="flex items-center gap-1 text-sm text-green-600">
+        <Check className="h-4 w-4" />
+        設定済み
+      </span>
+    );
+  }
+
+  // メールアドレスがない → 招待不可
+  if (!hasEmail) {
+    return (
+      <span className="text-sm text-muted-foreground">
+        メール未設定
+      </span>
+    );
+  }
+
+  const handleInvite = async () => {
+    setLoading(true);
+    try {
+      const result = await sendStaffInvite(row.id as number);
+      if (result.success) {
+        toast.success("招待メールを送信しました");
+      } else {
+        toast.error(result.error || "招待メールの送信に失敗しました");
+      }
+    } catch {
+      toast.error("エラーが発生しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 招待済み（トークンあり）
+  if (hasInviteToken && !inviteTokenExpired) {
+    return (
+      <div className="flex flex-col gap-1">
+        <span className="flex items-center gap-1 text-sm text-amber-600">
+          <Clock className="h-4 w-4" />
+          招待中
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleInvite}
+          disabled={loading}
+          className="h-6 px-2 text-xs"
+        >
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : "再送信"}
+        </Button>
+      </div>
+    );
+  }
+
+  // 招待可能（トークンなし or 期限切れ）
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={handleInvite}
+      disabled={loading}
+      className="h-8"
+    >
+      {loading ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : (
+        <>
+          <Mail className="h-4 w-4 mr-1" />
+          招待送信
+        </>
+      )}
+    </Button>
+  );
+}
+
 export function StaffTable({ data, roleTypeOptions, projectOptions }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
@@ -31,8 +127,17 @@ export function StaffTable({ data, roleTypeOptions, projectOptions }: Props) {
     // 役割（複数選択）
     { key: "roleTypeIds", header: "役割（選択）", type: "multiselect", options: roleTypeOptions, simpleMode: true, hidden: true },
     { key: "roleTypeNames", header: "役割", editable: false, filterable: true },
+    // 権限
+    { key: "stellaPermission", header: "Stella権限", type: "select", options: PERMISSION_LEVELS, simpleMode: true },
+    { key: "stpPermission", header: "STP権限", type: "select", options: PERMISSION_LEVELS, simpleMode: true },
     { key: "isActive", header: "有効", type: "boolean" },
+    // 招待状態
+    { key: "inviteStatus", header: "アカウント", editable: false },
   ];
+
+  const customRenderers: CustomRenderers = {
+    inviteStatus: (_value, row) => <InviteButton row={row} />,
+  };
 
   return (
     <CrudTable
@@ -42,6 +147,7 @@ export function StaffTable({ data, roleTypeOptions, projectOptions }: Props) {
       onAdd={addStaff}
       onUpdate={updateStaff}
       onDelete={deleteStaff}
+      customRenderers={customRenderers}
       emptyMessage="スタッフが登録されていません"
     />
   );

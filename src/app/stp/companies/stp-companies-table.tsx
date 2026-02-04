@@ -3,13 +3,29 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { CrudTable, ColumnDef, CustomAction, CustomRenderers, DynamicOptionsMap } from "@/components/crud-table";
+import { CrudTable, ColumnDef, CustomAction, CustomRenderers, DynamicOptionsMap, CustomFormFields, InlineEditConfig } from "@/components/crud-table";
 import { StageManagementModal } from "@/components/stage-management";
 import { CompanyContactHistoryModal } from "./contact-history-modal";
 import { ContractHistoryModal } from "./contract-history-modal";
 import { MasterContractModal } from "@/components/master-contract-modal";
-import { addStpCompany, updateStpCompany, deleteStpCompany } from "./actions";
-import { BarChart3, MessageSquare, FileText, ScrollText } from "lucide-react";
+import { ProposalModal } from "@/components/proposal-modal";
+import { TextPreviewCell } from "@/components/text-preview-cell";
+import { addStpCompany, updateStpCompany, deleteStpCompany, checkDuplicateCompanyId } from "./actions";
+import { BarChart3, MessageSquare, FileText, ScrollText, ChevronsUpDown, AlertTriangle, FileEdit, LineChart } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 type CustomerType = {
   id: number;
@@ -31,9 +47,6 @@ type Props = {
   staffOptions: { value: string; label: string }[];
   contractStaffOptions: { value: string; label: string }[];
   leadSourceOptions: { value: string; label: string }[];
-  communicationMethodOptions: { value: string; label: string }[];
-  companyLocationOptions: Record<string, { value: string; label: string }[]>;
-  companyContactOptions: Record<string, { value: string; label: string }[]>;
   billingAddressByCompany: Record<string, { value: string; label: string }[]>;
   billingContactByCompany: Record<string, { value: string; label: string }[]>;
   contactMethodOptions: { value: string; label: string }[];
@@ -52,7 +65,6 @@ export function StpCompaniesTable({
   staffOptions,
   contractStaffOptions,
   leadSourceOptions,
-  communicationMethodOptions,
   billingAddressByCompany,
   billingContactByCompany,
   contactMethodOptions,
@@ -67,8 +79,13 @@ export function StpCompaniesTable({
   const [contactHistoryModalOpen, setContactHistoryModalOpen] = useState(false);
   const [contractHistoryModalOpen, setContractHistoryModalOpen] = useState(false);
   const [masterContractModalOpen, setMasterContractModalOpen] = useState(false);
+  const [proposalModalOpen, setProposalModalOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<Record<string, unknown> | null>(null);
+
+  // 企業ID重複チェック用の状態
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+  const [companyPopoverOpen, setCompanyPopoverOpen] = useState(false);
 
   // 動的選択肢のマッピング
   const dynamicOptions: DynamicOptionsMap = {
@@ -76,120 +93,244 @@ export function StpCompaniesTable({
     billingContactIds: billingContactByCompany,
   };
 
+  // 企業ID選択のカスタムフォームフィールド（重複チェック付き）
+  const customFormFields: CustomFormFields = {
+    companyId: {
+      render: (value, onChange) => {
+        const selectedOption = companyOptions.find((opt) => opt.value === String(value));
+
+        // 値がリセットされた場合（ダイアログが再オープンされた場合など）は警告もクリア
+        if (!value && duplicateWarning) {
+          // 次のレンダリングでクリアする（無限ループ防止）
+          setTimeout(() => setDuplicateWarning(null), 0);
+        }
+
+        const handleSelect = async (optValue: string) => {
+          const companyId = Number(optValue);
+          onChange(optValue);
+          setCompanyPopoverOpen(false);
+
+          // 重複チェックを実行
+          const result = await checkDuplicateCompanyId(companyId);
+          if (result.isDuplicate) {
+            setDuplicateWarning(`この企業はすでにSTPプロジェクトに登録されています（プロジェクトNo. ${result.stpCompanyId}）`);
+          } else {
+            setDuplicateWarning(null);
+          }
+        };
+
+        return (
+          <div className="space-y-2">
+            <Popover open={companyPopoverOpen} onOpenChange={setCompanyPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={companyPopoverOpen}
+                  className="w-full justify-between"
+                >
+                  {selectedOption ? selectedOption.label : "選択してください..."}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[400px] p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="検索..." />
+                  <CommandList maxHeight={300}>
+                    <CommandEmpty>見つかりませんでした</CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem
+                        value="__empty__"
+                        onSelect={() => {
+                          onChange(null);
+                          setCompanyPopoverOpen(false);
+                          setDuplicateWarning(null);
+                        }}
+                      >
+                        -
+                      </CommandItem>
+                      {companyOptions.map((opt) => (
+                        <CommandItem
+                          key={opt.value}
+                          value={opt.label}
+                          onSelect={() => handleSelect(opt.value)}
+                        >
+                          {opt.label}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {duplicateWarning && (
+              <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-md p-2">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                <span>{duplicateWarning}</span>
+              </div>
+            )}
+          </div>
+        );
+      },
+    },
+  };
+
+  // ヨミの選択肢
+  const forecastOptions = [
+    { value: "MIN", label: "MIN" },
+    { value: "落とし", label: "落とし" },
+    { value: "MAX", label: "MAX" },
+    { value: "来月", label: "来月" },
+    { value: "辞退", label: "辞退" },
+  ];
+
   const columns: ColumnDef[] = [
     // プロジェクトNo.（STP企業ID）
     { key: "id", header: "プロジェクトNo.", editable: false },
-    // 企業ID（全顧客マスタから選択）
+    // 企業ID（全顧客マスタから選択）- フォーム用、テーブル非表示
     { key: "companyId", header: "企業ID", type: "select", options: companyOptions, required: true, searchable: true, simpleMode: true, editableOnCreate: true, editableOnUpdate: false, hidden: true },
     // 企業名
     { key: "companyName", header: "企業名", editable: false },
-    // 企業メモ
+    // 企業メモ - TextPreviewCell形式で編集
     { key: "note", header: "企業メモ", type: "textarea", simpleMode: true },
-    // リード獲得日
-    { key: "leadAcquiredDate", header: "リード獲得日", type: "date", simpleMode: true },
-    // 初回商談日
-    { key: "meetingDate", header: "初回商談日", type: "date", simpleMode: true },
-    // 最新接触日（後でロジック構築）
-    { key: "latestContactDate", header: "最終接触日", type: "date", editable: false },
-    // 現在ステージ（IDは非表示、名前のみ表示）
-    { key: "currentStageId", header: "現在ステージ（選択）", type: "select", options: stageOptions, simpleMode: true, editableOnCreate: true, editableOnUpdate: false, hidden: true },
-    { key: "currentStageName", header: "現在ステージ", editable: false },
-    // ネクストステージ（IDは非表示、名前のみ表示）
-    { key: "nextTargetStageId", header: "ネクストステージ（選択）", type: "select", options: stageOptions, simpleMode: true, editableOnCreate: true, editableOnUpdate: false, hidden: true },
-    { key: "nextTargetStageName", header: "ネクストステージ", editable: false },
-    // 次回商談日コミット
-    { key: "nextTargetDate", header: "次回商談日コミット", type: "date", simpleMode: true, editableOnCreate: true, editableOnUpdate: false },
-    // ヨミ
-    { key: "forecast", header: "ヨミ", type: "select", options: [
-      { value: "MIN", label: "MIN" },
-      { value: "落とし", label: "落とし" },
-      { value: "MAX", label: "MAX" },
-      { value: "来月", label: "来月" },
-      { value: "辞退", label: "辞退" },
-    ]},
-    // 契約メモ
-    { key: "contractNote", header: "契約メモ", type: "textarea" },
-    // 業種区分
-    { key: "industryType", header: "業種区分", type: "select", options: [
-      { value: "一般", label: "一般" },
-      { value: "派遣", label: "派遣" },
-    ]},
-    // 採用予定人数
-    { key: "plannedHires", header: "採用予定人数", type: "number" },
-    // 契約プラン（後でロジック構築・自動入力）
-    { key: "contractPlan", header: "契約プラン", type: "text", editable: false },
-    // 媒体
-    { key: "media", header: "媒体", type: "text" },
-    // 契約開始日（後でロジック構築・自動入力）
-    { key: "contractStartDate", header: "契約開始日", type: "date", editable: false },
-    // 契約終了日（後でロジック構築・自動入力）
-    { key: "contractEndDate", header: "契約終了日", type: "date", editable: false },
-    // 初期費用
-    { key: "initialFee", header: "初期費用", type: "select", options: [
-      { value: "0", label: "¥0" },
-      { value: "100000", label: "¥100,000" },
-      { value: "150000", label: "¥150,000" },
-    ]},
-    // 月額
-    { key: "monthlyFee", header: "月額", type: "number" },
-    // 成果報酬単価
-    { key: "performanceFee", header: "成果報酬単価", type: "number" },
-    // 担当営業（IDは非表示）
-    { key: "salesStaffId", header: "担当営業（選択）", type: "select", options: staffOptions, searchable: true, hidden: true },
-    { key: "salesStaffName", header: "担当営業", editable: false },
-    // 担当運用（複数選択）
-    { key: "operationStaffList", header: "担当運用", type: "select", options: [
-      { value: "indeed", label: "indeed" },
-      { value: "運用2", label: "運用2" },
-      { value: "indeed,運用2", label: "indeed,運用2" },
-    ]},
     // 代理店ID（非表示）
     { key: "agentId", header: "代理店（選択）", type: "select", options: agentOptions, searchable: true, hidden: true },
     // 代理店名
-    { key: "agentName", header: "代理店名", editable: false },
-    // 業界（全顧客マスタから表示）
-    { key: "industry", header: "業界", editable: false },
-    // 売上規模（全顧客マスタから表示）
-    { key: "revenueScale", header: "売上規模", editable: false },
-    // 企業HP（全顧客マスタから表示、リンククリック可能）
-    { key: "websiteUrl", header: "企業HP", editable: false },
-    // 初回KO日
-    { key: "firstKoDate", header: "初回KO日", type: "date" },
-    // 運用ステータス
-    { key: "operationStatus", header: "運用ステータス", type: "select", options: [
-      { value: "テスト1", label: "テスト1" },
-      { value: "テスト2", label: "テスト2" },
-    ]},
-    // アカウントID
-    { key: "accountId", header: "アカウントID", type: "text" },
-    // アカウントPASS
-    { key: "accountPass", header: "アカウントPASS", type: "text" },
-    // 求人掲載開始日
-    { key: "jobPostingStartDate", header: "求人掲載開始日", type: "text" },
-    // 請求先住所（選択した企業の拠点住所から複数選択）
-    { key: "billingAddress", header: "請求先住所", type: "multiselect", dynamicOptionsKey: "billingAddress", dependsOn: "companyId" },
-    // 請求先担当者（選択用、非表示）
-    { key: "billingContactIds", header: "請求先担当者（選択）", type: "multiselect", dynamicOptionsKey: "billingContactIds", dependsOn: "companyId", hidden: true },
-    // 請求先担当者名（表示用）
-    { key: "billingContactNames", header: "請求先担当者名", editable: false },
-    // 請求先担当者メール（表示用）
-    { key: "billingContactEmails", header: "請求先担当者メール", editable: false },
-    // 支払いサイト
-    { key: "paymentTerms", header: "支払いサイト", type: "text" },
-    // 連絡方法（IDは非表示）
-    { key: "communicationMethodId", header: "連絡方法（選択）", type: "select", options: communicationMethodOptions, hidden: true },
-    { key: "communicationMethodName", header: "連絡方法", editable: false },
-    // 検討理由（検討中ステージ以外はグレーアウト）
-    { key: "pendingReason", header: "検討理由", type: "textarea" },
-    // 失注理由（失注ステージ以外はグレーアウト）
-    { key: "lostReason", header: "失注理由", type: "textarea" },
-    // 流入経路（IDは非表示）
-    { key: "leadSourceId", header: "流入経路（選択）", type: "select", options: leadSourceOptions, hidden: true },
+    { key: "agentName", header: "代理店", editable: false },
+    // 流入経路（IDは非表示）- インライン編集可能（leadSourceIdを使用）
+    { key: "leadSourceId", header: "流入経路（選択）", type: "select", options: leadSourceOptions, hidden: true, inlineEditable: true },
     { key: "leadSourceName", header: "流入経路", editable: false },
+    // リード獲得日
+    { key: "leadAcquiredDate", header: "リード獲得日", type: "date", simpleMode: true },
+    // 最終接触日
+    { key: "latestContactDate", header: "最終接触日", type: "date", editable: false },
+    // 現在ステージ（IDは非表示、名前のみ表示）- セルクリックでステージモーダル
+    { key: "currentStageId", header: "現在ステージ（選択）", type: "select", options: stageOptions, simpleMode: true, editableOnCreate: true, editableOnUpdate: false, hidden: true },
+    { key: "currentStageName", header: "現在ステージ", editable: false },
+    // ネクストステージ（IDは非表示、名前のみ表示）- セルクリックでステージモーダル
+    { key: "nextTargetStageId", header: "ネクストステージ（選択）", type: "select", options: stageOptions, simpleMode: true, editableOnCreate: true, editableOnUpdate: false, hidden: true },
+    { key: "nextTargetStageName", header: "ネクストステージ", editable: false },
+    // ステージコミット（次回商談日コミットから名前変更）- セルクリックでステージモーダル
+    { key: "nextTargetDate", header: "ステージコミット", type: "date", simpleMode: true, editableOnCreate: true, editableOnUpdate: false },
+    // ヨミ - インライン編集可能
+    { key: "forecast", header: "ヨミ", type: "select", options: forecastOptions, inlineEditable: true },
+    // 担当営業（IDは非表示）- インライン編集可能
+    { key: "salesStaffId", header: "担当営業（選択）", type: "select", options: staffOptions, searchable: true, hidden: true, inlineEditable: true },
+    { key: "salesStaffName", header: "担当営業", editable: false },
+    // 提案書（操作ボタン）
+    { key: "proposal", header: "提案書", editable: false },
+    // 採用予定人数 - インライン編集可能
+    { key: "plannedHires", header: "採用予定人数", type: "number", inlineEditable: true },
+    // 契約履歴から取得する項目（表示のみ）
+    { key: "contractIndustryType", header: "業種区分", editable: false },
+    { key: "contractJobMedia", header: "求人媒体", editable: false },
+    { key: "contractPlan", header: "契約プラン", editable: false },
+    { key: "contractAmount", header: "金額", editable: false },
+    { key: "contractInitialFee", header: "初期費用", editable: false },
+    { key: "contractStartDate", header: "契約開始日", editable: false },
+    { key: "contractNote", header: "契約メモ", editable: false },
+    { key: "contractOperationStaff", header: "担当運用", editable: false },
+    { key: "contractOperationStatus", header: "運用ステータス", editable: false },
+    { key: "contractAccountId", header: "アカウントID", editable: false },
+    { key: "contractAccountPass", header: "アカウントPASS", editable: false },
+    // 運用KPI（操作ボタン）
+    { key: "operationKpi", header: "運用KPI", editable: false },
+    // 請求先住所（選択した企業の拠点住所から複数選択）- インライン編集可能
+    { key: "billingAddress", header: "請求先住所", type: "multiselect", dynamicOptionsKey: "billingAddress", dependsOn: "companyId", inlineEditable: true },
+    // 請求先担当者（選択用、非表示）- インライン編集可能
+    { key: "billingContactIds", header: "請求先担当者（選択）", type: "multiselect", dynamicOptionsKey: "billingContactIds", dependsOn: "companyId", hidden: true, inlineEditable: true },
+    // 請求先担当者（名前とメールを統合表示）
+    { key: "billingContacts", header: "請求先担当者", editable: false },
+    // 検討理由（検討中ステージ以外はグレーアウト）- TextPreviewCell形式で編集
+    { key: "pendingReason", header: "検討理由", type: "textarea" },
+    // 失注理由（失注ステージ以外はグレーアウト）- TextPreviewCell形式で編集
+    { key: "lostReason", header: "失注理由", type: "textarea" },
   ];
 
-  // カスタムレンダラー：企業HPをリンクとして表示、検討理由・失注理由をグレーアウト
+  // 業種区分のラベル変換
+  const industryTypeLabels: Record<string, string> = {
+    general: "一般",
+    dispatch: "派遣",
+  };
+
+  // 契約プランのラベル変換
+  const contractPlanLabels: Record<string, string> = {
+    monthly: "月額",
+    performance: "成果報酬",
+  };
+
+  // カスタムレンダラー：企業HPをリンクとして表示、検討理由・失注理由をグレーアウト、契約履歴を縦並び表示、ステージセルクリック対応
   const customRenderers: CustomRenderers = {
+    // 現在ステージ：クリックでステージ管理モーダルを開く
+    currentStageName: (value, row) => {
+      return (
+        <span
+          className="cursor-pointer text-blue-600 hover:underline"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedCompanyId(row.id as number);
+            setStageModalOpen(true);
+          }}
+        >
+          {value ? String(value) : "-"}
+        </span>
+      );
+    },
+    // ネクストステージ：クリックでステージ管理モーダルを開く
+    nextTargetStageName: (value, row) => {
+      return (
+        <span
+          className="cursor-pointer text-blue-600 hover:underline"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedCompanyId(row.id as number);
+            setStageModalOpen(true);
+          }}
+        >
+          {value ? String(value) : "-"}
+        </span>
+      );
+    },
+    // ステージコミット：クリックでステージ管理モーダルを開く
+    nextTargetDate: (value, row) => {
+      const displayValue = value
+        ? new Date(value as string).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })
+        : "-";
+      return (
+        <span
+          className="cursor-pointer text-blue-600 hover:underline"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedCompanyId(row.id as number);
+            setStageModalOpen(true);
+          }}
+        >
+          {displayValue}
+        </span>
+      );
+    },
+    // 流入経路名：インライン編集対象のIDを使って表示、クリックで編集
+    leadSourceName: (value, row) => {
+      const leadSourceId = row.leadSourceId as number | null;
+      const option = leadSourceOptions.find((opt) => opt.value === String(leadSourceId));
+      const displayValue = option?.label || (value ? String(value) : "-");
+      return (
+        <span className="cursor-pointer hover:bg-muted/50 px-1 -mx-1 rounded transition-colors">
+          {displayValue}
+        </span>
+      );
+    },
+    // 担当営業名：インライン編集対象のIDを使って表示
+    salesStaffName: (value, row) => {
+      const salesStaffId = row.salesStaffId as number | null;
+      const option = staffOptions.find((opt) => opt.value === String(salesStaffId));
+      const displayValue = option?.label || (value ? String(value) : "-");
+      return (
+        <span className="cursor-pointer hover:bg-muted/50 px-1 -mx-1 rounded transition-colors">
+          {displayValue}
+        </span>
+      );
+    },
     // 企業名をクリックで全顧客マスタの詳細ページへ
     companyName: (value, row) => {
       if (!value) return "-";
@@ -219,84 +360,298 @@ export function StpCompaniesTable({
         </Link>
       );
     },
-    websiteUrl: (value) => {
-      if (!value || typeof value !== "string") return "-";
+    // 企業メモ：TextPreviewCellで表示（編集機能付き）
+    note: (value, row) => {
       return (
-        <a
-          href={value}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:underline"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {value}
-        </a>
+        <TextPreviewCell
+          text={value as string | null}
+          title="企業メモ"
+          onEdit={async (newValue) => {
+            await updateStpCompany(row.id as number, { note: newValue });
+            router.refresh();
+          }}
+        />
       );
     },
-    // 検討理由：検討中ステージ以外はグレーアウト
+    // 検討理由：検討中ステージ以外はグレーアウト（編集機能付き）
     pendingReason: (value, row) => {
       const currentStageId = row.currentStageId as number | null;
       const isDisabled = currentStageId !== pendingStageId;
 
       if (!value) {
+        if (isDisabled) {
+          return <span className="text-gray-300">(該当なし)</span>;
+        }
         return (
-          <span className={isDisabled ? "text-gray-300" : "text-gray-500"}>
-            {isDisabled ? "(該当なし)" : "-"}
+          <TextPreviewCell
+            text={null}
+            title="検討理由"
+            onEdit={async (newValue) => {
+              await updateStpCompany(row.id as number, { pendingReason: newValue });
+              router.refresh();
+            }}
+          />
+        );
+      }
+
+      if (isDisabled) {
+        return (
+          <span className="text-gray-300 max-w-xs truncate block">
+            {String(value)}
           </span>
         );
       }
 
       return (
-        <span className={isDisabled ? "text-gray-300" : ""}>
-          {String(value)}
-        </span>
+        <TextPreviewCell
+          text={value as string | null}
+          title="検討理由"
+          onEdit={async (newValue) => {
+            await updateStpCompany(row.id as number, { pendingReason: newValue });
+            router.refresh();
+          }}
+        />
       );
     },
-    // 失注理由：失注ステージ以外はグレーアウト
+    // 失注理由：失注ステージ以外はグレーアウト（編集機能付き）
     lostReason: (value, row) => {
       const currentStageId = row.currentStageId as number | null;
       const isDisabled = currentStageId !== lostStageId;
 
       if (!value) {
+        if (isDisabled) {
+          return <span className="text-gray-300">(該当なし)</span>;
+        }
         return (
-          <span className={isDisabled ? "text-gray-300" : "text-gray-500"}>
-            {isDisabled ? "(該当なし)" : "-"}
+          <TextPreviewCell
+            text={null}
+            title="失注理由"
+            onEdit={async (newValue) => {
+              await updateStpCompany(row.id as number, { lostReason: newValue });
+              router.refresh();
+            }}
+          />
+        );
+      }
+
+      if (isDisabled) {
+        return (
+          <span className="text-gray-300 max-w-xs truncate block">
+            {String(value)}
           </span>
         );
       }
 
       return (
-        <span className={isDisabled ? "text-gray-300" : ""}>
-          {String(value)}
-        </span>
+        <TextPreviewCell
+          text={value as string | null}
+          title="失注理由"
+          onEdit={async (newValue) => {
+            await updateStpCompany(row.id as number, { lostReason: newValue });
+            router.refresh();
+          }}
+        />
       );
     },
-    // 請求先担当者名：縦並びで表示
-    billingContactNames: (value) => {
-      if (!value || typeof value !== "string") return "-";
-      const names = value.split(",").filter((name) => name.trim());
-      if (names.length === 0) return "-";
+    // 請求先担当者：名前（メール）形式で縦並び表示
+    billingContacts: (value) => {
+      if (!value || !Array.isArray(value) || value.length === 0) return "-";
 
       return (
         <div className="flex flex-col gap-1">
-          {names.map((name, index) => (
-            <div key={index} className="text-sm">{name.trim()}</div>
+          {value.map((contact, index) => (
+            <div key={index} className="text-sm">{contact}</div>
           ))}
         </div>
       );
     },
-    // 請求先担当者メール：縦並びで表示
-    billingContactEmails: (value) => {
-      if (!value || typeof value !== "string") return "-";
-      const emails = value.split(",").filter((email) => email.trim());
-      if (emails.length === 0) return "-";
+    // 契約履歴 - 業種区分：縦並びで表示
+    contractIndustryType: (_value, row) => {
+      const histories = row.activeContractHistories as { industryType: string }[] | undefined;
+      if (!histories || histories.length === 0) return "-";
 
       return (
         <div className="flex flex-col gap-1">
-          {emails.map((email, index) => (
-            <div key={index} className="text-sm">{email.trim()}</div>
+          {histories.map((h, index) => (
+            <div key={index} className="text-sm">
+              {industryTypeLabels[h.industryType] || h.industryType}
+            </div>
           ))}
         </div>
+      );
+    },
+    // 契約履歴 - 求人媒体：縦並びで表示
+    contractJobMedia: (_value, row) => {
+      const histories = row.activeContractHistories as { jobMedia: string | null }[] | undefined;
+      if (!histories || histories.length === 0) return "-";
+
+      return (
+        <div className="flex flex-col gap-1">
+          {histories.map((h, index) => (
+            <div key={index} className="text-sm">{h.jobMedia || "-"}</div>
+          ))}
+        </div>
+      );
+    },
+    // 契約履歴 - 契約プラン：縦並びで表示
+    contractPlan: (_value, row) => {
+      const histories = row.activeContractHistories as { contractPlan: string }[] | undefined;
+      if (!histories || histories.length === 0) return "-";
+
+      return (
+        <div className="flex flex-col gap-1">
+          {histories.map((h, index) => (
+            <div key={index} className="text-sm">
+              {contractPlanLabels[h.contractPlan] || h.contractPlan}
+            </div>
+          ))}
+        </div>
+      );
+    },
+    // 契約履歴 - 金額（契約プランに応じて月額または成果報酬）：縦並びで表示
+    contractAmount: (_value, row) => {
+      const histories = row.activeContractHistories as { contractPlan: string; monthlyFee: number; performanceFee: number }[] | undefined;
+      if (!histories || histories.length === 0) return "-";
+
+      return (
+        <div className="flex flex-col gap-1">
+          {histories.map((h, index) => {
+            const amount = h.contractPlan === "monthly" ? h.monthlyFee : h.performanceFee;
+            const label = h.contractPlan === "monthly" ? "月額" : "成果報酬";
+            return (
+              <div key={index} className="text-sm">
+                {label}: ¥{amount.toLocaleString()}
+              </div>
+            );
+          })}
+        </div>
+      );
+    },
+    // 契約履歴 - 初期費用：縦並びで表示
+    contractInitialFee: (_value, row) => {
+      const histories = row.activeContractHistories as { initialFee: number }[] | undefined;
+      if (!histories || histories.length === 0) return "-";
+
+      return (
+        <div className="flex flex-col gap-1">
+          {histories.map((h, index) => (
+            <div key={index} className="text-sm">¥{h.initialFee.toLocaleString()}</div>
+          ))}
+        </div>
+      );
+    },
+    // 契約履歴 - 契約開始日：縦並びで表示
+    contractStartDate: (_value, row) => {
+      const histories = row.activeContractHistories as { contractStartDate: string }[] | undefined;
+      if (!histories || histories.length === 0) return "-";
+
+      return (
+        <div className="flex flex-col gap-1">
+          {histories.map((h, index) => (
+            <div key={index} className="text-sm">
+              {new Date(h.contractStartDate).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })}
+            </div>
+          ))}
+        </div>
+      );
+    },
+    // 契約履歴 - 契約メモ（備考）：縦並びで表示
+    contractNote: (_value, row) => {
+      const histories = row.activeContractHistories as { note: string | null }[] | undefined;
+      if (!histories || histories.length === 0) return "-";
+
+      return (
+        <div className="flex flex-col gap-2">
+          {histories.map((h, index) => (
+            <TextPreviewCell key={index} text={h.note} title="契約メモ" />
+          ))}
+        </div>
+      );
+    },
+    // 契約履歴 - 担当運用：縦並びで表示
+    contractOperationStaff: (_value, row) => {
+      const histories = row.activeContractHistories as { operationStaffName: string | null }[] | undefined;
+      if (!histories || histories.length === 0) return "-";
+
+      return (
+        <div className="flex flex-col gap-1">
+          {histories.map((h, index) => (
+            <div key={index} className="text-sm">{h.operationStaffName || "-"}</div>
+          ))}
+        </div>
+      );
+    },
+    // 契約履歴 - 運用ステータス：縦並びで表示
+    contractOperationStatus: (_value, row) => {
+      const histories = row.activeContractHistories as { operationStatus: string | null }[] | undefined;
+      if (!histories || histories.length === 0) return "-";
+
+      return (
+        <div className="flex flex-col gap-1">
+          {histories.map((h, index) => (
+            <div key={index} className="text-sm">{h.operationStatus || "-"}</div>
+          ))}
+        </div>
+      );
+    },
+    // 契約履歴 - アカウントID：縦並びで表示
+    contractAccountId: (_value, row) => {
+      const histories = row.activeContractHistories as { accountId: string | null }[] | undefined;
+      if (!histories || histories.length === 0) return "-";
+
+      return (
+        <div className="flex flex-col gap-1">
+          {histories.map((h, index) => (
+            <div key={index} className="text-sm">{h.accountId || "-"}</div>
+          ))}
+        </div>
+      );
+    },
+    // 契約履歴 - アカウントPASS：縦並びで表示
+    contractAccountPass: (_value, row) => {
+      const histories = row.activeContractHistories as { accountPass: string | null }[] | undefined;
+      if (!histories || histories.length === 0) return "-";
+
+      return (
+        <div className="flex flex-col gap-1">
+          {histories.map((h, index) => (
+            <div key={index} className="text-sm">{h.accountPass || "-"}</div>
+          ))}
+        </div>
+      );
+    },
+    // 運用KPI：KPIシート画面への遷移ボタン
+    operationKpi: (_value, row) => {
+      return (
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-7 w-7"
+          onClick={(e) => {
+            e.stopPropagation();
+            const stpCompanyId = row.id as number;
+            router.push(`/stp/companies/${stpCompanyId}/kpi`);
+          }}
+        >
+          <LineChart className="h-4 w-4" />
+        </Button>
+      );
+    },
+    // 提案書：提案書モーダルを開くボタン
+    proposal: (_value, row) => {
+      return (
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-7 w-7"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedCompany(row);
+            setProposalModalOpen(true);
+          }}
+        >
+          <FileEdit className="h-4 w-4" />
+        </Button>
       );
     },
   };
@@ -348,6 +703,60 @@ export function StpCompaniesTable({
     },
   ];
 
+  // インライン編集の設定
+  const inlineEditConfig: InlineEditConfig = {
+    // インライン編集対象のカラム（note, pendingReason, lostReasonはTextPreviewCell形式で編集）
+    columns: [
+      "leadSourceId",      // 流入経路
+      "forecast",          // ヨミ
+      "salesStaffId",      // 担当営業
+      "plannedHires",      // 採用予定人数
+      "billingAddress",    // 請求先住所
+      "billingContactIds", // 請求先担当者
+    ],
+    // 表示用カラムから編集用カラムへのマッピング
+    displayToEditMapping: {
+      "leadSourceName": "leadSourceId",
+      "salesStaffName": "salesStaffId",
+      "billingContacts": "billingContactIds",
+    },
+    // セルクリック時のカスタムハンドラ
+    onCellClick: (row, columnKey) => {
+      // ステージ関連のセルをクリックしたらモーダルを開く
+      if (["currentStageName", "nextTargetStageName", "nextTargetDate"].includes(columnKey)) {
+        setSelectedCompanyId(row.id as number);
+        setStageModalOpen(true);
+        return true; // カスタムハンドラで処理済み
+      }
+      return false;
+    },
+    // 動的に選択肢を取得
+    getOptions: (row, columnKey) => {
+      if (columnKey === "leadSourceId") {
+        return leadSourceOptions;
+      }
+      if (columnKey === "salesStaffId") {
+        return staffOptions;
+      }
+      if (columnKey === "forecast") {
+        return forecastOptions;
+      }
+      if (columnKey === "billingAddress") {
+        const companyId = row.companyId as number;
+        return billingAddressByCompany[String(companyId)] || [];
+      }
+      if (columnKey === "billingContactIds") {
+        const companyId = row.companyId as number;
+        return billingContactByCompany[String(companyId)] || [];
+      }
+      return [];
+    },
+    // 編集可能かどうかを動的に判定（現在はすべてデフォルトで編集可能）
+    isEditable: () => {
+      return true;
+    },
+  };
+
   return (
     <>
       <CrudTable
@@ -361,7 +770,10 @@ export function StpCompaniesTable({
         enableInputModeToggle={true}
         customActions={customActions}
         customRenderers={customRenderers}
+        customFormFields={customFormFields}
         dynamicOptions={dynamicOptions}
+        enableInlineEdit={true}
+        inlineEditConfig={inlineEditConfig}
       />
 
       <StageManagementModal
@@ -400,24 +812,17 @@ export function StpCompaniesTable({
           onOpenChange={setMasterContractModalOpen}
           companyId={selectedCompany.companyId as number}
           companyName={selectedCompany.companyName as string}
-          contracts={(selectedCompany.masterContracts as Array<{
-            id: number;
-            contractType: string;
-            title: string;
-            contractNumber?: string | null;
-            startDate?: string | null;
-            endDate?: string | null;
-            currentStatusId?: number | null;
-            currentStatusName?: string | null;
-            targetDate?: string | null;
-            signedDate?: string | null;
-            signingMethod?: string | null;
-            filePath?: string | null;
-            fileName?: string | null;
-            assignedTo?: string | null;
-            note?: string | null;
-          }>) || []}
           contractStatusOptions={masterContractStatusOptions}
+          staffOptions={contractStaffOptions}
+        />
+      )}
+
+      {selectedCompany && (
+        <ProposalModal
+          open={proposalModalOpen}
+          onOpenChange={setProposalModalOpen}
+          stpCompanyId={selectedCompany.id as number}
+          companyName={selectedCompany.companyName as string}
           staffOptions={contractStaffOptions}
         />
       )}

@@ -17,6 +17,7 @@ export default async function StaffPage() {
             project: true,
           },
         },
+        permissions: true,
       },
     }),
     prisma.staffRoleType.findMany({
@@ -29,21 +30,33 @@ export default async function StaffPage() {
     }),
   ]);
 
-  const data = staffList.map((s) => ({
-    id: s.id,
-    name: s.name,
-    nameKana: s.nameKana,
-    email: s.email,
-    phone: s.phone,
-    contractType: s.contractType,
-    isActive: s.isActive,
-    // 役割（複数選択）
-    roleTypeIds: s.roleAssignments.map((ra) => String(ra.roleTypeId)),
-    roleTypeNames: s.roleAssignments.map((ra) => ra.roleType.name).join(", "),
-    // プロジェクト（複数選択）
-    projectIds: s.projectAssignments.map((pa) => String(pa.projectId)),
-    projectNames: s.projectAssignments.map((pa) => pa.project.name).join(", "),
-  }));
+  const data = staffList.map((s) => {
+    const stellaPermission = s.permissions.find((p) => p.projectCode === "stella");
+    const stpPermission = s.permissions.find((p) => p.projectCode === "stp");
+
+    return {
+      id: s.id,
+      name: s.name,
+      nameKana: s.nameKana,
+      email: s.email,
+      phone: s.phone,
+      contractType: s.contractType,
+      isActive: s.isActive,
+      // 役割（複数選択）
+      roleTypeIds: s.roleAssignments.map((ra) => String(ra.roleTypeId)),
+      roleTypeNames: s.roleAssignments.map((ra) => ra.roleType.name).join(", "),
+      // プロジェクト（複数選択）
+      projectIds: s.projectAssignments.map((pa) => String(pa.projectId)),
+      projectNames: s.projectAssignments.map((pa) => pa.project.name).join(", "),
+      // 権限
+      stellaPermission: stellaPermission?.permissionLevel || "none",
+      stpPermission: stpPermission?.permissionLevel || "none",
+      // 招待状態
+      hasPassword: !!s.passwordHash,
+      hasInviteToken: !!s.inviteToken,
+      inviteTokenExpired: s.inviteTokenExpiresAt ? s.inviteTokenExpiresAt < new Date() : false,
+    };
+  });
 
   const roleTypeOptions = roleTypes.map((rt) => ({
     value: String(rt.id),

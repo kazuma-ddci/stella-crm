@@ -31,6 +31,7 @@ export default async function CompanyContactsPage() {
             },
           },
         },
+        files: true,
       },
       orderBy: { contactDate: "desc" },
     }),
@@ -159,6 +160,14 @@ export default async function CompanyContactsPage() {
       customerTypeLabels: c.roles.map((r) =>
         `${r.customerType.project.name}:${r.customerType.name}`
       ).join(", "),
+      // 添付ファイル
+      files: c.files.map((f) => ({
+        id: f.id,
+        filePath: f.filePath,
+        fileName: f.fileName,
+        fileSize: f.fileSize,
+        mimeType: f.mimeType,
+      })),
       createdAt: c.createdAt.toISOString(),
       updatedAt: c.updatedAt.toISOString(),
     };

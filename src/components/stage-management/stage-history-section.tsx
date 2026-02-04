@@ -122,6 +122,13 @@ export function StageHistorySection({ histories }: StageHistorySectionProps) {
       case "revived":
         return `失注から${toStage?.name ?? "不明"}へ復活`;
       case "reason_updated":
+        // どの理由が更新されたかを表示
+        if (history.pendingReason !== null) {
+          return `検討理由を更新`;
+        }
+        if (history.lostReason !== null) {
+          return `失注理由を更新`;
+        }
         return `理由を更新`;
       default:
         return "";

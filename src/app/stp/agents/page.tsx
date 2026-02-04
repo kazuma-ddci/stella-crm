@@ -1,11 +1,44 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgentsTable } from "./agents-table";
+import crypto from "crypto";
+
+// ユニークなトークンを生成
+function generateToken(): string {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+// トークンがない代理店に対してトークンを生成
+async function ensureLeadFormTokensExist() {
+  const agentsWithoutToken = await prisma.stpAgent.findMany({
+    where: {
+      leadFormToken: null,
+    },
+    select: { id: true },
+  });
+
+  if (agentsWithoutToken.length > 0) {
+    await prisma.$transaction(
+      agentsWithoutToken.map((agent) =>
+        prisma.stpLeadFormToken.create({
+          data: {
+            token: generateToken(),
+            agentId: agent.id,
+            status: "active",
+          },
+        })
+      )
+    );
+  }
+}
 
 export default async function StpAgentsPage() {
   const STP_PROJECT_ID = 1; // 採用ブースト
 
-  const [agents, masterCompanies, staff, staffProjectAssignments, allStaffProjectAssignments, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes] = await Promise.all([
+  // 既存代理店にトークンがなければ自動生成
+  await ensureLeadFormTokensExist();
+
+  const [agents, masterCompanies, staff, staffProjectAssignments, allStaffProjectAssignments, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, stpCompanies] = await Promise.all([
     prisma.stpAgent.findMany({
       include: {
         company: {
@@ -25,6 +58,14 @@ export default async function StpAgentsPage() {
         },
         contracts: {
           orderBy: { signedDate: "desc" },
+        },
+        leadFormToken: true,
+        stpCompanies: {
+          include: {
+            contracts: true,
+            company: true,
+            currentStage: true,
+          },
         },
       },
       orderBy: { id: "asc" },
@@ -89,6 +130,14 @@ export default async function StpAgentsPage() {
         { displayOrder: "asc" },
       ],
     }),
+    // 全STP企業（紹介件数・契約件数計算用）
+    prisma.stpCompany.findMany({
+      include: {
+        contracts: {
+          where: { status: "signed" },
+        },
+      },
+    }),
   ]);
 
   // companyIdでMasterContractをグループ化
@@ -114,6 +163,24 @@ export default async function StpAgentsPage() {
     // この代理店の接触履歴を取得
     const agentContactHistories = contactHistoriesByCompanyId[a.companyId] || [];
 
+    // 紹介件数：この代理店が紹介したSTP企業の数
+    const referralCount = a.stpCompanies.length;
+
+    // 契約件数：この代理店が紹介したSTP企業のうち、契約書がsignedの企業数
+    const contractedCount = a.stpCompanies.filter((sc) =>
+      sc.contracts.some((c) => c.status === "signed")
+    ).length;
+
+    // 紹介企業一覧（モーダル表示用）
+    const stpCompaniesData = a.stpCompanies.map((sc) => ({
+      id: sc.id,
+      companyId: sc.companyId,
+      companyName: sc.company.name,
+      companyCode: sc.company.companyCode,
+      currentStageName: sc.currentStage?.name || "-",
+      hasSignedContract: sc.contracts.some((c) => c.status === "signed"),
+    }));
+
     return {
     id: a.id,
     companyId: a.companyId,
@@ -123,16 +190,21 @@ export default async function StpAgentsPage() {
     companyPhone: primaryLocation?.phone || null,
     status: a.status,
     category1: a.category1,
-    category2: a.category2,
-    meetingDate: a.meetingDate?.toISOString(),
     contractStatus: a.contractStatus,
-    contractNote: a.contractNote,
     referrerCompanyId: a.referrerCompanyId,
     referrerCompanyName: a.referrerCompanyId ? `（${a.referrerCompanyId}）${a.referrerCompany?.name}` : null,
     note: a.note,
+    // 顧問専用フィールド
+    minimumCases: a.minimumCases,
+    monthlyFee: a.monthlyFee,
     // 担当者（複数）
     staffAssignments: a.staffAssignments.map((sa) => String(sa.staffId)).join(","),
     staffNames: a.staffAssignments.map((sa) => sa.staff.name).join(", "),
+    // 紹介件数・契約件数
+    referralCount,
+    contractedCount,
+    // 紹介企業一覧（モーダル表示用）
+    stpCompanies: stpCompaniesData,
     // 契約書（件数表示）
     contractCount: a.contracts.length,
     contracts: a.contracts.map((c) => ({
@@ -190,6 +262,9 @@ export default async function StpAgentsPage() {
       assignedTo: mc.assignedTo,
       note: mc.note,
     })),
+    // リード獲得フォーム
+    leadFormToken: a.leadFormToken?.token || null,
+    leadFormTokenStatus: a.leadFormToken?.status || null,
     createdAt: a.createdAt.toISOString(),
     updatedAt: a.updatedAt.toISOString(),
   };
@@ -215,10 +290,13 @@ export default async function StpAgentsPage() {
     label: `${c.companyCode} - ${c.name}`,
   }));
 
-  const staffOptions = staff.map((s) => ({
-    value: String(s.id),
-    label: s.name,
-  }));
+  // 代理店担当者：STPプロジェクトに割り当てられたスタッフのみ
+  const staffOptions = staffProjectAssignments
+    .filter((a) => a.staff.isActive)
+    .map((a) => ({
+      value: String(a.staff.id),
+      label: a.staff.name,
+    }));
 
   // 契約書用：STPプロジェクトに割り当てられたスタッフのみ
   const contractStaffOptions = staffProjectAssignments

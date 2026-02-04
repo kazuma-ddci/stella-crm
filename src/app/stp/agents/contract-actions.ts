@@ -82,3 +82,21 @@ export async function deleteContract(id: number) {
 
   revalidatePath("/stp/agents");
 }
+
+export async function getContracts(agentId: number) {
+  const contracts = await prisma.stpAgentContract.findMany({
+    where: { agentId },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return contracts.map((contract) => ({
+    id: contract.id,
+    contractUrl: contract.contractUrl,
+    signedDate: contract.signedDate?.toISOString() || null,
+    title: contract.title,
+    externalId: contract.externalId,
+    externalService: contract.externalService,
+    status: contract.status,
+    note: contract.note,
+  }));
+}

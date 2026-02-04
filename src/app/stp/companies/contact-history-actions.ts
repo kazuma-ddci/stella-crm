@@ -3,6 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 
+type FileInput = {
+  id?: number;
+  filePath: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+};
+
 type ContactHistoryInput = {
   contactDate?: string;
   contactMethodId?: number | null;
@@ -11,6 +19,7 @@ type ContactHistoryInput = {
   meetingMinutes?: string | null;
   note?: string | null;
   customerTypeIds?: number[]; // 顧客種別ID配列
+  files?: FileInput[]; // 添付ファイル
 };
 
 // 定数: 採用ブースト（STP）プロジェクトID
@@ -65,6 +74,19 @@ export async function addCompanyContactHistory(
       })),
     });
 
+    // ファイル情報を保存
+    if (data.files && data.files.length > 0) {
+      await tx.contactHistoryFile.createMany({
+        data: data.files.map((file) => ({
+          contactHistoryId: history.id,
+          filePath: file.filePath,
+          fileName: file.fileName,
+          fileSize: file.fileSize,
+          mimeType: file.mimeType,
+        })),
+      });
+    }
+
     // 作成した履歴を取得（リレーション含む）
     return await tx.contactHistory.findUnique({
       where: { id: history.id },
@@ -75,6 +97,7 @@ export async function addCompanyContactHistory(
             customerType: true,
           },
         },
+        files: true,
       },
     });
   });
@@ -127,6 +150,42 @@ export async function updateCompanyContactHistory(
       }
     }
 
+    // ファイル情報を更新
+    if (data.files !== undefined) {
+      // 既存のファイル情報を取得
+      const existingFiles = await tx.contactHistoryFile.findMany({
+        where: { contactHistoryId: id },
+      });
+
+      // 既存ファイルのIDリスト
+      const existingFileIds = existingFiles.map((f) => f.id);
+      // 送信されたファイルのIDリスト（既存ファイルのみ）
+      const submittedFileIds = data.files.filter((f) => f.id).map((f) => f.id!);
+      // 削除対象のファイルID
+      const filesToDelete = existingFileIds.filter((id) => !submittedFileIds.includes(id));
+
+      // 削除対象のファイルを削除
+      if (filesToDelete.length > 0) {
+        await tx.contactHistoryFile.deleteMany({
+          where: { id: { in: filesToDelete } },
+        });
+      }
+
+      // 新規ファイルを追加（IDがないもの）
+      const newFiles = data.files.filter((f) => !f.id);
+      if (newFiles.length > 0) {
+        await tx.contactHistoryFile.createMany({
+          data: newFiles.map((file) => ({
+            contactHistoryId: id,
+            filePath: file.filePath,
+            fileName: file.fileName,
+            fileSize: file.fileSize,
+            mimeType: file.mimeType,
+          })),
+        });
+      }
+    }
+
     // 更新した履歴を取得（リレーション含む）
     return await tx.contactHistory.findUnique({
       where: { id: history.id },
@@ -137,6 +196,7 @@ export async function updateCompanyContactHistory(
             customerType: true,
           },
         },
+        files: true,
       },
     });
   });
@@ -233,6 +293,7 @@ export async function getCompanyContactHistories(companyId: number) {
           },
         },
       },
+      files: true,
     },
     orderBy: { contactDate: "desc" },
   });
@@ -279,6 +340,13 @@ function formatContactHistoryResponse(history: {
       project?: { id: number; name: string };
     };
   }>;
+  files?: Array<{
+    id: number;
+    filePath: string;
+    fileName: string;
+    fileSize: number;
+    mimeType: string;
+  }>;
 }) {
   return {
     id: history.id,
@@ -299,6 +367,14 @@ function formatContactHistoryResponse(history: {
         name: r.customerType.name,
         projectId: r.customerType.projectId,
         projectName: r.customerType.project?.name,
+      })) || [],
+    files:
+      history.files?.map((f) => ({
+        id: f.id,
+        filePath: f.filePath,
+        fileName: f.fileName,
+        fileSize: f.fileSize,
+        mimeType: f.mimeType,
       })) || [],
   };
 }

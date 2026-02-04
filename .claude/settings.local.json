@@ -27,7 +27,25 @@
       "Bash(pkill:*)",
       "Bash(npx tsc:*)",
       "Bash(docker-compose logs:*)",
-      "Bash(npx eslint:*)"
+      "Bash(npx eslint:*)",
+      "Bash(find:*)",
+      "Bash(openssl rand:*)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_type",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_wait_for",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_console_messages",
+      "mcp__playwright__browser_close",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_press_key",
+      "mcp__playwright__browser_run_code",
+      "mcp__playwright__browser_evaluate",
+      "Bash(python3:*)",
+      "mcp__playwright__browser_resize",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(git add:*)"
     ]
   }
 }
