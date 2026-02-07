@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 
 export async function addRoleType(data: Record<string, unknown>) {
+  await requireMasterDataEditPermission();
   // 最大の表示順を取得して+1
   const maxOrder = await prisma.staffRoleType.aggregate({
     _max: { displayOrder: true },
@@ -24,6 +26,7 @@ export async function addRoleType(data: Record<string, unknown>) {
 }
 
 export async function updateRoleType(id: number, data: Record<string, unknown>) {
+  await requireMasterDataEditPermission();
   await prisma.staffRoleType.update({
     where: { id },
     data: {
@@ -38,6 +41,7 @@ export async function updateRoleType(id: number, data: Record<string, unknown>) 
 }
 
 export async function deleteRoleType(id: number) {
+  await requireMasterDataEditPermission();
   await prisma.staffRoleType.delete({
     where: { id },
   });
@@ -46,6 +50,7 @@ export async function deleteRoleType(id: number) {
 }
 
 export async function reorderRoleTypes(orderedIds: number[]) {
+  await requireMasterDataEditPermission();
   await prisma.$transaction(
     orderedIds.map((id, index) =>
       prisma.staffRoleType.update({

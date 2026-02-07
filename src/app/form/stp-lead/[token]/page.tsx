@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CheckCircle, AlertCircle, Loader2, ArrowRight, ArrowLeft } from "lucide-react";
+import { toLocalDateString } from "@/lib/utils";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
@@ -152,7 +153,7 @@ export default function LeadFormPage({
 
   // ページ1の必須項目チェック
   const isPage1Valid = () => {
-    return formData.companyName && formData.contactName && formData.contactEmail;
+    return formData.companyName && formData.contactName && formData.contactEmail && formData.pastHiringJobType;
   };
 
   // ページ2の必須項目チェック
@@ -162,9 +163,11 @@ export default function LeadFormPage({
 
   const handleNextPage = () => {
     if (!isPage1Valid()) {
-      setErrorMessage("会社名、担当者氏名、メールアドレスは必須です");
+      setErrorMessage("会社名、担当者氏名、メールアドレス、職種は必須です");
       return;
     }
+    // ページ1で選択した職種をページ2に反映
+    setFormData((prev) => ({ ...prev, desiredJobType: prev.pastHiringJobType }));
     setCurrentPage(2);
     setErrorMessage("");
   };
@@ -179,7 +182,7 @@ export default function LeadFormPage({
 
     // バリデーション
     if (!isPage1Valid()) {
-      setErrorMessage("会社名、担当者氏名、メールアドレスは必須です");
+      setErrorMessage("会社名、担当者氏名、メールアドレス、職種は必須です");
       setCurrentPage(1);
       return;
     }
@@ -250,9 +253,11 @@ export default function LeadFormPage({
         <div className="max-w-2xl mx-auto">
           {/* ヘッダー画像エリア */}
           <div className="bg-gradient-to-r from-purple-100 to-blue-100 rounded-t-lg p-8 text-center">
-            <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-orange-500 via-purple-500 to-blue-500 bg-clip-text text-transparent">
-              採用ブースト
-            </h1>
+            <img
+              src="/images/20260205-211053.png"
+              alt="採用ブースト"
+              className="mx-auto max-w-[400px] w-full h-auto"
+            />
             <p className="text-sm text-gray-500 mt-2">【ヒアリングシート】</p>
           </div>
 
@@ -275,6 +280,34 @@ export default function LeadFormPage({
     );
   }
 
+  // 再送信（別の職種で回答する）
+  const handleNewSubmission = () => {
+    setFormData((prev) => ({
+      // 基本情報は保持
+      companyName: prev.companyName,
+      contactName: prev.contactName,
+      contactEmail: prev.contactEmail,
+      // それ以外はリセット
+      pastHiringJobType: "",
+      pastRecruitingCostAgency: "",
+      pastRecruitingCostAds: "",
+      pastRecruitingCostReferral: "",
+      pastRecruitingCostOther: "",
+      pastHiringCount: "",
+      desiredJobType: "",
+      annualBudget: "",
+      annualHiringTarget: "",
+      hiringArea: "",
+      hiringTimeline: "",
+      ageRange: "",
+      requiredConditions: "",
+      preferredConditions: "",
+    }));
+    setCurrentPage(1);
+    setErrorMessage("");
+    setStatus("form");
+  };
+
   // 送信成功
   if (status === "success") {
     return (
@@ -282,9 +315,11 @@ export default function LeadFormPage({
         <div className="max-w-2xl mx-auto">
           {/* ヘッダー画像エリア */}
           <div className="bg-gradient-to-r from-purple-100 to-blue-100 rounded-t-lg p-8 text-center">
-            <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-orange-500 via-purple-500 to-blue-500 bg-clip-text text-transparent">
-              採用ブースト
-            </h1>
+            <img
+              src="/images/20260205-211053.png"
+              alt="採用ブースト"
+              className="mx-auto max-w-[400px] w-full h-auto"
+            />
             <p className="text-sm text-gray-500 mt-2">【ヒアリングシート】</p>
           </div>
 
@@ -304,6 +339,16 @@ export default function LeadFormPage({
                 </p>
               </CardDescription>
             </CardHeader>
+            <CardContent>
+              <Button
+                type="button"
+                className="w-full bg-blue-600 hover:bg-blue-700"
+                onClick={handleNewSubmission}
+              >
+                <ArrowRight className="mr-2 h-4 w-4" />
+                別の職種で回答する
+              </Button>
+            </CardContent>
           </Card>
         </div>
       </div>
@@ -316,9 +361,11 @@ export default function LeadFormPage({
       <div className="max-w-2xl mx-auto">
         {/* ヘッダー画像エリア */}
         <div className="bg-gradient-to-r from-purple-100 to-blue-100 rounded-t-lg p-8 text-center">
-          <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-orange-500 via-purple-500 to-blue-500 bg-clip-text text-transparent">
-            採用ブースト
-          </h1>
+          <img
+              src="/images/20260205-211053.png"
+              alt="採用ブースト"
+              className="mx-auto max-w-[400px] w-full h-auto"
+            />
           <p className="text-sm text-gray-500 mt-2">【ヒアリングシート】</p>
         </div>
 
@@ -397,7 +444,7 @@ export default function LeadFormPage({
 
                     <div className="space-y-2">
                       <Label htmlFor="pastHiringJobType">
-                        今後採用を進める予定のある職種で過去にも採用を行っていた職種
+                        今後採用を進める予定のある職種で過去にも採用を行っていた職種 <span className="text-red-500">*</span>
                       </Label>
                       <Select
                         value={formData.pastHiringJobType}
@@ -502,23 +549,14 @@ export default function LeadFormPage({
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="desiredJobType">
-                        ご希望の職種 <span className="text-red-500">*</span>
+                        採用希望の職種
                       </Label>
-                      <Select
+                      <Input
+                        id="desiredJobType"
                         value={formData.desiredJobType}
-                        onValueChange={(value) => handleInputChange("desiredJobType", value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="職種を選択してください" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {JOB_TYPES.map((jobType) => (
-                            <SelectItem key={jobType} value={jobType}>
-                              {jobType}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        disabled
+                        className="bg-gray-50 border-gray-300 text-gray-900 font-medium"
+                      />
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
@@ -569,7 +607,7 @@ export default function LeadFormPage({
                         id="hiringTimeline"
                         selected={formData.hiringTimeline ? new Date(formData.hiringTimeline) : null}
                         onChange={(date: Date | null) => {
-                          handleInputChange("hiringTimeline", date ? date.toISOString().split("T")[0] : "");
+                          handleInputChange("hiringTimeline", date ? toLocalDateString(date) : "");
                         }}
                         dateFormat="yyyy/MM/dd"
                         locale="ja"

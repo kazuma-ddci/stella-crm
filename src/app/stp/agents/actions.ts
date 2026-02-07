@@ -21,7 +21,6 @@ export async function addAgent(data: Record<string, unknown>) {
         companyId: Number(data.companyId),
         status: (data.status as string) || "アクティブ",
         category1: (data.category1 as string) || "代理店",
-        contractStatus: (data.contractStatus as string) || null,
         referrerCompanyId: data.referrerCompanyId ? Number(data.referrerCompanyId) : null,
         note: (data.note as string) || null,
         minimumCases: data.minimumCases ? Number(data.minimumCases) : null,
@@ -55,9 +54,6 @@ export async function updateAgent(id: number, data: Record<string, unknown>) {
   if ("category1" in data) {
     updateData.category1 = (data.category1 as string) || "代理店";
   }
-  if ("contractStatus" in data) {
-    updateData.contractStatus = (data.contractStatus as string) || null;
-  }
   if ("referrerCompanyId" in data) {
     updateData.referrerCompanyId = data.referrerCompanyId ? Number(data.referrerCompanyId) : null;
   }
@@ -72,6 +68,14 @@ export async function updateAgent(id: number, data: Record<string, unknown>) {
   if ("monthlyFee" in data) {
     updateData.monthlyFee = data.monthlyFee !== null && data.monthlyFee !== undefined
       ? Number(data.monthlyFee)
+      : null;
+  }
+  if ("isIndividualBusiness" in data) {
+    updateData.isIndividualBusiness = data.isIndividualBusiness === true || data.isIndividualBusiness === "true";
+  }
+  if ("withholdingTaxRate" in data) {
+    updateData.withholdingTaxRate = data.withholdingTaxRate !== null && data.withholdingTaxRate !== undefined
+      ? Number(data.withholdingTaxRate)
       : null;
   }
 

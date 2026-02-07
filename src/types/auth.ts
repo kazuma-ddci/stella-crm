@@ -8,6 +8,7 @@ export interface SessionUser {
   email: string | null;
   userType: UserType;
   permissions: UserPermission[];
+  canEditMasterData: boolean;
 }
 
 // 外部ユーザー用セッション情報

@@ -12,11 +12,12 @@ export default async function CompaniesPage() {
     ? await prisma.masterStaff.findMany({
         where: {
           isActive: true,
+          isSystemUser: false,
           roleAssignments: {
             some: { roleTypeId: asRoleType.id },
           },
         },
-        orderBy: { name: "asc" },
+        orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
       })
     : [];
 
@@ -37,6 +38,10 @@ export default async function CompaniesPage() {
         where: { deletedAt: null },
         orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
       },
+      bankAccounts: {
+        where: { deletedAt: null },
+        orderBy: { id: "asc" },
+      },
     },
   });
 
@@ -45,10 +50,15 @@ export default async function CompaniesPage() {
     companyCode: c.companyCode,
     name: c.name,
     staffId: c.staffId,
+    leadSource: c.leadSource,
     websiteUrl: c.websiteUrl,
     industry: c.industry,
     revenueScale: c.revenueScale,
     note: c.note,
+    // 支払い条件
+    closingDay: c.closingDay,
+    paymentMonthOffset: c.paymentMonthOffset,
+    paymentDay: c.paymentDay,
     // 拠点情報（モーダル用 + 表示用）
     locations: c.locations.map((location) => ({
       id: location.id,
@@ -74,6 +84,20 @@ export default async function CompaniesPage() {
       note: contact.note,
       createdAt: contact.createdAt.toISOString(),
       updatedAt: contact.updatedAt.toISOString(),
+    })),
+    // 銀行口座情報（モーダル用 + 表示用）
+    bankAccounts: c.bankAccounts.map((ba) => ({
+      id: ba.id,
+      companyId: ba.companyId,
+      bankName: ba.bankName,
+      bankCode: ba.bankCode,
+      branchName: ba.branchName,
+      branchCode: ba.branchCode,
+      accountNumber: ba.accountNumber,
+      accountHolderName: ba.accountHolderName,
+      note: ba.note,
+      createdAt: ba.createdAt.toISOString(),
+      updatedAt: ba.updatedAt.toISOString(),
     })),
   }));
 

@@ -35,8 +35,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Combobox } from "@/components/ui/combobox";
 import { processAsNewCompany, processWithExistingCompany, rejectSubmission, updateSubmission } from "./actions";
 import { toast } from "sonner";
-import { Eye, Building2, Link2, X, Pencil, AlertTriangle, FileText, ExternalLink } from "lucide-react";
+import { Eye, Building2, Link2, X, Pencil, AlertTriangle, FileText, ExternalLink, Info } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import DatePicker, { registerLocale } from "react-datepicker";
+import { ja } from "date-fns/locale";
+import "react-datepicker/dist/react-datepicker.css";
+import { toLocalDateString } from "@/lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+registerLocale("ja", ja);
 
 type Proposal = {
   id: number;
@@ -60,6 +67,7 @@ type Submission = {
   agentName: string;
   status: string;
   submittedAt: string;
+  submittedAtRaw: string;
   processedAt: string | null;
   processingNote: string | null;
   masterCompanyId: number | null;
@@ -85,13 +93,23 @@ type CompanyOption = {
   value: string;
   label: string;
   companyName: string;
+  isInStp: boolean;
   stpAgentId: number | null;
   stpAgentName: string | null;
+  industry: string;
+  revenueScale: string;
+  websiteUrl: string;
+};
+
+type AgentOption = {
+  value: string;
+  label: string;
 };
 
 type Props = {
   submissions: Submission[];
   companyOptions: CompanyOption[];
+  agentOptions: AgentOption[];
 };
 
 const POLLING_INTERVAL = 10000; // 10秒
@@ -102,10 +120,11 @@ const statusLabels: Record<string, { label: string; variant: "default" | "second
   rejected: { label: "却下", variant: "secondary" },
 };
 
-export function SubmissionsTable({ submissions: initialSubmissions, companyOptions: initialCompanyOptions }: Props) {
+export function SubmissionsTable({ submissions: initialSubmissions, companyOptions: initialCompanyOptions, agentOptions: initialAgentOptions }: Props) {
   // ポーリングで更新されるデータ
   const [submissions, setSubmissions] = useState<Submission[]>(initialSubmissions);
   const [companyOptions, setCompanyOptions] = useState<CompanyOption[]>(initialCompanyOptions);
+  const [agentOptions, setAgentOptions] = useState<AgentOption[]>(initialAgentOptions);
 
   const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
@@ -119,6 +138,19 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
   const [overwriteAgent, setOverwriteAgent] = useState(false);
   const [companyNameChoice, setCompanyNameChoice] = useState<"master" | "form">("master");
   const [companyNameConfirmOpen, setCompanyNameConfirmOpen] = useState(false);
+  const [agentChangeAlertOpen, setAgentChangeAlertOpen] = useState(false);
+  const [pendingAgentId, setPendingAgentId] = useState<string>("");
+
+  // STP企業情報入力フォーム
+  const [stpForm, setStpForm] = useState({
+    companyName: "",
+    note: "",
+    agentId: "",
+    leadAcquiredDate: "",
+    industry: "",
+    revenueScale: "",
+    websiteUrl: "",
+  });
 
   // 編集フォーム用の状態
   const [editForm, setEditForm] = useState({
@@ -150,6 +182,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
         const data = await res.json();
         setSubmissions(data.submissions);
         setCompanyOptions(data.companyOptions);
+        if (data.agentOptions) setAgentOptions(data.agentOptions);
       }
     } catch (error) {
       console.error('Failed to fetch submissions:', error);
@@ -170,6 +203,10 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
   useEffect(() => {
     setCompanyOptions(initialCompanyOptions);
   }, [initialCompanyOptions]);
+
+  useEffect(() => {
+    setAgentOptions(initialAgentOptions);
+  }, [initialAgentOptions]);
 
   // 日時はサーバー側でフォーマット済みなのでそのまま表示
   const formatDate = (dateStr: string | null) => {
@@ -193,6 +230,17 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
     setProcessingNote("");
     setOverwriteAgent(false);
     setCompanyNameChoice("master");
+    // STP企業情報フォームの初期値設定
+    const submittedDate = new Date(submission.submittedAtRaw);
+    setStpForm({
+      companyName: submission.companyName,
+      note: "",
+      agentId: String(submission.agentId),
+      leadAcquiredDate: toLocalDateString(submittedDate),
+      industry: "",
+      revenueScale: "",
+      websiteUrl: "",
+    });
     setProcessModalOpen(true);
   };
 
@@ -277,13 +325,92 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
     await executeProcess();
   };
 
+  // 選択した企業のStella情報を取得
+  const getSelectedCompanyInfo = () => {
+    if (!selectedCompanyId) return null;
+    return companyOptions.find((c) => c.value === selectedCompanyId) || null;
+  };
+
+  // 既存企業選択時にStellaの情報をフォームにプリフィル
+  const handleCompanySelect = (value: string) => {
+    setSelectedCompanyId(value);
+    setOverwriteAgent(false);
+    if (value) {
+      const company = companyOptions.find((c) => c.value === value);
+      if (company) {
+        setStpForm((prev) => ({
+          ...prev,
+          industry: company.industry || prev.industry,
+          revenueScale: company.revenueScale || prev.revenueScale,
+          websiteUrl: company.websiteUrl || prev.websiteUrl,
+        }));
+      }
+    }
+  };
+
+  // 代理店変更ハンドラ（アラート確認付き）
+  const handleAgentChange = (newAgentId: string) => {
+    if (!selectedSubmission) return;
+    if (newAgentId !== String(selectedSubmission.agentId)) {
+      setPendingAgentId(newAgentId);
+      setAgentChangeAlertOpen(true);
+    } else {
+      setStpForm((prev) => ({ ...prev, agentId: newAgentId }));
+    }
+  };
+
+  const confirmAgentChange = () => {
+    setStpForm((prev) => ({ ...prev, agentId: pendingAgentId }));
+    setAgentChangeAlertOpen(false);
+  };
+
+  const cancelAgentChange = () => {
+    setPendingAgentId("");
+    setAgentChangeAlertOpen(false);
+  };
+
+  // 選択した企業がSTPに登録済みか
+  const isSelectedCompanyInStp = () => {
+    if (!selectedCompanyId) return false;
+    const company = companyOptions.find((c) => c.value === selectedCompanyId);
+    return company?.isInStp === true;
+  };
+
+  // 紐付け時の実効企業名（ラジオ選択反映）
+  const getEffectiveCompanyName = () => {
+    if (!selectedSubmission || !selectedCompanyId) return "";
+    const company = companyOptions.find((c) => c.value === selectedCompanyId);
+    if (!company) return "";
+    if (company.companyName !== selectedSubmission.companyName) {
+      return companyNameChoice === "master" ? company.companyName : selectedSubmission.companyName;
+    }
+    return company.companyName;
+  };
+
+  // ステージ編集時のアラート
+  const [stageAlertOpen, setStageAlertOpen] = useState(false);
+
   const executeProcess = async () => {
     if (!selectedSubmission) return;
 
     setIsProcessing(true);
     try {
+      const stpCompanyInfo = (() => {
+        if (processType === "reject") return undefined;
+        if (processType === "existing" && isSelectedCompanyInStp()) return undefined;
+        return {
+          companyName: processType === "new" ? stpForm.companyName : getEffectiveCompanyName(),
+          note: stpForm.note || undefined,
+          agentId: stpForm.agentId ? Number(stpForm.agentId) : undefined,
+          leadAcquiredDate: stpForm.leadAcquiredDate || undefined,
+          industry: stpForm.industry || undefined,
+          revenueScale: stpForm.revenueScale || undefined,
+          websiteUrl: stpForm.websiteUrl || undefined,
+        };
+      })();
+
       if (processType === "new") {
-        await processAsNewCompany(selectedSubmission.id, processingNote || undefined);
+        await processAsNewCompany(selectedSubmission.id, processingNote || undefined, stpCompanyInfo);
         toast.success("新規企業として登録しました");
       } else if (processType === "existing") {
         if (!selectedCompanyId) {
@@ -298,7 +425,8 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
           Number(selectedCompanyId),
           processingNote || undefined,
           overwriteAgent,
-          companyNameUnification
+          companyNameUnification,
+          stpCompanyInfo
         );
         toast.success("既存企業に紐付けました");
       } else {
@@ -750,7 +878,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
 
       {/* 処理モーダル */}
       <Dialog open={processModalOpen} onOpenChange={setProcessModalOpen}>
-        <DialogContent>
+        <DialogContent className={processType !== "reject" ? "max-w-2xl max-h-[90vh] overflow-y-auto" : ""}>
           <DialogHeader>
             <DialogTitle>
               {processType === "new" && "新規企業として登録"}
@@ -763,12 +891,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
           </DialogHeader>
 
           <div className="space-y-4">
-            {processType === "new" && (
-              <p className="text-sm text-gray-600">
-                新しい企業として全顧客マスタに登録し、STPプロジェクトのリードとして追加します。
-              </p>
-            )}
-
+            {/* === 紐付け: 企業選択 + 警告 === */}
             {processType === "existing" && (
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -776,85 +899,315 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
                   <Combobox
                     options={companyOptions}
                     value={selectedCompanyId}
-                    onChange={(value) => {
-                      setSelectedCompanyId(value);
-                      setOverwriteAgent(false); // 企業変更時にリセット
-                    }}
+                    onChange={handleCompanySelect}
                     placeholder="企業を検索..."
                   />
                 </div>
 
-                {/* 代理店が異なる場合の警告 */}
-                {isAgentDifferent() && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                      <div className="text-sm">
-                        <p className="font-medium text-amber-800">代理店が異なります</p>
-                        <p className="text-amber-700 mt-1">
-                          既存の代理店: <span className="font-medium">{getSelectedCompanyAgentInfo()?.agentName}</span>
-                        </p>
-                        <p className="text-amber-700">
-                          フォーム送信元: <span className="font-medium">{selectedSubmission?.agentName}</span>
-                        </p>
+                {/* 警告はSTP未登録企業のみ表示 */}
+                {selectedCompanyId && !isSelectedCompanyInStp() && (
+                  <>
+                    {/* 代理店が異なる場合の警告 */}
+                    {isAgentDifferent() && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                          <div className="text-sm">
+                            <p className="font-medium text-amber-800">代理店が異なります</p>
+                            <p className="text-amber-700 mt-1">
+                              既存の代理店: <span className="font-medium">{getSelectedCompanyAgentInfo()?.agentName}</span>
+                            </p>
+                            <p className="text-amber-700">
+                              フォーム送信元: <span className="font-medium">{selectedSubmission?.agentName}</span>
+                            </p>
+                          </div>
+                        </div>
+                        <RadioGroup
+                          value={overwriteAgent ? "overwrite" : "keep"}
+                          onValueChange={(value) => setOverwriteAgent(value === "overwrite")}
+                          className="ml-7"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="keep" id="keep-agent" />
+                            <Label htmlFor="keep-agent" className="text-sm font-normal">
+                              既存の代理店を維持
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="overwrite" id="overwrite-agent" />
+                            <Label htmlFor="overwrite-agent" className="text-sm font-normal">
+                              フォーム送信元の代理店に変更
+                            </Label>
+                          </div>
+                        </RadioGroup>
                       </div>
-                    </div>
-                    <RadioGroup
-                      value={overwriteAgent ? "overwrite" : "keep"}
-                      onValueChange={(value) => setOverwriteAgent(value === "overwrite")}
-                      className="ml-7"
-                    >
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="keep" id="keep-agent" />
-                        <Label htmlFor="keep-agent" className="text-sm font-normal">
-                          既存の代理店を維持
-                        </Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="overwrite" id="overwrite-agent" />
-                        <Label htmlFor="overwrite-agent" className="text-sm font-normal">
-                          フォーム送信元の代理店に変更
-                        </Label>
-                      </div>
-                    </RadioGroup>
-                  </div>
-                )}
+                    )}
 
-                {/* 企業名が異なる場合の警告 */}
-                {isCompanyNameDifferent() && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                      <div className="text-sm">
-                        <p className="font-medium text-amber-800">企業名が異なります</p>
-                        <p className="text-amber-700 mt-1">
-                          フォーム回答: <span className="font-medium">{selectedSubmission?.companyName}</span>
-                        </p>
-                        <p className="text-amber-700">
-                          全顧客マスタ: <span className="font-medium">{getSelectedCompanyName()}</span>
-                        </p>
+                    {/* 企業名が異なる場合の警告 */}
+                    {isCompanyNameDifferent() && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                          <div className="text-sm">
+                            <p className="font-medium text-amber-800">企業名が異なります</p>
+                            <p className="text-amber-700 mt-1">
+                              フォーム回答: <span className="font-medium">{selectedSubmission?.companyName}</span>
+                            </p>
+                            <p className="text-amber-700">
+                              全顧客マスタ: <span className="font-medium">{getSelectedCompanyName()}</span>
+                            </p>
+                          </div>
+                        </div>
+                        <RadioGroup
+                          value={companyNameChoice}
+                          onValueChange={(value) => setCompanyNameChoice(value as "master" | "form")}
+                          className="ml-7"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="master" id="use-master-name" />
+                            <Label htmlFor="use-master-name" className="text-sm font-normal">
+                              全顧客マスタの企業名に統一
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="form" id="use-form-name" />
+                            <Label htmlFor="use-form-name" className="text-sm font-normal">
+                              フォーム回答の企業名（{selectedSubmission?.companyName}）に統一
+                            </Label>
+                          </div>
+                        </RadioGroup>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* === 新規: Stella全顧客マスタ + STP企業情報 セクション === */}
+            {processType === "new" && (
+              <div className="space-y-4">
+                {/* Stella 全顧客マスタに登録 */}
+                <div className="border rounded-lg p-4 space-y-3 bg-blue-50/40">
+                  <div className="flex items-center gap-2 pb-1">
+                    <div className="h-2 w-2 rounded-full bg-blue-500" />
+                    <h4 className="font-semibold text-sm text-blue-900">Stella 全顧客マスタに登録</h4>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2 space-y-1">
+                      <Label htmlFor="stp-companyName">企業名</Label>
+                      <Input
+                        id="stp-companyName"
+                        value={stpForm.companyName}
+                        onChange={(e) => setStpForm({ ...stpForm, companyName: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="stp-industry">業界</Label>
+                      <Input
+                        id="stp-industry"
+                        value={stpForm.industry}
+                        onChange={(e) => setStpForm({ ...stpForm, industry: e.target.value })}
+                        placeholder="例: IT、製造業"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="stp-revenueScale">売上規模</Label>
+                      <Input
+                        id="stp-revenueScale"
+                        value={stpForm.revenueScale}
+                        onChange={(e) => setStpForm({ ...stpForm, revenueScale: e.target.value })}
+                        placeholder="例: 1億〜10億"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <Label htmlFor="stp-websiteUrl">企業HP</Label>
+                      <Input
+                        id="stp-websiteUrl"
+                        value={stpForm.websiteUrl}
+                        onChange={(e) => setStpForm({ ...stpForm, websiteUrl: e.target.value })}
+                        placeholder="https://..."
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* STP 企業情報に登録 */}
+                <div className="border rounded-lg p-4 space-y-3 bg-emerald-50/40">
+                  <div className="flex items-center gap-2 pb-1">
+                    <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                    <h4 className="font-semibold text-sm text-emerald-900">STP 企業情報に登録</h4>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label>ステージ</Label>
+                      <div
+                        className="flex items-center h-10 px-3 border rounded-md bg-gray-50 cursor-pointer hover:bg-gray-100"
+                        onClick={() => setStageAlertOpen(true)}
+                      >
+                        <Badge variant="outline" className="mr-2">リード</Badge>
+                        <Info className="h-3 w-3 text-gray-400 ml-auto" />
                       </div>
                     </div>
-                    <RadioGroup
-                      value={companyNameChoice}
-                      onValueChange={(value) => setCompanyNameChoice(value as "master" | "form")}
-                      className="ml-7"
-                    >
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="master" id="use-master-name" />
-                        <Label htmlFor="use-master-name" className="text-sm font-normal">
-                          全顧客マスタの企業名に統一
-                        </Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="form" id="use-form-name" />
-                        <Label htmlFor="use-form-name" className="text-sm font-normal">
-                          フォーム回答の企業名（{selectedSubmission?.companyName}）に統一
-                        </Label>
-                      </div>
-                    </RadioGroup>
+                    <div className="space-y-1">
+                      <Label>代理店</Label>
+                      <Select value={stpForm.agentId} onValueChange={handleAgentChange}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="代理店を選択" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {agentOptions.map((agent) => (
+                            <SelectItem key={agent.value} value={agent.value}>
+                              {agent.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>リード獲得日</Label>
+                      <DatePicker
+                        selected={stpForm.leadAcquiredDate ? new Date(stpForm.leadAcquiredDate) : null}
+                        onChange={(date: Date | null) =>
+                          setStpForm({ ...stpForm, leadAcquiredDate: date ? toLocalDateString(date) : "" })
+                        }
+                        dateFormat="yyyy/MM/dd"
+                        locale="ja"
+                        placeholderText="日付を選択"
+                        isClearable
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      />
+                    </div>
                   </div>
-                )}
+                  <div className="space-y-1">
+                    <Label htmlFor="stp-note">企業メモ</Label>
+                    <Textarea
+                      id="stp-note"
+                      value={stpForm.note}
+                      onChange={(e) => setStpForm({ ...stpForm, note: e.target.value })}
+                      placeholder="企業に関するメモを入力..."
+                      className="max-h-[120px]"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* === 紐付け: STP企業に既に存在 → メッセージのみ === */}
+            {processType === "existing" && selectedCompanyId && isSelectedCompanyInStp() && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start gap-2">
+                  <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-blue-800">
+                    採用ブーストの顧客に紐づけます。情報更新は企業情報ページから行ってください。
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* === 紐付け: Stellaのみ（STP未登録） → Stella更新 + STP新規登録 === */}
+            {processType === "existing" && selectedCompanyId && !isSelectedCompanyInStp() && (
+              <div className="space-y-4">
+                {/* Stella 全顧客マスタの情報を更新 */}
+                <div className="border rounded-lg p-4 space-y-3 bg-blue-50/40">
+                  <div className="flex items-center gap-2 pb-1">
+                    <div className="h-2 w-2 rounded-full bg-blue-500" />
+                    <h4 className="font-semibold text-sm text-blue-900">Stella 全顧客マスタの情報を更新</h4>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="stp-industry-existing">業界</Label>
+                      <Input
+                        id="stp-industry-existing"
+                        value={stpForm.industry}
+                        onChange={(e) => setStpForm({ ...stpForm, industry: e.target.value })}
+                        placeholder="例: IT、製造業"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="stp-revenueScale-existing">売上規模</Label>
+                      <Input
+                        id="stp-revenueScale-existing"
+                        value={stpForm.revenueScale}
+                        onChange={(e) => setStpForm({ ...stpForm, revenueScale: e.target.value })}
+                        placeholder="例: 1億〜10億"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="stp-websiteUrl-existing">企業HP</Label>
+                      <Input
+                        id="stp-websiteUrl-existing"
+                        value={stpForm.websiteUrl}
+                        onChange={(e) => setStpForm({ ...stpForm, websiteUrl: e.target.value })}
+                        placeholder="https://..."
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* STP 企業情報に登録 */}
+                <div className="border rounded-lg p-4 space-y-3 bg-emerald-50/40">
+                  <div className="flex items-center gap-2 pb-1">
+                    <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                    <h4 className="font-semibold text-sm text-emerald-900">STP 企業情報に登録</h4>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label>企業名</Label>
+                      <div className="flex items-center h-10 px-3 border rounded-md bg-gray-50 text-sm">
+                        {getEffectiveCompanyName()}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>ステージ</Label>
+                      <div
+                        className="flex items-center h-10 px-3 border rounded-md bg-gray-50 cursor-pointer hover:bg-gray-100"
+                        onClick={() => setStageAlertOpen(true)}
+                      >
+                        <Badge variant="outline" className="mr-2">リード</Badge>
+                        <Info className="h-3 w-3 text-gray-400 ml-auto" />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>代理店</Label>
+                      <Select value={stpForm.agentId} onValueChange={handleAgentChange}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="代理店を選択" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {agentOptions.map((agent) => (
+                            <SelectItem key={agent.value} value={agent.value}>
+                              {agent.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>リード獲得日</Label>
+                      <DatePicker
+                        selected={stpForm.leadAcquiredDate ? new Date(stpForm.leadAcquiredDate) : null}
+                        onChange={(date: Date | null) =>
+                          setStpForm({ ...stpForm, leadAcquiredDate: date ? toLocalDateString(date) : "" })
+                        }
+                        dateFormat="yyyy/MM/dd"
+                        locale="ja"
+                        placeholderText="日付を選択"
+                        isClearable
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="stp-note-existing">企業メモ</Label>
+                    <Textarea
+                      id="stp-note-existing"
+                      value={stpForm.note}
+                      onChange={(e) => setStpForm({ ...stpForm, note: e.target.value })}
+                      placeholder="企業に関するメモを入力..."
+                      className="max-h-[120px]"
+                    />
+                  </div>
+                </div>
               </div>
             )}
 
@@ -871,6 +1224,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
                 value={processingNote}
                 onChange={(e) => setProcessingNote(e.target.value)}
                 placeholder="処理に関するメモを入力..."
+                className="max-h-[120px]"
               />
             </div>
           </div>
@@ -893,6 +1247,42 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ステージ編集不可アラート */}
+      <AlertDialog open={stageAlertOpen} onOpenChange={setStageAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>ステージは変更できません</AlertDialogTitle>
+            <AlertDialogDescription>
+              ステージの変更は企業情報ページで行ってください。
+              リード回答の処理時は「リード」ステージで固定されます。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setStageAlertOpen(false)}>
+              OK
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 代理店変更確認アラート */}
+      <AlertDialog open={agentChangeAlertOpen} onOpenChange={setAgentChangeAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>代理店を変更しますか？</AlertDialogTitle>
+            <AlertDialogDescription>
+              フォームで回答された代理店「{selectedSubmission?.agentName}」から
+              「{agentOptions.find((a) => a.value === pendingAgentId)?.label}」に変更します。
+              よろしいですか？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelAgentChange}>キャンセル</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmAgentChange}>変更する</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 編集モーダル */}
       <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
@@ -946,7 +1336,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
               <div className="space-y-2">
                 <Label>紐付け企業</Label>
                 <Combobox
-                  options={[{ value: "", label: "（紐付けなし）", companyName: "", stpAgentId: null, stpAgentName: null }, ...companyOptions]}
+                  options={[{ value: "", label: "（紐付けなし）" }, ...companyOptions.map(c => ({ value: c.value, label: c.label }))]}
                   value={editForm.masterCompanyId}
                   onChange={(value) => setEditForm({ ...editForm, masterCompanyId: value, overwriteAgent: false })}
                   placeholder="企業を検索..."

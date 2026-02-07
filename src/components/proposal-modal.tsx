@@ -37,6 +37,7 @@ import { Plus, Pencil, Trash2, X, FileText, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { FileUpload } from "@/components/file-upload";
+import { toLocalDateString } from "@/lib/utils";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
@@ -210,7 +211,7 @@ export function ProposalModal({
         externalUrl: formData.externalUrl || null,
         externalService: formData.externalService || null,
         status: formData.status,
-        sentAt: formData.sentAt?.toISOString().split("T")[0] || null,
+        sentAt: formData.sentAt ? toLocalDateString(formData.sentAt) : null,
         assignedTo: formData.assignedTo || null,
         note: formData.note || null,
       };

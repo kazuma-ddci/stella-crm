@@ -45,7 +45,7 @@ import { SortableListModal, SortableItem } from "@/components/sortable-list-moda
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { EditableCell, EditableCellType, EditableCellOption, formatDisplayValue } from "@/components/editable-cell";
 import { ChangeConfirmationDialog, ChangeItem } from "@/components/change-confirmation-dialog";
-import { cn } from "@/lib/utils";
+import { cn, toLocalDateString } from "@/lib/utils";
 import { toast } from "sonner";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
@@ -57,7 +57,7 @@ registerLocale("ja", ja);
 export type ColumnDef = {
   key: string;
   header: string;
-  type?: "text" | "number" | "date" | "datetime" | "boolean" | "textarea" | "select" | "multiselect";
+  type?: "text" | "number" | "date" | "datetime" | "month" | "boolean" | "textarea" | "select" | "multiselect";
   editable?: boolean;
   editableOnCreate?: boolean; // 新規作成時のみ編集可能（未指定の場合はeditable準拠）
   editableOnUpdate?: boolean; // 編集時のみ編集可能（未指定の場合はeditable準拠）
@@ -70,6 +70,9 @@ export type ColumnDef = {
   simpleMode?: boolean; // 簡易入力モードで表示するかどうか
   hidden?: boolean; // テーブル一覧で非表示にするか
   inlineEditable?: boolean; // インライン編集可能にするか（enableInlineEdit時に使用）
+  currency?: boolean; // 通貨フォーマット（¥#,##0）で表示・入力
+  defaultValue?: unknown; // 新規追加時のデフォルト値
+  visibleWhen?: { field: string; value: unknown }; // フォームでの条件付き表示（指定フィールドが指定値の時のみ表示）
 };
 
 // カスタムアクションの定義
@@ -139,20 +142,34 @@ type CrudTableProps = {
   // インライン編集機能
   enableInlineEdit?: boolean; // インライン編集を有効にする
   inlineEditConfig?: InlineEditConfig; // インライン編集の設定
+  // フォームフィールド変更時のコールバック（企業選択→日付自動計算など）
+  onFieldChange?: (fieldKey: string, newValue: unknown, formData: Record<string, unknown>, setFormData: (data: Record<string, unknown>) => void) => void;
 };
 
-function formatValue(value: unknown, type?: string): string {
+function formatValue(value: unknown, type?: string, options?: { value: string; label: string }[]): string {
   if (value === null || value === undefined) return "-";
   if (typeof value === "boolean") return value ? "有効" : "無効";
   if (Array.isArray(value)) {
     if (value.length === 0) return "-";
     return value.join(", ");
   }
+  // selectタイプ: valueをlabelに変換
+  if (type === "select" && options) {
+    const option = options.find((opt) => opt.value === String(value));
+    if (option) return option.label;
+  }
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
     const date = new Date(value);
     if (!isNaN(date.getTime())) {
       // サーバー/クライアント間のHydrationエラーを防ぐため、タイムゾーンを明示的に指定
       const options: Intl.DateTimeFormatOptions = { timeZone: "Asia/Tokyo" };
+      if (type === "month") {
+        return date.toLocaleDateString("ja-JP", {
+          ...options,
+          year: "numeric",
+          month: "2-digit",
+        });
+      }
       if (value.includes("T") && type !== "date") {
         return date.toLocaleString("ja-JP", {
           ...options,
@@ -184,8 +201,8 @@ function formatForInput(value: unknown, type?: string): string {
       if (type === "datetime") {
         return date.toISOString().slice(0, 16);
       }
-      if (type === "date") {
-        return date.toISOString().slice(0, 10);
+      if (type === "date" || type === "month") {
+        return toLocalDateString(date);
       }
     }
   }
@@ -212,6 +229,7 @@ export function CrudTable({
   customAddButton,
   enableInlineEdit = false,
   inlineEditConfig,
+  onFieldChange,
 }: CrudTableProps) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editItem, setEditItem] = useState<Record<string, unknown> | null>(null);
@@ -512,7 +530,14 @@ export function CrudTable({
   };
 
   const openAddDialog = () => {
-    setFormData({});
+    // デフォルト値を設定
+    const defaults: Record<string, unknown> = {};
+    columns.forEach((col) => {
+      if (col.defaultValue !== undefined) {
+        defaults[col.key] = col.defaultValue;
+      }
+    });
+    setFormData(defaults);
     setIsAddOpen(true);
   };
 
@@ -631,6 +656,15 @@ export function CrudTable({
     );
   };
 
+  // フォームフィールド変更時にonFieldChangeも呼び出すヘルパー
+  const handleFormFieldChange = useCallback((fieldKey: string, newValue: unknown) => {
+    const newFormData = { ...formData, [fieldKey]: newValue };
+    setFormData(newFormData);
+    if (onFieldChange) {
+      onFieldChange(fieldKey, newValue, newFormData, setFormData);
+    }
+  }, [formData, onFieldChange]);
+
   const renderFormField = (col: ColumnDef) => {
     const value = formData[col.key];
 
@@ -638,7 +672,7 @@ export function CrudTable({
     if (customFormFields[col.key]) {
       return customFormFields[col.key].render(
         value,
-        (newValue) => setFormData({ ...formData, [col.key]: newValue }),
+        (newValue) => handleFormFieldChange(col.key, newValue),
         formData,
         setFormData
       );
@@ -720,7 +754,7 @@ export function CrudTable({
                           const newValues = isSelected
                             ? selectedValues.filter((v) => v !== opt.value)
                             : [...selectedValues, opt.value];
-                          setFormData({ ...formData, [col.key]: newValues });
+                          handleFormFieldChange(col.key, newValues);
                         }}
                       >
                         {isSelected && <Check className="mr-2 h-4 w-4" />}
@@ -767,7 +801,7 @@ export function CrudTable({
                     <CommandItem
                       value="__empty__"
                       onSelect={() => {
-                        setFormData({ ...formData, [col.key]: null });
+                        handleFormFieldChange(col.key, null);
                         setOpenPopovers({ ...openPopovers, [col.key]: false });
                       }}
                     >
@@ -778,7 +812,7 @@ export function CrudTable({
                         key={opt.value}
                         value={opt.label}
                         onSelect={() => {
-                          setFormData({ ...formData, [col.key]: opt.value });
+                          handleFormFieldChange(col.key, opt.value);
                           setOpenPopovers({ ...openPopovers, [col.key]: false });
                         }}
                       >
@@ -797,7 +831,7 @@ export function CrudTable({
       return (
         <Select
           value={value != null ? String(value) : "__empty__"}
-          onValueChange={(v) => setFormData({ ...formData, [col.key]: v === "__empty__" ? null : v })}
+          onValueChange={(v) => handleFormFieldChange(col.key, v === "__empty__" ? null : v)}
         >
           <SelectTrigger>
             <SelectValue placeholder={col.dependsOn && !formData[col.dependsOn] ? "先に企業を選択" : "選択してください"} />
@@ -818,7 +852,7 @@ export function CrudTable({
       return (
         <Select
           value={value === true ? "true" : value === false ? "false" : ""}
-          onValueChange={(v) => setFormData({ ...formData, [col.key]: v === "true" })}
+          onValueChange={(v) => handleFormFieldChange(col.key, v === "true")}
         >
           <SelectTrigger>
             <SelectValue placeholder="選択してください" />
@@ -835,31 +869,64 @@ export function CrudTable({
       return (
         <Textarea
           value={String(value ?? "")}
-          onChange={(e) => setFormData({ ...formData, [col.key]: e.target.value || null })}
+          onChange={(e) => handleFormFieldChange(col.key, e.target.value || null)}
           rows={3}
         />
       );
     }
 
     // 日付フィールド
-    if (col.type === "date" || col.type === "datetime") {
+    if (col.type === "date" || col.type === "datetime" || col.type === "month") {
       const dateValue = value ? new Date(value as string) : null;
       return (
         <DatePicker
           selected={dateValue}
           onChange={(date: Date | null) => {
-            setFormData({ ...formData, [col.key]: date ? date.toISOString() : null });
+            const newValue = date
+              ? col.type === "datetime"
+                ? date.toISOString()
+                : toLocalDateString(date)
+              : null;
+            handleFormFieldChange(col.key, newValue);
           }}
           showTimeSelect={col.type === "datetime"}
+          showMonthYearPicker={col.type === "month"}
           timeFormat="HH:mm"
           timeIntervals={15}
-          dateFormat={col.type === "datetime" ? "yyyy/MM/dd HH:mm" : "yyyy/MM/dd"}
+          dateFormat={col.type === "datetime" ? "yyyy/MM/dd HH:mm" : col.type === "month" ? "yyyy/MM" : "yyyy/MM/dd"}
           locale="ja"
-          placeholderText={col.type === "date" ? "日付を選択" : "日時を選択"}
+          placeholderText={col.type === "month" ? "年月を選択" : col.type === "date" ? "日付を選択" : "日時を選択"}
           isClearable
           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           wrapperClassName="w-full"
           calendarClassName="shadow-lg"
+        />
+      );
+    }
+
+    // 通貨フォーマットの数値入力
+    if (col.type === "number" && col.currency) {
+      return (
+        <Input
+          type="text"
+          inputMode="numeric"
+          value={value != null ? `¥${Number(value).toLocaleString()}` : ""}
+          onFocus={(e) => {
+            // フォーカス時は数値のみ表示
+            e.target.value = value != null ? String(value) : "";
+          }}
+          onChange={(e) => {
+            const cleaned = e.target.value.replace(/[^0-9.-]/g, "");
+            const newValue = cleaned ? Number(cleaned) : null;
+            handleFormFieldChange(col.key, newValue);
+          }}
+          onBlur={(e) => {
+            // フォーカスアウト時はフォーマット表示に戻す
+            const val = formData[col.key];
+            e.target.value = val != null ? `¥${Number(val).toLocaleString()}` : "";
+          }}
+          required={col.required}
+          className="text-right"
         />
       );
     }
@@ -873,7 +940,7 @@ export function CrudTable({
           if (col.type === "number" && e.target.value) {
             newValue = Number(e.target.value);
           }
-          setFormData({ ...formData, [col.key]: newValue });
+          handleFormFieldChange(col.key, newValue);
         }}
         required={col.required}
       />
@@ -989,6 +1056,7 @@ export function CrudTable({
                             type={((editCol?.type || col.type) || "text") as EditableCellType}
                             options={getInlineEditOptions(item, editColumnKey)}
                             searchable={editCol?.searchable ?? col.searchable}
+                            currency={editCol?.currency ?? col.currency}
                             onSave={(newValue) => handleInlineSave(item, editColumnKey, newValue, col.header)}
                             onCancel={() => setEditingCell(null)}
                           />
@@ -997,7 +1065,7 @@ export function CrudTable({
                         ) : col.type === "textarea" ? (
                           <TextPreviewCell text={item[col.key] as string | null | undefined} title={col.header} />
                         ) : (
-                          formatValue(item[col.key], col.type)
+                          formatValue(item[col.key], col.type, col.options)
                         )}
                       </TableCell>
                     );
@@ -1062,15 +1130,21 @@ export function CrudTable({
             </div>
           </DialogHeader>
           <div className="space-y-4">
-            {visibleColumnsForCreate.map((col) => (
-              <div key={col.key} className="space-y-2">
-                <Label>
-                  {col.header}
-                  {col.required && <span className="text-destructive ml-1">*</span>}
-                </Label>
-                {renderFormField(col)}
-              </div>
-            ))}
+            {visibleColumnsForCreate.map((col) => {
+              // visibleWhen条件チェック
+              if (col.visibleWhen && formData[col.visibleWhen.field] !== col.visibleWhen.value) {
+                return null;
+              }
+              return (
+                <div key={col.key} className="space-y-2">
+                  <Label>
+                    {col.header}
+                    {col.required && <span className="text-destructive ml-1">*</span>}
+                  </Label>
+                  {renderFormField(col)}
+                </div>
+              );
+            })}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddOpen(false)}>
@@ -1101,15 +1175,21 @@ export function CrudTable({
             </div>
           </DialogHeader>
           <div className="space-y-4">
-            {visibleColumnsForUpdate.map((col) => (
-              <div key={col.key} className="space-y-2">
-                <Label>
-                  {col.header}
-                  {col.required && <span className="text-destructive ml-1">*</span>}
-                </Label>
-                {renderFormField(col)}
-              </div>
-            ))}
+            {visibleColumnsForUpdate.map((col) => {
+              // visibleWhen条件チェック
+              if (col.visibleWhen && formData[col.visibleWhen.field] !== col.visibleWhen.value) {
+                return null;
+              }
+              return (
+                <div key={col.key} className="space-y-2">
+                  <Label>
+                    {col.header}
+                    {col.required && <span className="text-destructive ml-1">*</span>}
+                  </Label>
+                  {renderFormField(col)}
+                </div>
+              );
+            })}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditItem(null)}>

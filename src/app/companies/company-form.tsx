@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { updateCompany } from "./[id]/actions";
 import { createCompany } from "./actions";
@@ -18,6 +25,9 @@ type Company = {
   industry: string | null;
   revenueScale: string | null;
   note: string | null;
+  closingDay: number | null;
+  paymentMonthOffset: number | null;
+  paymentDay: number | null;
 };
 
 type Props = {
@@ -27,6 +37,9 @@ type Props = {
 export function CompanyForm({ company }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [closingDay, setClosingDay] = useState<string>(company?.closingDay != null ? String(company.closingDay) : "");
+  const [paymentMonthOffset, setPaymentMonthOffset] = useState<string>(company?.paymentMonthOffset != null ? String(company.paymentMonthOffset) : "");
+  const [paymentDay, setPaymentDay] = useState<string>(company?.paymentDay != null ? String(company.paymentDay) : "");
   const isEdit = !!company;
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -40,6 +53,9 @@ export function CompanyForm({ company }: Props) {
       industry: (formData.get("industry") as string) || undefined,
       revenueScale: (formData.get("revenueScale") as string) || undefined,
       note: (formData.get("note") as string) || undefined,
+      closingDay: closingDay ? Number(closingDay) : null,
+      paymentMonthOffset: paymentMonthOffset ? Number(paymentMonthOffset) : null,
+      paymentDay: paymentDay ? Number(paymentDay) : null,
     };
 
     try {
@@ -105,6 +121,53 @@ export function CompanyForm({ company }: Props) {
             defaultValue={company?.websiteUrl || ""}
             placeholder="https://example.co.jp"
           />
+        </div>
+        <div className="space-y-2">
+          <Label>締め日</Label>
+          <Select value={closingDay || "__empty__"} onValueChange={(v) => setClosingDay(v === "__empty__" ? "" : v)}>
+            <SelectTrigger>
+              <SelectValue placeholder="選択してください" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__empty__">-</SelectItem>
+              <SelectItem value="0">月末</SelectItem>
+              <SelectItem value="10">10日</SelectItem>
+              <SelectItem value="15">15日</SelectItem>
+              <SelectItem value="20">20日</SelectItem>
+              <SelectItem value="25">25日</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>支払月</Label>
+          <Select value={paymentMonthOffset || "__empty__"} onValueChange={(v) => setPaymentMonthOffset(v === "__empty__" ? "" : v)}>
+            <SelectTrigger>
+              <SelectValue placeholder="選択してください" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__empty__">-</SelectItem>
+              <SelectItem value="1">翌月</SelectItem>
+              <SelectItem value="2">翌々月</SelectItem>
+              <SelectItem value="3">3ヶ月後</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>支払日</Label>
+          <Select value={paymentDay || "__empty__"} onValueChange={(v) => setPaymentDay(v === "__empty__" ? "" : v)}>
+            <SelectTrigger>
+              <SelectValue placeholder="選択してください" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__empty__">-</SelectItem>
+              <SelectItem value="0">末日</SelectItem>
+              <SelectItem value="5">5日</SelectItem>
+              <SelectItem value="10">10日</SelectItem>
+              <SelectItem value="15">15日</SelectItem>
+              <SelectItem value="20">20日</SelectItem>
+              <SelectItem value="25">25日</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-2 sm:col-span-2">
           <Label htmlFor="note">メモ</Label>

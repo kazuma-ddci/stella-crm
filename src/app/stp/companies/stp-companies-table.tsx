@@ -11,7 +11,8 @@ import { MasterContractModal } from "@/components/master-contract-modal";
 import { ProposalModal } from "@/components/proposal-modal";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { addStpCompany, updateStpCompany, deleteStpCompany, checkDuplicateCompanyId } from "./actions";
-import { BarChart3, MessageSquare, FileText, ScrollText, ChevronsUpDown, AlertTriangle, FileEdit, LineChart } from "lucide-react";
+import { CompanyCodeLabel } from "@/components/company-code-label";
+import { BarChart3, MessageSquare, FileText, ScrollText, ChevronsUpDown, AlertTriangle, FileEdit, LineChart, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -335,13 +336,14 @@ export function StpCompaniesTable({
     companyName: (value, row) => {
       if (!value) return "-";
       const companyId = row.companyId as number;
+      const companyCode = row.companyCode as string;
       return (
         <Link
           href={`/companies/${companyId}`}
           className="hover:underline font-medium"
           onClick={(e) => e.stopPropagation()}
         >
-          {String(value)}
+          <CompanyCodeLabel code={companyCode} name={String(value)} />
         </Link>
       );
     },
@@ -349,6 +351,7 @@ export function StpCompaniesTable({
     agentName: (value, row) => {
       if (!value) return "-";
       const agentCompanyId = row.agentCompanyId as number | null;
+      const agentCompanyCode = row.agentCompanyCode as string | null;
       if (!agentCompanyId) return String(value);
       return (
         <Link
@@ -356,7 +359,10 @@ export function StpCompaniesTable({
           className="hover:underline"
           onClick={(e) => e.stopPropagation()}
         >
-          {String(value)}
+          {agentCompanyCode
+            ? <CompanyCodeLabel code={agentCompanyCode} name={String(value)} />
+            : String(value)
+          }
         </Link>
       );
     },
@@ -701,6 +707,11 @@ export function StpCompaniesTable({
       label: "ステージ管理",
       onClick: handleOpenStageModal,
     },
+    {
+      icon: <DollarSign className="h-4 w-4" />,
+      label: "収支サマリー",
+      onClick: (item) => router.push(`/stp/finance/company-summary/${item.id}`),
+    },
   ];
 
   // インライン編集の設定
@@ -711,8 +722,8 @@ export function StpCompaniesTable({
       "forecast",          // ヨミ
       "salesStaffId",      // 担当営業
       "plannedHires",      // 採用予定人数
-      "billingAddress",    // 請求先住所
-      "billingContactIds", // 請求先担当者
+      "billingAddress",      // 請求先住所
+      "billingContactIds",   // 請求先担当者
     ],
     // 表示用カラムから編集用カラムへのマッピング
     displayToEditMapping: {
@@ -767,7 +778,7 @@ export function StpCompaniesTable({
         onUpdate={updateStpCompany}
         onDelete={deleteStpCompany}
         emptyMessage="企業が登録されていません"
-        enableInputModeToggle={true}
+        enableInputModeToggle={false}
         customActions={customActions}
         customRenderers={customRenderers}
         customFormFields={customFormFields}

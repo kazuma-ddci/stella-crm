@@ -2,9 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 
 export async function addContractStatus(data: Record<string, unknown>) {
-  // 最大の表示順を取得して+1
+  await requireMasterDataEditPermission();
   const maxOrder = await prisma.masterContractStatus.aggregate({
     _max: { displayOrder: true },
   });
@@ -22,6 +23,7 @@ export async function addContractStatus(data: Record<string, unknown>) {
 }
 
 export async function updateContractStatus(id: number, data: Record<string, unknown>) {
+  await requireMasterDataEditPermission();
   await prisma.masterContractStatus.update({
     where: { id },
     data: {
@@ -34,6 +36,7 @@ export async function updateContractStatus(id: number, data: Record<string, unkn
 }
 
 export async function deleteContractStatus(id: number) {
+  await requireMasterDataEditPermission();
   await prisma.masterContractStatus.delete({
     where: { id },
   });
@@ -41,6 +44,7 @@ export async function deleteContractStatus(id: number) {
 }
 
 export async function reorderContractStatuses(orderedIds: number[]) {
+  await requireMasterDataEditPermission();
   await prisma.$transaction(
     orderedIds.map((id, index) =>
       prisma.masterContractStatus.update({

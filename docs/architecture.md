@@ -32,12 +32,15 @@ stella-crm/
 │   │   │   └── [id]/
 │   │   │
 │   │   ├── stp/                            # STPプロジェクト
+│   │   │   ├── dashboard/                  # STPダッシュボード
+│   │   │   │   └── page.tsx
 │   │   │   ├── companies/                  # STP企業管理
 │   │   │   │   ├── page.tsx
 │   │   │   │   ├── stage-management/
 │   │   │   │   └── [id]/
 │   │   │   │       └── kpi/                # 運用KPIシート
 │   │   │   ├── agents/                     # 代理店管理
+│   │   │   ├── candidates/                 # 求職者（候補者）管理
 │   │   │   ├── contracts/                  # 契約管理
 │   │   │   ├── lead-submissions/           # リード獲得フォーム回答管理
 │   │   │   ├── records/                    # 履歴管理
@@ -149,14 +152,18 @@ stella-crm/
 /companies/[id]                          → 全顧客詳細
 /companies/[id]/edit                     → 全顧客編集
 
+# STPプロジェクト - ダッシュボード
+/stp/dashboard                           → STPダッシュボード
+
 # STPプロジェクト - 企業管理
 /stp/companies                           → STP企業一覧（ステージ管理ボタン付き）
 /stp/companies/[id]/kpi                  → 運用KPIシート管理
 /stp/contracts                           → STP契約管理
 /stp/lead-submissions                    → リード獲得フォーム回答一覧
 
-# STPプロジェクト - 代理店管理
+# STPプロジェクト - 代理店・求職者管理
 /stp/agents                              → 代理店一覧
+/stp/candidates                          → 求職者（候補者）一覧
 
 # STPプロジェクト - 履歴管理
 /stp/records/company-contacts            → 企業接触履歴一覧
@@ -172,6 +179,7 @@ stella-crm/
 /settings/contract-statuses              → 契約書ステータスマスタ
 /settings/customer-types                 → 顧客種別マスタ
 /settings/projects                       → プロジェクトマスタ
+/settings/operating-companies            → 運営法人マスタ
 
 # スタッフ管理
 /staff                                   → スタッフ一覧

@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Check, ChevronsUpDown, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, toLocalDateString } from "@/lib/utils";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
@@ -38,6 +38,7 @@ export type EditableCellType =
   | "number"
   | "date"
   | "datetime"
+  | "month"
   | "select"
   | "multiselect"
   | "textarea";
@@ -55,6 +56,7 @@ type EditableCellProps = {
   onSave: (newValue: unknown) => void;
   onCancel: () => void;
   disabled?: boolean;
+  currency?: boolean; // 通貨フォーマット（¥#,##0）で表示・入力
 };
 
 export function EditableCell({
@@ -65,6 +67,7 @@ export function EditableCell({
   onSave,
   onCancel,
   disabled = false,
+  currency = false,
 }: EditableCellProps) {
   const [editValue, setEditValue] = useState<unknown>(value);
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -148,8 +151,56 @@ export function EditableCell({
     );
   }
 
-  // Number input
+  // Number input (with optional currency formatting)
   if (type === "number") {
+    if (currency) {
+      // 通貨フォーマット: ¥#,##0 で表示、数値のみ入力可能
+      const formatCurrency = (val: unknown): string => {
+        if (val === null || val === undefined || val === "") return "";
+        return `¥${Number(val).toLocaleString()}`;
+      };
+      const parseCurrency = (str: string): number | null => {
+        const cleaned = str.replace(/[¥,\s]/g, "");
+        if (cleaned === "" || cleaned === "-") return null;
+        const num = Number(cleaned);
+        return isNaN(num) ? null : num;
+      };
+      const [displayValue, setDisplayValue] = useState(formatCurrency(value));
+      const [isFocused, setIsFocused] = useState(false);
+
+      // Focus時は数値のみ表示、Blur時はフォーマット表示
+      return (
+        <Input
+          ref={inputRef}
+          type="text"
+          inputMode="numeric"
+          value={isFocused
+            ? (editValue !== null && editValue !== undefined ? String(editValue) : "")
+            : displayValue
+          }
+          onChange={(e) => {
+            const val = e.target.value;
+            if (isFocused) {
+              // 数値入力中は数値のみ受け付け
+              const cleaned = val.replace(/[^0-9.-]/g, "");
+              setEditValue(cleaned ? Number(cleaned) : null);
+            } else {
+              setEditValue(parseCurrency(val));
+              setDisplayValue(val);
+            }
+          }}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => {
+            setIsFocused(false);
+            setDisplayValue(formatCurrency(editValue));
+            handleBlur();
+          }}
+          onKeyDown={handleInputKeyDown}
+          className="h-8 min-w-[100px] text-right"
+        />
+      );
+    }
+
     return (
       <Input
         ref={inputRef}
@@ -204,7 +255,7 @@ export function EditableCell({
   }
 
   // Date picker
-  if (type === "date" || type === "datetime") {
+  if (type === "date" || type === "datetime" || type === "month") {
     const dateValue = editValue ? new Date(editValue as string) : null;
     return (
       <Popover open={true} onOpenChange={(open) => !open && onCancel()}>
@@ -215,15 +266,20 @@ export function EditableCell({
           <DatePicker
             selected={dateValue}
             onChange={(date: Date | null) => {
-              const newValue = date ? date.toISOString() : null;
+              const newValue = date
+                ? type === "datetime"
+                  ? date.toISOString()
+                  : toLocalDateString(date)
+                : null;
               setEditValue(newValue);
             }}
             showTimeSelect={type === "datetime"}
+            showMonthYearPicker={type === "month"}
             timeFormat="HH:mm"
             timeIntervals={15}
-            dateFormat={type === "datetime" ? "yyyy/MM/dd HH:mm" : "yyyy/MM/dd"}
+            dateFormat={type === "datetime" ? "yyyy/MM/dd HH:mm" : type === "month" ? "yyyy/MM" : "yyyy/MM/dd"}
             locale="ja"
-            placeholderText={type === "date" ? "日付を選択" : "日時を選択"}
+            placeholderText={type === "month" ? "年月を選択" : type === "date" ? "日付を選択" : "日時を選択"}
             isClearable
             inline
             className="w-full"
@@ -483,6 +539,19 @@ export function formatDisplayValue(
         return opt?.label || v;
       })
       .join(", ");
+  }
+
+  if (type === "month" && typeof value === "string") {
+    try {
+      const d = new Date(value);
+      return d.toLocaleDateString("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric",
+        month: "2-digit",
+      });
+    } catch {
+      return String(value);
+    }
   }
 
   if (type === "date" && typeof value === "string") {

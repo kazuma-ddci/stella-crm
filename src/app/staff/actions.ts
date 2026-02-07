@@ -4,12 +4,50 @@ import { revalidatePath } from "next/cache";
 import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { sendStaffInviteEmail } from "@/lib/email";
+import { auth } from "@/auth";
+import { isAdmin } from "@/lib/auth/permissions";
+import type { UserPermission } from "@/types/auth";
+
+const PERM_PREFIX = "perm_";
+
+async function checkStellaAdmin(): Promise<boolean> {
+  const session = await auth();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const permissions = ((session?.user as any)?.permissions ?? []) as UserPermission[];
+  return isAdmin(permissions, "stella");
+}
+
+/**
+ * Stella権限（固定）+ プロジェクト権限（perm_xxx キーから動的取得）を構築
+ */
+function buildPermissions(
+  staffId: number,
+  data: Record<string, unknown>,
+  stellaPermission: string
+) {
+  const permissions: { staffId: number; projectCode: string; permissionLevel: string }[] = [];
+
+  // Stella権限（固定）
+  if (stellaPermission && stellaPermission !== "none") {
+    permissions.push({ staffId, projectCode: "stella", permissionLevel: stellaPermission });
+  }
+
+  // プロジェクト権限（perm_xxx キーから動的取得）
+  for (const [key, value] of Object.entries(data)) {
+    if (key.startsWith(PERM_PREFIX) && typeof value === "string" && value !== "none") {
+      const projectCode = key.slice(PERM_PREFIX.length);
+      permissions.push({ staffId, projectCode, permissionLevel: value });
+    }
+  }
+
+  return permissions;
+}
 
 export async function addStaff(data: Record<string, unknown>) {
   const roleTypeIds = (data.roleTypeIds as string[]) || [];
   const projectIds = (data.projectIds as string[]) || [];
-  const stellaPermission = (data.stellaPermission as string) || "none";
-  const stpPermission = (data.stpPermission as string) || "none";
+  const canEdit = await checkStellaAdmin();
+  const stellaPermission = canEdit ? ((data.stellaPermission as string) || "none") : "none";
 
   const staff = await prisma.masterStaff.create({
     data: {
@@ -42,22 +80,8 @@ export async function addStaff(data: Record<string, unknown>) {
     });
   }
 
-  // 権限を設定
-  const permissionsToCreate = [];
-  if (stellaPermission && stellaPermission !== "none") {
-    permissionsToCreate.push({
-      staffId: staff.id,
-      projectCode: "stella",
-      permissionLevel: stellaPermission,
-    });
-  }
-  if (stpPermission && stpPermission !== "none") {
-    permissionsToCreate.push({
-      staffId: staff.id,
-      projectCode: "stp",
-      permissionLevel: stpPermission,
-    });
-  }
+  // 権限を設定（Stella admin のみ変更可能）
+  const permissionsToCreate = canEdit ? buildPermissions(staff.id, data, stellaPermission) : [];
   if (permissionsToCreate.length > 0) {
     await prisma.staffPermission.createMany({
       data: permissionsToCreate,
@@ -70,8 +94,8 @@ export async function addStaff(data: Record<string, unknown>) {
 export async function updateStaff(id: number, data: Record<string, unknown>) {
   const roleTypeIds = (data.roleTypeIds as string[]) || [];
   const projectIds = (data.projectIds as string[]) || [];
-  const stellaPermission = (data.stellaPermission as string) || "none";
-  const stpPermission = (data.stpPermission as string) || "none";
+  const canEdit = await checkStellaAdmin();
+  const stellaPermission = canEdit ? ((data.stellaPermission as string) || "none") : "none";
 
   await prisma.masterStaff.update({
     where: { id },
@@ -113,30 +137,18 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
     });
   }
 
-  // 権限を更新（既存を削除して再作成）
-  await prisma.staffPermission.deleteMany({
-    where: { staffId: id },
-  });
+  // 権限を更新（Stella admin のみ変更可能）
+  if (canEdit) {
+    await prisma.staffPermission.deleteMany({
+      where: { staffId: id },
+    });
 
-  const permissionsToCreate = [];
-  if (stellaPermission && stellaPermission !== "none") {
-    permissionsToCreate.push({
-      staffId: id,
-      projectCode: "stella",
-      permissionLevel: stellaPermission,
-    });
-  }
-  if (stpPermission && stpPermission !== "none") {
-    permissionsToCreate.push({
-      staffId: id,
-      projectCode: "stp",
-      permissionLevel: stpPermission,
-    });
-  }
-  if (permissionsToCreate.length > 0) {
-    await prisma.staffPermission.createMany({
-      data: permissionsToCreate,
-    });
+    const permissionsToCreate = buildPermissions(id, data, stellaPermission);
+    if (permissionsToCreate.length > 0) {
+      await prisma.staffPermission.createMany({
+        data: permissionsToCreate,
+      });
+    }
   }
 
   revalidatePath("/staff");
@@ -187,4 +199,16 @@ export async function sendStaffInvite(
 
   revalidatePath("/staff");
   return { success: true };
+}
+
+export async function reorderStaff(orderedIds: number[]) {
+  await prisma.$transaction(
+    orderedIds.map((id, index) =>
+      prisma.masterStaff.update({
+        where: { id },
+        data: { displayOrder: index + 1 },
+      })
+    )
+  );
+  revalidatePath("/staff");
 }

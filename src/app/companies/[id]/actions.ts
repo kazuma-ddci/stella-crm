@@ -18,6 +18,9 @@ export async function updateCompany(
     industry?: string;
     revenueScale?: string;
     note?: string;
+    closingDay?: number | null;
+    paymentMonthOffset?: number | null;
+    paymentDay?: number | null;
   }
 ) {
   await prisma.masterStellaCompany.update({
@@ -28,6 +31,9 @@ export async function updateCompany(
       industry: data.industry || null,
       revenueScale: data.revenueScale || null,
       note: data.note || null,
+      ...(data.closingDay !== undefined && { closingDay: data.closingDay }),
+      ...(data.paymentMonthOffset !== undefined && { paymentMonthOffset: data.paymentMonthOffset }),
+      ...(data.paymentDay !== undefined && { paymentDay: data.paymentDay }),
     },
   });
   revalidatePath("/companies");

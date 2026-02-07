@@ -6,6 +6,7 @@ import { addRoleType, updateRoleType, deleteRoleType, reorderRoleTypes } from ".
 
 type Props = {
   data: Record<string, unknown>[];
+  canEdit: boolean;
 };
 
 const columns: ColumnDef[] = [
@@ -16,7 +17,7 @@ const columns: ColumnDef[] = [
   { key: "isActive", header: "有効", type: "boolean" },
 ];
 
-export function RoleTypesTable({ data }: Props) {
+export function RoleTypesTable({ data, canEdit }: Props) {
   // 並び替え用のアイテムリスト
   const sortableItems: SortableItem[] = data.map((item) => ({
     id: item.id as number,
@@ -29,12 +30,12 @@ export function RoleTypesTable({ data }: Props) {
       data={data}
       columns={columns}
       title="役割種別"
-      onAdd={addRoleType}
-      onUpdate={updateRoleType}
-      onDelete={deleteRoleType}
+      onAdd={canEdit ? addRoleType : undefined}
+      onUpdate={canEdit ? updateRoleType : undefined}
+      onDelete={canEdit ? deleteRoleType : undefined}
       emptyMessage="役割種別が登録されていません"
-      sortableItems={sortableItems}
-      onReorder={reorderRoleTypes}
+      sortableItems={canEdit ? sortableItems : undefined}
+      onReorder={canEdit ? reorderRoleTypes : undefined}
     />
   );
 }

@@ -67,6 +67,9 @@ export default async function StpAgentsPage() {
             currentStage: true,
           },
         },
+        agentContractHistories: {
+          where: { deletedAt: null },
+        },
       },
       orderBy: { id: "asc" },
     }),
@@ -74,8 +77,8 @@ export default async function StpAgentsPage() {
       orderBy: { companyCode: "desc" },
     }),
     prisma.masterStaff.findMany({
-      where: { isActive: true },
-      orderBy: { name: "asc" },
+      where: { isActive: true, isSystemUser: false },
+      orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
     }),
     prisma.staffProjectAssignment.findMany({
       where: { projectId: STP_PROJECT_ID },
@@ -158,6 +161,10 @@ export default async function StpAgentsPage() {
     contactHistoriesByCompanyId[history.companyId].push(history);
   });
 
+  // 契約ステータス計算用の今日の日付
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   const data = agents.map((a) => {
     const primaryLocation = a.company.locations[0];
     // この代理店の接触履歴を取得
@@ -185,18 +192,35 @@ export default async function StpAgentsPage() {
     id: a.id,
     companyId: a.companyId,
     companyCode: a.company.companyCode,
-    companyName: `（${a.companyId}）${a.company.name}`,
+    companyName: a.company.name,
     companyEmail: primaryLocation?.email || null,
     companyPhone: primaryLocation?.phone || null,
     status: a.status,
     category1: a.category1,
-    contractStatus: a.contractStatus,
+    contractStatus: (() => {
+      const histories = a.agentContractHistories;
+      if (histories.length === 0) return "契約前";
+      const hasActive = histories.some((h) => {
+        const start = new Date(h.contractStartDate);
+        start.setHours(0, 0, 0, 0);
+        if (start > today) return false;
+        if (!h.contractEndDate) return true;
+        const end = new Date(h.contractEndDate);
+        end.setHours(0, 0, 0, 0);
+        return end >= today;
+      });
+      return hasActive ? "契約済み" : "契約終了";
+    })(),
     referrerCompanyId: a.referrerCompanyId,
-    referrerCompanyName: a.referrerCompanyId ? `（${a.referrerCompanyId}）${a.referrerCompany?.name}` : null,
+    referrerCompanyCode: a.referrerCompany?.companyCode || null,
+    referrerCompanyName: a.referrerCompany?.name || null,
     note: a.note,
     // 顧問専用フィールド
     minimumCases: a.minimumCases,
     monthlyFee: a.monthlyFee,
+    // 源泉徴収対応
+    isIndividualBusiness: a.isIndividualBusiness,
+    withholdingTaxRate: a.withholdingTaxRate ? Number(a.withholdingTaxRate) : null,
     // 担当者（複数）
     staffAssignments: a.staffAssignments.map((sa) => String(sa.staffId)).join(","),
     staffNames: a.staffAssignments.map((sa) => sa.staff.name).join(", "),
@@ -280,14 +304,14 @@ export default async function StpAgentsPage() {
   const existingAgentCompanyIds = agents.map((a) => a.companyId);
   const companyOptions = masterCompanies.map((c) => ({
     value: String(c.id),
-    label: `${c.companyCode} - ${c.name}`,
+    label: `${c.companyCode} ${c.name}`,
     disabled: existingAgentCompanyIds.includes(c.id),
   }));
 
   // 紹介者として選択可能な企業（全企業）
   const referrerOptions = masterCompanies.map((c) => ({
     value: String(c.id),
-    label: `${c.companyCode} - ${c.name}`,
+    label: `${c.companyCode} ${c.name}`,
   }));
 
   // 代理店担当者：STPプロジェクトに割り当てられたスタッフのみ

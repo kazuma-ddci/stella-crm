@@ -25,7 +25,7 @@ const formatDateTime = (date: Date): string => {
 };
 
 export async function GET() {
-  const [submissions, masterCompanies, stpCompanies] = await Promise.all([
+  const [submissions, masterCompanies, stpCompanies, agents] = await Promise.all([
     prisma.stpLeadFormSubmission.findMany({
       include: {
         token: {
@@ -56,6 +56,12 @@ export async function GET() {
         },
       },
     }),
+    // 代理店一覧
+    prisma.stpAgent.findMany({
+      where: { status: "アクティブ" },
+      include: { company: true },
+      orderBy: { id: "asc" },
+    }),
   ]);
 
   // STP企業のマップ（companyId -> agentId, agentName）
@@ -75,13 +81,23 @@ export async function GET() {
     return {
       value: String(c.id),
       label: stpInfo
-        ? `${c.companyCode} - ${c.name} [STP登録済]`
-        : `${c.companyCode} - ${c.name}`,
+        ? `${c.companyCode} ${c.name} [STP登録済]`
+        : `${c.companyCode} ${c.name}`,
       companyName: c.name,
-      stpAgentId: stpInfo?.agentId || null,
-      stpAgentName: stpInfo?.agentName || null,
+      isInStp: !!stpInfo,
+      stpAgentId: stpInfo?.agentId ?? null,
+      stpAgentName: stpInfo?.agentName ?? null,
+      industry: c.industry || "",
+      revenueScale: c.revenueScale || "",
+      websiteUrl: c.websiteUrl || "",
     };
   });
+
+  // 代理店選択肢
+  const agentOptions = agents.map((a) => ({
+    value: String(a.id),
+    label: a.company.name,
+  }));
 
   const data = submissions.map((s) => ({
     id: s.id,
@@ -93,6 +109,7 @@ export async function GET() {
     agentName: s.token.agent.company.name,
     status: s.status,
     submittedAt: formatDateTime(s.submittedAt),
+    submittedAtRaw: s.submittedAt.toISOString(),
     processedAt: s.processedAt ? formatDateTime(s.processedAt) : null,
     processingNote: s.processingNote,
     masterCompanyId: s.masterCompanyId,
@@ -124,5 +141,5 @@ export async function GET() {
     })),
   }));
 
-  return NextResponse.json({ submissions: data, companyOptions });
+  return NextResponse.json({ submissions: data, companyOptions, agentOptions });
 }

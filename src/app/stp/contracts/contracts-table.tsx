@@ -9,6 +9,7 @@ import {
   type CustomRenderers,
 } from "@/components/crud-table";
 import { updateContract, deleteContract } from "./actions";
+import { CompanyCodeLabel } from "@/components/company-code-label";
 import { FileUpload } from "@/components/file-upload";
 import {
   FileText,
@@ -308,6 +309,13 @@ export function ContractsTable({
 
   // カスタムレンダラー（テーブル表示用）
   const customRenderers: CustomRenderers = {
+    companyName: (value, row) => {
+      if (!value) return "-";
+      const companyCode = row.companyCode as string;
+      return companyCode
+        ? <CompanyCodeLabel code={companyCode} name={String(value)} />
+        : String(value);
+    },
     fileUpload: (_value, row) => {
       const filePath = row.filePath as string | null;
       const fileName = row.fileName as string | null;

@@ -24,7 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Pencil, Trash2, Star, Building2, Users } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Building2, Users, Landmark } from "lucide-react";
 import { toast } from "sonner";
 import {
   addContact,
@@ -37,6 +37,11 @@ import {
   updateLocation,
   deleteLocation,
 } from "./location-actions";
+import {
+  addBankAccount,
+  updateBankAccount,
+  deleteBankAccount,
+} from "./bank-account-actions";
 import { Combobox } from "@/components/ui/combobox";
 
 type Location = {
@@ -61,6 +66,18 @@ type Contact = {
   note: string | null;
 };
 
+type BankAccount = {
+  id: number;
+  companyId: number;
+  bankName: string;
+  bankCode: string;
+  branchName: string;
+  branchCode: string;
+  accountNumber: string;
+  accountHolderName: string;
+  note: string | null;
+};
+
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -68,6 +85,7 @@ type Props = {
   companyName: string;
   locations: Record<string, unknown>[];
   contacts: Record<string, unknown>[];
+  bankAccounts: Record<string, unknown>[];
 };
 
 export function ContactsModal({
@@ -77,6 +95,7 @@ export function ContactsModal({
   companyName,
   locations: initialLocations,
   contacts: initialContacts,
+  bankAccounts: initialBankAccounts,
 }: Props) {
   const [locations, setLocations] = useState<Location[]>(
     initialLocations as unknown as Location[]
@@ -84,12 +103,16 @@ export function ContactsModal({
   const [contacts, setContacts] = useState<Contact[]>(
     initialContacts as unknown as Contact[]
   );
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>(
+    initialBankAccounts as unknown as BankAccount[]
+  );
   const [activeTab, setActiveTab] = useState<string>("locations");
 
   // Update state when props change (e.g., when modal opens for different company)
   useEffect(() => {
     setLocations(initialLocations as unknown as Location[]);
     setContacts(initialContacts as unknown as Contact[]);
+    setBankAccounts(initialBankAccounts as unknown as BankAccount[]);
     // Reset form states when modal opens
     setIsAddLocationMode(false);
     setEditLocation(null);
@@ -97,9 +120,13 @@ export function ContactsModal({
     setIsAddContactMode(false);
     setEditContact(null);
     setContactFormData({});
+    setIsAddBankAccountMode(false);
+    setEditBankAccount(null);
+    setBankAccountFormData({});
     setDeleteLocationConfirm(null);
     setDeleteContactConfirm(null);
-  }, [initialLocations, initialContacts, open]);
+    setDeleteBankAccountConfirm(null);
+  }, [initialLocations, initialContacts, initialBankAccounts, open]);
 
   // Location state
   const [isAddLocationMode, setIsAddLocationMode] = useState(false);
@@ -113,6 +140,12 @@ export function ContactsModal({
   const [deleteContactConfirm, setDeleteContactConfirm] = useState<Contact | null>(null);
   const [contactFormData, setContactFormData] = useState<Partial<Contact>>({});
   const [departments, setDepartments] = useState<string[]>([]);
+
+  // Bank account state
+  const [isAddBankAccountMode, setIsAddBankAccountMode] = useState(false);
+  const [editBankAccount, setEditBankAccount] = useState<BankAccount | null>(null);
+  const [deleteBankAccountConfirm, setDeleteBankAccountConfirm] = useState<BankAccount | null>(null);
+  const [bankAccountFormData, setBankAccountFormData] = useState<Partial<BankAccount>>({});
 
   const [loading, setLoading] = useState(false);
   const [primaryLoading, setPrimaryLoading] = useState<number | null>(null);
@@ -353,6 +386,87 @@ export function ContactsModal({
     }
   };
 
+  // Bank account handlers
+  const openAddBankAccountForm = () => {
+    setBankAccountFormData({
+      bankName: "",
+      bankCode: "",
+      branchName: "",
+      branchCode: "",
+      accountNumber: "",
+      accountHolderName: "",
+      note: null,
+    });
+    setIsAddBankAccountMode(true);
+  };
+
+  const openEditBankAccountForm = (bankAccount: BankAccount) => {
+    setBankAccountFormData({ ...bankAccount });
+    setEditBankAccount(bankAccount);
+  };
+
+  const handleAddBankAccount = async () => {
+    if (!bankAccountFormData.bankName || !bankAccountFormData.bankCode ||
+        !bankAccountFormData.branchName || !bankAccountFormData.branchCode ||
+        !bankAccountFormData.accountNumber || !bankAccountFormData.accountHolderName) {
+      toast.error("銀行名、銀行コード、支店名、支店コード、口座番号、口座名義人は必須です");
+      return;
+    }
+    setLoading(true);
+    try {
+      const newBankAccount = await addBankAccount(companyId, bankAccountFormData);
+      setBankAccounts([...bankAccounts, newBankAccount as unknown as BankAccount]);
+      toast.success("銀行情報を追加しました");
+      setIsAddBankAccountMode(false);
+      setBankAccountFormData({});
+    } catch {
+      toast.error("追加に失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateBankAccount = async () => {
+    if (!editBankAccount ||
+        !bankAccountFormData.bankName || !bankAccountFormData.bankCode ||
+        !bankAccountFormData.branchName || !bankAccountFormData.branchCode ||
+        !bankAccountFormData.accountNumber || !bankAccountFormData.accountHolderName) {
+      toast.error("銀行名、銀行コード、支店名、支店コード、口座番号、口座名義人は必須です");
+      return;
+    }
+    setLoading(true);
+    try {
+      const updated = await updateBankAccount(editBankAccount.id, bankAccountFormData);
+      setBankAccounts(
+        bankAccounts.map((b) =>
+          b.id === editBankAccount.id ? (updated as unknown as BankAccount) : b
+        )
+      );
+      toast.success("銀行情報を更新しました");
+      setEditBankAccount(null);
+      setBankAccountFormData({});
+    } catch {
+      toast.error("更新に失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteBankAccount = async () => {
+    if (!deleteBankAccountConfirm) return;
+    setLoading(true);
+    try {
+      await deleteBankAccount(deleteBankAccountConfirm.id);
+      setBankAccounts(bankAccounts.filter((b) => b.id !== deleteBankAccountConfirm.id));
+      toast.success("銀行情報を削除しました");
+      setDeleteBankAccountConfirm(null);
+    } catch {
+      toast.error("削除に失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const renderLocationForm = () => (
     <div className="space-y-4 border rounded-lg p-4 bg-muted/50">
       <div className="grid grid-cols-2 gap-4">
@@ -537,6 +651,117 @@ export function ContactsModal({
     </div>
   );
 
+  const renderBankAccountForm = () => (
+    <div className="space-y-4 border rounded-lg p-4 bg-muted/50">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>
+            銀行名 <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            value={bankAccountFormData.bankName || ""}
+            onChange={(e) =>
+              setBankAccountFormData({ ...bankAccountFormData, bankName: e.target.value })
+            }
+            placeholder="みずほ銀行"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>
+            銀行コード <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            value={bankAccountFormData.bankCode || ""}
+            onChange={(e) =>
+              setBankAccountFormData({ ...bankAccountFormData, bankCode: e.target.value })
+            }
+            placeholder="0001"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>
+            支店名 <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            value={bankAccountFormData.branchName || ""}
+            onChange={(e) =>
+              setBankAccountFormData({ ...bankAccountFormData, branchName: e.target.value })
+            }
+            placeholder="東京営業部"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>
+            支店コード <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            value={bankAccountFormData.branchCode || ""}
+            onChange={(e) =>
+              setBankAccountFormData({ ...bankAccountFormData, branchCode: e.target.value })
+            }
+            placeholder="001"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>
+            口座番号 <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            value={bankAccountFormData.accountNumber || ""}
+            onChange={(e) =>
+              setBankAccountFormData({ ...bankAccountFormData, accountNumber: e.target.value })
+            }
+            placeholder="1234567"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>
+            口座名義人 <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            value={bankAccountFormData.accountHolderName || ""}
+            onChange={(e) =>
+              setBankAccountFormData({ ...bankAccountFormData, accountHolderName: e.target.value })
+            }
+            placeholder="カ）サンプルショウジ"
+          />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label>メモ</Label>
+        <Textarea
+          value={bankAccountFormData.note || ""}
+          onChange={(e) =>
+            setBankAccountFormData({ ...bankAccountFormData, note: e.target.value || null })
+          }
+          rows={2}
+        />
+      </div>
+      <div className="flex gap-2 justify-end">
+        <Button
+          variant="outline"
+          onClick={() => {
+            setIsAddBankAccountMode(false);
+            setEditBankAccount(null);
+            setBankAccountFormData({});
+          }}
+        >
+          キャンセル
+        </Button>
+        <Button
+          onClick={isAddBankAccountMode ? handleAddBankAccount : handleUpdateBankAccount}
+          disabled={loading}
+        >
+          {loading ? "保存中..." : isAddBankAccountMode ? "追加" : "更新"}
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent style={{ maxWidth: "80vw", width: "900px" }} className="max-h-[85vh] overflow-y-auto">
@@ -545,7 +770,7 @@ export function ContactsModal({
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="grid w-full grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1">
+          <div className="grid w-full grid-cols-3 gap-1 rounded-lg bg-gray-100 p-1">
             <button
               type="button"
               onClick={() => setActiveTab("locations")}
@@ -569,6 +794,18 @@ export function ContactsModal({
             >
               <Users className="h-4 w-4" />
               担当者 ({contacts.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("bankAccounts")}
+              className={`flex items-center justify-center gap-2 rounded-md px-4 py-2 transition-all ${
+                activeTab === "bankAccounts"
+                  ? "bg-white text-gray-900 shadow-md font-bold text-base"
+                  : "text-gray-400 text-sm hover:text-gray-600"
+              }`}
+            >
+              <Landmark className="h-4 w-4" />
+              銀行情報 ({bankAccounts.length})
             </button>
           </div>
 
@@ -807,6 +1044,105 @@ export function ContactsModal({
                   <Button
                     variant="destructive"
                     onClick={handleDeleteContact}
+                    disabled={loading}
+                  >
+                    {loading ? "削除中..." : "削除"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="bankAccounts" className="space-y-4">
+            {/* 追加ボタン */}
+            {!isAddBankAccountMode && !editBankAccount && (
+              <div className="flex justify-end">
+                <Button onClick={openAddBankAccountForm}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  銀行情報を追加
+                </Button>
+              </div>
+            )}
+
+            {/* 追加/編集フォーム */}
+            {(isAddBankAccountMode || editBankAccount) && renderBankAccountForm()}
+
+            {/* 銀行情報一覧 */}
+            {bankAccounts.length === 0 ? (
+              <div className="text-center text-muted-foreground py-8">
+                銀行情報が登録されていません
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>銀行名</TableHead>
+                    <TableHead>銀行コード</TableHead>
+                    <TableHead>支店名</TableHead>
+                    <TableHead>支店コード</TableHead>
+                    <TableHead>口座番号</TableHead>
+                    <TableHead>口座名義人</TableHead>
+                    <TableHead>メモ</TableHead>
+                    <TableHead className="w-[120px]">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {bankAccounts.map((bankAccount) => (
+                    <TableRow key={bankAccount.id}>
+                      <TableCell className="font-medium">{bankAccount.bankName}</TableCell>
+                      <TableCell className="font-mono">{bankAccount.bankCode}</TableCell>
+                      <TableCell>{bankAccount.branchName}</TableCell>
+                      <TableCell className="font-mono">{bankAccount.branchCode}</TableCell>
+                      <TableCell className="font-mono">{bankAccount.accountNumber}</TableCell>
+                      <TableCell>{bankAccount.accountHolderName}</TableCell>
+                      <TableCell className="max-w-[150px] truncate">
+                        {bankAccount.note || "-"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openEditBankAccountForm(bankAccount)}
+                            disabled={isAddBankAccountMode || !!editBankAccount}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setDeleteBankAccountConfirm(bankAccount)}
+                            disabled={isAddBankAccountMode || !!editBankAccount}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              </div>
+            )}
+
+            {/* 削除確認 */}
+            {deleteBankAccountConfirm && (
+              <div className="border rounded-lg p-4 bg-destructive/10">
+                <p className="mb-4">
+                  「{deleteBankAccountConfirm.bankName} {deleteBankAccountConfirm.branchName}」の銀行情報を削除しますか？
+                  この操作は取り消せません。
+                </p>
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => setDeleteBankAccountConfirm(null)}
+                  >
+                    キャンセル
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={handleDeleteBankAccount}
                     disabled={loading}
                   >
                     {loading ? "削除中..." : "削除"}

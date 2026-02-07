@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { autoGenerateFinanceForContractHistory, markFinanceRecordsForContractChange } from "@/lib/finance/auto-generate";
 
 // 契約履歴データの型定義
 export type ContractHistoryData = {
@@ -64,7 +65,7 @@ export async function getContractHistories(companyId: number) {
 // 契約履歴追加
 export async function addContractHistory(companyId: number, data: ContractHistoryData): Promise<{ success: boolean; error?: string }> {
   try {
-    await prisma.stpContractHistory.create({
+    const created = await prisma.stpContractHistory.create({
       data: {
         companyId,
         industryType: data.industryType,
@@ -96,7 +97,7 @@ export async function addContractHistory(companyId: number, data: ContractHistor
 }
 
 // 契約履歴更新
-export async function updateContractHistory(id: number, data: ContractHistoryData): Promise<{ success: boolean; error?: string }> {
+export async function updateContractHistory(id: number, data: ContractHistoryData): Promise<{ success: boolean; error?: string; affectedFinanceCount?: number }> {
   try {
     await prisma.stpContractHistory.update({
       where: { id },
@@ -119,9 +120,15 @@ export async function updateContractHistory(id: number, data: ContractHistoryDat
       },
     });
 
+    // 既存の会計レコードに差異をマーク（スナップショット方式）
+    const affectedFinanceCount = await markFinanceRecordsForContractChange(id);
+
     revalidatePath("/stp/companies");
     revalidatePath("/companies");
-    return { success: true };
+    revalidatePath("/stp/finance");
+    revalidatePath("/stp/finance/revenue");
+    revalidatePath("/stp/finance/expenses");
+    return { success: true, affectedFinanceCount };
   } catch (error) {
     console.error("契約履歴更新エラー:", error);
     const errorMessage = error instanceof Error ? error.message : "不明なエラーが発生しました";
@@ -150,8 +157,8 @@ export async function deleteContractHistory(id: number): Promise<{ success: bool
 // スタッフ一覧取得（担当営業・担当運用の選択用）
 export async function getStaffList() {
   const staffList = await prisma.masterStaff.findMany({
-    where: { isActive: true },
-    orderBy: { name: "asc" },
+    where: { isActive: true, isSystemUser: false },
+    orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
     select: {
       id: true,
       name: true,

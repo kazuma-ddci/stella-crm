@@ -14,7 +14,9 @@
 | SPEC ID | ドメイン | タイトル | ステータス | 関連ファイル |
 |---------|----------|----------|-----------|--------------|
 | [SPEC-STP-001](./SPEC-STP-001.md) | STP | 顧問の区分表示形式 | ✅ confirmed | agents-table.tsx |
+| [SPEC-STP-002](./SPEC-STP-002.md) | STP | ヒアリングフォーム職種連動仕様 | ✅ confirmed | `src/app/form/stp-lead/[token]/page.tsx` |
 | [SPEC-UI-001](./SPEC-UI-001.md) | UI | Textarea/モーダル長文編集レイアウト | ✅ confirmed | textarea.tsx, text-preview-cell.tsx, editable-cell.tsx, change-confirmation-dialog.tsx |
+| [SPEC-UI-002](./SPEC-UI-002.md) | UI | 企業選択UI/UXパターン | ✅ confirmed | crud-table.tsx, editable-cell.tsx, 全STPテーブル |
 
 ---
 

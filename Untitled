@@ -1,3 +1,0 @@
-CLAUDE.md → プロジェクト全体の方針、コーディング規約、アーキテクチャの概要など「常に意識すべきこと」だけに絞る
-docs/配下にファイルを分ける → 例えば docs/fix-log.md（修正履歴）、docs/known-issues.md（既知の問題）、docs/architecture.md（設計詳細）など
-CLAUDE.md内で参照だけ書く → 「詳細は docs/fix-log.md を参照」のように誘導する

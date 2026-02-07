@@ -1,11 +1,19 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StaffTable } from "./staff-table";
+import { auth } from "@/auth";
+import { isAdmin } from "@/lib/auth/permissions";
+import type { UserPermission } from "@/types/auth";
 
 export default async function StaffPage() {
+  const session = await auth();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userPermissions = ((session?.user as any)?.permissions ?? []) as UserPermission[];
+  const isStellaAdmin = isAdmin(userPermissions, "stella");
   const [staffList, roleTypes, projects] = await Promise.all([
     prisma.masterStaff.findMany({
-      orderBy: { id: "asc" },
+      where: { isSystemUser: false },
+      orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
       include: {
         roleAssignments: {
           include: {
@@ -30,9 +38,21 @@ export default async function StaffPage() {
     }),
   ]);
 
+  // プロジェクト権限のカラム情報を構築
+  const permissionProjects = projects.map((p) => ({
+    code: p.code,
+    name: p.name,
+  }));
+
   const data = staffList.map((s) => {
     const stellaPermission = s.permissions.find((p) => p.projectCode === "stella");
-    const stpPermission = s.permissions.find((p) => p.projectCode === "stp");
+
+    // 動的にプロジェクト権限を構築
+    const projectPermissions: Record<string, string> = {};
+    for (const project of projects) {
+      const perm = s.permissions.find((p) => p.projectCode === project.code);
+      projectPermissions[`perm_${project.code}`] = perm?.permissionLevel || "none";
+    }
 
     return {
       id: s.id,
@@ -50,7 +70,7 @@ export default async function StaffPage() {
       projectNames: s.projectAssignments.map((pa) => pa.project.name).join(", "),
       // 権限
       stellaPermission: stellaPermission?.permissionLevel || "none",
-      stpPermission: stpPermission?.permissionLevel || "none",
+      ...projectPermissions,
       // 招待状態
       hasPassword: !!s.passwordHash,
       hasInviteToken: !!s.inviteToken,
@@ -80,6 +100,8 @@ export default async function StaffPage() {
             data={data}
             roleTypeOptions={roleTypeOptions}
             projectOptions={projectOptions}
+            permissionProjects={permissionProjects}
+            canEditPermissions={isStellaAdmin}
           />
         </CardContent>
       </Card>

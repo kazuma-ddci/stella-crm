@@ -26,6 +26,7 @@ import {
 import { toast } from "sonner";
 import { FileUpload } from "@/components/file-upload";
 import { CompanySearchCombobox } from "@/components/company-search-combobox";
+import { toLocalDateString } from "@/lib/utils";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
@@ -125,10 +126,10 @@ export function ContractAddModal({
       const data = {
         contractType: formData.contractType,
         title: formData.title,
-        startDate: formData.startDate?.toISOString() || null,
-        endDate: formData.endDate?.toISOString() || null,
+        startDate: formData.startDate ? toLocalDateString(formData.startDate) : null,
+        endDate: formData.endDate ? toLocalDateString(formData.endDate) : null,
         currentStatusId: formData.currentStatusId ? Number(formData.currentStatusId) : null,
-        signedDate: formData.signedDate?.toISOString() || null,
+        signedDate: formData.signedDate ? toLocalDateString(formData.signedDate) : null,
         signingMethod: formData.signingMethod || null,
         filePath: formData.filePath || null,
         fileName: formData.fileName || null,

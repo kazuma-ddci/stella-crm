@@ -11,6 +11,10 @@
 3. [Prismaスキーマ変更後にエラーが発生する](#prismaスキーマ変更後にエラーが発生する)
 4. [スタッフがログインできない（isActive問題）](#スタッフがログインできないisactive問題)
 5. [インライン編集で毎回リロードされ連続入力できない](#インライン編集で毎回リロードされ連続入力できない)
+6. [売上経費の対象年月がタイムゾーンにより1ヶ月ズレる](#売上経費の対象年月がタイムゾーンにより1ヶ月ズレる)
+7. [売上経費一括生成の件数が0件と表示される](#売上経費一括生成の件数が0件と表示される)
+8. [日本語文字列のlocaleCompareでハイドレーションエラー](#日本語文字列のlocalecompareでハイドレーションエラー)
+9. [nullable数値フィールドの||演算子による誤判定](#nullable数値フィールドの演算子による誤判定)
 
 ---
 
@@ -346,3 +350,234 @@ setSheets((prev) =>
 ### 関連ファイル
 
 - `src/app/stp/companies/[id]/kpi/page.tsx`（KPIシート - 2026-02-04修正済み）
+
+---
+
+## 売上経費の対象年月がタイムゾーンにより1ヶ月ズレる
+
+> **2026-02-07 修正済み**
+
+### 症状
+
+- 入社日が4/1の求職者の成果報酬で、対象年月が `2025/03` になる（1ヶ月前にズレる）
+- 月次一括生成でも対象年月がズレる可能性がある
+
+### 原因
+
+`startOfMonth`/`addMonths`関数がローカルタイムゾーンの`new Date(year, month, 1)`でDateオブジェクトを生成していた。JST(UTC+9)環境ではUTC変換時に日付が前日にズレ、月初の場合は前月として保存される。
+
+```
+例: 入社日 4/1
+→ startOfMonth: new Date(2025, 3, 1) = 2025-04-01T00:00:00+09:00
+→ UTC変換: 2025-03-31T15:00:00.000Z
+→ Prisma(@db.Date)が 2025-03-31 として保存 → 3月に！
+```
+
+### 解決方法
+
+`src/lib/finance/auto-generate.ts` の日付ユーティリティをUTCメソッドに統一。
+
+```typescript
+// ❌ 間違い（修正前）: ローカルタイムゾーンで生成
+const startOfMonth = (date: Date) =>
+  new Date(date.getFullYear(), date.getMonth(), 1);
+
+const addMonths = (date: Date, months: number) =>
+  new Date(date.getFullYear(), date.getMonth() + months, 1);
+
+// ✅ 正しい（修正後）: UTCで生成
+const startOfMonth = (date: Date) =>
+  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+
+const addMonths = (date: Date, months: number) =>
+  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
+```
+
+### 原則
+
+**Prismaの`@db.Date`フィールドに保存するDateオブジェクトは、必ずUTCメソッド(`Date.UTC`, `getUTCFullYear`, `getUTCMonth`)で生成すること。** ローカルタイムゾーンの`new Date(year, month, day)`はUTC変換時にズレる。
+
+### 注意
+
+既存のズレたレコード（修正前に生成されたもの）は自動修正されない。手動で対象年月を修正するか、レコードを削除して再生成が必要。
+
+### 関連ファイル
+
+- `src/lib/finance/auto-generate.ts`
+
+---
+
+## 売上経費一括生成の件数が0件と表示される
+
+> **2026-02-07 修正済み**
+
+### 症状
+
+- 求職者を追加して「売上経費を一括生成」を押すと、「0件生成」と表示される
+- しかし実際にはレコードが生成されている（画面に表示される）
+
+### 原因
+
+2つの原因が組み合わさって発生：
+
+1. **`addCandidate`が成果報酬を即座に自動生成するが、financeページをrevalidateしない**
+   - 求職者追加時に `autoGeneratePerformanceFeeForCandidate` が呼ばれ、レコードは即座に生成される
+   - しかし `revalidatePath` が `/stp/candidates` のみで、`/stp/finance/*` が未指定
+   - financeページを開いてもキャッシュが古いままでレコードが表示されない
+
+2. **一括生成ボタンでは既存レコードが見つかるため0件**
+   - ボタン押下で `autoGeneratePerformanceFeeForCandidate` が再度呼ばれるが、レコードは既に存在
+   - boolean方式のカウントで `revenueCreated = false` → 0件
+   - その後の `router.refresh()` でfinanceページが更新され、レコードが表示される
+
+ユーザーから見ると「0件だがレコードが表示された」という矛盾した状態に見える。
+
+### 解決方法
+
+1. `addCandidate` にfinanceページの `revalidatePath` を追加
+2. 成果報酬の件数カウントをboolean方式からbefore/after方式に変更
+
+```typescript
+// ❌ 修正前: boolean方式（既存レコードがあると常に0）
+for (const candidate of candidatesWithJoin) {
+  const result = await autoGeneratePerformanceFeeForCandidate(candidate.id);
+  if (result.revenueCreated) revenueCreated++;
+}
+
+// ✅ 修正後: before/after方式（実際の差分を正確にカウント）
+const perfRevBefore = await prisma.stpRevenueRecord.count({
+  where: { revenueType: "performance", deletedAt: null },
+});
+for (const candidate of candidatesWithJoin) {
+  await autoGeneratePerformanceFeeForCandidate(candidate.id);
+}
+const perfRevAfter = await prisma.stpRevenueRecord.count({
+  where: { revenueType: "performance", deletedAt: null },
+});
+revenueCreated += perfRevAfter - perfRevBefore;
+```
+
+### 関連ファイル
+
+- `src/app/stp/candidates/actions.ts`（revalidation追加）
+- `src/lib/finance/auto-generate.ts`（カウントロジック変更）
+- `src/app/stp/finance/generate-monthly-button.tsx`（件数表示UI）
+
+---
+
+## 日本語文字列のlocaleCompareでハイドレーションエラー
+
+> **2026-02-07 修正済み**
+
+### 症状
+
+- ページ読み込み時にReactハイドレーションエラーが発生する
+- サーバーとクライアントで要素の順番が異なる（例: `CompanyCodeLabel code="SC-7"` vs `SC-5`）
+- エラーメッセージ: `Hydration failed because the server rendered HTML didn't match the client.`
+
+### 原因
+
+`localeCompare` を日本語文字列のソートに使用すると、**Node.js（サーバー）とブラウザ（クライアント）で異なるソート順になる**。
+
+これはNode.jsとブラウザで搭載されているICUデータ（国際化ライブラリ）が異なるため。日本語のような非ASCII文字列では、照合順序の違いが結果に直接影響する。
+
+```typescript
+// ❌ 間違い: localeCompare で日本語文字列をソート
+// → サーバーとクライアントで順序が異なりハイドレーションエラー
+return Array.from(map.values()).sort((a, b) => {
+  return a.stpCompanyDisplay.localeCompare(b.stpCompanyDisplay);
+});
+
+// ❌ これもNG: 日本語の代理店名でソート
+return groups.sort((a, b) => {
+  return a.agentDisplay.localeCompare(b.agentDisplay);
+});
+```
+
+### 解決方法
+
+**日本語文字列ではなく、ASCII文字列または数値でソートする。**
+
+```typescript
+// ✅ 正しい: 企業コード（ASCII文字列）で比較
+return Array.from(map.values()).sort((a, b) => {
+  return a.stpCompanyCode < b.stpCompanyCode ? -1 : a.stpCompanyCode > b.stpCompanyCode ? 1 : 0;
+});
+
+// ✅ 正しい: ID（数値）で比較
+return groups.sort((a, b) => {
+  return Number(a.agentId) - Number(b.agentId);
+});
+```
+
+### 原則
+
+**クライアントコンポーネントで表示順を決めるソートに `localeCompare` を日本語文字列に使わないこと。** 代わりに以下を使う:
+
+| ソートキー | 方法 | 例 |
+|-----------|------|-----|
+| 企業コード（SC-1等） | `<` / `>` 演算子 | `a.code < b.code ? -1 : 1` |
+| 数値ID | 引き算 | `Number(a.id) - Number(b.id)` |
+| 日付文字列（YYYY-MM） | `localeCompare`（OK） | `a.month.localeCompare(b.month)` |
+| 英数字のみの文字列 | `localeCompare`（OK） | ASCII範囲なら問題なし |
+
+> **補足:** `localeCompare` はASCII範囲の文字列（英数字、日付文字列など）に対しては問題ない。問題になるのは日本語・中国語などの非ASCII文字列のみ。
+
+### 関連ファイル
+
+- `src/app/stp/finance/revenue/revenue-table.tsx`（2026-02-07修正済み）
+- `src/app/stp/finance/expenses/expenses-table.tsx`（2026-02-07修正済み）
+
+---
+
+## nullable数値フィールドの||演算子による誤判定
+
+> **2026-02-07 修正済み**
+
+### 症状
+
+- STP登録済み企業（`[STP登録済]`ラベルあり）を選択しても、STP企業として認識されない
+- STP登録済み企業に紐付けた際にフォーム全体が表示される（メッセージのみ表示されるべき）
+
+### 原因
+
+`||` 演算子がnullable数値フィールドで誤った結果を返す。`agentId` が `null`（代理店未設定のSTP企業）の場合、`stpInfo?.agentId || null` は常に `null` を返すため、`stpInfo` オブジェクト自体が存在しても判定が失敗する。
+
+```typescript
+// ❌ 間違い: agentId が null や 0 のとき stpAgentId も null になる
+stpAgentId: stpInfo?.agentId || null,
+
+// その後の判定: agentId が null のSTP企業で false を返してしまう
+const isInStp = company?.stpAgentId != null;  // → false（間違い）
+```
+
+### 解決方法
+
+1. **`??`（nullish coalescing）を使う**: `null`/`undefined` のみをフォールバック、`0` は保持
+2. **明示的な `isInStp: boolean` フラグを追加**: 関連テーブルの存在自体で判定
+
+```typescript
+// ✅ 正しい: ?? で null/undefined のみをフォールバック
+stpAgentId: stpInfo?.agentId ?? null,
+
+// ✅ 正しい: 明示的な boolean フラグで判定
+isInStp: !!stpInfo,  // stpInfo オブジェクト自体の存在で判定
+
+// 使用側
+const isInStp = company?.isInStp === true;  // → true（正しい）
+```
+
+### 原則
+
+**nullable な数値フィールドのデフォルト値設定には `||` ではなく `??` を使うこと。** `||` は `0`, `""`, `false` もフォールバックしてしまう。
+
+| 演算子 | `null` | `undefined` | `0` | `""` | `false` |
+|--------|--------|-------------|-----|------|---------|
+| `||` | フォールバック | フォールバック | フォールバック | フォールバック | フォールバック |
+| `??` | フォールバック | フォールバック | **そのまま** | **そのまま** | **そのまま** |
+
+### 関連ファイル
+
+- `src/app/stp/lead-submissions/submissions-table.tsx`（`isInStp`による判定に変更）
+- `src/app/stp/lead-submissions/page.tsx`（`||` → `??`、`isInStp`追加）
+- `src/app/api/stp/lead-submissions/route.ts`（同上）

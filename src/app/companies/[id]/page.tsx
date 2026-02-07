@@ -60,6 +60,10 @@ export default async function CompanyDetailPage({ params }: Props) {
           where: { deletedAt: null },
           orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
         },
+        bankAccounts: {
+          where: { deletedAt: null },
+          orderBy: { id: "asc" },
+        },
       },
     }),
     // この企業の全接触履歴を取得（プロジェクト・顧客種別に関わらず）
@@ -84,7 +88,8 @@ export default async function CompanyDetailPage({ params }: Props) {
     }),
     // スタッフマスタを取得（担当者名の変換用）
     prisma.masterStaff.findMany({
-      where: { isActive: true },
+      where: { isActive: true, isSystemUser: false },
+      orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
     }),
     // 契約履歴を取得（deletedAt: null のみ）
     prisma.stpContractHistory.findMany({
@@ -201,6 +206,10 @@ export default async function CompanyDetailPage({ params }: Props) {
               <dd className="mt-1 text-sm">{company.revenueScale || "-"}</dd>
             </div>
             <div>
+              <dt className="text-sm font-medium text-muted-foreground">流入経路</dt>
+              <dd className="mt-1 text-sm">{company.leadSource || "-"}</dd>
+            </div>
+            <div>
               <dt className="text-sm font-medium text-muted-foreground">企業HP</dt>
               <dd className="mt-1 text-sm">
                 {company.websiteUrl ? (
@@ -221,6 +230,30 @@ export default async function CompanyDetailPage({ params }: Props) {
               <dt className="text-sm font-medium text-muted-foreground">登録日</dt>
               <dd className="mt-1 text-sm">
                 {new Date(company.createdAt).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-muted-foreground">締め日</dt>
+              <dd className="mt-1 text-sm">
+                {company.closingDay != null
+                  ? company.closingDay === 0 ? "月末" : `${company.closingDay}日`
+                  : "-"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-muted-foreground">支払月</dt>
+              <dd className="mt-1 text-sm">
+                {company.paymentMonthOffset != null
+                  ? company.paymentMonthOffset === 1 ? "翌月" : company.paymentMonthOffset === 2 ? "翌々月" : `${company.paymentMonthOffset}ヶ月後`
+                  : "-"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-muted-foreground">支払日</dt>
+              <dd className="mt-1 text-sm">
+                {company.paymentDay != null
+                  ? company.paymentDay === 0 ? "末日" : `${company.paymentDay}日`
+                  : "-"}
               </dd>
             </div>
             <div className="sm:col-span-2">
@@ -334,6 +367,48 @@ export default async function CompanyDetailPage({ params }: Props) {
                     </TableCell>
                     <TableCell className="max-w-xs truncate">
                       {contact.note || "-"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>銀行情報一覧</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {company.bankAccounts.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">
+              銀行情報が登録されていません
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>銀行名</TableHead>
+                  <TableHead>銀行コード</TableHead>
+                  <TableHead>支店名</TableHead>
+                  <TableHead>支店コード</TableHead>
+                  <TableHead>口座番号</TableHead>
+                  <TableHead>口座名義人</TableHead>
+                  <TableHead>メモ</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {company.bankAccounts.map((bankAccount) => (
+                  <TableRow key={bankAccount.id}>
+                    <TableCell className="font-medium">{bankAccount.bankName}</TableCell>
+                    <TableCell className="font-mono">{bankAccount.bankCode}</TableCell>
+                    <TableCell>{bankAccount.branchName}</TableCell>
+                    <TableCell className="font-mono">{bankAccount.branchCode}</TableCell>
+                    <TableCell className="font-mono">{bankAccount.accountNumber}</TableCell>
+                    <TableCell>{bankAccount.accountHolderName}</TableCell>
+                    <TableCell className="max-w-xs truncate">
+                      {bankAccount.note || "-"}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
+import { toLocalDateString } from "@/lib/utils";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
@@ -219,7 +220,7 @@ export function ContractsModal({
             onChange={(date: Date | null) => {
               setFormData({
                 ...formData,
-                signedDate: date ? date.toISOString() : null,
+                signedDate: date ? toLocalDateString(date) : null,
               });
             }}
             dateFormat="yyyy/MM/dd"

@@ -5,6 +5,7 @@ import { addStage, updateStage, deleteStage } from "./actions";
 
 type Props = {
   data: Record<string, unknown>[];
+  canEdit: boolean;
 };
 
 const columns: ColumnDef[] = [
@@ -16,15 +17,15 @@ const columns: ColumnDef[] = [
   { key: "updatedAt", header: "更新日", type: "datetime", editable: false },
 ];
 
-export function StagesTable({ data }: Props) {
+export function StagesTable({ data, canEdit }: Props) {
   return (
     <CrudTable
       data={data}
       columns={columns}
       title="ステージ"
-      onAdd={addStage}
-      onUpdate={updateStage}
-      onDelete={deleteStage}
+      onAdd={canEdit ? addStage : undefined}
+      onUpdate={canEdit ? updateStage : undefined}
+      onDelete={canEdit ? deleteStage : undefined}
       emptyMessage="ステージが登録されていません"
     />
   );

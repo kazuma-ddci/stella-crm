@@ -2,9 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 
 export async function addContactMethod(data: Record<string, unknown>) {
-  // 最大の表示順を取得して+1
+  await requireMasterDataEditPermission();
   const maxOrder = await prisma.contactMethod.aggregate({
     _max: { displayOrder: true },
   });
@@ -21,6 +22,7 @@ export async function addContactMethod(data: Record<string, unknown>) {
 }
 
 export async function updateContactMethod(id: number, data: Record<string, unknown>) {
+  await requireMasterDataEditPermission();
   await prisma.contactMethod.update({
     where: { id },
     data: {
@@ -32,6 +34,7 @@ export async function updateContactMethod(id: number, data: Record<string, unkno
 }
 
 export async function deleteContactMethod(id: number) {
+  await requireMasterDataEditPermission();
   await prisma.contactMethod.delete({
     where: { id },
   });
@@ -39,6 +42,7 @@ export async function deleteContactMethod(id: number) {
 }
 
 export async function reorderContactMethods(orderedIds: number[]) {
+  await requireMasterDataEditPermission();
   await prisma.$transaction(
     orderedIds.map((id, index) =>
       prisma.contactMethod.update({

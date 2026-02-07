@@ -29,7 +29,11 @@ export async function addCompany(data: Record<string, unknown>) {
       industry: (data.industry as string) || null,
       revenueScale: (data.revenueScale as string) || null,
       staffId,
+      leadSource: (data.leadSource as string) || null,
       note: (data.note as string) || null,
+      closingDay: data.closingDay != null ? Number(data.closingDay) : null,
+      paymentMonthOffset: data.paymentMonthOffset != null ? Number(data.paymentMonthOffset) : null,
+      paymentDay: data.paymentDay != null ? Number(data.paymentDay) : null,
     },
   });
   revalidatePath("/companies");
@@ -38,16 +42,24 @@ export async function addCompany(data: Record<string, unknown>) {
 export async function updateCompany(id: number, data: Record<string, unknown>) {
   const staffId = data.staffId ? parseInt(data.staffId as string, 10) : null;
 
+  // 更新データを動的に構築（渡されたフィールドのみを更新）
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updateData: Record<string, any> = {};
+
+  if ("name" in data) updateData.name = data.name as string;
+  if ("websiteUrl" in data) updateData.websiteUrl = (data.websiteUrl as string) || null;
+  if ("industry" in data) updateData.industry = (data.industry as string) || null;
+  if ("revenueScale" in data) updateData.revenueScale = (data.revenueScale as string) || null;
+  if ("staffId" in data) updateData.staffId = staffId;
+  if ("leadSource" in data) updateData.leadSource = (data.leadSource as string) || null;
+  if ("note" in data) updateData.note = (data.note as string) || null;
+  if ("closingDay" in data) updateData.closingDay = data.closingDay != null ? Number(data.closingDay) : null;
+  if ("paymentMonthOffset" in data) updateData.paymentMonthOffset = data.paymentMonthOffset != null ? Number(data.paymentMonthOffset) : null;
+  if ("paymentDay" in data) updateData.paymentDay = data.paymentDay != null ? Number(data.paymentDay) : null;
+
   await prisma.masterStellaCompany.update({
     where: { id },
-    data: {
-      name: data.name as string,
-      websiteUrl: (data.websiteUrl as string) || null,
-      industry: (data.industry as string) || null,
-      revenueScale: (data.revenueScale as string) || null,
-      staffId,
-      note: (data.note as string) || null,
-    },
+    data: updateData,
   });
   revalidatePath("/companies");
 }
@@ -66,6 +78,9 @@ export async function createCompany(data: {
   industry?: string;
   revenueScale?: string;
   note?: string;
+  closingDay?: number | null;
+  paymentMonthOffset?: number | null;
+  paymentDay?: number | null;
 }) {
   const companyCode = await generateCompanyCode();
 
@@ -77,6 +92,9 @@ export async function createCompany(data: {
       industry: data.industry || null,
       revenueScale: data.revenueScale || null,
       note: data.note || null,
+      ...(data.closingDay !== undefined && { closingDay: data.closingDay }),
+      ...(data.paymentMonthOffset !== undefined && { paymentMonthOffset: data.paymentMonthOffset }),
+      ...(data.paymentDay !== undefined && { paymentDay: data.paymentDay }),
     },
   });
   revalidatePath("/companies");

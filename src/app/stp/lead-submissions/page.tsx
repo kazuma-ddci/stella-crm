@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmissionsTable } from "./submissions-table";
 
 export default async function LeadSubmissionsPage() {
-  const [submissions, masterCompanies, stpCompanies] = await Promise.all([
+  const [submissions, masterCompanies, stpCompanies, agents] = await Promise.all([
     prisma.stpLeadFormSubmission.findMany({
       include: {
         token: {
@@ -34,6 +34,12 @@ export default async function LeadSubmissionsPage() {
         },
       },
     }),
+    // 代理店一覧（代理店変更用）
+    prisma.stpAgent.findMany({
+      where: { status: "アクティブ" },
+      include: { company: true },
+      orderBy: { id: "asc" },
+    }),
   ]);
 
   // STP企業のマップ（companyId -> agentId, agentName）
@@ -53,13 +59,23 @@ export default async function LeadSubmissionsPage() {
     return {
       value: String(c.id),
       label: stpInfo
-        ? `${c.companyCode} - ${c.name} [STP登録済]`
-        : `${c.companyCode} - ${c.name}`,
+        ? `${c.companyCode} ${c.name} [STP登録済]`
+        : `${c.companyCode} ${c.name}`,
       companyName: c.name,
-      stpAgentId: stpInfo?.agentId || null,
-      stpAgentName: stpInfo?.agentName || null,
+      isInStp: !!stpInfo,
+      stpAgentId: stpInfo?.agentId ?? null,
+      stpAgentName: stpInfo?.agentName ?? null,
+      industry: c.industry || "",
+      revenueScale: c.revenueScale || "",
+      websiteUrl: c.websiteUrl || "",
     };
   });
+
+  // 代理店選択肢
+  const agentOptions = agents.map((a) => ({
+    value: String(a.id),
+    label: a.company.name,
+  }));
 
   // JSON文字列を配列にパースするヘルパー
   const parseJsonArray = (json: string | null): string[] => {
@@ -94,6 +110,7 @@ export default async function LeadSubmissionsPage() {
     agentName: s.token.agent.company.name,
     status: s.status,
     submittedAt: formatDateTime(s.submittedAt),
+    submittedAtRaw: s.submittedAt.toISOString(),
     processedAt: s.processedAt ? formatDateTime(s.processedAt) : null,
     processingNote: s.processingNote,
     masterCompanyId: s.masterCompanyId,
@@ -133,7 +150,7 @@ export default async function LeadSubmissionsPage() {
           <CardTitle>フォーム回答一覧</CardTitle>
         </CardHeader>
         <CardContent>
-          <SubmissionsTable submissions={data} companyOptions={companyOptions} />
+          <SubmissionsTable submissions={data} companyOptions={companyOptions} agentOptions={agentOptions} />
         </CardContent>
       </Card>
     </div>

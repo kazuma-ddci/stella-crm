@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { CrudTable, ColumnDef, CustomRenderers } from "@/components/crud-table";
+import { SortableItem } from "@/components/sortable-list-modal";
 import { Button } from "@/components/ui/button";
-import { addStaff, updateStaff, deleteStaff, sendStaffInvite } from "./actions";
+import { addStaff, updateStaff, deleteStaff, sendStaffInvite, reorderStaff } from "./actions";
 import { Mail, Check, Clock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -11,9 +12,12 @@ type Props = {
   data: Record<string, unknown>[];
   roleTypeOptions: { value: string; label: string }[];
   projectOptions: { value: string; label: string }[];
+  permissionProjects: { code: string; name: string }[];
+  canEditPermissions: boolean;
 };
 
 const CONTRACT_TYPES = [
+  { value: "役員", label: "役員" },
   { value: "正社員", label: "正社員" },
   { value: "契約社員", label: "契約社員" },
   { value: "業務委託", label: "業務委託" },
@@ -113,7 +117,21 @@ function InviteButton({ row }: { row: Record<string, unknown> }) {
   );
 }
 
-export function StaffTable({ data, roleTypeOptions, projectOptions }: Props) {
+export function StaffTable({ data, roleTypeOptions, projectOptions, permissionProjects, canEditPermissions }: Props) {
+  // 権限カラム（Stella admin のみ表示）
+  const permissionColumns: ColumnDef[] = canEditPermissions
+    ? [
+        { key: "stellaPermission", header: "Stella権限", type: "select" as const, options: PERMISSION_LEVELS, simpleMode: true },
+        ...permissionProjects.map((p) => ({
+          key: `perm_${p.code}`,
+          header: `${p.name}権限`,
+          type: "select" as const,
+          options: PERMISSION_LEVELS,
+          simpleMode: true,
+        })),
+      ]
+    : [];
+
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
     { key: "name", header: "名前", type: "text", required: true, simpleMode: true },
@@ -127,9 +145,8 @@ export function StaffTable({ data, roleTypeOptions, projectOptions }: Props) {
     // 役割（複数選択）
     { key: "roleTypeIds", header: "役割（選択）", type: "multiselect", options: roleTypeOptions, simpleMode: true, hidden: true },
     { key: "roleTypeNames", header: "役割", editable: false, filterable: true },
-    // 権限
-    { key: "stellaPermission", header: "Stella権限", type: "select", options: PERMISSION_LEVELS, simpleMode: true },
-    { key: "stpPermission", header: "STP権限", type: "select", options: PERMISSION_LEVELS, simpleMode: true },
+    // 権限（Stella admin のみ）
+    ...permissionColumns,
     { key: "isActive", header: "有効", type: "boolean" },
     // 招待状態
     { key: "inviteStatus", header: "アカウント", editable: false },
@@ -138,6 +155,12 @@ export function StaffTable({ data, roleTypeOptions, projectOptions }: Props) {
   const customRenderers: CustomRenderers = {
     inviteStatus: (_value, row) => <InviteButton row={row} />,
   };
+
+  const sortableItems: SortableItem[] = data.map((item) => ({
+    id: item.id as number,
+    label: item.name as string,
+    subLabel: item.contractType as string | undefined,
+  }));
 
   return (
     <CrudTable
@@ -149,6 +172,8 @@ export function StaffTable({ data, roleTypeOptions, projectOptions }: Props) {
       onDelete={deleteStaff}
       customRenderers={customRenderers}
       emptyMessage="スタッフが登録されていません"
+      sortableItems={sortableItems}
+      onReorder={reorderStaff}
     />
   );
 }

@@ -23,11 +23,25 @@ const STAFF_ONLY_PATHS = [
   "/staff",
   "/settings",
   "/stp",
+  "/accounting",
   "/admin",
 ];
 
 // 外部ユーザー専用パス
 const EXTERNAL_ONLY_PATHS = ["/portal"];
+
+// 固定データ編集パス（stella001専用）
+const MASTER_DATA_PATHS = [
+  "/settings/operating-companies",
+  "/settings/projects",
+  "/settings/customer-types",
+  "/settings/contact-methods",
+  "/settings/contract-statuses",
+  "/settings/display-views",
+  "/settings/lead-sources",
+  "/staff/role-types",
+  "/stp/settings/stages",
+];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some(
@@ -43,6 +57,12 @@ function isStaffOnlyPath(pathname: string): boolean {
 
 function isExternalOnlyPath(pathname: string): boolean {
   return EXTERNAL_ONLY_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(path + "/")
+  );
+}
+
+function isMasterDataPath(pathname: string): boolean {
+  return MASTER_DATA_PATHS.some(
     (path) => pathname === path || pathname.startsWith(path + "/")
   );
 }
@@ -121,6 +141,22 @@ export default auth((request) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const displayViews = ((session.user as any).displayViews ??
     []) as DisplayViewPermission[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const canEditMasterData = (session.user as any).canEditMasterData === true;
+
+  // 固定データ管理者（stella001）: 固定データパスのみアクセス可能
+  if (canEditMasterData) {
+    if (isMasterDataPath(pathname)) {
+      return NextResponse.next();
+    }
+    // それ以外はすべて固定データ設定にリダイレクト
+    return NextResponse.redirect(new URL("/settings/projects", request.url));
+  }
+
+  // 通常ユーザー: 固定データパスへのアクセスを禁止
+  if (isMasterDataPath(pathname)) {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
 
   // ユーザータイプに応じたリダイレクト
   if (userType === "external") {
@@ -175,6 +211,6 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      */
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    "/((?!_next/static|_next/image|favicon.ico|images/).*)",
   ],
 };

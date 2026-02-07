@@ -34,7 +34,7 @@ export default function LoginPage() {
 
     try {
       const result = await signIn("credentials", {
-        email,
+        identifier: email,
         password,
         redirect: false,
       });
@@ -76,7 +76,7 @@ export default function LoginPage() {
               <Label htmlFor="email">メールアドレス</Label>
               <Input
                 id="email"
-                type="email"
+                type="text"
                 placeholder="example@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}

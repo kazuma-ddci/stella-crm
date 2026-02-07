@@ -5,17 +5,18 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CrudTable, ColumnDef, CustomAction, CustomRenderers, InlineEditConfig } from "@/components/crud-table";
 import { addAgent, updateAgent, deleteAgent } from "./actions";
-import { ContractsModal } from "./contracts-modal";
 import { ContactHistoryModal } from "./contact-history-modal";
 import { MasterContractModal } from "@/components/master-contract-modal";
 import { ReferredCompaniesModal } from "./referred-companies-modal";
-import { FileText, MessageSquare, ScrollText, Copy, Check, Loader2 } from "lucide-react";
+import { AgentContractHistoryModal } from "./agent-contract-history-modal";
+import { FileText, MessageSquare, ScrollText, Copy, Check, Loader2, DollarSign } from "lucide-react";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { CategoryEditCell } from "./category-edit-cell";
 import { ChangeConfirmationDialog } from "@/components/change-confirmation-dialog";
 import { formatAdvisorDisplay } from "@/lib/format/advisor-display";
+import { CompanyCodeLabel } from "@/components/company-code-label";
 
 type CustomerType = {
   id: number;
@@ -54,13 +55,6 @@ const category1Options = [
   { value: "顧問", label: "顧問" },
 ];
 
-// 契約ステータス選択肢
-const contractStatusOptions = [
-  { value: "契約済み", label: "契約済み" },
-  { value: "商談済み", label: "商談済み" },
-  { value: "未商談", label: "未商談" },
-  { value: "日程調整中", label: "日程調整中" },
-];
 
 export function AgentsTable({
   data,
@@ -74,9 +68,9 @@ export function AgentsTable({
   staffByProject,
 }: Props) {
   const router = useRouter();
-  const [contractsModalOpen, setContractsModalOpen] = useState(false);
   const [contactHistoryModalOpen, setContactHistoryModalOpen] = useState(false);
   const [masterContractModalOpen, setMasterContractModalOpen] = useState(false);
+  const [agentContractHistoryModalOpen, setAgentContractHistoryModalOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<Record<string, unknown> | null>(null);
 
   // 紹介企業モーダル用ステート
@@ -135,9 +129,7 @@ export function AgentsTable({
     {
       key: "contractStatus",
       header: "契約ステータス",
-      type: "select",
-      options: contractStatusOptions,
-      inlineEditable: true, // インライン編集可能
+      editable: false,
     },
     {
       key: "staffAssignments",
@@ -165,6 +157,22 @@ export function AgentsTable({
     // 顧問専用フィールド - hidden（区分カラムの統合編集UIで変更）
     { key: "minimumCases", header: "最低件数", type: "number", editable: false, hidden: true },
     { key: "monthlyFee", header: "月額費用", type: "number", editable: false, hidden: true },
+    {
+      key: "isIndividualBusiness",
+      header: "個人事業主",
+      type: "select",
+      options: [
+        { value: "true", label: "個人" },
+        { value: "false", label: "法人" },
+      ],
+      inlineEditable: true,
+    },
+    {
+      key: "withholdingTaxRate",
+      header: "源泉徴収税率",
+      type: "number",
+      inlineEditable: true,
+    },
     { key: "leadFormToken", header: "フォームURL", editable: false },
     // 非表示項目
     { key: "companyEmail", header: "メールアドレス", editable: false, hidden: true },
@@ -284,13 +292,14 @@ export function AgentsTable({
     companyName: (value, row) => {
       if (!value) return "-";
       const companyId = row.companyId as number;
+      const companyCode = row.companyCode as string;
       return (
         <Link
           href={`/companies/${companyId}`}
           className="hover:underline font-medium"
           onClick={(e) => e.stopPropagation()}
         >
-          {String(value)}
+          <CompanyCodeLabel code={companyCode} name={String(value)} />
         </Link>
       );
     },
@@ -304,6 +313,7 @@ export function AgentsTable({
         );
       }
       const referrerCompanyId = row.referrerCompanyId as number | null;
+      const referrerCompanyCode = row.referrerCompanyCode as string | null;
       if (!referrerCompanyId) return String(value);
       return (
         <Link
@@ -311,8 +321,27 @@ export function AgentsTable({
           className="hover:underline"
           onClick={(e) => e.stopPropagation()}
         >
-          {String(value)}
+          {referrerCompanyCode
+            ? <CompanyCodeLabel code={referrerCompanyCode} name={String(value)} />
+            : String(value)
+          }
         </Link>
+      );
+    },
+    // 契約ステータス：自動計算値をバッジ風に表示
+    contractStatus: (value) => {
+      if (!value) return "-";
+      const status = String(value);
+      const colorClass =
+        status === "契約済み"
+          ? "bg-green-100 text-green-800"
+          : status === "契約終了"
+          ? "bg-gray-100 text-gray-600"
+          : "bg-yellow-100 text-yellow-800";
+      return (
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colorClass}`}>
+          {status}
+        </span>
       );
     },
     // 区分：顧問の場合は「顧問（X件）¥XX,XXX」統合表示 + インライン編集対応
@@ -484,6 +513,25 @@ export function AgentsTable({
         </span>
       );
     },
+    // 個人事業主
+    isIndividualBusiness: (value) => {
+      if (value === true || value === "true") {
+        return (
+          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700">
+            個人
+          </span>
+        );
+      }
+      return <span className="text-muted-foreground">-</span>;
+    },
+    // 源泉徴収税率
+    withholdingTaxRate: (value, row) => {
+      const isIndividual = row.isIndividualBusiness === true || row.isIndividualBusiness === "true";
+      if (!isIndividual) {
+        return <span className="text-muted-foreground">-</span>;
+      }
+      return value != null ? `${Number(value)}%` : "-";
+    },
     // リード獲得フォームURL
     leadFormToken: (value, row) => {
       if (!value) return "-";
@@ -523,6 +571,14 @@ export function AgentsTable({
 
   const customActions: CustomAction[] = [
     {
+      icon: <FileText className="h-4 w-4" />,
+      label: "契約条件",
+      onClick: (item) => {
+        setSelectedAgent(item);
+        setAgentContractHistoryModalOpen(true);
+      },
+    },
+    {
       icon: <MessageSquare className="h-4 w-4" />,
       label: "接触履歴",
       onClick: (item) => {
@@ -539,12 +595,9 @@ export function AgentsTable({
       },
     },
     {
-      icon: <FileText className="h-4 w-4" />,
-      label: "旧契約書",
-      onClick: (item) => {
-        setSelectedAgent(item);
-        setContractsModalOpen(true);
-      },
+      icon: <DollarSign className="h-4 w-4" />,
+      label: "経費サマリー",
+      onClick: (item) => router.push(`/stp/finance/agent-summary/${item.id}`),
     },
   ];
 
@@ -575,10 +628,11 @@ export function AgentsTable({
     // インライン編集対象のカラム（noteはTextPreviewCell形式で編集）
     // category1はcustomRendererでカスタム編集UIを使用するためここには含めない
     columns: [
-      "status",            // ステータス
-      "contractStatus",    // 契約ステータス
-      "staffAssignments",  // 担当者
-      "referrerCompanyId", // 紹介者
+      "status",               // ステータス
+      "staffAssignments",     // 担当者
+      "referrerCompanyId",    // 紹介者
+      "isIndividualBusiness", // 個人事業主
+      "withholdingTaxRate",   // 源泉徴収税率
     ],
     // 表示用カラム → 編集用カラムのマッピング
     displayToEditMapping: {
@@ -590,14 +644,17 @@ export function AgentsTable({
       if (columnKey === "status") {
         return statusOptions;
       }
-      if (columnKey === "contractStatus") {
-        return contractStatusOptions;
-      }
       if (columnKey === "staffAssignments") {
         return staffOptions;
       }
       if (columnKey === "referrerCompanyId") {
         return referrerOptions;
+      }
+      if (columnKey === "isIndividualBusiness") {
+        return [
+          { value: "true", label: "個人" },
+          { value: "false", label: "法人" },
+        ];
       }
       return [];
     },
@@ -621,9 +678,9 @@ export function AgentsTable({
 
       {selectedAgent && (
         <>
-          <ContractsModal
-            open={contractsModalOpen}
-            onOpenChange={setContractsModalOpen}
+          <AgentContractHistoryModal
+            open={agentContractHistoryModalOpen}
+            onOpenChange={setAgentContractHistoryModalOpen}
             agentId={selectedAgent.id as number}
             agentName={selectedAgent.companyName as string}
           />

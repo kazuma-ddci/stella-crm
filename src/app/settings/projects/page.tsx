@@ -1,18 +1,36 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProjectsTable } from "./projects-table";
+import { auth } from "@/auth";
 
 export default async function ProjectsPage() {
-  const projects = await prisma.masterProject.findMany({
-    orderBy: { displayOrder: "asc" },
-  });
+  const session = await auth();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const canEditMasterData = (session?.user as any)?.canEditMasterData === true;
+  const [projects, operatingCompanies] = await Promise.all([
+    prisma.masterProject.findMany({
+      include: { operatingCompany: true },
+      orderBy: { displayOrder: "asc" },
+    }),
+    prisma.operatingCompany.findMany({
+      where: { isActive: true },
+      orderBy: { id: "asc" },
+    }),
+  ]);
 
   const data = projects.map((p) => ({
     id: p.id,
+    code: p.code,
     name: p.name,
     description: p.description,
     displayOrder: p.displayOrder,
     isActive: p.isActive,
+    operatingCompanyId: p.operatingCompanyId,
+  }));
+
+  const operatingCompanyOptions = operatingCompanies.map((c) => ({
+    value: String(c.id),
+    label: c.companyName,
   }));
 
   return (
@@ -23,7 +41,11 @@ export default async function ProjectsPage() {
           <CardTitle>プロジェクト一覧</CardTitle>
         </CardHeader>
         <CardContent>
-          <ProjectsTable data={data} />
+          <ProjectsTable
+            data={data}
+            operatingCompanyOptions={operatingCompanyOptions}
+            canEdit={canEditMasterData}
+          />
         </CardContent>
       </Card>
     </div>

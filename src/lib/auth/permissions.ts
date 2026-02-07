@@ -51,3 +51,4 @@ export function getPermissionLevel(
   const permission = permissions.find((p) => p.projectCode === projectCode);
   return permission?.permissionLevel ?? "none";
 }
+

@@ -1,0 +1,35 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: stella-stg-app
+    ports:
+      - "4000:3000"
+    env_file:
+      - .env.stg
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      db-stg:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db-stg:
+    image: postgres:15
+    container_name: stella-stg-db
+    ports:
+      - "127.0.0.1:5434:5432"
+    env_file:
+      - .env.stg
+    volumes:
+      - postgres_stg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_stg_data:

@@ -1,8 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ContactMethodsTable } from "./contact-methods-table";
+import { auth } from "@/auth";
 
 export default async function ContactMethodsPage() {
+  const session = await auth();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const canEditMasterData = (session?.user as any)?.canEditMasterData === true;
+
   const contactMethods = await prisma.contactMethod.findMany({
     orderBy: { displayOrder: "asc" },
   });
@@ -16,13 +21,13 @@ export default async function ContactMethodsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">連絡手段</h1>
+      <h1 className="text-2xl font-bold">接触方法</h1>
       <Card>
         <CardHeader>
-          <CardTitle>連絡手段一覧</CardTitle>
+          <CardTitle>接触方法一覧</CardTitle>
         </CardHeader>
         <CardContent>
-          <ContactMethodsTable data={data} />
+          <ContactMethodsTable data={data} canEdit={canEditMasterData} />
         </CardContent>
       </Card>
     </div>

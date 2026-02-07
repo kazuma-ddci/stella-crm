@@ -15,6 +15,9 @@
 7. [請求先担当者の設計パターン](#請求先担当者の設計パターン)
 8. [接触履歴管理](#接触履歴管理)
 9. [運用KPIシート](#運用kpiシート)
+10. [代理店契約履歴・報酬管理](#代理店契約履歴報酬管理)
+11. [代理店契約ステータスの自動計算](#代理店契約ステータスの自動計算)
+12. [売上・経費グルーピングと請求書生成](#売上経費グルーピングと請求書生成)
 
 ---
 
@@ -211,6 +214,88 @@ NextAuth.jsを使用した社内スタッフ向け認証システム。
 2. `/form/stp-lead/[token]` でフォームにアクセス
 3. 回答データは `stp_lead_form_submissions` に保存
 4. 管理画面 `/stp/lead-submissions` で回答を確認・処理
+
+### フォーム構成（2ページ制）
+
+**ページ1: 基本情報 + 採用実績**
+- 会社名（必須）、担当者氏名（必須）、メールアドレス（必須）
+- 職種選択（必須）← この職種がページ2に自動反映される
+- 過去1年間の採用費用（人材紹介/求人広告/リファラル/その他）
+- 過去1年間の採用人数
+
+**ページ2: 今後の採用予定**
+- 採用希望の職種（読み取り専用、ページ1から自動コピー）
+- 年間採用予算、年間採用希望人数
+- 採用エリア（都道府県）、採用タイムライン、年齢幅
+- 採用必須条件、採用希望条件
+
+### 職種連動ルール（SPEC-STP-002）
+
+- ページ1の職種選択は**必須**
+- ページ2の「採用希望の職種」にはページ1の選択値が自動反映され、**変更不可**
+- 詳細は [SPEC-STP-002](specs/SPEC-STP-002.md) を参照
+
+### 再送信フロー
+
+- 送信完了画面に「別の職種で回答する」ボタンを表示
+- クリック時: 基本情報（会社名・担当者・メール）を保持し、その他をリセットしてページ1に戻る
+- これにより、複数職種の回答を効率的に行える
+
+### リード回答の処理モーダル（3シナリオ分岐）
+
+管理画面 `/stp/lead-submissions` で回答を処理する際、選択する処理方法と紐付け先企業の状態に応じて3つのUIシナリオに分岐する。
+
+#### シナリオ1: 新規企業として登録
+
+Stella全顧客マスタとSTP企業情報の両方に新規登録。モーダル内は2つのセクションに分離表示。
+
+| セクション | 色 | 入力項目 |
+|-----------|-----|---------|
+| Stella 全顧客マスタに登録 | 青（`border-blue-200 bg-blue-50/30`） | 企業名、業界、売上規模、企業HP |
+| STP 企業情報に登録 | 緑（`border-emerald-200 bg-emerald-50/30`） | ステージ（リード固定）、代理店、リード獲得日、企業メモ |
+
+#### シナリオ2: 既存企業に紐付け → STP登録済み企業
+
+STP企業情報に既に登録されている企業を選択した場合、情報入力フォームは表示せず、メッセージのみ表示。
+
+```
+ℹ️ 採用ブーストの顧客に紐づけます。情報更新は企業情報ページから行ってください。
+```
+
+- `stpCompanyInfo` は `undefined` として送信 → Server Actionで既存STP企業の情報は変更しない
+
+#### シナリオ3: 既存企業に紐付け → Stellaのみ（STP未登録）企業
+
+Stella全顧客マスタの情報更新 + STP企業情報に新規登録。シナリオ1と同様に2セクション表示だが、以下の違いがある。
+
+| セクション | 色 | 入力項目 |
+|-----------|-----|---------|
+| Stella 全顧客マスタの情報を更新 | 青 | 業界、売上規模、企業HP（3カラムグリッド） |
+| STP 企業情報に登録 | 緑 | **企業名（表示のみ・編集不可）**、ステージ、代理店、リード獲得日、企業メモ |
+
+- **企業名**: ラジオボタン（企業名が異なる場合）で選択した方の企業名が表示のみで反映される
+- 企業名の不一致警告・代理店の不一致警告は、STP未登録企業の場合のみ表示
+
+#### 判定ロジック
+
+```typescript
+// CompanyOption に isInStp: boolean を持たせて判定
+const isSelectedCompanyInStp = () => {
+  const company = companyOptions.find((c) => c.value === selectedCompanyId);
+  return company?.isInStp === true;
+};
+
+// ⚠️ stpAgentId != null での判定は NG（agentId が null の STP 企業で誤判定）
+```
+
+#### 関連ファイル
+
+| ファイル | 役割 |
+|---------|------|
+| `src/app/stp/lead-submissions/submissions-table.tsx` | 処理モーダルUI（3シナリオ分岐） |
+| `src/app/stp/lead-submissions/page.tsx` | データ取得（`isInStp`フラグ付与） |
+| `src/app/api/stp/lead-submissions/route.ts` | APIルート（ポーリング用、同じ`isInStp`付与） |
+| `src/app/stp/lead-submissions/actions.ts` | Server Actions（`processWithExistingCompany`が`stpCompanyInfo: undefined`を処理） |
 
 ---
 
@@ -621,3 +706,349 @@ export function calculateDiff(
 | 計算セル | 白 | `bg-white` |
 | 差分（正） | 緑文字 | `text-green-600` |
 | 差分（負） | 赤文字 | `text-red-600` |
+
+---
+
+## 代理店契約履歴・報酬管理
+
+代理店との契約条件と報酬体系を管理する機能。代理店一覧テーブルの「契約条件」ボタンからモーダルで操作する。
+
+### 概念モデル
+
+```
+StpAgent（代理店）
+└── StpAgentContractHistory（契約履歴：期間ごとの契約条件）
+    ├── デフォルト報酬率（全紹介企業に適用）
+    │   ├── 月額プラン（Mp）報酬
+    │   └── 成果報酬プラン（Pp）報酬
+    └── StpAgentCommissionOverride（企業別報酬例外）
+        ├── 月額プラン（Mp）報酬（例外）
+        └── 成果報酬プラン（Pp）報酬（例外）
+```
+
+### 報酬体系の設計
+
+報酬はクライアント企業の契約プラン（月額/成果報酬）に応じて2系統に分離。各系統の報酬構造は以下の通り:
+
+#### 月額プラン（Mp: Monthly Plan）を契約した企業からの報酬
+
+| 報酬項目 | DB接頭辞 | タイプ | 説明 |
+|---------|---------|--------|------|
+| 初期費用報酬 | `defaultMpInitial` / `mpInitial` | 率(%) + 期間(ヶ月) | 契約獲得時の初期報酬 |
+| 月額報酬 | `defaultMpMonthly` / `mpMonthly` | 率(%) or 固定額 + 期間(ヶ月) | 毎月の継続報酬 |
+
+- **月額報酬タイプ** (`mpMonthlyType`): `"rate"` = 売上の率(%), `"fixed"` = 固定額(円)
+
+#### 成果報酬プラン（Pp: Performance Plan）を契約した企業からの報酬
+
+| 報酬項目 | DB接頭辞 | タイプ | 説明 |
+|---------|---------|--------|------|
+| 初期費用報酬 | `defaultPpInitial` / `ppInitial` | 率(%) + 期間(ヶ月) | 契約獲得時の初期報酬 |
+| 成果報酬 | `defaultPpPerf` / `ppPerf` | 率(%) or 固定額 + 期間(ヶ月) | 成果発生時の報酬 |
+
+- **成果報酬タイプ** (`ppPerfType`): `"rate"` = 売上の率(%), `"fixed"` = 固定額(円)
+
+### 報酬適用ロジック
+
+```
+紹介企業に対する報酬を決定:
+  1. 該当企業に対する CommissionOverride が存在するか？
+     ├── YES → Override の報酬設定を適用
+     └── NO  → ContractHistory のデフォルト報酬を適用
+```
+
+### formatCommissionSummary（報酬サマリー表示）
+
+一覧テーブルで報酬内容を簡潔に表示するための関数。
+
+**表示例**:
+```
+月額プラン: 初期10%(12ヶ月) / 月額5%(24ヶ月)
+成果プラン: 初期10%(12ヶ月) / 成果¥100,000(12ヶ月)
+```
+
+**ロジック**:
+- `ppPerfType` が `"rate"` → `成果{rate}%` 表示
+- `ppPerfType` が `"fixed"` → `成果¥{fixed}` 表示（通貨フォーマット）
+- `ppPerfType` が未設定で `ppPerfRate` があれば → `成果{rate}%` 表示（後方互換）
+- 月額報酬も同様に `mpMonthlyType` で分岐
+
+### 契約履歴のCRUD操作
+
+| 操作 | Server Action | 説明 |
+|------|--------------|------|
+| 一覧取得 | `getAgentContractHistories(agentId)` | 論理削除されていないレコードを取得、commissionOverridesも一括取得 |
+| 追加 | `addAgentContractHistory(agentId, data)` | 新しい契約履歴を作成 |
+| 更新 | `updateAgentContractHistory(id, data)` | 既存の契約履歴を更新（確認ダイアログあり） |
+| 削除 | `deleteAgentContractHistory(id)` | 論理削除（`deletedAt` をセット） |
+
+### 報酬例外のCRUD操作
+
+| 操作 | Server Action | 説明 |
+|------|--------------|------|
+| 追加 | `addCommissionOverride(data)` | 企業別の報酬例外を作成 |
+| 更新 | `updateCommissionOverride(id, data)` | 報酬例外を更新 |
+| 削除 | `deleteCommissionOverride(id)` | 物理削除 |
+
+### UI構成
+
+```
+┌─ 代理店契約履歴管理モーダル ─────────────────────────────┐
+│                                                          │
+│  [契約履歴を追加] ボタン                                   │
+│                                                          │
+│  ┌─ 追加/編集フォーム ──────────────────────────────────┐ │
+│  │ 契約開始日* | 契約終了日 | ステータス*                 │ │
+│  │ 初期費用(¥#,##0) | 月額費用(¥#,##0)                  │ │
+│  │                                                      │ │
+│  │ ── 月額プランを契約した企業からの報酬（青見出し）── │ │
+│  │ 初期費用報酬率(%) | 報酬発生期間(ヶ月)                │ │
+│  │ 月額報酬タイプ [率/固定] | 率(%) or 固定額(¥) | 期間  │ │
+│  │                                                      │ │
+│  │ ── 成果報酬プランを契約した企業からの報酬（緑見出し）── │ │
+│  │ 初期費用報酬率(%) | 報酬発生期間(ヶ月)                │ │
+│  │ 成果報酬タイプ [率/固定] | 率(%) or 固定額(¥) | 期間  │ │
+│  │                                                      │ │
+│  │ 備考                                                 │ │
+│  │                           [キャンセル] [追加/更新]    │ │
+│  └──────────────────────────────────────────────────────┘ │
+│                                                          │
+│  ┌─ 契約履歴一覧テーブル ───────────────────────────────┐ │
+│  │ ＞ | ステータス | 開始日 | 終了日 | 初期 | 月額 |     │ │
+│  │     | デフォルト報酬 | 備考 | [編集][削除]            │ │
+│  └──────────────────────────────────────────────────────┘ │
+│                                                          │
+│  ┌─ 紹介企業の報酬設定（行クリックで展開）──────────────┐ │
+│  │ [例外を追加] ボタン                                   │ │
+│  │ 企業 | 適用(デフォルト/例外) | 報酬内容 | 操作        │ │
+│  └──────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 金額フォーマット
+
+金額入力フィールド（`initialFee`, `monthlyFee`, `mpMonthlyFixed`, `ppPerfFixed`）は `CurrencyInput` コンポーネントを使用:
+- **フォーカス時**: `type="number"` で数値入力
+- **ブラー時**: `¥#,##0` 形式で表示（例: `¥150,000`）
+
+### 関連ファイル
+
+| ファイル | 役割 |
+|---------|------|
+| `src/app/stp/agents/agent-contract-history-actions.ts` | 契約履歴・報酬例外のServer Actions（CRUD） |
+| `src/app/stp/agents/agent-contract-history-modal.tsx` | 契約履歴管理モーダルUI |
+| `src/app/stp/agents/agents-table.tsx` | 代理店一覧テーブル（「契約条件」ボタン） |
+| `prisma/schema.prisma` | StpAgentContractHistory, StpAgentCommissionOverride モデル定義 |
+
+### 代理店契約ステータスの自動計算
+
+代理店の契約ステータス（`contractStatus`）は、`StpAgentContractHistory` の契約履歴データから**サーバーサイドで自動計算**される。手動入力は不可。
+
+#### 計算ロジック
+
+```
+代理店の契約履歴（deletedAt is null）を取得:
+
+  履歴が0件
+  → 「契約前」
+
+  今日時点で有効な契約あり
+  （contractStartDate <= 今日 AND (contractEndDate is null OR contractEndDate >= 今日)）
+  → 「契約済み」
+
+  履歴はあるが全て終了済み
+  → 「契約終了」
+```
+
+#### ステータスと表示色
+
+| ステータス | 条件 | バッジ色 |
+|-----------|------|---------|
+| 契約前 | 契約履歴が存在しない | 黄（`bg-yellow-100 text-yellow-800`） |
+| 契約済み | 今日時点で有効な契約履歴がある | 緑（`bg-green-100 text-green-800`） |
+| 契約終了 | 契約履歴はあるが全て終了 | 灰（`bg-gray-100 text-gray-600`） |
+
+#### 実装箇所
+
+```typescript
+// src/app/stp/agents/page.tsx（データ取得時に計算）
+contractStatus: (() => {
+  const histories = a.agentContractHistories;
+  if (histories.length === 0) return "契約前";
+  const hasActive = histories.some((h) => {
+    const start = new Date(h.contractStartDate);
+    start.setHours(0, 0, 0, 0);
+    if (start > today) return false;
+    if (!h.contractEndDate) return true;
+    const end = new Date(h.contractEndDate);
+    end.setHours(0, 0, 0, 0);
+    return end >= today;
+  });
+  return hasActive ? "契約済み" : "契約終了";
+})(),
+```
+
+#### 変更経緯（2026-02-06）
+
+- **変更前**: `StpAgent.contractStatus` に手動で値を保存（選択肢: 契約済み/商談済み/未商談/日程調整中）
+- **変更後**: `StpAgentContractHistory` の日付データから自動計算、DBカラムは未使用（将来的に削除候補）
+- **UI変更**: インライン編集を無効化、バッジ表示に変更
+- **理由**: 契約履歴の日付と契約ステータスの整合性を自動で保証するため
+
+#### 関連ファイル
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `src/app/stp/agents/page.tsx` | `agentContractHistories` をinclude、contractStatusを動的計算 |
+| `src/app/stp/agents/agents-table.tsx` | contractStatusカラムを編集不可に、バッジ表示追加 |
+| `src/app/stp/agents/actions.ts` | contractStatusの手動保存/更新を除去 |
+
+### マイグレーション履歴
+
+| マイグレーション | 内容 |
+|----------------|------|
+| `20260206040819_restructure_to_contract_based` | テーブル新規作成（契約履歴） |
+| `20260206072630_financial_restructure` | CommissionOverrideテーブル追加 |
+| `20260206125849_restructure_commission_by_plan_type` | 旧フラットカラム → プランタイプ別カラムへリストラクチャ |
+| `20260206221055_add_pp_perf_type_and_fixed` | 成果報酬にタイプ選択（率/固定額）追加 |
+
+---
+
+## 売上・経費グルーピングと請求書生成
+
+売上レコード・経費レコードを**企業×月（売上）/ 代理店×月（経費）**でグルーピング表示し、請求書の一括生成・個別生成を可能にする機能。
+
+### 背景（2026-02-07）
+
+同一企業・同一月に複数の売上/経費レコードが発生するため、これらをグルーピングして管理し、請求書を一括で生成する運用ニーズがあった。
+
+### データモデル
+
+```
+StpInvoice（請求書）
+├── revenueRecords: StpRevenueRecord[] (1:N)  ← invoiceId で紐づき
+└── expenseRecords: StpExpenseRecord[] (1:N)   ← invoiceId で紐づき
+```
+
+**ポイント**: Invoice → Record は1:Nの関係。1つの請求書に複数のレコードを紐づけできる（一括請求書）。個別生成の場合は1:1になる。
+
+### グルーピングロジック
+
+#### 売上（Revenue）: 企業×月
+
+```typescript
+// グループキー: stpCompanyId + targetMonth(YYYY-MM)
+const groupKey = `${record.stpCompanyId}_${record.targetMonth?.slice(0, 7)}`;
+```
+
+- **表示**: アコーディオン形式で企業×月ごとにグループ化
+- **グループヘッダー**: 月、企業コード+名、税込合計金額、レコード数、請求書ステータスサマリー
+- **展開時**: グループ内の個別レコードをCrudTableで表示（企業・月カラムはヘッダーに表示済みのため省略）
+
+#### 経費（Expenses）: 代理店×月
+
+```typescript
+// グループキー: agentId + targetMonth(YYYY-MM)
+const groupKey = `${record.agentId}_${record.targetMonth?.slice(0, 7)}`;
+```
+
+- **表示**: アコーディオン形式で代理店×月ごとにグループ化
+- **グループヘッダー**: 月、代理店名、税込合計金額、レコード数、ステータスサマリー
+
+### 請求書生成
+
+#### 一括生成（売上のみ）
+
+```typescript
+// createBatchInvoice(stpCompanyId, targetMonth)
+// 同一企業×月の未請求（invoiceId = null）レコードを全て1つの請求書に紐づけ
+async function createBatchInvoice(stpCompanyId: number, targetMonth: string) {
+  // 1. 未請求レコードを取得
+  const records = await prisma.stpRevenueRecord.findMany({
+    where: { stpCompanyId, targetMonth, invoiceId: null, deletedAt: null }
+  });
+  // 2. 合計金額を税込で計算
+  // 3. StpInvoice を作成（direction: "outgoing"）
+  // 4. 全レコードの invoiceId を更新
+}
+```
+
+**グループヘッダーの「一括請求書生成」ボタン**: 未請求レコードが1件以上ある場合のみ有効。
+
+#### 個別生成（売上のみ）
+
+```typescript
+// createInvoiceFromRevenue(revenueId)
+// 1レコード = 1請求書
+async function createInvoiceFromRevenue(revenueId: number) {
+  // 1. レコードの invoiceId が null であることを確認
+  // 2. StpInvoice を作成
+  // 3. レコードの invoiceId を更新
+}
+```
+
+**各レコード行の「個別生成」ボタン**: invoiceId が null の場合のみ表示。
+
+### 請求書削除時の処理
+
+請求書を論理削除する際、紐づくレコードの `invoiceId` をクリアする:
+
+```typescript
+async function deleteInvoice(id: number) {
+  // 紐づくレコードのinvoiceIdをクリア
+  await prisma.stpRevenueRecord.updateMany({
+    where: { invoiceId: id },
+    data: { invoiceId: null },
+  });
+  await prisma.stpExpenseRecord.updateMany({
+    where: { invoiceId: id },
+    data: { invoiceId: null },
+  });
+  // 論理削除
+  await prisma.stpInvoice.update({
+    where: { id },
+    data: { deletedAt: new Date() },
+  });
+}
+```
+
+### UI構成
+
+```
+┌─ 売上管理 ───────────────────────────────────────────────┐
+│  [すべて展開] [すべて閉じる]                              │
+│                                                          │
+│  ▼ 2026年1月 | ABC株式会社 (A001) | ¥500,000 | 3件      │
+│    ┌──────────────────────────────────────────┐          │
+│    │ CrudTable（企業・月カラムなし）          │          │
+│    │ 各行に [個別生成] ボタン                  │          │
+│    └──────────────────────────────────────────┘          │
+│    [一括請求書生成] ← 未請求レコードがある場合のみ        │
+│                                                          │
+│  ▶ 2026年1月 | DEF株式会社 (D002) | ¥300,000 | 2件      │
+│  ▶ 2026年2月 | ABC株式会社 (A001) | ¥450,000 | 2件      │
+│                                                          │
+│  ── 新規売上レコード追加 ──                               │
+│  CrudTable（全カラム表示、追加専用）                      │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 関連ファイル
+
+| ファイル | 役割 |
+|---------|------|
+| `src/app/stp/finance/revenue/revenue-table.tsx` | 売上グルーピングUI（企業×月アコーディオン） |
+| `src/app/stp/finance/revenue/actions.ts` | 売上CRUD + 一括/個別請求書生成 |
+| `src/app/stp/finance/revenue/page.tsx` | 売上データ取得（invoice含む） |
+| `src/app/stp/finance/expenses/expenses-table.tsx` | 経費グルーピングUI（代理店×月アコーディオン） |
+| `src/app/stp/finance/expenses/page.tsx` | 経費データ取得（invoice含む） |
+| `src/app/stp/finance/invoices/actions.ts` | 請求書CRUD（削除時にlinkedレコードクリア） |
+| `src/app/stp/finance/invoices/invoices-table.tsx` | 請求書一覧（紐づきレコード数表示） |
+| `src/app/stp/finance/invoices/page.tsx` | 請求書データ取得（紐づきレコードカウント） |
+
+### マイグレーション履歴
+
+| マイグレーション | 内容 |
+|----------------|------|
+| `20260206141749_add_stp_invoices` | StpInvoice テーブル新規作成 |
+| `20260207065741_restructure_invoice_to_one_to_many` | Invoice→Record関係を1:1→1:Nに変更（invoiceIdをRecord側に移動） |

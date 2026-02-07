@@ -57,8 +57,8 @@ export default async function AgentContactsPage() {
     }),
     // 全スタッフを取得（表示用・不整合チェック用）
     prisma.masterStaff.findMany({
-      where: { isActive: true },
-      orderBy: { name: "asc" },
+      where: { isActive: true, isSystemUser: false },
+      orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
     }),
     // スタッフのプロジェクト割当を取得
     prisma.staffProjectAssignment.findMany({
@@ -153,7 +153,8 @@ export default async function AgentContactsPage() {
     return {
       id: c.id,
       agentId: allCompanyIdToAgentId[c.companyId] || null,
-      agentName: `(${c.company.id})${companyIdToAgentName[c.companyId] || c.company.name}`,
+      agentCompanyCode: c.company.companyCode,
+      agentName: companyIdToAgentName[c.companyId] || c.company.name,
       contactDate: c.contactDate.toISOString(),
       contactMethodId: c.contactMethodId,
       contactMethodName: c.contactMethod?.name,

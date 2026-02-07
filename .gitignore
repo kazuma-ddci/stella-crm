@@ -46,6 +46,25 @@ next-env.d.ts
 # uploads (keep .gitkeep files)
 /public/uploads/**/*
 !/public/uploads/**/.gitkeep
+/uploads/
 
 # Playwright MCP screenshots and logs
 .playwright-mcp/
+
+# Playwright test results and screenshots
+/playwright/test-results/
+/playwright/screenshots/
+/playwright/**/*.png
+/playwright/**/*.jpg
+/playwright/**/*.jpeg
+
+# Claude Code settings
+.claude/
+
+# Personal notes and temp files
+メモ/
+plan1.txt
+kpi-dashboard.txt
+
+# Screenshots (Japanese filenames)
+スクリーンショット*

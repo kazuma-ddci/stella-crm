@@ -71,6 +71,15 @@ docker-compose exec app npx prisma db seed
 
 **注意**: インライン編集は過去に何度も同じミスが発生。必ずドキュメントを読んでから実装すること。
 
+### 実装完了時のまとめ出力（必須）
+
+実装が完了したら、**必ず日本語で何をやったかのまとめを出力すること。**
+
+出力内容：
+- 変更したファイルと変更内容
+- 追加・修正した機能の概要
+- 注意点や補足事項（あれば）
+
 ### 実装後の記録
 
 重要な決定、エラー修正、仕様確定があった場合は `/record` で記録する。
@@ -91,10 +100,12 @@ docker-compose exec app npx prisma generate
 
 # マイグレーション作成（新しいテーブル/カラム追加時）
 docker-compose exec app npx prisma migrate dev --name <変更内容>
-
-# または既存DBに即時反映（開発時のみ）
-docker-compose exec app npx prisma db push
 ```
+
+> **⚠️ `prisma db push` は使用禁止**
+>
+> `prisma db push` はマイグレーションファイルを生成しないため、`migrate reset` が壊れる原因になる。
+> スキーマ変更時は必ず `prisma migrate dev` を使うこと。
 
 ### shadcn/uiコンポーネント追加時
 
@@ -129,18 +140,48 @@ docker-compose restart app
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
+import { toLocalDateString } from "@/lib/utils";
 
 registerLocale("ja", ja);
 
 <DatePicker
   selected={value ? new Date(value) : null}
-  onChange={(date) => setValue(date ? date.toISOString().split("T")[0] : null)}
+  onChange={(date) => setValue(date ? toLocalDateString(date) : null)}
   dateFormat="yyyy/MM/dd"
   locale="ja"
   placeholderText="日付を選択"
   isClearable
 />
 ```
+
+> **⚠️ `toISOString()` を日付変換に使用しない**
+>
+> `date.toISOString()` はUTC変換するため、JST(UTC+9)では日付が1日ずれる。
+> 日付型(date)のフィールドには必ず `toLocalDateString(date)` を使うこと。
+> datetime型のフィールドのみ `toISOString()` を使用してよい。
+
+### Playwrightのスクリーンショット保存
+
+Playwright MCPツールでスクリーンショットを撮る際は、**必ず `playwright/screenshots/` ディレクトリに保存すること。**
+
+```typescript
+// ✅ 正しい例
+await mcp__playwright__browser_take_screenshot({
+  filename: "playwright/screenshots/feature-name.png",
+  type: "png"
+});
+
+// ❌ 間違い例（ルートディレクトリに保存される）
+await mcp__playwright__browser_take_screenshot({
+  filename: "screenshot.png",
+  type: "png"
+});
+```
+
+**保存先ルール:**
+- スクリーンショット: `playwright/screenshots/`
+- テスト結果: `playwright/test-results/`
+- これらのファイルは `.gitignore` に含まれており、Gitにコミットされません
 
 ---
 
@@ -156,7 +197,9 @@ registerLocale("ja", ja);
 | SPEC ID | タイトル | 概要 |
 |---------|----------|------|
 | [SPEC-STP-001](docs/specs/SPEC-STP-001.md) | 顧問の区分表示形式 | `顧問（件数 / 金額）` 形式で統一 |
+| [SPEC-STP-002](docs/specs/SPEC-STP-002.md) | ヒアリングフォーム職種連動 | ページ1→2自動反映・必須・読み取り専用 |
 | [SPEC-UI-001](docs/specs/SPEC-UI-001.md) | Textarea/モーダル長文編集 | 高さ制限とスクロール設定 |
+| [SPEC-UI-002](docs/specs/SPEC-UI-002.md) | 企業選択UI/UXパターン | ラベル形式・検索可能Combobox・displayToEditMapping |
 
 <!--
   旧記載は docs/specs/SPEC-STP-001.md に移行済み。

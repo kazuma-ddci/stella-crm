@@ -1,8 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StagesTable } from "./stages-table";
+import { auth } from "@/auth";
 
 export default async function StagesPage() {
+  const session = await auth();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const canEditMasterData = (session?.user as any)?.canEditMasterData === true;
   const stages = await prisma.stpStage.findMany({
     orderBy: { displayOrder: "asc" },
   });
@@ -24,7 +28,7 @@ export default async function StagesPage() {
           <CardTitle>ステージ一覧</CardTitle>
         </CardHeader>
         <CardContent>
-          <StagesTable data={data} />
+          <StagesTable data={data} canEdit={canEditMasterData} />
         </CardContent>
       </Card>
     </div>

@@ -19,7 +19,14 @@ model MasterStellaCompany {
   industry      String?  @db.VarChar(100)         // 業界（自由入力）
   revenueScale  String?  @db.VarChar(100)         // 売上規模（自由入力）
   staffId       Int?                              // 担当者（AS）
+  leadSource    String?  @db.VarChar(50)          // 流入経路（紹介/Web問い合わせ/テレアポ/展示会/セミナー/代理店）
   note          String?                           // メモ
+
+  // 締め日・支払条件
+  closingDay             Int?                              // 締め日（0=月末, 1-28=指定日）
+  paymentMonthOffset     Int?                              // 支払月（1=翌月, 2=翌々月, 3=3ヶ月後...）
+  paymentDay             Int?                              // 支払日（0=末日, 1-28=指定日）
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -27,6 +34,7 @@ model MasterStellaCompany {
   staff                MasterStaff?         @relation(fields: [staffId], references: [id])
   locations            StellaCompanyLocation[]
   contacts             StellaCompanyContact[]
+  bankAccounts         StellaCompanyBankAccount[]
   stpCompanies         StpCompany[]
   stpContractHistories StpContractHistory[]
   agentCompanies       StpAgent[]           @relation("AgentCompany")
@@ -88,6 +96,30 @@ model StellaCompanyContact {
 }
 
 // ============================================
+// 企業銀行口座 (Stella Company Bank Accounts)
+// ============================================
+
+model StellaCompanyBankAccount {
+  id                Int       @id @default(autoincrement())
+  companyId         Int                                    // MasterStellaCompanyへの外部キー
+  bankName          String    @db.VarChar(100)             // 銀行名
+  bankCode          String    @db.VarChar(10)              // 銀行コード
+  branchName        String    @db.VarChar(100)             // 支店名
+  branchCode        String    @db.VarChar(10)              // 支店コード
+  accountNumber     String    @db.VarChar(20)              // 口座番号
+  accountHolderName String    @db.VarChar(200)             // 口座名義人
+  note              String?                                // メモ
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?                              // 論理削除日時
+
+  // Relations
+  company MasterStellaCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("stella_company_bank_accounts")
+}
+
+// ============================================
 // 代理店マスタ (STP Agents)
 // ============================================
 
@@ -100,18 +132,27 @@ model StpAgent {
   referrerCompanyId Int?                                        // 紹介者（MasterStellaCompanyへの外部キー）
   note              String?                                     // 代理店メモ
   minimumCases      Int?                                        // 最低件数（顧問のみ）
-  monthlyFee        Int?                                        // 月額費用（顧問のみ）
+  agentInitialFee   Int?                                        // 代理店への初期費用
+  monthlyFee        Int?                                        // 月額費用
   hearingUrl        String?   @db.VarChar(500)                  // ヒアリングURL
+
+  // 源泉徴収対応
+  isIndividualBusiness Boolean  @default(false)                  // 個人事業主フラグ
+  withholdingTaxRate   Decimal? @db.Decimal(5,2)                 // デフォルト源泉徴収税率(%)
+
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
   // Relations
   company          MasterStellaCompany  @relation("AgentCompany", fields: [companyId], references: [id])
   referrerCompany  MasterStellaCompany? @relation("ReferrerCompany", fields: [referrerCompanyId], references: [id])
-  stpCompanies     StpCompany[]
-  contracts        StpAgentContract[]
-  staffAssignments StpAgentStaff[]
-  leadFormToken    StpLeadFormToken?
+  stpCompanies           StpCompany[]
+  contracts              StpAgentContract[]
+  staffAssignments       StpAgentStaff[]
+  leadFormToken          StpLeadFormToken?
+  agentContractHistories StpAgentContractHistory[]
+  expenseRecords         StpExpenseRecord[]
+  invoices               StpInvoice[]
 
   @@map("stp_agents")
 }
@@ -216,24 +257,6 @@ model StpLeadSource {
 }
 
 // ============================================
-// 連絡方法マスタ (STP Communication Methods) - 企業との連絡方法
-// ============================================
-
-model StpCommunicationMethod {
-  id           Int      @id @default(autoincrement())
-  name         String   @db.VarChar(100)
-  displayOrder Int      @default(0)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  // Relations
-  stpCompanies StpCompany[]
-
-  @@map("stp_communication_methods")
-}
-
-// ============================================
 // 採用ブーストプロジェクト企業 (STP Companies)
 // ============================================
 
@@ -290,10 +313,7 @@ model StpCompany {
   billingCompanyName     String?  @db.VarChar(200)         // 請求先企業名
   billingAddress         String?                           // 請求先住所（選択時にコピー）
   billingRepresentative  String?  @db.VarChar(100)         // 請求先担当者ID（カンマ区切りで複数保存）
-  paymentTerms           String?  @db.VarChar(100)         // 支払いサイト
-
-  // 連絡方法
-  communicationMethodId Int?                               // 連絡方法（マスタから選択）
+  paymentTerms           String?  @db.VarChar(100)         // 支払いサイト（自由テキスト・後方互換）
 
   // その他
   note              String?                                // 企業メモ
@@ -312,12 +332,16 @@ model StpCompany {
   nextTargetStage     StpStage?               @relation("TargetStage", fields: [nextTargetStageId], references: [id])
   agent               StpAgent?               @relation(fields: [agentId], references: [id])
   leadSource          StpLeadSource?          @relation(fields: [leadSourceId], references: [id])
-  communicationMethod StpCommunicationMethod? @relation(fields: [communicationMethodId], references: [id])
   salesStaff          MasterStaff?            @relation("SalesStaffCompanies", fields: [salesStaffId], references: [id])
   stageHistories      StpStageHistory[]
   contracts           StpCompanyContract[]
   proposals           StpProposal[]
   kpiSheets           StpKpiSheet[]
+  candidates          StpCandidate[]
+  revenueRecords      StpRevenueRecord[]
+  expenseRecords      StpExpenseRecord[]
+  commissionOverrides StpAgentCommissionOverride[]
+  invoices            StpInvoice[]
 
   @@map("stp_companies")
 }
@@ -496,7 +520,10 @@ model MasterStaff {
   passwordHash         String?   @db.VarChar(255)                 // パスワード（ハッシュ化）
   inviteToken          String?   @unique @db.VarChar(64)          // 招待トークン
   inviteTokenExpiresAt DateTime?                                  // 招待トークン有効期限
+  displayOrder         Int       @default(0) @map("display_order") // 表示順
   isActive             Boolean   @default(true)                   // 有効フラグ
+  isSystemUser         Boolean   @default(false) @map("is_system_user") // システムユーザーフラグ（UI非表示）
+  canEditMasterData    Boolean   @default(false)                  // 固定データ編集権限
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -513,6 +540,21 @@ model MasterStaff {
   approvedExternalUsers       ExternalUser[]
   issuedRegistrationTokens    RegistrationToken[]
   processedLeadSubmissions    StpLeadFormSubmission[]
+
+  // 会計関連Relations
+  approvedRevenueRecords      StpRevenueRecord[]          @relation("RevenueApprover")
+  paymentTransactions         StpPaymentTransaction[]
+  closedMonths                StpMonthlyClose[]           @relation("MonthCloser")
+  reopenedMonths              StpMonthlyClose[]           @relation("MonthReopener")
+  financeEditLogs             StpFinanceEditLog[]
+
+  // 会計（横断）Relations
+  accountingImportBatches     AccountingImportBatch[]
+  accountingReconciliations   AccountingReconciliation[]  @relation("ReconciliationMatcher")
+  accountingVerifications     AccountingVerification[]
+  acctMonthProjectCloser      AccountingMonthlyClose[]    @relation("AcctMonthProjectCloser")
+  acctMonthAcctCloser         AccountingMonthlyClose[]    @relation("AcctMonthAcctCloser")
+  acctMonthReopener           AccountingMonthlyClose[]    @relation("AcctMonthReopener")
 
   @@map("master_staff")
 }
@@ -617,6 +659,7 @@ model StpContractHistory {
   operationStatus   String?   @db.VarChar(20)              // 運用ステータス（テスト1,テスト2）
   accountId         String?   @db.VarChar(100)             // アカウントID
   accountPass       String?   @db.VarChar(100)             // アカウントPASS
+
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   deletedAt         DateTime?                              // 論理削除日時
@@ -625,6 +668,8 @@ model StpContractHistory {
   company        MasterStellaCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
   salesStaff     MasterStaff?        @relation("SalesStaff", fields: [salesStaffId], references: [id])
   operationStaff MasterStaff?        @relation("OperationStaff", fields: [operationStaffId], references: [id])
+  revenueRecords StpRevenueRecord[]
+  expenseRecords StpExpenseRecord[]
 
   @@map("stp_contract_histories")
 }
@@ -634,19 +679,48 @@ model StpContractHistory {
 // ============================================
 
 model MasterProject {
-  id           Int      @id @default(autoincrement())
-  name         String   @db.VarChar(100)
-  description  String?
-  isActive     Boolean  @default(true) @map("is_active")
-  displayOrder Int      @default(0) @map("display_order")
+  id                  Int      @id @default(autoincrement())
+  code                String   @unique @db.VarChar(50)   // 権限管理用コード（例: stp, srd, slo）
+  name                String   @db.VarChar(100)
+  description         String?
+  isActive            Boolean  @default(true) @map("is_active")
+  displayOrder        Int      @default(0) @map("display_order")
+  operatingCompanyId  Int?     @map("operating_company_id")
+
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  operatingCompany   OperatingCompany? @relation(fields: [operatingCompanyId], references: [id])
   contracts          MasterContract[]
   staffAssignments   StaffProjectAssignment[]
   customerTypes      CustomerType[]
+  accountingTransactions AccountingTransaction[]
+  accountingMonthlyCloses AccountingMonthlyClose[]
 
   @@map("master_projects")
+}
+
+// ============================================
+// 運営法人マスタ (Operating Companies)
+// プロジェクトを運営する法人の情報を管理
+// ============================================
+
+model OperatingCompany {
+  id                    Int       @id @default(autoincrement())
+  companyName           String    @db.VarChar(200)                    // 法人名
+  registrationNumber    String?   @unique @db.VarChar(20)             // 適格請求書発行事業者登録番号（T+13桁）
+  postalCode            String?   @db.VarChar(10)                     // 郵便番号
+  address               String?                                       // 住所
+  representativeName    String?   @db.VarChar(100)                    // 代表者名
+  phone                 String?   @db.VarChar(50)                     // 電話番号
+  bankInfo              String?                                       // 振込先情報（テキスト）
+  isActive              Boolean   @default(true)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  projects              MasterProject[]
+
+  @@map("operating_companies")
 }
 
 // ============================================
@@ -1149,4 +1223,713 @@ model StpKpiShareLink {
   @@index([token])
   @@index([kpiSheetId])
   @@map("stp_kpi_share_links")
+}
+
+// ============================================
+// STP求職者 (STP Candidates)
+// 採用ブーストプロジェクトの求職者情報管理
+// ============================================
+
+model StpCandidate {
+  id                  Int       @id @default(autoincrement())
+  lastName            String    @db.VarChar(50)                // 姓
+  firstName           String    @db.VarChar(50)                // 名
+  interviewDate       DateTime? @db.Date                       // 面接日程
+  interviewAttendance String?   @db.VarChar(20)                // 面接参加有無（参加/不参加）
+  selectionStatus     String?   @db.VarChar(20)                // 選考状況
+  offerDate           DateTime? @db.Date                       // 内定日
+  joinDate            DateTime? @db.Date                       // 入社日
+  industryType        String?   @db.VarChar(20)                // 業種区分（general/dispatch）
+  jobMedia            String?   @db.VarChar(50)                // 求人媒体（Indeed/doda/Wantedly/マイナビ/リクナビ）
+  note                String?                                  // メモ書き
+  stpCompanyId        Int?                                     // 入社先（STP企業への外部キー）
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  stpCompany          StpCompany? @relation(fields: [stpCompanyId], references: [id])
+  revenueRecords      StpRevenueRecord[]
+
+  @@index([stpCompanyId])
+  @@map("stp_candidates")
+}
+
+// ============================================
+// 代理店契約履歴 (STP Agent Contract Histories)
+// 代理店との契約条件を期間ごとに管理
+// デフォルト報酬率を保持（企業契約作成時に自動セット）
+// ============================================
+
+model StpAgentContractHistory {
+  id                       Int       @id @default(autoincrement())
+  agentId                  Int                                    // 代理店（stp_agentsへの外部キー）
+  contractStartDate        DateTime  @db.Date                     // 契約開始日
+  contractEndDate          DateTime? @db.Date                     // 契約終了日（null = 現在有効）
+  status                   String    @db.VarChar(20)              // "契約前" / "契約済み"
+
+  // 代理店への直接費用
+  initialFee               Int?                                   // 初期費用
+  monthlyFee               Int?                                   // 月額費用
+
+  // 月額プランを契約した企業からの報酬
+  defaultMpInitialRate         Decimal?  @db.Decimal(5,2)         // 初期費用報酬率(%)
+  defaultMpInitialDuration     Int?                               // 報酬発生期間(ヶ月)
+  defaultMpMonthlyType         String?   @db.VarChar(10)          // "rate" or "fixed"
+  defaultMpMonthlyRate         Decimal?  @db.Decimal(5,2)         // 月額報酬率(%)
+  defaultMpMonthlyFixed        Int?                               // 月額報酬固定額
+  defaultMpMonthlyDuration     Int?                               // 月額報酬発生期間(ヶ月)
+
+  // 成果報酬プランを契約した企業からの報酬
+  defaultPpInitialRate         Decimal?  @db.Decimal(5,2)         // 初期費用報酬率(%)
+  defaultPpInitialDuration     Int?                               // 報酬発生期間(ヶ月)
+  defaultPpPerfType            String?   @db.VarChar(10)          // "rate" or "fixed"
+  defaultPpPerfRate            Decimal?  @db.Decimal(5,2)         // 成果報酬率(%)
+  defaultPpPerfFixed           Int?                               // 成果報酬固定額
+  defaultPpPerfDuration        Int?                               // 報酬発生期間(ヶ月)
+
+  note                     String?                                // 備考
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  deletedAt                DateTime?                              // 論理削除日時
+
+  // Relations
+  agent               StpAgent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  expenseRecords       StpExpenseRecord[]
+  commissionOverrides  StpAgentCommissionOverride[]
+
+  @@index([agentId])
+  @@index([agentId, contractStartDate])
+  @@map("stp_agent_contract_histories")
+}
+
+// ============================================
+// 代理店企業別報酬例外 (STP Agent Commission Overrides)
+// 代理店契約のデフォルト報酬率に対する企業別の例外設定
+// ============================================
+
+model StpAgentCommissionOverride {
+  id                       Int       @id @default(autoincrement())
+  agentContractHistoryId   Int                                    // 代理店契約履歴への外部キー
+  stpCompanyId             Int                                    // STP企業への外部キー
+
+  // 月額プラン
+  mpInitialRate            Decimal?  @db.Decimal(5,2)             // 初期費用報酬率(%)
+  mpInitialDuration        Int?                                   // 報酬発生期間(ヶ月)
+  mpMonthlyType            String?   @db.VarChar(10)              // "rate" or "fixed"
+  mpMonthlyRate            Decimal?  @db.Decimal(5,2)             // 月額報酬率(%)
+  mpMonthlyFixed           Int?                                   // 月額報酬固定額
+  mpMonthlyDuration        Int?                                   // 月額報酬発生期間(ヶ月)
+
+  // 成果報酬プラン
+  ppInitialRate            Decimal?  @db.Decimal(5,2)             // 初期費用報酬率(%)
+  ppInitialDuration        Int?                                   // 報酬発生期間(ヶ月)
+  ppPerfType               String?   @db.VarChar(10)              // "rate" or "fixed"
+  ppPerfRate               Decimal?  @db.Decimal(5,2)             // 成果報酬率(%)
+  ppPerfFixed              Int?                                   // 成果報酬固定額
+  ppPerfDuration           Int?                                   // 報酬発生期間(ヶ月)
+
+  note                     String?                                // 備考
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  // Relations
+  agentContractHistory     StpAgentContractHistory @relation(fields: [agentContractHistoryId], references: [id], onDelete: Cascade)
+  stpCompany               StpCompany              @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
+
+  @@unique([agentContractHistoryId, stpCompanyId])
+  @@index([agentContractHistoryId])
+  @@index([stpCompanyId])
+  @@map("stp_agent_commission_overrides")
+}
+
+// ============================================
+// 売上実績 (STP Revenue Records)
+// 企業からの入金を1件ずつ管理
+// ============================================
+
+model StpRevenueRecord {
+  id                  Int       @id @default(autoincrement())
+  stpCompanyId        Int                                        // STP企業（stp_companiesへの外部キー）
+  contractHistoryId   Int?                                       // どの契約条件に基づくか
+  candidateId         Int?                                       // 成果報酬の場合、対象の求職者
+  invoiceId           Int?                                       // 紐づく請求書（1つの請求書に複数の売上レコードを紐づけ可能）
+
+  // 売上情報
+  revenueType         String    @db.VarChar(20)                  // "initial" / "monthly" / "performance"
+  targetMonth         DateTime  @db.Date                         // 対象年月（月初日で統一: 2026-02-01等）
+  expectedAmount      Int                                        // 請求金額
+
+  // 入金管理
+  status              String    @default("pending") @db.VarChar(20)  // pending/approved/invoiced/paid/overdue/cancelled
+  paymentStatus       String?   @db.VarChar(20)                  // null(通常)/partial(一部入金)/completed_different(金額相違あり入金済)
+  invoiceDate         DateTime? @db.Date                         // 請求日
+  dueDate             DateTime? @db.Date                         // 支払期限
+  paidDate            DateTime? @db.Date                         // 着金日
+  paidAmount          Int?                                       // 実際の着金額
+
+  // 承認フロー
+  approvedAt          DateTime?                                  // 承認日時
+  approvedBy          Int?                                       // 承認者（MasterStaffへの外部キー）
+
+  // 会計連携（freee等）準備
+  accountingStatus    String    @default("unprocessed") @db.VarChar(20) // unprocessed/processing/processed/skipped
+  accountingService   String?   @db.VarChar(30)                  // freee 等
+  accountingExternalId String?  @db.VarChar(100)                 // 外部会計ID
+  accountingSyncedAt  DateTime?                                 // 会計連携反映日時
+
+  // 税情報
+  taxType             String    @default("tax_included") @db.VarChar(20)  // "tax_included"（内税）/ "tax_excluded"（外税）
+  taxRate             Int       @default(10)                               // 税率(%)
+  taxAmount           Int       @default(0)                                // 税額
+
+  // 自動生成フラグ
+  isAutoGenerated     Boolean   @default(false)
+
+  // 元データ変更の追跡（スナップショット方式）
+  sourceDataChangedAt   DateTime?                                // 元データが変更された日時
+  latestCalculatedAmount Int?                                    // 最新の元データで計算した金額
+
+  note                String?                                    // 備考
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?                                  // 論理削除日時
+
+  // Relations
+  stpCompany          StpCompany              @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
+  contractHistory     StpContractHistory?     @relation(fields: [contractHistoryId], references: [id])
+  candidate           StpCandidate?           @relation(fields: [candidateId], references: [id])
+  invoice             StpInvoice?             @relation(fields: [invoiceId], references: [id])
+  approver            MasterStaff?            @relation("RevenueApprover", fields: [approvedBy], references: [id])
+  expenseRecords      StpExpenseRecord[]
+  editLogs            StpFinanceEditLog[]     @relation("RevenueEditLogs")
+  lineItems           StpInvoiceLineItem[]
+  paymentAllocations  StpPaymentAllocation[]
+  accountingReconciliations AccountingReconciliation[] @relation("RevenueReconciliation")
+
+  @@index([stpCompanyId])
+  @@index([targetMonth])
+  @@index([status])
+  @@index([stpCompanyId, targetMonth])
+  @@index([accountingStatus])
+  @@index([invoiceId])
+  @@map("stp_revenue_records")
+}
+
+// ============================================
+// 経費実績 (STP Expense Records)
+// 代理店への支払いを1件ずつ管理
+// ============================================
+
+model StpExpenseRecord {
+  id                       Int       @id @default(autoincrement())
+  agentId                  Int                                        // 代理店（stp_agentsへの外部キー）
+  stpCompanyId             Int?                                       // 紹介報酬の場合、対象企業
+  agentContractHistoryId   Int?                                       // どの代理店契約に基づくか
+  contractHistoryId        Int?                                       // どの企業契約に基づくか（紹介報酬の場合）
+  revenueRecordId          Int?                                       // どの売上に対する報酬か
+  invoiceId                Int?                                       // 紐づく請求書（1つの請求書に複数の経費レコードを紐づけ可能）
+
+  // 経費情報
+  expenseType         String    @db.VarChar(30)                  // "agent_initial" / "agent_monthly" / "commission_initial" / "commission_performance" / "commission_monthly"
+  targetMonth         DateTime  @db.Date                         // 対象年月（月初日で統一: 2026-02-01等）
+  expectedAmount      Int                                        // 支払予定額
+
+  // 報酬率スナップショット（生成時の適用値を記録）
+  appliedCommissionRate  Decimal? @db.Decimal(5,2)               // 適用された報酬率(%)
+  appliedCommissionType  String?  @db.VarChar(10)                // "rate" or "fixed"
+
+  // 源泉徴収
+  isWithholdingTarget    Boolean  @default(false)                // 源泉徴収対象か
+  withholdingTaxRate     Decimal? @db.Decimal(5,2)               // 源泉徴収税率（10.21% or 20.42%）
+  withholdingTaxAmount   Int?                                    // 源泉徴収税額
+  netPaymentAmount       Int?                                    // 差引支払額（expectedAmount - withholdingTaxAmount）
+
+  // 支払管理
+  status              String    @default("pending") @db.VarChar(20)  // pending/approved/paid/cancelled
+  paymentStatus       String?   @db.VarChar(20)                  // null(通常)/partial(一部支払)/completed_different(金額相違あり支払済)
+  approvedDate        DateTime? @db.Date                         // 承認日
+  paidDate            DateTime? @db.Date                         // 支払日
+  paidAmount          Int?                                       // 実際の支払額
+
+  // 会計連携（freee等）準備
+  accountingStatus    String    @default("unprocessed") @db.VarChar(20) // unprocessed/processing/processed/skipped
+  accountingService   String?   @db.VarChar(30)                  // freee 等
+  accountingExternalId String?  @db.VarChar(100)                 // 外部会計ID
+  accountingSyncedAt  DateTime?                                 // 会計連携反映日時
+
+  // 税情報
+  taxType             String    @default("tax_included") @db.VarChar(20)  // "tax_included"（内税）/ "tax_excluded"（外税）
+  taxRate             Int       @default(10)                               // 税率(%)
+  taxAmount           Int       @default(0)                                // 税額
+
+  // 自動生成フラグ
+  isAutoGenerated     Boolean   @default(false)
+
+  // 元データ変更の追跡（スナップショット方式）
+  sourceDataChangedAt   DateTime?                                // 元データが変更された日時
+  latestCalculatedAmount Int?                                    // 最新の元データで計算した金額
+
+  note                String?                                    // 備考
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?                                  // 論理削除日時
+
+  // Relations
+  agent                StpAgent                  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  stpCompany           StpCompany?               @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
+  agentContractHistory StpAgentContractHistory?  @relation(fields: [agentContractHistoryId], references: [id])
+  contractHistory      StpContractHistory?       @relation(fields: [contractHistoryId], references: [id])
+  revenueRecord        StpRevenueRecord?         @relation(fields: [revenueRecordId], references: [id])
+  invoice              StpInvoice?               @relation(fields: [invoiceId], references: [id])
+  editLogs             StpFinanceEditLog[]       @relation("ExpenseEditLogs")
+  lineItems            StpInvoiceLineItem[]
+  paymentAllocations   StpPaymentAllocation[]
+  accountingReconciliations AccountingReconciliation[] @relation("ExpenseReconciliation")
+
+  @@index([agentId])
+  @@index([stpCompanyId])
+  @@index([targetMonth])
+  @@index([status])
+  @@index([agentId, targetMonth])
+  @@index([accountingStatus])
+  @@index([invoiceId])
+  @@map("stp_expense_records")
+}
+
+// ============================================
+// 請求書管理 (STP Invoices)
+// 自社発行請求書・先方受領請求書を統一管理
+// ============================================
+
+model StpInvoice {
+  id                  Int       @id @default(autoincrement())
+
+  // 種別: outgoing（自社発行）/ incoming（先方受領）
+  direction           String    @db.VarChar(20)
+
+  // 関連先
+  stpCompanyId        Int?                                        // 顧客企業
+  agentId             Int?                                        // 代理店
+
+  // 適格請求書（インボイス制度）対応
+  invoiceType         String    @default("standard") @db.VarChar(20) // "standard"（通常）/ "credit_note"（赤伝）
+  originalInvoiceId   Int?                                        // 赤伝の場合、元の請求書ID
+  registrationNumber  String?   @db.VarChar(20)                   // 適格請求書発行事業者登録番号（発行時スナップショット）
+
+  // 請求書情報
+  invoiceNumber       String?   @db.VarChar(50)                   // 請求書番号（自動採番: INV-YYYYMM-NNNN）
+  invoiceDate         DateTime? @db.Date                          // 請求日
+  dueDate             DateTime? @db.Date                          // 支払期限
+  totalAmount         Int?                                        // 請求金額（税込）
+  taxAmount           Int?                                        // 消費税額
+
+  // 税率ごとの合計（インボイス制度対応）
+  subtotalByTaxRate   Json?                                       // {"10":{"subtotal":100000,"tax":10000},"8":{"subtotal":50000,"tax":4000}}
+
+  // 源泉徴収（incoming請求書用）
+  withholdingTaxAmount Int?                                       // 源泉徴収税額
+  netPaymentAmount    Int?                                        // 差引支払額（totalAmount - withholdingTaxAmount）
+
+  // ステータス
+  // outgoing: draft → issued → sent → paid
+  // incoming: received → approved → paid
+  status              String    @default("draft") @db.VarChar(20)
+
+  // ファイル管理
+  filePath            String?                                     // 保存ファイルパス
+  fileName            String?   @db.VarChar(200)                  // 元ファイル名
+
+  // テンプレート（将来用: PDF自動生成）
+  templateId          String?   @db.VarChar(50)                   // 使用テンプレートID
+  templateData        Json?                                       // テンプレート埋め込みデータ
+
+  note                String?
+  deletedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations（1:N - 1つの請求書に複数の売上/経費レコードを紐づけ可能）
+  stpCompany       StpCompany?          @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
+  agent            StpAgent?            @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  originalInvoice  StpInvoice?          @relation("CreditNoteRelation", fields: [originalInvoiceId], references: [id])
+  creditNotes      StpInvoice[]         @relation("CreditNoteRelation")
+  revenueRecords   StpRevenueRecord[]
+  expenseRecords   StpExpenseRecord[]
+  lineItems        StpInvoiceLineItem[]
+
+  @@index([direction])
+  @@index([stpCompanyId])
+  @@index([agentId])
+  @@index([status])
+  @@map("stp_invoices")
+}
+
+// ============================================
+// 売上・経費 編集ログ (STP Finance Edit Logs)
+// 自動生成レコードの重要フィールド編集や金額不一致を記録
+// ============================================
+
+model StpFinanceEditLog {
+  id                Int       @id @default(autoincrement())
+
+  // 対象レコード（どちらか一方）
+  revenueRecordId   Int?
+  expenseRecordId   Int?
+
+  // 編集内容
+  editType          String    @db.VarChar(30)   // "field_change"（重要フィールド変更）/ "amount_mismatch"（金額不一致）
+  fieldName         String?   @db.VarChar(50)   // 変更されたフィールド名
+  oldValue          String?                     // 変更前の値
+  newValue          String?                     // 変更後の値
+  reason            String?                     // 変更理由（ユーザー入力）
+
+  // 編集者
+  editedBy          Int?                        // 編集者（MasterStaffへの外部キー）
+
+  createdAt         DateTime  @default(now())
+
+  // Relations
+  revenueRecord     StpRevenueRecord? @relation("RevenueEditLogs", fields: [revenueRecordId], references: [id])
+  expenseRecord     StpExpenseRecord? @relation("ExpenseEditLogs", fields: [expenseRecordId], references: [id])
+  editor            MasterStaff?      @relation(fields: [editedBy], references: [id])
+
+  @@index([revenueRecordId])
+  @@index([expenseRecordId])
+  @@map("stp_finance_edit_logs")
+}
+
+
+// ============================================
+// 請求書明細行 (STP Invoice Line Items)
+// インボイス制度対応の明細管理 + 税率ごと端数処理
+// ============================================
+
+model StpInvoiceLineItem {
+  id                Int       @id @default(autoincrement())
+  invoiceId         Int                                             // StpInvoiceへの外部キー
+  sortOrder         Int       @default(0)                           // 表示順
+
+  // 明細内容
+  description       String    @db.VarChar(500)                      // 品目・サービス名
+  quantity          Int       @default(1)                           // 数量
+  unitPrice         Int                                             // 単価（税抜）
+  amount            Int                                             // 小計（税抜）= quantity * unitPrice
+
+  // 税情報（明細行レベル）
+  taxRate           Int       @default(10)                          // 適用税率(%)
+  taxRateCategory   String    @default("standard") @db.VarChar(20) // "standard"(10%), "reduced"(8%), "exempt"(0%)
+
+  // 紐づけ（売上/経費レコードへの参照。nullの場合は手入力明細）
+  revenueRecordId   Int?
+  expenseRecordId   Int?
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  invoice           StpInvoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  revenueRecord     StpRevenueRecord? @relation(fields: [revenueRecordId], references: [id])
+  expenseRecord     StpExpenseRecord? @relation(fields: [expenseRecordId], references: [id])
+
+  @@index([invoiceId])
+  @@map("stp_invoice_line_items")
+}
+
+// ============================================
+// 入出金履歴 (STP Payment Transactions)
+// 経理担当者が管理する実際の銀行取引記録
+// ============================================
+
+model StpPaymentTransaction {
+  id                    Int       @id @default(autoincrement())
+
+  // 取引区分
+  direction             String    @db.VarChar(20)                    // "incoming"（入金）/ "outgoing"（出金）
+
+  // 取引情報
+  transactionDate       DateTime  @db.Date                           // 取引日
+  amount                Int                                          // 取引金額
+  counterpartyName      String?   @db.VarChar(200)                   // 取引先名（銀行明細の振込名義人等）
+  bankAccountName       String?   @db.VarChar(100)                   // 自社の口座名
+
+  // 勘定科目（経理担当者が入力、将来freee連携用）
+  accountCode           String?   @db.VarChar(20)                    // 勘定科目コード
+  accountName           String?   @db.VarChar(100)                   // 勘定科目名
+  subAccountCode        String?   @db.VarChar(20)                    // 補助科目コード
+  subAccountName        String?   @db.VarChar(100)                   // 補助科目名
+
+  // freee連携用予約フィールド
+  freeeTransactionId    String?   @db.VarChar(100)                   // freee取引ID
+  freeeDealId           String?   @db.VarChar(100)                   // freee取引（税区分含む）ID
+  freeeSyncedAt         DateTime?                                     // freee同期日時
+
+  // 源泉徴収
+  withholdingTaxAmount  Int?                                          // 源泉徴収税額（経費支払時）
+
+  // 消込ステータス
+  status                String    @default("unmatched") @db.VarChar(20) // unmatched/partial/matched/excluded
+
+  // 操作者
+  processedBy           Int?                                          // 処理者（MasterStaffへの外部キー）
+
+  note                  String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  processor             MasterStaff?              @relation(fields: [processedBy], references: [id])
+  allocations           StpPaymentAllocation[]
+
+  @@index([direction])
+  @@index([transactionDate])
+  @@index([status])
+  @@index([transactionDate, direction])
+  @@map("stp_payment_transactions")
+}
+
+// ============================================
+// 入出金配分 (STP Payment Allocations)
+// 入出金履歴と売上/経費レコードのN:N消込マッピング
+// ============================================
+
+model StpPaymentAllocation {
+  id                    Int       @id @default(autoincrement())
+  paymentTransactionId  Int                                          // 入出金履歴への外部キー
+
+  // 配分先（どちらか一方）
+  revenueRecordId       Int?                                         // 売上レコードへの外部キー
+  expenseRecordId       Int?                                         // 経費レコードへの外部キー
+
+  // 配分金額
+  allocatedAmount       Int                                          // この配分で消し込む金額
+
+  note                  String?
+  createdAt             DateTime  @default(now())
+
+  // Relations
+  paymentTransaction    StpPaymentTransaction @relation(fields: [paymentTransactionId], references: [id], onDelete: Cascade)
+  revenueRecord         StpRevenueRecord?     @relation(fields: [revenueRecordId], references: [id])
+  expenseRecord         StpExpenseRecord?     @relation(fields: [expenseRecordId], references: [id])
+
+  @@index([paymentTransactionId])
+  @@index([revenueRecordId])
+  @@index([expenseRecordId])
+  @@map("stp_payment_allocations")
+}
+
+// ============================================
+// 月次締めロック (STP Monthly Closes)
+// 過去月のデータ変更を防止する月次締め機能
+// ============================================
+
+model StpMonthlyClose {
+  id              Int       @id @default(autoincrement())
+  targetMonth     DateTime  @db.Date                              // 締め対象月（月初日で統一: 2026-02-01等）
+  closedAt        DateTime  @default(now())                       // 締め実行日時
+  closedBy        Int                                              // 締め実行者（MasterStaffへの外部キー）
+  reopenedAt      DateTime?                                        // 再オープン日時（null = ロック中）
+  reopenedBy      Int?                                             // 再オープン者
+  reopenReason    String?                                          // 再オープン理由
+  note            String?
+
+  // Relations
+  closer          MasterStaff  @relation("MonthCloser", fields: [closedBy], references: [id])
+  reopener        MasterStaff? @relation("MonthReopener", fields: [reopenedBy], references: [id])
+
+  @@unique([targetMonth])
+  @@map("stp_monthly_closes")
+}
+
+// ============================================
+// 請求書番号採番カウンター (STP Invoice Number Sequences)
+// INV-YYYYMM-NNNN形式の自動採番を安全に管理
+// ============================================
+
+model StpInvoiceNumberSequence {
+  id              Int       @id @default(autoincrement())
+  yearMonth       String    @unique @db.VarChar(7)                // "2026-02" 形式
+  lastNumber      Int       @default(0)                           // その月の最後の番号
+  updatedAt       DateTime  @updatedAt
+
+  @@map("stp_invoice_number_sequences")
+}
+
+// ============================================
+// 会計取込バッチ (Accounting Import Batches)
+// freee/銀行CSVの取込履歴を管理
+// ============================================
+
+model AccountingImportBatch {
+  id              Int       @id @default(autoincrement())
+  source          String    @db.VarChar(20)                      // "freee" / "bank_csv" / "manual"
+  sourceService   String?   @db.VarChar(30)                      // "freee", "mufg", "smbc" 等
+  fileName        String?   @db.VarChar(500)                     // 取込ファイル名
+  periodFrom      DateTime? @db.Date                             // 対象期間（開始）
+  periodTo        DateTime? @db.Date                             // 対象期間（終了）
+  totalCount      Int       @default(0)                          // 総件数
+  newCount        Int       @default(0)                          // 新規取込件数
+  duplicateCount  Int       @default(0)                          // 重複スキップ件数
+  status          String    @default("processing") @db.VarChar(20) // processing/completed/error
+  errorMessage    String?                                        // エラー時の内容
+  importedBy      Int                                            // 取込実行者（MasterStaffへの外部キー）
+  importedAt      DateTime  @default(now())                      // 取込日時
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  importer        MasterStaff              @relation(fields: [importedBy], references: [id])
+  transactions    AccountingTransaction[]
+
+  @@index([source])
+  @@index([importedAt])
+  @@map("accounting_import_batches")
+}
+
+// ============================================
+// 会計取引 (Accounting Transactions)
+// freee・銀行の入出金データ（実際のお金の動き）
+// ============================================
+
+model AccountingTransaction {
+  id                    Int       @id @default(autoincrement())
+  direction             String    @db.VarChar(10)                  // "incoming"（入金）/ "outgoing"（出金）
+  transactionDate       DateTime  @db.Date                         // 取引日
+  valueDate             DateTime? @db.Date                         // 決済日・受渡日
+  amount                Int                                        // 金額（税込）
+  taxAmount             Int?                                       // 消費税額
+  counterpartyName      String    @db.VarChar(200)                 // 取引先名（freee/銀行の表記）
+  counterpartyCode      String?   @db.VarChar(50)                  // 取引先コード（freee上の管理コード）
+  description           String?                                    // 摘要（銀行明細の摘要欄）
+  memo                  String?                                    // 社内メモ
+  accountCode           String?   @db.VarChar(20)                  // 勘定科目コード
+  accountName           String?   @db.VarChar(100)                 // 勘定科目名
+  bankAccountName       String?   @db.VarChar(100)                 // 口座名（みずほ普通、UFJ当座 等）
+
+  // データ元
+  source                String    @db.VarChar(20)                  // "freee" / "bank_csv" / "manual"
+  sourceService         String?   @db.VarChar(30)                  // 具体的なサービス名
+  sourceTransactionId   String?   @db.VarChar(100)                 // 外部システムの取引ID
+  sourceDealId          String?   @db.VarChar(100)                 // freeeの取引(deal)ID
+  importBatchId         Int?                                       // 取込バッチID
+
+  // 消込ステータス
+  reconciliationStatus  String    @default("unmatched") @db.VarChar(20) // unmatched/partial/matched/excluded
+
+  // プロジェクト紐付け（判明している場合）
+  projectId             Int?                                       // MasterProjectへの外部キー
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  importBatch           AccountingImportBatch?   @relation(fields: [importBatchId], references: [id])
+  project               MasterProject?           @relation(fields: [projectId], references: [id])
+  reconciliations       AccountingReconciliation[]
+  verifications         AccountingVerification[]
+
+  @@index([direction])
+  @@index([transactionDate])
+  @@index([counterpartyName])
+  @@index([reconciliationStatus])
+  @@index([projectId])
+  @@index([source])
+  @@index([sourceTransactionId])
+  @@map("accounting_transactions")
+}
+
+// ============================================
+// 会計消込・照合 (Accounting Reconciliations)
+// 会計取引とプロジェクト側レコードのN:N紐付け
+// ============================================
+
+model AccountingReconciliation {
+  id                    Int       @id @default(autoincrement())
+  transactionId         Int                                        // AccountingTransactionへの外部キー
+  projectCode           String    @db.VarChar(20)                  // プロジェクトコード（"STP" 等）
+  recordType            String    @db.VarChar(20)                  // "revenue" / "expense"
+  revenueRecordId       Int?                                       // StpRevenueRecordへの外部キー（売上の場合）
+  expenseRecordId       Int?                                       // StpExpenseRecordへの外部キー（経費の場合）
+  allocatedAmount       Int                                        // この紐付けで消し込む金額
+  note                  String?                                    // 消込時の備考
+  matchMethod           String    @default("manual") @db.VarChar(10) // "auto"（自動照合）/ "manual"（手動）
+  matchedBy             Int?                                       // 消込実行者（MasterStaffへの外部キー）
+  matchedAt             DateTime  @default(now())                  // 消込日時
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  transaction           AccountingTransaction  @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  revenueRecord         StpRevenueRecord?      @relation("RevenueReconciliation", fields: [revenueRecordId], references: [id])
+  expenseRecord         StpExpenseRecord?       @relation("ExpenseReconciliation", fields: [expenseRecordId], references: [id])
+  matcher               MasterStaff?           @relation("ReconciliationMatcher", fields: [matchedBy], references: [id])
+
+  @@index([transactionId])
+  @@index([revenueRecordId])
+  @@index([expenseRecordId])
+  @@index([projectCode])
+  @@map("accounting_reconciliations")
+}
+
+// ============================================
+// 会計確認 (Accounting Verifications)
+// プロジェクト担当と経理のダブルチェック記録
+// ============================================
+
+model AccountingVerification {
+  id                    Int       @id @default(autoincrement())
+  transactionId         Int                                        // AccountingTransactionへの外部キー
+  verificationType      String    @db.VarChar(20)                  // "project"（業務発生確認）/ "accounting"（経理確認）
+  status                String    @default("pending") @db.VarChar(20) // pending/verified/flagged
+  verifiedBy            Int                                        // 確認者（MasterStaffへの外部キー）
+  verifiedAt            DateTime?                                  // 確認日時（null = 未確認）
+  flagReason            String?                                    // 問題ありの場合の理由
+  note                  String?                                    // 確認メモ
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  transaction           AccountingTransaction  @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  verifier              MasterStaff            @relation(fields: [verifiedBy], references: [id])
+
+  @@unique([transactionId, verificationType])
+  @@index([verificationType])
+  @@index([status])
+  @@index([verifiedBy])
+  @@map("accounting_verifications")
+}
+
+// ============================================
+// 会計月次締め (Accounting Monthly Closes)
+// プロジェクト横断の月次締め管理
+// プロジェクト側の締め確認後、経理が最終締めを行う
+// ============================================
+
+model AccountingMonthlyClose {
+  id              Int       @id @default(autoincrement())
+  targetMonth     DateTime  @db.Date                              // 締め対象月（月初日で統一: 2026-02-01等）
+  projectId       Int                                              // プロジェクトID（MasterProjectへの外部キー）
+  status          String    @default("open") @db.VarChar(20)      // open/project_closed/accounting_closed
+  projectClosedAt   DateTime?                                      // プロジェクト側締め日時
+  projectClosedBy   Int?                                           // プロジェクト側締め実行者
+  accountingClosedAt DateTime?                                     // 経理側最終締め日時
+  accountingClosedBy Int?                                          // 経理側最終締め実行者
+  reopenedAt      DateTime?                                        // 再オープン日時
+  reopenedBy      Int?                                             // 再オープン者
+  reopenReason    String?                                          // 再オープン理由
+  note            String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  project            MasterProject @relation(fields: [projectId], references: [id])
+  projectCloser      MasterStaff?  @relation("AcctMonthProjectCloser", fields: [projectClosedBy], references: [id])
+  accountingCloser   MasterStaff?  @relation("AcctMonthAcctCloser", fields: [accountingClosedBy], references: [id])
+  reopener           MasterStaff?  @relation("AcctMonthReopener", fields: [reopenedBy], references: [id])
+
+  @@unique([targetMonth, projectId])
+  @@index([targetMonth])
+  @@index([projectId])
+  @@index([status])
+  @@map("accounting_monthly_closes")
 }

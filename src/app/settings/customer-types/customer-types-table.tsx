@@ -7,9 +7,10 @@ import { addCustomerType, updateCustomerType, deleteCustomerType, reorderCustome
 type Props = {
   data: Record<string, unknown>[];
   projectOptions: { value: string; label: string }[];
+  canEdit: boolean;
 };
 
-export function CustomerTypesTable({ data, projectOptions }: Props) {
+export function CustomerTypesTable({ data, projectOptions, canEdit }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
     {
@@ -49,13 +50,13 @@ export function CustomerTypesTable({ data, projectOptions }: Props) {
       data={data}
       columns={columns}
       title="顧客種別"
-      onAdd={addCustomerType}
-      onUpdate={updateCustomerType}
-      onDelete={deleteCustomerType}
+      onAdd={canEdit ? addCustomerType : undefined}
+      onUpdate={canEdit ? updateCustomerType : undefined}
+      onDelete={canEdit ? deleteCustomerType : undefined}
       emptyMessage="顧客種別が登録されていません"
       customRenderers={customRenderers}
-      sortableItems={sortableItems}
-      onReorder={reorderCustomerTypes}
+      sortableItems={canEdit ? sortableItems : undefined}
+      onReorder={canEdit ? reorderCustomerTypes : undefined}
       sortableGrouped={true}
     />
   );

@@ -6,16 +6,16 @@ import { addContactMethod, updateContactMethod, deleteContactMethod, reorderCont
 
 type Props = {
   data: Record<string, unknown>[];
+  canEdit: boolean;
 };
 
 const columns: ColumnDef[] = [
   { key: "id", header: "ID", editable: false, hidden: true },
-  { key: "name", header: "連絡手段名", type: "text", required: true, simpleMode: true },
+  { key: "name", header: "接触方法名", type: "text", required: true, simpleMode: true },
   { key: "isActive", header: "有効", type: "boolean" },
 ];
 
-export function ContactMethodsTable({ data }: Props) {
-  // 並び替え用のアイテムリスト
+export function ContactMethodsTable({ data, canEdit }: Props) {
   const sortableItems: SortableItem[] = data.map((item) => ({
     id: item.id as number,
     label: item.name as string,
@@ -25,13 +25,13 @@ export function ContactMethodsTable({ data }: Props) {
     <CrudTable
       data={data}
       columns={columns}
-      title="連絡手段"
-      onAdd={addContactMethod}
-      onUpdate={updateContactMethod}
-      onDelete={deleteContactMethod}
-      emptyMessage="連絡手段が登録されていません"
-      sortableItems={sortableItems}
-      onReorder={reorderContactMethods}
+      title="接触方法"
+      onAdd={canEdit ? addContactMethod : undefined}
+      onUpdate={canEdit ? updateContactMethod : undefined}
+      onDelete={canEdit ? deleteContactMethod : undefined}
+      emptyMessage="接触方法が登録されていません"
+      sortableItems={canEdit ? sortableItems : undefined}
+      onReorder={canEdit ? reorderContactMethods : undefined}
     />
   );
 }

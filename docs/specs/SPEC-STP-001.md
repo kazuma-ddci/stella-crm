@@ -69,7 +69,7 @@ const formatAdvisorDisplay = (count: number | null, amount: number | null): stri
 
 ## テスト
 
-関連テスト: `tests/specs/SPEC-STP-001.test.ts`
+関連テスト: `src/__tests__/specs/SPEC-STP-001.test.ts`
 
 ```bash
 # テスト実行

@@ -5,7 +5,7 @@ import { StpCompaniesTable } from "./stp-companies-table";
 export default async function StpCompaniesPage() {
   const STP_PROJECT_ID = 1; // 採用ブースト
 
-  const [companies, masterCompanies, stages, agents, staff, staffProjectAssignments, allStaffProjectAssignments, leadSources, communicationMethods, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, contractHistoriesData] = await Promise.all([
+  const [companies, masterCompanies, stages, agents, staff, staffProjectAssignments, allStaffProjectAssignments, leadSources, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, contractHistoriesData] = await Promise.all([
     prisma.stpCompany.findMany({
       include: {
         company: {
@@ -20,7 +20,6 @@ export default async function StpCompaniesPage() {
           include: { company: true },
         },
         leadSource: true,
-        communicationMethod: true,
         salesStaff: true,
         contracts: true,
       },
@@ -43,8 +42,8 @@ export default async function StpCompaniesPage() {
       orderBy: { id: "asc" },
     }),
     prisma.masterStaff.findMany({
-      where: { isActive: true },
-      orderBy: { id: "asc" },
+      where: { isActive: true, isSystemUser: false },
+      orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
     }),
     prisma.staffProjectAssignment.findMany({
       where: { projectId: STP_PROJECT_ID },
@@ -55,10 +54,6 @@ export default async function StpCompaniesPage() {
       include: { staff: true, project: true },
     }),
     prisma.stpLeadSource.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: "asc" },
-    }),
-    prisma.stpCommunicationMethod.findMany({
       where: { isActive: true },
       orderBy: { displayOrder: "asc" },
     }),
@@ -157,7 +152,8 @@ export default async function StpCompaniesPage() {
     return {
     id: c.id,
     companyId: c.companyId,
-    companyName: `（${c.companyId}）${c.company.name}`,
+    companyCode: c.company.companyCode,
+    companyName: c.company.name,
     note: c.note,
     leadAcquiredDate: c.leadAcquiredDate?.toISOString(),
     // 最終接触日（接触履歴の最新日時）
@@ -177,7 +173,8 @@ export default async function StpCompaniesPage() {
     salesStaffName: c.salesStaff?.name,
     agentId: c.agentId,
     agentCompanyId: c.agent?.companyId || null, // 代理店の全顧客マスタID（リンク用）
-    agentName: c.agent?.companyId ? `（${c.agent.companyId}）${c.agent.company?.name}` : null,
+    agentCompanyCode: c.agent?.company?.companyCode || null,
+    agentName: c.agent?.company?.name || null,
     // 全顧客マスタから取得
     industry: c.company.industry,
     revenueScale: c.company.revenueScale,
@@ -280,7 +277,7 @@ export default async function StpCompaniesPage() {
 
   const companyOptions = masterCompanies.map((c) => ({
     value: String(c.id),
-    label: `${c.companyCode} - ${c.name}`,
+    label: `${c.companyCode} ${c.name}`,
   }));
 
   const stageOptions = stages.map((s) => ({

@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { InlineAlert } from "./alert-dialog";
-import { cn } from "@/lib/utils";
+import { cn, toLocalDateString } from "@/lib/utils";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
@@ -82,9 +82,9 @@ export function StatusUpdateForm({
   const getSignedDate = (): string | undefined => {
     if (!isSelectingSigned) return undefined;
     if (signedDateOption === "today") {
-      return new Date().toISOString().split("T")[0];
+      return toLocalDateString(new Date());
     }
-    return customSignedDate ? customSignedDate.toISOString().split("T")[0] : undefined;
+    return customSignedDate ? toLocalDateString(customSignedDate) : undefined;
   };
 
   // 締結日のバリデーション（締結済み選択時は必須）

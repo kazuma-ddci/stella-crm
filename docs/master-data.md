@@ -82,6 +82,12 @@
 ## 選択肢定義
 
 ```typescript
+// 面接参加有無（StpCandidate.interviewAttendance）
+const INTERVIEW_ATTENDANCES = ['参加', '不参加'] as const;
+
+// 選考状況（StpCandidate.selectionStatus）
+const SELECTION_STATUSES = ['面接日調整中', '面接日決定', '選考中', '内定', '内定承諾', '辞退', '不合格'] as const;
+
 // ヨミ（forecast）
 const FORECASTS = ['MIN', '落とし', 'MAX', '来月', '辞退'] as const;
 

@@ -6,18 +6,17 @@ import { addContractStatus, updateContractStatus, deleteContractStatus, reorderC
 
 type Props = {
   data: Record<string, unknown>[];
+  canEdit: boolean;
 };
 
 const columns: ColumnDef[] = [
   { key: "id", header: "ID", editable: false, hidden: true },
-  { key: "displayOrder", header: "ステージ順", type: "number", editable: false },
   { key: "name", header: "ステータス名", type: "text", required: true, simpleMode: true },
-  { key: "isTerminal", header: "終了フラグ", type: "boolean", hidden: true },
+  { key: "isTerminal", header: "終了フラグ", type: "boolean" },
   { key: "isActive", header: "有効", type: "boolean" },
 ];
 
-export function ContractStatusesTable({ data }: Props) {
-  // 並び替え用のアイテムリスト
+export function ContractStatusesTable({ data, canEdit }: Props) {
   const sortableItems: SortableItem[] = data.map((item) => ({
     id: item.id as number,
     label: item.name as string,
@@ -27,13 +26,13 @@ export function ContractStatusesTable({ data }: Props) {
     <CrudTable
       data={data}
       columns={columns}
-      title="契約書ステータス"
-      onAdd={addContractStatus}
-      onUpdate={updateContractStatus}
-      onDelete={deleteContractStatus}
-      emptyMessage="契約書ステータスが登録されていません"
-      sortableItems={sortableItems}
-      onReorder={reorderContractStatuses}
+      title="契約ステータス"
+      onAdd={canEdit ? addContractStatus : undefined}
+      onUpdate={canEdit ? updateContractStatus : undefined}
+      onDelete={canEdit ? deleteContractStatus : undefined}
+      emptyMessage="契約ステータスが登録されていません"
+      sortableItems={canEdit ? sortableItems : undefined}
+      onReorder={canEdit ? reorderContractStatuses : undefined}
     />
   );
 }

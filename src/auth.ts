@@ -18,6 +18,7 @@ declare module "next-auth" {
       email: string | null;
       userType: UserType;
       permissions: UserPermission[];
+      canEditMasterData: boolean;
       // 外部ユーザー用
       companyId?: number;
       companyName?: string;
@@ -31,6 +32,7 @@ declare module "next-auth" {
     email: string | null;
     userType: UserType;
     permissions: UserPermission[];
+    canEditMasterData: boolean;
     // 外部ユーザー用
     companyId?: number;
     companyName?: string;
@@ -45,6 +47,7 @@ declare module "@auth/core/jwt" {
     email: string | null;
     userType: UserType;
     permissions: UserPermission[];
+    canEditMasterData: boolean;
     // 外部ユーザー用
     companyId?: number;
     companyName?: string;
@@ -57,24 +60,33 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     Credentials({
       name: "credentials",
       credentials: {
-        email: { label: "Email", type: "email" },
+        identifier: { label: "Email or Login ID", type: "text" },
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
+        if (!credentials?.identifier || !credentials?.password) {
           return null;
         }
 
-        const email = credentials.email as string;
+        const identifier = credentials.identifier as string;
         const password = credentials.password as string;
+        const isEmail = identifier.includes("@");
 
         // 1. まず社内スタッフで認証を試みる
-        const staff = await prisma.masterStaff.findUnique({
-          where: { email },
-          include: {
-            permissions: true,
-          },
-        });
+        const staff = isEmail
+          ? // メールアドレスの場合: 全スタッフから検索
+            await prisma.masterStaff.findUnique({
+              where: { email: identifier },
+              include: { permissions: true },
+            })
+          : // ログインIDの場合: システム管理者のみ（@stella-crm.local）
+            await prisma.masterStaff.findFirst({
+              where: {
+                loginId: identifier,
+                email: { endsWith: "@stella-crm.local" },
+              },
+              include: { permissions: true },
+            });
 
         if (staff && staff.passwordHash && staff.isActive) {
           const isValid = await bcrypt.compare(password, staff.passwordHash);
@@ -92,12 +104,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               email: staff.email,
               userType: "staff" as UserType,
               permissions,
+              canEditMasterData: staff.canEditMasterData,
             };
           }
         }
 
-        // 2. 社内スタッフで認証できなければ外部ユーザーを試す
-        const externalUser = await authenticateExternalUser(email, password);
+        // 2. 社内スタッフで認証できなければ外部ユーザーを試す（メールアドレスの場合のみ）
+        const externalUser = isEmail
+          ? await authenticateExternalUser(identifier, password)
+          : null;
 
         if (externalUser) {
           return {
@@ -106,6 +121,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             email: externalUser.email,
             userType: "external" as UserType,
             permissions: [], // 外部ユーザーはpermissionsを使わない
+            canEditMasterData: false,
             companyId: externalUser.companyId,
             companyName: externalUser.companyName,
             displayViews: externalUser.displayViews,
@@ -124,6 +140,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.email = user.email ?? null;
         token.userType = user.userType ?? "staff";
         token.permissions = user.permissions ?? [];
+        token.canEditMasterData = user.canEditMasterData ?? false;
 
         // 外部ユーザー用
         if (user.userType === "external") {
@@ -141,6 +158,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       (session.user as any).userType = token.userType ?? "staff";
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (session.user as any).permissions = token.permissions ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (session.user as any).canEditMasterData = token.canEditMasterData ?? false;
 
       // 外部ユーザー用
       if (token.userType === "external") {

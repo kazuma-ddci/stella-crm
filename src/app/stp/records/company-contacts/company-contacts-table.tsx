@@ -59,6 +59,7 @@ import "react-datepicker/dist/react-datepicker.css";
 import { addCompanyContact, updateCompanyContact, deleteCompanyContact } from "./actions";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { FileDisplay, type FileInfo } from "@/components/multi-file-upload";
+import { CompanyCodeLabel } from "@/components/company-code-label";
 
 registerLocale("ja", ja);
 
@@ -303,6 +304,7 @@ export function CompanyContactsTable({
     const searchTerm = filterValue.toLowerCase();
     return data.filter((item) => {
       return (
+        (item.companyCode as string)?.toLowerCase().includes(searchTerm) ||
         (item.companyName as string)?.toLowerCase().includes(searchTerm) ||
         (item.staffName as string)?.toLowerCase().includes(searchTerm) ||
         (item.contactMethodName as string)?.toLowerCase().includes(searchTerm)
@@ -607,7 +609,9 @@ export function CompanyContactsTable({
             ) : (
               filteredData.map((item) => (
                 <TableRow key={item.id as number}>
-                  <TableCell className="whitespace-nowrap">{item.companyName as string}</TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    <CompanyCodeLabel code={item.companyCode as string} name={item.companyName as string} />
+                  </TableCell>
                   <TableCell className="whitespace-nowrap">
                     {formatDateTime(item.contactDate as string)}
                   </TableCell>

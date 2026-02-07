@@ -6,7 +6,16 @@ import { prisma } from "@/lib/prisma";
 // 新規企業として処理
 export async function processAsNewCompany(
   submissionId: number,
-  processingNote?: string
+  processingNote?: string,
+  stpCompanyInfo?: {
+    companyName?: string;
+    note?: string;
+    agentId?: number;
+    leadAcquiredDate?: string;
+    industry?: string;
+    revenueScale?: string;
+    websiteUrl?: string;
+  }
 ) {
   const submission = await prisma.stpLeadFormSubmission.findUnique({
     where: { id: submissionId },
@@ -38,11 +47,16 @@ export async function processAsNewCompany(
       : 0;
     const newCompanyCode = `SC-${lastNumber + 1}`;
 
-    // 全顧客マスタに企業を作成
+    // 全顧客マスタに企業を作成（代理店経由のリードは流入経路を自動設定）
+    const companyName = stpCompanyInfo?.companyName || submission.companyName;
     const masterCompany = await tx.masterStellaCompany.create({
       data: {
         companyCode: newCompanyCode,
-        name: submission.companyName,
+        name: companyName,
+        industry: stpCompanyInfo?.industry || null,
+        revenueScale: stpCompanyInfo?.revenueScale || null,
+        websiteUrl: stpCompanyInfo?.websiteUrl || null,
+        leadSource: "代理店",
         note: `リード獲得フォームから登録\n担当者: ${submission.contactName}\nメール: ${submission.contactEmail}${submission.contactPhone ? `\n電話: ${submission.contactPhone}` : ""}`,
       },
     });
@@ -69,27 +83,43 @@ export async function processAsNewCompany(
       },
     });
 
+    // 流入経路「代理店」のIDを取得
+    const agentLeadSource = await tx.stpLeadSource.findFirst({
+      where: { name: "代理店" },
+    });
+
     // STP企業を作成
+    const agentId = stpCompanyInfo?.agentId ?? submission.token.agentId;
+    const leadAcquiredDate = stpCompanyInfo?.leadAcquiredDate
+      ? new Date(stpCompanyInfo.leadAcquiredDate)
+      : submission.submittedAt;
     const stpCompany = await tx.stpCompany.create({
       data: {
         companyId: masterCompany.id,
-        agentId: submission.token.agentId,
+        agentId,
         currentStageId: 1, // リードステージ
-        leadAcquiredDate: submission.submittedAt,
-        note: buildStpCompanyNote(submission),
+        leadAcquiredDate,
+        leadSourceId: agentLeadSource?.id || null,
+        note: stpCompanyInfo?.note || buildStpCompanyNote(submission),
       },
     });
+
+    // フォーム回答の企業名が変更されている場合は更新
+    const updateSubmissionData: Record<string, unknown> = {
+      status: "processed",
+      stpCompanyId: stpCompany.id,
+      masterCompanyId: masterCompany.id,
+      processedAt: new Date(),
+      processingNote,
+    };
+    if (stpCompanyInfo?.companyName && stpCompanyInfo.companyName !== submission.companyName) {
+      updateSubmissionData.companyName = stpCompanyInfo.companyName;
+    }
 
     // フォーム回答を処理済みに更新
     await tx.stpLeadFormSubmission.update({
       where: { id: submissionId },
-      data: {
-        status: "processed",
-        stpCompanyId: stpCompany.id,
-        masterCompanyId: masterCompany.id,
-        processedAt: new Date(),
-        processingNote,
-      },
+      data: updateSubmissionData,
     });
 
     // このsubmissionに紐付いている提案書にstpCompanyIdを設定
@@ -114,7 +144,16 @@ export async function processWithExistingCompany(
   masterCompanyId: number,
   processingNote?: string,
   overwriteAgent?: boolean, // 代理店を上書きするかどうか
-  companyNameUnification?: "master" | "form" | null // 企業名統一: master=マスタに統一, form=フォームに統一
+  companyNameUnification?: "master" | "form" | null, // 企業名統一: master=マスタに統一, form=フォームに統一
+  stpCompanyInfo?: {
+    companyName?: string;
+    note?: string;
+    agentId?: number;
+    leadAcquiredDate?: string;
+    industry?: string;
+    revenueScale?: string;
+    websiteUrl?: string;
+  }
 ) {
   const submission = await prisma.stpLeadFormSubmission.findUnique({
     where: { id: submissionId },
@@ -144,15 +183,42 @@ export async function processWithExistingCompany(
   const result = await prisma.$transaction(async (tx) => {
     let stpCompanyId: number;
 
+    // 流入経路「代理店」のIDを取得
+    const agentLeadSource = await tx.stpLeadSource.findFirst({
+      where: { name: "代理店" },
+    });
+
+    const agentId = stpCompanyInfo?.agentId ?? submission.token.agentId;
+    const leadAcquiredDate = stpCompanyInfo?.leadAcquiredDate
+      ? new Date(stpCompanyInfo.leadAcquiredDate)
+      : submission.submittedAt;
+
     if (existingStpCompany) {
-      // 既存のSTP企業に紐付け
+      // 既存のSTP企業に紐付け → 情報を更新
       stpCompanyId = existingStpCompany.id;
 
-      // 代理店上書きが指定されている場合
-      if (overwriteAgent && existingStpCompany.agentId !== submission.token.agentId) {
+      const updateData: Record<string, unknown> = {};
+      // 代理店の更新（stpCompanyInfoのagentIdが指定されていて異なる場合、またはoverwriteAgent）
+      if (stpCompanyInfo?.agentId && stpCompanyInfo.agentId !== existingStpCompany.agentId) {
+        updateData.agentId = stpCompanyInfo.agentId;
+      } else if (overwriteAgent && existingStpCompany.agentId !== submission.token.agentId) {
+        updateData.agentId = submission.token.agentId;
+      }
+      // その他のフィールド更新
+      if (stpCompanyInfo?.note !== undefined) {
+        updateData.note = stpCompanyInfo.note || existingStpCompany.note;
+      }
+      if (stpCompanyInfo?.leadAcquiredDate) {
+        updateData.leadAcquiredDate = leadAcquiredDate;
+      }
+      if (!existingStpCompany.leadSourceId && agentLeadSource) {
+        updateData.leadSourceId = agentLeadSource.id;
+      }
+
+      if (Object.keys(updateData).length > 0) {
         await tx.stpCompany.update({
           where: { id: existingStpCompany.id },
-          data: { agentId: submission.token.agentId },
+          data: updateData,
         });
       }
     } else {
@@ -160,13 +226,38 @@ export async function processWithExistingCompany(
       const stpCompany = await tx.stpCompany.create({
         data: {
           companyId: masterCompanyId,
-          agentId: submission.token.agentId,
+          agentId,
           currentStageId: 1, // リードステージ
-          leadAcquiredDate: submission.submittedAt,
-          note: buildStpCompanyNote(submission),
+          leadAcquiredDate,
+          leadSourceId: agentLeadSource?.id || null,
+          note: stpCompanyInfo?.note || buildStpCompanyNote(submission),
         },
       });
       stpCompanyId = stpCompany.id;
+    }
+
+    // MasterStellaCompanyの業界・売上規模・企業HP・流入経路を更新
+    {
+      const masterUpdateData: Record<string, unknown> = {};
+      if (stpCompanyInfo?.industry !== undefined) masterUpdateData.industry = stpCompanyInfo.industry || null;
+      if (stpCompanyInfo?.revenueScale !== undefined) masterUpdateData.revenueScale = stpCompanyInfo.revenueScale || null;
+      if (stpCompanyInfo?.websiteUrl !== undefined) masterUpdateData.websiteUrl = stpCompanyInfo.websiteUrl || null;
+
+      // 流入経路が未設定の場合、代理店経由のリードなので自動設定
+      const masterCompany = await tx.masterStellaCompany.findUnique({
+        where: { id: masterCompanyId },
+        select: { leadSource: true },
+      });
+      if (!masterCompany?.leadSource) {
+        masterUpdateData.leadSource = "代理店";
+      }
+
+      if (Object.keys(masterUpdateData).length > 0) {
+        await tx.masterStellaCompany.update({
+          where: { id: masterCompanyId },
+          data: masterUpdateData,
+        });
+      }
     }
 
     // 企業名統一処理
@@ -183,9 +274,10 @@ export async function processWithExistingCompany(
       }
     } else if (companyNameUnification === "form") {
       // 全顧客マスタの企業名をフォーム回答の企業名に更新
+      const companyName = stpCompanyInfo?.companyName || submission.companyName;
       await tx.masterStellaCompany.update({
         where: { id: masterCompanyId },
-        data: { name: submission.companyName },
+        data: { name: companyName },
       });
     }
 

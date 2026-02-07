@@ -66,7 +66,8 @@ export default async function StpContractsPage() {
     return {
       id: c.id,
       companyId: c.companyId,
-      companyName: `（${c.companyId}）${c.company.name}`,
+      companyCode: c.company.companyCode,
+      companyName: c.company.name,
       contractType: c.contractType,
       title: c.title,
       contractNumber: c.contractNumber,
@@ -98,7 +99,7 @@ export default async function StpContractsPage() {
 
   const companyOptions = companies.map((c) => ({
     value: String(c.id),
-    label: `${c.companyCode} - ${c.name}`,
+    label: `${c.companyCode} ${c.name}`,
   }));
 
   const statusOptions = statuses.map((s) => ({

@@ -12,10 +12,14 @@ import {
   isManualInput,
   calculateMetricValue,
 } from "./types";
-import { cn } from "@/lib/utils";
+import { cn, toLocalDateString } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Plus, Trash2, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
+import DatePicker, { registerLocale } from "react-datepicker";
+import { ja } from "date-fns/locale";
+import "react-datepicker/dist/react-datepicker.css";
+
+registerLocale("ja", ja);
 import {
   AlertDialog,
   AlertDialogAction,
@@ -136,11 +140,15 @@ function StartDateEditor({
       <PopoverContent className="w-auto p-3">
         <div className="space-y-2">
           <label className="text-sm font-medium">開始日を変更</label>
-          <Input
-            type="date"
-            value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
+          <DatePicker
+            selected={editValue ? new Date(editValue) : null}
+            onChange={(date: Date | null) => setEditValue(date ? toLocalDateString(date) : "")}
+            dateFormat="yyyy/MM/dd"
+            locale="ja"
+            placeholderText="日付を選択"
             disabled={isSaving}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            wrapperClassName="w-full"
           />
           <div className="flex gap-2 justify-end">
             <Button
@@ -196,8 +204,8 @@ export function KpiTable({
     }
 
     await onAddWeek(
-      startDate.toISOString().split("T")[0],
-      endDate.toISOString().split("T")[0]
+      toLocalDateString(startDate),
+      toLocalDateString(endDate)
     );
   }, [weeklyData, onAddWeek]);
 

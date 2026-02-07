@@ -1,0 +1,2 @@
+-- This migration was merged into 20260207162232_add_can_edit_master_data
+-- Kept as empty migration to maintain migration history consistency

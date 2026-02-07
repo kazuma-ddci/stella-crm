@@ -127,8 +127,8 @@ export async function deleteProposal(id: number): Promise<{ success: boolean; er
 // スタッフ一覧取得（担当者の選択用）
 export async function getStaffListForProposal() {
   const staffList = await prisma.masterStaff.findMany({
-    where: { isActive: true },
-    orderBy: { name: "asc" },
+    where: { isActive: true, isSystemUser: false },
+    orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
     select: {
       id: true,
       name: true,

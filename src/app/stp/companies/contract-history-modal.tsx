@@ -39,6 +39,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { toLocalDateString } from "@/lib/utils";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
@@ -181,6 +182,7 @@ export function ContractHistoryModal({
   const [initialLoading, setInitialLoading] = useState(true);
   const [isManualMonthlyFee, setIsManualMonthlyFee] = useState(false);
   const [isManualPerformanceFee, setIsManualPerformanceFee] = useState(false);
+  const [financeWarning, setFinanceWarning] = useState<number | null>(null);
 
   // データ取得
   const loadData = useCallback(async () => {
@@ -393,6 +395,10 @@ export function ContractHistoryModal({
       setPendingEditData(null);
       setIsManualMonthlyFee(false);
       setIsManualPerformanceFee(false);
+      // 会計データへの影響がある場合は警告
+      if (result.affectedFinanceCount && result.affectedFinanceCount > 0) {
+        setFinanceWarning(result.affectedFinanceCount);
+      }
     } catch (error) {
       console.error("契約履歴更新エラー:", error);
       const errorMessage = error instanceof Error ? error.message : "不明なエラー";
@@ -502,7 +508,7 @@ export function ContractHistoryModal({
             onChange={(date: Date | null) => {
               setFormData({
                 ...formData,
-                contractStartDate: date ? date.toISOString().split("T")[0] : "",
+                contractStartDate: date ? toLocalDateString(date) : "",
               });
             }}
             dateFormat="yyyy/MM/dd"
@@ -521,7 +527,7 @@ export function ContractHistoryModal({
             onChange={(date: Date | null) => {
               setFormData({
                 ...formData,
-                contractEndDate: date ? date.toISOString().split("T")[0] : null,
+                contractEndDate: date ? toLocalDateString(date) : null,
               });
             }}
             dateFormat="yyyy/MM/dd"
@@ -916,6 +922,26 @@ export function ContractHistoryModal({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {loading ? "削除中..." : "はい"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 会計データ影響警告ダイアログ */}
+      <AlertDialog open={financeWarning !== null} onOpenChange={(open) => !open && setFinanceWarning(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-orange-600">
+              <span>⚠</span> 会計データへの影響
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              この契約に紐づく会計データが <strong>{financeWarning}件</strong> あり、金額が変わる可能性があります。
+              売上経費画面で確認してください。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setFinanceWarning(null)}>
+              確認しました
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
