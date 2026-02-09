@@ -48,6 +48,43 @@ docker-compose exec app npx prisma db seed
 - http://localhost:3000 - アプリケーション
 - http://localhost:5555 - Prisma Studio（DB確認用）
 
+## VPSデプロイ手順
+
+VPS（本番・ステージング）はDockerで運用。`docker-entrypoint.sh` が起動時に `prisma generate` + `prisma migrate deploy` を自動実行するため、マイグレーションは手動不要。
+
+> **⚠️ `docker-compose`（v1）ではなく `docker compose`（v2）を使うこと**
+>
+> VPSの `docker-compose` v1（1.29.2）はDockerエンジンとの互換性問題で `ContainerConfig` エラーが発生する。
+> 必ず `docker compose`（ハイフンなし、v2）を使用すること。
+
+### デプロイ手順
+
+```bash
+# VPSにSSH接続後
+cd ~/stella-crm
+
+# 最新コードを取得（mainブランチ）
+git checkout main
+git pull origin main
+
+# ステージング再ビルド＆起動
+docker compose -f docker-compose.stg.yml up -d --build
+
+# 本番再ビルド＆起動
+docker compose -f docker-compose.prod.yml up -d --build
+
+# 起動確認
+docker logs stella-stg-app 2>&1 | head -10
+docker logs stella-prod-app 2>&1 | head -10
+```
+
+### 環境構成
+
+| 環境 | Composeファイル | コンテナ名 | ポート | env |
+|------|----------------|-----------|--------|-----|
+| ステージング | `docker-compose.stg.yml` | `stella-stg-app` / `stella-stg-db` | 4000 | `.env.stg` |
+| 本番 | `docker-compose.prod.yml` | `stella-prod-app` / `stella-prod-db` | 4001 | `.env.prod` |
+
 ---
 
 ## Claude Code 実装ルール（必須）
