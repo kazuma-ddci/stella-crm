@@ -13,10 +13,9 @@ type Props = {
 export function ProjectsTable({ data, operatingCompanyOptions, canEdit }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
-    { key: "code", header: "コード", type: "text", required: true, simpleMode: true },
+    { key: "code", header: "コード", type: "text", editable: false, hidden: true },
     { key: "name", header: "プロジェクト名", type: "text", required: true, simpleMode: true },
     { key: "description", header: "説明", type: "textarea" },
-    { key: "isActive", header: "有効", type: "boolean" },
     {
       key: "operatingCompanyId",
       header: "運営法人",
@@ -24,6 +23,7 @@ export function ProjectsTable({ data, operatingCompanyOptions, canEdit }: Props)
       options: operatingCompanyOptions,
       searchable: true,
     },
+    { key: "isActive", header: "有効", type: "boolean" },
   ];
 
   // 並び替え用のアイテムリスト

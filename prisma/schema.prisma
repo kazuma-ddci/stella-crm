@@ -722,14 +722,38 @@ model OperatingCompany {
   address               String?                                       // 住所
   representativeName    String?   @db.VarChar(100)                    // 代表者名
   phone                 String?   @db.VarChar(50)                     // 電話番号
-  bankInfo              String?                                       // 振込先情報（テキスト）
   isActive              Boolean   @default(true)
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
   projects              MasterProject[]
+  bankAccounts          OperatingCompanyBankAccount[]
 
   @@map("operating_companies")
+}
+
+// ============================================
+// 運営法人銀行口座 (Operating Company Bank Accounts)
+// ============================================
+
+model OperatingCompanyBankAccount {
+  id                Int       @id @default(autoincrement())
+  operatingCompanyId Int                                    // OperatingCompanyへの外部キー
+  bankName          String    @db.VarChar(100)             // 銀行名
+  bankCode          String    @db.VarChar(10)              // 銀行コード
+  branchName        String    @db.VarChar(100)             // 支店名
+  branchCode        String    @db.VarChar(10)              // 支店コード
+  accountNumber     String    @db.VarChar(20)              // 口座番号
+  accountHolderName String    @db.VarChar(200)             // 口座名義人
+  note              String?                                // メモ
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?                              // 論理削除日時
+
+  // Relations
+  operatingCompany OperatingCompany @relation(fields: [operatingCompanyId], references: [id], onDelete: Cascade)
+
+  @@map("operating_company_bank_accounts")
 }
 
 // ============================================

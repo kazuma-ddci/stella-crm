@@ -12,9 +12,12 @@ export async function addProject(data: Record<string, unknown>) {
   });
   const displayOrder = (maxOrder._max.displayOrder ?? 0) + 1;
 
+  // コードは自動生成（内部識別子として使用、変更不可）
+  const code = `proj_${Date.now()}`;
+
   const newProject = await prisma.masterProject.create({
     data: {
-      code: (data.code as string).toLowerCase(),
+      code,
       name: data.name as string,
       description: (data.description as string) || null,
       displayOrder,
@@ -51,7 +54,7 @@ export async function updateProject(id: number, data: Record<string, unknown>) {
   await prisma.masterProject.update({
     where: { id },
     data: {
-      code: (data.code as string).toLowerCase(),
+      // code は変更不可（StaffPermission等が文字列で参照しているため）
       name: data.name as string,
       description: (data.description as string) || null,
       isActive: data.isActive === true || data.isActive === "true",
@@ -65,8 +68,10 @@ export async function updateProject(id: number, data: Record<string, unknown>) {
 
 export async function deleteProject(id: number) {
   await requireMasterDataEditPermission();
-  await prisma.masterProject.delete({
+  // 論理削除（関連データが多いため物理削除は行わない）
+  await prisma.masterProject.update({
     where: { id },
+    data: { isActive: false },
   });
   revalidatePath("/settings/projects");
 }

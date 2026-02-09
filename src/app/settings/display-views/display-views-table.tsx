@@ -12,7 +12,7 @@ type Props = {
 export function DisplayViewsTable({ data, canEdit, projectOptions }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
-    { key: "viewKey", header: "ビューキー", type: "text", required: true, simpleMode: true },
+    { key: "viewKey", header: "ビューキー", type: "text", editable: false, hidden: true },
     { key: "viewName", header: "表示名", type: "text", required: true, simpleMode: true },
     { key: "projectCode", header: "プロジェクト", type: "select", options: projectOptions, required: true },
     { key: "description", header: "説明", type: "text" },

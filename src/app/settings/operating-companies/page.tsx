@@ -11,6 +11,12 @@ export default async function OperatingCompaniesPage() {
   const companies = await prisma.operatingCompany.findMany({
     where: { isActive: true },
     orderBy: { id: "asc" },
+    include: {
+      bankAccounts: {
+        where: { deletedAt: null },
+        orderBy: { id: "asc" },
+      },
+    },
   });
 
   const data: Record<string, unknown>[] = companies.map((c) => ({
@@ -21,7 +27,17 @@ export default async function OperatingCompaniesPage() {
     address: c.address,
     representativeName: c.representativeName,
     phone: c.phone,
-    bankInfo: c.bankInfo,
+    bankAccounts: c.bankAccounts.map((b) => ({
+      id: b.id,
+      operatingCompanyId: b.operatingCompanyId,
+      bankName: b.bankName,
+      bankCode: b.bankCode,
+      branchName: b.branchName,
+      branchCode: b.branchCode,
+      accountNumber: b.accountNumber,
+      accountHolderName: b.accountHolderName,
+      note: b.note,
+    })),
   }));
 
   return (

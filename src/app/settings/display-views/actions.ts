@@ -6,9 +6,12 @@ import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permissi
 
 export async function addDisplayView(data: Record<string, unknown>) {
   await requireMasterDataEditPermission();
+  // ビューキーは自動生成（内部識別子として使用、変更不可）
+  const viewKey = `view_${Date.now()}`;
+
   await prisma.displayView.create({
     data: {
-      viewKey: data.viewKey as string,
+      viewKey,
       viewName: data.viewName as string,
       projectCode: data.projectCode as string,
       description: (data.description as string) || null,
@@ -23,7 +26,7 @@ export async function updateDisplayView(id: number, data: Record<string, unknown
   await prisma.displayView.update({
     where: { id },
     data: {
-      viewKey: data.viewKey as string,
+      // viewKey は変更不可（外部ユーザー権限等が参照しているため）
       viewName: data.viewName as string,
       projectCode: data.projectCode as string,
       description: (data.description as string) || null,

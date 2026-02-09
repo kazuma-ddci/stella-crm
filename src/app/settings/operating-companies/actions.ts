@@ -14,7 +14,6 @@ export async function addOperatingCompany(data: Record<string, unknown>) {
       address: (data.address as string) || null,
       representativeName: (data.representativeName as string) || null,
       phone: (data.phone as string) || null,
-      bankInfo: (data.bankInfo as string) || null,
     },
   });
   revalidatePath("/settings/operating-companies");
@@ -35,7 +34,6 @@ export async function updateOperatingCompany(
       address: (data.address as string) || null,
       representativeName: (data.representativeName as string) || null,
       phone: (data.phone as string) || null,
-      bankInfo: (data.bankInfo as string) || null,
     },
   });
   revalidatePath("/settings/operating-companies");
