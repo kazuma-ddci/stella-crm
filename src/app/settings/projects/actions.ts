@@ -12,8 +12,7 @@ export async function addProject(data: Record<string, unknown>) {
   });
   const displayOrder = (maxOrder._max.displayOrder ?? 0) + 1;
 
-  // コードは自動生成（内部識別子として使用、変更不可）
-  const code = `proj_${Date.now()}`;
+  const code = (data.code as string).toLowerCase();
 
   const newProject = await prisma.masterProject.create({
     data: {
@@ -54,7 +53,7 @@ export async function updateProject(id: number, data: Record<string, unknown>) {
   await prisma.masterProject.update({
     where: { id },
     data: {
-      // code は変更不可（StaffPermission等が文字列で参照しているため）
+      code: (data.code as string).toLowerCase(),
       name: data.name as string,
       description: (data.description as string) || null,
       isActive: data.isActive === true || data.isActive === "true",

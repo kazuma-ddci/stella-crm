@@ -13,7 +13,7 @@ type Props = {
 export function ProjectsTable({ data, operatingCompanyOptions, canEdit }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
-    { key: "code", header: "コード", type: "text", editable: false, hidden: true },
+    { key: "code", header: "コード", type: "text", required: true, simpleMode: true },
     { key: "name", header: "プロジェクト名", type: "text", required: true, simpleMode: true },
     { key: "description", header: "説明", type: "textarea" },
     {
