@@ -50,10 +50,16 @@ export async function addProject(data: Record<string, unknown>) {
 
 export async function updateProject(id: number, data: Record<string, unknown>) {
   await requireMasterDataEditPermission();
+  const newCode = (data.code as string).toLowerCase();
+
+  // 現在のコードを取得（コード変更時に関連テーブルも更新するため）
+  const current = await prisma.masterProject.findUnique({ where: { id } });
+  const oldCode = current?.code;
+
   await prisma.masterProject.update({
     where: { id },
     data: {
-      code: (data.code as string).toLowerCase(),
+      code: newCode,
       name: data.name as string,
       description: (data.description as string) || null,
       isActive: data.isActive === true || data.isActive === "true",
@@ -62,6 +68,25 @@ export async function updateProject(id: number, data: Record<string, unknown>) {
         : null,
     },
   });
+
+  // コードが変更された場合、projectCodeを文字列参照しているテーブルも更新
+  if (oldCode && oldCode !== newCode) {
+    await Promise.all([
+      prisma.staffPermission.updateMany({
+        where: { projectCode: oldCode },
+        data: { projectCode: newCode },
+      }),
+      prisma.displayView.updateMany({
+        where: { projectCode: oldCode },
+        data: { projectCode: newCode },
+      }),
+      prisma.accountingReconciliation.updateMany({
+        where: { projectCode: oldCode },
+        data: { projectCode: newCode },
+      }),
+    ]);
+  }
+
   revalidatePath("/settings/projects");
 }
 
