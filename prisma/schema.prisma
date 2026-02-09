@@ -565,6 +565,9 @@ model MasterStaff {
   acctMonthAcctCloser         AccountingMonthlyClose[]    @relation("AcctMonthAcctCloser")
   acctMonthReopener           AccountingMonthlyClose[]    @relation("AcctMonthReopener")
 
+  // パスワードリセット
+  passwordResetTokens         PasswordResetToken[]
+
   @@map("master_staff")
 }
 
@@ -1000,13 +1003,15 @@ model EmailVerificationToken {
 model PasswordResetToken {
   id             Int      @id @default(autoincrement())
   token          String   @unique @db.VarChar(64)  // リセットトークン
-  externalUserId Int                                // 外部ユーザー（ExternalUserへの外部キー）
+  externalUserId Int?                               // 外部ユーザー（ExternalUserへの外部キー）
+  staffId        Int?                               // 社内スタッフ（MasterStaffへの外部キー）
   expiresAt      DateTime                           // 有効期限
   isUsed         Boolean  @default(false)           // 使用済みフラグ
   createdAt      DateTime @default(now())
 
   // Relations
-  externalUser ExternalUser @relation(fields: [externalUserId], references: [id], onDelete: Cascade)
+  externalUser ExternalUser? @relation(fields: [externalUserId], references: [id], onDelete: Cascade)
+  staff        MasterStaff?  @relation(fields: [staffId], references: [id], onDelete: Cascade)
 
   @@index([token])
   @@map("password_reset_tokens")

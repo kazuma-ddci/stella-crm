@@ -14,25 +14,56 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ユーザー検索
+    const successResponse = NextResponse.json({
+      success: true,
+      message: "メールを送信しました",
+    });
+
+    // 1. まず社内スタッフを検索
+    const staff = await prisma.masterStaff.findUnique({
+      where: { email },
+    });
+
+    if (staff && staff.isActive && staff.passwordHash) {
+      // スタッフ用トークン発行
+      await prisma.passwordResetToken.updateMany({
+        where: {
+          staffId: staff.id,
+          isUsed: false,
+        },
+        data: { isUsed: true },
+      });
+
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 1);
+
+      await prisma.passwordResetToken.create({
+        data: {
+          token,
+          staffId: staff.id,
+          expiresAt,
+        },
+      });
+
+      await sendPasswordResetEmail(staff.email!, staff.name, token);
+
+      return successResponse;
+    }
+
+    // 2. スタッフで見つからなければ外部ユーザーを検索
     const user = await prisma.externalUser.findUnique({
       where: { email },
     });
 
     // ユーザーが存在しなくても同じレスポンスを返す（セキュリティ対策）
     if (!user) {
-      return NextResponse.json({
-        success: true,
-        message: "メールを送信しました",
-      });
+      return successResponse;
     }
 
     // アクティブでないユーザーの場合もエラーを返さない
     if (user.status !== "active") {
-      return NextResponse.json({
-        success: true,
-        message: "メールを送信しました",
-      });
+      return successResponse;
     }
 
     // 既存の未使用トークンを無効化
@@ -60,10 +91,7 @@ export async function POST(request: NextRequest) {
     // メール送信
     await sendPasswordResetEmail(user.email, user.name, token);
 
-    return NextResponse.json({
-      success: true,
-      message: "メールを送信しました",
-    });
+    return successResponse;
   } catch (error) {
     console.error("Error processing forgot password request:", error);
     return NextResponse.json(

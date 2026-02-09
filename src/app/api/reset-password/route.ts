@@ -21,11 +21,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // トークン検索
+    // トークン検索（スタッフ・外部ユーザー両方のリレーションを含む）
     const resetToken = await prisma.passwordResetToken.findUnique({
       where: { token },
       include: {
         externalUser: true,
+        staff: true,
       },
     });
 
@@ -53,19 +54,37 @@ export async function POST(request: NextRequest) {
     // パスワードハッシュ化
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // トランザクションでパスワード更新とトークン無効化
-    await prisma.$transaction([
-      // パスワード更新
-      prisma.externalUser.update({
-        where: { id: resetToken.externalUserId },
-        data: { passwordHash },
-      }),
-      // トークンを使用済みに更新
-      prisma.passwordResetToken.update({
-        where: { id: resetToken.id },
-        data: { isUsed: true },
-      }),
-    ]);
+    // staffId / externalUserId で分岐してパスワード更新
+    if (resetToken.staffId) {
+      // 社内スタッフのパスワード更新
+      await prisma.$transaction([
+        prisma.masterStaff.update({
+          where: { id: resetToken.staffId },
+          data: { passwordHash },
+        }),
+        prisma.passwordResetToken.update({
+          where: { id: resetToken.id },
+          data: { isUsed: true },
+        }),
+      ]);
+    } else if (resetToken.externalUserId) {
+      // 外部ユーザーのパスワード更新
+      await prisma.$transaction([
+        prisma.externalUser.update({
+          where: { id: resetToken.externalUserId },
+          data: { passwordHash },
+        }),
+        prisma.passwordResetToken.update({
+          where: { id: resetToken.id },
+          data: { isUsed: true },
+        }),
+      ]);
+    } else {
+      return NextResponse.json(
+        { error: "無効なトークンです" },
+        { status: 400 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
