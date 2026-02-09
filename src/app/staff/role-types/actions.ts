@@ -12,9 +12,16 @@ export async function addRoleType(data: Record<string, unknown>) {
   });
   const displayOrder = (maxOrder._max.displayOrder ?? 0) + 1;
 
+  // codeは自動生成（ROLE-連番）
+  const maxId = await prisma.staffRoleType.aggregate({
+    _max: { id: true },
+  });
+  const nextNum = (maxId._max.id ?? 0) + 1;
+  const code = `ROLE-${String(nextNum).padStart(3, "0")}`;
+
   await prisma.staffRoleType.create({
     data: {
-      code: data.code as string,
+      code,
       name: data.name as string,
       description: (data.description as string) || null,
       displayOrder,
@@ -30,7 +37,6 @@ export async function updateRoleType(id: number, data: Record<string, unknown>) 
   await prisma.staffRoleType.update({
     where: { id },
     data: {
-      code: data.code as string,
       name: data.name as string,
       description: (data.description as string) || null,
       isActive: data.isActive === true || data.isActive === "true",

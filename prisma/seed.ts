@@ -186,15 +186,7 @@ async function main() {
   });
   console.log('✓ Lead sources (6)');
 
-  // スタッフ役割種別
-  await prisma.staffRoleType.createMany({
-    data: [
-      { id: 1, code: 'AS', name: 'AS', description: 'アカウントセールス', displayOrder: 1 },
-      { id: 2, code: 'STP-運用', name: 'STP-運用', description: 'STP運用担当', displayOrder: 2 },
-      { id: 3, code: 'STP-CS', name: 'STP-CS', description: 'STPカスタマーサクセス', displayOrder: 3 },
-    ],
-  });
-  console.log('✓ Staff role types (3)');
+  // スタッフ役割種別: 本番では管理画面から手入力のためシードデータなし
 
   // プロジェクト
   await prisma.masterProject.createMany({
@@ -308,24 +300,7 @@ async function main() {
   });
   console.log('✓ Staff permissions (27)');
 
-  // スタッフ役割割当
-  await prisma.staffRoleAssignment.createMany({
-    data: [
-      { staffId: 1, roleTypeId: 1 },  // 田中 - AS
-      { staffId: 1, roleTypeId: 2 },  // 田中 - STP-運用
-      { staffId: 2, roleTypeId: 2 },  // 鈴木 - STP-運用
-      { staffId: 3, roleTypeId: 1 },  // 山本 - AS
-      { staffId: 4, roleTypeId: 3 },  // 佐藤 - STP-CS
-      { staffId: 5, roleTypeId: 1 },  // 伊藤 - AS
-      { staffId: 5, roleTypeId: 2 },  // 伊藤 - STP-運用
-      { staffId: 6, roleTypeId: 3 },  // 渡辺 - STP-CS
-      { staffId: 7, roleTypeId: 2 },  // 高橋 - STP-運用
-      { staffId: 8, roleTypeId: 1 },  // 小林 - AS
-      { staffId: 9, roleTypeId: 2 },  // 加藤 - STP-運用
-      { staffId: 10, roleTypeId: 1 }, // 管理者 - AS
-    ],
-  });
-  console.log('✓ Staff role assignments (12)');
+  // スタッフ役割割当: 役割種別を管理画面で登録後に設定するためシードデータなし
 
   // スタッフプロジェクト割当
   const staffProjectData: { staffId: number; projectId: number }[] = [];

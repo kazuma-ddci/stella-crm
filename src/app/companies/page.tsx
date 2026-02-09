@@ -3,9 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CompaniesTable } from "./companies-table";
 
 export default async function CompaniesPage() {
-  // AS種別のスタッフを取得
+  // AS種別のスタッフを取得（nameで検索、管理画面で登録された名前に依存）
   const asRoleType = await prisma.staffRoleType.findFirst({
-    where: { code: "AS" },
+    where: { name: "AS" },
   });
 
   const asStaff = asRoleType

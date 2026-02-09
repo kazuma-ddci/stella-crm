@@ -11,7 +11,7 @@ type Props = {
 
 const columns: ColumnDef[] = [
   { key: "id", header: "ID", editable: false, hidden: true },
-  { key: "code", header: "コード", type: "text", required: true, simpleMode: true },
+  { key: "code", header: "コード", editable: false, hidden: true },
   { key: "name", header: "役割名", type: "text", required: true, simpleMode: true },
   { key: "description", header: "説明", type: "textarea" },
   { key: "isActive", header: "有効", type: "boolean" },
