@@ -9,7 +9,7 @@ export async function addStage(data: Record<string, unknown>) {
   await prisma.stpStage.create({
     data: {
       name: data.name as string,
-      displayOrder: data.displayOrder ? Number(data.displayOrder) : 0,
+      displayOrder: data.displayOrder != null && data.displayOrder !== "" ? Number(data.displayOrder) : null,
       isActive: data.isActive === true || data.isActive === "true",
     },
   });
@@ -22,7 +22,7 @@ export async function updateStage(id: number, data: Record<string, unknown>) {
     where: { id },
     data: {
       name: data.name as string,
-      displayOrder: data.displayOrder ? Number(data.displayOrder) : 0,
+      displayOrder: data.displayOrder != null && data.displayOrder !== "" ? Number(data.displayOrder) : null,
       isActive: data.isActive === true || data.isActive === "true",
     },
   });

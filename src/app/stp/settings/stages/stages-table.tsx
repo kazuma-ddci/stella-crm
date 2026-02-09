@@ -9,12 +9,12 @@ type Props = {
 };
 
 const columns: ColumnDef[] = [
-  { key: "id", header: "ID", editable: false },
+  { key: "id", header: "ID", editable: false, hidden: true },
   { key: "name", header: "ステージ名", type: "text", required: true },
-  { key: "displayOrder", header: "表示順", type: "number", required: true },
+  { key: "displayOrder", header: "表示順", type: "number" },
   { key: "isActive", header: "有効", type: "boolean" },
-  { key: "createdAt", header: "作成日", type: "datetime", editable: false },
-  { key: "updatedAt", header: "更新日", type: "datetime", editable: false },
+  { key: "createdAt", header: "作成日", type: "datetime", editable: false, hidden: true },
+  { key: "updatedAt", header: "更新日", type: "datetime", editable: false, hidden: true },
 ];
 
 export function StagesTable({ data, canEdit }: Props) {

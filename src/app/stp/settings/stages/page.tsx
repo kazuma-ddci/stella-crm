@@ -8,7 +8,7 @@ export default async function StagesPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const canEditMasterData = (session?.user as any)?.canEditMasterData === true;
   const stages = await prisma.stpStage.findMany({
-    orderBy: { displayOrder: "asc" },
+    orderBy: { displayOrder: { sort: "asc", nulls: "last" } },
   });
 
   const data = stages.map((s) => ({
