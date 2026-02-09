@@ -13,7 +13,7 @@ type Props = {
   roleTypeOptions: { value: string; label: string }[];
   projectOptions: { value: string; label: string }[];
   permissionProjects: { code: string; name: string }[];
-  canEditPermissions: boolean;
+  editableProjectCodes: string[];
 };
 
 const CONTRACT_TYPES = [
@@ -117,18 +117,23 @@ function InviteButton({ row }: { row: Record<string, unknown> }) {
   );
 }
 
-export function StaffTable({ data, roleTypeOptions, projectOptions, permissionProjects, canEditPermissions }: Props) {
-  // 権限カラム（Stella admin のみ表示）
-  const permissionColumns: ColumnDef[] = canEditPermissions
+export function StaffTable({ data, roleTypeOptions, projectOptions, permissionProjects, editableProjectCodes }: Props) {
+  // 権限カラム（編集可能なプロジェクトがある場合のみ表示）
+  const canEditStella = editableProjectCodes.includes("stella");
+  const permissionColumns: ColumnDef[] = editableProjectCodes.length > 0
     ? [
-        { key: "stellaPermission", header: "Stella権限", type: "select" as const, options: PERMISSION_LEVELS, simpleMode: true },
-        ...permissionProjects.map((p) => ({
-          key: `perm_${p.code}`,
-          header: `${p.name}権限`,
-          type: "select" as const,
-          options: PERMISSION_LEVELS,
-          simpleMode: true,
-        })),
+        // Stella権限はStella管理者のみ表示・編集可能
+        ...(canEditStella ? [{ key: "stellaPermission", header: "Stella権限", type: "select" as const, options: PERMISSION_LEVELS, simpleMode: true }] : []),
+        // 各プロジェクト権限は、そのプロジェクトの管理者のみ編集可能
+        ...permissionProjects
+          .filter((p) => editableProjectCodes.includes(p.code))
+          .map((p) => ({
+            key: `perm_${p.code}`,
+            header: `${p.name}権限`,
+            type: "select" as const,
+            options: PERMISSION_LEVELS,
+            simpleMode: true,
+          })),
       ]
     : [];
 

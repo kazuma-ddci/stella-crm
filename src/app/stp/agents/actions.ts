@@ -15,6 +15,14 @@ export async function addAgent(data: Record<string, unknown>) {
   const staffIds = parseStaffIds(staffAssignmentsRaw);
 
   await prisma.$transaction(async (tx) => {
+    // companyIdの重複チェック（DB UNIQUE制約の代替）
+    const existing = await tx.stpAgent.findFirst({
+      where: { companyId: Number(data.companyId) },
+    });
+    if (existing) {
+      throw new Error("この企業は既に代理店として登録されています");
+    }
+
     // 代理店を作成
     const agent = await tx.stpAgent.create({
       data: {

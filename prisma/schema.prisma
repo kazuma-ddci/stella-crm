@@ -12,15 +12,18 @@ datasource db {
 // ============================================
 
 model MasterStellaCompany {
-  id            Int      @id @default(autoincrement())
-  companyCode   String   @unique @db.VarChar(20)  // SC-1, SC-2...
-  name          String   @db.VarChar(200)         // 企業名
-  websiteUrl    String?  @db.VarChar(500)         // 企業HP
-  industry      String?  @db.VarChar(100)         // 業界（自由入力）
-  revenueScale  String?  @db.VarChar(100)         // 売上規模（自由入力）
-  staffId       Int?                              // 担当者（AS）
-  leadSource    String?  @db.VarChar(50)          // 流入経路（紹介/Web問い合わせ/テレアポ/展示会/セミナー/代理店）
-  note          String?                           // メモ
+  id              Int      @id @default(autoincrement())
+  companyCode     String   @unique @db.VarChar(20)  // SC-1, SC-2...
+  name            String   @db.VarChar(200)         // 企業名
+  nameKana        String?  @db.VarChar(200)         // 企業名フリガナ
+  corporateNumber String?  @unique @db.VarChar(13)   // 法人番号（13桁）
+  companyType     String?  @db.VarChar(10)          // 区分（法人/個人）
+  websiteUrl      String?  @db.VarChar(500)         // 企業HP
+  industry        String?  @db.VarChar(100)         // 業界（自由入力）
+  revenueScale    String?  @db.VarChar(100)         // 売上規模（自由入力）
+  staffId         Int?                              // 担当者（AS）
+  leadSource      String?  @db.VarChar(50)          // 流入経路（紹介/Web問い合わせ/テレアポ/展示会/セミナー/代理店）
+  note            String?                           // メモ
 
   // 締め日・支払条件
   closingDay             Int?                              // 締め日（0=月末, 1-28=指定日）
@@ -30,8 +33,14 @@ model MasterStellaCompany {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  // 企業統合（マージ）
+  mergedIntoId  Int?                              // 統合先企業ID（統合済みの場合）
+  mergedAt      DateTime?                         // 統合日時
+
   // Relations
   staff                MasterStaff?         @relation(fields: [staffId], references: [id])
+  mergedInto           MasterStellaCompany? @relation("CompanyMerge", fields: [mergedIntoId], references: [id])
+  mergedFrom           MasterStellaCompany[] @relation("CompanyMerge")
   locations            StellaCompanyLocation[]
   contacts             StellaCompanyContact[]
   bankAccounts         StellaCompanyBankAccount[]
@@ -125,7 +134,7 @@ model StellaCompanyBankAccount {
 
 model StpAgent {
   id                Int       @id @default(autoincrement())
-  companyId         Int       @unique                          // 代理店企業（MasterStellaCompanyへの外部キー）
+  companyId         Int                                        // 代理店企業（MasterStellaCompanyへの外部キー）※アプリ層でユニーク制約
   status            String    @db.VarChar(20)                   // アクティブ/非アクティブ/解約
   category1         String    @db.VarChar(20)                   // 代理店/顧問
   contractStatus    String?   @db.VarChar(20)                   // 契約済み/商談済み/未商談/日程調整中

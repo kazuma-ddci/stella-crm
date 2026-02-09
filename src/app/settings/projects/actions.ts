@@ -12,7 +12,7 @@ export async function addProject(data: Record<string, unknown>) {
   });
   const displayOrder = (maxOrder._max.displayOrder ?? 0) + 1;
 
-  await prisma.masterProject.create({
+  const newProject = await prisma.masterProject.create({
     data: {
       code: (data.code as string).toLowerCase(),
       name: data.name as string,
@@ -24,7 +24,26 @@ export async function addProject(data: Record<string, unknown>) {
         : null,
     },
   });
+
+  // Stella管理者権限を持つスタッフに新プロジェクトのadmin権限を自動付与
+  const stellaAdmins = await prisma.staffPermission.findMany({
+    where: { projectCode: "stella", permissionLevel: "admin" },
+    select: { staffId: true },
+  });
+
+  if (stellaAdmins.length > 0) {
+    await prisma.staffPermission.createMany({
+      data: stellaAdmins.map((sa) => ({
+        staffId: sa.staffId,
+        projectCode: newProject.code,
+        permissionLevel: "admin",
+      })),
+      skipDuplicates: true,
+    });
+  }
+
   revalidatePath("/settings/projects");
+  revalidatePath("/staff");
 }
 
 export async function updateProject(id: number, data: Record<string, unknown>) {

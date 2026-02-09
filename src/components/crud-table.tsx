@@ -492,8 +492,9 @@ export function CrudTable({
       toast.success("更新しました");
       setEditItem(null);
       setFormData({});
-    } catch {
-      toast.error("更新に失敗しました");
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "更新に失敗しました";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -516,6 +517,10 @@ export function CrudTable({
   const openEditDialog = (item: Record<string, unknown>) => {
     setEditItem(item);
     const initialData: Record<string, unknown> = {};
+    // IDを保持（customFormFieldsで編集対象を識別するため）
+    if (item.id !== undefined) {
+      initialData.id = item.id;
+    }
     // 編集可能なカラムの値を設定
     editableColumnsForUpdate.forEach((col) => {
       initialData[col.key] = item[col.key];

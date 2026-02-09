@@ -1,5 +1,5 @@
 import React from "react";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import {
 import { Star, UserCheck, UserX, Clock, Mail, ShieldCheck, ClipboardList } from "lucide-react";
 import { ContactHistorySection } from "./contact-history-section";
 import { BackButton } from "./back-button";
+import { MergeCompanyModal } from "./merge-company-modal";
 
 // 契約履歴の表示用選択肢
 const industryTypeLabels: Record<string, string> = {
@@ -63,6 +64,9 @@ export default async function CompanyDetailPage({ params }: Props) {
         bankAccounts: {
           where: { deletedAt: null },
           orderBy: { id: "asc" },
+        },
+        mergedInto: {
+          select: { id: true },
         },
       },
     }),
@@ -139,6 +143,11 @@ export default async function CompanyDetailPage({ params }: Props) {
     notFound();
   }
 
+  // マージ済み企業は統合先にリダイレクト
+  if (company.mergedIntoId) {
+    redirect(`/companies/${company.mergedIntoId}`);
+  }
+
   // 接触履歴データの整形（全プロジェクトをまとめて表示）
   const formattedContactHistories = contactHistories.map((h) => {
     // スタッフIDからスタッフ名を取得
@@ -175,12 +184,22 @@ export default async function CompanyDetailPage({ params }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <BackButton />
-        <div>
-          <p className="text-sm text-muted-foreground">{company.companyCode}</p>
-          <h1 className="text-2xl font-bold">{company.name}</h1>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <BackButton />
+          <div>
+            <p className="text-sm text-muted-foreground">{company.companyCode}</p>
+            {company.nameKana && (
+              <p className="text-xs text-muted-foreground">{company.nameKana}</p>
+            )}
+            <h1 className="text-2xl font-bold">{company.name}</h1>
+          </div>
         </div>
+        <MergeCompanyModal
+          companyId={companyId}
+          companyName={company.name}
+          companyCode={company.companyCode}
+        />
       </div>
 
       <Card>
@@ -196,6 +215,18 @@ export default async function CompanyDetailPage({ params }: Props) {
             <div>
               <dt className="text-sm font-medium text-muted-foreground">企業名</dt>
               <dd className="mt-1 text-sm">{company.name}</dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-muted-foreground">フリガナ</dt>
+              <dd className="mt-1 text-sm">{company.nameKana || "-"}</dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-muted-foreground">法人番号</dt>
+              <dd className="mt-1 text-sm font-mono">{company.corporateNumber || "-"}</dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-muted-foreground">区分</dt>
+              <dd className="mt-1 text-sm">{company.companyType || "-"}</dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-muted-foreground">業界</dt>

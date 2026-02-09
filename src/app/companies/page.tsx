@@ -27,6 +27,7 @@ export default async function CompaniesPage() {
   }));
 
   const companies = await prisma.masterStellaCompany.findMany({
+    where: { mergedIntoId: null },
     orderBy: { id: "asc" },
     include: {
       staff: true,
@@ -49,6 +50,9 @@ export default async function CompaniesPage() {
     id: c.id,
     companyCode: c.companyCode,
     name: c.name,
+    nameKana: c.nameKana,
+    corporateNumber: c.corporateNumber,
+    companyType: c.companyType,
     staffId: c.staffId,
     leadSource: c.leadSource,
     websiteUrl: c.websiteUrl,

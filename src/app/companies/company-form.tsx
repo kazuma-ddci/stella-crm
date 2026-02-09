@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,11 +16,16 @@ import {
 import { toast } from "sonner";
 import { updateCompany } from "./[id]/actions";
 import { createCompany } from "./actions";
+import { CompanyNameInput } from "@/components/company-name-input";
+import { validateCorporateNumber } from "@/lib/utils";
 
 type Company = {
   id: number;
   companyCode: string;
   name: string;
+  nameKana: string | null;
+  corporateNumber: string | null;
+  companyType: string | null;
   websiteUrl: string | null;
   industry: string | null;
   revenueScale: string | null;
@@ -37,18 +42,43 @@ type Props = {
 export function CompanyForm({ company }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [companyName, setCompanyName] = useState(company?.name || "");
+  const [companyType, setCompanyType] = useState<string>(company?.companyType || "");
   const [closingDay, setClosingDay] = useState<string>(company?.closingDay != null ? String(company.closingDay) : "");
   const [paymentMonthOffset, setPaymentMonthOffset] = useState<string>(company?.paymentMonthOffset != null ? String(company.paymentMonthOffset) : "");
   const [paymentDay, setPaymentDay] = useState<string>(company?.paymentDay != null ? String(company.paymentDay) : "");
+  const duplicateConfirmedRef = useRef(true);
+  const [corporateNumberError, setCorporateNumberError] = useState<string | null>(null);
   const isEdit = !!company;
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+
+    if (!isEdit && !duplicateConfirmedRef.current) {
+      toast.error(
+        "類似する企業が見つかっています。「重複ではない - 新規登録する」を押してから登録してください。"
+      );
+      return;
+    }
+
+    // 法人番号バリデーション
+    const formDataForValidation = new FormData(e.currentTarget);
+    const cnInput = (formDataForValidation.get("corporateNumber") as string) || undefined;
+    const cnValidation = validateCorporateNumber(cnInput);
+    if (!cnValidation.valid) {
+      toast.error(cnValidation.error!);
+      setCorporateNumberError(cnValidation.error!);
+      return;
+    }
+
     setLoading(true);
 
     const formData = new FormData(e.currentTarget);
     const data = {
-      name: formData.get("name") as string,
+      name: companyName,
+      nameKana: (formData.get("nameKana") as string) || undefined,
+      corporateNumber: (formData.get("corporateNumber") as string) || undefined,
+      companyType: companyType || undefined,
       websiteUrl: (formData.get("websiteUrl") as string) || undefined,
       industry: (formData.get("industry") as string) || undefined,
       revenueScale: (formData.get("revenueScale") as string) || undefined,
@@ -69,7 +99,8 @@ export function CompanyForm({ company }: Props) {
         router.push(`/companies/${newCompany.id}`);
       }
     } catch (error) {
-      toast.error(isEdit ? "更新に失敗しました" : "登録に失敗しました");
+      const msg = error instanceof Error ? error.message : (isEdit ? "更新に失敗しました" : "登録に失敗しました");
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -84,15 +115,72 @@ export function CompanyForm({ company }: Props) {
             <Input value={company.companyCode} disabled className="bg-muted" />
           </div>
         )}
-        <div className="space-y-2">
+        <div className="space-y-2 sm:col-span-2">
           <Label htmlFor="name">企業名 *</Label>
+          {isEdit ? (
+            <Input
+              id="name"
+              name="name"
+              defaultValue={company?.name}
+              required
+              placeholder="株式会社〇〇"
+            />
+          ) : (
+            <CompanyNameInput
+              value={companyName}
+              onChange={setCompanyName}
+              onDuplicateConfirmed={(confirmed) => {
+                duplicateConfirmedRef.current = confirmed;
+              }}
+              required
+            />
+          )}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="nameKana">フリガナ（法人格除く）</Label>
           <Input
-            id="name"
-            name="name"
-            defaultValue={company?.name}
-            required
-            placeholder="株式会社〇〇"
+            id="nameKana"
+            name="nameKana"
+            defaultValue={company?.nameKana || ""}
+            placeholder="テックソリューション"
           />
+          <p className="text-xs text-muted-foreground">
+            カブシキガイシャ・ユウゲンガイシャ等の法人格は除いて入力してください
+          </p>
+        </div>
+        {companyType === "法人" && (
+          <div className="space-y-2">
+            <Label htmlFor="corporateNumber">法人番号</Label>
+            <Input
+              id="corporateNumber"
+              name="corporateNumber"
+              defaultValue={company?.corporateNumber || ""}
+              placeholder="1234567890123"
+              onBlur={(e) => {
+                const result = validateCorporateNumber(e.target.value);
+                setCorporateNumberError(result.valid ? null : (result.error ?? null));
+              }}
+              onChange={() => {
+                if (corporateNumberError) setCorporateNumberError(null);
+              }}
+            />
+            {corporateNumberError && (
+              <p className="text-sm text-destructive">{corporateNumberError}</p>
+            )}
+          </div>
+        )}
+        <div className="space-y-2">
+          <Label>区分</Label>
+          <Select value={companyType || "__empty__"} onValueChange={(v) => setCompanyType(v === "__empty__" ? "" : v)}>
+            <SelectTrigger>
+              <SelectValue placeholder="選択してください" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__empty__">-</SelectItem>
+              <SelectItem value="法人">法人</SelectItem>
+              <SelectItem value="個人">個人</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-2">
           <Label htmlFor="industry">業界</Label>

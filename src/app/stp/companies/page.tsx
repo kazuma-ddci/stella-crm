@@ -143,6 +143,12 @@ export default async function StpCompaniesPage() {
     contractHistoriesByCompanyId[history.companyId].push(history);
   });
 
+  // companyIdの重複を検出（企業統合で「両方残す」を選んだ場合）
+  const companyIdCounts: Record<number, number> = {};
+  companies.forEach((c) => {
+    companyIdCounts[c.companyId] = (companyIdCounts[c.companyId] || 0) + 1;
+  });
+
   const data = companies.map((c) => {
     // この企業の接触履歴を取得
     const companyContactHistories = contactHistoriesByCompanyId[c.companyId] || [];
@@ -150,6 +156,7 @@ export default async function StpCompaniesPage() {
     const companyContractHistories = contractHistoriesByCompanyId[c.companyId] || [];
 
     return {
+    hasDuplicateCompanyWarning: (companyIdCounts[c.companyId] || 0) > 1,
     id: c.id,
     companyId: c.companyId,
     companyCode: c.company.companyCode,

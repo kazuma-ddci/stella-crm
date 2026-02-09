@@ -165,6 +165,12 @@ export default async function StpAgentsPage() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  // companyIdの重複を検出（企業統合で「両方残す」を選んだ場合）
+  const agentCompanyIdCounts: Record<number, number> = {};
+  agents.forEach((a) => {
+    agentCompanyIdCounts[a.companyId] = (agentCompanyIdCounts[a.companyId] || 0) + 1;
+  });
+
   const data = agents.map((a) => {
     const primaryLocation = a.company.locations[0];
     // この代理店の接触履歴を取得
@@ -189,6 +195,7 @@ export default async function StpAgentsPage() {
     }));
 
     return {
+    hasDuplicateCompanyWarning: (agentCompanyIdCounts[a.companyId] || 0) > 1,
     id: a.id,
     companyId: a.companyId,
     companyCode: a.company.companyCode,

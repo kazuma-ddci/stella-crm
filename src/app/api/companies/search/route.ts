@@ -14,16 +14,17 @@ export async function GET(request: NextRequest) {
     const query = searchParams.get("q") || "";
     const limit = parseInt(searchParams.get("limit") || "20", 10);
 
-    // 検索条件
+    // 検索条件（統合済み企業を除外）
     const where = query
       ? {
+          mergedIntoId: null,
           OR: [
             { name: { contains: query, mode: "insensitive" as const } },
             { companyCode: { contains: query, mode: "insensitive" as const } },
             { industry: { contains: query, mode: "insensitive" as const } },
           ],
         }
-      : {};
+      : { mergedIntoId: null };
 
     // 企業検索
     const companies = await prisma.masterStellaCompany.findMany({

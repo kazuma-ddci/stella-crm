@@ -44,6 +44,20 @@ export default async function StaffPage() {
     name: p.name,
   }));
 
+  // 現在のユーザーが権限変更可能なプロジェクトコードを算出
+  const editableProjectCodes: string[] = [];
+  if (isStellaAdmin) {
+    // Stella管理者は全プロジェクトの権限を変更可能
+    editableProjectCodes.push("stella", ...projects.map((p) => p.code));
+  } else {
+    // 各プロジェクトの管理者は、そのプロジェクトの権限のみ変更可能
+    for (const project of projects) {
+      if (userPermissions.some((p) => p.projectCode === project.code && p.permissionLevel === "admin")) {
+        editableProjectCodes.push(project.code);
+      }
+    }
+  }
+
   const data = staffList.map((s) => {
     const stellaPermission = s.permissions.find((p) => p.projectCode === "stella");
 
@@ -101,7 +115,7 @@ export default async function StaffPage() {
             roleTypeOptions={roleTypeOptions}
             projectOptions={projectOptions}
             permissionProjects={permissionProjects}
-            canEditPermissions={isStellaAdmin}
+            editableProjectCodes={editableProjectCodes}
           />
         </CardContent>
       </Card>

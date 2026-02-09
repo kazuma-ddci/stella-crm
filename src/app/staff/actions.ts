@@ -5,16 +5,37 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { sendStaffInviteEmail } from "@/lib/email";
 import { auth } from "@/auth";
-import { isAdmin } from "@/lib/auth/permissions";
 import type { UserPermission } from "@/types/auth";
 
 const PERM_PREFIX = "perm_";
 
-async function checkStellaAdmin(): Promise<boolean> {
+/**
+ * 現在のユーザーが権限変更可能なプロジェクトコードのリストを返す
+ * - Stella管理者: 全プロジェクト（stella含む）
+ * - プロジェクト管理者: そのプロジェクトのみ
+ * - それ以外: 空配列
+ */
+async function getEditableProjectCodes(): Promise<string[]> {
   const session = await auth();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const permissions = ((session?.user as any)?.permissions ?? []) as UserPermission[];
-  return isAdmin(permissions, "stella");
+
+  const isStellaAdmin = permissions.some(
+    (p) => p.projectCode === "stella" && p.permissionLevel === "admin"
+  );
+
+  if (isStellaAdmin) {
+    const allProjects = await prisma.masterProject.findMany({
+      where: { isActive: true },
+      select: { code: true },
+    });
+    return ["stella", ...allProjects.map((p) => p.code)];
+  }
+
+  // プロジェクト別管理者はそのプロジェクトのみ
+  return permissions
+    .filter((p) => p.permissionLevel === "admin" && p.projectCode !== "stella")
+    .map((p) => p.projectCode);
 }
 
 /**
@@ -46,8 +67,9 @@ function buildPermissions(
 export async function addStaff(data: Record<string, unknown>) {
   const roleTypeIds = (data.roleTypeIds as string[]) || [];
   const projectIds = (data.projectIds as string[]) || [];
-  const canEdit = await checkStellaAdmin();
-  const stellaPermission = canEdit ? ((data.stellaPermission as string) || "none") : "none";
+  const editableCodes = await getEditableProjectCodes();
+  const canEditStella = editableCodes.includes("stella");
+  const stellaPermission = canEditStella ? ((data.stellaPermission as string) || "none") : "none";
 
   const staff = await prisma.masterStaff.create({
     data: {
@@ -80,12 +102,17 @@ export async function addStaff(data: Record<string, unknown>) {
     });
   }
 
-  // 権限を設定（Stella admin のみ変更可能）
-  const permissionsToCreate = canEdit ? buildPermissions(staff.id, data, stellaPermission) : [];
-  if (permissionsToCreate.length > 0) {
-    await prisma.staffPermission.createMany({
-      data: permissionsToCreate,
-    });
+  // 権限を設定（編集可能なプロジェクトのみ）
+  if (editableCodes.length > 0) {
+    const allPermissions = buildPermissions(staff.id, data, stellaPermission);
+    const permissionsToCreate = allPermissions.filter((p) =>
+      editableCodes.includes(p.projectCode)
+    );
+    if (permissionsToCreate.length > 0) {
+      await prisma.staffPermission.createMany({
+        data: permissionsToCreate,
+      });
+    }
   }
 
   revalidatePath("/staff");
@@ -94,8 +121,9 @@ export async function addStaff(data: Record<string, unknown>) {
 export async function updateStaff(id: number, data: Record<string, unknown>) {
   const roleTypeIds = (data.roleTypeIds as string[]) || [];
   const projectIds = (data.projectIds as string[]) || [];
-  const canEdit = await checkStellaAdmin();
-  const stellaPermission = canEdit ? ((data.stellaPermission as string) || "none") : "none";
+  const editableCodes = await getEditableProjectCodes();
+  const canEditStella = editableCodes.includes("stella");
+  const stellaPermission = canEditStella ? ((data.stellaPermission as string) || "none") : "none";
 
   await prisma.masterStaff.update({
     where: { id },
@@ -137,13 +165,18 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
     });
   }
 
-  // 権限を更新（Stella admin のみ変更可能）
-  if (canEdit) {
+  // 権限を更新（編集可能なプロジェクトのみ変更、それ以外は保持）
+  if (editableCodes.length > 0) {
+    // 編集可能なプロジェクトの権限のみ削除
     await prisma.staffPermission.deleteMany({
-      where: { staffId: id },
+      where: { staffId: id, projectCode: { in: editableCodes } },
     });
 
-    const permissionsToCreate = buildPermissions(id, data, stellaPermission);
+    // 編集可能なプロジェクトの権限のみ作成
+    const allPermissions = buildPermissions(id, data, stellaPermission);
+    const permissionsToCreate = allPermissions.filter((p) =>
+      editableCodes.includes(p.projectCode)
+    );
     if (permissionsToCreate.length > 0) {
       await prisma.staffPermission.createMany({
         data: permissionsToCreate,

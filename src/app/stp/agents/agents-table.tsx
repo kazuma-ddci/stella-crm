@@ -9,7 +9,7 @@ import { ContactHistoryModal } from "./contact-history-modal";
 import { MasterContractModal } from "@/components/master-contract-modal";
 import { ReferredCompaniesModal } from "./referred-companies-modal";
 import { AgentContractHistoryModal } from "./agent-contract-history-modal";
-import { FileText, MessageSquare, ScrollText, Copy, Check, Loader2, DollarSign } from "lucide-react";
+import { FileText, MessageSquare, ScrollText, Copy, Check, Loader2, DollarSign, AlertTriangle } from "lucide-react";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -288,19 +288,28 @@ export function AgentsTable({
 
   // カスタムレンダラー：担当者を縦並びで表示、代理店名・紹介者にリンク
   const customRenderers: CustomRenderers = {
-    // 代理店名をクリックで全顧客マスタの詳細ページへ
+    // 代理店名をクリックで全顧客マスタの詳細ページへ（重複警告付き）
     companyName: (value, row) => {
       if (!value) return "-";
       const companyId = row.companyId as number;
       const companyCode = row.companyCode as string;
+      const hasDuplicateWarning = row.hasDuplicateCompanyWarning as boolean;
       return (
-        <Link
-          href={`/companies/${companyId}`}
-          className="hover:underline font-medium"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <CompanyCodeLabel code={companyCode} name={String(value)} />
-        </Link>
+        <div className="flex items-center gap-1">
+          <Link
+            href={`/companies/${companyId}`}
+            className="hover:underline font-medium"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CompanyCodeLabel code={companyCode} name={String(value)} />
+          </Link>
+          {hasDuplicateWarning && (
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800" title="同じ全顧客マスタ企業が複数の代理店に紐付いています。企業統合が必要な可能性があります。">
+              <AlertTriangle className="h-3 w-3" />
+              要統合
+            </span>
+          )}
+        </div>
       );
     },
     // 紹介者をクリックで全顧客マスタの詳細ページへ（インライン編集はreferrerCompanyIdで行う）

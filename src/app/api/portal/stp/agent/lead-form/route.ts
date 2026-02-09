@@ -35,7 +35,7 @@ export async function GET() {
     const companyId = user.companyId as number;
 
     // 自社が代理店として登録されているか確認
-    const agent = await prisma.stpAgent.findUnique({
+    const agent = await prisma.stpAgent.findFirst({
       where: { companyId },
       include: {
         leadFormToken: true,

@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 import { CrudTable, ColumnDef } from "@/components/crud-table";
 import { addCompany, updateCompany, deleteCompany } from "./actions";
 import { ContactsModal } from "./contacts-modal";
 import { Building2 } from "lucide-react";
+import { CompanyNameInput } from "@/components/company-name-input";
+import { validateCorporateNumber } from "@/lib/utils";
 
 type Location = {
   id: number;
@@ -57,9 +59,18 @@ const leadSourceOptions = [
   { value: "代理店", label: "代理店" },
 ];
 
+const companyTypeOptions = [
+  { value: "法人", label: "法人" },
+  { value: "個人", label: "個人" },
+];
+
 const createColumns = (staffOptions: StaffOption[]): ColumnDef[] => [
   { key: "companyCode", header: "企業コード", editable: false },
   { key: "name", header: "企業名", type: "text", required: true },
+  { key: "nameKana", header: "フリガナ（法人格除く）", type: "text", hidden: true },
+  { key: "corporateNumber", header: "法人番号", type: "text", hidden: true, visibleWhen: { field: "companyType", value: "法人" } },
+  { key: "companyType", header: "区分", type: "select", options: companyTypeOptions },
+  { key: "note", header: "メモ", type: "textarea" },
   { key: "staffId", header: "担当者", type: "select", options: staffOptions, searchable: true },
   { key: "leadSource", header: "流入経路", type: "select", options: leadSourceOptions },
   { key: "industry", header: "業界", type: "text" },
@@ -121,8 +132,6 @@ const createColumns = (staffOptions: StaffOption[]): ColumnDef[] => [
   { key: "accountNumber", header: "口座番号", editable: false, filterable: false },
   { key: "accountHolderName", header: "口座名義人", editable: false, filterable: false },
   { key: "bankNote", header: "銀行メモ", editable: false, filterable: false },
-  // 企業メモ
-  { key: "note", header: "メモ", type: "textarea" },
 ];
 
 // 複数行表示用のヘルパーコンポーネント
@@ -151,6 +160,54 @@ function MultiLineCell({
 
 export function CompaniesTable({ data, staffOptions }: Props) {
   const columns = createColumns(staffOptions);
+  const duplicateConfirmedRef = useRef(true);
+
+  const customFormFields = {
+    name: {
+      render: (
+        value: unknown,
+        onChange: (value: unknown) => void,
+        formData: Record<string, unknown>,
+      ) => (
+        <CompanyNameInput
+          value={(value as string) || ""}
+          onChange={(v) => onChange(v)}
+          excludeId={formData?.id as number | undefined}
+          onDuplicateConfirmed={(confirmed) => {
+            duplicateConfirmedRef.current = confirmed;
+          }}
+          required
+        />
+      ),
+    },
+  };
+
+  const handleAdd = async (formData: Record<string, unknown>) => {
+    if (!duplicateConfirmedRef.current) {
+      throw new Error(
+        "類似する企業が見つかっています。「重複ではない - 新規登録する」を押してから登録してください。"
+      );
+    }
+    // クライアント側でも法人番号バリデーション（即座にフィードバック）
+    const cnValidation = validateCorporateNumber(formData.corporateNumber as string);
+    if (!cnValidation.valid) {
+      throw new Error(cnValidation.error!);
+    }
+    await addCompany(formData);
+    duplicateConfirmedRef.current = true;
+  };
+
+  const handleUpdate = async (id: number, formData: Record<string, unknown>) => {
+    // クライアント側でも法人番号バリデーション（即座にフィードバック）
+    if ("corporateNumber" in formData) {
+      const cnValidation = validateCorporateNumber(formData.corporateNumber as string);
+      if (!cnValidation.valid) {
+        throw new Error(cnValidation.error!);
+      }
+    }
+    await updateCompany(id, formData);
+  };
+
   const [contactsModal, setContactsModal] = useState<{
     open: boolean;
     companyId: number;
@@ -201,17 +258,31 @@ export function CompaniesTable({ data, staffOptions }: Props) {
         </Link>
       );
     },
-    // 企業名をクリックで詳細ページへ
+    // 企業名をクリックで詳細ページへ（フリガナを上に、法人番号を下に表示）
     name: (value: unknown, row: Record<string, unknown>) => {
       if (!value) return "-";
       const id = row.id as number;
+      const nameKana = row.nameKana as string | null;
+      const corporateNumber = row.corporateNumber as string | null;
       return (
-        <Link
-          href={`/companies/${id}`}
-          className="hover:underline font-medium"
-        >
-          {String(value)}
-        </Link>
+        <div>
+          {nameKana && (
+            <div className="text-[10px] text-muted-foreground leading-tight">
+              {nameKana}
+            </div>
+          )}
+          <Link
+            href={`/companies/${id}`}
+            className="hover:underline font-medium"
+          >
+            {String(value)}
+          </Link>
+          {corporateNumber && (
+            <div className="text-xs text-muted-foreground font-mono mt-0.5">
+              {corporateNumber}
+            </div>
+          )}
+        </div>
       );
     },
     staffId: (value: unknown) => {
@@ -430,12 +501,13 @@ export function CompaniesTable({ data, staffOptions }: Props) {
         data={data}
         columns={columns}
         title="顧客"
-        onAdd={addCompany}
-        onUpdate={updateCompany}
+        onAdd={handleAdd}
+        onUpdate={handleUpdate}
         onDelete={deleteCompany}
         emptyMessage="顧客が登録されていません"
         customActions={customActions}
         customRenderers={customRenderers}
+        customFormFields={customFormFields}
       />
       <ContactsModal
         open={contactsModal.open}
