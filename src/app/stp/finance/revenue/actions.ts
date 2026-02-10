@@ -2,12 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireEdit } from "@/lib/auth";
 import { calcTaxAmount, calcTotalWithTax } from "@/lib/finance/auto-generate";
 import { createFinanceEditLog } from "@/lib/finance/edit-log";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
 import { generateInvoiceNumber } from "@/lib/finance/invoice-number";
 
 export async function addRevenueRecord(data: Record<string, unknown>) {
+  await requireEdit("stp");
   const taxType = (data.taxType as string) || "tax_included";
   const taxRate = data.taxRate != null ? Number(data.taxRate) : 10;
   const expectedAmount = Number(data.expectedAmount);
@@ -51,6 +53,7 @@ export async function updateRevenueRecord(
   id: number,
   data: Record<string, unknown>
 ) {
+  await requireEdit("stp");
   // 月次締めチェック
   const currentRecord = await prisma.stpRevenueRecord.findUnique({ where: { id } });
   if (currentRecord?.targetMonth) await ensureMonthNotClosed(currentRecord.targetMonth);
@@ -133,6 +136,7 @@ export async function updateRevenueRecord(
 
 // 個別請求書生成（1つの売上レコードに対して1つの請求書）
 export async function createInvoiceFromRevenue(revenueRecordId: number) {
+  await requireEdit("stp");
   const revenue = await prisma.stpRevenueRecord.findUnique({
     where: { id: revenueRecordId },
   });
@@ -171,6 +175,7 @@ export async function createInvoiceFromRevenue(revenueRecordId: number) {
 
 // 一括請求書生成（同一企業×同一月の全未請求レコードをまとめて1つの請求書）
 export async function createBatchInvoice(stpCompanyId: number, targetMonth: string) {
+  await requireEdit("stp");
   const monthDate = new Date(targetMonth + "-01");
 
   // 対象レコード: 同一企業×同一月で、まだ請求書未紐づけ・未取消
@@ -223,6 +228,7 @@ export async function updateInvoiceFromRevenue(
   invoiceId: number,
   data: Record<string, unknown>
 ) {
+  await requireEdit("stp");
   const updateData: Record<string, unknown> = {};
 
   if ("status" in data) updateData.status = data.status as string;
@@ -260,6 +266,7 @@ export async function updateInvoiceFromRevenue(
 }
 
 export async function deleteRevenueRecord(id: number) {
+  await requireEdit("stp");
   // 月次締めチェック
   const record = await prisma.stpRevenueRecord.findUnique({ where: { id } });
   if (record?.targetMonth) await ensureMonthNotClosed(record.targetMonth);
@@ -274,6 +281,7 @@ export async function deleteRevenueRecord(id: number) {
 
 // 最新値を反映（expectedAmountをlatestCalculatedAmountで上書き）
 export async function applyLatestRevenueAmount(id: number) {
+  await requireEdit("stp");
   const record = await prisma.stpRevenueRecord.findUnique({ where: { id } });
   if (!record || record.latestCalculatedAmount == null) return;
 
@@ -299,6 +307,7 @@ export async function applyLatestRevenueAmount(id: number) {
 
 // 現在値を維持（差異通知をクリア）
 export async function dismissRevenueSourceChange(id: number) {
+  await requireEdit("stp");
   await prisma.stpRevenueRecord.update({
     where: { id },
     data: {
@@ -319,6 +328,7 @@ export async function logRevenueEdit(params: {
   newValue?: string;
   reason?: string;
 }) {
+  await requireEdit("stp");
   await createFinanceEditLog({
     revenueRecordId: params.revenueRecordId,
     editType: params.editType,

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireEdit } from "@/lib/auth";
 import {
   StageManagementData,
   StageStatistics,
@@ -121,6 +122,7 @@ export async function updateStageWithHistory(
   error?: string;
   events?: DetectedEvent[];
 }> {
+  await requireEdit("stp");
   const {
     stpCompanyId,
     newStageId,
@@ -390,6 +392,7 @@ export async function updateReasonOnly(params: {
   pendingReason?: string | null;
   pendingResponseDate?: Date | null;
 }): Promise<{ success: boolean; error?: string }> {
+  await requireEdit("stp");
   const { stpCompanyId, lostReason, pendingReason, pendingResponseDate } = params;
 
   // 現在の状態を取得

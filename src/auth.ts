@@ -48,6 +48,8 @@ declare module "@auth/core/jwt" {
     userType: UserType;
     permissions: UserPermission[];
     canEditMasterData: boolean;
+    permissionsCheckedAt?: number;
+    permissionsExpired?: boolean;
     // 外部ユーザー用
     companyId?: number;
     companyName?: string;
@@ -77,7 +79,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           ? // メールアドレスの場合: 全スタッフから検索
             await prisma.masterStaff.findUnique({
               where: { email: identifier },
-              include: { permissions: true },
+              include: { permissions: { include: { project: true } } },
             })
           : // ログインIDの場合: システム管理者のみ（@stella-crm.local）
             await prisma.masterStaff.findFirst({
@@ -85,7 +87,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                 loginId: identifier,
                 email: { endsWith: "@stella-crm.local" },
               },
-              include: { permissions: true },
+              include: { permissions: { include: { project: true } } },
             });
 
         if (staff && staff.passwordHash && staff.isActive) {
@@ -93,7 +95,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           if (isValid) {
             const permissions: UserPermission[] = staff.permissions.map(
               (p) => ({
-                projectCode: p.projectCode,
+                projectCode: p.project.code,
                 permissionLevel: p.permissionLevel as PermissionLevel,
               })
             );
@@ -135,12 +137,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
+        // ログイン時: 初期値をセット
         token.id = Number(user.id);
         token.name = user.name ?? "";
         token.email = user.email ?? null;
         token.userType = user.userType ?? "staff";
         token.permissions = user.permissions ?? [];
         token.canEditMasterData = user.canEditMasterData ?? false;
+        token.permissionsCheckedAt = Date.now();
 
         // 外部ユーザー用
         if (user.userType === "external") {
@@ -148,10 +152,48 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.companyName = user.companyName;
           token.displayViews = user.displayViews ?? [];
         }
+      } else if (token.userType === "staff" && token.id && !token.permissionsExpired) {
+        // 既存セッション: セッションリフェッチ時にDBの権限と比較し、変更があれば強制ログアウト
+        const now = Date.now();
+        const checkedAt = token.permissionsCheckedAt ?? 0;
+        if (now - checkedAt >= 10 * 1000) {
+          try {
+            const staff = await prisma.masterStaff.findUnique({
+              where: { id: token.id as number },
+              include: { permissions: { include: { project: true } } },
+            });
+            if (!staff || !staff.isActive) {
+              // スタッフが無効化 or 削除された場合
+              token.permissionsExpired = true;
+            } else {
+              // DB権限とトークン権限を比較
+              const dbPerms = staff.permissions
+                .map((p) => `${p.project.code}:${p.permissionLevel}`)
+                .sort()
+                .join(",");
+              const tokenPerms = (token.permissions ?? [])
+                .map((p) => `${p.projectCode}:${p.permissionLevel}`)
+                .sort()
+                .join(",");
+              if (dbPerms !== tokenPerms) {
+                token.permissionsExpired = true;
+              }
+            }
+          } catch {
+            // DB接続エラー時は既存のセッションを維持
+          }
+          token.permissionsCheckedAt = now;
+        }
       }
       return token;
     },
     async session({ session, token }) {
+      // 権限変更検知: フラグをセッションに伝搬（middlewareで強制ログアウト）
+      if (token.permissionsExpired) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session as any).permissionsExpired = true;
+      }
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (session.user as any).id = token.id;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

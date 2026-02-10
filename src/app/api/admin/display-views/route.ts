@@ -10,44 +10,37 @@ export async function GET() {
       return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
     }
 
-    // 表示ビュー一覧を取得
+    // 表示ビュー一覧を取得（projectリレーションを含む）
     const views = await prisma.displayView.findMany({
       where: { isActive: true },
-      orderBy: [{ projectCode: "asc" }, { viewKey: "asc" }],
+      include: { project: { select: { id: true, code: true, name: true } } },
+      orderBy: { id: "asc" },
     });
 
-    // プロジェクト一覧を取得
-    const projects = await prisma.masterProject.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: "asc" },
-    });
+    // projectCode フィールドを維持（互換性のため）
+    const viewsWithCode = views.map((v) => ({
+      ...v,
+      projectCode: v.project.code,
+    }));
 
-    // プロジェクトコードとプロジェクト名のマッピングを作成
-    // 注: projectCodeとMasterProject.nameは直接紐づいていないため、
-    // ここでは表示ビューのprojectCodeからユニークなプロジェクトを抽出
-    const uniqueProjectCodes = [...new Set(views.map((v) => v.projectCode))];
-
-    // プロジェクト情報を構築
-    const projectsWithViews = uniqueProjectCodes.map((code) => {
-      const project = projects.find((p) => {
-        // プロジェクト名とコードの対応（手動マッピング）
-        const codeMap: Record<string, string> = {
-          "stp": "採用ブースト",
-          "stella": "Stella",
-        };
-        return p.name === codeMap[code] || p.name.toLowerCase().includes(code);
-      });
-
+    // プロジェクトごとにビューをグループ化
+    const uniqueProjectIds = [...new Set(views.map((v) => v.projectId))];
+    const projectsWithViews = uniqueProjectIds.map((projectId) => {
+      const projectViews = views.filter((v) => v.projectId === projectId);
+      const project = projectViews[0].project;
       return {
-        code,
-        name: project?.name || code.toUpperCase(),
-        views: views.filter((v) => v.projectCode === code),
+        code: project.code,
+        name: project.name,
+        views: projectViews.map((v) => ({
+          ...v,
+          projectCode: v.project.code,
+        })),
       };
     });
 
     return NextResponse.json({
       projects: projectsWithViews,
-      views,
+      views: viewsWithCode,
     });
   } catch (error) {
     console.error("Error fetching display views:", error);

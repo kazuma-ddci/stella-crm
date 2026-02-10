@@ -25,7 +25,7 @@ export default async function StaffPage() {
             project: true,
           },
         },
-        permissions: true,
+        permissions: { include: { project: true } },
       },
     }),
     prisma.staffRoleType.findMany({
@@ -38,11 +38,13 @@ export default async function StaffPage() {
     }),
   ]);
 
-  // プロジェクト権限のカラム情報を構築
-  const permissionProjects = projects.map((p) => ({
-    code: p.code,
-    name: p.name,
-  }));
+  // プロジェクト権限のカラム情報を構築（stellaは別カラムで管理するため除外）
+  const permissionProjects = projects
+    .filter((p) => p.code !== "stella")
+    .map((p) => ({
+      code: p.code,
+      name: p.name,
+    }));
 
   // 現在のユーザーが権限変更可能なプロジェクトコードを算出
   const editableProjectCodes: string[] = [];
@@ -59,12 +61,13 @@ export default async function StaffPage() {
   }
 
   const data = staffList.map((s) => {
-    const stellaPermission = s.permissions.find((p) => p.projectCode === "stella");
+    const stellaPermission = s.permissions.find((p) => p.project.code === "stella");
 
-    // 動的にプロジェクト権限を構築
+    // 動的にプロジェクト権限を構築（stellaは stellaPermission で別管理）
     const projectPermissions: Record<string, string> = {};
     for (const project of projects) {
-      const perm = s.permissions.find((p) => p.projectCode === project.code);
+      if (project.code === "stella") continue;
+      const perm = s.permissions.find((p) => p.project.code === project.code);
       projectPermissions[`perm_${project.code}`] = perm?.permissionLevel || "none";
     }
 

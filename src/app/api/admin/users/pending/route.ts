@@ -52,7 +52,7 @@ export async function GET() {
                     id: true,
                     viewKey: true,
                     viewName: true,
-                    projectCode: true,
+                    project: { select: { code: true } },
                   },
                 },
               },
@@ -63,13 +63,34 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
+    // projectCode フィールドを維持（互換性のため）
+    const usersWithCode = users.map((u) => ({
+      ...u,
+      registrationToken: u.registrationToken ? {
+        ...u.registrationToken,
+        defaultViews: u.registrationToken.defaultViews.map((dv) => ({
+          ...dv,
+          displayView: {
+            ...dv.displayView,
+            projectCode: dv.displayView.project.code,
+          },
+        })),
+      } : null,
+    }));
+
     // 表示ビュー一覧を取得
     const views = await prisma.displayView.findMany({
       where: { isActive: true },
+      include: { project: { select: { code: true } } },
       orderBy: { viewKey: "asc" },
     });
 
-    return NextResponse.json({ users, views });
+    const viewsWithCode = views.map((v) => ({
+      ...v,
+      projectCode: v.project.code,
+    }));
+
+    return NextResponse.json({ users: usersWithCode, views: viewsWithCode });
   } catch (error) {
     console.error("Error fetching pending users:", error);
     return NextResponse.json(

@@ -2,12 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireEdit } from "@/lib/auth";
 import { calcTaxAmount } from "@/lib/finance/auto-generate";
 import { createFinanceEditLog } from "@/lib/finance/edit-log";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
 import { calcWithholdingTax } from "@/lib/finance/withholding-tax";
 
 export async function addExpenseRecord(data: Record<string, unknown>) {
+  await requireEdit("stp");
   const taxType = (data.taxType as string) || "tax_included";
   const taxRate = data.taxRate != null ? Number(data.taxRate) : 10;
   const expectedAmount = Number(data.expectedAmount);
@@ -81,6 +83,7 @@ export async function updateExpenseRecord(
   id: number,
   data: Record<string, unknown>
 ) {
+  await requireEdit("stp");
   // 月次締めチェック
   const currentRecord = await prisma.stpExpenseRecord.findUnique({ where: { id } });
   if (currentRecord?.targetMonth) await ensureMonthNotClosed(currentRecord.targetMonth);
@@ -163,6 +166,7 @@ export async function updateExpenseRecord(
 }
 
 export async function deleteExpenseRecord(id: number) {
+  await requireEdit("stp");
   // 月次締めチェック
   const record = await prisma.stpExpenseRecord.findUnique({ where: { id } });
   if (record?.targetMonth) await ensureMonthNotClosed(record.targetMonth);
@@ -177,6 +181,7 @@ export async function deleteExpenseRecord(id: number) {
 
 // 最新値を反映（expectedAmountをlatestCalculatedAmountで上書き）
 export async function applyLatestExpenseAmount(id: number) {
+  await requireEdit("stp");
   const record = await prisma.stpExpenseRecord.findUnique({ where: { id } });
   if (!record || record.latestCalculatedAmount == null) return;
 
@@ -202,6 +207,7 @@ export async function applyLatestExpenseAmount(id: number) {
 
 // 現在値を維持（差異通知をクリア）
 export async function dismissExpenseSourceChange(id: number) {
+  await requireEdit("stp");
   await prisma.stpExpenseRecord.update({
     where: { id },
     data: {
@@ -222,6 +228,7 @@ export async function logExpenseEdit(params: {
   newValue?: string;
   reason?: string;
 }) {
+  await requireEdit("stp");
   await createFinanceEditLog({
     expenseRecordId: params.expenseRecordId,
     editType: params.editType,

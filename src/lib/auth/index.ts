@@ -1,4 +1,4 @@
-export { getSession, getOptionalSession } from "./session";
+export { getSession, getOptionalSession, requireEdit } from "./session";
 export {
   hasPermission,
   canView,

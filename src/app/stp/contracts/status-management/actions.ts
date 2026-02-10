@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
+import { requireEdit } from "@/lib/auth";
 import {
   ContractStatusManagementData,
   ContractStatusInfo,
@@ -179,6 +180,7 @@ export async function updateContractStatusWithHistory(
   params: ContractStatusUpdateParams
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    await requireEdit("stp");
     const { contractId, newStatusId, note, alertAcknowledged, signedDate } = params;
 
     // セッションからユーザー名を取得
@@ -304,6 +306,7 @@ export async function recordContractCreation(
   contractId: number,
   initialStatusId: number | null
 ): Promise<void> {
+  await requireEdit("stp");
   if (initialStatusId === null) return;
 
   const event = createInitialEvent(initialStatusId);

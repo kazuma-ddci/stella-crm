@@ -2,11 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireEdit } from "@/lib/auth";
 
 // 定数: 顧客種別「企業」のID
 const CUSTOMER_TYPE_COMPANY_ID = 1;
 
 export async function addCompanyContact(data: Record<string, unknown>) {
+  await requireEdit("stp");
   // companyIdを取得（StpCompanyのIDからMasterStellaCompanyのIDを取得）
   const stpCompanyId = data.stpCompanyId ? Number(data.stpCompanyId) : null;
 
@@ -78,6 +80,7 @@ export async function updateCompanyContact(
   id: number,
   data: Record<string, unknown>
 ) {
+  await requireEdit("stp");
   // 顧客種別IDが指定されている場合（文字列配列を数値配列に変換）
   let customerTypeIds: number[] | undefined;
   if (data.customerTypeIds) {
@@ -137,6 +140,7 @@ export async function updateCompanyContact(
 }
 
 export async function deleteCompanyContact(id: number) {
+  await requireEdit("stp");
   // 論理削除
   const history = await prisma.contactHistory.update({
     where: { id },

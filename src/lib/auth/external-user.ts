@@ -34,7 +34,7 @@ export async function authenticateExternalUser(
             select: {
               viewKey: true,
               viewName: true,
-              projectCode: true,
+              project: { select: { code: true } },
             },
           },
         },
@@ -68,7 +68,7 @@ export async function authenticateExternalUser(
     (permission) => ({
       viewKey: permission.displayView.viewKey,
       viewName: permission.displayView.viewName,
-      projectCode: permission.displayView.projectCode,
+      projectCode: permission.displayView.project.code,
     })
   );
 

@@ -123,6 +123,16 @@ export default auth((request) => {
 
   // 公開パスは許可
   if (isPublicPath(pathname)) {
+    // ただし /login は認証済みならリダイレクト
+    if (pathname === "/login") {
+      const session = request.auth;
+      if (session?.user) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const userType = (session.user as any).userType ?? "staff";
+        const redirectUrl = userType === "external" ? "/portal" : "/";
+        return NextResponse.redirect(new URL(redirectUrl, request.url));
+      }
+    }
     return NextResponse.next();
   }
 
@@ -132,6 +142,18 @@ export default auth((request) => {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  // 権限変更検知: セッションCookieを削除して強制ログアウト
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if ((session as any).permissionsExpired) {
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("reason", "permissions_changed");
+    const response = NextResponse.redirect(loginUrl);
+    // NextAuth v5のセッションCookieを削除（HTTP/HTTPS両方に対応）
+    response.cookies.delete("authjs.session-token");
+    response.cookies.delete("__Secure-authjs.session-token");
+    return response;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

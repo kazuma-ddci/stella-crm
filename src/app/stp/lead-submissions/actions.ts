@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireEdit } from "@/lib/auth";
 
 // 新規企業として処理
 export async function processAsNewCompany(
@@ -17,6 +18,7 @@ export async function processAsNewCompany(
     websiteUrl?: string;
   }
 ) {
+  await requireEdit("stp");
   const submission = await prisma.stpLeadFormSubmission.findUnique({
     where: { id: submissionId },
     include: {
@@ -155,6 +157,7 @@ export async function processWithExistingCompany(
     websiteUrl?: string;
   }
 ) {
+  await requireEdit("stp");
   const submission = await prisma.stpLeadFormSubmission.findUnique({
     where: { id: submissionId },
     include: {
@@ -336,6 +339,7 @@ export async function updateSubmission(
     overwriteAgent?: boolean;
   }
 ) {
+  await requireEdit("stp");
   const submission = await prisma.stpLeadFormSubmission.findUnique({
     where: { id: submissionId },
     include: {
@@ -405,6 +409,7 @@ export async function rejectSubmission(
   submissionId: number,
   processingNote?: string
 ) {
+  await requireEdit("stp");
   const submission = await prisma.stpLeadFormSubmission.findUnique({
     where: { id: submissionId },
   });

@@ -10,7 +10,7 @@
 2. [アラート機能](#アラート機能)
 3. [ステージ管理モーダル](#ステージ管理モーダル)
 4. [外部ユーザー認証](#外部ユーザー認証)
-5. [社内スタッフ認証](#社内スタッフ認証)
+5. [社内スタッフ認証](#社内スタッフ認証)（権限変更検知と自動ログアウト含む）
 6. [リード獲得フォーム](#リード獲得フォーム)
 7. [請求先担当者の設計パターン](#請求先担当者の設計パターン)
 8. [接触履歴管理](#接触履歴管理)
@@ -189,11 +189,103 @@ NextAuth.jsを使用した社内スタッフ向け認証システム。
 - `isActive` が `false` の場合、ログインできない
 - パスワード設定完了後、`inviteToken` は `null` にクリアされる
 
+### 権限変更検知と自動ログアウト
+
+管理者がスタッフの権限を変更した場合、対象ユーザーを自動的にログアウトさせる仕組み。
+
+#### 動作フロー
+
+```
+管理者がスタッフの権限を変更・保存
+  ↓
+対象ユーザーのブラウザが30秒ごとに GET /api/auth/session を実行（バックグラウンド）
+  ↓
+JWT callbackがDB権限とトークン権限を比較
+  ├── 一致 → 何もしない（画面に影響なし）
+  └── 不一致 → permissionsExpired フラグをセット
+      ↓
+PermissionGuard（クライアントコンポーネント）がフラグを検知
+  ↓
+signOut() → /login?reason=permissions_changed にリダイレクト
+  ↓
+「権限が変更されたため、再ログインが必要です。」メッセージ表示
+```
+
+#### 構成コンポーネント
+
+| コンポーネント | 役割 |
+|--------------|------|
+| JWT callback (`src/auth.ts`) | 10秒間隔でDB権限とトークン権限を比較、不一致時に`permissionsExpired`フラグをセット |
+| SessionProvider (`src/components/providers/session-provider.tsx`) | `refetchInterval={30}` で30秒ごとにセッション再取得 |
+| PermissionGuard (`src/components/auth/permission-guard.tsx`) | `permissionsExpired`フラグを監視し、検知時に`signOut()`実行 |
+| ログインページ (`src/app/login/page.tsx`) | `reason=permissions_changed` でメッセージ表示 |
+
+#### 設計上の重要ポイント
+
+1. **ポーリングはバックグラウンド通信**: 30秒ごとの`refetchInterval`はAJAX通信であり、ページリロードは発生しない。入力中のフォームデータにも影響なし
+2. **権限変更されたユーザーのみログアウト**: 他のユーザーのポーリングは正常なセッションデータを返すだけで何も起きない
+3. **Edge Runtimeの制約**: Next.jsのMiddlewareはEdge Runtimeで動作するためPrismaが使えない。DB権限チェックはJWT callback（Node.jsランタイム）で実行
+4. **タイミング**: JWT callbackのチェック間隔（`>= 10秒`）はrefetchInterval（30秒）より短くする必要がある（詳細は`docs/troubleshooting.md`参照）
+
+#### 権限比較ロジック
+
+```typescript
+// DB権限をソートして文字列化
+const dbPerms = staff.permissions
+  .map((p) => `${p.project.code}:${p.permissionLevel}`)
+  .sort()
+  .join(",");
+
+// トークン権限をソートして文字列化
+const tokenPerms = (token.permissions ?? [])
+  .map((p) => `${p.projectCode}:${p.permissionLevel}`)
+  .sort()
+  .join(",");
+
+// 不一致なら期限切れフラグをセット
+if (dbPerms !== tokenPerms) {
+  token.permissionsExpired = true;
+}
+```
+
+### ログイン済みユーザーの /login リダイレクト
+
+ログイン済みユーザーが `/login` に直接アクセスした場合、ミドルウェアでリダイレクトする。
+
+#### 動作
+
+| ユーザー状態 | アクセス先 | 結果 |
+|------------|-----------|------|
+| 未認証 | `/login` | ログイン画面を表示（通常動作） |
+| 社内スタッフ（認証済み） | `/login` | `/` にリダイレクト |
+| 外部ユーザー（認証済み） | `/login` | `/portal` にリダイレクト |
+| 権限変更後（セッション削除済み） | `/login` | ログイン画面を表示（`session?.user` が null） |
+
+#### 実装箇所
+
+`src/middleware.ts` の `isPublicPath` チェック内で、`pathname === "/login"` の場合のみセッションを確認し、認証済みならリダイレクト。
+
+```typescript
+if (isPublicPath(pathname)) {
+  if (pathname === "/login" && session?.user) {
+    const userType = (session.user as any).userType ?? "staff";
+    const redirectUrl = userType === "external" ? "/portal" : "/";
+    return NextResponse.redirect(new URL(redirectUrl, request.url));
+  }
+  return NextResponse.next();
+}
+```
+
+#### 変更経緯（2026-02-10）
+
+- **変更前**: `/login` は `PUBLIC_PATHS` として無条件に許可。認証済みユーザーがアクセスするとサイドバー付きのログイン画面が表示され、メニューからアプリに入れてしまう不具合があった
+- **変更後**: ミドルウェアで認証済みユーザーを適切なページにリダイレクト
+
 ### 関連ファイル
 
 | ファイル | 役割 |
 |---------|------|
-| `src/auth.ts` | 認証ロジック（スタッフ・外部ユーザー両対応） |
+| `src/auth.ts` | 認証ロジック（スタッフ・外部ユーザー両対応）、権限変更検知 |
 | `src/app/staff/actions.ts` | スタッフCRUD + 招待送信 |
 | `src/app/staff/staff-table.tsx` | スタッフ一覧（招待ボタン含む） |
 | `src/app/staff/setup/[token]/page.tsx` | パスワード設定ページ |
@@ -201,6 +293,8 @@ NextAuth.jsを使用した社内スタッフ向け認証システム。
 | `src/app/api/staff/setup/validate/[token]/route.ts` | トークン検証API |
 | `src/lib/email/index.ts` | 招待メール送信 |
 | `src/middleware.ts` | `/staff/setup` を公開パスに設定 |
+| `src/components/auth/permission-guard.tsx` | 権限変更検知・自動ログアウト |
+| `src/components/providers/session-provider.tsx` | セッションポーリング設定 |
 
 ---
 

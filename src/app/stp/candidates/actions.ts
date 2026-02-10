@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireEdit } from "@/lib/auth";
 
 export async function addCandidate(data: Record<string, unknown>) {
+  await requireEdit("stp");
   await prisma.stpCandidate.create({
     data: {
       lastName: (data.lastName as string) || "",
@@ -33,6 +35,7 @@ export async function updateCandidate(
   id: number,
   data: Record<string, unknown>
 ) {
+  await requireEdit("stp");
   const updateData: Record<string, unknown> = {};
 
   if ("lastName" in data) {
@@ -89,6 +92,7 @@ export async function updateCandidate(
 }
 
 export async function deleteCandidate(id: number) {
+  await requireEdit("stp");
   await prisma.stpCandidate.delete({
     where: { id },
   });

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireEdit } from "@/lib/auth";
 import crypto from "crypto";
 
 // ユニークなトークンを生成
@@ -10,6 +11,7 @@ function generateToken(): string {
 }
 
 export async function addAgent(data: Record<string, unknown>) {
+  await requireEdit("stp");
   // staffAssignmentsを分離
   const staffAssignmentsRaw = data.staffAssignments as string | string[] | null;
   const staffIds = parseStaffIds(staffAssignmentsRaw);
@@ -53,6 +55,7 @@ export async function addAgent(data: Record<string, unknown>) {
 }
 
 export async function updateAgent(id: number, data: Record<string, unknown>) {
+  await requireEdit("stp");
   // 更新データを動的に構築（渡されたフィールドのみ更新）
   const updateData: Record<string, unknown> = {};
 
@@ -120,6 +123,7 @@ export async function updateAgent(id: number, data: Record<string, unknown>) {
 }
 
 export async function deleteAgent(id: number) {
+  await requireEdit("stp");
   await prisma.stpAgent.delete({
     where: { id },
   });

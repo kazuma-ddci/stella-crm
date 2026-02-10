@@ -11,6 +11,7 @@ export default async function DisplayViewsPage() {
   const [views, projects] = await Promise.all([
     prisma.displayView.findMany({
       orderBy: { id: "asc" },
+      include: { project: true },
     }),
     prisma.masterProject.findMany({
       where: { isActive: true },
@@ -22,13 +23,14 @@ export default async function DisplayViewsPage() {
     id: v.id,
     viewKey: v.viewKey,
     viewName: v.viewName,
-    projectCode: v.projectCode,
+    projectId: String(v.projectId),
+    projectName: v.project.name,
     description: v.description,
     isActive: v.isActive,
   }));
 
   const projectOptions = projects.map((p) => ({
-    value: p.code,
+    value: String(p.id),
     label: p.name,
   }));
 

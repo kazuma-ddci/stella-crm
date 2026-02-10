@@ -15,6 +15,8 @@
 7. [売上経費一括生成の件数が0件と表示される](#売上経費一括生成の件数が0件と表示される)
 8. [日本語文字列のlocaleCompareでハイドレーションエラー](#日本語文字列のlocalecompareでハイドレーションエラー)
 9. [nullable数値フィールドの||演算子による誤判定](#nullable数値フィールドの演算子による誤判定)
+10. [Next.js MiddlewareのEdge RuntimeでPrismaが動作しない](#nextjs-middlewareのedge-runtimeでprismaが動作しない)
+11. [SessionProviderのrefetchIntervalとJWT callbackのタイミング競合](#sessionproviderのrefetchintervalとjwt-callbackのタイミング競合)
 
 ---
 
@@ -581,3 +583,101 @@ const isInStp = company?.isInStp === true;  // → true（正しい）
 - `src/app/stp/lead-submissions/submissions-table.tsx`（`isInStp`による判定に変更）
 - `src/app/stp/lead-submissions/page.tsx`（`||` → `??`、`isInStp`追加）
 - `src/app/api/stp/lead-submissions/route.ts`（同上）
+
+---
+
+## Next.js MiddlewareのEdge RuntimeでPrismaが動作しない
+
+> **2026-02-10 確認済み**
+
+### 症状
+
+- Middleware内でPrismaのDB操作（権限チェック等）を行おうとしても、クエリが実行されない
+- `try/catch` で囲んでいるため、エラーは発生せず**サイレントに失敗**する
+- Layout（Server Component）で `cookies().delete()` を使おうとすると `Cookies can only be modified in a Server Action or Route Handler` エラーが発生
+
+### 原因
+
+Next.jsのMiddleware（`src/middleware.ts`）は**Edge Runtime**で動作する。Edge Runtimeは軽量な環境であり、Node.jsのフルAPIが使えない。Prisma ORMはNode.js固有のAPIに依存しているため、Edge RuntimeではDBクエリが実行できない。
+
+```typescript
+// ❌ Middleware内（Edge Runtime）ではPrismaが動作しない
+export async function middleware(request: NextRequest) {
+  try {
+    const staff = await prisma.masterStaff.findUnique({ ... });
+    // ↑ このクエリは実行されず、catchブロックに落ちる
+  } catch {
+    // サイレントに失敗 - ログも出ない
+  }
+}
+```
+
+### 解決方法
+
+DB操作が必要な処理は、**Node.jsランタイムで動作するAPI Route（`/api/auth/session`）やServer Componentで実行**する。
+
+この制約は権限変更検知の自動ログアウト機能で以下のように解決した：
+
+1. **SessionProvider** の `refetchInterval={30}` で30秒ごとに `GET /api/auth/session` を呼ぶ
+2. **JWT callback**（Node.jsランタイム）でDB権限チェックを実行
+3. **PermissionGuard**（クライアントコンポーネント）で `permissionsExpired` フラグを監視し、`signOut()` を実行
+
+### 原則
+
+**Middleware内でPrisma（DB操作）を使わないこと。** DB操作が必要な認証・認可チェックはAPI RouteやServer Actionで実行する。
+
+### 関連ファイル
+
+- `src/middleware.ts`（Edge Runtime）
+- `src/auth.ts`（JWT callback - Node.jsランタイム）
+- `src/components/auth/permission-guard.tsx`（クライアントサイド検知）
+
+---
+
+## SessionProviderのrefetchIntervalとJWT callbackのタイミング競合
+
+> **2026-02-10 修正済み**
+
+### 症状
+
+- `refetchInterval={30}` と JWT callbackのチェック間隔 `> 30 * 1000` を同じ値に設定すると、権限変更検知が動作しない
+- Docker logsにDB権限チェック（`masterStaff`クエリ）のログが出ない
+
+### 原因
+
+`refetchInterval={30}` により30秒ごとに `/api/auth/session` が呼ばれ、JWT callbackが実行される。しかしJWT callbackのチェック条件が `now - checkedAt > 30 * 1000`（**厳密に大きい**）の場合、ちょうど30秒で呼ばれると `30000 > 30000` → `false` となり、チェックがスキップされる。
+
+```
+タイムライン:
+  0秒: ログイン（checkedAt = 0）
+  30秒: 1回目のrefetch → now - checkedAt = 30000 > 30000 → false（スキップ！）
+  60秒: 2回目のrefetch → now - checkedAt = 60000 > 30000 → true（実行）
+```
+
+最初のチェックが60秒後になり、その後も2回に1回しかチェックされない可能性がある。
+
+### 解決方法
+
+JWT callbackのチェック間隔をrefetchIntervalより**十分に短く**設定する。
+
+```typescript
+// ❌ 間違い: refetchInterval と同じ値（= 競合する）
+if (now - checkedAt > 30 * 1000) {
+
+// ✅ 正しい: refetchInterval より十分に短い値
+if (now - checkedAt >= 10 * 1000) {
+```
+
+### 原則
+
+**JWT callbackのDB権限チェック間隔は、SessionProviderのrefetchIntervalより十分に短くすること。** 現在の設定:
+
+| 設定 | 値 | 場所 |
+|------|-----|------|
+| refetchInterval | 30秒 | `src/app/layout.tsx` |
+| JWT チェック間隔 | 10秒以上 | `src/auth.ts` |
+
+### 関連ファイル
+
+- `src/auth.ts`（JWT callbackのチェック間隔）
+- `src/app/layout.tsx`（SessionProviderのrefetchInterval）

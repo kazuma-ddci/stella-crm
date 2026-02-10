@@ -637,15 +637,16 @@ model StaffProjectAssignment {
 model StaffPermission {
   id              Int      @id @default(autoincrement())
   staffId         Int                                     // master_staffへの外部キー
-  projectCode     String   @db.VarChar(50)                // プロジェクトコード（例: stp, stella）
+  projectId       Int                                     // master_projectsへの外部キー
   permissionLevel String   @db.VarChar(20)                // none, view, edit, admin
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   // Relations
-  staff MasterStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  staff   MasterStaff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  project MasterProject @relation(fields: [projectId], references: [id])
 
-  @@unique([staffId, projectCode])
+  @@unique([staffId, projectId])
   @@map("staff_permissions")
 }
 
@@ -705,9 +706,12 @@ model MasterProject {
   operatingCompany   OperatingCompany? @relation(fields: [operatingCompanyId], references: [id])
   contracts          MasterContract[]
   staffAssignments   StaffProjectAssignment[]
+  staffPermissions   StaffPermission[]
+  displayViews       DisplayView[]
   customerTypes      CustomerType[]
   accountingTransactions AccountingTransaction[]
   accountingMonthlyCloses AccountingMonthlyClose[]
+  accountingReconciliations AccountingReconciliation[]
 
   @@map("master_projects")
 }
@@ -896,13 +900,14 @@ model DisplayView {
   id           Int      @id @default(autoincrement())
   viewKey      String   @unique @db.VarChar(50)     // stp_client, stp_agent
   viewName     String   @db.VarChar(100)            // 採用ブースト（クライアント版）
-  projectCode  String   @db.VarChar(50)             // stp, stella
+  projectId    Int                                  // master_projectsへの外部キー
   description  String?                              // 説明
   isActive     Boolean  @default(true)              // 有効フラグ
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   // Relations
+  project                    MasterProject @relation(fields: [projectId], references: [id])
   userPermissions            ExternalUserDisplayPermission[]
   registrationTokenDefaults  RegistrationTokenDefaultView[]
 
@@ -1884,7 +1889,7 @@ model AccountingTransaction {
 model AccountingReconciliation {
   id                    Int       @id @default(autoincrement())
   transactionId         Int                                        // AccountingTransactionへの外部キー
-  projectCode           String    @db.VarChar(20)                  // プロジェクトコード（"STP" 等）
+  projectId             Int                                        // master_projectsへの外部キー
   recordType            String    @db.VarChar(20)                  // "revenue" / "expense"
   revenueRecordId       Int?                                       // StpRevenueRecordへの外部キー（売上の場合）
   expenseRecordId       Int?                                       // StpExpenseRecordへの外部キー（経費の場合）
@@ -1898,6 +1903,7 @@ model AccountingReconciliation {
 
   // Relations
   transaction           AccountingTransaction  @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  project               MasterProject          @relation(fields: [projectId], references: [id])
   revenueRecord         StpRevenueRecord?      @relation("RevenueReconciliation", fields: [revenueRecordId], references: [id])
   expenseRecord         StpExpenseRecord?       @relation("ExpenseReconciliation", fields: [expenseRecordId], references: [id])
   matcher               MasterStaff?           @relation("ReconciliationMatcher", fields: [matchedBy], references: [id])
@@ -1905,7 +1911,7 @@ model AccountingReconciliation {
   @@index([transactionId])
   @@index([revenueRecordId])
   @@index([expenseRecordId])
-  @@index([projectCode])
+  @@index([projectId])
   @@map("accounting_reconciliations")
 }
 

@@ -64,7 +64,7 @@ export async function GET(
                 id: true,
                 viewKey: true,
                 viewName: true,
-                projectCode: true,
+                project: { select: { code: true } },
               },
             },
           },
@@ -84,7 +84,19 @@ export async function GET(
       );
     }
 
-    return NextResponse.json({ user });
+    // projectCode フィールドを維持（互換性のため）
+    const userWithCode = {
+      ...user,
+      displayPermissions: user.displayPermissions.map((dp) => ({
+        ...dp,
+        displayView: {
+          ...dp.displayView,
+          projectCode: dp.displayView.project.code,
+        },
+      })),
+    };
+
+    return NextResponse.json({ user: userWithCode });
   } catch (error) {
     console.error("Error fetching user:", error);
     return NextResponse.json(

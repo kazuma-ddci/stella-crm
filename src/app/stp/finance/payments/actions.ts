@@ -2,12 +2,14 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { requireEdit } from "@/lib/auth";
 import {
   recalcTransactionStatus,
   recalcRecordPaymentStatus,
 } from "@/lib/finance/payment-matching";
 
 export async function addPaymentTransaction(data: Record<string, unknown>) {
+  await requireEdit("stp");
   await prisma.stpPaymentTransaction.create({
     data: {
       direction: data.direction as string,
@@ -33,6 +35,7 @@ export async function updatePaymentTransaction(
   id: number,
   data: Record<string, unknown>
 ) {
+  await requireEdit("stp");
   const updateData: Record<string, unknown> = {};
   if ("direction" in data) updateData.direction = data.direction as string;
   if ("transactionDate" in data)
@@ -70,6 +73,7 @@ export async function updatePaymentTransaction(
 }
 
 export async function deletePaymentTransaction(id: number) {
+  await requireEdit("stp");
   await prisma.stpPaymentTransaction.update({
     where: { id },
     data: { deletedAt: new Date() },
@@ -88,6 +92,7 @@ export async function allocatePayment(
     note?: string;
   }>
 ) {
+  await requireEdit("stp");
   await prisma.$transaction(async (tx) => {
     for (const alloc of allocations) {
       await tx.stpPaymentAllocation.create({
@@ -118,6 +123,7 @@ export async function allocatePayment(
 }
 
 export async function removeAllocation(allocationId: number) {
+  await requireEdit("stp");
   const alloc = await prisma.stpPaymentAllocation.findUnique({
     where: { id: allocationId },
   });

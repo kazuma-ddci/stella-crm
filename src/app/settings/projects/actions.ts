@@ -28,16 +28,19 @@ export async function addProject(data: Record<string, unknown>) {
   });
 
   // Stella管理者権限を持つスタッフに新プロジェクトのadmin権限を自動付与
-  const stellaAdmins = await prisma.staffPermission.findMany({
-    where: { projectCode: "stella", permissionLevel: "admin" },
-    select: { staffId: true },
-  });
+  const stellaProject = await prisma.masterProject.findUnique({ where: { code: "stella" } });
+  const stellaAdmins = stellaProject
+    ? await prisma.staffPermission.findMany({
+        where: { projectId: stellaProject.id, permissionLevel: "admin" },
+        select: { staffId: true },
+      })
+    : [];
 
   if (stellaAdmins.length > 0) {
     await prisma.staffPermission.createMany({
       data: stellaAdmins.map((sa) => ({
         staffId: sa.staffId,
-        projectCode: newProject.code,
+        projectId: newProject.id,
         permissionLevel: "admin",
       })),
       skipDuplicates: true,
@@ -52,10 +55,6 @@ export async function updateProject(id: number, data: Record<string, unknown>) {
   await requireMasterDataEditPermission();
   const newCode = (data.code as string).toLowerCase();
 
-  // 現在のコードを取得（コード変更時に関連テーブルも更新するため）
-  const current = await prisma.masterProject.findUnique({ where: { id } });
-  const oldCode = current?.code;
-
   await prisma.masterProject.update({
     where: { id },
     data: {
@@ -68,24 +67,6 @@ export async function updateProject(id: number, data: Record<string, unknown>) {
         : null,
     },
   });
-
-  // コードが変更された場合、projectCodeを文字列参照しているテーブルも更新
-  if (oldCode && oldCode !== newCode) {
-    await Promise.all([
-      prisma.staffPermission.updateMany({
-        where: { projectCode: oldCode },
-        data: { projectCode: newCode },
-      }),
-      prisma.displayView.updateMany({
-        where: { projectCode: oldCode },
-        data: { projectCode: newCode },
-      }),
-      prisma.accountingReconciliation.updateMany({
-        where: { projectCode: oldCode },
-        data: { projectCode: newCode },
-      }),
-    ]);
-  }
 
   revalidatePath("/settings/projects");
 }

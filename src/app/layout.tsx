@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/layout/sidebar";
-import { Header } from "@/components/layout/header";
 import { Toaster } from "@/components/ui/sonner";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { auth } from "@/auth";
+import { PermissionGuard } from "@/components/auth/permission-guard";
+import { AuthenticatedLayout } from "@/components/layout/authenticated-layout";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -35,19 +35,14 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <SessionProvider>
+        <SessionProvider refetchInterval={30}>
+          <PermissionGuard />
           {user ? (
-            <div className="flex h-screen">
-              <Sidebar user={user} />
-              <div className="flex flex-1 flex-col overflow-hidden">
-                <Header user={user} />
-                <main className="flex-1 overflow-auto bg-gray-50 p-6">
-                  {children}
-                </main>
-              </div>
-            </div>
+            <AuthenticatedLayout serverUser={user}>
+              {children}
+            </AuthenticatedLayout>
           ) : (
-            <main>{children}</main>
+            <main className="min-h-screen bg-gray-100">{children}</main>
           )}
           <Toaster />
         </SessionProvider>

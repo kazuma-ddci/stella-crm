@@ -59,7 +59,7 @@ export async function GET() {
                 id: true,
                 viewKey: true,
                 viewName: true,
-                projectCode: true,
+                project: { select: { code: true } },
                 description: true,
               },
             },
@@ -69,7 +69,19 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json({ tokens });
+    // projectCode フィールドを維持（互換性のため）
+    const tokensWithCode = tokens.map((t) => ({
+      ...t,
+      defaultViews: t.defaultViews.map((dv) => ({
+        ...dv,
+        displayView: {
+          ...dv.displayView,
+          projectCode: dv.displayView.project.code,
+        },
+      })),
+    }));
+
+    return NextResponse.json({ tokens: tokensWithCode });
   } catch (error) {
     console.error("Error fetching registration tokens:", error);
     return NextResponse.json(

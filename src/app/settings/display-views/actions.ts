@@ -13,7 +13,7 @@ export async function addDisplayView(data: Record<string, unknown>) {
     data: {
       viewKey,
       viewName: data.viewName as string,
-      projectCode: data.projectCode as string,
+      projectId: Number(data.projectId),
       description: (data.description as string) || null,
       isActive: data.isActive === true || data.isActive === "true",
     },
@@ -28,7 +28,7 @@ export async function updateDisplayView(id: number, data: Record<string, unknown
     data: {
       // viewKey は変更不可（外部ユーザー権限等が参照しているため）
       viewName: data.viewName as string,
-      projectCode: data.projectCode as string,
+      projectId: Number(data.projectId),
       description: (data.description as string) || null,
       isActive: data.isActive === true || data.isActive === "true",
     },

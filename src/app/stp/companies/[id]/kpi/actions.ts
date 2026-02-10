@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { requireEdit } from "@/lib/auth";
 import { randomBytes } from "crypto";
 
 // KPIシート一覧を取得
@@ -62,6 +63,7 @@ export async function getKpiSheets(stpCompanyId: number) {
 
 // KPIシートを作成
 export async function createKpiSheet(stpCompanyId: number, name: string) {
+  await requireEdit("stp");
   const sheet = await prisma.stpKpiSheet.create({
     data: {
       stpCompanyId,
@@ -76,6 +78,7 @@ export async function createKpiSheet(stpCompanyId: number, name: string) {
 
 // KPIシートを削除
 export async function deleteKpiSheet(sheetId: number) {
+  await requireEdit("stp");
   const sheet = await prisma.stpKpiSheet.findUnique({
     where: { id: sheetId },
     select: { stpCompanyId: true },
@@ -94,6 +97,7 @@ export async function deleteKpiSheet(sheetId: number) {
 
 // KPIシート名を更新
 export async function updateKpiSheetName(sheetId: number, name: string) {
+  await requireEdit("stp");
   const sheet = await prisma.stpKpiSheet.update({
     where: { id: sheetId },
     data: { name },
@@ -109,6 +113,7 @@ export async function addWeeklyData(
   startDate: string,
   endDate: string
 ) {
+  await requireEdit("stp");
   const sheet = await prisma.stpKpiSheet.findUnique({
     where: { id: sheetId },
     select: { stpCompanyId: true },
@@ -134,6 +139,7 @@ export async function updateWeekStartDate(
   weeklyDataId: number,
   startDate: string
 ) {
+  await requireEdit("stp");
   const weeklyData = await prisma.stpKpiWeeklyData.findUnique({
     where: { id: weeklyDataId },
     include: {
@@ -165,6 +171,7 @@ export async function updateWeekStartDate(
 
 // 週データを削除
 export async function deleteWeeklyData(weeklyDataId: number) {
+  await requireEdit("stp");
   const weeklyData = await prisma.stpKpiWeeklyData.findUnique({
     where: { id: weeklyDataId },
     include: {
@@ -191,6 +198,7 @@ export async function updateKpiCell(
   field: string,
   value: number | null
 ) {
+  await requireEdit("stp");
   // フィールド名のバリデーション
   const allowedFields = [
     "targetImpressions",
@@ -245,6 +253,7 @@ export async function createShareLink(
   sheetId: number,
   expiresInHours: number = 1
 ) {
+  await requireEdit("stp");
   const sheet = await prisma.stpKpiSheet.findUnique({
     where: { id: sheetId },
     select: { stpCompanyId: true },
@@ -276,6 +285,7 @@ export async function createShareLink(
 
 // 共有リンクを削除
 export async function deleteShareLink(linkId: number) {
+  await requireEdit("stp");
   const link = await prisma.stpKpiShareLink.findUnique({
     where: { id: linkId },
     include: {

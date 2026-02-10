@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { requireEdit } from "@/lib/auth";
 import { generateInvoiceNumber } from "@/lib/finance/invoice-number";
 import {
   calcInvoiceTaxSummary,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/finance/invoice-tax";
 
 export async function addInvoice(data: Record<string, unknown>) {
+  await requireEdit("stp");
   // outgoing（発行）の場合のみ請求書番号を自動採番
   let invoiceNumber = (data.invoiceNumber as string) || null;
   const direction = (data.direction as string) || "outgoing";
@@ -41,6 +43,7 @@ export async function updateInvoice(
   id: number,
   data: Record<string, unknown>
 ) {
+  await requireEdit("stp");
   const updateData: Record<string, unknown> = {};
 
   if ("direction" in data) updateData.direction = data.direction as string;
@@ -81,6 +84,7 @@ export async function updateInvoice(
 }
 
 export async function deleteInvoice(id: number) {
+  await requireEdit("stp");
   // 紐づくレコードのinvoiceIdもクリア
   await prisma.stpRevenueRecord.updateMany({
     where: { invoiceId: id },
@@ -102,6 +106,7 @@ export async function deleteInvoice(id: number) {
 
 // 赤伝（クレジットノート）生成
 export async function createCreditNote(originalInvoiceId: number) {
+  await requireEdit("stp");
   const original = await prisma.stpInvoice.findUnique({
     where: { id: originalInvoiceId },
     include: { lineItems: true },
@@ -149,6 +154,7 @@ export async function createCreditNote(originalInvoiceId: number) {
 
 // 明細行から税率ごとの合計を再計算
 export async function recalcInvoiceTotals(invoiceId: number) {
+  await requireEdit("stp");
   const lineItems = await prisma.stpInvoiceLineItem.findMany({
     where: { invoiceId },
   });

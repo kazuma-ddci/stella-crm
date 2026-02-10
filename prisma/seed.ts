@@ -91,9 +91,9 @@ async function clearDatabase() {
   await prisma.staffPermission.deleteMany();
   await prisma.masterStaff.deleteMany();
   await prisma.customerType.deleteMany();
+  await prisma.displayView.deleteMany();
   await prisma.masterProject.deleteMany();
   await prisma.masterContractStatus.deleteMany();
-  await prisma.displayView.deleteMany();
   await prisma.stpStage.deleteMany();
   await prisma.contactMethod.deleteMany();
   await prisma.stpLeadSource.deleteMany();
@@ -194,9 +194,10 @@ async function main() {
       { id: 1, code: 'stp', name: 'STP', description: '採用支援サービスの商談・契約管理', displayOrder: 1 },
       { id: 2, code: 'srd', name: 'SRD', description: 'システム受託開発プロジェクト管理', displayOrder: 2 },
       { id: 3, code: 'slo', name: 'SLO', description: '公的財団関連プロジェクト管理', displayOrder: 3 },
+      { id: 4, code: 'stella', name: 'Stella', description: '全顧客マスタ管理', displayOrder: 0 },
     ],
   });
-  console.log('✓ Projects (3): STP, SRD, SLO');
+  console.log('✓ Projects (4): STP, SRD, SLO, Stella');
 
   // 契約書ステータスマスタ
   await prisma.masterContractStatus.createMany({
@@ -213,12 +214,12 @@ async function main() {
   });
   console.log('✓ Contract statuses (8)');
 
-  // 表示ビュー
+  // 表示ビュー（projectId: stp=1, srd=2）
   await prisma.displayView.createMany({
     data: [
-      { id: 1, viewKey: 'stp_client', viewName: '採用ブースト（クライアント版）', projectCode: 'stp', description: 'クライアント企業向け採用ブーストデータ閲覧画面' },
-      { id: 2, viewKey: 'stp_agent', viewName: '採用ブースト（紹介者版）', projectCode: 'stp', description: '紹介者向け採用ブーストデータ閲覧画面' },
-      { id: 3, viewKey: 'srd_agent', viewName: '開発（紹介者版）', projectCode: 'srd', description: '紹介者向け開発データ閲覧画面' },
+      { id: 1, viewKey: 'stp_client', viewName: '採用ブースト（クライアント版）', projectId: 1, description: 'クライアント企業向け採用ブーストデータ閲覧画面' },
+      { id: 2, viewKey: 'stp_agent', viewName: '採用ブースト（紹介者版）', projectId: 1, description: '紹介者向け採用ブーストデータ閲覧画面' },
+      { id: 3, viewKey: 'srd_agent', viewName: '開発（紹介者版）', projectId: 2, description: '紹介者向け開発データ閲覧画面' },
     ],
   });
   console.log('✓ Display views (3)');
@@ -263,38 +264,38 @@ async function main() {
   });
   console.log('✓ Staff (13)');
 
-  // スタッフ権限
+  // スタッフ権限（projectId: stp=1, srd=2, slo=3, stella=4）
   await prisma.staffPermission.createMany({
     data: [
-      { staffId: 1, projectCode: 'stp', permissionLevel: 'edit' },
-      { staffId: 1, projectCode: 'srd', permissionLevel: 'view' },
-      { staffId: 2, projectCode: 'stp', permissionLevel: 'edit' },
-      { staffId: 3, projectCode: 'stp', permissionLevel: 'view' },
-      { staffId: 3, projectCode: 'srd', permissionLevel: 'edit' },
-      { staffId: 4, projectCode: 'stp', permissionLevel: 'edit' },
-      { staffId: 4, projectCode: 'slo', permissionLevel: 'view' },
-      { staffId: 5, projectCode: 'stp', permissionLevel: 'edit' },
-      { staffId: 5, projectCode: 'srd', permissionLevel: 'edit' },
-      { staffId: 6, projectCode: 'stp', permissionLevel: 'view' },
-      { staffId: 6, projectCode: 'slo', permissionLevel: 'edit' },
-      { staffId: 7, projectCode: 'stp', permissionLevel: 'edit' },
-      { staffId: 8, projectCode: 'srd', permissionLevel: 'edit' },
-      { staffId: 8, projectCode: 'slo', permissionLevel: 'view' },
-      { staffId: 9, projectCode: 'stp', permissionLevel: 'edit' },
-      { staffId: 10, projectCode: 'stella', permissionLevel: 'admin' },
-      { staffId: 10, projectCode: 'stp', permissionLevel: 'admin' },
-      { staffId: 10, projectCode: 'srd', permissionLevel: 'admin' },
-      { staffId: 10, projectCode: 'slo', permissionLevel: 'admin' },
+      { staffId: 1, projectId: 1, permissionLevel: 'edit' },
+      { staffId: 1, projectId: 2, permissionLevel: 'view' },
+      { staffId: 2, projectId: 1, permissionLevel: 'edit' },
+      { staffId: 3, projectId: 1, permissionLevel: 'view' },
+      { staffId: 3, projectId: 2, permissionLevel: 'edit' },
+      { staffId: 4, projectId: 1, permissionLevel: 'edit' },
+      { staffId: 4, projectId: 3, permissionLevel: 'view' },
+      { staffId: 5, projectId: 1, permissionLevel: 'edit' },
+      { staffId: 5, projectId: 2, permissionLevel: 'edit' },
+      { staffId: 6, projectId: 1, permissionLevel: 'view' },
+      { staffId: 6, projectId: 3, permissionLevel: 'edit' },
+      { staffId: 7, projectId: 1, permissionLevel: 'edit' },
+      { staffId: 8, projectId: 2, permissionLevel: 'edit' },
+      { staffId: 8, projectId: 3, permissionLevel: 'view' },
+      { staffId: 9, projectId: 1, permissionLevel: 'edit' },
+      { staffId: 10, projectId: 4, permissionLevel: 'admin' },
+      { staffId: 10, projectId: 1, permissionLevel: 'admin' },
+      { staffId: 10, projectId: 2, permissionLevel: 'admin' },
+      { staffId: 10, projectId: 3, permissionLevel: 'admin' },
       // システム管理者（admin）
-      { staffId: 11, projectCode: 'stella', permissionLevel: 'admin' },
-      { staffId: 11, projectCode: 'stp', permissionLevel: 'admin' },
-      { staffId: 11, projectCode: 'srd', permissionLevel: 'admin' },
-      { staffId: 11, projectCode: 'slo', permissionLevel: 'admin' },
+      { staffId: 11, projectId: 4, permissionLevel: 'admin' },
+      { staffId: 11, projectId: 1, permissionLevel: 'admin' },
+      { staffId: 11, projectId: 2, permissionLevel: 'admin' },
+      { staffId: 11, projectId: 3, permissionLevel: 'admin' },
       // テストユーザー（test_user）
-      { staffId: 12, projectCode: 'stella', permissionLevel: 'admin' },
-      { staffId: 12, projectCode: 'stp', permissionLevel: 'admin' },
-      { staffId: 12, projectCode: 'srd', permissionLevel: 'admin' },
-      { staffId: 12, projectCode: 'slo', permissionLevel: 'admin' },
+      { staffId: 12, projectId: 4, permissionLevel: 'admin' },
+      { staffId: 12, projectId: 1, permissionLevel: 'admin' },
+      { staffId: 12, projectId: 2, permissionLevel: 'admin' },
+      { staffId: 12, projectId: 3, permissionLevel: 'admin' },
       // 固定データ管理者（stella001）: プロジェクト権限なし（canEditMasterDataのみ）
     ],
   });
@@ -1236,7 +1237,7 @@ async function main() {
   // ============================================
 
   console.log('\n=== Seed Summary ===');
-  console.log('Projects: 3 (STP, SRD, SLO)');
+  console.log('Projects: 4 (STP, SRD, SLO, Stella)');
   console.log('Staff: 13 members (10 test + 3 system admin)');
   console.log('Companies: 100 (1-80: STP clients, 81-100: agents)');
   console.log('Locations: ~200, Contacts: ~200');

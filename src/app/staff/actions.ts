@@ -40,24 +40,36 @@ async function getEditableProjectCodes(): Promise<string[]> {
 
 /**
  * Stella権限（固定）+ プロジェクト権限（perm_xxx キーから動的取得）を構築
+ * projectCode → projectId の変換を行う
  */
-function buildPermissions(
+async function buildPermissions(
   staffId: number,
   data: Record<string, unknown>,
   stellaPermission: string
 ) {
-  const permissions: { staffId: number; projectCode: string; permissionLevel: string }[] = [];
+  const permissions: { staffId: number; projectId: number; permissionLevel: string }[] = [];
+
+  // プロジェクトコード → ID のマッピングを取得
+  const allProjects = await prisma.masterProject.findMany({
+    select: { id: true, code: true },
+  });
+  const codeToId = new Map(allProjects.map((p) => [p.code, p.id]));
 
   // Stella権限（固定）
-  if (stellaPermission && stellaPermission !== "none") {
-    permissions.push({ staffId, projectCode: "stella", permissionLevel: stellaPermission });
+  const stellaId = codeToId.get("stella");
+  if (stellaPermission && stellaPermission !== "none" && stellaId) {
+    permissions.push({ staffId, projectId: stellaId, permissionLevel: stellaPermission });
   }
 
-  // プロジェクト権限（perm_xxx キーから動的取得）
+  // プロジェクト権限（perm_xxx キーから動的取得、stellaは上で処理済みなのでスキップ）
   for (const [key, value] of Object.entries(data)) {
     if (key.startsWith(PERM_PREFIX) && typeof value === "string" && value !== "none") {
       const projectCode = key.slice(PERM_PREFIX.length);
-      permissions.push({ staffId, projectCode, permissionLevel: value });
+      if (projectCode === "stella") continue;
+      const projectId = codeToId.get(projectCode);
+      if (projectId) {
+        permissions.push({ staffId, projectId, permissionLevel: value });
+      }
     }
   }
 
@@ -104,10 +116,14 @@ export async function addStaff(data: Record<string, unknown>) {
 
   // 権限を設定（編集可能なプロジェクトのみ）
   if (editableCodes.length > 0) {
-    const allPermissions = buildPermissions(staff.id, data, stellaPermission);
-    const permissionsToCreate = allPermissions.filter((p) =>
-      editableCodes.includes(p.projectCode)
-    );
+    const allPermissions = await buildPermissions(staff.id, data, stellaPermission);
+    // editableCodes は projectCode ベースなので、projectId→code の逆引きが必要
+    const allProjects = await prisma.masterProject.findMany({ select: { id: true, code: true } });
+    const idToCode = new Map(allProjects.map((p) => [p.id, p.code]));
+    const permissionsToCreate = allPermissions.filter((p) => {
+      const code = idToCode.get(p.projectId);
+      return code && editableCodes.includes(code);
+    });
     if (permissionsToCreate.length > 0) {
       await prisma.staffPermission.createMany({
         data: permissionsToCreate,
@@ -167,16 +183,25 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
 
   // 権限を更新（編集可能なプロジェクトのみ変更、それ以外は保持）
   if (editableCodes.length > 0) {
+    // editableCodes → editableProjectIds に変換
+    const allProjects = await prisma.masterProject.findMany({ select: { id: true, code: true } });
+    const codeToId = new Map(allProjects.map((p) => [p.code, p.id]));
+    const idToCode = new Map(allProjects.map((p) => [p.id, p.code]));
+    const editableProjectIds = editableCodes
+      .map((c) => codeToId.get(c))
+      .filter((id): id is number => id !== undefined);
+
     // 編集可能なプロジェクトの権限のみ削除
     await prisma.staffPermission.deleteMany({
-      where: { staffId: id, projectCode: { in: editableCodes } },
+      where: { staffId: id, projectId: { in: editableProjectIds } },
     });
 
     // 編集可能なプロジェクトの権限のみ作成
-    const allPermissions = buildPermissions(id, data, stellaPermission);
-    const permissionsToCreate = allPermissions.filter((p) =>
-      editableCodes.includes(p.projectCode)
-    );
+    const allPermissions = await buildPermissions(id, data, stellaPermission);
+    const permissionsToCreate = allPermissions.filter((p) => {
+      const code = idToCode.get(p.projectId);
+      return code && editableCodes.includes(code);
+    });
     if (permissionsToCreate.length > 0) {
       await prisma.staffPermission.createMany({
         data: permissionsToCreate,

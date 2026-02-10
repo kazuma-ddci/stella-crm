@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireEdit } from "@/lib/auth";
 
 export async function addStageHistory(data: Record<string, unknown>) {
+  await requireEdit("stp");
   await prisma.stpStageHistory.create({
     data: {
       stpCompanyId: Number(data.stpCompanyId),
@@ -20,6 +22,7 @@ export async function addStageHistory(data: Record<string, unknown>) {
 }
 
 export async function updateStageHistory(id: number, data: Record<string, unknown>) {
+  await requireEdit("stp");
   await prisma.stpStageHistory.update({
     where: { id },
     data: {
@@ -37,6 +40,7 @@ export async function updateStageHistory(id: number, data: Record<string, unknow
 }
 
 export async function deleteStageHistory(id: number) {
+  await requireEdit("stp");
   await prisma.stpStageHistory.delete({
     where: { id },
   });

@@ -70,14 +70,21 @@ async function main() {
     const adminUser = await prisma.masterStaff.findUnique({ where: { loginId: 'admin' } });
     const testUser = await prisma.masterStaff.findUnique({ where: { loginId: 'test_user' } });
 
+    // プロジェクトIDを動的に取得
+    const allProjects = await prisma.masterProject.findMany({ select: { id: true, code: true } });
+    const codeToId = new Map(allProjects.map((p) => [p.code, p.id]));
+
     if (adminUser && testUser) {
       const permissionData = [];
       for (const staffId of [adminUser.id, testUser.id]) {
         for (const projectCode of ['stella', 'stp', 'srd', 'slo']) {
-          permissionData.push({ staffId, projectCode, permissionLevel: 'admin' });
+          const projectId = codeToId.get(projectCode);
+          if (projectId) {
+            permissionData.push({ staffId, projectId, permissionLevel: 'admin' });
+          }
         }
       }
-      await prisma.staffPermission.createMany({ data: permissionData });
+      await prisma.staffPermission.createMany({ data: permissionData, skipDuplicates: true });
     }
 
     console.log('✓ システムユーザー 3名 + 権限');

@@ -50,7 +50,7 @@ export async function GET() {
                 id: true,
                 viewKey: true,
                 viewName: true,
-                projectCode: true,
+                project: { select: { code: true } },
               },
             },
           },
@@ -64,38 +64,48 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
+    // projectCode フィールドを維持（互換性のため）
+    const usersWithCode = users.map((u) => ({
+      ...u,
+      displayPermissions: u.displayPermissions.map((dp) => ({
+        ...dp,
+        displayView: {
+          ...dp.displayView,
+          projectCode: dp.displayView.project.code,
+        },
+      })),
+    }));
+
     // 表示ビュー一覧を取得
     const views = await prisma.displayView.findMany({
       where: { isActive: true },
-      orderBy: [{ projectCode: "asc" }, { viewKey: "asc" }],
+      include: { project: { select: { id: true, code: true, name: true } } },
+      orderBy: { id: "asc" },
     });
 
-    // プロジェクト情報を構築
-    const uniqueProjectCodes = [...new Set(views.map((v) => v.projectCode))];
-    const projects = await prisma.masterProject.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: "asc" },
-    });
+    const viewsWithCode = views.map((v) => ({
+      ...v,
+      projectCode: v.project.code,
+    }));
 
-    const projectsWithViews = uniqueProjectCodes.map((code) => {
-      const project = projects.find((p) => {
-        const codeMap: Record<string, string> = {
-          stp: "採用ブースト",
-          stella: "Stella",
-        };
-        return p.name === codeMap[code] || p.name.toLowerCase().includes(code);
-      });
-
+    // プロジェクトごとにビューをグループ化
+    const uniqueProjectIds = [...new Set(views.map((v) => v.projectId))];
+    const projectsWithViews = uniqueProjectIds.map((projectId) => {
+      const projectViews = views.filter((v) => v.projectId === projectId);
+      const project = projectViews[0].project;
       return {
-        code,
-        name: project?.name || code.toUpperCase(),
-        views: views.filter((v) => v.projectCode === code),
+        code: project.code,
+        name: project.name,
+        views: projectViews.map((v) => ({
+          ...v,
+          projectCode: v.project.code,
+        })),
       };
     });
 
     return NextResponse.json({
-      users,
-      views,
+      users: usersWithCode,
+      views: viewsWithCode,
       projects: projectsWithViews,
     });
   } catch (error) {

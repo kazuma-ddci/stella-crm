@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
+import { requireEdit } from "@/lib/auth";
 import { generateContractNumber } from "@/lib/contracts/generate-number";
 import { recordContractCreation } from "./status-management/actions";
 import { recordStatusChangeIfNeeded } from "@/lib/contract-status/record-status-change";
@@ -10,6 +11,7 @@ import { recordStatusChangeIfNeeded } from "@/lib/contract-status/record-status-
 const STP_PROJECT_ID = 1;
 
 export async function addContract(data: Record<string, unknown>) {
+  await requireEdit("stp");
   // 契約番号を自動生成
   const contractNumber = await generateContractNumber();
 
@@ -44,6 +46,7 @@ export async function addContract(data: Record<string, unknown>) {
 }
 
 export async function updateContract(id: number, data: Record<string, unknown>) {
+  await requireEdit("stp");
   const newStatusId = data.currentStatusId ? Number(data.currentStatusId) : null;
 
   // セッションからユーザー名を取得
@@ -94,6 +97,7 @@ export async function updateContract(id: number, data: Record<string, unknown>) 
 }
 
 export async function deleteContract(id: number) {
+  await requireEdit("stp");
   await prisma.masterContract.delete({
     where: { id },
   });

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireEdit } from "@/lib/auth";
 import { detectInitialEvents } from "@/lib/stage-transition/event-detector";
 import { validateInitialStage } from "@/lib/stage-transition/alert-validator";
 import { StageInfo, StageType } from "@/lib/stage-transition/types";
@@ -16,6 +17,7 @@ function toCommaSeparatedString(value: unknown): string | null {
 }
 
 export async function addStpCompany(data: Record<string, unknown>) {
+  await requireEdit("stp");
   const currentStageId = data.currentStageId ? Number(data.currentStageId) : null;
   const nextTargetStageId = data.nextTargetStageId ? Number(data.nextTargetStageId) : null;
   const nextTargetDate = data.nextTargetDate ? new Date(data.nextTargetDate as string) : null;
@@ -117,6 +119,7 @@ export async function addStpCompany(data: Record<string, unknown>) {
 }
 
 export async function updateStpCompany(id: number, data: Record<string, unknown>) {
+  await requireEdit("stp");
   // 更新データを動的に構築（渡されたフィールドのみを更新）
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const updateData: Record<string, any> = {};
@@ -250,6 +253,7 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
 }
 
 export async function deleteStpCompany(id: number) {
+  await requireEdit("stp");
   await prisma.stpCompany.delete({
     where: { id },
   });
