@@ -5,7 +5,7 @@ import { CandidatesTable } from "./candidates-table";
 type ContractMatchStatus = "ok" | "no_contract" | "multiple_contracts" | "incomplete";
 
 export default async function CandidatesPage() {
-  const [candidates, stpCompanies] = await Promise.all([
+  const [candidates, stpCompanies, contractHistories] = await Promise.all([
     prisma.stpCandidate.findMany({
       include: {
         stpCompany: {
@@ -20,7 +20,18 @@ export default async function CandidatesPage() {
       include: {
         company: true,
       },
-      orderBy: { id: "asc" },
+      orderBy: { company: { id: "desc" } },
+    }),
+    prisma.stpContractHistory.findMany({
+      where: {
+        status: "active",
+        deletedAt: null,
+      },
+      select: {
+        companyId: true,
+        industryType: true,
+        jobMedia: true,
+      },
     }),
   ]);
 
@@ -29,6 +40,28 @@ export default async function CandidatesPage() {
     value: String(sc.id),
     label: `${sc.company.companyCode} ${sc.company.name}`,
   }));
+
+  // stpCompanyId → companyId のマッピング
+  const stpToCompanyMap: Record<string, number> = {};
+  for (const sc of stpCompanies) {
+    stpToCompanyMap[String(sc.id)] = sc.companyId;
+  }
+
+  // 契約オプションをstpCompanyId単位で構築
+  const contractOptionsByStpCompany: Record<string, { industryType: string; jobMedia: string | null }[]> = {};
+  for (const sc of stpCompanies) {
+    const companyContracts = contractHistories.filter((ch) => ch.companyId === sc.companyId);
+    const seen = new Set<string>();
+    const options: { industryType: string; jobMedia: string | null }[] = [];
+    for (const ch of companyContracts) {
+      const key = `${ch.industryType}::${ch.jobMedia ?? ""}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        options.push({ industryType: ch.industryType, jobMedia: ch.jobMedia });
+      }
+    }
+    contractOptionsByStpCompany[String(sc.id)] = options;
+  }
 
   // 日付をフォーマットするヘルパー
   const formatDate = (date: Date | null): string | null => {
@@ -86,14 +119,17 @@ export default async function CandidatesPage() {
         selectionStatus: c.selectionStatus,
         offerDate: formatDate(c.offerDate),
         joinDate: formatDate(c.joinDate),
+        sendDate: formatDate(c.sendDate),
+        joinConfirmed: c.joinDate !== null,
         industryType: c.industryType,
         jobMedia: c.jobMedia,
         note: c.note,
-        stpCompanyId: c.stpCompanyId ? String(c.stpCompanyId) : null,
+        stpCompanyId: String(c.stpCompanyId),
         stpCompanyCode: c.stpCompany?.company?.companyCode || null,
         stpCompanyDisplay: c.stpCompany?.company?.name || null,
         contractMatchStatus,
         contractMatchCount,
+        deletedAt: c.deletedAt?.toISOString() || null,
       };
     })
   );
@@ -109,6 +145,7 @@ export default async function CandidatesPage() {
           <CandidatesTable
             data={data}
             stpCompanyOptions={stpCompanyOptions}
+            contractOptionsByStpCompany={contractOptionsByStpCompany}
           />
         </CardContent>
       </Card>

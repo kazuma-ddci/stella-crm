@@ -135,3 +135,30 @@ export function validateCorporateNumber(input: string | null | undefined): {
 
   return { valid: true, normalized };
 }
+
+/**
+ * 単語境界を考慮した検索マッチング。
+ * 検索語が数字で終わる場合、直後の文字も数字ならマッチしない。
+ * 例: "SC-1" → "SC-1 株式会社テスト" ✅ / "SC-10 株式会社ABC" ❌
+ * 日本語名や非コード検索は従来通り部分一致でマッチ。
+ */
+export function matchesWithWordBoundary(text: string, search: string): boolean {
+  const s = search.toLowerCase().trim();
+  if (!s) return true;
+  const v = text.toLowerCase();
+  const tokens = v.split(/\s+/);
+
+  for (const token of tokens) {
+    if (token === s) return true;
+    if (token.includes(s)) {
+      const idx = token.indexOf(s);
+      const afterMatch = token[idx + s.length];
+      // 検索語が数字で終わり、直後も数字 → マッチしない（SC-1 → SC-10 防止）
+      if (afterMatch && /\d$/.test(s) && /\d/.test(afterMatch)) {
+        continue;
+      }
+      return true;
+    }
+  }
+  return false;
+}

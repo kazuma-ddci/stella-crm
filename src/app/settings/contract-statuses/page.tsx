@@ -2,11 +2,11 @@ import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ContractStatusesTable } from "./contract-statuses-table";
 import { auth } from "@/auth";
+import { canEditMasterDataSync } from "@/lib/auth/master-data-permission";
 
 export default async function ContractStatusesPage() {
   const session = await auth();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const canEditMasterData = (session?.user as any)?.canEditMasterData === true;
+  const canEditMasterData = canEditMasterDataSync(session?.user);
 
   const contractStatuses = await prisma.masterContractStatus.findMany({
     orderBy: { displayOrder: "asc" },

@@ -14,12 +14,21 @@ interface AuthenticatedLayoutProps {
  * クライアント側のセッション状態に基づいてサイドバー/ヘッダーの表示を制御。
  * signOut()でセッションがクリアされた時（権限変更やログアウト）に
  * サイドバーを非表示にする。
+ * 外部ユーザーの場合はサイドバー/ヘッダーを表示しない。
  */
 export function AuthenticatedLayout({
   serverUser,
   children,
 }: AuthenticatedLayoutProps) {
   const { status } = useSession();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userType = (serverUser as any)?.userType;
+
+  // 外部ユーザーはサイドバー/ヘッダーなしのシンプルレイアウト
+  if (userType === "external") {
+    return <>{children}</>;
+  }
 
   // status === "loading": 初回ロード中はサーバー側の判定を使う
   // status === "authenticated": セッション有効 → サイドバー表示

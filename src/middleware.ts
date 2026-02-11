@@ -30,7 +30,7 @@ const STAFF_ONLY_PATHS = [
 // 外部ユーザー専用パス
 const EXTERNAL_ONLY_PATHS = ["/portal"];
 
-// 固定データ編集パス（stella001専用）
+// 固定データ編集パス（stella001 + admin権限ユーザー）
 const MASTER_DATA_PATHS = [
   "/settings/operating-companies",
   "/settings/projects",
@@ -166,6 +166,11 @@ export default auth((request) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const canEditMasterData = (session.user as any).canEditMasterData === true;
 
+  // admin権限チェック（いずれかのプロジェクトでadmin）
+  const isAdmin = userPermissions.some(
+    (p: { permissionLevel: string }) => p.permissionLevel === "admin"
+  );
+
   // 固定データ管理者（stella001）: 固定データパスのみアクセス可能
   if (canEditMasterData) {
     if (isMasterDataPath(pathname)) {
@@ -175,8 +180,11 @@ export default auth((request) => {
     return NextResponse.redirect(new URL("/settings/projects", request.url));
   }
 
-  // 通常ユーザー: 固定データパスへのアクセスを禁止
+  // 固定データパスへのアクセス制御: admin権限があれば許可、それ以外は禁止
   if (isMasterDataPath(pathname)) {
+    if (isAdmin) {
+      return NextResponse.next();
+    }
     return NextResponse.redirect(new URL("/", request.url));
   }
 

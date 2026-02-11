@@ -20,7 +20,7 @@ export default async function LeadSubmissionsPage() {
       orderBy: { submittedAt: "desc" },
     }),
     prisma.masterStellaCompany.findMany({
-      orderBy: { companyCode: "desc" },
+      orderBy: { id: "desc" },
     }),
     // STPに登録済みの企業とその代理店情報を取得
     prisma.stpCompany.findMany({

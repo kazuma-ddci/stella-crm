@@ -192,6 +192,8 @@ stella-crm/
 
 # 外部ユーザー向けポータル
 /portal/stp/client                       → クライアント向けポータル
+/portal/stp/client/kpi                   → 運用KPIシート
+/portal/stp/client/candidates            → 求職者情報（CRUD）
 /portal/stp/agent                        → 代理店向けポータル
 
 # 公開フォーム

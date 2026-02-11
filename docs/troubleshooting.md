@@ -17,6 +17,10 @@
 9. [nullable数値フィールドの||演算子による誤判定](#nullable数値フィールドの演算子による誤判定)
 10. [Next.js MiddlewareのEdge RuntimeでPrismaが動作しない](#nextjs-middlewareのedge-runtimeでprismaが動作しない)
 11. [SessionProviderのrefetchIntervalとJWT callbackのタイミング競合](#sessionproviderのrefetchintervalとjwt-callbackのタイミング競合)
+12. [CrudTableのdynamicOptionsをuseStateで初期化すると選択肢が空になる](#crudtableのdynamicoptionsをusestateで初期化すると選択肢が空になる)
+13. [企業コード検索で部分一致が過剰にマッチする](#企業コード検索で部分一致が過剰にマッチする)
+14. [企業選択プルダウンのソート順が文字列順になる](#企業選択プルダウンのソート順が文字列順になる)
+15. [開発サーバー稼働中に next build を実行するとページが応答しなくなる](#開発サーバー稼働中に-next-build-を実行するとページが応答しなくなる)
 
 ---
 
@@ -681,3 +685,192 @@ if (now - checkedAt >= 10 * 1000) {
 
 - `src/auth.ts`（JWT callbackのチェック間隔）
 - `src/app/layout.tsx`（SessionProviderのrefetchInterval）
+
+---
+
+## CrudTableのdynamicOptionsをuseStateで初期化すると選択肢が空になる
+
+### 症状
+
+`dynamicOptions` を `useState({})` で管理し、ユーザー操作時に `setState` で更新する方式にすると、初期表示やフォールバック時に選択肢が空（「-」のみ）になる。
+
+### 原因
+
+CrudTableの `getInlineEditOptions` は `inlineEditConfig.getOptions` が空配列を返した場合、カラム定義の `dynamicOptionsKey` + `dynamicOptions` propにフォールバックする。`useState({})` で初期化した `dynamicOptions` は空マップなので、フォールバック先も空になる。
+
+### 解決方法
+
+`useState` をやめて `useMemo` で事前に全データ分の選択肢マップを構築する：
+
+```tsx
+// ❌ 間違い: stateで管理（初期値が空）
+const [dynamicOpts, setDynamicOpts] = useState({
+  industryTypeByCompany: {},
+  jobMediaByIndustryType: {},
+});
+
+// ✅ 正しい: useMemoで事前構築
+const dynamicOpts = useMemo(() => {
+  const industryTypeByCompany: Record<string, Option[]> = {};
+  const jobMediaByIndustryType: Record<string, Option[]> = {};
+  // ... contractOptionsByStpCompany からマップを構築 ...
+  return { industryTypeByCompany, jobMediaByIndustryType };
+}, [contractOptionsByStpCompany]);
+```
+
+### 関連ファイル
+
+- `src/components/crud-table.tsx`（`getInlineEditOptions` のフォールバック処理）
+- `src/app/stp/candidates/candidates-table.tsx`（修正対象）
+
+---
+
+## 企業コード検索で部分一致が過剰にマッチする
+
+> **2026-02-11 修正済み**
+
+### 症状
+
+- 企業選択プルダウンで「SC-1」と検索すると、SC-1だけでなくSC-10, SC-14, SC-100なども表示される
+- 適切なフィルタリングができず、目的の企業を選択しづらい
+
+### 原因
+
+`includes()` による単純な部分一致で検索しているため、「SC-1」が「SC-10」「SC-14」「SC-100」などの部分文字列としてマッチしてしまう。
+
+```typescript
+// ❌ 間違い: includes() で部分一致（SC-1 が SC-10 にもマッチ）
+options.filter(opt => opt.label.toLowerCase().includes(search.toLowerCase()))
+
+// cmdk のデフォルトフィルターも同様に部分一致
+<Command>  // shouldFilter 未指定 = cmdk デフォルト（部分一致）
+```
+
+### 解決方法
+
+`matchesWithWordBoundary()` 関数（`src/lib/utils.ts`）を使用する。検索語が数字で終わる場合、マッチ直後の文字も数字ならマッチしない。
+
+```typescript
+// ✅ 正しい: matchesWithWordBoundary() で境界考慮フィルタ
+import { matchesWithWordBoundary } from "@/lib/utils";
+
+// 手動フィルタの場合（shouldFilter={false}）
+options.filter(opt => matchesWithWordBoundary(opt.label, search))
+
+// cmdk の Command コンポーネントの場合
+<Command filter={(value, search) => matchesWithWordBoundary(value, search) ? 1 : 0}>
+```
+
+**マッチ結果の例:**
+
+| 検索語 | 対象 | マッチ | 理由 |
+|--------|------|--------|------|
+| SC-1 | SC-1 株式会社テスト | ✅ | 完全一致 |
+| SC-1 | SC-10 株式会社ABC | ❌ | 数字の後に数字が続く |
+| SC-1 | SC-100 株式会社DEF | ❌ | 数字の後に数字が続く |
+| テスト | SC-1 株式会社テスト | ✅ | 日本語は従来通り部分一致 |
+| SC | SC-1 株式会社テスト | ✅ | 数字で終わらないのでプレフィックスマッチ |
+
+### 関連ファイル
+
+- `src/lib/utils.ts`（`matchesWithWordBoundary` 関数）
+- `src/components/editable-cell.tsx`（Command の filter prop）
+- `src/components/crud-table.tsx`（Command の filter prop）
+- `src/components/ui/combobox.tsx`（手動フィルタ）
+- `src/components/company-search-combobox.tsx`（手動フィルタ）
+
+---
+
+## 企業選択プルダウンのソート順が文字列順になる
+
+> **2026-02-11 修正済み**
+
+### 症状
+
+- 企業選択プルダウンの表示順が SC-1, SC-10, SC-100, SC-2 のような文字列辞書順になる
+- 最新の企業を素早く選択できない
+
+### 原因
+
+Prismaクエリの `orderBy` が `{ companyCode: "desc" }` や `{ id: "asc" }` になっており、企業コードの文字列ソートまたはID昇順で取得していた。
+
+```typescript
+// ❌ 間違い: 文字列ソート（SC-1, SC-10, SC-100, SC-2 の順になる）
+prisma.masterStellaCompany.findMany({
+  orderBy: { companyCode: "desc" },
+})
+
+// ❌ 間違い: ID昇順（古い企業が上に来る）
+prisma.stpCompany.findMany({
+  orderBy: { id: "asc" },
+})
+```
+
+### 解決方法
+
+企業IDの降順（最新が上）でソートする。
+
+```typescript
+// ✅ 正しい: masterStellaCompany は ID降順
+prisma.masterStellaCompany.findMany({
+  orderBy: { id: "desc" },
+})
+
+// ✅ 正しい: stpCompany はリレーション先の企業ID降順
+prisma.stpCompany.findMany({
+  orderBy: { company: { id: "desc" } },
+})
+```
+
+### 関連ファイル
+
+- `src/app/stp/candidates/page.tsx`
+- `src/app/stp/companies/page.tsx`
+- `src/app/stp/contracts/page.tsx`
+- `src/app/stp/lead-submissions/page.tsx`
+- `src/app/stp/records/company-contacts/page.tsx`
+
+---
+
+## 開発サーバー稼働中に next build を実行するとページが応答しなくなる
+
+> **2026-02-11 確認済み**
+
+### 症状
+
+- `docker-compose exec app npx next build` を実行すると、ブラウザで localhost:3000 がずっとローディング中になる
+- ページが一切表示されず、リロードしても復帰しない
+
+### 原因
+
+開発サーバー（`next dev`）と本番ビルド（`next build`）は同じ `.next` フォルダに書き込む。両方を同時に実行すると、開発サーバーが使用中のファイルをビルドプロセスが上書きしてしまい、開発サーバーが応答不能になる。
+
+```
+next dev  →  .next/ を読み書きして動作中
+next build → .next/ を上書き ← 競合発生！
+→ 開発サーバーが参照先を失って応答不能に
+```
+
+### 解決方法
+
+コンテナを再起動すると、開発サーバーが `.next` フォルダを最初から作り直すため復旧する。
+
+```bash
+docker-compose restart app
+```
+
+### 予防策：ビルド確認には tsc --noEmit を使う
+
+コードの型チェック・コンパイルエラー確認には `next build` ではなく TypeScript コンパイラを使う。`.next` フォルダに触れないので開発サーバーに影響しない。
+
+```bash
+# ✅ 正しい: 型チェックのみ（開発サーバーに影響なし）
+docker-compose exec app npx tsc --noEmit
+
+# ❌ 間違い: next build（開発サーバーと競合する）
+docker-compose exec app npx next build
+```
+
+### 関連ファイル
+
+- `.next/`（開発サーバーとビルドの共有ディレクトリ）

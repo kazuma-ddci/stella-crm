@@ -30,7 +30,7 @@ export default async function StpCompaniesPage() {
         locations: { where: { deletedAt: null } },
         contacts: { where: { deletedAt: null } },
       },
-      orderBy: { companyCode: "desc" },
+      orderBy: { id: "desc" },
     }),
     prisma.stpStage.findMany({
       where: { isActive: true },

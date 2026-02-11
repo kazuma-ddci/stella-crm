@@ -17,7 +17,7 @@ export default async function StpContractsPage() {
       orderBy: { createdAt: "desc" },
     }),
     prisma.masterStellaCompany.findMany({
-      orderBy: { companyCode: "desc" },
+      orderBy: { id: "desc" },
     }),
     prisma.masterContractStatus.findMany({
       where: { isActive: true },

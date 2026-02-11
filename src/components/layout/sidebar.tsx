@@ -50,7 +50,7 @@ type NavItem = {
   adminOnly?: boolean;
 };
 
-// 固定データ設定のパス一覧（stella001専用）
+// 固定データ設定のパス一覧（stella001 + admin権限ユーザー）
 const MASTER_DATA_HREFS = new Set([
   "/settings/operating-companies",
   "/settings/projects",
@@ -63,7 +63,7 @@ const MASTER_DATA_HREFS = new Set([
   "/stp/settings/stages",
 ]);
 
-// stella001用の固定データ設定ナビゲーション
+// 固定データ設定ナビゲーション（stella001専用レイアウト用）
 const masterDataNavigation: NavItem[] = [
   {
     name: "固定データ設定",
@@ -318,9 +318,12 @@ export function Sidebar({ user }: SidebarProps) {
     );
   }
 
-  // 通常ユーザー: 固定データ設定ページを非表示
+  // 通常ユーザー: 固定データ設定ページを非表示（admin権限があれば表示）
+  const isAdmin = user ? hasAdminPermission(user) : false;
   const filteredNavigation = user
-    ? removeMasterDataItems(filterNavigationByPermissions(navigation, user))
+    ? isAdmin
+      ? filterNavigationByPermissions(navigation, user)
+      : removeMasterDataItems(filterNavigationByPermissions(navigation, user))
     : navigation;
 
   return (

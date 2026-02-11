@@ -18,6 +18,8 @@
 10. [代理店契約履歴・報酬管理](#代理店契約履歴報酬管理)
 11. [代理店契約ステータスの自動計算](#代理店契約ステータスの自動計算)
 12. [売上・経費グルーピングと請求書生成](#売上経費グルーピングと請求書生成)
+13. [外部ポータルの表示ルール](#外部ポータルの表示ルール)
+14. [STP求職者の業種区分・求人媒体は契約から動的取得](#stp求職者の業種区分求人媒体は契約から動的取得)
 
 ---
 
@@ -1146,3 +1148,67 @@ async function deleteInvoice(id: number) {
 |----------------|------|
 | `20260206141749_add_stp_invoices` | StpInvoice テーブル新規作成 |
 | `20260207065741_restructure_invoice_to_one_to_many` | Invoice→Record関係を1:1→1:Nに変更（invoiceIdをRecord側に移動） |
+
+---
+
+## 外部ポータルの表示ルール
+
+### ブランディング
+
+外部ユーザー向け画面では「CRM」という表現を使わない。
+
+| 画面 | 表示 |
+|------|------|
+| ポータルトップ ヘッダー | `{会社名} 様専用` |
+| ポータルトップ サブテキスト | `Stellaグループ 管理ページ` |
+
+### STPクライアントポータル構成
+
+ダッシュボード（`/portal/stp/client`）は3つのナビゲーションボタンのみ：
+
+| ボタン | リンク先 | 説明 |
+|--------|---------|------|
+| 求職者情報 | `/portal/stp/client/candidates` | CRUD可能（追加・編集・削除） |
+| 運用数値確認 | `/portal/stp/client/kpi` | 閲覧のみ |
+| 契約情報 | `/portal/stp/client/contracts` | 閲覧のみ（契約書DL + 契約履歴表示） |
+
+### STP企業の自動割り当て
+
+ポータルの求職者追加時、stpCompanyIdは自動割り当て（企業選択UIなし）。API側で最初のSTP企業を自動セットする。
+
+### 関連ファイル
+
+- `src/app/portal/page.tsx`（ポータルトップ）
+- `src/app/portal/stp/client/page.tsx`（ダッシュボード）
+- `src/app/portal/stp/client/candidates/page.tsx`（求職者）
+- `src/app/portal/stp/client/contracts/page.tsx`（契約情報）
+- `src/app/api/portal/stp/client/contracts/route.ts`（契約API）
+
+---
+
+## STP求職者の業種区分・求人媒体は契約から動的取得
+
+### 背景
+
+業種区分と求人媒体は当初ハードコードの固定選択肢だったが、企業ごとに契約内容が異なるため、`StpContractHistory`のアクティブ契約（`status: "active"`, `deletedAt: null`）から動的に選択肢を構築する方式に変更。
+
+### 仕様
+
+| 対象 | 方式 |
+|------|------|
+| スタッフ側（`/stp/candidates`） | サーバーコンポーネントで全企業分の契約を取得し、`contractOptionsByStpCompany`としてクライアントに渡す |
+| ポータル側（`/portal/stp/client/candidates`） | APIで自社のアクティブ契約を取得し、`contractOptions`として返す |
+
+### カスケード連動
+
+- **企業** → **業種区分**: 企業に紐づく契約の業種区分のみ表示
+- **業種区分** → **求人媒体**: 選択した業種区分に紐づく求人媒体のみ表示
+- 企業変更時は業種区分・求人媒体をクリア
+- 業種区分変更時は求人媒体をクリア
+
+### 関連ファイル
+
+- `src/app/stp/candidates/page.tsx`（契約データ取得）
+- `src/app/stp/candidates/candidates-table.tsx`（動的選択肢構築）
+- `src/app/portal/stp/client/candidates/page.tsx`（ポータル側）
+- `src/app/api/portal/stp/client/candidates/route.ts`（ポータルAPI）

@@ -1282,15 +1282,17 @@ model StpCandidate {
   selectionStatus     String?   @db.VarChar(20)                // 選考状況
   offerDate           DateTime? @db.Date                       // 内定日
   joinDate            DateTime? @db.Date                       // 入社日
+  sendDate            DateTime? @db.Date                       // 送客日
   industryType        String?   @db.VarChar(20)                // 業種区分（general/dispatch）
   jobMedia            String?   @db.VarChar(50)                // 求人媒体（Indeed/doda/Wantedly/マイナビ/リクナビ）
   note                String?                                  // メモ書き
-  stpCompanyId        Int?                                     // 入社先（STP企業への外部キー）
+  stpCompanyId        Int                                      // 企業（STP企業への外部キー・必須）
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?                                // 論理削除日時
 
   // Relations
-  stpCompany          StpCompany? @relation(fields: [stpCompanyId], references: [id])
+  stpCompany          StpCompany @relation(fields: [stpCompanyId], references: [id])
   revenueRecords      StpRevenueRecord[]
 
   @@index([stpCompanyId])

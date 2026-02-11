@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, matchesWithWordBoundary } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -62,7 +62,7 @@ export function Combobox({
 
   const filteredOptions = inputValue
     ? options.filter(option =>
-        option.label.toLowerCase().includes(inputValue.toLowerCase())
+        matchesWithWordBoundary(option.label, inputValue)
       )
     : options;
 

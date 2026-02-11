@@ -85,6 +85,17 @@ docker logs stella-prod-app 2>&1 | head -10
 | ステージング | `docker-compose.stg.yml` | `stella-stg-app` / `stella-stg-db` | 4000 | `.env.stg` |
 | 本番 | `docker-compose.prod.yml` | `stella-prod-app` / `stella-prod-db` | 4001 | `.env.prod` |
 
+> **🚨 VPS（ステージング・本番）のデータベースは絶対に削除・クリアしない**
+>
+> 以下の操作をVPS環境に対して指示・実行することを**一切禁止**する：
+> - `prisma migrate reset`
+> - `DROP DATABASE` / `DROP TABLE` / `TRUNCATE`
+> - データベースコンテナのボリューム削除（`docker volume rm` 等）
+> - シードデータによる上書き（`prisma db seed`）
+> - その他データを消失させるあらゆる操作
+>
+> **例外**: ユーザーから「データを消す」旨の明確な指示があり、かつ「本当によろしいですか？」の確認に「はい」と回答した場合のみ許可される。Claude Code側から消去を提案してはならない。
+
 ---
 
 ## Claude Code 実装ルール（必須）
@@ -150,6 +161,21 @@ docker-compose exec app npx prisma migrate dev --name <変更内容>
 docker-compose exec app npx shadcn@latest add <コンポーネント名>
 ```
 
+### ビルド確認（型チェック）
+
+> **⚠️ `next build` は開発サーバー稼働中に実行しないこと**
+>
+> `next build` は `.next` フォルダを上書きし、稼働中の開発サーバーが応答不能になる。
+> 型チェック・コンパイル確認には `tsc --noEmit` を使うこと。
+
+```bash
+# ✅ 正しい: 型チェックのみ
+docker-compose exec app npx tsc --noEmit
+
+# ❌ 間違い: next build（開発サーバーと競合）
+docker-compose exec app npx next build
+```
+
 ### 変更が反映されない場合
 
 ```bash
@@ -196,6 +222,12 @@ registerLocale("ja", ja);
 > `date.toISOString()` はUTC変換するため、JST(UTC+9)では日付が1日ずれる。
 > 日付型(date)のフィールドには必ず `toLocalDateString(date)` を使うこと。
 > datetime型のフィールドのみ `toISOString()` を使用してよい。
+
+### Playwrightの実行モード
+
+**Playwrightは常にヘッドレス（バックグラウンド）で実行する。**（`.mcp.json` で `--headless` を設定済み）
+
+ユーザーが「画面で確認して」「見える形でPlaywrightを実行して」等と明示した場合のみ、ヘッドレスを解除してheadedモードで実行する。その場合は `.mcp.json` の `--headless` フラグを一時的に削除する。
 
 ### Playwrightのスクリーンショット保存
 

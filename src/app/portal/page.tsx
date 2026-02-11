@@ -10,7 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Building2, Users, FileText, LogOut } from "lucide-react";
+import { Building2, Users, LogOut } from "lucide-react";
 import { signOut } from "next-auth/react";
 
 export default function PortalPage() {
@@ -42,8 +42,8 @@ export default function PortalPage() {
       <header className="bg-white border-b">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold">CRM ポータル</h1>
-            <p className="text-sm text-gray-500">{companyName}</p>
+            <h1 className="text-xl font-bold">{companyName} 様専用</h1>
+            <p className="text-sm text-gray-500">Stellaグループ 管理ページ</p>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-600">{user?.name}</span>
@@ -109,23 +109,6 @@ export default function PortalPage() {
             </Card>
           )}
 
-          {/* 契約書 */}
-          <Card className="hover:shadow-lg transition-shadow">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <FileText className="h-6 w-6 text-purple-600" />
-                <CardTitle>契約書</CardTitle>
-              </div>
-              <CardDescription>契約書の確認ができます</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Link href="/portal/contracts">
-                <Button variant="outline" className="w-full">
-                  準備中
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
         </div>
 
         {/* アクセス権限がない場合のメッセージ */}

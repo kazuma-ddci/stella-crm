@@ -6,6 +6,11 @@ import { requireEdit } from "@/lib/auth";
 
 export async function addCandidate(data: Record<string, unknown>) {
   await requireEdit("stp");
+
+  if (!data.stpCompanyId) {
+    throw new Error("企業は必須です");
+  }
+
   await prisma.stpCandidate.create({
     data: {
       lastName: (data.lastName as string) || "",
@@ -21,10 +26,13 @@ export async function addCandidate(data: Record<string, unknown>) {
       joinDate: data.joinDate
         ? new Date(data.joinDate as string)
         : null,
+      sendDate: data.sendDate
+        ? new Date(data.sendDate as string)
+        : null,
       industryType: (data.industryType as string) || null,
       jobMedia: (data.jobMedia as string) || null,
       note: (data.note as string) || null,
-      stpCompanyId: data.stpCompanyId ? Number(data.stpCompanyId) : null,
+      stpCompanyId: Number(data.stpCompanyId),
     },
   });
 
@@ -66,6 +74,11 @@ export async function updateCandidate(
       ? new Date(data.joinDate as string)
       : null;
   }
+  if ("sendDate" in data) {
+    updateData.sendDate = data.sendDate
+      ? new Date(data.sendDate as string)
+      : null;
+  }
   if ("industryType" in data) {
     updateData.industryType = (data.industryType as string) || null;
   }
@@ -78,7 +91,7 @@ export async function updateCandidate(
   if ("stpCompanyId" in data) {
     updateData.stpCompanyId = data.stpCompanyId
       ? Number(data.stpCompanyId)
-      : null;
+      : undefined;
   }
 
   if (Object.keys(updateData).length > 0) {
@@ -93,8 +106,18 @@ export async function updateCandidate(
 
 export async function deleteCandidate(id: number) {
   await requireEdit("stp");
-  await prisma.stpCandidate.delete({
+  await prisma.stpCandidate.update({
     where: { id },
+    data: { deletedAt: new Date() },
+  });
+  revalidatePath("/stp/candidates");
+}
+
+export async function restoreCandidate(id: number) {
+  await requireEdit("stp");
+  await prisma.stpCandidate.update({
+    where: { id },
+    data: { deletedAt: null },
   });
   revalidatePath("/stp/candidates");
 }

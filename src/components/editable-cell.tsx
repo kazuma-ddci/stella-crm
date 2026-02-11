@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Check, ChevronsUpDown, X } from "lucide-react";
-import { cn, toLocalDateString } from "@/lib/utils";
+import { cn, toLocalDateString, matchesWithWordBoundary } from "@/lib/utils";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
@@ -323,7 +323,7 @@ export function EditableCell({
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-[250px] p-0" align="start">
-            <Command>
+            <Command filter={(value, search) => matchesWithWordBoundary(value, search) ? 1 : 0}>
               <CommandInput placeholder="検索..." />
               <CommandList maxHeight={200}>
                 <CommandEmpty>見つかりませんでした</CommandEmpty>

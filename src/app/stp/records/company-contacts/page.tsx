@@ -39,7 +39,7 @@ export default async function CompanyContactsPage() {
       include: {
         company: true,
       },
-      orderBy: { id: "asc" },
+      orderBy: { company: { id: "desc" } },
     }),
     prisma.contactMethod.findMany({
       where: { isActive: true },

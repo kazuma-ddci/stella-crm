@@ -3,7 +3,7 @@
 このドキュメントはstella-crmのデータベース構造を詳細に記述したものです。
 DBスキーマに変更があった場合は、このファイルを更新してください。
 
-**最終更新日**: 2026-02-07
+**最終更新日**: 2026-02-11
 
 ---
 
@@ -1030,7 +1030,7 @@ MasterProject (1) ───────────┴────── (N) Acc
 
 #### 2.17 stp_candidates（求職者・候補者）
 
-**概要**: STPプロジェクトの求職者（候補者）情報を管理。面接日程、選考状況、入社先等を記録。
+**概要**: STPプロジェクトの求職者（候補者）情報を管理。面接日程、選考状況、企業等を記録。外部ポータルからも企業自身が追加・編集可能。
 
 | カラム名 | 型 | NULL | デフォルト | 制約 | 説明 |
 |---------|-----|------|-----------|------|------|
@@ -1042,23 +1042,31 @@ MasterProject (1) ───────────┴────── (N) Acc
 | selectionStatus | VARCHAR(20) | YES | - | - | 選考状況 |
 | offerDate | DATE | YES | - | - | 内定日 |
 | joinDate | DATE | YES | - | - | 入社日 |
+| sendDate | DATE | YES | - | - | 送客日 |
+| industryType | VARCHAR(20) | YES | - | - | 業種区分（general/dispatch） |
+| jobMedia | VARCHAR(50) | YES | - | - | 求人媒体 |
 | note | TEXT | YES | - | - | メモ書き |
-| stpCompanyId | INT | YES | - | FK(stp_companies) | 入社先STP企業ID |
+| stpCompanyId | INT | NO | - | FK(stp_companies) | 企業（STP企業ID・必須） |
 | createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
 | updatedAt | TIMESTAMP | NO | auto | - | 更新日時 |
+| deletedAt | TIMESTAMP | YES | - | - | 論理削除日時 |
 
 **interviewAttendance選択肢**: `参加`, `不参加`
 
 **selectionStatus選択肢**: `面接日調整中`, `面接日決定`, `選考中`, `内定`, `内定承諾`, `辞退`, `不合格`
 
 **リレーション**:
-- `stpCompany` → StpCompany (N:1) - 入社先STP企業
+- `stpCompany` → StpCompany (N:1) - 企業（必須）
 
 **特記事項**:
 - 表示名「候補者名」は `{lastName} {firstName}` で結合して表示
-- 入社先はSTP企業のプルダウンから選択（表示形式: `{companyCode} - {companyName}`）
-- インライン編集対応（面接日程、面接参加有無、選考状況、内定日、入社日、入社先）
+- 企業はSTP企業のプルダウンから選択（表示形式: `{companyCode} - {companyName}`）
+- インライン編集対応（送客日、面接日程、面接参加有無、選考状況、内定日、入社日、企業）
 - 候補者名クリック → 姓名編集モーダル、メモ書き → TextPreviewCellモーダル
+- 「入社確定」は joinDate の有無から算出（DBカラムなし）
+- 削除は論理削除（deletedAt）。社内画面ではフィルタで表示切替可能
+- 外部ポータル（`/portal/stp/client/candidates`）からクライアント企業が自社データのみCRUD可能
+- ポータルでは求人媒体の選択肢はアクティブ契約の媒体のみ表示
 
 ---
 
@@ -2202,3 +2210,4 @@ const MONTHLY_CLOSE_STATUSES = [
 | 2026-02-07 | 会計管理テーブル追加（AccountingImportBatch, AccountingTransaction, AccountingReconciliation, AccountingVerification） |
 | 2026-02-07 | 月次締めテーブル追加（AccountingMonthlyClose） |
 | 2026-02-07 | StpInvoiceIssuerテーブル・StpInvoice.issuerIdカラム削除、OperatingCompanyテーブル新設、MasterProjectからoperatingCompanyIdで参照する形に変更 |
+| 2026-02-11 | StpCandidate: sendDate・deletedAtカラム追加、stpCompanyId必須化、ポータル求職者API・ページ追加 |

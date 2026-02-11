@@ -23,6 +23,7 @@ type ChangeConfirmationDialogProps = {
   changes: ChangeItem[];
   onConfirm: () => void;
   loading?: boolean;
+  warningMessage?: string;
 };
 
 // マウスホイールスクロールを手動で処理するコンポーネント
@@ -64,6 +65,7 @@ export function ChangeConfirmationDialog({
   changes,
   onConfirm,
   loading = false,
+  warningMessage,
 }: ChangeConfirmationDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -75,6 +77,11 @@ export function ChangeConfirmationDialog({
           <p className="text-sm text-muted-foreground">
             以下の内容で更新します。よろしいですか？
           </p>
+          {warningMessage && (
+            <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+              <p className="text-sm text-yellow-800">{warningMessage}</p>
+            </div>
+          )}
           <ScrollableBox className="space-y-3 max-h-[60vh]">
             {changes.map((change, index) => (
               <div key={index} className="border rounded-md p-3 space-y-2">

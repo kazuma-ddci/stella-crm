@@ -45,7 +45,7 @@ import { SortableListModal, SortableItem } from "@/components/sortable-list-moda
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { EditableCell, EditableCellType, EditableCellOption, formatDisplayValue } from "@/components/editable-cell";
 import { ChangeConfirmationDialog, ChangeItem } from "@/components/change-confirmation-dialog";
-import { cn, toLocalDateString } from "@/lib/utils";
+import { cn, toLocalDateString, matchesWithWordBoundary } from "@/lib/utils";
 import { toast } from "sonner";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
@@ -64,6 +64,7 @@ export type ColumnDef = {
   options?: { value: string; label: string }[];
   dynamicOptionsKey?: string; // 動的選択肢を取得するためのキー（dependsOnフィールドの値をキーとして使用）
   dependsOn?: string; // このフィールドの値に依存して選択肢を変更する
+  dependsOnPlaceholder?: string; // dependsOnフィールド未選択時のプレースホルダー
   required?: boolean;
   searchable?: boolean; // selectタイプで検索可能にする
   filterable?: boolean; // フィルタリング対象にするか（デフォルトtrue）
@@ -144,6 +145,8 @@ type CrudTableProps = {
   inlineEditConfig?: InlineEditConfig; // インライン編集の設定
   // フォームフィールド変更時のコールバック（企業選択→日付自動計算など）
   onFieldChange?: (fieldKey: string, newValue: unknown, formData: Record<string, unknown>, setFormData: (data: Record<string, unknown>) => void) => void;
+  // インライン編集時の警告メッセージ（確認ダイアログに表示）
+  updateWarningMessage?: string;
 };
 
 function formatValue(value: unknown, type?: string, options?: { value: string; label: string }[]): string {
@@ -230,9 +233,11 @@ export function CrudTable({
   enableInlineEdit = false,
   inlineEditConfig,
   onFieldChange,
+  updateWarningMessage,
 }: CrudTableProps) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editItem, setEditItem] = useState<Record<string, unknown> | null>(null);
+  const [editItemOriginal, setEditItemOriginal] = useState<Record<string, unknown>>({});
   const [deleteItem, setDeleteItem] = useState<Record<string, unknown> | null>(null);
   const [formData, setFormData] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(false);
@@ -250,6 +255,11 @@ export function CrudTable({
     fieldName: string;
   } | null>(null);
   const [inlineLoading, setInlineLoading] = useState(false);
+
+  // 編集ダイアログの確認ダイアログ用
+  const [editConfirmOpen, setEditConfirmOpen] = useState(false);
+  const [editChangedData, setEditChangedData] = useState<Record<string, unknown>>({});
+  const [editChangeItems, setEditChangeItems] = useState<ChangeItem[]>([]);
 
   // 新規作成時の編集可能カラム
   const editableColumnsForCreate = columns.filter((col) => {
@@ -484,20 +494,113 @@ export function CrudTable({
     }
   };
 
+  // 変更差分を計算する共通関数
+  const computeChangedData = (): Record<string, unknown> | null => {
+    const changedData: Record<string, unknown> = {};
+    for (const key of Object.keys(formData)) {
+      if (key === "id") continue;
+      const oldVal = editItemOriginal[key];
+      const newVal = formData[key];
+      if (oldVal !== newVal) {
+        if ((oldVal === null || oldVal === undefined || oldVal === "") &&
+            (newVal === null || newVal === undefined || newVal === "")) {
+          continue;
+        }
+        changedData[key] = newVal;
+      }
+    }
+    if (Object.keys(changedData).length === 0) return null;
+    return changedData;
+  };
+
+  // 変更差分からChangeItem[]を生成
+  const buildChangeItems = (changedData: Record<string, unknown>): ChangeItem[] => {
+    return Object.keys(changedData).map((key) => {
+      const col = columns.find((c) => c.key === key);
+      const fieldName = col?.header || key;
+      const oldVal = editItemOriginal[key];
+      const newVal = changedData[key];
+
+      const formatVal = (v: unknown): string => {
+        if (v === null || v === undefined || v === "") return "-";
+        if (col?.type === "select" && col.options) {
+          const opt = col.options.find((o) => o.value === String(v));
+          if (opt) return opt.label;
+        }
+        if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) {
+          const d = new Date(v);
+          if (!isNaN(d.getTime())) {
+            return d.toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" });
+          }
+        }
+        return String(v);
+      };
+
+      return { fieldName, oldValue: formatVal(oldVal), newValue: formatVal(newVal) };
+    });
+  };
+
   const handleUpdate = async () => {
     if (!onUpdate || !editItem) return;
+
+    const changedData = computeChangedData();
+    if (!changedData) {
+      toast.info("変更はありません");
+      setEditItem(null);
+      setFormData({});
+      setEditItemOriginal({});
+      return;
+    }
+
+    // updateWarningMessageがある場合は確認ダイアログを表示
+    if (updateWarningMessage) {
+      setEditChangedData(changedData);
+      setEditChangeItems(buildChangeItems(changedData));
+      setEditConfirmOpen(true);
+      return;
+    }
+
+    // 警告なしの場合はそのまま更新
     setLoading(true);
     try {
-      await onUpdate(editItem.id as number, formData);
+      await onUpdate(editItem.id as number, changedData);
       toast.success("更新しました");
       setEditItem(null);
       setFormData({});
+      setEditItemOriginal({});
     } catch (error) {
       const msg = error instanceof Error ? error.message : "更新に失敗しました";
       toast.error(msg);
     } finally {
       setLoading(false);
     }
+  };
+
+  // 編集確認ダイアログでの保存実行
+  const handleEditConfirmSave = async () => {
+    if (!onUpdate || !editItem) return;
+    setLoading(true);
+    try {
+      await onUpdate(editItem.id as number, editChangedData);
+      toast.success("更新しました");
+      setEditConfirmOpen(false);
+      setEditItem(null);
+      setFormData({});
+      setEditItemOriginal({});
+      setEditChangedData({});
+      setEditChangeItems([]);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "更新に失敗しました";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditConfirmCancel = () => {
+    setEditConfirmOpen(false);
+    setEditChangedData({});
+    setEditChangeItems([]);
   };
 
   const handleDelete = async () => {
@@ -532,6 +635,7 @@ export function CrudTable({
       }
     });
     setFormData(initialData);
+    setEditItemOriginal({ ...initialData });
   };
 
   const openAddDialog = () => {
@@ -725,7 +829,7 @@ export function CrudTable({
               <span className="flex flex-wrap gap-1">
                 {selectedValues.length === 0 ? (
                   <span className="text-muted-foreground">
-                    {col.dependsOn && !formData[col.dependsOn] ? "先に企業を選択してください" : "選択してください..."}
+                    {col.dependsOn && !formData[col.dependsOn] ? (col.dependsOnPlaceholder || "先に依存項目を選択してください") : "選択してください..."}
                   </span>
                 ) : (
                   selectedValues.map((v) => {
@@ -746,7 +850,7 @@ export function CrudTable({
               <CommandInput placeholder="検索..." />
               <CommandList maxHeight={300}>
                 <CommandEmpty>
-                  {col.dependsOn && !formData[col.dependsOn] ? "先に企業を選択してください" : "見つかりませんでした"}
+                  {col.dependsOn && !formData[col.dependsOn] ? (col.dependsOnPlaceholder || "先に依存項目を選択してください") : "見つかりませんでした"}
                 </CommandEmpty>
                 <CommandGroup>
                   {options.map((opt) => {
@@ -793,15 +897,15 @@ export function CrudTable({
                 aria-expanded={openPopovers[col.key] || false}
                 className="w-full justify-between"
               >
-                {selectedOption ? selectedOption.label : (col.dependsOn && !formData[col.dependsOn] ? "先に企業を選択してください" : "選択してください...")}
+                {selectedOption ? selectedOption.label : (col.dependsOn && !formData[col.dependsOn] ? (col.dependsOnPlaceholder || "先に依存項目を選択してください") : "選択してください...")}
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-[400px] p-0" align="start">
-              <Command>
+              <Command filter={(value, search) => matchesWithWordBoundary(value, search) ? 1 : 0}>
                 <CommandInput placeholder="検索..." />
                 <CommandList maxHeight={300}>
-                  <CommandEmpty>{col.dependsOn && !formData[col.dependsOn] ? "先に企業を選択してください" : "見つかりませんでした"}</CommandEmpty>
+                  <CommandEmpty>{col.dependsOn && !formData[col.dependsOn] ? (col.dependsOnPlaceholder || "先に依存項目を選択してください") : "見つかりませんでした"}</CommandEmpty>
                   <CommandGroup>
                     <CommandItem
                       value="__empty__"
@@ -839,7 +943,7 @@ export function CrudTable({
           onValueChange={(v) => handleFormFieldChange(col.key, v === "__empty__" ? null : v)}
         >
           <SelectTrigger>
-            <SelectValue placeholder={col.dependsOn && !formData[col.dependsOn] ? "先に企業を選択" : "選択してください"} />
+            <SelectValue placeholder={col.dependsOn && !formData[col.dependsOn] ? (col.dependsOnPlaceholder || "先に依存項目を選択") : "選択してください"} />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__empty__">-</SelectItem>
@@ -1237,6 +1341,20 @@ export function CrudTable({
         />
       )}
 
+      {/* Edit Dialog Confirmation Dialog */}
+      {updateWarningMessage && editChangeItems.length > 0 && (
+        <ChangeConfirmationDialog
+          open={editConfirmOpen}
+          onOpenChange={(open) => {
+            if (!open) handleEditConfirmCancel();
+          }}
+          changes={editChangeItems}
+          onConfirm={handleEditConfirmSave}
+          loading={loading}
+          warningMessage={updateWarningMessage}
+        />
+      )}
+
       {/* Inline Edit Confirmation Dialog */}
       {enableInlineEdit && pendingChange && (
         <ChangeConfirmationDialog
@@ -1261,6 +1379,7 @@ export function CrudTable({
           ]}
           onConfirm={handleConfirmSave}
           loading={inlineLoading}
+          warningMessage={updateWarningMessage}
         />
       )}
     </div>

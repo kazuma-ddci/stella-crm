@@ -606,7 +606,6 @@ export async function generateMonthlyRecordsForAllContracts(
   const candidatesWithJoin = await prisma.stpCandidate.findMany({
     where: {
       joinDate: { not: null },
-      stpCompanyId: { not: null },
     },
   });
 

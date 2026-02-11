@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Check, ChevronsUpDown, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, matchesWithWordBoundary } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -89,12 +89,11 @@ export function CompanySearchCombobox({
   // 検索フィルター
   const filteredCompanies = useMemo(() => {
     if (!search) return companies;
-    const lowerSearch = search.toLowerCase();
     return companies.filter(
       (c) =>
-        c.name.toLowerCase().includes(lowerSearch) ||
-        c.companyCode.toLowerCase().includes(lowerSearch) ||
-        (c.industry && c.industry.toLowerCase().includes(lowerSearch))
+        matchesWithWordBoundary(c.name, search) ||
+        matchesWithWordBoundary(c.companyCode, search) ||
+        (c.industry && matchesWithWordBoundary(c.industry, search))
     );
   }, [companies, search]);
 
