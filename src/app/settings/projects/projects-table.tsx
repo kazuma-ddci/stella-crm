@@ -2,7 +2,7 @@
 
 import { CrudTable, ColumnDef } from "@/components/crud-table";
 import { SortableItem } from "@/components/sortable-list-modal";
-import { addProject, updateProject, deleteProject, reorderProjects } from "./actions";
+import { updateProject, reorderProjects } from "./actions";
 
 type Props = {
   data: Record<string, unknown>[];
@@ -13,7 +13,7 @@ type Props = {
 export function ProjectsTable({ data, operatingCompanyOptions, canEdit }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
-    { key: "code", header: "コード", type: "text", required: true, simpleMode: true },
+    { key: "code", header: "コード", type: "text", editable: false },
     { key: "name", header: "プロジェクト名", type: "text", required: true, simpleMode: true },
     { key: "description", header: "説明", type: "textarea" },
     {
@@ -38,9 +38,7 @@ export function ProjectsTable({ data, operatingCompanyOptions, canEdit }: Props)
       data={data}
       columns={columns}
       title="プロジェクト"
-      onAdd={canEdit ? addProject : undefined}
       onUpdate={canEdit ? updateProject : undefined}
-      onDelete={canEdit ? deleteProject : undefined}
       emptyMessage="プロジェクトが登録されていません"
       sortableItems={canEdit ? sortableItems : undefined}
       onReorder={canEdit ? reorderProjects : undefined}

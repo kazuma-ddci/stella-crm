@@ -217,8 +217,8 @@ async function main() {
   // 表示ビュー（projectId: stp=1, srd=2）
   await prisma.displayView.createMany({
     data: [
-      { id: 1, viewKey: 'stp_client', viewName: '採用ブースト（クライアント版）', projectId: 1, description: 'クライアント企業向け採用ブーストデータ閲覧画面' },
-      { id: 2, viewKey: 'stp_agent', viewName: '採用ブースト（紹介者版）', projectId: 1, description: '紹介者向け採用ブーストデータ閲覧画面' },
+      { id: 1, viewKey: 'stp_client', viewName: '採用ブースト（企業版）', projectId: 1, description: '' },
+      { id: 2, viewKey: 'stp_agent', viewName: '採用ブースト（代理店版）', projectId: 1, description: '' },
       { id: 3, viewKey: 'srd_agent', viewName: '開発（紹介者版）', projectId: 2, description: '紹介者向け開発データ閲覧画面' },
     ],
   });

@@ -298,6 +298,58 @@ if (isPublicPath(pathname)) {
 | `src/components/auth/permission-guard.tsx` | 権限変更検知・自動ログアウト |
 | `src/components/providers/session-provider.tsx` | セッションポーリング設定 |
 
+### 固定データ設定メニューの表示制御
+
+「固定データ設定」メニュー（全9項目）の表示は、以下の2パターンのユーザーに限定される。
+
+| ユーザー | 条件 | サイドバー表示 |
+|---------|------|--------------|
+| stella001（固定データ管理者） | `canEditMasterData === true` | 固定データ設定メニュー**のみ**表示（他メニューなし） |
+| admin（システム管理者） | `loginId === "admin"` | 通常メニュー + 固定データ設定フォルダを追加表示 |
+| その他のadmin権限ユーザー | `permissionLevel === "admin"` だが `loginId !== "admin"` | 固定データ設定は**非表示** |
+| 一般ユーザー | 上記以外 | 固定データ設定は**非表示** |
+
+#### セッションの loginId
+
+`loginId` はセッションに含まれており、`auth.ts` の authorize → jwt → session コールバックで伝搬される。
+
+```typescript
+// types/auth.ts
+interface SessionUser {
+  loginId: string | null;
+  // ...
+}
+```
+
+#### サイドバーでの判定ロジック
+
+```typescript
+// sidebar.tsx
+const isAdminUser = user?.loginId === "admin";
+const filteredNavigation = isAdminUser
+  ? [...baseNavigation.filter((item) => item.name !== "設定"), ...masterDataNavigation]
+  : removeMasterDataItems(baseNavigation);
+```
+
+#### 固定データ設定の全項目（9項目）
+
+| 項目 | パス |
+|------|------|
+| 運営法人マスタ | `/settings/operating-companies` |
+| プロジェクト管理 | `/settings/projects` |
+| スタッフ役割種別 | `/staff/role-types` |
+| 顧客種別 | `/settings/customer-types` |
+| 接触方法 | `/settings/contact-methods` |
+| 契約ステータス | `/settings/contract-statuses` |
+| 外部ユーザー表示区分 | `/settings/display-views` |
+| STP_流入経路 | `/settings/lead-sources` |
+| STP_商談ステージ | `/stp/settings/stages` |
+
+#### 変更経緯（2026-02-11）
+
+- **変更前**: admin権限（`permissionLevel === "admin"`）を持つ全ユーザーに固定データ設定を表示
+- **変更後**: `loginId === "admin"` のユーザーのみに限定。セッションに `loginId` を追加
+
 ---
 
 ## リード獲得フォーム

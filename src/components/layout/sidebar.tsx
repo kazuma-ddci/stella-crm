@@ -320,13 +320,18 @@ export function Sidebar({ user }: SidebarProps) {
     );
   }
 
-  // 通常ユーザー: 固定データ設定ページを非表示（admin権限があれば表示）
-  const isAdmin = user ? hasAdminPermission(user) : false;
-  const filteredNavigation = user
-    ? isAdmin
-      ? filterNavigationByPermissions(navigation, user)
-      : removeMasterDataItems(filterNavigationByPermissions(navigation, user))
+  // 通常ユーザー: 固定データ設定ページを非表示（adminユーザーのみ表示）
+  const isAdminUser = user?.loginId === "admin";
+  const baseNavigation = user
+    ? filterNavigationByPermissions(navigation, user)
     : navigation;
+  const filteredNavigation = isAdminUser
+    ? [
+        // 重複する部分的な「設定」セクションを除外し、完全な「固定データ設定」を追加
+        ...baseNavigation.filter((item) => item.name !== "設定"),
+        ...masterDataNavigation,
+      ]
+    : removeMasterDataItems(baseNavigation);
 
   return (
     <div className="flex h-full w-64 flex-col bg-gray-900">

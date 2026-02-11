@@ -4,6 +4,7 @@ export type UserType = "staff" | "external";
 // 社内スタッフ用セッション
 export interface SessionUser {
   id: number;
+  loginId: string | null;
   name: string;
   email: string | null;
   userType: UserType;
