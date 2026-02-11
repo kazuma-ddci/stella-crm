@@ -302,12 +302,14 @@ interface SidebarProps {
 }
 
 export function Sidebar({ user }: SidebarProps) {
+  const appTitle = process.env.NEXT_PUBLIC_APP_TITLE || "Stella CRM";
+
   // 固定データ編集権限ユーザーは専用ナビゲーションのみ表示
   if (user?.canEditMasterData) {
     return (
       <div className="flex h-full w-64 flex-col bg-gray-900">
         <div className="flex h-16 items-center px-6">
-          <h1 className="text-xl font-bold text-white">Stella CRM</h1>
+          <h1 className="text-xl font-bold text-white">{appTitle}</h1>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
           {masterDataNavigation.map((item) => (
@@ -329,7 +331,7 @@ export function Sidebar({ user }: SidebarProps) {
   return (
     <div className="flex h-full w-64 flex-col bg-gray-900">
       <div className="flex h-16 items-center px-6">
-        <h1 className="text-xl font-bold text-white">Stella CRM</h1>
+        <h1 className="text-xl font-bold text-white">{appTitle}</h1>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {filteredNavigation.map((item) => (

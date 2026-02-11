@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Stella CRM",
+  title: process.env.NEXT_PUBLIC_APP_TITLE || "Stella CRM",
   description: "社内CRMシステム",
 };
 
