@@ -25,7 +25,7 @@ RUN npm ci
 COPY . .
 RUN npx prisma generate
 
-ARG NEXT_PUBLIC_APP_TITLE="Stella CRM"
+ARG NEXT_PUBLIC_APP_TITLE="Stella 基幹OS"
 ENV NEXT_PUBLIC_APP_TITLE=$NEXT_PUBLIC_APP_TITLE
 
 RUN npm run build

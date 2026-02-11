@@ -302,7 +302,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ user }: SidebarProps) {
-  const appTitle = process.env.NEXT_PUBLIC_APP_TITLE || "Stella CRM";
+  const appTitle = process.env.NEXT_PUBLIC_APP_TITLE || "Stella 基幹OS";
 
   // 固定データ編集権限ユーザーは専用ナビゲーションのみ表示
   if (user?.canEditMasterData) {

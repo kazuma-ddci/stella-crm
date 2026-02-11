@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile.prod
       args:
-        NEXT_PUBLIC_APP_TITLE: "Stella CRM テスト環境"
+        NEXT_PUBLIC_APP_TITLE: "Stella 基幹OS テスト環境"
     container_name: stella-stg-app
     ports:
       - "4000:3000"
