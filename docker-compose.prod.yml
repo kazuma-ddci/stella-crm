@@ -5,6 +5,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.prod
+      args:
+        NEXT_PUBLIC_APP_TITLE: "Stella CRM"
     container_name: stella-prod-app
     ports:
       - "4001:3000"
