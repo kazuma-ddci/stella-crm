@@ -135,54 +135,64 @@ export async function addStaff(data: Record<string, unknown>) {
 }
 
 export async function updateStaff(id: number, data: Record<string, unknown>) {
-  const roleTypeIds = (data.roleTypeIds as string[]) || [];
-  const projectIds = (data.projectIds as string[]) || [];
   const editableCodes = await getEditableProjectCodes();
-  const canEditStella = editableCodes.includes("stella");
-  const stellaPermission = canEditStella ? ((data.stellaPermission as string) || "none") : "none";
 
-  await prisma.masterStaff.update({
-    where: { id },
-    data: {
-      name: data.name as string,
-      nameKana: (data.nameKana as string) || null,
-      email: (data.email as string) || null,
-      phone: (data.phone as string) || null,
-      contractType: (data.contractType as string) || null,
-      isActive: data.isActive === true || data.isActive === "true",
-    },
-  });
+  // 基本フィールドの更新（渡されたフィールドのみ）
+  const updateData: Record<string, unknown> = {};
+  if ("name" in data) updateData.name = data.name as string;
+  if ("nameKana" in data) updateData.nameKana = (data.nameKana as string) || null;
+  if ("email" in data) updateData.email = (data.email as string) || null;
+  if ("phone" in data) updateData.phone = (data.phone as string) || null;
+  if ("contractType" in data) updateData.contractType = (data.contractType as string) || null;
+  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
 
-  // 役割を更新（既存を削除して再作成）
-  await prisma.staffRoleAssignment.deleteMany({
-    where: { staffId: id },
-  });
-
-  if (roleTypeIds.length > 0) {
-    await prisma.staffRoleAssignment.createMany({
-      data: roleTypeIds.map((roleTypeId) => ({
-        staffId: id,
-        roleTypeId: Number(roleTypeId),
-      })),
+  if (Object.keys(updateData).length > 0) {
+    await prisma.masterStaff.update({
+      where: { id },
+      data: updateData,
     });
   }
 
-  // プロジェクトを更新（既存を削除して再作成）
-  await prisma.staffProjectAssignment.deleteMany({
-    where: { staffId: id },
-  });
-
-  if (projectIds.length > 0) {
-    await prisma.staffProjectAssignment.createMany({
-      data: projectIds.map((projectId) => ({
-        staffId: id,
-        projectId: Number(projectId),
-      })),
+  // 役割を更新（roleTypeIdsが渡された場合のみ）
+  if ("roleTypeIds" in data) {
+    const roleTypeIds = (data.roleTypeIds as string[]) || [];
+    await prisma.staffRoleAssignment.deleteMany({
+      where: { staffId: id },
     });
+    if (roleTypeIds.length > 0) {
+      await prisma.staffRoleAssignment.createMany({
+        data: roleTypeIds.map((roleTypeId) => ({
+          staffId: id,
+          roleTypeId: Number(roleTypeId),
+        })),
+      });
+    }
   }
 
-  // 権限を更新（編集可能なプロジェクトのみ変更、それ以外は保持）
-  if (editableCodes.length > 0) {
+  // プロジェクトを更新（projectIdsが渡された場合のみ）
+  if ("projectIds" in data) {
+    const projectIds = (data.projectIds as string[]) || [];
+    await prisma.staffProjectAssignment.deleteMany({
+      where: { staffId: id },
+    });
+    if (projectIds.length > 0) {
+      await prisma.staffProjectAssignment.createMany({
+        data: projectIds.map((projectId) => ({
+          staffId: id,
+          projectId: Number(projectId),
+        })),
+      });
+    }
+  }
+
+  // 権限を更新（権限関連キーが渡された場合のみ）
+  const hasPermissionChange = "stellaPermission" in data ||
+    Object.keys(data).some((k) => k.startsWith(PERM_PREFIX));
+
+  if (hasPermissionChange && editableCodes.length > 0) {
+    const canEditStella = editableCodes.includes("stella");
+    const stellaPermission = canEditStella ? ((data.stellaPermission as string) || "none") : "none";
+
     // editableCodes → editableProjectIds に変換
     const allProjects = await prisma.masterProject.findMany({ select: { id: true, code: true } });
     const codeToId = new Map(allProjects.map((p) => [p.code, p.id]));

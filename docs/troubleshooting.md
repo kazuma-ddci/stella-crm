@@ -21,6 +21,8 @@
 13. [企業コード検索で部分一致が過剰にマッチする](#企業コード検索で部分一致が過剰にマッチする)
 14. [企業選択プルダウンのソート順が文字列順になる](#企業選択プルダウンのソート順が文字列順になる)
 15. [開発サーバー稼働中に next build を実行するとページが応答しなくなる](#開発サーバー稼働中に-next-build-を実行するとページが応答しなくなる)
+16. [パスワードリセットで「The string did not match the expected pattern.」エラー](#パスワードリセットでthe-string-did-not-match-the-expected-patternエラー)
+17. [update関数の部分更新未対応でフィールドがnull/falseに上書きされる](#update関数の部分更新未対応でフィールドがnullfalseに上書きされる)
 
 ---
 
@@ -239,6 +241,8 @@ docker-compose restart app
 ---
 
 ## スタッフがログインできない（isActive問題）
+
+> **関連**: isActiveがfalseになる根本原因の一つが「update関数の部分更新未対応」。詳細は [#17](#update関数の部分更新未対応でフィールドがnullfalseに上書きされる) を参照。
 
 ### 症状
 
@@ -874,3 +878,180 @@ docker-compose exec app npx next build
 ### 関連ファイル
 
 - `.next/`（開発サーバーとビルドの共有ディレクトリ）
+
+---
+
+## パスワードリセットで「The string did not match the expected pattern.」エラー
+
+> **2026-02-12 修正済み**
+
+### 症状
+
+- パスワードリセットページ（`/forgot-password`）でメールアドレスやログインIDを入力して送信しようとすると、ブラウザが「The string did not match the expected pattern.」エラーを表示する
+- 特にSafariで発生しやすい（Chromeでは別のバリデーションメッセージになる場合がある）
+
+### 原因
+
+3つの問題が重なっていた：
+
+**1. `type="email"` によるブラウザバリデーション**
+
+forgot-passwordページの入力フィールドが `type="email"` だったため、ログインID（例: `stella001`）を入力するとブラウザのHTML5バリデーションで拒否された。ログインページは `type="text"` でメールアドレス・ログインID両方を受け付けるが、forgot-passwordページはメールアドレスのみ対応だった。
+
+```tsx
+// ❌ 間違い: type="email" だとログインIDが入力できない
+<Input type="email" />
+
+// ✅ 正しい: type="text" でメールアドレスとログインIDの両方を受け付ける
+<Input type="text" />
+```
+
+**2. パスワードリセットAPIがミドルウェアで保護されていた**
+
+`/api/forgot-password` と `/api/reset-password` がミドルウェアの `PUBLIC_PATHS` に含まれていなかったため、未ログインユーザーからのAPIリクエストがログインページにリダイレクトされていた。
+
+```typescript
+// ❌ 修正前: APIパスが未登録
+const PUBLIC_PATHS = [
+  "/forgot-password",
+  "/reset-password",
+  // /api/forgot-password が無い！
+];
+
+// ✅ 修正後: ページとAPIの両方を登録
+const PUBLIC_PATHS = [
+  "/forgot-password",
+  "/api/forgot-password",
+  "/reset-password",
+  "/api/reset-password",
+];
+```
+
+**3. Prismaクライアント未再生成**
+
+`staffId` フィールドが Prisma Client に認識されず、`updateMany` でエラーが発生していた。`prisma generate` で解決。
+
+### 解決方法
+
+1. `src/app/forgot-password/page.tsx`: `type="email"` → `type="text"` に変更
+2. `src/app/api/forgot-password/route.ts`: ログインIDでもスタッフ検索できるよう対応（`@` を含むかで分岐）
+3. `src/middleware.ts`: `/api/forgot-password` と `/api/reset-password` を `PUBLIC_PATHS` に追加
+4. `prisma generate` でクライアント再生成
+
+### 原則
+
+- **公開ページのAPIルートも `PUBLIC_PATHS` に含めること。** ページ（`/forgot-password`）だけ登録しても、そのページが呼ぶAPI（`/api/forgot-password`）が未登録だと未ログインユーザーがAPIを利用できない
+- **ログインページと同じ認証方式（メールアドレス/ログインID両方）をパスワードリセットページでもサポートすること**
+
+### 関連ファイル
+
+- `src/app/forgot-password/page.tsx`（入力フィールドの `type` 変更）
+- `src/app/api/forgot-password/route.ts`（ログインID検索対応）
+- `src/middleware.ts`（PUBLIC_PATHS にAPI追加）
+
+---
+
+## update関数の部分更新未対応でフィールドがnull/falseに上書きされる
+
+> **2026-02-12 修正済み**
+
+### 症状
+
+- スタッフ追加後にインライン編集（名前だけ変更等）すると、メールアドレスが消失してログインできなくなる
+- `isActive` が `false` に上書きされ、認証拒否される
+- 役割・プロジェクト割当・権限が全削除される
+- 設定画面のマスタデータ編集でも `isActive` が `false` に上書きされる
+
+### 原因
+
+CrudTableのインライン編集は、変更されたフィールドのみを `changedData` として送信する。しかしserver actionのupdate関数が全フィールドを無条件に書き込むため、未送信フィールドが `undefined` になり、`null` / `false` / 空配列に変換されて保存される。
+
+```typescript
+// ❌ 間違い: 全フィールドを無条件に書き込む
+await prisma.masterStaff.update({
+  where: { id },
+  data: {
+    name: data.name as string,           // undefined → "undefined" (文字列化)
+    email: (data.email as string) || null, // undefined || null → null (消える！)
+    isActive: data.isActive === true,      // undefined === true → false (無効化！)
+  },
+});
+
+// 役割も無条件に全削除→再作成
+await prisma.staffRoleAssignment.deleteMany({ where: { staffId: id } });
+// data.roleTypeIds が undefined → [] → 0件作成 (全削除のみ！)
+```
+
+### 解決方法
+
+`"field" in data` チェックで動的に `updateData` を構築し、送信されたフィールドのみ更新する。既存の正しい実装（`src/app/companies/actions.ts:updateCompany`）に倣う。
+
+```typescript
+// ✅ 正しい: 渡されたフィールドのみ更新
+const updateData: Record<string, unknown> = {};
+if ("name" in data) updateData.name = data.name as string;
+if ("email" in data) updateData.email = (data.email as string) || null;
+if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+
+if (Object.keys(updateData).length > 0) {
+  await prisma.masterStaff.update({ where: { id }, data: updateData });
+}
+
+// 役割も "roleTypeIds" が渡された場合のみ更新
+if ("roleTypeIds" in data) {
+  const roleTypeIds = (data.roleTypeIds as string[]) || [];
+  await prisma.staffRoleAssignment.deleteMany({ where: { staffId: id } });
+  if (roleTypeIds.length > 0) {
+    await prisma.staffRoleAssignment.createMany({
+      data: roleTypeIds.map((roleTypeId) => ({ staffId: id, roleTypeId: Number(roleTypeId) })),
+    });
+  }
+}
+```
+
+### 原則
+
+**CrudTableから呼ばれるupdate関数は、必ず `"field" in data` チェックで部分更新に対応すること。** CrudTableのインライン編集は変更フィールドのみを送信するため、全フィールド書き込み型の実装では未送信フィールドが消失する。
+
+特に注意すべきフィールド:
+
+| フィールド | 未送信時の挙動（修正前） | 影響 |
+|-----------|------------------------|------|
+| `email` | `undefined \|\| null` → `null` | メールアドレス消失→ログイン不可 |
+| `isActive` | `undefined === true` → `false` | 認証拒否 |
+| `roleTypeIds` | `undefined \|\| []` → `[]` | 全役割削除 |
+| `projectIds` | `undefined \|\| []` → `[]` | 全PJ割当削除 |
+| 権限関連（`perm_*`） | 空データで上書き | 全権限削除 |
+
+### 修正対象ファイル（12ファイル）
+
+| ファイル | 関数 |
+|---------|------|
+| `src/app/staff/actions.ts` | `updateStaff` |
+| `src/app/settings/contact-methods/actions.ts` | `updateContactMethod` |
+| `src/app/settings/contract-statuses/actions.ts` | `updateContractStatus` |
+| `src/app/settings/customer-types/actions.ts` | `updateCustomerType` |
+| `src/app/settings/lead-sources/actions.ts` | `updateLeadSource` |
+| `src/app/settings/operating-companies/actions.ts` | `updateOperatingCompany` |
+| `src/app/staff/role-types/actions.ts` | `updateRoleType` |
+| `src/app/stp/settings/stages/actions.ts` | `updateStage` |
+| `src/app/settings/display-views/actions.ts` | `updateDisplayView` |
+| `src/app/settings/projects/actions.ts` | `updateProject` |
+| `src/app/stp/records/stage-histories/actions.ts` | `updateStageHistory` |
+| `src/app/companies/[id]/actions.ts` | `updateCompany` |
+
+### 検証方法
+
+1. スタッフ管理画面でスタッフの名前のみをモーダル編集
+2. 更新後、メールアドレス・有効状態・権限が保持されていることを確認
+3. 設定画面でマスタデータの名前のみを編集し、isActiveが保持されていることを確認
+
+### ロールバック手順
+
+各ファイルの `updateStaff` 等を修正前のコード（全フィールド直接書き込み）に戻す。ただし部分更新に戻すと同じバグが再発する。
+
+### 関連ファイル
+
+- `src/components/crud-table.tsx`（`changedData` のみ送信する箇所）
+- 上記12ファイルのupdate関数
+- `src/app/companies/actions.ts`（参照実装 - 修正前から正しいパターンだった）

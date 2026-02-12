@@ -14,7 +14,7 @@ export async function deleteCompany(id: number) {
 export async function updateCompany(
   id: number,
   data: {
-    name: string;
+    name?: string;
     nameKana?: string;
     corporateNumber?: string;
     companyType?: string;
@@ -27,39 +27,42 @@ export async function updateCompany(
     paymentDay?: number | null;
   }
 ) {
-  // 法人番号のバリデーション+正規化
-  const validation = validateCorporateNumber(data.corporateNumber);
-  if (!validation.valid) {
-    throw new Error(validation.error!);
-  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updateData: Record<string, any> = {};
 
-  // ユニークチェック（自分自身を除外）
-  if (validation.normalized) {
-    const existing = await prisma.masterStellaCompany.findFirst({
-      where: { corporateNumber: validation.normalized, id: { not: id } },
-      select: { id: true, name: true },
-    });
-    if (existing) {
-      throw new Error(`この法人番号は既に「${existing.name}」に登録されています`);
+  if ("name" in data) updateData.name = data.name;
+  if ("nameKana" in data) updateData.nameKana = data.nameKana || null;
+  if ("corporateNumber" in data) {
+    const validation = validateCorporateNumber(data.corporateNumber);
+    if (!validation.valid) {
+      throw new Error(validation.error!);
     }
+    if (validation.normalized) {
+      const existing = await prisma.masterStellaCompany.findFirst({
+        where: { corporateNumber: validation.normalized, id: { not: id } },
+        select: { id: true, name: true },
+      });
+      if (existing) {
+        throw new Error(`この法人番号は既に「${existing.name}」に登録されています`);
+      }
+    }
+    updateData.corporateNumber = validation.normalized;
   }
+  if ("companyType" in data) updateData.companyType = data.companyType || null;
+  if ("websiteUrl" in data) updateData.websiteUrl = data.websiteUrl || null;
+  if ("industry" in data) updateData.industry = data.industry || null;
+  if ("revenueScale" in data) updateData.revenueScale = data.revenueScale || null;
+  if ("note" in data) updateData.note = data.note || null;
+  if ("closingDay" in data) updateData.closingDay = data.closingDay ?? null;
+  if ("paymentMonthOffset" in data) updateData.paymentMonthOffset = data.paymentMonthOffset ?? null;
+  if ("paymentDay" in data) updateData.paymentDay = data.paymentDay ?? null;
 
-  await prisma.masterStellaCompany.update({
-    where: { id },
-    data: {
-      name: data.name,
-      nameKana: data.nameKana || null,
-      corporateNumber: validation.normalized,
-      companyType: data.companyType || null,
-      websiteUrl: data.websiteUrl || null,
-      industry: data.industry || null,
-      revenueScale: data.revenueScale || null,
-      note: data.note || null,
-      ...(data.closingDay !== undefined && { closingDay: data.closingDay }),
-      ...(data.paymentMonthOffset !== undefined && { paymentMonthOffset: data.paymentMonthOffset }),
-      ...(data.paymentDay !== undefined && { paymentDay: data.paymentDay }),
-    },
-  });
+  if (Object.keys(updateData).length > 0) {
+    await prisma.masterStellaCompany.update({
+      where: { id },
+      data: updateData,
+    });
+  }
   revalidatePath("/companies");
   revalidatePath(`/companies/${id}`);
 }

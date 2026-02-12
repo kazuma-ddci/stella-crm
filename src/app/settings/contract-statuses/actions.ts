@@ -24,14 +24,17 @@ export async function addContractStatus(data: Record<string, unknown>) {
 
 export async function updateContractStatus(id: number, data: Record<string, unknown>) {
   await requireMasterDataEditPermission();
-  await prisma.masterContractStatus.update({
-    where: { id },
-    data: {
-      name: data.name as string,
-      isTerminal: data.isTerminal === true || data.isTerminal === "true",
-      isActive: data.isActive === true || data.isActive === "true",
-    },
-  });
+  const updateData: Record<string, unknown> = {};
+  if ("name" in data) updateData.name = data.name as string;
+  if ("isTerminal" in data) updateData.isTerminal = data.isTerminal === true || data.isTerminal === "true";
+  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+
+  if (Object.keys(updateData).length > 0) {
+    await prisma.masterContractStatus.update({
+      where: { id },
+      data: updateData,
+    });
+  }
   revalidatePath("/settings/contract-statuses");
 }
 

@@ -18,14 +18,17 @@ export async function addStage(data: Record<string, unknown>) {
 
 export async function updateStage(id: number, data: Record<string, unknown>) {
   await requireMasterDataEditPermission();
-  await prisma.stpStage.update({
-    where: { id },
-    data: {
-      name: data.name as string,
-      displayOrder: data.displayOrder != null && data.displayOrder !== "" ? Number(data.displayOrder) : null,
-      isActive: data.isActive === true || data.isActive === "true",
-    },
-  });
+  const updateData: Record<string, unknown> = {};
+  if ("name" in data) updateData.name = data.name as string;
+  if ("displayOrder" in data) updateData.displayOrder = data.displayOrder != null && data.displayOrder !== "" ? Number(data.displayOrder) : null;
+  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+
+  if (Object.keys(updateData).length > 0) {
+    await prisma.stpStage.update({
+      where: { id },
+      data: updateData,
+    });
+  }
   revalidatePath("/stp/settings/stages");
 }
 

@@ -28,14 +28,17 @@ export async function addCustomerType(data: Record<string, unknown>) {
 
 export async function updateCustomerType(id: number, data: Record<string, unknown>) {
   await requireMasterDataEditPermission();
-  await prisma.customerType.update({
-    where: { id },
-    data: {
-      projectId: Number(data.projectId),
-      name: data.name as string,
-      isActive: data.isActive === true || data.isActive === "true",
-    },
-  });
+  const updateData: Record<string, unknown> = {};
+  if ("projectId" in data) updateData.projectId = Number(data.projectId);
+  if ("name" in data) updateData.name = data.name as string;
+  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+
+  if (Object.keys(updateData).length > 0) {
+    await prisma.customerType.update({
+      where: { id },
+      data: updateData,
+    });
+  }
   revalidatePath("/settings/customer-types");
 }
 
