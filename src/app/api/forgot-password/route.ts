@@ -5,9 +5,12 @@ import { sendPasswordResetEmail } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
   try {
-    const { email } = await request.json();
+    const { identifier, email: emailLegacy } = await request.json();
 
-    if (!email) {
+    // identifier(新)またはemail(旧互換)を使用
+    const input = (identifier || emailLegacy || "").trim();
+
+    if (!input) {
       return NextResponse.json(
         { error: "メールアドレスを入力してください" },
         { status: 400 }
@@ -19,12 +22,18 @@ export async function POST(request: NextRequest) {
       message: "メールを送信しました",
     });
 
-    // 1. まず社内スタッフを検索
-    const staff = await prisma.masterStaff.findUnique({
-      where: { email },
-    });
+    const isEmail = input.includes("@");
 
-    if (staff && staff.isActive && staff.passwordHash) {
+    // 1. まず社内スタッフを検索（メールアドレスまたはログインID）
+    const staff = isEmail
+      ? await prisma.masterStaff.findUnique({
+          where: { email: input },
+        })
+      : await prisma.masterStaff.findFirst({
+          where: { loginId: input, isActive: true },
+        });
+
+    if (staff && staff.isActive && staff.passwordHash && staff.email) {
       // スタッフ用トークン発行
       await prisma.passwordResetToken.updateMany({
         where: {
@@ -46,14 +55,18 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      await sendPasswordResetEmail(staff.email!, staff.name, token);
+      await sendPasswordResetEmail(staff.email, staff.name, token);
 
       return successResponse;
     }
 
-    // 2. スタッフで見つからなければ外部ユーザーを検索
+    // 2. スタッフで見つからなければ外部ユーザーを検索（メールアドレスの場合のみ）
+    if (!isEmail) {
+      return successResponse;
+    }
+
     const user = await prisma.externalUser.findUnique({
-      where: { email },
+      where: { email: input },
     });
 
     // ユーザーが存在しなくても同じレスポンスを返す（セキュリティ対策）

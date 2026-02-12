@@ -2200,6 +2200,51 @@ const MONTHLY_CLOSE_STATUSES = [
 
 ---
 
+## マイグレーションによるマスタデータ投入
+
+VPS（ステージング・本番）へのマスタデータ追加は、**Prismaマイグレーションファイルに直接INSERT SQLを書く**ことで行う。
+
+### 背景
+
+- VPSでは `prisma db seed` の実行は禁止（データ消失リスク）
+- `display_views` や `master_projects` 等はコードとセットで追加する必要がある
+- マイグレーションはデプロイ時に `docker-entrypoint.sh` → `prisma migrate deploy` で自動適用される
+- 各マイグレーションは `_prisma_migrations` テーブルで管理され、**1回だけ実行**される（重複なし）
+
+### 手順
+
+```bash
+# 1. 空のマイグレーションファイルを作成
+docker-compose exec app npx prisma migrate dev --name add-xxx-data --create-only
+
+# 2. 生成された migration.sql にINSERT文を記述
+# ※ Prismaのカラム名はキャメルケース。PostgreSQLではダブルクォートで囲む必要がある
+
+# 3. ローカルに適用
+docker-compose exec app npx prisma migrate dev
+```
+
+### SQL記述例（display_views）
+
+```sql
+INSERT INTO display_views ("viewKey", "viewName", "projectId", "isActive", description, "createdAt", "updatedAt")
+SELECT 'stp_client', '採用ブースト（企業版）', id, true, '', NOW(), NOW()
+FROM master_projects WHERE code = 'stp'
+ON CONFLICT ("viewKey") DO NOTHING;
+```
+
+**ポイント**:
+- `ON CONFLICT DO NOTHING` で既存データがある環境では安全にスキップ
+- `project_id` は固定値ではなく `SELECT ... FROM master_projects` でコードから取得（環境間のID差異に対応）
+- カラム名のキャメルケースは `"viewKey"` のようにダブルクォートで囲む
+
+### 注意事項
+
+- マイグレーションファイルは**削除禁止**（`_prisma_migrations` テーブルとの整合性が壊れる）
+- スキーマ変更がなくてもデータ投入用マイグレーションは作成可能（`--create-only` で空ファイル生成）
+
+---
+
 ## 更新履歴
 
 | 日付 | 変更内容 |

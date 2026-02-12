@@ -118,3 +118,43 @@ const TOKEN_STATUSES = ['active', 'expired', 'exhausted', 'revoked'] as const;
 // リード獲得フォーム回答ステータス（stp_lead_form_submissions.status）
 const SUBMISSION_STATUSES = ['pending', 'processed', 'rejected'] as const;
 ```
+
+---
+
+## 固定データ設定の編集制限方針
+
+以下のマスタデータは、viewKey / code がコード内でハードコーディングされてロジック分岐に使用されているため、**Webページからの新規追加・削除を不可**としている。
+
+### 外部ユーザー表示区分（DisplayView）
+
+| 制限 | 内容 |
+|------|------|
+| 新規追加 | ❌ 不可（`onAdd` 未設定） |
+| 削除 | ❌ 不可（`onDelete` 未設定） |
+| viewKey編集 | ❌ 不可（`editable: false`） |
+| viewName・説明等の編集 | ✅ 可能 |
+
+**理由**: `viewKey`（`stp_client`, `stp_agent` 等）は middleware.ts、ポータル画面、各APIルートで直接文字列比較に使用されている。DBだけにビューを追加しても対応するコードがなければ意味がない。
+
+**新しい表示区分の追加手順**:
+1. Prismaマイグレーションで `display_views` にINSERT（詳細は `docs/DATABASE.md` 参照）
+2. コード側で viewKey に対応する画面・API・ルーティングを実装
+3. まとめてデプロイ
+
+### プロジェクト管理（MasterProject）
+
+| 制限 | 内容 |
+|------|------|
+| 新規追加 | ❌ 不可（`onAdd` 未設定） |
+| 削除 | ❌ 不可（`onDelete` 未設定） |
+| code編集 | ❌ 不可（`editable: false`） |
+| プロジェクト名・説明・運営法人・有効の編集 | ✅ 可能 |
+| 並び替え | ✅ 可能 |
+
+**理由**: `code`（`stella`, `stp` 等）は `types/auth.ts` の `ProjectCode` 型として定義され、middleware.ts、sidebar.tsx、各actionsの `requireEdit()` 等で広くハードコーディングされている。
+
+**関連ファイル**:
+- `src/app/settings/display-views/display-views-table.tsx`
+- `src/app/settings/display-views/actions.ts`
+- `src/app/settings/projects/projects-table.tsx`
+- `src/app/settings/projects/actions.ts`
