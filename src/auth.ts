@@ -1,4 +1,4 @@
-import NextAuth from "next-auth";
+import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
@@ -93,9 +93,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               include: { permissions: { include: { project: true } } },
             });
 
-        if (staff && staff.passwordHash && staff.isActive) {
+        if (staff && staff.passwordHash) {
           const isValid = await bcrypt.compare(password, staff.passwordHash);
           if (isValid) {
+            if (!staff.isActive) {
+              const err = new CredentialsSignin();
+              err.code = "inactive";
+              throw err;
+            }
+
             const permissions: UserPermission[] = staff.permissions.map(
               (p) => ({
                 projectCode: p.project.code,

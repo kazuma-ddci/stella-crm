@@ -41,7 +41,11 @@ export default function LoginPage() {
       });
 
       if (result?.error) {
-        setError("メールアドレスまたはパスワードが正しくありません");
+        if (result.code === "inactive") {
+          setError("アカウントが無効になっています。管理者にお問い合わせください。");
+        } else {
+          setError("メールアドレスまたはパスワードが正しくありません");
+        }
         setIsLoading(false);
         return;
       }

@@ -25,15 +25,16 @@ export async function POST(request: NextRequest) {
     const isEmail = input.includes("@");
 
     // 1. まず社内スタッフを検索（メールアドレスまたはログインID）
+    // 無効なスタッフにもリセットメールを送信するため、isActiveでフィルタしない
     const staff = isEmail
       ? await prisma.masterStaff.findUnique({
           where: { email: input },
         })
       : await prisma.masterStaff.findFirst({
-          where: { loginId: input, isActive: true },
+          where: { loginId: input },
         });
 
-    if (staff && staff.isActive && staff.passwordHash && staff.email) {
+    if (staff && staff.email) {
       // スタッフ用トークン発行
       await prisma.passwordResetToken.updateMany({
         where: {
