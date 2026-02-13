@@ -253,10 +253,10 @@ export default async function StpDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">STP ダッシュボード</h1>
+      <h1 className="text-xl sm:text-2xl font-bold">STP ダッシュボード</h1>
 
       {/* === 概要カード === */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">STP企業数</CardTitle>
@@ -311,7 +311,7 @@ export default async function StpDashboardPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-3 sm:gap-4 sm:grid-cols-3">
             <div className="rounded-lg border p-4">
               <p className="text-sm text-muted-foreground">ARR（概算）</p>
               <p className="mt-1 text-2xl font-bold">
@@ -431,7 +431,7 @@ export default async function StpDashboardPage() {
               <p className="mb-2 text-sm font-medium text-muted-foreground">
                 フォーム回答
               </p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-1 sm:gap-2">
                 <div className="rounded-lg border p-3 text-center">
                   <p className="text-xs text-muted-foreground">合計</p>
                   <p className="text-lg font-bold">{submissionTotal}</p>

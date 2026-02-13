@@ -760,7 +760,7 @@ export function ContractHistoryModal({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          className="max-w-6xl p-0 overflow-hidden"
+          className="max-w-5xl max-w-[calc(100%-2rem)] p-0 overflow-hidden"
           style={{
             display: 'flex',
             flexDirection: 'column',

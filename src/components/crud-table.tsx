@@ -1059,7 +1059,7 @@ export function CrudTable({
   return (
     <div className="space-y-4">
       {/* 検索バー */}
-      <div className="flex gap-2 items-center">
+      <div className="flex flex-wrap gap-2 items-center">
         <Select
           value={selectedFilterColumn || "__all__"}
           onValueChange={(v) => {
@@ -1067,7 +1067,7 @@ export function CrudTable({
             setFilterValue("");
           }}
         >
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-full sm:w-[180px]">
             <SelectValue placeholder="検索カラム" />
           </SelectTrigger>
           <SelectContent>
@@ -1088,7 +1088,7 @@ export function CrudTable({
           </Button>
         )}
 
-        <div className="ml-auto flex gap-2">
+        <div className="w-full sm:w-auto sm:ml-auto flex gap-2">
           {sortableItems && onReorder && (
             <Button variant="outline" onClick={() => setIsSortModalOpen(true)}>
               <ArrowUpDown className="mr-2 h-4 w-4" />

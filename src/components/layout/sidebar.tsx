@@ -36,6 +36,8 @@ import {
   ArrowLeftRight,
   CheckSquare,
   Upload,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { canView } from "@/lib/auth/permissions";
 import type { SessionUser } from "@/types/auth";
@@ -195,9 +197,11 @@ const navigation: NavItem[] = [
 function NavItemComponent({
   item,
   depth = 0,
+  onNavigate,
 }: {
   item: NavItem;
   depth?: number;
+  onNavigate?: () => void;
 }) {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(true);
@@ -229,7 +233,7 @@ function NavItemComponent({
         {isOpen && (
           <div className="mt-1 space-y-1">
             {item.children!.map((child) => (
-              <NavItemComponent key={child.name} item={child} depth={depth + 1} />
+              <NavItemComponent key={child.name} item={child} depth={depth + 1} onNavigate={onNavigate} />
             ))}
           </div>
         )}
@@ -240,6 +244,7 @@ function NavItemComponent({
   return (
     <Link
       href={item.href!}
+      onClick={onNavigate}
       className={cn(
         "group flex items-center rounded-md px-3 py-2 text-sm font-medium",
         isActive
@@ -297,52 +302,174 @@ function filterNavigationByPermissions(
     });
 }
 
-interface SidebarProps {
-  user?: SessionUser;
+/** ナビアイテムの子孫にアクティブなパスがあるかを再帰チェック */
+function isNavItemActive(item: NavItem, pathname: string): boolean {
+  if (item.href) {
+    return pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+  }
+  if (item.children) {
+    return item.children.some((child) => isNavItemActive(child, pathname));
+  }
+  return false;
 }
 
-export function Sidebar({ user }: SidebarProps) {
-  const appTitle = process.env.NEXT_PUBLIC_APP_TITLE || "Stella 基幹OS";
+/** 折りたたみ時のアイコンのみ表示 */
+function CollapsedNavItem({
+  item,
+  onExpand,
+}: {
+  item: NavItem;
+  onExpand?: () => void;
+}) {
+  const pathname = usePathname();
+  const isActive = isNavItemActive(item, pathname);
 
-  // 固定データ編集権限ユーザーは専用ナビゲーションのみ表示
-  if (user?.canEditMasterData) {
+  // リーフ項目: 直接ナビゲーション
+  if (item.href) {
     return (
-      <div className="flex h-full w-64 flex-col bg-gray-900">
-        <div className="flex h-16 items-center px-6">
-          <h1 className="text-xl font-bold text-white">{appTitle}</h1>
-        </div>
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-          {masterDataNavigation.map((item) => (
-            <NavItemComponent key={item.name} item={item} />
-          ))}
-        </nav>
-      </div>
+      <Link
+        href={item.href}
+        className={cn(
+          "flex h-10 w-10 items-center justify-center rounded-md",
+          isActive
+            ? "bg-gray-800 text-white"
+            : "text-gray-400 hover:bg-gray-700 hover:text-white"
+        )}
+        title={item.name}
+      >
+        <item.icon className="h-5 w-5" />
+      </Link>
     );
   }
 
-  // 通常ユーザー: 固定データ設定ページを非表示（adminユーザーのみ表示）
+  // 親グループ: クリックでサイドバーを展開
+  return (
+    <button
+      onClick={onExpand}
+      className={cn(
+        "flex h-10 w-10 items-center justify-center rounded-md",
+        isActive
+          ? "bg-gray-800 text-white"
+          : "text-gray-400 hover:bg-gray-700 hover:text-white"
+      )}
+      title={item.name}
+    >
+      <item.icon className="h-5 w-5" />
+    </button>
+  );
+}
+
+/** ナビゲーション項目のフィルタリング共通ロジック */
+function getFilteredNavigation(user?: SessionUser): NavItem[] {
+  if (user?.canEditMasterData) {
+    return masterDataNavigation;
+  }
+
   const isAdminUser = user?.loginId === "admin";
   const baseNavigation = user
     ? filterNavigationByPermissions(navigation, user)
     : navigation;
-  const filteredNavigation = isAdminUser
+
+  return isAdminUser
     ? [
-        // 重複する部分的な「設定」セクションを除外し、完全な「固定データ設定」を追加
         ...baseNavigation.filter((item) => item.name !== "設定"),
         ...masterDataNavigation,
       ]
     : removeMasterDataItems(baseNavigation);
+}
 
+interface SidebarContentProps {
+  user?: SessionUser;
+  onNavigate?: () => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+}
+
+export function SidebarContent({
+  user,
+  onNavigate,
+  collapsed,
+  onToggleCollapse,
+}: SidebarContentProps) {
+  const appTitle = process.env.NEXT_PUBLIC_APP_TITLE || "Stella 基幹OS";
+  const navItems = getFilteredNavigation(user);
+
+  // 折りたたみモード: アイコンのみ表示
+  if (collapsed) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex h-16 shrink-0 items-center justify-center">
+          <span className="text-lg font-bold text-white">S</span>
+        </div>
+        <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto py-4">
+          {navItems.map((item) => (
+            <CollapsedNavItem
+              key={item.name}
+              item={item}
+              onExpand={onToggleCollapse}
+            />
+          ))}
+        </nav>
+        {onToggleCollapse && (
+          <div className="shrink-0 border-t border-gray-700 p-2">
+            <button
+              onClick={onToggleCollapse}
+              className="flex h-10 w-full items-center justify-center rounded-md text-gray-400 hover:bg-gray-700 hover:text-white"
+              title="メニューを開く"
+            >
+              <PanelLeftOpen className="h-5 w-5" />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // 展開モード: フルナビゲーション
   return (
-    <div className="flex h-full w-64 flex-col bg-gray-900">
-      <div className="flex h-16 items-center px-6">
+    <div className="flex h-full flex-col">
+      <div className="flex h-16 shrink-0 items-center px-6">
         <h1 className="text-xl font-bold text-white">{appTitle}</h1>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-        {filteredNavigation.map((item) => (
-          <NavItemComponent key={item.name} item={item} />
+        {navItems.map((item) => (
+          <NavItemComponent key={item.name} item={item} onNavigate={onNavigate} />
         ))}
       </nav>
+      {onToggleCollapse && (
+        <div className="shrink-0 border-t border-gray-700 p-2">
+          <button
+            onClick={onToggleCollapse}
+            className="flex h-10 w-full items-center justify-center rounded-md text-gray-400 hover:bg-gray-700 hover:text-white"
+            title="メニューを閉じる"
+          >
+            <PanelLeftClose className="h-5 w-5" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface SidebarProps {
+  user?: SessionUser;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+}
+
+export function Sidebar({ user, collapsed, onToggleCollapse }: SidebarProps) {
+  return (
+    <div
+      className={cn(
+        "hidden md:flex h-full flex-col bg-gray-900 transition-[width] duration-300",
+        collapsed ? "w-16" : "w-52 lg:w-64"
+      )}
+    >
+      <SidebarContent
+        user={user}
+        collapsed={collapsed}
+        onToggleCollapse={onToggleCollapse}
+      />
     </div>
   );
 }

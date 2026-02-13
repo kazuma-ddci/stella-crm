@@ -1,8 +1,14 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { Sidebar } from "@/components/layout/sidebar";
+import { Sidebar, SidebarContent } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import type { SessionUser } from "@/types/auth";
 
 interface AuthenticatedLayoutProps {
@@ -21,6 +27,24 @@ export function AuthenticatedLayout({
   children,
 }: AuthenticatedLayoutProps) {
   const { status } = useSession();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // localStorage から復元（hydration安全）
+  useEffect(() => {
+    const saved = localStorage.getItem("sidebar-collapsed");
+    if (saved === "true") {
+      setSidebarCollapsed(true);
+    }
+  }, []);
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem("sidebar-collapsed", String(next));
+      return next;
+    });
+  };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userType = (serverUser as any)?.userType;
@@ -39,11 +63,40 @@ export function AuthenticatedLayout({
   if (showAuthLayout) {
     return (
       <div className="flex h-screen">
-        <Sidebar user={serverUser} />
+        {/* デスクトップ: 固定サイドバー */}
+        <Sidebar
+          user={serverUser}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={toggleSidebar}
+        />
+
+        {/* モバイル: ドロワーサイドバー */}
+        <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+          <SheetContent
+            side="left"
+            className="w-64 bg-gray-900 p-0 sm:max-w-64"
+            showCloseButton={false}
+            aria-describedby={undefined}
+          >
+            <SheetTitle className="sr-only">ナビゲーションメニュー</SheetTitle>
+            <SidebarContent
+              user={serverUser}
+              onNavigate={() => setMobileMenuOpen(false)}
+            />
+          </SheetContent>
+        </Sheet>
+
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <Header user={serverUser} />
-          <main className="flex-1 overflow-auto bg-gray-50 p-6">
-            {children}
+          <Header
+            user={serverUser}
+            onMobileMenuToggle={() => setMobileMenuOpen(true)}
+            sidebarCollapsed={sidebarCollapsed}
+            onSidebarToggle={toggleSidebar}
+          />
+          <main className="flex-1 overflow-auto bg-gray-50 p-3 sm:p-4 md:p-6">
+            <div className="mx-auto max-w-[1600px]">
+              {children}
+            </div>
           </main>
         </div>
       </div>
