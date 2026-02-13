@@ -23,6 +23,7 @@
 15. [開発サーバー稼働中に next build を実行するとページが応答しなくなる](#開発サーバー稼働中に-next-build-を実行するとページが応答しなくなる)
 16. [パスワードリセットで「The string did not match the expected pattern.」エラー](#パスワードリセットでthe-string-did-not-match-the-expected-patternエラー)
 17. [update関数の部分更新未対応でフィールドがnull/falseに上書きされる](#update関数の部分更新未対応でフィールドがnullfalseに上書きされる)
+18. [VPSでdocker-compose(v1)を使うとContainerConfigエラーになる](#vpsでdocker-composev1を使うとcontainerconfigエラーになる)
 
 ---
 
@@ -1055,3 +1056,58 @@ if ("roleTypeIds" in data) {
 - `src/components/crud-table.tsx`（`changedData` のみ送信する箇所）
 - 上記12ファイルのupdate関数
 - `src/app/companies/actions.ts`（参照実装 - 修正前から正しいパターンだった）
+
+---
+
+## VPSでdocker-compose(v1)を使うとContainerConfigエラーになる
+
+### 症状
+
+VPS（ステージング・本番）で `docker-compose`（ハイフンあり、v1）を使ってデプロイすると、以下のようなエラーが発生する:
+
+```
+ERROR: for stella-prod-app  ContainerConfig
+```
+
+### 原因
+
+VPSにインストールされている `docker-compose` v1（1.29.2）が、現在のDockerエンジンとの互換性問題を持っている。Docker Compose v1はPython製の別ツールで、新しいDocker Engineの一部機能に対応していない。
+
+### 解決方法
+
+**`docker-compose`（ハイフンあり、v1）ではなく、`docker compose`（スペース区切り、v2）を使用する。**
+
+v2はDocker CLIのサブコマンドとして組み込まれており、互換性問題がない。
+
+```bash
+# ✅ 正しい（v2）
+docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.stg.yml up -d --build
+
+# ❌ エラーになる（v1）
+docker-compose -f docker-compose.prod.yml up -d --build
+docker-compose -f docker-compose.stg.yml up -d --build
+```
+
+### バージョン確認方法
+
+```bash
+# v1（非推奨）
+docker-compose --version
+# docker-compose version 1.29.2, build ...
+
+# v2（推奨）
+docker compose version
+# Docker Compose version v2.x.x
+```
+
+### 影響範囲
+
+- VPS上でのデプロイコマンド全般
+- CLAUDE.mdのデプロイ手順にも記載済み
+
+### 関連ファイル
+
+- `docker-compose.prod.yml`
+- `docker-compose.stg.yml`
+- `CLAUDE.md`（VPSデプロイ手順セクション）

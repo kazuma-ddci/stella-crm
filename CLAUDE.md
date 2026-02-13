@@ -113,6 +113,7 @@ docker logs stella-prod-app 2>&1 | head -10
 | ステージ・認証 | `docs/business-logic.md` |
 | DB変更 | `docs/DATABASE.md` |
 | UI/モーダル問題 | `docs/troubleshooting.md` |
+| レイアウト/レスポンシブ | `docs/components/responsive-layout.md` |
 | 選択肢 | `docs/master-data.md` |
 
 **例**: 「インライン編集でDBカラムも追加」→ inline-edit.md + DATABASE.md の両方を読む
@@ -354,6 +355,7 @@ Playwrightは原則実行しないが、UI変更が大きい場合は提案す�
 | `docs/business-logic.md` | ステージ遷移ロジック、認証フロー、設計パターン |
 | `docs/components/crud-table.md` | CrudTable使用方法 |
 | `docs/components/inline-edit.md` | **インライン編集詳細（⚠️実装前に必読）** |
+| `docs/components/responsive-layout.md` | レスポンシブレイアウト設計（サイドバー折りたたみ、モーダル幅等） |
 | `docs/troubleshooting.md` | 既知の問題と解決方法 |
 | `docs/master-data.md` | 初期データ、選択肢定義 |
 | `docs/REQUIREMENTS.md` | 詳細な要件定義 |
