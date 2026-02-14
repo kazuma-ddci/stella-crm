@@ -18,6 +18,12 @@ services:
       db-stg:
         condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+        reservations:
+          memory: 512m
 
   db-stg:
     image: postgres:15
@@ -34,6 +40,12 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 256m
 
 volumes:
   postgres_stg_data:

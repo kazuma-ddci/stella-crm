@@ -18,6 +18,12 @@ services:
       db-prod:
         condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+        reservations:
+          memory: 512m
 
   db-prod:
     image: postgres:15
@@ -34,6 +40,12 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 256m
 
 volumes:
   postgres_prod_data:
