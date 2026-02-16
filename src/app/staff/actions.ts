@@ -191,7 +191,6 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
 
   if (hasPermissionChange && editableCodes.length > 0) {
     const canEditStella = editableCodes.includes("stella");
-    const stellaPermission = canEditStella ? ((data.stellaPermission as string) || "none") : "none";
 
     // editableCodes → editableProjectIds に変換
     const allProjects = await prisma.masterProject.findMany({ select: { id: true, code: true } });
@@ -201,13 +200,41 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
       .map((c) => codeToId.get(c))
       .filter((id): id is number => id !== undefined);
 
+    // 既存の権限を取得（送信されなかった権限を保持するため）
+    const existingPermissions = await prisma.staffPermission.findMany({
+      where: { staffId: id, projectId: { in: editableProjectIds } },
+    });
+
+    // 送信されたデータと既存データをマージしたフル権限データを構築
+    const mergedData: Record<string, unknown> = { ...data };
+
+    // stellaPermission: 送信されていなければ既存値を保持
+    if (!("stellaPermission" in data) && canEditStella) {
+      const stellaId = codeToId.get("stella");
+      const existingStella = existingPermissions.find((p) => p.projectId === stellaId);
+      mergedData.stellaPermission = existingStella?.permissionLevel || "none";
+    }
+
+    // プロジェクト権限: 送信されていなければ既存値を保持
+    for (const code of editableCodes) {
+      if (code === "stella") continue;
+      const permKey = `${PERM_PREFIX}${code}`;
+      if (!(permKey in data)) {
+        const projectId = codeToId.get(code);
+        const existing = existingPermissions.find((p) => p.projectId === projectId);
+        mergedData[permKey] = existing?.permissionLevel || "none";
+      }
+    }
+
+    const stellaPermission = canEditStella ? ((mergedData.stellaPermission as string) || "none") : "none";
+
     // 編集可能なプロジェクトの権限のみ削除
     await prisma.staffPermission.deleteMany({
       where: { staffId: id, projectId: { in: editableProjectIds } },
     });
 
-    // 編集可能なプロジェクトの権限のみ作成
-    const allPermissions = await buildPermissions(id, data, stellaPermission);
+    // マージ済みデータから権限を再作成
+    const allPermissions = await buildPermissions(id, mergedData, stellaPermission);
     const permissionsToCreate = allPermissions.filter((p) => {
       const code = idToCode.get(p.projectId);
       return code && editableCodes.includes(code);

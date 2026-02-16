@@ -49,6 +49,7 @@ type NavItem = {
   icon: React.ElementType;
   children?: NavItem[];
   requiredProject?: ProjectCode;
+  requireAnyEdit?: boolean; // いずれかのプロジェクトでedit以上なら表示
   adminOnly?: boolean;
 };
 
@@ -108,11 +109,10 @@ const navigation: NavItem[] = [
   {
     name: "Stella",
     icon: Building2,
-    requiredProject: "stella",
     children: [
       { name: "ダッシュボード", href: "/", icon: Home },
-      { name: "Stella全顧客マスタ", href: "/companies", icon: Building2 },
-      { name: "スタッフ管理", href: "/staff", icon: Users },
+      { name: "Stella全顧客マスタ", href: "/companies", icon: Building2, requireAnyEdit: true },
+      { name: "スタッフ管理", href: "/staff", icon: Users, requiredProject: "stella" },
     ],
   },
   {
@@ -268,6 +268,12 @@ function hasAdminPermission(user: SessionUser): boolean {
   return user.permissions.some((p) => p.permissionLevel === "admin");
 }
 
+function hasAnyEditPermission(user: SessionUser): boolean {
+  return user.permissions.some(
+    (p) => p.permissionLevel === "edit" || p.permissionLevel === "admin"
+  );
+}
+
 function filterNavigationByPermissions(
   items: NavItem[],
   user: SessionUser
@@ -279,6 +285,10 @@ function filterNavigationByPermissions(
       // 管理者専用メニューのチェック
       if (item.adminOnly && !isAdmin) {
         return false;
+      }
+      // いずれかのプロジェクトでedit以上なら表示
+      if (item.requireAnyEdit) {
+        return hasAnyEditPermission(user);
       }
       if (!item.requiredProject) {
         return true;

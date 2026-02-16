@@ -74,13 +74,26 @@ function getRequiredProject(pathname: string): ProjectCode | null {
     return "stp";
   }
   if (
-    pathname.startsWith("/companies") ||
     pathname.startsWith("/staff") ||
     pathname.startsWith("/settings")
   ) {
     return "stella";
   }
+  // /companies はいずれかのプロジェクトでedit以上なら許可（後続で個別チェック）
+  if (pathname.startsWith("/companies")) {
+    return null;
+  }
   return null;
+}
+
+/**
+ * いずれかのプロジェクトでedit以上の権限があるかチェック
+ */
+function hasAnyEditPermission(
+  permissions: Array<{ projectCode: string; permissionLevel: string }>
+): boolean {
+  const editLevels = new Set(["edit", "admin"]);
+  return permissions.some((p) => editLevels.has(p.permissionLevel));
 }
 
 function hasPermission(
@@ -221,6 +234,13 @@ export default auth((request) => {
     // 社内スタッフが外部ユーザー専用パスにアクセスしようとした場合
     if (isExternalOnlyPath(pathname)) {
       return NextResponse.redirect(new URL("/", request.url));
+    }
+
+    // /companies: いずれかのプロジェクトでedit以上なら許可
+    if (pathname.startsWith("/companies")) {
+      if (!hasAnyEditPermission(userPermissions)) {
+        return NextResponse.redirect(new URL("/", request.url));
+      }
     }
 
     // 社内スタッフ用のプロジェクト権限チェック

@@ -58,8 +58,11 @@ next-env.d.ts
 /playwright/**/*.jpg
 /playwright/**/*.jpeg
 
-# Claude Code settings
+# Claude Code settings and guides
 .claude/
+.mcp.json
+CLAUDE.md
+**/CLAUDE.md
 
 # Personal notes and temp files
 メモ/
@@ -68,3 +71,6 @@ kpi-dashboard.txt
 
 # Screenshots (Japanese filenames)
 スクリーンショット*
+
+# Binary docs (use .md versions instead)
+*.docx
