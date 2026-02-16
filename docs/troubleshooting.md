@@ -24,6 +24,7 @@
 16. [パスワードリセットで「The string did not match the expected pattern.」エラー](#パスワードリセットでthe-string-did-not-match-the-expected-patternエラー)
 17. [update関数の部分更新未対応でフィールドがnull/falseに上書きされる](#update関数の部分更新未対応でフィールドがnullfalseに上書きされる)
 18. [VPSでdocker-compose(v1)を使うとContainerConfigエラーになる](#vpsでdocker-composev1を使うとcontainerconfigエラーになる)
+19. [CrudTableのselectで「-」(null)オプションが「なし」(none)と重複し意図しない変更が発生する](#crudtableのselectでnullオプションがなしnoneと重複し意図しない変更が発生する)
 
 ---
 
@@ -1024,7 +1025,7 @@ if ("roleTypeIds" in data) {
 | `projectIds` | `undefined \|\| []` → `[]` | 全PJ割当削除 |
 | 権限関連（`perm_*`） | 空データで上書き | 全権限削除 |
 
-### 修正対象ファイル（12ファイル）
+### 修正対象ファイル（13ファイル）
 
 | ファイル | 関数 |
 |---------|------|
@@ -1039,6 +1040,7 @@ if ("roleTypeIds" in data) {
 | `src/app/settings/display-views/actions.ts` | `updateDisplayView` |
 | `src/app/settings/projects/actions.ts` | `updateProject` |
 | `src/app/stp/records/stage-histories/actions.ts` | `updateStageHistory` |
+| `src/app/stp/contracts/actions.ts` | `updateContract`（2026-02-12追加修正） |
 | `src/app/companies/[id]/actions.ts` | `updateCompany` |
 
 ### 検証方法
@@ -1111,3 +1113,75 @@ docker compose version
 - `docker-compose.prod.yml`
 - `docker-compose.stg.yml`
 - `CLAUDE.md`（VPSデプロイ手順セクション）
+
+---
+
+## CrudTableのselectで「-」(null)オプションが「なし」(none)と重複し意図しない変更が発生する
+
+> **2026-02-16 修正済み**
+
+### 症状
+
+- スタッフ管理の権限selectで「なし」（値=`"none"`）と「-」（値=`null`）の2つの「未選択」系オプションが表示される
+- ユーザーが「-」を選択すると、権限が `"none"` → `null` に変わる
+- 権限に触れていないつもりでも、差分チェックで「変更あり」と判定され、保存時に意図しない権限変更が発生する
+
+### 原因
+
+CrudTableのselect/comboboxは、先頭に自動的に「-」オプション（値=`__empty__` → `null`に変換）を挿入する。これはoptionsに「未選択」相当がない場合のためのフォールバックだが、権限selectのように `{ value: "none", label: "なし" }` が既にoptionsに含まれている場合は、意味が重複する。
+
+ユーザーが「-」と「なし」を混同して「-」を選ぶと、`"none"` → `null` に値が変わり、保存時に差分が検出されてしまう。
+
+```
+options: [
+  { value: "none", label: "なし" },    // ← これが本来の「未選択」
+  { value: "view", label: "閲覧" },
+  { value: "edit", label: "編集" },
+  { value: "admin", label: "管理者" },
+]
+
+CrudTableが自動追加:
+  { value: "__empty__" (→null), label: "-" }  // ← 重複！混乱の元
+```
+
+### 解決方法
+
+optionsに `value="none"` のオプションが含まれている場合は、「-」（`__empty__`）オプションを表示しない。
+
+```tsx
+// ✅ 通常のSelect（crud-table.tsx 951行付近）
+<SelectContent>
+  {!options.some((opt) => opt.value === "none") && (
+    <SelectItem value="__empty__">-</SelectItem>
+  )}
+  {options.map(...)}
+</SelectContent>
+
+// ✅ searchable Combobox（crud-table.tsx 910行付近）
+<CommandGroup>
+  {!options.some((opt) => opt.value === "none") && (
+    <CommandItem value="__empty__" onSelect={() => { ... }}>
+      -
+    </CommandItem>
+  )}
+  {options.map(...)}
+</CommandGroup>
+```
+
+### 原則
+
+**selectのoptionsに `"none"` 値を持つ「なし」オプションが含まれている場合、CrudTableの自動「-」オプションは非表示にすること。** 「なし」と「-」の両方を表示すると、ユーザーが混同して意図しないnull変更が発生する。
+
+### 検証方法
+
+1. スタッフ管理で編集ダイアログを開く
+2. 権限セレクトのドロップダウンに「-」が表示されないことを確認（「なし」「閲覧」「編集」「管理者」のみ）
+3. 権限に触らず名前だけ変更して保存 → 権限が変わらないことを確認
+
+### ロールバック手順
+
+`src/components/crud-table.tsx` の条件分岐（`!options.some((opt) => opt.value === "none")`）を削除し、`<SelectItem value="__empty__">-</SelectItem>` と `<CommandItem value="__empty__">` を無条件表示に戻す。
+
+### 関連ファイル
+
+- `src/components/crud-table.tsx`（select/comboboxの「-」オプション表示条件）

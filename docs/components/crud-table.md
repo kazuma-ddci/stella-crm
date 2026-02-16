@@ -99,6 +99,55 @@ export default function MyTable({ data }) {
 />
 ```
 
+### 更新APIの実装パターン（⚠️必須）
+
+crud-tableは**差分送信方式**を採用しています：
+- **インライン編集**: 変更した1項目のみ送信 `{ [columnKey]: newValue }`
+- **通常編集（モーダル）**: 変更のあった項目のみ送信（`computeChangedData()`）
+
+このため、`onUpdate` で呼ばれる更新関数は**必ず `"key" in data` パターンで差分対応**すること。
+
+```typescript
+// ❌ 間違い: 全項目上書き（未送信項目が null/false/NaN で破壊される）
+export async function updateXxx(id: number, data: Record<string, unknown>) {
+  await prisma.xxx.update({
+    where: { id },
+    data: {
+      name: (data.name as string) || "",        // 未送信時に "" で上書き
+      isActive: data.isActive === true,          // 未送信時に false 化
+      companyId: Number(data.companyId),          // 未送信時に NaN
+    },
+  });
+}
+
+// ✅ 正しい: 差分更新（送信されたフィールドのみ更新）
+export async function updateXxx(id: number, data: Record<string, unknown>) {
+  const updateData: Record<string, unknown> = {};
+  if ("name" in data) updateData.name = (data.name as string) || "";
+  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+  if ("companyId" in data) updateData.companyId = Number(data.companyId);
+
+  if (Object.keys(updateData).length > 0) {
+    await prisma.xxx.update({ where: { id }, data: updateData });
+  }
+}
+```
+
+> **関連**: `docs/troubleshooting.md` の「update関数の部分更新未対応でフィールドがnull/falseに上書きされる」も参照。
+
+---
+
+### selectの「-」(null)オプションと「なし」(none)の重複に注意
+
+CrudTableのselectは自動で「-」（値=`null`）オプションを先頭に追加する。optionsに `{ value: "none", label: "なし" }` が含まれている場合は自動的に非表示になるが、新しいselectフィールドを追加する際は以下に注意：
+
+- **optionsに「未選択」相当がある場合**（`value: "none"` 等）→ CrudTableが自動で「-」を非表示にする
+- **optionsに「未選択」相当がない場合** → CrudTableが「-」を自動追加する（従来の動作）
+
+> **関連**: `docs/troubleshooting.md` の「CrudTableのselectで「-」(null)オプションが「なし」(none)と重複し意図しない変更が発生する」も参照。
+
+---
+
 ### インライン編集を有効にする場合
 
 インライン編集の詳細については `docs/components/inline-edit.md` を参照してください。

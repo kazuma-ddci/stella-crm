@@ -907,15 +907,17 @@ export function CrudTable({
                 <CommandList maxHeight={300}>
                   <CommandEmpty>{col.dependsOn && !formData[col.dependsOn] ? (col.dependsOnPlaceholder || "先に依存項目を選択してください") : "見つかりませんでした"}</CommandEmpty>
                   <CommandGroup>
-                    <CommandItem
-                      value="__empty__"
-                      onSelect={() => {
-                        handleFormFieldChange(col.key, null);
-                        setOpenPopovers({ ...openPopovers, [col.key]: false });
-                      }}
-                    >
-                      -
-                    </CommandItem>
+                    {!options.some((opt) => opt.value === "none") && (
+                      <CommandItem
+                        value="__empty__"
+                        onSelect={() => {
+                          handleFormFieldChange(col.key, null);
+                          setOpenPopovers({ ...openPopovers, [col.key]: false });
+                        }}
+                      >
+                        -
+                      </CommandItem>
+                    )}
                     {options.map((opt) => (
                       <CommandItem
                         key={opt.value}
@@ -946,7 +948,9 @@ export function CrudTable({
             <SelectValue placeholder={col.dependsOn && !formData[col.dependsOn] ? (col.dependsOnPlaceholder || "先に依存項目を選択") : "選択してください"} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__empty__">-</SelectItem>
+            {!options.some((opt) => opt.value === "none") && (
+              <SelectItem value="__empty__">-</SelectItem>
+            )}
             {options.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 {opt.label}
