@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Trash2 } from "lucide-react";
 import { allocatePayment, removeAllocation } from "./actions";
+import { useTimedFormCache } from "@/hooks/use-timed-form-cache";
 
 type AllocationInfo = {
   id: number;
@@ -76,6 +77,37 @@ export function AllocationModal({
   >(new Map());
   const [loading, setLoading] = useState(false);
   const [removingId, setRemovingId] = useState<number | null>(null);
+
+  type CachedState = {
+    search: string;
+    selectedItems: Map<string, { id: number; type: "revenue" | "expense"; amount: number }>;
+  };
+  const { restore, save } = useTimedFormCache<CachedState>(
+    `allocation-${transaction.id as number}`
+  );
+  const formStateRef = useRef<CachedState>({ search: "", selectedItems: new Map() });
+  formStateRef.current = { search, selectedItems };
+
+  // クローズ時にキャッシュ保存
+  useEffect(() => {
+    if (!open) return;
+    return () => {
+      save(formStateRef.current);
+    };
+  }, [open, save]);
+
+  useEffect(() => {
+    if (open) {
+      const cached = restore();
+      if (cached) {
+        setSearch(cached.search);
+        setSelectedItems(cached.selectedItems);
+      } else {
+        setSearch("");
+        setSelectedItems(new Map());
+      }
+    }
+  }, [open, restore]);
 
   const direction = transaction.direction as string;
   const amount = transaction.amount as number;

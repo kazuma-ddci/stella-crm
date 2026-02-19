@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +38,7 @@ import {
   deleteContract,
   getContracts,
 } from "./contract-actions";
+import { useTimedFormCache } from "@/hooks/use-timed-form-cache";
 
 registerLocale("ja", ja);
 
@@ -96,6 +97,29 @@ export function ContractsModal({
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
 
+  type CachedState = {
+    formData: Partial<Contract>;
+    isAddMode: boolean;
+    editContract: Contract | null;
+  };
+  const { restore, save } = useTimedFormCache<CachedState>(
+    `agent-contracts-${agentId}`
+  );
+  const formStateRef = useRef<CachedState>({
+    formData: {},
+    isAddMode: false,
+    editContract: null,
+  });
+  formStateRef.current = { formData, isAddMode, editContract };
+
+  // クローズ時にキャッシュ保存
+  useEffect(() => {
+    if (!open) return;
+    return () => {
+      save(formStateRef.current);
+    };
+  }, [open, save]);
+
   // モーダルが開くたびにサーバーから最新データを取得
   const loadContracts = useCallback(async () => {
     setInitialLoading(true);
@@ -112,8 +136,20 @@ export function ContractsModal({
   useEffect(() => {
     if (open) {
       loadContracts();
+      const cached = restore();
+      if (cached) {
+        setFormData(cached.formData);
+        setIsAddMode(cached.isAddMode);
+        setEditContract(cached.editContract);
+      } else {
+        setFormData({});
+        setIsAddMode(false);
+        setEditContract(null);
+      }
+      // 一時的なUI状態は常にリセット
+      setDeleteConfirm(null);
     }
-  }, [open, loadContracts]);
+  }, [open, loadContracts, restore]);
 
   const openAddForm = () => {
     setFormData({

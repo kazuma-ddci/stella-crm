@@ -54,6 +54,7 @@ import {
   type AgentContractHistoryData,
   type CommissionOverrideData,
 } from "./agent-contract-history-actions";
+import { useTimedFormCache } from "@/hooks/use-timed-form-cache";
 
 registerLocale("ja", ja);
 
@@ -289,6 +290,40 @@ export function AgentContractHistoryModal({
   const [overrideDeleteConfirm, setOverrideDeleteConfirm] = useState<CommissionOverride | null>(null);
   const [overrideFormData, setOverrideFormData] = useState<Partial<CommissionOverrideData>>({});
 
+  type CachedState = {
+    formData: Partial<AgentContractHistoryData>;
+    selectedHistoryId: number | null;
+    isAddMode: boolean;
+    editHistory: ContractHistory | null;
+    overrideAddMode: boolean;
+    overrideEditTarget: CommissionOverride | null;
+    overrideFormData: Partial<CommissionOverrideData>;
+  };
+  const { restore, save, clear } = useTimedFormCache<CachedState>(
+    `agent-contract-history-${agentId}`
+  );
+  const formStateRef = useRef<CachedState>({
+    formData: {},
+    selectedHistoryId: null,
+    isAddMode: false,
+    editHistory: null,
+    overrideAddMode: false,
+    overrideEditTarget: null,
+    overrideFormData: {},
+  });
+  formStateRef.current = {
+    formData, selectedHistoryId, isAddMode, editHistory,
+    overrideAddMode, overrideEditTarget, overrideFormData,
+  };
+
+  // クローズ時にキャッシュ保存
+  useEffect(() => {
+    if (!open) return;
+    return () => {
+      save(formStateRef.current);
+    };
+  }, [open, save]);
+
   const loadData = useCallback(async () => {
     setInitialLoading(true);
     try {
@@ -308,11 +343,32 @@ export function AgentContractHistoryModal({
   useEffect(() => {
     if (open) {
       loadData();
-      setSelectedHistoryId(null);
-      setIsAddMode(false);
-      setEditHistory(null);
+      const cached = restore();
+      if (cached) {
+        setFormData(cached.formData);
+        setSelectedHistoryId(cached.selectedHistoryId);
+        setIsAddMode(cached.isAddMode);
+        setEditHistory(cached.editHistory);
+        setOverrideAddMode(cached.overrideAddMode);
+        setOverrideEditTarget(cached.overrideEditTarget);
+        setOverrideFormData(cached.overrideFormData);
+      } else {
+        setFormData({});
+        setSelectedHistoryId(null);
+        setIsAddMode(false);
+        setEditHistory(null);
+        setOverrideAddMode(false);
+        setOverrideEditTarget(null);
+        setOverrideFormData({});
+      }
+      // 一時的なUI状態は常にリセット
+      setDeleteConfirm(null);
+      setEditConfirm(false);
+      setPendingEditData(null);
+      setFinanceWarning(null);
+      setOverrideDeleteConfirm(null);
     }
-  }, [open, loadData]);
+  }, [open, loadData, restore]);
 
   const getDefaultFormData = (): Partial<AgentContractHistoryData> => ({
     contractStartDate: "",

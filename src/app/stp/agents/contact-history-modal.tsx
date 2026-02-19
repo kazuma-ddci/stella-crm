@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -62,6 +62,7 @@ import {
 } from "./contact-history-actions";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { MultiFileUpload, FileDisplay, type FileInfo } from "@/components/multi-file-upload";
+import { useTimedFormCache } from "@/hooks/use-timed-form-cache";
 
 registerLocale("ja", ja);
 
@@ -142,6 +143,50 @@ export function ContactHistoryModal({
   const [loading, setLoading] = useState(false);
   const [staffPopoverOpen, setStaffPopoverOpen] = useState(false);
   const [requiredWarning, setRequiredWarning] = useState(false);
+
+  type CachedState = {
+    formData: Partial<ContactHistory>;
+    isAddMode: boolean;
+    editHistory: ContactHistory | null;
+  };
+  const { restore, save } = useTimedFormCache<CachedState>(
+    `agent-contact-history-${agentId}`
+  );
+  const formStateRef = useRef<CachedState>({
+    formData: {},
+    isAddMode: false,
+    editHistory: null,
+  });
+  formStateRef.current = { formData, isAddMode, editHistory };
+
+  // クローズ時にキャッシュ保存
+  useEffect(() => {
+    if (!open) return;
+    return () => {
+      save(formStateRef.current);
+    };
+  }, [open, save]);
+
+  useEffect(() => {
+    if (open) {
+      const cached = restore();
+      if (cached) {
+        setFormData(cached.formData);
+        setIsAddMode(cached.isAddMode);
+        setEditHistory(cached.editHistory);
+      } else {
+        setFormData({});
+        setIsAddMode(false);
+        setEditHistory(null);
+      }
+      // 一時的なUI状態は常にリセット
+      setDeleteConfirm(null);
+      setEditConfirm(false);
+      setPendingEditData(null);
+      setStaffPopoverOpen(false);
+      setRequiredWarning(false);
+    }
+  }, [open, restore]);
 
   // スタッフIDからスタッフ名を取得するヘルパー
   const getStaffNames = (assignedTo: string | null): string => {

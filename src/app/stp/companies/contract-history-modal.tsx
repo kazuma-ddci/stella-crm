@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -52,6 +52,7 @@ import {
   ContractHistoryData,
 } from "./contract-history-actions";
 import { TextPreviewCell } from "@/components/text-preview-cell";
+import { useTimedFormCache } from "@/hooks/use-timed-form-cache";
 
 // 日本語ロケールを登録
 registerLocale("ja", ja);
@@ -184,6 +185,33 @@ export function ContractHistoryModal({
   const [isManualPerformanceFee, setIsManualPerformanceFee] = useState(false);
   const [financeWarning, setFinanceWarning] = useState<number | null>(null);
 
+  type CachedState = {
+    formData: Partial<ContractHistoryData>;
+    isAddMode: boolean;
+    editHistory: ContractHistory | null;
+    isManualMonthlyFee: boolean;
+    isManualPerformanceFee: boolean;
+  };
+  const { restore, save, clear } = useTimedFormCache<CachedState>(
+    `company-contract-history-${companyId}`
+  );
+  const formStateRef = useRef<CachedState>({
+    formData: {},
+    isAddMode: false,
+    editHistory: null,
+    isManualMonthlyFee: false,
+    isManualPerformanceFee: false,
+  });
+  formStateRef.current = { formData, isAddMode, editHistory, isManualMonthlyFee, isManualPerformanceFee };
+
+  // クローズ時にキャッシュ保存
+  useEffect(() => {
+    if (!open) return;
+    return () => {
+      save(formStateRef.current);
+    };
+  }, [open, save]);
+
   // データ取得
   const loadData = useCallback(async () => {
     setInitialLoading(true);
@@ -204,8 +232,27 @@ export function ContractHistoryModal({
   useEffect(() => {
     if (open) {
       loadData();
+      const cached = restore();
+      if (cached) {
+        setFormData(cached.formData);
+        setIsAddMode(cached.isAddMode);
+        setEditHistory(cached.editHistory);
+        setIsManualMonthlyFee(cached.isManualMonthlyFee);
+        setIsManualPerformanceFee(cached.isManualPerformanceFee);
+      } else {
+        setFormData({});
+        setIsAddMode(false);
+        setEditHistory(null);
+        setIsManualMonthlyFee(false);
+        setIsManualPerformanceFee(false);
+      }
+      // 一時的なUI状態は常にリセット
+      setDeleteConfirm(null);
+      setEditConfirm(false);
+      setPendingEditData(null);
+      setFinanceWarning(null);
     }
-  }, [open, loadData]);
+  }, [open, loadData, restore]);
 
   const getDefaultFormData = (): Partial<ContractHistoryData> => {
     const defaultIndustryType = "general";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   Dialog,
@@ -42,6 +42,7 @@ import { toLocalDateString } from "@/lib/utils";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
+import { useTimedFormCache } from "@/hooks/use-timed-form-cache";
 
 // 日本語ロケールを登録
 registerLocale("ja", ja);
@@ -131,6 +132,31 @@ export function MasterContractModal({
   const [nextContractNumber, setNextContractNumber] = useState<string>("");
   const [initialLoading, setInitialLoading] = useState(true);
 
+  type CachedState = {
+    formData: FormData;
+    editingId: number | null;
+    formOpen: boolean;
+    nextContractNumber: string;
+  };
+  const { restore, save, clear } = useTimedFormCache<CachedState>(
+    `master-contract-${companyId}`
+  );
+  const formStateRef = useRef<CachedState>({
+    formData: EMPTY_FORM_DATA,
+    editingId: null,
+    formOpen: false,
+    nextContractNumber: "",
+  });
+  formStateRef.current = { formData, editingId, formOpen, nextContractNumber };
+
+  // クローズ時にキャッシュ保存
+  useEffect(() => {
+    if (!open) return;
+    return () => {
+      save(formStateRef.current);
+    };
+  }, [open, save]);
+
   // モーダルが開くたびにサーバーから最新データを取得
   const loadContracts = useCallback(async () => {
     setInitialLoading(true);
@@ -147,8 +173,20 @@ export function MasterContractModal({
   useEffect(() => {
     if (open) {
       loadContracts();
+      const cached = restore();
+      if (cached) {
+        setFormData(cached.formData);
+        setEditingId(cached.editingId);
+        setFormOpen(cached.formOpen);
+        setNextContractNumber(cached.nextContractNumber);
+      } else {
+        setFormData(EMPTY_FORM_DATA);
+        setEditingId(null);
+        setFormOpen(false);
+        setNextContractNumber("");
+      }
     }
-  }, [open, loadContracts]);
+  }, [open, loadContracts, restore]);
 
   const resetForm = () => {
     setFormData(EMPTY_FORM_DATA);
