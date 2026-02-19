@@ -14,6 +14,7 @@ type Props = {
   projectOptions: { value: string; label: string }[];
   permissionProjects: { code: string; name: string }[];
   editableProjectCodes: string[];
+  dynamicOptions?: Record<string, Record<string, { value: string; label: string }[]>>;
 };
 
 const CONTRACT_TYPES = [
@@ -117,7 +118,7 @@ function InviteButton({ row }: { row: Record<string, unknown> }) {
   );
 }
 
-export function StaffTable({ data, roleTypeOptions, projectOptions, permissionProjects, editableProjectCodes }: Props) {
+export function StaffTable({ data, roleTypeOptions, projectOptions, permissionProjects, editableProjectCodes, dynamicOptions }: Props) {
   // 権限カラム（編集可能なプロジェクトがある場合のみ表示）
   const canEditStella = editableProjectCodes.includes("stella");
   const permissionColumns: ColumnDef[] = editableProjectCodes.length > 0
@@ -148,7 +149,7 @@ export function StaffTable({ data, roleTypeOptions, projectOptions, permissionPr
     { key: "projectIds", header: "プロジェクト（選択）", type: "multiselect", options: projectOptions, simpleMode: true, hidden: true },
     { key: "projectNames", header: "プロジェクト", editable: false, filterable: true },
     // 役割（複数選択）
-    { key: "roleTypeIds", header: "役割（選択）", type: "multiselect", options: roleTypeOptions, simpleMode: true, hidden: true },
+    { key: "roleTypeIds", header: "役割（選択）", type: "multiselect", dynamicOptionsKey: "roleTypesByProject", dependsOn: "projectIds", simpleMode: true, hidden: true },
     { key: "roleTypeNames", header: "役割", editable: false, filterable: true },
     // 権限（Stella admin のみ）
     ...permissionColumns,
@@ -179,6 +180,7 @@ export function StaffTable({ data, roleTypeOptions, projectOptions, permissionPr
       emptyMessage="スタッフが登録されていません"
       sortableItems={sortableItems}
       onReorder={reorderStaff}
+      dynamicOptions={dynamicOptions}
     />
   );
 }

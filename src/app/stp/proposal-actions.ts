@@ -655,17 +655,8 @@ export async function lockAllUnlockedSlides(
 
 // スタッフ一覧取得（担当者の選択用）
 export async function getStaffListForProposal() {
-  const staffList = await prisma.masterStaff.findMany({
-    where: { isActive: true, isSystemUser: false },
-    orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
-    select: {
-      id: true,
-      name: true,
-    },
-  });
-
-  return staffList.map((s) => ({
-    value: s.name,
-    label: s.name,
-  }));
+  const { getStaffOptionsByField } = await import("@/lib/staff/get-staff-by-field");
+  const options = await getStaffOptionsByField("PROPOSAL_STAFF");
+  // 提案書は名前ベースのvalue（互換性維持）
+  return options.map((o) => ({ value: o.label, label: o.label }));
 }

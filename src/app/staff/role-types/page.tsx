@@ -7,9 +7,18 @@ import { canEditMasterDataSync } from "@/lib/auth/master-data-permission";
 export default async function RoleTypesPage() {
   const session = await auth();
   const canEditMasterData = canEditMasterDataSync(session?.user);
-  const roleTypes = await prisma.staffRoleType.findMany({
-    orderBy: { displayOrder: "asc" },
-  });
+  const [roleTypes, projects] = await Promise.all([
+    prisma.staffRoleType.findMany({
+      orderBy: { displayOrder: "asc" },
+      include: {
+        projectLinks: true,
+      },
+    }),
+    prisma.masterProject.findMany({
+      where: { isActive: true },
+      orderBy: { displayOrder: "asc" },
+    }),
+  ]);
 
   const data = roleTypes.map((r) => ({
     id: r.id,
@@ -18,6 +27,16 @@ export default async function RoleTypesPage() {
     description: r.description,
     displayOrder: r.displayOrder,
     isActive: r.isActive,
+    projectIds: r.projectLinks.map((pl) => String(pl.projectId)),
+    projectNames: r.projectLinks
+      .map((pl) => projects.find((p) => p.id === pl.projectId)?.name)
+      .filter(Boolean)
+      .join(", "),
+  }));
+
+  const projectOptions = projects.map((p) => ({
+    value: String(p.id),
+    label: p.name,
   }));
 
   return (
@@ -28,7 +47,7 @@ export default async function RoleTypesPage() {
           <CardTitle>役割種別一覧</CardTitle>
         </CardHeader>
         <CardContent>
-          <RoleTypesTable data={data} canEdit={canEditMasterData} />
+          <RoleTypesTable data={data} canEdit={canEditMasterData} projectOptions={projectOptions} />
         </CardContent>
       </Card>
     </div>

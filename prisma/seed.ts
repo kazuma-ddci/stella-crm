@@ -48,6 +48,7 @@ function primaryContactId(companyId: number): number {
 async function clearDatabase() {
   console.log('Clearing existing data...');
   // 子テーブルから順に削除
+  await prisma.staffFieldRestriction.deleteMany();
   await prisma.stpKpiShareLink.deleteMany();
   await prisma.stpKpiWeeklyData.deleteMany();
   await prisma.stpKpiSheet.deleteMany();
@@ -125,6 +126,7 @@ async function resetSequences() {
     'stp_kpi_sheets', 'stp_kpi_weekly_data', 'stp_kpi_share_links',
     'stp_agent_contract_histories', 'stp_agent_commission_overrides',
     'stp_candidates', 'stp_revenue_records', 'stp_expense_records', 'stp_invoices',
+    'staff_field_restrictions',
   ];
   for (const table of tables) {
     try {
@@ -153,13 +155,17 @@ async function main() {
       { id: 1, name: 'リード', displayOrder: 1, stageType: 'progress' },
       { id: 2, name: '商談化', displayOrder: 2, stageType: 'progress' },
       { id: 3, name: '提案中', displayOrder: 3, stageType: 'progress' },
-      { id: 4, name: '見積提示', displayOrder: 4, stageType: 'progress' },
-      { id: 5, name: '受注', displayOrder: 5, stageType: 'closed_won' },
+      { id: 4, name: '口頭契約', displayOrder: 4, stageType: 'progress' },
+      { id: 5, name: '契約締結', displayOrder: 5, stageType: 'progress' },
       { id: 6, name: '失注', stageType: 'closed_lost' },
       { id: 7, name: '検討中', stageType: 'pending' },
+      { id: 8, name: 'キックオフ', displayOrder: 6, stageType: 'progress' },
+      { id: 9, name: '運用準備', displayOrder: 7, stageType: 'progress' },
+      { id: 10, name: '運用中', displayOrder: 8, stageType: 'closed_won' },
+      { id: 11, name: '解約', stageType: 'closed_lost' },
     ],
   });
-  console.log('✓ Stages (7)');
+  console.log('✓ Stages (11)');
 
   // 接触方法
   await prisma.contactMethod.createMany({
@@ -1226,6 +1232,33 @@ async function main() {
   console.log('✓ KPI share links (8)');
 
   // ============================================
+  // 18. スタッフ役割種別 + 担当者フィールド制約
+  // ============================================
+
+  // スタッフ役割種別（本番では管理画面から登録するが、初期データとしてASを作成）
+  await prisma.staffRoleType.createMany({
+    data: [
+      { id: 1, code: 'AS', name: 'AS', description: 'アカウントサポート', displayOrder: 1 },
+    ],
+  });
+  console.log('✓ Staff role types (1): AS');
+
+  // 担当者フィールド制約の初期データ（全顧客マスタ担当者 = AS役割）
+  const asRole = await prisma.staffRoleType.findFirst({ where: { name: 'AS' } });
+  if (asRole) {
+    await prisma.staffFieldRestriction.deleteMany({
+      where: { fieldCode: 'MASTER_COMPANY_STAFF' },
+    });
+    await prisma.staffFieldRestriction.create({
+      data: {
+        fieldCode: 'MASTER_COMPANY_STAFF',
+        roleTypeId: asRole.id,
+      },
+    });
+    console.log('  StaffFieldRestriction: MASTER_COMPANY_STAFF → AS role created');
+  }
+
+  // ============================================
   // シーケンスリセット
   // ============================================
 
@@ -1259,6 +1292,8 @@ async function main() {
   console.log('Proposals: 20');
   console.log('Short URLs: 15');
   console.log('KPI sheets: 12, Weekly data: 72, Share links: 8');
+  console.log('Staff role types: 1 (AS)');
+  console.log('Staff field restrictions: 1 (MASTER_COMPANY_STAFF → AS)');
   console.log('\nLogin (test): admin@example.com / password123');
   console.log('Login (system): loginId "admin", "test_user", or "stella001"');
   console.log('Login (master data edit): loginId "stella001" (固定データ編集権限あり)');

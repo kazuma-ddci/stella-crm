@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgentsTable } from "./agents-table";
+import { getStaffOptionsByField } from "@/lib/staff/get-staff-by-field";
 import crypto from "crypto";
 
 // ユニークなトークンを生成
@@ -321,13 +322,8 @@ export default async function StpAgentsPage() {
     label: `${c.companyCode} ${c.name}`,
   }));
 
-  // 代理店担当者：STPプロジェクトに割り当てられたスタッフのみ
-  const staffOptions = staffProjectAssignments
-    .filter((a) => a.staff.isActive)
-    .map((a) => ({
-      value: String(a.staff.id),
-      label: a.staff.name,
-    }));
+  // 代理店担当者
+  const staffOptions = await getStaffOptionsByField("STP_AGENT_STAFF");
 
   // 契約書用：STPプロジェクトに割り当てられたスタッフのみ
   const contractStaffOptions = staffProjectAssignments

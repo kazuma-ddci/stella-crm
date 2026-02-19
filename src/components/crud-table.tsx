@@ -388,8 +388,46 @@ export function CrudTable({
       // 動的選択肢
       if (col.dynamicOptionsKey && col.dependsOn) {
         const dependsOnValue = row[col.dependsOn];
-        if (dependsOnValue != null && dynamicOptions[col.dynamicOptionsKey]) {
-          return dynamicOptions[col.dynamicOptionsKey][String(dependsOnValue)] || [];
+        const optionsMap = dynamicOptions[col.dynamicOptionsKey];
+        if (!optionsMap) return [];
+
+        if (Array.isArray(dependsOnValue)) {
+          if (dependsOnValue.length === 0) {
+            const allOptions: EditableCellOption[] = [];
+            const seen = new Set<string>();
+            for (const opts of Object.values(optionsMap)) {
+              for (const opt of opts) {
+                if (!seen.has(opt.value)) {
+                  seen.add(opt.value);
+                  allOptions.push(opt);
+                }
+              }
+            }
+            return allOptions;
+          }
+          const merged: EditableCellOption[] = [];
+          const seen = new Set<string>();
+          const globalOpts = optionsMap["_global"] || [];
+          for (const opt of globalOpts) {
+            if (!seen.has(opt.value)) {
+              seen.add(opt.value);
+              merged.push(opt);
+            }
+          }
+          for (const val of dependsOnValue) {
+            const opts = optionsMap[String(val)] || [];
+            for (const opt of opts) {
+              if (!seen.has(opt.value)) {
+                seen.add(opt.value);
+                merged.push(opt);
+              }
+            }
+          }
+          return merged;
+        }
+
+        if (dependsOnValue != null) {
+          return optionsMap[String(dependsOnValue)] || [];
         }
         return [];
       }
@@ -818,13 +856,53 @@ export function CrudTable({
       // 動的選択肢が設定されている場合
       if (column.dynamicOptionsKey && column.dependsOn) {
         const dependsOnValue = formData[column.dependsOn];
-        if (dependsOnValue != null) {
-          const optionsMap = dynamicOptions[column.dynamicOptionsKey];
-          if (optionsMap) {
-            return optionsMap[String(dependsOnValue)] || [];
+        const optionsMap = dynamicOptions[column.dynamicOptionsKey];
+        if (!optionsMap) return [];
+
+        // dependsOnの値が配列の場合（multiselect対応）
+        if (Array.isArray(dependsOnValue)) {
+          if (dependsOnValue.length === 0) {
+            // 未選択の場合は全オプションを返す
+            const allOptions: { value: string; label: string }[] = [];
+            const seen = new Set<string>();
+            for (const opts of Object.values(optionsMap)) {
+              for (const opt of opts) {
+                if (!seen.has(opt.value)) {
+                  seen.add(opt.value);
+                  allOptions.push(opt);
+                }
+              }
+            }
+            return allOptions;
           }
+          // 選択された各値のオプションをUNION（重複除去）
+          const merged: { value: string; label: string }[] = [];
+          const seen = new Set<string>();
+          // _global キーのオプション（常に表示）
+          const globalOpts = optionsMap["_global"] || [];
+          for (const opt of globalOpts) {
+            if (!seen.has(opt.value)) {
+              seen.add(opt.value);
+              merged.push(opt);
+            }
+          }
+          for (const val of dependsOnValue) {
+            const opts = optionsMap[String(val)] || [];
+            for (const opt of opts) {
+              if (!seen.has(opt.value)) {
+                seen.add(opt.value);
+                merged.push(opt);
+              }
+            }
+          }
+          return merged;
         }
-        return []; // 依存先が未選択の場合は空の選択肢
+
+        // 単一値の場合（既存互換）
+        if (dependsOnValue != null) {
+          return optionsMap[String(dependsOnValue)] || [];
+        }
+        return [];
       }
       // 静的選択肢を返す
       return column.options || [];

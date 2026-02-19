@@ -1,30 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CompaniesTable } from "./companies-table";
+import { getStaffOptionsByField } from "@/lib/staff/get-staff-by-field";
 
 export default async function CompaniesPage() {
-  // AS種別のスタッフを取得（nameで検索、管理画面で登録された名前に依存）
-  const asRoleType = await prisma.staffRoleType.findFirst({
-    where: { name: "AS" },
-  });
-
-  const asStaff = asRoleType
-    ? await prisma.masterStaff.findMany({
-        where: {
-          isActive: true,
-          isSystemUser: false,
-          roleAssignments: {
-            some: { roleTypeId: asRoleType.id },
-          },
-        },
-        orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
-      })
-    : [];
-
-  const staffOptions = asStaff.map((s) => ({
-    value: String(s.id),
-    label: s.name,
-  }));
+  const staffOptions = await getStaffOptionsByField("MASTER_COMPANY_STAFF");
 
   const companies = await prisma.masterStellaCompany.findMany({
     where: { mergedIntoId: null },

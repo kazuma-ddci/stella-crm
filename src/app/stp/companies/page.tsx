@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StpCompaniesTable } from "./stp-companies-table";
 import type { ProposalContent } from "@/lib/proposals/simulation";
+import { getStaffOptionsByField } from "@/lib/staff/get-staff-by-field";
 
 export default async function StpCompaniesPage() {
   const STP_PROJECT_ID = 1; // 採用ブースト
@@ -324,10 +325,7 @@ export default async function StpCompaniesPage() {
     label: a.company.name,
   }));
 
-  const staffOptions = staff.map((s) => ({
-    value: String(s.id),
-    label: s.name,
-  }));
+  const staffOptions = await getStaffOptionsByField("STP_COMPANY_SALES");
 
   // 契約書用：STPプロジェクトに割り当てられたスタッフのみ
   const contractStaffOptions = staffProjectAssignments

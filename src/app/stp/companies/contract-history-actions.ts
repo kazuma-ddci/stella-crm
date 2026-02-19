@@ -165,17 +165,10 @@ export async function deleteContractHistory(id: number): Promise<{ success: bool
 
 // スタッフ一覧取得（担当営業・担当運用の選択用）
 export async function getStaffList() {
-  const staffList = await prisma.masterStaff.findMany({
-    where: { isActive: true, isSystemUser: false },
-    orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
-    select: {
-      id: true,
-      name: true,
-    },
-  });
-
-  return staffList.map((s) => ({
-    value: String(s.id),
-    label: s.name,
-  }));
+  const { getStaffOptionsByFields } = await import("@/lib/staff/get-staff-by-field");
+  const result = await getStaffOptionsByFields(["CONTRACT_HISTORY_SALES", "CONTRACT_HISTORY_OPERATION"]);
+  return {
+    salesOptions: result.CONTRACT_HISTORY_SALES,
+    operationOptions: result.CONTRACT_HISTORY_OPERATION,
+  };
 }

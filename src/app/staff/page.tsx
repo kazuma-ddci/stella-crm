@@ -31,6 +31,7 @@ export default async function StaffPage() {
     prisma.staffRoleType.findMany({
       where: { isActive: true },
       orderBy: { displayOrder: "asc" },
+      include: { projectLinks: true },
     }),
     prisma.masterProject.findMany({
       where: { isActive: true },
@@ -100,6 +101,27 @@ export default async function StaffPage() {
     label: rt.name,
   }));
 
+  // 役割種別をプロジェクトごとに分類
+  const roleTypesByProject: Record<string, { value: string; label: string }[]> = {};
+
+  // _global: プロジェクト紐付けがない役割種別（どのプロジェクトでも表示）
+  roleTypesByProject["_global"] = roleTypes
+    .filter((rt) => rt.projectLinks.length === 0)
+    .map((rt) => ({ value: String(rt.id), label: rt.name }));
+
+  // 各プロジェクトに紐付いた役割種別
+  for (const rt of roleTypes) {
+    for (const link of rt.projectLinks) {
+      const key = String(link.projectId);
+      if (!roleTypesByProject[key]) {
+        roleTypesByProject[key] = [];
+      }
+      roleTypesByProject[key].push({ value: String(rt.id), label: rt.name });
+    }
+  }
+
+  const dynamicOptions = { roleTypesByProject };
+
   const projectOptions = projects.map((p) => ({
     value: String(p.id),
     label: p.name,
@@ -119,6 +141,7 @@ export default async function StaffPage() {
             projectOptions={projectOptions}
             permissionProjects={permissionProjects}
             editableProjectCodes={editableProjectCodes}
+            dynamicOptions={dynamicOptions}
           />
         </CardContent>
       </Card>

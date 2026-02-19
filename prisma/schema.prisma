@@ -588,6 +588,8 @@ model StaffRoleType {
 
   // Relations
   staffAssignments StaffRoleAssignment[]
+  projectLinks     StaffRoleTypeProject[]
+  fieldRestrictions StaffFieldRestriction[]
 
   @@map("staff_role_types")
 }
@@ -712,6 +714,8 @@ model MasterProject {
   accountingTransactions AccountingTransaction[]
   accountingMonthlyCloses AccountingMonthlyClose[]
   accountingReconciliations AccountingReconciliation[]
+  roleTypeLinks      StaffRoleTypeProject[]
+  fieldRestrictions  StaffFieldRestriction[]
 
   @@map("master_projects")
 }
@@ -1987,4 +1991,40 @@ model AccountingMonthlyClose {
   @@index([projectId])
   @@index([status])
   @@map("accounting_monthly_closes")
+}
+
+// ============================================
+// 役割種別 × プロジェクト 中間テーブル
+// ============================================
+
+model StaffRoleTypeProject {
+  id         Int      @id @default(autoincrement())
+  roleTypeId Int      @map("role_type_id")
+  projectId  Int      @map("project_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  roleType StaffRoleType @relation(fields: [roleTypeId], references: [id], onDelete: Cascade)
+  project  MasterProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([roleTypeId, projectId])
+  @@map("staff_role_type_projects")
+}
+
+// ============================================
+// 担当者フィールド制約 (Staff Field Restrictions)
+// フィールドごとにプロジェクト・役割で担当者を絞り込む
+// ============================================
+
+model StaffFieldRestriction {
+  id         Int      @id @default(autoincrement())
+  fieldCode  String   @db.VarChar(50) @map("field_code")
+  projectId  Int?     @map("project_id")
+  roleTypeId Int?     @map("role_type_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  project  MasterProject? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  roleType StaffRoleType? @relation(fields: [roleTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([fieldCode, projectId, roleTypeId])
+  @@map("staff_field_restrictions")
 }

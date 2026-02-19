@@ -64,6 +64,7 @@ const MASTER_DATA_HREFS = new Set([
   "/settings/display-views",
   "/settings/lead-sources",
   "/stp/settings/stages",
+  "/staff/field-restrictions",
 ]);
 
 // 固定データ設定ナビゲーション（stella001専用レイアウト用）
@@ -81,6 +82,7 @@ const masterDataNavigation: NavItem[] = [
       { name: "外部ユーザー表示区分", href: "/settings/display-views", icon: Shield },
       { name: "STP_流入経路", href: "/settings/lead-sources", icon: UserPlus },
       { name: "STP_商談ステージ", href: "/stp/settings/stages", icon: Layers },
+      { name: "担当者フィールド制約", href: "/staff/field-restrictions", icon: Shield },
     ],
   },
 ];
@@ -180,6 +182,7 @@ const navigation: NavItem[] = [
       { name: "プロジェクト管理", href: "/settings/projects", icon: FolderKanban },
       { name: "運営法人マスタ", href: "/settings/operating-companies", icon: Building2 },
       { name: "顧客種別", href: "/settings/customer-types", icon: UserSquare2 },
+      { name: "担当者フィールド制約", href: "/staff/field-restrictions", icon: Shield },
     ],
   },
   {

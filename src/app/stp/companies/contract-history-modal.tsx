@@ -160,7 +160,8 @@ export function ContractHistoryModal({
   companyName,
 }: Props) {
   const [histories, setHistories] = useState<ContractHistory[]>([]);
-  const [staffOptions, setStaffOptions] = useState<{ value: string; label: string }[]>([]);
+  const [salesStaffOptions, setSalesStaffOptions] = useState<{ value: string; label: string }[]>([]);
+  const [operationStaffOptions, setOperationStaffOptions] = useState<{ value: string; label: string }[]>([]);
   const [isAddMode, setIsAddMode] = useState(false);
   const [editHistory, setEditHistory] = useState<ContractHistory | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<ContractHistory | null>(null);
@@ -209,7 +210,8 @@ export function ContractHistoryModal({
         getStaffList(),
       ]);
       setHistories(historiesData);
-      setStaffOptions(staffData);
+      setSalesStaffOptions(staffData.salesOptions);
+      setOperationStaffOptions(staffData.operationOptions);
     } catch {
       toast.error("データの取得に失敗しました");
     } finally {
@@ -682,7 +684,7 @@ export function ContractHistoryModal({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="none">選択なし</SelectItem>
-              {staffOptions.map((opt) => (
+              {salesStaffOptions.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
                 </SelectItem>
@@ -701,7 +703,7 @@ export function ContractHistoryModal({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="none">選択なし</SelectItem>
-              {staffOptions.map((opt) => (
+              {operationStaffOptions.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
                 </SelectItem>
