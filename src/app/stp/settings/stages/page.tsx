@@ -23,10 +23,10 @@ export default async function StagesPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">商談ステージ設定</h1>
+      <h1 className="text-2xl font-bold">商談パイプライン設定</h1>
       <Card>
         <CardHeader>
-          <CardTitle>ステージ一覧</CardTitle>
+          <CardTitle>パイプライン一覧</CardTitle>
         </CardHeader>
         <CardContent>
           <StagesTable data={data} canEdit={canEditMasterData} />

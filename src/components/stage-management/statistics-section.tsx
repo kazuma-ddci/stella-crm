@@ -34,7 +34,7 @@ export function StatisticsSection({ statistics }: StatisticsSectionProps) {
           <span className="font-medium">{statistics.backCount}回</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-muted-foreground">現在ステージ滞在</span>
+          <span className="text-muted-foreground">現在パイプライン滞在</span>
           <span className="font-medium">{statistics.currentStageDays}日</span>
         </div>
       </div>

@@ -670,7 +670,7 @@ export function CompanyContactsTable({
 
       {/* 追加ダイアログ */}
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DialogContent size="form" className="max-h-[80vh] overflow-y-auto" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>企業接触履歴を追加</DialogTitle>
           </DialogHeader>
@@ -688,7 +688,7 @@ export function CompanyContactsTable({
 
       {/* 編集ダイアログ */}
       <Dialog open={!!editItem} onOpenChange={(open) => !open && setEditItem(null)}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DialogContent size="form" className="max-h-[80vh] overflow-y-auto" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>企業接触履歴を編集</DialogTitle>
           </DialogHeader>

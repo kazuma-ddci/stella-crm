@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StpCompaniesTable } from "./stp-companies-table";
 import type { ProposalContent } from "@/lib/proposals/simulation";
-import { getStaffOptionsByField } from "@/lib/staff/get-staff-by-field";
+import { getStaffOptionsByFields } from "@/lib/staff/get-staff-by-field";
 
 export default async function StpCompaniesPage() {
   const STP_PROJECT_ID = 1; // 採用ブースト
@@ -24,6 +24,7 @@ export default async function StpCompaniesPage() {
         },
         leadSource: true,
         salesStaff: true,
+        adminStaff: true,
         contracts: true,
       },
       orderBy: { id: "asc" },
@@ -206,6 +207,8 @@ export default async function StpCompaniesPage() {
     contracts: c.contracts,
     salesStaffId: c.salesStaffId,
     salesStaffName: c.salesStaff?.name,
+    adminStaffId: c.adminStaffId,
+    adminStaffName: c.adminStaff?.name,
     agentId: c.agentId,
     agentCompanyId: c.agent?.companyId || null, // 代理店の全顧客マスタID（リンク用）
     agentCompanyCode: c.agent?.company?.companyCode || null,
@@ -325,7 +328,9 @@ export default async function StpCompaniesPage() {
     label: a.company.name,
   }));
 
-  const staffOptions = await getStaffOptionsByField("STP_COMPANY_SALES");
+  const staffOptionsByField = await getStaffOptionsByFields(["STP_COMPANY_SALES", "STP_COMPANY_ADMIN"]);
+  const staffOptions = staffOptionsByField.STP_COMPANY_SALES;
+  const adminStaffOptions = staffOptionsByField.STP_COMPANY_ADMIN;
 
   // 契約書用：STPプロジェクトに割り当てられたスタッフのみ
   const contractStaffOptions = staffProjectAssignments
@@ -399,6 +404,7 @@ export default async function StpCompaniesPage() {
             stageOptions={stageOptions}
             agentOptions={agentOptions}
             staffOptions={staffOptions}
+            adminStaffOptions={adminStaffOptions}
             contractStaffOptions={contractStaffOptions}
             leadSourceOptions={leadSourceOptions}
             billingAddressByCompany={billingAddressByCompany}

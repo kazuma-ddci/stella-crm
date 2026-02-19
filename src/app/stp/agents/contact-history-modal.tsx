@@ -622,13 +622,8 @@ export function ContactHistoryModal({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          className="max-w-4xl p-0 overflow-hidden"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: '90vh',
-            maxHeight: '90vh'
-          }}
+          size="datagrid"
+          className="p-0 overflow-hidden flex flex-col"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <DialogHeader className="px-6 py-4 border-b shrink-0">
@@ -636,13 +631,12 @@ export function ContactHistoryModal({
           </DialogHeader>
 
           <div
-            className="px-6 py-4"
-            style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}
+            className="px-6 py-4 flex flex-col gap-4"
+            style={{ flex: 1, minHeight: 0 }}
           >
-          <div className="space-y-4">
             {/* 追加ボタン */}
             {!isAddMode && !editHistory && (
-              <div className="flex justify-end">
+              <div className="flex justify-end shrink-0">
                 <Button onClick={openAddForm}>
                   <Plus className="mr-2 h-4 w-4" />
                   接触履歴を追加
@@ -651,7 +645,11 @@ export function ContactHistoryModal({
             )}
 
             {/* 追加/編集フォーム */}
-            {(isAddMode || editHistory) && renderForm()}
+            {(isAddMode || editHistory) && (
+              <div className="shrink-0 max-h-[50vh] overflow-y-auto">
+                {renderForm()}
+              </div>
+            )}
 
             {/* 接触履歴一覧 */}
             {sortedHistories.length === 0 ? (
@@ -659,18 +657,17 @@ export function ContactHistoryModal({
                 接触履歴が登録されていません
               </div>
             ) : (
-              <div className="overflow-x-auto border rounded-lg">
-              <Table>
+              <Table containerClassName="border rounded-lg flex-1 min-h-0" containerStyle={{ overflow: 'auto' }}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="whitespace-nowrap">接触日時</TableHead>
-                    <TableHead className="whitespace-nowrap">接触方法</TableHead>
-                    <TableHead className="whitespace-nowrap">担当者</TableHead>
-                    <TableHead className="whitespace-nowrap">先方参加者</TableHead>
-                    <TableHead className="whitespace-nowrap">議事録</TableHead>
-                    <TableHead className="whitespace-nowrap">備考</TableHead>
-                    <TableHead className="whitespace-nowrap">添付</TableHead>
-                    <TableHead className="w-[100px] whitespace-nowrap">操作</TableHead>
+                    <TableHead className="w-[130px] whitespace-nowrap">接触日時</TableHead>
+                    <TableHead className="w-[90px] whitespace-nowrap">接触方法</TableHead>
+                    <TableHead className="w-[100px] whitespace-nowrap">担当者</TableHead>
+                    <TableHead className="w-[100px] whitespace-nowrap">先方参加者</TableHead>
+                    <TableHead className="min-w-[140px] whitespace-nowrap">議事録</TableHead>
+                    <TableHead className="min-w-[120px] whitespace-nowrap">備考</TableHead>
+                    <TableHead className="w-[60px] whitespace-nowrap">添付</TableHead>
+                    <TableHead className="w-[100px] whitespace-nowrap sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -691,7 +688,7 @@ export function ContactHistoryModal({
                       <TableCell>
                         <FileDisplay files={history.files || []} />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                         <div className="flex gap-1">
                           <Button
                             variant="ghost"
@@ -715,9 +712,7 @@ export function ContactHistoryModal({
                   ))}
                 </TableBody>
               </Table>
-              </div>
             )}
-          </div>
           </div>
         </DialogContent>
       </Dialog>

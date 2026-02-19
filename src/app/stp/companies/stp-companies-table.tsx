@@ -9,11 +9,12 @@ import { CompanyContactHistoryModal } from "./contact-history-modal";
 import { ContractHistoryModal } from "./contract-history-modal";
 import { MasterContractModal } from "@/components/master-contract-modal";
 import { ProposalModal } from "@/components/proposal-modal";
+import { FieldChangeLogModal } from "@/components/field-change-log-modal";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { addStpCompany, updateStpCompany, deleteStpCompany, checkDuplicateCompanyId } from "./actions";
 import { CompanyCodeLabel } from "@/components/company-code-label";
 import { isInvalidJobMedia } from "@/lib/stp/job-media";
-import { BarChart3, MessageSquare, FileText, ScrollText, ChevronsUpDown, AlertTriangle, FileEdit, LineChart, DollarSign } from "lucide-react";
+import { BarChart3, MessageSquare, FileText, ScrollText, ChevronsUpDown, AlertTriangle, FileEdit, LineChart, DollarSign, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -47,6 +48,7 @@ type Props = {
   stageOptions: { value: string; label: string }[];
   agentOptions: { value: string; label: string }[];
   staffOptions: { value: string; label: string }[];
+  adminStaffOptions: { value: string; label: string }[];
   contractStaffOptions: { value: string; label: string }[];
   leadSourceOptions: { value: string; label: string }[];
   billingAddressByCompany: Record<string, { value: string; label: string }[]>;
@@ -65,6 +67,7 @@ export function StpCompaniesTable({
   stageOptions,
   agentOptions,
   staffOptions,
+  adminStaffOptions,
   contractStaffOptions,
   leadSourceOptions,
   billingAddressByCompany,
@@ -82,6 +85,7 @@ export function StpCompaniesTable({
   const [contractHistoryModalOpen, setContractHistoryModalOpen] = useState(false);
   const [masterContractModalOpen, setMasterContractModalOpen] = useState(false);
   const [proposalModalOpen, setProposalModalOpen] = useState(false);
+  const [changeLogModalOpen, setChangeLogModalOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<Record<string, unknown> | null>(null);
 
@@ -207,18 +211,21 @@ export function StpCompaniesTable({
     // 最終接触日
     { key: "latestContactDate", header: "最終接触日", type: "date", editable: false },
     // 現在ステージ（IDは非表示、名前のみ表示）- セルクリックでステージモーダル
-    { key: "currentStageId", header: "現在ステージ（選択）", type: "select", options: stageOptions, simpleMode: true, editableOnCreate: true, editableOnUpdate: false, hidden: true },
-    { key: "currentStageName", header: "現在ステージ", editable: false },
+    { key: "currentStageId", header: "現在パイプライン（選択）", type: "select", options: stageOptions, simpleMode: true, editableOnCreate: true, editableOnUpdate: false, hidden: true },
+    { key: "currentStageName", header: "現在パイプライン", editable: false },
     // ネクストステージ（IDは非表示、名前のみ表示）- セルクリックでステージモーダル
-    { key: "nextTargetStageId", header: "ネクストステージ（選択）", type: "select", options: stageOptions, simpleMode: true, editableOnCreate: true, editableOnUpdate: false, hidden: true },
-    { key: "nextTargetStageName", header: "ネクストステージ", editable: false },
+    { key: "nextTargetStageId", header: "ネクストパイプライン（選択）", type: "select", options: stageOptions, simpleMode: true, editableOnCreate: true, editableOnUpdate: false, hidden: true },
+    { key: "nextTargetStageName", header: "ネクストパイプライン", editable: false },
     // ステージコミット（次回商談日コミットから名前変更）- セルクリックでステージモーダル
-    { key: "nextTargetDate", header: "ステージコミット", type: "date", simpleMode: true, editableOnCreate: true, editableOnUpdate: false },
+    { key: "nextTargetDate", header: "パイプラインコミット", type: "date", simpleMode: true, editableOnCreate: true, editableOnUpdate: false },
     // ヨミ - インライン編集可能
     { key: "forecast", header: "ヨミ", type: "select", options: forecastOptions, inlineEditable: true },
     // 担当営業（IDは非表示）- インライン編集可能
     { key: "salesStaffId", header: "担当営業（選択）", type: "select", options: staffOptions, searchable: true, hidden: true, inlineEditable: true },
     { key: "salesStaffName", header: "担当営業", editable: false },
+    // 担当事務（IDは非表示）- インライン編集可能
+    { key: "adminStaffId", header: "担当事務（選択）", type: "select", options: adminStaffOptions, searchable: true, hidden: true, inlineEditable: true },
+    { key: "adminStaffName", header: "担当事務", editable: false },
     // 提案書（操作ボタン）
     { key: "proposal", header: "提案書", editable: false },
     // 採用予定人数 - インライン編集可能
@@ -326,6 +333,17 @@ export function StpCompaniesTable({
     salesStaffName: (value, row) => {
       const salesStaffId = row.salesStaffId as number | null;
       const option = staffOptions.find((opt) => opt.value === String(salesStaffId));
+      const displayValue = option?.label || (value ? String(value) : "-");
+      return (
+        <span className="cursor-pointer hover:bg-muted/50 px-1 -mx-1 rounded transition-colors">
+          {displayValue}
+        </span>
+      );
+    },
+    // 担当事務名：インライン編集対象のIDを使って表示
+    adminStaffName: (value, row) => {
+      const adminStaffId = row.adminStaffId as number | null;
+      const option = adminStaffOptions.find((opt) => opt.value === String(adminStaffId));
       const displayValue = option?.label || (value ? String(value) : "-");
       return (
         <span className="cursor-pointer hover:bg-muted/50 px-1 -mx-1 rounded transition-colors">
@@ -722,13 +740,21 @@ export function StpCompaniesTable({
     },
     {
       icon: <BarChart3 className="h-4 w-4" />,
-      label: "ステージ管理",
+      label: "パイプライン管理",
       onClick: handleOpenStageModal,
     },
     {
       icon: <DollarSign className="h-4 w-4" />,
       label: "収支サマリー",
       onClick: (item) => router.push(`/stp/finance/company-summary/${item.id}`),
+    },
+    {
+      icon: <History className="h-4 w-4" />,
+      label: "変更履歴",
+      onClick: (item) => {
+        setSelectedCompanyId(item.id as number);
+        setChangeLogModalOpen(true);
+      },
     },
   ];
 
@@ -739,6 +765,7 @@ export function StpCompaniesTable({
       "leadSourceId",      // 流入経路
       "forecast",          // ヨミ
       "salesStaffId",      // 担当営業
+      "adminStaffId",      // 担当事務
       "plannedHires",      // 採用予定人数
       "billingAddress",      // 請求先住所
       "billingContactIds",   // 請求先担当者
@@ -747,6 +774,7 @@ export function StpCompaniesTable({
     displayToEditMapping: {
       "leadSourceName": "leadSourceId",
       "salesStaffName": "salesStaffId",
+      "adminStaffName": "adminStaffId",
       "billingContacts": "billingContactIds",
     },
     // セルクリック時のカスタムハンドラ
@@ -766,6 +794,9 @@ export function StpCompaniesTable({
       }
       if (columnKey === "salesStaffId") {
         return staffOptions;
+      }
+      if (columnKey === "adminStaffId") {
+        return adminStaffOptions;
       }
       if (columnKey === "forecast") {
         return forecastOptions;
@@ -803,6 +834,12 @@ export function StpCompaniesTable({
         dynamicOptions={dynamicOptions}
         enableInlineEdit={true}
         inlineEditConfig={inlineEditConfig}
+        changeTrackedFields={[
+          { key: "salesStaffId", displayName: "担当営業" },
+          { key: "adminStaffId", displayName: "担当事務" },
+          { key: "plannedHires", displayName: "採用予定人数" },
+          { key: "billingContactIds", displayName: "請求先担当者" },
+        ]}
       />
 
       <StageManagementModal
@@ -853,6 +890,16 @@ export function StpCompaniesTable({
           stpCompanyId={selectedCompany.id as number}
           companyName={selectedCompany.companyName as string}
           staffOptions={contractStaffOptions}
+        />
+      )}
+
+      {selectedCompanyId && (
+        <FieldChangeLogModal
+          open={changeLogModalOpen}
+          onOpenChange={setChangeLogModalOpen}
+          entityType="stp_company"
+          entityId={selectedCompanyId}
+          title="企業情報"
         />
       )}
     </>

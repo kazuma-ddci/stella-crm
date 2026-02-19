@@ -207,7 +207,8 @@ export function AllocationModal({
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent
-        className="max-w-[min(800px,calc(100vw-2rem))] max-h-[85vh] flex flex-col"
+        size="mixed"
+        className="flex flex-col"
       >
         <DialogHeader className="flex-shrink-0">
           <DialogTitle>

@@ -173,6 +173,7 @@ export function ContractHistoryModal({
   const [isManualMonthlyFee, setIsManualMonthlyFee] = useState(false);
   const [isManualPerformanceFee, setIsManualPerformanceFee] = useState(false);
   const [financeWarning, setFinanceWarning] = useState<number | null>(null);
+  const [operationStaffChangeNote, setOperationStaffChangeNote] = useState("");
 
   type CachedState = {
     formData: Partial<ContractHistoryData>;
@@ -400,16 +401,29 @@ export function ContractHistoryModal({
       return;
     }
     setPendingEditData(formData);
+    setOperationStaffChangeNote("");
     setEditConfirm(true);
   };
+
+  // 運用担当が変更されたかチェック
+  const isOperationStaffChanged = editHistory && pendingEditData
+    && (editHistory.operationStaffId || null) !== (pendingEditData.operationStaffId || null);
 
   const handleUpdate = async () => {
     if (!editHistory || !pendingEditData?.industryType || !pendingEditData?.contractPlan || !pendingEditData?.contractStartDate) {
       toast.error("必須項目を入力してください");
       return;
     }
+    // 運用担当変更時はメモ必須
+    if (isOperationStaffChanged && !operationStaffChangeNote.trim()) {
+      toast.error("運用担当の変更理由を入力してください");
+      return;
+    }
     setLoading(true);
     try {
+      const changeNotes = isOperationStaffChanged && operationStaffChangeNote.trim()
+        ? { operationStaffId: operationStaffChangeNote.trim() }
+        : undefined;
       const result = await updateContractHistory(editHistory.id, {
         industryType: pendingEditData.industryType,
         contractPlan: pendingEditData.contractPlan,
@@ -426,7 +440,7 @@ export function ContractHistoryModal({
         operationStatus: pendingEditData.operationStatus || null,
         accountId: pendingEditData.accountId || null,
         accountPass: pendingEditData.accountPass || null,
-      });
+      }, changeNotes);
       if (!result.success) {
         console.error("契約履歴更新エラー:", result.error);
         toast.error(`更新に失敗しました: ${result.error}`);
@@ -810,15 +824,8 @@ export function ContractHistoryModal({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          className="p-0 overflow-hidden"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            left: 'calc(50% + 8rem)',
-            maxWidth: 'calc((100vw - 16rem) * 0.75)',
-            height: '90vh',
-            maxHeight: '90vh'
-          }}
+          size="datagrid"
+          className="p-0 overflow-hidden flex flex-col"
         >
           <DialogHeader className="px-6 py-4 border-b shrink-0">
             <DialogTitle>契約履歴管理 - {companyName}</DialogTitle>
@@ -948,11 +955,31 @@ export function ContractHistoryModal({
               変更内容を保存します。
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {isOperationStaffChanged && (
+            <div className="space-y-2 py-2">
+              <Label className="text-sm font-medium">
+                担当運用の変更理由 <span className="text-red-500">*</span>
+              </Label>
+              <Textarea
+                value={operationStaffChangeNote}
+                onChange={(e) => setOperationStaffChangeNote(e.target.value)}
+                placeholder="変更理由を入力してください"
+                rows={2}
+                className="resize-none"
+              />
+              {!operationStaffChangeNote.trim() && (
+                <p className="text-xs text-red-500">変更理由は必須です</p>
+              )}
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setEditConfirm(false)}>
               キャンセル
             </AlertDialogCancel>
-            <AlertDialogAction onClick={handleUpdate} disabled={loading}>
+            <AlertDialogAction
+              onClick={handleUpdate}
+              disabled={loading || (!!isOperationStaffChanged && !operationStaffChangeNote.trim())}
+            >
               {loading ? "更新中..." : "はい"}
             </AlertDialogAction>
           </AlertDialogFooter>

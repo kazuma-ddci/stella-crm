@@ -201,13 +201,8 @@ export function ContractStatusModal({
         }}
       >
         <DialogContent
-          className="max-w-2xl p-0 overflow-hidden"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            height: "90vh",
-            maxHeight: "90vh",
-          }}
+          size="mixed"
+          className="p-0 overflow-hidden flex flex-col"
         >
           <DialogHeader className="px-6 py-4 border-b shrink-0">
             <DialogTitle>

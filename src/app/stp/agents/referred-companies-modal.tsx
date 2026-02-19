@@ -50,7 +50,7 @@ export function ReferredCompaniesModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+      <DialogContent size="mixed" className="overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
@@ -66,7 +66,7 @@ export function ReferredCompaniesModal({
               <TableRow>
                 <TableHead>企業コード</TableHead>
                 <TableHead>企業名</TableHead>
-                <TableHead>ステージ</TableHead>
+                <TableHead>パイプライン</TableHead>
                 <TableHead>契約状況</TableHead>
               </TableRow>
             </TableHeader>

@@ -9,7 +9,8 @@ import { ContactHistoryModal } from "./contact-history-modal";
 import { MasterContractModal } from "@/components/master-contract-modal";
 import { ReferredCompaniesModal } from "./referred-companies-modal";
 import { AgentContractHistoryModal } from "./agent-contract-history-modal";
-import { FileText, MessageSquare, ScrollText, Copy, Check, Loader2, DollarSign, AlertTriangle } from "lucide-react";
+import { FieldChangeLogModal } from "@/components/field-change-log-modal";
+import { FileText, MessageSquare, ScrollText, Copy, Check, Loader2, DollarSign, AlertTriangle, History } from "lucide-react";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -35,6 +36,7 @@ type Props = {
   companyOptions: { value: string; label: string; disabled?: boolean }[];
   referrerOptions: { value: string; label: string }[];
   staffOptions: { value: string; label: string }[];
+  adminStaffOptions: { value: string; label: string }[];
   contractStaffOptions: { value: string; label: string }[];
   contactMethodOptions: { value: string; label: string }[];
   masterContractStatusOptions: { value: string; label: string }[];
@@ -61,6 +63,7 @@ export function AgentsTable({
   companyOptions,
   referrerOptions,
   staffOptions,
+  adminStaffOptions,
   contractStaffOptions,
   contactMethodOptions,
   masterContractStatusOptions,
@@ -72,6 +75,9 @@ export function AgentsTable({
   const [masterContractModalOpen, setMasterContractModalOpen] = useState(false);
   const [agentContractHistoryModalOpen, setAgentContractHistoryModalOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<Record<string, unknown> | null>(null);
+
+  // 変更履歴モーダル用ステート
+  const [changeLogModalOpen, setChangeLogModalOpen] = useState(false);
 
   // 紹介企業モーダル用ステート
   const [referredModalOpen, setReferredModalOpen] = useState(false);
@@ -133,14 +139,17 @@ export function AgentsTable({
     },
     {
       key: "staffAssignments",
-      header: "担当者",
+      header: "担当営業",
       type: "select",
       options: staffOptions,
       searchable: true,
       hidden: true,
       inlineEditable: true, // インライン編集可能
     },
-    { key: "staffNames", header: "担当者", editable: false },
+    { key: "staffNames", header: "担当営業", editable: false },
+    // 担当事務（IDは非表示）- インライン編集可能
+    { key: "adminStaffId", header: "担当事務（選択）", type: "select", options: adminStaffOptions, searchable: true, hidden: true, inlineEditable: true },
+    { key: "adminStaffName", header: "担当事務", editable: false },
     {
       key: "referrerCompanyId",
       header: "紹介者",
@@ -475,6 +484,17 @@ export function AgentsTable({
         </div>
       );
     },
+    // 担当事務名：インライン編集対象のIDを使って表示
+    adminStaffName: (value, row) => {
+      const adminStaffId = row.adminStaffId as number | null;
+      const option = adminStaffOptions.find((opt) => opt.value === String(adminStaffId));
+      const displayValue = option?.label || (value ? String(value) : "-");
+      return (
+        <span className="cursor-pointer hover:bg-muted/50 px-1 -mx-1 rounded transition-colors">
+          {displayValue}
+        </span>
+      );
+    },
     // メモ：TextPreviewCellで表示（編集機能付き）
     note: (value, row) => {
       return (
@@ -608,6 +628,14 @@ export function AgentsTable({
       label: "経費サマリー",
       onClick: (item) => router.push(`/stp/finance/agent-summary/${item.id}`),
     },
+    {
+      icon: <History className="h-4 w-4" />,
+      label: "変更履歴",
+      onClick: (item) => {
+        setSelectedAgent(item);
+        setChangeLogModalOpen(true);
+      },
+    },
   ];
 
   // 区分確認ダイアログの保存処理
@@ -638,7 +666,8 @@ export function AgentsTable({
     // category1はcustomRendererでカスタム編集UIを使用するためここには含めない
     columns: [
       "status",               // ステータス
-      "staffAssignments",     // 担当者
+      "staffAssignments",     // 担当営業
+      "adminStaffId",         // 担当事務
       "referrerCompanyId",    // 紹介者
       "isIndividualBusiness", // 個人事業主
       "withholdingTaxRate",   // 源泉徴収税率
@@ -646,6 +675,7 @@ export function AgentsTable({
     // 表示用カラム → 編集用カラムのマッピング
     displayToEditMapping: {
       "staffNames": "staffAssignments",
+      "adminStaffName": "adminStaffId",
       "referrerCompanyName": "referrerCompanyId",
     },
     // 動的に選択肢を取得
@@ -655,6 +685,9 @@ export function AgentsTable({
       }
       if (columnKey === "staffAssignments") {
         return staffOptions;
+      }
+      if (columnKey === "adminStaffId") {
+        return adminStaffOptions;
       }
       if (columnKey === "referrerCompanyId") {
         return referrerOptions;
@@ -683,6 +716,10 @@ export function AgentsTable({
         customRenderers={customRenderers}
         enableInlineEdit={true}
         inlineEditConfig={inlineEditConfig}
+        changeTrackedFields={[
+          { key: "staffAssignments", displayName: "担当営業" },
+          { key: "adminStaffId", displayName: "担当事務" },
+        ]}
       />
 
       {selectedAgent && (
@@ -792,6 +829,17 @@ export function AgentsTable({
           })()}
           onConfirm={handleCategoryConfirmSave}
           loading={categoryLoading}
+        />
+      )}
+
+      {/* 変更履歴モーダル */}
+      {selectedAgent && (
+        <FieldChangeLogModal
+          open={changeLogModalOpen}
+          onOpenChange={setChangeLogModalOpen}
+          entityType="stp_agent"
+          entityId={selectedAgent.id as number}
+          title={selectedAgent.companyName as string}
         />
       )}
 

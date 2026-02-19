@@ -10,7 +10,7 @@ type Props = {
 
 const columns: ColumnDef[] = [
   { key: "id", header: "ID", editable: false, hidden: true },
-  { key: "name", header: "ステージ名", type: "text", required: true },
+  { key: "name", header: "パイプライン名", type: "text", required: true },
   { key: "stageType", header: "タイプ", type: "select", required: true, options: [
     { value: "progress", label: "進行" },
     { value: "closed_won", label: "ゴール" },
@@ -28,11 +28,11 @@ export function StagesTable({ data, canEdit }: Props) {
     <CrudTable
       data={data}
       columns={columns}
-      title="ステージ"
+      title="パイプライン"
       onAdd={canEdit ? addStage : undefined}
       onUpdate={canEdit ? updateStage : undefined}
       onDelete={canEdit ? deleteStage : undefined}
-      emptyMessage="ステージが登録されていません"
+      emptyMessage="パイプラインが登録されていません"
     />
   );
 }

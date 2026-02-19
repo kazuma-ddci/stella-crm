@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { autoGenerateFinanceForContractHistory, markFinanceRecordsForContractChange } from "@/lib/finance/auto-generate";
 import { isInvalidJobMedia } from "@/lib/stp/job-media";
+import { createFieldChangeLogEntries } from "@/lib/field-change-log.server";
 
 // 契約履歴データの型定義
 export type ContractHistoryData = {
@@ -102,31 +103,61 @@ export async function addContractHistory(companyId: number, data: ContractHistor
 }
 
 // 契約履歴更新
-export async function updateContractHistory(id: number, data: ContractHistoryData): Promise<{ success: boolean; error?: string; affectedFinanceCount?: number }> {
+export async function updateContractHistory(
+  id: number,
+  data: ContractHistoryData,
+  changeNotes?: { operationStaffId?: string },
+): Promise<{ success: boolean; error?: string; affectedFinanceCount?: number }> {
   try {
     if (isInvalidJobMedia(data.jobMedia)) {
       return { success: false, error: "無効な求人媒体が指定されています" };
     }
 
-    await prisma.stpContractHistory.update({
-      where: { id },
-      data: {
-        industryType: data.industryType,
-        contractPlan: data.contractPlan,
-        jobMedia: data.jobMedia,
-        contractStartDate: new Date(data.contractStartDate),
-        contractEndDate: data.contractEndDate ? new Date(data.contractEndDate) : null,
-        initialFee: data.initialFee,
-        monthlyFee: data.monthlyFee,
-        performanceFee: data.performanceFee,
-        salesStaffId: data.salesStaffId,
-        operationStaffId: data.operationStaffId,
-        status: data.status,
-        note: data.note,
-        operationStatus: data.operationStatus,
-        accountId: data.accountId,
-        accountPass: data.accountPass,
-      },
+    await prisma.$transaction(async (tx) => {
+      // 運用担当の変更履歴を記録
+      if (changeNotes?.operationStaffId) {
+        const current = await tx.stpContractHistory.findUnique({
+          where: { id },
+          select: { operationStaffId: true, operationStaff: { select: { name: true } } },
+        });
+
+        if (current && current.operationStaffId !== data.operationStaffId) {
+          const oldValue = current.operationStaff?.name || (current.operationStaffId ? String(current.operationStaffId) : null);
+          let newValue: string | null = null;
+          if (data.operationStaffId) {
+            const staff = await tx.masterStaff.findUnique({ where: { id: data.operationStaffId }, select: { name: true } });
+            newValue = staff?.name || String(data.operationStaffId);
+          }
+          await createFieldChangeLogEntries(tx, "stp_contract_history", id, [{
+            fieldName: "operationStaffId",
+            displayName: "担当運用",
+            oldValue,
+            newValue,
+            note: changeNotes.operationStaffId,
+          }]);
+        }
+      }
+
+      await tx.stpContractHistory.update({
+        where: { id },
+        data: {
+          industryType: data.industryType,
+          contractPlan: data.contractPlan,
+          jobMedia: data.jobMedia,
+          contractStartDate: new Date(data.contractStartDate),
+          contractEndDate: data.contractEndDate ? new Date(data.contractEndDate) : null,
+          initialFee: data.initialFee,
+          monthlyFee: data.monthlyFee,
+          performanceFee: data.performanceFee,
+          salesStaffId: data.salesStaffId,
+          operationStaffId: data.operationStaffId,
+          status: data.status,
+          note: data.note,
+          operationStatus: data.operationStatus,
+          accountId: data.accountId,
+          accountPass: data.accountPass,
+        },
+      });
     });
 
     // 既存の会計レコードに差異をマーク（スナップショット方式）

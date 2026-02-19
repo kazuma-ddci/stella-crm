@@ -818,7 +818,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
 
       {/* 詳細モーダル */}
       <Dialog open={detailModalOpen} onOpenChange={setDetailModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent size="form" className="overflow-y-auto">
           <DialogHeader>
             <DialogTitle>フォーム回答詳細</DialogTitle>
             <DialogDescription>
@@ -996,7 +996,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
 
       {/* 処理モーダル */}
       <Dialog open={processModalOpen} onOpenChange={setProcessModalOpen}>
-        <DialogContent className={processType !== "reject" ? "max-w-2xl max-h-[90vh] overflow-y-auto" : ""}>
+        <DialogContent size="form" className={processType !== "reject" ? "overflow-y-auto" : ""}>
           <DialogHeader>
             <DialogTitle>
               {processType === "new" && "新規企業として登録"}
@@ -1157,7 +1157,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <Label>ステージ</Label>
+                      <Label>パイプライン</Label>
                       <div
                         className="flex items-center h-10 px-3 border rounded-md bg-gray-50 cursor-pointer hover:bg-gray-100"
                         onClick={() => setStageAlertOpen(true)}
@@ -1276,7 +1276,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
                       </div>
                     </div>
                     <div className="space-y-1">
-                      <Label>ステージ</Label>
+                      <Label>パイプライン</Label>
                       <div
                         className="flex items-center h-10 px-3 border rounded-md bg-gray-50 cursor-pointer hover:bg-gray-100"
                         onClick={() => setStageAlertOpen(true)}
@@ -1370,10 +1370,10 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
       <AlertDialog open={stageAlertOpen} onOpenChange={setStageAlertOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>ステージは変更できません</AlertDialogTitle>
+            <AlertDialogTitle>パイプラインは変更できません</AlertDialogTitle>
             <AlertDialogDescription>
-              ステージの変更は企業情報ページで行ってください。
-              リード回答の処理時は「リード」ステージで固定されます。
+              パイプラインの変更は企業情報ページで行ってください。
+              リード回答の処理時は「リード」パイプラインで固定されます。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1404,7 +1404,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
 
       {/* 編集モーダル */}
       <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent size="form" className="overflow-y-auto">
           <DialogHeader>
             <DialogTitle>フォーム回答を編集</DialogTitle>
             <DialogDescription>

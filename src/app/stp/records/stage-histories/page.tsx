@@ -55,7 +55,7 @@ export default async function StageHistoriesPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">商談ステージ履歴</h1>
+      <h1 className="text-2xl font-bold">商談パイプライン履歴</h1>
       <Card>
         <CardHeader>
           <CardTitle>履歴一覧</CardTitle>

@@ -200,7 +200,7 @@ export default function PortalStpAgentPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>企業名</TableHead>
-                    <TableHead>ステージ</TableHead>
+                    <TableHead>パイプライン</TableHead>
                     <TableHead>ヨミ</TableHead>
                     <TableHead>リード獲得日</TableHead>
                     <TableHead>初回商談日</TableHead>

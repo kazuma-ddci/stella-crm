@@ -1146,15 +1146,8 @@ export function AgentContractHistoryModal({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          className="p-0 overflow-hidden"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            left: "calc(50% + 8rem)",
-            maxWidth: "calc((100vw - 16rem) * 0.75)",
-            height: "90vh",
-            maxHeight: "90vh",
-          }}
+          size="datagrid"
+          className="p-0 overflow-hidden flex flex-col"
         >
           <DialogHeader className="px-6 py-4 border-b shrink-0">
             <DialogTitle>代理店契約履歴管理 - {agentName}</DialogTitle>
@@ -1192,13 +1185,13 @@ export function AgentContractHistoryModal({
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-8"></TableHead>
-                        <TableHead className="whitespace-nowrap">ステータス</TableHead>
-                        <TableHead className="whitespace-nowrap">契約開始日</TableHead>
-                        <TableHead className="whitespace-nowrap">契約終了日</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">初期費用</TableHead>
-                        <TableHead className="text-right whitespace-nowrap">月額費用</TableHead>
-                        <TableHead className="whitespace-nowrap">デフォルト報酬</TableHead>
-                        <TableHead className="whitespace-nowrap">備考</TableHead>
+                        <TableHead className="w-[90px] whitespace-nowrap">ステータス</TableHead>
+                        <TableHead className="w-[110px] whitespace-nowrap">契約開始日</TableHead>
+                        <TableHead className="w-[110px] whitespace-nowrap">契約終了日</TableHead>
+                        <TableHead className="w-[100px] text-right whitespace-nowrap">初期費用</TableHead>
+                        <TableHead className="w-[100px] text-right whitespace-nowrap">月額費用</TableHead>
+                        <TableHead className="min-w-[120px] whitespace-nowrap">デフォルト報酬</TableHead>
+                        <TableHead className="min-w-[100px] whitespace-nowrap">備考</TableHead>
                         <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
                       </TableRow>
                     </TableHeader>

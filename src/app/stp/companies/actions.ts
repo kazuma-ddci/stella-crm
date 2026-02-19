@@ -6,6 +6,8 @@ import { requireEdit } from "@/lib/auth";
 import { detectInitialEvents } from "@/lib/stage-transition/event-detector";
 import { validateInitialStage } from "@/lib/stage-transition/alert-validator";
 import { StageInfo, StageType } from "@/lib/stage-transition/types";
+import { validateStaffForField } from "@/lib/staff/get-staff-by-field";
+import { createFieldChangeLogEntries, FieldChange } from "@/lib/field-change-log.server";
 
 // 配列またはカンマ区切り文字列を文字列に変換するヘルパー関数
 function toCommaSeparatedString(value: unknown): string | null {
@@ -15,6 +17,14 @@ function toCommaSeparatedString(value: unknown): string | null {
   }
   return String(value) || null;
 }
+
+// 変更履歴管理対象フィールドの定義
+const TRACKED_FIELDS: Record<string, { displayName: string; fieldCode?: string }> = {
+  salesStaffId: { displayName: "担当営業", fieldCode: "STP_COMPANY_SALES" },
+  adminStaffId: { displayName: "担当事務", fieldCode: "STP_COMPANY_ADMIN" },
+  plannedHires: { displayName: "採用予定人数" },
+  billingContactIds: { displayName: "請求先担当者" },
+};
 
 export async function addStpCompany(data: Record<string, unknown>) {
   await requireEdit("stp");
@@ -67,6 +77,16 @@ export async function addStpCompany(data: Record<string, unknown>) {
     );
   }
 
+  // サーバー側スタッフ権限バリデーション
+  if (data.salesStaffId) {
+    const isValid = await validateStaffForField("STP_COMPANY_SALES", Number(data.salesStaffId));
+    if (!isValid) throw new Error("選択された担当営業はこのフィールドに割り当てできません");
+  }
+  if (data.adminStaffId) {
+    const isValid = await validateStaffForField("STP_COMPANY_ADMIN", Number(data.adminStaffId));
+    if (!isValid) throw new Error("選択された担当事務はこのフィールドに割り当てできません");
+  }
+
   // トランザクションで企業作成と履歴作成を実行
   await prisma.$transaction(async (tx) => {
     // 請求先担当者ID
@@ -85,6 +105,7 @@ export async function addStpCompany(data: Record<string, unknown>) {
         plannedHires: data.plannedHires ? Number(data.plannedHires) : null,
         leadSourceId: data.leadSourceId ? Number(data.leadSourceId) : null,
         salesStaffId: data.salesStaffId ? Number(data.salesStaffId) : null,
+        adminStaffId: data.adminStaffId ? Number(data.adminStaffId) : null,
         // 請求先情報（複数選択はカンマ区切りで保存）
         billingLocationId: data.billingLocationId ? Number(data.billingLocationId) : null,
         billingAddress: toCommaSeparatedString(data.billingAddress),
@@ -120,6 +141,11 @@ export async function addStpCompany(data: Record<string, unknown>) {
 
 export async function updateStpCompany(id: number, data: Record<string, unknown>) {
   await requireEdit("stp");
+
+  // __changeNotesを取り出す（変更履歴用メモ）
+  const changeNotes = (data.__changeNotes as Record<string, string>) || {};
+  delete data.__changeNotes;
+
   // 更新データを動的に構築（渡されたフィールドのみを更新）
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const updateData: Record<string, any> = {};
@@ -156,7 +182,22 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
 
   // 担当営業ID
   if ("salesStaffId" in data) {
-    updateData.salesStaffId = data.salesStaffId ? Number(data.salesStaffId) : null;
+    const staffId = data.salesStaffId ? Number(data.salesStaffId) : null;
+    if (staffId) {
+      const isValid = await validateStaffForField("STP_COMPANY_SALES", staffId);
+      if (!isValid) throw new Error("選択された担当営業はこのフィールドに割り当てできません");
+    }
+    updateData.salesStaffId = staffId;
+  }
+
+  // 担当事務ID
+  if ("adminStaffId" in data) {
+    const staffId = data.adminStaffId ? Number(data.adminStaffId) : null;
+    if (staffId) {
+      const isValid = await validateStaffForField("STP_COMPANY_ADMIN", staffId);
+      if (!isValid) throw new Error("選択された担当事務はこのフィールドに割り当てできません");
+    }
+    updateData.adminStaffId = staffId;
   }
 
   // 請求先住所（複数選択はカンマ区切りで保存）
@@ -180,23 +221,92 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
     updateData.note = (data.note as string) || null;
   }
 
-  // 検討理由・失注理由の更新時は履歴も記録する
+  // 変更履歴管理対象フィールドがあるかチェック
+  const trackedFieldKeys = Object.keys(TRACKED_FIELDS).filter((key) => key in data);
+  const hasTrackedChanges = trackedFieldKeys.length > 0;
+
+  // 検討理由・失注理由の更新チェック
   const isPendingReasonChanged = "pendingReason" in data;
   const isLostReasonChanged = "lostReason" in data;
 
-  if (isPendingReasonChanged || isLostReasonChanged) {
-    // 現在の値を取得
+  // トランザクションが必要な場合（変更履歴管理対象 or 理由変更）
+  if (hasTrackedChanges || isPendingReasonChanged || isLostReasonChanged) {
+    // 現在の値を取得（変更比較用）
     const company = await prisma.stpCompany.findUnique({
       where: { id },
-      select: { pendingReason: true, lostReason: true },
+      select: {
+        pendingReason: true,
+        lostReason: true,
+        salesStaffId: true,
+        adminStaffId: true,
+        plannedHires: true,
+        billingRepresentative: true,
+        salesStaff: { select: { name: true } },
+        adminStaff: { select: { name: true } },
+      },
     });
 
-    // トランザクションで企業更新と履歴作成を実行
     await prisma.$transaction(async (tx) => {
-      // 検討理由
+      // 変更履歴ログの作成
+      if (hasTrackedChanges && company) {
+        const changes: FieldChange[] = [];
+
+        for (const key of trackedFieldKeys) {
+          const tracked = TRACKED_FIELDS[key];
+          const note = changeNotes[key];
+          if (!note) continue; // メモがなければスキップ
+
+          let oldValue: string | null = null;
+          let newValue: string | null = null;
+          // フィールドごとの値取得
+          const dbFieldMapping: Record<string, string> = {
+            billingContactIds: "billingRepresentative",
+          };
+          const dbKey = dbFieldMapping[key] || key;
+
+          if (key === "salesStaffId") {
+            oldValue = company.salesStaff?.name || (company.salesStaffId ? String(company.salesStaffId) : null);
+            const newStaffId = updateData.salesStaffId;
+            if (newStaffId) {
+              const staff = await tx.masterStaff.findUnique({ where: { id: newStaffId }, select: { name: true } });
+              newValue = staff?.name || String(newStaffId);
+            }
+          } else if (key === "adminStaffId") {
+            oldValue = company.adminStaff?.name || (company.adminStaffId ? String(company.adminStaffId) : null);
+            const newStaffId = updateData.adminStaffId;
+            if (newStaffId) {
+              const staff = await tx.masterStaff.findUnique({ where: { id: newStaffId }, select: { name: true } });
+              newValue = staff?.name || String(newStaffId);
+            }
+          } else if (key === "billingContactIds") {
+            oldValue = (company as Record<string, unknown>)[dbKey] as string | null;
+            newValue = updateData.billingRepresentative as string | null;
+          } else {
+            const raw = (company as Record<string, unknown>)[dbKey];
+            oldValue = raw != null ? String(raw) : null;
+            newValue = updateData[dbKey] != null ? String(updateData[dbKey]) : null;
+          }
+
+          // 値が実際に変更された場合のみ記録
+          if (oldValue !== newValue) {
+            changes.push({
+              fieldName: key,
+              displayName: tracked.displayName,
+              oldValue,
+              newValue,
+              note,
+            });
+          }
+        }
+
+        if (changes.length > 0) {
+          await createFieldChangeLogEntries(tx, "stp_company", id, changes);
+        }
+      }
+
+      // 検討理由の変更
       if (isPendingReasonChanged) {
         const newValue = (data.pendingReason as string) || null;
-        // 値が変更された場合のみ履歴を記録
         if (company?.pendingReason !== newValue) {
           await tx.stpStageHistory.create({
             data: {
@@ -214,10 +324,9 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
         updateData.pendingReason = newValue;
       }
 
-      // 失注理由
+      // 失注理由の変更
       if (isLostReasonChanged) {
         const newValue = (data.lostReason as string) || null;
-        // 値が変更された場合のみ履歴を記録
         if (company?.lostReason !== newValue) {
           await tx.stpStageHistory.create({
             data: {
@@ -242,7 +351,7 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
       });
     });
   } else {
-    // 理由の変更がない場合は通常の更新
+    // 変更履歴管理対象でない通常の更新
     await prisma.stpCompany.update({
       where: { id },
       data: updateData,

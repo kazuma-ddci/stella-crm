@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -9,19 +9,25 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 export type ChangeItem = {
   fieldName: string;
   oldValue: string;
   newValue: string;
+  requireNote?: boolean;
+};
+
+export type ChangeItemWithNote = ChangeItem & {
+  note: string;
 };
 
 type ChangeConfirmationDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   changes: ChangeItem[];
-  onConfirm: () => void;
+  onConfirm: (changesWithNotes: ChangeItemWithNote[]) => void;
   loading?: boolean;
   warningMessage?: string;
 };
@@ -67,9 +73,31 @@ export function ChangeConfirmationDialog({
   loading = false,
   warningMessage,
 }: ChangeConfirmationDialogProps) {
+  const [notes, setNotes] = useState<Record<number, string>>({});
+
+  // ダイアログが開くたびにメモをリセット
+  useEffect(() => {
+    if (open) {
+      setNotes({});
+    }
+  }, [open]);
+
+  const hasRequiredNotes = changes.some((c) => c.requireNote);
+  const allRequiredNotesFilled = changes.every(
+    (c, i) => !c.requireNote || (notes[i] ?? "").trim().length > 0,
+  );
+
+  const handleConfirm = () => {
+    const changesWithNotes: ChangeItemWithNote[] = changes.map((c, i) => ({
+      ...c,
+      note: (notes[i] ?? "").trim(),
+    }));
+    onConfirm(changesWithNotes);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent size="form">
         <DialogHeader>
           <DialogTitle>変更内容の確認</DialogTitle>
         </DialogHeader>
@@ -80,6 +108,13 @@ export function ChangeConfirmationDialog({
           {warningMessage && (
             <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md">
               <p className="text-sm text-yellow-800">{warningMessage}</p>
+            </div>
+          )}
+          {hasRequiredNotes && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+              <p className="text-sm text-blue-800">
+                変更理由の入力が必要な項目があります。
+              </p>
             </div>
           )}
           <ScrollableBox className="space-y-3 max-h-[60vh]">
@@ -104,6 +139,25 @@ export function ChangeConfirmationDialog({
                     </ScrollableBox>
                   </div>
                 </div>
+                {change.requireNote && (
+                  <div className="mt-2">
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                      変更理由 <span className="text-red-500">*</span>
+                    </label>
+                    <Textarea
+                      value={notes[index] ?? ""}
+                      onChange={(e) =>
+                        setNotes((prev) => ({ ...prev, [index]: e.target.value }))
+                      }
+                      placeholder="変更理由を入力してください"
+                      rows={2}
+                      className="resize-none"
+                    />
+                    {(notes[index] ?? "").trim().length === 0 && (
+                      <p className="text-xs text-red-500 mt-1">変更理由は必須です</p>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </ScrollableBox>
@@ -116,7 +170,10 @@ export function ChangeConfirmationDialog({
           >
             キャンセル
           </Button>
-          <Button onClick={onConfirm} disabled={loading}>
+          <Button
+            onClick={handleConfirm}
+            disabled={loading || (hasRequiredNotes && !allRequiredNotesFilled)}
+          >
             {loading ? "保存中..." : "保存する"}
           </Button>
         </DialogFooter>

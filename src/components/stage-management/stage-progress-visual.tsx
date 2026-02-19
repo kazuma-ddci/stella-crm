@@ -57,20 +57,20 @@ export function StageProgressVisual({
   return (
     <div className="rounded-lg border bg-card p-4">
       <h3 className="font-semibold text-sm text-muted-foreground mb-4">
-        ステージ進捗
+        パイプライン進捗
       </h3>
 
       {/* 進行ステージのビジュアル */}
-      <div className="relative mb-4">
+      <div className="relative mb-4 overflow-x-auto">
         {/* ステージノードとライン */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center">
           {progressStages.map((stage, index) => {
             const passed = isPassed(stage);
             const current = isCurrent(stage);
             const target = isTarget(stage);
 
             return (
-              <div key={stage.id} className="flex items-center flex-1 last:flex-none">
+              <div key={stage.id} className="flex items-center flex-1 last:flex-none min-w-[64px] last:min-w-0">
                 {/* ノードとラベル */}
                 <div className="flex flex-col items-center relative">
                   {/* ノード */}
@@ -99,11 +99,12 @@ export function StageProgressVisual({
                   {/* ラベル */}
                   <span
                     className={cn(
-                      "text-xs mt-1.5 whitespace-nowrap font-medium",
+                      "text-xs mt-1.5 font-medium max-w-[56px] overflow-hidden text-ellipsis whitespace-nowrap",
                       current && "text-primary",
                       target && !current && "text-orange-600",
                       !current && !target && "text-muted-foreground"
                     )}
+                    title={stage.name}
                   >
                     {stage.name}
                   </span>

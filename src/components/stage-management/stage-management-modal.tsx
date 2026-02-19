@@ -183,17 +183,17 @@ export function StageManagementModal({
       });
 
       if (result.success) {
-        toast.success("ステージを更新しました");
+        toast.success("パイプラインを更新しました");
         // モーダルを閉じる
         onOpenChange(false);
         // 親コンポーネントに成功を通知（一覧の再取得などのため）
         onUpdateSuccess?.();
       } else {
-        toast.error(result.error ?? "ステージの更新に失敗しました");
+        toast.error(result.error ?? "パイプラインの更新に失敗しました");
       }
     } catch (error) {
       console.error("Failed to update stage:", error);
-      toast.error("ステージの更新に失敗しました");
+      toast.error("パイプラインの更新に失敗しました");
     } finally {
       setSaving(false);
     }
@@ -209,17 +209,12 @@ export function StageManagementModal({
         }
       }}>
         <DialogContent
-          className="max-w-2xl p-0 overflow-hidden"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: '90vh',
-            maxHeight: '90vh'
-          }}
+          size="form"
+          className="p-0 overflow-hidden flex flex-col"
         >
           <DialogHeader className="px-6 py-4 border-b shrink-0">
             <DialogTitle>
-              ステージ管理
+              パイプライン管理
               {data && (
                 <span className="font-normal text-muted-foreground ml-2">
                   {data.companyName}

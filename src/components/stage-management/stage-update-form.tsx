@@ -303,14 +303,14 @@ export function StageUpdateForm({
     <div className="space-y-6">
       {/* ステージ更新セクション */}
       <div className="rounded-lg border p-4">
-        <h4 className="font-medium mb-4">ステージを更新する</h4>
+        <h4 className="font-medium mb-4">パイプラインを更新する</h4>
 
         <div className="space-y-2">
           <div className="flex gap-6">
             {/* 左側：新しいステージ選択 */}
             <div className="flex-1">
               <Label htmlFor="new-stage" className="text-sm text-muted-foreground mb-1.5 block">
-                新しいステージ
+                新しいパイプライン
               </Label>
               <Select
                 value={selectedStageValue}
@@ -458,7 +458,7 @@ export function StageUpdateForm({
               {/* 左側：目標ステージ選択 */}
               <div className="flex-1">
                 <Label htmlFor="target-stage" className="text-sm text-muted-foreground mb-1.5 block">
-                  目標ステージ
+                  目標パイプライン
                 </Label>
                 <Select
                   value={selectedTargetStageValue}

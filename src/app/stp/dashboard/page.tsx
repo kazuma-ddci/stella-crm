@@ -533,12 +533,12 @@ export default async function StpDashboardPage() {
       {/* === 最近のステージ変更 === */}
       <Card>
         <CardHeader>
-          <CardTitle>最近のステージ変更</CardTitle>
+          <CardTitle>最近のパイプライン変更</CardTitle>
         </CardHeader>
         <CardContent>
           {recentStageChanges.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              ステージ変更履歴がありません
+              パイプライン変更履歴がありません
             </p>
           ) : (
             <div className="space-y-4">

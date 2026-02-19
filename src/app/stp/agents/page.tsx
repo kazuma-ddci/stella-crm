@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgentsTable } from "./agents-table";
-import { getStaffOptionsByField } from "@/lib/staff/get-staff-by-field";
+import { getStaffOptionsByFields } from "@/lib/staff/get-staff-by-field";
 import crypto from "crypto";
 
 // ユニークなトークンを生成
@@ -52,6 +52,7 @@ export default async function StpAgentsPage() {
           },
         },
         referrerCompany: true,
+        adminStaff: true,
         staffAssignments: {
           include: {
             staff: true,
@@ -229,9 +230,12 @@ export default async function StpAgentsPage() {
     // 源泉徴収対応
     isIndividualBusiness: a.isIndividualBusiness,
     withholdingTaxRate: a.withholdingTaxRate ? Number(a.withholdingTaxRate) : null,
-    // 担当者（複数）
+    // 担当営業（複数）
     staffAssignments: a.staffAssignments.map((sa) => String(sa.staffId)).join(","),
     staffNames: a.staffAssignments.map((sa) => sa.staff.name).join(", "),
+    // 担当事務
+    adminStaffId: a.adminStaffId,
+    adminStaffName: a.adminStaff?.name || null,
     // 紹介件数・契約件数
     referralCount,
     contractedCount,
@@ -322,8 +326,10 @@ export default async function StpAgentsPage() {
     label: `${c.companyCode} ${c.name}`,
   }));
 
-  // 代理店担当者
-  const staffOptions = await getStaffOptionsByField("STP_AGENT_STAFF");
+  // 代理店担当営業・担当事務
+  const staffOptionsByField = await getStaffOptionsByFields(["STP_AGENT_STAFF", "STP_AGENT_ADMIN"]);
+  const staffOptions = staffOptionsByField.STP_AGENT_STAFF;
+  const adminStaffOptions = staffOptionsByField.STP_AGENT_ADMIN;
 
   // 契約書用：STPプロジェクトに割り当てられたスタッフのみ
   const contractStaffOptions = staffProjectAssignments
@@ -367,6 +373,7 @@ export default async function StpAgentsPage() {
             companyOptions={companyOptions}
             referrerOptions={referrerOptions}
             staffOptions={staffOptions}
+            adminStaffOptions={adminStaffOptions}
             contractStaffOptions={contractStaffOptions}
             contactMethodOptions={contactMethodOptions}
             masterContractStatusOptions={masterContractStatusOptions}

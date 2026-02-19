@@ -81,7 +81,7 @@ const masterDataNavigation: NavItem[] = [
       { name: "契約ステータス", href: "/settings/contract-statuses", icon: FileCheck },
       { name: "外部ユーザー表示区分", href: "/settings/display-views", icon: Shield },
       { name: "STP_流入経路", href: "/settings/lead-sources", icon: UserPlus },
-      { name: "STP_商談ステージ", href: "/stp/settings/stages", icon: Layers },
+      { name: "STP_商談パイプライン", href: "/stp/settings/stages", icon: Layers },
       { name: "担当者フィールド制約", href: "/staff/field-restrictions", icon: Shield },
     ],
   },
@@ -149,14 +149,14 @@ const navigation: NavItem[] = [
         children: [
           { name: "企業接触履歴", href: "/stp/records/company-contacts", icon: Phone },
           { name: "代理店接触履歴", href: "/stp/records/agent-contacts", icon: Phone },
-          { name: "商談ステージ履歴", href: "/stp/records/stage-histories", icon: History },
+          { name: "商談パイプライン履歴", href: "/stp/records/stage-histories", icon: History },
         ],
       },
       {
         name: "設定",
         icon: Settings,
         children: [
-          { name: "商談ステージ", href: "/stp/settings/stages", icon: Layers },
+          { name: "商談パイプライン", href: "/stp/settings/stages", icon: Layers },
         ],
       },
     ],

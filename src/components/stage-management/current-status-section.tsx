@@ -58,13 +58,13 @@ export function CurrentStatusSection({ data }: CurrentStatusSectionProps) {
       </h3>
       <div className="space-y-2 text-sm">
         <div className="flex justify-between">
-          <span className="text-muted-foreground">現在のステージ</span>
+          <span className="text-muted-foreground">現在のパイプライン</span>
           <span className="font-medium">
             {data.currentStage?.name ?? "未設定"}
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-muted-foreground">このステージの滞在</span>
+          <span className="text-muted-foreground">このパイプラインの滞在</span>
           <span>
             {data.statistics.currentStageDays}日間
             {data.statistics.stageStartDate && (
@@ -76,7 +76,7 @@ export function CurrentStatusSection({ data }: CurrentStatusSectionProps) {
         </div>
         <div className="h-px bg-border my-2" />
         <div className="flex justify-between">
-          <span className="text-muted-foreground">目標ステージ</span>
+          <span className="text-muted-foreground">目標パイプライン</span>
           <span className="font-medium">
             {data.nextTargetStage?.name ?? "未設定"}
           </span>

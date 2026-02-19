@@ -145,6 +145,9 @@ model StpAgent {
   monthlyFee        Int?                                        // 月額費用
   hearingUrl        String?   @db.VarChar(500)                  // ヒアリングURL
 
+  // 担当事務
+  adminStaffId      Int?                                        // 担当事務（Staffから選択）
+
   // 源泉徴収対応
   isIndividualBusiness Boolean  @default(false)                  // 個人事業主フラグ
   withholdingTaxRate   Decimal? @db.Decimal(5,2)                 // デフォルト源泉徴収税率(%)
@@ -155,6 +158,7 @@ model StpAgent {
   // Relations
   company          MasterStellaCompany  @relation("AgentCompany", fields: [companyId], references: [id])
   referrerCompany  MasterStellaCompany? @relation("ReferrerCompany", fields: [referrerCompanyId], references: [id])
+  adminStaff       MasterStaff?         @relation("AdminStaffAgents", fields: [adminStaffId], references: [id])
   stpCompanies           StpCompany[]
   contracts              StpAgentContract[]
   staffAssignments       StpAgentStaff[]
@@ -306,6 +310,7 @@ model StpCompany {
   monthlyFee        Int?                                   // 月額
   performanceFee    Int?                                   // 成果報酬単価
   salesStaffId      Int?                                   // 担当営業（Staffから選択）
+  adminStaffId      Int?                                   // 担当事務（Staffから選択）
   operationStaffList String?  @db.VarChar(100)             // 担当運用（複数選択：indeed,運用2等）
 
   // アカウント情報
@@ -342,6 +347,7 @@ model StpCompany {
   agent               StpAgent?               @relation(fields: [agentId], references: [id])
   leadSource          StpLeadSource?          @relation(fields: [leadSourceId], references: [id])
   salesStaff          MasterStaff?            @relation("SalesStaffCompanies", fields: [salesStaffId], references: [id])
+  adminStaff          MasterStaff?            @relation("AdminStaffCompanies", fields: [adminStaffId], references: [id])
   stageHistories      StpStageHistory[]
   contracts           StpCompanyContract[]
   proposals           StpProposal[]
@@ -545,6 +551,8 @@ model MasterStaff {
   agentAssignments            StpAgentStaff[]
   assignedCompanies           MasterStellaCompany[]
   salesStpCompanies           StpCompany[]           @relation("SalesStaffCompanies")
+  adminStpCompanies           StpCompany[]           @relation("AdminStaffCompanies")
+  adminAgents                 StpAgent[]             @relation("AdminStaffAgents")
   contactHistories            ContactHistory[]
   approvedExternalUsers       ExternalUser[]
   issuedRegistrationTokens    RegistrationToken[]
@@ -2027,4 +2035,24 @@ model StaffFieldRestriction {
 
   @@unique([fieldCode, projectId, roleTypeId])
   @@map("staff_field_restrictions")
+}
+
+// ============================================
+// フィールド変更履歴 (Field Change Logs)
+// 汎用的なフィールド変更記録テーブル
+// ============================================
+
+model FieldChangeLog {
+  id          Int      @id @default(autoincrement())
+  entityType  String   @db.VarChar(50)                    // "stp_company", "stp_agent", "stp_contract_history"
+  entityId    Int                                          // 対象レコードのID
+  fieldName   String   @db.VarChar(50)                    // "salesStaffId", "adminStaffId" 等
+  displayName String   @db.VarChar(100)                   // "担当営業", "担当事務" 等（UI表示用）
+  oldValue    String?                                      // 変更前の値
+  newValue    String?                                      // 変更後の値
+  note        String                                       // 変更理由メモ（必須）
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@map("field_change_logs")
 }

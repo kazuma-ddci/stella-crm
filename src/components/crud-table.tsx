@@ -52,7 +52,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { SortableListModal, SortableItem } from "@/components/sortable-list-modal";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { EditableCell, EditableCellType, EditableCellOption, formatDisplayValue } from "@/components/editable-cell";
-import { ChangeConfirmationDialog, ChangeItem } from "@/components/change-confirmation-dialog";
+import { ChangeConfirmationDialog, ChangeItem, ChangeItemWithNote } from "@/components/change-confirmation-dialog";
 import { cn, toLocalDateString, matchesWithWordBoundary } from "@/lib/utils";
 import { toast } from "sonner";
 import DatePicker, { registerLocale } from "react-datepicker";
@@ -156,6 +156,8 @@ type CrudTableProps = {
   onFieldChange?: (fieldKey: string, newValue: unknown, formData: Record<string, unknown>, setFormData: (data: Record<string, unknown>) => void) => void;
   // インライン編集時の警告メッセージ（確認ダイアログに表示）
   updateWarningMessage?: string;
+  // 変更履歴管理対象フィールド（メモ必須の確認ダイアログを表示）
+  changeTrackedFields?: { key: string; displayName: string }[];
 };
 
 function formatValue(value: unknown, type?: string, options?: { value: string; label: string }[]): string {
@@ -243,6 +245,7 @@ export function CrudTable({
   inlineEditConfig,
   onFieldChange,
   updateWarningMessage,
+  changeTrackedFields = [],
 }: CrudTableProps) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editItem, setEditItem] = useState<Record<string, unknown> | null>(null);
@@ -507,12 +510,18 @@ export function CrudTable({
   );
 
   // 確認ダイアログでの保存実行
-  const handleConfirmSave = async () => {
+  const handleConfirmSave = async (changesWithNotes: ChangeItemWithNote[]) => {
     if (!pendingChange || !onUpdate) return;
 
     setInlineLoading(true);
     try {
-      await onUpdate(pendingChange.rowId, { [pendingChange.columnKey]: pendingChange.newValue });
+      // 変更履歴管理対象フィールドのメモを抽出
+      const note = changesWithNotes[0]?.note;
+      const updateData: Record<string, unknown> = { [pendingChange.columnKey]: pendingChange.newValue };
+      if (note && isTrackedField(pendingChange.columnKey)) {
+        updateData.__changeNotes = { [pendingChange.columnKey]: note };
+      }
+      await onUpdate(pendingChange.rowId, updateData);
       toast.success("更新しました");
       setEditingCell(null);
       setConfirmDialogOpen(false);
@@ -570,12 +579,33 @@ export function CrudTable({
             (newVal === null || newVal === undefined || newVal === "")) {
           continue;
         }
+        // multiselect（カンマ区切り文字列）の集合比較: 順序違いは差分にしない
+        const col = columns.find((c) => c.key === key);
+        if (col?.type === "multiselect") {
+          const toSet = (v: unknown): Set<string> => {
+            if (!v) return new Set();
+            const s = String(v);
+            if (!s) return new Set();
+            return new Set(s.split(",").map((x) => x.trim()).filter(Boolean));
+          };
+          const oldSet = toSet(oldVal);
+          const newSet = toSet(newVal);
+          if (oldSet.size === newSet.size && [...oldSet].every((v) => newSet.has(v))) {
+            continue;
+          }
+        }
         changedData[key] = newVal;
       }
     }
     if (Object.keys(changedData).length === 0) return null;
     return changedData;
   };
+
+  // フィールドキーが変更履歴管理対象かチェック
+  const isTrackedField = useCallback(
+    (key: string) => changeTrackedFields.some((f) => f.key === key),
+    [changeTrackedFields]
+  );
 
   // 変更差分からChangeItem[]を生成
   const buildChangeItems = (changedData: Record<string, unknown>): ChangeItem[] => {
@@ -584,6 +614,7 @@ export function CrudTable({
       const fieldName = col?.header || key;
       const oldVal = editItemOriginal[key];
       const newVal = changedData[key];
+      const requireNote = isTrackedField(key);
 
       const formatVal = (v: unknown): string => {
         if (v === null || v === undefined || v === "") return "-";
@@ -600,7 +631,7 @@ export function CrudTable({
         return String(v);
       };
 
-      return { fieldName, oldValue: formatVal(oldVal), newValue: formatVal(newVal) };
+      return { fieldName, oldValue: formatVal(oldVal), newValue: formatVal(newVal), requireNote };
     });
   };
 
@@ -616,15 +647,17 @@ export function CrudTable({
       return;
     }
 
-    // updateWarningMessageがある場合は確認ダイアログを表示
-    if (updateWarningMessage) {
+    // updateWarningMessageがある場合、または変更履歴管理対象フィールドが変更された場合は確認ダイアログを表示
+    const hasTrackedChange = changeTrackedFields.length > 0 &&
+      Object.keys(changedData).some((key) => isTrackedField(key));
+    if (updateWarningMessage || hasTrackedChange) {
       setEditChangedData(changedData);
       setEditChangeItems(buildChangeItems(changedData));
       setEditConfirmOpen(true);
       return;
     }
 
-    // 警告なしの場合はそのまま更新
+    // 警告なし・履歴管理対象なしの場合はそのまま更新
     setLoading(true);
     try {
       await onUpdate(editItem.id as number, changedData);
@@ -641,11 +674,23 @@ export function CrudTable({
   };
 
   // 編集確認ダイアログでの保存実行
-  const handleEditConfirmSave = async () => {
+  const handleEditConfirmSave = async (changesWithNotes: ChangeItemWithNote[]) => {
     if (!onUpdate || !editItem) return;
     setLoading(true);
     try {
-      await onUpdate(editItem.id as number, editChangedData);
+      // 変更履歴管理対象フィールドのメモを抽出
+      const changeNotes: Record<string, string> = {};
+      for (const change of changesWithNotes) {
+        if (change.note) {
+          // fieldNameからキーを逆引き（headerからkeyを特定）
+          const col = columns.find((c) => c.header === change.fieldName);
+          if (col) changeNotes[col.key] = change.note;
+        }
+      }
+      const dataWithNotes = Object.keys(changeNotes).length > 0
+        ? { ...editChangedData, __changeNotes: changeNotes }
+        : editChangedData;
+      await onUpdate(editItem.id as number, dataWithNotes);
       toast.success("更新しました");
       setEditConfirmOpen(false);
       setEditItem(null);
@@ -1468,7 +1513,7 @@ export function CrudTable({
       )}
 
       {/* Edit Dialog Confirmation Dialog */}
-      {updateWarningMessage && editChangeItems.length > 0 && (
+      {editChangeItems.length > 0 && (
         <ChangeConfirmationDialog
           open={editConfirmOpen}
           onOpenChange={(open) => {
@@ -1501,6 +1546,7 @@ export function CrudTable({
                 pendingChange.columnKey,
                 data.find((d) => d.id === pendingChange.rowId) || {}
               ),
+              requireNote: isTrackedField(pendingChange.columnKey),
             },
           ]}
           onConfirm={handleConfirmSave}

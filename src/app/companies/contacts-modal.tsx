@@ -764,7 +764,7 @@ export function ContactsModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto" style={{ left: 'calc(50% + 8rem)', maxWidth: 'calc((100vw - 16rem) * 0.75)' }}>
+      <DialogContent size="mixed" className="overflow-y-auto">
         <DialogHeader>
           <DialogTitle>連絡先管理 - {companyName}</DialogTitle>
         </DialogHeader>

@@ -306,14 +306,17 @@ export function MasterContractModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-w-[calc(100%-2rem)] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent
+        size="mixed"
+        className="p-0 overflow-hidden flex flex-col"
+      >
+        <DialogHeader className="px-6 py-4 border-b shrink-0">
           <DialogTitle>契約書管理 - {companyName}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="px-6 py-4 flex flex-col gap-4" style={{ flex: 1, minHeight: 0 }}>
           {/* 追加ボタン */}
-          <div className="flex justify-end">
+          <div className="flex justify-end shrink-0">
             <Button onClick={handleAdd} size="sm" disabled={formOpen}>
               <Plus className="h-4 w-4 mr-1" />
               契約書を追加
@@ -322,7 +325,7 @@ export function MasterContractModal({
 
           {/* フォーム（折りたたみ） */}
           {formOpen && (
-            <div className="border rounded-lg p-4 bg-gray-50">
+            <div className="border rounded-lg p-4 bg-gray-50 shrink-0 max-h-[50vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-medium">
                   {editingId ? "契約書を編集" : "新規契約書を追加"}
@@ -536,7 +539,7 @@ export function MasterContractModal({
               読み込み中...
             </div>
           ) : localContracts.length > 0 ? (
-            <Table>
+            <Table containerClassName="border rounded-lg flex-1 min-h-0" containerStyle={{ overflow: 'auto' }}>
               <TableHeader>
                 <TableRow>
                   <TableHead>契約番号</TableHead>
@@ -548,7 +551,7 @@ export function MasterContractModal({
                   <TableHead>担当者</TableHead>
                   <TableHead>ファイル</TableHead>
                   <TableHead>備考</TableHead>
-                  <TableHead className="w-[100px]">操作</TableHead>
+                  <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -579,7 +582,7 @@ export function MasterContractModal({
                     <TableCell>
                       <TextPreviewCell text={contract.note} title="備考" />
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                       <div className="flex gap-1">
                         <Button
                           variant="ghost"

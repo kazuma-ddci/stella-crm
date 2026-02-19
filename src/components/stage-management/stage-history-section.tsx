@@ -202,7 +202,7 @@ export function StageHistorySection({ histories }: StageHistorySectionProps) {
     return (
       <div className="rounded-lg border bg-card p-4">
         <h3 className="font-semibold text-sm text-muted-foreground mb-3">
-          ステージ履歴
+          パイプライン履歴
         </h3>
         <p className="text-sm text-muted-foreground">履歴がありません</p>
       </div>
@@ -212,7 +212,7 @@ export function StageHistorySection({ histories }: StageHistorySectionProps) {
   return (
     <div className="rounded-lg border bg-card p-4">
       <h3 className="font-semibold text-sm text-muted-foreground mb-3">
-        ステージ履歴
+        パイプライン履歴
         <span className="font-normal ml-1">
           （全{totalCount}件中、最新{Math.min(displayCount, totalCount)}件を表示）
         </span>

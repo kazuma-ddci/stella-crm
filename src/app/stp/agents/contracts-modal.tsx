@@ -339,7 +339,7 @@ export function ContractsModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-w-[calc(100%-2rem)] max-h-[80vh] overflow-y-auto">
+      <DialogContent size="mixed" className="overflow-y-auto">
         <DialogHeader>
           <DialogTitle>契約書管理 - {agentName}</DialogTitle>
         </DialogHeader>

@@ -156,7 +156,7 @@ export function MergeCompanyModal({ companyId, companyName, companyCode }: Props
             企業を統合
           </Button>
         </DialogTrigger>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent size="form" className="max-h-[85vh] overflow-y-auto">
           {/* Step 1: 企業選択 */}
           {step === "select" && (
             <>

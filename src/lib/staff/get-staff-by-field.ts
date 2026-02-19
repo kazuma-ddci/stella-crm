@@ -5,6 +5,18 @@ import type { Prisma } from "@prisma/client";
 type StaffOption = { value: string; label: string };
 
 /**
+ * 指定フィールドに対してstaffIdが許可されているかを検証
+ * 制約が0件（フォールバックで全員許可）の場合もtrue
+ */
+export async function validateStaffForField(
+  fieldCode: AssignableFieldCode,
+  staffId: number,
+): Promise<boolean> {
+  const options = await getStaffOptionsByField(fieldCode);
+  return options.some((opt) => opt.value === String(staffId));
+}
+
+/**
  * 単一フィールドの制約に基づいてスタッフ選択肢を取得
  * 制約が0件の場合は全アクティブスタッフを返す（フォールバック）
  */
