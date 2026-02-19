@@ -10,9 +10,8 @@ import {
 } from './types';
 import {
   ALERT_DEFINITIONS,
-  TERMINAL_STAGE_IDS,
-  NON_TARGET_STAGE_IDS,
-  CONFIRM_TARGET_STAGE_IDS,
+  NON_TARGET_STAGE_TYPES,
+  CONFIRM_TARGET_STAGE_TYPES,
   SEVERITY_ORDER,
 } from './constants';
 
@@ -71,20 +70,28 @@ export function validateStageChange(options: ValidateOptions): ValidationResult 
     alerts.push(ALERT_DEFINITIONS['L-004']);
   }
 
-  // L-005: 失注を目標に設定（WARNING）
+  // L-005: 脱落ステージを目標に設定（WARNING）
   if (
     input.newTargetStageId !== null &&
-    CONFIRM_TARGET_STAGE_IDS.includes(input.newTargetStageId)
+    newTargetStage &&
+    CONFIRM_TARGET_STAGE_TYPES.includes(newTargetStage.stageType)
   ) {
-    alerts.push(ALERT_DEFINITIONS['L-005']);
+    alerts.push({
+      ...ALERT_DEFINITIONS['L-005'],
+      message: `「${newTargetStage.name}」が目標になっています。よろしいですか？`,
+    });
   }
 
-  // L-006: 検討中を目標に設定（ERROR）
+  // L-006: 一時停止ステージを目標に設定（ERROR）
   if (
     input.newTargetStageId !== null &&
-    NON_TARGET_STAGE_IDS.includes(input.newTargetStageId)
+    newTargetStage &&
+    NON_TARGET_STAGE_TYPES.includes(newTargetStage.stageType)
   ) {
-    alerts.push(ALERT_DEFINITIONS['L-006']);
+    alerts.push({
+      ...ALERT_DEFINITIONS['L-006'],
+      message: `「${newTargetStage.name}」は目標として設定できません。`,
+    });
   }
 
   // ========================================
@@ -134,7 +141,7 @@ export function validateStageChange(options: ValidateOptions): ValidationResult 
     }
   }
 
-  // S-002: 受注から他のステージに変更
+  // S-002: ゴール済みから他のステージに変更
   if (
     currentStage?.stageType === 'closed_won' &&
     newStage?.stageType !== 'closed_won' &&
@@ -142,18 +149,18 @@ export function validateStageChange(options: ValidateOptions): ValidationResult 
   ) {
     alerts.push({
       ...ALERT_DEFINITIONS['S-002'],
-      message: `受注済みの案件を「${newStage?.name ?? '不明'}」に変更しようとしています。変更理由を入力してください。`,
+      message: `「${currentStage.name}」済みの案件を「${newStage?.name ?? '不明'}」に変更しようとしています。変更理由を入力してください。`,
     });
   }
 
-  // S-003: 失注から進行ステージに変更（復活）
+  // S-003: 脱落から進行ステージに変更（復活）
   if (
     currentStage?.stageType === 'closed_lost' &&
     newStage?.stageType === 'progress'
   ) {
     alerts.push({
       ...ALERT_DEFINITIONS['S-003'],
-      message: `失注した案件を「${newStage?.name ?? '不明'}」に変更しようとしています。案件が復活した場合のみ変更してください。変更理由を入力してください。`,
+      message: `「${currentStage.name}」した案件を「${newStage?.name ?? '不明'}」に変更しようとしています。案件が復活した場合のみ変更してください。変更理由を入力してください。`,
     });
   }
 

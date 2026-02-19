@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { StageInfo, ValidationResult } from "@/lib/stage-transition/types";
 import { detectEvents, getChangeType } from "@/lib/stage-transition/event-detector";
 import { validateStageChange } from "@/lib/stage-transition/alert-validator";
-import { TERMINAL_STAGE_IDS, NON_TARGET_STAGE_IDS } from "@/lib/stage-transition/constants";
+import { NON_TARGET_STAGE_TYPES } from "@/lib/stage-transition/constants";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -188,7 +188,7 @@ export function StageUpdateForm({
     if (currentStage?.stageType === 'closed_lost' || currentStage?.stageType === 'pending') {
       return stages.filter(
         (s) =>
-          !NON_TARGET_STAGE_IDS.includes(s.id) &&
+          !NON_TARGET_STAGE_TYPES.includes(s.stageType) &&
           (s.stageType === 'progress' || s.stageType === 'closed_won')
       );
     }
@@ -200,7 +200,7 @@ export function StageUpdateForm({
     const currentOrder = currentStage.displayOrder ?? 0;
     return stages.filter(
       (s) =>
-        !NON_TARGET_STAGE_IDS.includes(s.id) &&
+        !NON_TARGET_STAGE_TYPES.includes(s.stageType) &&
         (s.stageType === 'progress' || s.stageType === 'closed_won') &&
         (s.displayOrder ?? 0) > currentOrder
     );

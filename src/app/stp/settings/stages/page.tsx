@@ -14,6 +14,7 @@ export default async function StagesPage() {
   const data = stages.map((s) => ({
     id: s.id,
     name: s.name,
+    stageType: s.stageType,
     displayOrder: s.displayOrder,
     isActive: s.isActive,
     createdAt: s.createdAt.toISOString(),

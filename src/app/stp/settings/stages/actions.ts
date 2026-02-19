@@ -9,6 +9,7 @@ export async function addStage(data: Record<string, unknown>) {
   await prisma.stpStage.create({
     data: {
       name: data.name as string,
+      stageType: (data.stageType as string) || 'progress',
       displayOrder: data.displayOrder != null && data.displayOrder !== "" ? Number(data.displayOrder) : null,
       isActive: data.isActive === true || data.isActive === "true",
     },
@@ -20,6 +21,7 @@ export async function updateStage(id: number, data: Record<string, unknown>) {
   await requireMasterDataEditPermission();
   const updateData: Record<string, unknown> = {};
   if ("name" in data) updateData.name = data.name as string;
+  if ("stageType" in data) updateData.stageType = data.stageType as string;
   if ("displayOrder" in data) updateData.displayOrder = data.displayOrder != null && data.displayOrder !== "" ? Number(data.displayOrder) : null;
   if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
 

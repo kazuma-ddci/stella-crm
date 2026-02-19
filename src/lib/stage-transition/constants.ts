@@ -1,6 +1,6 @@
 // ステージ遷移ロジックの定数
 
-import { AlertId, AlertSeverity, StageEventType } from './types';
+import { AlertId, AlertSeverity, StageEventType, StageType } from './types';
 
 // イベントラベルとアイコン
 export const EVENT_LABELS: Record<StageEventType, { label: string; icon: string }> = {
@@ -10,7 +10,7 @@ export const EVENT_LABELS: Record<StageEventType, { label: string; icon: string 
   progress: { label: '前進', icon: '📈' },
   back: { label: '後退', icon: '📉' },
   cancel: { label: '目標取消', icon: '❌' },
-  won: { label: '受注', icon: '🎊' },
+  won: { label: '完了', icon: '🎊' },
   lost: { label: '失注', icon: '💔' },
   suspended: { label: '検討中', icon: '⏸️' },
   resumed: { label: '再開', icon: '▶️' },
@@ -36,23 +36,11 @@ export interface AlertDefinition {
   requiresNote?: boolean;
 }
 
-// 終了ステージ（受注=5, 失注=6）
-export const TERMINAL_STAGE_IDS = {
-  WON: 5,      // 受注
-  LOST: 6,     // 失注
-  PENDING: 7,  // 検討中
-};
+// 目標に設定できないstageType
+export const NON_TARGET_STAGE_TYPES: StageType[] = ['pending'];
 
-// 目標に設定できないステージID（検討中のみ）
-// 失注はWARNINGで確認後設定可能に変更
-export const NON_TARGET_STAGE_IDS = [
-  TERMINAL_STAGE_IDS.PENDING,  // 検討中
-];
-
-// 失注は確認後に目標に設定可能
-export const CONFIRM_TARGET_STAGE_IDS = [
-  TERMINAL_STAGE_IDS.LOST,     // 失注
-];
+// 目標設定時に確認が必要なstageType
+export const CONFIRM_TARGET_STAGE_TYPES: StageType[] = ['closed_lost'];
 
 // アラートメッセージ定義
 export const ALERT_DEFINITIONS: Record<AlertId, AlertDefinition> = {
@@ -75,12 +63,12 @@ export const ALERT_DEFINITIONS: Record<AlertId, AlertDefinition> = {
   'L-005': {
     id: 'L-005',
     severity: 'WARNING',
-    message: '失注が目標になっています。よろしいですか？',
+    message: '脱落ステージが目標になっています。よろしいですか？',
   },
   'L-006': {
     id: 'L-006',
     severity: 'ERROR',
-    message: '検討中は目標として設定できません。',
+    message: '一時停止ステージは目標として設定できません。',
   },
 
   // カテゴリ2：時系列的におかしい操作
@@ -109,13 +97,13 @@ export const ALERT_DEFINITIONS: Record<AlertId, AlertDefinition> = {
   'S-002': {
     id: 'S-002',
     severity: 'WARNING',
-    message: '受注済みの案件を変更しようとしています。変更理由を入力してください。',
+    message: 'ゴール済みの案件を変更しようとしています。変更理由を入力してください。',
     requiresNote: true,
   },
   'S-003': {
     id: 'S-003',
     severity: 'WARNING',
-    message: '失注した案件が復活します。変更理由を入力してください。',
+    message: '脱落した案件が復活します。変更理由を入力してください。',
     requiresNote: true,
   },
   'S-005': {

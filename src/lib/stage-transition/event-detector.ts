@@ -439,15 +439,15 @@ export function getEventDescription(
     case 'cancel':
       return `目標「${toStage?.name ?? '不明'}」を取消`;
     case 'won':
-      return `受注`;
+      return toStage?.name ?? '受注';
     case 'lost':
-      return `失注`;
+      return toStage?.name ?? '失注';
     case 'suspended':
-      return `検討中に移行`;
+      return `${toStage?.name ?? '検討中'}に移行`;
     case 'resumed':
-      return `検討中から再開`;
+      return `${fromStage?.name ?? '検討中'}から再開`;
     case 'revived':
-      return `失注から復活`;
+      return `${fromStage?.name ?? '失注'}から復活`;
     case 'reason_updated':
       return `理由を更新`;
     default:
@@ -482,19 +482,19 @@ export function getChangeType(
   const newType = newStage.stageType;
   const currentType = currentStage?.stageType;
 
-  // 受注に変更
+  // 受注（ゴール）に変更
   if (newType === 'closed_won') {
-    return { type: 'won', message: '🎊 受注おめでとうございます！' };
+    return { type: 'won', message: `🎊 ${newStage.name}おめでとうございます！` };
   }
 
-  // 失注に変更
+  // 失注（脱落）に変更
   if (newType === 'closed_lost') {
-    return { type: 'lost', message: 'この案件を失注として記録します' };
+    return { type: 'lost', message: `この案件を${newStage.name}として記録します` };
   }
 
-  // 検討中に変更
+  // 検討中（一時停止）に変更
   if (newType === 'pending') {
-    return { type: 'suspended', message: '⏸️ この案件を検討中として記録します' };
+    return { type: 'suspended', message: `⏸️ この案件を${newStage.name}として記録します` };
   }
 
   // 検討中から再開
