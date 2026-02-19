@@ -2,6 +2,7 @@ import { NextResponse, NextRequest } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { hasViewAccess } from "@/lib/auth/external-user";
+import { isInvalidJobMedia } from "@/lib/stp/job-media";
 import type { DisplayViewPermission } from "@/types/auth";
 
 /**
@@ -184,6 +185,14 @@ export async function POST(request: NextRequest) {
       resolvedStpCompanyId = stpCompanyIds[0];
     }
 
+    // jobMediaバリデーション
+    if (isInvalidJobMedia(body.jobMedia as string)) {
+      return NextResponse.json(
+        { error: "無効な求人媒体が指定されています" },
+        { status: 400 }
+      );
+    }
+
     const candidate = await prisma.stpCandidate.create({
       data: {
         lastName: (body.lastName as string) || "",
@@ -295,6 +304,12 @@ export async function PUT(request: NextRequest) {
       updateData.industryType = (body.industryType as string) || null;
     }
     if ("jobMedia" in body) {
+      if (isInvalidJobMedia(body.jobMedia as string)) {
+        return NextResponse.json(
+          { error: "無効な求人媒体が指定されています" },
+          { status: 400 }
+        );
+      }
       updateData.jobMedia = (body.jobMedia as string) || null;
     }
     if ("note" in body) {

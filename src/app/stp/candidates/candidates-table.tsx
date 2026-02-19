@@ -6,6 +6,7 @@ import { CrudTable, ColumnDef, InlineEditConfig } from "@/components/crud-table"
 import { addCandidate, updateCandidate, deleteCandidate, restoreCandidate } from "./actions";
 import { CompanyCodeLabel } from "@/components/company-code-label";
 import { TextPreviewCell } from "@/components/text-preview-cell";
+import { isInvalidJobMedia } from "@/lib/stp/job-media";
 import {
   Dialog,
   DialogContent,
@@ -469,7 +470,11 @@ export function CandidatesTable({ data, stpCompanyOptions, contractOptionsByStpC
           },
           jobMedia: (value: unknown) => {
             if (!value) return "-";
-            return value as string;
+            const v = value as string;
+            if (isInvalidJobMedia(v)) {
+              return <span className="text-red-600 font-medium">{"\u26A0"} {v}</span>;
+            }
+            return v;
           },
           joinConfirmed: (_value: unknown, row: Record<string, unknown>) => {
             const hasJoinDate = !!row.joinDate;

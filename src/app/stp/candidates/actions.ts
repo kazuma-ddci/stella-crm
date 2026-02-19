@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireEdit } from "@/lib/auth";
+import { isInvalidJobMedia } from "@/lib/stp/job-media";
 
 export async function addCandidate(data: Record<string, unknown>) {
   await requireEdit("stp");
@@ -83,7 +84,11 @@ export async function updateCandidate(
     updateData.industryType = (data.industryType as string) || null;
   }
   if ("jobMedia" in data) {
-    updateData.jobMedia = (data.jobMedia as string) || null;
+    const jobMediaValue = (data.jobMedia as string) || null;
+    if (isInvalidJobMedia(jobMediaValue)) {
+      throw new Error("無効な求人媒体が指定されています");
+    }
+    updateData.jobMedia = jobMediaValue;
   }
   if ("note" in data) {
     updateData.note = (data.note as string) || null;

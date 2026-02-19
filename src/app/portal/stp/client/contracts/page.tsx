@@ -21,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ArrowLeft, LogOut, Loader2, Download } from "lucide-react";
+import { isInvalidJobMedia } from "@/lib/stp/job-media";
 
 interface ContractData {
   id: number;
@@ -237,7 +238,13 @@ export default function PortalContractsPage() {
                         <TableCell>
                           {contractPlanLabelMap[history.contractPlan] || history.contractPlan}
                         </TableCell>
-                        <TableCell>{history.jobMedia || "-"}</TableCell>
+                        <TableCell>
+                          {history.jobMedia
+                            ? isInvalidJobMedia(history.jobMedia)
+                              ? <span className="text-red-600 font-medium">{"\u26A0"} {history.jobMedia}</span>
+                              : history.jobMedia
+                            : "-"}
+                        </TableCell>
                         <TableCell>{history.contractStartDate}</TableCell>
                         <TableCell>{history.contractEndDate || "-"}</TableCell>
                         <TableCell>{formatCurrency(history.initialFee)}</TableCell>

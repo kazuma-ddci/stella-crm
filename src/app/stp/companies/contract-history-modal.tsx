@@ -53,6 +53,7 @@ import {
 } from "./contract-history-actions";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { useTimedFormCache } from "@/hooks/use-timed-form-cache";
+import { JOB_MEDIA_OPTIONS, isInvalidJobMedia } from "@/lib/stp/job-media";
 
 // 日本語ロケールを登録
 registerLocale("ja", ja);
@@ -85,20 +86,7 @@ const operationStatusOptions = [
   { value: "テスト2", label: "テスト2" },
 ];
 
-const jobMediaOptions = [
-  { value: "Indeed", label: "Indeed" },
-  { value: "Wantedly", label: "Wantedly" },
-  { value: "リクナビNEXT", label: "リクナビNEXT" },
-  { value: "マイナビ転職", label: "マイナビ転職" },
-  { value: "doda", label: "doda" },
-  { value: "エン転職", label: "エン転職" },
-  { value: "ビズリーチ", label: "ビズリーチ" },
-  { value: "Green", label: "Green" },
-  { value: "type転職エージェント", label: "type転職エージェント" },
-  { value: "求人ボックス", label: "求人ボックス" },
-  { value: "バイトル", label: "バイトル" },
-  { value: "はたらいく", label: "はたらいく" },
-];
+const jobMediaOptions = JOB_MEDIA_OPTIONS;
 
 // 月額費用の自動計算
 // 一般+成果報酬→¥0, 一般+月額→¥150,000, 派遣+成果報酬→¥0, 派遣+月額→¥300,000
@@ -361,6 +349,10 @@ export function ContractHistoryModal({
       toast.error("必須項目を入力してください");
       return;
     }
+    if (isInvalidJobMedia(formData.jobMedia)) {
+      toast.error("無効な求人媒体が選択されています。正しい媒体を選択してください。");
+      return;
+    }
     setLoading(true);
     try {
       const result = await addContractHistory(companyId, {
@@ -401,6 +393,10 @@ export function ContractHistoryModal({
   };
 
   const confirmEdit = () => {
+    if (isInvalidJobMedia(formData.jobMedia)) {
+      toast.error("無効な求人媒体が選択されています。正しい媒体を選択してください。");
+      return;
+    }
     setPendingEditData(formData);
     setEditConfirm(true);
   };
@@ -528,11 +524,16 @@ export function ContractHistoryModal({
       </div>
       <div className="space-y-2">
         <Label>求人媒体</Label>
+        {isInvalidJobMedia(formData.jobMedia) && (
+          <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-2">
+            無効な媒体「{formData.jobMedia}」が設定されています。変更してください。
+          </div>
+        )}
         <Select
           value={formData.jobMedia || "none"}
           onValueChange={(v) => setFormData({ ...formData, jobMedia: v === "none" ? null : v })}
         >
-          <SelectTrigger>
+          <SelectTrigger className={isInvalidJobMedia(formData.jobMedia) ? "border-red-500" : ""}>
             <SelectValue placeholder="選択してください" />
           </SelectTrigger>
           <SelectContent>
@@ -874,7 +875,13 @@ export function ContractHistoryModal({
                     <TableRow key={history.id}>
                       <TableCell>{getLabelByValue(industryTypeOptions, history.industryType)}</TableCell>
                       <TableCell>{getLabelByValue(contractPlanOptions, history.contractPlan)}</TableCell>
-                      <TableCell>{history.jobMedia || "-"}</TableCell>
+                      <TableCell>
+                        {history.jobMedia
+                          ? isInvalidJobMedia(history.jobMedia)
+                            ? <span className="text-red-600 font-medium">{"\u26A0"} {history.jobMedia}</span>
+                            : history.jobMedia
+                          : "-"}
+                      </TableCell>
                       <TableCell className="whitespace-nowrap">
                         {formatDate(history.contractStartDate)}
                       </TableCell>

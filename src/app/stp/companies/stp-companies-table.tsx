@@ -12,6 +12,7 @@ import { ProposalModal } from "@/components/proposal-modal";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { addStpCompany, updateStpCompany, deleteStpCompany, checkDuplicateCompanyId } from "./actions";
 import { CompanyCodeLabel } from "@/components/company-code-label";
+import { isInvalidJobMedia } from "@/lib/stp/job-media";
 import { BarChart3, MessageSquare, FileText, ScrollText, ChevronsUpDown, AlertTriangle, FileEdit, LineChart, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -495,7 +496,7 @@ export function StpCompaniesTable({
         </div>
       );
     },
-    // 契約履歴 - 求人媒体：縦並びで表示
+    // 契約履歴 - 求人媒体：縦並びで表示（旧値は赤字警告）
     contractJobMedia: (_value, row) => {
       const histories = row.activeContractHistories as { jobMedia: string | null }[] | undefined;
       if (!histories || histories.length === 0) return "-";
@@ -503,7 +504,13 @@ export function StpCompaniesTable({
       return (
         <div className="flex flex-col gap-1">
           {histories.map((h, index) => (
-            <div key={index} className="text-sm">{h.jobMedia || "-"}</div>
+            <div key={index} className="text-sm">
+              {h.jobMedia
+                ? isInvalidJobMedia(h.jobMedia)
+                  ? <span className="text-red-600 font-medium">{"\u26A0"} {h.jobMedia}</span>
+                  : h.jobMedia
+                : "-"}
+            </div>
           ))}
         </div>
       );
@@ -654,18 +661,20 @@ export function StpCompaniesTable({
     },
     // 提案書：提案書モーダルを開くボタン
     proposal: (_value, row) => {
+      const unlocked = row.hasUnlockedSlides as boolean;
       return (
         <Button
           variant="outline"
           size="icon"
-          className="h-7 w-7"
+          className={`h-7 w-7 ${unlocked ? "border-red-400 bg-red-50 hover:bg-red-100" : ""}`}
           onClick={(e) => {
             e.stopPropagation();
             setSelectedCompany(row);
             setProposalModalOpen(true);
           }}
+          title={unlocked ? "権限未戻しのスライドあり" : "提案書管理"}
         >
-          <FileEdit className="h-4 w-4" />
+          <FileEdit className={`h-4 w-4 ${unlocked ? "text-red-500" : ""}`} />
         </Button>
       );
     },

@@ -571,7 +571,7 @@ async function main() {
   const forecasts = ['MIN', '落とし', 'MAX', '来月', '辞退'];
   const operationStatuses = ['テスト1', 'テスト2'];
   const industryTypes = ['一般', '派遣'];
-  const mediaOptions = ['Indeed', 'Wantedly', 'リクナビ', 'マイナビ', 'doda'];
+  const mediaOptions = ['Airワーク', 'Wantedly', '求人ボックス'];
   const initialFees = [0, 100000, 150000];
   const progressDetails = [
     'リード獲得。メール返信待ち。', '初回商談完了。ニーズヒアリング済み。',
@@ -715,15 +715,15 @@ async function main() {
   const candidateFirstNames = ['太郎', '花子', '一郎', '美咲', '健太', '直樹', '恵', '拓也', '由美', '翔'];
   const selectionStatuses = ['書類選考中', '一次面接', '二次面接', '最終面接', '内定', '入社済み', '辞退', '不合格'];
   const candidateIndustryTypes = ['general', 'dispatch'];
-  const candidateJobMedias = ['Indeed', 'doda', 'Wantedly', 'マイナビ', 'リクナビ'];
+  const candidateJobMedias = ['Airワーク', 'Wantedly', '求人ボックス'];
 
   // 成果報酬テスト用: 確定的にマッチするデータ（5件）
   const perfCandidates = [
-    { id: 1, lastName: '山田', firstName: '太郎', stpCompanyId: 61, industryType: 'general' as string | null, jobMedia: 'Indeed' as string | null, joinDate: new Date('2026-01-15') as Date | null, interviewDate: new Date('2025-12-01') as Date | null, offerDate: new Date('2025-12-20') as Date | null },
-    { id: 2, lastName: '佐藤', firstName: '花子', stpCompanyId: 62, industryType: 'dispatch' as string | null, jobMedia: 'doda' as string | null, joinDate: new Date('2026-01-20') as Date | null, interviewDate: new Date('2025-12-05') as Date | null, offerDate: new Date('2025-12-25') as Date | null },
+    { id: 1, lastName: '山田', firstName: '太郎', stpCompanyId: 61, industryType: 'general' as string | null, jobMedia: 'Airワーク' as string | null, joinDate: new Date('2026-01-15') as Date | null, interviewDate: new Date('2025-12-01') as Date | null, offerDate: new Date('2025-12-20') as Date | null },
+    { id: 2, lastName: '佐藤', firstName: '花子', stpCompanyId: 62, industryType: 'dispatch' as string | null, jobMedia: '求人ボックス' as string | null, joinDate: new Date('2026-01-20') as Date | null, interviewDate: new Date('2025-12-05') as Date | null, offerDate: new Date('2025-12-25') as Date | null },
     { id: 3, lastName: '田中', firstName: '一郎', stpCompanyId: 63, industryType: 'general' as string | null, jobMedia: 'Wantedly' as string | null, joinDate: new Date('2026-02-01') as Date | null, interviewDate: new Date('2025-12-10') as Date | null, offerDate: new Date('2026-01-10') as Date | null },
-    { id: 4, lastName: '鈴木', firstName: '美咲', stpCompanyId: 64, industryType: 'dispatch' as string | null, jobMedia: 'マイナビ' as string | null, joinDate: new Date('2025-12-15') as Date | null, interviewDate: new Date('2025-11-01') as Date | null, offerDate: new Date('2025-11-25') as Date | null },
-    { id: 5, lastName: '高橋', firstName: '健太', stpCompanyId: 65, industryType: 'general' as string | null, jobMedia: 'リクナビ' as string | null, joinDate: new Date('2026-01-10') as Date | null, interviewDate: new Date('2025-11-20') as Date | null, offerDate: new Date('2025-12-15') as Date | null },
+    { id: 4, lastName: '鈴木', firstName: '美咲', stpCompanyId: 64, industryType: 'dispatch' as string | null, jobMedia: 'Airワーク' as string | null, joinDate: new Date('2025-12-15') as Date | null, interviewDate: new Date('2025-11-01') as Date | null, offerDate: new Date('2025-11-25') as Date | null },
+    { id: 5, lastName: '高橋', firstName: '健太', stpCompanyId: 65, industryType: 'general' as string | null, jobMedia: '求人ボックス' as string | null, joinDate: new Date('2026-01-10') as Date | null, interviewDate: new Date('2025-11-20') as Date | null, offerDate: new Date('2025-12-15') as Date | null },
   ];
 
   const candidateData = [];
@@ -852,7 +852,7 @@ async function main() {
   // 10. 契約履歴 (100件)
   // ============================================
 
-  const jobMediaOptions = ['Indeed', 'Wantedly', 'リクナビ', 'マイナビ', 'doda'];
+  const jobMediaOptions = ['Airワーク', 'Wantedly', '求人ボックス'];
   const contractHistoryData = [];
   for (let i = 1; i <= 100; i++) {
     const companyId = randomInt(1, 80);
@@ -883,11 +883,11 @@ async function main() {
 
   // 成果報酬テスト用: 企業61-65の専用契約履歴（求職者とマッチするよう確定データ）
   const perfContractHistories = [
-    { id: 101, companyId: 61, industryType: 'general', contractPlan: 'performance', jobMedia: 'Indeed', contractStartDate: new Date('2025-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 50000, performanceFee: 80000, salesStaffId: 1, operationStaffId: 2, status: 'active', note: '成果報酬テスト（企業61・一般・Indeed）', operationStatus: null as string | null, accountId: 'acc-61-perf', accountPass: 'pass1234' },
-    { id: 102, companyId: 62, industryType: 'dispatch', contractPlan: 'performance', jobMedia: 'doda', contractStartDate: new Date('2025-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 40000, performanceFee: 60000, salesStaffId: 2, operationStaffId: 3, status: 'active', note: '成果報酬テスト（企業62・派遣・doda）', operationStatus: null as string | null, accountId: 'acc-62-perf', accountPass: 'pass2345' },
+    { id: 101, companyId: 61, industryType: 'general', contractPlan: 'performance', jobMedia: 'Airワーク', contractStartDate: new Date('2025-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 50000, performanceFee: 80000, salesStaffId: 1, operationStaffId: 2, status: 'active', note: '成果報酬テスト（企業61・一般・Airワーク）', operationStatus: null as string | null, accountId: 'acc-61-perf', accountPass: 'pass1234' },
+    { id: 102, companyId: 62, industryType: 'dispatch', contractPlan: 'performance', jobMedia: '求人ボックス', contractStartDate: new Date('2025-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 40000, performanceFee: 60000, salesStaffId: 2, operationStaffId: 3, status: 'active', note: '成果報酬テスト（企業62・派遣・求人ボックス）', operationStatus: null as string | null, accountId: 'acc-62-perf', accountPass: 'pass2345' },
     { id: 103, companyId: 63, industryType: 'general', contractPlan: 'performance', jobMedia: 'Wantedly', contractStartDate: new Date('2025-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 60000, performanceFee: 100000, salesStaffId: 3, operationStaffId: 4, status: 'active', note: '成果報酬テスト（企業63・一般・Wantedly）', operationStatus: null as string | null, accountId: 'acc-63-perf', accountPass: 'pass3456' },
-    { id: 104, companyId: 64, industryType: 'dispatch', contractPlan: 'performance', jobMedia: 'マイナビ', contractStartDate: new Date('2025-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 45000, performanceFee: 50000, salesStaffId: 4, operationStaffId: 5, status: 'active', note: '成果報酬テスト（企業64・派遣・マイナビ）', operationStatus: null as string | null, accountId: 'acc-64-perf', accountPass: 'pass4567' },
-    { id: 105, companyId: 65, industryType: 'general', contractPlan: 'performance', jobMedia: 'リクナビ', contractStartDate: new Date('2025-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 55000, performanceFee: 70000, salesStaffId: 5, operationStaffId: 6, status: 'active', note: '成果報酬テスト（企業65・一般・リクナビ）', operationStatus: null as string | null, accountId: 'acc-65-perf', accountPass: 'pass5678' },
+    { id: 104, companyId: 64, industryType: 'dispatch', contractPlan: 'performance', jobMedia: 'Airワーク', contractStartDate: new Date('2025-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 45000, performanceFee: 50000, salesStaffId: 4, operationStaffId: 5, status: 'active', note: '成果報酬テスト（企業64・派遣・Airワーク）', operationStatus: null as string | null, accountId: 'acc-64-perf', accountPass: 'pass4567' },
+    { id: 105, companyId: 65, industryType: 'general', contractPlan: 'performance', jobMedia: '求人ボックス', contractStartDate: new Date('2025-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 55000, performanceFee: 70000, salesStaffId: 5, operationStaffId: 6, status: 'active', note: '成果報酬テスト（企業65・一般・求人ボックス）', operationStatus: null as string | null, accountId: 'acc-65-perf', accountPass: 'pass5678' },
   ];
   await prisma.stpContractHistory.createMany({ data: perfContractHistories });
   console.log('✓ Performance fee contract histories (5)');
@@ -1158,7 +1158,7 @@ async function main() {
 
   // 受注ステージ (id 61-70) と見積提示 (id 51-60) の企業にKPIシート
   const kpiSheetData = [];
-  const kpiMediaNames = ['Indeed', 'Wantedly', 'リクナビ', 'マイナビ', 'doda', 'エン転職'];
+  const kpiMediaNames = ['Airワーク', 'Wantedly', '求人ボックス'];
   for (let i = 1; i <= 12; i++) {
     const stpCompanyId = 50 + i; // companies 51-62
     kpiSheetData.push({
