@@ -74,3 +74,7 @@ kpi-dashboard.txt
 
 # Binary docs (use .md versions instead)
 *.docx
+
+# GCP service account keys
+stella-crm-*.json
+/credentials/

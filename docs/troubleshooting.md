@@ -25,6 +25,7 @@
 17. [update関数の部分更新未対応でフィールドがnull/falseに上書きされる](#update関数の部分更新未対応でフィールドがnullfalseに上書きされる)
 18. [VPSでdocker-compose(v1)を使うとContainerConfigエラーになる](#vpsでdocker-composev1を使うとcontainerconfigエラーになる)
 19. [CrudTableのselectで「-」(null)オプションが「なし」(none)と重複し意図しない変更が発生する](#crudtableのselectでnullオプションがなしnoneと重複し意図しない変更が発生する)
+20. [Google Drive APIでサービスアカウントのストレージクォータ超過](#google-drive-apiでサービスアカウントのストレージクォータ超過)
 
 ---
 
@@ -1185,3 +1186,78 @@ optionsに `value="none"` のオプションが含まれている場合は、「
 ### 関連ファイル
 
 - `src/components/crud-table.tsx`（select/comboboxの「-」オプション表示条件）
+
+---
+
+## Google Drive APIでサービスアカウントのストレージクォータ超過
+
+> **2026-02-19 解決済み**
+
+### 症状
+
+- Google Drive APIの `drive.files.copy`（テンプレートコピー）が `403 storageQuotaExceeded` エラーで失敗する
+- エラーメッセージ: `The user's Drive storage quota has been exceeded.`
+- サービスアカウントのストレージ使用量は `0`、上限も `0`
+
+### 原因
+
+GCPサービスアカウントはGoogle Driveのストレージ枠を持たない（`limit: "0"`）。`drive.files.copy` で作成されるファイルはサービスアカウントが所有者（owner）となるため、ストレージ枠がゼロのサービスアカウントではファイルコピーができない。
+
+通常の「共有フォルダ」にコピーしても、ファイルの所有者はサービスアカウントのままなので解決しない。`supportsAllDrives: true` パラメータを追加しても、通常フォルダでは効果なし。
+
+```javascript
+// ❌ 通常の共有フォルダ → storageQuotaExceeded
+await drive.files.copy({
+  fileId: TEMPLATE_ID,
+  requestBody: { name: fileName, parents: [SHARED_FOLDER_ID] },
+});
+
+// ❌ supportsAllDrives を追加しても通常フォルダでは解決しない
+await drive.files.copy({
+  fileId: TEMPLATE_ID,
+  requestBody: { name: fileName, parents: [SHARED_FOLDER_ID] },
+  supportsAllDrives: true,  // 通常フォルダには効果なし
+});
+```
+
+### 解決方法
+
+**共有ドライブ（Shared Drive / Team Drive）**を使用する。共有ドライブ内のファイルはドライブ自体が所有するため、サービスアカウントのストレージ制限を受けない。
+
+```javascript
+// ✅ 共有ドライブに出力 → 成功
+await drive.files.copy({
+  fileId: TEMPLATE_ID,
+  requestBody: { name: fileName, parents: [SHARED_DRIVE_ID] },
+  supportsAllDrives: true,  // 共有ドライブには必須
+});
+```
+
+#### 設定手順
+
+1. Google Driveで「共有ドライブ」を作成（左メニュー →「共有ドライブ」→「+ 新規」）
+2. サービスアカウントを「コンテンツ管理者」として追加
+3. テンプレートファイルを共有ドライブにコピー
+4. `.env` の `GOOGLE_SLIDE_TEMPLATE_ID`（テンプレートID）と `GOOGLE_DRIVE_OUTPUT_FOLDER_ID`（共有ドライブID）を更新
+
+#### 確認スクリプト
+
+```bash
+# サービスアカウントがアクセスできる共有ドライブを一覧
+node scripts/list-shared-drives.mjs
+
+# サービスアカウントのストレージ使用状況確認
+node scripts/cleanup-drive.mjs
+```
+
+### 原則
+
+**サービスアカウントでGoogle Driveにファイルを作成する場合は、必ず共有ドライブ（Shared Drive）を使用すること。** 通常の共有フォルダではサービスアカウントのストレージクォータ（0 bytes）を超過する。
+
+### 関連ファイル
+
+- `src/lib/proposals/slide-generator.ts`（`supportsAllDrives: true` パラメータ）
+- `src/lib/google-slides.ts`（Google API認証）
+- `.env`（`GOOGLE_DRIVE_OUTPUT_FOLDER_ID`）
+- `scripts/list-shared-drives.mjs`（共有ドライブ一覧確認）
+- `scripts/cleanup-drive.mjs`（ストレージ確認）

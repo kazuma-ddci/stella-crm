@@ -43,6 +43,8 @@ stella-crm/
 │   │   │   ├── candidates/                 # 求職者（候補者）管理
 │   │   │   ├── contracts/                  # 契約管理
 │   │   │   ├── lead-submissions/           # リード獲得フォーム回答管理
+│   │   │   ├── proposals/
+│   │   │   │   └── [id]/              # 提案書編集ページ
 │   │   │   ├── records/                    # 履歴管理
 │   │   │   │   ├── company-contacts/
 │   │   │   │   ├── agent-contacts/
@@ -89,6 +91,10 @@ stella-crm/
 │   │       ├── contracts/                  # 契約書API
 │   │       ├── admin/                      # 管理API
 │   │       ├── portal/                     # ポータルAPI
+│   │       ├── stp/                        # STP関連API
+│   │       │   └── proposals/[id]/
+│   │       │       ├── slide/             # スライド生成API
+│   │       │       └── pdf/               # PDF保存/ダウンロードAPI
 │   │       ├── public/                     # 公開API（リード獲得フォーム等）
 │   │       ├── registration/               # 外部ユーザー登録API
 │   │       ├── forgot-password/            # パスワードリセットAPI
@@ -118,6 +124,12 @@ stella-crm/
 │   │   ├── auth/                           # 認証関連ユーティリティ
 │   │   ├── contracts/                      # 契約書関連ユーティリティ
 │   │   ├── email/                          # メール送信関連
+│   │   ├── proposals/                      # 提案書関連ユーティリティ
+│   │   │   ├── simulation-config.ts        # 係数・料金定数
+│   │   │   ├── simulation.ts               # シミュレーション計算エンジン
+│   │   │   ├── slide-generator.ts          # Google Slides生成+PDF出力
+│   │   │   └── submission-to-input.ts      # フォーム回答→計算入力マッパー
+│   │   ├── google-slides.ts                # Google API認証クライアント
 │   │   └── stage-transition/               # ステージ遷移ロジック
 │   │
 │   ├── types/                              # TypeScript型定義
@@ -160,6 +172,7 @@ stella-crm/
 /stp/companies/[id]/kpi                  → 運用KPIシート管理
 /stp/contracts                           → STP契約管理
 /stp/lead-submissions                    → リード獲得フォーム回答一覧
+/stp/proposals/[id]                      → 提案書編集ページ（Google Slides連携）
 
 # STPプロジェクト - 代理店・求職者管理
 /stp/agents                              → 代理店一覧

@@ -20,6 +20,7 @@
 12. [売上・経費グルーピングと請求書生成](#売上経費グルーピングと請求書生成)
 13. [外部ポータルの表示ルール](#外部ポータルの表示ルール)
 14. [STP求職者の業種区分・求人媒体は契約から動的取得](#stp求職者の業種区分求人媒体は契約から動的取得)
+15. [提案書自動生成（Google Slides API連携）](#提案書自動生成google-slides-api連携)
 
 ---
 
@@ -1264,3 +1265,178 @@ async function deleteInvoice(id: number) {
 - `src/app/stp/candidates/candidates-table.tsx`（動的選択肢構築）
 - `src/app/portal/stp/client/candidates/page.tsx`（ポータル側）
 - `src/app/api/portal/stp/client/candidates/route.ts`（ポータルAPI）
+
+---
+
+## 提案書自動生成（Google Slides API連携）
+
+### 背景（2026-02-19）
+
+GAS（Google Apps Script）で運用していた「採用ブースト提案書自動生成システム」をStella CRMに統合。GASではGoogleフォーム回答→シミュレーション計算→Googleスライドテンプレート置換→PDF出力の流れだったが、CRMではリードフォーム送信→シミュレーション計算→下書き保存→Googleスライド生成→編集→PDF保存のフローに変更。
+
+### 全体フロー
+
+```
+リード獲得フォーム送信
+  ↓
+StpLeadFormSubmission作成
+  ↓
+submissionToSimulationInput()でマッピング
+  ↓
+calculateSimulation()で計算実行
+  ↓
+StpProposal作成（proposalContent に計算結果をJSON保存, status="draft"）
+  ↓
+管理画面で入力値を確認・編集 → 「再計算」→「保存」
+  ↓
+「スライド生成」→ Google Slides APIでテンプレートコピー＋プレースホルダー置換
+  ↓
+CRM上でGoogleスライドをembed表示（プレビュー）
+  ↓
+Googleスライドで直接編集可能（リンクを知っている全員が編集可能）
+  ↓
+「PDF保存」→ Google Drive APIでPDFエクスポート → CRMのローカルストレージに保存
+```
+
+### Google Slides API連携
+
+#### 認証方式
+
+GCPサービスアカウント（`stella-slides@stella-crm-487906.iam.gserviceaccount.com`）を使用。
+
+```
+credentials/google-service-account.json  ← サービスアカウントキー（.gitignore対象）
+```
+
+**環境変数:**
+
+| 変数 | 説明 | 例 |
+|------|------|-----|
+| `GOOGLE_SERVICE_ACCOUNT_KEY_PATH` | サービスアカウントキーのパス | `./credentials/google-service-account.json` |
+| `GOOGLE_SLIDE_TEMPLATE_ID` | テンプレートスライドのファイルID | `1pHgxhUOrcPX-0EeAowjKd7FuJ2hdWynNuubhN9_181k` |
+| `GOOGLE_DRIVE_OUTPUT_FOLDER_ID` | 出力先の共有ドライブID | `0AJJk3yMuNnf-Uk9PVA` |
+
+#### スライド生成（`generateSlide()`）
+
+1. テンプレートを共有ドライブにコピー（`drive.files.copy` + `supportsAllDrives: true`）
+2. リンクを知っている全員に編集権限を付与（`drive.permissions.create` + `role: "writer", type: "anyone"`）
+3. プレースホルダーをシミュレーション結果で置換（`slides.presentations.batchUpdate` + `replaceAllText`）
+
+#### プレースホルダー一覧（GAS完全移植）
+
+| プレースホルダー | 説明 | 例 |
+|-----------------|------|-----|
+| `{{会社名}}` | 会社名+様 | `テスト株式会社様` |
+| `{{会社名_上}}` | 前株/後株の上段 | `テスト`（後株の場合） |
+| `{{会社名_下}}` | 前株/後株の下段 | `株式会社` |
+| `{{会社名_フル}}` | 会社名+様 | `テスト株式会社様` |
+| `{{タイトル会社名}}` | 会社名（様なし） | `テスト株式会社` |
+| `{{年間採用コスト_before}}` | 万円表示 | `1,650` |
+| `{{採用人数_before}}` | 人数 | `24` |
+| `{{採用単価_before}}` | 万円表示 | `69` |
+| `{{目標採用人数}}` | 人数 | `24` |
+| `{{合計採用コスト_before}}` | 万円表示 | `1,650` |
+| `{{職種}}` | 職種名 | `施工管理` |
+| `{{合計採用コスト_成果10}}` `{{削減率_成果10}}` `{{予想期間_成果10}}` | 成果報酬10%シナリオ | |
+| `{{合計採用コスト_成果20}}` `{{削減率_成果20}}` `{{予想期間_成果20}}` | 成果報酬20%シナリオ | |
+| `{{合計採用コスト_固定10}}` `{{削減率_固定10}}` `{{予想期間_固定10}}` | 月額固定10%シナリオ | |
+| `{{合計採用コスト_固定20}}` `{{削減率_固定20}}` `{{予想期間_固定20}}` | 月額固定20%シナリオ | |
+
+#### PDF出力（`exportSlideToPdf()`）
+
+Google Drive APIの `files.export`（`mimeType: "application/pdf"`）でPDFバッファを取得し、`public/uploads/proposals/YYYY/MM/` にローカル保存。
+
+### シミュレーション計算エンジン（GASロジック完全移植）
+
+#### 計算フロー
+
+```
+入力値（コスト、採用人数等）
+  ↓
+Before計算: 現状の年間コスト・採用単価・目標人数でのコスト
+  ↓
+5係数の算出: 業界×職種×給与×勤務地×人数
+  ↓
+応募単価中央値 × 合計係数 = 調整済み応募単価
+  ↓
+scenario10（10%シナリオ）: adjustedMedian × 10 → 月間採用数 → 月数 → 費用
+scenario20（20%シナリオ）: adjustedMedian ×  5 → 月間採用数 → 月数 → 費用
+```
+
+#### 料金体系（PRICING定数）
+
+| 項目 | 金額 |
+|------|------|
+| 初期費用 | ¥100,000 |
+| 広告費（月額） | ¥100,000 |
+| 成果報酬（1名あたり） | ¥150,000 |
+| 月額固定費 | ¥150,000 |
+
+#### 係数テーブル
+
+`src/lib/proposals/simulation-config.ts` に全定数を定義。GAS `slide_config.gs` と同一の値。
+
+### CRM提案書エディタ（`/stp/proposals/[id]`）
+
+2カラムレイアウト:
+- **左パネル**: 入力フォーム（会社名、職種、コスト、採用人数等）+ 計算係数表示
+- **右パネル**: Googleスライドのembed表示（iframe）、PDF保存状態表示
+
+**ボタンフロー:**
+
+| ボタン | 動作 | 表示条件 |
+|--------|------|---------|
+| 再計算 | クライアントサイドでシミュレーション再計算 | 常時 |
+| 保存 | proposalContentをDBに保存 | 常時 |
+| スライド生成 | Google Slides APIでテンプレートコピー＋置換 | content存在時 |
+| スライド編集 | Googleスライドを新タブで開く | slideUrl存在時 |
+| PDF保存 | GoogleスライドからPDFエクスポートしCRMに保存 | slideUrl存在時 |
+| PDF表示 | 保存済みPDFを新タブで表示 | filePath存在時 |
+
+### 重要な制約
+
+- **共有ドライブ必須**: サービスアカウントはDriveストレージが0のため、通常の共有フォルダでは`storageQuotaExceeded`エラーになる。必ず共有ドライブ（Shared Drive）を使用すること
+- **テンプレートは共有ドライブ内に配置**: テンプレートファイルも共有ドライブ内にある必要がある
+- **`supportsAllDrives: true`**: `drive.files.copy` に必須パラメータ
+- **全員編集可能**: 生成されたスライドはリンクを知っている全員が編集可能（`role: "writer", type: "anyone"`）
+
+### 関連ファイル
+
+| ファイル | 役割 |
+|---------|------|
+| `src/lib/google-slides.ts` | Google API認証クライアント（Slides API + Drive API） |
+| `src/lib/proposals/simulation-config.ts` | 係数・料金定数・マッピングテーブル |
+| `src/lib/proposals/simulation.ts` | シミュレーション計算エンジン |
+| `src/lib/proposals/slide-generator.ts` | スライド生成 + PDF出力 |
+| `src/lib/proposals/submission-to-input.ts` | フォーム回答→計算入力マッパー |
+| `src/app/stp/proposals/[id]/page.tsx` | 提案書編集ページ（サーバーコンポーネント） |
+| `src/app/stp/proposals/[id]/proposal-editor.tsx` | エディタUI（クライアントコンポーネント） |
+| `src/app/api/stp/proposals/[id]/slide/route.ts` | スライド生成API（POST） |
+| `src/app/api/stp/proposals/[id]/pdf/route.ts` | PDF保存API（POST）/ PDFダウンロード（GET） |
+| `src/app/stp/proposal-actions.ts` | Server Actions（保存・再計算） |
+| `credentials/google-service-account.json` | GCPサービスアカウントキー（.gitignore対象） |
+| `scripts/test-slide-generation.mjs` | スライド生成テストスクリプト |
+
+### テンプレート情報
+
+| 項目 | 値 |
+|------|-----|
+| テンプレートID | `1pHgxhUOrcPX-0EeAowjKd7FuJ2hdWynNuubhN9_181k` |
+| 共有ドライブ名 | `Stella CRM 提案書` |
+| 共有ドライブID | `0AJJk3yMuNnf-Uk9PVA` |
+| GCPプロジェクト | `stella-crm-487906` |
+| サービスアカウント | `stella-slides@stella-crm-487906.iam.gserviceaccount.com` |
+
+### テンプレート構成（9スライド）
+
+| スライド | 内容 |
+|---------|------|
+| 1 | 表紙（タイトル・会社名） |
+| 2 | 会社紹介（画像中心） |
+| 3 | 料金表（成果報酬型 vs 月額固定型） |
+| 4 | 成果報酬型シミュレーション（プレースホルダーあり） |
+| 5 | 月額固定型シミュレーション（プレースホルダーあり） |
+| 6 | 画像スライド |
+| 7 | 導入フロー（8ステップ） |
+| 8 | 詳細・FAQ |
+| 9 | エンドスライド |
