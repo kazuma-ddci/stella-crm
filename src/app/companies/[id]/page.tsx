@@ -672,7 +672,7 @@ export default async function CompanyDetailPage({ params }: Props) {
                         </span>
                       </div>
                       <span className="text-sm">
-                        代理店: <span className="font-medium">{submission.token.agent.company.name}</span>
+                        代理店: <span className="font-medium">{submission.token.agent?.company.name ?? "直接"}</span>
                       </span>
                     </div>
 

@@ -56,7 +56,7 @@ export async function POST(_request: NextRequest, context: RouteContext) {
     await fs.writeFile(filePath, pdfBuffer);
 
     // DB更新
-    const companyName = proposal.title.replace(/ 様向け提案書$/, "") || "提案書";
+    const companyName = proposal.title.replace(/ 様向け提案書.*$/, "") || "提案書";
     await prisma.stpProposal.update({
       where: { id: proposalId },
       data: {
@@ -78,8 +78,12 @@ export async function POST(_request: NextRequest, context: RouteContext) {
   }
 }
 
-// PDFダウンロード（保存済みPDFを返す）
-export async function GET(_request: NextRequest, context: RouteContext) {
+/**
+ * PDFダウンロード
+ * - ?slideFileId=xxx : 指定スライドからオンザフライでPDF生成（保存なし）
+ * - それ以外: 保存済みPDFを返す
+ */
+export async function GET(request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     const proposalId = parseInt(id, 10);
@@ -87,6 +91,20 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "無効なIDです" }, { status: 400 });
     }
 
+    const slideFileId = request.nextUrl.searchParams.get("slideFileId");
+
+    // オンザフライPDF生成（保存なし、プレビュー用）
+    if (slideFileId) {
+      const pdfBuffer = await exportSlideToPdf(slideFileId);
+      return new NextResponse(new Uint8Array(pdfBuffer), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `inline; filename="${encodeURIComponent("提案書プレビュー.pdf")}"`,
+        },
+      });
+    }
+
+    // 保存済みPDFを返す
     const proposal = await prisma.stpProposal.findUnique({
       where: { id: proposalId },
     });

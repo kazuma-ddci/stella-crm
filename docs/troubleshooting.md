@@ -26,6 +26,8 @@
 18. [VPSでdocker-compose(v1)を使うとContainerConfigエラーになる](#vpsでdocker-composev1を使うとcontainerconfigエラーになる)
 19. [CrudTableのselectで「-」(null)オプションが「なし」(none)と重複し意図しない変更が発生する](#crudtableのselectでnullオプションがなしnoneと重複し意図しない変更が発生する)
 20. [Google Drive APIでサービスアカウントのストレージクォータ超過](#google-drive-apiでサービスアカウントのストレージクォータ超過)
+21. [Clipboard API の NotAllowedError（HTTP環境・iframe内）](#clipboard-api-の-notallowederrorhttp環境iframe内)
+22. [getOrCreateCompanyFolder で driveId に通常フォルダIDを渡すとAPIエラー](#getorcreatecompanyfolder-で-driveid-に通常フォルダidを渡すとapiエラー)
 
 ---
 
@@ -1261,3 +1263,114 @@ node scripts/cleanup-drive.mjs
 - `.env`（`GOOGLE_DRIVE_OUTPUT_FOLDER_ID`）
 - `scripts/list-shared-drives.mjs`（共有ドライブ一覧確認）
 - `scripts/cleanup-drive.mjs`（ストレージ確認）
+
+---
+
+## Clipboard API の NotAllowedError（HTTP環境・iframe内）
+
+### 症状
+
+- `navigator.clipboard.writeText()` が `NotAllowedError: The request is not allowed by the user agent or the platform in the current context` で失敗する
+- HTTP（非HTTPS）環境や、セキュリティポリシーで Clipboard API が制限されている環境で発生
+
+### 原因
+
+`navigator.clipboard` API は Secure Context（HTTPS）が必須。HTTP環境やiframe内では `navigator.clipboard` オブジェクトは存在するが、`writeText()` 呼び出し時に権限エラーが発生する。
+
+### 解決方法
+
+`document.execCommand("copy")` によるレガシーフォールバックを実装する。
+
+```typescript
+// ✅ 正しい実装: Clipboard API + execCommand フォールバック
+const copyToClipboard = async (text: string): Promise<boolean> => {
+  // 方法1: Clipboard API（モダンブラウザ・HTTPS環境）
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Clipboard APIが失敗した場合はフォールバックへ
+    }
+  }
+  // 方法2: execCommand（レガシーフォールバック）
+  return new Promise((resolve) => {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    requestAnimationFrame(() => {
+      try {
+        const result = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        resolve(result);
+      } catch {
+        document.body.removeChild(textarea);
+        resolve(false);
+      }
+    });
+  });
+};
+
+// ❌ 間違い: Clipboard API のみ（HTTP環境で失敗する）
+await navigator.clipboard.writeText(text);
+```
+
+### 注意事項
+
+- このパターンは `agents-table.tsx` と `submissions-table.tsx` で使用中
+- 新たにクリップボードコピー機能を追加する場合は同じパターンを使うこと
+- `execCommand("copy")` は非推奨だが、HTTP環境のフォールバックとしてまだ必要
+
+### 関連ファイル
+
+- `src/app/stp/agents/agents-table.tsx`（元のパターン実装）
+- `src/app/stp/lead-submissions/submissions-table.tsx`（2026-02-19 追加）
+
+---
+
+## getOrCreateCompanyFolder で driveId に通常フォルダIDを渡すとAPIエラー
+
+> **2026-02-19 修正済み**
+
+### 症状
+
+- `getOrCreateCompanyFolder()` で企業フォルダを検索する際に Google Drive API エラーが発生する
+- `drive.files.list` の `driveId` パラメータに通常のフォルダID（`1...`で始まる）を渡している
+
+### 原因
+
+`drive.files.list` の `corpora: "drive"` + `driveId` パラメータは、**共有ドライブID**（`0A...`で始まる）のみを受け付ける。環境別フォルダ構成に変更した際、`GOOGLE_DRIVE_OUTPUT_FOLDER_ID` が共有ドライブのルートID → 共有ドライブ内のサブフォルダIDに変わったため、`driveId` として無効なIDが渡されるようになった。
+
+```typescript
+// ❌ 間違い: driveId に通常フォルダIDを渡す
+const searchResult = await drive.files.list({
+  corpora: "drive",
+  driveId: OUTPUT_FOLDER_ID,  // ← 共有ドライブIDのみ受付
+});
+```
+
+### 解決方法
+
+`corpora: "drive"` + `driveId` を削除し、代わりにクエリ内で `'${OUTPUT_FOLDER_ID}' in parents` を使って親フォルダを指定する。この方法は共有ドライブID・通常フォルダIDの両方で動作する。
+
+```typescript
+// ✅ 正しい: 親フォルダ指定で検索（共有ドライブID/通常フォルダIDの両方で動作）
+const searchResult = await drive.files.list({
+  q: `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and '${OUTPUT_FOLDER_ID}' in parents and trashed = false`,
+  supportsAllDrives: true,
+  includeItemsFromAllDrives: true,
+  fields: "files(id,name)",
+});
+```
+
+### 原則
+
+**Google Drive API で特定フォルダ内のファイルを検索する場合は、`driveId` ではなく `'${folderId}' in parents` クエリを使うこと。** `driveId` は共有ドライブのルートIDにしか対応しないが、`in parents` はどんなフォルダIDでも動作する。
+
+### 関連ファイル
+
+- `src/lib/proposals/slide-generator.ts`（`getOrCreateCompanyFolder` 関数）

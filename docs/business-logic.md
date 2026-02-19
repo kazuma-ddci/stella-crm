@@ -355,14 +355,39 @@ const filteredNavigation = isAdminUser
 
 ## リード獲得フォーム
 
-代理店経由でリードを獲得するための公開フォーム。
+代理店経由または直接顧客からリードを獲得するための公開フォーム。
 
 ### フロー
 
-1. 代理店ごとにユニークなトークンを発行
+1. 代理店ごと、または直接顧客用にユニークなトークンを発行
 2. `/form/stp-lead/[token]` でフォームにアクセス
 3. 回答データは `stp_lead_form_submissions` に保存
 4. 管理画面 `/stp/lead-submissions` で回答を確認・処理
+
+### トークンの種類
+
+| 種類 | agentId | 発行方法 | 流入経路 |
+|------|---------|----------|---------|
+| 代理店用 | 代理店ID（non-null） | 代理店一覧ページで自動発行 | 代理店 |
+| 直接顧客用 | `null` | リード回答ページ初回アクセス時に自動作成 | Web問い合わせ |
+
+- 直接顧客用トークンは `agentId: null, status: "active"` の `StpLeadFormToken` として1つだけ存在
+- リード回答ページ (`/stp/lead-submissions`) 上部にコピーボタンを配置（URL短縮対応）
+- フォーム自体は代理店用と同一（agentName が表示されないだけ）
+
+### リード処理時の流入経路（leadSource）分岐
+
+| トークンの agentId | MasterStellaCompany.leadSource | StpCompany.leadSourceId |
+|--------------------|-------------------------------|------------------------|
+| non-null（代理店経由） | `"代理店"` | `stpLeadSource.name = "代理店"` のID |
+| null（直接顧客） | `"Web問い合わせ"` | `stpLeadSource.name = "Web問い合わせ"` のID |
+
+### 代理店なし（直接顧客）の場合のUIガード
+
+- テーブル表示: 代理店名は `"直接"` と表示
+- 処理モーダル: 代理店Selectは空で開始（ユーザーが選択可能）
+- 代理店不一致警告: `agentId: null` の場合は表示しない
+- 代理店上書き: `agentId: null` の場合はスキップ
 
 ### フォーム構成（2ページ制）
 
@@ -1310,11 +1335,12 @@ credentials/google-service-account.json  ← サービスアカウントキー�
 
 **環境変数:**
 
-| 変数 | 説明 | 例 |
-|------|------|-----|
-| `GOOGLE_SERVICE_ACCOUNT_KEY_PATH` | サービスアカウントキーのパス | `./credentials/google-service-account.json` |
-| `GOOGLE_SLIDE_TEMPLATE_ID` | テンプレートスライドのファイルID | `1pHgxhUOrcPX-0EeAowjKd7FuJ2hdWynNuubhN9_181k` |
-| `GOOGLE_DRIVE_OUTPUT_FOLDER_ID` | 出力先の共有ドライブID | `0AJJk3yMuNnf-Uk9PVA` |
+| 変数 | 説明 | 環境別 |
+|------|------|--------|
+| `GOOGLE_SERVICE_ACCOUNT_KEY_PATH` | サービスアカウントキーのパス | 全環境共通 |
+| `GOOGLE_SLIDE_TEMPLATE_ID` | テンプレートスライドのファイルID | 全環境共通（原本は1つ） |
+| `GOOGLE_DRIVE_OUTPUT_FOLDER_ID` | 企業フォルダの親フォルダID | 環境別 |
+| `GOOGLE_DRIVE_UNLINKED_FOLDER_ID` | 企業紐付け前フォルダID | 環境別 |
 
 #### スライド生成（`generateSlide()`）
 
@@ -1417,13 +1443,30 @@ scenario20（20%シナリオ）: adjustedMedian ×  5 → 月間採用数 → �
 | `credentials/google-service-account.json` | GCPサービスアカウントキー（.gitignore対象） |
 | `scripts/test-slide-generation.mjs` | スライド生成テストスクリプト |
 
+### Google Drive フォルダ構成（環境別）
+
+```
+Stella CRM 提案書 (共有ドライブ: 0AACBtb3H1CXHUk9PVA)
+├── 原本スライド (GOOGLE_SLIDE_TEMPLATE_ID: 全環境共通)
+├── Stella CRM 提案書(開発環境) (GOOGLE_DRIVE_OUTPUT_FOLDER_ID)
+│   └── 紐付け前 (GOOGLE_DRIVE_UNLINKED_FOLDER_ID)
+├── Stella CRM 提案書(stg環境) (GOOGLE_DRIVE_OUTPUT_FOLDER_ID)
+│   └── 紐付け前 (GOOGLE_DRIVE_UNLINKED_FOLDER_ID)
+└── Stella CRM 提案書(本番環境) (GOOGLE_DRIVE_OUTPUT_FOLDER_ID)
+    └── 紐付け前 (GOOGLE_DRIVE_UNLINKED_FOLDER_ID)
+```
+
+- サービスアカウント（`stella-slides@stella-crm-487906.iam.gserviceaccount.com`）を共有ドライブ「Stella CRM 提案書」にコンテンツ管理者として追加
+- テンプレートスライド原本は1箇所のみに保持（レイアウト変更時は1ファイルだけ修正すれば全環境に反映）
+- 各環境の出力先フォルダは `.env` / `.env.stg` / `.env.prod` で切り替え
+
 ### テンプレート情報
 
 | 項目 | 値 |
 |------|-----|
 | テンプレートID | `1pHgxhUOrcPX-0EeAowjKd7FuJ2hdWynNuubhN9_181k` |
 | 共有ドライブ名 | `Stella CRM 提案書` |
-| 共有ドライブID | `0AJJk3yMuNnf-Uk9PVA` |
+| 共有ドライブID | `0AACBtb3H1CXHUk9PVA` |
 | GCPプロジェクト | `stella-crm-487906` |
 | サービスアカウント | `stella-slides@stella-crm-487906.iam.gserviceaccount.com` |
 
@@ -1440,3 +1483,52 @@ scenario20（20%シナリオ）: adjustedMedian ×  5 → 月間採用数 → �
 | 7 | 導入フロー（8ステップ） |
 | 8 | 詳細・FAQ |
 | 9 | エンドスライド |
+
+### スライド権限管理（2026-02-19実装）
+
+#### 背景
+
+確定済み提案書のスライドはデフォルトで閲覧専用（reader）。エディタページの「スライド編集」ボタンで一時的に編集権限（writer）を付与できるが、権限を閲覧専用に戻し忘れるケースがある。エディタページには「編集中」バッジと自動クリーンアップがあるが、提案書モーダルからは権限状態が見えなかった。
+
+#### 権限の状態管理
+
+スライドバージョンの `editUnlockedAt` フィールドで管理:
+
+| `editUnlockedAt` | 状態 | 権限 |
+|-------------------|------|------|
+| `null` | 通常（閲覧専用） | reader |
+| ISO日時文字列 | 編集解除済み | writer |
+
+#### 権限未戻し警告の実装
+
+**データ層（`getProposals` の拡張）:**
+
+- `editorProposals` の `proposalContent.slides[]` をパースし、`editUnlockedAt !== null && !deletedAt` のバージョンを `unlockedSlideVersions: number[]` として返却
+- 確定済み提案書に `hasUnlockedSlides: boolean` を追加（`sourceProposalId` + `slideVersion` で対応するソース提案書の未戻しバージョンを判定）
+
+**提案書モーダル（`proposal-modal.tsx`）:**
+
+- タブあり版・タブなし版の両方に黄色の警告バナーを表示（`totalUnlockedCount > 0` の場合）
+- バナー内容: `AlertTriangle` アイコン + 件数表示 + 「すべての権限を戻す」ボタン
+- 確定済み提案書カードに `権限未戻し` 黄色バッジ表示（`hasUnlockedSlides === true` の場合）
+
+**企業一覧テーブル（`stp-companies-table.tsx`）:**
+
+- サーバー側（`page.tsx`）でエディタ提案書を一括取得し、未戻しスライドを持つ `stpCompanyId` のセットを作成
+- テーブル行データに `hasUnlockedSlides: boolean` を追加
+- 提案書アイコンボタンを条件付きで赤色表示（赤枠 + 赤背景 + 赤アイコン + ツールチップ「権限未戻しのスライドあり」）
+
+**一括権限戻し（`lockAllUnlockedSlides`）:**
+
+- 指定したエディタ提案書の全未戻しスライドに `toggleSlidePermission(slideFileId, "reader")` を実行
+- 全ての `editUnlockedAt` を `null` にクリアして DB 保存
+- 既存の `lockSlideAfterEdit` と同じパターン（エラーハンドリング含む）
+
+#### 関連ファイル
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `src/app/stp/proposal-actions.ts` | `getProposals` 拡張 + `lockAllUnlockedSlides` 追加 |
+| `src/components/proposal-modal.tsx` | 警告バナー + 個別バッジ + 一括権限戻しハンドラ |
+| `src/app/stp/companies/page.tsx` | エディタ提案書クエリ追加 + `hasUnlockedSlides` 計算 |
+| `src/app/stp/companies/stp-companies-table.tsx` | 提案書ボタン条件付き赤色表示 |

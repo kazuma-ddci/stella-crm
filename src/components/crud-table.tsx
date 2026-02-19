@@ -40,7 +40,15 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
-import { Plus, Pencil, Trash2, ChevronsUpDown, X, Check, ArrowUpDown } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronsUpDown, X, Check, ArrowUpDown, ChevronDown } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { SortableListModal, SortableItem } from "@/components/sortable-list-modal";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { EditableCell, EditableCellType, EditableCellOption, formatDisplayValue } from "@/components/editable-cell";
@@ -81,6 +89,7 @@ export type CustomAction = {
   icon: React.ReactNode;
   label: string;
   onClick: (item: Record<string, unknown>) => void;
+  variant?: "default" | "destructive";
 };
 
 // カスタムレンダラーの定義
@@ -1185,35 +1194,55 @@ export function CrudTable({
                   })}
                   {(onUpdate || onDelete || customActions.length > 0) && (
                     <TableCell>
-                      <div className="flex gap-1">
-                        {customActions.map((action, actionIndex) => (
-                          <Button
-                            key={actionIndex}
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => action.onClick(item)}
-                            title={action.label}
-                          >
-                            {action.icon}
-                          </Button>
-                        ))}
+                      <div className="flex items-center gap-1">
                         {onUpdate && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => openEditDialog(item)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={() => openEditDialog(item)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                                <span className="sr-only">編集</span>
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>編集</TooltipContent>
+                          </Tooltip>
                         )}
-                        {onDelete && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setDeleteItem(item)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                        {(onDelete || customActions.length > 0) && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="outline" size="xs">
+                                操作
+                                <ChevronDown className="h-3 w-3" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {customActions.map((action, actionIndex) => (
+                                <DropdownMenuItem
+                                  key={actionIndex}
+                                  variant={action.variant || "default"}
+                                  onClick={() => action.onClick(item)}
+                                >
+                                  {action.icon}
+                                  {action.label}
+                                </DropdownMenuItem>
+                              ))}
+                              {customActions.length > 0 && onDelete && (
+                                <DropdownMenuSeparator />
+                              )}
+                              {onDelete && (
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onClick={() => setDeleteItem(item)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  削除
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         )}
                       </div>
                     </TableCell>

@@ -60,11 +60,26 @@ export type SimulationResult = {
   scenario20: ScenarioResult;
 };
 
+export type SlideVersion = {
+  version: number;
+  slideFileId: string;
+  slideUrl: string;
+  embedUrl: string;
+  createdAt: string;
+  inputSnapshot: SimulationInput;
+  resultSnapshot: SimulationResult;
+  confirmedProposalId: number | null;
+  deletedAt: string | null;
+  editUnlockedAt: string | null;
+};
+
 export type ProposalContent = {
   input: SimulationInput;
+  originalInput?: SimulationInput;
   result: SimulationResult;
   generatedAt: string;
   version: number;
+  slides?: SlideVersion[];
 };
 
 /**

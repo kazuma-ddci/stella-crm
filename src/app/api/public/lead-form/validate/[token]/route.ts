@@ -46,7 +46,7 @@ export async function GET(
 
     return NextResponse.json({
       valid: true,
-      agentName: tokenRecord.agent.company.name,
+      agentName: tokenRecord.agent?.company.name ?? null,
     });
   } catch (error) {
     console.error("Token validation error:", error);

@@ -7,9 +7,12 @@ import { google } from "googleapis";
 import fs from "fs";
 import path from "path";
 
-const KEY_PATH = path.join(process.cwd(), "credentials/google-service-account.json");
-const TEMPLATE_ID = "1pHgxhUOrcPX-0EeAowjKd7FuJ2hdWynNuubhN9_181k";
-const OUTPUT_FOLDER_ID = "0AJJk3yMuNnf-Uk9PVA";
+import dotenv from "dotenv";
+dotenv.config();
+
+const KEY_PATH = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH || path.join(process.cwd(), "credentials/google-service-account.json");
+const TEMPLATE_ID = process.env.GOOGLE_SLIDE_TEMPLATE_ID || "";
+const OUTPUT_FOLDER_ID = process.env.GOOGLE_DRIVE_OUTPUT_FOLDER_ID || "";
 
 // GASのテストデータと同じ
 const testFormData = {

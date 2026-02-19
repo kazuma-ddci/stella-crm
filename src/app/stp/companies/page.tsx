@@ -1,11 +1,13 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StpCompaniesTable } from "./stp-companies-table";
+import type { ProposalContent } from "@/lib/proposals/simulation";
 
 export default async function StpCompaniesPage() {
   const STP_PROJECT_ID = 1; // 採用ブースト
 
-  const [companies, masterCompanies, stages, agents, staff, staffProjectAssignments, allStaffProjectAssignments, leadSources, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, contractHistoriesData] = await Promise.all([
+  const [companies, masterCompanies, stages, agents, staff, staffProjectAssignments, allStaffProjectAssignments, leadSources, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, contractHistoriesData, editorProposalsRaw] = await Promise.all([
     prisma.stpCompany.findMany({
       include: {
         company: {
@@ -114,6 +116,18 @@ export default async function StpCompaniesPage() {
       },
       orderBy: { contractStartDate: "desc" },
     }),
+    // エディタ提案書（権限未戻しチェック用）
+    prisma.stpProposal.findMany({
+      where: {
+        deletedAt: null,
+        sourceProposalId: null,
+        proposalContent: { not: Prisma.DbNull },
+      },
+      select: {
+        stpCompanyId: true,
+        proposalContent: true,
+      },
+    }),
   ]);
 
   // companyIdでMasterContractをグループ化
@@ -143,6 +157,18 @@ export default async function StpCompaniesPage() {
     contractHistoriesByCompanyId[history.companyId].push(history);
   });
 
+  // 権限未戻しスライドを持つstpCompanyIdのセットを作成
+  const companiesWithUnlockedSlides = new Set<number>();
+  for (const ep of editorProposalsRaw) {
+    const content = ep.proposalContent as unknown as ProposalContent | null;
+    const hasUnlocked = (content?.slides || []).some(
+      (s) => s.editUnlockedAt && !s.deletedAt,
+    );
+    if (hasUnlocked && ep.stpCompanyId) {
+      companiesWithUnlockedSlides.add(ep.stpCompanyId);
+    }
+  }
+
   // companyIdの重複を検出（企業統合で「両方残す」を選んだ場合）
   const companyIdCounts: Record<number, number> = {};
   companies.forEach((c) => {
@@ -157,6 +183,7 @@ export default async function StpCompaniesPage() {
 
     return {
     hasDuplicateCompanyWarning: (companyIdCounts[c.companyId] || 0) > 1,
+    hasUnlockedSlides: companiesWithUnlockedSlides.has(c.id),
     id: c.id,
     companyId: c.companyId,
     companyCode: c.company.companyCode,

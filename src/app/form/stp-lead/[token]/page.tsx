@@ -130,7 +130,7 @@ export default function LeadFormPage({
         const data = await response.json();
 
         if (data.valid) {
-          setAgentName(data.agentName);
+          setAgentName(data.agentName || "");
           setStatus("form");
         } else {
           setErrorMessage(data.error || "無効なフォームです");

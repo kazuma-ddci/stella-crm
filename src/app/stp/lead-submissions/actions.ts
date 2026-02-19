@@ -1,8 +1,49 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireEdit } from "@/lib/auth";
+import {
+  getOrCreateCompanyFolder,
+  moveSlideToFolder,
+} from "@/lib/proposals/slide-generator";
+import type { ProposalContent } from "@/lib/proposals/simulation";
+
+/**
+ * 紐付け時にスライドを企業フォルダへ移動（エラーはログのみ）
+ */
+async function moveSlidesToCompanyFolder(
+  submissionId: number,
+  companyCode: string,
+  companyName: string,
+) {
+  try {
+    const proposals = await prisma.stpProposal.findMany({
+      where: { submissionId, NOT: { proposalContent: { equals: Prisma.DbNull } } },
+      select: { proposalContent: true },
+    });
+
+    if (proposals.length === 0) return;
+
+    const folderId = await getOrCreateCompanyFolder(companyCode, companyName);
+
+    for (const p of proposals) {
+      const content = p.proposalContent as unknown as ProposalContent | null;
+      if (!content?.slides) continue;
+      for (const slide of content.slides) {
+        if (slide.deletedAt) continue;
+        try {
+          await moveSlideToFolder(slide.slideFileId, folderId);
+        } catch (e) {
+          console.error(`スライド移動エラー (fileId=${slide.slideFileId}):`, e);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("企業フォルダへのスライド移動エラー:", e);
+  }
+}
 
 // 新規企業として処理
 export async function processAsNewCompany(
@@ -58,7 +99,7 @@ export async function processAsNewCompany(
         industry: stpCompanyInfo?.industry || null,
         revenueScale: stpCompanyInfo?.revenueScale || null,
         websiteUrl: stpCompanyInfo?.websiteUrl || null,
-        leadSource: "代理店",
+        leadSource: submission.token.agentId ? "代理店" : "Web問い合わせ",
         note: `リード獲得フォームから登録\n担当者: ${submission.contactName}\nメール: ${submission.contactEmail}${submission.contactPhone ? `\n電話: ${submission.contactPhone}` : ""}`,
       },
     });
@@ -85,9 +126,10 @@ export async function processAsNewCompany(
       },
     });
 
-    // 流入経路「代理店」のIDを取得
+    // 流入経路のIDを取得
+    const leadSourceName = submission.token.agentId ? "代理店" : "Web問い合わせ";
     const agentLeadSource = await tx.stpLeadSource.findFirst({
-      where: { name: "代理店" },
+      where: { name: leadSourceName },
     });
 
     // STP企業を作成
@@ -132,6 +174,13 @@ export async function processAsNewCompany(
 
     return { masterCompany, stpCompany };
   });
+
+  // スライドを企業フォルダへ移動（非同期・エラー無視）
+  await moveSlidesToCompanyFolder(
+    submissionId,
+    result.masterCompany.companyCode,
+    result.masterCompany.name,
+  );
 
   revalidatePath("/stp/lead-submissions");
   revalidatePath("/stp/companies");
@@ -186,9 +235,10 @@ export async function processWithExistingCompany(
   const result = await prisma.$transaction(async (tx) => {
     let stpCompanyId: number;
 
-    // 流入経路「代理店」のIDを取得
+    // 流入経路のIDを取得
+    const leadSourceName = submission.token.agentId ? "代理店" : "Web問い合わせ";
     const agentLeadSource = await tx.stpLeadSource.findFirst({
-      where: { name: "代理店" },
+      where: { name: leadSourceName },
     });
 
     const agentId = stpCompanyInfo?.agentId ?? submission.token.agentId;
@@ -246,13 +296,13 @@ export async function processWithExistingCompany(
       if (stpCompanyInfo?.revenueScale !== undefined) masterUpdateData.revenueScale = stpCompanyInfo.revenueScale || null;
       if (stpCompanyInfo?.websiteUrl !== undefined) masterUpdateData.websiteUrl = stpCompanyInfo.websiteUrl || null;
 
-      // 流入経路が未設定の場合、代理店経由のリードなので自動設定
+      // 流入経路が未設定の場合、自動設定
       const masterCompany = await tx.masterStellaCompany.findUnique({
         where: { id: masterCompanyId },
         select: { leadSource: true },
       });
       if (!masterCompany?.leadSource) {
-        masterUpdateData.leadSource = "代理店";
+        masterUpdateData.leadSource = submission.token.agentId ? "代理店" : "Web問い合わせ";
       }
 
       if (Object.keys(masterUpdateData).length > 0) {
@@ -304,6 +354,23 @@ export async function processWithExistingCompany(
 
     return { stpCompanyId, isExisting: !!existingStpCompany };
   });
+
+  // スライドを企業フォルダへ移動（非同期・エラー無視）
+  try {
+    const masterCompany = await prisma.masterStellaCompany.findUnique({
+      where: { id: masterCompanyId },
+      select: { companyCode: true, name: true },
+    });
+    if (masterCompany) {
+      await moveSlidesToCompanyFolder(
+        submissionId,
+        masterCompany.companyCode,
+        masterCompany.name,
+      );
+    }
+  } catch (e) {
+    console.error("既存企業紐付け時のスライド移動エラー:", e);
+  }
 
   revalidatePath("/stp/lead-submissions");
   revalidatePath("/stp/companies");
@@ -385,7 +452,7 @@ export async function updateSubmission(
         where: { companyId: data.masterCompanyId },
       });
 
-      if (stpCompany && stpCompany.agentId !== submission.token.agentId) {
+      if (stpCompany && submission.token.agentId && stpCompany.agentId !== submission.token.agentId) {
         await tx.stpCompany.update({
           where: { id: stpCompany.id },
           data: { agentId: submission.token.agentId },

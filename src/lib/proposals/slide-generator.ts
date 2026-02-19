@@ -5,6 +5,10 @@
  * フロー:
  * 1. generateSlide() - テンプレートコピー → 置換 → Googleスライド作成（編集可能）
  * 2. exportSlideToPdf() - 既存のGoogleスライドからPDFを出力
+ * 3. toggleSlidePermission() - 確定時に閲覧専用、編集時に編集可能に切り替え
+ * 4. getOrCreateCompanyFolder() - 企業フォルダの取得/作成
+ * 5. moveSlideToFolder() - スライドを指定フォルダに移動
+ * 6. renameSlideFile() - スライドファイル名の変更（削除済み表記等）
  */
 
 import { getSlidesClient, getDriveClient } from "@/lib/google-slides";
@@ -12,6 +16,7 @@ import type { SimulationResult } from "./simulation";
 
 const TEMPLATE_ID = process.env.GOOGLE_SLIDE_TEMPLATE_ID || "";
 const OUTPUT_FOLDER_ID = process.env.GOOGLE_DRIVE_OUTPUT_FOLDER_ID || "";
+const UNLINKED_FOLDER_ID = process.env.GOOGLE_DRIVE_UNLINKED_FOLDER_ID || "";
 
 export type SlideGenerationInput = {
   companyName: string;
@@ -117,9 +122,12 @@ function buildReplacementMap(data: SlideGenerationInput): Record<string, string>
 
 /**
  * テンプレートからGoogleスライドを生成（コピー → 置換）
- * スライドはDriveに保持される（編集用）
+ * @param folderId - 保存先フォルダID（省略時は「紐付け前」フォルダ → 共有ドライブルート）
  */
-export async function generateSlide(input: SlideGenerationInput): Promise<SlideGenerationResult> {
+export async function generateSlide(
+  input: SlideGenerationInput,
+  folderId?: string,
+): Promise<SlideGenerationResult> {
   if (!TEMPLATE_ID) {
     throw new Error("GOOGLE_SLIDE_TEMPLATE_ID が設定されていません");
   }
@@ -133,9 +141,10 @@ export async function generateSlide(input: SlideGenerationInput): Promise<SlideG
   const timestamp = now.toISOString().replace(/[-:T]/g, "").slice(0, 15);
   const fileName = `${safeName}_提案資料_${timestamp}`;
 
+  const targetFolder = folderId || UNLINKED_FOLDER_ID || OUTPUT_FOLDER_ID;
   const copyParams: { name: string; parents?: string[] } = { name: fileName };
-  if (OUTPUT_FOLDER_ID) {
-    copyParams.parents = [OUTPUT_FOLDER_ID];
+  if (targetFolder) {
+    copyParams.parents = [targetFolder];
   }
 
   const copiedFile = await drive.files.copy({
@@ -189,7 +198,6 @@ export async function generateSlide(input: SlideGenerationInput): Promise<SlideG
 
 /**
  * 既存のGoogleスライドからPDFをエクスポート
- * Googleスライド上で手動編集した後にPDFを出力するときに使う
  */
 export async function exportSlideToPdf(slideFileId: string): Promise<Buffer> {
   const drive = await getDriveClient();
@@ -203,4 +211,139 @@ export async function exportSlideToPdf(slideFileId: string): Promise<Buffer> {
   );
 
   return Buffer.from(pdfResponse.data as ArrayBuffer);
+}
+
+/**
+ * スライドの公開権限を切り替え
+ * @param mode - "reader" で閲覧専用、"writer" で編集可能
+ */
+export async function toggleSlidePermission(
+  slideFileId: string,
+  mode: "reader" | "writer",
+): Promise<void> {
+  const drive = await getDriveClient();
+
+  // "anyone" タイプの既存権限を検索
+  const permsList = await drive.permissions.list({
+    fileId: slideFileId,
+    supportsAllDrives: true,
+    fields: "permissions(id,type,role)",
+  });
+
+  const anyonePerm = permsList.data.permissions?.find((p) => p.type === "anyone");
+
+  if (anyonePerm?.id) {
+    // 既存権限を更新
+    await drive.permissions.update({
+      fileId: slideFileId,
+      permissionId: anyonePerm.id,
+      supportsAllDrives: true,
+      requestBody: { role: mode },
+    });
+  } else {
+    // 権限が見つからない場合は新規作成
+    await drive.permissions.create({
+      fileId: slideFileId,
+      supportsAllDrives: true,
+      requestBody: {
+        role: mode,
+        type: "anyone",
+      },
+    });
+  }
+}
+
+/**
+ * 企業フォルダを取得または作成
+ * フォルダ名: "{企業コード} {企業名}"
+ * @returns フォルダID
+ */
+export async function getOrCreateCompanyFolder(
+  companyCode: string,
+  companyName: string,
+): Promise<string> {
+  const drive = await getDriveClient();
+  const folderName = `${companyCode} ${companyName}`;
+
+  // 既存フォルダを検索（OUTPUT_FOLDER_ID の直下）
+  const searchResult = await drive.files.list({
+    q: `name = '${folderName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and '${OUTPUT_FOLDER_ID}' in parents and trashed = false`,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+    fields: "files(id,name)",
+  });
+
+  if (searchResult.data.files && searchResult.data.files.length > 0) {
+    return searchResult.data.files[0].id!;
+  }
+
+  // フォルダを新規作成
+  const newFolder = await drive.files.create({
+    supportsAllDrives: true,
+    requestBody: {
+      name: folderName,
+      mimeType: "application/vnd.google-apps.folder",
+      parents: [OUTPUT_FOLDER_ID],
+    },
+  });
+
+  return newFolder.data.id!;
+}
+
+/**
+ * スライドファイルを別フォルダに移動
+ */
+export async function moveSlideToFolder(
+  slideFileId: string,
+  targetFolderId: string,
+): Promise<void> {
+  const drive = await getDriveClient();
+
+  // 現在の親フォルダを取得
+  const file = await drive.files.get({
+    fileId: slideFileId,
+    fields: "parents",
+    supportsAllDrives: true,
+  });
+
+  const previousParents = file.data.parents?.join(",") || "";
+
+  // 移動
+  await drive.files.update({
+    fileId: slideFileId,
+    addParents: targetFolderId,
+    removeParents: previousParents,
+    supportsAllDrives: true,
+  });
+}
+
+/**
+ * スライドファイル名を変更
+ */
+export async function renameSlideFile(
+  slideFileId: string,
+  newName: string,
+): Promise<void> {
+  const drive = await getDriveClient();
+
+  await drive.files.update({
+    fileId: slideFileId,
+    supportsAllDrives: true,
+    requestBody: { name: newName },
+  });
+}
+
+/**
+ * スライドファイルの現在の名前を取得
+ */
+export async function getSlideFileName(slideFileId: string): Promise<string> {
+  const drive = await getDriveClient();
+
+  const file = await drive.files.get({
+    fileId: slideFileId,
+    fields: "name",
+    supportsAllDrives: true,
+  });
+
+  return file.data.name || "";
 }
