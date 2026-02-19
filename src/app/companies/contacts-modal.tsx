@@ -764,7 +764,7 @@ export function ContactsModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[min(900px,calc(100vw-2rem))] max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-h-[85vh] overflow-y-auto" style={{ left: 'calc(50% + 8rem)', maxWidth: 'calc((100vw - 16rem) * 0.75)' }}>
         <DialogHeader>
           <DialogTitle>連絡先管理 - {companyName}</DialogTitle>
         </DialogHeader>
@@ -829,8 +829,10 @@ export function ContactsModal({
                 拠点が登録されていません
               </div>
             ) : (
-              <div className="overflow-x-auto">
-              <Table>
+              <Table
+                containerClassName="border rounded-lg flex-1 min-h-0"
+                containerStyle={{ overflow: 'auto' }}
+              >
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[40px]"></TableHead>
@@ -838,12 +840,12 @@ export function ContactsModal({
                     <TableHead>電話番号</TableHead>
                     <TableHead>メールアドレス</TableHead>
                     <TableHead>住所</TableHead>
-                    <TableHead className="w-[120px]">操作</TableHead>
+                    <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {locations.map((location) => (
-                    <TableRow key={location.id}>
+                    <TableRow key={location.id} className="group/row">
                       <TableCell>
                         <button
                           onClick={() => handleSetPrimaryLocation(location)}
@@ -879,7 +881,7 @@ export function ContactsModal({
                       <TableCell className="max-w-xs truncate">
                         {location.address || "-"}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                         <div className="flex gap-1">
                           <Button
                             variant="ghost"
@@ -903,7 +905,6 @@ export function ContactsModal({
                   ))}
                 </TableBody>
               </Table>
-              </div>
             )}
 
             {/* 削除確認 */}
@@ -952,8 +953,10 @@ export function ContactsModal({
                 担当者が登録されていません
               </div>
             ) : (
-              <div className="overflow-x-auto">
-              <Table>
+              <Table
+                containerClassName="border rounded-lg flex-1 min-h-0"
+                containerStyle={{ overflow: 'auto' }}
+              >
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[40px]"></TableHead>
@@ -961,12 +964,12 @@ export function ContactsModal({
                     <TableHead>部署</TableHead>
                     <TableHead>電話番号</TableHead>
                     <TableHead>メールアドレス</TableHead>
-                    <TableHead className="w-[120px]">操作</TableHead>
+                    <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {contacts.map((contact) => (
-                    <TableRow key={contact.id}>
+                    <TableRow key={contact.id} className="group/row">
                       <TableCell>
                         <button
                           onClick={() => handleSetPrimaryContact(contact)}
@@ -1000,7 +1003,7 @@ export function ContactsModal({
                           "-"
                         )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                         <div className="flex gap-1">
                           <Button
                             variant="ghost"
@@ -1024,7 +1027,6 @@ export function ContactsModal({
                   ))}
                 </TableBody>
               </Table>
-              </div>
             )}
 
             {/* 削除確認 */}
@@ -1073,8 +1075,10 @@ export function ContactsModal({
                 銀行情報が登録されていません
               </div>
             ) : (
-              <div className="overflow-x-auto">
-              <Table>
+              <Table
+                containerClassName="border rounded-lg flex-1 min-h-0"
+                containerStyle={{ overflow: 'auto' }}
+              >
                 <TableHeader>
                   <TableRow>
                     <TableHead>銀行名</TableHead>
@@ -1084,12 +1088,12 @@ export function ContactsModal({
                     <TableHead>口座番号</TableHead>
                     <TableHead>口座名義人</TableHead>
                     <TableHead>メモ</TableHead>
-                    <TableHead className="w-[120px]">操作</TableHead>
+                    <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {bankAccounts.map((bankAccount) => (
-                    <TableRow key={bankAccount.id}>
+                    <TableRow key={bankAccount.id} className="group/row">
                       <TableCell className="font-medium">{bankAccount.bankName}</TableCell>
                       <TableCell className="font-mono">{bankAccount.bankCode}</TableCell>
                       <TableCell>{bankAccount.branchName}</TableCell>
@@ -1099,7 +1103,7 @@ export function ContactsModal({
                       <TableCell className="max-w-[150px] truncate">
                         {bankAccount.note || "-"}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                         <div className="flex gap-1">
                           <Button
                             variant="ghost"
@@ -1123,7 +1127,6 @@ export function ContactsModal({
                   ))}
                 </TableBody>
               </Table>
-              </div>
             )}
 
             {/* 削除確認 */}

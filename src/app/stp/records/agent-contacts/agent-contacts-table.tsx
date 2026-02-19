@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -114,6 +114,22 @@ export function AgentContactsTable({
   const [agentPopoverOpen, setAgentPopoverOpen] = useState(false);
   const [filterValue, setFilterValue] = useState("");
   const [mismatchWarning, setMismatchWarning] = useState<string[] | null>(null);
+
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const [tableMaxHeight, setTableMaxHeight] = useState<string | undefined>();
+
+  useEffect(() => {
+    const calc = () => {
+      if (tableContainerRef.current) {
+        const top = tableContainerRef.current.getBoundingClientRect().top;
+        const bottomMargin = 24;
+        setTableMaxHeight(`${window.innerHeight - top - bottomMargin}px`);
+      }
+    };
+    calc();
+    window.addEventListener('resize', calc);
+    return () => window.removeEventListener('resize', calc);
+  }, []);
 
   // 選択されたプロジェクトに基づいて利用可能なスタッフを取得
   const getAvailableStaffOptions = useCallback(() => {
@@ -583,8 +599,7 @@ export function AgentContactsTable({
       </div>
 
       {/* テーブル */}
-      <div className="overflow-x-auto">
-        <Table>
+      <Table containerRef={tableContainerRef} containerClassName="overflow-auto" containerStyle={{ maxHeight: tableMaxHeight }}>
           <TableHeader>
             <TableRow>
               <TableHead>代理店名</TableHead>
@@ -596,7 +611,7 @@ export function AgentContactsTable({
               <TableHead>議事録</TableHead>
               <TableHead>備考</TableHead>
               <TableHead>添付</TableHead>
-              <TableHead className="w-[100px]">操作</TableHead>
+              <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -608,7 +623,7 @@ export function AgentContactsTable({
               </TableRow>
             ) : (
               filteredData.map((item) => (
-                <TableRow key={item.id as number}>
+                <TableRow key={item.id as number} className="group/row">
                   <TableCell className="whitespace-nowrap">
                     <CompanyCodeLabel code={item.agentCompanyCode as string} name={item.agentName as string} />
                   </TableCell>
@@ -637,7 +652,7 @@ export function AgentContactsTable({
                   <TableCell>
                     <FileDisplay files={(item.files as FileInfo[]) || []} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                     <div className="flex gap-1">
                       <Button variant="ghost" size="icon" onClick={() => openEditDialog(item)}>
                         <Pencil className="h-4 w-4" />
@@ -652,7 +667,6 @@ export function AgentContactsTable({
             )}
           </TableBody>
         </Table>
-      </div>
 
       {/* 追加ダイアログ */}
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>

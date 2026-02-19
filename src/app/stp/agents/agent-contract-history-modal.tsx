@@ -1146,10 +1146,12 @@ export function AgentContractHistoryModal({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          className="max-w-5xl max-w-[calc(100%-2rem)] p-0 overflow-hidden"
+          className="p-0 overflow-hidden"
           style={{
             display: "flex",
             flexDirection: "column",
+            left: "calc(50% + 8rem)",
+            maxWidth: "calc((100vw - 16rem) * 0.75)",
             height: "90vh",
             maxHeight: "90vh",
           }}
@@ -1186,8 +1188,7 @@ export function AgentContractHistoryModal({
                   契約履歴が登録されていません
                 </div>
               ) : (
-                <div className="overflow-x-auto border rounded-lg">
-                  <Table>
+                  <Table containerClassName="border rounded-lg flex-1 min-h-0" containerStyle={{ overflow: 'auto' }}>
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-8"></TableHead>
@@ -1198,7 +1199,7 @@ export function AgentContractHistoryModal({
                         <TableHead className="text-right whitespace-nowrap">月額費用</TableHead>
                         <TableHead className="whitespace-nowrap">デフォルト報酬</TableHead>
                         <TableHead className="whitespace-nowrap">備考</TableHead>
-                        <TableHead className="w-[100px] whitespace-nowrap">操作</TableHead>
+                        <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1252,7 +1253,7 @@ export function AgentContractHistoryModal({
                           <TableCell className="max-w-[150px] truncate" title={history.note || ""}>
                             {history.note || "-"}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                             <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                               <Button
                                 variant="ghost"
@@ -1276,7 +1277,6 @@ export function AgentContractHistoryModal({
                       ))}
                     </TableBody>
                   </Table>
-                </div>
               )}
 
               {/* 紹介企業の報酬一覧（選択した契約に対して） */}

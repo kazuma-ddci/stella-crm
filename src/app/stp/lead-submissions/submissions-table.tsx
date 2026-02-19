@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Table,
   TableBody,
@@ -169,6 +169,29 @@ function ProposalCell({ proposals }: { proposals: Proposal[] }) {
 }
 
 export function SubmissionsTable({ submissions: initialSubmissions, companyOptions: initialCompanyOptions, agentOptions: initialAgentOptions, directFormToken }: Props) {
+  const tableContainerRef1 = useRef<HTMLDivElement>(null);
+  const tableContainerRef2 = useRef<HTMLDivElement>(null);
+  const [tableMaxHeight1, setTableMaxHeight1] = useState<string | undefined>();
+  const [tableMaxHeight2, setTableMaxHeight2] = useState<string | undefined>();
+
+  useEffect(() => {
+    const calc = () => {
+      if (tableContainerRef1.current) {
+        const top = tableContainerRef1.current.getBoundingClientRect().top;
+        const bottomMargin = 24;
+        setTableMaxHeight1(`${window.innerHeight - top - bottomMargin}px`);
+      }
+      if (tableContainerRef2.current) {
+        const top = tableContainerRef2.current.getBoundingClientRect().top;
+        const bottomMargin = 24;
+        setTableMaxHeight2(`${window.innerHeight - top - bottomMargin}px`);
+      }
+    };
+    calc();
+    window.addEventListener('resize', calc);
+    return () => window.removeEventListener('resize', calc);
+  }, []);
+
   // ポーリングで更新されるデータ
   const [submissions, setSubmissions] = useState<Submission[]>(initialSubmissions);
   const [companyOptions, setCompanyOptions] = useState<CompanyOption[]>(initialCompanyOptions);
@@ -647,7 +670,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
         {pendingSubmissions.length === 0 ? (
           <p className="text-gray-500 text-sm">未処理の回答はありません</p>
         ) : (
-          <Table>
+          <Table containerRef={tableContainerRef1} containerClassName="overflow-auto" containerStyle={{ maxHeight: tableMaxHeight1 }}>
             <TableHeader>
               <TableRow>
                 <TableHead>受信日時</TableHead>
@@ -656,12 +679,12 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
                 <TableHead>メール</TableHead>
                 <TableHead>代理店</TableHead>
                 <TableHead>提案書</TableHead>
-                <TableHead>操作</TableHead>
+                <TableHead className="sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {pendingSubmissions.map((submission) => (
-                <TableRow key={submission.id}>
+                <TableRow key={submission.id} className="group/row">
                   <TableCell className="whitespace-nowrap">
                     {formatDate(submission.submittedAt)}
                   </TableCell>
@@ -672,7 +695,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
                   <TableCell>
                     <ProposalCell proposals={submission.proposals} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                     <div className="flex gap-2">
                       <Button
                         variant="ghost"
@@ -729,7 +752,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
         {processedSubmissions.length === 0 ? (
           <p className="text-gray-500 text-sm">処理済みの回答はありません</p>
         ) : (
-          <Table>
+          <Table containerRef={tableContainerRef2} containerClassName="overflow-auto" containerStyle={{ maxHeight: tableMaxHeight2 }}>
             <TableHeader>
               <TableRow>
                 <TableHead>受信日時</TableHead>
@@ -740,12 +763,12 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
                 <TableHead>提案書</TableHead>
                 <TableHead>ステータス</TableHead>
                 <TableHead>処理日時</TableHead>
-                <TableHead>操作</TableHead>
+                <TableHead className="sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {processedSubmissions.map((submission) => (
-                <TableRow key={submission.id}>
+                <TableRow key={submission.id} className="group/row">
                   <TableCell className="whitespace-nowrap">
                     {formatDate(submission.submittedAt)}
                   </TableCell>
@@ -766,7 +789,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
                   <TableCell className="whitespace-nowrap">
                     {submission.processedAt ? formatDate(submission.processedAt) : "-"}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                     <div className="flex gap-2">
                       <Button
                         variant="ghost"

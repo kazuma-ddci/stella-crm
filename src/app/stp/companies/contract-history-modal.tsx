@@ -810,10 +810,12 @@ export function ContractHistoryModal({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          className="max-w-5xl max-w-[calc(100%-2rem)] p-0 overflow-hidden"
+          className="p-0 overflow-hidden"
           style={{
             display: 'flex',
             flexDirection: 'column',
+            left: 'calc(50% + 8rem)',
+            maxWidth: 'calc((100vw - 16rem) * 0.75)',
             height: '90vh',
             maxHeight: '90vh'
           }}
@@ -850,8 +852,7 @@ export function ContractHistoryModal({
                 契約履歴が登録されていません
               </div>
             ) : (
-              <div className="overflow-x-auto border rounded-lg">
-              <Table>
+              <Table containerClassName="border rounded-lg flex-1 min-h-0" containerStyle={{ overflow: 'auto' }}>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="whitespace-nowrap">業種区分</TableHead>
@@ -869,7 +870,7 @@ export function ContractHistoryModal({
                     <TableHead className="whitespace-nowrap">アカウントID</TableHead>
                     <TableHead className="whitespace-nowrap">アカウントPASS</TableHead>
                     <TableHead className="whitespace-nowrap">備考</TableHead>
-                    <TableHead className="w-[100px] whitespace-nowrap">操作</TableHead>
+                    <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -908,7 +909,7 @@ export function ContractHistoryModal({
                       <TableCell>
                         <TextPreviewCell text={history.note} title="備考" />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                         <div className="flex gap-1">
                           <Button
                             variant="ghost"
@@ -932,7 +933,6 @@ export function ContractHistoryModal({
                   ))}
                 </TableBody>
               </Table>
-              </div>
             )}
           </div>
           </div>
