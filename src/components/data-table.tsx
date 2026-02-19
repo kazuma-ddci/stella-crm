@@ -1,3 +1,6 @@
+"use client";
+
+import { useRef, useEffect, useState } from "react";
 import {
   Table,
   TableBody,
@@ -71,9 +74,24 @@ export function DataTable({
   columns,
   emptyMessage = "データがありません",
 }: DataTableProps) {
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const [tableMaxHeight, setTableMaxHeight] = useState<string | undefined>();
+
+  useEffect(() => {
+    const calc = () => {
+      if (tableContainerRef.current) {
+        const top = tableContainerRef.current.getBoundingClientRect().top;
+        const bottomMargin = 24;
+        setTableMaxHeight(`${window.innerHeight - top - bottomMargin}px`);
+      }
+    };
+    calc();
+    window.addEventListener('resize', calc);
+    return () => window.removeEventListener('resize', calc);
+  }, []);
+
   return (
-    <div className="overflow-x-auto">
-      <Table>
+      <Table containerRef={tableContainerRef} containerClassName="overflow-auto" containerStyle={{ maxHeight: tableMaxHeight }}>
         <TableHeader>
           <TableRow>
             {columns.map((column) => (
@@ -110,6 +128,5 @@ export function DataTable({
           )}
         </TableBody>
       </Table>
-    </div>
   );
 }

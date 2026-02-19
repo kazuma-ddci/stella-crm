@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -252,6 +252,23 @@ export function CrudTable({
   const [loading, setLoading] = useState(false);
   const [isSimpleMode, setIsSimpleMode] = useState(true); // デフォルトは簡易入力モード
   const [isSortModalOpen, setIsSortModalOpen] = useState(false);
+
+  // テーブルスクロールコンテナの高さ動的計算
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const [tableMaxHeight, setTableMaxHeight] = useState<string | undefined>();
+
+  useEffect(() => {
+    const calc = () => {
+      if (tableContainerRef.current) {
+        const top = tableContainerRef.current.getBoundingClientRect().top;
+        const bottomMargin = 24;
+        setTableMaxHeight(`${window.innerHeight - top - bottomMargin}px`);
+      }
+    };
+    calc();
+    window.addEventListener('resize', calc);
+    return () => window.removeEventListener('resize', calc);
+  }, []);
 
   // インライン編集用の状態
   const [editingCell, setEditingCell] = useState<{ rowId: number; columnKey: string } | null>(null);
@@ -1119,8 +1136,7 @@ export function CrudTable({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <Table>
+        <Table containerRef={tableContainerRef} containerClassName="overflow-auto" containerStyle={{ maxHeight: tableMaxHeight }}>
           <TableHeader>
             <TableRow>
               {visibleColumns.map((col) => (
@@ -1129,7 +1145,7 @@ export function CrudTable({
                 </TableHead>
               ))}
               {(onUpdate || onDelete || customActions.length > 0) && (
-                <TableHead className="w-[100px]">操作</TableHead>
+                <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
               )}
             </TableRow>
           </TableHeader>
@@ -1193,7 +1209,7 @@ export function CrudTable({
                     );
                   })}
                   {(onUpdate || onDelete || customActions.length > 0) && (
-                    <TableCell>
+                    <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                       <div className="flex items-center gap-1">
                         {onUpdate && (
                           <Tooltip>
@@ -1252,7 +1268,6 @@ export function CrudTable({
             )}
           </TableBody>
         </Table>
-      </div>
 
       {/* Add Dialog */}
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
