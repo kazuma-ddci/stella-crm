@@ -28,6 +28,7 @@
 20. [Google Drive APIでサービスアカウントのストレージクォータ超過](#google-drive-apiでサービスアカウントのストレージクォータ超過)
 21. [Clipboard API の NotAllowedError（HTTP環境・iframe内）](#clipboard-api-の-notallowederrorhttp環境iframe内)
 22. [getOrCreateCompanyFolder で driveId に通常フォルダIDを渡すとAPIエラー](#getorcreatecompanyfolder-で-driveid-に通常フォルダidを渡すとapiエラー)
+23. [PrismaClientがブラウザでロードされる（"use client" × サーバー専用モジュール）](#prismaclientがブラウザでロードされるuse-client--サーバー専用モジュール)
 
 ---
 
@@ -1374,3 +1375,79 @@ const searchResult = await drive.files.list({
 ### 関連ファイル
 
 - `src/lib/proposals/slide-generator.ts`（`getOrCreateCompanyFolder` 関数）
+
+---
+
+## PrismaClientがブラウザでロードされる（"use client" × サーバー専用モジュール）
+
+### 症状
+
+ブラウザのコンソールまたはNext.js dev overlayに以下のエラーが表示され、画面全体が操作不能になる：
+
+```
+PrismaClient is unable to run in this browser environment
+```
+
+### 原因
+
+`"use client"` コンポーネントが、Prisma依存のモジュールからserver actionを直接インポートしていた。
+
+```typescript
+// ❌ 間違い: field-change-log-modal.tsx（"use client"）
+import { getFieldChangeLogs } from "@/lib/field-change-log.server";
+// field-change-log.server.ts のモジュールレベルに import { prisma } がある
+// → Next.jsがクライアントバンドルにPrismaを含めてしまう
+```
+
+たとえ `getFieldChangeLogs` 関数内にインライン `"use server"` を書いても、**モジュールレベルの `import { prisma }` はクライアントバンドルに含まれる**。ファイルレベル `"use server"` にすると全エクスポートがasync必須になり、内部ユーティリティ関数（非async）がエラーになる。
+
+### 解決方法
+
+Prisma依存ファイルを**3ファイルに分離**する：
+
+```
+field-change-log.shared.ts   ← 純粋関数（型定義、バリデーション、集合比較）
+                                 クライアント/サーバー両方からimport可能
+
+field-change-log.server.ts   ← Prisma依存の内部関数（createFieldChangeLogEntries）
+                                 import "server-only" でガード
+                                 actions.ts からのみimport
+
+field-change-log.actions.ts  ← "use server" ファイルレベル
+                                 server action のみエクスポート（getFieldChangeLogs）
+                                 "use client" コンポーネントからはこちらをimport
+```
+
+```typescript
+// ✅ 正しい: field-change-log-modal.tsx（"use client"）
+import { getFieldChangeLogs } from "@/lib/field-change-log.actions";
+// field-change-log.actions.ts はファイルレベル "use server" なので
+// クライアントにはRPCスタブのみバンドルされ、Prismaは含まれない
+```
+
+### 再発防止
+
+1. **`server-only` パッケージ**: `npm install server-only` してサーバー専用ファイルに `import "server-only"` を追加。クライアントから誤インポートするとビルド時エラーになる
+2. **Vitest対応**: `vitest.config.ts` の `resolve.alias` に `'server-only'` のモックを追加（Next.js専用パッケージはVitestで解決できないため）
+
+```typescript
+// vitest.config.ts
+resolve: {
+  alias: {
+    'server-only': path.resolve(__dirname, './src/__tests__/mocks/server-only.ts'),
+  },
+},
+```
+
+### 原則
+
+**`"use client"` コンポーネントからPrisma依存モジュールを直接importしない。** server actionは必ず `"use server"` ファイルレベルの専用ファイルに切り出し、そこからのみimportする。混在ファイル（server action + 内部ユーティリティ）は分離すること。
+
+### 関連ファイル
+
+- `src/lib/field-change-log.shared.ts`（純粋関数）
+- `src/lib/field-change-log.server.ts`（Prisma依存 + `import "server-only"`）
+- `src/lib/field-change-log.actions.ts`（server action）
+- `src/components/field-change-log-modal.tsx`（`"use client"`、actions.tsからimport）
+- `src/__tests__/mocks/server-only.ts`（Vitest用モック）
+- `vitest.config.ts`（server-onlyエイリアス設定）

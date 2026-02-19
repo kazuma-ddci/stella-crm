@@ -3,7 +3,7 @@
 このドキュメントはstella-crmのデータベース構造を詳細に記述したものです。
 DBスキーマに変更があった場合は、このファイルを更新してください。
 
-**最終更新日**: 2026-02-11
+**最終更新日**: 2026-02-20
 
 ---
 
@@ -75,6 +75,8 @@ DBスキーマに変更があった場合は、このファイルを更新して
 | 43 | accounting_reconciliations | AccountingReconciliation | 会計消込・照合 | 会計管理系 |
 | 44 | accounting_verifications | AccountingVerification | 会計確認 | 会計管理系 |
 | 45 | accounting_monthly_closes | AccountingMonthlyClose | 月次締め | 会計管理系 |
+| 46 | field_change_logs | FieldChangeLog | フィールド変更履歴 | 共通マスタ系 |
+| 47 | staff_field_restrictions | StaffFieldRestriction | スタッフフィールド制限 | スタッフ系 |
 
 ---
 
@@ -514,6 +516,7 @@ MasterProject (1) ───────────┴────── (N) Acc
 | contractNote | TEXT | YES | - | - | 契約内容メモ |
 | referrerCompanyId | INT | YES | - | FK(master_stella_companies) | 紹介者企業ID |
 | note | TEXT | YES | - | - | 代理店メモ |
+| adminStaffId | INT | YES | - | FK(master_staff) | 担当事務 |
 | createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
 | updatedAt | TIMESTAMP | NO | auto | - | 更新日時 |
 
@@ -530,12 +533,14 @@ MasterProject (1) ───────────┴────── (N) Acc
 - `referrerCompany` → MasterStellaCompany (N:1) - 紹介者企業
 - `stpCompanies` ← StpCompany (1:N) - 担当するSTP企業
 - `contracts` ← StpAgentContract (1:N) - 代理店契約書
+- `adminStaff` → MasterStaff (N:1) - 担当事務
 - `staffAssignments` ← StpAgentStaff (1:N) - 担当スタッフ
 - `contractHistories` ← StpAgentContractHistory (1:N) - 代理店契約履歴
 
 **特記事項**:
 - companyIdはUNIQUE制約により1企業=1代理店
 - 企業名、電話番号、メール等はcompanyリレーションから取得
+- adminStaffId変更時はFieldChangeLogに変更履歴を記録
 
 ---
 
@@ -1103,6 +1108,7 @@ MasterProject (1) ───────────┴────── (N) Acc
 - `salesContractHistories` ← StpContractHistory (1:N) - 担当営業として
 - `operationContractHistories` ← StpContractHistory (1:N) - 担当運用として
 - `agentAssignments` ← StpAgentStaff (1:N) - 代理店担当
+- `adminAgents` ← StpAgent (1:N) - 担当事務として
 - `assignedCompanies` ← MasterStellaCompany (1:N) - 担当企業
 - `salesStpCompanies` ← StpCompany (1:N) - 担当STP企業
 - `contactHistories` ← ContactHistory (1:N) - 接触履歴
@@ -1194,6 +1200,31 @@ MasterProject (1) ───────────┴────── (N) Acc
 
 **リレーション**:
 - `staff` → MasterStaff (N:1, CASCADE削除)
+
+---
+
+#### 3.6 staff_field_restrictions（スタッフフィールド制限）
+
+**概要**: 特定のフィールド（担当営業、担当事務等）に対して、選択可能なスタッフを制限するテーブル。制限レコードが0件の場合は全スタッフが選択可能。1件以上ある場合は、登録されたスタッフのみ選択可能。
+
+| カラム名 | 型 | NULL | デフォルト | 制約 | 説明 |
+|---------|-----|------|-----------|------|------|
+| id | INT | NO | auto_increment | PK | 主キー |
+| fieldCode | VARCHAR(100) | NO | - | - | フィールドコード |
+| staffId | INT | NO | - | FK(master_staff) | スタッフID |
+| createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
+
+**制約**: `UNIQUE(fieldCode, staffId)`
+
+**fieldCode例**: `STP_COMPANY_SALES`（STP企業の担当営業）, `STP_COMPANY_ADMIN`（STP企業の担当事務）, `STP_AGENT_ADMIN`（代理店の担当事務）, `CONTRACT_HISTORY_SALES`（契約履歴の担当営業）, `CONTRACT_HISTORY_OPERATION`（契約履歴の担当運用）
+
+**リレーション**:
+- `staff` → MasterStaff (N:1, CASCADE削除)
+
+**特記事項**:
+- 制限レコードが0件のfieldCodeは全スタッフが選択可能（ホワイトリスト方式）
+- `src/lib/staff/get-staff-by-field.ts` の `getStaffOptionsByFields()` で取得
+- `src/lib/staff/assignable-fields.ts` でfieldCodeの定義を管理
 
 ---
 
@@ -1354,6 +1385,42 @@ MasterProject (1) ───────────┴────── (N) Acc
 
 **インデックス**:
 - `idx_customer_types_project_id` (project_id)
+
+---
+
+#### 4.x field_change_logs（フィールド変更履歴）
+
+**概要**: 各エンティティのフィールド変更履歴を記録する汎用テーブル。担当スタッフの変更等、監査が必要なフィールドの変更をトラッキングする。
+
+| カラム名 | 型 | NULL | デフォルト | 制約 | 説明 |
+|---------|-----|------|-----------|------|------|
+| id | INT | NO | auto_increment | PK | 主キー |
+| entityType | VARCHAR(50) | NO | - | - | エンティティ種別 |
+| entityId | INT | NO | - | - | エンティティID |
+| fieldName | VARCHAR(100) | NO | - | - | フィールド名（コード） |
+| displayName | VARCHAR(100) | NO | - | - | フィールド表示名 |
+| oldValue | TEXT | YES | - | - | 変更前の値 |
+| newValue | TEXT | YES | - | - | 変更後の値 |
+| note | TEXT | NO | - | - | 変更理由メモ（必須） |
+| createdAt | TIMESTAMP | NO | now() | - | 作成日時 |
+
+**entityType例**: `stp_company`, `stp_agent`, `stp_contract_history`
+
+**インデックス**: `idx_field_change_logs_entity` (entityType, entityId)
+
+**特記事項**:
+- 汎用設計: entityType + entityId で任意のエンティティの変更履歴を格納
+- FKなし（汎用テーブルのため参照整合性はアプリケーション層で保証）
+- noteは必須（変更理由がないと保存できない）
+- 複数選択スタッフの場合、oldValue/newValueは `名前(ID:xx), 名前(ID:yy)` 形式で内部IDを保持（トレーサビリティ）
+- `createFieldChangeLogEntries()` で `prisma.$transaction` 内から一括作成
+- `getFieldChangeLogs()` server actionでクライアントから取得
+
+**関連ファイル**:
+- `src/lib/field-change-log.shared.ts`（型定義、純粋関数）
+- `src/lib/field-change-log.server.ts`（DB操作、server-only）
+- `src/lib/field-change-log.actions.ts`（server action）
+- `src/components/field-change-log-modal.tsx`（表示UI）
 
 ---
 
