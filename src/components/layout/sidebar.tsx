@@ -155,13 +155,6 @@ const navigation: NavItem[] = [
           { name: "商談パイプライン履歴", href: "/stp/records/stage-histories", icon: History },
         ],
       },
-      {
-        name: "設定",
-        icon: Settings,
-        children: [
-          { name: "商談パイプライン", href: "/stp/settings/stages", icon: Layers },
-        ],
-      },
     ],
   },
   {
