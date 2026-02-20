@@ -13,7 +13,7 @@ type Props = {
   roleTypeOptions: { value: string; label: string }[];
   projectOptions: { value: string; label: string }[];
   permissionProjects: { code: string; name: string }[];
-  editableProjectCodes: string[];
+  editableProjects: { code: string; maxLevel: string }[];
   dynamicOptions?: Record<string, Record<string, { value: string; label: string }[]>>;
 };
 
@@ -118,21 +118,30 @@ function InviteButton({ row }: { row: Record<string, unknown> }) {
   );
 }
 
-export function StaffTable({ data, roleTypeOptions, projectOptions, permissionProjects, editableProjectCodes, dynamicOptions }: Props) {
+/** 天井レベルに基づいて選択可能な権限レベルを返す */
+function getPermissionLevelsForMaxLevel(maxLevel: string): { value: string; label: string }[] {
+  const levelOrder: Record<string, number> = { none: 0, view: 1, edit: 2, admin: 3 };
+  const max = levelOrder[maxLevel] ?? 0;
+  return PERMISSION_LEVELS.filter((l) => (levelOrder[l.value] ?? 0) <= max);
+}
+
+export function StaffTable({ data, roleTypeOptions, projectOptions, permissionProjects, editableProjects, dynamicOptions }: Props) {
   // 権限カラム（編集可能なプロジェクトがある場合のみ表示）
-  const canEditStella = editableProjectCodes.includes("stella");
-  const permissionColumns: ColumnDef[] = editableProjectCodes.length > 0
+  const editableMap = new Map(editableProjects.map((p) => [p.code, p.maxLevel]));
+  const canEditStella = editableMap.has("stella");
+  const stellaMaxLevel = editableMap.get("stella");
+  const permissionColumns: ColumnDef[] = editableProjects.length > 0
     ? [
         // Stella権限はStella管理者のみ表示・編集可能
-        ...(canEditStella ? [{ key: "stellaPermission", header: "Stella権限", type: "select" as const, options: PERMISSION_LEVELS, simpleMode: true }] : []),
-        // 各プロジェクト権限は、そのプロジェクトの管理者のみ編集可能
+        ...(canEditStella && stellaMaxLevel ? [{ key: "stellaPermission", header: "Stella権限", type: "select" as const, options: getPermissionLevelsForMaxLevel(stellaMaxLevel), simpleMode: true }] : []),
+        // 各プロジェクト権限は、そのプロジェクトのedit以上のユーザーが編集可能（天井に基づく選択肢制限）
         ...permissionProjects
-          .filter((p) => editableProjectCodes.includes(p.code))
+          .filter((p) => editableMap.has(p.code))
           .map((p) => ({
             key: `perm_${p.code}`,
             header: `${p.name}権限`,
             type: "select" as const,
-            options: PERMISSION_LEVELS,
+            options: getPermissionLevelsForMaxLevel(editableMap.get(p.code)!),
             simpleMode: true,
           })),
       ]

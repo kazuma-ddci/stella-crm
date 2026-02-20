@@ -79,6 +79,7 @@ async function clearDatabase() {
   await prisma.contactHistoryFile.deleteMany();
   await prisma.contactHistoryRole.deleteMany();
   await prisma.contactHistory.deleteMany();
+  await prisma.contactCategory.deleteMany();
   await prisma.stpCompanyContract.deleteMany();
   await prisma.stpCompany.deleteMany();
   await prisma.stpAgentContract.deleteMany();
@@ -108,7 +109,7 @@ async function clearDatabase() {
 
 async function resetSequences() {
   const tables = [
-    'stp_stages', 'contact_methods', 'stp_lead_sources',
+    'contact_categories', 'stp_stages', 'contact_methods', 'stp_lead_sources',
     'staff_role_types', 'master_staff', 'staff_permissions', 'staff_role_assignments',
     'staff_project_assignments', 'master_projects', 'master_contract_statuses',
     'display_views', 'customer_types', 'master_stella_companies',
@@ -179,6 +180,17 @@ async function main() {
   });
   console.log('✓ Contact methods (5)');
 
+  // 接触種別
+  await prisma.contactCategory.createMany({
+    data: [
+      { id: 1, projectId: 1, name: '商談', displayOrder: 1 },
+      { id: 2, projectId: 1, name: 'キックオフ', displayOrder: 2 },
+      { id: 3, projectId: 1, name: '定例MTG', displayOrder: 3 },
+      { id: 4, projectId: 1, name: 'その他', displayOrder: 4 },
+    ],
+  });
+  console.log('✓ Contact categories (4)');
+
   // 流入経路
   await prisma.stpLeadSource.createMany({
     data: [
@@ -197,13 +209,14 @@ async function main() {
   // プロジェクト
   await prisma.masterProject.createMany({
     data: [
-      { id: 1, code: 'stp', name: 'STP', description: '採用支援サービスの商談・契約管理', displayOrder: 1 },
-      { id: 2, code: 'srd', name: 'SRD', description: 'システム受託開発プロジェクト管理', displayOrder: 2 },
-      { id: 3, code: 'slo', name: 'SLO', description: '公的財団関連プロジェクト管理', displayOrder: 3 },
+      { id: 1, code: 'stp', name: 'STP', description: '採用支援サービスの商談・契約管理', displayOrder: 2 },
+      { id: 2, code: 'srd', name: 'SRD', description: 'システム受託開発プロジェクト管理', displayOrder: 3 },
+      { id: 3, code: 'slo', name: 'SLO', description: '公的財団関連プロジェクト管理', displayOrder: 4 },
       { id: 4, code: 'stella', name: 'Stella', description: '全顧客マスタ管理', displayOrder: 0 },
+      { id: 5, code: 'common', name: '共通', description: '企業マスタ・スタッフ管理等の共通機能', displayOrder: 1 },
     ],
   });
-  console.log('✓ Projects (4): STP, SRD, SLO, Stella');
+  console.log('✓ Projects (5): Stella, Common, STP, SRD, SLO');
 
   // 契約書ステータスマスタ
   await prisma.masterContractStatus.createMany({
@@ -270,7 +283,7 @@ async function main() {
   });
   console.log('✓ Staff (13)');
 
-  // スタッフ権限（projectId: stp=1, srd=2, slo=3, stella=4）
+  // スタッフ権限（projectId: stp=1, srd=2, slo=3, stella=4, common=5）
   await prisma.staffPermission.createMany({
     data: [
       { staffId: 1, projectId: 1, permissionLevel: 'edit' },
@@ -288,24 +301,28 @@ async function main() {
       { staffId: 8, projectId: 2, permissionLevel: 'edit' },
       { staffId: 8, projectId: 3, permissionLevel: 'view' },
       { staffId: 9, projectId: 1, permissionLevel: 'edit' },
+      // 管理者（kanrisha）
       { staffId: 10, projectId: 4, permissionLevel: 'admin' },
+      { staffId: 10, projectId: 5, permissionLevel: 'admin' },
       { staffId: 10, projectId: 1, permissionLevel: 'admin' },
       { staffId: 10, projectId: 2, permissionLevel: 'admin' },
       { staffId: 10, projectId: 3, permissionLevel: 'admin' },
       // システム管理者（admin）
       { staffId: 11, projectId: 4, permissionLevel: 'admin' },
+      { staffId: 11, projectId: 5, permissionLevel: 'admin' },
       { staffId: 11, projectId: 1, permissionLevel: 'admin' },
       { staffId: 11, projectId: 2, permissionLevel: 'admin' },
       { staffId: 11, projectId: 3, permissionLevel: 'admin' },
       // テストユーザー（test_user）
       { staffId: 12, projectId: 4, permissionLevel: 'admin' },
+      { staffId: 12, projectId: 5, permissionLevel: 'admin' },
       { staffId: 12, projectId: 1, permissionLevel: 'admin' },
       { staffId: 12, projectId: 2, permissionLevel: 'admin' },
       { staffId: 12, projectId: 3, permissionLevel: 'admin' },
       // 固定データ管理者（stella001）: プロジェクト権限なし（canEditMasterDataのみ）
     ],
   });
-  console.log('✓ Staff permissions (27)');
+  console.log('✓ Staff permissions (30)');
 
   // スタッフ役割割当: 役割種別を管理画面で登録後に設定するためシードデータなし
 
@@ -800,6 +817,7 @@ async function main() {
       companyId,
       contactDate: randomDate(new Date('2025-06-01'), new Date('2026-01-31')),
       contactMethodId: randomInt(1, 5),
+      contactCategoryId: Math.random() > 0.3 ? randomInt(1, 4) : null,
       staffId: randomInt(1, 10),
       assignedTo: String(randomInt(1, 10)),
       meetingMinutes: Math.random() > 0.3 ? randomChoice(meetingMinutes) : null,
@@ -1270,7 +1288,7 @@ async function main() {
   // ============================================
 
   console.log('\n=== Seed Summary ===');
-  console.log('Projects: 4 (STP, SRD, SLO, Stella)');
+  console.log('Projects: 5 (Stella, Common, STP, SRD, SLO)');
   console.log('Staff: 13 members (10 test + 3 system admin)');
   console.log('Companies: 100 (1-80: STP clients, 81-100: agents)');
   console.log('Locations: ~200, Contacts: ~200');

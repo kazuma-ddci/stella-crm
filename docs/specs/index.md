@@ -17,6 +17,7 @@
 | [SPEC-STP-002](./SPEC-STP-002.md) | STP | ヒアリングフォーム職種連動仕様 | ✅ confirmed | `src/app/form/stp-lead/[token]/page.tsx` |
 | [SPEC-UI-001](./SPEC-UI-001.md) | UI | Textarea/モーダル長文編集レイアウト | ✅ confirmed | textarea.tsx, text-preview-cell.tsx, editable-cell.tsx, change-confirmation-dialog.tsx |
 | [SPEC-UI-002](./SPEC-UI-002.md) | UI | 企業選択UI/UXパターン | ✅ confirmed | crud-table.tsx, editable-cell.tsx, 全STPテーブル |
+| [SPEC-AUTH-001](./SPEC-AUTH-001.md) | AUTH | 権限天井ロジック（スタッフ管理） | ✅ confirmed | staff/actions.ts, staff-table.tsx, middleware.ts |
 
 ---
 

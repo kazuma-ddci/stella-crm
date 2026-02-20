@@ -117,7 +117,7 @@ const navigation: NavItem[] = [
     children: [
       { name: "ダッシュボード", href: "/", icon: Home },
       { name: "Stella全顧客マスタ", href: "/companies", icon: Building2, requireAnyEdit: true },
-      { name: "スタッフ管理", href: "/staff", icon: Users, requiredProject: "stella" },
+      { name: "スタッフ管理", href: "/staff", icon: Users, requireAnyEdit: true },
     ],
   },
   {

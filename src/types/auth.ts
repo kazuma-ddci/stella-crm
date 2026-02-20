@@ -38,6 +38,7 @@ export type PermissionLevel = "none" | "view" | "edit" | "admin";
 
 export const PROJECT_CODES = {
   STELLA: "stella",
+  COMMON: "common",
   STP: "stp",
 } as const;
 

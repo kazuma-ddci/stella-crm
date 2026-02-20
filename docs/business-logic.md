@@ -351,6 +351,33 @@ const filteredNavigation = isAdminUser
 - **変更前**: admin権限（`permissionLevel === "admin"`）を持つ全ユーザーに固定データ設定を表示
 - **変更後**: `loginId === "admin"` のユーザーのみに限定。セッションに `loginId` を追加
 
+### スタッフ管理のアクセス制御と権限天井ロジック（2026-02-20追加）
+
+> 詳細仕様: [SPEC-AUTH-001](specs/SPEC-AUTH-001.md)
+
+#### commonプロジェクト
+
+`MasterProject` に `common`（共通）を新設。企業マスタ・スタッフ管理等のプロジェクト横断機能の権限を `stella` から分離。
+
+#### スタッフ管理（/staff）のアクセス条件
+
+| 変更前 | 変更後 |
+|--------|--------|
+| `stella` view+ が必要 | いずれかのプロジェクトで `edit+` があれば許可 |
+
+#### 権限天井ロジック
+
+ユーザーが他のスタッフに設定できる権限は、自分の権限レベル以下に制限。
+
+```
+Stella admin → 全プロジェクトで admin まで設定可能
+STP edit → STPのみ、none/view/edit まで（admin不可）
+STP admin → STPのみ、none/view/edit/admin まで
+```
+
+- サーバーサイド: `validatePermissionCeiling()` でバリデーション（`src/app/staff/actions.ts`）
+- クライアント: `getPermissionLevelsForMaxLevel()` で選択肢をフィルタ（`src/app/staff/staff-table.tsx`）
+
 ---
 
 ## リード獲得フォーム

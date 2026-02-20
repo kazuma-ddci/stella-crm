@@ -42,6 +42,7 @@ const MASTER_DATA_PATHS = [
   "/settings/display-views",
   "/settings/lead-sources",
   "/staff/role-types",
+  "/staff/field-restrictions",
   "/stp/settings/stages",
 ];
 
@@ -73,10 +74,7 @@ function getRequiredProject(pathname: string): ProjectCode | null {
   if (pathname.startsWith("/stp")) {
     return "stp";
   }
-  if (
-    pathname.startsWith("/staff") ||
-    pathname.startsWith("/settings")
-  ) {
+  if (pathname.startsWith("/settings")) {
     return "stella";
   }
   // /companies はいずれかのプロジェクトでedit以上なら許可（後続で個別チェック）
@@ -238,6 +236,13 @@ export default auth((request) => {
 
     // /companies: いずれかのプロジェクトでedit以上なら許可
     if (pathname.startsWith("/companies")) {
+      if (!hasAnyEditPermission(userPermissions)) {
+        return NextResponse.redirect(new URL("/", request.url));
+      }
+    }
+
+    // /staff: いずれかのプロジェクトでedit以上なら許可
+    if (pathname.startsWith("/staff")) {
       if (!hasAnyEditPermission(userPermissions)) {
         return NextResponse.redirect(new URL("/", request.url));
       }

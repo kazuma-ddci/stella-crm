@@ -1,16 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StaffTable } from "./staff-table";
-import { auth } from "@/auth";
-import { isAdmin } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { getEditableProjects } from "./actions";
 
 export default async function StaffPage() {
-  const session = await auth();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const userPermissions = ((session?.user as any)?.permissions ?? []) as UserPermission[];
-  const isStellaAdmin = isAdmin(userPermissions, "stella");
-  const [staffList, roleTypes, projects] = await Promise.all([
+  const [staffList, roleTypes, projects, editableProjects] = await Promise.all([
     prisma.masterStaff.findMany({
       where: { isSystemUser: false },
       orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
@@ -37,6 +31,7 @@ export default async function StaffPage() {
       where: { isActive: true },
       orderBy: { displayOrder: "asc" },
     }),
+    getEditableProjects(),
   ]);
 
   // プロジェクト権限のカラム情報を構築（stellaは別カラムで管理するため除外）
@@ -46,20 +41,6 @@ export default async function StaffPage() {
       code: p.code,
       name: p.name,
     }));
-
-  // 現在のユーザーが権限変更可能なプロジェクトコードを算出
-  const editableProjectCodes: string[] = [];
-  if (isStellaAdmin) {
-    // Stella管理者は全プロジェクトの権限を変更可能
-    editableProjectCodes.push("stella", ...projects.map((p) => p.code));
-  } else {
-    // 各プロジェクトの管理者は、そのプロジェクトの権限のみ変更可能
-    for (const project of projects) {
-      if (userPermissions.some((p) => p.projectCode === project.code && p.permissionLevel === "admin")) {
-        editableProjectCodes.push(project.code);
-      }
-    }
-  }
 
   const data = staffList.map((s) => {
     const stellaPermission = s.permissions.find((p) => p.project.code === "stella");
@@ -140,7 +121,7 @@ export default async function StaffPage() {
             roleTypeOptions={roleTypeOptions}
             projectOptions={projectOptions}
             permissionProjects={permissionProjects}
-            editableProjectCodes={editableProjectCodes}
+            editableProjects={editableProjects}
             dynamicOptions={dynamicOptions}
           />
         </CardContent>
