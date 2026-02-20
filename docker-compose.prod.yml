@@ -14,6 +14,8 @@ services:
       - .env.prod
     environment:
       - NODE_ENV=production
+    volumes:
+      - ./credentials:/app/credentials:ro
     depends_on:
       db-prod:
         condition: service_healthy
