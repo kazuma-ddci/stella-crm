@@ -228,14 +228,7 @@ export function StageManagementModal({
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
           ) : data ? (
-            <div
-              className="px-6 py-4"
-              style={{
-                flex: 1,
-                overflowY: 'auto',
-                minHeight: 0
-              }}
-            >
+            <div className="px-6 py-4 flex-1 overflow-y-auto min-h-0">
               <div className="space-y-4">
                 <CurrentStatusSection data={data} />
                 <StageProgressVisual

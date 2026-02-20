@@ -818,13 +818,14 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
 
       {/* 詳細モーダル */}
       <Dialog open={detailModalOpen} onOpenChange={setDetailModalOpen}>
-        <DialogContent size="form" className="overflow-y-auto">
-          <DialogHeader>
+        <DialogContent size="form" className="p-0 overflow-hidden flex flex-col">
+          <DialogHeader className="px-4 sm:px-6 py-4 border-b shrink-0">
             <DialogTitle>フォーム回答詳細</DialogTitle>
             <DialogDescription>
               {selectedSubmission && formatDate(selectedSubmission.submittedAt)}に受信
             </DialogDescription>
           </DialogHeader>
+          <div className="flex-1 overflow-y-auto min-h-0 px-4 sm:px-6 py-4">
           {selectedSubmission && (
             <div className="space-y-6">
               {/* 基本情報 */}
@@ -991,13 +992,14 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
               )}
             </div>
           )}
+          </div>
         </DialogContent>
       </Dialog>
 
       {/* 処理モーダル */}
       <Dialog open={processModalOpen} onOpenChange={setProcessModalOpen}>
-        <DialogContent size="form" className={processType !== "reject" ? "overflow-y-auto" : ""}>
-          <DialogHeader>
+        <DialogContent size="form" className="p-0 overflow-hidden flex flex-col">
+          <DialogHeader className="px-4 sm:px-6 py-4 border-b shrink-0">
             <DialogTitle>
               {processType === "new" && "新規企業として登録"}
               {processType === "existing" && "既存企業に紐付け"}
@@ -1008,6 +1010,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
             </DialogDescription>
           </DialogHeader>
 
+          <div className="flex-1 overflow-y-auto min-h-0 px-4 sm:px-6 py-4">
           <div className="space-y-4">
             {/* === 紐付け: 企業選択 + 警告 === */}
             {processType === "existing" && (
@@ -1346,8 +1349,9 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
               />
             </div>
           </div>
+          </div>
 
-          <DialogFooter>
+          <DialogFooter className="px-4 sm:px-6 py-4 border-t shrink-0">
             <Button
               variant="outline"
               onClick={() => setProcessModalOpen(false)}
@@ -1404,14 +1408,15 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
 
       {/* 編集モーダル */}
       <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
-        <DialogContent size="form" className="overflow-y-auto">
-          <DialogHeader>
+        <DialogContent size="form" className="p-0 overflow-hidden flex flex-col">
+          <DialogHeader className="px-4 sm:px-6 py-4 border-b shrink-0">
             <DialogTitle>フォーム回答を編集</DialogTitle>
             <DialogDescription>
               {selectedSubmission && formatDate(selectedSubmission.submittedAt)}に受信
             </DialogDescription>
           </DialogHeader>
 
+          <div className="flex-1 overflow-y-auto min-h-0 px-4 sm:px-6 py-4">
           <div className="space-y-6">
             {/* 基本情報 */}
             <div className="space-y-4">
@@ -1619,8 +1624,9 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
               </div>
             </div>
           </div>
+          </div>
 
-          <DialogFooter>
+          <DialogFooter className="px-4 sm:px-6 py-4 border-t shrink-0">
             <Button
               variant="outline"
               onClick={() => setEditModalOpen(false)}

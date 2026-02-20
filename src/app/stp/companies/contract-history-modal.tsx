@@ -831,10 +831,7 @@ export function ContractHistoryModal({
             <DialogTitle>契約履歴管理 - {companyName}</DialogTitle>
           </DialogHeader>
 
-          <div
-            className="px-6 py-4"
-            style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}
-          >
+          <div className="px-6 py-4 flex-1 overflow-y-auto min-h-0">
           <div className="space-y-4">
             {/* 追加ボタン */}
             {!isAddMode && !editHistory && (

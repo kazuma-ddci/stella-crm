@@ -155,11 +155,12 @@ export function ContractAddModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="form" className="overflow-y-auto">
-        <DialogHeader>
+      <DialogContent size="form" className="p-0 overflow-hidden flex flex-col">
+        <DialogHeader className="px-4 sm:px-6 py-4 border-b shrink-0">
           <DialogTitle>契約書を追加</DialogTitle>
         </DialogHeader>
 
+        <div className="flex-1 overflow-y-auto min-h-0 px-4 sm:px-6 py-4">
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* 企業選択 */}
           <div className="space-y-2">
@@ -372,6 +373,7 @@ export function ContractAddModal({
             </Button>
           </div>
         </form>
+        </div>
       </DialogContent>
     </Dialog>
   );

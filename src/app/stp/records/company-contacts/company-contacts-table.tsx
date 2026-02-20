@@ -670,12 +670,14 @@ export function CompanyContactsTable({
 
       {/* 追加ダイアログ */}
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent size="form" className="max-h-[80vh] overflow-y-auto" onOpenAutoFocus={(e) => e.preventDefault()}>
-          <DialogHeader>
+        <DialogContent size="form" className="p-0 overflow-hidden flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+          <DialogHeader className="px-4 sm:px-6 py-4 border-b shrink-0">
             <DialogTitle>企業接触履歴を追加</DialogTitle>
           </DialogHeader>
-          {renderForm(true)}
-          <DialogFooter>
+          <div className="flex-1 overflow-y-auto min-h-0 px-4 sm:px-6 py-4">
+            {renderForm(true)}
+          </div>
+          <DialogFooter className="px-4 sm:px-6 py-4 border-t shrink-0">
             <Button variant="outline" onClick={() => setIsAddOpen(false)}>
               キャンセル
             </Button>
@@ -688,12 +690,14 @@ export function CompanyContactsTable({
 
       {/* 編集ダイアログ */}
       <Dialog open={!!editItem} onOpenChange={(open) => !open && setEditItem(null)}>
-        <DialogContent size="form" className="max-h-[80vh] overflow-y-auto" onOpenAutoFocus={(e) => e.preventDefault()}>
-          <DialogHeader>
+        <DialogContent size="form" className="p-0 overflow-hidden flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+          <DialogHeader className="px-4 sm:px-6 py-4 border-b shrink-0">
             <DialogTitle>企業接触履歴を編集</DialogTitle>
           </DialogHeader>
-          {renderForm(false)}
-          <DialogFooter>
+          <div className="flex-1 overflow-y-auto min-h-0 px-4 sm:px-6 py-4">
+            {renderForm(false)}
+          </div>
+          <DialogFooter className="px-4 sm:px-6 py-4 border-t shrink-0">
             <Button variant="outline" onClick={() => setEditItem(null)}>
               キャンセル
             </Button>

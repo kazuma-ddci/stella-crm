@@ -50,10 +50,11 @@ export function ReferredCompaniesModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="mixed" className="overflow-y-auto">
-        <DialogHeader>
+      <DialogContent size="mixed" className="p-0 overflow-hidden flex flex-col">
+        <DialogHeader className="px-4 sm:px-6 py-4 border-b shrink-0">
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
+        <div className="flex-1 overflow-y-auto min-h-0 px-4 sm:px-6 py-4">
         {filteredCompanies.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             {filterContracted
@@ -98,6 +99,7 @@ export function ReferredCompaniesModal({
             </TableBody>
           </Table>
         )}
+        </div>
       </DialogContent>
     </Dialog>
   );

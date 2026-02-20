@@ -626,19 +626,16 @@ export function ContactHistoryModal({
           className="p-0 overflow-hidden flex flex-col"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
-          <DialogHeader className="px-6 py-4 border-b shrink-0">
-            <DialogTitle>接触履歴管理 - {agentName}</DialogTitle>
+          <DialogHeader className="px-4 py-3 border-b shrink-0">
+            <DialogTitle className="text-base">接触履歴管理 - {agentName}</DialogTitle>
           </DialogHeader>
 
-          <div
-            className="px-6 py-4 flex flex-col gap-4"
-            style={{ flex: 1, minHeight: 0 }}
-          >
+          <div className="px-4 py-3 flex flex-col gap-2 flex-1 min-h-0">
             {/* 追加ボタン */}
             {!isAddMode && !editHistory && (
               <div className="flex justify-end shrink-0">
-                <Button onClick={openAddForm}>
-                  <Plus className="mr-2 h-4 w-4" />
+                <Button size="sm" onClick={openAddForm}>
+                  <Plus className="mr-1 h-3.5 w-3.5" />
                   接触履歴を追加
                 </Button>
               </div>
@@ -660,13 +657,13 @@ export function ContactHistoryModal({
               <Table containerClassName="border rounded-lg flex-1 min-h-0" containerStyle={{ overflow: 'auto' }}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[130px] whitespace-nowrap">接触日時</TableHead>
-                    <TableHead className="w-[90px] whitespace-nowrap">接触方法</TableHead>
-                    <TableHead className="w-[100px] whitespace-nowrap">担当者</TableHead>
-                    <TableHead className="w-[100px] whitespace-nowrap">先方参加者</TableHead>
-                    <TableHead className="min-w-[140px] whitespace-nowrap">議事録</TableHead>
-                    <TableHead className="min-w-[120px] whitespace-nowrap">備考</TableHead>
-                    <TableHead className="w-[60px] whitespace-nowrap">添付</TableHead>
+                    <TableHead className="w-[120px] whitespace-nowrap">接触日時</TableHead>
+                    <TableHead className="w-[72px] whitespace-nowrap">接触方法</TableHead>
+                    <TableHead className="w-[80px] whitespace-nowrap">担当者</TableHead>
+                    <TableHead className="w-[80px] whitespace-nowrap">先方参加者</TableHead>
+                    <TableHead className="min-w-[120px] whitespace-nowrap">議事録</TableHead>
+                    <TableHead className="min-w-[100px] whitespace-nowrap">備考</TableHead>
+                    <TableHead className="w-[48px] whitespace-nowrap">添付</TableHead>
                     <TableHead className="w-[100px] whitespace-nowrap sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
                   </TableRow>
                 </TableHeader>

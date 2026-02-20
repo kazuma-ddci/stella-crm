@@ -764,11 +764,12 @@ export function ContactsModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="mixed" className="overflow-y-auto">
-        <DialogHeader>
+      <DialogContent size="mixed" className="p-0 overflow-hidden flex flex-col">
+        <DialogHeader className="px-4 sm:px-6 py-4 border-b shrink-0">
           <DialogTitle>連絡先管理 - {companyName}</DialogTitle>
         </DialogHeader>
 
+        <div className="flex-1 overflow-y-auto min-h-0 px-4 sm:px-6 py-4">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="grid w-full grid-cols-3 gap-1 rounded-lg bg-gray-100 p-1">
             <button
@@ -1155,6 +1156,7 @@ export function ContactsModal({
             )}
           </TabsContent>
         </Tabs>
+        </div>
       </DialogContent>
     </Dialog>
   );

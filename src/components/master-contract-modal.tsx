@@ -314,7 +314,7 @@ export function MasterContractModal({
           <DialogTitle>契約書管理 - {companyName}</DialogTitle>
         </DialogHeader>
 
-        <div className="px-6 py-4 flex flex-col gap-4" style={{ flex: 1, minHeight: 0 }}>
+        <div className="px-6 py-4 flex flex-col gap-4 flex-1 min-h-0">
           {/* 追加ボタン */}
           <div className="flex justify-end shrink-0">
             <Button onClick={handleAdd} size="sm" disabled={formOpen}>
