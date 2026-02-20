@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { Sidebar, SidebarContent } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
@@ -29,6 +29,7 @@ export function AuthenticatedLayout({
   const { status } = useSession();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   // localStorage から復元（hydration安全）
   useEffect(() => {
@@ -36,6 +37,27 @@ export function AuthenticatedLayout({
     if (saved === "true") {
       setSidebarCollapsed(true);
     }
+  }, []);
+
+  // コンテンツエリア幅・サイドバー幅を CSS 変数として公開（モーダル配置に使用）
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const cw = entry.contentRect.width;
+      document.documentElement.style.setProperty("--content-w", `${cw}px`);
+      const sw = Math.max(
+        0,
+        Math.round(window.innerWidth - el.getBoundingClientRect().width)
+      );
+      document.documentElement.style.setProperty("--sidebar-w", `${sw}px`);
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.removeProperty("--content-w");
+      document.documentElement.style.removeProperty("--sidebar-w");
+    };
   }, []);
 
   const toggleSidebar = () => {
@@ -86,7 +108,7 @@ export function AuthenticatedLayout({
           </SheetContent>
         </Sheet>
 
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div ref={contentRef} className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <Header
             user={serverUser}
             onMobileMenuToggle={() => setMobileMenuOpen(true)}

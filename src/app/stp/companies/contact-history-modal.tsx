@@ -622,7 +622,7 @@ export function CompanyContactHistoryModal({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          size="datagrid"
+          size="datagrid-cw"
           className="p-0 overflow-hidden flex flex-col"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >

@@ -136,3 +136,14 @@
 [cmdk-list-sizer] {
   height: auto !important;
 }
+
+/* Content-area-aware modal width (datagrid-cw) */
+@media (min-width: 640px) {
+  [data-slot="dialog-content"][data-size="datagrid-cw"] {
+    max-width: clamp(
+      calc(var(--content-w, 100vw) * 0.6),
+      calc(220px + var(--content-w, 100vw) * 0.46),
+      calc(var(--content-w, 100vw) * 0.9)
+    );
+  }
+}
