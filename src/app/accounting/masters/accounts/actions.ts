@@ -18,6 +18,11 @@ export async function createAccount(data: Record<string, unknown>) {
     throw new Error("科目コード、科目名、区分は必須です");
   }
 
+  const VALID_CATEGORIES = ["asset", "liability", "revenue", "expense"];
+  if (!VALID_CATEGORIES.includes(category)) {
+    throw new Error("無効な区分です");
+  }
+
   // 科目コード重複チェック
   const existing = await prisma.account.findUnique({
     where: { code },
@@ -69,7 +74,12 @@ export async function updateAccount(id: number, data: Record<string, unknown>) {
   }
 
   if ("category" in data) {
-    updateData.category = data.category as string;
+    const category = data.category as string;
+    const VALID_CATEGORIES = ["asset", "liability", "revenue", "expense"];
+    if (!VALID_CATEGORIES.includes(category)) {
+      throw new Error("無効な区分です");
+    }
+    updateData.category = category;
   }
 
   if ("displayOrder" in data) {
