@@ -13,7 +13,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CheckCircle, AlertCircle, Loader2, ArrowRight, ArrowLeft } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { CheckCircle, AlertCircle, Loader2, ArrowRight, ArrowLeft, ChevronsUpDown, X } from "lucide-react";
 import { toLocalDateString } from "@/lib/utils";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
@@ -83,7 +85,7 @@ interface FormData {
   desiredJobType: string;  // 単一選択に変更
   annualBudget: string;
   annualHiringTarget: string;
-  hiringArea: string;  // 単一選択に変更
+  hiringAreas: string[];  // 複数選択
   hiringTimeline: string;
   ageRange: string;  // 新しいフィールド
   requiredConditions: string;
@@ -115,7 +117,7 @@ export default function LeadFormPage({
     desiredJobType: "",
     annualBudget: "",
     annualHiringTarget: "",
-    hiringArea: "",
+    hiringAreas: [],
     hiringTimeline: "",
     ageRange: "",
     requiredConditions: "",
@@ -149,6 +151,23 @@ export default function LeadFormPage({
     setFormData((prev) => ({ ...prev, [field]: value }));
     // エラーメッセージをクリア
     if (errorMessage) setErrorMessage("");
+  };
+
+  const toggleHiringArea = (prefecture: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      hiringAreas: prev.hiringAreas.includes(prefecture)
+        ? prev.hiringAreas.filter((p) => p !== prefecture)
+        : [...prev.hiringAreas, prefecture],
+    }));
+    if (errorMessage) setErrorMessage("");
+  };
+
+  const removeHiringArea = (prefecture: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      hiringAreas: prev.hiringAreas.filter((p) => p !== prefecture),
+    }));
   };
 
   // ページ1の必須項目チェック
@@ -212,7 +231,7 @@ export default function LeadFormPage({
           desiredJobTypes: formData.desiredJobType ? [formData.desiredJobType] : undefined,
           annualBudget: formData.annualBudget ? Number(formData.annualBudget) : undefined,
           annualHiringTarget: formData.annualHiringTarget ? Number(formData.annualHiringTarget) : undefined,
-          hiringAreas: formData.hiringArea ? [formData.hiringArea] : undefined,
+          hiringAreas: formData.hiringAreas.length > 0 ? formData.hiringAreas : undefined,
           hiringTimeline: formData.hiringTimeline || undefined,
           ageRange: formData.ageRange || undefined,
           requiredConditions: formData.requiredConditions || undefined,
@@ -297,7 +316,7 @@ export default function LeadFormPage({
       desiredJobType: "",
       annualBudget: "",
       annualHiringTarget: "",
-      hiringArea: "",
+      hiringAreas: [],
       hiringTimeline: "",
       ageRange: "",
       requiredConditions: "",
@@ -583,22 +602,56 @@ export default function LeadFormPage({
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="hiringArea">採用エリア（都道府県）</Label>
-                      <Select
-                        value={formData.hiringArea}
-                        onValueChange={(value) => handleInputChange("hiringArea", value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="都道府県を選択してください" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {PREFECTURES.map((pref) => (
-                            <SelectItem key={pref} value={pref}>
-                              {pref}
-                            </SelectItem>
+                      <Label>採用エリア（都道府県・複数選択可）</Label>
+                      {formData.hiringAreas.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {formData.hiringAreas.map((area) => (
+                            <span
+                              key={area}
+                              className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-xs font-medium px-2 py-1 rounded-full"
+                            >
+                              {area}
+                              <button
+                                type="button"
+                                onClick={() => removeHiringArea(area)}
+                                className="hover:bg-blue-200 rounded-full p-0.5"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
                           ))}
-                        </SelectContent>
-                      </Select>
+                        </div>
+                      )}
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full justify-between font-normal"
+                          >
+                            {formData.hiringAreas.length === 0
+                              ? "都道府県を選択してください"
+                              : `${formData.hiringAreas.length}件選択中`}
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                          <div className="max-h-60 overflow-y-auto p-2">
+                            {PREFECTURES.map((pref) => (
+                              <label
+                                key={pref}
+                                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-100 cursor-pointer text-sm"
+                              >
+                                <Checkbox
+                                  checked={formData.hiringAreas.includes(pref)}
+                                  onCheckedChange={() => toggleHiringArea(pref)}
+                                />
+                                {pref}
+                              </label>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
                     </div>
 
                     <div className="space-y-2">

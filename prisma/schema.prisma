@@ -32,6 +32,7 @@ model MasterStellaCompany {
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  deletedAt     DateTime? @map("deleted_at")
 
   // 企業統合（マージ）
   mergedIntoId  Int?                              // 統合先企業ID（統合済みの場合）
@@ -252,6 +253,29 @@ model ContactMethod {
 }
 
 // ============================================
+// 接触種別マスタ (Contact Categories)
+// プロジェクトごとの接触種別（商談、キックオフ等）
+// ============================================
+
+model ContactCategory {
+  id           Int      @id @default(autoincrement())
+  projectId    Int      @map("project_id")
+  name         String   @db.VarChar(100)
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  project          MasterProject    @relation(fields: [projectId], references: [id])
+  contactHistories ContactHistory[]
+
+  @@unique([projectId, name])
+  @@index([projectId], map: "idx_contact_categories_project_id")
+  @@map("contact_categories")
+}
+
+// ============================================
 // 流入経路マスタ (STP Lead Sources)
 // ============================================
 
@@ -398,21 +422,24 @@ model ContactHistory {
   customerParticipants String?   @db.VarChar(500) @map("customer_participants")
   meetingMinutes       String?   @map("meeting_minutes")
   note                 String?
+  contactCategoryId    Int?      @map("contact_category_id")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
   deletedAt            DateTime? @map("deleted_at")
 
   // Relations
-  company       MasterStellaCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contactMethod ContactMethod?      @relation(fields: [contactMethodId], references: [id])
-  staff         MasterStaff?        @relation(fields: [staffId], references: [id])
-  roles         ContactHistoryRole[]
-  files         ContactHistoryFile[]
+  company         MasterStellaCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contactMethod   ContactMethod?      @relation(fields: [contactMethodId], references: [id])
+  contactCategory ContactCategory?    @relation(fields: [contactCategoryId], references: [id])
+  staff           MasterStaff?        @relation(fields: [staffId], references: [id])
+  roles           ContactHistoryRole[]
+  files           ContactHistoryFile[]
 
   @@index([companyId], map: "idx_contact_histories_company_id")
   @@index([contactDate], map: "idx_contact_histories_contact_date")
   @@index([deletedAt], map: "idx_contact_histories_deleted_at")
   @@index([staffId], map: "idx_contact_histories_staff_id")
+  @@index([contactCategoryId], map: "idx_contact_histories_contact_category_id")
   @@map("contact_histories")
 }
 
@@ -719,6 +746,7 @@ model MasterProject {
   staffPermissions   StaffPermission[]
   displayViews       DisplayView[]
   customerTypes      CustomerType[]
+  contactCategories  ContactCategory[]
   accountingTransactions AccountingTransaction[]
   accountingMonthlyCloses AccountingMonthlyClose[]
   accountingReconciliations AccountingReconciliation[]

@@ -78,6 +78,7 @@ export default async function CompanyDetailPage({ params }: Props) {
       },
       include: {
         contactMethod: true,
+        contactCategory: true,
         roles: {
           include: {
             customerType: {
@@ -143,6 +144,10 @@ export default async function CompanyDetailPage({ params }: Props) {
     notFound();
   }
 
+  if (company.deletedAt) {
+    notFound();
+  }
+
   // マージ済み企業は統合先にリダイレクト
   if (company.mergedIntoId) {
     redirect(`/companies/${company.mergedIntoId}`);
@@ -167,6 +172,7 @@ export default async function CompanyDetailPage({ params }: Props) {
       id: h.id,
       contactDate: h.contactDate.toISOString(),
       contactMethodName: h.contactMethod?.name || null,
+      contactCategoryName: h.contactCategory?.name || null,
       assignedToNames,
       customerParticipants: h.customerParticipants,
       meetingMinutes: h.meetingMinutes,

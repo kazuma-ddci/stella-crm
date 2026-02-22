@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { normalizeCompanyName, normalizeCorporateNumber, validateCorporateNumber } from "@/lib/utils";
+import { getRelatedDataCounts } from "@/lib/company/get-related-data-counts";
+import type { CompanyRelatedData } from "@/types/company-merge";
 
 async function generateCompanyCode(): Promise<string> {
   const lastCompany = await prisma.masterStellaCompany.findFirst({
@@ -106,10 +108,15 @@ export async function updateCompany(id: number, data: Record<string, unknown>) {
 }
 
 export async function deleteCompany(id: number) {
-  await prisma.masterStellaCompany.delete({
+  await prisma.masterStellaCompany.update({
     where: { id },
+    data: { deletedAt: new Date() },
   });
   revalidatePath("/companies");
+}
+
+export async function getCompanyDeleteInfo(id: number): Promise<CompanyRelatedData> {
+  return getRelatedDataCounts(id);
 }
 
 // For backward compatibility with company-form.tsx
@@ -191,7 +198,7 @@ export async function searchSimilarCompanies(
 
   // 全企業を取得して正規化比較（DBレベルの正規化が難しいため）
   const allCompanies = await prisma.masterStellaCompany.findMany({
-    where: excludeId ? { id: { not: excludeId } } : undefined,
+    where: { deletedAt: null, ...(excludeId ? { id: { not: excludeId } } : {}) },
     select: {
       id: true,
       companyCode: true,

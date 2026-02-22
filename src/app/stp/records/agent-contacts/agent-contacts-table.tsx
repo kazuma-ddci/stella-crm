@@ -71,12 +71,14 @@ type Props = {
   staffOptions: { value: string; label: string }[];
   staffByProject: Record<number, { value: string; label: string }[]>;
   customerTypeProjectMap: Record<string, number>;
+  contactCategories?: { id: number; name: string; projectId: number }[];
 };
 
 type FormData = {
   agentId?: string | null;
   contactDate?: string;
   contactMethodId?: string | null;
+  contactCategoryId?: string | null;
   assignedTo?: string[];
   customerParticipants?: string;
   meetingMinutes?: string;
@@ -104,6 +106,7 @@ export function AgentContactsTable({
   staffOptions,
   staffByProject,
   customerTypeProjectMap,
+  contactCategories,
 }: Props) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editItem, setEditItem] = useState<Record<string, unknown> | null>(null);
@@ -197,6 +200,23 @@ export function AgentContactsTable({
 
   const availableStaffOptions = useMemo(() => getAvailableStaffOptions(), [getAvailableStaffOptions]);
 
+  // 選択されたプロジェクトに基づいて利用可能な接触種別を取得
+  const availableContactCategories = useMemo(() => {
+    if (!contactCategories) return [];
+    const selectedCustomerTypeIds = formData.customerTypeIds || [];
+    if (selectedCustomerTypeIds.length === 0) return contactCategories;
+
+    const selectedProjectIds = new Set<number>();
+    selectedCustomerTypeIds.forEach((ctId) => {
+      const projectId = customerTypeProjectMap[ctId];
+      if (projectId) {
+        selectedProjectIds.add(projectId);
+      }
+    });
+
+    return contactCategories.filter((cc) => selectedProjectIds.has(cc.projectId));
+  }, [contactCategories, formData.customerTypeIds, customerTypeProjectMap]);
+
   const openAddDialog = () => {
     setFormData({
       customerTypeIds: ["2"], // デフォルトで「代理店」を選択
@@ -219,6 +239,7 @@ export function AgentContactsTable({
       agentId: item.agentId ? String(item.agentId) : null,
       contactDate: item.contactDate as string,
       contactMethodId: item.contactMethodId ? String(item.contactMethodId) : null,
+      contactCategoryId: item.contactCategoryId ? String(item.contactCategoryId) : null,
       assignedTo: assignedToArray,
       customerParticipants: (item.customerParticipants as string) || "",
       meetingMinutes: (item.meetingMinutes as string) || "",
@@ -276,6 +297,7 @@ export function AgentContactsTable({
         agentId: formData.agentId,
         contactDate: formData.contactDate,
         contactMethodId: formData.contactMethodId,
+        contactCategoryId: formData.contactCategoryId,
         assignedTo: formData.assignedTo || [],
         customerParticipants: formData.customerParticipants,
         meetingMinutes: formData.meetingMinutes,
@@ -412,6 +434,27 @@ export function AgentContactsTable({
           </Select>
         </div>
       </div>
+
+      {contactCategories && contactCategories.length > 0 && (
+        <div className="space-y-2">
+          <Label>接触種別</Label>
+          <Select
+            value={formData.contactCategoryId || ""}
+            onValueChange={(v) => setFormData({ ...formData, contactCategoryId: v || null })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="選択してください" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableContactCategories.map((cc) => (
+                <SelectItem key={cc.id} value={String(cc.id)}>
+                  {cc.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {/* プロジェクト・顧客種別選択 */}
       <div className="space-y-2">
@@ -605,6 +648,7 @@ export function AgentContactsTable({
               <TableHead>代理店名</TableHead>
               <TableHead>接触日時</TableHead>
               <TableHead>接触方法</TableHead>
+              <TableHead>接触種別</TableHead>
               <TableHead>プロジェクト</TableHead>
               <TableHead>担当者</TableHead>
               <TableHead>先方参加者</TableHead>
@@ -617,7 +661,7 @@ export function AgentContactsTable({
           <TableBody>
             {filteredData.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="text-center text-muted-foreground">
+                <TableCell colSpan={11} className="text-center text-muted-foreground">
                   {data.length === 0 ? "接触履歴がありません" : "検索条件に一致するデータがありません"}
                 </TableCell>
               </TableRow>
@@ -631,6 +675,7 @@ export function AgentContactsTable({
                     {formatDateTime(item.contactDate as string)}
                   </TableCell>
                   <TableCell>{(item.contactMethodName as string) || "-"}</TableCell>
+                  <TableCell>{(item.contactCategoryName as string) || "-"}</TableCell>
                   <TableCell>{(item.customerTypeLabels as string) || "-"}</TableCell>
                   <TableCell>
                     {item.hasMismatch ? (

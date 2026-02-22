@@ -31,6 +31,7 @@ export async function GET() {
 
     // 企業一覧を取得
     const companies = await prisma.masterStellaCompany.findMany({
+      where: { deletedAt: null },
       select: {
         id: true,
         name: true,

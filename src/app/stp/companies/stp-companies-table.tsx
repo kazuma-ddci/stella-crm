@@ -59,6 +59,7 @@ type Props = {
   masterContractStatusOptions: { value: string; label: string }[];
   customerTypes: CustomerType[];
   staffByProject: Record<number, { value: string; label: string }[]>;
+  contactCategories: { id: number; name: string; projectId: number; project: { id: number; name: string; displayOrder: number } }[];
 };
 
 export function StpCompaniesTable({
@@ -78,6 +79,7 @@ export function StpCompaniesTable({
   masterContractStatusOptions,
   customerTypes,
   staffByProject,
+  contactCategories,
 }: Props) {
   const router = useRouter();
   const [stageModalOpen, setStageModalOpen] = useState(false);
@@ -860,6 +862,7 @@ export function StpCompaniesTable({
           staffOptions={staffOptions}
           customerTypes={customerTypes}
           staffByProject={staffByProject}
+          contactCategories={contactCategories}
         />
       )}
 

@@ -31,6 +31,17 @@ type CustomerType = {
   };
 };
 
+type ContactCategoryOption = {
+  id: number;
+  name: string;
+  projectId: number;
+  project: {
+    id: number;
+    name: string;
+    displayOrder: number;
+  };
+};
+
 type Props = {
   data: Record<string, unknown>[];
   companyOptions: { value: string; label: string; disabled?: boolean }[];
@@ -42,6 +53,7 @@ type Props = {
   masterContractStatusOptions: { value: string; label: string }[];
   customerTypes: CustomerType[];
   staffByProject: Record<number, { value: string; label: string }[]>;
+  contactCategories: ContactCategoryOption[];
 };
 
 // ステータス選択肢
@@ -69,6 +81,7 @@ export function AgentsTable({
   masterContractStatusOptions,
   customerTypes,
   staffByProject,
+  contactCategories,
 }: Props) {
   const router = useRouter();
   const [contactHistoryModalOpen, setContactHistoryModalOpen] = useState(false);
@@ -740,6 +753,7 @@ export function AgentsTable({
             staffOptions={staffOptions}
             customerTypes={customerTypes}
             staffByProject={staffByProject}
+            contactCategories={contactCategories}
           />
           <MasterContractModal
             open={masterContractModalOpen}

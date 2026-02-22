@@ -74,11 +74,15 @@ export function submissionToSimulationInput(submission: SubmissionData): Simulat
   const firstArea = hiringAreas[0] || "";
   const location = prefectureToLocation(firstArea);
 
+  // 全エリアをロケーション名に変換
+  const locations = hiringAreas.map((area) => prefectureToLocation(area));
+
   return {
     companyName: submission.companyName,
     jobType: mapping.jobType,
     industry: mapping.industry,
     location,
+    locations: locations.length > 0 ? locations : undefined,
     recruitmentAgencyCost: submission.pastRecruitingCostAgency || 0,
     jobAdCost: submission.pastRecruitingCostAds || 0,
     referralCost: submission.pastRecruitingCostReferral || 0,

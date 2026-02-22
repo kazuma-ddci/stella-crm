@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useRef } from "react";
+import React, { useState, useRef } from "react";
 import Link from "next/link";
 import { CrudTable, ColumnDef } from "@/components/crud-table";
-import { addCompany, updateCompany, deleteCompany } from "./actions";
+import { addCompany, updateCompany, deleteCompany, getCompanyDeleteInfo } from "./actions";
 import { ContactsModal } from "./contacts-modal";
 import { Building2 } from "lucide-react";
 import { CompanyNameInput } from "@/components/company-name-input";
 import { validateCorporateNumber } from "@/lib/utils";
+import type { CompanyRelatedData } from "@/types/company-merge";
 
 type Location = {
   id: number;
@@ -504,6 +505,39 @@ export function CompaniesTable({ data, staffOptions }: Props) {
         onAdd={handleAdd}
         onUpdate={handleUpdate}
         onDelete={deleteCompany}
+        onDeletePrepare={async (id: number) => {
+          const info = await getCompanyDeleteInfo(id);
+          const labels: { key: keyof CompanyRelatedData; label: string }[] = [
+            { key: "stpCompanies", label: "STP企業" },
+            { key: "stpAgents", label: "代理店" },
+            { key: "contracts", label: "契約" },
+            { key: "contractHistories", label: "契約履歴" },
+            { key: "contactHistories", label: "接触履歴" },
+            { key: "locations", label: "拠点" },
+            { key: "contacts", label: "担当者" },
+            { key: "bankAccounts", label: "銀行口座" },
+            { key: "externalUsers", label: "外部ユーザー" },
+            { key: "registrationTokens", label: "登録トークン" },
+            { key: "referredAgents", label: "紹介先代理店" },
+            { key: "leadFormSubmissions", label: "リード回答" },
+          ];
+          const items = labels.filter((l) => info[l.key] > 0);
+          if (items.length === 0) {
+            return React.createElement("p", { className: "text-sm text-muted-foreground" }, "関連データはありません。");
+          }
+          return React.createElement("div", { className: "space-y-2" },
+            React.createElement("p", { className: "text-sm text-muted-foreground" }, "この企業には以下の関連データがあります:"),
+            React.createElement("ul", { className: "text-sm space-y-1 pl-4" },
+              items.map((item) =>
+                React.createElement("li", { key: item.key, className: "flex items-center gap-2" },
+                  React.createElement("span", { className: "text-muted-foreground" }, "・"),
+                  React.createElement("span", null, `${item.label}: `, React.createElement("strong", null, `${info[item.key]}件`))
+                )
+              )
+            ),
+            React.createElement("p", { className: "text-sm text-muted-foreground" }, "削除しても関連データは保持されます。")
+          );
+        }}
         emptyMessage="顧客が登録されていません"
         customActions={customActions}
         customRenderers={customRenderers}

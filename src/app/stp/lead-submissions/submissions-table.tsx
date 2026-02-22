@@ -35,7 +35,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Combobox } from "@/components/ui/combobox";
 import { processAsNewCompany, processWithExistingCompany, rejectSubmission, updateSubmission } from "./actions";
 import { toast } from "sonner";
-import { Eye, Building2, Link2, X, Pencil, AlertTriangle, FileText, ExternalLink, Info, FileEdit, Copy, Check, Loader2 } from "lucide-react";
+import { Eye, Building2, Link2, X, Pencil, AlertTriangle, FileText, ExternalLink, Info, FileEdit, Copy, Check, Loader2, ChevronsUpDown } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import Link from "next/link";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import DatePicker, { registerLocale } from "react-datepicker";
@@ -45,6 +47,51 @@ import { toLocalDateString } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 registerLocale("ja", ja);
+
+// 職種リスト（ヒアリングフォームと同一）
+const JOB_TYPES = [
+  "営業（国内・海外・法人・個人）",
+  "販売・接客・サービス（小売・飲食・宿泊・理美容など）",
+  "事務・管理（総務・人事・経理・受付・秘書など）",
+  "企画・マーケティング・広報",
+  "経営・経営企画（役員・経営者を含む）",
+  "専門職（コンサル・士業・金融など）",
+  "ITエンジニア（システム開発・インフラ・社内SEなど）",
+  "Web・クリエイティブ（デザイン・編集・制作など）",
+  "技術職（機械・電気・電子・化学・素材など）",
+  "製造・生産・品質管理",
+  "建築・土木・設備技術",
+  "医療・福祉・介護",
+  "教育・保育・研究",
+  "公務員・団体職員",
+  "物流・運送・ドライバー",
+  "農林水産業",
+  "保安・警備・清掃",
+  "その他",
+];
+
+// 都道府県リスト（ヒアリングフォームと同一）
+const PREFECTURES = [
+  "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
+  "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
+  "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県",
+  "岐阜県", "静岡県", "愛知県", "三重県",
+  "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県",
+  "鳥取県", "島根県", "岡山県", "広島県", "山口県",
+  "徳島県", "香川県", "愛媛県", "高知県",
+  "福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県",
+];
+
+// 年齢幅選択肢（ヒアリングフォームと同一）
+const AGE_RANGE_OPTIONS = [
+  { value: "不問", label: "不問" },
+  { value: "〜30", label: "〜30歳" },
+  { value: "〜35", label: "〜35歳" },
+  { value: "〜40", label: "〜40歳" },
+  { value: "〜45", label: "〜45歳" },
+  { value: "〜50", label: "〜50歳" },
+  { value: "〜55", label: "〜55歳" },
+];
 
 type Proposal = {
   id: number;
@@ -88,6 +135,7 @@ type Submission = {
   hiringTimeline: string | null;
   ageRangeMin: number | null;
   ageRangeMax: number | null;
+  ageRange: string | null;
   requiredConditions: string | null;
   preferredConditions: string | null;
   proposals: Proposal[];
@@ -230,6 +278,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
     contactEmail: "",
     contactPhone: "",
     masterCompanyId: "",
+    jobType: "",
     pastRecruitingCostAgency: "",
     pastRecruitingCostAds: "",
     pastRecruitingCostReferral: "",
@@ -237,9 +286,9 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
     pastHiringCount: "",
     annualBudget: "",
     annualHiringTarget: "",
+    hiringAreas: [] as string[],
     hiringTimeline: "",
-    ageRangeMin: "",
-    ageRangeMax: "",
+    ageRange: "",
     requiredConditions: "",
     preferredConditions: "",
     overwriteAgent: false,
@@ -444,6 +493,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
       contactEmail: submission.contactEmail,
       contactPhone: submission.contactPhone || "",
       masterCompanyId: submission.masterCompanyId ? String(submission.masterCompanyId) : "",
+      jobType: submission.pastHiringJobTypes[0] || "",
       pastRecruitingCostAgency: submission.pastRecruitingCostAgency?.toString() || "",
       pastRecruitingCostAds: submission.pastRecruitingCostAds?.toString() || "",
       pastRecruitingCostReferral: submission.pastRecruitingCostReferral?.toString() || "",
@@ -451,9 +501,9 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
       pastHiringCount: submission.pastHiringCount?.toString() || "",
       annualBudget: submission.annualBudget?.toString() || "",
       annualHiringTarget: submission.annualHiringTarget?.toString() || "",
+      hiringAreas: submission.hiringAreas,
       hiringTimeline: submission.hiringTimeline || "",
-      ageRangeMin: submission.ageRangeMin?.toString() || "",
-      ageRangeMax: submission.ageRangeMax?.toString() || "",
+      ageRange: submission.ageRange || "",
       requiredConditions: submission.requiredConditions || "",
       preferredConditions: submission.preferredConditions || "",
       overwriteAgent: false,
@@ -606,6 +656,8 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
         contactEmail: editForm.contactEmail,
         contactPhone: editForm.contactPhone || null,
         masterCompanyId: editForm.masterCompanyId ? Number(editForm.masterCompanyId) : null,
+        pastHiringJobTypes: editForm.jobType ? [editForm.jobType] : [],
+        desiredJobTypes: editForm.jobType ? [editForm.jobType] : [],
         pastRecruitingCostAgency: editForm.pastRecruitingCostAgency ? Number(editForm.pastRecruitingCostAgency) : null,
         pastRecruitingCostAds: editForm.pastRecruitingCostAds ? Number(editForm.pastRecruitingCostAds) : null,
         pastRecruitingCostReferral: editForm.pastRecruitingCostReferral ? Number(editForm.pastRecruitingCostReferral) : null,
@@ -613,9 +665,9 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
         pastHiringCount: editForm.pastHiringCount ? Number(editForm.pastHiringCount) : null,
         annualBudget: editForm.annualBudget ? Number(editForm.annualBudget) : null,
         annualHiringTarget: editForm.annualHiringTarget ? Number(editForm.annualHiringTarget) : null,
+        hiringAreas: editForm.hiringAreas.length > 0 ? editForm.hiringAreas : [],
         hiringTimeline: editForm.hiringTimeline || null,
-        ageRangeMin: editForm.ageRangeMin ? Number(editForm.ageRangeMin) : null,
-        ageRangeMax: editForm.ageRangeMax ? Number(editForm.ageRangeMax) : null,
+        ageRange: editForm.ageRange || null,
         requiredConditions: editForm.requiredConditions || null,
         preferredConditions: editForm.preferredConditions || null,
         overwriteAgent: editForm.overwriteAgent,
@@ -882,9 +934,11 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
                   <dd>{selectedSubmission.hiringTimeline || "-"}</dd>
                   <dt className="text-gray-500">採用可能年齢</dt>
                   <dd>
-                    {selectedSubmission.ageRangeMin || selectedSubmission.ageRangeMax
-                      ? `${selectedSubmission.ageRangeMin || ""}〜${selectedSubmission.ageRangeMax || ""}歳`
-                      : "-"}
+                    {selectedSubmission.ageRange
+                      ? AGE_RANGE_OPTIONS.find(o => o.value === selectedSubmission.ageRange)?.label || selectedSubmission.ageRange
+                      : selectedSubmission.ageRangeMin || selectedSubmission.ageRangeMax
+                        ? `${selectedSubmission.ageRangeMin || ""}〜${selectedSubmission.ageRangeMax || ""}歳`
+                        : "-"}
                   </dd>
                 </dl>
                 <dl className="mt-2 text-sm">
@@ -1447,14 +1501,22 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
                     onChange={(e) => setEditForm({ ...editForm, contactEmail: e.target.value })}
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-contactPhone">電話番号</Label>
-                  <Input
-                    id="edit-contactPhone"
-                    value={editForm.contactPhone}
-                    onChange={(e) => setEditForm({ ...editForm, contactPhone: e.target.value })}
-                  />
-                </div>
+              </div>
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="edit-jobType">職種</Label>
+                <Select
+                  value={editForm.jobType}
+                  onValueChange={(value) => setEditForm({ ...editForm, jobType: value })}
+                >
+                  <SelectTrigger id="edit-jobType">
+                    <SelectValue placeholder="職種を選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {JOB_TYPES.map((jt) => (
+                      <SelectItem key={jt} value={jt}>{jt}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>紐付け企業</Label>
@@ -1579,31 +1641,94 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="edit-hiringTimeline">採用希望時期</Label>
-                  <Input
-                    id="edit-hiringTimeline"
-                    value={editForm.hiringTimeline}
-                    onChange={(e) => setEditForm({ ...editForm, hiringTimeline: e.target.value })}
+                  <DatePicker
+                    selected={editForm.hiringTimeline ? new Date(editForm.hiringTimeline) : null}
+                    onChange={(date: Date | null) =>
+                      setEditForm({ ...editForm, hiringTimeline: date ? toLocalDateString(date) : "" })
+                    }
+                    dateFormat="yyyy/MM/dd"
+                    locale="ja"
+                    placeholderText="日付を選択"
+                    isClearable
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   />
                 </div>
-                <div className="space-y-2 col-span-2 grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-ageRangeMin">採用可能年齢（下限）</Label>
-                    <Input
-                      id="edit-ageRangeMin"
-                      type="number"
-                      value={editForm.ageRangeMin}
-                      onChange={(e) => setEditForm({ ...editForm, ageRangeMin: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-ageRangeMax">採用可能年齢（上限）</Label>
-                    <Input
-                      id="edit-ageRangeMax"
-                      type="number"
-                      value={editForm.ageRangeMax}
-                      onChange={(e) => setEditForm({ ...editForm, ageRangeMax: e.target.value })}
-                    />
-                  </div>
+                <div className="col-span-2 space-y-2">
+                  <Label>採用エリア</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        className="w-full justify-between font-normal"
+                      >
+                        {editForm.hiringAreas.length > 0
+                          ? `${editForm.hiringAreas.length}件選択中`
+                          : "都道府県を選択"}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0" align="start">
+                      <div className="max-h-[300px] overflow-y-auto p-2">
+                        {PREFECTURES.map((pref) => (
+                          <label
+                            key={pref}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-100 rounded cursor-pointer text-sm"
+                          >
+                            <Checkbox
+                              checked={editForm.hiringAreas.includes(pref)}
+                              onCheckedChange={(checked) => {
+                                setEditForm({
+                                  ...editForm,
+                                  hiringAreas: checked
+                                    ? [...editForm.hiringAreas, pref]
+                                    : editForm.hiringAreas.filter((a) => a !== pref),
+                                });
+                              }}
+                            />
+                            {pref}
+                          </label>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                  {editForm.hiringAreas.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {editForm.hiringAreas.map((area) => (
+                        <Badge key={area} variant="secondary" className="text-xs">
+                          {area}
+                          <button
+                            type="button"
+                            className="ml-1 hover:text-red-500"
+                            onClick={() =>
+                              setEditForm({
+                                ...editForm,
+                                hiringAreas: editForm.hiringAreas.filter((a) => a !== area),
+                              })
+                            }
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-ageRange">採用可能年齢幅</Label>
+                  <Select
+                    value={editForm.ageRange}
+                    onValueChange={(value) => setEditForm({ ...editForm, ageRange: value })}
+                  >
+                    <SelectTrigger id="edit-ageRange">
+                      <SelectValue placeholder="年齢幅を選択" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AGE_RANGE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="space-y-2">

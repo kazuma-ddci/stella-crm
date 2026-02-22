@@ -87,6 +87,8 @@ type ContactHistory = {
   contactDate: string;
   contactMethodId: number | null;
   contactMethodName: string | null;
+  contactCategoryId: number | null;
+  contactCategoryName: string | null;
   assignedTo: string | null;
   assignedToNames: string | null;
   customerParticipants: string | null;
@@ -94,6 +96,17 @@ type ContactHistory = {
   note: string | null;
   customerTypeIds?: number[];
   files?: FileInfo[];
+};
+
+type ContactCategoryOption = {
+  id: number;
+  name: string;
+  projectId: number;
+  project: {
+    id: number;
+    name: string;
+    displayOrder: number;
+  };
 };
 
 type Props = {
@@ -106,6 +119,7 @@ type Props = {
   staffOptions: { value: string; label: string }[];
   customerTypes: CustomerType[];
   staffByProject: Record<number, { value: string; label: string }[]>;
+  contactCategories: ContactCategoryOption[];
 };
 
 function formatDateTime(dateString: string): string {
@@ -130,6 +144,7 @@ export function ContactHistoryModal({
   staffOptions,
   customerTypes,
   staffByProject,
+  contactCategories,
 }: Props) {
   const [histories, setHistories] = useState<ContactHistory[]>(
     initialHistories as unknown as ContactHistory[]
@@ -203,6 +218,7 @@ export function ContactHistoryModal({
     setFormData({
       contactDate: undefined,
       contactMethodId: null,
+      contactCategoryId: null,
       assignedTo: "",
       customerParticipants: "",
       meetingMinutes: "",
@@ -217,6 +233,7 @@ export function ContactHistoryModal({
   const openEditForm = (history: ContactHistory) => {
     setFormData({
       ...history,
+      contactCategoryId: history.contactCategoryId || null,
       customerTypeIds: history.customerTypeIds || [REQUIRED_CUSTOMER_TYPE_ID],
       files: history.files || [],
     });
@@ -269,6 +286,7 @@ export function ContactHistoryModal({
       const newHistory = await addAgentContactHistory(agentId, {
         contactDate: formData.contactDate,
         contactMethodId: formData.contactMethodId,
+        contactCategoryId: formData.contactCategoryId || null,
         assignedTo: formData.assignedTo || null,
         customerParticipants: formData.customerParticipants || null,
         meetingMinutes: formData.meetingMinutes,
@@ -310,6 +328,7 @@ export function ContactHistoryModal({
       const updated = await updateAgentContactHistory(editHistory.id, {
         contactDate: pendingEditData.contactDate,
         contactMethodId: pendingEditData.contactMethodId,
+        contactCategoryId: pendingEditData.contactCategoryId || null,
         assignedTo: pendingEditData.assignedTo || null,
         customerParticipants: pendingEditData.customerParticipants || null,
         meetingMinutes: pendingEditData.meetingMinutes,
@@ -435,62 +454,6 @@ export function ContactHistoryModal({
           </Select>
         </div>
       </div>
-      <div className="space-y-2">
-        <Label>担当者（複数選択可）</Label>
-        <Popover open={staffPopoverOpen} onOpenChange={setStaffPopoverOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              role="combobox"
-              className="w-full justify-between min-h-10 h-auto"
-            >
-              <span className="flex flex-wrap gap-1">
-                {selectedStaffIds.length === 0 ? (
-                  <span className="text-muted-foreground">選択してください...</span>
-                ) : (
-                  selectedStaffIds.map((id) => {
-                    const staff = staffOptions.find((s) => s.value === id);
-                    return (
-                      <span key={id} className="bg-secondary text-secondary-foreground px-2 py-0.5 rounded text-sm">
-                        {staff?.label || id}
-                      </span>
-                    );
-                  })
-                )}
-              </span>
-              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-[calc(100vw-2rem)] sm:w-[400px] p-0" align="start">
-            <Command>
-              <CommandInput placeholder="担当者を検索..." />
-              <CommandList maxHeight={300}>
-                <CommandEmpty>
-                  {availableStaffOptions.length === 0
-                    ? "選択されたプロジェクトに担当者が割り当てられていません"
-                    : "見つかりませんでした"}
-                </CommandEmpty>
-                <CommandGroup>
-                  {availableStaffOptions.map((staff) => {
-                    const isSelected = selectedStaffIds.includes(staff.value);
-                    return (
-                      <CommandItem
-                        key={staff.value}
-                        value={staff.label}
-                        onSelect={() => handleStaffChange(staff.value)}
-                      >
-                        {isSelected && <Check className="mr-2 h-4 w-4" />}
-                        {!isSelected && <span className="mr-2 w-4" />}
-                        {staff.label}
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-              </CommandList>
-            </Command>
-          </PopoverContent>
-        </Popover>
-      </div>
       {/* 顧客種別選択（プロジェクトごとにグループ化） */}
       <div className="space-y-2">
         <Label>プロジェクト・顧客種別 <span className="text-destructive">*</span></Label>
@@ -556,6 +519,97 @@ export function ContactHistoryModal({
             </div>
           )}
         </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>接触種別</Label>
+          <Select
+            value={formData.contactCategoryId ? String(formData.contactCategoryId) : ""}
+            onValueChange={(v) =>
+              setFormData({ ...formData, contactCategoryId: v ? Number(v) : null })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="選択してください" />
+            </SelectTrigger>
+            <SelectContent>
+              {(() => {
+                const selectedProjectIds = new Set<number>();
+                (formData.customerTypeIds || []).forEach((ctId) => {
+                  const ct = customerTypes.find((c) => c.id === ctId);
+                  if (ct) {
+                    selectedProjectIds.add(ct.projectId);
+                  }
+                });
+                const filtered = selectedProjectIds.size > 0
+                  ? contactCategories.filter((cc) => selectedProjectIds.has(cc.projectId))
+                  : contactCategories;
+                return filtered.map((cc) => (
+                  <SelectItem key={cc.id} value={String(cc.id)}>
+                    {cc.name}
+                  </SelectItem>
+                ));
+              })()}
+            </SelectContent>
+          </Select>
+        </div>
+        <div />
+      </div>
+      <div className="space-y-2">
+        <Label>担当者（複数選択可）</Label>
+        <Popover open={staffPopoverOpen} onOpenChange={setStaffPopoverOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              className="w-full justify-between min-h-10 h-auto"
+            >
+              <span className="flex flex-wrap gap-1">
+                {selectedStaffIds.length === 0 ? (
+                  <span className="text-muted-foreground">選択してください...</span>
+                ) : (
+                  selectedStaffIds.map((id) => {
+                    const staff = staffOptions.find((s) => s.value === id);
+                    return (
+                      <span key={id} className="bg-secondary text-secondary-foreground px-2 py-0.5 rounded text-sm">
+                        {staff?.label || id}
+                      </span>
+                    );
+                  })
+                )}
+              </span>
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[calc(100vw-2rem)] sm:w-[400px] p-0" align="start">
+            <Command>
+              <CommandInput placeholder="担当者を検索..." />
+              <CommandList maxHeight={300}>
+                <CommandEmpty>
+                  {availableStaffOptions.length === 0
+                    ? "選択されたプロジェクトに担当者が割り当てられていません"
+                    : "見つかりませんでした"}
+                </CommandEmpty>
+                <CommandGroup>
+                  {availableStaffOptions.map((staff) => {
+                    const isSelected = selectedStaffIds.includes(staff.value);
+                    return (
+                      <CommandItem
+                        key={staff.value}
+                        value={staff.label}
+                        onSelect={() => handleStaffChange(staff.value)}
+                      >
+                        {isSelected && <Check className="mr-2 h-4 w-4" />}
+                        {!isSelected && <span className="mr-2 w-4" />}
+                        {staff.label}
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
       </div>
 
       <div className="space-y-2">
@@ -659,6 +713,7 @@ export function ContactHistoryModal({
                   <TableRow>
                     <TableHead className="w-[120px] whitespace-nowrap">接触日時</TableHead>
                     <TableHead className="w-[72px] whitespace-nowrap">接触方法</TableHead>
+                    <TableHead className="w-[72px] whitespace-nowrap">接触種別</TableHead>
                     <TableHead className="w-[80px] whitespace-nowrap">担当者</TableHead>
                     <TableHead className="w-[80px] whitespace-nowrap">先方参加者</TableHead>
                     <TableHead className="min-w-[120px] whitespace-nowrap">議事録</TableHead>
@@ -674,6 +729,7 @@ export function ContactHistoryModal({
                         {formatDateTime(history.contactDate)}
                       </TableCell>
                       <TableCell>{history.contactMethodName || "-"}</TableCell>
+                      <TableCell>{history.contactCategoryName || "-"}</TableCell>
                       <TableCell>{history.assignedToNames || getStaffNames(history.assignedTo)}</TableCell>
                       <TableCell>{history.customerParticipants || "-"}</TableCell>
                       <TableCell>

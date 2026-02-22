@@ -42,6 +42,7 @@ export async function GET() {
       orderBy: { submittedAt: "desc" },
     }),
     prisma.masterStellaCompany.findMany({
+      where: { deletedAt: null },
       orderBy: { id: "desc" },
     }),
     // STPに登録済みの企業とその代理店情報を取得

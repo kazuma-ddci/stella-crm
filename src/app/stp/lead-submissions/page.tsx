@@ -21,6 +21,7 @@ export default async function LeadSubmissionsPage() {
       orderBy: { submittedAt: "desc" },
     }),
     prisma.masterStellaCompany.findMany({
+      where: { deletedAt: null },
       orderBy: { id: "desc" },
     }),
     // STPに登録済みの企業とその代理店情報を取得
@@ -143,6 +144,7 @@ export default async function LeadSubmissionsPage() {
     hiringTimeline: s.hiringTimeline,
     ageRangeMin: s.ageRangeMin,
     ageRangeMax: s.ageRangeMax,
+    ageRange: s.ageRange,
     requiredConditions: s.requiredConditions,
     preferredConditions: s.preferredConditions,
     proposals: s.proposals.map((p) => ({

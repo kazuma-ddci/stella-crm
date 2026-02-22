@@ -400,6 +400,7 @@ export async function updateSubmission(
     hiringTimeline?: string | null;
     ageRangeMin?: number | null;
     ageRangeMax?: number | null;
+    ageRange?: string | null;
     requiredConditions?: string | null;
     preferredConditions?: string | null;
     masterCompanyId?: number | null;
@@ -440,6 +441,7 @@ export async function updateSubmission(
         hiringTimeline: data.hiringTimeline,
         ageRangeMin: data.ageRangeMin,
         ageRangeMax: data.ageRangeMax,
+        ageRange: data.ageRange,
         requiredConditions: data.requiredConditions,
         preferredConditions: data.preferredConditions,
         masterCompanyId: data.masterCompanyId,

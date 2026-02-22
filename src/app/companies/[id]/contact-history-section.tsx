@@ -14,6 +14,7 @@ type ContactHistory = {
   id: number;
   contactDate: string;
   contactMethodName: string | null;
+  contactCategoryName: string | null;
   assignedToNames: string | null;
   customerParticipants: string | null;
   meetingMinutes: string | null;
@@ -86,6 +87,7 @@ export function ContactHistorySection({ stpCompanies }: Props) {
               <TableHead>接触日時</TableHead>
               <TableHead>プロジェクト</TableHead>
               <TableHead>接触方法</TableHead>
+              <TableHead>接触種別</TableHead>
               <TableHead>担当者</TableHead>
               <TableHead>先方参加者</TableHead>
               <TableHead>議事録</TableHead>
@@ -102,6 +104,7 @@ export function ContactHistorySection({ stpCompanies }: Props) {
                   {history.projectLabels || "-"}
                 </TableCell>
                 <TableCell>{history.contactMethodName || "-"}</TableCell>
+                <TableCell>{history.contactCategoryName || "-"}</TableCell>
                 <TableCell>{history.assignedToNames || "-"}</TableCell>
                 <TableCell>{history.customerParticipants || "-"}</TableCell>
                 <TableCell className="max-w-xs">

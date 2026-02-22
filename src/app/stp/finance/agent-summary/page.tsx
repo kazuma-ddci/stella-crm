@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default async function AgentSummaryListPage() {
   const agents = await prisma.stpAgent.findMany({
+    where: { company: { deletedAt: null } },
     include: {
       company: true,
     },

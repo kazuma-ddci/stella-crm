@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default async function CompanySummaryListPage() {
   const stpCompanies = await prisma.stpCompany.findMany({
+    where: { company: { deletedAt: null } },
     include: {
       company: true,
     },

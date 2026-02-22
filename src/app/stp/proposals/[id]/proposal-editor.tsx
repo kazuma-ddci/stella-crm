@@ -34,7 +34,12 @@ import {
   CheckCircle,
   Upload,
   Lock,
+  ChevronsUpDown,
+  X,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import {
   calculateSimulation,
   type ProposalContent,
@@ -133,8 +138,8 @@ export function ProposalEditor({ proposal }: Props) {
   const selectedSlide = slides.find((s) => s.version === selectedVersion);
   const isSelectedConfirmed = !!selectedSlide?.confirmedProposalId;
 
-  const [input, setInput] = useState<SimulationInput>(
-    initialContent?.input || {
+  const [input, setInput] = useState<SimulationInput>(() => {
+    const base = initialContent?.input || {
       companyName: "",
       jobType: "営業",
       industry: "一般サービス業",
@@ -146,8 +151,13 @@ export function ProposalEditor({ proposal }: Props) {
       annualHires: 24,
       targetHires: 12,
       salaryLevel: "平均±10%",
-    },
-  );
+    };
+    // 旧データ互換: locationsがなければlocationから生成
+    if (!base.locations) {
+      base.locations = base.location ? [base.location] : [];
+    }
+    return base;
+  });
 
   // CRM職種選択状態
   const [selectedCrmJobType, setSelectedCrmJobType] = useState(
@@ -195,7 +205,12 @@ export function ProposalEditor({ proposal }: Props) {
     setSelectedVersion(version);
     const slide = slides.find((s) => s.version === version);
     if (slide && slide.inputSnapshot) {
-      setInput(slide.inputSnapshot);
+      const snapshot = { ...slide.inputSnapshot };
+      // 旧データ互換: locationsがなければlocationから生成
+      if (!snapshot.locations) {
+        snapshot.locations = snapshot.location ? [snapshot.location] : [];
+      }
+      setInput(snapshot);
       setSelectedCrmJobType(
         findCrmJobType(slide.inputSnapshot.jobType, slide.inputSnapshot.industry),
       );
@@ -632,18 +647,68 @@ export function ProposalEditor({ proposal }: Props) {
                   勤務地
                   {renderOriginalHint("location")}
                 </Label>
-                <Select value={input.location} onValueChange={(v) => handleInputChange("location", v)}>
-                  <SelectTrigger className={`w-full ${fieldHighlight("location")}`}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent position="popper" className="z-50 max-h-[300px]">
-                    {prefectureOptions.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      className={`w-full justify-between font-normal ${fieldHighlight("location")}`}
+                    >
+                      {(input.locations?.length || 0) > 0
+                        ? `${input.locations!.length}件選択中`
+                        : "都道府県を選択"}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-full p-0" align="start">
+                    <div className="max-h-[300px] overflow-y-auto p-2">
+                      {prefectureOptions.map((opt) => (
+                        <label
+                          key={opt.value}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-100 rounded cursor-pointer text-sm"
+                        >
+                          <Checkbox
+                            checked={input.locations?.includes(opt.value) || false}
+                            onCheckedChange={(checked) => {
+                              const newLocations = checked
+                                ? [...(input.locations || []), opt.value]
+                                : (input.locations || []).filter((l) => l !== opt.value);
+                              setInput((prev) => ({
+                                ...prev,
+                                locations: newLocations,
+                                location: newLocations[0] || "",
+                              }));
+                            }}
+                          />
+                          {opt.label}
+                        </label>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                {(input.locations?.length || 0) > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {input.locations!.map((loc) => (
+                      <Badge key={loc} variant="secondary" className="text-xs">
+                        {loc}
+                        <button
+                          type="button"
+                          className="ml-1 hover:text-red-500"
+                          onClick={() => {
+                            const newLocations = input.locations!.filter((l) => l !== loc);
+                            setInput((prev) => ({
+                              ...prev,
+                              locations: newLocations,
+                              location: newLocations[0] || "",
+                            }));
+                          }}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
                     ))}
-                  </SelectContent>
-                </Select>
+                  </div>
+                )}
               </div>
               <div className="space-y-1">
                 <Label>給与水準</Label>

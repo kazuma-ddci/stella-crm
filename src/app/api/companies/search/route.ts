@@ -18,13 +18,14 @@ export async function GET(request: NextRequest) {
     const where = query
       ? {
           mergedIntoId: null,
+          deletedAt: null,
           OR: [
             { name: { contains: query, mode: "insensitive" as const } },
             { companyCode: { contains: query, mode: "insensitive" as const } },
             { industry: { contains: query, mode: "insensitive" as const } },
           ],
         }
-      : { mergedIntoId: null };
+      : { mergedIntoId: null, deletedAt: null };
 
     // 企業検索
     const companies = await prisma.masterStellaCompany.findMany({

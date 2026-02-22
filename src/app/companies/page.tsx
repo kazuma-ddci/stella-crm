@@ -7,7 +7,7 @@ export default async function CompaniesPage() {
   const staffOptions = await getStaffOptionsByField("MASTER_COMPANY_STAFF");
 
   const companies = await prisma.masterStellaCompany.findMany({
-    where: { mergedIntoId: null },
+    where: { mergedIntoId: null, deletedAt: null },
     orderBy: { id: "asc" },
     include: {
       staff: true,

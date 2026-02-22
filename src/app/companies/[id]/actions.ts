@@ -3,12 +3,19 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { validateCorporateNumber } from "@/lib/utils";
+import { getRelatedDataCounts } from "@/lib/company/get-related-data-counts";
+import type { CompanyRelatedData } from "@/types/company-merge";
 
 export async function deleteCompany(id: number) {
-  await prisma.masterStellaCompany.delete({
+  await prisma.masterStellaCompany.update({
     where: { id },
+    data: { deletedAt: new Date() },
   });
   revalidatePath("/companies");
+}
+
+export async function getCompanyDeleteInfo(id: number): Promise<CompanyRelatedData> {
+  return getRelatedDataCounts(id);
 }
 
 export async function updateCompany(

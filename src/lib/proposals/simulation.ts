@@ -19,6 +19,7 @@ export type SimulationInput = {
   jobType: string;
   industry: string;
   location: string;
+  locations?: string[];
   recruitmentAgencyCost: number;
   jobAdCost: number;
   referralCost: number;

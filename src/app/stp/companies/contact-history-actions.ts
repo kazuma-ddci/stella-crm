@@ -14,6 +14,7 @@ type FileInput = {
 type ContactHistoryInput = {
   contactDate?: string;
   contactMethodId?: number | null;
+  contactCategoryId?: number | null;
   assignedTo?: string | null; // スタッフIDをカンマ区切りで保存
   customerParticipants?: string | null;
   meetingMinutes?: string | null;
@@ -59,6 +60,7 @@ export async function addCompanyContactHistory(
         companyId: stpCompany.companyId,
         contactDate: new Date(data.contactDate!),
         contactMethodId: data.contactMethodId || null,
+        contactCategoryId: data.contactCategoryId || null,
         assignedTo: data.assignedTo || null,
         customerParticipants: data.customerParticipants || null,
         meetingMinutes: data.meetingMinutes || null,
@@ -92,6 +94,7 @@ export async function addCompanyContactHistory(
       where: { id: history.id },
       include: {
         contactMethod: true,
+        contactCategory: true,
         roles: {
           include: {
             customerType: true,
@@ -125,6 +128,7 @@ export async function updateCompanyContactHistory(
       data: {
         contactDate: new Date(data.contactDate!),
         contactMethodId: data.contactMethodId || null,
+        contactCategoryId: data.contactCategoryId !== undefined ? (data.contactCategoryId || null) : undefined,
         assignedTo: data.assignedTo || null,
         customerParticipants: data.customerParticipants || null,
         meetingMinutes: data.meetingMinutes || null,
@@ -191,6 +195,7 @@ export async function updateCompanyContactHistory(
       where: { id: history.id },
       include: {
         contactMethod: true,
+        contactCategory: true,
         roles: {
           include: {
             customerType: true,
@@ -284,6 +289,7 @@ export async function getCompanyContactHistories(companyId: number) {
     },
     include: {
       contactMethod: true,
+      contactCategory: true,
       roles: {
         include: {
           customerType: {
@@ -322,6 +328,7 @@ function formatContactHistoryResponse(history: {
   companyId: number;
   contactDate: Date;
   contactMethodId: number | null;
+  contactCategoryId?: number | null;
   assignedTo: string | null;
   customerParticipants: string | null;
   meetingMinutes: string | null;
@@ -330,6 +337,7 @@ function formatContactHistoryResponse(history: {
   updatedAt: Date;
   deletedAt: Date | null;
   contactMethod?: { id: number; name: string } | null;
+  contactCategory?: { id: number; name: string } | null;
   roles?: Array<{
     id: number;
     customerTypeId: number;
@@ -354,6 +362,8 @@ function formatContactHistoryResponse(history: {
     contactDate: history.contactDate.toISOString(),
     contactMethodId: history.contactMethodId,
     contactMethodName: history.contactMethod?.name || null,
+    contactCategoryId: history.contactCategoryId || null,
+    contactCategoryName: history.contactCategory?.name || null,
     assignedTo: history.assignedTo,
     customerParticipants: history.customerParticipants,
     meetingMinutes: history.meetingMinutes,

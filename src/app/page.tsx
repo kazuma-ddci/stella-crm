@@ -5,7 +5,7 @@ import { Building2, Briefcase, Phone, Users } from "lucide-react";
 export default async function DashboardPage() {
   const [companiesCount, stpCompaniesCount, contactsCount, agentsCount, recentContacts] =
     await Promise.all([
-      prisma.masterStellaCompany.count(),
+      prisma.masterStellaCompany.count({ where: { deletedAt: null } }),
       prisma.stpCompany.count(),
       prisma.contactHistory.count({ where: { deletedAt: null } }),
       prisma.stpAgent.count(),

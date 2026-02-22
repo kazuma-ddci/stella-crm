@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import {
   Table,
   TableBody,
@@ -40,7 +41,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
-import { Plus, Pencil, Trash2, ChevronsUpDown, X, Check, ArrowUpDown, ChevronDown } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronsUpDown, X, Check, ArrowUpDown, ChevronDown, Loader2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -158,6 +159,8 @@ type CrudTableProps = {
   updateWarningMessage?: string;
   // 変更履歴管理対象フィールド（メモ必須の確認ダイアログを表示）
   changeTrackedFields?: { key: string; displayName: string }[];
+  // 削除ダイアログオープン時に呼ばれるコールバック（関連データ件数表示など）
+  onDeletePrepare?: (id: number) => Promise<ReactNode | null>;
 };
 
 function formatValue(value: unknown, type?: string, options?: { value: string; label: string }[]): string {
@@ -246,11 +249,15 @@ export function CrudTable({
   onFieldChange,
   updateWarningMessage,
   changeTrackedFields = [],
+  onDeletePrepare,
 }: CrudTableProps) {
+  const router = useRouter();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editItem, setEditItem] = useState<Record<string, unknown> | null>(null);
   const [editItemOriginal, setEditItemOriginal] = useState<Record<string, unknown>>({});
   const [deleteItem, setDeleteItem] = useState<Record<string, unknown> | null>(null);
+  const [deleteInfo, setDeleteInfo] = useState<ReactNode | null>(null);
+  const [deleteInfoLoading, setDeleteInfoLoading] = useState(false);
   const [formData, setFormData] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(false);
   const [isSimpleMode, setIsSimpleMode] = useState(true); // デフォルトは簡易入力モード
@@ -719,6 +726,8 @@ export function CrudTable({
       await onDelete(deleteItem.id as number);
       toast.success("削除しました");
       setDeleteItem(null);
+      setDeleteInfo(null);
+      router.refresh();
     } catch {
       toast.error("削除に失敗しました");
     } finally {
@@ -1374,7 +1383,17 @@ export function CrudTable({
                               {onDelete && (
                                 <DropdownMenuItem
                                   variant="destructive"
-                                  onClick={() => setDeleteItem(item)}
+                                  onClick={() => {
+                                    setDeleteItem(item);
+                                    setDeleteInfo(null);
+                                    if (onDeletePrepare) {
+                                      setDeleteInfoLoading(true);
+                                      onDeletePrepare(item.id as number)
+                                        .then(setDeleteInfo)
+                                        .catch(() => setDeleteInfo(null))
+                                        .finally(() => setDeleteInfoLoading(false));
+                                    }
+                                  }}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                   削除
@@ -1483,17 +1502,24 @@ export function CrudTable({
       </Dialog>
 
       {/* Delete Dialog */}
-      <Dialog open={!!deleteItem} onOpenChange={(open) => !open && setDeleteItem(null)}>
+      <Dialog open={!!deleteItem} onOpenChange={(open) => { if (!open) { setDeleteItem(null); setDeleteInfo(null); } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>削除確認</DialogTitle>
           </DialogHeader>
-          <p>このデータを削除しますか？この操作は取り消せません。</p>
+          <p>このデータを削除しますか？</p>
+          {deleteInfoLoading && (
+            <div className="flex items-center gap-2 py-2">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">関連データを確認中...</span>
+            </div>
+          )}
+          {!deleteInfoLoading && deleteInfo}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteItem(null)}>
+            <Button variant="outline" onClick={() => { setDeleteItem(null); setDeleteInfo(null); }}>
               キャンセル
             </Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={loading}>
+            <Button variant="destructive" onClick={handleDelete} disabled={loading || deleteInfoLoading}>
               {loading ? "削除中..." : "削除"}
             </Button>
           </DialogFooter>

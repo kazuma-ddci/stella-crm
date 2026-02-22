@@ -35,7 +35,7 @@ export default async function StpDashboardPage() {
     recentStageChanges,
   ] = await Promise.all([
     // STP企業数（合計）
-    prisma.stpCompany.count(),
+    prisma.stpCompany.count({ where: { company: { deletedAt: null } } }),
 
     // アクティブ契約数
     prisma.stpContractHistory.count({
@@ -48,11 +48,12 @@ export default async function StpDashboardPage() {
     }),
 
     // 代理店数
-    prisma.stpAgent.count(),
+    prisma.stpAgent.count({ where: { company: { deletedAt: null } } }),
 
     // 今月の新規リード数
     prisma.stpCompany.count({
       where: {
+        company: { deletedAt: null },
         leadAcquiredDate: {
           gte: currentMonthStart,
           lte: currentMonthEnd,
@@ -81,12 +82,14 @@ export default async function StpDashboardPage() {
     prisma.stpCompany.groupBy({
       by: ["currentStageId"],
       _count: { id: true },
+      where: { company: { deletedAt: null } },
     }),
 
     // ヨミ別企業数
     prisma.stpCompany.groupBy({
       by: ["forecast"],
       _count: { id: true },
+      where: { company: { deletedAt: null } },
     }),
 
     // フォーム回答数（status別）
@@ -99,7 +102,7 @@ export default async function StpDashboardPage() {
     prisma.stpCompany.groupBy({
       by: ["leadSourceId"],
       _count: { id: true },
-      where: { leadSourceId: { not: null } },
+      where: { leadSourceId: { not: null }, company: { deletedAt: null } },
     }),
 
     // 今月のKPIウィークリーデータ（運用KPI集計用）

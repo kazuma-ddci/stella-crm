@@ -5,7 +5,7 @@ import { AgentContactsTable } from "./agent-contacts-table";
 export default async function AgentContactsPage() {
   const STP_PROJECT_ID = 1; // 採用ブースト
 
-  const [contacts, agents, contactMethods, customerTypes, allStaff, staffProjectAssignments] = await Promise.all([
+  const [contacts, agents, contactMethods, customerTypes, allStaff, staffProjectAssignments, contactCategories] = await Promise.all([
     // 接触履歴（顧客種別「代理店」のコンテキストを持つもの）
     prisma.contactHistory.findMany({
       where: {
@@ -22,6 +22,7 @@ export default async function AgentContactsPage() {
       include: {
         company: true,
         contactMethod: true,
+        contactCategory: true,
         roles: {
           include: {
             customerType: {
@@ -65,6 +66,15 @@ export default async function AgentContactsPage() {
       include: {
         staff: true,
       },
+    }),
+    // 接触種別を取得
+    prisma.contactCategory.findMany({
+      where: { isActive: true },
+      include: { project: true },
+      orderBy: [
+        { project: { displayOrder: "asc" } },
+        { displayOrder: "asc" },
+      ],
     }),
   ]);
 
@@ -158,6 +168,8 @@ export default async function AgentContactsPage() {
       contactDate: c.contactDate.toISOString(),
       contactMethodId: c.contactMethodId,
       contactMethodName: c.contactMethod?.name,
+      contactCategoryId: c.contactCategoryId,
+      contactCategoryName: c.contactCategory?.name,
       assignedTo: c.assignedTo,
       staffName: getStaffNames(c.assignedTo),
       hasMismatch: mismatchedStaff.length > 0,
@@ -243,6 +255,16 @@ export default async function AgentContactsPage() {
             staffOptions={staffOptions}
             staffByProject={staffByProject}
             customerTypeProjectMap={customerTypeProjectMap}
+            contactCategories={contactCategories.map((cc) => ({
+              id: cc.id,
+              name: cc.name,
+              projectId: cc.projectId,
+              project: {
+                id: cc.project.id,
+                name: cc.project.name,
+                displayOrder: cc.project.displayOrder,
+              },
+            }))}
           />
         </CardContent>
       </Card>

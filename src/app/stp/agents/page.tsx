@@ -39,7 +39,7 @@ export default async function StpAgentsPage() {
   // 既存代理店にトークンがなければ自動生成
   await ensureLeadFormTokensExist();
 
-  const [agents, masterCompanies, staff, staffProjectAssignments, allStaffProjectAssignments, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, stpCompanies] = await Promise.all([
+  const [agents, masterCompanies, staff, staffProjectAssignments, allStaffProjectAssignments, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, stpCompanies, contactCategories] = await Promise.all([
     prisma.stpAgent.findMany({
       include: {
         company: {
@@ -76,6 +76,7 @@ export default async function StpAgentsPage() {
       orderBy: { id: "asc" },
     }),
     prisma.masterStellaCompany.findMany({
+      where: { deletedAt: null },
       orderBy: { companyCode: "desc" },
     }),
     prisma.masterStaff.findMany({
@@ -118,6 +119,7 @@ export default async function StpAgentsPage() {
       },
       include: {
         contactMethod: true,
+        contactCategory: true,
         roles: {
           include: {
             customerType: true,
@@ -142,6 +144,15 @@ export default async function StpAgentsPage() {
           where: { status: "signed" },
         },
       },
+    }),
+    // 接触種別マスタ
+    prisma.contactCategory.findMany({
+      where: { isActive: true },
+      include: { project: true },
+      orderBy: [
+        { project: { displayOrder: "asc" } },
+        { displayOrder: "asc" },
+      ],
     }),
   ]);
 
@@ -272,6 +283,8 @@ export default async function StpAgentsPage() {
         contactDate: h.contactDate.toISOString(),
         contactMethodId: h.contactMethodId,
         contactMethodName: h.contactMethod?.name || null,
+        contactCategoryId: h.contactCategoryId,
+        contactCategoryName: h.contactCategory?.name || null,
         assignedTo: h.assignedTo,
         assignedToNames,
         customerParticipants: h.customerParticipants,
@@ -379,6 +392,16 @@ export default async function StpAgentsPage() {
             masterContractStatusOptions={masterContractStatusOptions}
             customerTypes={customerTypes}
             staffByProject={staffByProject}
+            contactCategories={contactCategories.map((cc) => ({
+              id: cc.id,
+              name: cc.name,
+              projectId: cc.projectId,
+              project: {
+                id: cc.project.id,
+                name: cc.project.name,
+                displayOrder: cc.project.displayOrder,
+              },
+            }))}
           />
         </CardContent>
       </Card>

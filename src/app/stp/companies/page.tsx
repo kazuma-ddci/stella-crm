@@ -8,7 +8,7 @@ import { getStaffOptionsByFields } from "@/lib/staff/get-staff-by-field";
 export default async function StpCompaniesPage() {
   const STP_PROJECT_ID = 1; // 採用ブースト
 
-  const [companies, masterCompanies, stages, agents, staff, staffProjectAssignments, allStaffProjectAssignments, leadSources, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, contractHistoriesData, editorProposalsRaw] = await Promise.all([
+  const [companies, masterCompanies, stages, agents, staff, staffProjectAssignments, allStaffProjectAssignments, leadSources, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, contractHistoriesData, editorProposalsRaw, contactCategories] = await Promise.all([
     prisma.stpCompany.findMany({
       include: {
         company: {
@@ -30,6 +30,7 @@ export default async function StpCompaniesPage() {
       orderBy: { id: "asc" },
     }),
     prisma.masterStellaCompany.findMany({
+      where: { deletedAt: null },
       include: {
         locations: { where: { deletedAt: null } },
         contacts: { where: { deletedAt: null } },
@@ -129,6 +130,15 @@ export default async function StpCompaniesPage() {
         stpCompanyId: true,
         proposalContent: true,
       },
+    }),
+    // 接触種別を取得
+    prisma.contactCategory.findMany({
+      where: { isActive: true },
+      include: { project: true },
+      orderBy: [
+        { project: { displayOrder: "asc" } },
+        { displayOrder: "asc" },
+      ],
     }),
   ]);
 
@@ -415,6 +425,12 @@ export default async function StpCompaniesPage() {
             masterContractStatusOptions={masterContractStatusOptions}
             customerTypes={customerTypes}
             staffByProject={staffByProject}
+            contactCategories={contactCategories.map((cc) => ({
+              id: cc.id,
+              name: cc.name,
+              projectId: cc.projectId,
+              project: { id: cc.project.id, name: cc.project.name, displayOrder: cc.project.displayOrder },
+            }))}
           />
         </CardContent>
       </Card>
