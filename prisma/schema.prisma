@@ -53,6 +53,7 @@ model MasterStellaCompany {
   contactHistories     ContactHistory[]
   externalUsers        ExternalUser[]
   registrationTokens   RegistrationToken[]
+  counterparties       Counterparty[]            // 経理システム追加
 
   @@map("master_stella_companies")
 }
@@ -101,6 +102,7 @@ model StellaCompanyContact {
   // Relations
   company      MasterStellaCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
   externalUser ExternalUser?
+  invoiceMailRecipients InvoiceMailRecipient[]  // 経理システム追加
 
   @@map("stella_company_contacts")
 }
@@ -603,6 +605,64 @@ model MasterStaff {
   // パスワードリセット
   passwordResetTokens         PasswordResetToken[]
 
+  // 経理システム Relations
+  transactionConfirmed        Transaction[]              @relation("TransactionConfirmer")
+  transactionCreated          Transaction[]              @relation("TransactionCreator")
+  transactionUpdated          Transaction[]              @relation("TransactionUpdater")
+  invoiceGroupCreated         InvoiceGroup[]             @relation("InvoiceGroupCreator")
+  invoiceGroupUpdated         InvoiceGroup[]             @relation("InvoiceGroupUpdater")
+  paymentGroupConfirmed       PaymentGroup[]             @relation("PaymentGroupConfirmer")
+  paymentGroupCreated         PaymentGroup[]             @relation("PaymentGroupCreator")
+  paymentGroupUpdated         PaymentGroup[]             @relation("PaymentGroupUpdater")
+  recurringCreated            RecurringTransaction[]     @relation("RecurringCreator")
+  recurringUpdated            RecurringTransaction[]     @relation("RecurringUpdater")
+  costCenterCreated           CostCenter[]               @relation("CostCenterCreator")
+  costCenterUpdated           CostCenter[]               @relation("CostCenterUpdater")
+  allocTemplateCreated        AllocationTemplate[]       @relation("AllocTemplateCreator")
+  allocTemplateUpdated        AllocationTemplate[]       @relation("AllocTemplateUpdater")
+  allocLineCreated            AllocationTemplateLine[]   @relation("AllocLineCreator")
+  allocLineUpdated            AllocationTemplateLine[]   @relation("AllocLineUpdater")
+  allocConfirmations          AllocationConfirmation[]
+  allocOverrideCreated        AllocationTemplateOverride[] @relation("AllocOverrideCreator")
+  expCatCreated               ExpenseCategory[]          @relation("ExpCatCreator")
+  expCatUpdated               ExpenseCategory[]          @relation("ExpCatUpdater")
+  journalApproved             JournalEntry[]             @relation("JournalApprover")
+  journalCreated              JournalEntry[]             @relation("JournalCreator")
+  journalUpdated              JournalEntry[]             @relation("JournalUpdater")
+  journalLineCreated          JournalEntryLine[]         @relation("JournalLineCreator")
+  journalLineUpdated          JournalEntryLine[]         @relation("JournalLineUpdater")
+  accountCreated              Account[]                  @relation("AccountCreator")
+  accountUpdated              Account[]                  @relation("AccountUpdater")
+  bankTxCreated               BankTransaction[]          @relation("BankTxCreator")
+  bankTxUpdated               BankTransaction[]          @relation("BankTxUpdater")
+  reconciliationPerformed     Reconciliation[]           @relation("ReconciliationPerformer")
+  counterpartyCreated         Counterparty[]             @relation("CounterpartyCreator")
+  counterpartyUpdated         Counterparty[]             @relation("CounterpartyUpdater")
+  autoJournalCreated          AutoJournalRule[]          @relation("AutoJournalCreator")
+  autoJournalUpdated          AutoJournalRule[]          @relation("AutoJournalUpdater")
+  payMethodCreated            PaymentMethod[]            @relation("PayMethodCreator")
+  payMethodUpdated            PaymentMethod[]            @relation("PayMethodUpdater")
+  attachmentUploaded          Attachment[]               @relation("AttachmentUploader")
+  cryptoDetailCreated         CryptoTransactionDetail[]  @relation("CryptoDetailCreator")
+  cryptoDetailUpdated         CryptoTransactionDetail[]  @relation("CryptoDetailUpdater")
+  systemSettingCreated        SystemSetting[]            @relation("SystemSettingCreator")
+  systemSettingUpdated        SystemSetting[]            @relation("SystemSettingUpdater")
+  budgetCreated               Budget[]                   @relation("BudgetCreator")
+  budgetUpdated               Budget[]                   @relation("BudgetUpdater")
+  monthlyClosePerformed       MonthlyCloseLog[]          @relation("MonthlyClosePerformer")
+  opCoEmailCreated            OperatingCompanyEmail[]    @relation("OpCoEmailCreator")
+  opCoEmailUpdated            OperatingCompanyEmail[]    @relation("OpCoEmailUpdater")
+  invoiceTemplateCreated      InvoiceTemplate[]          @relation("InvoiceTemplateCreator")
+  invoiceTemplateUpdated      InvoiceTemplate[]          @relation("InvoiceTemplateUpdater")
+  invoiceMailSent             InvoiceMail[]              @relation("InvoiceMailSender")
+  invoiceMailCreated          InvoiceMail[]              @relation("InvoiceMailCreator")
+  invoiceMailUpdated          InvoiceMail[]              @relation("InvoiceMailUpdater")
+  commentCreated              TransactionComment[]       @relation("CommentCreator")
+  notificationReceived        Notification[]             @relation("NotificationRecipient")
+  notificationSent            Notification[]             @relation("NotificationSender")
+  notificationStatusChanged   Notification[]             @relation("NotificationStatusChanger")
+  changeLogChanged            ChangeLog[]                @relation("ChangeLogChanger")
+
   @@map("master_staff")
 }
 
@@ -753,6 +813,12 @@ model MasterProject {
   roleTypeLinks      StaffRoleTypeProject[]
   fieldRestrictions  StaffFieldRestriction[]
 
+  // 経理システム追加Relations
+  costCenters             CostCenter[]
+  finTransactions         Transaction[]
+  finRecurringTransactions RecurringTransaction[]
+  monthlyCloseLogs        MonthlyCloseLog[]
+
   @@map("master_projects")
 }
 
@@ -773,8 +839,22 @@ model OperatingCompany {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
+  // 経理システム追加カラム
+  logoPath                String?   // ロゴ画像パス
+  abbreviation            String?   // 略称（例: STE、MTR）→ 請求書番号に使用
+  invoicePrefix           String?   // 請求書番号プレフィックス
+  defaultPaymentTermDays  Int?      // デフォルト支払期限日数
+
   projects              MasterProject[]
   bankAccounts          OperatingCompanyBankAccount[]
+
+  // 経理システム追加Relations
+  emails                  OperatingCompanyEmail[]
+  invoiceGroups           InvoiceGroup[]
+  paymentGroups           PaymentGroup[]
+  invoiceTemplates        InvoiceTemplate[]
+  invoiceMails            InvoiceMail[]
+  invoiceNumberSequences  StpInvoiceNumberSequence[]
 
   @@map("operating_companies")
 }
@@ -799,6 +879,7 @@ model OperatingCompanyBankAccount {
 
   // Relations
   operatingCompany OperatingCompany @relation(fields: [operatingCompanyId], references: [id], onDelete: Cascade)
+  invoiceGroups    InvoiceGroup[]   // 経理システム追加
 
   @@map("operating_company_bank_accounts")
 }
@@ -860,6 +941,7 @@ model MasterContract {
   parentContract        MasterContract?           @relation("ContractHierarchy", fields: [parentContractId], references: [id])
   childContracts        MasterContract[]          @relation("ContractHierarchy")
   statusHistories       MasterContractStatusHistory[]
+  finTransactions       Transaction[]             // 経理システム追加
 
   @@index([companyId], map: "idx_master_contracts_company_id")
   @@index([projectId], map: "idx_master_contracts_project_id")
@@ -1826,6 +1908,7 @@ model StpMonthlyClose {
   reopenedBy      Int?                                             // 再オープン者
   reopenReason    String?                                          // 再オープン理由
   note            String?
+  snapshotData    Json?     // クローズ時のPLスナップショット（経理システム追加）
 
   // Relations
   closer          MasterStaff  @relation("MonthCloser", fields: [closedBy], references: [id])
@@ -1841,11 +1924,16 @@ model StpMonthlyClose {
 // ============================================
 
 model StpInvoiceNumberSequence {
-  id              Int       @id @default(autoincrement())
-  yearMonth       String    @unique @db.VarChar(7)                // "2026-02" 形式
-  lastNumber      Int       @default(0)                           // その月の最後の番号
-  updatedAt       DateTime  @updatedAt
+  id                 Int       @id @default(autoincrement())
+  operatingCompanyId Int?      // FK → OperatingCompany（経理システム追加）
+  yearMonth          String    @db.VarChar(7)                // "2026-02" 形式
+  lastNumber         Int       @default(0)                   // その月の最後の番号
+  updatedAt          DateTime  @updatedAt
 
+  // Relations
+  operatingCompany   OperatingCompany? @relation(fields: [operatingCompanyId], references: [id])
+
+  @@unique([operatingCompanyId, yearMonth])
   @@map("stp_invoice_number_sequences")
 }
 
@@ -2097,4 +2185,943 @@ model StpSetting {
   updatedAt DateTime @updatedAt
 
   @@map("stp_settings")
+}
+
+// ============================================
+// ============================================
+// 経理・財務管理システム テーブル（SPEC-ACCOUNTING-001）
+// ============================================
+// ============================================
+
+// ============================================
+// ① Transaction（取引）
+// ============================================
+
+model Transaction {
+  id                    Int       @id @default(autoincrement())
+  invoiceGroupId        Int?      // FK → InvoiceGroup（売上側の請求グループ）
+  paymentGroupId        Int?      // FK → PaymentGroup（経費側の支払グループ）
+  counterpartyId        Int       // FK → Counterparty（取引先）
+  contractId            Int?      // FK → MasterContract（CRM契約に紐づく場合）
+  recurringTransactionId Int?     // FK → RecurringTransaction（定期取引から生成された場合）
+  allocationTemplateId  Int?      // FK → AllocationTemplate（按分ありの場合）
+  costCenterId          Int?      // FK → CostCenter（按分なしの場合のプロジェクト）
+  expenseCategoryId     Int       // FK → ExpenseCategory（費目）
+  projectId             Int?      // FK → MasterProject（どのプロジェクトで作成されたか）
+
+  type                  String    // "revenue" | "expense"
+  amount                Int       // 金額（税抜）
+  taxAmount             Int       // 消費税額
+  taxRate               Int       @default(10) // 税率（%）
+  taxType               String    @default("tax_excluded") // "tax_included" | "tax_excluded"
+
+  periodFrom            DateTime  // 発生期間From
+  periodTo              DateTime  // 発生期間To
+  paymentDueDate        DateTime? // 支払予定日（経費の場合）
+  paymentMethodId       Int?      // FK → PaymentMethod（決済手段）
+
+  status                String    @default("unconfirmed")
+  // "unconfirmed" | "confirmed" | "awaiting_accounting" |
+  // "returned" | "resubmitted" | "journalized" |
+  // "partially_paid" | "paid" | "hidden"
+
+  note                  String?   // 摘要・メモ
+
+  // 自動生成トラッキング
+  isAutoGenerated       Boolean   @default(false)
+  sourceType            String?   // "crm" | "recurring" | "manual" | "slack"
+  sourceDataChangedAt   DateTime? // ソースデータ変更日時
+  latestCalculatedAmount Int?     // 最新の計算金額（ソース変更時）
+
+  // STP固有（移行用）
+  stpRevenueType        String?   // "initial" | "monthly" | "performance"
+  stpExpenseType        String?   // "agent_initial" | "agent_monthly" | "commission_initial" etc.
+  stpCandidateId        Int?      // FK → StpCandidate（成果報酬の場合）
+  stpContractHistoryId  Int?      // FK → StpContractHistory
+  stpAgentId            Int?      // FK → StpAgent
+
+  // 源泉徴収（経費の場合）
+  isWithholdingTarget   Boolean   @default(false)
+  withholdingTaxRate    Decimal?
+  withholdingTaxAmount  Int?
+  netPaymentAmount      Int?
+
+  confirmedBy           Int?      // FK → MasterStaff
+  confirmedAt           DateTime?
+
+  createdBy             Int       // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  invoiceGroup          InvoiceGroup?         @relation(fields: [invoiceGroupId], references: [id])
+  paymentGroup          PaymentGroup?         @relation(fields: [paymentGroupId], references: [id])
+  counterparty          Counterparty          @relation(fields: [counterpartyId], references: [id])
+  contract              MasterContract?       @relation(fields: [contractId], references: [id])
+  recurringTransaction  RecurringTransaction? @relation(fields: [recurringTransactionId], references: [id])
+  allocationTemplate    AllocationTemplate?   @relation(fields: [allocationTemplateId], references: [id])
+  costCenter            CostCenter?           @relation(fields: [costCenterId], references: [id])
+  expenseCategory       ExpenseCategory       @relation(fields: [expenseCategoryId], references: [id])
+  project               MasterProject?        @relation(fields: [projectId], references: [id])
+  paymentMethod         PaymentMethod?        @relation(fields: [paymentMethodId], references: [id])
+  confirmer             MasterStaff?          @relation("TransactionConfirmer", fields: [confirmedBy], references: [id])
+  creator               MasterStaff           @relation("TransactionCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?          @relation("TransactionUpdater", fields: [updatedBy], references: [id])
+  journalEntries        JournalEntry[]
+  comments              TransactionComment[]
+  attachments           Attachment[]
+  allocationConfirmations AllocationConfirmation[]
+  allocationOverrides   AllocationTemplateOverride[]
+  cryptoDetail          CryptoTransactionDetail?
+}
+
+// ============================================
+// ② InvoiceGroup（請求グループ）
+// ============================================
+
+model InvoiceGroup {
+  id                    Int       @id @default(autoincrement())
+  counterpartyId        Int       // FK → Counterparty（請求先の取引先）
+  operatingCompanyId    Int       // FK → OperatingCompany（請求元法人）
+  bankAccountId         Int?      // FK → OperatingCompanyBankAccount（振込先口座）
+
+  invoiceNumber         String?   @unique // 請求書番号（例: STE-INV-202603-0001）
+  invoiceDate           DateTime? // 請求日
+  paymentDueDate        DateTime? // 支払期限（＝入金予定日）
+
+  subtotal              Int?      // 小計（税抜、自動計算）
+  taxAmount             Int?      // 消費税額（小計から一括計算）
+  totalAmount           Int?      // 合計（税込、自動計算）
+
+  pdfPath               String?   // 生成済みPDFのファイルパス
+  pdfFileName           String?   // PDFファイル名
+
+  // 訂正請求書
+  originalInvoiceGroupId Int?     // FK → InvoiceGroup（訂正元）
+  correctionType        String?   // "replacement" | "additional"（差し替え/追加請求）
+
+  status                String    @default("draft")
+  // "draft" | "pdf_created" | "sent" | "awaiting_accounting" |
+  // "partially_paid" | "paid" | "returned" | "corrected"
+
+  createdBy             Int       // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  counterparty          Counterparty          @relation(fields: [counterpartyId], references: [id])
+  operatingCompany      OperatingCompany      @relation(fields: [operatingCompanyId], references: [id])
+  bankAccount           OperatingCompanyBankAccount? @relation(fields: [bankAccountId], references: [id])
+  originalInvoiceGroup  InvoiceGroup?         @relation("InvoiceCorrection", fields: [originalInvoiceGroupId], references: [id])
+  correctedInvoiceGroups InvoiceGroup[]       @relation("InvoiceCorrection")
+  transactions          Transaction[]
+  journalEntries        JournalEntry[]
+  invoiceMails          InvoiceMail[]
+  comments              TransactionComment[]
+  creator               MasterStaff           @relation("InvoiceGroupCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?          @relation("InvoiceGroupUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ③ PaymentGroup（支払グループ）
+// ============================================
+
+model PaymentGroup {
+  id                    Int       @id @default(autoincrement())
+  counterpartyId        Int       // FK → Counterparty（支払先）
+  operatingCompanyId    Int       // FK → OperatingCompany（支払元法人）
+  targetMonth           DateTime  // 対象月（YYYY-MM-01）
+
+  expectedPaymentDate   DateTime? // 支払予定日
+  actualPaymentDate     DateTime? // 実際の支払日
+  totalAmount           Int?      // 合計金額
+  taxAmount             Int?      // 税額
+
+  // 請求書発行依頼
+  requestedPdfName      String?   // 相手に指定するPDFファイル名
+  receivedPdfPath       String?   // 受領した請求書PDFのパス
+  receivedPdfFileName   String?   // 受領したPDFのファイル名
+
+  status                String    @default("before_request")
+  // "before_request" | "requested" | "invoice_received" |
+  // "rejected" | "re_requested" | "confirmed" | "paid"
+
+  confirmedBy           Int?      // FK → MasterStaff（請求書確認者）
+  confirmedAt           DateTime?
+
+  createdBy             Int       // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  counterparty          Counterparty      @relation(fields: [counterpartyId], references: [id])
+  operatingCompany      OperatingCompany  @relation(fields: [operatingCompanyId], references: [id])
+  transactions          Transaction[]
+  journalEntries        JournalEntry[]
+  invoiceMails          InvoiceMail[]
+  comments              TransactionComment[]
+  confirmer             MasterStaff?      @relation("PaymentGroupConfirmer", fields: [confirmedBy], references: [id])
+  creator               MasterStaff       @relation("PaymentGroupCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?      @relation("PaymentGroupUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ④ RecurringTransaction（定期取引）
+// ============================================
+
+model RecurringTransaction {
+  id                    Int       @id @default(autoincrement())
+  counterpartyId        Int       // FK → Counterparty
+  expenseCategoryId     Int       // FK → ExpenseCategory（費目）
+  costCenterId          Int?      // FK → CostCenter（按分なしの場合のプロジェクト）
+  allocationTemplateId  Int?      // FK → AllocationTemplate（按分ありの場合）
+  paymentMethodId       Int?      // FK → PaymentMethod（決済手段）
+  projectId             Int?      // FK → MasterProject（どのプロジェクトで使用するか）
+
+  type                  String    // "revenue" | "expense"
+  name                  String    // 名称（例: AWS利用料、オフィス家賃）
+  amount                Int?      // 金額（変動の場合はnull）
+  taxAmount             Int?      // 消費税額
+  taxRate               Int       @default(10) // 税率（%）
+  amountType            String    @default("fixed") // "fixed" | "variable"
+  frequency             String    // "monthly" | "yearly" | "weekly"
+  executionDay          Int?      // monthly: 日付(1-31), yearly: 日付(1-31), weekly: 曜日(0=日,1=月,...,6=土)
+  startDate             DateTime  // 開始日
+  endDate               DateTime? // 終了日（null=継続中）
+  isActive              Boolean   @default(true)
+  note                  String?   // 摘要・メモ
+
+  createdBy             Int       // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  counterparty          Counterparty         @relation(fields: [counterpartyId], references: [id])
+  expenseCategory       ExpenseCategory      @relation(fields: [expenseCategoryId], references: [id])
+  costCenter            CostCenter?          @relation(fields: [costCenterId], references: [id])
+  allocationTemplate    AllocationTemplate?  @relation(fields: [allocationTemplateId], references: [id])
+  paymentMethod         PaymentMethod?       @relation(fields: [paymentMethodId], references: [id])
+  project               MasterProject?       @relation(fields: [projectId], references: [id])
+  transactions          Transaction[]
+  creator               MasterStaff          @relation("RecurringCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?         @relation("RecurringUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ⑤ CostCenter（按分先マスタ）
+// ============================================
+
+model CostCenter {
+  id                    Int       @id @default(autoincrement())
+  name                  String    // 名称（例: STP事業、社内開発、管理部門）
+  projectId             Int?      // FK → MasterProject（CRMプロジェクトと紐づく場合）
+  isActive              Boolean   @default(true)
+
+  createdBy             Int?      // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  project               MasterProject?  @relation(fields: [projectId], references: [id])
+  transactions          Transaction[]
+  recurringTransactions RecurringTransaction[]
+  allocationTemplateLines AllocationTemplateLine[]
+  allocationConfirmations AllocationConfirmation[]
+  budgets               Budget[]
+  creator               MasterStaff?    @relation("CostCenterCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?    @relation("CostCenterUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ⑥ AllocationTemplate（按分テンプレート）
+// ============================================
+
+model AllocationTemplate {
+  id                    Int       @id @default(autoincrement())
+  name                  String    // 名称（例: 外注Xさん、オフィス家賃）
+  isActive              Boolean   @default(true)
+
+  createdBy             Int       // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  lines                 AllocationTemplateLine[]
+  transactions          Transaction[]
+  recurringTransactions RecurringTransaction[]
+  overrides             AllocationTemplateOverride[]
+  creator               MasterStaff   @relation("AllocTemplateCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?  @relation("AllocTemplateUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ⑦ AllocationTemplateLine（按分テンプレート明細）
+// ============================================
+
+model AllocationTemplateLine {
+  id                    Int       @id @default(autoincrement())
+  templateId            Int       // FK → AllocationTemplate
+  costCenterId          Int?      // FK → CostCenter（null = 未確定枠）
+  allocationRate        Decimal   // 按分率（%）。全明細の合計が100になること
+  label                 String?   // 表示ラベル（「未確定」等）
+
+  createdBy             Int?      // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  template              AllocationTemplate @relation(fields: [templateId], references: [id])
+  costCenter            CostCenter?        @relation(fields: [costCenterId], references: [id])
+  creator               MasterStaff?       @relation("AllocLineCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?       @relation("AllocLineUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ⑧ AllocationConfirmation（按分確定）
+// ============================================
+
+model AllocationConfirmation {
+  id                    Int       @id @default(autoincrement())
+  transactionId         Int       // FK → Transaction
+  costCenterId          Int       // FK → CostCenter
+  confirmedBy           Int?      // FK → MasterStaff
+  confirmedAt           DateTime?
+
+  createdAt             DateTime  @default(now())
+
+  // Relations
+  transaction           Transaction  @relation(fields: [transactionId], references: [id])
+  costCenter            CostCenter   @relation(fields: [costCenterId], references: [id])
+  confirmer             MasterStaff? @relation(fields: [confirmedBy], references: [id])
+
+  @@unique([transactionId, costCenterId])
+}
+
+// ============================================
+// ⑨ AllocationTemplateOverride（按分テンプレート変更時の個別適用記録）
+// ============================================
+
+model AllocationTemplateOverride {
+  id                    Int       @id @default(autoincrement())
+  transactionId         Int       // FK → Transaction
+  allocationTemplateId  Int       // FK → AllocationTemplate
+  snapshotRates         Json      // 変更前の按分率スナップショット [{"costCenterId": 1, "rate": 50}, ...]
+  reason                String?   // 維持理由（任意）
+
+  createdBy             Int       // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+
+  // Relations
+  transaction           Transaction        @relation(fields: [transactionId], references: [id])
+  allocationTemplate    AllocationTemplate @relation(fields: [allocationTemplateId], references: [id])
+  creator               MasterStaff        @relation("AllocOverrideCreator", fields: [createdBy], references: [id])
+
+  @@unique([transactionId, allocationTemplateId])
+}
+
+// ============================================
+// ⑩ ExpenseCategory（費目マスタ）
+// ============================================
+
+model ExpenseCategory {
+  id                    Int       @id @default(autoincrement())
+  name                  String    // 名称（外注費、サブスク費、家賃等）
+  type                  String    // "revenue" | "expense" | "both"
+  defaultAccountId      Int?      // FK → Account（デフォルト勘定科目）
+  displayOrder          Int       @default(0)
+  isActive              Boolean   @default(true)
+  deletedAt             DateTime?
+
+  createdBy             Int?      // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  defaultAccount        Account?              @relation(fields: [defaultAccountId], references: [id])
+  transactions          Transaction[]
+  recurringTransactions RecurringTransaction[]
+  autoJournalRules      AutoJournalRule[]
+  creator               MasterStaff?          @relation("ExpCatCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?          @relation("ExpCatUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ⑪ JournalEntry（仕訳）
+// ============================================
+
+model JournalEntry {
+  id                    Int       @id @default(autoincrement())
+  invoiceGroupId        Int?      // FK → InvoiceGroup（売上側：請求グループ単位で紐づく）
+  paymentGroupId        Int?      // FK → PaymentGroup（経費側：支払グループ単位で紐づく）
+  transactionId         Int?      // FK → Transaction（個別取引に直接紐づく場合）
+  journalDate           DateTime  // 仕訳日
+  description           String    // 摘要
+
+  isAutoGenerated       Boolean   @default(false) // 自動生成フラグ
+  status                String    @default("draft") // "draft" | "confirmed"
+  autoJournalRuleId     Int?      // FK → AutoJournalRule（どのルールで生成されたか）
+
+  approvedBy            Int?      // FK → MasterStaff（確定者）
+  approvedAt            DateTime?
+
+  createdBy             Int       // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  invoiceGroup          InvoiceGroup?    @relation(fields: [invoiceGroupId], references: [id])
+  paymentGroup          PaymentGroup?    @relation(fields: [paymentGroupId], references: [id])
+  transaction           Transaction?     @relation(fields: [transactionId], references: [id])
+  autoJournalRule       AutoJournalRule? @relation(fields: [autoJournalRuleId], references: [id])
+  lines                 JournalEntryLine[]
+  reconciliations       Reconciliation[]
+  attachments           Attachment[]
+  approver              MasterStaff?     @relation("JournalApprover", fields: [approvedBy], references: [id])
+  creator               MasterStaff      @relation("JournalCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?     @relation("JournalUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ⑫ JournalEntryLine（仕訳明細）
+// ============================================
+
+model JournalEntryLine {
+  id                    Int       @id @default(autoincrement())
+  journalEntryId        Int       // FK → JournalEntry
+  side                  String    // "debit" | "credit"（借方/貸方）
+  accountId             Int       // FK → Account（勘定科目）
+  amount                Int       // 金額
+  description           String?   // 明細摘要（任意）
+
+  createdBy             Int?      // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  journalEntry          JournalEntry @relation(fields: [journalEntryId], references: [id])
+  account               Account      @relation(fields: [accountId], references: [id])
+  creator               MasterStaff? @relation("JournalLineCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff? @relation("JournalLineUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ⑬ Account（勘定科目）
+// ============================================
+
+model Account {
+  id                    Int       @id @default(autoincrement())
+  code                  String    @unique // 科目コード（例: "1100"）
+  name                  String    // 科目名（例: 売掛金）
+  category              String    // "asset" | "liability" | "revenue" | "expense"
+  displayOrder          Int       @default(0)
+  isActive              Boolean   @default(true)
+
+  createdBy             Int?      // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  journalEntryLines     JournalEntryLine[]
+  expenseCategories     ExpenseCategory[]
+  debitRules            AutoJournalRule[]   @relation("DebitAccount")
+  creditRules           AutoJournalRule[]   @relation("CreditAccount")
+  budgets               Budget[]
+  creator               MasterStaff?        @relation("AccountCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?        @relation("AccountUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ⑭ BankTransaction（入出金）
+// ============================================
+
+model BankTransaction {
+  id                    Int       @id @default(autoincrement())
+  transactionDate       DateTime  // 日付
+  direction             String    // "incoming" | "outgoing"（入金/出金）
+  paymentMethodId       Int       // FK → PaymentMethod（決済手段）
+  counterpartyId        Int?      // FK → Counterparty（取引先）
+  amount                Int       // 金額
+  description           String?   // 摘要
+  source                String    @default("manual") // "manual" | "legacy" | "csv_import"（データ元識別）
+
+  createdBy             Int       // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  paymentMethod         PaymentMethod    @relation(fields: [paymentMethodId], references: [id])
+  counterparty          Counterparty?    @relation(fields: [counterpartyId], references: [id])
+  reconciliations       Reconciliation[]
+  attachments           Attachment[]
+  cryptoDetail          CryptoTransactionDetail?
+  creator               MasterStaff      @relation("BankTxCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?     @relation("BankTxUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ⑮ Reconciliation（消込）
+// ============================================
+
+model Reconciliation {
+  id                    Int       @id @default(autoincrement())
+  journalEntryId        Int       // FK → JournalEntry
+  bankTransactionId     Int       // FK → BankTransaction
+  amount                Int       // 消込金額
+
+  performedBy           Int       // FK → MasterStaff（消込実行者）
+  performedAt           DateTime  @default(now())
+
+  createdAt             DateTime  @default(now())
+
+  // Relations
+  journalEntry          JournalEntry    @relation(fields: [journalEntryId], references: [id])
+  bankTransaction       BankTransaction @relation(fields: [bankTransactionId], references: [id])
+  performer             MasterStaff     @relation("ReconciliationPerformer", fields: [performedBy], references: [id])
+}
+
+// ============================================
+// ⑯ Counterparty（取引先マスタ）
+// ============================================
+
+model Counterparty {
+  id                    Int       @id @default(autoincrement())
+  name                  String    // 名称
+  companyId             Int?      // FK → MasterStellaCompany（Stella顧客と紐づく場合）
+  counterpartyType      String    @default("other")
+  // "customer" | "vendor" | "service" | "other"
+  memo                  String?
+  isActive              Boolean   @default(true)
+
+  // 統合管理
+  mergedIntoId          Int?      // FK → Counterparty（統合先）
+  mergedAt              DateTime?
+
+  createdBy             Int?      // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  company               MasterStellaCompany? @relation(fields: [companyId], references: [id])
+  mergedInto            Counterparty?        @relation("CounterpartyMerge", fields: [mergedIntoId], references: [id])
+  mergedFrom            Counterparty[]       @relation("CounterpartyMerge")
+  transactions          Transaction[]
+  recurringTransactions RecurringTransaction[]
+  bankTransactions      BankTransaction[]
+  autoJournalRules      AutoJournalRule[]
+  invoiceGroups         InvoiceGroup[]
+  paymentGroups         PaymentGroup[]
+  creator               MasterStaff?         @relation("CounterpartyCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?         @relation("CounterpartyUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ⑰ AutoJournalRule（自動仕訳ルール）
+// ============================================
+
+model AutoJournalRule {
+  id                    Int       @id @default(autoincrement())
+  counterpartyId        Int?      // FK → Counterparty（null = 全取引先）
+  transactionType       String?   // "revenue" | "expense"（null = 両方）
+  expenseCategoryId     Int?      // FK → ExpenseCategory（null = 全費目）
+  debitAccountId        Int       // FK → Account（借方科目）
+  creditAccountId       Int       // FK → Account（貸方科目）
+  priority              Int       @default(100) // 優先度（小さいほど高い）
+  isActive              Boolean   @default(true)
+
+  createdBy             Int       // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  counterparty          Counterparty?   @relation(fields: [counterpartyId], references: [id])
+  expenseCategory       ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id])
+  debitAccount          Account         @relation("DebitAccount", fields: [debitAccountId], references: [id])
+  creditAccount         Account         @relation("CreditAccount", fields: [creditAccountId], references: [id])
+  journalEntries        JournalEntry[]
+  creator               MasterStaff     @relation("AutoJournalCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?    @relation("AutoJournalUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ⑱ PaymentMethod（決済手段マスタ）
+// ============================================
+
+model PaymentMethod {
+  id                    Int       @id @default(autoincrement())
+  methodType            String    // "cash" | "bank_account" | "credit_card" | "crypto_wallet"
+  name                  String    // 名称（例: 三菱UFJ普通、会社用VISA）
+  details               Json?     // 種別ごとの詳細情報
+
+  // 残高管理
+  initialBalance        Int?      // 初期残高
+  initialBalanceDate    DateTime? // 初期残高日
+
+  // 残高アラート
+  balanceAlertThreshold Int?      // 残高アラート閾値
+
+  // クレカ専用
+  closingDay            Int?      // 締め日
+  paymentDay            Int?      // 引落日
+  settlementAccountId   Int?      // FK → PaymentMethod（引落口座）
+
+  isActive              Boolean   @default(true)
+
+  createdBy             Int?      // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  settlementAccount     PaymentMethod?            @relation("CreditCardSettlement", fields: [settlementAccountId], references: [id])
+  creditCards           PaymentMethod[]            @relation("CreditCardSettlement")
+  bankTransactions      BankTransaction[]
+  transactions          Transaction[]
+  recurringTransactions RecurringTransaction[]
+  cryptoDetails         CryptoTransactionDetail[]
+  creator               MasterStaff?              @relation("PayMethodCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?              @relation("PayMethodUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ⑲ Attachment（証憑）
+// ============================================
+
+model Attachment {
+  id                    Int       @id @default(autoincrement())
+  transactionId         Int?      // FK → Transaction
+  journalEntryId        Int?      // FK → JournalEntry
+  bankTransactionId     Int?      // FK → BankTransaction
+  commentId             Int?      // FK → TransactionComment（コメント返信時の添付）
+
+  fileName              String
+  filePath              String    // ストレージパス
+  fileSize              Int?      // バイト数
+  mimeType              String?
+  attachmentType        String    @default("other")
+  // "receipt" | "invoice" | "contract" | "other"
+
+  uploadedBy            Int       // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  deletedAt             DateTime?
+
+  // Relations
+  transaction           Transaction?        @relation(fields: [transactionId], references: [id])
+  journalEntry          JournalEntry?       @relation(fields: [journalEntryId], references: [id])
+  bankTransaction       BankTransaction?    @relation(fields: [bankTransactionId], references: [id])
+  comment               TransactionComment? @relation(fields: [commentId], references: [id])
+  uploader              MasterStaff         @relation("AttachmentUploader", fields: [uploadedBy], references: [id])
+}
+
+// ============================================
+// ⑳ CryptoTransactionDetail（仮想通貨取引詳細）
+// ============================================
+
+model CryptoTransactionDetail {
+  id                    Int       @id @default(autoincrement())
+  transactionId         Int?      @unique // FK → Transaction
+  bankTransactionId     Int?      @unique // FK → BankTransaction
+  currency              String    // 銘柄（USDT、BTC、ETH等）
+  network               String    // ネットワーク（TRC20、ERC20等）
+  counterpartyWallet    String?   // 取引先Walletアドレス
+  ownWallet             String?   // 自社Walletアドレス
+  foreignAmount         Decimal   // 外貨金額
+  foreignCurrency       String    // 外貨単位（USD等）
+  exchangeRate          Decimal   // レート
+  paymentMethodId       Int?      // FK → PaymentMethod
+
+  createdBy             Int?      // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  transaction           Transaction?    @relation(fields: [transactionId], references: [id])
+  bankTransaction       BankTransaction? @relation(fields: [bankTransactionId], references: [id])
+  paymentMethod         PaymentMethod?  @relation(fields: [paymentMethodId], references: [id])
+  creator               MasterStaff?    @relation("CryptoDetailCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?    @relation("CryptoDetailUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ㉑ SystemSetting（システム設定）
+// ============================================
+
+model SystemSetting {
+  id                    Int       @id @default(autoincrement())
+  category              String    // "crypto_currency" | "crypto_network" 等
+  value                 String    // 選択肢の値（"USDT", "BTC", "TRC20" 等）
+  label                 String?   // 表示ラベル（null の場合は value をそのまま表示）
+  displayOrder          Int       @default(0)
+  isActive              Boolean   @default(true)
+
+  createdBy             Int?      // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  creator               MasterStaff? @relation("SystemSettingCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff? @relation("SystemSettingUpdater", fields: [updatedBy], references: [id])
+
+  @@unique([category, value])
+}
+
+// ============================================
+// ㉒ Budget（予算）
+// ============================================
+
+model Budget {
+  id                    Int       @id @default(autoincrement())
+  costCenterId          Int?      // FK → CostCenter（null = 全社）
+  accountId             Int?      // FK → Account（紐づく勘定科目）
+  categoryLabel         String    // 予算カテゴリラベル（売上、外注費、家賃等）
+  targetMonth           DateTime  // 対象月（YYYY-MM-01）
+  budgetAmount          Int       // 予算額
+  memo                  String?
+
+  createdBy             Int       // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  costCenter            CostCenter? @relation(fields: [costCenterId], references: [id])
+  account               Account?    @relation(fields: [accountId], references: [id])
+  creator               MasterStaff @relation("BudgetCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff? @relation("BudgetUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ㉓ MonthlyCloseLog（月次クローズ履歴）
+// ============================================
+
+model MonthlyCloseLog {
+  id                    Int       @id @default(autoincrement())
+  projectId             Int?      // FK → MasterProject（null = 全社クローズ）
+  targetMonth           DateTime  // 対象月（YYYY-MM-01）
+  action                String    // "close" | "reopen"
+  reason                String?   // 再オープン時の理由（必須）
+  snapshotData          Json?     // クローズ時のPLスナップショット（closeの場合）
+
+  performedBy           Int       // FK → MasterStaff（経理管理者）
+  performedAt           DateTime  @default(now())
+
+  // Relations
+  project               MasterProject? @relation(fields: [projectId], references: [id])
+  performer             MasterStaff    @relation("MonthlyClosePerformer", fields: [performedBy], references: [id])
+
+  @@index([targetMonth])
+  @@index([projectId, targetMonth])
+}
+
+// ============================================
+// ㉔ OperatingCompanyEmail（運営法人メールアドレス）
+// ============================================
+
+model OperatingCompanyEmail {
+  id                    Int       @id @default(autoincrement())
+  operatingCompanyId    Int       // FK → OperatingCompany
+  email                 String
+  label                 String?   // 用途（例: 請求書送付用、一般問い合わせ用）
+  smtpHost              String?   // 法人ごとのSMTP設定（null=システム共通設定を使用）
+  smtpPort              Int?
+  smtpUser              String?
+  smtpPass              String?
+  isDefault             Boolean   @default(false)
+  deletedAt             DateTime?
+
+  createdBy             Int?      // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  operatingCompany      OperatingCompany @relation(fields: [operatingCompanyId], references: [id])
+  invoiceMails          InvoiceMail[]
+  creator               MasterStaff?     @relation("OpCoEmailCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?     @relation("OpCoEmailUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ㉕ InvoiceTemplate（請求書テンプレート）
+// ============================================
+
+model InvoiceTemplate {
+  id                    Int       @id @default(autoincrement())
+  operatingCompanyId    Int       // FK → OperatingCompany
+  name                  String    // テンプレート名
+  templateType          String    // "sending" | "request"（送付用/発行依頼用）
+  emailSubjectTemplate  String    // メール件名テンプレート
+  emailBodyTemplate     String    // メール本文テンプレート（テンプレート変数使用可）
+  isDefault             Boolean   @default(false)
+
+  createdBy             Int       // FK → MasterStaff
+  updatedBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  operatingCompany      OperatingCompany @relation(fields: [operatingCompanyId], references: [id])
+  creator               MasterStaff      @relation("InvoiceTemplateCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?     @relation("InvoiceTemplateUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ㉖ InvoiceMail（請求書送信履歴）
+// ============================================
+
+model InvoiceMail {
+  id                    Int       @id @default(autoincrement())
+  invoiceGroupId        Int?      // FK → InvoiceGroup（請求書送付の場合）
+  paymentGroupId        Int?      // FK → PaymentGroup（発行依頼の場合）
+  operatingCompanyId    Int       // FK → OperatingCompany
+  senderEmailId         Int?      // FK → OperatingCompanyEmail
+
+  sendMethod            String    // "email" | "line" | "postal" | "other"
+  subject               String?   // 件名（メール以外はnull可）
+  body                  String?   // 本文
+  pdfPath               String?   // 添付PDFのパス
+
+  status                String    @default("draft")
+  // "draft" | "sent" | "failed"
+  sentBy                Int?      // FK → MasterStaff（送信実行者）
+  sentAt                DateTime? // 送信日時
+  errorMessage          String?   // 送信失敗時のエラー内容
+
+  createdBy             Int       // FK → MasterStaff（下書き作成者）
+  updatedBy             Int?      // FK → MasterStaff（最終更新者）
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  // Relations
+  invoiceGroup          InvoiceGroup?        @relation(fields: [invoiceGroupId], references: [id])
+  paymentGroup          PaymentGroup?        @relation(fields: [paymentGroupId], references: [id])
+  operatingCompany      OperatingCompany     @relation(fields: [operatingCompanyId], references: [id])
+  senderEmail           OperatingCompanyEmail? @relation(fields: [senderEmailId], references: [id])
+  recipients            InvoiceMailRecipient[]
+  sender                MasterStaff?         @relation("InvoiceMailSender", fields: [sentBy], references: [id])
+  creator               MasterStaff          @relation("InvoiceMailCreator", fields: [createdBy], references: [id])
+  updater               MasterStaff?         @relation("InvoiceMailUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ㉗ InvoiceMailRecipient（請求書送信先）
+// ============================================
+
+model InvoiceMailRecipient {
+  id                    Int       @id @default(autoincrement())
+  invoiceMailId         Int       // FK → InvoiceMail
+  contactId             Int?      // FK → StellaCompanyContact（既存担当者から選んだ場合）
+  name                  String?   // 手動入力の場合の名前
+  email                 String    // メールアドレス
+  recipientType         String    // "to" | "cc" | "bcc"
+
+  createdAt             DateTime  @default(now())
+
+  // Relations
+  invoiceMail           InvoiceMail          @relation(fields: [invoiceMailId], references: [id])
+  contact               StellaCompanyContact? @relation(fields: [contactId], references: [id])
+}
+
+// ============================================
+// ㉘ TransactionComment（取引コメント）
+// ============================================
+
+model TransactionComment {
+  id                    Int       @id @default(autoincrement())
+  transactionId         Int?      // FK → Transaction
+  invoiceGroupId        Int?      // FK → InvoiceGroup
+  paymentGroupId        Int?      // FK → PaymentGroup
+  parentId              Int?      // FK → TransactionComment（スレッド返信の場合、親コメントID）
+
+  body                  String    // コメント本文
+  commentType           String    @default("normal")
+  // "normal" | "return" | "approval" | "question"
+  returnReasonType      String?   // 差し戻し時の種別: "question" | "correction_request" | "approval_check" | "other"
+
+  createdBy             Int       // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  deletedAt             DateTime?
+
+  // Relations
+  transaction           Transaction?       @relation(fields: [transactionId], references: [id])
+  invoiceGroup          InvoiceGroup?      @relation(fields: [invoiceGroupId], references: [id])
+  paymentGroup          PaymentGroup?      @relation(fields: [paymentGroupId], references: [id])
+  parent                TransactionComment? @relation("CommentThread", fields: [parentId], references: [id])
+  replies               TransactionComment[] @relation("CommentThread")
+  attachments           Attachment[]
+  creator               MasterStaff        @relation("CommentCreator", fields: [createdBy], references: [id])
+}
+
+// ============================================
+// ㉙ Notification（通知）
+// ============================================
+
+model Notification {
+  id                    Int       @id @default(autoincrement())
+  recipientId           Int       // FK → MasterStaff（宛先）
+  senderType            String    // "system" | "staff"
+  senderId              Int?      // FK → MasterStaff（スタッフからの通知の場合）
+  category              String    // "finance" | "accounting" | "kpi" | "system" | "other"
+  title                 String
+  message               String
+  linkUrl               String?   // 関連ページへのリンク
+
+  status                String    @default("unread")
+  // "unread" | "read" | "in_progress" | "completed"
+  statusChangedAt       DateTime?
+  statusChangedBy       Int?      // FK → MasterStaff
+
+  createdAt             DateTime  @default(now())
+
+  // Relations
+  recipient             MasterStaff  @relation("NotificationRecipient", fields: [recipientId], references: [id])
+  sender                MasterStaff? @relation("NotificationSender", fields: [senderId], references: [id])
+  statusChanger         MasterStaff? @relation("NotificationStatusChanger", fields: [statusChangedBy], references: [id])
+}
+
+// ============================================
+// ㉚ ChangeLog（変更履歴）
+// ============================================
+
+model ChangeLog {
+  id                    Int       @id @default(autoincrement())
+  tableName             String    // テーブル名（例: "Transaction", "JournalEntry"）
+  recordId              Int       // 変更されたレコードのID
+  changeType            String    // "create" | "update" | "delete"
+  oldData               Json?     // 変更前のデータ
+  newData               Json?     // 変更後のデータ
+
+  changedBy             Int       // FK → MasterStaff
+  changedAt             DateTime  @default(now())
+
+  // Relations
+  changer               MasterStaff @relation("ChangeLogChanger", fields: [changedBy], references: [id])
 }
