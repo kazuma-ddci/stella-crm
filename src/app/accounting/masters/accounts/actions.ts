@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 
+const VALID_CATEGORIES = ["asset", "liability", "revenue", "expense"] as const;
+
 export async function createAccount(data: Record<string, unknown>) {
   const session = await getSession();
   const staffId = session.id;
@@ -18,8 +20,7 @@ export async function createAccount(data: Record<string, unknown>) {
     throw new Error("科目コード、科目名、区分は必須です");
   }
 
-  const VALID_CATEGORIES = ["asset", "liability", "revenue", "expense"];
-  if (!VALID_CATEGORIES.includes(category)) {
+  if (!(VALID_CATEGORIES as readonly string[]).includes(category)) {
     throw new Error("無効な区分です");
   }
 
@@ -75,8 +76,7 @@ export async function updateAccount(id: number, data: Record<string, unknown>) {
 
   if ("category" in data) {
     const category = data.category as string;
-    const VALID_CATEGORIES = ["asset", "liability", "revenue", "expense"];
-    if (!VALID_CATEGORIES.includes(category)) {
+    if (!(VALID_CATEGORIES as readonly string[]).includes(category)) {
       throw new Error("無効な区分です");
     }
     updateData.category = category;
@@ -101,11 +101,14 @@ export async function updateAccount(id: number, data: Record<string, unknown>) {
 }
 
 export async function reorderAccounts(orderedIds: number[]) {
+  const session = await getSession();
+  const staffId = session.id;
+
   await prisma.$transaction(
     orderedIds.map((id, index) =>
       prisma.account.update({
         where: { id },
-        data: { displayOrder: index + 1 },
+        data: { displayOrder: index + 1, updatedBy: staffId },
       })
     )
   );
