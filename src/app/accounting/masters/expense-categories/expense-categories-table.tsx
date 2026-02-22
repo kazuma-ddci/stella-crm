@@ -63,10 +63,12 @@ export function ExpenseCategoriesTable({ data, accountOptions }: Props) {
   ];
 
   const customRenderers: CustomRenderers = {
-    defaultAccountId: (value) => {
+    defaultAccountId: (value, item) => {
       if (!value) return "（なし）";
       const option = accountOptions.find((o) => o.value === String(value));
-      return option ? option.label : "（なし）";
+      if (option) return option.label;
+      const label = item?.defaultAccountLabel as string | undefined;
+      return label ? `${label}（無効）` : "（なし）";
     },
   };
 

@@ -21,6 +21,9 @@ export default async function ExpenseCategoriesPage() {
     name: ec.name,
     type: ec.type,
     defaultAccountId: ec.defaultAccountId ? String(ec.defaultAccountId) : "",
+    defaultAccountLabel: ec.defaultAccount
+      ? `${ec.defaultAccount.code} - ${ec.defaultAccount.name}`
+      : "",
     displayOrder: ec.displayOrder,
     isActive: ec.isActive,
   }));
