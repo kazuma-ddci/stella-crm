@@ -118,6 +118,9 @@ export function ProposalEditor({ proposal }: Props) {
   const [isConfirming, setIsConfirming] = useState(false);
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
 
+  // ユーザーが入力を変更したかどうか（初期状態ではボタンをグレー表示にする）
+  const [hasUserModified, setHasUserModified] = useState(false);
+
   // ダイアログ状態
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [overwriteDialogOpen, setOverwriteDialogOpen] = useState(false);
@@ -184,25 +187,42 @@ export function ProposalEditor({ proposal }: Props) {
   const fieldHighlight = (field: keyof SimulationInput) =>
     isFieldChanged(field) ? "bg-amber-50 border-amber-300" : "";
 
-  // 再計算が必要かどうか（input vs content.input）
+  // 再計算が必要かどうか（ユーザーが変更していない初期状態では常にfalse）
   const calcFields: (keyof SimulationInput)[] = [
     "jobType", "industry", "location", "salaryLevel",
     "recruitmentAgencyCost", "jobAdCost", "referralCost", "otherCost",
     "annualHires", "targetHires",
   ];
-  const needsRecalculation = content
+  const needsRecalculation = hasUserModified && content
     ? calcFields.some((f) => input[f] !== content.input[f])
     : false;
 
-  // スライド再生成が必要かどうか
-  const needsRegeneration = !selectedSlide || (
-    selectedSlide?.inputSnapshot &&
-    JSON.stringify(input) !== JSON.stringify(selectedSlide.inputSnapshot)
-  );
+  // スライド再生成が必要かどうか（ユーザーが変更していない初期状態では常にfalse）
+  const needsRegeneration = (() => {
+    if (!selectedSlide?.inputSnapshot) return !hasUserModified ? false : true;
+    if (!hasUserModified) return false;
+    const snap = selectedSlide.inputSnapshot;
+    const normalize = (inp: SimulationInput) => ({
+      companyName: String(inp.companyName ?? ""),
+      jobType: String(inp.jobType ?? ""),
+      industry: String(inp.industry ?? ""),
+      location: String(inp.location ?? ""),
+      locations: inp.locations || (inp.location ? [inp.location] : []),
+      salaryLevel: String(inp.salaryLevel ?? ""),
+      recruitmentAgencyCost: Number(inp.recruitmentAgencyCost ?? 0),
+      jobAdCost: Number(inp.jobAdCost ?? 0),
+      referralCost: Number(inp.referralCost ?? 0),
+      otherCost: Number(inp.otherCost ?? 0),
+      annualHires: Number(inp.annualHires ?? 0),
+      targetHires: Number(inp.targetHires ?? 0),
+    });
+    return JSON.stringify(normalize(input)) !== JSON.stringify(normalize(snap));
+  })();
 
   // バージョン切り替え時にinput/resultをスナップショットに反映
   const handleVersionChange = (version: number) => {
     setSelectedVersion(version);
+    setHasUserModified(false);
     const slide = slides.find((s) => s.version === version);
     if (slide && slide.inputSnapshot) {
       const snapshot = { ...slide.inputSnapshot };
@@ -229,6 +249,7 @@ export function ProposalEditor({ proposal }: Props) {
 
   const handleInputChange = (field: keyof SimulationInput, value: string | number) => {
     setInput((prev) => ({ ...prev, [field]: value }));
+    setHasUserModified(true);
   };
 
   const handleNumberChange = (field: keyof SimulationInput, value: string) => {
@@ -246,6 +267,7 @@ export function ProposalEditor({ proposal }: Props) {
         industry: mapping.industry,
       }));
     }
+    setHasUserModified(true);
   };
 
   // 再計算（ローカルのみ）
@@ -311,6 +333,7 @@ export function ProposalEditor({ proposal }: Props) {
         };
         setContent(newContent);
         setSelectedVersion(data.version);
+        setHasUserModified(false);
         toast.success(`スライド ver.${data.version} を生成しました`);
       } else {
         const data = await res.json().catch(() => ({}));
@@ -516,10 +539,11 @@ export function ProposalEditor({ proposal }: Props) {
           {/* ボタン群 */}
           <div className="flex items-center gap-2 flex-wrap">
             <Button
-              variant={needsRecalculation ? "default" : "outline"}
+              variant="outline"
               size="sm"
               onClick={handleRecalculate}
-              className={needsRecalculation ? "bg-amber-500 hover:bg-amber-600 text-white" : ""}
+              disabled={!needsRecalculation}
+              className={needsRecalculation ? "bg-blue-600 hover:bg-blue-700 text-white hover:text-white border-blue-600 hover:border-blue-700" : ""}
             >
               <RefreshCw className="h-4 w-4 mr-1" />
               再計算
@@ -527,12 +551,12 @@ export function ProposalEditor({ proposal }: Props) {
             <Button
               size="sm"
               onClick={handleGenerateSlide}
-              disabled={isGeneratingSlide || !content}
+              disabled={isGeneratingSlide || !content || !needsRegeneration}
+              variant="outline"
               className={needsRegeneration && !isGeneratingSlide
-                ? "bg-blue-600 hover:bg-blue-700 text-white"
+                ? "bg-blue-600 hover:bg-blue-700 text-white hover:text-white border-blue-600 hover:border-blue-700"
                 : ""
               }
-              variant={needsRegeneration && !isGeneratingSlide ? "default" : "secondary"}
             >
               {isGeneratingSlide ? (
                 <Loader2 className="h-4 w-4 mr-1 animate-spin" />
@@ -678,6 +702,7 @@ export function ProposalEditor({ proposal }: Props) {
                                 locations: newLocations,
                                 location: newLocations[0] || "",
                               }));
+                              setHasUserModified(true);
                             }}
                           />
                           {opt.label}
@@ -701,6 +726,7 @@ export function ProposalEditor({ proposal }: Props) {
                               locations: newLocations,
                               location: newLocations[0] || "",
                             }));
+                            setHasUserModified(true);
                           }}
                         >
                           <X className="h-3 w-3" />
