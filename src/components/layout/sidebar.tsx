@@ -39,6 +39,7 @@ import {
   Upload,
   PanelLeftClose,
   PanelLeftOpen,
+  BookOpen,
 } from "lucide-react";
 import { canView } from "@/lib/auth/permissions";
 import type { SessionUser } from "@/types/auth";
@@ -167,6 +168,7 @@ const navigation: NavItem[] = [
       { name: "確認管理", href: "/accounting/verification", icon: CheckSquare },
       { name: "月次締め", href: "/accounting/monthly-close", icon: Lock },
       { name: "取込管理", href: "/accounting/imports", icon: Upload },
+      { name: "勘定科目", href: "/accounting/masters/accounts", icon: BookOpen },
     ],
   },
   {
