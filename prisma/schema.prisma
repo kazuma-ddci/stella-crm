@@ -2084,3 +2084,17 @@ model FieldChangeLog {
   @@index([entityType, entityId])
   @@map("field_change_logs")
 }
+
+// ============================================
+// STP設定 (STP Settings)
+// key-value形式でダッシュボード設定等を保存
+// ============================================
+
+model StpSetting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique @db.VarChar(100)        // 設定キー（例: "annual_revenue_target"）
+  value     String                                    // 設定値（JSON or テキスト）
+  updatedAt DateTime @updatedAt
+
+  @@map("stp_settings")
+}

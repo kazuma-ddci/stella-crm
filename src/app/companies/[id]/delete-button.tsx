@@ -111,7 +111,7 @@ export function DeleteCompanyButton({ id, name }: Props) {
                   ))}
                 </ul>
                 <p className="text-sm text-muted-foreground">
-                  削除しても関連データは保持されます。
+                  削除すると、この企業と関連データは全ての画面から非表示になります。データ自体はデータベースに保持されます。
                 </p>
               </>
             ) : (

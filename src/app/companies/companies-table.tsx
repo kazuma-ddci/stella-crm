@@ -535,7 +535,7 @@ export function CompaniesTable({ data, staffOptions }: Props) {
                 )
               )
             ),
-            React.createElement("p", { className: "text-sm text-muted-foreground" }, "削除しても関連データは保持されます。")
+            React.createElement("p", { className: "text-sm text-muted-foreground" }, "削除すると、この企業と関連データは全ての画面から非表示になります。データ自体はデータベースに保持されます。")
           );
         }}
         emptyMessage="顧客が登録されていません"
