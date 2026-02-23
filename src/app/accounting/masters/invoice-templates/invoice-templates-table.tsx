@@ -81,7 +81,7 @@ function TemplateField({
       ) : (
         <Textarea
           value={text}
-          onChange={(e) => onChange(e.target.value || null)}
+          onChange={(e) => onChange(e.target.value)}
           rows={rows}
           placeholder={`${label}を入力（テンプレート変数使用可）`}
         />
