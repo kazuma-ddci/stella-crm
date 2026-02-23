@@ -64,7 +64,7 @@
   - Server Actions: createPaymentMethod, updatePaymentMethod
   **参照**: 要望書 3.3.2
 
-- [ ] TASK-006: コストセンター（按分先）マスタ管理画面
+- [x] TASK-006: コストセンター（按分先）マスタ管理画面
   **対象**: 設計書 ⑤ CostCenter テーブル
   **ページ**: /accounting/masters/cost-centers
   **作業内容**:
