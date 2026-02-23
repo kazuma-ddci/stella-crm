@@ -48,10 +48,8 @@ export async function addOperatingCompanyEmail(
     smtpHost: email.smtpHost,
     smtpPort: email.smtpPort,
     smtpUser: email.smtpUser,
-    smtpPass: email.smtpPass,
+    hasSmtpPass: !!email.smtpPass,
     isDefault: email.isDefault,
-    createdAt: email.createdAt.toISOString(),
-    updatedAt: email.updatedAt.toISOString(),
   };
 }
 
@@ -70,18 +68,24 @@ export async function updateOperatingCompanyEmail(
 
   const isDefault = data.isDefault === true || data.isDefault === "true";
 
+  const updateData: Record<string, unknown> = {
+    email: data.email as string,
+    label: (data.label as string) || null,
+    smtpHost: (data.smtpHost as string) || null,
+    smtpPort: data.smtpPort ? Number(data.smtpPort) : null,
+    smtpUser: (data.smtpUser as string) || null,
+    isDefault,
+    updatedBy: staffId,
+  };
+
+  // smtpPassが送信された場合のみ更新（空なら変更しない）
+  if (data.smtpPass) {
+    updateData.smtpPass = data.smtpPass as string;
+  }
+
   const email = await prisma.operatingCompanyEmail.update({
     where: { id },
-    data: {
-      email: data.email as string,
-      label: (data.label as string) || null,
-      smtpHost: (data.smtpHost as string) || null,
-      smtpPort: data.smtpPort ? Number(data.smtpPort) : null,
-      smtpUser: (data.smtpUser as string) || null,
-      smtpPass: (data.smtpPass as string) || null,
-      isDefault,
-      updatedBy: staffId,
-    },
+    data: updateData,
   });
 
   // isDefaultがtrueの場合、同じ法人の他のメールのisDefaultをfalseにする
@@ -105,10 +109,8 @@ export async function updateOperatingCompanyEmail(
     smtpHost: email.smtpHost,
     smtpPort: email.smtpPort,
     smtpUser: email.smtpUser,
-    smtpPass: email.smtpPass,
+    hasSmtpPass: !!email.smtpPass,
     isDefault: email.isDefault,
-    createdAt: email.createdAt.toISOString(),
-    updatedAt: email.updatedAt.toISOString(),
   };
 }
 

@@ -54,7 +54,7 @@ export default async function OperatingCompaniesPage() {
       smtpHost: e.smtpHost,
       smtpPort: e.smtpPort,
       smtpUser: e.smtpUser,
-      smtpPass: e.smtpPass,
+      hasSmtpPass: !!e.smtpPass,
       isDefault: e.isDefault,
     })),
   }));

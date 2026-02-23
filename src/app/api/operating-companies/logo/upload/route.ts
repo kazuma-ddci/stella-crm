@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { auth } from "@/auth";
+import { canEditMasterDataSync } from "@/lib/auth/master-data-permission";
 
 const ALLOWED_TYPES = [
   "image/jpeg",
@@ -10,10 +12,26 @@ const ALLOWED_TYPES = [
   "image/svg+xml",
 ];
 
+const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"];
+
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json(
+        { error: "認証が必要です" },
+        { status: 401 }
+      );
+    }
+    if (!canEditMasterDataSync(session.user)) {
+      return NextResponse.json(
+        { error: "マスタデータの編集権限がありません" },
+        { status: 403 }
+      );
+    }
+
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const companyId = formData.get("companyId") as string | null;
@@ -39,12 +57,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const ext = path.extname(file.name).toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      return NextResponse.json(
+        { error: "許可されていないファイル拡張子です（.jpg, .jpeg, .png, .gif, .webp, .svgのみ）" },
+        { status: 400 }
+      );
+    }
+
     const timestamp = Date.now();
-    const ext = path.extname(file.name) || ".png";
-    const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const fileName = companyId
-      ? `logo_${companyId}_${timestamp}${ext}`
-      : `logo_${timestamp}_${sanitizedName}`;
+    const fileName = `logo_${companyId || "new"}_${timestamp}${ext}`;
 
     const uploadDir = path.join(
       process.cwd(),

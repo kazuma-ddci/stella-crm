@@ -36,7 +36,7 @@ export type CompanyEmail = {
   smtpHost: string | null;
   smtpPort: number | null;
   smtpUser: string | null;
-  smtpPass: string | null;
+  hasSmtpPass: boolean;
   isDefault: boolean;
 };
 
@@ -61,7 +61,7 @@ export function EmailsModal({
   const [isAddMode, setIsAddMode] = useState(false);
   const [editEmail, setEditEmail] = useState<CompanyEmail | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<CompanyEmail | null>(null);
-  const [formData, setFormData] = useState<Partial<CompanyEmail>>({});
+  const [formData, setFormData] = useState<Partial<CompanyEmail> & { smtpPass?: string | null }>({});
   const [loading, setLoading] = useState(false);
   const [showSmtp, setShowSmtp] = useState(false);
 
@@ -89,7 +89,7 @@ export function EmailsModal({
   };
 
   const openEditForm = (email: CompanyEmail) => {
-    setFormData({ ...email });
+    setFormData({ ...email, smtpPass: null });
     setShowSmtp(!!(email.smtpHost || email.smtpPort || email.smtpUser));
     setEditEmail(email);
   };
@@ -268,7 +268,7 @@ export function EmailsModal({
                   onChange={(e) =>
                     setFormData({ ...formData, smtpPass: e.target.value || null })
                   }
-                  placeholder="••••••••"
+                  placeholder={editEmail?.hasSmtpPass ? "変更しない場合は空欄" : "パスワードを入力"}
                 />
               </div>
             </div>
