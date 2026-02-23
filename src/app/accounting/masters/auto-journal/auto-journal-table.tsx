@@ -368,7 +368,8 @@ export function AutoJournalTable({
             </DialogTitle>
             <DialogDescription>
               同じ条件（取引先・種別・費目）のルールが既に登録されています。
-              保存する場合は優先度の設定にご注意ください。
+              保存する場合は、フォームの「優先度」欄で値を確認・変更してから保存してください。
+              優先度が小さいルールが先に評価されます。
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 max-h-60 overflow-y-auto">
