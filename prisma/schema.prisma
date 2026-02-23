@@ -873,12 +873,14 @@ model OperatingCompanyBankAccount {
   accountNumber     String    @db.VarChar(20)              // 口座番号
   accountHolderName String    @db.VarChar(200)             // 口座名義人
   note              String?                                // メモ
+  paymentMethodId   Int?                                   // FK → PaymentMethod（残高管理用決済手段との紐付け）
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   deletedAt         DateTime?                              // 論理削除日時
 
   // Relations
   operatingCompany OperatingCompany @relation(fields: [operatingCompanyId], references: [id], onDelete: Cascade)
+  paymentMethod    PaymentMethod?   @relation(fields: [paymentMethodId], references: [id])
   invoiceGroups    InvoiceGroup[]   // 経理システム追加
 
   @@map("operating_company_bank_accounts")
@@ -2803,6 +2805,7 @@ model PaymentMethod {
   transactions          Transaction[]
   recurringTransactions RecurringTransaction[]
   cryptoDetails         CryptoTransactionDetail[]
+  bankAccounts          OperatingCompanyBankAccount[]
   creator               MasterStaff?              @relation("PayMethodCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?              @relation("PayMethodUpdater", fields: [updatedBy], references: [id])
 }

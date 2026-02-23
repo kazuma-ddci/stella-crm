@@ -9,7 +9,8 @@ type Props = {
 
 export default async function CashflowPage({ searchParams }: Props) {
   const params = await searchParams;
-  const forecastDays = params.days ? Number(params.days) : 90;
+  const raw = Number(params.days);
+  const forecastDays = raw > 0 && raw <= 365 ? raw : 90;
 
   const data = await getCashflowForecast(forecastDays);
 

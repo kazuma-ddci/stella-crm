@@ -103,36 +103,30 @@ export async function getCashflowForecast(
     },
   });
 
-  // --- 各決済手段の現在残高を計算 ---
+  // --- 各決済手段の現在残高を計算（groupByで一括集計） ---
   const pmBalances: PaymentMethodBalance[] = [];
   const currentBalanceMap = new Map<number, number>();
 
-  for (const pm of paymentMethods) {
-    const [incomingAgg, outgoingAgg] = await Promise.all([
-      prisma.bankTransaction.aggregate({
-        where: {
-          paymentMethodId: pm.id,
-          direction: "incoming",
-          deletedAt: null,
-          transactionDate: { lte: today },
-        },
-        _sum: { amount: true },
-      }),
-      prisma.bankTransaction.aggregate({
-        where: {
-          paymentMethodId: pm.id,
-          direction: "outgoing",
-          deletedAt: null,
-          transactionDate: { lte: today },
-        },
-        _sum: { amount: true },
-      }),
-    ]);
+  const pmIds = paymentMethods.map((pm) => pm.id);
+  const txSums = await prisma.bankTransaction.groupBy({
+    by: ["paymentMethodId", "direction"],
+    where: {
+      paymentMethodId: { in: pmIds },
+      deletedAt: null,
+      transactionDate: { lte: today },
+    },
+    _sum: { amount: true },
+  });
 
-    const currentBalance =
-      (pm.initialBalance ?? 0) +
-      (incomingAgg._sum.amount ?? 0) -
-      (outgoingAgg._sum.amount ?? 0);
+  const sumMap = new Map<string, number>();
+  for (const row of txSums) {
+    sumMap.set(`${row.paymentMethodId}:${row.direction}`, row._sum.amount ?? 0);
+  }
+
+  for (const pm of paymentMethods) {
+    const incoming = sumMap.get(`${pm.id}:incoming`) ?? 0;
+    const outgoing = sumMap.get(`${pm.id}:outgoing`) ?? 0;
+    const currentBalance = (pm.initialBalance ?? 0) + incoming - outgoing;
 
     currentBalanceMap.set(pm.id, currentBalance);
     pmBalances.push({
@@ -164,6 +158,7 @@ export async function getCashflowForecast(
         select: {
           id: true,
           bankName: true,
+          paymentMethodId: true,
         },
       },
     },
@@ -177,7 +172,7 @@ export async function getCashflowForecast(
         source: "invoice",
         description: `${ig.counterparty.name}${ig.invoiceNumber ? ` (${ig.invoiceNumber})` : ""}`,
         amount: ig.totalAmount,
-        paymentMethodId: null,
+        paymentMethodId: ig.bankAccount?.paymentMethodId ?? null,
         paymentMethodName: ig.bankAccount?.bankName ?? null,
       });
     }
@@ -232,6 +227,7 @@ export async function getCashflowForecast(
       id: true,
       name: true,
       amount: true,
+      taxAmount: true,
       taxRate: true,
       frequency: true,
       executionDay: true,
@@ -245,7 +241,7 @@ export async function getCashflowForecast(
 
   for (const rt of recurringTransactions) {
     const dates = expandRecurringDates(rt, today, forecastEnd);
-    const taxAmount = Math.floor((rt.amount! * rt.taxRate) / 100);
+    const taxAmount = rt.taxAmount ?? Math.floor((rt.amount! * rt.taxRate) / 100);
     for (const date of dates) {
       forecastItems.push({
         date: toDateString(date),
@@ -342,7 +338,7 @@ export async function getCashflowForecast(
     runningBalance.set(pm.id, pm.currentBalance);
   }
 
-  const pmIds = pmBalances.map((pm) => pm.id);
+  const balancePmIds = pmBalances.map((pm) => pm.id);
   let currentDate = new Date(today);
   while (currentDate <= forecastEnd) {
     const dateStr = toDateString(currentDate);
@@ -357,7 +353,7 @@ export async function getCashflowForecast(
 
     const balances: Record<number, number> = {};
     let totalBalance = 0;
-    for (const pmId of pmIds) {
+    for (const pmId of balancePmIds) {
       const bal = runningBalance.get(pmId) ?? 0;
       balances[pmId] = bal;
       totalBalance += bal;
@@ -513,8 +509,8 @@ function getClosingPeriod(
   _paymentDay: number,
   paymentDate: Date
 ): { from: Date; to: Date } {
-  // 引落月の前月の締め日翌日 〜 引落月の締め日
-  // 例: 締め日15日、引落日10日、引落月3月 → 締め期間: 2月16日〜3月15日
+  // 引落月の前月の締め日翌日 〜 引落月の前月の締め日
+  // 例: 締め日15日、引落日10日、引落月3月 → 締め期間: 1月16日〜2月15日
   const paymentMonth = paymentDate.getMonth();
   const paymentYear = paymentDate.getFullYear();
 
