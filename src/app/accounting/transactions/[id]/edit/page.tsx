@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getTransactionById, getTransactionFormData } from "../../actions";
 import { TransactionForm } from "../../transaction-form";
+import { CommentSection } from "@/app/accounting/comments/comment-section";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -60,6 +61,12 @@ export default async function EditTransactionPage({ params }: Props) {
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">取引の編集</h1>
       <TransactionForm formData={formData} transaction={transactionData} />
+      <div className="border-t pt-6">
+        <CommentSection
+          transactionId={transactionId}
+          allowCommentTypes
+        />
+      </div>
     </div>
   );
 }

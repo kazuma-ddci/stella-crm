@@ -19,7 +19,9 @@ import {
   CheckCircle2,
   XCircle,
   FileText,
+  MessageSquare,
 } from "lucide-react";
+import { CommentSection } from "@/app/accounting/comments/comment-section";
 import { PaymentGroupMailModal } from "./payment-group-mail-modal";
 import type {
   PaymentGroupListItem,
@@ -65,7 +67,7 @@ export function PaymentGroupDetailModal({
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "detail" | "transactions" | "add"
+    "detail" | "transactions" | "add" | "comments"
   >("detail");
 
   // 編集可能な情報
@@ -318,6 +320,17 @@ export function PaymentGroupDetailModal({
               取引を追加
             </button>
           )}
+          <button
+            onClick={() => setActiveTab("comments")}
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "comments"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground"
+            }`}
+          >
+            <MessageSquare className="inline h-3 w-3 mr-1" />
+            コメント
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto min-h-0">
@@ -687,6 +700,16 @@ export function PaymentGroupDetailModal({
                   )}
                 </>
               )}
+            </div>
+          )}
+
+          {/* コメントタブ */}
+          {activeTab === "comments" && (
+            <div className="p-1">
+              <CommentSection
+                paymentGroupId={group.id}
+                allowCommentTypes
+              />
             </div>
           )}
         </div>

@@ -10,7 +10,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw, Mail } from "lucide-react";
+import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw, Mail, MessageSquare } from "lucide-react";
+import { CommentSection } from "@/app/accounting/comments/comment-section";
 import { InvoiceMailModal } from "./invoice-mail-modal";
 import type { InvoiceGroupListItem, UngroupedTransaction } from "./actions";
 import {
@@ -65,7 +66,7 @@ export function InvoiceGroupDetailModal({
   bankAccountsByCompany,
 }: Props) {
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"detail" | "transactions" | "add">(
+  const [activeTab, setActiveTab] = useState<"detail" | "transactions" | "add" | "comments">(
     "detail"
   );
 
@@ -353,6 +354,17 @@ export function InvoiceGroupDetailModal({
               取引を追加
             </button>
           )}
+          <button
+            onClick={() => setActiveTab("comments")}
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "comments"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground"
+            }`}
+          >
+            <MessageSquare className="inline h-3 w-3 mr-1" />
+            コメント
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto min-h-0">
@@ -711,6 +723,16 @@ export function InvoiceGroupDetailModal({
                   )}
                 </>
               )}
+            </div>
+          )}
+
+          {/* コメントタブ */}
+          {activeTab === "comments" && (
+            <div className="p-1">
+              <CommentSection
+                invoiceGroupId={group.id}
+                allowCommentTypes
+              />
             </div>
           )}
         </div>
