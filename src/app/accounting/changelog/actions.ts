@@ -172,11 +172,11 @@ export async function getChangeLogsForTransaction(
  * recordChangeLog に渡す oldData/newData を生成するために使う。
  * 変更のあったフィールドのみを含むオブジェクトを返す。
  */
-export function extractChanges(
+export async function extractChanges(
   oldRecord: Record<string, unknown>,
   newRecord: Record<string, unknown>,
   fields: string[]
-): { oldData: Record<string, unknown>; newData: Record<string, unknown> } | null {
+): Promise<{ oldData: Record<string, unknown>; newData: Record<string, unknown> } | null> {
   const oldData: Record<string, unknown> = {};
   const newData: Record<string, unknown> = {};
   let hasChanges = false;
@@ -225,10 +225,10 @@ export function extractChanges(
  * レコードから変更履歴に記録する主要フィールドを抽出する。
  * リレーション等を除外し、データフィールドのみを返す。
  */
-export function pickRecordData(
+export async function pickRecordData(
   record: Record<string, unknown>,
   fields: string[]
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
   const data: Record<string, unknown> = {};
   for (const field of fields) {
     const val = record[field];
@@ -241,40 +241,4 @@ export function pickRecordData(
   return data;
 }
 
-// ============================================
-// 対象テーブルの記録フィールド定義
-// ============================================
-
-export const TRANSACTION_LOG_FIELDS = [
-  "type",
-  "counterpartyId",
-  "expenseCategoryId",
-  "amount",
-  "taxAmount",
-  "taxRate",
-  "taxType",
-  "periodFrom",
-  "periodTo",
-  "allocationTemplateId",
-  "costCenterId",
-  "contractId",
-  "projectId",
-  "paymentMethodId",
-  "paymentDueDate",
-  "note",
-  "status",
-  "isWithholdingTarget",
-  "withholdingTaxRate",
-  "withholdingTaxAmount",
-  "netPaymentAmount",
-] as const;
-
-export const JOURNAL_ENTRY_LOG_FIELDS = [
-  "journalDate",
-  "description",
-  "status",
-  "transactionId",
-  "invoiceGroupId",
-  "paymentGroupId",
-] as const;
 

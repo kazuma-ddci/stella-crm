@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { recordChangeLog, extractChanges, pickRecordData, JOURNAL_ENTRY_LOG_FIELDS } from "@/app/accounting/changelog/actions";
+import { recordChangeLog, extractChanges, pickRecordData } from "@/app/accounting/changelog/actions";
+import { JOURNAL_ENTRY_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
 
 // ============================================
@@ -278,7 +279,7 @@ export async function createJournalEntry(data: Record<string, unknown>) {
         tableName: "JournalEntry",
         recordId: journalEntry.id,
         changeType: "create",
-        newData: pickRecordData(
+        newData: await pickRecordData(
           journalEntry as unknown as Record<string, unknown>,
           [...JOURNAL_ENTRY_LOG_FIELDS]
         ),
@@ -368,15 +369,15 @@ export async function updateJournalEntry(
     });
 
     // 変更履歴を記録
-    const oldData = pickRecordData(
+    const oldData = await pickRecordData(
       existing as unknown as Record<string, unknown>,
       [...JOURNAL_ENTRY_LOG_FIELDS]
     );
-    const newData = pickRecordData(
+    const newData = await pickRecordData(
       updated as unknown as Record<string, unknown>,
       [...JOURNAL_ENTRY_LOG_FIELDS]
     );
-    const changes = extractChanges(oldData, newData, [...JOURNAL_ENTRY_LOG_FIELDS]);
+    const changes = await extractChanges(oldData, newData, [...JOURNAL_ENTRY_LOG_FIELDS]);
     if (changes) {
       await recordChangeLog(
         {
@@ -458,10 +459,35 @@ export async function confirmJournalEntry(id: number) {
       tx
     );
 
-    // 取引に紐づいている場合、取引ステータスを更新
+    // 紐づいている取引のステータスを「仕訳済み」に更新
+    // transactionId直接紐づき、またはinvoiceGroupId/paymentGroupId経由の取引を対象
+    const relatedTransactionIds: number[] = [];
+
     if (entry.transactionId) {
+      relatedTransactionIds.push(entry.transactionId);
+    }
+
+    if (entry.invoiceGroupId) {
+      const groupTxns = await tx.transaction.findMany({
+        where: { invoiceGroupId: entry.invoiceGroupId, deletedAt: null },
+        select: { id: true },
+      });
+      groupTxns.forEach((t) => relatedTransactionIds.push(t.id));
+    }
+
+    if (entry.paymentGroupId) {
+      const groupTxns = await tx.transaction.findMany({
+        where: { paymentGroupId: entry.paymentGroupId, deletedAt: null },
+        select: { id: true },
+      });
+      groupTxns.forEach((t) => relatedTransactionIds.push(t.id));
+    }
+
+    const uniqueTransactionIds = [...new Set(relatedTransactionIds)];
+
+    for (const txnId of uniqueTransactionIds) {
       const transaction = await tx.transaction.findFirst({
-        where: { id: entry.transactionId, deletedAt: null },
+        where: { id: txnId, deletedAt: null },
         select: { id: true, status: true },
       });
       if (
@@ -469,18 +495,17 @@ export async function confirmJournalEntry(id: number) {
         transaction.status === "awaiting_accounting"
       ) {
         await tx.transaction.update({
-          where: { id: entry.transactionId },
+          where: { id: transaction.id },
           data: {
             status: "journalized",
             updatedBy: staffId,
           },
         });
 
-        // 取引のステータス変更も記録
         await recordChangeLog(
           {
             tableName: "Transaction",
-            recordId: entry.transactionId,
+            recordId: transaction.id,
             changeType: "update",
             oldData: { status: "awaiting_accounting" },
             newData: { status: "journalized" },
@@ -532,7 +557,7 @@ export async function deleteJournalEntry(id: number) {
         tableName: "JournalEntry",
         recordId: id,
         changeType: "delete",
-        oldData: pickRecordData(
+        oldData: await pickRecordData(
           entry as unknown as Record<string, unknown>,
           [...JOURNAL_ENTRY_LOG_FIELDS]
         ),

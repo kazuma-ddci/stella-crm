@@ -5,14 +5,15 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { Prisma } from "@prisma/client";
 import { createNotificationBulk } from "@/lib/notifications/create-notification";
+import { recordChangeLog } from "@/app/accounting/changelog/actions";
 
 const REVALIDATE_PATH = "/accounting/transactions";
 
 // ===== 按分金額計算（端数処理: 1円未満切り捨て、差額は最後の按分先に寄せる） =====
-export function calculateAllocatedAmounts(
+export async function calculateAllocatedAmounts(
   amountIncludingTax: number,
   lines: { costCenterId: number | null; allocationRate: Prisma.Decimal }[]
-): { costCenterId: number | null; amount: number; allocationRate: number }[] {
+): Promise<{ costCenterId: number | null; amount: number; allocationRate: number }[]> {
   // 確定枠のみ（costCenterId != null）
   const confirmedLines = lines.filter((l) => l.costCenterId !== null);
   if (confirmedLines.length === 0) return [];
@@ -135,7 +136,7 @@ export async function getAllocationStatus(
   );
 
   // 按分金額計算
-  const allocatedAmounts = calculateAllocatedAmounts(
+  const allocatedAmounts = await calculateAllocatedAmounts(
     amountIncludingTax,
     confirmedLinesList.map((l) => ({
       costCenterId: l.costCenterId,
@@ -283,11 +284,33 @@ export async function checkAndTransitionToAwaitingAccounting(transactionId: numb
 
   // 全確定 かつ ステータスが confirmed の場合のみ自動遷移
   if (allConfirmed && transaction.status === "confirmed") {
-    await prisma.transaction.update({
-      where: { id: transactionId },
-      data: {
-        status: "awaiting_accounting",
-      },
+    // 最後に確定した人のIDを取得
+    const latestConfirmation = transaction.allocationConfirmations
+      .sort((a, b) => (b.confirmedAt?.getTime() ?? 0) - (a.confirmedAt?.getTime() ?? 0))[0];
+    const updatedBy = latestConfirmation?.confirmedBy ?? null;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.transaction.update({
+        where: { id: transactionId },
+        data: {
+          status: "awaiting_accounting",
+          updatedBy,
+        },
+      });
+
+      if (updatedBy) {
+        await recordChangeLog(
+          {
+            tableName: "Transaction",
+            recordId: transactionId,
+            changeType: "update",
+            oldData: { status: "confirmed" },
+            newData: { status: "awaiting_accounting" },
+          },
+          updatedBy,
+          tx
+        );
+      }
     });
   }
 }

@@ -35,6 +35,7 @@ import {
   returnTransaction,
   resubmitTransaction,
   hideTransaction,
+  submitToAccountingTransaction,
 } from "./actions";
 
 const returnReasonLabels: Record<string, string> = {
@@ -110,6 +111,18 @@ export function TransactionStatusActions({
     });
   };
 
+  const handleSubmitToAccounting = () => {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await submitToAccountingTransaction(transactionId);
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "エラーが発生しました");
+      }
+    });
+  };
+
   const handleHide = () => {
     setError(null);
     startTransition(async () => {
@@ -147,6 +160,36 @@ export function TransactionStatusActions({
               <AlertDialogCancel>キャンセル</AlertDialogCancel>
               <AlertDialogAction onClick={handleConfirm} disabled={isPending}>
                 確認する
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+
+      {/* 経理へ引き渡しボタン: confirmed/resubmitted → awaiting_accounting */}
+      {(status === "confirmed" || status === "resubmitted") && (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-blue-600 border-blue-200 hover:bg-blue-50"
+              disabled={isPending}
+            >
+              経理へ引渡
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>経理へ引き渡しますか？</AlertDialogTitle>
+              <AlertDialogDescription>
+                取引を経理部門へ引き渡し、ステータスを「経理処理待ち」に変更します。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>キャンセル</AlertDialogCancel>
+              <AlertDialogAction onClick={handleSubmitToAccounting} disabled={isPending}>
+                引き渡す
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

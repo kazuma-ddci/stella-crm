@@ -4,8 +4,24 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { requireEdit } from "@/lib/auth";
 import { generateInvoiceGroupNumber } from "@/lib/finance/invoice-number";
+import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import { calcInvoiceTaxSummary, calcInvoiceTotalFromSummary } from "@/lib/finance/invoice-tax";
 import fs from "fs/promises";
 import path from "path";
+
+// ============================================
+// 税額計算ヘルパー（仕様9.1準拠: 税率別グループ小計→一括税額計算）
+// ============================================
+
+function calcGroupTotals(transactions: { amount: number; taxAmount: number; taxRate: number; taxType: string }[]) {
+  const lineItems = transactions.map((t) => ({
+    amount: t.taxType === "tax_excluded" ? t.amount : t.amount - t.taxAmount,
+    taxRate: t.taxRate,
+  }));
+  const taxSummary = calcInvoiceTaxSummary(lineItems);
+  const { totalAmount, taxAmount } = calcInvoiceTotalFromSummary(taxSummary);
+  return { subtotal: totalAmount - taxAmount, taxAmount, totalAmount };
+}
 
 // ============================================
 // 型定義
@@ -173,19 +189,8 @@ export async function createInvoiceGroup(data: {
       throw new Error("取引先が一致しません");
     }
 
-    // 金額計算
-    let subtotal = 0;
-    let taxTotal = 0;
-    for (const t of transactions) {
-      if (t.taxType === "tax_excluded") {
-        subtotal += t.amount;
-        taxTotal += t.taxAmount;
-      } else {
-        // 内税の場合: 金額から税額を引いたのが小計
-        subtotal += t.amount - t.taxAmount;
-        taxTotal += t.taxAmount;
-      }
-    }
+    // 金額計算（仕様9.1準拠: 税率別グループ小計→一括税額計算）
+    const { subtotal, taxAmount, totalAmount } = calcGroupTotals(transactions);
 
     // InvoiceGroup作成
     const group = await tx.invoiceGroup.create({
@@ -198,8 +203,8 @@ export async function createInvoiceGroup(data: {
           ? new Date(data.paymentDueDate)
           : null,
         subtotal,
-        taxAmount: taxTotal,
-        totalAmount: subtotal + taxTotal,
+        taxAmount,
+        totalAmount,
         status: "draft",
         createdBy: user.id,
       },
@@ -323,27 +328,17 @@ export async function addTransactionToGroup(
       data: { invoiceGroupId: groupId },
     });
 
-    // 金額再計算
+    // 金額再計算（仕様9.1準拠）
     const allTransactions = [
       ...group.transactions,
       ...transactions,
     ];
-    let subtotal = 0;
-    let taxTotal = 0;
-    for (const t of allTransactions) {
-      if (t.taxType === "tax_excluded") {
-        subtotal += t.amount;
-        taxTotal += t.taxAmount;
-      } else {
-        subtotal += t.amount - t.taxAmount;
-        taxTotal += t.taxAmount;
-      }
-    }
+    const { subtotal, taxAmount, totalAmount } = calcGroupTotals(allTransactions);
 
     const updateData: Record<string, unknown> = {
       subtotal,
-      taxAmount: taxTotal,
-      totalAmount: subtotal + taxTotal,
+      taxAmount,
+      totalAmount,
       updatedBy: user.id,
     };
 
@@ -388,26 +383,16 @@ export async function removeTransactionFromGroup(
       data: { invoiceGroupId: null },
     });
 
-    // 金額再計算
+    // 金額再計算（仕様9.1準拠）
     const remaining = group.transactions.filter(
       (t) => t.id !== transactionId
     );
-    let subtotal = 0;
-    let taxTotal = 0;
-    for (const t of remaining) {
-      if (t.taxType === "tax_excluded") {
-        subtotal += t.amount;
-        taxTotal += t.taxAmount;
-      } else {
-        subtotal += t.amount - t.taxAmount;
-        taxTotal += t.taxAmount;
-      }
-    }
+    const { subtotal, taxAmount, totalAmount } = calcGroupTotals(remaining);
 
     const updateData: Record<string, unknown> = {
       subtotal,
-      taxAmount: taxTotal,
-      totalAmount: subtotal + taxTotal,
+      taxAmount,
+      totalAmount,
       updatedBy: user.id,
     };
 
@@ -558,6 +543,7 @@ export async function assignInvoiceNumber(
       tx
     );
 
+    const oldStatus = group.status;
     await tx.invoiceGroup.update({
       where: { id: groupId },
       data: {
@@ -566,6 +552,18 @@ export async function assignInvoiceNumber(
         updatedBy: user.id,
       },
     });
+
+    await recordChangeLog(
+      {
+        tableName: "InvoiceGroup",
+        recordId: groupId,
+        changeType: "update",
+        oldData: { status: oldStatus },
+        newData: { status: "pdf_created" },
+      },
+      user.id,
+      tx
+    );
 
     return invoiceNumber;
   });
@@ -612,9 +610,24 @@ export async function updateInvoiceGroupStatus(
     return;
   }
 
-  await prisma.invoiceGroup.update({
-    where: { id },
-    data: { status: newStatus, updatedBy: user.id },
+  const oldStatus = group.status;
+  await prisma.$transaction(async (tx) => {
+    await tx.invoiceGroup.update({
+      where: { id },
+      data: { status: newStatus, updatedBy: user.id },
+    });
+
+    await recordChangeLog(
+      {
+        tableName: "InvoiceGroup",
+        recordId: id,
+        changeType: "update",
+        oldData: { status: oldStatus },
+        newData: { status: newStatus },
+      },
+      user.id,
+      tx
+    );
   });
 
   revalidatePath("/stp/finance/invoices");
@@ -635,24 +648,15 @@ export async function recalcInvoiceGroupTotals(
   });
   if (!group) throw new Error("請求グループが見つかりません");
 
-  let subtotal = 0;
-  let taxTotal = 0;
-  for (const t of group.transactions) {
-    if (t.taxType === "tax_excluded") {
-      subtotal += t.amount;
-      taxTotal += t.taxAmount;
-    } else {
-      subtotal += t.amount - t.taxAmount;
-      taxTotal += t.taxAmount;
-    }
-  }
+  // 仕様9.1準拠: 税率別にグループ小計→一括税額計算（インボイス制度対応）
+  const { subtotal, taxAmount, totalAmount } = calcGroupTotals(group.transactions);
 
   await prisma.invoiceGroup.update({
     where: { id: groupId },
     data: {
       subtotal,
-      taxAmount: taxTotal,
-      totalAmount: subtotal + taxTotal,
+      taxAmount,
+      totalAmount,
       updatedBy: user.id,
     },
   });

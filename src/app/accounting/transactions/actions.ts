@@ -6,7 +6,8 @@ import { getSession } from "@/lib/auth";
 import { autoConfirmCreatorAllocations, checkAndTransitionToAwaitingAccounting, sendAllocationNotifications } from "./allocation-actions";
 import type { AllocationNotificationInfo } from "./allocation-actions";
 import { createNotification } from "@/lib/notifications/create-notification";
-import { recordChangeLog, extractChanges, pickRecordData, TRANSACTION_LOG_FIELDS } from "@/app/accounting/changelog/actions";
+import { recordChangeLog, extractChanges, pickRecordData } from "@/app/accounting/changelog/actions";
+import { TRANSACTION_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
 
 // ============================================
@@ -279,7 +280,7 @@ export async function createTransaction(data: Record<string, unknown>) {
         tableName: "Transaction",
         recordId: transaction.id,
         changeType: "create",
-        newData: pickRecordData(
+        newData: await pickRecordData(
           transaction as unknown as Record<string, unknown>,
           [...TRANSACTION_LOG_FIELDS]
         ),
@@ -403,15 +404,15 @@ export async function updateTransaction(
     });
 
     // 変更履歴を記録
-    const oldData = pickRecordData(
+    const oldData = await pickRecordData(
       existing as unknown as Record<string, unknown>,
       [...TRANSACTION_LOG_FIELDS]
     );
-    const newData = pickRecordData(
+    const newData = await pickRecordData(
       updated as unknown as Record<string, unknown>,
       [...TRANSACTION_LOG_FIELDS]
     );
-    const changes = extractChanges(oldData, newData, [...TRANSACTION_LOG_FIELDS]);
+    const changes = await extractChanges(oldData, newData, [...TRANSACTION_LOG_FIELDS]);
     if (changes) {
       await recordChangeLog(
         {
@@ -750,6 +751,91 @@ export async function resubmitTransaction(id: number, body?: string) {
         changeType: "update",
         oldData: { status: transaction.status },
         newData: { status: "resubmitted" },
+      },
+      staffId,
+      tx
+    );
+  });
+
+  revalidatePath("/accounting/transactions");
+}
+
+// ============================================
+// 7b. submitToAccountingTransaction（確認済み/再提出→経理処理待ち）
+// ============================================
+
+export async function submitToAccountingTransaction(id: number) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const transaction = await prisma.transaction.findFirst({
+    where: { id, deletedAt: null },
+    select: {
+      id: true,
+      status: true,
+      periodFrom: true,
+      periodTo: true,
+      allocationTemplateId: true,
+    },
+  });
+  if (!transaction) {
+    throw new Error("取引が見つかりません");
+  }
+
+  // confirmed または resubmitted のみ許可
+  if (transaction.status !== "confirmed" && transaction.status !== "resubmitted") {
+    throw new Error(
+      `ステータス「${transaction.status}」の取引は経理へ引き渡しできません（確認済みまたは再提出の取引のみ可能です）`
+    );
+  }
+
+  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo);
+
+  // 按分テンプレート使用時: 全按分が確定済みかチェック
+  if (transaction.allocationTemplateId) {
+    const template = await prisma.allocationTemplate.findUnique({
+      where: { id: transaction.allocationTemplateId },
+      include: { lines: true },
+    });
+    if (template) {
+      const requiredCostCenterIds = template.lines
+        .filter((l) => l.costCenterId !== null)
+        .map((l) => l.costCenterId!);
+
+      if (requiredCostCenterIds.length > 0) {
+        const confirmations = await prisma.allocationConfirmation.findMany({
+          where: { transactionId: id },
+          select: { costCenterId: true },
+        });
+        const confirmedIds = new Set(confirmations.map((c) => c.costCenterId));
+        const allConfirmed = requiredCostCenterIds.every((cid) =>
+          confirmedIds.has(cid)
+        );
+        if (!allConfirmed) {
+          throw new Error(
+            "全ての按分先が確定されていないため、経理へ引き渡しできません"
+          );
+        }
+      }
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.transaction.update({
+      where: { id },
+      data: {
+        status: "awaiting_accounting",
+        updatedBy: staffId,
+      },
+    });
+
+    await recordChangeLog(
+      {
+        tableName: "Transaction",
+        recordId: id,
+        changeType: "update",
+        oldData: { status: transaction.status },
+        newData: { status: "awaiting_accounting" },
       },
       staffId,
       tx

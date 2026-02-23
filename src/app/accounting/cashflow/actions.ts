@@ -182,7 +182,7 @@ export async function getCashflowForecast(
   const reconciledMap = new Map<number, number>();
   if (partiallyPaidIds.length > 0) {
     const journalEntries = await prisma.journalEntry.findMany({
-      where: { invoiceGroupId: { in: partiallyPaidIds } },
+      where: { invoiceGroupId: { in: partiallyPaidIds }, deletedAt: null },
       select: {
         invoiceGroupId: true,
         reconciliations: { select: { amount: true } },
@@ -231,22 +231,94 @@ export async function getCashflowForecast(
       id: true,
       amount: true,
       taxAmount: true,
+      status: true,
       paymentDueDate: true,
       paymentMethodId: true,
       paymentMethod: { select: { name: true } },
       counterparty: { select: { name: true } },
       expenseCategory: { select: { name: true } },
+      recurringTransactionId: true,
+      paymentGroupId: true,
     },
   });
 
+  // partially_paid の消込済み金額を取得（transactionId直結 + paymentGroupId経由の両方）
+  const partiallyPaidTxs = transactions.filter((t) => t.status === "partially_paid");
+
+  const txReconciledMap = new Map<number, number>();
+  if (partiallyPaidTxs.length > 0) {
+    // transactionId 直結の仕訳から消込額を集計
+    const directTxIds = partiallyPaidTxs.map((t) => t.id);
+    const directJournals = await prisma.journalEntry.findMany({
+      where: { transactionId: { in: directTxIds }, deletedAt: null },
+      select: {
+        transactionId: true,
+        reconciliations: { select: { amount: true } },
+      },
+    });
+    for (const je of directJournals) {
+      if (je.transactionId) {
+        const current = txReconciledMap.get(je.transactionId) ?? 0;
+        const jeRecon = je.reconciliations.reduce((sum, r) => sum + r.amount, 0);
+        txReconciledMap.set(je.transactionId, current + jeRecon);
+      }
+    }
+
+    // paymentGroupId 経由の仕訳から消込額を集計
+    const pgIds = [...new Set(
+      partiallyPaidTxs
+        .filter((t) => t.paymentGroupId !== null)
+        .map((t) => t.paymentGroupId!)
+    )];
+    if (pgIds.length > 0) {
+      const pgJournals = await prisma.journalEntry.findMany({
+        where: { paymentGroupId: { in: pgIds }, deletedAt: null },
+        select: {
+          paymentGroupId: true,
+          reconciliations: { select: { amount: true } },
+        },
+      });
+      // paymentGroupId → 消込合計を集計
+      const pgReconMap = new Map<number, number>();
+      for (const je of pgJournals) {
+        if (je.paymentGroupId) {
+          const current = pgReconMap.get(je.paymentGroupId) ?? 0;
+          const jeRecon = je.reconciliations.reduce((sum, r) => sum + r.amount, 0);
+          pgReconMap.set(je.paymentGroupId, current + jeRecon);
+        }
+      }
+      // グループの消込額を各取引に按分（グループ合計ベースで一律適用）
+      for (const t of partiallyPaidTxs) {
+        if (t.paymentGroupId && pgReconMap.has(t.paymentGroupId)) {
+          const pgRecon = pgReconMap.get(t.paymentGroupId)!;
+          // 直結分がなく、グループ経由のみの場合にグループ消込額を反映
+          if (!txReconciledMap.has(t.id)) {
+            // グループ全体の合計額に対する比率で個別取引の消込額を推定
+            const pgTxs = partiallyPaidTxs.filter((pt) => pt.paymentGroupId === t.paymentGroupId);
+            const pgTotal = pgTxs.reduce((sum, pt) => sum + pt.amount + pt.taxAmount, 0);
+            const txTotal = t.amount + t.taxAmount;
+            const ratio = pgTotal > 0 ? txTotal / pgTotal : 0;
+            txReconciledMap.set(t.id, Math.floor(pgRecon * ratio));
+          }
+        }
+      }
+    }
+  }
+
   for (const tx of transactions) {
     if (tx.paymentDueDate) {
+      const totalAmount = tx.amount + tx.taxAmount;
+      // partially_paid の場合は消込済み金額を差し引いた残額
+      const reconciledAmount = txReconciledMap.get(tx.id) ?? 0;
+      const remainingAmount = totalAmount - reconciledAmount;
+      if (remainingAmount <= 0) continue;
+
       forecastItems.push({
         date: toDateString(tx.paymentDueDate),
         type: "outgoing",
         source: "transaction",
         description: `${tx.counterparty.name} - ${tx.expenseCategory.name}`,
-        amount: tx.amount + tx.taxAmount,
+        amount: remainingAmount,
         paymentMethodId: tx.paymentMethodId,
         paymentMethodName: tx.paymentMethod?.name ?? null,
       });
@@ -254,6 +326,13 @@ export async function getCashflowForecast(
   }
 
   // 3. 出金予定: 定期取引
+  // 既にTransactionとして生成済みの「定期取引ID + 支払日」を収集（日付単位の二重計上防止）
+  const generatedRecurringDateKeys = new Set(
+    transactions
+      .filter((t) => t.recurringTransactionId !== null && t.paymentDueDate !== null)
+      .map((t) => `${t.recurringTransactionId}:${toDateString(t.paymentDueDate!)}`)
+  );
+
   const recurringTransactions = await prisma.recurringTransaction.findMany({
     where: {
       isActive: true,
@@ -284,6 +363,10 @@ export async function getCashflowForecast(
     const dates = expandRecurringDates(rt, today, forecastEnd);
     const taxAmount = rt.taxAmount ?? Math.floor((rt.amount! * rt.taxRate) / 100);
     for (const date of dates) {
+      // 日付単位で既にTransactionとして生成済みならスキップ（二重計上防止）
+      const dateKey = `${rt.id}:${toDateString(date)}`;
+      if (generatedRecurringDateKeys.has(dateKey)) continue;
+
       forecastItems.push({
         date: toDateString(date),
         type: "outgoing",
