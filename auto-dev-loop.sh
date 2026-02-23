@@ -12,6 +12,7 @@ set -eo pipefail
 TASKS_FILE="TASKS.md"
 LOG_DIR="./dev-logs"
 MAX_RETRIES=3
+MAX_REVIEW_RETRIES=2
 SPEC_REQUIREMENTS="docs/specs/SPEC-ACCOUNTING-001-requirements.md"
 SPEC_DESIGN="docs/specs/SPEC-ACCOUNTING-001-design.md"
 
@@ -26,7 +27,6 @@ log() {
   echo "$msg" | tee -a "$MAIN_LOG"
 }
 
-# log と同じだが stderr に出力する（run_review/run_implement 内で使用）
 log_stderr() {
   local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
   echo "$msg" >> "$MAIN_LOG"
@@ -69,8 +69,41 @@ get_task_detail() {
   fi
 }
 
+# ============ verdict判定 ============
+extract_verdict() {
+  local log_file="$1"
+  
+  if [ ! -s "$log_file" ]; then
+    echo "EMPTY"
+    return
+  fi
+  
+  if grep -i 'verdict' "$log_file" 2>/dev/null | grep -q 'OK'; then
+    echo "OK"
+    return
+  fi
+  
+  if grep -i 'verdict' "$log_file" 2>/dev/null | grep -q 'NG'; then
+    echo "NG"
+    return
+  fi
+  
+  if grep -qi '"severity".*"critical"\|"severity".*"major"' "$log_file" 2>/dev/null; then
+    echo "NG"
+    return
+  fi
+  
+  local last_lines=""
+  last_lines=$(tail -30 "$log_file")
+  if echo "$last_lines" | grep -q 'OK'; then
+    echo "OK"
+    return
+  fi
+  
+  echo "UNKNOWN"
+}
+
 # ============ Claude Code 実装 ============
-# stdoutには何も出さない（呼び出し元で $() キャプチャされないため）
 run_implement() {
   local task_id="$1"
   local task_detail="$2"
@@ -130,9 +163,8 @@ ${retry_feedback}
 }
 
 # ============ Claude Code レビュー ============
-# stdoutには "OK" または "NG" の1単語のみ返す
-# レビュー本文・ログは全てファイル/stderrに出す
-run_review() {
+# stdoutには verdict文字列のみ返す (OK / NG / EMPTY / UNKNOWN)
+run_review_once() {
   local task_id="$1"
   local task_detail="$2"
   local review_log="$LOG_DIR/${task_id}_review_$(date +%H%M%S).md"
@@ -189,17 +221,39 @@ ${task_detail}
 
 レビューを開始してください。"
 
-  # レビュー出力をログファイルにのみ書き出す
   echo "$review_prompt" | claude --dangerously-skip-permissions > "$review_log" 2>&1
 
   log_stderr "📝 レビューログ: ${review_log}"
   
-  # verdict を抽出してstdoutに返す（これだけがstdoutに出る唯一の出力）
-  if grep 'verdict' "$review_log" 2>/dev/null | grep -q '"OK"'; then
-    echo "OK"
-  else
-    echo "NG"
-  fi
+  extract_verdict "$review_log"
+}
+
+# レビューを実行し、EMPTY/UNKNOWNなら再試行（実装はやり直さない）
+run_review_with_retry() {
+  local task_id="$1"
+  local task_detail="$2"
+  local review_retry=0
+  
+  while [ "$review_retry" -le "$MAX_REVIEW_RETRIES" ]; do
+    local verdict=""
+    verdict=$(run_review_once "$task_id" "$task_detail")
+    
+    if [ "$verdict" = "OK" ] || [ "$verdict" = "NG" ]; then
+      # 確定した結果を返す
+      echo "$verdict"
+      return
+    fi
+    
+    # EMPTY or UNKNOWN → レビューだけ再試行
+    review_retry=$((review_retry + 1))
+    if [ "$review_retry" -le "$MAX_REVIEW_RETRIES" ]; then
+      log_stderr "⚠️ レビュー判定不能（${verdict}）。レビューのみ再実行（${review_retry}/${MAX_REVIEW_RETRIES}）"
+    fi
+  done
+  
+  # 再試行上限 → NG扱い
+  log_stderr "⚠️ レビュー判定不能が続いたためNG扱いにします"
+  echo "NG"
 }
 
 get_review_feedback() {
@@ -269,9 +323,9 @@ main() {
       git add -A 2>/dev/null || true
       git commit -m "feat(${task_id}): 実装 (attempt $((retry+1)))" --allow-empty 2>/dev/null || true
       
-      # Step 3: レビュー（stdoutにはOK/NGのみ返る）
+      # Step 3: レビュー（EMPTY/UNKNOWNはこの中でリトライされる）
       local verdict=""
-      verdict=$(run_review "$task_id" "$task_detail")
+      verdict=$(run_review_with_retry "$task_id" "$task_detail")
       
       log "📋 レビュー結果: ${verdict}"
       

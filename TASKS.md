@@ -142,7 +142,7 @@
   - Server Actions: createInvoiceGroup, updateInvoiceGroup, addTransactionToGroup, removeTransactionFromGroup
   **参照**: 要望書 2.3, 設計書 6.8
 
-- [!] TASK-012: 請求書PDF生成・プレビュー
+- [x] TASK-012: 請求書PDF生成・プレビュー
   **対象**: 設計書 8.1
   **作業内容**:
   - InvoicePdfTemplate コンポーネント（@react-pdf/renderer + Noto Sans JP）
@@ -154,7 +154,7 @@
   - Server Actions: generateInvoicePdf
   **参照**: 要望書 2.5.1, 9.1, 設計書 8.1
 
-- [ ] TASK-013: 請求書メール送付機能
+- [x] TASK-013: 請求書メール送付機能
   **対象**: 設計書 ㉖ InvoiceMail + ㉗ InvoiceMailRecipient
   **作業内容**:
   - 送信先選択（StellaCompanyContactから + 手動入力）
