@@ -130,7 +130,7 @@
 
 ## Phase 3: 請求書管理
 
-- [ ] TASK-011: 請求グループ管理画面
+- [x] TASK-011: 請求グループ管理画面
   **対象**: 設計書 ② InvoiceGroup テーブル
   **ページ**: /stp/finance/invoices
   **作業内容**:

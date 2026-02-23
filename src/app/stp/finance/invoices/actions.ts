@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { requireEdit } from "@/lib/auth";
 import { generateInvoiceGroupNumber } from "@/lib/finance/invoice-number";
+import fs from "fs/promises";
+import path from "path";
 
 // ============================================
 // 型定義
@@ -23,6 +25,7 @@ export type InvoiceGroupListItem = {
   subtotal: number | null;
   taxAmount: number | null;
   totalAmount: number | null;
+  pdfPath: string | null;
   status: string;
   correctionType: string | null;
   originalInvoiceGroupId: number | null;
@@ -81,6 +84,7 @@ export async function getInvoiceGroups(): Promise<InvoiceGroupListItem[]> {
     subtotal: r.subtotal,
     taxAmount: r.taxAmount,
     totalAmount: r.totalAmount,
+    pdfPath: r.pdfPath,
     status: r.status,
     correctionType: r.correctionType,
     originalInvoiceGroupId: r.originalInvoiceGroupId,
@@ -654,4 +658,84 @@ export async function recalcInvoiceGroupTotals(
   });
 
   revalidatePath("/stp/finance/invoices");
+}
+
+// ============================================
+// PDF生成・保存
+// ============================================
+
+export async function generateInvoicePdf(
+  groupId: number
+): Promise<{ pdfPath: string; invoiceNumber: string }> {
+  const user = await requireEdit("stp");
+
+  // 動的importでサーバー専用モジュールを遅延ロード
+  const { getInvoicePdfData, generateInvoicePdfBuffer } = await import(
+    "@/lib/invoices/pdf-generator"
+  );
+
+  const result = await prisma.$transaction(async (tx) => {
+    const group = await tx.invoiceGroup.findUnique({
+      where: { id: groupId, deletedAt: null },
+    });
+    if (!group) throw new Error("請求グループが見つかりません");
+
+    // draft または pdf_created のみPDF生成可能
+    if (!["draft", "pdf_created"].includes(group.status)) {
+      throw new Error("このステータスではPDFを生成できません");
+    }
+
+    // 請求書番号を採番（未採番の場合）
+    let invoiceNumber = group.invoiceNumber;
+    if (!invoiceNumber) {
+      invoiceNumber = await generateInvoiceGroupNumber(
+        group.operatingCompanyId,
+        tx
+      );
+      await tx.invoiceGroup.update({
+        where: { id: groupId },
+        data: { invoiceNumber },
+      });
+    }
+
+    return { invoiceNumber, operatingCompanyId: group.operatingCompanyId };
+  });
+
+  // PDF生成（トランザクション外: DB読取のみ）
+  const data = await getInvoicePdfData(groupId);
+  // 採番済み番号を反映
+  data.invoiceNumber = result.invoiceNumber;
+
+  const buffer = await generateInvoicePdfBuffer(data);
+
+  // ファイル保存
+  const now = new Date();
+  const yearMonth = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const uploadDir = path.join(
+    process.cwd(),
+    "public/uploads/invoices",
+    yearMonth
+  );
+  await fs.mkdir(uploadDir, { recursive: true });
+
+  const pdfFileName = `invoice-${groupId}-${Date.now()}.pdf`;
+  const filePath = path.join(uploadDir, pdfFileName);
+  const publicPath = `/uploads/invoices/${yearMonth}/${pdfFileName}`;
+
+  await fs.writeFile(filePath, buffer);
+
+  // DB更新: pdfPath, pdfFileName, status
+  const displayFileName = `請求書_${result.invoiceNumber}.pdf`;
+  await prisma.invoiceGroup.update({
+    where: { id: groupId },
+    data: {
+      pdfPath: publicPath,
+      pdfFileName: displayFileName,
+      status: "pdf_created",
+      updatedBy: user.id,
+    },
+  });
+
+  revalidatePath("/stp/finance/invoices");
+  return { pdfPath: publicPath, invoiceNumber: result.invoiceNumber };
 }

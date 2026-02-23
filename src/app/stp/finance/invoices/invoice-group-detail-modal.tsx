@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Plus, Trash2, FileText, AlertTriangle } from "lucide-react";
+import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw } from "lucide-react";
 import type { InvoiceGroupListItem, UngroupedTransaction } from "./actions";
 import {
   updateInvoiceGroup,
@@ -18,9 +18,9 @@ import {
   addTransactionToGroup,
   removeTransactionFromGroup,
   getUngroupedTransactions,
-  assignInvoiceNumber,
   createCorrectionInvoiceGroup,
   updateInvoiceGroupStatus,
+  generateInvoicePdf,
 } from "./actions";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -92,6 +92,11 @@ export function InvoiceGroupDetailModal({
 
   // 訂正モーダル
   const [showCorrectionDialog, setShowCorrectionDialog] = useState(false);
+
+  // PDFプレビュー
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [loadingPdf, setLoadingPdf] = useState(false);
 
   const isEditable = ["draft", "pdf_created"].includes(group.status);
   const canCreateCorrection = ["sent", "awaiting_accounting"].includes(
@@ -205,17 +210,59 @@ export function InvoiceGroupDetailModal({
     }
   };
 
-  const handleAssignNumber = async () => {
+  // PDFプレビュー表示
+  const handlePreviewPdf = async () => {
+    setLoadingPdf(true);
+    try {
+      const url = `/api/finance/invoice-groups/${group.id}/pdf?preview=true`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "PDF生成に失敗しました" }));
+        throw new Error(err.error);
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      setPdfPreviewUrl(blobUrl);
+      setShowPdfPreview(true);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "PDF生成に失敗しました");
+    } finally {
+      setLoadingPdf(false);
+    }
+  };
+
+  // PDF保存（採番・ファイル保存・ステータス更新）
+  const handleSavePdf = async () => {
     setLoading(true);
     try {
-      const num = await assignInvoiceNumber(group.id);
-      alert(`請求書番号を採番しました: ${num}`);
+      const result = await generateInvoicePdf(group.id);
+      alert(`PDFを保存しました（${result.invoiceNumber}）`);
+      // プレビューのblobURLを解放
+      if (pdfPreviewUrl) {
+        URL.revokeObjectURL(pdfPreviewUrl);
+        setPdfPreviewUrl(null);
+      }
+      setShowPdfPreview(false);
       onClose();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "エラーが発生しました");
+      alert(e instanceof Error ? e.message : "PDF保存に失敗しました");
     } finally {
       setLoading(false);
     }
+  };
+
+  // 保存済みPDFを開く
+  const handleOpenPdf = () => {
+    window.open(`/api/finance/invoice-groups/${group.id}/pdf`, "_blank");
+  };
+
+  // PDFプレビューを閉じる
+  const handleClosePdfPreview = () => {
+    if (pdfPreviewUrl) {
+      URL.revokeObjectURL(pdfPreviewUrl);
+      setPdfPreviewUrl(null);
+    }
+    setShowPdfPreview(false);
   };
 
   const handleCreateCorrection = async (
@@ -323,31 +370,68 @@ export function InvoiceGroupDetailModal({
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={handleAssignNumber}
-                      disabled={loading}
+                      onClick={handlePreviewPdf}
+                      disabled={loading || loadingPdf}
                     >
-                      <FileText className="mr-1 h-4 w-4" />
-                      PDF作成（採番）
+                      {loadingPdf ? (
+                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Eye className="mr-1 h-4 w-4" />
+                      )}
+                      {group.invoiceNumber ? "PDF再作成" : "PDFプレビュー"}
                     </Button>
                   )}
                   {group.status === "pdf_created" && (
-                    <Button
-                      size="sm"
-                      onClick={() => handleStatusChange("sent")}
-                      disabled={loading}
-                    >
-                      送付済みにする
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleOpenPdf}
+                        disabled={loading}
+                      >
+                        <Download className="mr-1 h-4 w-4" />
+                        PDFを確認
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handlePreviewPdf}
+                        disabled={loading || loadingPdf}
+                      >
+                        <RefreshCw className="mr-1 h-4 w-4" />
+                        PDF再作成
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => handleStatusChange("sent")}
+                        disabled={loading}
+                      >
+                        送付済みにする
+                      </Button>
+                    </>
                   )}
                   {canCreateCorrection && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setShowCorrectionDialog(true)}
-                    >
-                      <AlertTriangle className="mr-1 h-4 w-4" />
-                      訂正請求書を作成
-                    </Button>
+                    <>
+                      {group.pdfPath && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleOpenPdf}
+                          disabled={loading}
+                        >
+                          <Download className="mr-1 h-4 w-4" />
+                          PDF
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowCorrectionDialog(true)}
+                      >
+                        <AlertTriangle className="mr-1 h-4 w-4" />
+                        訂正請求書を作成
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -356,6 +440,21 @@ export function InvoiceGroupDetailModal({
               {group.originalInvoiceNumber && (
                 <div className="rounded-lg border border-purple-200 bg-purple-50 p-3 text-sm">
                   訂正元請求書: {group.originalInvoiceNumber}
+                </div>
+              )}
+
+              {/* PDF無効化警告（2.3.5: PDF作成済みで明細変更した場合） */}
+              {group.status === "draft" && group.invoiceNumber && !group.pdfPath && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 flex items-start gap-2">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800">
+                      明細が変更されたためPDFが無効になりました
+                    </p>
+                    <p className="text-xs text-amber-700 mt-1">
+                      PDFを再作成してください。請求書番号（{group.invoiceNumber}）は維持されます。
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -652,6 +751,65 @@ export function InvoiceGroupDetailModal({
                         差額分のみ追加で請求
                       </div>
                     </div>
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* PDFプレビューダイアログ */}
+        {showPdfPreview && (
+          <Dialog open={showPdfPreview} onOpenChange={handleClosePdfPreview}>
+            <DialogContent className="max-w-4xl h-[85vh] flex flex-col">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  請求書PDFプレビュー
+                  {group.invoiceNumber && (
+                    <span className="font-mono text-sm text-muted-foreground">
+                      {group.invoiceNumber}
+                    </span>
+                  )}
+                </DialogTitle>
+              </DialogHeader>
+
+              {/* PDFビューア */}
+              <div className="flex-1 min-h-0 border rounded-lg overflow-hidden bg-gray-100">
+                {pdfPreviewUrl ? (
+                  <iframe
+                    src={pdfPreviewUrl}
+                    className="w-full h-full"
+                    title="請求書PDFプレビュー"
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+              </div>
+
+              {/* 操作ボタン */}
+              <div className="flex justify-between items-center pt-2">
+                <p className="text-xs text-muted-foreground">
+                  {group.invoiceNumber
+                    ? "内容を確認して「保存」を押してください。"
+                    : "保存時に請求書番号が自動採番されます。内容を確認して「保存」を押してください。"}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleClosePdfPreview}
+                    disabled={loading}
+                  >
+                    キャンセル
+                  </Button>
+                  <Button onClick={handleSavePdf} disabled={loading}>
+                    {loading && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    <FileText className="mr-1 h-4 w-4" />
+                    保存
                   </Button>
                 </div>
               </div>
