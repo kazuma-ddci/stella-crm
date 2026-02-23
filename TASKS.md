@@ -31,7 +31,7 @@
   - Server Actions: createAccount, updateAccount
   **参照**: 要望書 3.6
 
-- [ ] TASK-003: 費目マスタ管理画面
+- [!] TASK-003: 費目マスタ管理画面
   **対象**: 設計書 ⑩ ExpenseCategory テーブル
   **ページ**: /accounting/masters/expense-categories
   **作業内容**:
