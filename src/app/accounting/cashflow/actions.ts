@@ -103,31 +103,40 @@ export async function getCashflowForecast(
     },
   });
 
-  // --- 各決済手段の現在残高を計算（groupByで一括集計） ---
+  // --- 各決済手段の現在残高を計算（initialBalanceDate以降のみ集計） ---
   const pmBalances: PaymentMethodBalance[] = [];
   const currentBalanceMap = new Map<number, number>();
 
-  const pmIds = paymentMethods.map((pm) => pm.id);
-  const txSums = await prisma.bankTransaction.groupBy({
-    by: ["paymentMethodId", "direction"],
-    where: {
-      paymentMethodId: { in: pmIds },
-      deletedAt: null,
-      transactionDate: { lte: today },
-    },
-    _sum: { amount: true },
-  });
+  const pmBalanceResults = await Promise.all(
+    paymentMethods.map(async (pm) => {
+      const txSums = await prisma.bankTransaction.groupBy({
+        by: ["direction"],
+        where: {
+          paymentMethodId: pm.id,
+          deletedAt: null,
+          transactionDate: {
+            ...(pm.initialBalanceDate ? { gte: pm.initialBalanceDate } : {}),
+            lte: today,
+          },
+        },
+        _sum: { amount: true },
+      });
 
-  const sumMap = new Map<string, number>();
-  for (const row of txSums) {
-    sumMap.set(`${row.paymentMethodId}:${row.direction}`, row._sum.amount ?? 0);
-  }
+      let incoming = 0;
+      let outgoing = 0;
+      for (const row of txSums) {
+        if (row.direction === "incoming") incoming = row._sum.amount ?? 0;
+        else if (row.direction === "outgoing") outgoing = row._sum.amount ?? 0;
+      }
 
-  for (const pm of paymentMethods) {
-    const incoming = sumMap.get(`${pm.id}:incoming`) ?? 0;
-    const outgoing = sumMap.get(`${pm.id}:outgoing`) ?? 0;
-    const currentBalance = (pm.initialBalance ?? 0) + incoming - outgoing;
+      return {
+        pm,
+        currentBalance: (pm.initialBalance ?? 0) + incoming - outgoing,
+      };
+    })
+  );
 
+  for (const { pm, currentBalance } of pmBalanceResults) {
     currentBalanceMap.set(pm.id, currentBalance);
     pmBalances.push({
       id: pm.id,
@@ -153,6 +162,7 @@ export async function getCashflowForecast(
       invoiceNumber: true,
       paymentDueDate: true,
       totalAmount: true,
+      status: true,
       counterparty: { select: { name: true } },
       bankAccount: {
         select: {
@@ -164,14 +174,45 @@ export async function getCashflowForecast(
     },
   });
 
+  // partially_paid の場合、消込済み金額を取得して残額を計算
+  const partiallyPaidIds = invoiceGroups
+    .filter((ig) => ig.status === "partially_paid")
+    .map((ig) => ig.id);
+
+  const reconciledMap = new Map<number, number>();
+  if (partiallyPaidIds.length > 0) {
+    const journalEntries = await prisma.journalEntry.findMany({
+      where: { invoiceGroupId: { in: partiallyPaidIds } },
+      select: {
+        invoiceGroupId: true,
+        reconciliations: { select: { amount: true } },
+      },
+    });
+    for (const je of journalEntries) {
+      if (je.invoiceGroupId) {
+        const current = reconciledMap.get(je.invoiceGroupId) ?? 0;
+        const jeRecon = je.reconciliations.reduce(
+          (sum, r) => sum + r.amount,
+          0
+        );
+        reconciledMap.set(je.invoiceGroupId, current + jeRecon);
+      }
+    }
+  }
+
   for (const ig of invoiceGroups) {
     if (ig.paymentDueDate && ig.totalAmount) {
+      // partially_paid の場合は消込済み金額を差し引いた残額を使用
+      const reconciledAmount = reconciledMap.get(ig.id) ?? 0;
+      const remainingAmount = ig.totalAmount - reconciledAmount;
+      if (remainingAmount <= 0) continue;
+
       forecastItems.push({
         date: toDateString(ig.paymentDueDate),
         type: "incoming",
         source: "invoice",
         description: `${ig.counterparty.name}${ig.invoiceNumber ? ` (${ig.invoiceNumber})` : ""}`,
-        amount: ig.totalAmount,
+        amount: remainingAmount,
         paymentMethodId: ig.bankAccount?.paymentMethodId ?? null,
         paymentMethodName: ig.bankAccount?.bankName ?? null,
       });

@@ -703,6 +703,7 @@ model PaymentMethod {
   transactions          Transaction[]
   recurringTransactions RecurringTransaction[]
   cryptoDetails         CryptoTransactionDetail[]
+  operatingCompanyBankAccounts OperatingCompanyBankAccount[]
   creator               MasterStaff?              @relation("PayMethodCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?              @relation("PayMethodUpdater", fields: [updatedBy], references: [id])
 }
@@ -1106,6 +1107,22 @@ model StpMonthlyClose {
   snapshotData    Json?     // クローズ時のPLスナップショット
 }
 ```
+
+### 3.4 OperatingCompanyBankAccount（運営法人振込先口座）
+
+```prisma
+// 追加カラム
+model OperatingCompanyBankAccount {
+  // 既存フィールド...
+
+  paymentMethodId   Int?      // FK → PaymentMethod（残高管理用決済手段との紐付け）
+
+  // 新しいRelation
+  paymentMethod     PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+}
+```
+
+> キャッシュフロー予測で、InvoiceGroup の振込先口座（bankAccountId）から決済手段（PaymentMethod）を辿り、入金予定を口座別残高推移に反映するために追加。
 
 ---
 
