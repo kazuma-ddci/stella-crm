@@ -188,7 +188,7 @@ export async function updateRecurringTransaction(
 
   const existing = await prisma.recurringTransaction.findUnique({
     where: { id },
-    select: { id: true, deletedAt: true, frequency: true },
+    select: { id: true, deletedAt: true, frequency: true, costCenterId: true, allocationTemplateId: true },
   });
   if (!existing || existing.deletedAt) {
     throw new Error("定期取引が見つかりません");
@@ -365,6 +365,15 @@ export async function updateRecurringTransaction(
     updateData.note = data.note ? (data.note as string).trim() : null;
   }
 
+  // 按分先と按分テンプレートの排他チェック
+  const effectiveCostCenterId = "costCenterId" in updateData ? updateData.costCenterId : existing.costCenterId;
+  const effectiveAllocId = "allocationTemplateId" in updateData ? updateData.allocationTemplateId : existing.allocationTemplateId;
+  if (effectiveCostCenterId && effectiveAllocId) {
+    throw new Error(
+      "プロジェクト（按分なし）と按分テンプレートは同時に設定できません。どちらか一方を選択してください"
+    );
+  }
+
   updateData.updatedBy = staffId;
 
   await prisma.recurringTransaction.update({
@@ -379,6 +388,15 @@ export async function updateRecurringTransaction(
 export async function deleteRecurringTransaction(id: number) {
   const session = await getSession();
   const staffId = session.id;
+
+  // 存在チェック・論理削除済みチェック
+  const existing = await prisma.recurringTransaction.findUnique({
+    where: { id },
+    select: { id: true, deletedAt: true },
+  });
+  if (!existing || existing.deletedAt) {
+    throw new Error("定期取引が見つかりません");
+  }
 
   // 使用中チェック: 生成済み取引があるか
   const txCount = await prisma.transaction.count({
