@@ -585,27 +585,30 @@ export async function confirmTransaction(id: number) {
 
   await checkMonthlyClose(transaction.periodFrom, transaction.periodTo, transaction.projectId);
 
-  await prisma.transaction.update({
-    where: { id },
-    data: {
-      status: "confirmed",
-      confirmedBy: staffId,
-      confirmedAt: new Date(),
-      updatedBy: staffId,
-    },
-  });
+  await prisma.$transaction(async (tx) => {
+    await tx.transaction.update({
+      where: { id },
+      data: {
+        status: "confirmed",
+        confirmedBy: staffId,
+        confirmedAt: new Date(),
+        updatedBy: staffId,
+      },
+    });
 
-  // 変更履歴を記録
-  await recordChangeLog(
-    {
-      tableName: "Transaction",
-      recordId: id,
-      changeType: "update",
-      oldData: { status: transaction.status },
-      newData: { status: "confirmed" },
-    },
-    staffId
-  );
+    // 変更履歴を記録
+    await recordChangeLog(
+      {
+        tableName: "Transaction",
+        recordId: id,
+        changeType: "update",
+        oldData: { status: transaction.status },
+        newData: { status: "confirmed" },
+      },
+      staffId,
+      tx
+    );
+  });
 
   // 按分テンプレート使用時: 全プロジェクト確定済みなら自動的に「経理処理待ち」へ遷移
   await checkAndTransitionToAwaitingAccounting(id);
@@ -792,26 +795,29 @@ export async function hideTransaction(id: number) {
 
   await checkMonthlyClose(transaction.periodFrom, transaction.periodTo, transaction.projectId);
 
-  await prisma.transaction.update({
-    where: { id },
-    data: {
-      status: "hidden",
-      deletedAt: new Date(),
-      updatedBy: staffId,
-    },
-  });
+  await prisma.$transaction(async (tx) => {
+    await tx.transaction.update({
+      where: { id },
+      data: {
+        status: "hidden",
+        deletedAt: new Date(),
+        updatedBy: staffId,
+      },
+    });
 
-  // 変更履歴を記録
-  await recordChangeLog(
-    {
-      tableName: "Transaction",
-      recordId: id,
-      changeType: "update",
-      oldData: { status: transaction.status },
-      newData: { status: "hidden" },
-    },
-    staffId
-  );
+    // 変更履歴を記録
+    await recordChangeLog(
+      {
+        tableName: "Transaction",
+        recordId: id,
+        changeType: "update",
+        oldData: { status: transaction.status },
+        newData: { status: "hidden" },
+      },
+      staffId,
+      tx
+    );
+  });
 
   revalidatePath("/accounting/transactions");
 }

@@ -1,8 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
 import type { Prisma } from "@prisma/client";
 import type { InputJsonValue } from "@prisma/client/runtime/library";
 
@@ -280,9 +278,3 @@ export const JOURNAL_ENTRY_LOG_FIELDS = [
   "paymentGroupId",
 ] as const;
 
-export const ALLOCATION_TEMPLATE_LINE_LOG_FIELDS = [
-  "templateId",
-  "costCenterId",
-  "allocationRate",
-  "label",
-] as const;

@@ -134,12 +134,12 @@ export async function updateAllocationTemplate(
       label: l.label,
     }));
 
-    // 既存の明細を全削除 → 新規作成（シンプルなリプレース戦略）
-    await prisma.$transaction([
-      prisma.allocationTemplateLine.deleteMany({
+    // 既存の明細を全削除 → 新規作成（シンプルなリプレース戦略）+ 変更履歴記録
+    await prisma.$transaction(async (tx) => {
+      await tx.allocationTemplateLine.deleteMany({
         where: { templateId: id },
-      }),
-      prisma.allocationTemplate.update({
+      });
+      await tx.allocationTemplate.update({
         where: { id },
         data: {
           ...updateData,
@@ -150,33 +150,34 @@ export async function updateAllocationTemplate(
               allocationRate: new Prisma.Decimal(line.allocationRate),
               label: line.label || null,
               createdBy: staffId,
-              updatedBy: staffId, // ★ Issue 5: updatedBy を設定
+              updatedBy: staffId,
             })),
           },
         },
-      }),
-    ]);
+      });
 
-    // 按分テンプレート明細の変更履歴を記録
-    await recordChangeLogs(
-      [
-        {
-          tableName: "AllocationTemplateLine",
-          recordId: id, // テンプレートIDを使用
-          changeType: "update",
-          oldData: { templateId: id, lines: oldLines },
-          newData: {
-            templateId: id,
-            lines: lines.map((l) => ({
-              costCenterId: l.costCenterId,
-              allocationRate: l.allocationRate,
-              label: l.label,
-            })),
+      // 按分テンプレート明細の変更履歴を記録
+      await recordChangeLogs(
+        [
+          {
+            tableName: "AllocationTemplateLine",
+            recordId: id, // テンプレートIDを使用
+            changeType: "update",
+            oldData: { templateId: id, lines: oldLines },
+            newData: {
+              templateId: id,
+              lines: lines.map((l) => ({
+                costCenterId: l.costCenterId,
+                allocationRate: l.allocationRate,
+                label: l.label,
+              })),
+            },
           },
-        },
-      ],
-      staffId
-    );
+        ],
+        staffId,
+        tx
+      );
+    });
   } else {
     updateData.updatedBy = staffId;
     await prisma.allocationTemplate.update({

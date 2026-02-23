@@ -501,27 +501,30 @@ export async function deleteJournalEntry(id: number) {
     throw new Error("確定済みの仕訳は削除できません。下書きの仕訳のみ削除可能です");
   }
 
-  await prisma.journalEntry.update({
-    where: { id },
-    data: {
-      deletedAt: new Date(),
-      updatedBy: staffId,
-    },
-  });
+  await prisma.$transaction(async (tx) => {
+    await tx.journalEntry.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+        updatedBy: staffId,
+      },
+    });
 
-  // 変更履歴を記録
-  await recordChangeLog(
-    {
-      tableName: "JournalEntry",
-      recordId: id,
-      changeType: "delete",
-      oldData: pickRecordData(
-        entry as unknown as Record<string, unknown>,
-        [...JOURNAL_ENTRY_LOG_FIELDS]
-      ),
-    },
-    staffId
-  );
+    // 変更履歴を記録
+    await recordChangeLog(
+      {
+        tableName: "JournalEntry",
+        recordId: id,
+        changeType: "delete",
+        oldData: pickRecordData(
+          entry as unknown as Record<string, unknown>,
+          [...JOURNAL_ENTRY_LOG_FIELDS]
+        ),
+      },
+      staffId,
+      tx
+    );
+  });
 
   revalidatePath("/accounting/journal");
 }
