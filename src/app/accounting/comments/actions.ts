@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 
@@ -93,6 +94,13 @@ export async function createComment(input: CreateCommentInput) {
     throw new Error("コメント種別が不正です");
   }
 
+  // 差し戻しはreturnTransaction経由に限定（transactionIdへの直接差し戻しを禁止）
+  if (commentType === "return" && input.transactionId) {
+    throw new Error(
+      "取引の差し戻しはコメント欄からではなく、差し戻し機能をご利用ください"
+    );
+  }
+
   if (commentType === "return") {
     if (
       !input.returnReasonType ||
@@ -170,6 +178,57 @@ export async function createComment(input: CreateCommentInput) {
 // 2. getComments
 // ============================================
 
+// コメント取得用 include 定義（各レベル共通）
+const commentBaseInclude = {
+  creator: { select: { id: true, name: true } },
+  attachments: {
+    where: { deletedAt: null },
+    select: {
+      id: true,
+      fileName: true,
+      filePath: true,
+      fileSize: true,
+      mimeType: true,
+    },
+  },
+} satisfies Prisma.TransactionCommentInclude;
+
+// 3階層ネストの include
+const commentThreadInclude = {
+  ...commentBaseInclude,
+  replies: {
+    where: { deletedAt: null },
+    include: {
+      ...commentBaseInclude,
+      replies: {
+        where: { deletedAt: null },
+        include: commentBaseInclude,
+        orderBy: { createdAt: "asc" as const },
+      },
+    },
+    orderBy: { createdAt: "asc" as const },
+  },
+} satisfies Prisma.TransactionCommentInclude;
+
+// Prisma ペイロード型
+type CommentBase = Prisma.TransactionCommentGetPayload<{
+  include: typeof commentBaseInclude;
+}>;
+
+// 共通フィールドの抽出
+function pickCommentFields(c: CommentBase): Omit<CommentWithReplies, "replies"> {
+  return {
+    id: c.id,
+    body: c.body,
+    commentType: c.commentType,
+    returnReasonType: c.returnReasonType,
+    parentId: c.parentId,
+    createdAt: c.createdAt,
+    creator: c.creator,
+    attachments: c.attachments,
+  };
+}
+
 export async function getComments(params: {
   transactionId?: number;
   invoiceGroupId?: number;
@@ -192,55 +251,19 @@ export async function getComments(params: {
 
   const comments = await prisma.transactionComment.findMany({
     where,
-    include: {
-      creator: { select: { id: true, name: true } },
-      attachments: {
-        where: { deletedAt: null },
-        select: {
-          id: true,
-          fileName: true,
-          filePath: true,
-          fileSize: true,
-          mimeType: true,
-        },
-      },
-      replies: {
-        where: { deletedAt: null },
-        include: {
-          creator: { select: { id: true, name: true } },
-          attachments: {
-            where: { deletedAt: null },
-            select: {
-              id: true,
-              fileName: true,
-              filePath: true,
-              fileSize: true,
-              mimeType: true,
-            },
-          },
-          replies: {
-            where: { deletedAt: null },
-            include: {
-              creator: { select: { id: true, name: true } },
-              attachments: {
-                where: { deletedAt: null },
-                select: {
-                  id: true,
-                  fileName: true,
-                  filePath: true,
-                  fileSize: true,
-                  mimeType: true,
-                },
-              },
-            },
-            orderBy: { createdAt: "asc" },
-          },
-        },
-        orderBy: { createdAt: "asc" },
-      },
-    },
+    include: commentThreadInclude,
     orderBy: { createdAt: "desc" },
   });
 
-  return comments as unknown as CommentWithReplies[];
+  // 型安全なマッピング（3階層目の replies を空配列で補完）
+  return comments.map((c) => ({
+    ...pickCommentFields(c),
+    replies: c.replies.map((r1) => ({
+      ...pickCommentFields(r1),
+      replies: r1.replies.map((r2) => ({
+        ...pickCommentFields(r2),
+        replies: [],
+      })),
+    })),
+  }));
 }

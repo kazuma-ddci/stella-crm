@@ -296,11 +296,17 @@ function CommentForm({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {Object.entries(COMMENT_TYPE_LABELS).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
+              {Object.entries(COMMENT_TYPE_LABELS)
+                .filter(([value]) => {
+                  // 取引コメントでは「差し戻し」を除外（returnTransaction経由に限定）
+                  if (value === "return" && transactionId) return false;
+                  return true;
+                })
+                .map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </div>
@@ -477,20 +483,22 @@ function CommentThread({
           </div>
         )}
 
-        {/* 返信ボタン */}
-        <div className="mt-2">
-          <button
-            onClick={() => onReply(comment.id)}
-            className={`text-xs flex items-center gap-1 ${
-              activeReplyId === comment.id
-                ? "text-blue-600 font-medium"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Reply className="h-3 w-3" />
-            返信
-          </button>
-        </div>
+        {/* 返信ボタン（3階層目以降は非表示：getCommentsのネスト上限） */}
+        {depth < 2 && (
+          <div className="mt-2">
+            <button
+              onClick={() => onReply(comment.id)}
+              className={`text-xs flex items-center gap-1 ${
+                activeReplyId === comment.id
+                  ? "text-blue-600 font-medium"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Reply className="h-3 w-3" />
+              返信
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 返信スレッド */}

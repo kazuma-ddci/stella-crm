@@ -20,6 +20,9 @@ const ALLOWED_TYPES = [
 // ファイルサイズ制限（10MB）
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
+// 一度にアップロードできるファイル数の上限
+const MAX_FILE_COUNT = 5;
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -28,6 +31,13 @@ export async function POST(request: NextRequest) {
     if (!files || files.length === 0) {
       return NextResponse.json(
         { error: "ファイルが選択されていません" },
+        { status: 400 }
+      );
+    }
+
+    if (files.length > MAX_FILE_COUNT) {
+      return NextResponse.json(
+        { error: `一度にアップロードできるファイルは${MAX_FILE_COUNT}件までです` },
         { status: 400 }
       );
     }
