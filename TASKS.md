@@ -381,7 +381,7 @@
   - Server Actions: createRecurringTransaction, updateRecurringTransaction
   **参照**: 要望書 2.7
 
-- [ ] TASK-031: 取引先重複チェック・統合機能
+- [x] TASK-031: 取引先重複チェック・統合機能
   **対象**: 設計書 5.7
   **作業内容**:
   - 重複候補検出（類似名称チェック）
