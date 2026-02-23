@@ -249,56 +249,92 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
 
   // --- 自動計算 ---
 
-  // 消費税額の自動計算
+  // 消費税額の自動計算（税区分に応じて計算式を切り替え）
   const calculateTaxAmount = useCallback(
-    (amountValue: string, rate: string) => {
+    (amountValue: string, rate: string, currentTaxType: string) => {
       const a = Number(amountValue);
       const r = Number(rate);
-      if (isNaN(a) || isNaN(r)) return;
-      setTaxAmount(String(Math.floor(a * r / 100)));
+      if (isNaN(a) || isNaN(r) || r === 0) {
+        setTaxAmount("0");
+        return "0";
+      }
+      let tax: number;
+      if (currentTaxType === "tax_included") {
+        // 税込: 税額 = 金額 - 金額 / (1 + 税率/100)
+        tax = Math.floor(a - a / (1 + r / 100));
+      } else {
+        // 税抜: 税額 = 金額 * 税率 / 100
+        tax = Math.floor(a * r / 100);
+      }
+      setTaxAmount(String(tax));
+      return String(tax);
+    },
+    []
+  );
+
+  // 税込合計額を計算するヘルパー
+  const getTotalAmount = useCallback(
+    (amountValue: string, taxAmountValue: string, currentTaxType: string) => {
+      const a = Number(amountValue) || 0;
+      const t = Number(taxAmountValue) || 0;
+      if (currentTaxType === "tax_included") {
+        // 税込入力: amount がそのまま合計
+        return a;
+      }
+      // 税抜入力: amount + taxAmount
+      return a + t;
     },
     []
   );
 
   // 源泉徴収の自動計算
   const calculateWithholding = useCallback(
-    (amountValue: string, taxAmountValue: string, rate: string) => {
+    (amountValue: string, taxAmountValue: string, rate: string, currentTaxType: string) => {
       const a = Number(amountValue);
       const t = Number(taxAmountValue);
       const r = Number(rate);
       if (isNaN(a) || isNaN(t) || isNaN(r)) return;
-      const totalAmount = a + t;
-      const whAmount = Math.floor(totalAmount * r / 100);
+      const total = currentTaxType === "tax_included" ? a : a + t;
+      const whAmount = Math.floor(total * r / 100);
       setWithholdingTaxAmount(String(whAmount));
-      setNetPaymentAmount(String(totalAmount - whAmount));
+      setNetPaymentAmount(String(total - whAmount));
     },
     []
+  );
+
+  // 金額・税関連の全再計算を一括で行うヘルパー
+  const recalculateAll = useCallback(
+    (amountValue: string, rate: string, currentTaxType: string, whTarget: boolean, whRate: string) => {
+      const newTax = calculateTaxAmount(amountValue, rate, currentTaxType);
+      if (whTarget) {
+        calculateWithholding(amountValue, newTax, whRate, currentTaxType);
+      }
+    },
+    [calculateTaxAmount, calculateWithholding]
   );
 
   // 金額変更ハンドラ
   const handleAmountChange = (value: string) => {
     setAmount(value);
-    calculateTaxAmount(value, taxRate);
-    if (isWithholdingTarget) {
-      const newTax = Math.floor(Number(value) * Number(taxRate) / 100);
-      calculateWithholding(value, String(newTax), withholdingTaxRate);
-    }
+    recalculateAll(value, taxRate, taxType, isWithholdingTarget, withholdingTaxRate);
   };
 
   // 税率変更ハンドラ
   const handleTaxRateChange = (value: string) => {
     setTaxRate(value);
-    calculateTaxAmount(amount, value);
-    if (isWithholdingTarget) {
-      const newTax = Math.floor(Number(amount) * Number(value) / 100);
-      calculateWithholding(amount, String(newTax), withholdingTaxRate);
-    }
+    recalculateAll(amount, value, taxType, isWithholdingTarget, withholdingTaxRate);
+  };
+
+  // 税区分変更ハンドラ
+  const handleTaxTypeChange = (value: string) => {
+    setTaxType(value);
+    recalculateAll(amount, taxRate, value, isWithholdingTarget, withholdingTaxRate);
   };
 
   // 源泉徴収率変更ハンドラ
   const handleWithholdingRateChange = (value: string) => {
     setWithholdingTaxRate(value);
-    calculateWithholding(amount, taxAmount, value);
+    calculateWithholding(amount, taxAmount, value, taxType);
   };
 
   // --- 証憑アップロード ---
@@ -351,7 +387,7 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
   // --- 契約終了警告チェック ---
 
   const checkContractEndWarning = (): boolean => {
-    if (!contractId) return false;
+    if (!contractId || !periodFrom) return false;
     const contract = formData.contracts.find(
       (c) => c.id === Number(contractId)
     );
@@ -359,7 +395,9 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
 
     const endDate = new Date(contract.endDate);
     const fromDate = new Date(periodFrom);
-    if (endDate < fromDate) {
+    const toDate = periodTo ? new Date(periodTo) : fromDate;
+    // 契約終了日 < 取引期間のいずれかの日付なら警告
+    if (endDate < fromDate || endDate < toDate) {
       const endStr = endDate.toLocaleDateString("ja-JP");
       setContractWarningMessage(
         `この契約は${endStr}に終了しています。取引を登録しますか？`
@@ -444,7 +482,7 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
   };
 
   // 合計金額表示
-  const totalAmount = (Number(amount) || 0) + (Number(taxAmount) || 0);
+  const totalAmount = getTotalAmount(amount, taxAmount, taxType);
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -521,7 +559,7 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
           {/* 税区分 */}
           <div className="space-y-2">
             <Label>税区分</Label>
-            <Select value={taxType} onValueChange={setTaxType}>
+            <Select value={taxType} onValueChange={handleTaxTypeChange}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -571,7 +609,7 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
               onChange={(e) => {
                 setTaxAmount(e.target.value);
                 if (isWithholdingTarget) {
-                  calculateWithholding(amount, e.target.value, withholdingTaxRate);
+                  calculateWithholding(amount, e.target.value, withholdingTaxRate, taxType);
                 }
               }}
               placeholder="自動計算"
@@ -733,7 +771,7 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
                 onCheckedChange={(checked) => {
                   setIsWithholdingTarget(!!checked);
                   if (checked) {
-                    calculateWithholding(amount, taxAmount, withholdingTaxRate);
+                    calculateWithholding(amount, taxAmount, withholdingTaxRate, taxType);
                   } else {
                     setWithholdingTaxAmount("");
                     setNetPaymentAmount("");
@@ -763,8 +801,7 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
                     value={withholdingTaxAmount}
                     onChange={(e) => {
                       setWithholdingTaxAmount(e.target.value);
-                      const total =
-                        (Number(amount) || 0) + (Number(taxAmount) || 0);
+                      const total = getTotalAmount(amount, taxAmount, taxType);
                       setNetPaymentAmount(
                         String(total - (Number(e.target.value) || 0))
                       );

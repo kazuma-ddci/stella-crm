@@ -54,12 +54,19 @@ export type TransactionFormData = {
 // ============================================
 
 const VALID_TYPES = ["revenue", "expense"] as const;
+const VALID_TAX_TYPES = ["tax_included", "tax_excluded"] as const;
 
 function validateTransactionData(data: Record<string, unknown>) {
   // type
   const type = data.type as string;
   if (!type || !(VALID_TYPES as readonly string[]).includes(type)) {
     throw new Error("種別（revenue/expense）は必須です");
+  }
+
+  // taxType
+  const taxType = (data.taxType as string) || "tax_excluded";
+  if (!(VALID_TAX_TYPES as readonly string[]).includes(taxType)) {
+    throw new Error("税区分（tax_included/tax_excluded）が不正です");
   }
 
   // counterpartyId
@@ -80,16 +87,33 @@ function validateTransactionData(data: Record<string, unknown>) {
     throw new Error("金額は0以上の整数で入力してください");
   }
 
+  // taxRate
+  const taxRate = Number(data.taxRate);
+  if (data.taxRate === undefined || data.taxRate === null || isNaN(taxRate) || !Number.isInteger(taxRate)) {
+    throw new Error("税率は整数で入力してください");
+  }
+
   // taxAmount
   const taxAmount = Number(data.taxAmount);
   if (data.taxAmount === undefined || data.taxAmount === null || isNaN(taxAmount) || !Number.isInteger(taxAmount)) {
     throw new Error("消費税額は整数で入力してください");
   }
 
-  // taxRate
-  const taxRate = Number(data.taxRate);
-  if (data.taxRate === undefined || data.taxRate === null || isNaN(taxRate) || !Number.isInteger(taxRate)) {
-    throw new Error("税率は整数で入力してください");
+  // 消費税額の妥当性チェック（手動修正を許容しつつ、大幅な乖離を防ぐ）
+  if (amount > 0 && taxRate > 0) {
+    let expectedTax: number;
+    if (taxType === "tax_included") {
+      expectedTax = Math.floor(amount - amount / (1 + taxRate / 100));
+    } else {
+      expectedTax = Math.floor(amount * taxRate / 100);
+    }
+    // 手動修正を許容: 自動計算値との差が20%以上ある場合は警告
+    if (expectedTax > 0 && Math.abs(taxAmount - expectedTax) / expectedTax > 0.2) {
+      // 手動修正は許容するためエラーにはしない（ログ出力で追跡可能）
+      console.warn(
+        `消費税額が自動計算値と乖離しています: 入力=${taxAmount}, 期待=${expectedTax}, taxType=${taxType}`
+      );
+    }
   }
 
   // periodFrom, periodTo
@@ -132,6 +156,7 @@ function validateTransactionData(data: Record<string, unknown>) {
 
   return {
     type,
+    taxType,
     counterpartyId,
     expenseCategoryId,
     amount,
@@ -163,7 +188,6 @@ export async function createTransaction(data: Record<string, unknown>) {
     ? new Date(data.paymentDueDate as string)
     : null;
   const note = data.note ? (data.note as string).trim() || null : null;
-  const taxType = (data.taxType as string) || "tax_excluded";
 
   // 源泉徴収
   const isWithholdingTarget =
@@ -196,7 +220,7 @@ export async function createTransaction(data: Record<string, unknown>) {
         amount: validated.amount,
         taxAmount: validated.taxAmount,
         taxRate: validated.taxRate,
-        taxType,
+        taxType: validated.taxType,
         periodFrom: validated.periodFrom,
         periodTo: validated.periodTo,
         allocationTemplateId: validated.allocationTemplateId,
@@ -271,7 +295,6 @@ export async function updateTransaction(
     ? new Date(data.paymentDueDate as string)
     : null;
   const note = data.note ? (data.note as string).trim() || null : null;
-  const taxType = (data.taxType as string) || "tax_excluded";
 
   // 源泉徴収
   const isWithholdingTarget =
@@ -307,7 +330,7 @@ export async function updateTransaction(
         amount: validated.amount,
         taxAmount: validated.taxAmount,
         taxRate: validated.taxRate,
-        taxType,
+        taxType: validated.taxType,
         periodFrom: validated.periodFrom,
         periodTo: validated.periodTo,
         allocationTemplateId: validated.allocationTemplateId,
