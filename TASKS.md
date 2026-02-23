@@ -42,7 +42,7 @@
   - Server Actions: createExpenseCategory, updateExpenseCategory
   **参照**: 要望書 2.1.2（費目の説明）, 設計書 3.2.5
 
-- [ ] TASK-004: 取引先マスタ管理画面
+- [!] TASK-004: 取引先マスタ管理画面
   **対象**: 設計書 ⑯ Counterparty テーブル
   **ページ**: /accounting/masters/counterparties
   **作業内容**:
