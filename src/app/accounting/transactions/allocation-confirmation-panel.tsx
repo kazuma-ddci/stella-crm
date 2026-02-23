@@ -185,6 +185,10 @@ export function AllocationConfirmationPanel({
                   全ての按分先が確定されました。
                   {status.transactionStatus === "confirmed" &&
                     "取引は自動的に「経理処理待ち」に移行します。"}
+                  {status.transactionStatus === "awaiting_accounting" &&
+                    "経理処理待ちに移行済みです。"}
+                  {status.transactionStatus === "journalized" &&
+                    "仕訳済みです。"}
                 </p>
               )}
             </div>

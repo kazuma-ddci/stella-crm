@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { autoConfirmCreatorAllocations } from "./allocation-actions";
+import { autoConfirmCreatorAllocations, checkAndTransitionToAwaitingAccounting } from "./allocation-actions";
 
 // ============================================
 // 型定義
@@ -548,33 +548,7 @@ export async function confirmTransaction(id: number) {
   });
 
   // 按分テンプレート使用時: 全プロジェクト確定済みなら自動的に「経理処理待ち」へ遷移
-  const updatedTx = await prisma.transaction.findFirst({
-    where: { id, deletedAt: null },
-    select: {
-      allocationTemplateId: true,
-      allocationTemplate: { include: { lines: true } },
-      allocationConfirmations: true,
-    },
-  });
-
-  if (updatedTx?.allocationTemplateId && updatedTx.allocationTemplate) {
-    const requiredCostCenterIds = updatedTx.allocationTemplate.lines
-      .filter((l) => l.costCenterId !== null)
-      .map((l) => l.costCenterId!);
-    const confirmedIds = new Set(
-      updatedTx.allocationConfirmations.map((ac) => ac.costCenterId)
-    );
-    const allConfirmed =
-      requiredCostCenterIds.length > 0 &&
-      requiredCostCenterIds.every((cid) => confirmedIds.has(cid));
-
-    if (allConfirmed) {
-      await prisma.transaction.update({
-        where: { id },
-        data: { status: "awaiting_accounting" },
-      });
-    }
-  }
+  await checkAndTransitionToAwaitingAccounting(id);
 
   revalidatePath("/accounting/transactions");
 }

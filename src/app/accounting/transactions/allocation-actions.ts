@@ -207,6 +207,14 @@ export async function confirmAllocation(
     throw new Error("この取引には按分テンプレートが設定されていません");
   }
 
+  // 按分確定可能なステータスかチェック
+  const confirmableStatuses = ["unconfirmed", "confirmed"];
+  if (!confirmableStatuses.includes(transaction.status)) {
+    throw new Error(
+      `ステータス「${transaction.status}」の取引は按分確定できません`
+    );
+  }
+
   // 指定されたcostCenterIdがテンプレート内に存在するか
   const templateLine = transaction.allocationTemplate.lines.find(
     (l) => l.costCenterId === costCenterId
@@ -243,7 +251,7 @@ export async function confirmAllocation(
 }
 
 // ===== 全プロジェクト確定チェック → 経理引き渡し =====
-async function checkAndTransitionToAwaitingAccounting(transactionId: number) {
+export async function checkAndTransitionToAwaitingAccounting(transactionId: number) {
   const transaction = await prisma.transaction.findFirst({
     where: { id: transactionId, deletedAt: null },
     include: {
@@ -326,4 +334,8 @@ export async function autoConfirmCreatorAllocations(
       },
     });
   }
+
+  // TODO: 通知基盤(create-notification.ts - 設計書8.5)作成後に、
+  // 自動確定されなかったコストセンター（他プロジェクト）に対して
+  // 按分確定依頼の通知を送信する（設計書5.4「他プロジェクト → 通知 → 確認・確定」）
 }
