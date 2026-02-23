@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { TransactionStatusBadge } from "./transaction-status-badge";
 import { TransactionStatusActions } from "./transaction-status-actions";
+import { AllocationStatusButton } from "./allocation-confirmation-panel";
 
 type TransactionRow = {
   id: number;
@@ -19,6 +20,7 @@ type TransactionRow = {
   project: { id: number; name: string; code: string } | null;
   confirmer: { id: number; name: string } | null;
   confirmedAt: Date | null;
+  allocationTemplate: { id: number; name: string } | null;
 };
 
 export function TransactionsTable({
@@ -108,6 +110,10 @@ export function TransactionsTable({
                       編集
                     </Link>
                   )}
+                  <AllocationStatusButton
+                    transactionId={tx.id}
+                    hasAllocationTemplate={!!tx.allocationTemplate}
+                  />
                   <TransactionStatusActions
                     transactionId={tx.id}
                     status={tx.status}

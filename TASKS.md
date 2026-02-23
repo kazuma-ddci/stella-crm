@@ -257,7 +257,7 @@
 
 ## Phase 5: 高度な機能
 
-- [ ] TASK-021: 按分テンプレート管理画面
+- [x] TASK-021: 按分テンプレート管理画面
   **対象**: 設計書 ⑥ AllocationTemplate + ⑦ AllocationTemplateLine
   **ページ**: /accounting/masters/allocation-templates
   **作業内容**:
