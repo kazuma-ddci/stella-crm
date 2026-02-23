@@ -61,12 +61,14 @@ export default async function TransactionsPage() {
   }));
 
   // サマリー計算
+  const calcTaxIncluded = (r: { amount: number; taxAmount: number; taxType: string }) =>
+    r.taxType === "tax_excluded" ? r.amount + r.taxAmount : r.amount;
   const totalRevenue = records
     .filter((r) => r.type === "revenue")
-    .reduce((sum, r) => sum + r.amount + r.taxAmount, 0);
+    .reduce((sum, r) => sum + calcTaxIncluded(r), 0);
   const totalExpense = records
     .filter((r) => r.type === "expense")
-    .reduce((sum, r) => sum + r.amount + r.taxAmount, 0);
+    .reduce((sum, r) => sum + calcTaxIncluded(r), 0);
   const unconfirmedCount = records.filter((r) => r.status === "unconfirmed").length;
   const returnedCount = records.filter((r) => r.status === "returned" || r.status === "resubmitted").length;
 

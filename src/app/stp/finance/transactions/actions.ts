@@ -43,6 +43,7 @@ export type TransactionSort = {
   direction: "asc" | "desc";
 };
 
+/** サーバーサイドページネーション導入時に使用予定 */
 export async function listTransactions(
   filters?: TransactionFilters,
   sort?: TransactionSort
@@ -62,14 +63,11 @@ export async function listTransactions(
   if (filters?.counterpartyId) {
     where.counterpartyId = filters.counterpartyId;
   }
-  if (filters?.periodFrom || filters?.periodTo) {
-    where.periodFrom = {};
-    if (filters?.periodFrom) {
-      (where.periodFrom as Record<string, unknown>).gte = new Date(filters.periodFrom);
-    }
-    if (filters?.periodTo) {
-      where.periodTo = { lte: new Date(filters.periodTo) };
-    }
+  if (filters?.periodFrom) {
+    where.periodFrom = { gte: new Date(filters.periodFrom) };
+  }
+  if (filters?.periodTo) {
+    where.periodTo = { lte: new Date(filters.periodTo) };
   }
 
   const orderBy: Record<string, string>[] = [];

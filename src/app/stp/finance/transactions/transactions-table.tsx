@@ -153,12 +153,14 @@ export function TransactionsTable({ data, counterpartyOptions }: Props) {
 
   // サマリー計算
   const summary = useMemo(() => {
+    const calcTaxIncluded = (r: TransactionListItem) =>
+      r.taxType === "tax_excluded" ? r.amount + r.taxAmount : r.amount;
     const revenue = filteredData
       .filter((r) => r.type === "revenue")
-      .reduce((sum, r) => sum + r.amount + r.taxAmount, 0);
+      .reduce((sum, r) => sum + calcTaxIncluded(r), 0);
     const expense = filteredData
       .filter((r) => r.type === "expense")
-      .reduce((sum, r) => sum + r.amount + r.taxAmount, 0);
+      .reduce((sum, r) => sum + calcTaxIncluded(r), 0);
     return { revenue, expense, count: filteredData.length };
   }, [filteredData]);
 
