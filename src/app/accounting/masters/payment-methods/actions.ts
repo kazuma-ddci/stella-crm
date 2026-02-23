@@ -109,6 +109,14 @@ export async function createPaymentMethod(data: Record<string, unknown>) {
     if (paymentDay !== null && (paymentDay < 1 || paymentDay > 31)) {
       throw new Error("引落日は1〜31の範囲で指定してください");
     }
+
+    if (settlementAccountId !== null) {
+      const account = await prisma.paymentMethod.findFirst({
+        where: { id: settlementAccountId, methodType: "bank_account", isActive: true, deletedAt: null },
+        select: { id: true },
+      });
+      if (!account) throw new Error("引落口座が見つからないか無効です");
+    }
   }
 
   const initialBalance = data.initialBalance
@@ -162,6 +170,13 @@ export async function updatePaymentMethod(
     }
     updateData.methodType = methodType;
     effectiveMethodType = methodType;
+
+    // 種別変更時、credit_card以外ならクレカ専用フィールドをクリア
+    if (effectiveMethodType !== "credit_card") {
+      updateData.closingDay = null;
+      updateData.paymentDay = null;
+      updateData.settlementAccountId = null;
+    }
   } else {
     const current = await prisma.paymentMethod.findUnique({
       where: { id },
@@ -210,9 +225,17 @@ export async function updatePaymentMethod(
   }
 
   if ("settlementAccountId" in data) {
-    updateData.settlementAccountId = data.settlementAccountId
+    const settlementAccountId = data.settlementAccountId
       ? Number(data.settlementAccountId)
       : null;
+    if (settlementAccountId !== null) {
+      const account = await prisma.paymentMethod.findFirst({
+        where: { id: settlementAccountId, methodType: "bank_account", isActive: true, deletedAt: null },
+        select: { id: true },
+      });
+      if (!account) throw new Error("引落口座が見つからないか無効です");
+    }
+    updateData.settlementAccountId = settlementAccountId;
   }
 
   if ("initialBalance" in data) {
