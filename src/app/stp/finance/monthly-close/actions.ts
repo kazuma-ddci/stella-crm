@@ -57,6 +57,7 @@ export async function getMonthlyCloseView(months: string[]) {
   }));
 
   // STP売上・経費レコードからPL集計
+  // NOTE: 経理側はJournalEntry（確定済み仕訳）ベース。移行完了後に統一予定
   const [revenueRecords, expenseRecords] = await Promise.all([
     prisma.stpRevenueRecord.findMany({
       where: { deletedAt: null },

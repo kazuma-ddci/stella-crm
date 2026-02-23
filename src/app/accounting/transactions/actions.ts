@@ -332,10 +332,13 @@ export async function updateTransaction(
     );
   }
 
-  // 月次クローズチェック
+  // 月次クローズチェック（既存レコードの日付）
   await checkMonthlyClose(existing.periodFrom, existing.periodTo);
 
   const validated = validateTransactionData(data);
+
+  // 月次クローズチェック（新しい日付）
+  await checkMonthlyClose(validated.periodFrom, validated.periodTo);
 
   const contractId = data.contractId ? Number(data.contractId) : null;
   const projectId = data.projectId ? Number(data.projectId) : null;

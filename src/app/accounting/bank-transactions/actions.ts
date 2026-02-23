@@ -392,7 +392,7 @@ export async function updateBankTransaction(id: number, data: Record<string, unk
     throw new Error("入出金データが見つかりません");
   }
 
-  // 月次クローズチェック
+  // 月次クローズチェック（既存レコードの日付）
   await ensureMonthNotClosed(existing.transactionDate);
 
   // 消込済みの場合は編集不可
@@ -404,6 +404,9 @@ export async function updateBankTransaction(id: number, data: Record<string, unk
   }
 
   const validated = validateBankTransactionData(data);
+
+  // 月次クローズチェック（新しい日付）
+  await ensureMonthNotClosed(validated.transactionDate);
 
   // 仮想通貨詳細
   const cryptoDetailRaw = data.cryptoDetail as CryptoDetailInput | undefined;

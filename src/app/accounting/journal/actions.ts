@@ -315,10 +315,13 @@ export async function updateJournalEntry(
     throw new Error("確定済みの仕訳は編集できません");
   }
 
-  // 月次クローズチェック
+  // 月次クローズチェック（既存レコードの日付）
   await ensureMonthNotClosed(existing.journalDate);
 
   const validated = validateJournalEntryData(data);
+
+  // 月次クローズチェック（新しい日付）
+  await ensureMonthNotClosed(validated.journalDate);
 
   // 勘定科目の存在チェック
   const accountIds = [

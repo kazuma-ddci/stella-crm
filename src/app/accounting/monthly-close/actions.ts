@@ -44,12 +44,21 @@ export async function getMonthlyCloseData(months: string[]) {
     orderBy: { performedAt: "desc" },
   });
 
-  // 各月の最新状態
+  // 各月の最新状態 + クローズ済み月のスナップショット
   const statusMap = new Map<string, boolean>();
+  const snapshotMap = new Map<string, { totalRevenue: number; totalExpense: number; grossProfit: number }>();
   for (const log of logs) {
     const key = log.targetMonth.toISOString().split("T")[0].slice(0, 7);
     if (!statusMap.has(key)) {
-      statusMap.set(key, log.action === "close");
+      const isClosed = log.action === "close";
+      statusMap.set(key, isClosed);
+      // クローズ済み月でスナップショットがある場合、PL値を保持
+      if (isClosed && log.snapshotData) {
+        const snapshot = log.snapshotData as { summary?: { totalRevenue: number; totalExpense: number; grossProfit: number } };
+        if (snapshot.summary) {
+          snapshotMap.set(key, snapshot.summary);
+        }
+      }
     }
   }
 
@@ -114,10 +123,22 @@ export async function getMonthlyCloseData(months: string[]) {
   }
 
   const statuses: MonthlyCloseStatusRow[] = months.map((month) => {
+    const isClosed = statusMap.get(month) || false;
+    // 仕様3.9.4: クローズ済み月はスナップショットのPL値を使用
+    const snapshot = snapshotMap.get(month);
+    if (isClosed && snapshot) {
+      return {
+        month,
+        isClosed,
+        revenue: snapshot.totalRevenue,
+        expense: snapshot.totalExpense,
+        grossProfit: snapshot.grossProfit,
+      };
+    }
     const pl = monthlyPL.get(month) || { revenue: 0, expense: 0 };
     return {
       month,
-      isClosed: statusMap.get(month) || false,
+      isClosed,
       revenue: pl.revenue,
       expense: pl.expense,
       grossProfit: pl.revenue - pl.expense,
@@ -233,6 +254,7 @@ async function generatePLSnapshot(targetMonth: Date) {
 // クローズ・再オープン操作
 // ============================================
 
+// TODO: 経理管理者権限チェック（仕様3.9.1 / Section 10で後日実装）
 export async function closeMonthAction(targetMonth: string) {
   const session = await getSession();
   const staffId = session.id;
@@ -248,6 +270,7 @@ export async function closeMonthAction(targetMonth: string) {
   revalidatePath("/stp/finance/monthly-close");
 }
 
+// TODO: 経理管理者権限チェック（仕様3.9.1 / Section 10で後日実装）
 export async function reopenMonthAction(
   targetMonth: string,
   reason: string
