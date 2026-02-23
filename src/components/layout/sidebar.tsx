@@ -164,6 +164,7 @@ const navigation: NavItem[] = [
     children: [
       { name: "ダッシュボード", href: "/accounting", icon: Home },
       { name: "会計取引", href: "/accounting/transactions", icon: Landmark },
+      { name: "入出金管理", href: "/accounting/bank-transactions", icon: Receipt },
       { name: "消込管理", href: "/accounting/reconciliation", icon: ArrowLeftRight },
       { name: "確認管理", href: "/accounting/verification", icon: CheckSquare },
       { name: "月次締め", href: "/accounting/monthly-close", icon: Lock },

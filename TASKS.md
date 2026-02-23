@@ -217,7 +217,7 @@
   - Server Actions: createJournalEntry, confirmJournalEntry
   **参照**: 要望書 3.2, 設計書 6.2
 
-- [ ] TASK-018: 自動仕訳ルール管理・実行
+- [x] TASK-018: 自動仕訳ルール管理・実行
   **対象**: 設計書 ⑰ AutoJournalRule + 設計書 5.5
   **ページ**: /accounting/masters/auto-journal
   **作業内容**:
