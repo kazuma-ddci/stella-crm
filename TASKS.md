@@ -167,7 +167,7 @@
   - Server Actions: sendInvoiceMail, recordManualSend
   **参照**: 要望書 2.5.2, 2.5.3, 設計書 8.2
 
-- [ ] TASK-014: 請求書テンプレート管理画面
+- [x] TASK-014: 請求書テンプレート管理画面
   **対象**: 設計書 ㉕ InvoiceTemplate
   **ページ**: /accounting/masters/invoice-templates
   **作業内容**:
