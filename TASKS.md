@@ -114,7 +114,7 @@
   - Server Actions: confirmTransaction, hideTransaction
   **参照**: 要望書 2.1.3, 設計書 6.6
 
-- [ ] TASK-010: 取引候補検出・生成画面
+- [x] TASK-010: 取引候補検出・生成画面
   **対象**: 設計書 5.1 ステップ1
   **ページ**: /stp/finance/generate
   **作業内容**:

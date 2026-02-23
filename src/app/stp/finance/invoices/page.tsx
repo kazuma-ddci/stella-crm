@@ -1,138 +1,142 @@
 import { prisma } from "@/lib/prisma";
-import { InvoicesTable } from "./invoices-table";
+import { Card, CardContent } from "@/components/ui/card";
+import { InvoiceGroupsTable } from "./invoice-groups-table";
+import type { InvoiceGroupListItem } from "./actions";
 
-const formatDate = (date: Date | null | undefined) =>
-  date ? date.toISOString().split("T")[0] : null;
-
-export default async function InvoicesPage() {
-  const [invoices, stpCompanies, agents] = await Promise.all([
-    prisma.stpInvoice.findMany({
-      where: { deletedAt: null },
-      include: {
-        stpCompany: { include: { company: true } },
-        agent: { include: { company: true } },
-        revenueRecords: {
-          where: { deletedAt: null },
-          select: { id: true, revenueType: true, expectedAmount: true, taxType: true, taxRate: true, taxAmount: true },
+export default async function InvoiceGroupsPage() {
+  const [records, counterparties, operatingCompanies, bankAccounts] =
+    await Promise.all([
+      prisma.invoiceGroup.findMany({
+        where: { deletedAt: null },
+        include: {
+          counterparty: true,
+          operatingCompany: true,
+          bankAccount: true,
+          originalInvoiceGroup: { select: { invoiceNumber: true } },
+          transactions: { where: { deletedAt: null }, select: { id: true } },
+          creator: true,
         },
-        expenseRecords: {
-          where: { deletedAt: null },
-          select: { id: true, expenseType: true, expectedAmount: true, taxType: true, taxRate: true, taxAmount: true },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.stpCompany.findMany({
-      include: { company: true },
-    }),
-    prisma.stpAgent.findMany({
-      include: { company: true },
-    }),
-  ]);
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      }),
+      prisma.counterparty.findMany({
+        where: { deletedAt: null, isActive: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.operatingCompany.findMany({
+        where: { isActive: true },
+        include: { bankAccounts: { where: { deletedAt: null } } },
+        orderBy: { id: "asc" },
+      }),
+      prisma.operatingCompanyBankAccount.findMany({
+        where: { deletedAt: null },
+        orderBy: { id: "asc" },
+      }),
+    ]);
 
-  const stpCompanyOptions = stpCompanies.map((c) => ({
+  const data: InvoiceGroupListItem[] = records.map((r) => ({
+    id: r.id,
+    counterpartyId: r.counterpartyId,
+    counterpartyName: r.counterparty.name,
+    operatingCompanyId: r.operatingCompanyId,
+    operatingCompanyName: r.operatingCompany.companyName,
+    bankAccountId: r.bankAccountId,
+    bankAccountLabel: r.bankAccount
+      ? `${r.bankAccount.bankName} ${r.bankAccount.branchName} ${r.bankAccount.accountNumber}`
+      : null,
+    invoiceNumber: r.invoiceNumber,
+    invoiceDate: r.invoiceDate?.toISOString().split("T")[0] ?? null,
+    paymentDueDate: r.paymentDueDate?.toISOString().split("T")[0] ?? null,
+    subtotal: r.subtotal,
+    taxAmount: r.taxAmount,
+    totalAmount: r.totalAmount,
+    status: r.status,
+    correctionType: r.correctionType,
+    originalInvoiceGroupId: r.originalInvoiceGroupId,
+    originalInvoiceNumber: r.originalInvoiceGroup?.invoiceNumber ?? null,
+    transactionCount: r.transactions.length,
+    createdByName: r.creator.name,
+    createdAt: r.createdAt.toISOString().split("T")[0],
+  }));
+
+  const counterpartyOptions = counterparties.map((c) => ({
     value: String(c.id),
-    label: c.company.name,
+    label: c.name,
   }));
 
-  const agentOptions = agents.map((a) => ({
-    value: String(a.id),
-    label: a.company.name,
+  const operatingCompanyOptions = operatingCompanies.map((c) => ({
+    value: String(c.id),
+    label: c.companyName,
   }));
 
-  // 企業/代理店の支払い条件マップ（請求書日付自動設定用）
-  const paymentTermsByStpCompany: Record<string, {
-    closingDay: number | null;
-    paymentMonthOffset: number | null;
-    paymentDay: number | null;
-  }> = {};
-  stpCompanies.forEach((c) => {
-    paymentTermsByStpCompany[String(c.id)] = {
-      closingDay: c.company.closingDay,
-      paymentMonthOffset: c.company.paymentMonthOffset,
-      paymentDay: c.company.paymentDay,
-    };
-  });
-
-  const paymentTermsByAgent: Record<string, {
-    closingDay: number | null;
-    paymentMonthOffset: number | null;
-    paymentDay: number | null;
-  }> = {};
-  agents.forEach((a) => {
-    paymentTermsByAgent[String(a.id)] = {
-      closingDay: a.company.closingDay,
-      paymentMonthOffset: a.company.paymentMonthOffset,
-      paymentDay: a.company.paymentDay,
-    };
-  });
-
-  const data = invoices.map((inv) => ({
-    id: inv.id,
-    direction: inv.direction,
-    stpCompanyId: inv.stpCompanyId,
-    stpCompanyDisplay: inv.stpCompany?.company.name || null,
-    agentId: inv.agentId,
-    agentDisplay: inv.agent?.company.name || null,
-    invoiceNumber: inv.invoiceNumber,
-    invoiceDate: formatDate(inv.invoiceDate),
-    dueDate: formatDate(inv.dueDate),
-    totalAmount: inv.totalAmount,
-    taxAmount: inv.taxAmount,
-    status: inv.status,
-    // インボイス種別
-    invoiceType: inv.invoiceType,
-    originalInvoiceId: inv.originalInvoiceId,
-    // 登録番号
-    registrationNumber: inv.registrationNumber,
-    // 税率ごと合計
-    subtotalByTaxRate: inv.subtotalByTaxRate,
-    filePath: inv.filePath,
-    fileName: inv.fileName,
-    note: inv.note,
-    // 紐づくレコード情報
-    revenueRecordCount: inv.revenueRecords.length,
-    expenseRecordCount: inv.expenseRecords.length,
-  }));
+  // 運営法人IDごとの銀行口座マップ
+  const bankAccountsByCompany: Record<
+    string,
+    { value: string; label: string }[]
+  > = {};
+  for (const company of operatingCompanies) {
+    bankAccountsByCompany[String(company.id)] = company.bankAccounts.map(
+      (ba) => ({
+        value: String(ba.id),
+        label: `${ba.bankName} ${ba.branchName} ${ba.accountNumber}`,
+      })
+    );
+  }
 
   // サマリー
-  const outgoingCount = invoices.filter((i) => i.direction === "outgoing").length;
-  const incomingCount = invoices.filter((i) => i.direction === "incoming").length;
-  const outgoingTotal = invoices
-    .filter((i) => i.direction === "outgoing")
-    .reduce((sum, i) => sum + (i.totalAmount || 0), 0);
-  const incomingTotal = invoices
-    .filter((i) => i.direction === "incoming")
-    .reduce((sum, i) => sum + (i.totalAmount || 0), 0);
+  const totalCount = records.length;
+  const draftCount = records.filter((r) => r.status === "draft").length;
+  const sentCount = records.filter((r) => r.status === "sent").length;
+  const totalAmount = records
+    .filter((r) => r.status !== "corrected")
+    .reduce((sum, r) => sum + (r.totalAmount ?? 0), 0);
+  const unpaidAmount = records
+    .filter((r) =>
+      ["sent", "awaiting_accounting", "partially_paid"].includes(r.status)
+    )
+    .reduce((sum, r) => sum + (r.totalAmount ?? 0), 0);
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">請求書管理</h1>
+      <h1 className="text-2xl font-bold">請求グループ管理</h1>
 
-      {/* サマリー */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <div className="rounded-lg border p-4">
-          <div className="text-sm text-muted-foreground">発行請求書</div>
-          <div className="text-lg font-bold">{outgoingCount}件</div>
-          <div className="text-sm text-muted-foreground">
-            ¥{outgoingTotal.toLocaleString()}
-          </div>
-        </div>
-        <div className="rounded-lg border p-4">
-          <div className="text-sm text-muted-foreground">受領請求書</div>
-          <div className="text-lg font-bold">{incomingCount}件</div>
-          <div className="text-sm text-muted-foreground">
-            ¥{incomingTotal.toLocaleString()}
-          </div>
-        </div>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">総件数</div>
+            <div className="text-2xl font-bold">{totalCount}件</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">下書き</div>
+            <div className="text-2xl font-bold text-orange-600">
+              {draftCount}件
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">請求合計</div>
+            <div className="text-2xl font-bold text-emerald-600">
+              ¥{totalAmount.toLocaleString()}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">未入金</div>
+            <div className="text-2xl font-bold text-rose-600">
+              ¥{unpaidAmount.toLocaleString()}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      <InvoicesTable
+      <InvoiceGroupsTable
         data={data}
-        stpCompanyOptions={stpCompanyOptions}
-        agentOptions={agentOptions}
-        paymentTermsByStpCompany={paymentTermsByStpCompany}
-        paymentTermsByAgent={paymentTermsByAgent}
+        counterpartyOptions={counterpartyOptions}
+        operatingCompanyOptions={operatingCompanyOptions}
+        bankAccountsByCompany={bankAccountsByCompany}
       />
     </div>
   );
