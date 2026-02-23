@@ -271,7 +271,7 @@
   - Server Actions: createAllocationTemplate, updateAllocationTemplate
   **参照**: 要望書 2.6, 設計書 5.4, 5.4.1, 6.3
 
-- [ ] TASK-022: 按分確定フロー
+- [x] TASK-022: 按分確定フロー
   **対象**: 設計書 ⑧ AllocationConfirmation + 設計書 5.4
   **作業内容**:
   - 按分確定の自動確定（作成者プロジェクト）
