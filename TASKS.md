@@ -370,7 +370,7 @@
   - Server Actions: updateOperatingCompany, createOperatingCompanyEmail
   **参照**: 要望書 4.1, 設計書 3.1
 
-- [ ] TASK-030: 定期取引管理画面
+- [x] TASK-030: 定期取引管理画面
   **対象**: 設計書 ④ RecurringTransaction
   **作業内容**:
   - 定期取引一覧

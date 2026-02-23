@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { recordChangeLog } from "@/app/accounting/changelog/actions";
 
 const VALID_TYPES = ["customer", "vendor", "service", "other"] as const;
 
@@ -243,4 +244,301 @@ export async function syncCounterparties() {
   revalidatePath("/accounting/masters/counterparties");
 
   return { created, updated, total: companies.length };
+}
+
+// ============================================
+// 重複検知・統合フロー（設計書5.7）
+// ============================================
+
+export type DuplicatePair = {
+  id1: number;
+  name1: string;
+  type1: string;
+  companyName1: string | null;
+  id2: number;
+  name2: string;
+  type2: string;
+  companyName2: string | null;
+};
+
+// 定期重複チェック: 全取引先の正規化名を比較して重複候補ペアを返す
+export async function detectDuplicates(): Promise<DuplicatePair[]> {
+  const counterparties = await prisma.counterparty.findMany({
+    where: { deletedAt: null, mergedIntoId: null },
+    select: {
+      id: true,
+      name: true,
+      counterpartyType: true,
+      company: { select: { name: true } },
+    },
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    take: 5000,
+  });
+
+  // 正規化名でグルーピング
+  const normalizedMap = new Map<string, typeof counterparties>();
+  for (const cp of counterparties) {
+    const normalized = normalizeCounterpartyName(cp.name);
+    const group = normalizedMap.get(normalized);
+    if (group) {
+      group.push(cp);
+    } else {
+      normalizedMap.set(normalized, [cp]);
+    }
+  }
+
+  // 完全一致グループからペアを生成
+  const pairs: DuplicatePair[] = [];
+  for (const group of normalizedMap.values()) {
+    if (group.length < 2) continue;
+    // グループ内の全ペアを生成（IDの小さい方をid1にする）
+    for (let i = 0; i < group.length; i++) {
+      for (let j = i + 1; j < group.length; j++) {
+        pairs.push({
+          id1: group[i].id,
+          name1: group[i].name,
+          type1: group[i].counterpartyType,
+          companyName1: group[i].company?.name ?? null,
+          id2: group[j].id,
+          name2: group[j].name,
+          type2: group[j].counterpartyType,
+          companyName2: group[j].company?.name ?? null,
+        });
+      }
+    }
+  }
+
+  // 部分包含チェック（正規化名が互いに包含関係にある場合）
+  const entries = Array.from(normalizedMap.entries());
+  for (let i = 0; i < entries.length; i++) {
+    for (let j = i + 1; j < entries.length; j++) {
+      const [normA, groupA] = entries[i];
+      const [normB, groupB] = entries[j];
+      if (normA === normB) continue; // 完全一致は上で処理済み
+      if (normA.length < 2 || normB.length < 2) continue; // 短すぎる名称はスキップ
+      if (normA.includes(normB) || normB.includes(normA)) {
+        // 各グループ間のペアを生成
+        for (const a of groupA) {
+          for (const b of groupB) {
+            const [first, second] = a.id < b.id ? [a, b] : [b, a];
+            pairs.push({
+              id1: first.id,
+              name1: first.name,
+              type1: first.counterpartyType,
+              companyName1: first.company?.name ?? null,
+              id2: second.id,
+              name2: second.name,
+              type2: second.counterpartyType,
+              companyName2: second.company?.name ?? null,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return pairs;
+}
+
+export type MergeImpact = {
+  source: { id: number; name: string; counterpartyType: string };
+  target: { id: number; name: string; counterpartyType: string };
+  transactionCount: number;
+  recurringTransactionCount: number;
+  bankTransactionCount: number;
+  autoJournalRuleCount: number;
+  invoiceGroupCount: number;
+  paymentGroupCount: number;
+  totalAffected: number;
+  duplicateRuleWarning: boolean;
+};
+
+// 統合前の影響範囲確認（設計書5.7）
+export async function getCounterpartyMergeImpact(
+  sourceId: number,
+  targetId: number
+): Promise<MergeImpact> {
+  const [source, target] = await Promise.all([
+    prisma.counterparty.findUnique({
+      where: { id: sourceId },
+      select: { id: true, name: true, counterpartyType: true },
+    }),
+    prisma.counterparty.findUnique({
+      where: { id: targetId },
+      select: { id: true, name: true, counterpartyType: true },
+    }),
+  ]);
+
+  if (!source) throw new Error(`統合元の取引先 (ID: ${sourceId}) が見つかりません`);
+  if (!target) throw new Error(`統合先の取引先 (ID: ${targetId}) が見つかりません`);
+
+  // 各テーブルの影響件数を並列カウント
+  const [
+    transactionCount,
+    recurringTransactionCount,
+    bankTransactionCount,
+    autoJournalRuleCount,
+    invoiceGroupCount,
+    paymentGroupCount,
+  ] = await Promise.all([
+    prisma.transaction.count({ where: { counterpartyId: sourceId, deletedAt: null } }),
+    prisma.recurringTransaction.count({ where: { counterpartyId: sourceId, deletedAt: null } }),
+    prisma.bankTransaction.count({ where: { counterpartyId: sourceId, deletedAt: null } }),
+    prisma.autoJournalRule.count({ where: { counterpartyId: sourceId, deletedAt: null } }),
+    prisma.invoiceGroup.count({ where: { counterpartyId: sourceId, deletedAt: null } }),
+    prisma.paymentGroup.count({ where: { counterpartyId: sourceId, deletedAt: null } }),
+  ]);
+
+  const totalAffected =
+    transactionCount +
+    recurringTransactionCount +
+    bankTransactionCount +
+    autoJournalRuleCount +
+    invoiceGroupCount +
+    paymentGroupCount;
+
+  // 重複ルール警告: 統合先に既に同じ条件のAutoJournalRuleがある場合
+  let duplicateRuleWarning = false;
+  if (autoJournalRuleCount > 0) {
+    const targetRuleCount = await prisma.autoJournalRule.count({
+      where: { counterpartyId: targetId, deletedAt: null },
+    });
+    if (targetRuleCount > 0) {
+      duplicateRuleWarning = true;
+    }
+  }
+
+  return {
+    source,
+    target,
+    transactionCount,
+    recurringTransactionCount,
+    bankTransactionCount,
+    autoJournalRuleCount,
+    invoiceGroupCount,
+    paymentGroupCount,
+    totalAffected,
+    duplicateRuleWarning,
+  };
+}
+
+// 統合実行（設計書5.7: FK付け替え + 論理削除 + ChangeLog記録）
+export async function mergeCounterparties(
+  sourceId: number,
+  targetId: number
+): Promise<{ success: true; totalUpdated: number }> {
+  const session = await getSession();
+  const staffId = session.id;
+
+  if (sourceId === targetId) {
+    throw new Error("統合元と統合先が同じです");
+  }
+
+  // 統合元・統合先の存在確認
+  const [source, target] = await Promise.all([
+    prisma.counterparty.findUnique({ where: { id: sourceId } }),
+    prisma.counterparty.findUnique({ where: { id: targetId } }),
+  ]);
+
+  if (!source || source.deletedAt || source.mergedIntoId) {
+    throw new Error("統合元の取引先が存在しないか、既に削除/統合済みです");
+  }
+  if (!target || target.deletedAt || target.mergedIntoId) {
+    throw new Error("統合先の取引先が存在しないか、既に削除/統合済みです");
+  }
+
+  // トランザクション内でFK付替え + 統合元の論理削除 + ChangeLog記録
+  const result = await prisma.$transaction(async (tx) => {
+    // FK付替え
+    const [txnResult, recurResult, bankResult, ruleResult, invResult, payResult] =
+      await Promise.all([
+        tx.transaction.updateMany({
+          where: { counterpartyId: sourceId },
+          data: { counterpartyId: targetId },
+        }),
+        tx.recurringTransaction.updateMany({
+          where: { counterpartyId: sourceId },
+          data: { counterpartyId: targetId },
+        }),
+        tx.bankTransaction.updateMany({
+          where: { counterpartyId: sourceId },
+          data: { counterpartyId: targetId },
+        }),
+        tx.autoJournalRule.updateMany({
+          where: { counterpartyId: sourceId },
+          data: { counterpartyId: targetId },
+        }),
+        tx.invoiceGroup.updateMany({
+          where: { counterpartyId: sourceId },
+          data: { counterpartyId: targetId },
+        }),
+        tx.paymentGroup.updateMany({
+          where: { counterpartyId: sourceId },
+          data: { counterpartyId: targetId },
+        }),
+      ]);
+
+    const totalUpdated =
+      txnResult.count +
+      recurResult.count +
+      bankResult.count +
+      ruleResult.count +
+      invResult.count +
+      payResult.count;
+
+    // 統合元に mergedIntoId, mergedAt, deletedAt を設定
+    const now = new Date();
+    await tx.counterparty.update({
+      where: { id: sourceId },
+      data: {
+        mergedIntoId: targetId,
+        mergedAt: now,
+        deletedAt: now,
+        updatedBy: staffId,
+      },
+    });
+
+    // ChangeLog記録: 統合操作
+    await recordChangeLog(
+      {
+        tableName: "Counterparty",
+        recordId: sourceId,
+        changeType: "update",
+        oldData: {
+          name: source.name,
+          counterpartyType: source.counterpartyType,
+          mergedIntoId: null,
+          mergedAt: null,
+          deletedAt: null,
+        },
+        newData: {
+          name: source.name,
+          counterpartyType: source.counterpartyType,
+          mergedIntoId: targetId,
+          mergedIntoName: target.name,
+          mergedAt: now.toISOString(),
+          deletedAt: now.toISOString(),
+          action: "merge",
+          totalFkUpdated: totalUpdated,
+          fkDetails: {
+            transactions: txnResult.count,
+            recurringTransactions: recurResult.count,
+            bankTransactions: bankResult.count,
+            autoJournalRules: ruleResult.count,
+            invoiceGroups: invResult.count,
+            paymentGroups: payResult.count,
+          },
+        },
+      },
+      staffId,
+      tx
+    );
+
+    return totalUpdated;
+  });
+
+  revalidatePath("/accounting/masters/counterparties");
+  revalidatePath("/accounting/masters/counterparties/duplicates");
+
+  return { success: true, totalUpdated: result };
 }
