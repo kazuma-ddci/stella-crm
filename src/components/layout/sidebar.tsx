@@ -42,6 +42,8 @@ import {
   BookOpen,
   Bell,
   Repeat,
+  Zap,
+  Wallet,
 } from "lucide-react";
 import { canView } from "@/lib/auth/permissions";
 import type { SessionUser } from "@/types/auth";
@@ -141,7 +143,9 @@ const navigation: NavItem[] = [
         children: [
           { name: "ダッシュボード", href: "/stp/finance/overview", icon: DollarSign },
           { name: "取引管理", href: "/stp/finance/transactions", icon: Landmark },
-          { name: "請求書管理", href: "/stp/finance/invoices", icon: Receipt },
+          { name: "取引候補生成", href: "/stp/finance/generate", icon: Zap },
+          { name: "請求グループ管理（売上）", href: "/stp/finance/invoices", icon: Receipt },
+          { name: "支払グループ管理（経費）", href: "/stp/finance/payment-groups", icon: Wallet },
           { name: "入出金履歴", href: "/stp/finance/payments", icon: Landmark },
           { name: "売掛金年齢表", href: "/stp/finance/aging", icon: Clock },
           { name: "月次締め", href: "/stp/finance/monthly-close", icon: Lock },
@@ -179,6 +183,7 @@ const navigation: NavItem[] = [
           { name: "勘定科目", href: "/accounting/masters/accounts", icon: BookOpen },
           { name: "定期取引", href: "/accounting/masters/recurring-transactions", icon: Repeat },
           { name: "請求書テンプレート", href: "/accounting/masters/invoice-templates", icon: FileText },
+          { name: "経理プロジェクト", href: "/accounting/masters/cost-centers", icon: Tag },
         ],
       },
     ],
