@@ -296,7 +296,7 @@
   - Server Actions: createBudget, updateBudget, getBudgetVsActual
   **参照**: 要望書 3.7
 
-- [ ] TASK-024: キャッシュフロー予測画面
+- [!] TASK-024: キャッシュフロー予測画面
   **対象**: 設計書 1.2 /accounting/cashflow
   **ページ**: /accounting/cashflow
   **作業内容**:
