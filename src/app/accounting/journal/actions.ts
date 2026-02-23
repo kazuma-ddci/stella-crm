@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { recordChangeLog, extractChanges, pickRecordData, JOURNAL_ENTRY_LOG_FIELDS } from "@/app/accounting/changelog/actions";
 
 // ============================================
 // 型定義
@@ -267,6 +268,21 @@ export async function createJournalEntry(data: Record<string, unknown>) {
       })),
     });
 
+    // 変更履歴を記録
+    await recordChangeLog(
+      {
+        tableName: "JournalEntry",
+        recordId: journalEntry.id,
+        changeType: "create",
+        newData: pickRecordData(
+          journalEntry as unknown as Record<string, unknown>,
+          [...JOURNAL_ENTRY_LOG_FIELDS]
+        ),
+      },
+      staffId,
+      tx
+    );
+
     return journalEntry;
   });
 
@@ -287,7 +303,6 @@ export async function updateJournalEntry(
 
   const existing = await prisma.journalEntry.findFirst({
     where: { id, deletedAt: null },
-    select: { id: true, status: true },
   });
   if (!existing) {
     throw new Error("仕訳が見つかりません");
@@ -314,7 +329,7 @@ export async function updateJournalEntry(
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.journalEntry.update({
+    const updated = await tx.journalEntry.update({
       where: { id },
       data: {
         journalDate: validated.journalDate,
@@ -341,6 +356,30 @@ export async function updateJournalEntry(
         createdBy: staffId,
       })),
     });
+
+    // 変更履歴を記録
+    const oldData = pickRecordData(
+      existing as unknown as Record<string, unknown>,
+      [...JOURNAL_ENTRY_LOG_FIELDS]
+    );
+    const newData = pickRecordData(
+      updated as unknown as Record<string, unknown>,
+      [...JOURNAL_ENTRY_LOG_FIELDS]
+    );
+    const changes = extractChanges(oldData, newData, [...JOURNAL_ENTRY_LOG_FIELDS]);
+    if (changes) {
+      await recordChangeLog(
+        {
+          tableName: "JournalEntry",
+          recordId: id,
+          changeType: "update",
+          oldData: changes.oldData,
+          newData: changes.newData,
+        },
+        staffId,
+        tx
+      );
+    }
   });
 
   revalidatePath("/accounting/journal");
@@ -393,6 +432,19 @@ export async function confirmJournalEntry(id: number) {
       },
     });
 
+    // 仕訳の変更履歴を記録
+    await recordChangeLog(
+      {
+        tableName: "JournalEntry",
+        recordId: id,
+        changeType: "update",
+        oldData: { status: entry.status },
+        newData: { status: "confirmed" },
+      },
+      staffId,
+      tx
+    );
+
     // 取引に紐づいている場合、取引ステータスを更新
     if (entry.transactionId) {
       const transaction = await tx.transaction.findFirst({
@@ -410,6 +462,19 @@ export async function confirmJournalEntry(id: number) {
             updatedBy: staffId,
           },
         });
+
+        // 取引のステータス変更も記録
+        await recordChangeLog(
+          {
+            tableName: "Transaction",
+            recordId: entry.transactionId,
+            changeType: "update",
+            oldData: { status: "awaiting_accounting" },
+            newData: { status: "journalized" },
+          },
+          staffId,
+          tx
+        );
       }
     }
   });
@@ -428,7 +493,6 @@ export async function deleteJournalEntry(id: number) {
 
   const entry = await prisma.journalEntry.findFirst({
     where: { id, deletedAt: null },
-    select: { id: true, status: true },
   });
   if (!entry) {
     throw new Error("仕訳が見つかりません");
@@ -444,6 +508,20 @@ export async function deleteJournalEntry(id: number) {
       updatedBy: staffId,
     },
   });
+
+  // 変更履歴を記録
+  await recordChangeLog(
+    {
+      tableName: "JournalEntry",
+      recordId: id,
+      changeType: "delete",
+      oldData: pickRecordData(
+        entry as unknown as Record<string, unknown>,
+        [...JOURNAL_ENTRY_LOG_FIELDS]
+      ),
+    },
+    staffId
+  );
 
   revalidatePath("/accounting/journal");
 }

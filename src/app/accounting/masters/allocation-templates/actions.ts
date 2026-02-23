@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { Prisma } from "@prisma/client";
+import { recordChangeLogs } from "@/app/accounting/changelog/actions";
 
 const REVALIDATE_PATH = "/accounting/masters/allocation-templates";
 
@@ -125,6 +126,14 @@ export async function updateAllocationTemplate(
     }
     validateLines(lines);
 
+    // 変更前の明細データを保存（変更履歴用）
+    const oldLines = template.lines.map((l) => ({
+      id: l.id,
+      costCenterId: l.costCenterId,
+      allocationRate: Number(l.allocationRate),
+      label: l.label,
+    }));
+
     // 既存の明細を全削除 → 新規作成（シンプルなリプレース戦略）
     await prisma.$transaction([
       prisma.allocationTemplateLine.deleteMany({
@@ -147,6 +156,27 @@ export async function updateAllocationTemplate(
         },
       }),
     ]);
+
+    // 按分テンプレート明細の変更履歴を記録
+    await recordChangeLogs(
+      [
+        {
+          tableName: "AllocationTemplateLine",
+          recordId: id, // テンプレートIDを使用
+          changeType: "update",
+          oldData: { templateId: id, lines: oldLines },
+          newData: {
+            templateId: id,
+            lines: lines.map((l) => ({
+              costCenterId: l.costCenterId,
+              allocationRate: l.allocationRate,
+              label: l.label,
+            })),
+          },
+        },
+      ],
+      staffId
+    );
   } else {
     updateData.updatedBy = staffId;
     await prisma.allocationTemplate.update({

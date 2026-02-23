@@ -320,7 +320,7 @@
   - Server Actions: createComment, returnTransaction, resubmitTransaction
   **参照**: 要望書 3.5, 設計書 5.8
 
-- [ ] TASK-026: 通知機能
+- [x] TASK-026: 通知機能
   **対象**: 設計書 ㉙ Notification + 設計書 5.9
   **ページ**: /notifications
   **作業内容**:

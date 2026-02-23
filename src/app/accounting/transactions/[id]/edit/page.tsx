@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getTransactionById, getTransactionFormData } from "../../actions";
 import { TransactionForm } from "../../transaction-form";
 import { CommentSection } from "@/app/accounting/comments/comment-section";
+import { ChangeLogSection } from "@/app/accounting/changelog/changelog-section";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -66,6 +67,9 @@ export default async function EditTransactionPage({ params }: Props) {
           transactionId={transactionId}
           allowCommentTypes
         />
+      </div>
+      <div className="border-t pt-6">
+        <ChangeLogSection transactionId={transactionId} />
       </div>
     </div>
   );

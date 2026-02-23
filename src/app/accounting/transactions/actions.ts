@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth";
 import { autoConfirmCreatorAllocations, checkAndTransitionToAwaitingAccounting, sendAllocationNotifications } from "./allocation-actions";
 import type { AllocationNotificationInfo } from "./allocation-actions";
 import { createNotification } from "@/lib/notifications/create-notification";
+import { recordChangeLog, extractChanges, pickRecordData, TRANSACTION_LOG_FIELDS } from "@/app/accounting/changelog/actions";
 
 // ============================================
 // 型定義
@@ -268,6 +269,21 @@ export async function createTransaction(data: Record<string, unknown>) {
       );
     }
 
+    // 変更履歴を記録
+    await recordChangeLog(
+      {
+        tableName: "Transaction",
+        recordId: transaction.id,
+        changeType: "create",
+        newData: pickRecordData(
+          transaction as unknown as Record<string, unknown>,
+          [...TRANSACTION_LOG_FIELDS]
+        ),
+      },
+      staffId,
+      tx
+    );
+
     return { transaction, notificationInfo };
   });
 
@@ -352,7 +368,7 @@ export async function updateTransaction(
 
   await prisma.$transaction(async (tx) => {
     // 取引更新
-    await tx.transaction.update({
+    const updated = await tx.transaction.update({
       where: { id },
       data: {
         type: validated.type,
@@ -378,6 +394,30 @@ export async function updateTransaction(
         updatedBy: staffId,
       },
     });
+
+    // 変更履歴を記録
+    const oldData = pickRecordData(
+      existing as unknown as Record<string, unknown>,
+      [...TRANSACTION_LOG_FIELDS]
+    );
+    const newData = pickRecordData(
+      updated as unknown as Record<string, unknown>,
+      [...TRANSACTION_LOG_FIELDS]
+    );
+    const changes = extractChanges(oldData, newData, [...TRANSACTION_LOG_FIELDS]);
+    if (changes) {
+      await recordChangeLog(
+        {
+          tableName: "Transaction",
+          recordId: id,
+          changeType: "update",
+          oldData: changes.oldData,
+          newData: changes.newData,
+        },
+        staffId,
+        tx
+      );
+    }
 
     // 証憑の差分管理
     const incomingIds = new Set(
@@ -555,6 +595,18 @@ export async function confirmTransaction(id: number) {
     },
   });
 
+  // 変更履歴を記録
+  await recordChangeLog(
+    {
+      tableName: "Transaction",
+      recordId: id,
+      changeType: "update",
+      oldData: { status: transaction.status },
+      newData: { status: "confirmed" },
+    },
+    staffId
+  );
+
   // 按分テンプレート使用時: 全プロジェクト確定済みなら自動的に「経理処理待ち」へ遷移
   await checkAndTransitionToAwaitingAccounting(id);
 
@@ -624,6 +676,19 @@ export async function returnTransaction(
         createdBy: staffId,
       },
     });
+
+    // 変更履歴を記録
+    await recordChangeLog(
+      {
+        tableName: "Transaction",
+        recordId: id,
+        changeType: "update",
+        oldData: { status: transaction.status },
+        newData: { status: "returned" },
+      },
+      staffId,
+      tx
+    );
   });
 
   // 差し戻し通知を作成者に送信
@@ -685,6 +750,19 @@ export async function resubmitTransaction(id: number, body?: string) {
         },
       });
     }
+
+    // 変更履歴を記録
+    await recordChangeLog(
+      {
+        tableName: "Transaction",
+        recordId: id,
+        changeType: "update",
+        oldData: { status: transaction.status },
+        newData: { status: "resubmitted" },
+      },
+      staffId,
+      tx
+    );
   });
 
   revalidatePath("/accounting/transactions");
@@ -722,6 +800,18 @@ export async function hideTransaction(id: number) {
       updatedBy: staffId,
     },
   });
+
+  // 変更履歴を記録
+  await recordChangeLog(
+    {
+      tableName: "Transaction",
+      recordId: id,
+      changeType: "update",
+      oldData: { status: transaction.status },
+      newData: { status: "hidden" },
+    },
+    staffId
+  );
 
   revalidatePath("/accounting/transactions");
 }
