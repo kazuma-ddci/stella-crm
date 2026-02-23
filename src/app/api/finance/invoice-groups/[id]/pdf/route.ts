@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import fs from "fs/promises";
 import path from "path";
@@ -18,6 +19,11 @@ type RouteContext = {
  */
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
+    }
+
     const { id } = await context.params;
     const groupId = parseInt(id, 10);
     if (isNaN(groupId)) {
