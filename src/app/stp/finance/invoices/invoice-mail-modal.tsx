@@ -25,7 +25,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
-import { expandTemplate } from "@/lib/email/invoice-email";
+import { expandTemplate } from "@/lib/email/template-utils";
 import type { InvoiceMailFormData } from "./mail-actions";
 import {
   getInvoiceMailData,

@@ -191,6 +191,12 @@ export async function sendInvoiceMail(data: {
 }): Promise<{ success: boolean; error?: string }> {
   const user = await requireEdit("stp");
 
+  // P4: TO宛先が最低1件あるかバリデーション
+  const hasTo = data.recipients.some((r) => r.type === "to");
+  if (!hasTo) {
+    return { success: false, error: "TO宛先を最低1件指定してください" };
+  }
+
   // InvoiceGroupの存在確認とステータスチェック
   const group = await prisma.invoiceGroup.findUnique({
     where: { id: data.invoiceGroupId, deletedAt: null },
@@ -214,11 +220,18 @@ export async function sendInvoiceMail(data: {
     return { success: false, error: "送信元メールアドレスが見つかりません" };
   }
 
+  // P5: invoiceGroupId/paymentGroupId 排他制約チェック
+  // sendInvoiceMailはinvoiceGroup専用のため、paymentGroupIdは設定しない
+  if (!data.invoiceGroupId) {
+    return { success: false, error: "invoiceGroupIdは必須です" };
+  }
+
   // トランザクションでInvoiceMail + Recipients作成
   const mail = await prisma.$transaction(async (tx) => {
     const created = await tx.invoiceMail.create({
       data: {
         invoiceGroupId: data.invoiceGroupId,
+        paymentGroupId: null, // 排他制約: invoiceGroupId設定時はnull
         operatingCompanyId: group.operatingCompanyId,
         senderEmailId: data.senderEmailId,
         sendMethod: "email",
@@ -268,25 +281,26 @@ export async function sendInvoiceMail(data: {
 
     if (result.success) {
       // 成功: InvoiceMail.status = "sent", sentAt, sentBy 更新
-      // InvoiceGroup.status を "sent" に更新
-      await prisma.$transaction([
-        prisma.invoiceMail.update({
-          where: { id: mail.id },
-          data: {
-            status: "sent",
-            sentAt: new Date(),
-            sentBy: user.id,
-            updatedBy: user.id,
-          },
-        }),
-        prisma.invoiceGroup.update({
+      await prisma.invoiceMail.update({
+        where: { id: mail.id },
+        data: {
+          status: "sent",
+          sentAt: new Date(),
+          sentBy: user.id,
+          updatedBy: user.id,
+        },
+      });
+
+      // pdf_created の場合のみ sent に更新（それ以降のステータスを退行させない）
+      if (group.status === "pdf_created") {
+        await prisma.invoiceGroup.update({
           where: { id: data.invoiceGroupId },
           data: {
             status: "sent",
             updatedBy: user.id,
           },
-        }),
-      ]);
+        });
+      }
 
       revalidatePath("/stp/finance/invoices");
       return { success: true };
@@ -382,35 +396,27 @@ export async function resendInvoiceMail(
 
     if (result.success) {
       // 成功: InvoiceMail.status = "sent", sentAt, sentBy 更新
-      if (mail.invoiceGroupId && mail.invoiceGroup) {
-        // InvoiceGroupがあれば "sent" に更新
-        await prisma.$transaction([
-          prisma.invoiceMail.update({
-            where: { id: mail.id },
-            data: {
-              status: "sent",
-              sentAt: new Date(),
-              sentBy: user.id,
-              errorMessage: null,
-              updatedBy: user.id,
-            },
-          }),
-          prisma.invoiceGroup.update({
-            where: { id: mail.invoiceGroupId },
-            data: {
-              status: "sent",
-              updatedBy: user.id,
-            },
-          }),
-        ]);
-      } else {
-        await prisma.invoiceMail.update({
-          where: { id: mail.id },
+      await prisma.invoiceMail.update({
+        where: { id: mail.id },
+        data: {
+          status: "sent",
+          sentAt: new Date(),
+          sentBy: user.id,
+          errorMessage: null,
+          updatedBy: user.id,
+        },
+      });
+
+      // pdf_created の場合のみ sent に更新（それ以降のステータスを退行させない）
+      if (
+        mail.invoiceGroupId &&
+        mail.invoiceGroup &&
+        mail.invoiceGroup.status === "pdf_created"
+      ) {
+        await prisma.invoiceGroup.update({
+          where: { id: mail.invoiceGroupId },
           data: {
             status: "sent",
-            sentAt: new Date(),
-            sentBy: user.id,
-            errorMessage: null,
             updatedBy: user.id,
           },
         });
@@ -482,11 +488,12 @@ export async function recordManualSend(data: {
     throw new Error("PDF作成済み以降のステータスでのみ手動送付を記録できます");
   }
 
-  await prisma.$transaction([
+  await prisma.$transaction(async (tx) => {
     // InvoiceMail作成（status: "sent"）
-    prisma.invoiceMail.create({
+    await tx.invoiceMail.create({
       data: {
         invoiceGroupId: data.invoiceGroupId,
+        paymentGroupId: null, // 排他制約: invoiceGroupId設定時はnull
         operatingCompanyId: group.operatingCompanyId,
         sendMethod: data.sendMethod,
         body: data.note ?? null,
@@ -495,16 +502,19 @@ export async function recordManualSend(data: {
         sentBy: user.id,
         createdBy: user.id,
       },
-    }),
-    // InvoiceGroup.status を "sent" に更新
-    prisma.invoiceGroup.update({
-      where: { id: data.invoiceGroupId },
-      data: {
-        status: "sent",
-        updatedBy: user.id,
-      },
-    }),
-  ]);
+    });
+
+    // pdf_created の場合のみ sent に更新（それ以降のステータスを退行させない）
+    if (group.status === "pdf_created") {
+      await tx.invoiceGroup.update({
+        where: { id: data.invoiceGroupId },
+        data: {
+          status: "sent",
+          updatedBy: user.id,
+        },
+      });
+    }
+  });
 
   revalidatePath("/stp/finance/invoices");
 }
