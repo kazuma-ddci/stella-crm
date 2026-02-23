@@ -41,6 +41,7 @@ import {
   PanelLeftOpen,
   BookOpen,
   Bell,
+  Repeat,
 } from "lucide-react";
 import { canView } from "@/lib/auth/permissions";
 import type { SessionUser } from "@/types/auth";
@@ -178,6 +179,7 @@ const navigation: NavItem[] = [
         icon: Settings,
         children: [
           { name: "勘定科目", href: "/accounting/masters/accounts", icon: BookOpen },
+          { name: "定期取引", href: "/accounting/masters/recurring-transactions", icon: Repeat },
           { name: "請求書テンプレート", href: "/accounting/masters/invoice-templates", icon: FileText },
         ],
       },

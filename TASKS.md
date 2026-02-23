@@ -360,7 +360,7 @@
 
 ## Phase 6: 移行・仕上げ
 
-- [ ] TASK-029: 運営法人マスタ拡張 + メールアドレステーブル
+- [x] TASK-029: 運営法人マスタ拡張 + メールアドレステーブル
   **対象**: 設計書 3.1 OperatingCompany変更 + ㉔ OperatingCompanyEmail
   **作業内容**:
   - OperatingCompanyへのカラム追加（logoPath, abbreviation, invoicePrefix, defaultPaymentTermDays）
