@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
 
 // Prisma transaction client type
 type TxClient = Omit<
@@ -175,84 +176,15 @@ function validateReconciliationData(data: Record<string, unknown>) {
 
 async function checkMonthlyCloseForReconciliation(
   journalDate: Date,
-  bankTransactionDate: Date,
-  refs: {
-    transactionId: number | null;
-    invoiceGroupId: number | null;
-    paymentGroupId: number | null;
-  }
+  bankTransactionDate: Date
 ) {
-  // JournalEntry経由で関連するTransactionのprojectIdを取得
-  let projectId: number | null = null;
-
-  if (refs.transactionId) {
-    const txn = await prisma.transaction.findUnique({
-      where: { id: refs.transactionId },
-      select: { projectId: true },
-    });
-    projectId = txn?.projectId ?? null;
-  }
-
-  if (!projectId && refs.invoiceGroupId) {
-    const txn = await prisma.transaction.findFirst({
-      where: {
-        invoiceGroupId: refs.invoiceGroupId,
-        deletedAt: null,
-      },
-      select: { projectId: true },
-    });
-    projectId = txn?.projectId ?? null;
-  }
-
-  if (!projectId && refs.paymentGroupId) {
-    const txn = await prisma.transaction.findFirst({
-      where: {
-        paymentGroupId: refs.paymentGroupId,
-        deletedAt: null,
-      },
-      select: { projectId: true },
-    });
-    projectId = txn?.projectId ?? null;
-  }
-
-  // プロジェクトが特定できない場合はスキップ（既存パターンに準拠）
-  if (!projectId) return;
-
   // 仕訳日と入出金日の両方の月をチェック
-  const jMonth = new Date(
-    journalDate.getFullYear(),
-    journalDate.getMonth(),
-    1
-  );
-  const btMonth = new Date(
-    bankTransactionDate.getFullYear(),
-    bankTransactionDate.getMonth(),
-    1
-  );
-
-  const monthsToCheck = [jMonth];
-  if (jMonth.getTime() !== btMonth.getTime()) {
-    monthsToCheck.push(btMonth);
-  }
-
-  const closeRecords = await prisma.accountingMonthlyClose.findMany({
-    where: {
-      projectId,
-      targetMonth: { in: monthsToCheck },
-      status: { in: ["project_closed", "accounting_closed"] },
-    },
-    select: { targetMonth: true },
-  });
-
-  if (closeRecords.length > 0) {
-    const closedMonths = closeRecords.map((r) => {
-      const y = r.targetMonth.getFullYear();
-      const m = String(r.targetMonth.getMonth() + 1).padStart(2, "0");
-      return `${y}-${m}`;
-    });
-    throw new Error(
-      `月次クローズ済みの月（${closedMonths.join(", ")}）が含まれているため、消込できません`
-    );
+  await ensureMonthNotClosed(journalDate);
+  if (
+    journalDate.getFullYear() !== bankTransactionDate.getFullYear() ||
+    journalDate.getMonth() !== bankTransactionDate.getMonth()
+  ) {
+    await ensureMonthNotClosed(bankTransactionDate);
   }
 }
 
@@ -641,12 +573,7 @@ export async function createReconciliation(data: Record<string, unknown>) {
   // P3: 月次クローズチェック
   await checkMonthlyCloseForReconciliation(
     journalEntry.journalDate,
-    bankTransaction.transactionDate,
-    {
-      transactionId: journalEntry.transactionId,
-      invoiceGroupId: journalEntry.invoiceGroupId,
-      paymentGroupId: journalEntry.paymentGroupId,
-    }
+    bankTransaction.transactionDate
   );
 
   // トランザクションで消込＋入金仕訳＋差額仕訳を作成
@@ -813,12 +740,7 @@ export async function cancelReconciliation(id: number) {
   // P3: 月次クローズチェック
   await checkMonthlyCloseForReconciliation(
     reconciliation.journalEntry.journalDate,
-    reconciliation.bankTransaction.transactionDate,
-    {
-      transactionId: reconciliation.journalEntry.transactionId,
-      invoiceGroupId: reconciliation.journalEntry.invoiceGroupId,
-      paymentGroupId: reconciliation.journalEntry.paymentGroupId,
-    }
+    reconciliation.bankTransaction.transactionDate
   );
 
   await prisma.$transaction(async (tx) => {

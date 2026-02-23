@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { recordChangeLog, extractChanges, pickRecordData, JOURNAL_ENTRY_LOG_FIELDS } from "@/app/accounting/changelog/actions";
+import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
 
 // ============================================
 // 型定義
@@ -199,6 +200,9 @@ export async function createJournalEntry(data: Record<string, unknown>) {
 
   const validated = validateJournalEntryData(data);
 
+  // 月次クローズチェック
+  await ensureMonthNotClosed(validated.journalDate);
+
   // 紐づき先の存在チェック
   if (validated.invoiceGroupId) {
     const ig = await prisma.invoiceGroup.findUnique({
@@ -311,6 +315,9 @@ export async function updateJournalEntry(
     throw new Error("確定済みの仕訳は編集できません");
   }
 
+  // 月次クローズチェック
+  await ensureMonthNotClosed(existing.journalDate);
+
   const validated = validateJournalEntryData(data);
 
   // 勘定科目の存在チェック
@@ -406,6 +413,9 @@ export async function confirmJournalEntry(id: number) {
     throw new Error("下書き状態の仕訳のみ確定できます");
   }
 
+  // 月次クローズチェック
+  await ensureMonthNotClosed(entry.journalDate);
+
   // 借方/貸方合計チェック（確定時にも再検証）
   const debitTotal = entry.lines
     .filter((l) => l.side === "debit")
@@ -500,6 +510,9 @@ export async function deleteJournalEntry(id: number) {
   if (entry.status !== "draft") {
     throw new Error("確定済みの仕訳は削除できません。下書きの仕訳のみ削除可能です");
   }
+
+  // 月次クローズチェック
+  await ensureMonthNotClosed(entry.journalDate);
 
   await prisma.$transaction(async (tx) => {
     await tx.journalEntry.update({

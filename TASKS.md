@@ -333,7 +333,7 @@
   - Server Actions: listNotifications, updateNotificationStatus, createNotification
   **参照**: 要望書 5, 設計書 5.9, 8.5
 
-- [ ] TASK-027: 変更履歴機能
+- [x] TASK-027: 変更履歴機能
   **対象**: 設計書 ㉚ ChangeLog + 設計書 8.4
   **作業内容**:
   - 変更履歴の自動記録（Server Actionで明示的に記録）

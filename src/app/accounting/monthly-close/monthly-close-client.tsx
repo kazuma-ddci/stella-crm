@@ -1,6 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -9,17 +19,56 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Lock, LockOpen, History } from "lucide-react";
-import type { MonthlyCloseViewRow, MonthlyCloseHistoryRow } from "./actions";
+import { Loader2, Lock, LockOpen, History } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { closeMonthAction, reopenMonthAction } from "./actions";
+import type { MonthlyCloseStatusRow, MonthlyCloseLogRow } from "./actions";
 
 type Props = {
-  statuses: MonthlyCloseViewRow[];
-  history: MonthlyCloseHistoryRow[];
+  statuses: MonthlyCloseStatusRow[];
+  history: MonthlyCloseLogRow[];
 };
 
-export function MonthlyCloseControls({ statuses, history }: Props) {
+export function MonthlyCloseClient({ statuses, history }: Props) {
+  const router = useRouter();
+  const [loading, setLoading] = useState<string | null>(null);
+  const [confirmClose, setConfirmClose] = useState<string | null>(null);
+  const [reopenDialog, setReopenDialog] = useState<string | null>(null);
+  const [reopenReason, setReopenReason] = useState("");
+
   const closedCount = statuses.filter((s) => s.isClosed).length;
   const openCount = statuses.filter((s) => !s.isClosed).length;
+
+  const handleClose = async (month: string) => {
+    setLoading(month);
+    try {
+      await closeMonthAction(`${month}-01`);
+      router.refresh();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "クローズに失敗しました");
+    } finally {
+      setLoading(null);
+      setConfirmClose(null);
+    }
+  };
+
+  const handleReopen = async (month: string) => {
+    if (!reopenReason.trim()) {
+      alert("再オープンの理由を入力してください");
+      return;
+    }
+    setLoading(month);
+    try {
+      await reopenMonthAction(`${month}-01`, reopenReason.trim());
+      router.refresh();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "再オープンに失敗しました");
+    } finally {
+      setLoading(null);
+      setReopenDialog(null);
+      setReopenReason("");
+    }
+  };
 
   const formatDateTime = (isoString: string) => {
     return new Date(isoString).toLocaleString("ja-JP", {
@@ -71,7 +120,7 @@ export function MonthlyCloseControls({ statuses, history }: Props) {
         </Card>
       </div>
 
-      {/* 月次ステータス一覧（閲覧のみ） */}
+      {/* 月次ステータス一覧 */}
       <Card>
         <CardHeader>
           <CardTitle>月次クローズ状況</CardTitle>
@@ -85,6 +134,7 @@ export function MonthlyCloseControls({ statuses, history }: Props) {
                 <TableHead className="text-right">売上</TableHead>
                 <TableHead className="text-right">経費</TableHead>
                 <TableHead className="text-right">粗利</TableHead>
+                <TableHead>操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -117,6 +167,37 @@ export function MonthlyCloseControls({ statuses, history }: Props) {
                   >
                     ¥{row.grossProfit.toLocaleString()}
                   </TableCell>
+                  <TableCell>
+                    {row.isClosed ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setReopenDialog(row.month);
+                          setReopenReason("");
+                        }}
+                        disabled={loading === row.month}
+                      >
+                        {loading === row.month ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          "再オープン"
+                        )}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        onClick={() => setConfirmClose(row.month)}
+                        disabled={loading === row.month}
+                      >
+                        {loading === row.month ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          "クローズ"
+                        )}
+                      </Button>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -141,6 +222,7 @@ export function MonthlyCloseControls({ statuses, history }: Props) {
                   <TableHead>操作</TableHead>
                   <TableHead>実行者</TableHead>
                   <TableHead>理由</TableHead>
+                  <TableHead>スナップショット</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -167,6 +249,13 @@ export function MonthlyCloseControls({ statuses, history }: Props) {
                     <TableCell className="max-w-[300px] truncate">
                       {log.reason || "-"}
                     </TableCell>
+                    <TableCell>
+                      {log.hasSnapshot ? (
+                        <span className="text-xs text-green-600">あり</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -174,6 +263,86 @@ export function MonthlyCloseControls({ statuses, history }: Props) {
           )}
         </CardContent>
       </Card>
+
+      {/* クローズ確認ダイアログ */}
+      <Dialog
+        open={confirmClose !== null}
+        onOpenChange={(o) => !o && setConfirmClose(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>月次クローズ確認</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm">
+            <strong>{confirmClose}</strong>{" "}
+            をクローズします。クローズ済みの月はデータの変更が制限されます。
+          </p>
+          <p className="text-sm text-muted-foreground">
+            PLスナップショットが自動保存されます。必要に応じて後から再オープンすることも可能です。
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmClose(null)}>
+              キャンセル
+            </Button>
+            <Button
+              onClick={() => confirmClose && handleClose(confirmClose)}
+              disabled={loading !== null}
+            >
+              {loading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              クローズ実行
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 再オープン理由ダイアログ */}
+      <Dialog
+        open={reopenDialog !== null}
+        onOpenChange={(o) => {
+          if (!o) {
+            setReopenDialog(null);
+            setReopenReason("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>再オープン - {reopenDialog}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm">再オープンの理由を入力してください（必須）。</p>
+            <Textarea
+              value={reopenReason}
+              onChange={(e) => setReopenReason(e.target.value)}
+              placeholder="再オープンの理由..."
+              className="min-h-[100px]"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setReopenDialog(null);
+                setReopenReason("");
+              }}
+            >
+              キャンセル
+            </Button>
+            <Button
+              onClick={() => reopenDialog && handleReopen(reopenDialog)}
+              disabled={loading !== null || !reopenReason.trim()}
+            >
+              {loading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              再オープン
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

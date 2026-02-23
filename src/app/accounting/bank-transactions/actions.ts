@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { Decimal } from "@prisma/client/runtime/library";
+import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
 
 // ============================================
 // 型定義
@@ -312,6 +313,9 @@ export async function createBankTransaction(data: Record<string, unknown>) {
 
   const validated = validateBankTransactionData(data);
 
+  // 月次クローズチェック
+  await ensureMonthNotClosed(validated.transactionDate);
+
   // 仮想通貨詳細
   const cryptoDetailRaw = data.cryptoDetail as CryptoDetailInput | undefined;
   let cryptoDetailValidated: ReturnType<typeof validateCryptoDetail> | null = null;
@@ -387,6 +391,9 @@ export async function updateBankTransaction(id: number, data: Record<string, unk
   if (!existing) {
     throw new Error("入出金データが見つかりません");
   }
+
+  // 月次クローズチェック
+  await ensureMonthNotClosed(existing.transactionDate);
 
   // 消込済みの場合は編集不可
   const reconciliationCount = await prisma.reconciliation.count({
@@ -503,6 +510,9 @@ export async function deleteBankTransaction(id: number) {
   if (!existing) {
     throw new Error("入出金データが見つかりません");
   }
+
+  // 月次クローズチェック
+  await ensureMonthNotClosed(existing.transactionDate);
 
   // 消込済みの場合は削除不可
   const reconciliationCount = await prisma.reconciliation.count({

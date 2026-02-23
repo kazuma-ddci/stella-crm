@@ -7,6 +7,7 @@ import { autoConfirmCreatorAllocations, checkAndTransitionToAwaitingAccounting, 
 import type { AllocationNotificationInfo } from "./allocation-actions";
 import { createNotification } from "@/lib/notifications/create-notification";
 import { recordChangeLog, extractChanges, pickRecordData, TRANSACTION_LOG_FIELDS } from "@/app/accounting/changelog/actions";
+import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
 
 // ============================================
 // 型定義
@@ -183,6 +184,9 @@ export async function createTransaction(data: Record<string, unknown>) {
 
   const validated = validateTransactionData(data);
 
+  // 月次クローズチェック
+  await checkMonthlyClose(validated.periodFrom, validated.periodTo);
+
   const contractId = data.contractId ? Number(data.contractId) : null;
   const projectId = data.projectId ? Number(data.projectId) : null;
   const paymentMethodId = data.paymentMethodId
@@ -329,7 +333,7 @@ export async function updateTransaction(
   }
 
   // 月次クローズチェック
-  await checkMonthlyClose(existing.periodFrom, existing.periodTo, existing.projectId);
+  await checkMonthlyClose(existing.periodFrom, existing.periodTo);
 
   const validated = validateTransactionData(data);
 
@@ -530,34 +534,15 @@ const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
 // 月次クローズチェック
 // ============================================
 
-async function checkMonthlyClose(periodFrom: Date, periodTo: Date, projectId: number | null) {
-  if (!projectId) return;
-
+async function checkMonthlyClose(periodFrom: Date, periodTo: Date) {
   // periodFrom〜periodToに含まれる全ての月を対象にチェック
   const startMonth = new Date(periodFrom.getFullYear(), periodFrom.getMonth(), 1);
   const endMonth = new Date(periodTo.getFullYear(), periodTo.getMonth(), 1);
 
-  const closeRecords = await prisma.accountingMonthlyClose.findMany({
-    where: {
-      projectId,
-      targetMonth: {
-        gte: startMonth,
-        lte: endMonth,
-      },
-      status: { in: ["project_closed", "accounting_closed"] },
-    },
-    select: { targetMonth: true, status: true },
-  });
-
-  if (closeRecords.length > 0) {
-    const closedMonths = closeRecords.map((r) => {
-      const y = r.targetMonth.getFullYear();
-      const m = String(r.targetMonth.getMonth() + 1).padStart(2, "0");
-      return `${y}-${m}`;
-    });
-    throw new Error(
-      `月次クローズ済みの月（${closedMonths.join(", ")}）が含まれているため、編集できません`
-    );
+  const current = new Date(startMonth);
+  while (current <= endMonth) {
+    await ensureMonthNotClosed(current);
+    current.setMonth(current.getMonth() + 1);
   }
 }
 
@@ -583,7 +568,7 @@ export async function confirmTransaction(id: number) {
     );
   }
 
-  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo, transaction.projectId);
+  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo);
 
   await prisma.$transaction(async (tx) => {
     await tx.transaction.update({
@@ -659,7 +644,7 @@ export async function returnTransaction(
     );
   }
 
-  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo, transaction.projectId);
+  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo);
 
   await prisma.$transaction(async (tx) => {
     await tx.transaction.update({
@@ -732,7 +717,7 @@ export async function resubmitTransaction(id: number, body?: string) {
     );
   }
 
-  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo, transaction.projectId);
+  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo);
 
   await prisma.$transaction(async (tx) => {
     await tx.transaction.update({
@@ -793,7 +778,7 @@ export async function hideTransaction(id: number) {
     );
   }
 
-  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo, transaction.projectId);
+  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo);
 
   await prisma.$transaction(async (tx) => {
     await tx.transaction.update({
