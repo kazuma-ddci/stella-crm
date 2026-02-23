@@ -167,6 +167,8 @@ const navigation: NavItem[] = [
       { name: "入出金管理", href: "/accounting/bank-transactions", icon: Receipt },
       { name: "消込管理", href: "/accounting/reconciliation", icon: ArrowLeftRight },
       { name: "確認管理", href: "/accounting/verification", icon: CheckSquare },
+      { name: "予実管理", href: "/accounting/budget", icon: TrendingUp },
+      { name: "キャッシュフロー", href: "/accounting/cashflow", icon: TrendingDown },
       { name: "月次締め", href: "/accounting/monthly-close", icon: Lock },
       { name: "取込管理", href: "/accounting/imports", icon: Upload },
       {

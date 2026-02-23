@@ -283,7 +283,7 @@
   - Server Actions: confirmAllocation, getAllocationStatus
   **参照**: 要望書 2.6.4, 2.6.5, 設計書 5.4
 
-- [ ] TASK-023: 予実管理画面
+- [x] TASK-023: 予実管理画面
   **対象**: 設計書 ㉒ Budget
   **ページ**: /accounting/budget
   **作業内容**:
