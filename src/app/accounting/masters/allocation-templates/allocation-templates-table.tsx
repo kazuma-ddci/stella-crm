@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -35,7 +36,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Trash2, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, Copy } from "lucide-react";
 import { toast } from "sonner";
 import {
   createAllocationTemplate,
@@ -71,7 +72,32 @@ type AffectedTransaction = {
 type Props = {
   data: Record<string, unknown>[];
   costCenterOptions: SelectOption[];
+  isAdmin: boolean; // ★ Issue 1: 経理管理者かどうか
 };
+
+// ★ Issue 2: 按分率変更の検出
+function detectRateChanges(oldLines: LineData[], newLines: LineData[]): boolean {
+  if (oldLines.length !== newLines.length) return true;
+
+  const oldRateById = new Map<number, number>();
+  for (const line of oldLines) {
+    if (line.id) oldRateById.set(line.id, line.allocationRate);
+  }
+
+  for (const line of newLines) {
+    if (line.id && oldRateById.has(line.id)) {
+      if (Math.abs(oldRateById.get(line.id)! - line.allocationRate) > 0.001) {
+        return true;
+      }
+      oldRateById.delete(line.id);
+    } else {
+      // 新規行（IDなし）またはIDが一致しない行 → 構造変更
+      return true;
+    }
+  }
+
+  return oldRateById.size > 0;
+}
 
 // 明細行エディタコンポーネント
 function LinesEditor({
@@ -210,7 +236,9 @@ function LinesEditor({
 export function AllocationTemplatesTable({
   data,
   costCenterOptions,
+  isAdmin,
 }: Props) {
+  // 影響確認ダイアログ
   const [impactDialog, setImpactDialog] = useState<{
     open: boolean;
     templateId: number;
@@ -219,6 +247,7 @@ export function AllocationTemplatesTable({
     keepIds: Set<number>;
     pendingData: Record<string, unknown> | null;
     oldLines: LineData[];
+    reason: string; // ★ Issue 3: 維持理由
     promiseHandlers: {
       resolve: () => void;
       reject: (error: Error) => void;
@@ -231,8 +260,26 @@ export function AllocationTemplatesTable({
     keepIds: new Set(),
     pendingData: null,
     oldLines: [],
+    reason: "",
     promiseHandlers: null,
   });
+
+  // ★ Issue 2: 按分率変更ダイアログ
+  const [rateChangeDialog, setRateChangeDialog] = useState<{
+    open: boolean;
+    newName: string;
+    lines: LineData[];
+    promiseHandlers: {
+      resolve: () => void;
+      reject: (error: Error) => void;
+    } | null;
+  }>({
+    open: false,
+    newName: "",
+    lines: [],
+    promiseHandlers: null,
+  });
+
   const [isPending, startTransition] = useTransition();
 
   const columns: ColumnDef[] = [
@@ -326,15 +373,31 @@ export function AllocationTemplatesTable({
       return;
     }
 
+    const newLines = formData.lines as LineData[];
+    const templateData = data.find((d) => d.id === id);
+    const oldLines = (templateData?.lines as LineData[]) ?? [];
+
+    // ★ Issue 2: 按分率変更の検出 → 新テンプレート作成を促す
+    if (detectRateChanges(oldLines, newLines)) {
+      return new Promise<void>((resolve, reject) => {
+        setRateChangeDialog({
+          open: true,
+          newName: `${(templateData?.name as string) ?? ""} (v2)`,
+          lines: newLines,
+          promiseHandlers: { resolve, reject },
+        });
+      });
+    }
+
+    // 以降は明細変更（costCenterId/label のみ）のフロー
     // 影響する取引を確認
     const transactions = await getAffectedTransactions(id);
 
     if (transactions.length === 0) {
       // 取引がない場合はそのまま更新
-      const lines = formData.lines as LineData[];
       const processedData = {
         ...formData,
-        lines: lines.map((l) => ({
+        lines: newLines.map((l) => ({
           costCenterId: l.costCenterId ? Number(l.costCenterId) : null,
           allocationRate: l.allocationRate,
           label: l.label || null,
@@ -347,10 +410,6 @@ export function AllocationTemplatesTable({
     // クローズ月関与チェック
     const hasClosedMonth = await checkClosedMonthInvolvement(id);
 
-    // 元のテンプレートデータを取得
-    const templateData = data.find((d) => d.id === id);
-    const oldLines = (templateData?.lines as LineData[]) ?? [];
-
     return new Promise<void>((resolve, reject) => {
       setImpactDialog({
         open: true,
@@ -360,14 +419,86 @@ export function AllocationTemplatesTable({
         keepIds: new Set(),
         pendingData: formData,
         oldLines,
+        reason: "",
         promiseHandlers: { resolve, reject },
       });
+    });
+  };
+
+  // ★ Issue 2: 按分率変更 → 新テンプレートとして保存
+  const handleCreateAsNewTemplate = () => {
+    if (!rateChangeDialog.promiseHandlers) return;
+    const { resolve, reject } = rateChangeDialog.promiseHandlers;
+
+    startTransition(async () => {
+      try {
+        const processedData = {
+          name: rateChangeDialog.newName.trim(),
+          isActive: true,
+          lines: rateChangeDialog.lines.map((l) => ({
+            costCenterId: l.costCenterId ? Number(l.costCenterId) : null,
+            allocationRate: l.allocationRate,
+            label: l.label || null,
+          })),
+        };
+        await createAllocationTemplate(processedData);
+        toast.success("新テンプレートとして保存しました");
+        setRateChangeDialog({
+          open: false,
+          newName: "",
+          lines: [],
+          promiseHandlers: null,
+        });
+        resolve();
+      } catch (error) {
+        setRateChangeDialog({
+          open: false,
+          newName: "",
+          lines: [],
+          promiseHandlers: null,
+        });
+        reject(
+          error instanceof Error ? error : new Error("保存に失敗しました")
+        );
+      }
+    });
+  };
+
+  const handleCancelRateChange = () => {
+    if (rateChangeDialog.promiseHandlers) {
+      rateChangeDialog.promiseHandlers.reject(new Error("キャンセルされました"));
+    }
+    setRateChangeDialog({
+      open: false,
+      newName: "",
+      lines: [],
+      promiseHandlers: null,
     });
   };
 
   // 影響確認後の適用
   const handleApplyChanges = () => {
     if (!impactDialog.pendingData || !impactDialog.promiseHandlers) return;
+
+    // ★ Issue 1: 非管理者がクローズ月関与時に変更を試みた場合はクライアント側でもブロック
+    if (impactDialog.hasClosedMonth && !isAdmin) {
+      impactDialog.promiseHandlers.reject(
+        new Error("クローズ済みの月に関わるテンプレートの変更は経理管理者権限が必要です")
+      );
+      setImpactDialog({
+        open: false,
+        templateId: 0,
+        transactions: [],
+        hasClosedMonth: false,
+        keepIds: new Set(),
+        pendingData: null,
+        oldLines: [],
+        reason: "",
+        promiseHandlers: null,
+      });
+      return;
+    }
+
     const { resolve, reject } = impactDialog.promiseHandlers;
 
     startTransition(async () => {
@@ -395,7 +526,8 @@ export function AllocationTemplatesTable({
           await createTemplateOverrides(
             impactDialog.templateId,
             keepIds,
-            snapshotRates
+            snapshotRates,
+            impactDialog.reason || undefined // ★ Issue 3: 維持理由
           );
         }
 
@@ -407,6 +539,7 @@ export function AllocationTemplatesTable({
           keepIds: new Set(),
           pendingData: null,
           oldLines: [],
+          reason: "",
           promiseHandlers: null,
         });
         resolve();
@@ -435,6 +568,7 @@ export function AllocationTemplatesTable({
       keepIds: new Set(),
       pendingData: null,
       oldLines: [],
+      reason: "",
       promiseHandlers: null,
     });
   };
@@ -482,6 +616,78 @@ export function AllocationTemplatesTable({
         customFormFields={customFormFields}
       />
 
+      {/* ★ Issue 2: 按分率変更ダイアログ */}
+      <Dialog
+        open={rateChangeDialog.open}
+        onOpenChange={(open) => {
+          if (!open && rateChangeDialog.promiseHandlers && !isPending) {
+            handleCancelRateChange();
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Copy className="h-5 w-5 text-blue-500" />
+              按分率の変更が検出されました
+            </DialogTitle>
+            <DialogDescription>
+              按分率の変更は新テンプレートとして保存する必要があります。旧テンプレートは既存取引で引き続き参照されます。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="newTemplateName">新テンプレート名</Label>
+              <Input
+                id="newTemplateName"
+                value={rateChangeDialog.newName}
+                onChange={(e) =>
+                  setRateChangeDialog((prev) => ({
+                    ...prev,
+                    newName: e.target.value,
+                  }))
+                }
+                placeholder="例: テンプレート名 (v2)"
+              />
+            </div>
+
+            <div className="text-sm text-muted-foreground">
+              <p>変更後の按分明細:</p>
+              <ul className="mt-1 space-y-1">
+                {rateChangeDialog.lines.map((line, i) => {
+                  const costCenterName =
+                    line.costCenterId
+                      ? costCenterOptions.find((o) => o.value === line.costCenterId)?.label ?? "不明"
+                      : "未確定";
+                  return (
+                    <li key={i} className="ml-4 list-disc">
+                      {costCenterName}: {line.allocationRate}%
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={handleCancelRateChange}
+              disabled={isPending}
+            >
+              キャンセル
+            </Button>
+            <Button
+              onClick={handleCreateAsNewTemplate}
+              disabled={isPending || !rateChangeDialog.newName.trim()}
+            >
+              新テンプレートとして保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* 影響確認ダイアログ */}
       <Dialog
         open={impactDialog.open}
@@ -503,10 +709,17 @@ export function AllocationTemplatesTable({
             </DialogDescription>
           </DialogHeader>
 
+          {/* ★ Issue 1: クローズ済み月の警告（非管理者にはブロック表示） */}
           {impactDialog.hasClosedMonth && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 text-sm text-yellow-800">
+            <div className={`border rounded-md p-3 text-sm ${
+              isAdmin
+                ? "bg-yellow-50 border-yellow-200 text-yellow-800"
+                : "bg-red-50 border-red-200 text-red-800"
+            }`}>
               <AlertTriangle className="h-4 w-4 inline mr-1" />
-              クローズ済みの月次に関わる取引が含まれています。この変更には経理管理者権限が必要です。
+              {isAdmin
+                ? "クローズ済みの月次に関わる取引が含まれています。経理管理者権限で変更を適用できます。"
+                : "クローズ済みの月次に関わる取引が含まれています。この変更には経理管理者権限が必要なため、変更を適用できません。"}
             </div>
           )}
 
@@ -561,6 +774,27 @@ export function AllocationTemplatesTable({
             チェックなし = 変更後の按分率を適用、チェックあり = 変更前の按分率を維持
           </div>
 
+          {/* ★ Issue 3: 維持理由入力欄 */}
+          {impactDialog.keepIds.size > 0 && (
+            <div className="space-y-1">
+              <Label htmlFor="overrideReason" className="text-sm">
+                維持理由（任意）
+              </Label>
+              <Textarea
+                id="overrideReason"
+                value={impactDialog.reason}
+                onChange={(e) =>
+                  setImpactDialog((prev) => ({
+                    ...prev,
+                    reason: e.target.value,
+                  }))
+                }
+                placeholder="変更前の按分率を維持する理由を入力..."
+                rows={2}
+              />
+            </div>
+          )}
+
           <DialogFooter>
             <Button
               variant="outline"
@@ -569,7 +803,10 @@ export function AllocationTemplatesTable({
             >
               キャンセル
             </Button>
-            <Button onClick={handleApplyChanges} disabled={isPending}>
+            <Button
+              onClick={handleApplyChanges}
+              disabled={isPending || (impactDialog.hasClosedMonth && !isAdmin)}
+            >
               変更を適用
             </Button>
           </DialogFooter>

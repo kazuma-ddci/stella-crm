@@ -14,6 +14,11 @@ type LineInput = {
   label: string | null;
 };
 
+// ===== Helper: UTC基準で月初を取得 =====
+function getUTCMonthStart(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+}
+
 // ===== 按分テンプレート作成 =====
 export async function createAllocationTemplate(
   data: Record<string, unknown>
@@ -80,6 +85,19 @@ export async function updateAllocationTemplate(
     throw new Error("テンプレートが見つかりません");
   }
 
+  // ★ Issue 1: クローズ済み月関与時の権限チェック（非管理者はテンプレート編集自体不可）
+  const hasClosedMonth = await checkClosedMonthInvolvement(id);
+  if (hasClosedMonth) {
+    const isAdmin = session.permissions.some(
+      (p) => p.permissionLevel === "admin"
+    );
+    if (!isAdmin) {
+      throw new Error(
+        "クローズ済みの月に関わるテンプレートの変更は経理管理者権限が必要です"
+      );
+    }
+  }
+
   const updateData: Record<string, unknown> = {};
 
   if ("name" in data) {
@@ -123,6 +141,7 @@ export async function updateAllocationTemplate(
               allocationRate: new Prisma.Decimal(line.allocationRate),
               label: line.label || null,
               createdBy: staffId,
+              updatedBy: staffId, // ★ Issue 5: updatedBy を設定
             })),
           },
         },
@@ -143,6 +162,26 @@ export async function updateAllocationTemplate(
 export async function deleteAllocationTemplate(id: number) {
   const session = await getSession();
   const staffId = session.id;
+
+  // ★ Issue 4: 使用中チェック
+  const [txCount, recurringTxCount] = await Promise.all([
+    prisma.transaction.count({
+      where: { allocationTemplateId: id, deletedAt: null },
+    }),
+    prisma.recurringTransaction.count({
+      where: { allocationTemplateId: id, deletedAt: null },
+    }),
+  ]);
+
+  const totalCount = txCount + recurringTxCount;
+  if (totalCount > 0) {
+    const parts: string[] = [];
+    if (txCount > 0) parts.push(`取引 ${txCount}件`);
+    if (recurringTxCount > 0) parts.push(`定期取引 ${recurringTxCount}件`);
+    throw new Error(
+      `このテンプレートは${parts.join("、")}で使用されています。使用中のテンプレートは削除できません。無効にする場合は「有効」フラグをオフにしてください。`
+    );
+  }
 
   await prisma.allocationTemplate.update({
     where: { id },
@@ -169,11 +208,10 @@ export async function getAffectedTransactions(templateId: number) {
     orderBy: { periodFrom: "desc" },
   });
 
-  // 取引が属する月次のクローズ状態を取得
+  // ★ Issue 6: UTC基準で月初を計算
   const transactionMonths = new Set<string>();
   for (const t of transactions) {
-    const d = new Date(t.periodFrom);
-    const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+    const monthStart = getUTCMonthStart(new Date(t.periodFrom));
     transactionMonths.add(monthStart.toISOString());
   }
 
@@ -193,8 +231,7 @@ export async function getAffectedTransactions(templateId: number) {
   }
 
   return transactions.map((t) => {
-    const d = new Date(t.periodFrom);
-    const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+    const monthStart = getUTCMonthStart(new Date(t.periodFrom));
     const isClosed = closedMonths.has(monthStart.toISOString());
     return {
       id: t.id,
@@ -211,7 +248,8 @@ export async function getAffectedTransactions(templateId: number) {
 export async function createTemplateOverrides(
   templateId: number,
   keepTransactionIds: number[],
-  snapshotRates: { costCenterId: number | null; rate: number }[]
+  snapshotRates: { costCenterId: number | null; rate: number }[],
+  reason?: string // ★ Issue 3: 維持理由
 ) {
   const session = await getSession();
   const staffId = session.id;
@@ -231,10 +269,12 @@ export async function createTemplateOverrides(
         transactionId: txId,
         allocationTemplateId: templateId,
         snapshotRates: snapshotRates as unknown as Prisma.InputJsonValue,
+        reason: reason || null, // ★ Issue 3
         createdBy: staffId,
       },
       update: {
         snapshotRates: snapshotRates as unknown as Prisma.InputJsonValue,
+        reason: reason || null, // ★ Issue 3
       },
     });
   }
@@ -243,7 +283,9 @@ export async function createTemplateOverrides(
 }
 
 // ===== クローズ月関与チェック =====
-export async function checkClosedMonthInvolvement(templateId: number): Promise<boolean> {
+export async function checkClosedMonthInvolvement(
+  templateId: number
+): Promise<boolean> {
   const transactions = await prisma.transaction.findMany({
     where: {
       allocationTemplateId: templateId,
@@ -254,10 +296,10 @@ export async function checkClosedMonthInvolvement(templateId: number): Promise<b
 
   if (transactions.length === 0) return false;
 
+  // ★ Issue 6: UTC基準で月初を計算
   const monthDates = new Set<string>();
   for (const t of transactions) {
-    const d = new Date(t.periodFrom);
-    const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+    const monthStart = getUTCMonthStart(new Date(t.periodFrom));
     monthDates.add(monthStart.toISOString());
   }
 

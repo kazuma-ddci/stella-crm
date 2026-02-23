@@ -1,9 +1,11 @@
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AllocationTemplatesTable } from "./allocation-templates-table";
 
 export default async function AllocationTemplatesPage() {
-  const [templates, costCenters] = await Promise.all([
+  const [session, templates, costCenters] = await Promise.all([
+    getSession(),
     prisma.allocationTemplate.findMany({
       where: { deletedAt: null },
       orderBy: [{ id: "asc" }],
@@ -22,6 +24,11 @@ export default async function AllocationTemplatesPage() {
       select: { id: true, name: true },
     }),
   ]);
+
+  // ★ Issue 1: 経理管理者判定（admin権限を持つユーザー）
+  const isAdmin = session.permissions.some(
+    (p) => p.permissionLevel === "admin"
+  );
 
   const data = templates.map((t) => ({
     id: t.id,
@@ -56,6 +63,7 @@ export default async function AllocationTemplatesPage() {
           <AllocationTemplatesTable
             data={data}
             costCenterOptions={costCenterOptions}
+            isAdmin={isAdmin}
           />
         </CardContent>
       </Card>
