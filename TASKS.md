@@ -177,7 +177,7 @@
   - Server Actions: createInvoiceTemplate, updateInvoiceTemplate
   **参照**: 要望書 4.2
 
-- [ ] TASK-015: 支払グループ管理画面
+- [x] TASK-015: 支払グループ管理画面
   **対象**: 設計書 ③ PaymentGroup テーブル
   **ページ**: /stp/finance/payment-groups
   **作業内容**:
