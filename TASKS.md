@@ -142,7 +142,7 @@
   - Server Actions: createInvoiceGroup, updateInvoiceGroup, addTransactionToGroup, removeTransactionFromGroup
   **参照**: 要望書 2.3, 設計書 6.8
 
-- [ ] TASK-012: 請求書PDF生成・プレビュー
+- [!] TASK-012: 請求書PDF生成・プレビュー
   **対象**: 設計書 8.1
   **作業内容**:
   - InvoicePdfTemplate コンポーネント（@react-pdf/renderer + Noto Sans JP）
