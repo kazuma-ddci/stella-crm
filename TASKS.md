@@ -78,7 +78,7 @@
 
 ## Phase 2: プロジェクト側コア
 
-- [ ] TASK-007: 取引一覧画面
+- [x] TASK-007: 取引一覧画面
   **対象**: 設計書 ① Transaction テーブル
   **ページ**: /stp/finance/transactions
   **作業内容**:
