@@ -10,7 +10,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw } from "lucide-react";
+import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw, Mail } from "lucide-react";
+import { InvoiceMailModal } from "./invoice-mail-modal";
 import type { InvoiceGroupListItem, UngroupedTransaction } from "./actions";
 import {
   updateInvoiceGroup,
@@ -92,6 +93,9 @@ export function InvoiceGroupDetailModal({
 
   // 訂正モーダル
   const [showCorrectionDialog, setShowCorrectionDialog] = useState(false);
+
+  // メール送付モーダル
+  const [showMailModal, setShowMailModal] = useState(false);
 
   // PDFプレビュー
   const [showPdfPreview, setShowPdfPreview] = useState(false);
@@ -403,10 +407,11 @@ export function InvoiceGroupDetailModal({
                       </Button>
                       <Button
                         size="sm"
-                        onClick={() => handleStatusChange("sent")}
+                        onClick={() => setShowMailModal(true)}
                         disabled={loading}
                       >
-                        送付済みにする
+                        <Mail className="mr-1 h-4 w-4" />
+                        送付
                       </Button>
                     </>
                   )}
@@ -816,6 +821,16 @@ export function InvoiceGroupDetailModal({
             </DialogContent>
           </Dialog>
         )}
+
+        {/* メール送付モーダル */}
+        <InvoiceMailModal
+          open={showMailModal}
+          onClose={() => {
+            setShowMailModal(false);
+            onClose();
+          }}
+          invoiceGroupId={group.id}
+        />
       </DialogContent>
     </Dialog>
   );
