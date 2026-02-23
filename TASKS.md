@@ -205,7 +205,7 @@
   - Server Actions: getDashboardData
   **参照**: 要望書 3.1, 設計書 1.2
 
-- [ ] TASK-017: 仕訳処理画面
+- [x] TASK-017: 仕訳処理画面
   **対象**: 設計書 ⑪ JournalEntry + ⑫ JournalEntryLine
   **ページ**: /accounting/journal
   **作業内容**:
