@@ -21,7 +21,7 @@
   - マイグレーションが正常に通ることを確認
   **参照**: 設計書 2.1〜2.5, 3.1〜3.3
 
-- [!] TASK-002: 勘定科目マスタ管理画面
+- [x] TASK-002: 勘定科目マスタ管理画面
   **対象**: 設計書 ⑬ Account テーブル
   **ページ**: /accounting/masters/accounts
   **作業内容**:
@@ -31,7 +31,7 @@
   - Server Actions: createAccount, updateAccount
   **参照**: 要望書 3.6
 
-- [!] TASK-003: 費目マスタ管理画面
+- [x] TASK-003: 費目マスタ管理画面
   **対象**: 設計書 ⑩ ExpenseCategory テーブル
   **ページ**: /accounting/masters/expense-categories
   **作業内容**:
@@ -42,7 +42,7 @@
   - Server Actions: createExpenseCategory, updateExpenseCategory
   **参照**: 要望書 2.1.2（費目の説明）, 設計書 3.2.5
 
-- [!] TASK-004: 取引先マスタ管理画面
+- [x] TASK-004: 取引先マスタ管理画面
   **対象**: 設計書 ⑯ Counterparty テーブル
   **ページ**: /accounting/masters/counterparties
   **作業内容**:
@@ -53,7 +53,7 @@
   - Server Actions: createCounterparty, updateCounterparty, syncCounterparties
   **参照**: 要望書 2.8, 設計書 5.7
 
-- [!] TASK-005: 決済手段マスタ管理画面
+- [x] TASK-005: 決済手段マスタ管理画面
   **対象**: 設計書 ⑱ PaymentMethod テーブル
   **ページ**: /accounting/masters/payment-methods
   **作業内容**:

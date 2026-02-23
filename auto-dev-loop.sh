@@ -26,8 +26,15 @@ log() {
   echo "$msg" | tee -a "$MAIN_LOG"
 }
 
+# log と同じだが stderr に出力する（run_review/run_implement 内で使用）
+log_stderr() {
+  local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+  echo "$msg" >> "$MAIN_LOG"
+  echo "$msg" >&2
+}
+
 get_next_task() {
-  grep -n '^\- \[ \]' "$TASKS_FILE" | head -1 || echo ""
+  grep -n '^- \[ \]' "$TASKS_FILE" | head -1 || echo ""
 }
 
 mark_task_done() {
@@ -52,7 +59,7 @@ mark_task_failed() {
 get_task_detail() {
   local task_line_num="$1"
   local next_task_line=""
-  next_task_line=$(grep -n '^\- \[' "$TASKS_FILE" | awk -F: -v current="$task_line_num" '$1 > current {print $1; exit}')
+  next_task_line=$(grep -n '^- \[' "$TASKS_FILE" | awk -F: -v current="$task_line_num" '$1 > current {print $1; exit}')
   
   if [ -z "$next_task_line" ]; then
     sed -n "${task_line_num},\$p" "$TASKS_FILE"
@@ -63,13 +70,14 @@ get_task_detail() {
 }
 
 # ============ Claude Code 実装 ============
+# stdoutには何も出さない（呼び出し元で $() キャプチャされないため）
 run_implement() {
   local task_id="$1"
   local task_detail="$2"
   local retry_feedback="$3"
   local step_log="$LOG_DIR/${task_id}_implement_$(date +%H%M%S).md"
   
-  log "🔨 [実装] ${task_id}"
+  log_stderr "🔨 [実装] ${task_id}"
   
   local prompt=""
   
@@ -117,17 +125,19 @@ ${retry_feedback}
 修正を開始してください。"
   fi
   
-  echo "$prompt" | claude --dangerously-skip-permissions 2>&1 | tee "$step_log"
-  log "📝 実装ログ: ${step_log}"
+  echo "$prompt" | claude --dangerously-skip-permissions > "$step_log" 2>&1
+  log_stderr "📝 実装ログ: ${step_log}"
 }
 
 # ============ Claude Code レビュー ============
+# stdoutには "OK" または "NG" の1単語のみ返す
+# レビュー本文・ログは全てファイル/stderrに出す
 run_review() {
   local task_id="$1"
   local task_detail="$2"
   local review_log="$LOG_DIR/${task_id}_review_$(date +%H%M%S).md"
   
-  log "🔍 [レビュー] ${task_id}"
+  log_stderr "🔍 [レビュー] ${task_id}"
 
   local review_prompt="あなたはstella-crmプロジェクトのシニアコードレビュアーです。
 直前のgitコミットの実装内容をレビューしてください。
@@ -179,19 +189,15 @@ ${task_detail}
 
 レビューを開始してください。"
 
-  echo "$review_prompt" | claude --dangerously-skip-permissions 2>&1 | tee "$review_log"
-  log "📝 レビューログ: ${review_log}"
+  # レビュー出力をログファイルにのみ書き出す
+  echo "$review_prompt" | claude --dangerously-skip-permissions > "$review_log" 2>&1
+
+  log_stderr "📝 レビューログ: ${review_log}"
   
-  # verdict を抽出
-  if grep -q '"verdict"' "$review_log" 2>/dev/null; then
-    local verdict=""
-    verdict=$(grep -o '"verdict"[[:space:]]*:[[:space:]]*"[^"]*"' "$review_log" | tail -1 | grep -o '"OK"\|"NG"' | tr -d '"' || echo "NG")
-    if [ -z "$verdict" ]; then
-      verdict="NG"
-    fi
-    echo "$verdict"
+  # verdict を抽出してstdoutに返す（これだけがstdoutに出る唯一の出力）
+  if grep 'verdict' "$review_log" 2>/dev/null | grep -q '"OK"'; then
+    echo "OK"
   else
-    log "⚠️ レビュー結果のJSON解析失敗。NGとして扱います。"
     echo "NG"
   fi
 }
@@ -263,12 +269,14 @@ main() {
       git add -A 2>/dev/null || true
       git commit -m "feat(${task_id}): 実装 (attempt $((retry+1)))" --allow-empty 2>/dev/null || true
       
-      # Step 3: レビュー
+      # Step 3: レビュー（stdoutにはOK/NGのみ返る）
       local verdict=""
       verdict=$(run_review "$task_id" "$task_detail")
       
+      log "📋 レビュー結果: ${verdict}"
+      
       if [ "$verdict" = "OK" ]; then
-        log "✅ レビュー OK！"
+        log "✅ レビュー OK！次のタスクへ"
         mark_task_done "$task_line_num"
         completed=$((completed + 1))
         success=true
