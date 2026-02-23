@@ -568,7 +568,14 @@ export function CrudTable({
       setFormData({});
     } catch (error) {
       const message = error instanceof Error ? error.message : "追加に失敗しました";
-      toast.error(message);
+      // isCancel: 類似名称ダイアログで「既存を選択」等のキャンセル操作
+      if (error instanceof Error && "isCancel" in error) {
+        toast.info(message);
+        setIsAddOpen(false);
+        setFormData({});
+      } else {
+        toast.error(message);
+      }
     } finally {
       setLoading(false);
     }

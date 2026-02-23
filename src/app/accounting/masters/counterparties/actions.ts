@@ -32,6 +32,7 @@ export async function checkSimilarCounterparties(name: string) {
   const normalizedInput = normalizeCounterpartyName(trimmed);
 
   // 全取引先を取得して正規化比較（DBレベルの正規化が難しいため）
+  // TODO: 取引先が数千件を超えた場合はnormalized_nameカラム追加でDB側検索に移行
   const allCounterparties = await prisma.counterparty.findMany({
     where: {
       deletedAt: null,
@@ -44,6 +45,7 @@ export async function checkSimilarCounterparties(name: string) {
       isActive: true,
       company: { select: { id: true, name: true } },
     },
+    take: 5000,
   });
 
   const candidates = allCounterparties.filter((cp) => {

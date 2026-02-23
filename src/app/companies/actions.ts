@@ -125,7 +125,7 @@ export async function updateCompany(id: number, data: Record<string, unknown>) {
   });
 
   // 設計書8.6: 名称変更時、紐づくCounterpartyの名称も同期更新
-  if ("name" in data) {
+  if ("name" in data && data.name) {
     try {
       const session = await getSession();
       await prisma.counterparty.updateMany({

@@ -161,7 +161,9 @@ export function CounterpartiesTable({ data, companyOptions }: Props) {
     if (!similarDialog.promiseHandlers) return;
     const { reject } = similarDialog.promiseHandlers;
     setSimilarDialog({ open: false, candidates: [], pendingData: null, promiseHandlers: null });
-    reject(new Error(`既存の取引先「${candidate.name}」を選択しました`));
+    const error = new Error(`新規作成をキャンセルしました（既存: ${candidate.name}）`);
+    (error as Error & { isCancel: boolean }).isCancel = true;
+    reject(error);
   };
 
   // キャンセル（ダイアログを閉じてフォームに戻る）
