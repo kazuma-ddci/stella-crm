@@ -229,7 +229,7 @@
   - Server Actions: createAutoJournalRule, updateAutoJournalRule, executeAutoJournal
   **参照**: 要望書 3.2.3, 3.2.4, 設計書 5.5, 5.6
 
-- [ ] TASK-019: 入出金管理画面
+- [x] TASK-019: 入出金管理画面
   **対象**: 設計書 ⑭ BankTransaction
   **ページ**: /accounting/bank-transactions
   **作業内容**:
