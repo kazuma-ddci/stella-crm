@@ -14,6 +14,11 @@ export async function addOperatingCompany(data: Record<string, unknown>) {
       address: (data.address as string) || null,
       representativeName: (data.representativeName as string) || null,
       phone: (data.phone as string) || null,
+      abbreviation: (data.abbreviation as string) || null,
+      invoicePrefix: (data.invoicePrefix as string) || null,
+      defaultPaymentTermDays: data.defaultPaymentTermDays
+        ? Number(data.defaultPaymentTermDays)
+        : null,
     },
   });
   revalidatePath("/settings/operating-companies");
@@ -32,6 +37,12 @@ export async function updateOperatingCompany(
   if ("address" in data) updateData.address = (data.address as string) || null;
   if ("representativeName" in data) updateData.representativeName = (data.representativeName as string) || null;
   if ("phone" in data) updateData.phone = (data.phone as string) || null;
+  if ("abbreviation" in data) updateData.abbreviation = (data.abbreviation as string) || null;
+  if ("invoicePrefix" in data) updateData.invoicePrefix = (data.invoicePrefix as string) || null;
+  if ("defaultPaymentTermDays" in data) updateData.defaultPaymentTermDays = data.defaultPaymentTermDays
+    ? Number(data.defaultPaymentTermDays)
+    : null;
+  if ("logoPath" in data) updateData.logoPath = (data.logoPath as string) || null;
 
   if (Object.keys(updateData).length > 0) {
     await prisma.operatingCompany.update({

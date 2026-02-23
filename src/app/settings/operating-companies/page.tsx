@@ -16,6 +16,10 @@ export default async function OperatingCompaniesPage() {
         where: { deletedAt: null },
         orderBy: { id: "asc" },
       },
+      emails: {
+        where: { deletedAt: null },
+        orderBy: { id: "asc" },
+      },
     },
   });
 
@@ -27,6 +31,10 @@ export default async function OperatingCompaniesPage() {
     address: c.address,
     representativeName: c.representativeName,
     phone: c.phone,
+    abbreviation: c.abbreviation,
+    invoicePrefix: c.invoicePrefix,
+    defaultPaymentTermDays: c.defaultPaymentTermDays,
+    logoPath: c.logoPath,
     bankAccounts: c.bankAccounts.map((b) => ({
       id: b.id,
       operatingCompanyId: b.operatingCompanyId,
@@ -37,6 +45,17 @@ export default async function OperatingCompaniesPage() {
       accountNumber: b.accountNumber,
       accountHolderName: b.accountHolderName,
       note: b.note,
+    })),
+    emails: c.emails.map((e) => ({
+      id: e.id,
+      operatingCompanyId: e.operatingCompanyId,
+      email: e.email,
+      label: e.label,
+      smtpHost: e.smtpHost,
+      smtpPort: e.smtpPort,
+      smtpUser: e.smtpUser,
+      smtpPass: e.smtpPass,
+      isDefault: e.isDefault,
     })),
   }));
 

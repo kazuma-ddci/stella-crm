@@ -343,7 +343,7 @@
   - Server Actions: recordChangeLog, getChangeLogs
   **参照**: 要望書 6, 設計書 8.4
 
-- [ ] TASK-028: 月次クローズ機能
+- [x] TASK-028: 月次クローズ機能
   **対象**: 設計書 ㉓ MonthlyCloseLog
   **ページ**: /accounting/monthly-close + /stp/finance/monthly-close
   **作業内容**:
