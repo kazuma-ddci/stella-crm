@@ -172,10 +172,12 @@ export function GenerateCandidatesClient() {
     try {
       const res = await generateTransactions(selected);
       setResult(res);
-      // 生成済みにマーク
+      // 生成済みにマーク & ソースデータ変更フラグをリセット
       setCandidates((prev) =>
         prev.map((c) =>
-          selectedKeys.has(c.key) ? { ...c, alreadyGenerated: true } : c
+          selectedKeys.has(c.key)
+            ? { ...c, alreadyGenerated: true, sourceDataChanged: false }
+            : c
         )
       );
       setSelectedKeys(new Set());

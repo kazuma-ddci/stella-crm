@@ -1152,6 +1152,8 @@ export async function generateTransactions(
   const session = await getSession();
   const staffId = session.id;
 
+  const UPDATABLE_STATUSES = ["unconfirmed", "confirmed"];
+
   let created = 0;
   let skipped = 0;
   let updated = 0;
@@ -1163,6 +1165,16 @@ export async function generateTransactions(
       candidate.sourceDataChanged &&
       candidate.existingTransactionId
     ) {
+      // ステータスチェック: 仕訳済み以降は更新不可
+      const existing = await prisma.transaction.findUnique({
+        where: { id: candidate.existingTransactionId },
+        select: { status: true },
+      });
+      if (!existing || !UPDATABLE_STATUSES.includes(existing.status)) {
+        skipped++;
+        continue;
+      }
+
       const amount = candidate.amount ?? 0;
       const taxAmount = candidate.taxAmount ?? 0;
       await prisma.transaction.update({
@@ -1170,6 +1182,12 @@ export async function generateTransactions(
         data: {
           amount,
           taxAmount,
+          ...(candidate.isWithholdingTarget
+            ? {
+                withholdingTaxAmount: candidate.withholdingTaxAmount,
+                netPaymentAmount: candidate.netPaymentAmount,
+              }
+            : {}),
           sourceDataChangedAt: new Date(),
           latestCalculatedAmount: amount,
           updatedBy: staffId,
