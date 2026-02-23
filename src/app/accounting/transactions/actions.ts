@@ -284,6 +284,17 @@ export async function updateTransaction(
     throw new Error("取引が見つかりません");
   }
 
+  // 編集可能なステータスのみ許可
+  const editableStatuses = ["unconfirmed", "returned"];
+  if (!editableStatuses.includes(existing.status)) {
+    throw new Error(
+      `ステータス「${existing.status}」の取引は編集できません（未確認または差し戻し状態の取引のみ編集可能です）`
+    );
+  }
+
+  // 月次クローズチェック
+  await checkMonthlyClose(existing.periodFrom, existing.periodTo, existing.projectId);
+
   const validated = validateTransactionData(data);
 
   const contractId = data.contractId ? Number(data.contractId) : null;
@@ -438,6 +449,316 @@ export async function getTransactionById(id: number) {
 
 // ============================================
 // 4. getTransactionFormData
+// ============================================
+
+// ============================================
+// ステータス遷移定義
+// ============================================
+
+const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
+  unconfirmed: ["confirmed"],
+  confirmed: ["awaiting_accounting", "returned"],
+  awaiting_accounting: ["journalized", "returned"],
+  returned: ["resubmitted"],
+  resubmitted: ["awaiting_accounting"],
+  journalized: ["partially_paid", "paid"],
+  partially_paid: ["paid"],
+  paid: ["hidden"],
+};
+
+// ============================================
+// 月次クローズチェック
+// ============================================
+
+async function checkMonthlyClose(periodFrom: Date, periodTo: Date, projectId: number | null) {
+  if (!projectId) return;
+
+  // periodFrom〜periodToに含まれる全ての月を対象にチェック
+  const startMonth = new Date(periodFrom.getFullYear(), periodFrom.getMonth(), 1);
+  const endMonth = new Date(periodTo.getFullYear(), periodTo.getMonth(), 1);
+
+  const closeRecords = await prisma.accountingMonthlyClose.findMany({
+    where: {
+      projectId,
+      targetMonth: {
+        gte: startMonth,
+        lte: endMonth,
+      },
+      status: { in: ["project_closed", "accounting_closed"] },
+    },
+    select: { targetMonth: true, status: true },
+  });
+
+  if (closeRecords.length > 0) {
+    const closedMonths = closeRecords.map((r) => {
+      const y = r.targetMonth.getFullYear();
+      const m = String(r.targetMonth.getMonth() + 1).padStart(2, "0");
+      return `${y}-${m}`;
+    });
+    throw new Error(
+      `月次クローズ済みの月（${closedMonths.join(", ")}）が含まれているため、編集できません`
+    );
+  }
+}
+
+// ============================================
+// 5. confirmTransaction（未確認→確認済み）
+// ============================================
+
+export async function confirmTransaction(id: number) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const transaction = await prisma.transaction.findFirst({
+    where: { id, deletedAt: null },
+    select: { id: true, status: true, periodFrom: true, periodTo: true, projectId: true },
+  });
+  if (!transaction) {
+    throw new Error("取引が見つかりません");
+  }
+
+  if (transaction.status !== "unconfirmed") {
+    throw new Error(
+      `ステータス「${transaction.status}」の取引は確認できません（未確認の取引のみ確認可能です）`
+    );
+  }
+
+  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo, transaction.projectId);
+
+  await prisma.transaction.update({
+    where: { id },
+    data: {
+      status: "confirmed",
+      confirmedBy: staffId,
+      confirmedAt: new Date(),
+      updatedBy: staffId,
+    },
+  });
+
+  revalidatePath("/accounting/transactions");
+}
+
+// ============================================
+// 6. returnTransaction（確認済み/経理処理待ち→差し戻し）
+// ============================================
+
+export async function returnTransaction(
+  id: number,
+  data: { body: string; returnReasonType: string }
+) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const VALID_RETURN_REASONS = [
+    "question",
+    "correction_request",
+    "approval_check",
+    "other",
+  ] as const;
+
+  if (!data.body?.trim()) {
+    throw new Error("差し戻しコメントは必須です");
+  }
+  if (
+    !data.returnReasonType ||
+    !(VALID_RETURN_REASONS as readonly string[]).includes(data.returnReasonType)
+  ) {
+    throw new Error("差し戻し理由の種別を選択してください");
+  }
+
+  const transaction = await prisma.transaction.findFirst({
+    where: { id, deletedAt: null },
+    select: { id: true, status: true, periodFrom: true, periodTo: true, projectId: true },
+  });
+  if (!transaction) {
+    throw new Error("取引が見つかりません");
+  }
+
+  const allowedFrom = VALID_STATUS_TRANSITIONS[transaction.status] ?? [];
+  if (!allowedFrom.includes("returned")) {
+    throw new Error(
+      `ステータス「${transaction.status}」の取引は差し戻しできません`
+    );
+  }
+
+  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo, transaction.projectId);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.transaction.update({
+      where: { id },
+      data: {
+        status: "returned",
+        updatedBy: staffId,
+      },
+    });
+
+    await tx.transactionComment.create({
+      data: {
+        transactionId: id,
+        body: data.body.trim(),
+        commentType: "return",
+        returnReasonType: data.returnReasonType,
+        createdBy: staffId,
+      },
+    });
+  });
+
+  revalidatePath("/accounting/transactions");
+}
+
+// ============================================
+// 7. resubmitTransaction（差し戻し→再提出）
+// ============================================
+
+export async function resubmitTransaction(id: number, body?: string) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const transaction = await prisma.transaction.findFirst({
+    where: { id, deletedAt: null },
+    select: { id: true, status: true, periodFrom: true, periodTo: true, projectId: true },
+  });
+  if (!transaction) {
+    throw new Error("取引が見つかりません");
+  }
+
+  if (transaction.status !== "returned") {
+    throw new Error(
+      `ステータス「${transaction.status}」の取引は再提出できません（差し戻し状態の取引のみ再提出可能です）`
+    );
+  }
+
+  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo, transaction.projectId);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.transaction.update({
+      where: { id },
+      data: {
+        status: "resubmitted",
+        updatedBy: staffId,
+      },
+    });
+
+    if (body?.trim()) {
+      await tx.transactionComment.create({
+        data: {
+          transactionId: id,
+          body: body.trim(),
+          commentType: "normal",
+          createdBy: staffId,
+        },
+      });
+    }
+  });
+
+  revalidatePath("/accounting/transactions");
+}
+
+// ============================================
+// 8. hideTransaction（非表示 / 論理削除）
+// ============================================
+
+export async function hideTransaction(id: number) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const transaction = await prisma.transaction.findFirst({
+    where: { id, deletedAt: null },
+    select: { id: true, status: true, periodFrom: true, periodTo: true, projectId: true },
+  });
+  if (!transaction) {
+    throw new Error("取引が見つかりません");
+  }
+
+  if (transaction.status !== "paid") {
+    throw new Error(
+      `ステータス「${transaction.status}」の取引は非表示にできません（入金完了/支払完了の取引のみ非表示可能です）`
+    );
+  }
+
+  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo, transaction.projectId);
+
+  await prisma.transaction.update({
+    where: { id },
+    data: {
+      status: "hidden",
+      deletedAt: new Date(),
+      updatedBy: staffId,
+    },
+  });
+
+  revalidatePath("/accounting/transactions");
+}
+
+// ============================================
+// 9. getTransactions（一覧取得）
+// ============================================
+
+export async function getTransactions(filters?: {
+  projectId?: number;
+  type?: string;
+  status?: string;
+  counterpartyId?: number;
+}) {
+  const where: Record<string, unknown> = {
+    deletedAt: null,
+    status: { not: "hidden" },
+  };
+
+  if (filters?.projectId) {
+    where.projectId = filters.projectId;
+  }
+  if (filters?.type) {
+    where.type = filters.type;
+  }
+  if (filters?.status) {
+    where.status = filters.status;
+  }
+  if (filters?.counterpartyId) {
+    where.counterpartyId = filters.counterpartyId;
+  }
+
+  return prisma.transaction.findMany({
+    where,
+    include: {
+      counterparty: { select: { id: true, name: true } },
+      expenseCategory: { select: { id: true, name: true } },
+      costCenter: { select: { id: true, name: true } },
+      project: { select: { id: true, name: true, code: true } },
+      confirmer: { select: { id: true, name: true } },
+    },
+    orderBy: [{ periodFrom: "desc" }, { id: "desc" }],
+  });
+}
+
+// ============================================
+// 10. isMonthClosed（月次クローズ状態チェック）
+// ============================================
+
+export async function isMonthClosed(
+  targetMonth: Date,
+  projectId: number
+): Promise<boolean> {
+  const monthStart = new Date(
+    targetMonth.getFullYear(),
+    targetMonth.getMonth(),
+    1
+  );
+
+  const record = await prisma.accountingMonthlyClose.findFirst({
+    where: {
+      projectId,
+      targetMonth: monthStart,
+      status: { in: ["project_closed", "accounting_closed"] },
+    },
+    select: { id: true },
+  });
+
+  return !!record;
+}
+
+// ============================================
+// 11. getTransactionFormData
 // ============================================
 
 export async function getTransactionFormData(): Promise<TransactionFormData> {

@@ -1,6 +1,10 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { TransactionsTable } from "./transactions-table";
+import { getTransactions } from "./actions";
 
 const reconciliationStatusLabel: Record<string, string> = {
   unmatched: "未消込",
@@ -17,22 +21,41 @@ const reconciliationStatusColor: Record<string, string> = {
 };
 
 export default async function AccountingTransactionsPage() {
-  const transactions = await prisma.accountingTransaction.findMany({
-    orderBy: { transactionDate: "desc" },
-    take: 100,
-    include: { importBatch: true, project: true },
-  });
+  const [businessTransactions, accountingTransactions] = await Promise.all([
+    getTransactions(),
+    prisma.accountingTransaction.findMany({
+      orderBy: { transactionDate: "desc" },
+      take: 100,
+      include: { importBatch: true, project: true },
+    }),
+  ]);
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold">会計取引一覧</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">取引管理</h1>
+        <Button asChild>
+          <Link href="/accounting/transactions/new">新規取引</Link>
+        </Button>
+      </div>
 
+      {/* 取引一覧（Transaction モデル） */}
       <Card>
         <CardHeader>
-          <CardTitle>取引データ</CardTitle>
+          <CardTitle>取引一覧</CardTitle>
         </CardHeader>
         <CardContent>
-          {transactions.length === 0 ? (
+          <TransactionsTable transactions={businessTransactions} />
+        </CardContent>
+      </Card>
+
+      {/* 会計取引データ（AccountingTransaction モデル） */}
+      <Card>
+        <CardHeader>
+          <CardTitle>入出金データ（インポート済み）</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {accountingTransactions.length === 0 ? (
             <p className="text-muted-foreground text-center py-8">
               取引データがありません
             </p>
@@ -53,7 +76,7 @@ export default async function AccountingTransactionsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map((tx) => (
+                  {accountingTransactions.map((tx) => (
                     <tr key={tx.id} className="border-b hover:bg-muted/50">
                       <td className="px-3 py-2 whitespace-nowrap">
                         {new Date(tx.transactionDate).toLocaleDateString(
