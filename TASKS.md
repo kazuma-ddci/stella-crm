@@ -240,7 +240,7 @@
   - Server Actions: createBankTransaction, updateBankTransaction
   **参照**: 要望書 3.3
 
-- [ ] TASK-020: 消込処理画面
+- [x] TASK-020: 消込処理画面
   **対象**: 設計書 ⑮ Reconciliation + 設計書 5.3
   **ページ**: /accounting/reconciliation
   **作業内容**:
