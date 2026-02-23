@@ -43,6 +43,7 @@ export function GenerateCandidatesClient() {
   const [result, setResult] = useState<{
     created: number;
     skipped: number;
+    updated: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,9 +86,11 @@ export function GenerateCandidatesClient() {
     try {
       const result = await detectTransactionCandidates(targetMonth);
       setCandidates(result);
-      // 新規（未生成）の候補を全て選択状態にする
+      // 新規（未生成）+ ソースデータ変更ありの候補を全て選択状態にする
       const newKeys = new Set(
-        result.filter((c) => !c.alreadyGenerated).map((c) => c.key)
+        result
+          .filter((c) => !c.alreadyGenerated || c.sourceDataChanged)
+          .map((c) => c.key)
       );
       setSelectedKeys(newKeys);
       setDetected(true);
@@ -113,7 +116,7 @@ export function GenerateCandidatesClient() {
 
   const toggleSelectAll = () => {
     const selectableCandidates = filteredCandidates.filter(
-      (c) => !c.alreadyGenerated
+      (c) => !c.alreadyGenerated || c.sourceDataChanged
     );
     const allSelected = selectableCandidates.every((c) =>
       selectedKeys.has(c.key)
@@ -139,7 +142,9 @@ export function GenerateCandidatesClient() {
     if (selectedKeys.size === 0) return;
 
     const selected = candidates.filter(
-      (c) => selectedKeys.has(c.key) && !c.alreadyGenerated
+      (c) =>
+        selectedKeys.has(c.key) &&
+        (!c.alreadyGenerated || c.sourceDataChanged)
     );
 
     if (selected.length === 0) {
@@ -147,11 +152,16 @@ export function GenerateCandidatesClient() {
       return;
     }
 
-    if (
-      !confirm(
-        `${selected.length}件の取引レコードを生成します。よろしいですか？`
-      )
-    ) {
+    const newCount = selected.filter((c) => !c.alreadyGenerated).length;
+    const updateCount = selected.filter(
+      (c) => c.alreadyGenerated && c.sourceDataChanged
+    ).length;
+    const confirmMsg =
+      updateCount > 0
+        ? `${newCount}件の新規生成、${updateCount}件の金額更新を行います。よろしいですか？`
+        : `${selected.length}件の取引レコードを生成します。よろしいですか？`;
+
+    if (!confirm(confirmMsg)) {
       return;
     }
 
@@ -183,7 +193,7 @@ export function GenerateCandidatesClient() {
   };
 
   const selectableCandidates = filteredCandidates.filter(
-    (c) => !c.alreadyGenerated
+    (c) => !c.alreadyGenerated || c.sourceDataChanged
   );
   const allSelectableSelected =
     selectableCandidates.length > 0 &&
@@ -218,6 +228,7 @@ export function GenerateCandidatesClient() {
       {result && (
         <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-700">
           {result.created}件の取引レコードを生成しました
+          {result.updated > 0 && `（${result.updated}件を更新）`}
           {result.skipped > 0 && `（${result.skipped}件はスキップ）`}
         </div>
       )}
@@ -331,16 +342,21 @@ export function GenerateCandidatesClient() {
                     <TableRow
                       key={candidate.key}
                       className={
-                        candidate.alreadyGenerated
+                        candidate.alreadyGenerated && !candidate.sourceDataChanged
                           ? "opacity-50 bg-gray-50"
-                          : ""
+                          : candidate.sourceDataChanged
+                            ? "bg-amber-50/50"
+                            : ""
                       }
                     >
                       <TableCell>
                         <Checkbox
                           checked={selectedKeys.has(candidate.key)}
                           onCheckedChange={() => toggleSelect(candidate.key)}
-                          disabled={candidate.alreadyGenerated}
+                          disabled={
+                            candidate.alreadyGenerated &&
+                            !candidate.sourceDataChanged
+                          }
                         />
                       </TableCell>
                       <TableCell>
@@ -373,7 +389,18 @@ export function GenerateCandidatesClient() {
                         {candidate.expenseCategoryName}
                       </TableCell>
                       <TableCell className="text-right whitespace-nowrap">
-                        {formatAmount(candidate.amount)}
+                        {candidate.sourceDataChanged ? (
+                          <div className="flex flex-col items-end">
+                            <span className="text-xs text-muted-foreground line-through">
+                              {formatAmount(candidate.previousAmount)}
+                            </span>
+                            <span className="text-amber-700 font-medium">
+                              {formatAmount(candidate.amount)}
+                            </span>
+                          </div>
+                        ) : (
+                          formatAmount(candidate.amount)
+                        )}
                       </TableCell>
                       <TableCell className="text-right whitespace-nowrap">
                         {candidate.taxAmount !== null
@@ -394,19 +421,19 @@ export function GenerateCandidatesClient() {
                         {candidate.note}
                       </TableCell>
                       <TableCell>
-                        {candidate.alreadyGenerated ? (
-                          <Badge
-                            variant="outline"
-                            className="text-gray-500 border-gray-300"
-                          >
-                            生成済み
-                          </Badge>
-                        ) : candidate.sourceDataChanged ? (
+                        {candidate.sourceDataChanged ? (
                           <Badge
                             variant="outline"
                             className="text-amber-600 border-amber-400 bg-amber-50"
                           >
                             変更あり
+                          </Badge>
+                        ) : candidate.alreadyGenerated ? (
+                          <Badge
+                            variant="outline"
+                            className="text-gray-500 border-gray-300"
+                          >
+                            生成済み
                           </Badge>
                         ) : (
                           <Badge

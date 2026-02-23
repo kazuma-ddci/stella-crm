@@ -53,12 +53,16 @@ export type TransactionCandidate = {
   withholdingTaxRate: number | null;
   withholdingTaxAmount: number | null;
   netPaymentAmount: number | null;
+  /** プロジェクト */
+  projectId: number | null;
   /** ソースデータ変更アラート */
   sourceDataChanged: boolean;
   previousAmount: number | null;
   latestCalculatedAmount: number | null;
   /** 既に同月に取引レコードが存在するか */
   alreadyGenerated: boolean;
+  /** 既存TransactionのID（変更検出時の更新用） */
+  existingTransactionId: number | null;
 };
 
 // ============================================
@@ -245,7 +249,7 @@ async function detectCrmCandidates(
     },
   });
 
-  // 既存のTransactionレコードを取得（重複チェック用）
+  // 既存のTransactionレコードを取得（重複チェック + ソースデータ変更検出用）
   const existingTransactions = await prisma.transaction.findMany({
     where: {
       deletedAt: null,
@@ -269,7 +273,10 @@ async function detectCrmCandidates(
     counterparties.map((c) => [c.companyId, c])
   );
 
-  // STPプロジェクトのCostCenter
+  // STPプロジェクト & CostCenter
+  const stpProject = await prisma.masterProject.findFirst({
+    where: { code: "stp" },
+  });
   const stpCostCenter = await prisma.costCenter.findFirst({
     where: {
       project: { code: "stp" },
@@ -277,6 +284,7 @@ async function detectCrmCandidates(
       isActive: true,
     },
   });
+  const stpProjectId = stpProject?.id ?? null;
 
   // 費目マスタ（売上用・経費用）
   const expenseCategories = await prisma.expenseCategory.findMany({
@@ -302,6 +310,103 @@ async function detectCrmCandidates(
     (c) => c.type === "expense" || c.type === "both"
   );
 
+  // --- minor-1: N+1クエリ解消のための一括取得 ---
+
+  // StpCompany（companyId → StpCompany）
+  const stpCompanies = await prisma.stpCompany.findMany({
+    where: { companyId: { in: companyIds } },
+  });
+  const stpCompanyByCompanyId = new Map(
+    stpCompanies.map((s) => [s.companyId, s])
+  );
+
+  // 代理店IDの収集
+  const agentIds = [
+    ...new Set(
+      stpCompanies.filter((s) => s.agentId != null).map((s) => s.agentId!)
+    ),
+  ];
+
+  // AgentContractHistory（全代理店分を一括取得）
+  const allAgentContractHistories =
+    agentIds.length > 0
+      ? await prisma.stpAgentContractHistory.findMany({
+          where: {
+            agentId: { in: agentIds },
+            deletedAt: null,
+          },
+          orderBy: { contractStartDate: "desc" },
+          include: { agent: { include: { company: true } } },
+        })
+      : [];
+
+  // 代理店の取引先を一括取得（メインのcounterpartyByCompanyIdに未登録のもの）
+  const agentCompanyIds = [
+    ...new Set(
+      allAgentContractHistories
+        .map((h) => h.agent.companyId)
+        .filter((id): id is number => id != null)
+    ),
+  ];
+  const missingAgentCompanyIds = agentCompanyIds.filter(
+    (id) => !counterpartyByCompanyId.has(id)
+  );
+  if (missingAgentCompanyIds.length > 0) {
+    const agentCounterparties = await prisma.counterparty.findMany({
+      where: {
+        companyId: { in: missingAgentCompanyIds },
+        deletedAt: null,
+      },
+    });
+    for (const cp of agentCounterparties) {
+      if (cp.companyId != null && !counterpartyByCompanyId.has(cp.companyId)) {
+        counterpartyByCompanyId.set(cp.companyId, cp);
+      }
+    }
+  }
+
+  // CommissionOverride（全組み合わせを一括取得）
+  const agentContractHistoryIds = allAgentContractHistories.map((h) => h.id);
+  const stpCompanyIds = stpCompanies.map((s) => s.id);
+  const allCommissionOverrides =
+    agentContractHistoryIds.length > 0 && stpCompanyIds.length > 0
+      ? await prisma.stpAgentCommissionOverride.findMany({
+          where: {
+            agentContractHistoryId: { in: agentContractHistoryIds },
+            stpCompanyId: { in: stpCompanyIds },
+          },
+        })
+      : [];
+  const overrideMap = new Map(
+    allCommissionOverrides.map((o) => [
+      `${o.agentContractHistoryId}-${o.stpCompanyId}`,
+      o,
+    ])
+  );
+
+  // ソースデータ変更検出用ヘルパー
+  const detectSourceChange = (
+    existing: (typeof existingTransactions)[number] | undefined,
+    currentAmount: number
+  ) => {
+    if (existing && existing.amount !== currentAmount) {
+      return {
+        sourceDataChanged: true,
+        previousAmount: existing.amount,
+        latestCalculatedAmount: currentAmount,
+        existingTransactionId: existing.id,
+      };
+    }
+    return {
+      sourceDataChanged: false,
+      previousAmount: null as number | null,
+      latestCalculatedAmount: null as number | null,
+      existingTransactionId: existing?.id ?? null,
+    };
+  };
+
+  // --- メインループ ---
+
   for (const contract of activeContracts) {
     const counterparty = counterpartyByCompanyId.get(contract.companyId);
     if (!counterparty) continue;
@@ -324,6 +429,7 @@ async function detectCrmCandidates(
             t.stpRevenueType === "initial" &&
             t.type === "revenue"
         );
+        const changeInfo = detectSourceChange(existing, contract.initialFee);
 
         candidates.push({
           key,
@@ -357,9 +463,8 @@ async function detectCrmCandidates(
           withholdingTaxRate: null,
           withholdingTaxAmount: null,
           netPaymentAmount: null,
-          sourceDataChanged: false,
-          previousAmount: null,
-          latestCalculatedAmount: null,
+          projectId: stpProjectId,
+          ...changeInfo,
           alreadyGenerated: !!existing,
         });
       }
@@ -376,6 +481,7 @@ async function detectCrmCandidates(
             t.stpRevenueType === "monthly" &&
             t.type === "revenue"
         );
+        const changeInfo = detectSourceChange(existing, contract.monthlyFee);
 
         candidates.push({
           key,
@@ -409,55 +515,41 @@ async function detectCrmCandidates(
           withholdingTaxRate: null,
           withholdingTaxAmount: null,
           netPaymentAmount: null,
-          sourceDataChanged: false,
-          previousAmount: null,
-          latestCalculatedAmount: null,
+          projectId: stpProjectId,
+          ...changeInfo,
           alreadyGenerated: !!existing,
         });
       }
     }
 
     // === 経費: 代理店報酬 ===
-    const stpCompany = await prisma.stpCompany.findFirst({
-      where: { companyId: contract.companyId },
-    });
+    const stpCompany = stpCompanyByCompanyId.get(contract.companyId);
 
     if (stpCompany?.agentId) {
-      const agentContractHistory = await prisma.stpAgentContractHistory.findFirst({
-        where: {
-          agentId: stpCompany.agentId,
-          contractStartDate: { lte: contract.contractStartDate },
-          OR: [
-            { contractEndDate: null },
-            { contractEndDate: { gte: contract.contractStartDate } },
-          ],
-          deletedAt: null,
-        },
-        orderBy: { contractStartDate: "desc" },
-        include: { agent: { include: { company: true } } },
-      });
+      // 契約開始日時点でアクティブな代理店契約を検索（一括取得済みデータから）
+      const agentContractHistory = allAgentContractHistories.find(
+        (h) =>
+          h.agentId === stpCompany.agentId &&
+          h.contractStartDate <= contract.contractStartDate &&
+          (h.contractEndDate == null ||
+            h.contractEndDate >= contract.contractStartDate)
+      );
 
       if (agentContractHistory) {
         const agent = agentContractHistory.agent;
         const agentCounterparty = agent.companyId
-          ? counterparties.find((c) => c.companyId === agent.companyId) ??
-            (await prisma.counterparty.findFirst({
-              where: { companyId: agent.companyId, deletedAt: null },
-            }))
+          ? counterpartyByCompanyId.get(agent.companyId) ?? null
           : null;
 
-        // 代理店取引先が無い場合は名前で作成/検索
         const agentCpId = agentCounterparty?.id;
         const agentCpName = agentCounterparty?.name ?? agent.company?.name ?? "不明な代理店";
         const expCategory = expenseCategoryOutsourcing ?? defaultExpenseCategory;
 
         if (expCategory && agentCpId) {
-          const override = await prisma.stpAgentCommissionOverride.findFirst({
-            where: {
-              agentContractHistoryId: agentContractHistory.id,
-              stpCompanyId: stpCompany.id,
-            },
-          });
+          const override =
+            overrideMap.get(
+              `${agentContractHistory.id}-${stpCompany.id}`
+            ) ?? null;
 
           const commissionConfig = buildCommissionConfig(
             contract.contractPlan,
@@ -497,6 +589,7 @@ async function detectCrmCandidates(
                 t.stpExpenseType === "agent_initial" &&
                 t.type === "expense"
             );
+            const changeInfo = detectSourceChange(existing, amt);
 
             candidates.push({
               key,
@@ -527,9 +620,8 @@ async function detectCrmCandidates(
               allocationTemplateName: null,
               paymentMethodId: null,
               ...buildWh(amt),
-              sourceDataChanged: false,
-              previousAmount: null,
-              latestCalculatedAmount: null,
+              projectId: stpProjectId,
+              ...changeInfo,
               alreadyGenerated: !!existing,
             });
           }
@@ -544,6 +636,7 @@ async function detectCrmCandidates(
                 t.stpExpenseType === "agent_monthly" &&
                 t.type === "expense"
             );
+            const changeInfo = detectSourceChange(existing, amt);
 
             candidates.push({
               key,
@@ -574,9 +667,8 @@ async function detectCrmCandidates(
               allocationTemplateName: null,
               paymentMethodId: null,
               ...buildWh(amt),
-              sourceDataChanged: false,
-              previousAmount: null,
-              latestCalculatedAmount: null,
+              projectId: stpProjectId,
+              ...changeInfo,
               alreadyGenerated: !!existing,
             });
           }
@@ -596,6 +688,7 @@ async function detectCrmCandidates(
                   t.stpExpenseType === "commission_initial" &&
                   t.type === "expense"
               );
+              const changeInfo = detectSourceChange(existing, amt);
 
               candidates.push({
                 key,
@@ -626,9 +719,8 @@ async function detectCrmCandidates(
                 allocationTemplateName: null,
                 paymentMethodId: null,
                 ...buildWh(amt),
-                sourceDataChanged: false,
-                previousAmount: null,
-                latestCalculatedAmount: null,
+                projectId: stpProjectId,
+                ...changeInfo,
                 alreadyGenerated: !!existing,
               });
             }
@@ -639,12 +731,11 @@ async function detectCrmCandidates(
             contract.monthlyFee > 0 &&
             contract.contractPlan !== "performance"
           ) {
-            const duration =
-              commissionConfig.monthlyDuration ?? 12;
-            const monthsFromStart = Math.floor(
-              (monthStart.getTime() - contractStart.getTime()) /
-                (1000 * 60 * 60 * 24 * 30)
-            );
+            const duration = commissionConfig.monthlyDuration ?? 12;
+            // minor-2: 正確な月数差分計算
+            const monthsFromStart =
+              (monthStart.getUTCFullYear() - contractStart.getUTCFullYear()) * 12 +
+              (monthStart.getUTCMonth() - contractStart.getUTCMonth());
             if (monthsFromStart < duration) {
               const monthlyCommission = calcByType(
                 contract.monthlyFee,
@@ -661,6 +752,7 @@ async function detectCrmCandidates(
                     t.stpExpenseType === "commission_monthly" &&
                     t.type === "expense"
                 );
+                const changeInfo = detectSourceChange(existing, monthlyCommission);
 
                 candidates.push({
                   key,
@@ -695,9 +787,8 @@ async function detectCrmCandidates(
                   allocationTemplateName: null,
                   paymentMethodId: null,
                   ...buildWh(monthlyCommission),
-                  sourceDataChanged: false,
-                  previousAmount: null,
-                  latestCalculatedAmount: null,
+                  projectId: stpProjectId,
+                  ...changeInfo,
                   alreadyGenerated: !!existing,
                 });
               }
@@ -721,19 +812,19 @@ async function detectCrmCandidates(
   for (const candidate of candidatesWithJoin) {
     if (!candidate.stpCompanyId || !candidate.stpCompany) continue;
 
-    const stpCompany = candidate.stpCompany;
+    const stpCompanyForCandidate = candidate.stpCompany;
     const company = await prisma.masterStellaCompany.findUnique({
-      where: { id: stpCompany.companyId },
+      where: { id: stpCompanyForCandidate.companyId },
     });
     if (!company) continue;
 
-    const counterparty = counterpartyByCompanyId.get(stpCompany.companyId);
+    const counterparty = counterpartyByCompanyId.get(stpCompanyForCandidate.companyId);
     if (!counterparty) continue;
 
     // 入社日時点でアクティブな契約
     const matchingContracts = await prisma.stpContractHistory.findMany({
       where: {
-        companyId: stpCompany.companyId,
+        companyId: stpCompanyForCandidate.companyId,
         contractStartDate: { lte: candidate.joinDate! },
         OR: [
           { contractEndDate: null },
@@ -764,6 +855,10 @@ async function detectCrmCandidates(
         t.stpRevenueType === "performance" &&
         t.stpCandidateId === candidate.id &&
         t.type === "revenue"
+    );
+    const perfChangeInfo = detectSourceChange(
+      existingPerf,
+      contractHistory.performanceFee
     );
 
     candidates.push({
@@ -802,11 +897,124 @@ async function detectCrmCandidates(
       withholdingTaxRate: null,
       withholdingTaxAmount: null,
       netPaymentAmount: null,
-      sourceDataChanged: false,
-      previousAmount: null,
-      latestCalculatedAmount: null,
+      projectId: stpProjectId,
+      ...perfChangeInfo,
       alreadyGenerated: !!existingPerf,
     });
+
+    // minor-3: 成果報酬に対応する代理店紹介報酬（commission_performance）
+    if (stpCompanyForCandidate.agentId) {
+      const agentContractHistory = allAgentContractHistories.find(
+        (h) =>
+          h.agentId === stpCompanyForCandidate.agentId &&
+          h.contractStartDate <= contractHistory.contractStartDate &&
+          (h.contractEndDate == null ||
+            h.contractEndDate >= contractHistory.contractStartDate)
+      );
+
+      if (agentContractHistory) {
+        const agent = agentContractHistory.agent;
+        const agentCounterparty = agent.companyId
+          ? counterpartyByCompanyId.get(agent.companyId) ?? null
+          : null;
+        const agentCpId = agentCounterparty?.id;
+        const agentCpName =
+          agentCounterparty?.name ?? agent.company?.name ?? "不明な代理店";
+        const expCategory = expenseCategoryOutsourcing ?? defaultExpenseCategory;
+
+        if (expCategory && agentCpId) {
+          const override =
+            overrideMap.get(
+              `${agentContractHistory.id}-${stpCompanyForCandidate.id}`
+            ) ?? null;
+
+          const commissionConfig = buildCommissionConfig(
+            contractHistory.contractPlan,
+            agentContractHistory,
+            override
+          );
+
+          const perfCommission = calcByType(
+            contractHistory.performanceFee,
+            commissionConfig.perfType,
+            commissionConfig.perfRate,
+            commissionConfig.perfFixed
+          );
+
+          if (perfCommission > 0) {
+            const needsWithholding = agent && isWithholdingTarget(agent);
+            const whData = (() => {
+              if (!needsWithholding || perfCommission <= 0)
+                return {
+                  isWithholdingTarget: false,
+                  withholdingTaxRate: null as number | null,
+                  withholdingTaxAmount: null as number | null,
+                  netPaymentAmount: null as number | null,
+                };
+              const whTax = calcWithholdingTax(perfCommission);
+              return {
+                isWithholdingTarget: true,
+                withholdingTaxRate:
+                  perfCommission <= 1_000_000 ? 10.21 : 20.42,
+                withholdingTaxAmount: whTax,
+                netPaymentAmount: perfCommission - whTax,
+              };
+            })();
+
+            const commKey = `crm-expense-commission_performance-${contractHistory.id}-${candidate.id}-${stpCompanyForCandidate.agentId}`;
+            const existingComm = existingTransactions.find(
+              (t) =>
+                t.stpContractHistoryId === contractHistory.id &&
+                t.stpExpenseType === "commission_performance" &&
+                t.stpCandidateId === candidate.id &&
+                t.type === "expense"
+            );
+            const commChangeInfo = detectSourceChange(
+              existingComm,
+              perfCommission
+            );
+
+            candidates.push({
+              key: commKey,
+              source: "crm",
+              type: "expense",
+              counterpartyId: agentCpId,
+              counterpartyName: agentCpName,
+              expenseCategoryId: expCategory.id,
+              expenseCategoryName: expCategory.name,
+              amount: perfCommission,
+              taxAmount: calcTaxAmount(
+                perfCommission,
+                DEFAULT_TAX_TYPE,
+                DEFAULT_TAX_RATE
+              ),
+              taxRate: DEFAULT_TAX_RATE,
+              taxType: DEFAULT_TAX_TYPE,
+              periodFrom: periodStr,
+              periodTo: periodStr,
+              note: `${company.name} 成果紹介報酬 (${candidate.lastName}${candidate.firstName}) (${agentCpName})`,
+              contractId: null,
+              contractTitle: null,
+              stpContractHistoryId: contractHistory.id,
+              stpRevenueType: null,
+              stpExpenseType: "commission_performance",
+              stpCandidateId: candidate.id,
+              stpAgentId: stpCompanyForCandidate.agentId,
+              recurringTransactionId: null,
+              costCenterId: stpCostCenter?.id ?? null,
+              costCenterName: stpCostCenter?.name ?? null,
+              allocationTemplateId: null,
+              allocationTemplateName: null,
+              paymentMethodId: null,
+              ...whData,
+              projectId: stpProjectId,
+              ...commChangeInfo,
+              alreadyGenerated: !!existingComm,
+            });
+          }
+        }
+      }
+    }
   }
 }
 
@@ -863,6 +1071,10 @@ async function detectRecurringCandidates(
         ? calcTaxAmount(amount, "tax_included", rt.taxRate)
         : null;
 
+    // 定期取引の変更検出: 固定金額の場合のみ比較
+    const sourceDataChanged =
+      existing != null && amount != null && existing.amount !== amount;
+
     candidates.push({
       key,
       source: "recurring",
@@ -895,10 +1107,12 @@ async function detectRecurringCandidates(
       withholdingTaxRate: null,
       withholdingTaxAmount: null,
       netPaymentAmount: null,
-      sourceDataChanged: false,
-      previousAmount: null,
-      latestCalculatedAmount: null,
+      projectId: null,
+      sourceDataChanged,
+      previousAmount: sourceDataChanged ? existing!.amount : null,
+      latestCalculatedAmount: sourceDataChanged ? amount : null,
       alreadyGenerated: !!existing,
+      existingTransactionId: existing?.id ?? null,
     });
   }
 }
@@ -934,20 +1148,44 @@ function isRecurringActiveForMonth(
  */
 export async function generateTransactions(
   selectedCandidates: TransactionCandidate[]
-): Promise<{ created: number; skipped: number }> {
+): Promise<{ created: number; skipped: number; updated: number }> {
   const session = await getSession();
   const staffId = session.id;
 
   let created = 0;
   let skipped = 0;
+  let updated = 0;
 
   for (const candidate of selectedCandidates) {
+    // ソースデータ変更あり → 既存Transactionを更新
+    if (
+      candidate.alreadyGenerated &&
+      candidate.sourceDataChanged &&
+      candidate.existingTransactionId
+    ) {
+      const amount = candidate.amount ?? 0;
+      const taxAmount = candidate.taxAmount ?? 0;
+      await prisma.transaction.update({
+        where: { id: candidate.existingTransactionId },
+        data: {
+          amount,
+          taxAmount,
+          sourceDataChangedAt: new Date(),
+          latestCalculatedAmount: amount,
+          updatedBy: staffId,
+        },
+      });
+      updated++;
+      continue;
+    }
+
+    // 既に生成済み（変更なし）→ スキップ
     if (candidate.alreadyGenerated) {
       skipped++;
       continue;
     }
 
-    // 金額がnullの場合（変動金額）は0で作成し、後で手動入力してもらう
+    // 新規生成
     const amount = candidate.amount ?? 0;
     const taxAmount = candidate.taxAmount ?? 0;
 
@@ -973,6 +1211,7 @@ export async function generateTransactions(
         stpExpenseType: candidate.stpExpenseType,
         stpCandidateId: candidate.stpCandidateId,
         stpAgentId: candidate.stpAgentId,
+        projectId: candidate.projectId,
         isAutoGenerated: true,
         sourceType: candidate.source === "crm" ? "crm" : "recurring",
         isWithholdingTarget: candidate.isWithholdingTarget,
@@ -992,5 +1231,5 @@ export async function generateTransactions(
   revalidatePath("/stp/finance/generate");
   revalidatePath("/stp/finance/transactions");
 
-  return { created, skipped };
+  return { created, skipped, updated };
 }
