@@ -5,6 +5,7 @@ type Props = {
   searchParams: Promise<{
     year?: string;
     costCenter?: string;
+    month?: string;
   }>;
 };
 
@@ -20,10 +21,13 @@ export default async function BudgetPage({ searchParams }: Props) {
     costCenterId = Number(params.costCenter);
   }
 
+  // month: undefined = 年度全体, 数字 = 特定月(0-indexed)
+  const month = params.month !== undefined ? Number(params.month) : undefined;
+
   const [budgets, formData, budgetVsActual] = await Promise.all([
     getBudgets(fiscalYear, costCenterId),
     getBudgetFormData(),
-    getBudgetVsActual(fiscalYear, undefined, costCenterId),
+    getBudgetVsActual(fiscalYear, month, costCenterId),
   ]);
 
   return (
@@ -35,6 +39,7 @@ export default async function BudgetPage({ searchParams }: Props) {
         formData={formData}
         fiscalYear={fiscalYear}
         costCenterId={costCenterId}
+        month={month}
       />
     </div>
   );

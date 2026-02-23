@@ -21,14 +21,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import {
   createBudget,
   updateBudget,
   deleteBudget,
   copyBudgetMonth,
+  previewBudgetFromRecurring,
   generateBudgetFromRecurring,
 } from "./actions";
-import type { BudgetFormData, BudgetRow } from "./actions";
+import type { BudgetFormData, BudgetRow, RecurringBudgetPreviewItem } from "./actions";
 
 type Props = {
   budgets: BudgetRow[];
@@ -52,6 +54,7 @@ export function BudgetInputTable({
   const [addOpen, setAddOpen] = useState(false);
   const [editBudget, setEditBudget] = useState<BudgetRow | null>(null);
   const [copyOpen, setCopyOpen] = useState(false);
+  const [recurringPreview, setRecurringPreview] = useState<RecurringBudgetPreviewItem[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // 新規追加フォーム
@@ -173,8 +176,22 @@ export function BudgetInputTable({
     }
   };
 
-  const handleGenerateFromRecurring = async () => {
-    if (!confirm("定期取引（固定金額・アクティブ）から予算を自動生成しますか？\n既存のカテゴリ・月は上書きされません。")) return;
+  const handlePreviewRecurring = async () => {
+    setSubmitting(true);
+    try {
+      const preview = await previewBudgetFromRecurring(
+        fiscalYear,
+        costCenterId ?? null
+      );
+      setRecurringPreview(preview);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleConfirmGenerate = async () => {
     setSubmitting(true);
     try {
       const result = await generateBudgetFromRecurring(
@@ -184,6 +201,7 @@ export function BudgetInputTable({
       toast.success(
         `${result.created}件生成しました（${result.skipped}件はスキップ）`
       );
+      setRecurringPreview(null);
       router.refresh();
     } catch (err) {
       toast.error((err as Error).message);
@@ -215,7 +233,7 @@ export function BudgetInputTable({
         <Button
           size="sm"
           variant="outline"
-          onClick={handleGenerateFromRecurring}
+          onClick={handlePreviewRecurring}
           disabled={submitting}
         >
           {submitting ? (
@@ -531,6 +549,94 @@ export function BudgetInputTable({
             <Button onClick={handleCopy} disabled={submitting}>
               {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               コピー実行
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 定期取引自動生成 差分レビューダイアログ */}
+      <Dialog
+        open={recurringPreview !== null}
+        onOpenChange={(open) => {
+          if (!open) setRecurringPreview(null);
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>定期取引からの自動生成 — 差分レビュー</DialogTitle>
+          </DialogHeader>
+          {recurringPreview && (
+            <>
+              <div className="flex gap-3 text-sm">
+                <Badge variant="default">
+                  新規作成: {recurringPreview.filter((p) => p.status === "create").length}件
+                </Badge>
+                <Badge variant="secondary">
+                  スキップ（既存）: {recurringPreview.filter((p) => p.status === "skip").length}件
+                </Badge>
+              </div>
+              <div className="overflow-auto flex-1 min-h-0 border rounded-lg">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="px-3 py-2 text-left font-medium">状態</th>
+                      <th className="px-3 py-2 text-left font-medium">カテゴリ</th>
+                      <th className="px-3 py-2 text-left font-medium">対象月</th>
+                      <th className="px-3 py-2 text-right font-medium">金額</th>
+                      <th className="px-3 py-2 text-left font-medium">定期取引名</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recurringPreview.map((item, idx) => (
+                      <tr
+                        key={idx}
+                        className={`border-b ${
+                          item.status === "skip" ? "bg-muted/30 text-muted-foreground" : ""
+                        }`}
+                      >
+                        <td className="px-3 py-1.5">
+                          <Badge
+                            variant={item.status === "create" ? "default" : "secondary"}
+                            className="text-xs"
+                          >
+                            {item.status === "create" ? "新規" : "スキップ"}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-1.5">{item.categoryLabel}</td>
+                        <td className="px-3 py-1.5">
+                          {new Date(item.targetMonth).getFullYear()}年
+                          {new Date(item.targetMonth).getMonth() + 1}月
+                        </td>
+                        <td className="px-3 py-1.5 text-right">
+                          ¥{item.budgetAmount.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-1.5">{item.recurringName}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {recurringPreview.filter((p) => p.status === "create").length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  新規作成対象がありません。すべて既存のカテゴリ・月と重複しています。
+                </p>
+              ) : null}
+            </>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRecurringPreview(null)}>
+              キャンセル
+            </Button>
+            <Button
+              onClick={handleConfirmGenerate}
+              disabled={
+                submitting ||
+                !recurringPreview ||
+                recurringPreview.filter((p) => p.status === "create").length === 0
+              }
+            >
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              生成実行
             </Button>
           </DialogFooter>
         </DialogContent>

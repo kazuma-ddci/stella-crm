@@ -22,6 +22,7 @@ type Props = {
   formData: BudgetFormData;
   fiscalYear: number;
   costCenterId: number | null | undefined;
+  month: number | undefined;
 };
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -38,38 +39,43 @@ export function BudgetPageClient({
   formData,
   fiscalYear,
   costCenterId,
+  month,
 }: Props) {
   const router = useRouter();
   const [selectedYear, setSelectedYear] = useState(fiscalYear.toString());
   const [selectedCostCenter, setSelectedCostCenter] = useState(
     costCenterId === null ? "all" : costCenterId === undefined ? "any" : costCenterId.toString()
   );
-  const [selectedMonth, setSelectedMonth] = useState("all");
+  const [selectedMonth, setSelectedMonth] = useState(
+    month !== undefined ? month.toString() : "all"
+  );
 
-  const handleFilterChange = (year: string, cc: string) => {
+  const buildUrl = (year: string, cc: string, m: string) => {
     const params = new URLSearchParams();
     params.set("year", year);
     if (cc !== "any") {
       params.set("costCenter", cc);
+    }
+    if (m !== "all") {
+      params.set("month", m);
     }
     router.push(`/accounting/budget?${params.toString()}`);
   };
 
   const handleYearChange = (year: string) => {
     setSelectedYear(year);
-    handleFilterChange(year, selectedCostCenter);
+    buildUrl(year, selectedCostCenter, selectedMonth);
   };
 
   const handleCostCenterChange = (cc: string) => {
     setSelectedCostCenter(cc);
-    handleFilterChange(selectedYear, cc);
+    buildUrl(selectedYear, cc, selectedMonth);
   };
 
-  // 予実比較用のフィルタリング
-  const filteredBudgetVsActual =
-    selectedMonth === "all"
-      ? budgetVsActual
-      : budgetVsActual; // 月別フィルタはサーバー側で行うため、ここではそのまま渡す
+  const handleMonthChange = (m: string) => {
+    setSelectedMonth(m);
+    buildUrl(selectedYear, selectedCostCenter, m);
+  };
 
   // 予算合計
   const totalBudget = budgets.reduce((sum, b) => sum + b.budgetAmount, 0);
@@ -179,7 +185,7 @@ export function BudgetPageClient({
             <CardHeader>
               <CardTitle className="flex items-center gap-4">
                 <span>予実比較（{selectedYear}年度）</span>
-                <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                <Select value={selectedMonth} onValueChange={handleMonthChange}>
                   <SelectTrigger className="w-[130px]">
                     <SelectValue />
                   </SelectTrigger>
@@ -196,7 +202,7 @@ export function BudgetPageClient({
             </CardHeader>
             <CardContent>
               <BudgetVsActualTable
-                rows={filteredBudgetVsActual}
+                rows={budgetVsActual}
                 fiscalYear={Number(selectedYear)}
                 month={
                   selectedMonth === "all" ? undefined : Number(selectedMonth)

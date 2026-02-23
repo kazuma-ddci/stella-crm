@@ -356,6 +356,79 @@ export async function copyBudgetMonth(
 // 定期取引から下書き生成
 // ============================================
 
+// 定期取引からの自動生成プレビュー用の型
+export type RecurringBudgetPreviewItem = {
+  categoryLabel: string;
+  costCenterName: string | null;
+  targetMonth: string; // ISO文字列
+  budgetAmount: number;
+  recurringName: string;
+  status: "create" | "skip";
+};
+
+/**
+ * 定期取引から予算を自動生成する前のプレビューを返す
+ * 差分レビュー表示用
+ */
+export async function previewBudgetFromRecurring(
+  fiscalYear: number,
+  costCenterId: number | null
+): Promise<RecurringBudgetPreviewItem[]> {
+  await getSession();
+
+  const recurring = await prisma.recurringTransaction.findMany({
+    where: {
+      isActive: true,
+      deletedAt: null,
+      amountType: "fixed",
+      amount: { not: null },
+      ...(costCenterId !== null ? { costCenterId } : {}),
+    },
+    include: {
+      expenseCategory: {
+        select: { id: true, name: true, defaultAccountId: true },
+      },
+      costCenter: { select: { id: true, name: true } },
+    },
+  });
+
+  if (recurring.length === 0) {
+    throw new Error("対象となる定期取引（固定金額・アクティブ）がありません");
+  }
+
+  const preview: RecurringBudgetPreviewItem[] = [];
+
+  for (const rt of recurring) {
+    const months = expandRecurringToMonths(rt, fiscalYear);
+
+    for (const month of months) {
+      const targetMonth = new Date(fiscalYear, month, 1);
+      const categoryLabel = rt.expenseCategory.name;
+      const rtCostCenterId = rt.costCenterId;
+
+      const existing = await prisma.budget.findFirst({
+        where: {
+          costCenterId: rtCostCenterId,
+          categoryLabel,
+          targetMonth,
+        },
+        select: { id: true },
+      });
+
+      preview.push({
+        categoryLabel,
+        costCenterName: rt.costCenter?.name ?? null,
+        targetMonth: targetMonth.toISOString(),
+        budgetAmount: rt.amount!,
+        recurringName: rt.name,
+        status: existing ? "skip" : "create",
+      });
+    }
+  }
+
+  return preview;
+}
+
 export async function generateBudgetFromRecurring(
   fiscalYear: number,
   costCenterId: number | null
@@ -556,21 +629,28 @@ export async function getBudgetVsActual(
   // expense/asset の勘定科目: 借方が増加（正）、貸方が減少（負）
   // revenue/liability の勘定科目: 貸方が増加（正）、借方が減少（負）
   const actualByAccount = new Map<number, number>();
+  // 勘定科目名別の実績集計（accountId=nullの予算とcategoryLabelでマッチングするため）
+  const actualByAccountName = new Map<string, number>();
 
   for (const entry of journalEntries) {
     for (const line of entry.lines) {
       const current = actualByAccount.get(line.accountId) || 0;
       const category = line.account.category;
 
+      let amount: number;
       if (category === "expense" || category === "asset") {
         // 借方が正
-        const amount = line.side === "debit" ? line.amount : -line.amount;
-        actualByAccount.set(line.accountId, current + amount);
+        amount = line.side === "debit" ? line.amount : -line.amount;
       } else {
         // revenue/liability: 貸方が正
-        const amount = line.side === "credit" ? line.amount : -line.amount;
-        actualByAccount.set(line.accountId, current + amount);
+        amount = line.side === "credit" ? line.amount : -line.amount;
       }
+      actualByAccount.set(line.accountId, current + amount);
+
+      // 勘定科目名別にも集計
+      const accountName = line.account.name;
+      const currentByName = actualByAccountName.get(accountName) || 0;
+      actualByAccountName.set(accountName, currentByName + amount);
     }
   }
 
@@ -612,9 +692,10 @@ export async function getBudgetVsActual(
   const results: BudgetVsActualRow[] = [];
 
   for (const [, budget] of budgetMap) {
+    // accountIdがある場合はIDで直接マッチ、ない場合はcategoryLabelで勘定科目名マッチ
     const actualAmount = budget.accountId
       ? actualByAccount.get(budget.accountId) || 0
-      : 0;
+      : actualByAccountName.get(budget.categoryLabel) || 0;
 
     const difference = budget.budgetAmount - actualAmount;
     const achievementRate =
