@@ -66,8 +66,8 @@ export type ProjectDashboardData = {
 // ============================================
 
 const TRANSACTION_STATUS_LABELS: Record<string, string> = {
-  unconfirmed: "未確認",
-  confirmed: "確認済み",
+  unconfirmed: "未確定",
+  confirmed: "確定済み",
   awaiting_accounting: "経理処理待ち",
   returned: "差し戻し",
   resubmitted: "再提出",

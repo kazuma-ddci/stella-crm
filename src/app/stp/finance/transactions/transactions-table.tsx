@@ -1,6 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useMemo } from "react";
+import { AllocationStatusButton } from "@/app/accounting/transactions/allocation-confirmation-panel";
+import { TransactionStatusActions } from "@/app/accounting/transactions/transaction-status-actions";
 import {
   Table,
   TableBody,
@@ -9,6 +12,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import {
+  stpConfirmTransaction,
+  stpUnconfirmTransaction,
+  stpResubmitTransaction,
+  stpSubmitToAccountingTransaction,
+} from "./actions";
 import type { TransactionListItem } from "./actions";
 
 type Props = {
@@ -17,8 +27,8 @@ type Props = {
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  unconfirmed: "未確認",
-  confirmed: "確認済み",
+  unconfirmed: "未確定",
+  confirmed: "確定済み",
   awaiting_accounting: "経理処理待ち",
   returned: "差し戻し",
   resubmitted: "再提出",
@@ -54,8 +64,8 @@ type StatusTab = "all" | "unconfirmed" | "confirmed" | "awaiting_accounting" | "
 
 const tabs: { key: StatusTab; label: string; filter: (row: TransactionListItem) => boolean }[] = [
   { key: "all", label: "すべて", filter: () => true },
-  { key: "unconfirmed", label: "未確認", filter: (r) => r.status === "unconfirmed" },
-  { key: "confirmed", label: "確認済み", filter: (r) => r.status === "confirmed" },
+  { key: "unconfirmed", label: "未確定", filter: (r) => r.status === "unconfirmed" },
+  { key: "confirmed", label: "確定済み", filter: (r) => r.status === "confirmed" },
   { key: "awaiting_accounting", label: "経理処理待ち", filter: (r) => r.status === "awaiting_accounting" },
   { key: "returned", label: "差し戻し", filter: (r) => r.status === "returned" || r.status === "resubmitted" },
   { key: "journalized", label: "仕訳済み", filter: (r) => r.status === "journalized" },
@@ -320,12 +330,13 @@ export function TransactionsTable({ data, counterpartyOptions }: Props) {
               >
                 作成日{sortIndicator("createdAt")}
               </TableHead>
+              <TableHead className="w-[220px]">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedData.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                   データがありません
                 </TableCell>
               </TableRow>
@@ -401,6 +412,32 @@ export function TransactionsTable({ data, counterpartyOptions }: Props) {
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                       {row.createdAt}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {(row.status === "unconfirmed" || row.status === "returned") && (
+                          <Button asChild variant="outline" size="sm">
+                            <Link href={`/stp/finance/transactions/${row.id}/edit`}>
+                              編集
+                            </Link>
+                          </Button>
+                        )}
+                        <AllocationStatusButton
+                          transactionId={row.id}
+                          hasAllocationTemplate={!!row.allocationTemplateName}
+                        />
+                        <TransactionStatusActions
+                          transactionId={row.id}
+                          status={row.status}
+                          mode="project"
+                          actions={{
+                            confirm: stpConfirmTransaction,
+                            unconfirm: stpUnconfirmTransaction,
+                            resubmit: stpResubmitTransaction,
+                            submitToAccounting: stpSubmitToAccountingTransaction,
+                          }}
+                        />
+                      </div>
                     </TableCell>
                   </TableRow>
                 );

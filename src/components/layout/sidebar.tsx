@@ -143,7 +143,9 @@ const navigation: NavItem[] = [
         children: [
           { name: "ダッシュボード", href: "/stp/finance/overview", icon: DollarSign },
           { name: "取引管理", href: "/stp/finance/transactions", icon: Landmark },
-          { name: "取引候補生成", href: "/stp/finance/generate", icon: Zap },
+          { name: "取引先管理", href: "/stp/finance/counterparties", icon: Building2 },
+          { name: "取引候補検出", href: "/stp/finance/generate", icon: Zap },
+          { name: "按分テンプレート", href: "/stp/finance/allocation-templates", icon: Layers },
           { name: "請求グループ管理（売上）", href: "/stp/finance/invoices", icon: Receipt },
           { name: "支払グループ管理（経費）", href: "/stp/finance/payment-groups", icon: Wallet },
           { name: "入出金履歴", href: "/stp/finance/payments", icon: Landmark },

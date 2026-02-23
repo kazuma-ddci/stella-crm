@@ -7,7 +7,13 @@ export default async function CostCentersPage() {
     prisma.costCenter.findMany({
       where: { deletedAt: null },
       orderBy: [{ id: "asc" }],
-      include: { project: { select: { id: true, code: true, name: true } } },
+      include: {
+        projectAssignments: {
+          include: {
+            project: { select: { id: true, code: true, name: true, isActive: true } },
+          },
+        },
+      },
     }),
     prisma.masterProject.findMany({
       where: { isActive: true },
@@ -19,10 +25,12 @@ export default async function CostCentersPage() {
   const data = costCenters.map((cc) => ({
     id: cc.id,
     name: cc.name,
-    projectId: cc.projectId ? String(cc.projectId) : "",
-    projectLabel: cc.project
-      ? `${cc.project.code} - ${cc.project.name}`
-      : "",
+    projectIds: cc.projectAssignments.map((pa) => String(pa.projectId)),
+    projectLabels: cc.projectAssignments.map((pa) => ({
+      id: pa.projectId,
+      label: `${pa.project.code} - ${pa.project.name}`,
+      isActive: pa.project.isActive,
+    })),
     isActive: cc.isActive,
   }));
 
@@ -33,10 +41,10 @@ export default async function CostCentersPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">按分先マスタ</h1>
+      <h1 className="text-2xl font-bold">経理プロジェクトマスタ</h1>
       <Card>
         <CardHeader>
-          <CardTitle>按分先一覧</CardTitle>
+          <CardTitle>経理プロジェクト一覧</CardTitle>
         </CardHeader>
         <CardContent>
           <CostCentersTable data={data} projectOptions={projectOptions} />

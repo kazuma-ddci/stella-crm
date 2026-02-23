@@ -32,6 +32,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   confirmTransaction,
+  unconfirmTransaction,
   returnTransaction,
   resubmitTransaction,
   hideTransaction,
@@ -48,11 +49,20 @@ const returnReasonLabels: Record<string, string> = {
 type TransactionStatusActionsProps = {
   transactionId: number;
   status: string;
+  mode?: "full" | "project";
+  actions?: {
+    confirm?: (id: number) => Promise<void>;
+    unconfirm?: (id: number, reason: string) => Promise<void>;
+    resubmit?: (id: number, body?: string) => Promise<void>;
+    submitToAccounting?: (id: number) => Promise<void>;
+  };
 };
 
 export function TransactionStatusActions({
   transactionId,
   status,
+  mode = "full",
+  actions,
 }: TransactionStatusActionsProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -67,11 +77,21 @@ export function TransactionStatusActions({
   const [resubmitOpen, setResubmitOpen] = useState(false);
   const [resubmitBody, setResubmitBody] = useState("");
 
+  // 未確定に戻すダイアログ
+  const [unconfirmOpen, setUnconfirmOpen] = useState(false);
+  const [unconfirmReason, setUnconfirmReason] = useState("");
+
+  // actionsがあればそれを使い、なければデフォルトの共通アクション
+  const confirmFn = actions?.confirm ?? confirmTransaction;
+  const unconfirmFn = actions?.unconfirm ?? unconfirmTransaction;
+  const resubmitFn = actions?.resubmit ?? resubmitTransaction;
+  const submitToAccountingFn = actions?.submitToAccounting ?? submitToAccountingTransaction;
+
   const handleConfirm = () => {
     setError(null);
     startTransition(async () => {
       try {
-        await confirmTransaction(transactionId);
+        await confirmFn(transactionId);
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "エラーが発生しました");
@@ -101,7 +121,7 @@ export function TransactionStatusActions({
     setError(null);
     startTransition(async () => {
       try {
-        await resubmitTransaction(transactionId, resubmitBody || undefined);
+        await resubmitFn(transactionId, resubmitBody || undefined);
         setResubmitOpen(false);
         setResubmitBody("");
         router.refresh();
@@ -115,7 +135,21 @@ export function TransactionStatusActions({
     setError(null);
     startTransition(async () => {
       try {
-        await submitToAccountingTransaction(transactionId);
+        await submitToAccountingFn(transactionId);
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "エラーが発生しました");
+      }
+    });
+  };
+
+  const handleUnconfirm = () => {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await unconfirmFn(transactionId, unconfirmReason);
+        setUnconfirmOpen(false);
+        setUnconfirmReason("");
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "エラーが発生しました");
@@ -141,25 +175,30 @@ export function TransactionStatusActions({
         <span className="text-xs text-red-600 mr-1">{error}</span>
       )}
 
-      {/* 確認ボタン: unconfirmed → confirmed */}
+      {(() => {
+        const canReturn = mode === "full";
+        const canHide = mode === "full";
+        return (
+          <>
+      {/* 確定ボタン: unconfirmed → confirmed */}
       {status === "unconfirmed" && (
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="outline" size="sm" disabled={isPending}>
-              確認
+              確定
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>取引を確認しますか？</AlertDialogTitle>
+              <AlertDialogTitle>取引を確定しますか？</AlertDialogTitle>
               <AlertDialogDescription>
-                取引の内容が正しいことを確認し、ステータスを「確認済み」に変更します。
+                取引の内容が正しいことを確認し、ステータスを「確定済み」に変更します。
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>キャンセル</AlertDialogCancel>
               <AlertDialogAction onClick={handleConfirm} disabled={isPending}>
-                確認する
+                確定する
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -196,8 +235,60 @@ export function TransactionStatusActions({
         </AlertDialog>
       )}
 
+      {/* 未確定に戻すボタン: confirmed → unconfirmed */}
+      {status === "confirmed" && (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-gray-600 border-gray-200 hover:bg-gray-50"
+            onClick={() => setUnconfirmOpen(true)}
+            disabled={isPending}
+          >
+            未確定に戻す
+          </Button>
+          <Dialog open={unconfirmOpen} onOpenChange={setUnconfirmOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>未確定に戻す</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label>理由 *</Label>
+                  <Textarea
+                    className="mt-1"
+                    value={unconfirmReason}
+                    onChange={(e) => setUnconfirmReason(e.target.value)}
+                    placeholder="未確定に戻す理由を入力してください"
+                    rows={3}
+                  />
+                </div>
+                {error && (
+                  <p className="text-sm text-red-600">{error}</p>
+                )}
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setUnconfirmOpen(false)}
+                  disabled={isPending}
+                >
+                  キャンセル
+                </Button>
+                <Button
+                  onClick={handleUnconfirm}
+                  disabled={isPending || !unconfirmReason.trim()}
+                >
+                  未確定に戻す
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
+
       {/* 差し戻しボタン: confirmed/awaiting_accounting → returned */}
-      {(status === "confirmed" || status === "awaiting_accounting") && (
+      {canReturn && (status === "confirmed" || status === "awaiting_accounting") && (
         <>
           <Button
             variant="outline"
@@ -320,7 +411,7 @@ export function TransactionStatusActions({
       )}
 
       {/* 非表示ボタン: paid → hidden */}
-      {status === "paid" && (
+      {canHide && status === "paid" && (
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button
@@ -348,6 +439,9 @@ export function TransactionStatusActions({
           </AlertDialogContent>
         </AlertDialog>
       )}
+          </>
+        );
+      })()}
     </div>
   );
 }

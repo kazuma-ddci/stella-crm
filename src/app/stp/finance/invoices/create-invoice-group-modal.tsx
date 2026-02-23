@@ -224,7 +224,7 @@ export function CreateInvoiceGroupModal({
                       )?.label
                     }
                   </span>{" "}
-                  の確認済み・未グループ化の取引
+                  の確定済み・未グループ化の取引
                 </p>
                 {ungroupedTransactions.length > 0 && (
                   <Button

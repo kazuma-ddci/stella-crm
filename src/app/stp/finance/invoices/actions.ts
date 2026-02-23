@@ -111,7 +111,7 @@ export async function getInvoiceGroups(): Promise<InvoiceGroupListItem[]> {
   }));
 }
 
-// 確認済み＆未グループ化の売上取引を取得
+// 確定済み＆未グループ化の売上取引を取得
 export async function getUngroupedTransactions(
   counterpartyId?: number
 ): Promise<UngroupedTransaction[]> {

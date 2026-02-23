@@ -11,15 +11,15 @@ type TransactionRow = {
   amount: number;
   taxAmount: number;
   status: string;
-  periodFrom: Date;
-  periodTo: Date;
+  periodFrom: string;
+  periodTo: string;
   note: string | null;
   counterparty: { id: number; name: string } | null;
   expenseCategory: { id: number; name: string } | null;
   costCenter: { id: number; name: string } | null;
   project: { id: number; name: string; code: string } | null;
   confirmer: { id: number; name: string } | null;
-  confirmedAt: Date | null;
+  confirmedAt: string | null;
   allocationTemplate: { id: number; name: string } | null;
 };
 
@@ -67,9 +67,9 @@ export function TransactionsTable({
                 )}
               </td>
               <td className="px-3 py-2 whitespace-nowrap">
-                {new Date(tx.periodFrom).toLocaleDateString("ja-JP")}
+                {tx.periodFrom}
                 {" 〜 "}
-                {new Date(tx.periodTo).toLocaleDateString("ja-JP")}
+                {tx.periodTo}
               </td>
               <td className="px-3 py-2">{tx.counterparty?.name ?? "-"}</td>
               <td className="px-3 py-2">{tx.expenseCategory?.name ?? "-"}</td>
@@ -92,7 +92,7 @@ export function TransactionsTable({
                     {tx.confirmedAt && (
                       <>
                         <br />
-                        {new Date(tx.confirmedAt).toLocaleDateString("ja-JP")}
+                        {tx.confirmedAt}
                       </>
                     )}
                   </span>

@@ -14,6 +14,7 @@ export const TRANSACTION_LOG_FIELDS = [
   "projectId",
   "paymentMethodId",
   "paymentDueDate",
+  "scheduledPaymentDate",
   "note",
   "status",
   "isWithholdingTarget",

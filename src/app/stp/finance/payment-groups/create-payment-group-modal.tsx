@@ -213,7 +213,7 @@ export function CreatePaymentGroupModal({
                       )?.label
                     }
                   </span>{" "}
-                  の確認済み・未グループ化の経費取引
+                  の確定済み・未グループ化の経費取引
                 </p>
                 {ungroupedTransactions.length > 0 && (
                   <Button

@@ -12,7 +12,7 @@ export type BudgetFormData = {
   costCenters: {
     id: number;
     name: string;
-    projectId: number | null;
+    projectIds: number[];
   }[];
   accounts: {
     id: number;
@@ -56,7 +56,11 @@ export async function getBudgetFormData(): Promise<BudgetFormData> {
   const [costCenters, accounts] = await Promise.all([
     prisma.costCenter.findMany({
       where: { isActive: true, deletedAt: null },
-      select: { id: true, name: true, projectId: true },
+      select: {
+        id: true,
+        name: true,
+        projectAssignments: { select: { projectId: true } },
+      },
       orderBy: { name: "asc" },
     }),
     prisma.account.findMany({
@@ -66,7 +70,14 @@ export async function getBudgetFormData(): Promise<BudgetFormData> {
     }),
   ]);
 
-  return { costCenters, accounts };
+  return {
+    costCenters: costCenters.map((c) => ({
+      id: c.id,
+      name: c.name,
+      projectIds: c.projectAssignments.map((pa) => pa.projectId),
+    })),
+    accounts,
+  };
 }
 
 export async function getBudgets(

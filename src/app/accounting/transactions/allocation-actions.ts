@@ -337,7 +337,12 @@ export async function autoConfirmCreatorAllocations(
         include: {
           lines: {
             include: {
-              costCenter: { select: { id: true, projectId: true } },
+              costCenter: {
+                select: {
+                  id: true,
+                  projectAssignments: { select: { projectId: true } },
+                },
+              },
             },
           },
         },
@@ -347,13 +352,21 @@ export async function autoConfirmCreatorAllocations(
 
   if (!transaction?.allocationTemplate) return null;
 
+  // ヘルパー: CostCenterが指定プロジェクトに紐づくか判定
+  const costCenterBelongsToProject = (
+    cc: { projectAssignments: { projectId: number }[] } | null,
+    pid: number | null
+  ): boolean => {
+    if (!cc || pid === null) return false;
+    return cc.projectAssignments.some((pa) => pa.projectId === pid);
+  };
+
   // 作成者のプロジェクトに紐づくコストセンターを見つける
   const creatorCostCenterLines = transaction.allocationTemplate.lines.filter(
     (l) =>
       l.costCenterId !== null &&
       l.costCenter &&
-      l.costCenter.projectId === projectId &&
-      projectId !== null
+      costCenterBelongsToProject(l.costCenter, projectId)
   );
 
   for (const line of creatorCostCenterLines) {
@@ -372,7 +385,7 @@ export async function autoConfirmCreatorAllocations(
     (l) =>
       l.costCenterId !== null &&
       l.costCenter &&
-      (l.costCenter.projectId !== projectId || projectId === null)
+      !costCenterBelongsToProject(l.costCenter, projectId)
   );
 
   if (unconfirmedLines.length === 0) return null;
@@ -380,9 +393,11 @@ export async function autoConfirmCreatorAllocations(
   // 他プロジェクトIDを一意に取得
   const otherProjectIds = [
     ...new Set(
-      unconfirmedLines
-        .map((l) => l.costCenter!.projectId)
-        .filter((pid): pid is number => pid !== null)
+      unconfirmedLines.flatMap((l) =>
+        (l.costCenter?.projectAssignments ?? [])
+          .map((pa) => pa.projectId)
+          .filter((pid) => pid !== projectId)
+      )
     ),
   ];
 

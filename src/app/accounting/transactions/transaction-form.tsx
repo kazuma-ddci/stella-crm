@@ -60,6 +60,7 @@ type TransactionData = {
   projectId: number | null;
   paymentMethodId: number | null;
   paymentDueDate: Date | string | null;
+  scheduledPaymentDate: Date | string | null;
   note: string | null;
   isWithholdingTarget: boolean;
   withholdingTaxRate: unknown;
@@ -73,9 +74,11 @@ type Props = {
   transaction?: TransactionData | null;
   projectContext?: {
     projectId: number;
-    costCenterId: number;
+    costCenterIds: number[];
     projectName: string;
   } | null;
+  redirectBasePath?: string;
+  scope?: { projectCode: string };
 };
 
 function formatDate(d: Date | string | null | undefined): string {
@@ -88,7 +91,13 @@ function formatDate(d: Date | string | null | undefined): string {
 // メインコンポーネント
 // ============================================
 
-export function TransactionForm({ formData, transaction, projectContext }: Props) {
+export function TransactionForm({
+  formData,
+  transaction,
+  projectContext,
+  redirectBasePath = "/accounting/transactions",
+  scope,
+}: Props) {
   const router = useRouter();
   const isEdit = !!transaction;
 
@@ -121,8 +130,8 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
   const [costCenterId, setCostCenterId] = useState(
     transaction?.costCenterId
       ? String(transaction.costCenterId)
-      : projectContext?.costCenterId
-        ? String(projectContext.costCenterId)
+      : projectContext?.costCenterIds?.length === 1
+        ? String(projectContext.costCenterIds[0])
         : ""
   );
 
@@ -154,6 +163,9 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
   // 支払管理
   const [paymentDueDate, setPaymentDueDate] = useState(
     formatDate(transaction?.paymentDueDate)
+  );
+  const [scheduledPaymentDate, setScheduledPaymentDate] = useState(
+    formatDate(transaction?.scheduledPaymentDate)
   );
   const [paymentMethodId, setPaymentMethodId] = useState(
     transaction?.paymentMethodId ? String(transaction.paymentMethodId) : ""
@@ -414,7 +426,7 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
     if (
       projectContext &&
       value &&
-      Number(value) !== projectContext.costCenterId
+      !projectContext.costCenterIds.includes(Number(value))
     ) {
       toast.error(
         `ここは${projectContext.projectName}の作成場所です。他プロジェクトの取引は各プロジェクトページで作成してください。`
@@ -454,6 +466,7 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
         projectId: projectContext?.projectId || null,
         paymentMethodId: paymentMethodId ? Number(paymentMethodId) : null,
         paymentDueDate: paymentDueDate || null,
+        scheduledPaymentDate: scheduledPaymentDate || null,
         note: note || null,
         isWithholdingTarget,
         withholdingTaxRate: isWithholdingTarget ? Number(withholdingTaxRate) : null,
@@ -463,12 +476,12 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
       };
 
       if (isEdit && transaction) {
-        await updateTransaction(transaction.id, data);
+        await updateTransaction(transaction.id, data, scope);
         toast.success("取引を更新しました");
       } else {
-        const result = await createTransaction(data);
+        const result = await createTransaction(data, scope);
         toast.success("取引を作成しました");
-        router.push(`/accounting/transactions/${result.id}/edit`);
+        router.push(`${redirectBasePath}/${result.id}/edit`);
         return;
       }
       router.refresh();
@@ -662,25 +675,32 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
           <CardTitle>按分設定</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="use-allocation"
-              checked={useAllocation}
-              onCheckedChange={(checked) => {
-                setUseAllocation(!!checked);
-                if (checked) {
-                  setCostCenterId("");
-                } else {
-                  setAllocationTemplateId("");
-                  if (projectContext?.costCenterId) {
-                    setCostCenterId(String(projectContext.costCenterId));
-                  }
+          <RadioGroup
+            value={useAllocation ? "allocation" : "single"}
+            onValueChange={(v) => {
+              const isAlloc = v === "allocation";
+              setUseAllocation(isAlloc);
+              if (isAlloc) {
+                setCostCenterId("");
+              } else {
+                setAllocationTemplateId("");
+                if (projectContext?.costCenterIds?.length === 1) {
+                  setCostCenterId(String(projectContext.costCenterIds[0]));
                 }
-              }}
-              disabled={!!projectContext}
-            />
-            <Label htmlFor="use-allocation">按分テンプレートを使用する</Label>
-          </div>
+              }
+            }}
+            disabled={!!projectContext}
+            className="flex gap-4"
+          >
+            <div className="flex items-center gap-2">
+              <RadioGroupItem value="single" id="alloc-single" />
+              <Label htmlFor="alloc-single">按分なし（単一プロジェクト）</Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <RadioGroupItem value="allocation" id="alloc-template" />
+              <Label htmlFor="alloc-template">按分あり（テンプレート使用）</Label>
+            </div>
+          </RadioGroup>
 
           {useAllocation ? (
             <div className="space-y-4">
@@ -821,15 +841,15 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
         </Card>
       )}
 
-      {/* 7. 支払管理（経費の場合） */}
-      {type === "expense" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>支払管理（任意）</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      {/* 7. 支払管理/入金管理 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{type === "revenue" ? "入金管理（任意）" : "支払管理（任意）"}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>支払予定日</Label>
+              <Label>{type === "revenue" ? "入金期日" : "支払期日"}</Label>
               <Input
                 type="date"
                 value={paymentDueDate}
@@ -837,26 +857,34 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
               />
             </div>
             <div className="space-y-2">
-              <Label>決済手段</Label>
-              <Select
-                value={paymentMethodId}
-                onValueChange={setPaymentMethodId}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="選択してください" />
-                </SelectTrigger>
-                <SelectContent>
-                  {formData.paymentMethods.map((pm) => (
-                    <SelectItem key={pm.id} value={String(pm.id)}>
-                      {pm.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>{type === "revenue" ? "入金予定日" : "支払予定日"}</Label>
+              <Input
+                type="date"
+                value={scheduledPaymentDate}
+                onChange={(e) => setScheduledPaymentDate(e.target.value)}
+              />
             </div>
-          </CardContent>
-        </Card>
-      )}
+          </div>
+          <div className="space-y-2">
+            <Label>決済手段</Label>
+            <Select
+              value={paymentMethodId}
+              onValueChange={setPaymentMethodId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="選択してください" />
+              </SelectTrigger>
+              <SelectContent>
+                {formData.paymentMethods.map((pm) => (
+                  <SelectItem key={pm.id} value={String(pm.id)}>
+                    {pm.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* 8. メモ・証憑 */}
       <Card>

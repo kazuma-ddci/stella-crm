@@ -9,6 +9,8 @@ import { createNotification } from "@/lib/notifications/create-notification";
 import { recordChangeLog, extractChanges, pickRecordData } from "@/app/accounting/changelog/actions";
 import { TRANSACTION_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
+import { getSystemProjectContext, isTemplateContainingProject } from "@/lib/project-context";
+import type { SystemProjectCode } from "@/lib/project-context";
 
 // ============================================
 // 型定義
@@ -28,7 +30,7 @@ export type TransactionFormData = {
   costCenters: {
     id: number;
     name: string;
-    projectId: number | null;
+    projectIds: number[];
   }[];
   allocationTemplates: {
     id: number;
@@ -36,7 +38,7 @@ export type TransactionFormData = {
     lines: {
       id: number;
       costCenterId: number | null;
-      allocationRate: unknown; // Decimal
+      allocationRate: number;
       label: string | null;
       costCenter: { id: number; name: string } | null;
     }[];
@@ -179,7 +181,10 @@ function validateTransactionData(data: Record<string, unknown>) {
 // 1. createTransaction
 // ============================================
 
-export async function createTransaction(data: Record<string, unknown>) {
+export async function createTransaction(
+  data: Record<string, unknown>,
+  scope?: { projectCode: string }
+) {
   const session = await getSession();
   const staffId = session.id;
 
@@ -188,13 +193,42 @@ export async function createTransaction(data: Record<string, unknown>) {
   // 月次クローズチェック
   await checkMonthlyClose(validated.periodFrom, validated.periodTo);
 
+  // スコープ検証（STP等のプロジェクト画面からの呼び出し時）
+  let scopeProjectId: number | null = null;
+  if (scope?.projectCode) {
+    const ctx = await getSystemProjectContext(scope.projectCode as SystemProjectCode);
+    scopeProjectId = ctx.projectId;
+
+    // 按分なし: costCenterIdがスコープ内か検証
+    if (validated.costCenterId) {
+      const validCostCenterIds = ctx.costCenterIds;
+      if (!validCostCenterIds.includes(validated.costCenterId)) {
+        throw new Error("指定されたプロジェクトはこのスコープに属していません");
+      }
+    }
+
+    // 按分あり: テンプレートがスコープのCostCenterを含むか検証
+    if (validated.allocationTemplateId) {
+      const template = await prisma.allocationTemplate.findUnique({
+        where: { id: validated.allocationTemplateId },
+        include: { lines: { select: { costCenterId: true } } },
+      });
+      if (template && !isTemplateContainingProject(template, ctx.costCenterIds)) {
+        throw new Error("指定された按分テンプレートはこのスコープに含まれていません");
+      }
+    }
+  }
+
   const contractId = data.contractId ? Number(data.contractId) : null;
-  const projectId = data.projectId ? Number(data.projectId) : null;
+  const projectId = scopeProjectId ?? (data.projectId ? Number(data.projectId) : null);
   const paymentMethodId = data.paymentMethodId
     ? Number(data.paymentMethodId)
     : null;
   const paymentDueDate = data.paymentDueDate
     ? new Date(data.paymentDueDate as string)
+    : null;
+  const scheduledPaymentDate = data.scheduledPaymentDate
+    ? new Date(data.scheduledPaymentDate as string)
     : null;
   const note = data.note ? (data.note as string).trim() || null : null;
 
@@ -238,6 +272,7 @@ export async function createTransaction(data: Record<string, unknown>) {
         projectId,
         paymentMethodId,
         paymentDueDate,
+        scheduledPaymentDate,
         note,
         sourceType: "manual",
         isWithholdingTarget,
@@ -309,7 +344,8 @@ export async function createTransaction(data: Record<string, unknown>) {
 
 export async function updateTransaction(
   id: number,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  scope?: { projectCode: string }
 ) {
   const session = await getSession();
   const staffId = session.id;
@@ -329,7 +365,7 @@ export async function updateTransaction(
   const editableStatuses = ["unconfirmed", "returned"];
   if (!editableStatuses.includes(existing.status)) {
     throw new Error(
-      `ステータス「${existing.status}」の取引は編集できません（未確認または差し戻し状態の取引のみ編集可能です）`
+      `ステータス「${existing.status}」の取引は編集できません（未確定または差し戻し状態の取引のみ編集可能です）`
     );
   }
 
@@ -341,13 +377,39 @@ export async function updateTransaction(
   // 月次クローズチェック（新しい日付）
   await checkMonthlyClose(validated.periodFrom, validated.periodTo);
 
+  // スコープ検証（STP等のプロジェクト画面からの呼び出し時）
+  let scopeProjectId: number | null = null;
+  if (scope?.projectCode) {
+    const ctx = await getSystemProjectContext(scope.projectCode as SystemProjectCode);
+    scopeProjectId = ctx.projectId;
+
+    if (validated.costCenterId) {
+      if (!ctx.costCenterIds.includes(validated.costCenterId)) {
+        throw new Error("指定されたプロジェクトはこのスコープに属していません");
+      }
+    }
+
+    if (validated.allocationTemplateId) {
+      const template = await prisma.allocationTemplate.findUnique({
+        where: { id: validated.allocationTemplateId },
+        include: { lines: { select: { costCenterId: true } } },
+      });
+      if (template && !isTemplateContainingProject(template, ctx.costCenterIds)) {
+        throw new Error("指定された按分テンプレートはこのスコープに含まれていません");
+      }
+    }
+  }
+
   const contractId = data.contractId ? Number(data.contractId) : null;
-  const projectId = data.projectId ? Number(data.projectId) : null;
+  const projectId = scopeProjectId ?? (data.projectId ? Number(data.projectId) : null);
   const paymentMethodId = data.paymentMethodId
     ? Number(data.paymentMethodId)
     : null;
   const paymentDueDate = data.paymentDueDate
     ? new Date(data.paymentDueDate as string)
+    : null;
+  const scheduledPaymentDate = data.scheduledPaymentDate
+    ? new Date(data.scheduledPaymentDate as string)
     : null;
   const note = data.note ? (data.note as string).trim() || null : null;
 
@@ -394,6 +456,7 @@ export async function updateTransaction(
         projectId,
         paymentMethodId,
         paymentDueDate,
+        scheduledPaymentDate,
         note,
         isWithholdingTarget,
         withholdingTaxRate,
@@ -495,7 +558,11 @@ export async function getTransactionById(id: number) {
         },
       },
       costCenter: {
-        select: { id: true, name: true, projectId: true },
+        select: {
+          id: true,
+          name: true,
+          projectAssignments: { select: { projectId: true } },
+        },
       },
       expenseCategory: {
         select: { id: true, name: true, type: true },
@@ -525,7 +592,7 @@ export async function getTransactionById(id: number) {
 
 const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
   unconfirmed: ["confirmed"],
-  confirmed: ["awaiting_accounting", "returned"],
+  confirmed: ["awaiting_accounting", "returned", "unconfirmed"],
   awaiting_accounting: ["journalized", "returned"],
   returned: ["resubmitted"],
   resubmitted: ["awaiting_accounting"],
@@ -551,7 +618,7 @@ async function checkMonthlyClose(periodFrom: Date, periodTo: Date) {
 }
 
 // ============================================
-// 5. confirmTransaction（未確認→確認済み）
+// 5. confirmTransaction（未確定→確定済み）
 // ============================================
 
 export async function confirmTransaction(id: number) {
@@ -568,7 +635,7 @@ export async function confirmTransaction(id: number) {
 
   if (transaction.status !== "unconfirmed") {
     throw new Error(
-      `ステータス「${transaction.status}」の取引は確認できません（未確認の取引のみ確認可能です）`
+      `ステータス「${transaction.status}」の取引は確定できません（未確定の取引のみ確定可能です）`
     );
   }
 
@@ -606,7 +673,7 @@ export async function confirmTransaction(id: number) {
 }
 
 // ============================================
-// 6. returnTransaction（確認済み/経理処理待ち→差し戻し）
+// 6. returnTransaction（確定済み/経理処理待ち→差し戻し）
 // ============================================
 
 export async function returnTransaction(
@@ -761,7 +828,7 @@ export async function resubmitTransaction(id: number, body?: string) {
 }
 
 // ============================================
-// 7b. submitToAccountingTransaction（確認済み/再提出→経理処理待ち）
+// 7b. submitToAccountingTransaction（確定済み/再提出→経理処理待ち）
 // ============================================
 
 export async function submitToAccountingTransaction(id: number) {
@@ -785,7 +852,7 @@ export async function submitToAccountingTransaction(id: number) {
   // confirmed または resubmitted のみ許可
   if (transaction.status !== "confirmed" && transaction.status !== "resubmitted") {
     throw new Error(
-      `ステータス「${transaction.status}」の取引は経理へ引き渡しできません（確認済みまたは再提出の取引のみ可能です）`
+      `ステータス「${transaction.status}」の取引は経理へ引き渡しできません（確定済みまたは再提出の取引のみ可能です）`
     );
   }
 
@@ -843,6 +910,107 @@ export async function submitToAccountingTransaction(id: number) {
   });
 
   revalidatePath("/accounting/transactions");
+}
+
+// ============================================
+// 7c. unconfirmTransaction（確定済み→未確定に戻す）
+// ============================================
+
+const INVOICE_GROUP_BLOCKED = ["sent", "awaiting_accounting", "partially_paid", "paid", "corrected"];
+const PAYMENT_GROUP_BLOCKED = ["confirmed", "paid"];
+
+export async function unconfirmTransaction(id: number, reason: string) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  if (!reason?.trim()) {
+    throw new Error("未確定に戻す理由は必須です");
+  }
+
+  const transaction = await prisma.transaction.findFirst({
+    where: { id, deletedAt: null },
+    select: {
+      id: true,
+      status: true,
+      periodFrom: true,
+      periodTo: true,
+      projectId: true,
+      invoiceGroupId: true,
+      paymentGroupId: true,
+    },
+  });
+  if (!transaction) {
+    throw new Error("取引が見つかりません");
+  }
+
+  if (transaction.status !== "confirmed") {
+    throw new Error(
+      `ステータス「${transaction.status}」の取引は未確定に戻せません（確定済みの取引のみ可能です）`
+    );
+  }
+
+  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo);
+
+  // グループ紐づきチェック
+  if (transaction.invoiceGroupId) {
+    const ig = await prisma.invoiceGroup.findUnique({
+      where: { id: transaction.invoiceGroupId },
+      select: { status: true },
+    });
+    if (ig && INVOICE_GROUP_BLOCKED.includes(ig.status)) {
+      throw new Error(
+        "この取引は送付済みの請求グループに含まれているため、未確定に戻せません"
+      );
+    }
+  }
+
+  if (transaction.paymentGroupId) {
+    const pg = await prisma.paymentGroup.findUnique({
+      where: { id: transaction.paymentGroupId },
+      select: { status: true },
+    });
+    if (pg && PAYMENT_GROUP_BLOCKED.includes(pg.status)) {
+      throw new Error(
+        "この取引は確定済みの支払グループに含まれているため、未確定に戻せません"
+      );
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.transaction.update({
+      where: { id },
+      data: {
+        status: "unconfirmed",
+        confirmedBy: null,
+        confirmedAt: null,
+        updatedBy: staffId,
+      },
+    });
+
+    await tx.transactionComment.create({
+      data: {
+        transactionId: id,
+        body: reason.trim(),
+        commentType: "unconfirm",
+        createdBy: staffId,
+      },
+    });
+
+    await recordChangeLog(
+      {
+        tableName: "Transaction",
+        recordId: id,
+        changeType: "update",
+        oldData: { status: transaction.status },
+        newData: { status: "unconfirmed" },
+      },
+      staffId,
+      tx
+    );
+  });
+
+  revalidatePath("/accounting/transactions");
+  revalidatePath("/stp/finance/transactions");
 }
 
 // ============================================
@@ -924,7 +1092,7 @@ export async function getTransactions(filters?: {
     where.counterpartyId = filters.counterpartyId;
   }
 
-  return prisma.transaction.findMany({
+  const transactions = await prisma.transaction.findMany({
     where,
     include: {
       counterparty: { select: { id: true, name: true } },
@@ -936,6 +1104,16 @@ export async function getTransactions(filters?: {
     },
     orderBy: [{ periodFrom: "desc" }, { id: "desc" }],
   });
+
+  // Decimal → number, Date → string 変換（Client Componentに渡すため）
+  const formatDate = (d: Date) => d.toISOString().split("T")[0];
+  return transactions.map((t) => ({
+    ...t,
+    periodFrom: formatDate(t.periodFrom),
+    periodTo: formatDate(t.periodTo),
+    confirmedAt: t.confirmedAt ? formatDate(t.confirmedAt) : null,
+    withholdingTaxRate: t.withholdingTaxRate != null ? Number(t.withholdingTaxRate) : null,
+  }));
 }
 
 // ============================================
@@ -991,10 +1169,14 @@ export async function getTransactionFormData(): Promise<TransactionFormData> {
       orderBy: { displayOrder: "asc" },
     }),
 
-    // 按分先
+    // 経理プロジェクト
     prisma.costCenter.findMany({
       where: { deletedAt: null, isActive: true },
-      select: { id: true, name: true, projectId: true },
+      select: {
+        id: true,
+        name: true,
+        projectAssignments: { select: { projectId: true } },
+      },
       orderBy: { name: "asc" },
     }),
 
@@ -1035,14 +1217,18 @@ export async function getTransactionFormData(): Promise<TransactionFormData> {
   return {
     counterparties,
     expenseCategories,
-    costCenters,
+    costCenters: costCenters.map((c) => ({
+      id: c.id,
+      name: c.name,
+      projectIds: c.projectAssignments.map((pa) => pa.projectId),
+    })),
     allocationTemplates: allocationTemplates.map((t) => ({
       id: t.id,
       name: t.name,
       lines: t.lines.map((l) => ({
         id: l.id,
         costCenterId: l.costCenterId,
-        allocationRate: l.allocationRate,
+        allocationRate: Number(l.allocationRate),
         label: l.label,
         costCenter: l.costCenter,
       })),
