@@ -7,9 +7,6 @@ export default async function CounterpartiesPage() {
     prisma.counterparty.findMany({
       where: { deletedAt: null, mergedIntoId: null },
       orderBy: [{ name: "asc" }, { id: "asc" }],
-      include: {
-        company: { select: { id: true, name: true, companyCode: true } },
-      },
     }),
     prisma.masterStellaCompany.findMany({
       where: { deletedAt: null, mergedIntoId: null },

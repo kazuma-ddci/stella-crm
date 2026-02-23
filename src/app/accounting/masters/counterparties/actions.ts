@@ -6,19 +6,36 @@ import { getSession } from "@/lib/auth";
 
 const VALID_TYPES = ["customer", "vendor", "service", "other"] as const;
 
-// 類似名称チェック（前方一致・部分一致）
+// 正規化比較用（設計書5.7: 全角/半角、カタカナ/ひらがな等の正規化後マッチング）
+function normalizeCounterpartyName(name: string): string {
+  let normalized = name;
+  // スペース除去（全角・半角）
+  normalized = normalized.replace(/[\s\u3000]+/g, "");
+  // 全角英数字を半角に変換
+  normalized = normalized.replace(/[Ａ-Ｚａ-ｚ０-９]/g, (s) =>
+    String.fromCharCode(s.charCodeAt(0) - 0xfee0)
+  );
+  // カタカナをひらがなに変換（ァ-ヶ → ぁ-ゖ）
+  normalized = normalized.replace(/[\u30A1-\u30F6]/g, (s) =>
+    String.fromCharCode(s.charCodeAt(0) - 0x60)
+  );
+  // 小文字化
+  normalized = normalized.toLowerCase();
+  return normalized;
+}
+
+// 類似名称チェック（部分一致・正規化比較 — 設計書5.7）
 export async function checkSimilarCounterparties(name: string) {
   const trimmed = name.trim();
   if (!trimmed) return [];
 
-  const candidates = await prisma.counterparty.findMany({
+  const normalizedInput = normalizeCounterpartyName(trimmed);
+
+  // 全取引先を取得して正規化比較（DBレベルの正規化が難しいため）
+  const allCounterparties = await prisma.counterparty.findMany({
     where: {
       deletedAt: null,
       mergedIntoId: null,
-      OR: [
-        { name: { startsWith: trimmed } },
-        { name: { contains: trimmed } },
-      ],
     },
     select: {
       id: true,
@@ -27,10 +44,17 @@ export async function checkSimilarCounterparties(name: string) {
       isActive: true,
       company: { select: { id: true, name: true } },
     },
-    take: 10,
   });
 
-  return candidates;
+  const candidates = allCounterparties.filter((cp) => {
+    const normalizedExisting = normalizeCounterpartyName(cp.name);
+    return (
+      normalizedExisting.includes(normalizedInput) ||
+      normalizedInput.includes(normalizedExisting)
+    );
+  });
+
+  return candidates.slice(0, 10);
 }
 
 // 新規作成

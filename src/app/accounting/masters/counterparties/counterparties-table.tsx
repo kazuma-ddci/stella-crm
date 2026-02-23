@@ -40,6 +40,16 @@ type SimilarCandidate = {
   company: { id: number; name: string } | null;
 };
 
+type SimilarDialogState = {
+  open: boolean;
+  candidates: SimilarCandidate[];
+  pendingData: Record<string, unknown> | null;
+  promiseHandlers: {
+    resolve: () => void;
+    reject: (error: Error) => void;
+  } | null;
+};
+
 type Props = {
   data: Record<string, unknown>[];
   companyOptions: CompanyOption[];
@@ -47,11 +57,13 @@ type Props = {
 
 export function CounterpartiesTable({ data, companyOptions }: Props) {
   const [isPending, startTransition] = useTransition();
-  const [similarDialog, setSimilarDialog] = useState<{
-    open: boolean;
-    candidates: SimilarCandidate[];
-    pendingData: Record<string, unknown> | null;
-  }>({ open: false, candidates: [], pendingData: null });
+  const [isCreating, setIsCreating] = useState(false);
+  const [similarDialog, setSimilarDialog] = useState<SimilarDialogState>({
+    open: false,
+    candidates: [],
+    pendingData: null,
+    promiseHandlers: null,
+  });
 
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
@@ -99,7 +111,7 @@ export function CounterpartiesTable({ data, companyOptions }: Props) {
     },
   };
 
-  // 類似名称チェック付き作成
+  // 類似名称チェック付き作成（Promise保留でCrudTable連携 — Issue 3修正）
   const handleAdd = async (formData: Record<string, unknown>) => {
     const name = (formData.name as string)?.trim();
     if (!name) {
@@ -108,35 +120,56 @@ export function CounterpartiesTable({ data, companyOptions }: Props) {
 
     // 類似名称チェック
     const candidates = await checkSimilarCounterparties(name);
-    if (candidates.length > 0) {
-      // 類似候補がある場合はダイアログ表示
+    if (candidates.length === 0) {
+      // 類似なし → そのまま作成
+      await createCounterparty(formData);
+      return;
+    }
+
+    // 類似候補がある場合はPromiseを保留してユーザーの判断を待つ
+    return new Promise<void>((resolve, reject) => {
       setSimilarDialog({
         open: true,
         candidates,
         pendingData: formData,
+        promiseHandlers: { resolve, reject },
       });
-      return;
-    }
-
-    // 類似なし → そのまま作成
-    await createCounterparty(formData);
+    });
   };
 
   // 類似候補確認後に新規作成
-  const handleConfirmCreate = () => {
-    if (!similarDialog.pendingData) return;
+  const handleConfirmCreate = async () => {
+    if (!similarDialog.pendingData || !similarDialog.promiseHandlers) return;
+    const { resolve, reject } = similarDialog.promiseHandlers;
+    const pendingData = similarDialog.pendingData;
 
-    startTransition(async () => {
-      try {
-        await createCounterparty(similarDialog.pendingData!);
-        toast.success("取引先を作成しました");
-        setSimilarDialog({ open: false, candidates: [], pendingData: null });
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "作成に失敗しました"
-        );
-      }
-    });
+    setIsCreating(true);
+    try {
+      await createCounterparty(pendingData);
+      setSimilarDialog({ open: false, candidates: [], pendingData: null, promiseHandlers: null });
+      resolve();
+    } catch (error) {
+      setSimilarDialog({ open: false, candidates: [], pendingData: null, promiseHandlers: null });
+      reject(error instanceof Error ? error : new Error("作成に失敗しました"));
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  // 既存の取引先を選択（設計書5.7: 「既存を選択」オプション — Issue 2修正）
+  const handleSelectExisting = (candidate: SimilarCandidate) => {
+    if (!similarDialog.promiseHandlers) return;
+    const { reject } = similarDialog.promiseHandlers;
+    setSimilarDialog({ open: false, candidates: [], pendingData: null, promiseHandlers: null });
+    reject(new Error(`既存の取引先「${candidate.name}」を選択しました`));
+  };
+
+  // キャンセル（ダイアログを閉じてフォームに戻る）
+  const handleCancelSimilar = () => {
+    if (!similarDialog.promiseHandlers) return;
+    const { reject } = similarDialog.promiseHandlers;
+    setSimilarDialog({ open: false, candidates: [], pendingData: null, promiseHandlers: null });
+    reject(new Error("類似する取引先があります。名称を変更して再試行してください。"));
   };
 
   // 同期ボタン
@@ -184,12 +217,8 @@ export function CounterpartiesTable({ data, companyOptions }: Props) {
       <Dialog
         open={similarDialog.open}
         onOpenChange={(open) => {
-          if (!open) {
-            setSimilarDialog({
-              open: false,
-              candidates: [],
-              pendingData: null,
-            });
+          if (!open && similarDialog.promiseHandlers && !isCreating) {
+            handleCancelSimilar();
           }
         }}
       >
@@ -197,7 +226,7 @@ export function CounterpartiesTable({ data, companyOptions }: Props) {
           <DialogHeader>
             <DialogTitle>類似する取引先が見つかりました</DialogTitle>
             <DialogDescription>
-              入力した名称に類似する取引先が既に登録されています。新規作成しますか？
+              入力した名称に類似する取引先が既に登録されています。既存の取引先を選択するか、新規作成してください。
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 max-h-60 overflow-y-auto">
@@ -216,23 +245,26 @@ export function CounterpartiesTable({ data, companyOptions }: Props) {
                     {!candidate.isActive && " (無効)"}
                   </div>
                 </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleSelectExisting(candidate)}
+                  disabled={isCreating}
+                >
+                  選択
+                </Button>
               </div>
             ))}
           </div>
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() =>
-                setSimilarDialog({
-                  open: false,
-                  candidates: [],
-                  pendingData: null,
-                })
-              }
+              onClick={handleCancelSimilar}
+              disabled={isCreating}
             >
               キャンセル
             </Button>
-            <Button onClick={handleConfirmCreate} disabled={isPending}>
+            <Button onClick={handleConfirmCreate} disabled={isCreating}>
               新規作成する
             </Button>
           </DialogFooter>

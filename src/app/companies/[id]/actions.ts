@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { validateCorporateNumber } from "@/lib/utils";
 import { getRelatedDataCounts } from "@/lib/company/get-related-data-counts";
 import type { CompanyRelatedData } from "@/types/company-merge";
+import { getSession } from "@/lib/auth";
 
 export async function deleteCompany(id: number) {
   await prisma.masterStellaCompany.update({
@@ -70,6 +71,21 @@ export async function updateCompany(
       data: updateData,
     });
   }
+
+  // 設計書8.6: 名称変更時、紐づくCounterpartyの名称も同期更新
+  if ("name" in data && data.name) {
+    try {
+      const session = await getSession();
+      await prisma.counterparty.updateMany({
+        where: { companyId: id, deletedAt: null, mergedIntoId: null },
+        data: { name: data.name, updatedBy: session.id },
+      });
+      revalidatePath("/accounting/masters/counterparties");
+    } catch {
+      // 同期失敗時は無視
+    }
+  }
+
   revalidatePath("/companies");
   revalidatePath(`/companies/${id}`);
 }
