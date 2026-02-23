@@ -748,7 +748,7 @@ export function StpCompaniesTable({
     {
       icon: <DollarSign className="h-4 w-4" />,
       label: "収支サマリー",
-      onClick: (item) => router.push(`/stp/finance/company-summary/${item.id}`),
+      onClick: (item) => router.push(`/stp/finance/overview`),
     },
     {
       icon: <History className="h-4 w-4" />,

@@ -165,9 +165,8 @@ export async function updateContractHistory(
 
     revalidatePath("/stp/companies");
     revalidatePath("/companies");
-    revalidatePath("/stp/finance");
-    revalidatePath("/stp/finance/revenue");
-    revalidatePath("/stp/finance/expenses");
+    revalidatePath("/stp/finance/overview");
+    revalidatePath("/stp/finance/transactions");
     return { success: true, affectedFinanceCount };
   } catch (error) {
     console.error("契約履歴更新エラー:", error);

@@ -391,7 +391,7 @@
   - Server Actions: detectDuplicates, mergeCounterparties
   **参照**: 要望書 2.8.2, 設計書 5.7
 
-- [ ] TASK-032: 既存STPデータの移行スクリプト
+- [x] TASK-032: 既存STPデータの移行スクリプト
   **対象**: 設計書 7.4
   **作業内容**:
   - StpRevenueRecord → Transaction 移行

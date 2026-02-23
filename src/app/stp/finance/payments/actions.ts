@@ -117,9 +117,8 @@ export async function allocatePayment(
   }
 
   revalidatePath("/stp/finance/payments");
-  revalidatePath("/stp/finance/revenue");
-  revalidatePath("/stp/finance/expenses");
-  revalidatePath("/stp/finance");
+  revalidatePath("/stp/finance/transactions");
+  revalidatePath("/stp/finance/overview");
 }
 
 export async function removeAllocation(allocationId: number) {
@@ -138,7 +137,6 @@ export async function removeAllocation(allocationId: number) {
     await recalcRecordPaymentStatus("expense", alloc.expenseRecordId);
 
   revalidatePath("/stp/finance/payments");
-  revalidatePath("/stp/finance/revenue");
-  revalidatePath("/stp/finance/expenses");
-  revalidatePath("/stp/finance");
+  revalidatePath("/stp/finance/transactions");
+  revalidatePath("/stp/finance/overview");
 }

@@ -192,8 +192,8 @@ export async function updateAgentContractHistory(
     const affectedFinanceCount = await markExpenseRecordsForAgentChange(id);
 
     revalidatePath("/stp/agents");
-    revalidatePath("/stp/finance/expenses");
-    revalidatePath("/stp/finance");
+    revalidatePath("/stp/finance/transactions");
+    revalidatePath("/stp/finance/overview");
     return { success: true, affectedFinanceCount };
   } catch (error) {
     console.error("代理店契約履歴更新エラー:", error);
@@ -306,8 +306,8 @@ export async function updateCommissionOverride(
     const affectedFinanceCount = await markExpenseRecordsForAgentChange(override.agentContractHistoryId);
 
     revalidatePath("/stp/agents");
-    revalidatePath("/stp/finance/expenses");
-    revalidatePath("/stp/finance");
+    revalidatePath("/stp/finance/transactions");
+    revalidatePath("/stp/finance/overview");
     return { success: true, affectedFinanceCount };
   } catch (error) {
     console.error("報酬例外更新エラー:", error);
