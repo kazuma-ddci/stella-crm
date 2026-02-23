@@ -53,7 +53,7 @@
   - Server Actions: createCounterparty, updateCounterparty, syncCounterparties
   **参照**: 要望書 2.8, 設計書 5.7
 
-- [ ] TASK-005: 決済手段マスタ管理画面
+- [!] TASK-005: 決済手段マスタ管理画面
   **対象**: 設計書 ⑱ PaymentMethod テーブル
   **ページ**: /accounting/masters/payment-methods
   **作業内容**:
