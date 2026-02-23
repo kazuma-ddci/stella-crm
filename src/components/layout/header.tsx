@@ -1,4 +1,5 @@
 import { UserMenu } from "./user-menu";
+import { NotificationBell } from "./notification-bell";
 import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { SessionUser } from "@/types/auth";
@@ -43,7 +44,8 @@ export function Header({
           )}
         </Button>
       </div>
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-1">
+        <NotificationBell />
         <UserMenu user={user} />
       </div>
     </header>

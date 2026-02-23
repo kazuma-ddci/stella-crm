@@ -40,6 +40,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   BookOpen,
+  Bell,
 } from "lucide-react";
 import { canView } from "@/lib/auth/permissions";
 import type { SessionUser } from "@/types/auth";
@@ -117,6 +118,7 @@ const navigation: NavItem[] = [
     icon: Building2,
     children: [
       { name: "ダッシュボード", href: "/", icon: Home },
+      { name: "通知", href: "/notifications", icon: Bell },
       { name: "Stella全顧客マスタ", href: "/companies", icon: Building2, requireAnyEdit: true },
       { name: "スタッフ管理", href: "/staff", icon: Users, requireAnyEdit: true },
     ],

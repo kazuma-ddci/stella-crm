@@ -308,7 +308,7 @@
   - Server Actions: getCashflowForecast
   **参照**: 要望書 3.8
 
-- [ ] TASK-025: コメント・差し戻し機能
+- [x] TASK-025: コメント・差し戻し機能
   **対象**: 設計書 ㉘ TransactionComment + 設計書 5.8
   **作業内容**:
   - コメント投稿（取引/請求グループ/支払グループに対して）

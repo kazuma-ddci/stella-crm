@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { Prisma } from "@prisma/client";
+import { createNotificationBulk } from "@/lib/notifications/create-notification";
 
 const REVALIDATE_PATH = "/accounting/transactions";
 
@@ -291,13 +292,21 @@ export async function checkAndTransitionToAwaitingAccounting(transactionId: numb
   }
 }
 
+// ===== 按分確定依頼の通知対象情報 =====
+export type AllocationNotificationInfo = {
+  recipientIds: number[];
+  senderId: number;
+  transactionId: number;
+};
+
 // ===== 取引作成時の自動按分確定（作成者プロジェクトのコストセンター） =====
+// 戻り値: 他プロジェクトへの通知対象情報（トランザクション完了後に通知送信用）
 export async function autoConfirmCreatorAllocations(
   transactionId: number,
   projectId: number | null,
   staffId: number,
   tx: Prisma.TransactionClient
-) {
+): Promise<AllocationNotificationInfo | null> {
   const transaction = await tx.transaction.findFirst({
     where: { id: transactionId },
     include: {
@@ -313,7 +322,7 @@ export async function autoConfirmCreatorAllocations(
     },
   });
 
-  if (!transaction?.allocationTemplate) return;
+  if (!transaction?.allocationTemplate) return null;
 
   // 作成者のプロジェクトに紐づくコストセンターを見つける
   const creatorCostCenterLines = transaction.allocationTemplate.lines.filter(
@@ -335,7 +344,57 @@ export async function autoConfirmCreatorAllocations(
     });
   }
 
-  // TODO: 通知基盤(create-notification.ts - 設計書8.5)作成後に、
-  // 自動確定されなかったコストセンター（他プロジェクト）に対して
-  // 按分確定依頼の通知を送信する（設計書5.4「他プロジェクト → 通知 → 確認・確定」）
+  // 自動確定されなかったコストセンター（他プロジェクト）に対して按分確定依頼の通知対象を収集
+  const unconfirmedLines = transaction.allocationTemplate.lines.filter(
+    (l) =>
+      l.costCenterId !== null &&
+      l.costCenter &&
+      (l.costCenter.projectId !== projectId || projectId === null)
+  );
+
+  if (unconfirmedLines.length === 0) return null;
+
+  // 他プロジェクトIDを一意に取得
+  const otherProjectIds = [
+    ...new Set(
+      unconfirmedLines
+        .map((l) => l.costCenter!.projectId)
+        .filter((pid): pid is number => pid !== null)
+    ),
+  ];
+
+  if (otherProjectIds.length === 0) return null;
+
+  // 各プロジェクトのedit以上の権限を持つスタッフを取得
+  const permissions = await tx.staffPermission.findMany({
+    where: {
+      projectId: { in: otherProjectIds },
+      permissionLevel: { in: ["edit", "admin"] },
+      staffId: { not: staffId },
+    },
+    select: { staffId: true },
+  });
+
+  const recipientIds = [...new Set(permissions.map((p) => p.staffId))];
+
+  if (recipientIds.length === 0) return null;
+
+  return { recipientIds, senderId: staffId, transactionId };
+}
+
+/**
+ * 按分確定依頼の通知を送信する。
+ * autoConfirmCreatorAllocations のトランザクション完了後に呼び出す。
+ */
+export async function sendAllocationNotifications(
+  info: AllocationNotificationInfo
+): Promise<void> {
+  await createNotificationBulk(info.recipientIds, {
+    senderType: "staff",
+    senderId: info.senderId,
+    category: "accounting",
+    title: "按分確定依頼",
+    message: `取引ID: ${info.transactionId} の按分確定を依頼されています。ご確認ください。`,
+    linkUrl: "/accounting/transactions",
+  });
 }

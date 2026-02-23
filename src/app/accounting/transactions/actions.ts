@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { autoConfirmCreatorAllocations, checkAndTransitionToAwaitingAccounting } from "./allocation-actions";
+import { autoConfirmCreatorAllocations, checkAndTransitionToAwaitingAccounting, sendAllocationNotifications } from "./allocation-actions";
+import type { AllocationNotificationInfo } from "./allocation-actions";
+import { createNotification } from "@/lib/notifications/create-notification";
 
 // ============================================
 // 型定義
@@ -256,8 +258,9 @@ export async function createTransaction(data: Record<string, unknown>) {
     }
 
     // 按分テンプレート使用時: 作成者プロジェクトのコストセンターを自動確定
+    let notificationInfo: AllocationNotificationInfo | null = null;
     if (transaction.allocationTemplateId) {
-      await autoConfirmCreatorAllocations(
+      notificationInfo = await autoConfirmCreatorAllocations(
         transaction.id,
         projectId,
         staffId,
@@ -265,13 +268,18 @@ export async function createTransaction(data: Record<string, unknown>) {
       );
     }
 
-    return transaction;
+    return { transaction, notificationInfo };
   });
+
+  // トランザクション完了後に按分確定依頼の通知を送信
+  if (result.notificationInfo) {
+    await sendAllocationNotifications(result.notificationInfo);
+  }
 
   revalidatePath("/accounting/transactions");
   revalidatePath("/accounting/dashboard");
 
-  return { id: result.id };
+  return { id: result.transaction.id };
 }
 
 // ============================================
@@ -583,7 +591,7 @@ export async function returnTransaction(
 
   const transaction = await prisma.transaction.findFirst({
     where: { id, deletedAt: null },
-    select: { id: true, status: true, periodFrom: true, periodTo: true, projectId: true },
+    select: { id: true, status: true, periodFrom: true, periodTo: true, projectId: true, createdBy: true },
   });
   if (!transaction) {
     throw new Error("取引が見つかりません");
@@ -617,6 +625,19 @@ export async function returnTransaction(
       },
     });
   });
+
+  // 差し戻し通知を作成者に送信
+  if (transaction.createdBy && transaction.createdBy !== staffId) {
+    await createNotification({
+      recipientId: transaction.createdBy,
+      senderType: "staff",
+      senderId: staffId,
+      category: "accounting",
+      title: "取引が差し戻されました",
+      message: data.body.trim(),
+      linkUrl: `/accounting/transactions`,
+    });
+  }
 
   revalidatePath("/accounting/transactions");
 }
