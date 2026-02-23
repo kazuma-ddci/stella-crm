@@ -236,10 +236,23 @@ export function ReconciliationModal({
         }));
       } else if (differenceType === "partial_payment") {
         data.differenceType = "partial_payment";
+      } else if (differenceType === "manual") {
+        data.differenceType = "manual";
       }
 
       await createReconciliation(data);
-      toast.success("消込を実行しました");
+
+      if (differenceType === "manual") {
+        toast.success("消込を実行しました", {
+          description: "差額の仕訳を手動で作成してください",
+          action: {
+            label: "仕訳画面へ",
+            onClick: () => window.open("/accounting/journal", "_blank"),
+          },
+        });
+      } else {
+        toast.success("消込を実行しました");
+      }
 
       // ルール追加提案
       if (

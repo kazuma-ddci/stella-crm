@@ -1,8 +1,20 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+
+// Prisma transaction client type
+type TxClient = Omit<
+  PrismaClient,
+  | "$connect"
+  | "$disconnect"
+  | "$on"
+  | "$transaction"
+  | "$use"
+  | "$extends"
+>;
 
 // ============================================
 // 型定義
@@ -44,7 +56,11 @@ export type UnmatchedJournalEntry = {
   }[];
   invoiceGroup: { id: number; invoiceNumber: string | null } | null;
   paymentGroup: { id: number; targetMonth: Date } | null;
-  transaction: { id: number; type: string; counterparty: { name: string } | null } | null;
+  transaction: {
+    id: number;
+    type: string;
+    counterparty: { name: string } | null;
+  } | null;
   reconciledAmount: number; // 既消込金額
 };
 
@@ -151,6 +167,236 @@ function validateReconciliationData(data: Record<string, unknown>) {
     differenceType: differenceType as DifferenceType | undefined,
     differenceLines,
   };
+}
+
+// ============================================
+// ヘルパー: 月次クローズチェック（P3）
+// ============================================
+
+async function checkMonthlyCloseForReconciliation(
+  journalDate: Date,
+  bankTransactionDate: Date,
+  refs: {
+    transactionId: number | null;
+    invoiceGroupId: number | null;
+    paymentGroupId: number | null;
+  }
+) {
+  // JournalEntry経由で関連するTransactionのprojectIdを取得
+  let projectId: number | null = null;
+
+  if (refs.transactionId) {
+    const txn = await prisma.transaction.findUnique({
+      where: { id: refs.transactionId },
+      select: { projectId: true },
+    });
+    projectId = txn?.projectId ?? null;
+  }
+
+  if (!projectId && refs.invoiceGroupId) {
+    const txn = await prisma.transaction.findFirst({
+      where: {
+        invoiceGroupId: refs.invoiceGroupId,
+        deletedAt: null,
+      },
+      select: { projectId: true },
+    });
+    projectId = txn?.projectId ?? null;
+  }
+
+  if (!projectId && refs.paymentGroupId) {
+    const txn = await prisma.transaction.findFirst({
+      where: {
+        paymentGroupId: refs.paymentGroupId,
+        deletedAt: null,
+      },
+      select: { projectId: true },
+    });
+    projectId = txn?.projectId ?? null;
+  }
+
+  // プロジェクトが特定できない場合はスキップ（既存パターンに準拠）
+  if (!projectId) return;
+
+  // 仕訳日と入出金日の両方の月をチェック
+  const jMonth = new Date(
+    journalDate.getFullYear(),
+    journalDate.getMonth(),
+    1
+  );
+  const btMonth = new Date(
+    bankTransactionDate.getFullYear(),
+    bankTransactionDate.getMonth(),
+    1
+  );
+
+  const monthsToCheck = [jMonth];
+  if (jMonth.getTime() !== btMonth.getTime()) {
+    monthsToCheck.push(btMonth);
+  }
+
+  const closeRecords = await prisma.accountingMonthlyClose.findMany({
+    where: {
+      projectId,
+      targetMonth: { in: monthsToCheck },
+      status: { in: ["project_closed", "accounting_closed"] },
+    },
+    select: { targetMonth: true },
+  });
+
+  if (closeRecords.length > 0) {
+    const closedMonths = closeRecords.map((r) => {
+      const y = r.targetMonth.getFullYear();
+      const m = String(r.targetMonth.getMonth() + 1).padStart(2, "0");
+      return `${y}-${m}`;
+    });
+    throw new Error(
+      `月次クローズ済みの月（${closedMonths.join(", ")}）が含まれているため、消込できません`
+    );
+  }
+}
+
+// ============================================
+// ヘルパー: 決済手段に対応する勘定科目を取得（P1）
+// ============================================
+
+const METHOD_TYPE_ACCOUNT_PATTERNS: Record<string, string[]> = {
+  bank_account: ["普通預金", "当座預金"],
+  cash: ["現金", "小口現金"],
+  credit_card: ["未払金"],
+  crypto_wallet: ["仮想通貨"],
+};
+
+async function findAccountByMethodType(
+  tx: TxClient,
+  methodType: string
+): Promise<{ id: number; code: string; name: string } | null> {
+  const patterns = METHOD_TYPE_ACCOUNT_PATTERNS[methodType];
+  if (!patterns) return null;
+
+  for (const pattern of patterns) {
+    const account = await tx.account.findFirst({
+      where: { name: { contains: pattern }, isActive: true },
+      select: { id: true, code: true, name: true },
+    });
+    if (account) return account;
+  }
+
+  return null;
+}
+
+// ============================================
+// ヘルパー: Transaction.statusの更新（P2）
+// ============================================
+
+async function updateRelatedTransactionStatus(
+  tx: TxClient,
+  refs: {
+    transactionId: number | null;
+    invoiceGroupId: number | null;
+    paymentGroupId: number | null;
+  }
+) {
+  // 関連するTransactionのIDを収集
+  const transactionIds: number[] = [];
+
+  if (refs.transactionId) {
+    transactionIds.push(refs.transactionId);
+  }
+
+  if (refs.invoiceGroupId) {
+    const txns = await tx.transaction.findMany({
+      where: {
+        invoiceGroupId: refs.invoiceGroupId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    txns.forEach((t) => transactionIds.push(t.id));
+  }
+
+  if (refs.paymentGroupId) {
+    const txns = await tx.transaction.findMany({
+      where: {
+        paymentGroupId: refs.paymentGroupId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    txns.forEach((t) => transactionIds.push(t.id));
+  }
+
+  // 重複除去
+  const uniqueIds = [...new Set(transactionIds)];
+
+  for (const txnId of uniqueIds) {
+    const transaction = await tx.transaction.findUnique({
+      where: { id: txnId },
+      select: {
+        id: true,
+        status: true,
+        amount: true,
+        taxAmount: true,
+        invoiceGroupId: true,
+        paymentGroupId: true,
+      },
+    });
+
+    if (!transaction) continue;
+    // 消込ステータス遷移の対象: journalized, partially_paid, paid のみ
+    if (
+      !["journalized", "partially_paid", "paid"].includes(transaction.status)
+    ) {
+      continue;
+    }
+
+    // この取引に紐づく全仕訳の消込合計を計算
+    const journalWhere: {
+      transactionId?: number;
+      invoiceGroupId?: number;
+      paymentGroupId?: number;
+    }[] = [{ transactionId: transaction.id }];
+
+    if (transaction.invoiceGroupId) {
+      journalWhere.push({ invoiceGroupId: transaction.invoiceGroupId });
+    }
+    if (transaction.paymentGroupId) {
+      journalWhere.push({ paymentGroupId: transaction.paymentGroupId });
+    }
+
+    const relatedJournals = await tx.journalEntry.findMany({
+      where: {
+        deletedAt: null,
+        OR: journalWhere,
+      },
+      include: { reconciliations: { select: { amount: true } } },
+    });
+
+    const totalReconciled = relatedJournals.reduce(
+      (sum, je) =>
+        sum + je.reconciliations.reduce((s, r) => s + r.amount, 0),
+      0
+    );
+
+    const transactionTotal = transaction.amount + transaction.taxAmount;
+
+    // 消込状況に基づくステータス決定
+    let correctStatus: string;
+    if (totalReconciled >= transactionTotal) {
+      correctStatus = "paid";
+    } else if (totalReconciled > 0) {
+      correctStatus = "partially_paid";
+    } else {
+      correctStatus = "journalized";
+    }
+
+    if (correctStatus !== transaction.status) {
+      await tx.transaction.update({
+        where: { id: transaction.id },
+        data: { status: correctStatus },
+      });
+    }
+  }
 }
 
 // ============================================
@@ -366,11 +612,12 @@ export async function createReconciliation(data: Record<string, unknown>) {
     );
   }
 
-  // 入出金の存在チェック
+  // 入出金の存在チェック（paymentMethodを含む）
   const bankTransaction = await prisma.bankTransaction.findFirst({
     where: { id: validated.bankTransactionId, deletedAt: null },
     include: {
       reconciliations: { select: { amount: true } },
+      paymentMethod: { select: { id: true, methodType: true } },
     },
   });
   if (!bankTransaction) {
@@ -391,7 +638,18 @@ export async function createReconciliation(data: Record<string, unknown>) {
     );
   }
 
-  // トランザクションで消込＋差額仕訳を作成
+  // P3: 月次クローズチェック
+  await checkMonthlyCloseForReconciliation(
+    journalEntry.journalDate,
+    bankTransaction.transactionDate,
+    {
+      transactionId: journalEntry.transactionId,
+      invoiceGroupId: journalEntry.invoiceGroupId,
+      paymentGroupId: journalEntry.paymentGroupId,
+    }
+  );
+
+  // トランザクションで消込＋入金仕訳＋差額仕訳を作成
   const result = await prisma.$transaction(async (tx) => {
     // 消込レコード作成
     const reconciliation = await tx.reconciliation.create({
@@ -403,6 +661,70 @@ export async function createReconciliation(data: Record<string, unknown>) {
       },
     });
 
+    // P1: 入金/支払仕訳の自動生成
+    // 決済手段に対応する勘定科目を取得
+    const paymentAccount = await findAccountByMethodType(
+      tx as unknown as TxClient,
+      bankTransaction.paymentMethod.methodType
+    );
+
+    if (paymentAccount) {
+      const isIncoming = bankTransaction.direction === "incoming";
+
+      // 対応する相手勘定を元仕訳から取得
+      // 入金: 元仕訳の借方（売掛金等）が相手勘定
+      // 出金: 元仕訳の貸方（買掛金等）が相手勘定
+      const targetSide = isIncoming ? "debit" : "credit";
+      const counterpartLines = journalEntry.lines
+        .filter((l) => l.side === targetSide)
+        .sort((a, b) => b.amount - a.amount);
+
+      if (counterpartLines.length > 0) {
+        const counterpartAccountId = counterpartLines[0].accountId;
+
+        const cashDescription = isIncoming
+          ? `入金仕訳（消込#${reconciliation.id}自動生成）`
+          : `支払仕訳（消込#${reconciliation.id}自動生成）`;
+
+        const cashJournal = await tx.journalEntry.create({
+          data: {
+            journalDate: bankTransaction.transactionDate,
+            description: cashDescription,
+            isAutoGenerated: true,
+            status: "confirmed",
+            approvedBy: staffId,
+            approvedAt: new Date(),
+            createdBy: staffId,
+          },
+        });
+
+        await tx.journalEntryLine.createMany({
+          data: [
+            {
+              journalEntryId: cashJournal.id,
+              side: "debit",
+              accountId: isIncoming
+                ? paymentAccount.id
+                : counterpartAccountId,
+              amount: validated.amount,
+              description: null,
+              createdBy: staffId,
+            },
+            {
+              journalEntryId: cashJournal.id,
+              side: "credit",
+              accountId: isIncoming
+                ? counterpartAccountId
+                : paymentAccount.id,
+              amount: validated.amount,
+              description: null,
+              createdBy: staffId,
+            },
+          ],
+        });
+      }
+    }
+
     // 差額仕訳の自動生成（振込手数料・値引きの場合）
     if (
       validated.differenceType &&
@@ -413,8 +735,8 @@ export async function createReconciliation(data: Record<string, unknown>) {
     ) {
       const diffDescription =
         validated.differenceType === "transfer_fee"
-          ? "振込手数料（消込差額）"
-          : "値引き（消込差額）";
+          ? `振込手数料（消込#${reconciliation.id}差額）`
+          : `値引き（消込#${reconciliation.id}差額）`;
 
       const diffJournal = await tx.journalEntry.create({
         data: {
@@ -440,12 +762,20 @@ export async function createReconciliation(data: Record<string, unknown>) {
       });
     }
 
+    // P2: Transaction.statusの更新
+    await updateRelatedTransactionStatus(tx as unknown as TxClient, {
+      transactionId: journalEntry.transactionId,
+      invoiceGroupId: journalEntry.invoiceGroupId,
+      paymentGroupId: journalEntry.paymentGroupId,
+    });
+
     return reconciliation;
   });
 
   revalidatePath("/accounting/reconciliation");
   revalidatePath("/accounting/bank-transactions");
   revalidatePath("/accounting/journal");
+  revalidatePath("/accounting/transactions");
   return { id: result.id };
 }
 
@@ -458,17 +788,72 @@ export async function cancelReconciliation(id: number) {
 
   const reconciliation = await prisma.reconciliation.findUnique({
     where: { id },
+    include: {
+      journalEntry: {
+        select: {
+          id: true,
+          journalDate: true,
+          transactionId: true,
+          invoiceGroupId: true,
+          paymentGroupId: true,
+        },
+      },
+      bankTransaction: {
+        select: {
+          id: true,
+          transactionDate: true,
+        },
+      },
+    },
   });
   if (!reconciliation) {
     throw new Error("消込が見つかりません");
   }
 
-  // 物理削除（Reconciliationはイベントログ的性質、取り消しは削除→再作成）
-  await prisma.reconciliation.delete({
-    where: { id },
+  // P3: 月次クローズチェック
+  await checkMonthlyCloseForReconciliation(
+    reconciliation.journalEntry.journalDate,
+    reconciliation.bankTransaction.transactionDate,
+    {
+      transactionId: reconciliation.journalEntry.transactionId,
+      invoiceGroupId: reconciliation.journalEntry.invoiceGroupId,
+      paymentGroupId: reconciliation.journalEntry.paymentGroupId,
+    }
+  );
+
+  await prisma.$transaction(async (tx) => {
+    // Minor: 消込に紐づく自動生成仕訳（入金仕訳・差額仕訳）を論理削除
+    const autoJournals = await tx.journalEntry.findMany({
+      where: {
+        isAutoGenerated: true,
+        deletedAt: null,
+        description: { contains: `消込#${id}` },
+      },
+      select: { id: true },
+    });
+
+    for (const journal of autoJournals) {
+      await tx.journalEntry.update({
+        where: { id: journal.id },
+        data: { deletedAt: new Date() },
+      });
+    }
+
+    // 消込レコード削除（物理削除）
+    await tx.reconciliation.delete({
+      where: { id },
+    });
+
+    // P2: Transaction.statusの更新（消込取り消しによるリバート）
+    await updateRelatedTransactionStatus(tx as unknown as TxClient, {
+      transactionId: reconciliation.journalEntry.transactionId,
+      invoiceGroupId: reconciliation.journalEntry.invoiceGroupId,
+      paymentGroupId: reconciliation.journalEntry.paymentGroupId,
+    });
   });
 
   revalidatePath("/accounting/reconciliation");
   revalidatePath("/accounting/bank-transactions");
   revalidatePath("/accounting/journal");
+  revalidatePath("/accounting/transactions");
 }
