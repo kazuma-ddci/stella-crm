@@ -237,8 +237,8 @@ export async function updateInvoiceGroup(
   });
   if (!group) throw new Error("請求グループが見つかりません");
 
-  // 送付済み以降は編集不可
-  if (["sent", "awaiting_accounting", "partially_paid", "paid", "corrected"].includes(group.status)) {
+  // 送付済み以降・返送は編集不可（returnedはdraftに戻してから編集）
+  if (["sent", "awaiting_accounting", "partially_paid", "paid", "corrected", "returned"].includes(group.status)) {
     throw new Error("このステータスでは編集できません");
   }
 
@@ -260,8 +260,8 @@ export async function updateInvoiceGroup(
   if ("taxAmount" in data) updateData.taxAmount = data.taxAmount;
   if ("totalAmount" in data) updateData.totalAmount = data.totalAmount;
 
-  // pdf_created状態で明細が変更された場合、PDFを無効化
-  if (group.status === "pdf_created" && group.pdfPath) {
+  // pdf_created状態で情報が変更された場合、ステータスをdraftに戻す
+  if (group.status === "pdf_created") {
     updateData.pdfPath = null;
     updateData.pdfFileName = null;
     updateData.status = "draft";
@@ -378,9 +378,9 @@ export async function removeTransactionFromGroup(
   }
 
   await prisma.$transaction(async (tx) => {
-    // 取引のグループ紐付けを解除
+    // 取引のグループ紐付けを解除（所属グループを検証）
     await tx.transaction.update({
-      where: { id: transactionId },
+      where: { id: transactionId, invoiceGroupId: groupId },
       data: { invoiceGroupId: null },
     });
 
@@ -498,12 +498,10 @@ export async function createCorrectionInvoiceGroup(
 
     // 差し替えの場合: 元の取引を新しいグループに移動
     if (correctionType === "replacement") {
-      for (const t of original.transactions) {
-        await tx.transaction.update({
-          where: { id: t.id },
-          data: { invoiceGroupId: correction.id },
-        });
-      }
+      await tx.transaction.updateMany({
+        where: { id: { in: original.transactions.map((t) => t.id) } },
+        data: { invoiceGroupId: correction.id },
+      });
 
       // 金額を引き継ぎ
       await tx.invoiceGroup.update({
