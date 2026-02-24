@@ -10,6 +10,8 @@ import {
   calcWithholdingTax,
   isWithholdingTarget,
 } from "@/lib/finance/withholding-tax";
+import { createHash } from "crypto";
+import { z } from "zod";
 
 // ============================================
 // 型定義
@@ -63,6 +65,18 @@ export type TransactionCandidate = {
   alreadyGenerated: boolean;
   /** 既存TransactionのID（変更検出時の更新用） */
   existingTransactionId: number | null;
+  /** Phase 2: 候補判定 */
+  decisionStatus: "pending" | "converted" | "held" | "dismissed" | null;
+  decisionReasonType: string | null;
+  decisionMemo: string | null;
+  decisionNeedsReview: boolean;
+  currentFingerprint: string | null;
+  /** Phase 3: 変動金額オーバーライド */
+  overrideAmount: number | null;
+  overrideTaxAmount: number | null;
+  overrideTaxRate: number | null;
+  overrideMemo: string | null;
+  overrideScheduledPaymentDate: string | null;
 };
 
 // ============================================
@@ -192,6 +206,49 @@ function buildCommissionConfig(
 }
 
 // ============================================
+// フィンガープリント計算
+// ============================================
+
+function computeFingerprint(candidate: {
+  amount: number | null;
+  counterpartyId: number;
+  expenseCategoryId: number;
+  taxRate: number;
+}): string {
+  const data = JSON.stringify({
+    a: candidate.amount,
+    c: candidate.counterpartyId,
+    e: candidate.expenseCategoryId,
+    t: candidate.taxRate,
+  });
+  return createHash("sha256").update(data).digest("hex").slice(0, 16);
+}
+
+// ============================================
+// バリデーション
+// ============================================
+
+const targetMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
+const candidateKeySchema = z.string().min(1).max(200);
+
+function isSTPCandidateKey(key: string): boolean {
+  return key.startsWith("crm-") || key.startsWith("recurring-");
+}
+
+export type ActionResult = {
+  success: boolean;
+  error?: string;
+};
+
+const overrideValuesSchema = z.object({
+  amount: z.number().int().min(1),
+  taxAmount: z.number().int().min(0).optional(),
+  taxRate: z.number().int().min(0).max(100).optional(),
+  memo: z.string().max(500).optional(),
+  scheduledPaymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+
+// ============================================
 // 1. detectTransactionCandidates
 // ============================================
 
@@ -217,6 +274,46 @@ export async function detectTransactionCandidates(
 
   // --- 定期取引ベースの候補検出 ---
   await detectRecurringCandidates(candidates, monthStart, monthEnd);
+
+  // --- Phase 2: Decision テーブルとの統合 ---
+  const targetMonthKey = targetMonth; // "YYYY-MM"
+  const decisions = await prisma.transactionCandidateDecision.findMany({
+    where: { targetMonth: targetMonthKey },
+  });
+  const decisionMap = new Map(
+    decisions.map((d) => [d.candidateKey, d])
+  );
+
+  for (const c of candidates) {
+    const fp = computeFingerprint(c);
+    c.currentFingerprint = fp;
+
+    const decision = decisionMap.get(c.key);
+    if (!decision) continue;
+
+    c.decisionStatus = decision.status as typeof c.decisionStatus;
+    c.decisionReasonType = decision.reasonType;
+    c.decisionMemo = decision.memo;
+    c.decisionNeedsReview = decision.needsReview;
+
+    // フィンガープリント変更 → needsReview
+    if (
+      decision.sourceFingerprint &&
+      decision.sourceFingerprint !== fp &&
+      decision.status !== "converted"
+    ) {
+      c.decisionNeedsReview = true;
+    }
+
+    // Override 値のマージ
+    c.overrideAmount = decision.overrideAmount;
+    c.overrideTaxAmount = decision.overrideTaxAmount;
+    c.overrideTaxRate = decision.overrideTaxRate;
+    c.overrideMemo = decision.overrideMemo;
+    c.overrideScheduledPaymentDate = decision.overrideScheduledPaymentDate
+      ? decision.overrideScheduledPaymentDate.toISOString().split("T")[0]
+      : null;
+  }
 
   return candidates;
 }
@@ -466,6 +563,16 @@ async function detectCrmCandidates(
           projectId: stpProjectId,
           ...changeInfo,
           alreadyGenerated: !!existing,
+          decisionStatus: null,
+          decisionReasonType: null,
+          decisionMemo: null,
+          decisionNeedsReview: false,
+          currentFingerprint: null,
+          overrideAmount: null,
+          overrideTaxAmount: null,
+          overrideTaxRate: null,
+          overrideMemo: null,
+          overrideScheduledPaymentDate: null,
         });
       }
     }
@@ -518,6 +625,16 @@ async function detectCrmCandidates(
           projectId: stpProjectId,
           ...changeInfo,
           alreadyGenerated: !!existing,
+          decisionStatus: null,
+          decisionReasonType: null,
+          decisionMemo: null,
+          decisionNeedsReview: false,
+          currentFingerprint: null,
+          overrideAmount: null,
+          overrideTaxAmount: null,
+          overrideTaxRate: null,
+          overrideMemo: null,
+          overrideScheduledPaymentDate: null,
         });
       }
     }
@@ -623,6 +740,16 @@ async function detectCrmCandidates(
               projectId: stpProjectId,
               ...changeInfo,
               alreadyGenerated: !!existing,
+              decisionStatus: null,
+              decisionReasonType: null,
+              decisionMemo: null,
+              decisionNeedsReview: false,
+              currentFingerprint: null,
+              overrideAmount: null,
+              overrideTaxAmount: null,
+              overrideTaxRate: null,
+              overrideMemo: null,
+              overrideScheduledPaymentDate: null,
             });
           }
 
@@ -670,6 +797,16 @@ async function detectCrmCandidates(
               projectId: stpProjectId,
               ...changeInfo,
               alreadyGenerated: !!existing,
+              decisionStatus: null,
+              decisionReasonType: null,
+              decisionMemo: null,
+              decisionNeedsReview: false,
+              currentFingerprint: null,
+              overrideAmount: null,
+              overrideTaxAmount: null,
+              overrideTaxRate: null,
+              overrideMemo: null,
+              overrideScheduledPaymentDate: null,
             });
           }
 
@@ -722,6 +859,16 @@ async function detectCrmCandidates(
                 projectId: stpProjectId,
                 ...changeInfo,
                 alreadyGenerated: !!existing,
+                decisionStatus: null,
+                decisionReasonType: null,
+                decisionMemo: null,
+                decisionNeedsReview: false,
+                currentFingerprint: null,
+                overrideAmount: null,
+                overrideTaxAmount: null,
+                overrideTaxRate: null,
+                overrideMemo: null,
+                overrideScheduledPaymentDate: null,
               });
             }
           }
@@ -790,6 +937,16 @@ async function detectCrmCandidates(
                   projectId: stpProjectId,
                   ...changeInfo,
                   alreadyGenerated: !!existing,
+                  decisionStatus: null,
+                  decisionReasonType: null,
+                  decisionMemo: null,
+                  decisionNeedsReview: false,
+                  currentFingerprint: null,
+                  overrideAmount: null,
+                  overrideTaxAmount: null,
+                  overrideTaxRate: null,
+                  overrideMemo: null,
+                  overrideScheduledPaymentDate: null,
                 });
               }
             }
@@ -900,6 +1057,16 @@ async function detectCrmCandidates(
       projectId: stpProjectId,
       ...perfChangeInfo,
       alreadyGenerated: !!existingPerf,
+      decisionStatus: null,
+      decisionReasonType: null,
+      decisionMemo: null,
+      decisionNeedsReview: false,
+      currentFingerprint: null,
+      overrideAmount: null,
+      overrideTaxAmount: null,
+      overrideTaxRate: null,
+      overrideMemo: null,
+      overrideScheduledPaymentDate: null,
     });
 
     // minor-3: 成果報酬に対応する代理店紹介報酬（commission_performance）
@@ -1010,6 +1177,16 @@ async function detectCrmCandidates(
               projectId: stpProjectId,
               ...commChangeInfo,
               alreadyGenerated: !!existingComm,
+              decisionStatus: null,
+              decisionReasonType: null,
+              decisionMemo: null,
+              decisionNeedsReview: false,
+              currentFingerprint: null,
+              overrideAmount: null,
+              overrideTaxAmount: null,
+              overrideTaxRate: null,
+              overrideMemo: null,
+              overrideScheduledPaymentDate: null,
             });
           }
         }
@@ -1113,6 +1290,16 @@ async function detectRecurringCandidates(
       latestCalculatedAmount: sourceDataChanged ? amount : null,
       alreadyGenerated: !!existing,
       existingTransactionId: existing?.id ?? null,
+      decisionStatus: null,
+      decisionReasonType: null,
+      decisionMemo: null,
+      decisionNeedsReview: false,
+      currentFingerprint: null,
+      overrideAmount: null,
+      overrideTaxAmount: null,
+      overrideTaxRate: null,
+      overrideMemo: null,
+      overrideScheduledPaymentDate: null,
     });
   }
 }
@@ -1148,7 +1335,7 @@ function isRecurringActiveForMonth(
  */
 export async function generateTransactions(
   selectedCandidates: TransactionCandidate[]
-): Promise<{ created: number; skipped: number; updated: number }> {
+): Promise<{ created: number; skipped: number; updated: number; skippedNoAmount: number }> {
   const session = await getSession();
   const staffId = session.id;
 
@@ -1157,15 +1344,28 @@ export async function generateTransactions(
   let created = 0;
   let skipped = 0;
   let updated = 0;
+  let skippedNoAmount = 0;
 
   for (const candidate of selectedCandidates) {
+    // 変動金額候補: overrideAmount が未入力なら取引化を拒否
+    const effectiveAmount =
+      candidate.amount ?? candidate.overrideAmount ?? null;
+    if (effectiveAmount === null) {
+      skippedNoAmount++;
+      continue;
+    }
+    const effectiveTaxAmount =
+      candidate.taxAmount ??
+      (candidate.overrideTaxAmount != null
+        ? candidate.overrideTaxAmount
+        : calcTaxAmount(effectiveAmount, candidate.taxType, candidate.taxRate));
+
     // ソースデータ変更あり → 既存Transactionを更新
     if (
       candidate.alreadyGenerated &&
       candidate.sourceDataChanged &&
       candidate.existingTransactionId
     ) {
-      // ステータスチェック: 仕訳済み以降は更新不可
       const existing = await prisma.transaction.findUnique({
         where: { id: candidate.existingTransactionId },
         select: { status: true },
@@ -1175,13 +1375,11 @@ export async function generateTransactions(
         continue;
       }
 
-      const amount = candidate.amount ?? 0;
-      const taxAmount = candidate.taxAmount ?? 0;
       await prisma.transaction.update({
         where: { id: candidate.existingTransactionId },
         data: {
-          amount,
-          taxAmount,
+          amount: effectiveAmount,
+          taxAmount: effectiveTaxAmount,
           ...(candidate.isWithholdingTarget
             ? {
                 withholdingTaxAmount: candidate.withholdingTaxAmount,
@@ -1189,7 +1387,7 @@ export async function generateTransactions(
               }
             : {}),
           sourceDataChangedAt: new Date(),
-          latestCalculatedAmount: amount,
+          latestCalculatedAmount: effectiveAmount,
           updatedBy: staffId,
         },
       });
@@ -1204,21 +1402,22 @@ export async function generateTransactions(
     }
 
     // 新規生成
-    const amount = candidate.amount ?? 0;
-    const taxAmount = candidate.taxAmount ?? 0;
+    const scheduledPaymentDate = candidate.overrideScheduledPaymentDate
+      ? new Date(candidate.overrideScheduledPaymentDate)
+      : null;
 
     await prisma.transaction.create({
       data: {
         type: candidate.type,
         counterpartyId: candidate.counterpartyId,
         expenseCategoryId: candidate.expenseCategoryId,
-        amount,
-        taxAmount,
-        taxRate: candidate.taxRate,
+        amount: effectiveAmount,
+        taxAmount: effectiveTaxAmount,
+        taxRate: candidate.overrideTaxRate ?? candidate.taxRate,
         taxType: candidate.taxType,
         periodFrom: new Date(candidate.periodFrom),
         periodTo: new Date(candidate.periodTo),
-        note: candidate.note,
+        note: candidate.overrideMemo ?? candidate.note,
         costCenterId: candidate.costCenterId,
         allocationTemplateId: candidate.allocationTemplateId,
         paymentMethodId: candidate.paymentMethodId,
@@ -1238,8 +1437,34 @@ export async function generateTransactions(
           : null,
         withholdingTaxAmount: candidate.withholdingTaxAmount,
         netPaymentAmount: candidate.netPaymentAmount,
+        scheduledPaymentDate,
         status: "unconfirmed",
         createdBy: staffId,
+      },
+    });
+
+    // Decision を converted に更新
+    const targetMonth = candidate.periodFrom.slice(0, 7);
+    await prisma.transactionCandidateDecision.upsert({
+      where: {
+        candidateKey_targetMonth: {
+          candidateKey: candidate.key,
+          targetMonth,
+        },
+      },
+      create: {
+        candidateKey: candidate.key,
+        targetMonth,
+        status: "converted",
+        sourceFingerprint: candidate.currentFingerprint,
+        decidedBy: staffId,
+        decidedAt: new Date(),
+      },
+      update: {
+        status: "converted",
+        sourceFingerprint: candidate.currentFingerprint,
+        decidedBy: staffId,
+        decidedAt: new Date(),
       },
     });
 
@@ -1249,5 +1474,218 @@ export async function generateTransactions(
   revalidatePath("/stp/finance/generate");
   revalidatePath("/stp/finance/transactions");
 
-  return { created, skipped, updated };
+  return { created, skipped, updated, skippedNoAmount };
+}
+
+// ============================================
+// 3. 候補判定アクション（Phase 2）
+// ============================================
+
+export async function decideCandidateAction(
+  candidateKey: string,
+  targetMonth: string,
+  status: "held" | "dismissed",
+  reasonType?: string,
+  memo?: string
+): Promise<ActionResult> {
+  const session = await getSession();
+
+  const keyResult = candidateKeySchema.safeParse(candidateKey);
+  const monthResult = targetMonthSchema.safeParse(targetMonth);
+  if (!keyResult.success || !monthResult.success) {
+    return { success: false, error: "無効な入力値です" };
+  }
+  if (!isSTPCandidateKey(candidateKey)) {
+    return { success: false, error: "無効な候補キーです" };
+  }
+
+  await prisma.transactionCandidateDecision.upsert({
+    where: {
+      candidateKey_targetMonth: { candidateKey, targetMonth },
+    },
+    create: {
+      candidateKey,
+      targetMonth,
+      status,
+      reasonType: reasonType ?? null,
+      memo: memo ?? null,
+      decidedBy: session.id,
+      decidedAt: new Date(),
+    },
+    update: {
+      status,
+      reasonType: reasonType ?? null,
+      memo: memo ?? null,
+      needsReview: false,
+      decidedBy: session.id,
+      decidedAt: new Date(),
+    },
+  });
+
+  revalidatePath("/stp/finance/generate");
+  return { success: true };
+}
+
+export async function convertHeldCandidate(
+  candidateKey: string,
+  targetMonth: string
+): Promise<ActionResult> {
+  const session = await getSession();
+
+  const keyResult = candidateKeySchema.safeParse(candidateKey);
+  const monthResult = targetMonthSchema.safeParse(targetMonth);
+  if (!keyResult.success || !monthResult.success) {
+    return { success: false, error: "無効な入力値です" };
+  }
+
+  const decision = await prisma.transactionCandidateDecision.findUnique({
+    where: {
+      candidateKey_targetMonth: { candidateKey, targetMonth },
+    },
+  });
+
+  if (!decision || decision.status !== "held") {
+    return { success: false, error: "保留状態の候補が見つかりません" };
+  }
+
+  // 変動金額候補の場合、overrideAmount が必要
+  const isVariableAmount = candidateKey.includes("recurring-");
+  if (isVariableAmount && !decision.overrideAmount) {
+    return { success: false, error: "変動金額候補は金額を入力してから取引化してください" };
+  }
+
+  await prisma.transactionCandidateDecision.update({
+    where: { id: decision.id },
+    data: {
+      status: "pending",
+      needsReview: false,
+      decidedBy: session.id,
+      decidedAt: new Date(),
+    },
+  });
+
+  revalidatePath("/stp/finance/generate");
+  return { success: true };
+}
+
+export async function reviveDismissedCandidate(
+  candidateKey: string,
+  targetMonth: string
+): Promise<ActionResult> {
+  const session = await getSession();
+
+  const keyResult = candidateKeySchema.safeParse(candidateKey);
+  const monthResult = targetMonthSchema.safeParse(targetMonth);
+  if (!keyResult.success || !monthResult.success) {
+    return { success: false, error: "無効な入力値です" };
+  }
+
+  const decision = await prisma.transactionCandidateDecision.findUnique({
+    where: {
+      candidateKey_targetMonth: { candidateKey, targetMonth },
+    },
+  });
+
+  if (!decision || decision.status !== "dismissed") {
+    return { success: false, error: "不要状態の候補が見つかりません" };
+  }
+
+  await prisma.transactionCandidateDecision.update({
+    where: { id: decision.id },
+    data: {
+      status: "held",
+      needsReview: false,
+      decidedBy: session.id,
+      decidedAt: new Date(),
+    },
+  });
+
+  revalidatePath("/stp/finance/generate");
+  return { success: true };
+}
+
+export async function acknowledgeReview(
+  candidateKey: string,
+  targetMonth: string
+): Promise<ActionResult> {
+  await getSession();
+
+  const keyResult = candidateKeySchema.safeParse(candidateKey);
+  const monthResult = targetMonthSchema.safeParse(targetMonth);
+  if (!keyResult.success || !monthResult.success) {
+    return { success: false, error: "無効な入力値です" };
+  }
+
+  await prisma.transactionCandidateDecision.updateMany({
+    where: { candidateKey, targetMonth },
+    data: { needsReview: false },
+  });
+
+  revalidatePath("/stp/finance/generate");
+  return { success: true };
+}
+
+// ============================================
+// 4. 変動金額オーバーライド保存（Phase 3）
+// ============================================
+
+export async function saveOverrideValues(
+  candidateKey: string,
+  targetMonth: string,
+  values: {
+    amount: number;
+    taxAmount?: number;
+    taxRate?: number;
+    memo?: string;
+    scheduledPaymentDate?: string;
+  }
+): Promise<ActionResult> {
+  const session = await getSession();
+
+  const keyResult = candidateKeySchema.safeParse(candidateKey);
+  const monthResult = targetMonthSchema.safeParse(targetMonth);
+  if (!keyResult.success || !monthResult.success) {
+    return { success: false, error: "無効な入力値です" };
+  }
+
+  const parsed = overrideValuesSchema.safeParse(values);
+  if (!parsed.success) {
+    return { success: false, error: "入力値が不正です: " + parsed.error.message };
+  }
+
+  const v = parsed.data;
+
+  await prisma.transactionCandidateDecision.upsert({
+    where: {
+      candidateKey_targetMonth: { candidateKey, targetMonth },
+    },
+    create: {
+      candidateKey,
+      targetMonth,
+      status: "pending",
+      overrideAmount: v.amount,
+      overrideTaxAmount: v.taxAmount ?? null,
+      overrideTaxRate: v.taxRate ?? null,
+      overrideMemo: v.memo ?? null,
+      overrideScheduledPaymentDate: v.scheduledPaymentDate
+        ? new Date(v.scheduledPaymentDate)
+        : null,
+      decidedBy: session.id,
+      decidedAt: new Date(),
+    },
+    update: {
+      overrideAmount: v.amount,
+      overrideTaxAmount: v.taxAmount ?? null,
+      overrideTaxRate: v.taxRate ?? null,
+      overrideMemo: v.memo ?? null,
+      overrideScheduledPaymentDate: v.scheduledPaymentDate
+        ? new Date(v.scheduledPaymentDate)
+        : null,
+      decidedBy: session.id,
+      decidedAt: new Date(),
+    },
+  });
+
+  revalidatePath("/stp/finance/generate");
+  return { success: true };
 }

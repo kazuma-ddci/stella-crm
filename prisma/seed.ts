@@ -49,6 +49,14 @@ async function clearDatabase() {
   console.log('Clearing existing data...');
   // 子テーブルから順に削除
   await prisma.staffFieldRestriction.deleteMany();
+  // 経理系データ（FK依存順）
+  await prisma.transactionCandidateDecision.deleteMany();
+  await prisma.transaction.deleteMany();
+  await prisma.recurringTransaction.deleteMany();
+  await prisma.counterparty.deleteMany();
+  await prisma.expenseCategory.deleteMany();
+  await prisma.costCenterProjectAssignment.deleteMany();
+  await prisma.costCenter.deleteMany();
   await prisma.stpKpiShareLink.deleteMany();
   await prisma.stpKpiWeeklyData.deleteMany();
   await prisma.stpKpiSheet.deleteMany();
@@ -94,6 +102,7 @@ async function clearDatabase() {
   await prisma.masterStaff.deleteMany();
   await prisma.customerType.deleteMany();
   await prisma.displayView.deleteMany();
+  await prisma.systemProjectBinding.deleteMany();
   await prisma.masterProject.deleteMany();
   await prisma.masterContractStatus.deleteMany();
   await prisma.stpStage.deleteMany();
@@ -128,6 +137,7 @@ async function resetSequences() {
     'stp_agent_contract_histories', 'stp_agent_commission_overrides',
     'stp_candidates', 'stp_revenue_records', 'stp_expense_records', 'stp_invoices',
     'staff_field_restrictions',
+    'CostCenter', 'ExpenseCategory', 'Counterparty',
   ];
   for (const table of tables) {
     try {
@@ -180,6 +190,50 @@ async function main() {
   });
   console.log('✓ Contact methods (5)');
 
+  // プロジェクト（contactCategory より先に作成 — projectId FK 依存）
+  await prisma.masterProject.createMany({
+    data: [
+      { id: 1, code: 'stp', name: 'STP', description: '採用支援サービスの商談・契約管理', displayOrder: 2 },
+      { id: 2, code: 'srd', name: 'SRD', description: 'システム受託開発プロジェクト管理', displayOrder: 3 },
+      { id: 3, code: 'slo', name: 'SLO', description: '公的財団関連プロジェクト管理', displayOrder: 4 },
+      { id: 4, code: 'stella', name: 'Stella', description: '全顧客マスタ管理', displayOrder: 0 },
+      { id: 5, code: 'common', name: '共通', description: '企業マスタ・スタッフ管理等の共通機能', displayOrder: 1 },
+    ],
+  });
+  console.log('✓ Projects (5): Stella, Common, STP, SRD, SLO');
+
+  // SystemProjectBinding（route key → プロジェクト紐付け）
+  await prisma.systemProjectBinding.createMany({
+    data: [
+      { routeKey: 'stp', projectId: 1 }, // STP
+    ],
+  });
+  console.log('✓ SystemProjectBindings (1): stp');
+
+  // 経費部門（CostCenter）
+  await prisma.costCenter.createMany({
+    data: [
+      { id: 1, name: 'STP事業', projectId: 1, isActive: true },
+      { id: 2, name: '管理部門', projectId: null, isActive: true },
+    ],
+  });
+  console.log('✓ CostCenters (2): STP事業, 管理部門');
+
+  // 費目（ExpenseCategory）
+  await prisma.expenseCategory.createMany({
+    data: [
+      { id: 1, name: '初期費用売上', type: 'revenue', displayOrder: 1 },
+      { id: 2, name: '月額売上', type: 'revenue', displayOrder: 2 },
+      { id: 3, name: '成果報酬売上', type: 'revenue', displayOrder: 3 },
+      { id: 4, name: '外注費', type: 'expense', displayOrder: 4 },
+      { id: 5, name: '通信費', type: 'expense', displayOrder: 5 },
+      { id: 6, name: '家賃', type: 'expense', displayOrder: 6 },
+      { id: 7, name: 'その他売上', type: 'revenue', displayOrder: 7 },
+      { id: 8, name: 'その他経費', type: 'expense', displayOrder: 8 },
+    ],
+  });
+  console.log('✓ ExpenseCategories (8)');
+
   // 接触種別
   await prisma.contactCategory.createMany({
     data: [
@@ -205,18 +259,6 @@ async function main() {
   console.log('✓ Lead sources (6)');
 
   // スタッフ役割種別: 本番では管理画面から手入力のためシードデータなし
-
-  // プロジェクト
-  await prisma.masterProject.createMany({
-    data: [
-      { id: 1, code: 'stp', name: 'STP', description: '採用支援サービスの商談・契約管理', displayOrder: 2 },
-      { id: 2, code: 'srd', name: 'SRD', description: 'システム受託開発プロジェクト管理', displayOrder: 3 },
-      { id: 3, code: 'slo', name: 'SLO', description: '公的財団関連プロジェクト管理', displayOrder: 4 },
-      { id: 4, code: 'stella', name: 'Stella', description: '全顧客マスタ管理', displayOrder: 0 },
-      { id: 5, code: 'common', name: '共通', description: '企業マスタ・スタッフ管理等の共通機能', displayOrder: 1 },
-    ],
-  });
-  console.log('✓ Projects (5): Stella, Common, STP, SRD, SLO');
 
   // 契約書ステータスマスタ
   await prisma.masterContractStatus.createMany({
@@ -452,6 +494,21 @@ async function main() {
   }
   await prisma.stellaCompanyContact.createMany({ data: contactData });
   console.log(`✓ Company contacts (${ctId})`);
+
+  // 取引先（Counterparty）— 全master_stella_companiesから自動生成
+  const allCompanies = await prisma.masterStellaCompany.findMany({
+    select: { id: true, name: true },
+    orderBy: { id: 'asc' },
+  });
+  const counterpartyData = allCompanies.map((c, i) => ({
+    id: i + 1,
+    name: c.name,
+    companyId: c.id,
+    counterpartyType: c.id <= 80 ? 'customer' : 'vendor', // 1-80: STP顧客, 81-100: 代理店
+    isActive: true,
+  }));
+  await prisma.counterparty.createMany({ data: counterpartyData });
+  console.log(`✓ Counterparties (${counterpartyData.length})`);
 
   // ============================================
   // 6. 代理店マスタ (20社: companyId 81-100)

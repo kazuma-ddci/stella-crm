@@ -662,6 +662,7 @@ model MasterStaff {
   notificationSent            Notification[]             @relation("NotificationSender")
   notificationStatusChanged   Notification[]             @relation("NotificationStatusChanger")
   changeLogChanged            ChangeLog[]                @relation("ChangeLogChanger")
+  candidateDecisions          TransactionCandidateDecision[] @relation("CandidateDecisionDecider")
 
   @@map("master_staff")
 }
@@ -815,9 +816,11 @@ model MasterProject {
 
   // 経理システム追加Relations
   costCenters             CostCenter[]
+  costCenterAssignments   CostCenterProjectAssignment[]
   finTransactions         Transaction[]
   finRecurringTransactions RecurringTransaction[]
   monthlyCloseLogs        MonthlyCloseLog[]
+  systemProjectBindings   SystemProjectBinding[]
 
   @@map("master_projects")
 }
@@ -855,6 +858,7 @@ model OperatingCompany {
   invoiceTemplates        InvoiceTemplate[]
   invoiceMails            InvoiceMail[]
   invoiceNumberSequences  StpInvoiceNumberSequence[]
+  systemProjectBindings   SystemProjectBinding[]
 
   @@map("operating_companies")
 }
@@ -2219,7 +2223,8 @@ model Transaction {
 
   periodFrom            DateTime  // 発生期間From
   periodTo              DateTime  // 発生期間To
-  paymentDueDate        DateTime? // 支払予定日（経費の場合）
+  paymentDueDate        DateTime? // 支払期日
+  scheduledPaymentDate  DateTime? // 入金/支払予定日
   paymentMethodId       Int?      // FK → PaymentMethod（決済手段）
 
   status                String    @default("unconfirmed")
@@ -2435,6 +2440,7 @@ model CostCenter {
 
   // Relations
   project               MasterProject?  @relation(fields: [projectId], references: [id])
+  projectAssignments    CostCenterProjectAssignment[]
   transactions          Transaction[]
   recurringTransactions RecurringTransaction[]
   allocationTemplateLines AllocationTemplateLine[]
@@ -2442,6 +2448,24 @@ model CostCenter {
   budgets               Budget[]
   creator               MasterStaff?    @relation("CostCenterCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?    @relation("CostCenterUpdater", fields: [updatedBy], references: [id])
+  systemProjectBindings SystemProjectBinding[]
+}
+
+// ============================================
+// ⑤-b CostCenterProjectAssignment（経理プロジェクト↔CRMプロジェクト中間テーブル）
+// ============================================
+
+model CostCenterProjectAssignment {
+  id            Int       @id @default(autoincrement())
+  costCenterId  Int
+  projectId     Int
+  createdAt     DateTime  @default(now())
+
+  costCenter    CostCenter    @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  project       MasterProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([costCenterId, projectId])
+  @@map("cost_center_project_assignments")
 }
 
 // ============================================
@@ -3127,4 +3151,60 @@ model ChangeLog {
 
   // Relations
   changer               MasterStaff @relation("ChangeLogChanger", fields: [changedBy], references: [id])
+}
+
+// ============================================
+// 候補判定（TransactionCandidateDecision）
+// ============================================
+
+model TransactionCandidateDecision {
+  id                Int       @id @default(autoincrement())
+  candidateKey      String    @db.VarChar(200)   // "crm-revenue-initial-123" 等
+  targetMonth       String    @db.VarChar(7)     // "2026-03"（YYYY-MM形式、Zodで厳格検証）
+  status            String    @default("pending") // pending | converted | held | dismissed
+  reasonType        String?   @db.VarChar(50)    // held_price_undecided, dismissed_duplicate, etc.
+  memo              String?
+  needsReview       Boolean   @default(false)
+
+  // ソース変更検知用フィンガープリント（SHA-256ハッシュ）
+  sourceFingerprint String?
+
+  // 変動金額候補用（Phase 3）
+  overrideAmount              Int?
+  overrideTaxAmount           Int?
+  overrideTaxRate             Int?
+  overrideMemo                String?
+  overrideScheduledPaymentDate DateTime? @db.Date
+
+  decidedBy         Int?      // FK → MasterStaff
+  decidedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  decider           MasterStaff? @relation("CandidateDecisionDecider", fields: [decidedBy], references: [id])
+
+  @@unique([candidateKey, targetMonth])
+}
+
+// ============================================
+// システムプロジェクトバインディング
+// ============================================
+
+model SystemProjectBinding {
+  id                    Int       @id @default(autoincrement())
+  routeKey              String    @unique @db.VarChar(50)  // "stp" 等（immutable）
+  projectId             Int
+  defaultCostCenterId   Int?
+  operatingCompanyId    Int?
+  isActive              Boolean   @default(true)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  project               MasterProject     @relation(fields: [projectId], references: [id])
+  defaultCostCenter     CostCenter?       @relation(fields: [defaultCostCenterId], references: [id])
+  operatingCompany      OperatingCompany? @relation(fields: [operatingCompanyId], references: [id])
+
+  @@map("system_project_bindings")
 }
