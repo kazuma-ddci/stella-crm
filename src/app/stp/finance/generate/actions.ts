@@ -12,6 +12,14 @@ import {
 } from "@/lib/finance/withholding-tax";
 import { createHash } from "crypto";
 import { z } from "zod";
+import {
+  recordChangeLog,
+  extractChanges,
+  pickRecordData,
+  type ChangeLogEntry,
+} from "@/app/accounting/changelog/actions";
+import { CANDIDATE_DECISION_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
+import { getSystemProjectContext } from "@/lib/project-context";
 
 // ============================================
 // 型定義
@@ -240,8 +248,61 @@ export type ActionResult = {
   error?: string;
 };
 
+// ============================================
+// ChangeLog ヘルパー
+// ============================================
+
+type DecisionRecord = {
+  id: number;
+  [key: string]: unknown;
+};
+
+async function recordDecisionChangeLog(
+  existing: DecisionRecord | null,
+  updated: DecisionRecord,
+  staffId: number
+) {
+  const fields = [...CANDIDATE_DECISION_LOG_FIELDS];
+  if (existing) {
+    const oldData = await pickRecordData(
+      existing as unknown as Record<string, unknown>,
+      fields
+    );
+    const newData = await pickRecordData(
+      updated as unknown as Record<string, unknown>,
+      fields
+    );
+    const changes = await extractChanges(oldData, newData, fields);
+    if (changes) {
+      await recordChangeLog(
+        {
+          tableName: "TransactionCandidateDecision",
+          recordId: updated.id,
+          changeType: "update",
+          oldData: changes.oldData,
+          newData: changes.newData,
+        },
+        staffId
+      );
+    }
+  } else {
+    await recordChangeLog(
+      {
+        tableName: "TransactionCandidateDecision",
+        recordId: updated.id,
+        changeType: "create",
+        newData: await pickRecordData(
+          updated as unknown as Record<string, unknown>,
+          fields
+        ),
+      },
+      staffId
+    );
+  }
+}
+
 const overrideValuesSchema = z.object({
-  amount: z.number().int().min(1),
+  amount: z.number().int().min(1).optional(),
   taxAmount: z.number().int().min(0).optional(),
   taxRate: z.number().int().min(0).max(100).optional(),
   memo: z.string().max(500).optional(),
@@ -370,10 +431,9 @@ async function detectCrmCandidates(
     counterparties.map((c) => [c.companyId, c])
   );
 
-  // STPプロジェクト & CostCenter
-  const stpProject = await prisma.masterProject.findFirst({
-    where: { code: "stp" },
-  });
+  // STPプロジェクト & CostCenter（SystemProjectBinding経由）
+  const stpCtx = await getSystemProjectContext("stp");
+  const stpProjectId = stpCtx?.projectId ?? null;
   const stpCostCenter = await prisma.costCenter.findFirst({
     where: {
       project: { code: "stp" },
@@ -381,7 +441,6 @@ async function detectCrmCandidates(
       isActive: true,
     },
   });
-  const stpProjectId = stpProject?.id ?? null;
 
   // 費目マスタ（売上用・経費用）
   const expenseCategories = await prisma.expenseCategory.findMany({
@@ -1347,9 +1406,9 @@ export async function generateTransactions(
   let skippedNoAmount = 0;
 
   for (const candidate of selectedCandidates) {
-    // 変動金額候補: overrideAmount が未入力なら取引化を拒否
+    // overrideAmount があれば優先、なければ候補の自動計算値
     const effectiveAmount =
-      candidate.amount ?? candidate.overrideAmount ?? null;
+      candidate.overrideAmount ?? candidate.amount ?? null;
     if (effectiveAmount === null) {
       skippedNoAmount++;
       continue;
@@ -1445,7 +1504,15 @@ export async function generateTransactions(
 
     // Decision を converted に更新
     const targetMonth = candidate.periodFrom.slice(0, 7);
-    await prisma.transactionCandidateDecision.upsert({
+    const existingDecision = await prisma.transactionCandidateDecision.findUnique({
+      where: {
+        candidateKey_targetMonth: {
+          candidateKey: candidate.key,
+          targetMonth,
+        },
+      },
+    });
+    const decisionResult = await prisma.transactionCandidateDecision.upsert({
       where: {
         candidateKey_targetMonth: {
           candidateKey: candidate.key,
@@ -1467,6 +1534,7 @@ export async function generateTransactions(
         decidedAt: new Date(),
       },
     });
+    await recordDecisionChangeLog(existingDecision, decisionResult, staffId);
 
     created++;
   }
@@ -1499,7 +1567,11 @@ export async function decideCandidateAction(
     return { success: false, error: "無効な候補キーです" };
   }
 
-  await prisma.transactionCandidateDecision.upsert({
+  const existing = await prisma.transactionCandidateDecision.findUnique({
+    where: { candidateKey_targetMonth: { candidateKey, targetMonth } },
+  });
+
+  const result = await prisma.transactionCandidateDecision.upsert({
     where: {
       candidateKey_targetMonth: { candidateKey, targetMonth },
     },
@@ -1521,6 +1593,8 @@ export async function decideCandidateAction(
       decidedAt: new Date(),
     },
   });
+
+  await recordDecisionChangeLog(existing, result, session.id);
 
   revalidatePath("/stp/finance/generate");
   return { success: true };
@@ -1554,7 +1628,7 @@ export async function convertHeldCandidate(
     return { success: false, error: "変動金額候補は金額を入力してから取引化してください" };
   }
 
-  await prisma.transactionCandidateDecision.update({
+  const result = await prisma.transactionCandidateDecision.update({
     where: { id: decision.id },
     data: {
       status: "pending",
@@ -1563,6 +1637,8 @@ export async function convertHeldCandidate(
       decidedAt: new Date(),
     },
   });
+
+  await recordDecisionChangeLog(decision, result, session.id);
 
   revalidatePath("/stp/finance/generate");
   return { success: true };
@@ -1590,7 +1666,7 @@ export async function reviveDismissedCandidate(
     return { success: false, error: "不要状態の候補が見つかりません" };
   }
 
-  await prisma.transactionCandidateDecision.update({
+  const result = await prisma.transactionCandidateDecision.update({
     where: { id: decision.id },
     data: {
       status: "held",
@@ -1600,6 +1676,8 @@ export async function reviveDismissedCandidate(
     },
   });
 
+  await recordDecisionChangeLog(decision, result, session.id);
+
   revalidatePath("/stp/finance/generate");
   return { success: true };
 }
@@ -1608,7 +1686,7 @@ export async function acknowledgeReview(
   candidateKey: string,
   targetMonth: string
 ): Promise<ActionResult> {
-  await getSession();
+  const session = await getSession();
 
   const keyResult = candidateKeySchema.safeParse(candidateKey);
   const monthResult = targetMonthSchema.safeParse(targetMonth);
@@ -1616,10 +1694,17 @@ export async function acknowledgeReview(
     return { success: false, error: "無効な入力値です" };
   }
 
-  await prisma.transactionCandidateDecision.updateMany({
-    where: { candidateKey, targetMonth },
-    data: { needsReview: false },
+  const existing = await prisma.transactionCandidateDecision.findUnique({
+    where: { candidateKey_targetMonth: { candidateKey, targetMonth } },
   });
+
+  if (existing && existing.needsReview) {
+    const result = await prisma.transactionCandidateDecision.update({
+      where: { id: existing.id },
+      data: { needsReview: false },
+    });
+    await recordDecisionChangeLog(existing, result, session.id);
+  }
 
   revalidatePath("/stp/finance/generate");
   return { success: true };
@@ -1633,7 +1718,7 @@ export async function saveOverrideValues(
   candidateKey: string,
   targetMonth: string,
   values: {
-    amount: number;
+    amount?: number;
     taxAmount?: number;
     taxRate?: number;
     memo?: string;
@@ -1655,7 +1740,11 @@ export async function saveOverrideValues(
 
   const v = parsed.data;
 
-  await prisma.transactionCandidateDecision.upsert({
+  const existing = await prisma.transactionCandidateDecision.findUnique({
+    where: { candidateKey_targetMonth: { candidateKey, targetMonth } },
+  });
+
+  const result = await prisma.transactionCandidateDecision.upsert({
     where: {
       candidateKey_targetMonth: { candidateKey, targetMonth },
     },
@@ -1663,7 +1752,7 @@ export async function saveOverrideValues(
       candidateKey,
       targetMonth,
       status: "pending",
-      overrideAmount: v.amount,
+      overrideAmount: v.amount ?? null,
       overrideTaxAmount: v.taxAmount ?? null,
       overrideTaxRate: v.taxRate ?? null,
       overrideMemo: v.memo ?? null,
@@ -1674,7 +1763,7 @@ export async function saveOverrideValues(
       decidedAt: new Date(),
     },
     update: {
-      overrideAmount: v.amount,
+      ...(v.amount !== undefined ? { overrideAmount: v.amount } : {}),
       overrideTaxAmount: v.taxAmount ?? null,
       overrideTaxRate: v.taxRate ?? null,
       overrideMemo: v.memo ?? null,
@@ -1686,6 +1775,55 @@ export async function saveOverrideValues(
     },
   });
 
+  await recordDecisionChangeLog(existing, result, session.id);
+
   revalidatePath("/stp/finance/generate");
   return { success: true };
+}
+
+// ============================================
+// 5. 候補判定の変更履歴取得
+// ============================================
+
+export type CandidateDecisionLog = {
+  id: number;
+  changeType: string;
+  oldData: Record<string, unknown> | null;
+  newData: Record<string, unknown> | null;
+  changedBy: number;
+  changedAt: string;
+  changerName: string;
+};
+
+export async function getCandidateDecisionLogs(
+  candidateKey: string,
+  targetMonth: string
+): Promise<CandidateDecisionLog[]> {
+  await getSession();
+
+  const decision = await prisma.transactionCandidateDecision.findUnique({
+    where: { candidateKey_targetMonth: { candidateKey, targetMonth } },
+  });
+  if (!decision) return [];
+
+  const logs = await prisma.changeLog.findMany({
+    where: {
+      tableName: "TransactionCandidateDecision",
+      recordId: decision.id,
+    },
+    include: {
+      changer: { select: { id: true, name: true } },
+    },
+    orderBy: { changedAt: "desc" },
+  });
+
+  return logs.map((log) => ({
+    id: log.id,
+    changeType: log.changeType,
+    oldData: log.oldData as Record<string, unknown> | null,
+    newData: log.newData as Record<string, unknown> | null,
+    changedBy: log.changedBy,
+    changedAt: log.changedAt.toISOString(),
+    changerName: log.changer.name,
+  }));
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Pencil, History } from "lucide-react";
 import {
   detectTransactionCandidates,
   generateTransactions,
@@ -38,8 +39,10 @@ import {
   reviveDismissedCandidate,
   acknowledgeReview,
   saveOverrideValues,
+  getCandidateDecisionLogs,
   type TransactionCandidate,
   type ActionResult,
+  type CandidateDecisionLog,
 } from "./actions";
 
 // ============================================
@@ -84,6 +87,70 @@ const defaultOverrideInput = (): OverrideInput => ({
 });
 
 // ============================================
+// 変更履歴フォーマット
+// ============================================
+
+const FIELD_LABELS: Record<string, string> = {
+  status: "ステータス",
+  reasonType: "理由区分",
+  memo: "メモ",
+  needsReview: "要再確認",
+  overrideAmount: "金額",
+  overrideTaxAmount: "税額",
+  overrideTaxRate: "税率",
+  overrideMemo: "摘要",
+  overrideScheduledPaymentDate: "支払予定日",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  pending: "未処理",
+  converted: "取引化済",
+  held: "保留",
+  dismissed: "不要",
+};
+
+function formatFieldValue(field: string, value: unknown): string {
+  if (value === null || value === undefined) return "-";
+  if (field === "status") return STATUS_LABELS[String(value)] ?? String(value);
+  if (field === "needsReview") return value ? "はい" : "いいえ";
+  if (field === "overrideAmount" || field === "overrideTaxAmount") {
+    return `¥${Number(value).toLocaleString()}`;
+  }
+  if (field === "overrideTaxRate") return `${value}%`;
+  if (field === "overrideScheduledPaymentDate") {
+    const d = String(value);
+    return d.length > 10 ? d.slice(0, 10) : d;
+  }
+  return String(value);
+}
+
+function formatLogCreate(newData: Record<string, unknown> | null): string {
+  if (!newData) return "作成";
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(newData)) {
+    if (v === null || v === undefined) continue;
+    const label = FIELD_LABELS[k] ?? k;
+    parts.push(`${label}: ${formatFieldValue(k, v)}`);
+  }
+  return parts.length > 0 ? `作成 (${parts.join(", ")})` : "作成";
+}
+
+function formatLogUpdate(
+  oldData: Record<string, unknown> | null,
+  newData: Record<string, unknown> | null
+): string {
+  if (!oldData || !newData) return "更新";
+  const parts: string[] = [];
+  for (const k of Object.keys(newData)) {
+    const label = FIELD_LABELS[k] ?? k;
+    const oldVal = formatFieldValue(k, oldData[k]);
+    const newVal = formatFieldValue(k, newData[k]);
+    parts.push(`${label}: ${oldVal} → ${newVal}`);
+  }
+  return parts.join(", ");
+}
+
+// ============================================
 // メインコンポーネント
 // ============================================
 
@@ -123,6 +190,15 @@ export function GenerateCandidatesClient() {
   const [decisionMemo, setDecisionMemo] = useState("");
   const [decidingKey, setDecidingKey] = useState<string | null>(null);
 
+  // 展開行
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+
+  // 変更履歴
+  const [candidateLogs, setCandidateLogs] = useState<
+    Map<string, CandidateDecisionLog[]>
+  >(new Map());
+  const [loadingLogs, setLoadingLogs] = useState<Set<string>>(new Set());
+
   // Override入力
   const [overrideInputs, setOverrideInputs] = useState<
     Map<string, OverrideInput>
@@ -141,7 +217,7 @@ export function GenerateCandidatesClient() {
       setOverrideInputs((prev) => {
         const next = new Map(prev);
         const current = next.get(key) ?? defaultOverrideInput();
-        next.set(key, { ...current, [field]: value, saved: false });
+        next.set(key, { ...current, [field]: value });
         return next;
       });
     },
@@ -230,10 +306,15 @@ export function GenerateCandidatesClient() {
       // 既存のoverride値をinputに反映
       const inputs = new Map<string, OverrideInput>();
       for (const c of result) {
-        if (c.overrideAmount != null) {
+        if (
+          c.overrideAmount != null ||
+          c.overrideTaxRate != null ||
+          c.overrideMemo != null ||
+          c.overrideScheduledPaymentDate != null
+        ) {
           inputs.set(c.key, {
-            amount: String(c.overrideAmount),
-            taxRate: String(c.overrideTaxRate ?? 10),
+            amount: c.overrideAmount != null ? String(c.overrideAmount) : c.amount != null ? String(c.amount) : "",
+            taxRate: String(c.overrideTaxRate ?? c.taxRate ?? 10),
             scheduledPaymentDate: c.overrideScheduledPaymentDate ?? "",
             memo: c.overrideMemo ?? "",
             saving: false,
@@ -242,6 +323,7 @@ export function GenerateCandidatesClient() {
         }
       }
       setOverrideInputs(inputs);
+      setExpandedKeys(new Set());
     } catch (e) {
       setError(e instanceof Error ? e.message : "検出に失敗しました");
     } finally {
@@ -416,8 +498,17 @@ export function GenerateCandidatesClient() {
   // Override保存
   const handleSaveOverride = async (candidate: TransactionCandidate) => {
     const input = getOverrideInput(candidate.key);
-    const amount = parseInt(input.amount, 10);
-    if (!amount || amount <= 0) {
+    const isVariableAmount = candidate.amount === null;
+    const amount = input.amount ? parseInt(input.amount, 10) : undefined;
+
+    // 変動金額候補は金額必須
+    if (isVariableAmount && (!amount || amount <= 0)) {
+      setError("変動金額候補は金額を1円以上入力してください");
+      return;
+    }
+
+    // 金額入力ありの場合は正の整数チェック
+    if (amount !== undefined && amount <= 0) {
       setError("金額は1円以上を入力してください");
       return;
     }
@@ -436,7 +527,7 @@ export function GenerateCandidatesClient() {
             c.key === candidate.key
               ? {
                   ...c,
-                  overrideAmount: amount,
+                  overrideAmount: amount ?? c.overrideAmount,
                   overrideTaxRate: parseInt(input.taxRate, 10) || null,
                   overrideMemo: input.memo || null,
                   overrideScheduledPaymentDate:
@@ -451,6 +542,8 @@ export function GenerateCandidatesClient() {
           next.set(candidate.key, { ...current, saving: false, saved: true });
           return next;
         });
+        // 履歴を再取得
+        fetchLogs(candidate.key);
       } else {
         setError(result.error ?? "保存に失敗しました");
         updateOverrideInput(candidate.key, "saving", false);
@@ -459,6 +552,111 @@ export function GenerateCandidatesClient() {
       setError(e instanceof Error ? e.message : "保存に失敗しました");
       updateOverrideInput(candidate.key, "saving", false);
     }
+  };
+
+  // 履歴取得
+  const fetchLogs = useCallback(
+    async (key: string) => {
+      setLoadingLogs((prev) => new Set(prev).add(key));
+      try {
+        const logs = await getCandidateDecisionLogs(key, targetMonth);
+        setCandidateLogs((prev) => {
+          const next = new Map(prev);
+          next.set(key, logs);
+          return next;
+        });
+      } catch {
+        // 取得失敗は無視（履歴がないだけ）
+      } finally {
+        setLoadingLogs((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+      }
+    },
+    [targetMonth]
+  );
+
+  // 展開（展開時にデフォルト値を初期化 + 履歴取得）
+  const openExpand = useCallback(
+    (candidate: TransactionCandidate) => {
+      setExpandedKeys((prev) => {
+        const next = new Set(prev);
+        next.add(candidate.key);
+        return next;
+      });
+      // デフォルト値をセット（DBの保存済み値 or 候補のデフォルト）
+      setOverrideInputs((prevInputs) => {
+        const nextInputs = new Map(prevInputs);
+        nextInputs.set(candidate.key, {
+          amount: candidate.overrideAmount != null ? String(candidate.overrideAmount) : candidate.amount != null ? String(candidate.amount) : "",
+          taxRate: String(candidate.overrideTaxRate ?? candidate.taxRate ?? 10),
+          scheduledPaymentDate: candidate.overrideScheduledPaymentDate ?? "",
+          memo: candidate.overrideMemo ?? "",
+          saving: false,
+          saved: candidate.overrideAmount != null || candidate.overrideMemo != null,
+        });
+        return nextInputs;
+      });
+      // 履歴取得
+      fetchLogs(candidate.key);
+    },
+    [fetchLogs]
+  );
+
+  // 閉じる（そのまま閉じる）
+  const closeExpand = useCallback(
+    (key: string) => {
+      setExpandedKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    },
+    []
+  );
+
+  // キャンセル（入力を保存済み値に戻して閉じる）
+  const cancelExpand = useCallback(
+    (candidate: TransactionCandidate) => {
+      closeExpand(candidate.key);
+      // 保存済み値に戻す
+      setOverrideInputs((prev) => {
+        const next = new Map(prev);
+        const saved = getSavedValues(candidate);
+        next.set(candidate.key, { ...saved, saving: false, saved: saved.saved });
+        return next;
+      });
+    },
+    [closeExpand]
+  );
+
+  // 保存済みの値を取得するヘルパー
+  const getSavedValues = (candidate: TransactionCandidate) => {
+    const hasSaved =
+      candidate.overrideAmount != null ||
+      candidate.overrideTaxRate != null ||
+      candidate.overrideMemo != null ||
+      candidate.overrideScheduledPaymentDate != null;
+    return {
+      amount: candidate.overrideAmount != null ? String(candidate.overrideAmount) : candidate.amount != null ? String(candidate.amount) : "",
+      taxRate: String(candidate.overrideTaxRate ?? candidate.taxRate ?? 10),
+      scheduledPaymentDate: candidate.overrideScheduledPaymentDate ?? "",
+      memo: candidate.overrideMemo ?? "",
+      saved: hasSaved,
+    };
+  };
+
+  // 現在の入力が保存済み値から変更されているか
+  const isInputDirty = (candidate: TransactionCandidate, input: OverrideInput) => {
+    const saved = getSavedValues(candidate);
+    return (
+      input.amount !== saved.amount ||
+      input.taxRate !== saved.taxRate ||
+      input.scheduledPaymentDate !== saved.scheduledPaymentDate ||
+      input.memo !== saved.memo
+    );
   };
 
   // 個別取引化
@@ -766,6 +964,7 @@ export function GenerateCandidatesClient() {
                     <TableHead>プロジェクト</TableHead>
                     <TableHead>摘要</TableHead>
                     <TableHead className="w-24">状態</TableHead>
+                    <TableHead className="w-10">編集</TableHead>
                     <TableHead className="w-40">操作</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -779,10 +978,18 @@ export function GenerateCandidatesClient() {
                     const isVariableAmount = candidate.amount === null;
                     const overrideInput = getOverrideInput(candidate.key);
                     const isProcessing = decidingKey === candidate.key;
+                    const isExpanded = expandedKeys.has(candidate.key);
+
+                    // 編集ボタン非表示条件
+                    const hideEditButton =
+                      candidate.decisionStatus === "dismissed" ||
+                      candidate.decisionStatus === "held" ||
+                      candidate.decisionStatus === "converted" ||
+                      (candidate.alreadyGenerated && !candidate.sourceDataChanged);
 
                     return (
+                      <Fragment key={candidate.key}>
                       <TableRow
-                        key={candidate.key}
                         className={getRowClassName(candidate)}
                       >
                         <TableCell>
@@ -831,6 +1038,15 @@ export function GenerateCandidatesClient() {
                                 {formatAmount(candidate.amount)}
                               </span>
                             </div>
+                          ) : candidate.overrideAmount != null && candidate.amount != null ? (
+                            <div className="flex flex-col items-end">
+                              <span className="text-xs text-muted-foreground line-through">
+                                {formatAmount(candidate.amount)}
+                              </span>
+                              <span className="text-blue-700 font-medium">
+                                ¥{candidate.overrideAmount.toLocaleString()}
+                              </span>
+                            </div>
                           ) : isVariableAmount && candidate.overrideAmount ? (
                             <div className="flex flex-col items-end">
                               <span className="text-xs text-muted-foreground">
@@ -860,7 +1076,11 @@ export function GenerateCandidatesClient() {
                             "-"}
                         </TableCell>
                         <TableCell className="max-w-[150px] truncate text-xs text-muted-foreground">
-                          {candidate.note}
+                          {candidate.overrideMemo ? (
+                            <span className="text-blue-700">{candidate.overrideMemo}</span>
+                          ) : (
+                            candidate.note
+                          )}
                         </TableCell>
                         <TableCell>
                           {candidate.decisionNeedsReview && (
@@ -913,6 +1133,19 @@ export function GenerateCandidatesClient() {
                             >
                               新規
                             </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {!hideEditButton && !isExpanded && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openExpand(candidate)}
+                              className="h-7 w-7 p-0"
+                              title="簡易編集"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
                           )}
                         </TableCell>
                         <TableCell>
@@ -1002,6 +1235,162 @@ export function GenerateCandidatesClient() {
                           </div>
                         </TableCell>
                       </TableRow>
+                      {/* 展開行: インライン編集 */}
+                      {isExpanded && (
+                        <TableRow className="bg-blue-50/30 hover:bg-blue-50/50">
+                          <TableCell colSpan={14} className="py-3 px-4">
+                            <div className="flex items-end gap-3 flex-wrap">
+                              <div className="min-w-[140px]">
+                                <Label className="text-xs text-muted-foreground">金額（税抜）</Label>
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  value={overrideInput.amount}
+                                  onChange={(e) =>
+                                    updateOverrideInput(candidate.key, "amount", e.target.value)
+                                  }
+                                  placeholder={
+                                    candidate.amount != null
+                                      ? String(candidate.amount)
+                                      : "金額を入力"
+                                  }
+                                  className="h-8 mt-1"
+                                />
+                              </div>
+                              <div className="min-w-[80px]">
+                                <Label className="text-xs text-muted-foreground">税率 (%)</Label>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  value={overrideInput.taxRate}
+                                  onChange={(e) =>
+                                    updateOverrideInput(candidate.key, "taxRate", e.target.value)
+                                  }
+                                  className="h-8 mt-1"
+                                />
+                              </div>
+                              <div className="min-w-[150px]">
+                                <Label className="text-xs text-muted-foreground">支払予定日</Label>
+                                <Input
+                                  type="date"
+                                  value={overrideInput.scheduledPaymentDate}
+                                  onChange={(e) =>
+                                    updateOverrideInput(candidate.key, "scheduledPaymentDate", e.target.value)
+                                  }
+                                  className="h-8 mt-1"
+                                />
+                              </div>
+                              <div className="min-w-[200px] flex-1">
+                                <Label className="text-xs text-muted-foreground">摘要（上書き）</Label>
+                                <Input
+                                  value={overrideInput.memo}
+                                  onChange={(e) =>
+                                    updateOverrideInput(candidate.key, "memo", e.target.value)
+                                  }
+                                  placeholder={candidate.note ?? ""}
+                                  className="h-8 mt-1"
+                                />
+                              </div>
+                              {(() => {
+                                const dirty = isInputDirty(candidate, overrideInput);
+                                if (overrideInput.saving) {
+                                  // 保存中
+                                  return (
+                                    <Button variant="outline" size="sm" disabled className="h-8 px-4">
+                                      保存中...
+                                    </Button>
+                                  );
+                                }
+                                if (dirty) {
+                                  // 変更あり → 保存 + キャンセル
+                                  return (
+                                    <div className="flex items-center gap-2">
+                                      <Button
+                                        variant="default"
+                                        size="sm"
+                                        onClick={() => handleSaveOverride(candidate)}
+                                        disabled={isVariableAmount && !overrideInput.amount}
+                                        className="h-8 px-4 bg-blue-600 hover:bg-blue-700"
+                                      >
+                                        保存
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => cancelExpand(candidate)}
+                                        className="h-8 px-3 text-muted-foreground"
+                                      >
+                                        キャンセル
+                                      </Button>
+                                    </div>
+                                  );
+                                }
+                                // 変更なし → 閉じる（保存済みなら表示付き）
+                                return (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => closeExpand(candidate.key)}
+                                    className="h-8 px-3 text-muted-foreground"
+                                  >
+                                    {overrideInput.saved ? "保存済み - 閉じる" : "閉じる"}
+                                  </Button>
+                                );
+                              })()}
+                            </div>
+                            {/* 変更履歴 */}
+                            {(() => {
+                              const logs = candidateLogs.get(candidate.key);
+                              const isLoading = loadingLogs.has(candidate.key);
+                              if (isLoading) {
+                                return (
+                                  <div className="mt-3 text-xs text-muted-foreground">
+                                    履歴を読み込み中...
+                                  </div>
+                                );
+                              }
+                              if (!logs || logs.length === 0) return null;
+                              return (
+                                <div className="mt-3 border-t pt-2">
+                                  <div className="flex items-center gap-1 mb-1.5">
+                                    <History className="h-3 w-3 text-muted-foreground" />
+                                    <span className="text-xs font-medium text-muted-foreground">
+                                      変更履歴
+                                    </span>
+                                  </div>
+                                  <div className="space-y-1">
+                                    {logs.map((log) => (
+                                      <div
+                                        key={log.id}
+                                        className="text-[11px] text-muted-foreground flex items-baseline gap-2"
+                                      >
+                                        <span className="whitespace-nowrap text-gray-400">
+                                          {new Date(log.changedAt).toLocaleString("ja-JP", {
+                                            month: "numeric",
+                                            day: "numeric",
+                                            hour: "2-digit",
+                                            minute: "2-digit",
+                                          })}
+                                        </span>
+                                        <span className="whitespace-nowrap font-medium text-gray-500">
+                                          {log.changerName}
+                                        </span>
+                                        <span>
+                                          {log.changeType === "create"
+                                            ? formatLogCreate(log.newData)
+                                            : formatLogUpdate(log.oldData, log.newData)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      </Fragment>
                     );
                   })}
                 </TableBody>
@@ -1009,144 +1398,6 @@ export function GenerateCandidatesClient() {
             </div>
           )}
 
-          {/* 変動金額候補の入力エリア */}
-          {candidates.some(
-            (c) =>
-              c.amount === null &&
-              c.decisionStatus !== "dismissed" &&
-              c.decisionStatus !== "converted"
-          ) && (
-            <div className="border rounded-lg p-4 space-y-3">
-              <h3 className="font-medium text-sm">
-                変動金額候補の金額入力
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                変動金額の候補は、金額を入力してから取引化してください。未入力のまま生成するとスキップされます。
-              </p>
-              {candidates
-                .filter(
-                  (c) =>
-                    c.amount === null &&
-                    c.decisionStatus !== "dismissed" &&
-                    c.decisionStatus !== "converted"
-                )
-                .map((candidate) => {
-                  const input = getOverrideInput(candidate.key);
-                  return (
-                    <div
-                      key={candidate.key}
-                      className="border rounded-md p-3 space-y-2 bg-gray-50"
-                    >
-                      <div className="flex items-center gap-2 text-sm">
-                        <Badge
-                          variant={
-                            candidate.type === "revenue"
-                              ? "default"
-                              : "secondary"
-                          }
-                          className={
-                            candidate.type === "revenue"
-                              ? "bg-emerald-100 text-emerald-700"
-                              : "bg-rose-100 text-rose-700"
-                          }
-                        >
-                          {candidate.type === "revenue" ? "売上" : "経費"}
-                        </Badge>
-                        <span className="font-medium">
-                          {candidate.counterpartyName}
-                        </span>
-                        <span className="text-muted-foreground">
-                          {candidate.note}
-                        </span>
-                        {input.saved && (
-                          <Badge
-                            variant="outline"
-                            className="text-green-600 border-green-400"
-                          >
-                            保存済み
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        <div>
-                          <Label className="text-xs">金額（税抜）</Label>
-                          <Input
-                            type="number"
-                            min="1"
-                            value={input.amount}
-                            onChange={(e) =>
-                              updateOverrideInput(
-                                candidate.key,
-                                "amount",
-                                e.target.value
-                              )
-                            }
-                            placeholder="0"
-                            className="h-8"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">税率 (%)</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            max="100"
-                            value={input.taxRate}
-                            onChange={(e) =>
-                              updateOverrideInput(
-                                candidate.key,
-                                "taxRate",
-                                e.target.value
-                              )
-                            }
-                            className="h-8"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">支払予定日</Label>
-                          <Input
-                            type="date"
-                            value={input.scheduledPaymentDate}
-                            onChange={(e) =>
-                              updateOverrideInput(
-                                candidate.key,
-                                "scheduledPaymentDate",
-                                e.target.value
-                              )
-                            }
-                            className="h-8"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">メモ</Label>
-                          <Input
-                            value={input.memo}
-                            onChange={(e) =>
-                              updateOverrideInput(
-                                candidate.key,
-                                "memo",
-                                e.target.value
-                              )
-                            }
-                            placeholder="任意"
-                            className="h-8"
-                          />
-                        </div>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleSaveOverride(candidate)}
-                        disabled={input.saving || !input.amount}
-                        className="h-7"
-                      >
-                        {input.saving ? "保存中..." : "金額を保存"}
-                      </Button>
-                    </div>
-                  );
-                })}
-            </div>
-          )}
         </>
       )}
 
