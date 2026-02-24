@@ -821,6 +821,8 @@ model MasterProject {
   finRecurringTransactions RecurringTransaction[]
   monthlyCloseLogs        MonthlyCloseLog[]
   systemProjectBindings   SystemProjectBinding[]
+  finInvoiceGroups        InvoiceGroup[]   @relation("ProjectInvoiceGroups")
+  finPaymentGroups        PaymentGroup[]   @relation("ProjectPaymentGroups")
 
   @@map("master_projects")
 }
@@ -2329,6 +2331,9 @@ model InvoiceGroup {
   journalEntries        JournalEntry[]
   invoiceMails          InvoiceMail[]
   comments              TransactionComment[]
+  attachments           Attachment[]
+  projectId             Int?
+  project               MasterProject?        @relation("ProjectInvoiceGroups", fields: [projectId], references: [id])
   creator               MasterStaff           @relation("InvoiceGroupCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?          @relation("InvoiceGroupUpdater", fields: [updatedBy], references: [id])
 }
@@ -2373,6 +2378,9 @@ model PaymentGroup {
   journalEntries        JournalEntry[]
   invoiceMails          InvoiceMail[]
   comments              TransactionComment[]
+  attachments           Attachment[]
+  projectId             Int?
+  project               MasterProject?    @relation("ProjectPaymentGroups", fields: [projectId], references: [id])
   confirmer             MasterStaff?      @relation("PaymentGroupConfirmer", fields: [confirmedBy], references: [id])
   creator               MasterStaff       @relation("PaymentGroupCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?      @relation("PaymentGroupUpdater", fields: [updatedBy], references: [id])
@@ -2731,6 +2739,7 @@ model Reconciliation {
 
 model Counterparty {
   id                    Int       @id @default(autoincrement())
+  displayId             String?   @unique // "SC-1"（Stella顧客）or "TP-1"（その他）
   name                  String    // 名称
   companyId             Int?      // FK → MasterStellaCompany（Stella顧客と紐づく場合）
   counterpartyType      String    @default("other")
@@ -2844,6 +2853,8 @@ model Attachment {
   journalEntryId        Int?      // FK → JournalEntry
   bankTransactionId     Int?      // FK → BankTransaction
   commentId             Int?      // FK → TransactionComment（コメント返信時の添付）
+  invoiceGroupId        Int?      // FK → InvoiceGroup（請求添付ファイル）
+  paymentGroupId        Int?      // FK → PaymentGroup（支払添付ファイル）
 
   fileName              String
   filePath              String    // ストレージパス
@@ -2861,6 +2872,8 @@ model Attachment {
   journalEntry          JournalEntry?       @relation(fields: [journalEntryId], references: [id])
   bankTransaction       BankTransaction?    @relation(fields: [bankTransactionId], references: [id])
   comment               TransactionComment? @relation(fields: [commentId], references: [id])
+  invoiceGroup          InvoiceGroup?       @relation(fields: [invoiceGroupId], references: [id])
+  paymentGroup          PaymentGroup?       @relation(fields: [paymentGroupId], references: [id])
   uploader              MasterStaff         @relation("AttachmentUploader", fields: [uploadedBy], references: [id])
 }
 
