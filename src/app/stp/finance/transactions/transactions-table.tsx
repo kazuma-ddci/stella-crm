@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useTransition } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Table,
   TableBody,
@@ -9,16 +11,32 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { confirmTransaction, deleteTransaction } from "@/app/accounting/transactions/actions";
+import { toast } from "sonner";
 import type { TransactionListItem } from "./actions";
 
 type Props = {
   data: TransactionListItem[];
+  deletedData: TransactionListItem[];
   counterpartyOptions: { value: string; label: string }[];
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  unconfirmed: "未確認",
-  confirmed: "確認済み",
+  unconfirmed: "未確定",
+  confirmed: "取引確定",
   awaiting_accounting: "経理処理待ち",
   returned: "差し戻し",
   resubmitted: "再提出",
@@ -50,16 +68,13 @@ const TYPE_STYLES: Record<string, string> = {
   expense: "bg-rose-100 text-rose-700",
 };
 
-type StatusTab = "all" | "unconfirmed" | "confirmed" | "awaiting_accounting" | "returned" | "journalized" | "paid";
+type StatusTab = "all" | "unconfirmed" | "confirmed" | "deleted";
 
 const tabs: { key: StatusTab; label: string; filter: (row: TransactionListItem) => boolean }[] = [
   { key: "all", label: "すべて", filter: () => true },
-  { key: "unconfirmed", label: "未確認", filter: (r) => r.status === "unconfirmed" },
-  { key: "confirmed", label: "確認済み", filter: (r) => r.status === "confirmed" },
-  { key: "awaiting_accounting", label: "経理処理待ち", filter: (r) => r.status === "awaiting_accounting" },
-  { key: "returned", label: "差し戻し", filter: (r) => r.status === "returned" || r.status === "resubmitted" },
-  { key: "journalized", label: "仕訳済み", filter: (r) => r.status === "journalized" },
-  { key: "paid", label: "完了", filter: (r) => r.status === "paid" || r.status === "partially_paid" },
+  { key: "unconfirmed", label: "未確定", filter: (r) => r.status === "unconfirmed" },
+  { key: "confirmed", label: "取引確定", filter: (r) => r.status !== "unconfirmed" },
+  { key: "deleted", label: "削除済み", filter: () => true },
 ];
 
 type SortConfig = {
@@ -67,7 +82,9 @@ type SortConfig = {
   direction: "asc" | "desc";
 };
 
-export function TransactionsTable({ data, counterpartyOptions }: Props) {
+export function TransactionsTable({ data, deletedData, counterpartyOptions }: Props) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
   const [activeTab, setActiveTab] = useState<StatusTab>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [counterpartyFilter, setCounterpartyFilter] = useState<string>("all");
@@ -78,18 +95,21 @@ export function TransactionsTable({ data, counterpartyOptions }: Props) {
     direction: "desc",
   });
 
+  // 現在のタブで使うデータソース
+  const currentData = activeTab === "deleted" ? deletedData : data;
+
   // フィルタリング
   const filteredData = useMemo(() => {
     const tab = tabs.find((t) => t.key === activeTab)!;
-    return data.filter((row) => {
-      if (!tab.filter(row)) return false;
+    return currentData.filter((row) => {
+      if (activeTab !== "deleted" && !tab.filter(row)) return false;
       if (typeFilter !== "all" && row.type !== typeFilter) return false;
       if (counterpartyFilter !== "all" && String(row.counterpartyId) !== counterpartyFilter) return false;
       if (periodFromFilter && row.periodFrom < periodFromFilter) return false;
       if (periodToFilter && row.periodTo > periodToFilter) return false;
       return true;
     });
-  }, [data, activeTab, typeFilter, counterpartyFilter, periodFromFilter, periodToFilter]);
+  }, [currentData, activeTab, typeFilter, counterpartyFilter, periodFromFilter, periodToFilter]);
 
   // ソート
   const sortedData = useMemo(() => {
@@ -113,31 +133,33 @@ export function TransactionsTable({ data, counterpartyOptions }: Props) {
 
   // タブ別件数
   const tabCounts = useMemo(() => {
-    const baseFiltered = data.filter((row) => {
-      if (typeFilter !== "all" && row.type !== typeFilter) return false;
-      if (counterpartyFilter !== "all" && String(row.counterpartyId) !== counterpartyFilter) return false;
-      if (periodFromFilter && row.periodFrom < periodFromFilter) return false;
-      if (periodToFilter && row.periodTo > periodToFilter) return false;
-      return true;
-    });
+    const applyFilters = (rows: TransactionListItem[]) =>
+      rows.filter((row) => {
+        if (typeFilter !== "all" && row.type !== typeFilter) return false;
+        if (counterpartyFilter !== "all" && String(row.counterpartyId) !== counterpartyFilter) return false;
+        if (periodFromFilter && row.periodFrom < periodFromFilter) return false;
+        if (periodToFilter && row.periodTo > periodToFilter) return false;
+        return true;
+      });
+
+    const baseFiltered = applyFilters(data);
+    const deletedFiltered = applyFilters(deletedData);
+
     const counts: Record<StatusTab, number> = {
       all: baseFiltered.length,
       unconfirmed: 0,
       confirmed: 0,
-      awaiting_accounting: 0,
-      returned: 0,
-      journalized: 0,
-      paid: 0,
+      deleted: deletedFiltered.length,
     };
     for (const row of baseFiltered) {
-      for (const tab of tabs) {
-        if (tab.key !== "all" && tab.filter(row)) {
-          counts[tab.key]++;
-        }
+      if (row.status === "unconfirmed") {
+        counts.unconfirmed++;
+      } else {
+        counts.confirmed++;
       }
     }
     return counts;
-  }, [data, typeFilter, counterpartyFilter, periodFromFilter, periodToFilter]);
+  }, [data, deletedData, typeFilter, counterpartyFilter, periodFromFilter, periodToFilter]);
 
   const handleSort = (field: keyof TransactionListItem) => {
     setSortConfig((prev) => ({
@@ -164,31 +186,52 @@ export function TransactionsTable({ data, counterpartyOptions }: Props) {
     return { revenue, expense, count: filteredData.length };
   }, [filteredData]);
 
+  // 取引確定アクション
+  const handleConfirm = async (id: number) => {
+    try {
+      await confirmTransaction(id);
+      toast.success("取引を確定しました");
+      startTransition(() => {
+        router.refresh();
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "取引確定に失敗しました");
+    }
+  };
+
+  // 削除アクション
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteTransaction(id);
+      toast.success("取引を削除しました");
+      startTransition(() => {
+        router.refresh();
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "削除に失敗しました");
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* ステータスタブ */}
       <div className="flex gap-1 border-b">
         {tabs.map((tab) => {
-          const isReturned = tab.key === "returned";
-          const hasItems = tabCounts[tab.key] > 0;
+          const isDeleted = tab.key === "deleted";
           return (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
               className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab.key
-                  ? isReturned
-                    ? "border-red-500 text-red-600"
+                  ? isDeleted
+                    ? "border-gray-500 text-gray-600"
                     : "border-primary text-primary"
-                  : isReturned && hasItems
-                    ? "border-transparent text-red-600 hover:border-red-300"
-                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
               }`}
             >
               {tab.label}
-              <span className={`ml-1.5 text-xs font-normal ${
-                isReturned && hasItems ? "text-red-500" : "text-muted-foreground"
-              }`}>
+              <span className="ml-1.5 text-xs font-normal text-muted-foreground">
                 {tabCounts[tab.key]}
               </span>
             </button>
@@ -320,12 +363,15 @@ export function TransactionsTable({ data, counterpartyOptions }: Props) {
               >
                 作成日{sortIndicator("createdAt")}
               </TableHead>
+              <TableHead className="sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
+                操作
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedData.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                   データがありません
                 </TableCell>
               </TableRow>
@@ -401,6 +447,66 @@ export function TransactionsTable({ data, counterpartyOptions }: Props) {
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                       {row.createdAt}
+                    </TableCell>
+                    <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
+                      <div className="flex items-center gap-1">
+                        <Link href={`/stp/finance/transactions/${row.id}`}>
+                          <Button variant="ghost" size="sm">
+                            {row.status === "unconfirmed" || row.status === "returned" ? "編集" : "詳細"}
+                          </Button>
+                        </Link>
+                        {row.status === "unconfirmed" && activeTab !== "deleted" && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700" disabled={isPending}>
+                                確定
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>取引を確定しますか？</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  取引 #{row.id} を「取引確定」に変更します。確定後は編集できなくなります。
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleConfirm(row.id)}>
+                                  取引確定
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                        {!row.invoiceGroupId && !row.paymentGroupId && activeTab !== "deleted" && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" disabled={isPending}>
+                                削除
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>取引を削除しますか？</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  取引 #{row.id} を削除します。削除後は「削除済み」タブから確認できます。
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                                <AlertDialogAction variant="destructive" onClick={() => handleDelete(row.id)}>
+                                  削除する
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                        {(row.invoiceGroupId || row.paymentGroupId) && activeTab !== "deleted" && (
+                          <Badge variant="outline" className="text-xs">
+                            {row.invoiceGroupId ? "請求紐付" : "支払紐付"}
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
