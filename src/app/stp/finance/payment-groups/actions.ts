@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { requireEdit } from "@/lib/auth";
+import { recordChangeLog } from "@/app/accounting/changelog/actions";
 
 // ============================================
 // 型定義
@@ -49,9 +50,11 @@ export type UngroupedExpenseTransaction = {
 // 一覧取得
 // ============================================
 
-export async function getPaymentGroups(): Promise<PaymentGroupListItem[]> {
+export async function getPaymentGroups(
+  projectId?: number
+): Promise<PaymentGroupListItem[]> {
   const records = await prisma.paymentGroup.findMany({
-    where: { deletedAt: null },
+    where: { deletedAt: null, ...(projectId ? { projectId } : {}) },
     include: {
       counterparty: true,
       operatingCompany: true,
@@ -92,13 +95,15 @@ export async function getPaymentGroups(): Promise<PaymentGroupListItem[]> {
 // ============================================
 
 export async function getUngroupedExpenseTransactions(
-  counterpartyId?: number
+  counterpartyId?: number,
+  projectId?: number
 ): Promise<UngroupedExpenseTransaction[]> {
   const where: Record<string, unknown> = {
     deletedAt: null,
     type: "expense",
     status: "confirmed",
     paymentGroupId: null,
+    ...(projectId ? { projectId } : {}),
   };
   if (counterpartyId) {
     where.counterpartyId = counterpartyId;
@@ -140,6 +145,7 @@ export async function createPaymentGroup(data: {
   expectedPaymentDate?: string | null;
   requestedPdfName?: string | null;
   transactionIds: number[];
+  projectId?: number;
 }): Promise<{ id: number }> {
   const user = await requireEdit("stp");
 
@@ -196,6 +202,7 @@ export async function createPaymentGroup(data: {
         requestedPdfName: data.requestedPdfName ?? null,
         totalAmount: subtotal + taxTotal,
         taxAmount: taxTotal,
+        projectId: data.projectId ?? null,
         status: "before_request",
         createdBy: user.id,
       },
@@ -261,7 +268,10 @@ export async function updatePaymentGroup(
 // 削除（論理削除）
 // ============================================
 
-export async function deletePaymentGroup(id: number): Promise<void> {
+export async function deletePaymentGroup(
+  id: number,
+  deleteTransactions?: boolean
+): Promise<void> {
   const user = await requireEdit("stp");
 
   const group = await prisma.paymentGroup.findUnique({
@@ -277,11 +287,19 @@ export async function deletePaymentGroup(id: number): Promise<void> {
   }
 
   await prisma.$transaction(async (tx) => {
-    // 取引のグループ紐付けを解除
-    await tx.transaction.updateMany({
-      where: { paymentGroupId: id },
-      data: { paymentGroupId: null },
-    });
+    if (deleteTransactions) {
+      // 紐づく取引も論理削除
+      await tx.transaction.updateMany({
+        where: { paymentGroupId: id, deletedAt: null },
+        data: { deletedAt: new Date(), paymentGroupId: null },
+      });
+    } else {
+      // 取引のグループ紐付けを解除
+      await tx.transaction.updateMany({
+        where: { paymentGroupId: id },
+        data: { paymentGroupId: null },
+      });
+    }
 
     // 論理削除
     await tx.paymentGroup.update({
@@ -434,7 +452,7 @@ export async function updatePaymentGroupStatus(
     invoice_received: ["confirmed", "rejected"],
     rejected: ["re_requested"],
     re_requested: ["invoice_received"],
-    confirmed: ["paid"],
+    confirmed: ["awaiting_accounting", "paid"],
   };
 
   const allowed = validTransitions[group.status] ?? [];
@@ -628,4 +646,88 @@ export async function getPaymentGroupTransactions(
     periodTo: r.periodTo.toISOString().split("T")[0],
     note: r.note,
   }));
+}
+
+// ============================================
+// 経理へ引渡（awaiting_accounting へ遷移）
+// ============================================
+
+export async function submitPaymentGroupToAccounting(
+  id: number
+): Promise<void> {
+  const user = await requireEdit("stp");
+
+  const group = await prisma.paymentGroup.findUnique({
+    where: { id, deletedAt: null },
+    include: {
+      transactions: {
+        where: { deletedAt: null },
+        include: {
+          allocationTemplate: {
+            include: {
+              lines: { where: { costCenterId: { not: null } } },
+            },
+          },
+          allocationConfirmations: true,
+        },
+      },
+    },
+  });
+  if (!group) throw new Error("支払グループが見つかりません");
+
+  // confirmed のみ遷移可能
+  if (group.status !== "confirmed") {
+    throw new Error(
+      "「確認済み」ステータスの支払のみ経理へ引渡できます"
+    );
+  }
+
+  // 按分確定チェック: allocationTemplateId がある取引は全プロジェクトの按分確定が必要
+  for (const tx of group.transactions) {
+    if (tx.allocationTemplateId && tx.allocationTemplate) {
+      const requiredCostCenterIds = tx.allocationTemplate.lines
+        .filter((line) => line.costCenterId !== null)
+        .map((line) => line.costCenterId!);
+
+      const confirmedCostCenterIds = new Set(
+        tx.allocationConfirmations
+          .filter((ac) => ac.confirmedAt !== null)
+          .map((ac) => ac.costCenterId)
+      );
+
+      const allConfirmed = requiredCostCenterIds.every((ccId) =>
+        confirmedCostCenterIds.has(ccId)
+      );
+
+      if (!allConfirmed) {
+        throw new Error(
+          "按分確定が完了していない取引が含まれています。全プロジェクトの按分確定を完了してください。"
+        );
+      }
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.paymentGroup.update({
+      where: { id },
+      data: {
+        status: "awaiting_accounting",
+        updatedBy: user.id,
+      },
+    });
+
+    await recordChangeLog(
+      {
+        tableName: "PaymentGroup",
+        recordId: id,
+        changeType: "update",
+        oldData: { status: group.status },
+        newData: { status: "awaiting_accounting" },
+      },
+      user.id,
+      tx
+    );
+  });
+
+  revalidatePath("/stp/finance/payment-groups");
 }

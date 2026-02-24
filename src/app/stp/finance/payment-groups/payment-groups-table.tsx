@@ -10,8 +10,20 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Plus, Send } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import type { PaymentGroupListItem } from "./actions";
+import { submitPaymentGroupToAccounting } from "./actions";
 import { CreatePaymentGroupModal } from "./create-payment-group-modal";
 import { PaymentGroupDetailModal } from "./payment-group-detail-modal";
 
@@ -31,6 +43,7 @@ const STATUS_LABELS: Record<string, string> = {
   rejected: "差し戻し",
   re_requested: "再依頼済み",
   confirmed: "確認済み",
+  awaiting_accounting: "経理引渡済み",
   paid: "支払済み",
 };
 
@@ -41,6 +54,7 @@ const STATUS_STYLES: Record<string, string> = {
   rejected: "bg-red-100 text-red-700",
   re_requested: "bg-indigo-100 text-indigo-700",
   confirmed: "bg-emerald-100 text-emerald-700",
+  awaiting_accounting: "bg-purple-100 text-purple-700",
   paid: "bg-green-100 text-green-700",
 };
 
@@ -87,12 +101,14 @@ type Props = {
   data: PaymentGroupListItem[];
   counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
+  projectId?: number;
 };
 
 export function PaymentGroupsTable({
   data,
   counterpartyOptions,
   operatingCompanyOptions,
+  projectId,
 }: Props) {
   const [activeTab, setActiveTab] = useState<StatusTab>("all");
   const [counterpartyFilter, setCounterpartyFilter] = useState<string>("all");
@@ -254,13 +270,14 @@ export function PaymentGroupsTable({
               >
                 作成日{sortIndicator("createdAt")}
               </TableHead>
+              <TableHead className="text-center">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedData.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={9}
                   className="text-center py-8 text-muted-foreground"
                 >
                   データがありません
@@ -300,6 +317,50 @@ export function PaymentGroupsTable({
                   <TableCell className="text-sm text-muted-foreground">
                     {row.createdAt}
                   </TableCell>
+                  <TableCell className="text-center">
+                    {row.status === "confirmed" && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Send className="mr-1 h-3 w-3" />
+                            経理へ引渡
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              経理へ引渡しますか？
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              「{row.counterpartyName}」の支払（{row.targetMonth}）を経理部門へ引渡します。按分確定が完了していない取引が含まれている場合はエラーになります。
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={async () => {
+                                try {
+                                  await submitPaymentGroupToAccounting(row.id);
+                                } catch (e) {
+                                  alert(
+                                    e instanceof Error
+                                      ? e.message
+                                      : "エラーが発生しました"
+                                  );
+                                }
+                              }}
+                            >
+                              引渡する
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -314,6 +375,7 @@ export function PaymentGroupsTable({
           onClose={() => setShowCreateModal(false)}
           counterpartyOptions={counterpartyOptions}
           operatingCompanyOptions={operatingCompanyOptions}
+          projectId={projectId}
         />
       )}
 

@@ -20,7 +20,19 @@ import {
   XCircle,
   FileText,
   MessageSquare,
+  Send,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { CommentSection } from "@/app/accounting/comments/comment-section";
 import { PaymentGroupMailModal } from "./payment-group-mail-modal";
 import type {
@@ -38,6 +50,7 @@ import {
   removeTransactionFromPaymentGroup,
   getUngroupedExpenseTransactions,
   getPaymentGroupTransactions,
+  submitPaymentGroupToAccounting,
 } from "./actions";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -47,6 +60,7 @@ const STATUS_LABELS: Record<string, string> = {
   rejected: "差し戻し",
   re_requested: "再依頼済み",
   confirmed: "確認済み",
+  awaiting_accounting: "経理引渡済み",
   paid: "支払済み",
 };
 
@@ -273,12 +287,25 @@ export function PaymentGroupDetailModal({
     }
   };
 
+  // 経理へ引渡
+  const handleSubmitToAccounting = async () => {
+    setLoading(true);
+    try {
+      await submitPaymentGroupToAccounting(group.id);
+      onClose();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "エラーが発生しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            支払グループ詳細
+            支払詳細
             <span className="text-xs text-muted-foreground bg-gray-100 px-2 py-0.5 rounded-full">
               {STATUS_LABELS[group.status] ?? group.status}
             </span>
@@ -419,16 +446,48 @@ export function PaymentGroupDetailModal({
                     </Button>
                   )}
 
-                  {/* confirmed: 支払済みにする */}
+                  {/* confirmed: 経理へ引渡 / 支払済みにする */}
                   {group.status === "confirmed" && (
-                    <Button
-                      size="sm"
-                      onClick={handleMarkPaid}
-                      disabled={loading}
-                    >
-                      <CheckCircle2 className="mr-1 h-4 w-4" />
-                      支払済みにする
-                    </Button>
+                    <>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            size="sm"
+                            disabled={loading}
+                          >
+                            <Send className="mr-1 h-4 w-4" />
+                            経理へ引渡
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              経理へ引渡しますか？
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              この支払を経理部門へ引渡します。按分確定が完了していない取引が含まれている場合はエラーになります。
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={handleSubmitToAccounting}
+                            >
+                              引渡する
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleMarkPaid}
+                        disabled={loading}
+                      >
+                        <CheckCircle2 className="mr-1 h-4 w-4" />
+                        支払済みにする
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>

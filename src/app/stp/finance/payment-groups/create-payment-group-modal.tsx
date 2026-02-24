@@ -25,6 +25,8 @@ type Props = {
   onClose: () => void;
   counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
+  defaultCounterpartyId?: string;
+  projectId?: number;
 };
 
 export function CreatePaymentGroupModal({
@@ -32,13 +34,19 @@ export function CreatePaymentGroupModal({
   onClose,
   counterpartyOptions,
   operatingCompanyOptions,
+  defaultCounterpartyId,
+  projectId,
 }: Props) {
-  const [step, setStep] = useState<Step>("counterparty");
+  const [step, setStep] = useState<Step>(
+    defaultCounterpartyId ? "transactions" : "counterparty"
+  );
   const [loading, setLoading] = useState(false);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
 
   // Step 1: 取引先選択
-  const [counterpartyId, setCounterpartyId] = useState<string>("");
+  const [counterpartyId, setCounterpartyId] = useState<string>(
+    defaultCounterpartyId ?? ""
+  );
   const [counterpartySearch, setCounterpartySearch] = useState("");
 
   // Step 2: 取引選択
@@ -69,7 +77,7 @@ export function CreatePaymentGroupModal({
     if (step !== "transactions" || !counterpartyId) return;
     let cancelled = false;
     setLoadingTransactions(true);
-    getUngroupedExpenseTransactions(Number(counterpartyId))
+    getUngroupedExpenseTransactions(Number(counterpartyId), projectId)
       .then((txs) => {
         if (!cancelled) {
           setUngroupedTransactions(txs);
@@ -82,7 +90,7 @@ export function CreatePaymentGroupModal({
     return () => {
       cancelled = true;
     };
-  }, [step, counterpartyId]);
+  }, [step, counterpartyId, projectId]);
 
   // 選択中の取引の合計
   const selectedSummary = useMemo(() => {
@@ -135,6 +143,7 @@ export function CreatePaymentGroupModal({
         expectedPaymentDate: expectedPaymentDate || null,
         requestedPdfName: requestedPdfName || null,
         transactionIds: Array.from(selectedTransactionIds),
+        projectId,
       });
       onClose();
     } catch (e) {
@@ -154,7 +163,7 @@ export function CreatePaymentGroupModal({
       <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>
-            支払グループの新規作成
+            支払の新規作成
             <span className="ml-2 text-sm font-normal text-muted-foreground">
               {step === "counterparty" && "Step 1/3: 取引先選択"}
               {step === "transactions" && "Step 2/3: 取引選択"}
