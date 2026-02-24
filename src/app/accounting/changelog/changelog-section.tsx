@@ -76,9 +76,9 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  unconfirmed: "未確認",
-  confirmed: "確認済み",
-  awaiting_accounting: "経理処理待ち",
+  unconfirmed: "未確定",
+  confirmed: "取引確定",
+  awaiting_accounting: "経理処理中",
   returned: "差し戻し",
   resubmitted: "再提出",
   journalized: "仕訳済み",

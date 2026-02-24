@@ -1,15 +1,15 @@
 import { Badge } from "@/components/ui/badge";
 
 const transactionStatusLabel: Record<string, string> = {
-  unconfirmed: "未確認",
-  confirmed: "確認済み",
-  awaiting_accounting: "経理処理待ち",
-  returned: "差し戻し",
-  resubmitted: "再提出",
-  journalized: "仕訳済み",
-  partially_paid: "一部入金",
-  paid: "完了",
-  hidden: "非表示",
+  unconfirmed: "未確定",
+  confirmed: "取引確定",
+  awaiting_accounting: "経理処理中",  // 既存データ用（後方互換）
+  returned: "差し戻し",               // 既存データ用
+  resubmitted: "再提出",              // 既存データ用
+  journalized: "仕訳済み",            // 既存データ用
+  partially_paid: "一部入金",          // 既存データ用
+  paid: "完了",                       // 既存データ用
+  hidden: "非表示",                   // 既存データ用
 };
 
 const transactionStatusColor: Record<string, string> = {

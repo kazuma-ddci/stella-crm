@@ -22,6 +22,18 @@ export const TRANSACTION_LOG_FIELDS = [
   "netPaymentAmount",
 ] as const;
 
+export const CANDIDATE_DECISION_LOG_FIELDS = [
+  "status",
+  "reasonType",
+  "memo",
+  "needsReview",
+  "overrideAmount",
+  "overrideTaxAmount",
+  "overrideTaxRate",
+  "overrideMemo",
+  "overrideScheduledPaymentDate",
+] as const;
+
 export const JOURNAL_ENTRY_LOG_FIELDS = [
   "journalDate",
   "description",

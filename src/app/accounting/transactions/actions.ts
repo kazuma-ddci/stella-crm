@@ -846,6 +846,69 @@ export async function submitToAccountingTransaction(id: number) {
 }
 
 // ============================================
+// 7c. deleteTransaction（論理削除）
+// ============================================
+
+export async function deleteTransaction(id: number) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const transaction = await prisma.transaction.findFirst({
+    where: { id, deletedAt: null },
+    select: {
+      id: true,
+      status: true,
+      periodFrom: true,
+      periodTo: true,
+      invoiceGroupId: true,
+      paymentGroupId: true,
+    },
+  });
+  if (!transaction) {
+    throw new Error("取引が見つかりません");
+  }
+
+  // 請求/支払に紐づいている場合はエラー
+  if (transaction.invoiceGroupId) {
+    throw new Error(
+      "この取引は請求に紐づけられています。削除するには請求管理から紐づけを解除してください。"
+    );
+  }
+  if (transaction.paymentGroupId) {
+    throw new Error(
+      "この取引は支払に紐づけられています。削除するには支払管理から紐づけを解除してください。"
+    );
+  }
+
+  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.transaction.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+        updatedBy: staffId,
+      },
+    });
+
+    // 変更履歴を記録
+    await recordChangeLog(
+      {
+        tableName: "Transaction",
+        recordId: id,
+        changeType: "delete",
+        oldData: { status: transaction.status },
+      },
+      staffId,
+      tx
+    );
+  });
+
+  revalidatePath("/accounting/transactions");
+  revalidatePath("/stp/finance/transactions");
+}
+
+// ============================================
 // 8. hideTransaction（非表示 / 論理削除）
 // ============================================
 
