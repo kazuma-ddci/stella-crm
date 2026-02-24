@@ -70,9 +70,11 @@ export type UngroupedTransaction = {
 // 一覧取得
 // ============================================
 
-export async function getInvoiceGroups(): Promise<InvoiceGroupListItem[]> {
+export async function getInvoiceGroups(
+  projectId?: number
+): Promise<InvoiceGroupListItem[]> {
   const records = await prisma.invoiceGroup.findMany({
-    where: { deletedAt: null },
+    where: { deletedAt: null, ...(projectId ? { projectId } : {}) },
     include: {
       counterparty: true,
       operatingCompany: true,
@@ -113,13 +115,15 @@ export async function getInvoiceGroups(): Promise<InvoiceGroupListItem[]> {
 
 // 確認済み＆未グループ化の売上取引を取得
 export async function getUngroupedTransactions(
-  counterpartyId?: number
+  counterpartyId?: number,
+  projectId?: number
 ): Promise<UngroupedTransaction[]> {
   const where: Record<string, unknown> = {
     deletedAt: null,
     type: "revenue",
     status: "confirmed",
     invoiceGroupId: null,
+    ...(projectId ? { projectId } : {}),
   };
   if (counterpartyId) {
     where.counterpartyId = counterpartyId;
@@ -161,6 +165,7 @@ export async function createInvoiceGroup(data: {
   invoiceDate?: string | null;
   paymentDueDate?: string | null;
   transactionIds: number[];
+  projectId?: number;
 }): Promise<{ id: number; invoiceNumber: string | null }> {
   const user = await requireEdit("stp");
 
@@ -205,6 +210,7 @@ export async function createInvoiceGroup(data: {
         subtotal,
         taxAmount,
         totalAmount,
+        projectId: data.projectId ?? null,
         status: "draft",
         createdBy: user.id,
       },
@@ -417,7 +423,10 @@ export async function removeTransactionFromGroup(
 // 削除（論理削除）
 // ============================================
 
-export async function deleteInvoiceGroup(id: number): Promise<void> {
+export async function deleteInvoiceGroup(
+  id: number,
+  deleteTransactions?: boolean
+): Promise<void> {
   const user = await requireEdit("stp");
 
   const group = await prisma.invoiceGroup.findUnique({
@@ -425,17 +434,25 @@ export async function deleteInvoiceGroup(id: number): Promise<void> {
   });
   if (!group) throw new Error("請求グループが見つかりません");
 
-  // 下書きのみ削除可能
-  if (group.status !== "draft") {
-    throw new Error("下書きステータスの請求グループのみ削除できます");
+  // 下書き・PDF作成済みのみ削除可能
+  if (!["draft", "pdf_created"].includes(group.status)) {
+    throw new Error("下書きまたはPDF作成済みの請求グループのみ削除できます");
   }
 
   await prisma.$transaction(async (tx) => {
-    // 取引のグループ紐付けを解除
-    await tx.transaction.updateMany({
-      where: { invoiceGroupId: id },
-      data: { invoiceGroupId: null },
-    });
+    if (deleteTransactions) {
+      // 取引も論理削除
+      await tx.transaction.updateMany({
+        where: { invoiceGroupId: id, deletedAt: null },
+        data: { deletedAt: new Date(), invoiceGroupId: null },
+      });
+    } else {
+      // 取引のグループ紐付けを解除
+      await tx.transaction.updateMany({
+        where: { invoiceGroupId: id },
+        data: { invoiceGroupId: null },
+      });
+    }
 
     // 論理削除
     await tx.invoiceGroup.update({
@@ -470,7 +487,7 @@ export async function createCorrectionInvoiceGroup(
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    // 訂正請求書を作成
+    // 訂正請求書を作成（元の請求のprojectIdを継承）
     const correction = await tx.invoiceGroup.create({
       data: {
         counterpartyId: original.counterpartyId,
@@ -480,6 +497,7 @@ export async function createCorrectionInvoiceGroup(
         paymentDueDate: original.paymentDueDate,
         originalInvoiceGroupId: originalId,
         correctionType,
+        projectId: original.projectId ?? null,
         status: "draft",
         createdBy: user.id,
       },
@@ -742,4 +760,45 @@ export async function generateInvoicePdf(
 
   revalidatePath("/stp/finance/invoices");
   return { pdfPath: publicPath, invoiceNumber: result.invoiceNumber };
+}
+
+// ============================================
+// 経理へ引渡
+// ============================================
+
+export async function submitInvoiceGroupToAccounting(
+  id: number
+): Promise<void> {
+  const user = await requireEdit("stp");
+
+  const group = await prisma.invoiceGroup.findUnique({
+    where: { id, deletedAt: null },
+  });
+  if (!group) throw new Error("請求グループが見つかりません");
+
+  if (group.status !== "sent") {
+    throw new Error("送付済みの請求グループのみ経理へ引き渡せます");
+  }
+
+  const oldStatus = group.status;
+  await prisma.$transaction(async (tx) => {
+    await tx.invoiceGroup.update({
+      where: { id },
+      data: { status: "awaiting_accounting", updatedBy: user.id },
+    });
+
+    await recordChangeLog(
+      {
+        tableName: "InvoiceGroup",
+        recordId: id,
+        changeType: "update",
+        oldData: { status: oldStatus },
+        newData: { status: "awaiting_accounting" },
+      },
+      user.id,
+      tx
+    );
+  });
+
+  revalidatePath("/stp/finance/invoices");
 }

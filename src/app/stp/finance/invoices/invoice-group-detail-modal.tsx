@@ -10,7 +10,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw, Mail, MessageSquare } from "lucide-react";
+import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw, Mail, MessageSquare, ArrowRight, Link2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { CommentSection } from "@/app/accounting/comments/comment-section";
 import { InvoiceMailModal } from "./invoice-mail-modal";
 import type { InvoiceGroupListItem, UngroupedTransaction } from "./actions";
@@ -23,6 +33,7 @@ import {
   createCorrectionInvoiceGroup,
   updateInvoiceGroupStatus,
   generateInvoicePdf,
+  submitInvoiceGroupToAccounting,
 } from "./actions";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -95,6 +106,12 @@ export function InvoiceGroupDetailModal({
   // 訂正モーダル
   const [showCorrectionDialog, setShowCorrectionDialog] = useState(false);
 
+  // 経理引渡確認
+  const [showSubmitToAccountingDialog, setShowSubmitToAccountingDialog] = useState(false);
+
+  // 訂正請求情報
+  const [correctionChildren, setCorrectionChildren] = useState<{ id: number; invoiceNumber: string | null }[]>([]);
+
   // メール送付モーダル
   const [showMailModal, setShowMailModal] = useState(false);
 
@@ -102,6 +119,21 @@ export function InvoiceGroupDetailModal({
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [loadingPdf, setLoadingPdf] = useState(false);
+
+  // 訂正請求の子を取得
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fetch(`/api/finance/invoice-groups/${group.id}/corrections`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (!cancelled) setCorrectionChildren(data);
+      })
+      .catch(() => {
+        if (!cancelled) setCorrectionChildren([]);
+      });
+    return () => { cancelled = true; };
+  }, [open, group.id]);
 
   const isEditable = ["draft", "pdf_created"].includes(group.status);
   const canCreateCorrection = ["sent", "awaiting_accounting"].includes(
@@ -298,12 +330,25 @@ export function InvoiceGroupDetailModal({
     }
   };
 
+  const handleSubmitToAccounting = async () => {
+    setLoading(true);
+    try {
+      await submitInvoiceGroupToAccounting(group.id);
+      setShowSubmitToAccountingDialog(false);
+      onClose();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "エラーが発生しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            請求グループ詳細
+            請求詳細
             {group.invoiceNumber && (
               <span className="font-mono text-sm text-muted-foreground">
                 {group.invoiceNumber}
@@ -427,6 +472,16 @@ export function InvoiceGroupDetailModal({
                       </Button>
                     </>
                   )}
+                  {group.status === "sent" && (
+                    <Button
+                      size="sm"
+                      onClick={() => setShowSubmitToAccountingDialog(true)}
+                      disabled={loading}
+                    >
+                      <ArrowRight className="mr-1 h-4 w-4" />
+                      経理へ引渡
+                    </Button>
+                  )}
                   {canCreateCorrection && (
                     <>
                       {group.pdfPath && (
@@ -455,8 +510,22 @@ export function InvoiceGroupDetailModal({
 
               {/* 訂正元情報 */}
               {group.originalInvoiceNumber && (
-                <div className="rounded-lg border border-purple-200 bg-purple-50 p-3 text-sm">
-                  訂正元請求書: {group.originalInvoiceNumber}
+                <div className="rounded-lg border border-purple-200 bg-purple-50 p-3 text-sm flex items-center gap-2">
+                  <Link2 className="h-4 w-4 text-purple-600 flex-shrink-0" />
+                  <span>
+                    元の請求: {group.originalInvoiceNumber} の訂正
+                    （{group.correctionType === "replacement" ? "差し替え" : "追加請求"}）
+                  </span>
+                </div>
+              )}
+
+              {/* 訂正請求による差し替え情報 */}
+              {correctionChildren.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                  <span>
+                    訂正請求 {correctionChildren.map((c) => c.invoiceNumber ?? `#${c.id}`).join(", ")} で差し替えられました
+                  </span>
                 </div>
               )}
 
@@ -843,6 +912,28 @@ export function InvoiceGroupDetailModal({
             </DialogContent>
           </Dialog>
         )}
+
+        {/* 経理引渡確認ダイアログ */}
+        <AlertDialog
+          open={showSubmitToAccountingDialog}
+          onOpenChange={setShowSubmitToAccountingDialog}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>経理へ引き渡しますか？</AlertDialogTitle>
+              <AlertDialogDescription>
+                この請求（{group.invoiceNumber ?? `#${group.id}`}）を経理処理待ちに変更します。
+                この操作は取り消せません。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={loading}>キャンセル</AlertDialogCancel>
+              <AlertDialogAction onClick={handleSubmitToAccounting} disabled={loading}>
+                引き渡す
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* メール送付モーダル */}
         <InvoiceMailModal

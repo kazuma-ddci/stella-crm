@@ -26,6 +26,7 @@ type Props = {
   counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
+  projectId?: number;
 };
 
 export function CreateInvoiceGroupModal({
@@ -34,6 +35,7 @@ export function CreateInvoiceGroupModal({
   counterpartyOptions,
   operatingCompanyOptions,
   bankAccountsByCompany,
+  projectId,
 }: Props) {
   const [step, setStep] = useState<Step>("counterparty");
   const [loading, setLoading] = useState(false);
@@ -73,7 +75,7 @@ export function CreateInvoiceGroupModal({
     if (step !== "transactions" || !counterpartyId) return;
     let cancelled = false;
     setLoadingTransactions(true);
-    getUngroupedTransactions(Number(counterpartyId))
+    getUngroupedTransactions(Number(counterpartyId), projectId)
       .then((txs) => {
         if (!cancelled) {
           setUngroupedTransactions(txs);
@@ -86,7 +88,7 @@ export function CreateInvoiceGroupModal({
     return () => {
       cancelled = true;
     };
-  }, [step, counterpartyId]);
+  }, [step, counterpartyId, projectId]);
 
   // 選択中の取引の合計
   const selectedSummary = useMemo(() => {
@@ -146,6 +148,7 @@ export function CreateInvoiceGroupModal({
         invoiceDate: invoiceDate || null,
         paymentDueDate: paymentDueDate || null,
         transactionIds: Array.from(selectedTransactionIds),
+        projectId,
       });
       onClose();
     } catch (e) {
@@ -165,7 +168,7 @@ export function CreateInvoiceGroupModal({
       <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>
-            請求グループの新規作成
+            請求の新規作成
             <span className="ml-2 text-sm font-normal text-muted-foreground">
               {step === "counterparty" && "Step 1/3: 取引先選択"}
               {step === "transactions" && "Step 2/3: 取引選択"}

@@ -87,6 +87,9 @@ export function InvoiceMailModal({ open, onClose, invoiceGroupId }: Props) {
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [showConfirm, setShowConfirm] = useState(false);
 
+  // 経理引渡オプション
+  const [submitToAccounting, setSubmitToAccounting] = useState(false);
+
   // 手動入力用
   const [manualEmail, setManualEmail] = useState("");
   const [manualName, setManualName] = useState("");
@@ -303,6 +306,7 @@ export function InvoiceMailModal({ open, onClose, invoiceGroupId }: Props) {
           email: r.email,
           type: r.type,
         })),
+        submitToAccounting,
       });
 
       if (result.success) {
@@ -862,6 +866,17 @@ export function InvoiceMailModal({ open, onClose, invoiceGroupId }: Props) {
                       </div>
                     )}
                   </div>
+
+                  {/* 経理引渡オプション */}
+                  <label className="flex items-center gap-2 rounded-lg border p-3 cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="checkbox"
+                      checked={submitToAccounting}
+                      onChange={(e) => setSubmitToAccounting(e.target.checked)}
+                      className="rounded"
+                    />
+                    <span className="text-sm">送付と同時に経理へ引き渡す</span>
+                  </label>
 
                   {/* 操作ボタン */}
                   <div className="flex justify-between">

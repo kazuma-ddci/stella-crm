@@ -10,8 +10,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Plus, ArrowRight } from "lucide-react";
 import type { InvoiceGroupListItem } from "./actions";
+import { submitInvoiceGroupToAccounting } from "./actions";
 import { CreateInvoiceGroupModal } from "./create-invoice-group-modal";
 import { InvoiceGroupDetailModal } from "./invoice-group-detail-modal";
 
@@ -91,6 +102,7 @@ type Props = {
   counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
+  projectId?: number;
 };
 
 export function InvoiceGroupsTable({
@@ -98,6 +110,7 @@ export function InvoiceGroupsTable({
   counterpartyOptions,
   operatingCompanyOptions,
   bankAccountsByCompany,
+  projectId,
 }: Props) {
   const [activeTab, setActiveTab] = useState<StatusTab>("all");
   const [counterpartyFilter, setCounterpartyFilter] = useState<string>("all");
@@ -108,6 +121,22 @@ export function InvoiceGroupsTable({
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedGroup, setSelectedGroup] =
     useState<InvoiceGroupListItem | null>(null);
+  const [submitToAccountingTarget, setSubmitToAccountingTarget] =
+    useState<InvoiceGroupListItem | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmitToAccounting = async () => {
+    if (!submitToAccountingTarget) return;
+    setSubmitting(true);
+    try {
+      await submitInvoiceGroupToAccounting(submitToAccountingTarget.id);
+      setSubmitToAccountingTarget(null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "エラーが発生しました");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const tabCounts = useMemo(() => {
     const counts: Record<StatusTab, number> = {
@@ -265,13 +294,14 @@ export function InvoiceGroupsTable({
               >
                 作成日{sortIndicator("createdAt")}
               </TableHead>
+              <TableHead className="sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedData.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={9}
+                  colSpan={10}
                   className="text-center py-8 text-muted-foreground"
                 >
                   データがありません
@@ -320,6 +350,22 @@ export function InvoiceGroupsTable({
                   <TableCell className="text-sm text-muted-foreground">
                     {row.createdAt}
                   </TableCell>
+                  <TableCell
+                    className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {row.status === "sent" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setSubmitToAccountingTarget(row)}
+                      >
+                        <ArrowRight className="mr-1 h-3 w-3" />
+                        経理へ引渡
+                      </Button>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -335,6 +381,7 @@ export function InvoiceGroupsTable({
           counterpartyOptions={counterpartyOptions}
           operatingCompanyOptions={operatingCompanyOptions}
           bankAccountsByCompany={bankAccountsByCompany}
+          projectId={projectId}
         />
       )}
 
@@ -349,6 +396,30 @@ export function InvoiceGroupsTable({
           bankAccountsByCompany={bankAccountsByCompany}
         />
       )}
+
+      {/* 経理引渡確認ダイアログ */}
+      <AlertDialog
+        open={!!submitToAccountingTarget}
+        onOpenChange={(open) => {
+          if (!open) setSubmitToAccountingTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>経理へ引き渡しますか？</AlertDialogTitle>
+            <AlertDialogDescription>
+              請求（{submitToAccountingTarget?.invoiceNumber ?? `#${submitToAccountingTarget?.id}`}）を経理処理待ちに変更します。
+              この操作は取り消せません。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={submitting}>キャンセル</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSubmitToAccounting} disabled={submitting}>
+              引き渡す
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

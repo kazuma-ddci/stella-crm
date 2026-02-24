@@ -188,6 +188,7 @@ export async function sendInvoiceMail(data: {
     email: string;
     type: "to" | "cc" | "bcc";
   }[];
+  submitToAccounting?: boolean;
 }): Promise<{ success: boolean; error?: string }> {
   const user = await requireEdit("stp");
 
@@ -291,12 +292,13 @@ export async function sendInvoiceMail(data: {
         },
       });
 
-      // pdf_created の場合のみ sent に更新（それ以降のステータスを退行させない）
+      // pdf_created の場合: submitToAccounting が true なら直接 awaiting_accounting、それ以外は sent に更新
       if (group.status === "pdf_created") {
+        const newStatus = data.submitToAccounting ? "awaiting_accounting" : "sent";
         await prisma.invoiceGroup.update({
           where: { id: data.invoiceGroupId },
           data: {
-            status: "sent",
+            status: newStatus,
             updatedBy: user.id,
           },
         });
