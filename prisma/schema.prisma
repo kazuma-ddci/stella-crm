@@ -624,6 +624,7 @@ model MasterStaff {
   allocLineUpdated            AllocationTemplateLine[]   @relation("AllocLineUpdater")
   allocConfirmations          AllocationConfirmation[]
   allocOverrideCreated        AllocationTemplateOverride[] @relation("AllocOverrideCreator")
+  allocGroupItemCreated       AllocationGroupItem[]      @relation("AllocGroupItemCreator")
   expCatCreated               ExpenseCategory[]          @relation("ExpCatCreator")
   expCatUpdated               ExpenseCategory[]          @relation("ExpCatUpdater")
   journalApproved             JournalEntry[]             @relation("JournalApprover")
@@ -2283,6 +2284,7 @@ model Transaction {
   attachments           Attachment[]
   allocationConfirmations AllocationConfirmation[]
   allocationOverrides   AllocationTemplateOverride[]
+  allocationGroupItems  AllocationGroupItem[]
   cryptoDetail          CryptoTransactionDetail?
 }
 
@@ -2298,7 +2300,9 @@ model InvoiceGroup {
 
   invoiceNumber         String?   @unique // 請求書番号（例: STE-INV-202603-0001）
   invoiceDate           DateTime? // 請求日
-  paymentDueDate        DateTime? // 支払期限（＝入金予定日）
+  paymentDueDate        DateTime? // 入金期限
+  expectedPaymentDate   DateTime? // 入金予定日
+  actualPaymentDate     DateTime? // 実際の入金日
 
   subtotal              Int?      // 小計（税抜、自動計算）
   taxAmount             Int?      // 消費税額（小計から一括計算）
@@ -2328,6 +2332,7 @@ model InvoiceGroup {
   originalInvoiceGroup  InvoiceGroup?         @relation("InvoiceCorrection", fields: [originalInvoiceGroupId], references: [id])
   correctedInvoiceGroups InvoiceGroup[]       @relation("InvoiceCorrection")
   transactions          Transaction[]
+  allocationItems       AllocationGroupItem[]
   journalEntries        JournalEntry[]
   invoiceMails          InvoiceMail[]
   comments              TransactionComment[]
@@ -2349,6 +2354,7 @@ model PaymentGroup {
   targetMonth           DateTime  // 対象月（YYYY-MM-01）
 
   expectedPaymentDate   DateTime? // 支払予定日
+  paymentDueDate        DateTime? // 支払期限
   actualPaymentDate     DateTime? // 実際の支払日
   totalAmount           Int?      // 合計金額
   taxAmount             Int?      // 税額
@@ -2375,6 +2381,7 @@ model PaymentGroup {
   counterparty          Counterparty      @relation(fields: [counterpartyId], references: [id])
   operatingCompany      OperatingCompany  @relation(fields: [operatingCompanyId], references: [id])
   transactions          Transaction[]
+  allocationItems       AllocationGroupItem[]
   journalEntries        JournalEntry[]
   invoiceMails          InvoiceMail[]
   comments              TransactionComment[]
@@ -2453,6 +2460,8 @@ model CostCenter {
   recurringTransactions RecurringTransaction[]
   allocationTemplateLines AllocationTemplateLine[]
   allocationConfirmations AllocationConfirmation[]
+  allocationGroupItems  AllocationGroupItem[]
+  ownerAllocationTemplates AllocationTemplate[] @relation("OwnerCostCenter")
   budgets               Budget[]
   creator               MasterStaff?    @relation("CostCenterCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?    @relation("CostCenterUpdater", fields: [updatedBy], references: [id])
@@ -2491,11 +2500,14 @@ model AllocationTemplate {
   updatedAt             DateTime  @updatedAt
   deletedAt             DateTime?
 
+  ownerCostCenterId     Int?      // FK → CostCenter（代表プロジェクトのコストセンター）
+
   // Relations
   lines                 AllocationTemplateLine[]
   transactions          Transaction[]
   recurringTransactions RecurringTransaction[]
   overrides             AllocationTemplateOverride[]
+  ownerCostCenter       CostCenter?   @relation("OwnerCostCenter", fields: [ownerCostCenterId], references: [id])
   creator               MasterStaff   @relation("AllocTemplateCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?  @relation("AllocTemplateUpdater", fields: [updatedBy], references: [id])
 }
@@ -2564,6 +2576,39 @@ model AllocationTemplateOverride {
   creator               MasterStaff        @relation("AllocOverrideCreator", fields: [createdBy], references: [id])
 
   @@unique([transactionId, allocationTemplateId])
+}
+
+// ============================================
+// ⑨-b AllocationGroupItem（按分グループ明細）
+// 按分取引の各CostCenter分をInvoiceGroup/PaymentGroupに紐づける
+// ============================================
+
+model AllocationGroupItem {
+  id                    Int       @id @default(autoincrement())
+  transactionId         Int       // FK → Transaction（按分元の取引）
+  costCenterId          Int       // FK → CostCenter（どのCostCenter分か）
+  groupType             String    // "invoice" | "payment"
+  allocatedAmount       Int       // 按分後の金額（税込）
+  allocatedTaxAmount    Int       // 按分後の税額
+
+  invoiceGroupId        Int?      // FK → InvoiceGroup（groupType="invoice"時のみ）
+  paymentGroupId        Int?      // FK → PaymentGroup（groupType="payment"時のみ）
+
+  createdBy             Int?      // FK → MasterStaff
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  transaction           Transaction    @relation(fields: [transactionId], references: [id])
+  costCenter            CostCenter     @relation(fields: [costCenterId], references: [id])
+  invoiceGroup          InvoiceGroup?  @relation(fields: [invoiceGroupId], references: [id])
+  paymentGroup          PaymentGroup?  @relation(fields: [paymentGroupId], references: [id])
+  creator               MasterStaff?   @relation("AllocGroupItemCreator", fields: [createdBy], references: [id])
+
+  @@unique([transactionId, costCenterId, groupType])
+  @@index([invoiceGroupId])
+  @@index([paymentGroupId])
+  @@index([transactionId])
 }
 
 // ============================================
