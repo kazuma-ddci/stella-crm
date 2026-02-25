@@ -31,10 +31,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
     }
 
     const isPreview = request.nextUrl.searchParams.get("preview") === "true";
+    const projectIdParam = request.nextUrl.searchParams.get("projectId");
+    const projectId = projectIdParam ? parseInt(projectIdParam, 10) : undefined;
 
     // プレビュー: オンザフライでPDF生成
     if (isPreview) {
-      const data = await getInvoicePdfData(groupId);
+      const data = await getInvoicePdfData(groupId, projectId);
       const buffer = await generateInvoicePdfBuffer(data);
 
       return new NextResponse(new Uint8Array(buffer), {
@@ -45,14 +47,14 @@ export async function GET(request: NextRequest, context: RouteContext) {
       });
     }
 
-    // 保存済みPDFを返す
+    // 保存済みPDFを返す（projectIdでスコープ）
     const group = await prisma.invoiceGroup.findUnique({
-      where: { id: groupId, deletedAt: null },
+      where: { id: groupId, deletedAt: null, ...(projectId ? { projectId } : {}) },
     });
 
     if (!group) {
       return NextResponse.json(
-        { error: "請求グループが見つかりません" },
+        { error: "請求が見つかりません" },
         { status: 404 }
       );
     }

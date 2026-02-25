@@ -101,6 +101,7 @@ type Props = {
   data: PaymentGroupListItem[];
   counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
+  expenseCategories: { id: number; name: string; type: string }[];
   projectId?: number;
 };
 
@@ -108,6 +109,7 @@ export function PaymentGroupsTable({
   data,
   counterpartyOptions,
   operatingCompanyOptions,
+  expenseCategories,
   projectId,
 }: Props) {
   const [activeTab, setActiveTab] = useState<StatusTab>("all");
@@ -257,6 +259,18 @@ export function PaymentGroupsTable({
                 支払予定日{sortIndicator("expectedPaymentDate")}
               </TableHead>
               <TableHead
+                className="cursor-pointer hover:text-foreground"
+                onClick={() => handleSort("paymentDueDate")}
+              >
+                支払期限{sortIndicator("paymentDueDate")}
+              </TableHead>
+              <TableHead
+                className="cursor-pointer hover:text-foreground"
+                onClick={() => handleSort("actualPaymentDate")}
+              >
+                実際の支払日{sortIndicator("actualPaymentDate")}
+              </TableHead>
+              <TableHead
                 className="cursor-pointer hover:text-foreground text-right"
                 onClick={() => handleSort("totalAmount")}
               >
@@ -270,14 +284,14 @@ export function PaymentGroupsTable({
               >
                 作成日{sortIndicator("createdAt")}
               </TableHead>
-              <TableHead className="text-center">操作</TableHead>
+              <TableHead className="sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedData.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={9}
+                  colSpan={11}
                   className="text-center py-8 text-muted-foreground"
                 >
                   データがありません
@@ -296,6 +310,17 @@ export function PaymentGroupsTable({
                   </TableCell>
                   <TableCell>{row.targetMonth}</TableCell>
                   <TableCell>{row.expectedPaymentDate ?? "-"}</TableCell>
+                  <TableCell className={
+                    row.paymentDueDate &&
+                    !row.actualPaymentDate &&
+                    !["paid"].includes(row.status) &&
+                    new Date(row.paymentDueDate) < new Date()
+                      ? "text-red-600 font-medium"
+                      : ""
+                  }>
+                    {row.paymentDueDate ?? "-"}
+                  </TableCell>
+                  <TableCell>{row.actualPaymentDate ?? "-"}</TableCell>
                   <TableCell className="text-right font-medium">
                     {row.totalAmount != null
                       ? `¥${row.totalAmount.toLocaleString()}`
@@ -317,14 +342,17 @@ export function PaymentGroupsTable({
                   <TableCell className="text-sm text-muted-foreground">
                     {row.createdAt}
                   </TableCell>
-                  <TableCell className="text-center">
-                    {row.status === "confirmed" && (
+                  <TableCell
+                    className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {row.status === "confirmed" ? (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={(e) => e.stopPropagation()}
+                            className="h-7 text-xs"
                           >
                             <Send className="mr-1 h-3 w-3" />
                             経理へ引渡
@@ -359,6 +387,15 @@ export function PaymentGroupsTable({
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setSelectedGroup(row)}
+                      >
+                        詳細
+                      </Button>
                     )}
                   </TableCell>
                 </TableRow>
@@ -375,6 +412,7 @@ export function PaymentGroupsTable({
           onClose={() => setShowCreateModal(false)}
           counterpartyOptions={counterpartyOptions}
           operatingCompanyOptions={operatingCompanyOptions}
+          expenseCategories={expenseCategories}
           projectId={projectId}
         />
       )}
@@ -387,6 +425,7 @@ export function PaymentGroupsTable({
           group={selectedGroup}
           counterpartyOptions={counterpartyOptions}
           operatingCompanyOptions={operatingCompanyOptions}
+          expenseCategories={expenseCategories}
         />
       )}
     </div>

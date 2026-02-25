@@ -5,7 +5,8 @@ import { getSystemProjectContext } from "@/lib/project-context";
 
 export default async function TransactionsPage() {
   const ctx = await getSystemProjectContext("stp");
-  const projectId = ctx?.projectId;
+  if (!ctx) throw new Error("STPプロジェクトのコンテキストが取得できません");
+  const projectId = ctx.projectId;
   const [data, deletedData] = await Promise.all([
     listTransactions(undefined, undefined, projectId),
     listDeletedTransactions(projectId),

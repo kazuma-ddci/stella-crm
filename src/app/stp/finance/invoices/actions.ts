@@ -5,66 +5,44 @@ import { revalidatePath } from "next/cache";
 import { requireEdit } from "@/lib/auth";
 import { generateInvoiceGroupNumber } from "@/lib/finance/invoice-number";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
-import { calcInvoiceTaxSummary, calcInvoiceTotalFromSummary } from "@/lib/finance/invoice-tax";
+import { requireStpProjectId } from "@/lib/project-context";
 import fs from "fs/promises";
 import path from "path";
 
 // ============================================
-// 税額計算ヘルパー（仕様9.1準拠: 税率別グループ小計→一括税額計算）
+// 税額計算ヘルパー（取引の税額を単純合計）
 // ============================================
 
 function calcGroupTotals(transactions: { amount: number; taxAmount: number; taxRate: number; taxType: string }[]) {
-  const lineItems = transactions.map((t) => ({
-    amount: t.taxType === "tax_excluded" ? t.amount : t.amount - t.taxAmount,
-    taxRate: t.taxRate,
-  }));
-  const taxSummary = calcInvoiceTaxSummary(lineItems);
-  const { totalAmount, taxAmount } = calcInvoiceTotalFromSummary(taxSummary);
-  return { subtotal: totalAmount - taxAmount, taxAmount, totalAmount };
+  let subtotal = 0;
+  let taxTotal = 0;
+  for (const t of transactions) {
+    if (t.taxType === "tax_excluded") {
+      subtotal += t.amount;
+      taxTotal += t.taxAmount;
+    } else {
+      subtotal += t.amount - t.taxAmount;
+      taxTotal += t.taxAmount;
+    }
+  }
+  return { subtotal, taxAmount: taxTotal, totalAmount: subtotal + taxTotal };
 }
 
 // ============================================
-// 型定義
+// 型定義（types.ts から再エクスポート）
 // ============================================
 
-export type InvoiceGroupListItem = {
-  id: number;
-  counterpartyId: number;
-  counterpartyName: string;
-  operatingCompanyId: number;
-  operatingCompanyName: string;
-  bankAccountId: number | null;
-  bankAccountLabel: string | null;
-  invoiceNumber: string | null;
-  invoiceDate: string | null;
-  paymentDueDate: string | null;
-  subtotal: number | null;
-  taxAmount: number | null;
-  totalAmount: number | null;
-  pdfPath: string | null;
-  status: string;
-  correctionType: string | null;
-  originalInvoiceGroupId: number | null;
-  originalInvoiceNumber: string | null;
-  transactionCount: number;
-  createdByName: string;
-  createdAt: string;
-};
+import type {
+  InvoiceGroupListItem,
+  UngroupedAllocationItem,
+  UngroupedTransaction,
+} from "./types";
 
-export type UngroupedTransaction = {
-  id: number;
-  type: string;
-  counterpartyId: number;
-  counterpartyName: string;
-  expenseCategoryName: string;
-  amount: number;
-  taxAmount: number;
-  taxRate: number;
-  taxType: string;
-  periodFrom: string;
-  periodTo: string;
-  note: string | null;
-};
+export type {
+  InvoiceGroupListItem,
+  UngroupedAllocationItem,
+  UngroupedTransaction,
+} from "./types";
 
 // ============================================
 // 一覧取得
@@ -81,6 +59,7 @@ export async function getInvoiceGroups(
       bankAccount: true,
       originalInvoiceGroup: { select: { invoiceNumber: true } },
       transactions: { where: { deletedAt: null }, select: { id: true } },
+      allocationItems: { select: { id: true } },
       creator: true,
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -99,6 +78,8 @@ export async function getInvoiceGroups(
     invoiceNumber: r.invoiceNumber,
     invoiceDate: r.invoiceDate?.toISOString().split("T")[0] ?? null,
     paymentDueDate: r.paymentDueDate?.toISOString().split("T")[0] ?? null,
+    expectedPaymentDate: r.expectedPaymentDate?.toISOString().split("T")[0] ?? null,
+    actualPaymentDate: r.actualPaymentDate?.toISOString().split("T")[0] ?? null,
     subtotal: r.subtotal,
     taxAmount: r.taxAmount,
     totalAmount: r.totalAmount,
@@ -108,12 +89,13 @@ export async function getInvoiceGroups(
     originalInvoiceGroupId: r.originalInvoiceGroupId,
     originalInvoiceNumber: r.originalInvoiceGroup?.invoiceNumber ?? null,
     transactionCount: r.transactions.length,
+    allocationItemCount: r.allocationItems.length,
     createdByName: r.creator.name,
     createdAt: r.createdAt.toISOString().split("T")[0],
   }));
 }
 
-// 確認済み＆未グループ化の売上取引を取得
+// 確認済み＆未グループ化の売上取引を取得（按分取引は除外）
 export async function getUngroupedTransactions(
   counterpartyId?: number,
   projectId?: number
@@ -123,6 +105,7 @@ export async function getUngroupedTransactions(
     type: "revenue",
     status: "confirmed",
     invoiceGroupId: null,
+    allocationTemplateId: null, // 按分取引は除外（AllocationGroupItem経由で処理）
     ...(projectId ? { projectId } : {}),
   };
   if (counterpartyId) {
@@ -154,6 +137,121 @@ export async function getUngroupedTransactions(
   }));
 }
 
+// 未処理の按分取引（売上側、このPJのCostCenter分でまだAllocationGroupItemがない）
+export async function getUngroupedAllocationItems(
+  projectId?: number
+): Promise<UngroupedAllocationItem[]> {
+  if (!projectId) return [];
+
+  // プロジェクトに紐づくCostCenterを取得
+  const costCenters = await prisma.costCenter.findMany({
+    where: {
+      deletedAt: null,
+      isActive: true,
+      OR: [
+        { projectId },
+        { projectAssignments: { some: { projectId } } },
+      ],
+    },
+    select: { id: true, name: true },
+  });
+
+  const targetCcIds = costCenters.map((cc) => cc.id);
+  if (targetCcIds.length === 0) return [];
+
+  // 按分テンプレートを持つ confirmed 売上取引を取得
+  const transactions = await prisma.transaction.findMany({
+    where: {
+      deletedAt: null,
+      type: "revenue",
+      status: { in: ["confirmed", "awaiting_accounting", "resubmitted"] },
+      allocationTemplateId: { not: null },
+    },
+    include: {
+      counterparty: { select: { id: true, name: true } },
+      expenseCategory: { select: { name: true } },
+      allocationTemplate: {
+        include: {
+          lines: {
+            include: { costCenter: { select: { id: true, name: true } } },
+          },
+        },
+      },
+      allocationGroupItems: {
+        include: {
+          costCenter: { select: { id: true, name: true } },
+          invoiceGroup: { select: { invoiceNumber: true } },
+        },
+      },
+      allocationConfirmations: true,
+    },
+  });
+
+  const results: UngroupedAllocationItem[] = [];
+  const ccNameMap = new Map(costCenters.map((cc) => [cc.id, cc.name]));
+
+  for (const tx of transactions) {
+    if (!tx.allocationTemplate) continue;
+
+    const existingItemCcIds = new Set(
+      tx.allocationGroupItems
+        .filter((i) => i.groupType === "invoice")
+        .map((i) => i.costCenterId)
+    );
+    const confirmedCcIds = new Set(tx.allocationConfirmations.map((ac) => ac.costCenterId));
+    const amountIncludingTax = tx.amount + tx.taxAmount;
+
+    for (const line of tx.allocationTemplate.lines) {
+      if (line.costCenterId === null) continue;
+      if (!targetCcIds.includes(line.costCenterId)) continue;
+      if (existingItemCcIds.has(line.costCenterId)) continue;
+      if (!confirmedCcIds.has(line.costCenterId)) continue;
+
+      const rate = Number(line.allocationRate);
+      const allocatedAmount = Math.floor((amountIncludingTax * rate) / 100);
+      const allocatedTaxAmount = Math.floor((tx.taxAmount * rate) / 100);
+
+      const ownerCcId = tx.allocationTemplate.ownerCostCenterId;
+      const ownerCcName = ownerCcId
+        ? tx.allocationTemplate.lines.find((l) => l.costCenterId === ownerCcId)?.costCenter?.name ?? null
+        : null;
+
+      const otherItems = tx.allocationTemplate.lines
+        .filter((l) => l.costCenterId !== null && l.costCenterId !== line.costCenterId)
+        .map((l) => {
+          const item = tx.allocationGroupItems.find(
+            (i) => i.costCenterId === l.costCenterId && i.groupType === "invoice"
+          );
+          return {
+            costCenterName: l.costCenter?.name ?? "不明",
+            groupLabel: item?.invoiceGroup?.invoiceNumber ?? null,
+            isProcessed: !!item,
+          };
+        });
+
+      results.push({
+        transactionId: tx.id,
+        counterpartyId: tx.counterparty!.id,
+        counterpartyName: tx.counterparty!.name,
+        expenseCategoryName: tx.expenseCategory.name,
+        costCenterId: line.costCenterId,
+        costCenterName: ccNameMap.get(line.costCenterId) ?? line.costCenter?.name ?? "不明",
+        allocationRate: rate,
+        allocatedAmount,
+        allocatedTaxAmount,
+        ownerCostCenterName: ownerCcName,
+        isOwnerProject: ownerCcId !== null && targetCcIds.includes(ownerCcId),
+        periodFrom: tx.periodFrom.toISOString().split("T")[0],
+        periodTo: tx.periodTo.toISOString().split("T")[0],
+        note: tx.note,
+        otherItems,
+      });
+    }
+  }
+
+  return results;
+}
+
 // ============================================
 // 作成
 // ============================================
@@ -164,13 +262,27 @@ export async function createInvoiceGroup(data: {
   bankAccountId?: number | null;
   invoiceDate?: string | null;
   paymentDueDate?: string | null;
+  expectedPaymentDate?: string | null;
   transactionIds: number[];
   projectId?: number;
 }): Promise<{ id: number; invoiceNumber: string | null }> {
   const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
 
   const result = await prisma.$transaction(async (tx) => {
-    // 選択された取引の金額を集計
+    // P1-1: 按分取引は direct FK ルートでは追加不可
+    const allocationTx = await tx.transaction.findFirst({
+      where: {
+        id: { in: data.transactionIds },
+        allocationTemplateId: { not: null },
+        deletedAt: null,
+      },
+    });
+    if (allocationTx) {
+      throw new Error("按分取引は直接請求に所属できません。按分明細として追加してください。");
+    }
+
+    // 選択された取引の金額を集計（projectIdでスコープ）
     const transactions = await tx.transaction.findMany({
       where: {
         id: { in: data.transactionIds },
@@ -178,26 +290,34 @@ export async function createInvoiceGroup(data: {
         status: "confirmed",
         invoiceGroupId: null,
         type: "revenue",
+        projectId: stpProjectId,
       },
     });
 
     if (transactions.length === 0) {
-      throw new Error("グループ化できる取引がありません");
+      throw new Error("対象の取引がありません");
+    }
+
+    // 部分成功を防止: 入力IDと取得IDが完全一致することを検証
+    if (transactions.length !== data.transactionIds.length) {
+      throw new Error(
+        `指定された${data.transactionIds.length}件のうち${transactions.length}件しか対象外です。ステータス・プロジェクトを確認してください`
+      );
     }
 
     // 全取引が同一取引先か確認
     const counterpartyIds = new Set(transactions.map((t) => t.counterpartyId));
     if (counterpartyIds.size > 1) {
-      throw new Error("異なる取引先の取引は同じ請求グループに入れられません");
+      throw new Error("異なる取引先の取引は同じ請求に入れられません");
     }
     if (!counterpartyIds.has(data.counterpartyId)) {
       throw new Error("取引先が一致しません");
     }
 
-    // 金額計算（仕様9.1準拠: 税率別グループ小計→一括税額計算）
+    // 金額計算（取引の税額を単純合計）
     const { subtotal, taxAmount, totalAmount } = calcGroupTotals(transactions);
 
-    // InvoiceGroup作成
+    // InvoiceGroup作成（サーバー側で取得したprojectIdを使用）
     const group = await tx.invoiceGroup.create({
       data: {
         counterpartyId: data.counterpartyId,
@@ -207,18 +327,23 @@ export async function createInvoiceGroup(data: {
         paymentDueDate: data.paymentDueDate
           ? new Date(data.paymentDueDate)
           : null,
+        expectedPaymentDate: data.expectedPaymentDate
+          ? new Date(data.expectedPaymentDate)
+          : data.paymentDueDate
+          ? new Date(data.paymentDueDate)
+          : null,
         subtotal,
         taxAmount,
         totalAmount,
-        projectId: data.projectId ?? null,
+        projectId: stpProjectId,
         status: "draft",
         createdBy: user.id,
       },
     });
 
-    // 取引をグループに紐づけ
+    // 取引をグループに紐づけ（projectIdでスコープ）
     await tx.transaction.updateMany({
-      where: { id: { in: data.transactionIds } },
+      where: { id: { in: transactions.map((t) => t.id) }, projectId: stpProjectId },
       data: { invoiceGroupId: group.id },
     });
 
@@ -240,20 +365,30 @@ export async function updateInvoiceGroup(
     bankAccountId?: number | null;
     invoiceDate?: string | null;
     paymentDueDate?: string | null;
+    expectedPaymentDate?: string | null;
+    actualPaymentDate?: string | null;
     subtotal?: number | null;
     taxAmount?: number | null;
     totalAmount?: number | null;
   }
 ): Promise<void> {
   const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
 
   const group = await prisma.invoiceGroup.findUnique({
-    where: { id, deletedAt: null },
+    where: { id, deletedAt: null, projectId: stpProjectId },
   });
-  if (!group) throw new Error("請求グループが見つかりません");
+  if (!group) throw new Error("請求が見つかりません");
 
-  // 送付済み以降・返送は編集不可（returnedはdraftに戻してから編集）
-  if (["sent", "awaiting_accounting", "partially_paid", "paid", "corrected", "returned"].includes(group.status)) {
+  // actualPaymentDate のみの更新は送付済み以降でも許可
+  const onlyActualPaymentDate =
+    Object.keys(data).length === 1 && "actualPaymentDate" in data;
+
+  // 送付済み以降・返送は編集不可（actualPaymentDateのみは例外）
+  if (
+    !onlyActualPaymentDate &&
+    ["sent", "awaiting_accounting", "partially_paid", "paid", "corrected", "returned"].includes(group.status)
+  ) {
     throw new Error("このステータスでは編集できません");
   }
 
@@ -270,6 +405,14 @@ export async function updateInvoiceGroup(
   if ("paymentDueDate" in data)
     updateData.paymentDueDate = data.paymentDueDate
       ? new Date(data.paymentDueDate)
+      : null;
+  if ("expectedPaymentDate" in data)
+    updateData.expectedPaymentDate = data.expectedPaymentDate
+      ? new Date(data.expectedPaymentDate)
+      : null;
+  if ("actualPaymentDate" in data)
+    updateData.actualPaymentDate = data.actualPaymentDate
+      ? new Date(data.actualPaymentDate)
       : null;
   if ("subtotal" in data) updateData.subtotal = data.subtotal;
   if ("taxAmount" in data) updateData.taxAmount = data.taxAmount;
@@ -299,19 +442,32 @@ export async function addTransactionToGroup(
   transactionIds: number[]
 ): Promise<void> {
   const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
 
   const group = await prisma.invoiceGroup.findUnique({
-    where: { id: groupId, deletedAt: null },
+    where: { id: groupId, deletedAt: null, projectId: stpProjectId },
     include: { transactions: { where: { deletedAt: null } } },
   });
-  if (!group) throw new Error("請求グループが見つかりません");
+  if (!group) throw new Error("請求が見つかりません");
 
   // 下書き・PDF作成済みのみ追加可能
   if (!["draft", "pdf_created"].includes(group.status)) {
     throw new Error("このステータスでは取引を追加できません");
   }
 
-  // 追加する取引を検証
+  // P1-1: 按分取引は direct FK ルートでは追加不可
+  const allocationTx = await prisma.transaction.findFirst({
+    where: {
+      id: { in: transactionIds },
+      allocationTemplateId: { not: null },
+      deletedAt: null,
+    },
+  });
+  if (allocationTx) {
+    throw new Error("按分取引は直接請求に所属できません。按分明細として追加してください。");
+  }
+
+  // 追加する取引を検証（projectIdでスコープ）
   const transactions = await prisma.transaction.findMany({
     where: {
       id: { in: transactionIds },
@@ -320,6 +476,7 @@ export async function addTransactionToGroup(
       invoiceGroupId: null,
       type: "revenue",
       counterpartyId: group.counterpartyId,
+      projectId: stpProjectId,
     },
   });
 
@@ -327,14 +484,21 @@ export async function addTransactionToGroup(
     throw new Error("追加できる取引がありません");
   }
 
+  // 部分成功を防止: 入力IDと取得IDが完全一致することを検証
+  if (transactions.length !== transactionIds.length) {
+    throw new Error(
+      `指定された${transactionIds.length}件のうち${transactions.length}件しか対象外です。ステータス・プロジェクトを確認してください`
+    );
+  }
+
   await prisma.$transaction(async (tx) => {
-    // 取引をグループに紐づけ
+    // 取引をグループに紐づけ（projectIdでスコープ）
     await tx.transaction.updateMany({
-      where: { id: { in: transactions.map((t) => t.id) } },
+      where: { id: { in: transactions.map((t) => t.id) }, projectId: stpProjectId },
       data: { invoiceGroupId: groupId },
     });
 
-    // 金額再計算（仕様9.1準拠）
+    // 金額再計算（単純合計）
     const allTransactions = [
       ...group.transactions,
       ...transactions,
@@ -370,12 +534,13 @@ export async function removeTransactionFromGroup(
   transactionId: number
 ): Promise<void> {
   const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
 
   const group = await prisma.invoiceGroup.findUnique({
-    where: { id: groupId, deletedAt: null },
+    where: { id: groupId, deletedAt: null, projectId: stpProjectId },
     include: { transactions: { where: { deletedAt: null } } },
   });
-  if (!group) throw new Error("請求グループが見つかりません");
+  if (!group) throw new Error("請求が見つかりません");
 
   // 下書き・PDF作成済みのみ削除可能
   if (!["draft", "pdf_created"].includes(group.status)) {
@@ -383,13 +548,13 @@ export async function removeTransactionFromGroup(
   }
 
   await prisma.$transaction(async (tx) => {
-    // 取引のグループ紐付けを解除（所属グループを検証）
+    // 取引のグループ紐付けを解除（所属グループ+projectIdを検証）
     await tx.transaction.update({
-      where: { id: transactionId, invoiceGroupId: groupId },
+      where: { id: transactionId, invoiceGroupId: groupId, projectId: stpProjectId },
       data: { invoiceGroupId: null },
     });
 
-    // 金額再計算（仕様9.1準拠）
+    // 金額再計算（単純合計）
     const remaining = group.transactions.filter(
       (t) => t.id !== transactionId
     );
@@ -428,28 +593,29 @@ export async function deleteInvoiceGroup(
   deleteTransactions?: boolean
 ): Promise<void> {
   const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
 
   const group = await prisma.invoiceGroup.findUnique({
-    where: { id, deletedAt: null },
+    where: { id, deletedAt: null, projectId: stpProjectId },
   });
-  if (!group) throw new Error("請求グループが見つかりません");
+  if (!group) throw new Error("請求が見つかりません");
 
   // 下書き・PDF作成済みのみ削除可能
   if (!["draft", "pdf_created"].includes(group.status)) {
-    throw new Error("下書きまたはPDF作成済みの請求グループのみ削除できます");
+    throw new Error("下書きまたはPDF作成済みの請求のみ削除できます");
   }
 
   await prisma.$transaction(async (tx) => {
     if (deleteTransactions) {
-      // 取引も論理削除
+      // 取引も論理削除（projectIdでスコープ）
       await tx.transaction.updateMany({
-        where: { invoiceGroupId: id, deletedAt: null },
+        where: { invoiceGroupId: id, deletedAt: null, projectId: stpProjectId },
         data: { deletedAt: new Date(), invoiceGroupId: null },
       });
     } else {
-      // 取引のグループ紐付けを解除
+      // 取引のグループ紐付けを解除（projectIdでスコープ）
       await tx.transaction.updateMany({
-        where: { invoiceGroupId: id },
+        where: { invoiceGroupId: id, projectId: stpProjectId },
         data: { invoiceGroupId: null },
       });
     }
@@ -474,16 +640,17 @@ export async function createCorrectionInvoiceGroup(
   correctionType: "replacement" | "additional"
 ): Promise<{ id: number }> {
   const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
 
   const original = await prisma.invoiceGroup.findUnique({
-    where: { id: originalId, deletedAt: null },
+    where: { id: originalId, deletedAt: null, projectId: stpProjectId },
     include: { transactions: { where: { deletedAt: null } } },
   });
-  if (!original) throw new Error("元の請求グループが見つかりません");
+  if (!original) throw new Error("元の請求が見つかりません");
 
   // 送付済み以降のみ訂正可能
   if (!["sent", "awaiting_accounting"].includes(original.status)) {
-    throw new Error("送付済みまたは経理処理待ちの請求グループのみ訂正できます");
+    throw new Error("送付済みまたは経理処理待ちの請求のみ訂正できます");
   }
 
   const result = await prisma.$transaction(async (tx) => {
@@ -503,10 +670,10 @@ export async function createCorrectionInvoiceGroup(
       },
     });
 
-    // 差し替えの場合: 元の取引を新しいグループに移動
+    // 差し替えの場合: 元の取引を新しいグループに移動（projectIdでスコープ）
     if (correctionType === "replacement") {
       await tx.transaction.updateMany({
-        where: { id: { in: original.transactions.map((t) => t.id) } },
+        where: { id: { in: original.transactions.map((t) => t.id) }, projectId: stpProjectId },
         data: { invoiceGroupId: correction.id },
       });
 
@@ -546,12 +713,13 @@ export async function assignInvoiceNumber(
   groupId: number
 ): Promise<string> {
   const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
 
   const result = await prisma.$transaction(async (tx) => {
     const group = await tx.invoiceGroup.findUnique({
-      where: { id: groupId, deletedAt: null },
+      where: { id: groupId, deletedAt: null, projectId: stpProjectId },
     });
-    if (!group) throw new Error("請求グループが見つかりません");
+    if (!group) throw new Error("請求が見つかりません");
 
     // 既に採番済みならそのまま返す
     if (group.invoiceNumber) return group.invoiceNumber;
@@ -599,11 +767,12 @@ export async function updateInvoiceGroupStatus(
   newStatus: string
 ): Promise<void> {
   const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
 
   const group = await prisma.invoiceGroup.findUnique({
-    where: { id, deletedAt: null },
+    where: { id, deletedAt: null, projectId: stpProjectId },
   });
-  if (!group) throw new Error("請求グループが見つかりません");
+  if (!group) throw new Error("請求が見つかりません");
 
   // 遷移バリデーション
   const validTransitions: Record<string, string[]> = {
@@ -659,14 +828,15 @@ export async function recalcInvoiceGroupTotals(
   groupId: number
 ): Promise<void> {
   const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
 
   const group = await prisma.invoiceGroup.findUnique({
-    where: { id: groupId, deletedAt: null },
+    where: { id: groupId, deletedAt: null, projectId: stpProjectId },
     include: { transactions: { where: { deletedAt: null } } },
   });
-  if (!group) throw new Error("請求グループが見つかりません");
+  if (!group) throw new Error("請求が見つかりません");
 
-  // 仕様9.1準拠: 税率別にグループ小計→一括税額計算（インボイス制度対応）
+  // 取引の税額を単純合計
   const { subtotal, taxAmount, totalAmount } = calcGroupTotals(group.transactions);
 
   await prisma.invoiceGroup.update({
@@ -690,6 +860,7 @@ export async function generateInvoicePdf(
   groupId: number
 ): Promise<{ pdfPath: string; invoiceNumber: string }> {
   const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
 
   // 動的importでサーバー専用モジュールを遅延ロード
   const { getInvoicePdfData, generateInvoicePdfBuffer } = await import(
@@ -698,9 +869,9 @@ export async function generateInvoicePdf(
 
   const result = await prisma.$transaction(async (tx) => {
     const group = await tx.invoiceGroup.findUnique({
-      where: { id: groupId, deletedAt: null },
+      where: { id: groupId, deletedAt: null, projectId: stpProjectId },
     });
-    if (!group) throw new Error("請求グループが見つかりません");
+    if (!group) throw new Error("請求が見つかりません");
 
     // draft または pdf_created のみPDF生成可能
     if (!["draft", "pdf_created"].includes(group.status)) {
@@ -723,8 +894,8 @@ export async function generateInvoicePdf(
     return { invoiceNumber, operatingCompanyId: group.operatingCompanyId };
   });
 
-  // PDF生成（トランザクション外: DB読取のみ）
-  const data = await getInvoicePdfData(groupId);
+  // PDF生成（トランザクション外: DB読取のみ、projectIdでスコープ）
+  const data = await getInvoicePdfData(groupId, stpProjectId);
   // 採番済み番号を反映
   data.invoiceNumber = result.invoiceNumber;
 
@@ -770,14 +941,53 @@ export async function submitInvoiceGroupToAccounting(
   id: number
 ): Promise<void> {
   const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
 
   const group = await prisma.invoiceGroup.findUnique({
-    where: { id, deletedAt: null },
+    where: { id, deletedAt: null, projectId: stpProjectId },
+    include: {
+      transactions: {
+        where: { deletedAt: null },
+        include: {
+          allocationTemplate: {
+            include: {
+              lines: { where: { costCenterId: { not: null } } },
+            },
+          },
+          allocationConfirmations: true,
+        },
+      },
+    },
   });
-  if (!group) throw new Error("請求グループが見つかりません");
+  if (!group) throw new Error("請求が見つかりません");
 
   if (group.status !== "sent") {
-    throw new Error("送付済みの請求グループのみ経理へ引き渡せます");
+    throw new Error("送付済みの請求のみ経理へ引き渡せます");
+  }
+
+  // 按分確定チェック: allocationTemplateId がある取引は全プロジェクトの按分確定が必要
+  for (const tx of group.transactions) {
+    if (tx.allocationTemplateId && tx.allocationTemplate) {
+      const requiredCostCenterIds = tx.allocationTemplate.lines
+        .filter((line) => line.costCenterId !== null)
+        .map((line) => line.costCenterId!);
+
+      const confirmedCostCenterIds = new Set(
+        tx.allocationConfirmations
+          .filter((ac) => ac.confirmedAt !== null)
+          .map((ac) => ac.costCenterId)
+      );
+
+      const allConfirmed = requiredCostCenterIds.every((ccId) =>
+        confirmedCostCenterIds.has(ccId)
+      );
+
+      if (!allConfirmed) {
+        throw new Error(
+          "按分確定が完了していない取引が含まれています。全プロジェクトの按分確定を完了してください。"
+        );
+      }
+    }
   }
 
   const oldStatus = group.status;
@@ -801,4 +1011,89 @@ export async function submitInvoiceGroupToAccounting(
   });
 
   revalidatePath("/stp/finance/invoices");
+}
+
+// ============================================
+// 証憑管理
+// ============================================
+
+export async function getInvoiceGroupAttachments(groupId: number) {
+  await requireEdit("stp");
+  const attachments = await prisma.attachment.findMany({
+    where: { invoiceGroupId: groupId, deletedAt: null },
+    orderBy: { createdAt: "desc" },
+  });
+  return attachments.map((a) => ({
+    id: a.id,
+    fileName: a.fileName,
+    filePath: a.filePath,
+    fileSize: a.fileSize,
+    mimeType: a.mimeType,
+    createdAt: a.createdAt.toISOString(),
+  }));
+}
+
+export async function addInvoiceGroupAttachments(
+  groupId: number,
+  files: { filePath: string; fileName: string; fileSize: number; mimeType: string }[]
+) {
+  const session = await requireEdit("stp");
+  await prisma.attachment.createMany({
+    data: files.map((f) => ({
+      invoiceGroupId: groupId,
+      filePath: f.filePath,
+      fileName: f.fileName,
+      fileSize: f.fileSize,
+      mimeType: f.mimeType,
+      attachmentType: "voucher",
+      uploadedBy: session.id,
+    })),
+  });
+  revalidatePath("/stp/finance/invoices");
+}
+
+export async function deleteInvoiceGroupAttachment(attachmentId: number) {
+  await requireEdit("stp");
+  await prisma.attachment.update({
+    where: { id: attachmentId },
+    data: { deletedAt: new Date() },
+  });
+  revalidatePath("/stp/finance/invoices");
+}
+
+// ============================================
+// 未確定取引（取引先別）
+// ============================================
+
+export async function getUnconfirmedTransactions(
+  projectId?: number
+): Promise<UngroupedTransaction[]> {
+  const records = await prisma.transaction.findMany({
+    where: {
+      deletedAt: null,
+      type: "revenue",
+      status: "unconfirmed",
+      ...(projectId ? { projectId } : {}),
+    },
+    include: {
+      counterparty: true,
+      expenseCategory: true,
+    },
+    orderBy: [{ periodFrom: "asc" }, { id: "asc" }],
+  });
+
+  return records.map((r) => ({
+    id: r.id,
+    type: r.type,
+    counterpartyId: r.counterpartyId,
+    counterpartyName: r.counterparty.name,
+    expenseCategoryName: r.expenseCategory.name,
+    amount: r.amount,
+    taxAmount: r.taxAmount,
+    taxRate: r.taxRate,
+    taxType: r.taxType,
+    periodFrom: r.periodFrom.toISOString().split("T")[0],
+    periodTo: r.periodTo.toISOString().split("T")[0],
+    note: r.note,
+  }));
 }

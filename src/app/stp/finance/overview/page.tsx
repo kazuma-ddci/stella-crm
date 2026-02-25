@@ -205,7 +205,7 @@ export default async function FinanceDashboardPage() {
           <CardContent>
             <div className="space-y-2 text-sm">
               {invoiceGroupSummary.total === 0 ? (
-                <p className="text-muted-foreground">請求グループなし</p>
+                <p className="text-muted-foreground">請求なし</p>
               ) : (
                 <>
                   <div className="flex justify-between mb-3">
@@ -244,7 +244,7 @@ export default async function FinanceDashboardPage() {
           <CardContent>
             <div className="space-y-2 text-sm">
               {paymentGroupSummary.total === 0 ? (
-                <p className="text-muted-foreground">支払グループなし</p>
+                <p className="text-muted-foreground">支払なし</p>
               ) : (
                 <>
                   <div className="flex justify-between mb-3">

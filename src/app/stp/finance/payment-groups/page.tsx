@@ -3,16 +3,21 @@ import { PaymentGroupsPageClient } from "./payment-groups-page-client";
 import {
   getPaymentGroups,
   getUngroupedExpenseTransactions,
+  getUngroupedAllocationItems,
+  getUnconfirmedExpenseTransactions,
 } from "./actions";
+import { getExpenseCategories } from "../transactions/actions";
 import { getSystemProjectContext } from "@/lib/project-context";
 
 export default async function PaymentGroupsPage() {
   const ctx = await getSystemProjectContext("stp");
-  const projectId = ctx?.projectId;
-  const [data, ungroupedTransactions, counterparties, operatingCompanies] =
+  if (!ctx) throw new Error("STPプロジェクトのコンテキストが取得できません");
+  const projectId = ctx.projectId;
+  const [data, ungroupedTransactions, ungroupedAllocationItems, counterparties, operatingCompanies, expenseCategories, unconfirmedTransactions] =
     await Promise.all([
       getPaymentGroups(projectId),
       getUngroupedExpenseTransactions(undefined, projectId),
+      getUngroupedAllocationItems(projectId),
       prisma.counterparty.findMany({
         where: { deletedAt: null, isActive: true },
         orderBy: { name: "asc" },
@@ -21,11 +26,13 @@ export default async function PaymentGroupsPage() {
         where: { isActive: true },
         orderBy: { id: "asc" },
       }),
+      getExpenseCategories(),
+      getUnconfirmedExpenseTransactions(projectId),
     ]);
 
   const counterpartyOptions = counterparties.map((c) => ({
     value: String(c.id),
-    label: c.name,
+    label: c.displayId ? `${c.displayId} ${c.name}` : c.name,
   }));
 
   const operatingCompanyOptions = operatingCompanies.map((c) => ({
@@ -37,8 +44,11 @@ export default async function PaymentGroupsPage() {
     <PaymentGroupsPageClient
       data={data}
       ungroupedTransactions={ungroupedTransactions}
+      ungroupedAllocationItems={ungroupedAllocationItems}
       counterpartyOptions={counterpartyOptions}
       operatingCompanyOptions={operatingCompanyOptions}
+      expenseCategories={expenseCategories}
+      unconfirmedTransactions={unconfirmedTransactions}
       projectId={projectId}
     />
   );

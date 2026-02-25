@@ -15,10 +15,11 @@ import {
 // ============================================
 
 export async function getInvoicePdfData(
-  groupId: number
+  groupId: number,
+  projectId?: number
 ): Promise<InvoicePdfData> {
   const group = await prisma.invoiceGroup.findUnique({
-    where: { id: groupId, deletedAt: null },
+    where: { id: groupId, deletedAt: null, ...(projectId ? { projectId } : {}) },
     include: {
       counterparty: true,
       operatingCompany: true,
@@ -32,7 +33,7 @@ export async function getInvoicePdfData(
   });
 
   if (!group) {
-    throw new Error("請求グループが見つかりません");
+    throw new Error("請求が見つかりません");
   }
 
   // 明細データ

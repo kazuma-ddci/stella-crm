@@ -102,6 +102,7 @@ type Props = {
   counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
+  expenseCategories: { id: number; name: string; type: string }[];
   projectId?: number;
 };
 
@@ -110,6 +111,7 @@ export function InvoiceGroupsTable({
   counterpartyOptions,
   operatingCompanyOptions,
   bankAccountsByCompany,
+  expenseCategories,
   projectId,
 }: Props) {
   const [activeTab, setActiveTab] = useState<StatusTab>("all");
@@ -278,7 +280,19 @@ export function InvoiceGroupsTable({
                 className="cursor-pointer hover:text-foreground"
                 onClick={() => handleSort("paymentDueDate")}
               >
-                支払期限{sortIndicator("paymentDueDate")}
+                入金期限{sortIndicator("paymentDueDate")}
+              </TableHead>
+              <TableHead
+                className="cursor-pointer hover:text-foreground"
+                onClick={() => handleSort("expectedPaymentDate")}
+              >
+                入金予定日{sortIndicator("expectedPaymentDate")}
+              </TableHead>
+              <TableHead
+                className="cursor-pointer hover:text-foreground"
+                onClick={() => handleSort("actualPaymentDate")}
+              >
+                実際の入金日{sortIndicator("actualPaymentDate")}
               </TableHead>
               <TableHead
                 className="cursor-pointer hover:text-foreground text-right"
@@ -301,7 +315,7 @@ export function InvoiceGroupsTable({
             {sortedData.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={10}
+                  colSpan={12}
                   className="text-center py-8 text-muted-foreground"
                 >
                   データがありません
@@ -329,7 +343,18 @@ export function InvoiceGroupsTable({
                     {row.operatingCompanyName}
                   </TableCell>
                   <TableCell>{row.invoiceDate ?? "-"}</TableCell>
-                  <TableCell>{row.paymentDueDate ?? "-"}</TableCell>
+                  <TableCell className={
+                    row.paymentDueDate &&
+                    !row.actualPaymentDate &&
+                    !["paid", "corrected"].includes(row.status) &&
+                    new Date(row.paymentDueDate) < new Date()
+                      ? "text-red-600 font-medium"
+                      : ""
+                  }>
+                    {row.paymentDueDate ?? "-"}
+                  </TableCell>
+                  <TableCell>{row.expectedPaymentDate ?? "-"}</TableCell>
+                  <TableCell>{row.actualPaymentDate ?? "-"}</TableCell>
                   <TableCell className="text-right font-medium">
                     {row.totalAmount != null
                       ? `¥${row.totalAmount.toLocaleString()}`
@@ -354,7 +379,7 @@ export function InvoiceGroupsTable({
                     className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {row.status === "sent" && (
+                    {row.status === "sent" ? (
                       <Button
                         variant="outline"
                         size="sm"
@@ -363,6 +388,15 @@ export function InvoiceGroupsTable({
                       >
                         <ArrowRight className="mr-1 h-3 w-3" />
                         経理へ引渡
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setSelectedGroup(row)}
+                      >
+                        詳細
                       </Button>
                     )}
                   </TableCell>
@@ -381,6 +415,7 @@ export function InvoiceGroupsTable({
           counterpartyOptions={counterpartyOptions}
           operatingCompanyOptions={operatingCompanyOptions}
           bankAccountsByCompany={bankAccountsByCompany}
+          expenseCategories={expenseCategories}
           projectId={projectId}
         />
       )}
@@ -394,6 +429,8 @@ export function InvoiceGroupsTable({
           counterpartyOptions={counterpartyOptions}
           operatingCompanyOptions={operatingCompanyOptions}
           bankAccountsByCompany={bankAccountsByCompany}
+          expenseCategories={expenseCategories}
+          projectId={projectId}
         />
       )}
 

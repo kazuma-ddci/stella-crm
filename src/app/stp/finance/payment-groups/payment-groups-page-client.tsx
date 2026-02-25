@@ -8,25 +8,32 @@ import { UngroupedExpensesPanel } from "./ungrouped-expenses-panel";
 import type {
   PaymentGroupListItem,
   UngroupedExpenseTransaction,
+  UngroupedAllocationItem,
 } from "./actions";
 
 type Props = {
   data: PaymentGroupListItem[];
   ungroupedTransactions: UngroupedExpenseTransaction[];
+  ungroupedAllocationItems: UngroupedAllocationItem[];
   counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
+  expenseCategories: { id: number; name: string; type: string }[];
+  unconfirmedTransactions: UngroupedExpenseTransaction[];
   projectId?: number;
 };
 
 export function PaymentGroupsPageClient({
   data,
   ungroupedTransactions,
+  ungroupedAllocationItems,
   counterpartyOptions,
   operatingCompanyOptions,
+  expenseCategories,
+  unconfirmedTransactions,
   projectId,
 }: Props) {
   const [activeTab, setActiveTab] = useState<string>(
-    ungroupedTransactions.length > 0 ? "ungrouped" : "list"
+    (ungroupedTransactions.length + ungroupedAllocationItems.length) > 0 ? "ungrouped" : "list"
   );
 
   // サマリー計算
@@ -52,9 +59,9 @@ export function PaymentGroupsPageClient({
         <TabsList>
           <TabsTrigger value="ungrouped">
             未処理の取引
-            {ungroupedTransactions.length > 0 && (
+            {(ungroupedTransactions.length + ungroupedAllocationItems.length) > 0 && (
               <span className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-orange-500 px-1.5 text-xs font-medium text-white">
-                {ungroupedTransactions.length}
+                {ungroupedTransactions.length + ungroupedAllocationItems.length}
               </span>
             )}
           </TabsTrigger>
@@ -69,9 +76,12 @@ export function PaymentGroupsPageClient({
         <TabsContent value="ungrouped">
           <UngroupedExpensesPanel
             ungroupedTransactions={ungroupedTransactions}
+            ungroupedAllocationItems={ungroupedAllocationItems}
             draftPaymentGroups={draftPaymentGroups}
             counterpartyOptions={counterpartyOptions}
             operatingCompanyOptions={operatingCompanyOptions}
+            expenseCategories={expenseCategories}
+            unconfirmedTransactions={unconfirmedTransactions}
             projectId={projectId}
           />
         </TabsContent>
@@ -119,6 +129,7 @@ export function PaymentGroupsPageClient({
               data={data}
               counterpartyOptions={counterpartyOptions}
               operatingCompanyOptions={operatingCompanyOptions}
+              expenseCategories={expenseCategories}
               projectId={projectId}
             />
           </div>

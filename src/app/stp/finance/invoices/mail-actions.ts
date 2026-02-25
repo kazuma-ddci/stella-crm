@@ -71,7 +71,7 @@ export async function getInvoiceMailData(
       operatingCompany: true,
     },
   });
-  if (!group) throw new Error("請求グループが見つかりません");
+  if (!group) throw new Error("請求が見つかりません");
 
   // counterpartyに紐づくMasterStellaCompanyの担当者を取得
   // Counterparty.companyId → MasterStellaCompany.id
@@ -203,13 +203,13 @@ export async function sendInvoiceMail(data: {
     where: { id: data.invoiceGroupId, deletedAt: null },
   });
   if (!group) {
-    return { success: false, error: "請求グループが見つかりません" };
+    return { success: false, error: "請求が見つかりません" };
   }
   // pdf_created または sent（再送扱い）のみ送付可能
   if (!["pdf_created", "sent"].includes(group.status)) {
     return {
       success: false,
-      error: "PDF作成済みまたは送付済みの請求グループのみメール送信できます",
+      error: "PDF作成済みまたは送付済みの請求のみメール送信できます",
     };
   }
 
@@ -476,7 +476,7 @@ export async function recordManualSend(data: {
   const group = await prisma.invoiceGroup.findUnique({
     where: { id: data.invoiceGroupId, deletedAt: null },
   });
-  if (!group) throw new Error("請求グループが見つかりません");
+  if (!group) throw new Error("請求が見つかりません");
 
   // pdf_created以降のステータスが必要
   const allowedStatuses = [

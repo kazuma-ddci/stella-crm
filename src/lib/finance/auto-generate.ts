@@ -41,10 +41,10 @@ export function calcTaxAmount(
   taxRate: number
 ): number {
   if (taxType === "tax_excluded") {
-    return Math.round((amount * taxRate) / 100);
+    return Math.floor((amount * taxRate) / 100);
   }
   // tax_included（内税）
-  return Math.round((amount * taxRate) / (100 + taxRate));
+  return Math.floor((amount * taxRate) / (100 + taxRate));
 }
 
 /**
@@ -58,7 +58,7 @@ export function calcTotalWithTax(
   taxRate: number
 ): number {
   if (taxType === "tax_excluded") {
-    return amount + Math.round((amount * taxRate) / 100);
+    return amount + Math.floor((amount * taxRate) / 100);
   }
   return amount;
 }

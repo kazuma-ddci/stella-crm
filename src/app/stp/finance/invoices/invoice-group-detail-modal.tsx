@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw, Mail, MessageSquare, ArrowRight, Link2 } from "lucide-react";
+import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw, Mail, MessageSquare, ArrowRight, Link2, Upload, Paperclip } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { CommentSection } from "@/app/accounting/comments/comment-section";
 import { InvoiceMailModal } from "./invoice-mail-modal";
+import { InlineTransactionForm } from "./inline-transaction-form";
 import type { InvoiceGroupListItem, UngroupedTransaction } from "./actions";
 import {
   updateInvoiceGroup,
@@ -34,7 +35,14 @@ import {
   updateInvoiceGroupStatus,
   generateInvoicePdf,
   submitInvoiceGroupToAccounting,
+  getInvoiceGroupAttachments,
+  addInvoiceGroupAttachments,
+  deleteInvoiceGroupAttachment,
 } from "./actions";
+import {
+  getGroupAllocationWarnings,
+  type AllocationWarning,
+} from "@/app/accounting/transactions/allocation-group-item-actions";
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "下書き",
@@ -54,6 +62,8 @@ type Props = {
   counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
+  expenseCategories: { id: number; name: string; type: string }[];
+  projectId?: number;
 };
 
 type GroupTransaction = {
@@ -75,9 +85,11 @@ export function InvoiceGroupDetailModal({
   counterpartyOptions,
   operatingCompanyOptions,
   bankAccountsByCompany,
+  expenseCategories,
+  projectId,
 }: Props) {
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"detail" | "transactions" | "add" | "comments">(
+  const [activeTab, setActiveTab] = useState<"detail" | "transactions" | "add" | "attachments" | "comments">(
     "detail"
   );
 
@@ -90,6 +102,12 @@ export function InvoiceGroupDetailModal({
   );
   const [paymentDueDate, setPaymentDueDate] = useState<string>(
     group.paymentDueDate ?? ""
+  );
+  const [expectedPaymentDate, setExpectedPaymentDate] = useState<string>(
+    group.expectedPaymentDate ?? ""
+  );
+  const [actualPaymentDate, setActualPaymentDate] = useState<string>(
+    group.actualPaymentDate ?? ""
   );
 
   // グループ内の取引
@@ -112,6 +130,9 @@ export function InvoiceGroupDetailModal({
   // 訂正請求情報
   const [correctionChildren, setCorrectionChildren] = useState<{ id: number; invoiceNumber: string | null }[]>([]);
 
+  // インライン取引作成
+  const [showInlineForm, setShowInlineForm] = useState(false);
+
   // メール送付モーダル
   const [showMailModal, setShowMailModal] = useState(false);
 
@@ -119,6 +140,20 @@ export function InvoiceGroupDetailModal({
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [loadingPdf, setLoadingPdf] = useState(false);
+
+  // 証憑
+  const [groupAttachments, setGroupAttachments] = useState<{
+    id: number;
+    fileName: string;
+    filePath: string;
+    fileSize: number | null;
+    mimeType: string | null;
+    createdAt: string;
+  }[]>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+
+  // 按分警告
+  const [allocationWarnings, setAllocationWarnings] = useState<AllocationWarning[]>([]);
 
   // 訂正請求の子を取得
   useEffect(() => {
@@ -134,6 +169,35 @@ export function InvoiceGroupDetailModal({
       });
     return () => { cancelled = true; };
   }, [open, group.id]);
+
+  // 按分警告を取得（allocationItemCountがある場合のみ）
+  useEffect(() => {
+    if (!open) return;
+    if (group.allocationItemCount === 0 && group.transactionCount === 0) return;
+    let cancelled = false;
+    getGroupAllocationWarnings("invoice", group.id)
+      .then((warnings) => {
+        if (!cancelled) setAllocationWarnings(warnings);
+      })
+      .catch(() => {
+        if (!cancelled) setAllocationWarnings([]);
+      });
+    return () => { cancelled = true; };
+  }, [open, group.id, group.allocationItemCount, group.transactionCount]);
+
+  // 証憑を取得
+  useEffect(() => {
+    if (!open || activeTab !== "attachments") return;
+    let cancelled = false;
+    getInvoiceGroupAttachments(group.id)
+      .then((atts) => {
+        if (!cancelled) setGroupAttachments(atts);
+      })
+      .catch(() => {
+        if (!cancelled) setGroupAttachments([]);
+      });
+    return () => { cancelled = true; };
+  }, [open, activeTab, group.id]);
 
   const isEditable = ["draft", "pdf_created"].includes(group.status);
   const canCreateCorrection = ["sent", "awaiting_accounting"].includes(
@@ -197,6 +261,8 @@ export function InvoiceGroupDetailModal({
         bankAccountId: bankAccountId ? Number(bankAccountId) : null,
         invoiceDate: invoiceDate || null,
         paymentDueDate: paymentDueDate || null,
+        expectedPaymentDate: expectedPaymentDate || null,
+        actualPaymentDate: actualPaymentDate || null,
       });
       onClose();
     } catch (e) {
@@ -207,7 +273,7 @@ export function InvoiceGroupDetailModal({
   };
 
   const handleDelete = async () => {
-    if (!confirm("この請求グループを削除しますか？取引はグループから外れます。")) return;
+    if (!confirm("この請求を削除しますか？取引は請求から外れます。")) return;
     setLoading(true);
     try {
       await deleteInvoiceGroup(group.id);
@@ -220,7 +286,7 @@ export function InvoiceGroupDetailModal({
   };
 
   const handleRemoveTransaction = async (transactionId: number) => {
-    if (!confirm("この取引をグループから外しますか？")) return;
+    if (!confirm("この取引を請求から外しますか？")) return;
     setLoading(true);
     try {
       await removeTransactionFromGroup(group.id, transactionId);
@@ -251,7 +317,7 @@ export function InvoiceGroupDetailModal({
   const handlePreviewPdf = async () => {
     setLoadingPdf(true);
     try {
-      const url = `/api/finance/invoice-groups/${group.id}/pdf?preview=true`;
+      const url = `/api/finance/invoice-groups/${group.id}/pdf?preview=true${projectId ? `&projectId=${projectId}` : ""}`;
       const res = await fetch(url);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "PDF生成に失敗しました" }));
@@ -290,7 +356,7 @@ export function InvoiceGroupDetailModal({
 
   // 保存済みPDFを開く
   const handleOpenPdf = () => {
-    window.open(`/api/finance/invoice-groups/${group.id}/pdf`, "_blank");
+    window.open(`/api/finance/invoice-groups/${group.id}/pdf${projectId ? `?projectId=${projectId}` : ""}`, "_blank");
   };
 
   // PDFプレビューを閉じる
@@ -340,6 +406,44 @@ export function InvoiceGroupDetailModal({
       alert(e instanceof Error ? e.message : "エラーが発生しました");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 証憑アップロード
+  const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploadingAttachment(true);
+    try {
+      const formDataUpload = new FormData();
+      for (let i = 0; i < files.length; i++) {
+        formDataUpload.append("files", files[i]);
+      }
+      const response = await fetch("/api/finance/invoice-groups/upload", {
+        method: "POST",
+        body: formDataUpload,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "アップロードに失敗しました");
+      await addInvoiceGroupAttachments(group.id, result.files);
+      const atts = await getInvoiceGroupAttachments(group.id);
+      setGroupAttachments(atts);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "アップロードに失敗しました");
+    } finally {
+      setUploadingAttachment(false);
+      e.target.value = "";
+    }
+  };
+
+  // 証憑削除
+  const handleDeleteAttachment = async (attachmentId: number) => {
+    if (!confirm("この証憑を削除しますか？")) return;
+    try {
+      await deleteInvoiceGroupAttachment(attachmentId);
+      setGroupAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "削除に失敗しました");
     }
   };
 
@@ -399,6 +503,17 @@ export function InvoiceGroupDetailModal({
               取引を追加
             </button>
           )}
+          <button
+            onClick={() => setActiveTab("attachments")}
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "attachments"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground"
+            }`}
+          >
+            <Paperclip className="inline h-3 w-3 mr-1" />
+            証憑
+          </button>
           <button
             onClick={() => setActiveTab("comments")}
             className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
@@ -544,6 +659,54 @@ export function InvoiceGroupDetailModal({
                 </div>
               )}
 
+              {/* 按分取引の処理状況警告 */}
+              {allocationWarnings.length > 0 && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-amber-800">
+                        他プロジェクトで未処理の按分取引があります
+                      </p>
+                      <p className="text-xs text-amber-700 mt-0.5">
+                        経理引渡前に、全プロジェクトの按分処理を完了させてください。
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 ml-7">
+                    {allocationWarnings.map((w) => (
+                      <div key={w.transactionId} className="text-xs">
+                        <span className="font-medium text-amber-900">
+                          {w.counterpartyName} - {w.expenseCategoryName}
+                        </span>
+                        <span className="text-amber-700 ml-1">
+                          (¥{w.amountIncludingTax.toLocaleString()})
+                        </span>
+                        <div className="flex gap-1 mt-0.5 flex-wrap">
+                          {w.unprocessedCostCenters.map((cc) => (
+                            <span
+                              key={cc.costCenterId}
+                              className="inline-flex items-center rounded px-1.5 py-0.5 bg-amber-100 text-amber-800"
+                            >
+                              {cc.costCenterName} ({cc.allocationRate}%) 未処理
+                            </span>
+                          ))}
+                          {w.processedCostCenters.map((cc) => (
+                            <span
+                              key={cc.costCenterId}
+                              className="inline-flex items-center rounded px-1.5 py-0.5 bg-green-50 text-green-700"
+                            >
+                              {cc.costCenterName} ({cc.allocationRate}%)
+                              {cc.groupLabel ? ` ${cc.groupLabel}` : " 処理済"}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* 基本情報フォーム */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
@@ -591,13 +754,35 @@ export function InvoiceGroupDetailModal({
                   />
                 </div>
                 <div>
-                  <Label htmlFor="detail-paymentDueDate">支払期限</Label>
+                  <Label htmlFor="detail-paymentDueDate">入金期限</Label>
                   <Input
                     id="detail-paymentDueDate"
                     type="date"
                     value={paymentDueDate}
                     onChange={(e) => setPaymentDueDate(e.target.value)}
                     disabled={!isEditable}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="detail-expectedPaymentDate">入金予定日</Label>
+                  <Input
+                    id="detail-expectedPaymentDate"
+                    type="date"
+                    value={expectedPaymentDate}
+                    onChange={(e) => setExpectedPaymentDate(e.target.value)}
+                    disabled={!isEditable}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="detail-actualPaymentDate">実際の入金日</Label>
+                  <Input
+                    id="detail-actualPaymentDate"
+                    type="date"
+                    value={actualPaymentDate}
+                    onChange={(e) => setActualPaymentDate(e.target.value)}
+                    disabled={!["sent", "awaiting_accounting", "partially_paid", "paid"].includes(group.status)}
                     className="mt-1"
                   />
                 </div>
@@ -651,7 +836,7 @@ export function InvoiceGroupDetailModal({
                   </Button>
                 )}
                 <div className="ml-auto">
-                  {isEditable && (
+                  {(isEditable || ["sent", "awaiting_accounting", "partially_paid", "paid"].includes(group.status)) && (
                     <Button onClick={handleSave} disabled={loading}>
                       {loading && (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -726,6 +911,16 @@ export function InvoiceGroupDetailModal({
           {/* 取引追加タブ */}
           {activeTab === "add" && (
             <div className="space-y-3 p-1">
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowInlineForm(true)}
+                >
+                  <Plus className="mr-1 h-4 w-4" />
+                  取引を新規作成
+                </Button>
+              </div>
               {loadingUngrouped ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -791,6 +986,69 @@ export function InvoiceGroupDetailModal({
                     </div>
                   )}
                 </>
+              )}
+            </div>
+          )}
+
+          {/* 証憑タブ */}
+          {activeTab === "attachments" && (
+            <div className="space-y-3 p-1">
+              <div className="flex justify-end">
+                <label className="cursor-pointer">
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp,.txt,.csv"
+                    onChange={handleAttachmentUpload}
+                    disabled={uploadingAttachment}
+                    className="hidden"
+                  />
+                  <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3 cursor-pointer">
+                    {uploadingAttachment ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )}
+                    アップロード
+                  </span>
+                </label>
+              </div>
+              {groupAttachments.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  証憑がありません
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {groupAttachments.map((att) => (
+                    <div
+                      key={att.id}
+                      className="flex items-center gap-2 p-2 border rounded-md bg-gray-50"
+                    >
+                      <FileText className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                      <a
+                        href={att.filePath}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 text-sm truncate text-blue-600 underline"
+                      >
+                        {att.fileName}
+                      </a>
+                      {att.fileSize && (
+                        <span className="text-xs text-muted-foreground">
+                          {(att.fileSize / 1024).toFixed(0)}KB
+                        </span>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteAttachment(att.id)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}
@@ -944,6 +1202,24 @@ export function InvoiceGroupDetailModal({
           }}
           invoiceGroupId={group.id}
         />
+
+        {/* インライン取引作成 */}
+        {showInlineForm && (
+          <InlineTransactionForm
+            onClose={() => setShowInlineForm(false)}
+            onCreated={() => {
+              setLoadingUngrouped(true);
+              getUngroupedTransactions(group.counterpartyId)
+                .then((txs) => {
+                  setUngroupedTransactions(txs);
+                  setLoadingUngrouped(false);
+                })
+                .catch(() => setLoadingUngrouped(false));
+            }}
+            counterpartyId={group.counterpartyId}
+            expenseCategories={expenseCategories}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

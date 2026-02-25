@@ -24,7 +24,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { confirmTransaction, deleteTransaction } from "@/app/accounting/transactions/actions";
+import { confirmTransaction, unconfirmTransaction, deleteTransaction } from "@/app/accounting/transactions/actions";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import type { TransactionListItem } from "./actions";
 
@@ -196,6 +203,19 @@ export function TransactionsTable({ data, deletedData, counterpartyOptions }: Pr
       });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "取引確定に失敗しました");
+    }
+  };
+
+  // 確定取消アクション
+  const handleUnconfirm = async (id: number) => {
+    try {
+      await unconfirmTransaction(id);
+      toast.success("確定を取り消しました");
+      startTransition(() => {
+        router.refresh();
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "確定取消に失敗しました");
     }
   };
 
@@ -402,10 +422,54 @@ export function TransactionsTable({ data, deletedData, counterpartyOptions }: Pr
                       {row.expenseCategoryName}
                     </TableCell>
                     <TableCell className="text-sm">
-                      {row.allocationTemplateName ? (
-                        <span className="text-xs text-muted-foreground">
-                          按分: {row.allocationTemplateName}
-                        </span>
+                      {row.allocationGroupSummary ? (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex items-center gap-1 cursor-default">
+                                <Badge variant="outline" className="text-xs font-normal">
+                                  按分
+                                </Badge>
+                                {(() => {
+                                  const processed = row.allocationGroupSummary.filter((s) => s.isProcessed).length;
+                                  const total = row.allocationGroupSummary.length;
+                                  if (processed === total && total > 0) {
+                                    return <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />;
+                                  } else if (processed > 0) {
+                                    return (
+                                      <span className="text-xs text-amber-600">
+                                        {processed}/{total}
+                                      </span>
+                                    );
+                                  } else {
+                                    return <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />;
+                                  }
+                                })()}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-xs">
+                              <div className="space-y-1 text-xs">
+                                <div className="font-medium mb-1">{row.allocationTemplateName}</div>
+                                {row.allocationGroupSummary.map((s) => (
+                                  <div key={s.costCenterId} className="flex items-center gap-2">
+                                    {s.isProcessed ? (
+                                      <CheckCircle2 className="h-3 w-3 text-green-500 flex-shrink-0" />
+                                    ) : (
+                                      <span className="h-3 w-3 rounded-full border border-gray-300 flex-shrink-0" />
+                                    )}
+                                    <span>{s.costCenterName}</span>
+                                    {s.groupLabel && (
+                                      <span className="text-muted-foreground">→ {s.groupLabel}</span>
+                                    )}
+                                    {!s.isProcessed && (
+                                      <span className="text-amber-600">未処理</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       ) : row.costCenterName ? (
                         <span>{row.costCenterName}</span>
                       ) : (
@@ -451,14 +515,16 @@ export function TransactionsTable({ data, deletedData, counterpartyOptions }: Pr
                     <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                       <div className="flex items-center gap-1">
                         <Link href={`/stp/finance/transactions/${row.id}`}>
-                          <Button variant="ghost" size="sm">
-                            {row.status === "unconfirmed" || row.status === "returned" ? "編集" : "詳細"}
-                          </Button>
+                          {row.status === "unconfirmed" || row.status === "returned" ? (
+                            <Button variant="outline" size="sm">編集</Button>
+                          ) : (
+                            <Button variant="ghost" size="sm">詳細</Button>
+                          )}
                         </Link>
                         {row.status === "unconfirmed" && activeTab !== "deleted" && (
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
-                              <Button variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700" disabled={isPending}>
+                              <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50 hover:text-blue-700 w-[5.5rem]" disabled={isPending}>
                                 確定
                               </Button>
                             </AlertDialogTrigger>
@@ -478,10 +544,38 @@ export function TransactionsTable({ data, deletedData, counterpartyOptions }: Pr
                             </AlertDialogContent>
                           </AlertDialog>
                         )}
+                        {row.status === "confirmed" && !row.invoiceGroupId && !row.paymentGroupId && activeTab !== "deleted" && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="outline" size="sm" className="text-amber-600 border-amber-200 hover:bg-amber-50 hover:text-amber-700 w-[5.5rem]" disabled={isPending}>
+                                確定取消
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>確定を取り消しますか？</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  取引 #{row.id} のステータスを「未確定」に戻します。取引内容の編集が再び可能になります。
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleUnconfirm(row.id)}>
+                                  確定を取り消す
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                        {(row.invoiceGroupId || row.paymentGroupId) && activeTab !== "deleted" && (
+                          <Badge variant="outline" className="text-xs w-[5.5rem] justify-center">
+                            {row.invoiceGroupId ? "請求紐付" : "支払紐付"}
+                          </Badge>
+                        )}
                         {!row.invoiceGroupId && !row.paymentGroupId && activeTab !== "deleted" && (
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
-                              <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" disabled={isPending}>
+                              <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700" disabled={isPending}>
                                 削除
                               </Button>
                             </AlertDialogTrigger>
@@ -501,9 +595,9 @@ export function TransactionsTable({ data, deletedData, counterpartyOptions }: Pr
                             </AlertDialogContent>
                           </AlertDialog>
                         )}
-                        {(row.invoiceGroupId || row.paymentGroupId) && activeTab !== "deleted" && (
-                          <Badge variant="outline" className="text-xs">
-                            {row.invoiceGroupId ? "請求紐付" : "支払紐付"}
+                        {row.allocationGroupSummary && row.allocationGroupSummary.some((s) => s.isProcessed) && activeTab !== "deleted" && (
+                          <Badge variant="outline" className="text-xs text-indigo-600 border-indigo-200">
+                            按分処理中
                           </Badge>
                         )}
                       </div>
@@ -515,6 +609,7 @@ export function TransactionsTable({ data, deletedData, counterpartyOptions }: Pr
           </TableBody>
         </Table>
       </div>
+
     </div>
   );
 }

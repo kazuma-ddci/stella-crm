@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Pencil, History } from "lucide-react";
+import { Pencil, History, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   detectTransactionCandidates,
   generateTransactions,
@@ -162,6 +162,20 @@ export function GenerateCandidatesClient() {
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
   const [targetMonth, setTargetMonth] = useState(defaultMonth);
+
+  // 月移動ヘルパー
+  const shiftMonth = useCallback((delta: number) => {
+    setTargetMonth((prev) => {
+      const [y, m] = prev.split("-").map(Number);
+      const d = new Date(y, m - 1 + delta, 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    });
+  }, []);
+
+  const targetMonthLabel = useMemo(() => {
+    const [y, m] = targetMonth.split("-").map(Number);
+    return `${y}年${m}月`;
+  }, [targetMonth]);
   const [candidates, setCandidates] = useState<TransactionCandidate[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [detecting, setDetecting] = useState(false);
@@ -795,14 +809,27 @@ export function GenerateCandidatesClient() {
     <div className="space-y-4">
       {/* 対象月選択 */}
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <label className="text-sm font-medium">対象月:</label>
-          <Input
-            type="month"
-            value={targetMonth}
-            onChange={(e) => setTargetMonth(e.target.value)}
-            className="w-48"
-          />
+        <div className="flex items-center gap-1">
+          <label className="text-sm font-medium mr-1">対象月:</label>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            onClick={() => shiftMonth(-1)}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <div className="w-28 text-center font-medium tabular-nums">
+            {targetMonthLabel}
+          </div>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            onClick={() => shiftMonth(1)}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
         </div>
         <Button onClick={handleDetect} disabled={detecting || !targetMonth}>
           {detecting ? "検出中..." : "候補を検出"}
@@ -1190,33 +1217,31 @@ export function GenerateCandidatesClient() {
                                       >
                                         取引化
                                       </Button>
-                                      <div className="flex flex-col gap-0.5">
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() =>
-                                            openDecisionModal(candidate, "held")
-                                          }
-                                          disabled={isProcessing}
-                                          className="text-[11px] h-[15px] px-1.5 border-yellow-400 text-yellow-600 hover:bg-yellow-50 hover:text-yellow-700 rounded-sm"
-                                        >
-                                          保留
-                                        </Button>
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() =>
-                                            openDecisionModal(
-                                              candidate,
-                                              "dismissed"
-                                            )
-                                          }
-                                          disabled={isProcessing}
-                                          className="text-[11px] h-[15px] px-1.5 border-gray-300 text-gray-500 hover:bg-gray-50 hover:text-gray-700 rounded-sm"
-                                        >
-                                          不要
-                                        </Button>
-                                      </div>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() =>
+                                          openDecisionModal(candidate, "held")
+                                        }
+                                        disabled={isProcessing}
+                                        className="text-xs h-8 px-2.5 border-yellow-400 text-yellow-600 hover:bg-yellow-50 hover:text-yellow-700"
+                                      >
+                                        保留
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() =>
+                                          openDecisionModal(
+                                            candidate,
+                                            "dismissed"
+                                          )
+                                        }
+                                        disabled={isProcessing}
+                                        className="text-xs h-8 px-2.5 border-gray-300 text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                                      >
+                                        不要
+                                      </Button>
                                     </div>
                                   )}
                               </>

@@ -1,15 +1,18 @@
 import { prisma } from "@/lib/prisma";
-import { getInvoiceGroups, getUngroupedTransactions } from "./actions";
+import { getInvoiceGroups, getUngroupedTransactions, getUngroupedAllocationItems, getUnconfirmedTransactions } from "./actions";
 import { InvoicesPageClient } from "./invoices-page-client";
+import { getExpenseCategories } from "../transactions/actions";
 import { getSystemProjectContext } from "@/lib/project-context";
 
 export default async function InvoiceGroupsPage() {
   const ctx = await getSystemProjectContext("stp");
-  const projectId = ctx?.projectId;
-  const [data, ungroupedTransactions, counterparties, operatingCompanies] =
+  if (!ctx) throw new Error("STPプロジェクトのコンテキストが取得できません");
+  const projectId = ctx.projectId;
+  const [data, ungroupedTransactions, ungroupedAllocationItems, counterparties, operatingCompanies, expenseCategories, unconfirmedTransactions] =
     await Promise.all([
       getInvoiceGroups(projectId),
       getUngroupedTransactions(undefined, projectId),
+      getUngroupedAllocationItems(projectId),
       prisma.counterparty.findMany({
         where: { deletedAt: null, isActive: true },
         orderBy: { name: "asc" },
@@ -19,11 +22,13 @@ export default async function InvoiceGroupsPage() {
         include: { bankAccounts: { where: { deletedAt: null } } },
         orderBy: { id: "asc" },
       }),
+      getExpenseCategories(),
+      getUnconfirmedTransactions(projectId),
     ]);
 
   const counterpartyOptions = counterparties.map((c) => ({
     value: String(c.id),
-    label: c.name,
+    label: c.displayId ? `${c.displayId} ${c.name}` : c.name,
   }));
 
   const operatingCompanyOptions = operatingCompanies.map((c) => ({
@@ -49,9 +54,12 @@ export default async function InvoiceGroupsPage() {
     <InvoicesPageClient
       data={data}
       ungroupedTransactions={ungroupedTransactions}
+      ungroupedAllocationItems={ungroupedAllocationItems}
       counterpartyOptions={counterpartyOptions}
       operatingCompanyOptions={operatingCompanyOptions}
       bankAccountsByCompany={bankAccountsByCompany}
+      expenseCategories={expenseCategories}
+      unconfirmedTransactions={unconfirmedTransactions}
       projectId={projectId}
     />
   );

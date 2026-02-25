@@ -11,12 +11,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, ChevronRight, ChevronLeft } from "lucide-react";
+import { Loader2, ChevronRight, ChevronLeft, Plus } from "lucide-react";
 import {
   createInvoiceGroup,
   getUngroupedTransactions,
   type UngroupedTransaction,
 } from "./actions";
+import { InlineTransactionForm } from "./inline-transaction-form";
 
 type Step = "counterparty" | "transactions" | "info";
 
@@ -26,6 +27,9 @@ type Props = {
   counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
+  expenseCategories: { id: number; name: string; type: string }[];
+  defaultCounterpartyId?: string;
+  initialTransactions?: UngroupedTransaction[];
   projectId?: number;
 };
 
@@ -35,23 +39,34 @@ export function CreateInvoiceGroupModal({
   counterpartyOptions,
   operatingCompanyOptions,
   bankAccountsByCompany,
+  expenseCategories,
+  defaultCounterpartyId,
+  initialTransactions,
   projectId,
 }: Props) {
-  const [step, setStep] = useState<Step>("counterparty");
+  const [step, setStep] = useState<Step>(
+    defaultCounterpartyId ? "transactions" : "counterparty"
+  );
   const [loading, setLoading] = useState(false);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
 
   // Step 1: 取引先選択
-  const [counterpartyId, setCounterpartyId] = useState<string>("");
+  const [counterpartyId, setCounterpartyId] = useState<string>(
+    defaultCounterpartyId ?? ""
+  );
   const [counterpartySearch, setCounterpartySearch] = useState("");
 
   // Step 2: 取引選択
   const [ungroupedTransactions, setUngroupedTransactions] = useState<
     UngroupedTransaction[]
-  >([]);
+  >(initialTransactions ?? []);
   const [selectedTransactionIds, setSelectedTransactionIds] = useState<
     Set<number>
   >(new Set());
+  // initialTransactionsで既にデータがある場合、再fetchをスキップするためのトラッカー
+  const [loadedCounterpartyId, setLoadedCounterpartyId] = useState<string | null>(
+    initialTransactions && defaultCounterpartyId ? defaultCounterpartyId : null
+  );
 
   // Step 3: 請求情報
   const [operatingCompanyId, setOperatingCompanyId] = useState<string>(
@@ -62,6 +77,10 @@ export function CreateInvoiceGroupModal({
     new Date().toISOString().split("T")[0]
   );
   const [paymentDueDate, setPaymentDueDate] = useState<string>("");
+  const [expectedPaymentDate, setExpectedPaymentDate] = useState<string>("");
+  const [expectedPaymentDateManual, setExpectedPaymentDateManual] = useState(false);
+  const [showInlineForm, setShowInlineForm] = useState(false);
+  const [focusedDateField, setFocusedDateField] = useState<string | null>(null);
 
   // 取引先フィルタ
   const filteredCounterparties = useMemo(() => {
@@ -70,15 +89,17 @@ export function CreateInvoiceGroupModal({
     return counterpartyOptions.filter((o) => o.label.toLowerCase().includes(q));
   }, [counterpartyOptions, counterpartySearch]);
 
-  // 取引先選択後に未グループ化取引を取得
+  // 取引先選択後に未グループ化取引を取得（既にロード済みの場合はスキップ）
   useEffect(() => {
     if (step !== "transactions" || !counterpartyId) return;
+    if (loadedCounterpartyId === counterpartyId) return;
     let cancelled = false;
     setLoadingTransactions(true);
     getUngroupedTransactions(Number(counterpartyId), projectId)
       .then((txs) => {
         if (!cancelled) {
           setUngroupedTransactions(txs);
+          setLoadedCounterpartyId(counterpartyId);
           setLoadingTransactions(false);
         }
       })
@@ -88,7 +109,7 @@ export function CreateInvoiceGroupModal({
     return () => {
       cancelled = true;
     };
-  }, [step, counterpartyId, projectId]);
+  }, [step, counterpartyId, projectId, loadedCounterpartyId]);
 
   // 選択中の取引の合計
   const selectedSummary = useMemo(() => {
@@ -147,6 +168,7 @@ export function CreateInvoiceGroupModal({
         bankAccountId: bankAccountId ? Number(bankAccountId) : null,
         invoiceDate: invoiceDate || null,
         paymentDueDate: paymentDueDate || null,
+        expectedPaymentDate: expectedPaymentDate || null,
         transactionIds: Array.from(selectedTransactionIds),
         projectId,
       });
@@ -227,29 +249,58 @@ export function CreateInvoiceGroupModal({
                       )?.label
                     }
                   </span>{" "}
-                  の確認済み・未グループ化の取引
+                  の確認済み・未請求の取引
                 </p>
-                {ungroupedTransactions.length > 0 && (
+                <div className="flex items-center gap-2">
+                  {ungroupedTransactions.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleToggleAll}
+                    >
+                      {selectedTransactionIds.size ===
+                      ungroupedTransactions.length
+                        ? "全選択解除"
+                        : "全選択"}
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={handleToggleAll}
+                    onClick={() => setShowInlineForm(true)}
                   >
-                    {selectedTransactionIds.size ===
-                    ungroupedTransactions.length
-                      ? "全選択解除"
-                      : "全選択"}
+                    <Plus className="mr-1 h-4 w-4" />
+                    取引を新規作成
                   </Button>
-                )}
+                </div>
               </div>
 
-              {loadingTransactions ? (
+              {showInlineForm ? (
+                <div className="border rounded-lg p-4 bg-gray-50">
+                  <InlineTransactionForm
+                    onClose={() => setShowInlineForm(false)}
+                    onCreated={() => {
+                      setShowInlineForm(false);
+                      setLoadingTransactions(true);
+                      getUngroupedTransactions(Number(counterpartyId), projectId)
+                        .then((txs) => {
+                          setUngroupedTransactions(txs);
+                          setLoadingTransactions(false);
+                        })
+                        .catch(() => setLoadingTransactions(false));
+                    }}
+                    counterpartyId={Number(counterpartyId)}
+                    projectId={projectId}
+                    expenseCategories={expenseCategories}
+                  />
+                </div>
+              ) : loadingTransactions ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : ungroupedTransactions.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  グループ化できる取引がありません
+                  対象の取引がありません
                 </div>
               ) : (
                 <div className="border rounded-lg max-h-[350px] overflow-y-auto">
@@ -372,7 +423,10 @@ export function CreateInvoiceGroupModal({
                 </div>
 
                 <div>
-                  <Label htmlFor="invoiceDate">請求日</Label>
+                  <Label htmlFor="invoiceDate">
+                    請求日
+                    <span className="ml-1 text-xs text-muted-foreground font-normal">(デフォルト: 今日)</span>
+                  </Label>
                   <Input
                     id="invoiceDate"
                     type="date"
@@ -383,12 +437,37 @@ export function CreateInvoiceGroupModal({
                 </div>
 
                 <div>
-                  <Label htmlFor="paymentDueDate">支払期限</Label>
+                  <Label htmlFor="paymentDueDate">入金期限</Label>
                   <Input
                     id="paymentDueDate"
-                    type="date"
+                    type={focusedDateField === "paymentDueDate" || paymentDueDate ? "date" : "text"}
                     value={paymentDueDate}
-                    onChange={(e) => setPaymentDueDate(e.target.value)}
+                    onFocus={() => setFocusedDateField("paymentDueDate")}
+                    onBlur={() => setFocusedDateField(null)}
+                    onChange={(e) => {
+                      setPaymentDueDate(e.target.value);
+                      if (!expectedPaymentDateManual) {
+                        setExpectedPaymentDate(e.target.value);
+                      }
+                    }}
+                    placeholder="日付を入力"
+                    className="mt-1"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="expectedPaymentDate">入金予定日</Label>
+                  <Input
+                    id="expectedPaymentDate"
+                    type={focusedDateField === "expectedPaymentDate" || expectedPaymentDate ? "date" : "text"}
+                    value={expectedPaymentDate}
+                    onFocus={() => setFocusedDateField("expectedPaymentDate")}
+                    onBlur={() => setFocusedDateField(null)}
+                    onChange={(e) => {
+                      setExpectedPaymentDate(e.target.value);
+                      setExpectedPaymentDateManual(true);
+                    }}
+                    placeholder="日付を入力"
                     className="mt-1"
                   />
                 </div>
@@ -437,6 +516,7 @@ export function CreateInvoiceGroupModal({
             </Button>
           )}
         </DialogFooter>
+
       </DialogContent>
     </Dialog>
   );

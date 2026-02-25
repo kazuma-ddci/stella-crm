@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Info } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Circle, Info } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -72,7 +72,7 @@ export default async function TransactionDetailPage({ params }: Props) {
     paymentDueDate: transaction.paymentDueDate,
     note: transaction.note,
     isWithholdingTarget: transaction.isWithholdingTarget,
-    withholdingTaxRate: transaction.withholdingTaxRate,
+    withholdingTaxRate: transaction.withholdingTaxRate != null ? Number(transaction.withholdingTaxRate) : null,
     withholdingTaxAmount: transaction.withholdingTaxAmount,
     netPaymentAmount: transaction.netPaymentAmount,
     attachments: transaction.attachments.map((att) => ({
@@ -128,7 +128,28 @@ export default async function TransactionDetailPage({ params }: Props) {
 
       {/* 編集可能: TransactionForm */}
       {isEditable ? (
-        <TransactionForm formData={formData} transaction={transactionData} />
+        <TransactionForm formData={formData} transaction={transactionData} linkedGroupAttachments={(() => {
+          const items: { source: string; fileName: string; filePath: string }[] = [];
+          if (transaction.invoiceGroup?.attachments) {
+            for (const att of transaction.invoiceGroup.attachments) {
+              items.push({
+                source: `請求 ${transaction.invoiceGroup.invoiceNumber ?? `#${transaction.invoiceGroup.id}`}`,
+                fileName: att.fileName,
+                filePath: att.filePath,
+              });
+            }
+          }
+          if (transaction.paymentGroup?.attachments) {
+            for (const att of transaction.paymentGroup.attachments) {
+              items.push({
+                source: `支払 #${transaction.paymentGroup.id}`,
+                fileName: att.fileName,
+                filePath: att.filePath,
+              });
+            }
+          }
+          return items.length > 0 ? items : undefined;
+        })()} />
       ) : (
         /* 読み取り専用表示 */
         <div className="space-y-6 max-w-3xl">
@@ -152,10 +173,12 @@ export default async function TransactionDetailPage({ params }: Props) {
                   <dd className="mt-1">{transaction.expenseCategory.name}</dd>
                 </div>
                 <div>
-                  <dt className="text-sm font-medium text-muted-foreground">プロジェクト/按分</dt>
+                  <dt className="text-sm font-medium text-muted-foreground">
+                    {transaction.allocationTemplate ? "按分テンプレート" : "プロジェクト"}
+                  </dt>
                   <dd className="mt-1">
                     {transaction.allocationTemplate
-                      ? `按分: ${transaction.allocationTemplate.name}`
+                      ? transaction.allocationTemplate.name
                       : transaction.costCenter
                         ? transaction.costCenter.name
                         : "-"}
@@ -164,6 +187,69 @@ export default async function TransactionDetailPage({ params }: Props) {
               </dl>
             </CardContent>
           </Card>
+
+          {/* 按分グループ処理状況 */}
+          {transaction.allocationTemplate && (() => {
+            const itemMap = new Map(
+              transaction.allocationGroupItems.map((i) => [i.costCenterId, i])
+            );
+            const lines = transaction.allocationTemplate.lines
+              .filter((l) => l.costCenterId !== null && l.costCenter)
+              .map((l) => {
+                const item = itemMap.get(l.costCenterId!);
+                let groupLabel: string | null = null;
+                if (item?.invoiceGroup) {
+                  groupLabel = item.invoiceGroup.invoiceNumber ?? "請求(下書き)";
+                } else if (item?.paymentGroup) {
+                  const m = item.paymentGroup.targetMonth;
+                  groupLabel = `支払 ${m.getUTCFullYear()}/${String(m.getUTCMonth() + 1).padStart(2, "0")}`;
+                }
+                return {
+                  costCenterName: l.costCenter!.name,
+                  isProcessed: !!item,
+                  groupLabel,
+                };
+              });
+            const processed = lines.filter((l) => l.isProcessed).length;
+            const total = lines.length;
+
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    按分処理状況
+                    <span className="text-sm font-normal text-muted-foreground">
+                      ({processed}/{total} 処理済み)
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {lines.map((l) => (
+                      <div
+                        key={l.costCenterName}
+                        className="flex items-center gap-3 py-1.5 px-2 rounded-md bg-gray-50"
+                      >
+                        {l.isProcessed ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
+                        ) : (
+                          <Circle className="h-4 w-4 text-gray-300 flex-shrink-0" />
+                        )}
+                        <span className="text-sm font-medium">{l.costCenterName}</span>
+                        {l.groupLabel ? (
+                          <span className="text-sm text-muted-foreground ml-auto">
+                            {l.groupLabel}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-amber-600 ml-auto">未処理</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           {/* 金額情報 */}
           <Card>
@@ -278,19 +364,70 @@ export default async function TransactionDetailPage({ params }: Props) {
           )}
 
           {/* 証憑 */}
-          {transaction.attachments.length > 0 && (
+          {(transaction.attachments.length > 0 || transaction.invoiceGroup?.attachments?.length || transaction.paymentGroup?.attachments?.length) && (
             <Card>
               <CardHeader>
                 <CardTitle>証憑</CardTitle>
               </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  {transaction.attachments.map((att) => (
-                    <li key={att.id} className="flex items-center gap-2 p-2 border rounded-md bg-gray-50">
-                      <span className="text-sm truncate">{att.fileName}</span>
-                    </li>
-                  ))}
-                </ul>
+              <CardContent className="space-y-3">
+                {transaction.attachments.length > 0 && (
+                  <ul className="space-y-2">
+                    {transaction.attachments.map((att) => (
+                      <li key={att.id}>
+                        <a
+                          href={att.filePath}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 p-2 border rounded-md bg-gray-50 hover:bg-gray-100 transition-colors"
+                        >
+                          <span className="text-sm truncate text-blue-600 underline">{att.fileName}</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {transaction.invoiceGroup?.attachments && transaction.invoiceGroup.attachments.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground font-medium mb-1">
+                      請求 {transaction.invoiceGroup.invoiceNumber ?? `#${transaction.invoiceGroup.id}`} の証憑
+                    </p>
+                    <ul className="space-y-2">
+                      {transaction.invoiceGroup.attachments.map((att) => (
+                        <li key={att.id}>
+                          <a
+                            href={att.filePath}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 p-2 border rounded-md bg-blue-50 hover:bg-blue-100 transition-colors"
+                          >
+                            <span className="text-sm truncate text-blue-600 underline">{att.fileName}</span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {transaction.paymentGroup?.attachments && transaction.paymentGroup.attachments.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground font-medium mb-1">
+                      支払 #{transaction.paymentGroup.id} の証憑
+                    </p>
+                    <ul className="space-y-2">
+                      {transaction.paymentGroup.attachments.map((att) => (
+                        <li key={att.id}>
+                          <a
+                            href={att.filePath}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 p-2 border rounded-md bg-blue-50 hover:bg-blue-100 transition-colors"
+                          >
+                            <span className="text-sm truncate text-blue-600 underline">{att.fileName}</span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}

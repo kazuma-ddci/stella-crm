@@ -4,25 +4,31 @@ import { useState, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import type { InvoiceGroupListItem, UngroupedTransaction } from "./actions";
+import type { InvoiceGroupListItem, UngroupedTransaction, UngroupedAllocationItem } from "./actions";
 import { InvoiceGroupsTable } from "./invoice-groups-table";
 import { UngroupedTransactionsPanel } from "./ungrouped-transactions-panel";
 
 type Props = {
   data: InvoiceGroupListItem[];
   ungroupedTransactions: UngroupedTransaction[];
+  ungroupedAllocationItems: UngroupedAllocationItem[];
   counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
+  expenseCategories: { id: number; name: string; type: string }[];
+  unconfirmedTransactions: UngroupedTransaction[];
   projectId?: number;
 };
 
 export function InvoicesPageClient({
   data,
   ungroupedTransactions,
+  ungroupedAllocationItems,
   counterpartyOptions,
   operatingCompanyOptions,
   bankAccountsByCompany,
+  expenseCategories,
+  unconfirmedTransactions,
   projectId,
 }: Props) {
   const [activeTab, setActiveTab] = useState("ungrouped");
@@ -53,9 +59,9 @@ export function InvoicesPageClient({
         <TabsList>
           <TabsTrigger value="ungrouped">
             未処理の取引
-            {ungroupedTransactions.length > 0 && (
+            {(ungroupedTransactions.length + ungroupedAllocationItems.length) > 0 && (
               <Badge variant="secondary" className="ml-2">
-                {ungroupedTransactions.length}
+                {ungroupedTransactions.length + ungroupedAllocationItems.length}
               </Badge>
             )}
           </TabsTrigger>
@@ -70,10 +76,13 @@ export function InvoicesPageClient({
         <TabsContent value="ungrouped">
           <UngroupedTransactionsPanel
             ungroupedTransactions={ungroupedTransactions}
+            ungroupedAllocationItems={ungroupedAllocationItems}
             draftInvoiceGroups={draftInvoiceGroups}
             counterpartyOptions={counterpartyOptions}
             operatingCompanyOptions={operatingCompanyOptions}
             bankAccountsByCompany={bankAccountsByCompany}
+            expenseCategories={expenseCategories}
+            unconfirmedTransactions={unconfirmedTransactions}
             projectId={projectId}
           />
         </TabsContent>
@@ -118,6 +127,7 @@ export function InvoicesPageClient({
               counterpartyOptions={counterpartyOptions}
               operatingCompanyOptions={operatingCompanyOptions}
               bankAccountsByCompany={bankAccountsByCompany}
+              expenseCategories={expenseCategories}
               projectId={projectId}
             />
           </div>

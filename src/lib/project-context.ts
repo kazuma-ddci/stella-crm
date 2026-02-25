@@ -76,6 +76,18 @@ export async function getSystemProjectContext(
 }
 
 /**
+ * STPプロジェクトの projectId をサーバー側で取得する（fail-closed）。
+ * コンテキストが取得できない場合はエラーを投げる。
+ */
+export async function requireStpProjectId(): Promise<number> {
+  const ctx = await getSystemProjectContext("stp");
+  if (!ctx) {
+    throw new Error("STPプロジェクトのコンテキストが取得できません。SystemProjectBindingの設定を確認してください。");
+  }
+  return ctx.projectId;
+}
+
+/**
  * キャッシュをクリアする（テスト用、設定変更後のリロード用）
  */
 export function clearProjectContextCache(routeKey?: string): void {

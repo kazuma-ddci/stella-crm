@@ -70,7 +70,7 @@ export async function getPaymentGroupMailData(
       operatingCompany: true,
     },
   });
-  if (!group) throw new Error("支払グループが見つかりません");
+  if (!group) throw new Error("支払が見つかりません");
 
   // counterpartyに紐づくMasterStellaCompanyの担当者を取得
   // Counterparty.companyId → MasterStellaCompany.id
@@ -200,7 +200,7 @@ export async function sendPaymentGroupMail(data: {
     where: { id: data.paymentGroupId, deletedAt: null },
   });
   if (!group) {
-    return { success: false, error: "支払グループが見つかりません" };
+    return { success: false, error: "支払が見つかりません" };
   }
   // before_request | requested | rejected | re_requested のみ送信可能
   if (
@@ -376,7 +376,7 @@ export async function resendPaymentGroupMail(
   if (!mail.paymentGroupId || !mail.paymentGroup) {
     return {
       success: false,
-      error: "支払グループに紐づくメールではありません",
+      error: "支払に紐づくメールではありません",
     };
   }
 
