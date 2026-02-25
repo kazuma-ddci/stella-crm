@@ -43,6 +43,18 @@ export type DashboardData = {
     outgoing: number;
     unpaidInvoices: number;
   };
+  delayMetrics: {
+    invoiceDelayRate: number;
+    invoiceDelayCount: number;
+    invoiceTotalCompleted: number;
+    invoiceAvgDelayDays: number;
+    invoiceOverdueCount: number;
+    paymentDelayRate: number;
+    paymentDelayCount: number;
+    paymentTotalCompleted: number;
+    paymentAvgDelayDays: number;
+    paymentOverdueCount: number;
+  };
 };
 
 export async function getDashboardData(): Promise<DashboardData> {
@@ -274,6 +286,83 @@ export async function getDashboardData(): Promise<DashboardData> {
       }),
     ]);
 
+  // --- 遅延率KPI ---
+  const [completedInvoices, completedPayments, overdueInvoiceGroups, overduePaymentGroups] =
+    await Promise.all([
+      // actualPaymentDate が記録済みの InvoiceGroup（入金完了分）
+      prisma.invoiceGroup.findMany({
+        where: {
+          deletedAt: null,
+          actualPaymentDate: { not: null },
+          paymentDueDate: { not: null },
+        },
+        select: { actualPaymentDate: true, paymentDueDate: true },
+      }),
+      // actualPaymentDate が記録済みの PaymentGroup（支払完了分）
+      prisma.paymentGroup.findMany({
+        where: {
+          deletedAt: null,
+          actualPaymentDate: { not: null },
+          paymentDueDate: { not: null },
+        },
+        select: { actualPaymentDate: true, paymentDueDate: true },
+      }),
+      // 現在入金期限超過中の InvoiceGroup
+      prisma.invoiceGroup.count({
+        where: {
+          deletedAt: null,
+          paymentDueDate: { lt: now },
+          actualPaymentDate: null,
+          status: { in: ["sent", "awaiting_accounting", "partially_paid"] },
+        },
+      }),
+      // 現在支払期限超過中の PaymentGroup
+      prisma.paymentGroup.count({
+        where: {
+          deletedAt: null,
+          paymentDueDate: { lt: now },
+          actualPaymentDate: null,
+          status: { notIn: ["paid"] },
+        },
+      }),
+    ]);
+
+  // 入金遅延計算
+  let invoiceDelayCount = 0;
+  let invoiceDelayDaysTotal = 0;
+  for (const ig of completedInvoices) {
+    if (ig.actualPaymentDate! > ig.paymentDueDate!) {
+      invoiceDelayCount++;
+      const diffMs = ig.actualPaymentDate!.getTime() - ig.paymentDueDate!.getTime();
+      invoiceDelayDaysTotal += Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    }
+  }
+  const invoiceTotalCompleted = completedInvoices.length;
+  const invoiceDelayRate = invoiceTotalCompleted > 0
+    ? Math.round((invoiceDelayCount / invoiceTotalCompleted) * 1000) / 10
+    : 0;
+  const invoiceAvgDelayDays = invoiceDelayCount > 0
+    ? Math.round((invoiceDelayDaysTotal / invoiceDelayCount) * 10) / 10
+    : 0;
+
+  // 支払遅延計算
+  let paymentDelayCount = 0;
+  let paymentDelayDaysTotal = 0;
+  for (const pg of completedPayments) {
+    if (pg.actualPaymentDate! > pg.paymentDueDate!) {
+      paymentDelayCount++;
+      const diffMs = pg.actualPaymentDate!.getTime() - pg.paymentDueDate!.getTime();
+      paymentDelayDaysTotal += Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    }
+  }
+  const paymentTotalCompleted = completedPayments.length;
+  const paymentDelayRate = paymentTotalCompleted > 0
+    ? Math.round((paymentDelayCount / paymentTotalCompleted) * 1000) / 10
+    : 0;
+  const paymentAvgDelayDays = paymentDelayCount > 0
+    ? Math.round((paymentDelayDaysTotal / paymentDelayCount) * 10) / 10
+    : 0;
+
   return {
     pendingCounts: {
       unjournalizedTransactions,
@@ -298,6 +387,18 @@ export async function getDashboardData(): Promise<DashboardData> {
       incoming: incomingAgg._sum.amount ?? 0,
       outgoing: outgoingAgg._sum.amount ?? 0,
       unpaidInvoices: unpaidInvoicesAgg._sum.totalAmount ?? 0,
+    },
+    delayMetrics: {
+      invoiceDelayRate,
+      invoiceDelayCount,
+      invoiceTotalCompleted,
+      invoiceAvgDelayDays,
+      invoiceOverdueCount: overdueInvoiceGroups,
+      paymentDelayRate,
+      paymentDelayCount,
+      paymentTotalCompleted,
+      paymentAvgDelayDays,
+      paymentOverdueCount: overduePaymentGroups,
     },
   };
 }

@@ -150,16 +150,20 @@ export async function getCashflowForecast(
   // --- 予測項目を収集 ---
   const forecastItems: CashflowForecastItem[] = [];
 
-  // 1. 入金予定: InvoiceGroupの支払期限
+  // 1. 入金予定: InvoiceGroupのexpectedPaymentDate（なければpaymentDueDate）
   const invoiceGroups = await prisma.invoiceGroup.findMany({
     where: {
       deletedAt: null,
-      paymentDueDate: { gte: today, lte: forecastEnd },
+      OR: [
+        { expectedPaymentDate: { gte: today, lte: forecastEnd } },
+        { expectedPaymentDate: null, paymentDueDate: { gte: today, lte: forecastEnd } },
+      ],
       status: { in: ["sent", "awaiting_accounting", "partially_paid"] },
     },
     select: {
       id: true,
       invoiceNumber: true,
+      expectedPaymentDate: true,
       paymentDueDate: true,
       totalAmount: true,
       status: true,
@@ -201,14 +205,15 @@ export async function getCashflowForecast(
   }
 
   for (const ig of invoiceGroups) {
-    if (ig.paymentDueDate && ig.totalAmount) {
+    const forecastDate = ig.expectedPaymentDate ?? ig.paymentDueDate;
+    if (forecastDate && ig.totalAmount) {
       // partially_paid の場合は消込済み金額を差し引いた残額を使用
       const reconciledAmount = reconciledMap.get(ig.id) ?? 0;
       const remainingAmount = ig.totalAmount - reconciledAmount;
       if (remainingAmount <= 0) continue;
 
       forecastItems.push({
-        date: toDateString(ig.paymentDueDate),
+        date: toDateString(forecastDate),
         type: "incoming",
         source: "invoice",
         description: `${ig.counterparty.name}${ig.invoiceNumber ? ` (${ig.invoiceNumber})` : ""}`,

@@ -28,7 +28,7 @@ export default async function RecurringTransactionsPage() {
     prisma.counterparty.findMany({
       where: { deletedAt: null, isActive: true },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, displayId: true },
     }),
     prisma.expenseCategory.findMany({
       where: { deletedAt: null, isActive: true },
@@ -90,7 +90,7 @@ export default async function RecurringTransactionsPage() {
 
   const counterpartyOptions = counterparties.map((c) => ({
     value: String(c.id),
-    label: c.name,
+    label: c.displayId ? `${c.displayId} ${c.name}` : c.name,
   }));
 
   // 費目を種別ごとにグループ分け（dynamicOptions用）

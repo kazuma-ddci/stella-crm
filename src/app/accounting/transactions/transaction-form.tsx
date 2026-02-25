@@ -25,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Upload, X, FileText, Loader2 } from "lucide-react";
+import { FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { createTransaction, updateTransaction } from "./actions";
 import type { TransactionFormData } from "./actions";
@@ -76,6 +76,11 @@ type Props = {
     costCenterId: number;
     projectName: string;
   } | null;
+  linkedGroupAttachments?: {
+    source: string;
+    fileName: string;
+    filePath: string;
+  }[];
 };
 
 function formatDate(d: Date | string | null | undefined): string {
@@ -88,7 +93,7 @@ function formatDate(d: Date | string | null | undefined): string {
 // メインコンポーネント
 // ============================================
 
-export function TransactionForm({ formData, transaction, projectContext }: Props) {
+export function TransactionForm({ formData, transaction, projectContext, linkedGroupAttachments }: Props) {
   const router = useRouter();
   const isEdit = !!transaction;
 
@@ -164,8 +169,6 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
   const [attachments, setAttachments] = useState<AttachmentInput[]>(
     transaction?.attachments || []
   );
-  const [uploading, setUploading] = useState(false);
-
   // ダイアログ
   const [contractWarningOpen, setContractWarningOpen] = useState(false);
   const [contractWarningMessage, setContractWarningMessage] = useState("");
@@ -206,7 +209,7 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
     () =>
       formData.counterparties.map((c) => ({
         value: String(c.id),
-        label: c.name,
+        label: c.displayId ? `${c.displayId} ${c.name}` : c.name,
       })),
     [formData.counterparties]
   );
@@ -335,53 +338,6 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
   const handleWithholdingRateChange = (value: string) => {
     setWithholdingTaxRate(value);
     calculateWithholding(amount, taxAmount, value, taxType);
-  };
-
-  // --- 証憑アップロード ---
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    setUploading(true);
-    try {
-      const formDataUpload = new FormData();
-      for (let i = 0; i < files.length; i++) {
-        formDataUpload.append("files", files[i]);
-      }
-
-      const response = await fetch("/api/transactions/upload", {
-        method: "POST",
-        body: formDataUpload,
-      });
-
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.error || "アップロードに失敗しました");
-      }
-
-      const newAttachments: AttachmentInput[] = result.files.map(
-        (f: { filePath: string; fileName: string; fileSize: number; mimeType: string }) => ({
-          filePath: f.filePath,
-          fileName: f.fileName,
-          fileSize: f.fileSize,
-          mimeType: f.mimeType,
-          attachmentType: "other",
-        })
-      );
-      setAttachments((prev) => [...prev, ...newAttachments]);
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "アップロードに失敗しました"
-      );
-    } finally {
-      setUploading(false);
-      e.target.value = "";
-    }
-  };
-
-  const handleRemoveAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
   // --- 契約終了警告チェック ---
@@ -662,25 +618,35 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
           <CardTitle>按分設定</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="use-allocation"
-              checked={useAllocation}
-              onCheckedChange={(checked) => {
-                setUseAllocation(!!checked);
-                if (checked) {
-                  setCostCenterId("");
-                } else {
-                  setAllocationTemplateId("");
-                  if (projectContext?.costCenterId) {
-                    setCostCenterId(String(projectContext.costCenterId));
-                  }
-                }
-              }}
-              disabled={!!projectContext}
-            />
-            <Label htmlFor="use-allocation">按分テンプレートを使用する</Label>
-          </div>
+          <RadioGroup
+            value={useAllocation ? "allocation" : "single"}
+            onValueChange={(value) => {
+              const isAllocation = value === "allocation";
+              setUseAllocation(isAllocation);
+              if (isAllocation) {
+                setCostCenterId("");
+              } else {
+                setAllocationTemplateId("");
+                const defaultCostCenterId = transaction?.costCenterId
+                  ? String(transaction.costCenterId)
+                  : projectContext?.costCenterId
+                    ? String(projectContext.costCenterId)
+                    : "";
+                setCostCenterId(defaultCostCenterId);
+              }
+            }}
+            disabled={!!projectContext}
+            className="flex gap-4"
+          >
+            <div className="flex items-center gap-2">
+              <RadioGroupItem value="single" id="allocation-single" />
+              <Label htmlFor="allocation-single" className="cursor-pointer">按分なし</Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <RadioGroupItem value="allocation" id="allocation-use" />
+              <Label htmlFor="allocation-use" className="cursor-pointer">按分あり</Label>
+            </div>
+          </RadioGroup>
 
           {useAllocation ? (
             <div className="space-y-4">
@@ -875,58 +841,52 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
             />
           </div>
 
-          {/* 証憑アップロード */}
-          <div className="space-y-2">
-            <Label>証憑</Label>
+          {/* 証憑（閲覧専用・表示する証憑がある場合のみ） */}
+          {(attachments.length > 0 || (linkedGroupAttachments && linkedGroupAttachments.length > 0)) && (
             <div className="space-y-2">
-              {attachments.map((att, index) => (
-                <div
-                  key={att.filePath}
-                  className="flex items-center gap-2 p-2 border rounded-md bg-gray-50"
-                >
-                  <FileText className="h-4 w-4 text-blue-600 flex-shrink-0" />
-                  <span className="flex-1 text-sm truncate">
-                    {att.fileName}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleRemoveAttachment(index)}
-                  >
-                    <X className="h-4 w-4 text-red-500" />
-                  </Button>
+              <Label>証憑</Label>
+              {attachments.length > 0 && (
+                <div className="space-y-1">
+                  {attachments.map((att) => (
+                    <a
+                      key={att.filePath}
+                      href={att.filePath}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 p-2 border rounded-md bg-gray-50 hover:bg-gray-100 transition-colors"
+                    >
+                      <FileText className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                      <span className="flex-1 text-sm truncate text-blue-600 underline">
+                        {att.fileName}
+                      </span>
+                    </a>
+                  ))}
                 </div>
-              ))}
-
-              <label className="flex items-center justify-center gap-2 p-4 border-2 border-dashed rounded-md cursor-pointer hover:bg-muted/50 transition-colors">
-                <input
-                  type="file"
-                  multiple
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp,.txt,.csv"
-                  onChange={handleFileUpload}
-                  disabled={uploading}
-                  className="hidden"
-                />
-                {uploading ? (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    <span className="text-sm">アップロード中...</span>
-                  </>
-                ) : (
-                  <>
-                    <Upload className="h-5 w-5 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">
-                      クリックまたはドラッグ&ドロップでファイルを追加
-                    </span>
-                  </>
-                )}
-              </label>
-              <p className="text-xs text-muted-foreground">
-                PDF, Word, Excel, 画像, CSV（各10MB以下）
-              </p>
+              )}
+              {linkedGroupAttachments && linkedGroupAttachments.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground font-medium">グループの証憑</p>
+                  {linkedGroupAttachments.map((att) => (
+                    <a
+                      key={att.filePath}
+                      href={att.filePath}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 p-2 border rounded-md bg-blue-50 hover:bg-blue-100 transition-colors"
+                    >
+                      <FileText className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                      <span className="flex-1 text-sm truncate text-blue-600 underline">
+                        {att.fileName}
+                      </span>
+                      <span className="text-xs text-muted-foreground flex-shrink-0">
+                        {att.source}
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
 
@@ -934,7 +894,7 @@ export function TransactionForm({ formData, transaction, projectContext }: Props
       <div className="flex gap-3">
         <Button
           onClick={() => handleSubmit()}
-          disabled={submitting || uploading}
+          disabled={submitting}
         >
           {submitting ? (
             <>

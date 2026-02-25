@@ -292,6 +292,11 @@ export function AllocationTemplatesTable({
       filterable: true,
     },
     {
+      key: "ownerCostCenterName",
+      header: "代表PJ",
+      editable: false,
+    },
+    {
       key: "lineCount",
       header: "明細数",
       editable: false,
@@ -308,6 +313,11 @@ export function AllocationTemplatesTable({
       defaultValue: true,
     },
     {
+      key: "ownerCostCenterId",
+      header: "代表プロジェクト",
+      hidden: true,
+    },
+    {
       key: "lines",
       header: "按分明細",
       hidden: true,
@@ -315,6 +325,11 @@ export function AllocationTemplatesTable({
   ];
 
   const customRenderers: CustomRenderers = {
+    ownerCostCenterName: (value) => {
+      const name = value as string;
+      if (!name) return <span className="text-muted-foreground text-xs">未設定</span>;
+      return <Badge variant="outline">{name}</Badge>;
+    },
     lineCount: (value) => `${value}件`,
     totalRate: (value) => {
       const v = Number(value);
@@ -334,6 +349,43 @@ export function AllocationTemplatesTable({
   };
 
   const customFormFields: CustomFormFields = {
+    ownerCostCenterId: {
+      render: (value, onChange, formData) => {
+        const lines = (formData?.lines as LineData[] | undefined) ?? [];
+        const lineCostCenterIds = lines
+          .map((l) => l.costCenterId)
+          .filter((id) => id && id !== "");
+        const availableOptions = costCenterOptions.filter((opt) =>
+          lineCostCenterIds.includes(opt.value)
+        );
+        return (
+          <div className="space-y-1">
+            <Label className="text-sm font-medium">代表プロジェクト</Label>
+            <Select
+              value={(value as string) || "_none"}
+              onValueChange={(v) => onChange(v === "_none" ? "" : v)}
+            >
+              <SelectTrigger className="h-8">
+                <SelectValue placeholder="選択..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_none">未設定</SelectItem>
+                {availableOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {availableOptions.length === 0 && lines.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                按分明細に確定済みのコストセンターを追加すると選択できます
+              </p>
+            )}
+          </div>
+        );
+      },
+    },
     lines: {
       render: (value, onChange) => {
         const lines = (value as LineData[] | undefined) ?? [];
@@ -351,8 +403,10 @@ export function AllocationTemplatesTable({
   // 作成ハンドラ
   const handleAdd = async (formData: Record<string, unknown>) => {
     const lines = formData.lines as LineData[] | undefined;
+    const ownerCcId = formData.ownerCostCenterId as string | undefined;
     const processedData = {
       ...formData,
+      ownerCostCenterId: ownerCcId && ownerCcId !== "" ? Number(ownerCcId) : null,
       lines: (lines ?? []).map((l) => ({
         costCenterId: l.costCenterId ? Number(l.costCenterId) : null,
         allocationRate: l.allocationRate,
@@ -367,6 +421,12 @@ export function AllocationTemplatesTable({
     id: number,
     formData: Record<string, unknown>
   ) => {
+    // ownerCostCenterId の変換
+    if ("ownerCostCenterId" in formData) {
+      const v = formData.ownerCostCenterId as string | undefined;
+      formData.ownerCostCenterId = v && v !== "" ? Number(v) : null;
+    }
+
     // 明細変更がない場合はそのまま更新
     if (!("lines" in formData)) {
       await updateAllocationTemplate(id, formData);

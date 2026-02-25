@@ -130,7 +130,7 @@ export function BankTransactionModal({
     () =>
       formData.counterparties.map((c) => ({
         value: String(c.id),
-        label: c.name,
+        label: c.displayId ? `${c.displayId} ${c.name}` : c.name,
       })),
     [formData.counterparties]
   );

@@ -352,13 +352,13 @@ export function DuplicatesCheck({ initialPairs }: Props) {
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>請求グループ（InvoiceGroup）</TableCell>
+                    <TableCell>請求（InvoiceGroup）</TableCell>
                     <TableCell className="text-right">
                       {impact.invoiceGroupCount}件
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>支払グループ（PaymentGroup）</TableCell>
+                    <TableCell>支払（PaymentGroup）</TableCell>
                     <TableCell className="text-right">
                       {impact.paymentGroupCount}件
                     </TableCell>

@@ -10,6 +10,7 @@ export default async function AllocationTemplatesPage() {
       where: { deletedAt: null },
       orderBy: [{ id: "asc" }],
       include: {
+        ownerCostCenter: { select: { id: true, name: true } },
         lines: {
           include: {
             costCenter: { select: { id: true, name: true } },
@@ -34,6 +35,8 @@ export default async function AllocationTemplatesPage() {
     id: t.id,
     name: t.name,
     isActive: t.isActive,
+    ownerCostCenterId: t.ownerCostCenterId ? String(t.ownerCostCenterId) : "",
+    ownerCostCenterName: t.ownerCostCenter?.name ?? "",
     lineCount: t.lines.length,
     totalRate: t.lines
       .reduce((sum, l) => sum + Number(l.allocationRate), 0)

@@ -66,7 +66,7 @@ function validateJournalEntryData(data: Record<string, unknown>) {
   ).length;
   if (nonNullCount > 1) {
     throw new Error(
-      "紐づき先（請求グループ/支払グループ/取引）は1つのみ指定できます"
+      "紐づき先（請求/支払/取引）は1つのみ指定できます"
     );
   }
 
@@ -211,7 +211,7 @@ export async function createJournalEntry(data: Record<string, unknown>) {
       select: { id: true },
     });
     if (!ig) {
-      throw new Error("指定された請求グループが見つかりません");
+      throw new Error("指定された請求が見つかりません");
     }
   }
   if (validated.paymentGroupId) {
@@ -220,7 +220,7 @@ export async function createJournalEntry(data: Record<string, unknown>) {
       select: { id: true },
     });
     if (!pg) {
-      throw new Error("指定された支払グループが見つかりません");
+      throw new Error("指定された支払が見つかりません");
     }
   }
   if (validated.transactionId) {

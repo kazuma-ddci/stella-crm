@@ -18,7 +18,7 @@ export default async function AutoJournalPage() {
       prisma.counterparty.findMany({
         where: { deletedAt: null, mergedIntoId: null, isActive: true },
         orderBy: [{ name: "asc" }],
-        select: { id: true, name: true },
+        select: { id: true, name: true, displayId: true },
       }),
       prisma.expenseCategory.findMany({
         where: { deletedAt: null, isActive: true },
@@ -51,7 +51,7 @@ export default async function AutoJournalPage() {
 
   const counterpartyOptions = counterparties.map((c) => ({
     value: String(c.id),
-    label: c.name,
+    label: c.displayId ? `${c.displayId} ${c.name}` : c.name,
   }));
 
   const expenseCategoryOptions = expenseCategories.map((ec) => ({

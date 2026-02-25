@@ -51,10 +51,22 @@ export async function createAllocationTemplate(
 
   validateLines(lines);
 
+  // 代表プロジェクト（ownerCostCenterId）バリデーション
+  const ownerCostCenterId = data.ownerCostCenterId != null ? Number(data.ownerCostCenterId) : null;
+  if (ownerCostCenterId !== null) {
+    const lineCostCenterIds = lines
+      .map((l) => l.costCenterId)
+      .filter((id): id is number => id !== null);
+    if (!lineCostCenterIds.includes(ownerCostCenterId)) {
+      throw new Error("代表プロジェクトは按分明細に含まれるコストセンターから選択してください");
+    }
+  }
+
   await prisma.allocationTemplate.create({
     data: {
       name,
       isActive,
+      ownerCostCenterId,
       createdBy: staffId,
       lines: {
         create: lines.map((line) => ({
@@ -119,12 +131,29 @@ export async function updateAllocationTemplate(
     updateData.isActive = data.isActive === true || data.isActive === "true";
   }
 
+  if ("ownerCostCenterId" in data) {
+    updateData.ownerCostCenterId = data.ownerCostCenterId != null ? Number(data.ownerCostCenterId) : null;
+  }
+
   if ("lines" in data) {
     const lines = data.lines as LineInput[];
     if (!lines || lines.length === 0) {
       throw new Error("按分明細を1行以上追加してください");
     }
     validateLines(lines);
+
+    // 代表PJバリデーション（lines変更時、ownerCostCenterIdが設定済みなら新linesに含まれるか確認）
+    const effectiveOwnerCcId = "ownerCostCenterId" in data
+      ? (data.ownerCostCenterId != null ? Number(data.ownerCostCenterId) : null)
+      : template.ownerCostCenterId;
+    if (effectiveOwnerCcId !== null) {
+      const newLineCcIds = lines
+        .map((l) => l.costCenterId)
+        .filter((id): id is number => id !== null);
+      if (!newLineCcIds.includes(effectiveOwnerCcId)) {
+        throw new Error("代表プロジェクトは按分明細に含まれるコストセンターから選択してください。先に代表を変更するか、明細にコストセンターを残してください。");
+      }
+    }
 
     // 変更前の明細データを保存（変更履歴用）
     const oldLines = template.lines.map((l) => ({

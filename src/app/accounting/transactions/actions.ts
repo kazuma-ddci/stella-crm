@@ -18,6 +18,7 @@ export type TransactionFormData = {
   counterparties: {
     id: number;
     name: string;
+    displayId: string | null;
     counterpartyType: string;
   }[];
   expenseCategories: {
@@ -151,12 +152,12 @@ function validateTransactionData(data: Record<string, unknown>) {
 
   if (allocationTemplateId && costCenterId) {
     throw new Error(
-      "按分テンプレートと按分先は同時に指定できません"
+      "按分テンプレートとプロジェクトは同時に指定できません"
     );
   }
   if (!allocationTemplateId && !costCenterId) {
     throw new Error(
-      "按分テンプレートまたは按分先のいずれかを指定してください"
+      "按分テンプレートまたはプロジェクトのいずれかを指定してください"
     );
   }
 
@@ -494,6 +495,13 @@ export async function getTransactionById(id: number) {
           },
         },
       },
+      allocationGroupItems: {
+        include: {
+          costCenter: { select: { id: true, name: true } },
+          invoiceGroup: { select: { invoiceNumber: true } },
+          paymentGroup: { select: { targetMonth: true } },
+        },
+      },
       costCenter: {
         select: { id: true, name: true, projectId: true },
       },
@@ -508,6 +516,20 @@ export async function getTransactionById(id: number) {
       },
       attachments: {
         where: { deletedAt: null },
+      },
+      invoiceGroup: {
+        select: {
+          id: true,
+          invoiceNumber: true,
+          attachments: { where: { deletedAt: null } },
+        },
+      },
+      paymentGroup: {
+        select: {
+          id: true,
+          targetMonth: true,
+          attachments: { where: { deletedAt: null } },
+        },
       },
     },
   });
@@ -525,7 +547,7 @@ export async function getTransactionById(id: number) {
 
 const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
   unconfirmed: ["confirmed"],
-  confirmed: ["awaiting_accounting", "returned"],
+  confirmed: ["unconfirmed", "awaiting_accounting", "returned"],
   awaiting_accounting: ["journalized", "returned"],
   returned: ["resubmitted"],
   resubmitted: ["awaiting_accounting"],
@@ -601,6 +623,77 @@ export async function confirmTransaction(id: number) {
 
   // 按分テンプレート使用時: 全プロジェクト確定済みなら自動的に「経理処理待ち」へ遷移
   await checkAndTransitionToAwaitingAccounting(id);
+
+  revalidatePath("/accounting/transactions");
+}
+
+// ============================================
+// 5b. unconfirmTransaction（確認済み→未確認）
+// ============================================
+
+export async function unconfirmTransaction(id: number) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const transaction = await prisma.transaction.findFirst({
+    where: { id, deletedAt: null },
+    select: {
+      id: true,
+      status: true,
+      periodFrom: true,
+      periodTo: true,
+      invoiceGroupId: true,
+      paymentGroupId: true,
+    },
+  });
+  if (!transaction) {
+    throw new Error("取引が見つかりません");
+  }
+
+  if (transaction.status !== "confirmed") {
+    throw new Error(
+      `ステータス「${transaction.status}」の取引は確定取消できません（確認済みの取引のみ確定取消可能です）`
+    );
+  }
+
+  // 請求/支払に紐づいている場合はエラー
+  if (transaction.invoiceGroupId) {
+    throw new Error(
+      "この取引は請求に紐づけられています。確定取消するには請求管理から紐づけを解除してください。"
+    );
+  }
+  if (transaction.paymentGroupId) {
+    throw new Error(
+      "この取引は支払に紐づけられています。確定取消するには支払管理から紐づけを解除してください。"
+    );
+  }
+
+  await checkMonthlyClose(transaction.periodFrom, transaction.periodTo);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.transaction.update({
+      where: { id },
+      data: {
+        status: "unconfirmed",
+        confirmedBy: null,
+        confirmedAt: null,
+        updatedBy: staffId,
+      },
+    });
+
+    // 変更履歴を記録
+    await recordChangeLog(
+      {
+        tableName: "Transaction",
+        recordId: id,
+        changeType: "update",
+        oldData: { status: transaction.status },
+        newData: { status: "unconfirmed" },
+      },
+      staffId,
+      tx
+    );
+  });
 
   revalidatePath("/accounting/transactions");
 }
@@ -987,7 +1080,7 @@ export async function getTransactions(filters?: {
     where.counterpartyId = filters.counterpartyId;
   }
 
-  return prisma.transaction.findMany({
+  const transactions = await prisma.transaction.findMany({
     where,
     include: {
       counterparty: { select: { id: true, name: true } },
@@ -999,6 +1092,12 @@ export async function getTransactions(filters?: {
     },
     orderBy: [{ periodFrom: "desc" }, { id: "desc" }],
   });
+
+  // Decimal → number 変換（Client Componentに渡すため）
+  return transactions.map((t) => ({
+    ...t,
+    withholdingTaxRate: t.withholdingTaxRate != null ? Number(t.withholdingTaxRate) : null,
+  }));
 }
 
 // ============================================
@@ -1043,7 +1142,7 @@ export async function getTransactionFormData(): Promise<TransactionFormData> {
     // 取引先
     prisma.counterparty.findMany({
       where: { deletedAt: null, mergedIntoId: null, isActive: true },
-      select: { id: true, name: true, counterpartyType: true },
+      select: { id: true, name: true, displayId: true, counterpartyType: true },
       orderBy: { name: "asc" },
     }),
 
@@ -1105,7 +1204,7 @@ export async function getTransactionFormData(): Promise<TransactionFormData> {
       lines: t.lines.map((l) => ({
         id: l.id,
         costCenterId: l.costCenterId,
-        allocationRate: l.allocationRate,
+        allocationRate: Number(l.allocationRate),
         label: l.label,
         costCenter: l.costCenter,
       })),

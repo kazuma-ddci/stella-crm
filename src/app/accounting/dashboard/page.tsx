@@ -312,6 +312,79 @@ export default async function AccountingDashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* 遅延率KPI */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* 入金遅延 */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-blue-500" />
+              入金遅延率
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">遅延率</span>
+                <span className={`text-2xl font-bold ${data.delayMetrics.invoiceDelayRate > 0 ? "text-red-600" : "text-green-600"}`}>
+                  {data.delayMetrics.invoiceDelayRate}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-500">
+                  遅延 {data.delayMetrics.invoiceDelayCount}件 / 完了 {data.delayMetrics.invoiceTotalCompleted}件
+                </span>
+                {data.delayMetrics.invoiceAvgDelayDays > 0 && (
+                  <span className="text-gray-500">
+                    平均遅延: {data.delayMetrics.invoiceAvgDelayDays}日
+                  </span>
+                )}
+              </div>
+              {data.delayMetrics.invoiceOverdueCount > 0 && (
+                <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                  現在超過中: {data.delayMetrics.invoiceOverdueCount}件
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 支払遅延 */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-orange-500" />
+              支払遅延率
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">遅延率</span>
+                <span className={`text-2xl font-bold ${data.delayMetrics.paymentDelayRate > 0 ? "text-red-600" : "text-green-600"}`}>
+                  {data.delayMetrics.paymentDelayRate}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-500">
+                  遅延 {data.delayMetrics.paymentDelayCount}件 / 完了 {data.delayMetrics.paymentTotalCompleted}件
+                </span>
+                {data.delayMetrics.paymentAvgDelayDays > 0 && (
+                  <span className="text-gray-500">
+                    平均遅延: {data.delayMetrics.paymentAvgDelayDays}日
+                  </span>
+                )}
+              </div>
+              {data.delayMetrics.paymentOverdueCount > 0 && (
+                <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                  現在超過中: {data.delayMetrics.paymentOverdueCount}件
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

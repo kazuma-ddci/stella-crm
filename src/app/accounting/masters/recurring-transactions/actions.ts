@@ -98,7 +98,7 @@ export async function createRecurringTransaction(
     }
   }
 
-  // 按分先と按分テンプレートの排他チェック
+  // プロジェクトと按分テンプレートの排他チェック
   if (costCenterId && allocationTemplateId) {
     throw new Error(
       "プロジェクト（按分なし）と按分テンプレートは同時に設定できません。どちらか一方を選択してください"
@@ -124,7 +124,7 @@ export async function createRecurringTransaction(
       where: { id: costCenterId, deletedAt: null },
       select: { id: true },
     });
-    if (!cc) throw new Error("指定したプロジェクト（按分先）が見つかりません");
+    if (!cc) throw new Error("指定したプロジェクトが見つかりません");
   }
 
   if (allocationTemplateId) {
@@ -365,7 +365,7 @@ export async function updateRecurringTransaction(
     updateData.note = data.note ? (data.note as string).trim() : null;
   }
 
-  // 按分先と按分テンプレートの排他チェック
+  // プロジェクトと按分テンプレートの排他チェック
   const effectiveCostCenterId = "costCenterId" in updateData ? updateData.costCenterId : existing.costCenterId;
   const effectiveAllocId = "allocationTemplateId" in updateData ? updateData.allocationTemplateId : existing.allocationTemplateId;
   if (effectiveCostCenterId && effectiveAllocId) {

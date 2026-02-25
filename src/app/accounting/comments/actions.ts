@@ -64,12 +64,12 @@ function validateEntityRef(input: CreateCommentInput) {
 
   if (refs.length === 0) {
     throw new Error(
-      "取引、請求グループ、支払グループのいずれかを指定してください"
+      "取引、請求、支払のいずれかを指定してください"
     );
   }
   if (refs.length > 1) {
     throw new Error(
-      "取引、請求グループ、支払グループは1つのみ指定できます"
+      "取引、請求、支払は1つのみ指定できます"
     );
   }
 }

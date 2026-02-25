@@ -14,7 +14,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { confirmTransaction, deleteTransaction } from "./actions";
+import { confirmTransaction, unconfirmTransaction, deleteTransaction } from "./actions";
 
 type TransactionStatusActionsProps = {
   transactionId: number;
@@ -40,6 +40,18 @@ export function TransactionStatusActions({
     startTransition(async () => {
       try {
         await confirmTransaction(transactionId);
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "エラーが発生しました");
+      }
+    });
+  };
+
+  const handleUnconfirm = () => {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await unconfirmTransaction(transactionId);
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "エラーが発生しました");
@@ -85,6 +97,32 @@ export function TransactionStatusActions({
               <AlertDialogCancel>キャンセル</AlertDialogCancel>
               <AlertDialogAction onClick={handleConfirm} disabled={isPending}>
                 確定する
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+
+      {/* 確定取消ボタン: confirmed かつ未紐づけ */}
+      {status === "confirmed" && !isLinked && (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="outline" size="sm" disabled={isPending}>
+              確定取消
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>確定を取り消しますか？</AlertDialogTitle>
+              <AlertDialogDescription>
+                取引のステータスを「未確定」に戻します。
+                取引内容の編集が再び可能になります。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>キャンセル</AlertDialogCancel>
+              <AlertDialogAction onClick={handleUnconfirm} disabled={isPending}>
+                確定を取り消す
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

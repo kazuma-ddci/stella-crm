@@ -19,6 +19,7 @@ export type BankTransactionFormData = {
   counterparties: {
     id: number;
     name: string;
+    displayId: string | null;
     counterpartyType: string;
   }[];
 };
@@ -184,7 +185,7 @@ export async function getBankTransactionFormData(): Promise<BankTransactionFormD
     }),
     prisma.counterparty.findMany({
       where: { deletedAt: null, mergedIntoId: null, isActive: true },
-      select: { id: true, name: true, counterpartyType: true },
+      select: { id: true, name: true, displayId: true, counterpartyType: true },
       orderBy: { name: "asc" },
     }),
   ]);
