@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getRelatedDataCounts } from "@/lib/company/get-related-data-counts";
+import { mergeCounterpartyForCompany } from "@/lib/counterparty-sync";
 import type {
   MergePreview,
   MergeResolution,
@@ -362,7 +363,10 @@ export async function executeMerge(
           }
         }
 
-        // 4. 企業Bにマージ済みフラグを設定
+        // 4. Counterpartyの統合
+        await mergeCounterpartyForCompany(survivorId, duplicateId, tx);
+
+        // 5. 企業Bにマージ済みフラグを設定
         await tx.masterStellaCompany.update({
           where: { id: duplicateId },
           data: {

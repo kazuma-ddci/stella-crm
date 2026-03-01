@@ -6,12 +6,22 @@ import { validateCorporateNumber } from "@/lib/utils";
 import { getRelatedDataCounts } from "@/lib/company/get-related-data-counts";
 import type { CompanyRelatedData } from "@/types/company-merge";
 import { getSession } from "@/lib/auth";
+import { updateCounterpartyForCompany, deactivateCounterpartyForCompany } from "@/lib/counterparty-sync";
 
 export async function deleteCompany(id: number) {
   await prisma.masterStellaCompany.update({
     where: { id },
     data: { deletedAt: new Date() },
   });
+
+  // Counterpartyも無効化
+  try {
+    const session = await getSession();
+    await deactivateCounterpartyForCompany(id, session.id);
+  } catch {
+    // 同期失敗時は無視
+  }
+
   revalidatePath("/companies");
 }
 
@@ -76,11 +86,7 @@ export async function updateCompany(
   if ("name" in data && data.name) {
     try {
       const session = await getSession();
-      await prisma.counterparty.updateMany({
-        where: { companyId: id, deletedAt: null, mergedIntoId: null },
-        data: { name: data.name, updatedBy: session.id },
-      });
-      revalidatePath("/accounting/masters/counterparties");
+      await updateCounterpartyForCompany(id, data.name, session.id);
     } catch {
       // 同期失敗時は無視
     }

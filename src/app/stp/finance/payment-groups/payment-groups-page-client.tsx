@@ -15,7 +15,7 @@ type Props = {
   data: PaymentGroupListItem[];
   ungroupedTransactions: UngroupedExpenseTransaction[];
   ungroupedAllocationItems: UngroupedAllocationItem[];
-  counterpartyOptions: { value: string; label: string }[];
+  counterpartyOptions: { value: string; label: string; isStellaCustomer: boolean }[];
   operatingCompanyOptions: { value: string; label: string }[];
   expenseCategories: { id: number; name: string; type: string }[];
   unconfirmedTransactions: UngroupedExpenseTransaction[];
@@ -55,7 +55,11 @@ export function PaymentGroupsPageClient({
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">支払管理</h1>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        idBase={`stp-finance-payment-groups-${projectId ?? "default"}`}
+      >
         <TabsList>
           <TabsTrigger value="ungrouped">
             未処理の取引

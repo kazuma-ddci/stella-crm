@@ -24,11 +24,12 @@ type Step = "counterparty" | "transactions" | "info";
 type Props = {
   open: boolean;
   onClose: () => void;
-  counterpartyOptions: { value: string; label: string }[];
+  counterpartyOptions: { value: string; label: string; isStellaCustomer: boolean }[];
   operatingCompanyOptions: { value: string; label: string }[];
   expenseCategories: { id: number; name: string; type: string }[];
   defaultCounterpartyId?: string;
   projectId?: number;
+  onCreated?: (groupId: number) => void;
 };
 
 export function CreatePaymentGroupModal({
@@ -39,6 +40,7 @@ export function CreatePaymentGroupModal({
   expenseCategories,
   defaultCounterpartyId,
   projectId,
+  onCreated,
 }: Props) {
   const [step, setStep] = useState<Step>(
     defaultCounterpartyId ? "transactions" : "counterparty"
@@ -51,6 +53,13 @@ export function CreatePaymentGroupModal({
     defaultCounterpartyId ?? ""
   );
   const [counterpartySearch, setCounterpartySearch] = useState("");
+  const [counterpartyTab, setCounterpartyTab] = useState<"stella" | "other">(
+    () => {
+      if (!defaultCounterpartyId) return "stella";
+      const found = counterpartyOptions.find((o) => o.value === defaultCounterpartyId);
+      return found?.isStellaCustomer === false ? "other" : "stella";
+    }
+  );
 
   // Step 2: 取引選択
   const [ungroupedTransactions, setUngroupedTransactions] = useState<
@@ -64,20 +73,37 @@ export function CreatePaymentGroupModal({
   const [operatingCompanyId, setOperatingCompanyId] = useState<string>(
     operatingCompanyOptions[0]?.value ?? ""
   );
-  const [targetMonth, setTargetMonth] = useState<string>("");
-  const [expectedPaymentDate, setExpectedPaymentDate] = useState<string>("");
-  const [paymentDueDate, setPaymentDueDate] = useState<string>("");
-  const [paymentDueDateManual, setPaymentDueDateManual] = useState(false);
-  const [requestedPdfName, setRequestedPdfName] = useState<string>("");
   const [showInlineForm, setShowInlineForm] = useState(false);
-  const [focusedDateField, setFocusedDateField] = useState<string | null>(null);
 
-  // 取引先フィルタ
+  // 取引先タブ分けとフィルタ
+  const extractDisplayNum = (label: string): number => {
+    const match = label.match(/^(?:SC|TP)-(\d+)/);
+    return match ? Number(match[1]) : 0;
+  };
+
+  const stellaCounterparties = useMemo(() => {
+    return counterpartyOptions
+      .filter((o) => o.isStellaCustomer)
+      .sort((a, b) => extractDisplayNum(b.label) - extractDisplayNum(a.label));
+  }, [counterpartyOptions]);
+
+  const otherCounterparties = useMemo(() => {
+    return counterpartyOptions
+      .filter((o) => !o.isStellaCustomer)
+      .sort((a, b) => Number(a.value) - Number(b.value));
+  }, [counterpartyOptions]);
+
   const filteredCounterparties = useMemo(() => {
-    if (!counterpartySearch) return counterpartyOptions;
+    const source = counterpartyTab === "stella" ? stellaCounterparties : otherCounterparties;
+    if (!counterpartySearch) return source;
     const q = counterpartySearch.toLowerCase();
-    return counterpartyOptions.filter((o) => o.label.toLowerCase().includes(q));
-  }, [counterpartyOptions, counterpartySearch]);
+    return source.filter((o) => o.label.toLowerCase().includes(q));
+  }, [counterpartyTab, stellaCounterparties, otherCounterparties, counterpartySearch]);
+
+  const handleCounterpartyTabChange = (tab: "stella" | "other") => {
+    setCounterpartyTab(tab);
+    setCounterpartySearch("");
+  };
 
   // 取引先選択後に未グループ化の経費取引を取得
   useEffect(() => {
@@ -143,17 +169,16 @@ export function CreatePaymentGroupModal({
   const handleCreate = async () => {
     setLoading(true);
     try {
-      await createPaymentGroup({
+      const result = await createPaymentGroup({
         counterpartyId: Number(counterpartyId),
         operatingCompanyId: Number(operatingCompanyId),
-        targetMonth: targetMonth,
-        expectedPaymentDate: expectedPaymentDate || null,
-        paymentDueDate: paymentDueDate || null,
-        requestedPdfName: requestedPdfName || null,
         transactionIds: Array.from(selectedTransactionIds),
         projectId,
       });
       onClose();
+      if (onCreated) {
+        onCreated(result.id);
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
     } finally {
@@ -163,8 +188,7 @@ export function CreatePaymentGroupModal({
 
   const canGoToStep2 = !!counterpartyId;
   const canGoToStep3 = selectedTransactionIds.size > 0;
-  const canSubmit =
-    !!operatingCompanyId && !!targetMonth && selectedTransactionIds.size > 0;
+  const canSubmit = !!operatingCompanyId && selectedTransactionIds.size > 0;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -192,6 +216,29 @@ export function CreatePaymentGroupModal({
                   onChange={(e) => setCounterpartySearch(e.target.value)}
                   className="mt-1"
                 />
+              </div>
+              {/* タブ切り替え */}
+              <div className="flex rounded-lg bg-gray-100 p-1">
+                <button
+                  onClick={() => handleCounterpartyTabChange("stella")}
+                  className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all ${
+                    counterpartyTab === "stella"
+                      ? "bg-white text-gray-900 shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  Stella全顧客マスタ ({stellaCounterparties.length})
+                </button>
+                <button
+                  onClick={() => handleCounterpartyTabChange("other")}
+                  className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all ${
+                    counterpartyTab === "other"
+                      ? "bg-white text-gray-900 shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  その他の取引先 ({otherCounterparties.length})
+                </button>
               </div>
               <div className="border rounded-lg max-h-[400px] overflow-y-auto">
                 {filteredCounterparties.length === 0 ? (
@@ -381,68 +428,6 @@ export function CreatePaymentGroupModal({
                       </option>
                     ))}
                   </select>
-                </div>
-
-                <div>
-                  <Label htmlFor="targetMonth">対象月 *</Label>
-                  <Input
-                    id="targetMonth"
-                    type={focusedDateField === "targetMonth" || targetMonth ? "month" : "text"}
-                    value={targetMonth}
-                    onFocus={() => setFocusedDateField("targetMonth")}
-                    onBlur={() => setFocusedDateField(null)}
-                    onChange={(e) => setTargetMonth(e.target.value)}
-                    placeholder="対象月を入力"
-                    className="mt-1"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="expectedPaymentDate">支払予定日</Label>
-                  <Input
-                    id="expectedPaymentDate"
-                    type={focusedDateField === "expectedPaymentDate" || expectedPaymentDate ? "date" : "text"}
-                    value={expectedPaymentDate}
-                    onFocus={() => setFocusedDateField("expectedPaymentDate")}
-                    onBlur={() => setFocusedDateField(null)}
-                    onChange={(e) => {
-                      setExpectedPaymentDate(e.target.value);
-                      if (!paymentDueDateManual) {
-                        setPaymentDueDate(e.target.value);
-                      }
-                    }}
-                    placeholder="日付を入力"
-                    className="mt-1"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="paymentDueDate">支払期限</Label>
-                  <Input
-                    id="paymentDueDate"
-                    type={focusedDateField === "paymentDueDate" || paymentDueDate ? "date" : "text"}
-                    value={paymentDueDate}
-                    onFocus={() => setFocusedDateField("paymentDueDate")}
-                    onBlur={() => setFocusedDateField(null)}
-                    onChange={(e) => {
-                      setPaymentDueDate(e.target.value);
-                      setPaymentDueDateManual(true);
-                    }}
-                    placeholder="日付を入力"
-                    className="mt-1"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="requestedPdfName">請求書PDF名</Label>
-                  <Input
-                    id="requestedPdfName"
-                    type="text"
-                    value={requestedPdfName}
-                    onChange={(e) => setRequestedPdfName(e.target.value)}
-                    placeholder="例: 代理店X_202603_Meta Trust宛.pdf"
-                    className="mt-1"
-                  />
                 </div>
               </div>
             </div>

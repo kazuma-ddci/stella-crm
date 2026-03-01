@@ -33,6 +33,7 @@ export default async function PaymentGroupsPage() {
   const counterpartyOptions = counterparties.map((c) => ({
     value: String(c.id),
     label: c.displayId ? `${c.displayId} ${c.name}` : c.name,
+    isStellaCustomer: c.companyId !== null,
   }));
 
   const operatingCompanyOptions = operatingCompanies.map((c) => ({

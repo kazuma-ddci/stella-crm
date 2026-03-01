@@ -21,8 +21,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, ArrowRight } from "lucide-react";
+import { toLocalDateString } from "@/lib/utils";
 import type { InvoiceGroupListItem } from "./actions";
-import { submitInvoiceGroupToAccounting } from "./actions";
+import { submitInvoiceGroupToAccounting, getInvoiceGroupById } from "./actions";
 import { CreateInvoiceGroupModal } from "./create-invoice-group-modal";
 import { InvoiceGroupDetailModal } from "./invoice-group-detail-modal";
 
@@ -99,9 +100,10 @@ type SortConfig = {
 
 type Props = {
   data: InvoiceGroupListItem[];
-  counterpartyOptions: { value: string; label: string }[];
+  counterpartyOptions: { value: string; label: string; isStellaCustomer: boolean }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
+  defaultBankAccountByCompany: Record<string, string>;
   expenseCategories: { id: number; name: string; type: string }[];
   projectId?: number;
 };
@@ -111,6 +113,7 @@ export function InvoiceGroupsTable({
   counterpartyOptions,
   operatingCompanyOptions,
   bankAccountsByCompany,
+  defaultBankAccountByCompany,
   expenseCategories,
   projectId,
 }: Props) {
@@ -126,6 +129,13 @@ export function InvoiceGroupsTable({
   const [submitToAccountingTarget, setSubmitToAccountingTarget] =
     useState<InvoiceGroupListItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const handleInvoiceCreated = async (groupId: number) => {
+    const group = await getInvoiceGroupById(groupId);
+    if (group) {
+      setSelectedGroup(group);
+    }
+  };
 
   const handleSubmitToAccounting = async () => {
     if (!submitToAccountingTarget) return;
@@ -258,6 +268,12 @@ export function InvoiceGroupsTable({
           <TableHeader>
             <TableRow>
               <TableHead
+                className="w-16 cursor-pointer hover:text-foreground"
+                onClick={() => handleSort("id")}
+              >
+                ID{sortIndicator("id")}
+              </TableHead>
+              <TableHead
                 className="cursor-pointer hover:text-foreground"
                 onClick={() => handleSort("invoiceNumber")}
               >
@@ -315,7 +331,7 @@ export function InvoiceGroupsTable({
             {sortedData.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={12}
+                  colSpan={13}
                   className="text-center py-8 text-muted-foreground"
                 >
                   データがありません
@@ -328,6 +344,9 @@ export function InvoiceGroupsTable({
                   className="group/row cursor-pointer hover:bg-gray-50"
                   onClick={() => setSelectedGroup(row)}
                 >
+                  <TableCell className="font-mono text-sm text-muted-foreground">
+                    #{row.id}
+                  </TableCell>
                   <TableCell className="font-mono text-sm">
                     {row.invoiceNumber || (
                       <span className="text-muted-foreground">未採番</span>
@@ -347,14 +366,20 @@ export function InvoiceGroupsTable({
                     row.paymentDueDate &&
                     !row.actualPaymentDate &&
                     !["paid", "corrected"].includes(row.status) &&
-                    new Date(row.paymentDueDate) < new Date()
+                    row.paymentDueDate < toLocalDateString(new Date())
                       ? "text-red-600 font-medium"
                       : ""
                   }>
                     {row.paymentDueDate ?? "-"}
                   </TableCell>
                   <TableCell>{row.expectedPaymentDate ?? "-"}</TableCell>
-                  <TableCell>{row.actualPaymentDate ?? "-"}</TableCell>
+                  <TableCell>
+                    {row.actualPaymentDate
+                      ? row.actualPaymentDate
+                      : ["paid", "corrected"].includes(row.status)
+                      ? "—"
+                      : <span className="text-orange-600 font-medium">未入金</span>}
+                  </TableCell>
                   <TableCell className="text-right font-medium">
                     {row.totalAmount != null
                       ? `¥${row.totalAmount.toLocaleString()}`
@@ -372,24 +397,17 @@ export function InvoiceGroupsTable({
                       {STATUS_LABELS[row.status] ?? row.status}
                     </span>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                     {row.createdAt}
+                    {row.createdByName && (
+                      <div className="text-xs">作成: {row.createdByName}</div>
+                    )}
                   </TableCell>
                   <TableCell
                     className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {row.status === "sent" ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => setSubmitToAccountingTarget(row)}
-                      >
-                        <ArrowRight className="mr-1 h-3 w-3" />
-                        経理へ引渡
-                      </Button>
-                    ) : (
+                    <div className="flex gap-1">
                       <Button
                         variant="ghost"
                         size="sm"
@@ -398,7 +416,18 @@ export function InvoiceGroupsTable({
                       >
                         詳細
                       </Button>
-                    )}
+                      {row.status === "sent" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => setSubmitToAccountingTarget(row)}
+                        >
+                          <ArrowRight className="mr-1 h-3 w-3" />
+                          経理へ引渡
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -415,8 +444,10 @@ export function InvoiceGroupsTable({
           counterpartyOptions={counterpartyOptions}
           operatingCompanyOptions={operatingCompanyOptions}
           bankAccountsByCompany={bankAccountsByCompany}
+          defaultBankAccountByCompany={defaultBankAccountByCompany}
           expenseCategories={expenseCategories}
           projectId={projectId}
+          onCreated={handleInvoiceCreated}
         />
       )}
 

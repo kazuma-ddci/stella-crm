@@ -1,14 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { CrudTable, ColumnDef, CustomRenderers } from "@/components/crud-table";
+import { useState } from "react";
+import { CrudTable, ColumnDef } from "@/components/crud-table";
 import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
   createCounterparty,
   updateCounterparty,
-  syncCounterparties,
   checkSimilarCounterparties,
 } from "./actions";
 import {
@@ -26,11 +24,6 @@ const TYPE_OPTIONS = [
   { value: "service", label: "サービス" },
   { value: "other", label: "その他" },
 ];
-
-type CompanyOption = {
-  value: string;
-  label: string;
-};
 
 type SimilarCandidate = {
   id: number;
@@ -52,11 +45,9 @@ type SimilarDialogState = {
 
 type Props = {
   data: Record<string, unknown>[];
-  companyOptions: CompanyOption[];
 };
 
-export function CounterpartiesTable({ data, companyOptions }: Props) {
-  const [isPending, startTransition] = useTransition();
+export function CounterpartiesTable({ data }: Props) {
   const [isCreating, setIsCreating] = useState(false);
   const [similarDialog, setSimilarDialog] = useState<SimilarDialogState>({
     open: false,
@@ -67,6 +58,7 @@ export function CounterpartiesTable({ data, companyOptions }: Props) {
 
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
+    { key: "displayId", header: "取引先ID", editable: false },
     {
       key: "name",
       header: "名称",
@@ -84,13 +76,6 @@ export function CounterpartiesTable({ data, companyOptions }: Props) {
       defaultValue: "other",
     },
     {
-      key: "companyId",
-      header: "CRM企業",
-      type: "select",
-      options: [{ value: "", label: "（なし）" }, ...companyOptions],
-      searchable: true,
-    },
-    {
       key: "memo",
       header: "メモ",
       type: "textarea",
@@ -102,14 +87,6 @@ export function CounterpartiesTable({ data, companyOptions }: Props) {
       defaultValue: true,
     },
   ];
-
-  const customRenderers: CustomRenderers = {
-    companyId: (value) => {
-      if (!value) return "（なし）";
-      const option = companyOptions.find((o) => o.value === String(value));
-      return option ? option.label : "（なし）";
-    },
-  };
 
   // 類似名称チェック付き作成（Promise保留でCrudTable連携 — Issue 3修正）
   const handleAdd = async (formData: Record<string, unknown>) => {
@@ -174,45 +151,15 @@ export function CounterpartiesTable({ data, companyOptions }: Props) {
     reject(new Error("類似する取引先があります。名称を変更して再試行してください。"));
   };
 
-  // 同期ボタン
-  const handleSync = () => {
-    startTransition(async () => {
-      try {
-        const result = await syncCounterparties();
-        toast.success(
-          `同期完了: 新規${result.created}件、更新${result.updated}件（対象${result.total}件）`
-        );
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "同期に失敗しました"
-        );
-      }
-    });
-  };
-
-  const syncButton = (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={handleSync}
-      disabled={isPending}
-    >
-      <RefreshCw className={`mr-2 h-4 w-4 ${isPending ? "animate-spin" : ""}`} />
-      CRM企業を同期
-    </Button>
-  );
-
   return (
     <>
       <CrudTable
         data={data}
         columns={columns}
-        title="取引先"
+        title="その他取引先"
         onAdd={handleAdd}
         onUpdate={updateCounterparty}
         emptyMessage="取引先が登録されていません"
-        customRenderers={customRenderers}
-        customAddButton={syncButton}
       />
 
       {/* 類似名称確認ダイアログ */}

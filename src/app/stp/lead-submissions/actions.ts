@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireEdit } from "@/lib/auth";
+import { requireEdit, getSession } from "@/lib/auth";
+import { createCounterpartyForCompany } from "@/lib/counterparty-sync";
 import {
   getOrCreateCompanyFolder,
   moveSlideToFolder,
@@ -103,6 +104,10 @@ export async function processAsNewCompany(
         note: `リード獲得フォームから登録\n担当者: ${submission.contactName}\nメール: ${submission.contactEmail}${submission.contactPhone ? `\n電話: ${submission.contactPhone}` : ""}`,
       },
     });
+
+    // Counterparty自動作成
+    const session = await getSession();
+    await createCounterpartyForCompany(masterCompany.id, companyName, session.id, tx);
 
     // 拠点を作成（担当者情報含む）
     await tx.stellaCompanyLocation.create({

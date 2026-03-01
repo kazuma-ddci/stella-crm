@@ -29,6 +29,7 @@ export default async function InvoiceGroupsPage() {
   const counterpartyOptions = counterparties.map((c) => ({
     value: String(c.id),
     label: c.displayId ? `${c.displayId} ${c.name}` : c.name,
+    isStellaCustomer: c.companyId !== null,
   }));
 
   const operatingCompanyOptions = operatingCompanies.map((c) => ({
@@ -50,6 +51,25 @@ export default async function InvoiceGroupsPage() {
     );
   }
 
+  // プロジェクトレベルのデフォルト銀行口座を取得
+  const projectBankAccounts = await prisma.projectBankAccount.findMany({
+    where: { projectId },
+    include: { bankAccount: { select: { id: true, operatingCompanyId: true } } },
+  });
+  const projectDefaultBa = projectBankAccounts.find((pba) => pba.isDefault);
+
+  // デフォルト銀行口座マップ（運営法人IDごと）
+  // プロジェクトレベルのデフォルト → 運営法人レベルのデフォルト の順で優先
+  const defaultBankAccountByCompany: Record<string, string> = {};
+  for (const company of operatingCompanies) {
+    if (projectDefaultBa && projectDefaultBa.bankAccount.operatingCompanyId === company.id) {
+      defaultBankAccountByCompany[String(company.id)] = String(projectDefaultBa.bankAccountId);
+    } else {
+      const def = company.bankAccounts.find((ba) => ba.isDefault);
+      if (def) defaultBankAccountByCompany[String(company.id)] = String(def.id);
+    }
+  }
+
   return (
     <InvoicesPageClient
       data={data}
@@ -58,6 +78,7 @@ export default async function InvoiceGroupsPage() {
       counterpartyOptions={counterpartyOptions}
       operatingCompanyOptions={operatingCompanyOptions}
       bankAccountsByCompany={bankAccountsByCompany}
+      defaultBankAccountByCompany={defaultBankAccountByCompany}
       expenseCategories={expenseCategories}
       unconfirmedTransactions={unconfirmedTransactions}
       projectId={projectId}

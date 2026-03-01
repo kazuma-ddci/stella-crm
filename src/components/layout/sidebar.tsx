@@ -17,7 +17,7 @@ import {
   Phone,
   Layers,
   Tags,
-  FolderKanban,
+
   UserSquare2,
   FileCheck,
   Shield,
@@ -62,7 +62,6 @@ type NavItem = {
 
 // 固定データ設定のパス一覧（stella001 + admin権限ユーザー）
 const MASTER_DATA_HREFS = new Set([
-  "/settings/operating-companies",
   "/settings/projects",
   "/staff/role-types",
   "/settings/customer-types",
@@ -73,6 +72,7 @@ const MASTER_DATA_HREFS = new Set([
   "/settings/lead-sources",
   "/stp/settings/stages",
   "/staff/field-restrictions",
+  "/settings/email-templates",
 ]);
 
 // 固定データ設定ナビゲーション（stella001専用レイアウト用）
@@ -81,8 +81,7 @@ const masterDataNavigation: NavItem[] = [
     name: "固定データ設定",
     icon: Settings,
     children: [
-      { name: "運営法人マスタ", href: "/settings/operating-companies", icon: Building2 },
-      { name: "プロジェクト管理", href: "/settings/projects", icon: FolderKanban },
+      { name: "組織・プロジェクト管理", href: "/settings/projects", icon: Building2 },
       { name: "スタッフ役割種別", href: "/staff/role-types", icon: Tags },
       { name: "顧客種別", href: "/settings/customer-types", icon: UserSquare2 },
       { name: "接触方法", href: "/settings/contact-methods", icon: Phone },
@@ -92,6 +91,7 @@ const masterDataNavigation: NavItem[] = [
       { name: "STP_流入経路", href: "/settings/lead-sources", icon: UserPlus },
       { name: "STP_商談パイプライン", href: "/stp/settings/stages", icon: Layers },
       { name: "担当者フィールド制約", href: "/staff/field-restrictions", icon: Shield },
+      { name: "メールテンプレート", href: "/settings/email-templates", icon: FileText },
     ],
   },
 ];
@@ -117,12 +117,12 @@ function removeMasterDataItems(items: NavItem[]): NavItem[] {
 }
 
 const navigation: NavItem[] = [
+  { name: "通知", href: "/notifications", icon: Bell },
   {
     name: "Stella",
     icon: Building2,
     children: [
       { name: "ダッシュボード", href: "/", icon: Home },
-      { name: "通知", href: "/notifications", icon: Bell },
       { name: "Stella全顧客マスタ", href: "/companies", icon: Building2, requireAnyEdit: true },
       { name: "スタッフ管理", href: "/staff", icon: Users, requireAnyEdit: true },
     ],
@@ -167,6 +167,7 @@ const navigation: NavItem[] = [
   {
     name: "経理",
     icon: Calculator,
+    requiredProject: "accounting",
     children: [
       { name: "ダッシュボード", href: "/accounting/dashboard", icon: Home },
       { name: "会計取引", href: "/accounting/transactions", icon: Landmark },
@@ -183,8 +184,8 @@ const navigation: NavItem[] = [
         icon: Settings,
         children: [
           { name: "勘定科目", href: "/accounting/masters/accounts", icon: BookOpen },
+          { name: "その他取引先", href: "/accounting/masters/counterparties", icon: Building2 },
           { name: "定期取引", href: "/accounting/masters/recurring-transactions", icon: Repeat },
-          { name: "請求書テンプレート", href: "/accounting/masters/invoice-templates", icon: FileText },
           { name: "経理プロジェクト", href: "/accounting/masters/cost-centers", icon: Tag },
         ],
       },
@@ -196,10 +197,10 @@ const navigation: NavItem[] = [
     requiredProject: "stella",
     children: [
       { name: "スタッフ役割種別", href: "/staff/role-types", icon: Tags },
-      { name: "プロジェクト管理", href: "/settings/projects", icon: FolderKanban },
-      { name: "運営法人マスタ", href: "/settings/operating-companies", icon: Building2 },
+      { name: "組織・プロジェクト管理", href: "/settings/projects", icon: Building2 },
       { name: "顧客種別", href: "/settings/customer-types", icon: UserSquare2 },
       { name: "担当者フィールド制約", href: "/staff/field-restrictions", icon: Shield },
+      { name: "メールテンプレート", href: "/settings/email-templates", icon: FileText },
     ],
   },
   {
@@ -299,9 +300,14 @@ function filterNavigationByPermissions(
   user: SessionUser
 ): NavItem[] {
   const isAdmin = hasAdminPermission(user);
+  const isAdminUser = user.loginId === "admin";
 
   return items
     .filter((item) => {
+      // adminユーザーは全メニュー表示
+      if (isAdminUser) {
+        return true;
+      }
       // 管理者専用メニューのチェック
       if (item.adminOnly && !isAdmin) {
         return false;

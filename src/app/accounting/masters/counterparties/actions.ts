@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import { generateOtherCounterpartyDisplayId } from "@/lib/counterparty-sync";
 
 const VALID_TYPES = ["customer", "vendor", "service", "other"] as const;
 
@@ -67,7 +68,6 @@ export async function createCounterparty(data: Record<string, unknown>) {
 
   const name = (data.name as string).trim();
   const counterpartyType = data.counterpartyType as string;
-  const companyId = data.companyId ? Number(data.companyId) : null;
   const memo = data.memo ? (data.memo as string).trim() : null;
   const isActive = data.isActive !== false && data.isActive !== "false";
 
@@ -88,24 +88,14 @@ export async function createCounterparty(data: Record<string, unknown>) {
     throw new Error(`取引先「${name}」は既に登録されています`);
   }
 
-  // companyId指定時、既にその企業に紐づく取引先がないかチェック
-  if (companyId) {
-    const existingCompanyLink = await prisma.counterparty.findFirst({
-      where: { companyId, deletedAt: null, mergedIntoId: null },
-      select: { id: true, name: true },
-    });
-    if (existingCompanyLink) {
-      throw new Error(
-        `この企業は既に取引先「${existingCompanyLink.name}」と紐づいています`
-      );
-    }
-  }
+  // TP-X displayId 自動採番
+  const displayId = await generateOtherCounterpartyDisplayId();
 
   await prisma.counterparty.create({
     data: {
+      displayId,
       name,
       counterpartyType,
-      companyId,
       memo: memo || null,
       isActive,
       createdBy: staffId,
@@ -146,29 +136,6 @@ export async function updateCounterparty(
       throw new Error("無効な種別です");
     }
     updateData.counterpartyType = counterpartyType;
-  }
-
-  if ("companyId" in data) {
-    const companyId = data.companyId ? Number(data.companyId) : null;
-
-    // companyId指定時、既にその企業に紐づく取引先がないかチェック（自分自身除外）
-    if (companyId) {
-      const existingCompanyLink = await prisma.counterparty.findFirst({
-        where: {
-          companyId,
-          deletedAt: null,
-          mergedIntoId: null,
-          id: { not: id },
-        },
-        select: { id: true, name: true },
-      });
-      if (existingCompanyLink) {
-        throw new Error(
-          `この企業は既に取引先「${existingCompanyLink.name}」と紐づいています`
-        );
-      }
-    }
-    updateData.companyId = companyId;
   }
 
   if ("memo" in data) {

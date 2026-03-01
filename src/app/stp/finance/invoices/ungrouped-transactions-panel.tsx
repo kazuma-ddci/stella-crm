@@ -5,6 +5,13 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   Loader2,
   ChevronDown,
   ChevronRight,
@@ -23,9 +30,10 @@ type Props = {
   ungroupedTransactions: UngroupedTransaction[];
   ungroupedAllocationItems: UngroupedAllocationItem[];
   draftInvoiceGroups: InvoiceGroupListItem[];
-  counterpartyOptions: { value: string; label: string }[];
+  counterpartyOptions: { value: string; label: string; isStellaCustomer: boolean }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
+  defaultBankAccountByCompany: Record<string, string>;
   expenseCategories: { id: number; name: string; type: string }[];
   unconfirmedTransactions: UngroupedTransaction[];
   projectId?: number;
@@ -45,6 +53,7 @@ export function UngroupedTransactionsPanel({
   counterpartyOptions,
   operatingCompanyOptions,
   bankAccountsByCompany,
+  defaultBankAccountByCompany,
   expenseCategories,
   unconfirmedTransactions,
   projectId,
@@ -58,6 +67,17 @@ export function UngroupedTransactionsPanel({
   >(null);
   const [expandedUnconfirmed, setExpandedUnconfirmed] = useState<Set<number>>(new Set());
   const [previewTxId, setPreviewTxId] = useState<number | null>(null);
+  // 下書き選択ダイアログ用
+  const [draftSelectionTarget, setDraftSelectionTarget] = useState<{
+    counterpartyGroup: CounterpartyGroup;
+    drafts: InvoiceGroupListItem[];
+  } | null>(null);
+  const [selectedDraftId, setSelectedDraftId] = useState<number | null>(null);
+  const [expandedDraftId, setExpandedDraftId] = useState<number | null>(null);
+  const [draftTransactionsCache, setDraftTransactionsCache] = useState<
+    Record<number, { expenseCategoryName: string; amount: number; taxAmount: number; taxRate: number; periodFrom: string; periodTo: string; note: string | null }[]>
+  >({});
+  const [loadingDraftTx, setLoadingDraftTx] = useState(false);
 
   // 取引先ごとにグループ化
   const counterpartyGroups = useMemo(() => {
@@ -118,9 +138,9 @@ export function UngroupedTransactionsPanel({
     });
   };
 
-  // 取引先に対応する下書き請求を検索
-  const getDraftForCounterparty = (counterpartyId: number) => {
-    return draftInvoiceGroups.find(
+  // 取引先に対応する下書き請求を検索（すべて返す）
+  const getDraftsForCounterparty = (counterpartyId: number) => {
+    return draftInvoiceGroups.filter(
       (g) => g.counterpartyId === counterpartyId
     );
   };
@@ -140,22 +160,59 @@ export function UngroupedTransactionsPanel({
     return group?.transactions;
   };
 
-  // 既存の下書きに追加
-  const handleAddToDraft = async (
+  // 下書き選択ダイアログを開く
+  const handleShowDraftSelection = (
     group: CounterpartyGroup,
-    draftGroupId: number
+    drafts: InvoiceGroupListItem[]
   ) => {
-    setLoading(group.counterpartyId);
+    setDraftSelectionTarget({ counterpartyGroup: group, drafts });
+    setSelectedDraftId(drafts.length === 1 ? drafts[0].id : null);
+    setExpandedDraftId(null);
+  };
+
+  // 下書きの明細を展開/折りたたみ
+  const handleToggleDraftDetail = async (draftId: number) => {
+    if (expandedDraftId === draftId) {
+      setExpandedDraftId(null);
+      return;
+    }
+    setExpandedDraftId(draftId);
+    if (draftTransactionsCache[draftId]) return;
+    setLoadingDraftTx(true);
+    try {
+      const res = await fetch(`/api/finance/invoice-groups/${draftId}/transactions`);
+      if (res.ok) {
+        const data = await res.json();
+        setDraftTransactionsCache((prev) => ({ ...prev, [draftId]: data }));
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingDraftTx(false);
+    }
+  };
+
+  // 選択した下書きに追加
+  const handleConfirmAddToDraft = async () => {
+    if (!draftSelectionTarget || !selectedDraftId) return;
+    const { counterpartyGroup } = draftSelectionTarget;
+    setLoading(counterpartyGroup.counterpartyId);
     try {
       await addTransactionToGroup(
-        draftGroupId,
-        group.transactions.map((t) => t.id)
+        selectedDraftId,
+        counterpartyGroup.transactions.map((t) => t.id)
       );
+      setDraftSelectionTarget(null);
+      setSelectedDraftId(null);
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
     } finally {
       setLoading(null);
     }
+  };
+
+  const handleInvoiceCreated = () => {
+    router.refresh();
   };
 
   if (ungroupedTransactions.length === 0 && ungroupedAllocationItems.length === 0 && unconfirmedTransactions.length === 0) {
@@ -283,17 +340,156 @@ export function UngroupedTransactionsPanel({
           counterpartyOptions={counterpartyOptions}
           operatingCompanyOptions={operatingCompanyOptions}
           bankAccountsByCompany={bankAccountsByCompany}
+          defaultBankAccountByCompany={defaultBankAccountByCompany}
           expenseCategories={expenseCategories}
           defaultCounterpartyId={preSelectedCounterpartyId ?? undefined}
           initialTransactions={getInitialTransactionsForModal()}
           projectId={projectId}
+          onCreated={handleInvoiceCreated}
         />
+      )}
+
+      {/* 下書き選択ダイアログ */}
+      {draftSelectionTarget && (
+        <Dialog
+          open={!!draftSelectionTarget}
+          onOpenChange={(open) => {
+            if (!open) {
+              setDraftSelectionTarget(null);
+              setSelectedDraftId(null);
+              setExpandedDraftId(null);
+            }
+          }}
+        >
+          <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>追加先の下書き請求を選択</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              {draftSelectionTarget.counterpartyGroup.counterpartyName}の下書き請求が{draftSelectionTarget.drafts.length}件あります。追加先を選択してください。
+            </p>
+            <div className="border rounded-lg divide-y flex-1 overflow-y-auto min-h-0">
+              {draftSelectionTarget.drafts.map((draft) => {
+                const isExpanded = expandedDraftId === draft.id;
+                const cachedTxs = draftTransactionsCache[draft.id];
+                return (
+                  <div key={draft.id}>
+                    <div
+                      className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors ${
+                        selectedDraftId === draft.id ? "bg-blue-50" : ""
+                      }`}
+                      onClick={() => setSelectedDraftId(draft.id)}
+                    >
+                      <input
+                        type="radio"
+                        name="draft-selection"
+                        checked={selectedDraftId === draft.id}
+                        onChange={() => setSelectedDraftId(draft.id)}
+                        className="h-4 w-4 flex-shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">
+                            {draft.invoiceNumber || `請求 #${draft.id}`}
+                          </span>
+                          <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                            {draft.transactionCount}件の明細
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                          <span>作成日: {draft.createdAt}</span>
+                          {draft.invoiceDate && <span>請求日: {draft.invoiceDate}</span>}
+                          <span>請求元: {draft.operatingCompanyName}</span>
+                        </div>
+                      </div>
+                      <div className="text-right text-sm font-medium mr-2">
+                        ¥{(draft.totalAmount ?? 0).toLocaleString()}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs flex-shrink-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleDraftDetail(draft.id);
+                        }}
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="mr-1 h-3 w-3" />
+                        ) : (
+                          <Eye className="mr-1 h-3 w-3" />
+                        )}
+                        {isExpanded ? "閉じる" : "明細"}
+                      </Button>
+                    </div>
+                    {isExpanded && (
+                      <div className="bg-gray-50 border-t px-4 py-2">
+                        {loadingDraftTx && !cachedTxs ? (
+                          <div className="flex items-center justify-center py-3">
+                            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            <span className="ml-2 text-xs text-muted-foreground">読み込み中...</span>
+                          </div>
+                        ) : cachedTxs && cachedTxs.length > 0 ? (
+                          <div className="divide-y divide-gray-200">
+                            {cachedTxs.map((tx: { expenseCategoryName: string; amount: number; taxAmount: number; taxRate: number; periodFrom: string; periodTo: string; note: string | null }, idx: number) => (
+                              <div key={idx} className="flex items-center gap-3 py-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-medium">{tx.expenseCategoryName}</span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {tx.periodFrom} 〜 {tx.periodTo}
+                                    </span>
+                                  </div>
+                                  {tx.note && (
+                                    <div className="text-xs text-muted-foreground truncate">{tx.note}</div>
+                                  )}
+                                </div>
+                                <div className="text-right text-xs">
+                                  <div className="font-medium">¥{tx.amount.toLocaleString()}</div>
+                                  <div className="text-muted-foreground">
+                                    税¥{tx.taxAmount.toLocaleString()} ({tx.taxRate}%)
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground py-2">明細がありません</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDraftSelectionTarget(null);
+                  setSelectedDraftId(null);
+                  setExpandedDraftId(null);
+                }}
+              >
+                キャンセル
+              </Button>
+              <Button
+                onClick={handleConfirmAddToDraft}
+                disabled={!selectedDraftId || loading !== null}
+              >
+                {loading !== null && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                追加
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
 
       {counterpartyGroups.map((group) => {
         const isExpanded = expandedGroups.has(group.counterpartyId);
         const isLoading = loading === group.counterpartyId;
-        const draftGroup = getDraftForCounterparty(group.counterpartyId);
+        const draftsForCp = getDraftsForCounterparty(group.counterpartyId);
+        const hasDrafts = draftsForCp.length > 0;
         const unconfirmedForCp = unconfirmedByCounterparty.get(group.counterpartyId);
         const isUnconfirmedExpanded = expandedUnconfirmed.has(group.counterpartyId);
 
@@ -325,13 +521,13 @@ export function UngroupedTransactionsPanel({
                   {isLoading && (
                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                   )}
-                  {draftGroup ? (
+                  {hasDrafts ? (
                     <>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() =>
-                          handleAddToDraft(group, draftGroup.id)
+                          handleShowDraftSelection(group, draftsForCp)
                         }
                         disabled={isLoading}
                       >
@@ -364,16 +560,11 @@ export function UngroupedTransactionsPanel({
                 </div>
               </div>
 
-              {draftGroup && (
+              {hasDrafts && (
                 <div className="flex items-center gap-2 mt-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
                   <AlertTriangle className="h-4 w-4 flex-shrink-0" />
                   <span>
-                    この取引先には下書きの請求があります
-                    {draftGroup.invoiceNumber && (
-                      <span className="font-mono ml-1">
-                        ({draftGroup.invoiceNumber})
-                      </span>
-                    )}
+                    この取引先には下書きの請求が{draftsForCp.length}件あります
                   </span>
                 </div>
               )}

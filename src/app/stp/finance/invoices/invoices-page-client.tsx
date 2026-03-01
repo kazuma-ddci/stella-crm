@@ -12,9 +12,10 @@ type Props = {
   data: InvoiceGroupListItem[];
   ungroupedTransactions: UngroupedTransaction[];
   ungroupedAllocationItems: UngroupedAllocationItem[];
-  counterpartyOptions: { value: string; label: string }[];
+  counterpartyOptions: { value: string; label: string; isStellaCustomer: boolean }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
+  defaultBankAccountByCompany: Record<string, string>;
   expenseCategories: { id: number; name: string; type: string }[];
   unconfirmedTransactions: UngroupedTransaction[];
   projectId?: number;
@@ -27,6 +28,7 @@ export function InvoicesPageClient({
   counterpartyOptions,
   operatingCompanyOptions,
   bankAccountsByCompany,
+  defaultBankAccountByCompany,
   expenseCategories,
   unconfirmedTransactions,
   projectId,
@@ -55,7 +57,11 @@ export function InvoicesPageClient({
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">請求管理</h1>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        idBase={`stp-finance-invoices-${projectId ?? "default"}`}
+      >
         <TabsList>
           <TabsTrigger value="ungrouped">
             未処理の取引
@@ -81,6 +87,7 @@ export function InvoicesPageClient({
             counterpartyOptions={counterpartyOptions}
             operatingCompanyOptions={operatingCompanyOptions}
             bankAccountsByCompany={bankAccountsByCompany}
+            defaultBankAccountByCompany={defaultBankAccountByCompany}
             expenseCategories={expenseCategories}
             unconfirmedTransactions={unconfirmedTransactions}
             projectId={projectId}
@@ -127,6 +134,7 @@ export function InvoicesPageClient({
               counterpartyOptions={counterpartyOptions}
               operatingCompanyOptions={operatingCompanyOptions}
               bankAccountsByCompany={bankAccountsByCompany}
+              defaultBankAccountByCompany={defaultBankAccountByCompany}
               expenseCategories={expenseCategories}
               projectId={projectId}
             />

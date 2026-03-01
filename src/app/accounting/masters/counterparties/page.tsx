@@ -3,41 +3,29 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CounterpartiesTable } from "./counterparties-table";
 
 export default async function CounterpartiesPage() {
-  const [counterparties, companies] = await Promise.all([
-    prisma.counterparty.findMany({
-      where: { deletedAt: null, mergedIntoId: null },
-      orderBy: [{ name: "asc" }, { id: "asc" }],
-    }),
-    prisma.masterStellaCompany.findMany({
-      where: { deletedAt: null, mergedIntoId: null },
-      orderBy: [{ name: "asc" }],
-      select: { id: true, name: true, companyCode: true },
-    }),
-  ]);
+  const counterparties = await prisma.counterparty.findMany({
+    where: { deletedAt: null, mergedIntoId: null, companyId: null },
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+  });
 
   const data = counterparties.map((cp) => ({
     id: cp.id,
+    displayId: cp.displayId ?? "",
     name: cp.name,
     counterpartyType: cp.counterpartyType,
-    companyId: cp.companyId ? String(cp.companyId) : "",
     memo: cp.memo ?? "",
     isActive: cp.isActive,
   }));
 
-  const companyOptions = companies.map((c) => ({
-    value: String(c.id),
-    label: `${c.companyCode} - ${c.name}`,
-  }));
-
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">取引先マスタ</h1>
+      <h1 className="text-2xl font-bold">その他取引先</h1>
       <Card>
         <CardHeader>
-          <CardTitle>取引先一覧</CardTitle>
+          <CardTitle>取引先一覧（Stella全顧客マスタ以外）</CardTitle>
         </CardHeader>
         <CardContent>
-          <CounterpartiesTable data={data} companyOptions={companyOptions} />
+          <CounterpartiesTable data={data} />
         </CardContent>
       </Card>
     </div>

@@ -26,7 +26,7 @@ type Props = {
   ungroupedTransactions: UngroupedExpenseTransaction[];
   ungroupedAllocationItems: UngroupedAllocationItem[];
   draftPaymentGroups: PaymentGroupListItem[];
-  counterpartyOptions: { value: string; label: string }[];
+  counterpartyOptions: { value: string; label: string; isStellaCustomer: boolean }[];
   operatingCompanyOptions: { value: string; label: string }[];
   expenseCategories: { id: number; name: string; type: string }[];
   unconfirmedTransactions: UngroupedExpenseTransaction[];
@@ -517,6 +517,9 @@ export function UngroupedExpensesPanel({
           expenseCategories={expenseCategories}
           defaultCounterpartyId={preSelectedCounterpartyId ?? undefined}
           projectId={projectId}
+          onCreated={() => {
+            router.refresh();
+          }}
         />
       )}
     </div>

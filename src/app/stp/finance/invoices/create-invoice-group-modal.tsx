@@ -11,10 +11,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, ChevronRight, ChevronLeft, Plus } from "lucide-react";
+import { DatePicker } from "@/components/ui/date-picker";
+import { Loader2, ChevronRight, ChevronLeft, Plus, AlertTriangle } from "lucide-react";
 import {
   createInvoiceGroup,
   getUngroupedTransactions,
+  calculatePaymentDueDate,
   type UngroupedTransaction,
 } from "./actions";
 import { InlineTransactionForm } from "./inline-transaction-form";
@@ -24,13 +26,15 @@ type Step = "counterparty" | "transactions" | "info";
 type Props = {
   open: boolean;
   onClose: () => void;
-  counterpartyOptions: { value: string; label: string }[];
+  counterpartyOptions: { value: string; label: string; isStellaCustomer: boolean }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
+  defaultBankAccountByCompany: Record<string, string>;
   expenseCategories: { id: number; name: string; type: string }[];
   defaultCounterpartyId?: string;
   initialTransactions?: UngroupedTransaction[];
   projectId?: number;
+  onCreated?: (groupId: number) => void;
 };
 
 export function CreateInvoiceGroupModal({
@@ -39,10 +43,12 @@ export function CreateInvoiceGroupModal({
   counterpartyOptions,
   operatingCompanyOptions,
   bankAccountsByCompany,
+  defaultBankAccountByCompany,
   expenseCategories,
   defaultCounterpartyId,
   initialTransactions,
   projectId,
+  onCreated,
 }: Props) {
   const [step, setStep] = useState<Step>(
     defaultCounterpartyId ? "transactions" : "counterparty"
@@ -55,6 +61,13 @@ export function CreateInvoiceGroupModal({
     defaultCounterpartyId ?? ""
   );
   const [counterpartySearch, setCounterpartySearch] = useState("");
+  const [counterpartyTab, setCounterpartyTab] = useState<"stella" | "other">(
+    () => {
+      if (!defaultCounterpartyId) return "stella";
+      const found = counterpartyOptions.find((o) => o.value === defaultCounterpartyId);
+      return found?.isStellaCustomer === false ? "other" : "stella";
+    }
+  );
 
   // Step 2: 取引選択
   const [ungroupedTransactions, setUngroupedTransactions] = useState<
@@ -72,22 +85,42 @@ export function CreateInvoiceGroupModal({
   const [operatingCompanyId, setOperatingCompanyId] = useState<string>(
     operatingCompanyOptions[0]?.value ?? ""
   );
-  const [bankAccountId, setBankAccountId] = useState<string>("");
-  const [invoiceDate, setInvoiceDate] = useState<string>(
-    new Date().toISOString().split("T")[0]
+  const [bankAccountId, setBankAccountId] = useState<string>(
+    defaultBankAccountByCompany[operatingCompanyOptions[0]?.value ?? ""] ?? ""
   );
   const [paymentDueDate, setPaymentDueDate] = useState<string>("");
-  const [expectedPaymentDate, setExpectedPaymentDate] = useState<string>("");
-  const [expectedPaymentDateManual, setExpectedPaymentDateManual] = useState(false);
+  const [loadingDueDate, setLoadingDueDate] = useState(false);
   const [showInlineForm, setShowInlineForm] = useState(false);
-  const [focusedDateField, setFocusedDateField] = useState<string | null>(null);
 
-  // 取引先フィルタ
+  // 取引先タブ分けとフィルタ
+  const extractDisplayNum = (label: string): number => {
+    const match = label.match(/^(?:SC|TP)-(\d+)/);
+    return match ? Number(match[1]) : 0;
+  };
+
+  const stellaCounterparties = useMemo(() => {
+    return counterpartyOptions
+      .filter((o) => o.isStellaCustomer)
+      .sort((a, b) => extractDisplayNum(b.label) - extractDisplayNum(a.label));
+  }, [counterpartyOptions]);
+
+  const otherCounterparties = useMemo(() => {
+    return counterpartyOptions
+      .filter((o) => !o.isStellaCustomer)
+      .sort((a, b) => Number(a.value) - Number(b.value));
+  }, [counterpartyOptions]);
+
   const filteredCounterparties = useMemo(() => {
-    if (!counterpartySearch) return counterpartyOptions;
+    const source = counterpartyTab === "stella" ? stellaCounterparties : otherCounterparties;
+    if (!counterpartySearch) return source;
     const q = counterpartySearch.toLowerCase();
-    return counterpartyOptions.filter((o) => o.label.toLowerCase().includes(q));
-  }, [counterpartyOptions, counterpartySearch]);
+    return source.filter((o) => o.label.toLowerCase().includes(q));
+  }, [counterpartyTab, stellaCounterparties, otherCounterparties, counterpartySearch]);
+
+  const handleCounterpartyTabChange = (tab: "stella" | "other") => {
+    setCounterpartyTab(tab);
+    setCounterpartySearch("");
+  };
 
   // 取引先選択後に未グループ化取引を取得（既にロード済みの場合はスキップ）
   useEffect(() => {
@@ -110,6 +143,24 @@ export function CreateInvoiceGroupModal({
       cancelled = true;
     };
   }, [step, counterpartyId, projectId, loadedCounterpartyId]);
+
+  // Step 3 に遷移時、入金期限を自動計算
+  useEffect(() => {
+    if (step !== "info" || !counterpartyId || !operatingCompanyId) return;
+    if (paymentDueDate) return; // 既に設定済みならスキップ
+    let cancelled = false;
+    setLoadingDueDate(true);
+    calculatePaymentDueDate(Number(counterpartyId), Number(operatingCompanyId))
+      .then((date) => {
+        if (!cancelled && date) {
+          setPaymentDueDate(date);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDueDate(false);
+      });
+    return () => { cancelled = true; };
+  }, [step, counterpartyId, operatingCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 選択中の取引の合計
   const selectedSummary = useMemo(() => {
@@ -162,17 +213,18 @@ export function CreateInvoiceGroupModal({
     if (selectedTransactionIds.size === 0) return;
     setLoading(true);
     try {
-      await createInvoiceGroup({
+      const result = await createInvoiceGroup({
         counterpartyId: Number(counterpartyId),
         operatingCompanyId: Number(operatingCompanyId),
         bankAccountId: bankAccountId ? Number(bankAccountId) : null,
-        invoiceDate: invoiceDate || null,
         paymentDueDate: paymentDueDate || null,
-        expectedPaymentDate: expectedPaymentDate || null,
         transactionIds: Array.from(selectedTransactionIds),
         projectId,
       });
       onClose();
+      if (onCreated) {
+        onCreated(result.id);
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
     } finally {
@@ -211,6 +263,29 @@ export function CreateInvoiceGroupModal({
                   onChange={(e) => setCounterpartySearch(e.target.value)}
                   className="mt-1"
                 />
+              </div>
+              {/* タブ切り替え */}
+              <div className="flex rounded-lg bg-gray-100 p-1">
+                <button
+                  onClick={() => handleCounterpartyTabChange("stella")}
+                  className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all ${
+                    counterpartyTab === "stella"
+                      ? "bg-white text-gray-900 shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  Stella全顧客マスタ ({stellaCounterparties.length})
+                </button>
+                <button
+                  onClick={() => handleCounterpartyTabChange("other")}
+                  className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all ${
+                    counterpartyTab === "other"
+                      ? "bg-white text-gray-900 shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  その他の取引先 ({otherCounterparties.length})
+                </button>
               </div>
               <div className="border rounded-lg max-h-[400px] overflow-y-auto">
                 {filteredCounterparties.length === 0 ? (
@@ -385,15 +460,18 @@ export function CreateInvoiceGroupModal({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
                   <Label htmlFor="operatingCompanyId">請求元法人 *</Label>
                   <select
                     id="operatingCompanyId"
                     value={operatingCompanyId}
                     onChange={(e) => {
-                      setOperatingCompanyId(e.target.value);
-                      setBankAccountId("");
+                      const v = e.target.value;
+                      setOperatingCompanyId(v);
+                      setBankAccountId(defaultBankAccountByCompany[v] ?? "");
+                      // 運営法人変更時に入金期限を再計算
+                      setPaymentDueDate("");
                     }}
                     className="mt-1 w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
                   >
@@ -423,55 +501,34 @@ export function CreateInvoiceGroupModal({
                 </div>
 
                 <div>
-                  <Label htmlFor="invoiceDate">
-                    請求日
-                    <span className="ml-1 text-xs text-muted-foreground font-normal">(デフォルト: 今日)</span>
-                  </Label>
-                  <Input
-                    id="invoiceDate"
-                    type="date"
-                    value={invoiceDate}
-                    onChange={(e) => setInvoiceDate(e.target.value)}
-                    className="mt-1"
-                  />
-                </div>
-
-                <div>
                   <Label htmlFor="paymentDueDate">入金期限</Label>
-                  <Input
+                  <DatePicker
                     id="paymentDueDate"
-                    type={focusedDateField === "paymentDueDate" || paymentDueDate ? "date" : "text"}
                     value={paymentDueDate}
-                    onFocus={() => setFocusedDateField("paymentDueDate")}
-                    onBlur={() => setFocusedDateField(null)}
-                    onChange={(e) => {
-                      setPaymentDueDate(e.target.value);
-                      if (!expectedPaymentDateManual) {
-                        setExpectedPaymentDate(e.target.value);
-                      }
-                    }}
-                    placeholder="日付を入力"
+                    onChange={setPaymentDueDate}
                     className="mt-1"
+                    disabled={loadingDueDate}
                   />
-                </div>
-
-                <div>
-                  <Label htmlFor="expectedPaymentDate">入金予定日</Label>
-                  <Input
-                    id="expectedPaymentDate"
-                    type={focusedDateField === "expectedPaymentDate" || expectedPaymentDate ? "date" : "text"}
-                    value={expectedPaymentDate}
-                    onFocus={() => setFocusedDateField("expectedPaymentDate")}
-                    onBlur={() => setFocusedDateField(null)}
-                    onChange={(e) => {
-                      setExpectedPaymentDate(e.target.value);
-                      setExpectedPaymentDateManual(true);
-                    }}
-                    placeholder="日付を入力"
-                    className="mt-1"
-                  />
+                  {loadingDueDate && (
+                    <p className="text-xs text-muted-foreground mt-1">計算中...</p>
+                  )}
                 </div>
               </div>
+
+              {/* 口座未選択の警告 */}
+              {!bankAccountId && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-sm text-amber-800">
+                    <p className="font-medium">振込先口座が未選択です</p>
+                    <p className="text-amber-700 mt-0.5">
+                      {currentBankAccounts.length === 0
+                        ? "この法人には振込先口座が登録されていません。設定画面で口座を追加してください。"
+                        : "請求書PDF作成時に口座の設定が必要です。後から詳細画面で設定できます。"}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

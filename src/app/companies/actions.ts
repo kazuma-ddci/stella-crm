@@ -6,6 +6,7 @@ import { normalizeCompanyName, normalizeCorporateNumber, validateCorporateNumber
 import { getRelatedDataCounts } from "@/lib/company/get-related-data-counts";
 import type { CompanyRelatedData } from "@/types/company-merge";
 import { getSession } from "@/lib/auth";
+import { createCounterpartyForCompany, updateCounterpartyForCompany, deactivateCounterpartyForCompany } from "@/lib/counterparty-sync";
 
 async function generateCompanyCode(): Promise<string> {
   const lastCompany = await prisma.masterStellaCompany.findFirst({
@@ -65,18 +66,9 @@ export async function addCompany(data: Record<string, unknown>) {
   // 設計書8.6: Counterparty自動作成（企業新規作成時）
   try {
     const session = await getSession();
-    await prisma.counterparty.create({
-      data: {
-        name: data.name as string,
-        companyId: company.id,
-        counterpartyType: "customer",
-        isActive: true,
-        createdBy: session.id,
-      },
-    });
-    revalidatePath("/accounting/masters/counterparties");
+    await createCounterpartyForCompany(company.id, data.name as string, session.id);
   } catch {
-    // 同名の取引先が既に存在する場合等は無視（バッチ同期で対応）
+    // 同名の取引先が既に存在する場合等は無視
   }
 
   revalidatePath("/companies");
@@ -128,11 +120,7 @@ export async function updateCompany(id: number, data: Record<string, unknown>) {
   if ("name" in data && data.name) {
     try {
       const session = await getSession();
-      await prisma.counterparty.updateMany({
-        where: { companyId: id, deletedAt: null, mergedIntoId: null },
-        data: { name: data.name as string, updatedBy: session.id },
-      });
-      revalidatePath("/accounting/masters/counterparties");
+      await updateCounterpartyForCompany(id, data.name as string, session.id);
     } catch {
       // 同期失敗時は無視
     }
@@ -146,6 +134,15 @@ export async function deleteCompany(id: number) {
     where: { id },
     data: { deletedAt: new Date() },
   });
+
+  // Counterpartyも無効化
+  try {
+    const session = await getSession();
+    await deactivateCounterpartyForCompany(id, session.id);
+  } catch {
+    // 同期失敗時は無視
+  }
+
   revalidatePath("/companies");
 }
 
@@ -206,18 +203,9 @@ export async function createCompany(data: {
   // 設計書8.6: Counterparty自動作成（企業新規作成時）
   try {
     const session = await getSession();
-    await prisma.counterparty.create({
-      data: {
-        name: data.name,
-        companyId: company.id,
-        counterpartyType: "customer",
-        isActive: true,
-        createdBy: session.id,
-      },
-    });
-    revalidatePath("/accounting/masters/counterparties");
+    await createCounterpartyForCompany(company.id, data.name, session.id);
   } catch {
-    // 同名の取引先が既に存在する場合等は無視（バッチ同期で対応）
+    // 同名の取引先が既に存在する場合等は無視
   }
 
   revalidatePath("/companies");

@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { PaymentGroupListItem } from "./actions";
 import { submitPaymentGroupToAccounting } from "./actions";
+import { toLocalDateString } from "@/lib/utils";
 import { CreatePaymentGroupModal } from "./create-payment-group-modal";
 import { PaymentGroupDetailModal } from "./payment-group-detail-modal";
 
@@ -34,6 +35,7 @@ type StatusTab =
   | "invoice_received"
   | "rejected"
   | "confirmed"
+  | "awaiting_accounting"
   | "paid";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -89,6 +91,11 @@ const tabs: {
     label: "確認済み",
     filter: (r) => r.status === "confirmed",
   },
+  {
+    key: "awaiting_accounting",
+    label: "経理引渡済み",
+    filter: (r) => r.status === "awaiting_accounting",
+  },
   { key: "paid", label: "支払済み", filter: (r) => r.status === "paid" },
 ];
 
@@ -99,7 +106,7 @@ type SortConfig = {
 
 type Props = {
   data: PaymentGroupListItem[];
-  counterpartyOptions: { value: string; label: string }[];
+  counterpartyOptions: { value: string; label: string; isStellaCustomer: boolean }[];
   operatingCompanyOptions: { value: string; label: string }[];
   expenseCategories: { id: number; name: string; type: string }[];
   projectId?: number;
@@ -130,6 +137,7 @@ export function PaymentGroupsTable({
       invoice_received: 0,
       rejected: 0,
       confirmed: 0,
+      awaiting_accounting: 0,
       paid: 0,
     };
     for (const row of data) {
@@ -240,6 +248,12 @@ export function PaymentGroupsTable({
           <TableHeader>
             <TableRow>
               <TableHead
+                className="w-16 cursor-pointer hover:text-foreground"
+                onClick={() => handleSort("id")}
+              >
+                ID{sortIndicator("id")}
+              </TableHead>
+              <TableHead
                 className="cursor-pointer hover:text-foreground"
                 onClick={() => handleSort("counterpartyName")}
               >
@@ -248,21 +262,15 @@ export function PaymentGroupsTable({
               <TableHead>支払元法人</TableHead>
               <TableHead
                 className="cursor-pointer hover:text-foreground"
-                onClick={() => handleSort("targetMonth")}
+                onClick={() => handleSort("paymentDueDate")}
               >
-                対象月{sortIndicator("targetMonth")}
+                支払期限{sortIndicator("paymentDueDate")}
               </TableHead>
               <TableHead
                 className="cursor-pointer hover:text-foreground"
                 onClick={() => handleSort("expectedPaymentDate")}
               >
                 支払予定日{sortIndicator("expectedPaymentDate")}
-              </TableHead>
-              <TableHead
-                className="cursor-pointer hover:text-foreground"
-                onClick={() => handleSort("paymentDueDate")}
-              >
-                支払期限{sortIndicator("paymentDueDate")}
               </TableHead>
               <TableHead
                 className="cursor-pointer hover:text-foreground"
@@ -304,23 +312,31 @@ export function PaymentGroupsTable({
                   className="group/row cursor-pointer hover:bg-gray-50"
                   onClick={() => setSelectedGroup(row)}
                 >
+                  <TableCell className="font-mono text-sm text-muted-foreground">
+                    #{row.id}
+                  </TableCell>
                   <TableCell>{row.counterpartyName}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {row.operatingCompanyName}
                   </TableCell>
-                  <TableCell>{row.targetMonth}</TableCell>
-                  <TableCell>{row.expectedPaymentDate ?? "-"}</TableCell>
                   <TableCell className={
                     row.paymentDueDate &&
                     !row.actualPaymentDate &&
                     !["paid"].includes(row.status) &&
-                    new Date(row.paymentDueDate) < new Date()
+                    row.paymentDueDate < toLocalDateString(new Date())
                       ? "text-red-600 font-medium"
                       : ""
                   }>
                     {row.paymentDueDate ?? "-"}
                   </TableCell>
-                  <TableCell>{row.actualPaymentDate ?? "-"}</TableCell>
+                  <TableCell>{row.expectedPaymentDate ?? "-"}</TableCell>
+                  <TableCell>
+                    {row.actualPaymentDate
+                      ? row.actualPaymentDate
+                      : row.status === "paid"
+                      ? "—"
+                      : <span className="text-orange-600 font-medium">未支払</span>}
+                  </TableCell>
                   <TableCell className="text-right font-medium">
                     {row.totalAmount != null
                       ? `¥${row.totalAmount.toLocaleString()}`
@@ -339,8 +355,11 @@ export function PaymentGroupsTable({
                       {STATUS_LABELS[row.status] ?? row.status}
                     </span>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
+                  <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                     {row.createdAt}
+                    {row.createdByName && (
+                      <div className="text-xs">作成: {row.createdByName}</div>
+                    )}
                   </TableCell>
                   <TableCell
                     className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]"
@@ -364,7 +383,7 @@ export function PaymentGroupsTable({
                               経理へ引渡しますか？
                             </AlertDialogTitle>
                             <AlertDialogDescription>
-                              「{row.counterpartyName}」の支払（{row.targetMonth}）を経理部門へ引渡します。按分確定が完了していない取引が含まれている場合はエラーになります。
+                              「{row.counterpartyName}」の支払を経理部門へ引渡します。按分確定が完了していない取引が含まれている場合はエラーになります。
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
