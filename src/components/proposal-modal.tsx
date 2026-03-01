@@ -357,7 +357,11 @@ export function ProposalModal({
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {editorProposals.length > 0 ? (
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <Tabs
+              value={activeTab}
+              onValueChange={setActiveTab}
+              idBase={`proposal-modal-${stpCompanyId}`}
+            >
               <TabsList className="w-full">
                 <TabsTrigger value="proposals" className="flex-1">提案書一覧</TabsTrigger>
                 <TabsTrigger value="editor" className="flex-1">リード回答の提案書</TabsTrigger>

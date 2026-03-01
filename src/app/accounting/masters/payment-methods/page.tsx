@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PaymentMethodsTable } from "./payment-methods-table";
+import { toLocalDateString } from "@/lib/utils";
 
 export default async function PaymentMethodsPage() {
   const paymentMethods = await prisma.paymentMethod.findMany({
@@ -47,7 +48,7 @@ export default async function PaymentMethodsPage() {
       // 共通フィールド
       initialBalance: pm.initialBalance,
       initialBalanceDate: pm.initialBalanceDate
-        ? pm.initialBalanceDate.toISOString().split("T")[0]
+        ? toLocalDateString(pm.initialBalanceDate)
         : "",
       balanceAlertThreshold: pm.balanceAlertThreshold,
       isActive: pm.isActive,

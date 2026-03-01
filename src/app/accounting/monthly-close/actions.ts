@@ -8,6 +8,7 @@ import {
   closeMonth as doCloseMonth,
   reopenMonth as doReopenMonth,
 } from "@/lib/finance/monthly-close";
+import { toLocalDateString } from "@/lib/utils";
 
 // ============================================
 // 型定義
@@ -49,7 +50,7 @@ export async function getMonthlyCloseData(months: string[]) {
   const statusMap = new Map<string, boolean>();
   const snapshotMap = new Map<string, { totalRevenue: number; totalExpense: number; grossProfit: number }>();
   for (const log of logs) {
-    const key = log.targetMonth.toISOString().split("T")[0].slice(0, 7);
+    const key = toLocalDateString(log.targetMonth).slice(0, 7);
     if (!statusMap.has(key)) {
       const isClosed = log.action === "close";
       statusMap.set(key, isClosed);
@@ -66,7 +67,7 @@ export async function getMonthlyCloseData(months: string[]) {
   // 履歴一覧
   const history: MonthlyCloseLogRow[] = logs.map((log) => ({
     id: log.id,
-    targetMonth: log.targetMonth.toISOString().split("T")[0].slice(0, 7),
+    targetMonth: toLocalDateString(log.targetMonth).slice(0, 7),
     action: log.action,
     reason: log.reason,
     performerName: log.performer.name,
@@ -108,7 +109,7 @@ export async function getMonthlyCloseData(months: string[]) {
   const monthlyPL = new Map<string, { revenue: number; expense: number }>();
 
   for (const entry of journalEntries) {
-    const monthKey = entry.journalDate.toISOString().split("T")[0].slice(0, 7);
+    const monthKey = toLocalDateString(entry.journalDate).slice(0, 7);
     if (!monthlyPL.has(monthKey)) {
       monthlyPL.set(monthKey, { revenue: 0, expense: 0 });
     }

@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { toLocalDateString } from "@/lib/utils";
 
 // ============================================
 // 型定義
@@ -40,7 +41,7 @@ export async function getMonthlyCloseView(months: string[]) {
   // 各月の最新状態
   const statusMap = new Map<string, boolean>();
   for (const log of logs) {
-    const key = log.targetMonth.toISOString().split("T")[0].slice(0, 7);
+    const key = toLocalDateString(log.targetMonth).slice(0, 7);
     if (!statusMap.has(key)) {
       statusMap.set(key, log.action === "close");
     }
@@ -49,7 +50,7 @@ export async function getMonthlyCloseView(months: string[]) {
   // 履歴一覧
   const history: MonthlyCloseHistoryRow[] = logs.map((log) => ({
     id: log.id,
-    targetMonth: log.targetMonth.toISOString().split("T")[0].slice(0, 7),
+    targetMonth: toLocalDateString(log.targetMonth).slice(0, 7),
     action: log.action,
     reason: log.reason,
     performerName: log.performer.name,
@@ -96,7 +97,7 @@ export async function getMonthlyCloseView(months: string[]) {
   const statuses: MonthlyCloseViewRow[] = months.map((month) => {
     const monthRevenue = revenueRecords
       .filter((r) =>
-        r.targetMonth.toISOString().split("T")[0].startsWith(month)
+        toLocalDateString(r.targetMonth).startsWith(month)
       )
       .reduce(
         (sum, r) => sum + calcTotal(r.expectedAmount, r.taxType, r.taxRate),
@@ -105,7 +106,7 @@ export async function getMonthlyCloseView(months: string[]) {
 
     const monthExpense = expenseRecords
       .filter((r) =>
-        r.targetMonth.toISOString().split("T")[0].startsWith(month)
+        toLocalDateString(r.targetMonth).startsWith(month)
       )
       .reduce(
         (sum, r) => sum + calcTotal(r.expectedAmount, r.taxType, r.taxRate),

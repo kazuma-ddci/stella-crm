@@ -13,6 +13,7 @@ services:
       - .env
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/crm_db
+      - TZ=Asia/Tokyo
     depends_on:
       db:
         condition: service_healthy
@@ -45,6 +46,7 @@ services:
       - /app/node_modules
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/crm_db
+      - TZ=Asia/Tokyo
     depends_on:
       db:
         condition: service_healthy

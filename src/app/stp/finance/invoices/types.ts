@@ -19,6 +19,10 @@ export type InvoiceGroupListItem = {
   correctionType: string | null;
   originalInvoiceGroupId: number | null;
   originalInvoiceNumber: string | null;
+  honorific: string;
+  remarks: string | null;
+  lineOrder: string[] | null;
+  memoLineCount: number;
   transactionCount: number;
   allocationItemCount: number;
   createdByName: string;

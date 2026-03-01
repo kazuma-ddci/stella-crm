@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -37,6 +39,7 @@ type BankAccount = {
   accountNumber: string;
   accountHolderName: string;
   note: string | null;
+  isDefault: boolean;
 };
 
 type Props = {
@@ -80,6 +83,7 @@ export function BankAccountsModal({
       accountNumber: "",
       accountHolderName: "",
       note: null,
+      isDefault: false,
     });
     setIsAddMode(true);
   };
@@ -99,7 +103,12 @@ export function BankAccountsModal({
     setLoading(true);
     try {
       const newBankAccount = await addOperatingCompanyBankAccount(companyId, formData);
-      setBankAccounts([...bankAccounts, newBankAccount as unknown as BankAccount]);
+      const added = newBankAccount as unknown as BankAccount;
+      if (added.isDefault) {
+        setBankAccounts([...bankAccounts.map((b) => ({ ...b, isDefault: false })), added]);
+      } else {
+        setBankAccounts([...bankAccounts, added]);
+      }
       toast.success("銀行情報を追加しました");
       setIsAddMode(false);
       setFormData({});
@@ -121,9 +130,14 @@ export function BankAccountsModal({
     setLoading(true);
     try {
       const updated = await updateOperatingCompanyBankAccount(editBankAccount.id, formData);
+      const updatedAccount = updated as unknown as BankAccount;
       setBankAccounts(
         bankAccounts.map((b) =>
-          b.id === editBankAccount.id ? (updated as unknown as BankAccount) : b
+          b.id === editBankAccount.id
+            ? updatedAccount
+            : updatedAccount.isDefault
+              ? { ...b, isDefault: false }
+              : b
         )
       );
       toast.success("銀行情報を更新しました");
@@ -241,6 +255,16 @@ export function BankAccountsModal({
           rows={2}
         />
       </div>
+      <div className="flex items-center space-x-2">
+        <Checkbox
+          id="isDefault"
+          checked={formData.isDefault ?? false}
+          onCheckedChange={(checked) =>
+            setFormData({ ...formData, isDefault: !!checked })
+          }
+        />
+        <Label htmlFor="isDefault" className="cursor-pointer">デフォルトに設定</Label>
+      </div>
       <div className="flex gap-2 justify-end">
         <Button
           variant="outline"
@@ -307,7 +331,12 @@ export function BankAccountsModal({
                 <TableBody>
                   {bankAccounts.map((bankAccount) => (
                     <TableRow key={bankAccount.id}>
-                      <TableCell className="font-medium">{bankAccount.bankName}</TableCell>
+                      <TableCell className="font-medium">
+                        {bankAccount.bankName}
+                        {bankAccount.isDefault && (
+                          <Badge variant="secondary" className="ml-2 text-xs">デフォルト</Badge>
+                        )}
+                      </TableCell>
                       <TableCell className="font-mono">{bankAccount.bankCode}</TableCell>
                       <TableCell>{bankAccount.branchName}</TableCell>
                       <TableCell className="font-mono">{bankAccount.branchCode}</TableCell>

@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { toLocalDateString } from "@/lib/utils";
 
 // ============================================
 // 型定義
@@ -290,7 +291,7 @@ export async function getProjectDashboard(): Promise<ProjectDashboardData> {
   }
 
   for (const pg of recentPaymentGroups) {
-    const monthLabel = pg.targetMonth.toISOString().slice(0, 7);
+    const monthLabel = pg.targetMonth ? toLocalDateString(pg.targetMonth).slice(0, 7) : "未設定";
     activities.push({
       id: activities.length,
       entityType: "payment_group",

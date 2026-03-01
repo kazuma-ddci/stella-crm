@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { toLocalDateString } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PaymentsTable } from "./payments-table";
 
@@ -47,7 +48,7 @@ export default async function PaymentsPage() {
 
   const formatDate = (date: Date | null): string | null => {
     if (!date) return null;
-    return date.toISOString().split("T")[0];
+    return toLocalDateString(date);
   };
 
   const data: Record<string, unknown>[] = transactions.map((t) => ({

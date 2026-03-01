@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { toLocalDateString } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ContractsTable } from "./contracts-table";
 import { TERMINAL_STATUS_IDS, SENT_STATUS_ID, STALE_ALERT_DAYS } from "@/lib/contract-status/constants";
@@ -72,13 +73,13 @@ export default async function StpContractsPage() {
       contractType: c.contractType,
       title: c.title,
       contractNumber: c.contractNumber,
-      startDate: c.startDate?.toISOString().split("T")[0] || null,
-      endDate: c.endDate?.toISOString().split("T")[0] || null,
+      startDate: c.startDate ? toLocalDateString(c.startDate) : null,
+      endDate: c.endDate ? toLocalDateString(c.endDate) : null,
       currentStatusId: c.currentStatusId,
       currentStatusName: c.currentStatus?.name || null,
       currentStatusDisplayOrder: c.currentStatus?.displayOrder ?? null,
       currentStatusIsTerminal: c.currentStatus?.isTerminal ?? false,
-      signedDate: c.signedDate?.toISOString().split("T")[0] || null,
+      signedDate: c.signedDate ? toLocalDateString(c.signedDate) : null,
       signingMethod: c.signingMethod,
       filePath: c.filePath,
       fileName: c.fileName,
@@ -91,8 +92,8 @@ export default async function StpContractsPage() {
             .join(", ")
         : null,
       note: c.note,
-      createdAt: c.createdAt.toISOString().split("T")[0],
-      updatedAt: c.updatedAt.toISOString().split("T")[0],
+      createdAt: toLocalDateString(c.createdAt),
+      updatedAt: toLocalDateString(c.updatedAt),
       daysSinceStatusChange,
       hasStaleAlert,
     };

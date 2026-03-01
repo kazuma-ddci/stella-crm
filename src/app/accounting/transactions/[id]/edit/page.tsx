@@ -44,6 +44,8 @@ export default async function EditTransactionPage({ params }: Props) {
     paymentMethodId: transaction.paymentMethodId,
     paymentDueDate: transaction.paymentDueDate,
     note: transaction.note,
+    hasExpenseOwner: transaction.hasExpenseOwner,
+    expenseOwners: transaction.expenseOwners,
     isWithholdingTarget: transaction.isWithholdingTarget,
     withholdingTaxRate: transaction.withholdingTaxRate != null ? Number(transaction.withholdingTaxRate) : null,
     withholdingTaxAmount: transaction.withholdingTaxAmount,
@@ -82,6 +84,14 @@ export default async function EditTransactionPage({ params }: Props) {
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">取引の編集</h1>
+      {/* 操作者情報 */}
+      {(transaction.creator || transaction.updater) && (
+        <p className="text-sm text-muted-foreground">
+          {transaction.creator && <>作成: {transaction.creator.name}</>}
+          {transaction.creator && transaction.updater && <> | </>}
+          {transaction.updater && <>最終更新: {transaction.updater.name}</>}
+        </p>
+      )}
       <TransactionForm formData={formData} transaction={transactionData} linkedGroupAttachments={linkedGroupAttachments} />
       <div className="border-t pt-6">
         <CommentSection

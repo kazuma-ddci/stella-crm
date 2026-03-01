@@ -2,6 +2,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+ENV TZ=Asia/Tokyo
+
 RUN apk add --no-cache openssl
 
 COPY package*.json ./

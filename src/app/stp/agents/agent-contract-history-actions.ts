@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { toLocalDateString } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
 import { Decimal } from "@prisma/client/runtime/library";
 import { markExpenseRecordsForAgentChange } from "@/lib/finance/auto-generate";
@@ -75,8 +76,8 @@ export async function getAgentContractHistories(agentId: number) {
   return histories.map((h) => ({
     id: h.id,
     agentId: h.agentId,
-    contractStartDate: h.contractStartDate.toISOString().split("T")[0],
-    contractEndDate: h.contractEndDate?.toISOString().split("T")[0] || null,
+    contractStartDate: toLocalDateString(h.contractStartDate),
+    contractEndDate: h.contractEndDate ? toLocalDateString(h.contractEndDate) : null,
     status: h.status,
     initialFee: h.initialFee,
     monthlyFee: h.monthlyFee,

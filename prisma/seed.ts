@@ -198,9 +198,10 @@ async function main() {
       { id: 3, code: 'slo', name: 'SLO', description: '公的財団関連プロジェクト管理', displayOrder: 4 },
       { id: 4, code: 'stella', name: 'Stella', description: '全顧客マスタ管理', displayOrder: 0 },
       { id: 5, code: 'common', name: '共通', description: '企業マスタ・スタッフ管理等の共通機能', displayOrder: 1 },
+      { id: 6, code: 'accounting', name: '経理', description: '経理・会計管理', displayOrder: 5 },
     ],
   });
-  console.log('✓ Projects (5): Stella, Common, STP, SRD, SLO');
+  console.log('✓ Projects (6): Stella, Common, STP, SRD, SLO, Accounting');
 
   // SystemProjectBinding（route key → プロジェクト紐付け）
   await prisma.systemProjectBinding.createMany({
@@ -349,18 +350,21 @@ async function main() {
       { staffId: 10, projectId: 1, permissionLevel: 'admin' },
       { staffId: 10, projectId: 2, permissionLevel: 'admin' },
       { staffId: 10, projectId: 3, permissionLevel: 'admin' },
+      { staffId: 10, projectId: 6, permissionLevel: 'admin' },
       // システム管理者（admin）
       { staffId: 11, projectId: 4, permissionLevel: 'admin' },
       { staffId: 11, projectId: 5, permissionLevel: 'admin' },
       { staffId: 11, projectId: 1, permissionLevel: 'admin' },
       { staffId: 11, projectId: 2, permissionLevel: 'admin' },
       { staffId: 11, projectId: 3, permissionLevel: 'admin' },
+      { staffId: 11, projectId: 6, permissionLevel: 'admin' },
       // テストユーザー（test_user）
       { staffId: 12, projectId: 4, permissionLevel: 'admin' },
       { staffId: 12, projectId: 5, permissionLevel: 'admin' },
       { staffId: 12, projectId: 1, permissionLevel: 'admin' },
       { staffId: 12, projectId: 2, permissionLevel: 'admin' },
       { staffId: 12, projectId: 3, permissionLevel: 'admin' },
+      { staffId: 12, projectId: 6, permissionLevel: 'admin' },
       // 固定データ管理者（stella001）: プロジェクト権限なし（canEditMasterDataのみ）
     ],
   });

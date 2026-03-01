@@ -227,7 +227,7 @@ export async function confirmAllocation(
 
   // AllocationConfirmation を作成（重複は@@uniqueで防止）
   try {
-    await prisma.allocationConfirmation.create({
+    const confirmation = await prisma.allocationConfirmation.create({
       data: {
         transactionId,
         costCenterId,
@@ -235,6 +235,16 @@ export async function confirmAllocation(
         confirmedAt: new Date(),
       },
     });
+
+    await recordChangeLog(
+      {
+        tableName: "AllocationConfirmation",
+        recordId: confirmation.id,
+        changeType: "create",
+        newData: { transactionId, costCenterId },
+      },
+      session.id
+    );
   } catch (e) {
     if (
       e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -357,7 +367,7 @@ export async function autoConfirmCreatorAllocations(
   );
 
   for (const line of creatorCostCenterLines) {
-    await tx.allocationConfirmation.create({
+    const confirmation = await tx.allocationConfirmation.create({
       data: {
         transactionId,
         costCenterId: line.costCenterId!,
@@ -365,6 +375,17 @@ export async function autoConfirmCreatorAllocations(
         confirmedAt: new Date(),
       },
     });
+
+    await recordChangeLog(
+      {
+        tableName: "AllocationConfirmation",
+        recordId: confirmation.id,
+        changeType: "create",
+        newData: { transactionId, costCenterId: line.costCenterId },
+      },
+      staffId,
+      tx
+    );
   }
 
   // 自動確定されなかったコストセンター（他プロジェクト）に対して按分確定依頼の通知対象を収集

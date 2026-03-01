@@ -40,10 +40,15 @@ export type InvoicePdfData = {
     logoPath: string | null;
   };
   counterpartyName: string;
+  honorific?: string;
+  remarks?: string | null;
+  memoLines?: { id: number; description: string; sortOrder: number }[];
+  lineOrder?: string[] | null;
   invoiceNumber: string | null;
   invoiceDate: string | null;
   paymentDueDate: string | null;
   lineItems: {
+    id: number;
     description: string;
     period: string;
     amount: number;
@@ -68,8 +73,8 @@ export type InvoicePdfData = {
 const styles = StyleSheet.create({
   page: {
     fontFamily: "NotoSansJP",
-    fontSize: 9,
-    padding: 40,
+    fontSize: 10,
+    padding: 48,
     backgroundColor: "#ffffff",
     color: "#1f2937",
   },
@@ -77,7 +82,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 24,
+    marginBottom: 36,
   },
   headerLeft: {
     flex: 1,
@@ -87,9 +92,9 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   title: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "bold",
-    marginBottom: 20,
+    marginBottom: 30,
     textAlign: "center",
     letterSpacing: 8,
   },
@@ -104,7 +109,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   customerName: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "bold",
     borderBottomWidth: 1,
     borderBottomColor: "#1f2937",
@@ -112,7 +117,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   honorific: {
-    fontSize: 12,
+    fontSize: 13,
     marginLeft: 4,
   },
   // 請求元情報
@@ -167,25 +172,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   totalLabel: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "bold",
   },
   totalValue: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "bold",
   },
   // 明細テーブル
   table: {
-    marginBottom: 16,
+    marginBottom: 28,
   },
   tableHeader: {
     flexDirection: "row",
     backgroundColor: "#374151",
-    paddingVertical: 6,
+    paddingVertical: 8,
     paddingHorizontal: 8,
   },
   tableHeaderCell: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: "bold",
     color: "#ffffff",
   },
@@ -193,19 +198,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     borderBottomWidth: 0.5,
     borderBottomColor: "#e5e7eb",
-    paddingVertical: 6,
+    paddingVertical: 8,
     paddingHorizontal: 8,
   },
   tableRowAlt: {
     flexDirection: "row",
     borderBottomWidth: 0.5,
     borderBottomColor: "#e5e7eb",
-    paddingVertical: 6,
+    paddingVertical: 8,
     paddingHorizontal: 8,
     backgroundColor: "#f9fafb",
   },
   tableCell: {
-    fontSize: 9,
+    fontSize: 10,
   },
   // カラム幅
   colDescription: { width: "40%" },
@@ -215,7 +220,7 @@ const styles = StyleSheet.create({
   // 小計・税額セクション
   summarySection: {
     alignItems: "flex-end",
-    marginBottom: 20,
+    marginBottom: 28,
   },
   summaryRow: {
     flexDirection: "row",
@@ -235,19 +240,19 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   summaryLabel: {
-    fontSize: 9,
+    fontSize: 10,
     color: "#4b5563",
   },
   summaryValue: {
-    fontSize: 10,
-    fontWeight: "bold",
-  },
-  summaryTotalLabel: {
     fontSize: 11,
     fontWeight: "bold",
   },
+  summaryTotalLabel: {
+    fontSize: 12,
+    fontWeight: "bold",
+  },
   summaryTotalValue: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: "bold",
   },
   // 振込先
@@ -256,7 +261,7 @@ const styles = StyleSheet.create({
     borderColor: "#d1d5db",
     borderRadius: 4,
     padding: 12,
-    marginBottom: 16,
+    marginBottom: 24,
   },
   bankTitle: {
     fontSize: 10,
@@ -281,7 +286,7 @@ const styles = StyleSheet.create({
   },
   // 備考
   note: {
-    fontSize: 8,
+    fontSize: 9,
     color: "#6b7280",
     marginTop: 16,
   },
@@ -297,8 +302,8 @@ function formatCurrency(value: number): string {
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "";
-  const d = new Date(dateStr);
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+  const [year, month, day] = dateStr.split("-");
+  return `${year}年${Number(month)}月${Number(day)}日`;
 }
 
 // ============================================
@@ -345,7 +350,7 @@ export function InvoicePdfTemplate({ data }: Props) {
             <View style={styles.customerSection}>
               <Text style={styles.customerName}>
                 {counterpartyName}
-                <Text style={styles.honorific}> 御中</Text>
+                <Text style={styles.honorific}> {data.honorific ?? "御中"}</Text>
               </Text>
             </View>
 
@@ -439,25 +444,64 @@ export function InvoicePdfTemplate({ data }: Props) {
           </View>
 
           {/* 明細行 */}
-          {lineItems.map((item, i) => (
-            <View
-              key={i}
-              style={i % 2 === 0 ? styles.tableRow : styles.tableRowAlt}
-            >
-              <Text style={[styles.tableCell, styles.colDescription]}>
-                {item.description}
-              </Text>
-              <Text style={[styles.tableCell, styles.colPeriod]}>
-                {item.period}
-              </Text>
-              <Text style={[styles.tableCell, styles.colTaxRate]}>
-                {item.taxRate}%
-              </Text>
-              <Text style={[styles.tableCell, styles.colAmount]}>
-                {formatCurrency(item.amount)}
-              </Text>
-            </View>
-          ))}
+          {(() => {
+            const memoLines = data.memoLines ?? [];
+            const order = data.lineOrder;
+
+            type DisplayItem =
+              | { type: "tx"; item: typeof lineItems[number] }
+              | { type: "memo"; memo: { description: string } };
+
+            let displayItems: DisplayItem[];
+
+            if (order && order.length > 0) {
+              // IDベースで取引をマッピング
+              const txMap = new Map(lineItems.map((item) => [item.id, item]));
+              const usedTxIds = new Set<number>();
+
+              displayItems = [];
+              for (const key of order) {
+                if (key.startsWith("memo:")) {
+                  const memoId = parseInt(key.split(":")[1], 10);
+                  const memo = memoLines.find((m) => m.id === memoId);
+                  displayItems.push({ type: "memo" as const, memo: memo ?? { description: "" } });
+                } else {
+                  const txId = parseInt(key.split(":")[1], 10);
+                  const item = txMap.get(txId);
+                  if (item && !usedTxIds.has(txId)) {
+                    usedTxIds.add(txId);
+                    displayItems.push({ type: "tx" as const, item });
+                  }
+                }
+              }
+              // lineOrderに含まれなかった取引を末尾に追加
+              for (const item of lineItems) {
+                if (!usedTxIds.has(item.id)) {
+                  displayItems.push({ type: "tx" as const, item });
+                }
+              }
+            } else {
+              displayItems = lineItems.map((item) => ({ type: "tx" as const, item }));
+            }
+
+            return displayItems.map((di, i) => {
+              if (di.type === "memo") {
+                return (
+                  <View key={`memo-${i}`} style={i % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
+                    <Text style={[styles.tableCell, { width: "100%" }]}>{di.memo.description}</Text>
+                  </View>
+                );
+              }
+              return (
+                <View key={`tx-${di.item.id}`} style={i % 2 === 0 ? styles.tableRow : styles.tableRowAlt}>
+                  <Text style={[styles.tableCell, styles.colDescription]}>{di.item.description}</Text>
+                  <Text style={[styles.tableCell, styles.colPeriod]}>{di.item.period}</Text>
+                  <Text style={[styles.tableCell, styles.colTaxRate]}>{di.item.taxRate}%</Text>
+                  <Text style={[styles.tableCell, styles.colAmount]}>{formatCurrency(di.item.amount)}</Text>
+                </View>
+              );
+            });
+          })()}
         </View>
 
         {/* 小計・税額・合計 */}
@@ -518,7 +562,34 @@ export function InvoicePdfTemplate({ data }: Props) {
           </View>
         )}
 
-        {/* 備考 */}
+        {/* 備考欄 */}
+        {data.remarks && (
+          <View style={{ marginTop: 12, marginBottom: 8, borderWidth: 1, borderColor: "#9ca3af" }}>
+            <View
+              style={{
+                borderBottomWidth: 1,
+                borderBottomColor: "#9ca3af",
+                paddingVertical: 4,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 10,
+                  fontWeight: "bold",
+                  textAlign: "center",
+                  letterSpacing: 8,
+                }}
+              >
+                備　考
+              </Text>
+            </View>
+            <View style={{ padding: 8, minHeight: 48 }}>
+              <Text style={{ fontSize: 9, color: "#1f2937" }}>{data.remarks}</Text>
+            </View>
+          </View>
+        )}
+
+        {/* 注記 */}
         <Text style={styles.note}>
           ※ 上記金額のお振込みをお願い申し上げます。振込手数料は貴社ご負担にてお願いいたします。
         </Text>

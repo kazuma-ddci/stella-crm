@@ -664,6 +664,7 @@ model MasterStaff {
   notificationStatusChanged   Notification[]             @relation("NotificationStatusChanger")
   changeLogChanged            ChangeLog[]                @relation("ChangeLogChanger")
   candidateDecisions          TransactionCandidateDecision[] @relation("CandidateDecisionDecider")
+  transactionExpenseOwners    TransactionExpenseOwner[]
 
   @@map("master_staff")
 }
@@ -824,6 +825,8 @@ model MasterProject {
   systemProjectBindings   SystemProjectBinding[]
   finInvoiceGroups        InvoiceGroup[]   @relation("ProjectInvoiceGroups")
   finPaymentGroups        PaymentGroup[]   @relation("ProjectPaymentGroups")
+  projectEmails           ProjectEmail[]
+  projectBankAccounts     ProjectBankAccount[]
 
   @@map("master_projects")
 }
@@ -849,7 +852,8 @@ model OperatingCompany {
   logoPath                String?   // ロゴ画像パス
   abbreviation            String?   // 略称（例: STE、MTR）→ 請求書番号に使用
   invoicePrefix           String?   // 請求書番号プレフィックス
-  defaultPaymentTermDays  Int?      // デフォルト支払期限日数
+  paymentMonthOffset      Int?      // 支払月（0=当月, 1=翌月, 2=翌々月...）
+  paymentDay              Int?      // 支払日（0=末日, 1-28=指定日）
 
   projects              MasterProject[]
   bankAccounts          OperatingCompanyBankAccount[]
@@ -880,15 +884,17 @@ model OperatingCompanyBankAccount {
   accountNumber     String    @db.VarChar(20)              // 口座番号
   accountHolderName String    @db.VarChar(200)             // 口座名義人
   note              String?                                // メモ
+  isDefault         Boolean   @default(false)              // デフォルト口座フラグ
   paymentMethodId   Int?                                   // FK → PaymentMethod（残高管理用決済手段との紐付け）
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   deletedAt         DateTime?                              // 論理削除日時
 
   // Relations
-  operatingCompany OperatingCompany @relation(fields: [operatingCompanyId], references: [id], onDelete: Cascade)
-  paymentMethod    PaymentMethod?   @relation(fields: [paymentMethodId], references: [id])
-  invoiceGroups    InvoiceGroup[]   // 経理システム追加
+  operatingCompany    OperatingCompany @relation(fields: [operatingCompanyId], references: [id], onDelete: Cascade)
+  paymentMethod       PaymentMethod?   @relation(fields: [paymentMethodId], references: [id])
+  invoiceGroups       InvoiceGroup[]   // 経理システム追加
+  projectBankAccounts ProjectBankAccount[]
 
   @@map("operating_company_bank_accounts")
 }
@@ -2250,11 +2256,16 @@ model Transaction {
   stpContractHistoryId  Int?      // FK → StpContractHistory
   stpAgentId            Int?      // FK → StpAgent
 
+  // 経費負担者
+  hasExpenseOwner       Boolean   @default(false)  // 経費負担者を指定するか
+
   // 源泉徴収（経費の場合）
   isWithholdingTarget   Boolean   @default(false)
   withholdingTaxRate    Decimal?
   withholdingTaxAmount  Int?
   netPaymentAmount      Int?
+
+  isConfidential        Boolean   @default(false)
 
   confirmedBy           Int?      // FK → MasterStaff
   confirmedAt           DateTime?
@@ -2285,7 +2296,26 @@ model Transaction {
   allocationConfirmations AllocationConfirmation[]
   allocationOverrides   AllocationTemplateOverride[]
   allocationGroupItems  AllocationGroupItem[]
+  expenseOwners         TransactionExpenseOwner[]
   cryptoDetail          CryptoTransactionDetail?
+}
+
+// ============================================
+// ①-b TransactionExpenseOwner（経費負担者）
+// ============================================
+
+model TransactionExpenseOwner {
+  id            Int          @id @default(autoincrement())
+  transactionId Int
+  staffId       Int?         // FK → MasterStaff（スタッフ選択時）
+  customName    String?      // スタッフ外の手入力名（staffId が null の場合）
+  createdAt     DateTime     @default(now())
+
+  transaction   Transaction  @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  staff         MasterStaff? @relation(fields: [staffId], references: [id])
+
+  @@unique([transactionId, staffId])
+  @@index([transactionId])
 }
 
 // ============================================
@@ -2315,6 +2345,12 @@ model InvoiceGroup {
   originalInvoiceGroupId Int?     // FK → InvoiceGroup（訂正元）
   correctionType        String?   // "replacement" | "additional"（差し替え/追加請求）
 
+  // 請求書ビルダー用
+  honorific             String    @default("御中")  // 宛名敬称（御中/様）
+  remarks               String?                     // 請求書備考欄
+  lineOrder             Json?                        // 明細表示順 ["tx:15","memo:1","tx:23"]
+  lineDescriptions      Json?                        // 明細品目オーバーライド {"123":"カスタムテキスト"}
+
   status                String    @default("draft")
   // "draft" | "pdf_created" | "sent" | "awaiting_accounting" |
   // "partially_paid" | "paid" | "returned" | "corrected"
@@ -2337,10 +2373,27 @@ model InvoiceGroup {
   invoiceMails          InvoiceMail[]
   comments              TransactionComment[]
   attachments           Attachment[]
+  memoLines             InvoiceGroupMemoLine[]
   projectId             Int?
   project               MasterProject?        @relation("ProjectInvoiceGroups", fields: [projectId], references: [id])
   creator               MasterStaff           @relation("InvoiceGroupCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?          @relation("InvoiceGroupUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ②-b InvoiceGroupMemoLine（請求書メモ行）
+// ============================================
+
+model InvoiceGroupMemoLine {
+  id              Int      @id @default(autoincrement())
+  invoiceGroupId  Int      @map("invoice_group_id")
+  description     String
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  invoiceGroup InvoiceGroup @relation(fields: [invoiceGroupId], references: [id], onDelete: Cascade)
+  @@map("invoice_group_memo_lines")
 }
 
 // ============================================
@@ -2351,7 +2404,7 @@ model PaymentGroup {
   id                    Int       @id @default(autoincrement())
   counterpartyId        Int       // FK → Counterparty（支払先）
   operatingCompanyId    Int       // FK → OperatingCompany（支払元法人）
-  targetMonth           DateTime  // 対象月（YYYY-MM-01）
+  targetMonth           DateTime? // 対象月（YYYY-MM-01）※廃止予定
 
   expectedPaymentDate   DateTime? // 支払予定日
   paymentDueDate        DateTime? // 支払期限
@@ -2364,9 +2417,15 @@ model PaymentGroup {
   receivedPdfPath       String?   // 受領した請求書PDFのパス
   receivedPdfFileName   String?   // 受領したPDFのファイル名
 
+  paymentType           String    @default("invoice")  // "invoice" | "direct"
+  isConfidential        Boolean   @default(false)
+
   status                String    @default("before_request")
-  // "before_request" | "requested" | "invoice_received" |
-  // "rejected" | "re_requested" | "confirmed" | "paid"
+  // invoice: "before_request" | "requested" | "invoice_received" |
+  //          "rejected" | "re_requested" | "confirmed" |
+  //          "awaiting_accounting" | "returned" | "paid"
+  // direct:  "unprocessed" | "confirmed" | "awaiting_accounting" |
+  //          "returned" | "paid"
 
   confirmedBy           Int?      // FK → MasterStaff（請求書確認者）
   confirmedAt           DateTime?
@@ -2906,7 +2965,10 @@ model Attachment {
   fileSize              Int?      // バイト数
   mimeType              String?
   attachmentType        String    @default("other")
-  // "receipt" | "invoice" | "contract" | "other"
+  // "invoice" | "estimate" | "delivery_note" | "order" | "order_confirmation" | "purchase_order" | "contract" | "receipt" | "voucher" | "other"
+
+  displayName           String?   // ユーザー入力の表示名部分（拡張子除く）
+  generatedName         String?   // 自動生成ファイル名全体（例: 請求書_テスト株式会社御中_20260227_191446.pdf）
 
   uploadedBy            Int       // FK → MasterStaff
   createdAt             DateTime  @default(now())
@@ -3030,10 +3092,10 @@ model MonthlyCloseLog {
 
 model OperatingCompanyEmail {
   id                    Int       @id @default(autoincrement())
-  operatingCompanyId    Int       // FK → OperatingCompany
+  operatingCompanyId    Int?      // FK → OperatingCompany（任意）
   email                 String
   label                 String?   // 用途（例: 請求書送付用、一般問い合わせ用）
-  smtpHost              String?   // 法人ごとのSMTP設定（null=システム共通設定を使用）
+  smtpHost              String?   // SMTP設定（null=システム共通設定を使用）
   smtpPort              Int?
   smtpUser              String?
   smtpPass              String?
@@ -3046,10 +3108,49 @@ model OperatingCompanyEmail {
   updatedAt             DateTime  @updatedAt
 
   // Relations
-  operatingCompany      OperatingCompany @relation(fields: [operatingCompanyId], references: [id])
+  operatingCompany      OperatingCompany? @relation(fields: [operatingCompanyId], references: [id])
   invoiceMails          InvoiceMail[]
+  projectEmails         ProjectEmail[]
   creator               MasterStaff?     @relation("OpCoEmailCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?     @relation("OpCoEmailUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ㉔-b ProjectEmail（プロジェクト別メール設定）
+// ============================================
+
+model ProjectEmail {
+  id        Int      @id @default(autoincrement())
+  projectId Int      @map("project_id")
+  emailId   Int      @map("email_id")
+  isDefault Boolean  @default(false) @map("is_default")
+  memo      String?  // このアドレスの説明メモ（例: 「STP請求書送付用」）
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project MasterProject         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  email   OperatingCompanyEmail  @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  @@unique([projectId, emailId])
+  @@map("project_emails")
+}
+
+// ============================================
+// ㉔-c ProjectBankAccount（プロジェクト別銀行口座設定）
+// ============================================
+
+model ProjectBankAccount {
+  id            Int      @id @default(autoincrement())
+  projectId     Int      @map("project_id")
+  bankAccountId Int      @map("bank_account_id")
+  isDefault     Boolean  @default(false) @map("is_default")
+  memo          String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  project     MasterProject               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  bankAccount OperatingCompanyBankAccount  @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  @@unique([projectId, bankAccountId])
+  @@map("project_bank_accounts")
 }
 
 // ============================================

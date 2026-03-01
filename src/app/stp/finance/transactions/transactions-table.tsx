@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -290,18 +291,18 @@ export function TransactionsTable({ data, deletedData, counterpartyOptions }: Pr
 
         <div className="flex items-center gap-2">
           <label className="text-sm text-muted-foreground whitespace-nowrap">期間:</label>
-          <input
-            type="date"
+          <DatePicker
             value={periodFromFilter}
-            onChange={(e) => setPeriodFromFilter(e.target.value)}
-            className="h-8 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            onChange={setPeriodFromFilter}
+            placeholder="開始日"
+            className="h-8 w-[160px]"
           />
           <span className="text-sm text-muted-foreground">〜</span>
-          <input
-            type="date"
+          <DatePicker
             value={periodToFilter}
-            onChange={(e) => setPeriodToFilter(e.target.value)}
-            className="h-8 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            onChange={setPeriodToFilter}
+            placeholder="終了日"
+            className="h-8 w-[160px]"
           />
         </div>
 
@@ -510,7 +511,10 @@ export function TransactionsTable({ data, deletedData, counterpartyOptions }: Pr
                       {row.note || "-"}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                      {row.createdAt}
+                      <div>{row.createdAt}</div>
+                      {row.createdByName && (
+                        <div className="text-xs text-muted-foreground">作成: {row.createdByName}</div>
+                      )}
                     </TableCell>
                     <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                       <div className="flex items-center gap-1">

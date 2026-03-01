@@ -414,6 +414,7 @@ export function ContractsTable({
       <Tabs
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as ContractTabType)}
+        idBase="stp-contracts-tabs"
         className="mb-4"
       >
         <TabsList>

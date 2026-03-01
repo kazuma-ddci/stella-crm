@@ -770,7 +770,11 @@ export function ContactsModal({
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto min-h-0 px-4 sm:px-6 py-4">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          idBase={`contacts-modal-${companyId}`}
+        >
           <div className="grid w-full grid-cols-3 gap-1 rounded-lg bg-gray-100 p-1">
             <button
               type="button"

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { Prisma } from "@prisma/client";
 import { recordChangeLogs } from "@/app/accounting/changelog/actions";
+import { toLocalDateString } from "@/lib/utils";
 
 const REVALIDATE_PATH = "/accounting/masters/allocation-templates";
 
@@ -295,7 +296,7 @@ export async function getAffectedTransactions(templateId: number) {
     const isClosed = closedMonths.has(monthStart.toISOString());
     return {
       id: t.id,
-      transactionDate: t.periodFrom.toISOString().split("T")[0],
+      transactionDate: toLocalDateString(t.periodFrom),
       counterpartyName: t.counterparty?.name ?? "（不明）",
       costCenterName: t.costCenter?.name ?? "",
       amountIncludingTax: t.amount + t.taxAmount,

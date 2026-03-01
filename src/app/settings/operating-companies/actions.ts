@@ -16,8 +16,11 @@ export async function addOperatingCompany(data: Record<string, unknown>) {
       phone: (data.phone as string) || null,
       abbreviation: (data.abbreviation as string) || null,
       invoicePrefix: (data.invoicePrefix as string) || null,
-      defaultPaymentTermDays: data.defaultPaymentTermDays
-        ? Number(data.defaultPaymentTermDays)
+      paymentMonthOffset: data.paymentMonthOffset != null && data.paymentMonthOffset !== ""
+        ? Number(data.paymentMonthOffset)
+        : null,
+      paymentDay: data.paymentDay != null && data.paymentDay !== ""
+        ? Number(data.paymentDay)
         : null,
     },
   });
@@ -39,8 +42,11 @@ export async function updateOperatingCompany(
   if ("phone" in data) updateData.phone = (data.phone as string) || null;
   if ("abbreviation" in data) updateData.abbreviation = (data.abbreviation as string) || null;
   if ("invoicePrefix" in data) updateData.invoicePrefix = (data.invoicePrefix as string) || null;
-  if ("defaultPaymentTermDays" in data) updateData.defaultPaymentTermDays = data.defaultPaymentTermDays
-    ? Number(data.defaultPaymentTermDays)
+  if ("paymentMonthOffset" in data) updateData.paymentMonthOffset = data.paymentMonthOffset != null && data.paymentMonthOffset !== ""
+    ? Number(data.paymentMonthOffset)
+    : null;
+  if ("paymentDay" in data) updateData.paymentDay = data.paymentDay != null && data.paymentDay !== ""
+    ? Number(data.paymentDay)
     : null;
   if ("logoPath" in data) updateData.logoPath = (data.logoPath as string) || null;
 

@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { toLocalDateString } from "@/lib/utils";
 import {
   createJournalEntry,
   updateJournalEntry,
@@ -85,8 +87,8 @@ export function JournalEntryModal({
 
   const [journalDate, setJournalDate] = useState(
     editEntry
-      ? new Date(editEntry.journalDate).toISOString().split("T")[0]
-      : new Date().toISOString().split("T")[0]
+      ? toLocalDateString(new Date(editEntry.journalDate))
+      : toLocalDateString(new Date())
   );
   const [description, setDescription] = useState(
     editEntry?.description ?? ""
@@ -191,7 +193,7 @@ export function JournalEntryModal({
 
   const resetForm = useCallback(() => {
     if (!editEntry) {
-      setJournalDate(new Date().toISOString().split("T")[0]);
+      setJournalDate(toLocalDateString(new Date()));
       setDescription("");
       setLines([createEmptyLine("debit"), createEmptyLine("credit")]);
     }
@@ -218,10 +220,9 @@ export function JournalEntryModal({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label>仕訳日 *</Label>
-              <Input
-                type="date"
+              <DatePicker
                 value={journalDate}
-                onChange={(e) => setJournalDate(e.target.value)}
+                onChange={setJournalDate}
                 className="mt-1"
               />
             </div>

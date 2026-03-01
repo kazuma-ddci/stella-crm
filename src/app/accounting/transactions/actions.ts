@@ -54,6 +54,8 @@ export type TransactionFormData = {
     company: { id: number; name: string };
     endDate: Date | null;
   }[];
+  staffOptions: { id: number; name: string }[];
+  currentUserId: number;
 };
 
 // ============================================
@@ -212,6 +214,14 @@ export async function createTransaction(data: Record<string, unknown>) {
     ? Number(data.netPaymentAmount)
     : null;
 
+  // 経費負担者
+  const hasExpenseOwner =
+    data.hasExpenseOwner === true || data.hasExpenseOwner === "true";
+  const expenseOwners = (data.expenseOwners as Array<{
+    staffId?: number | null;
+    customName?: string | null;
+  }>) || [];
+
   // 証憑
   const attachments = (data.attachments as Array<{
     filePath: string;
@@ -241,6 +251,7 @@ export async function createTransaction(data: Record<string, unknown>) {
         paymentDueDate,
         note,
         sourceType: "manual",
+        hasExpenseOwner,
         isWithholdingTarget,
         withholdingTaxRate,
         withholdingTaxAmount,
@@ -248,6 +259,17 @@ export async function createTransaction(data: Record<string, unknown>) {
         createdBy: staffId,
       },
     });
+
+    // 経費負担者作成
+    if (hasExpenseOwner && expenseOwners.length > 0) {
+      await tx.transactionExpenseOwner.createMany({
+        data: expenseOwners.map((o) => ({
+          transactionId: transaction.id,
+          staffId: o.staffId ?? null,
+          customName: o.customName ?? null,
+        })),
+      });
+    }
 
     // 証憑作成
     if (attachments.length > 0) {
@@ -365,6 +387,14 @@ export async function updateTransaction(
     ? Number(data.netPaymentAmount)
     : null;
 
+  // 経費負担者
+  const hasExpenseOwner =
+    data.hasExpenseOwner === true || data.hasExpenseOwner === "true";
+  const expenseOwners = (data.expenseOwners as Array<{
+    staffId?: number | null;
+    customName?: string | null;
+  }>) || [];
+
   // 証憑
   const incomingAttachments = (data.attachments as Array<{
     id?: number;
@@ -396,6 +426,7 @@ export async function updateTransaction(
         paymentMethodId,
         paymentDueDate,
         note,
+        hasExpenseOwner,
         isWithholdingTarget,
         withholdingTaxRate,
         withholdingTaxAmount,
@@ -403,6 +434,20 @@ export async function updateTransaction(
         updatedBy: staffId,
       },
     });
+
+    // 経費負担者の全入れ替え
+    await tx.transactionExpenseOwner.deleteMany({
+      where: { transactionId: id },
+    });
+    if (hasExpenseOwner && expenseOwners.length > 0) {
+      await tx.transactionExpenseOwner.createMany({
+        data: expenseOwners.map((o) => ({
+          transactionId: id,
+          staffId: o.staffId ?? null,
+          customName: o.customName ?? null,
+        })),
+      });
+    }
 
     // 変更履歴を記録
     const oldData = await pickRecordData(
@@ -466,6 +511,7 @@ export async function updateTransaction(
   });
 
   revalidatePath("/accounting/transactions");
+  revalidatePath("/stp/finance/transactions");
 }
 
 // ============================================
@@ -529,6 +575,14 @@ export async function getTransactionById(id: number) {
           id: true,
           targetMonth: true,
           attachments: { where: { deletedAt: null } },
+        },
+      },
+      creator: { select: { id: true, name: true } },
+      updater: { select: { id: true, name: true } },
+      confirmer: { select: { id: true, name: true } },
+      expenseOwners: {
+        include: {
+          staff: { select: { id: true, name: true } },
         },
       },
     },
@@ -1132,13 +1186,17 @@ export async function isMonthClosed(
 
 export async function getTransactionFormData(): Promise<TransactionFormData> {
   const [
+    session,
     counterparties,
     expenseCategories,
     costCenters,
     allocationTemplates,
     paymentMethods,
     contracts,
+    staffOptions,
   ] = await Promise.all([
+    getSession(),
+
     // 取引先
     prisma.counterparty.findMany({
       where: { deletedAt: null, mergedIntoId: null, isActive: true },
@@ -1192,7 +1250,25 @@ export async function getTransactionFormData(): Promise<TransactionFormData> {
       orderBy: { id: "desc" },
       take: 500,
     }),
+
+    // スタッフ一覧（経費負担者選択用）
+    prisma.masterStaff.findMany({
+      where: { isActive: true, isSystemUser: false },
+      select: { id: true, name: true },
+      orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
+    }),
   ]);
+
+  // ログインユーザーがスタッフ一覧に含まれていなければ先頭に追加
+  if (!staffOptions.find((s) => s.id === session.id)) {
+    const current = await prisma.masterStaff.findUnique({
+      where: { id: session.id },
+      select: { id: true, name: true },
+    });
+    if (current) {
+      staffOptions.unshift(current);
+    }
+  }
 
   return {
     counterparties,
@@ -1211,5 +1287,7 @@ export async function getTransactionFormData(): Promise<TransactionFormData> {
     })),
     paymentMethods,
     contracts,
+    staffOptions,
+    currentUserId: session.id,
   };
 }

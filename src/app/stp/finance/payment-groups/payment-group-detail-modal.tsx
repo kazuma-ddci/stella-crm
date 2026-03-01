@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Loader2,
@@ -24,6 +25,10 @@ import {
   AlertTriangle,
   Upload,
   Paperclip,
+  Pencil,
+  History,
+  Check,
+  X,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -55,6 +60,7 @@ import {
   getUngroupedExpenseTransactions,
   getPaymentGroupTransactions,
   submitPaymentGroupToAccounting,
+  requestReturnPaymentGroup,
   getPaymentGroupAttachments,
   addPaymentGroupAttachments,
   deletePaymentGroupAttachment,
@@ -63,6 +69,24 @@ import {
   getGroupAllocationWarnings,
   type AllocationWarning,
 } from "@/app/accounting/transactions/allocation-group-item-actions";
+import {
+  UploadConfirmationDialog,
+  type FileUploadEntry,
+} from "@/components/attachments/upload-confirmation-dialog";
+import {
+  ATTACHMENT_TYPE_LABELS,
+  generateAttachmentFileName,
+  getFileExtension,
+} from "@/lib/attachments/constants";
+import {
+  updateAttachmentDisplayName,
+  getAttachmentHistory,
+} from "@/lib/attachments/actions";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 const STATUS_LABELS: Record<string, string> = {
   before_request: "依頼前",
@@ -73,6 +97,7 @@ const STATUS_LABELS: Record<string, string> = {
   confirmed: "確認済み",
   awaiting_accounting: "経理引渡済み",
   paid: "支払済み",
+  returned: "差し戻し",
 };
 
 type Props = {
@@ -139,6 +164,10 @@ export function PaymentGroupDetailModal({
   // メール送付モーダル
   const [showMailModal, setShowMailModal] = useState(false);
 
+  // 差し戻し依頼ダイアログ
+  const [showReturnRequestDialog, setShowReturnRequestDialog] = useState(false);
+  const [returnRequestBody, setReturnRequestBody] = useState("");
+
   // 証憑
   const [groupAttachments, setGroupAttachments] = useState<{
     id: number;
@@ -146,9 +175,28 @@ export function PaymentGroupDetailModal({
     filePath: string;
     fileSize: number | null;
     mimeType: string | null;
+    attachmentType: string;
+    displayName: string | null;
+    generatedName: string | null;
     createdAt: string;
   }[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  // アップロード確認ダイアログ
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  // インライン編集
+  const [editingAttachmentId, setEditingAttachmentId] = useState<number | null>(null);
+  const [editingDisplayName, setEditingDisplayName] = useState("");
+  // 変更履歴ポップオーバー
+  const [historyAttachmentId, setHistoryAttachmentId] = useState<number | null>(null);
+  const [historyData, setHistoryData] = useState<{
+    id: number;
+    changedAt: string;
+    changedByName: string;
+    oldDisplayName: string | null;
+    newDisplayName: string | null;
+  }[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const isEditable = ["before_request", "rejected"].includes(group.status);
   const canDelete = group.status === "before_request";
@@ -314,7 +362,9 @@ export function PaymentGroupDetailModal({
     if (!confirm("この支払を確認済みにしますか？")) return;
     setLoading(true);
     try {
-      await confirmReceivedInvoice(group.id, {});
+      await confirmReceivedInvoice(group.id, {
+        expectedPaymentDate: expectedPaymentDate || undefined,
+      });
       onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -369,15 +419,22 @@ export function PaymentGroupDetailModal({
     }
   };
 
-  // 証憑アップロード
-  const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 証憑アップロード: ファイル選択 → 確認ダイアログ表示
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    setPendingFiles(Array.from(files));
+    setShowUploadDialog(true);
+    e.target.value = "";
+  };
+
+  // 確認ダイアログで「アップロード」を押したときの処理
+  const handleUploadConfirm = async (entries: FileUploadEntry[]) => {
     setUploadingAttachment(true);
     try {
       const formDataUpload = new FormData();
-      for (let i = 0; i < files.length; i++) {
-        formDataUpload.append("files", files[i]);
+      for (const entry of entries) {
+        formDataUpload.append("files", entry.file);
       }
       const response = await fetch("/api/finance/payment-groups/upload", {
         method: "POST",
@@ -385,14 +442,61 @@ export function PaymentGroupDetailModal({
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "アップロードに失敗しました");
-      await addPaymentGroupAttachments(group.id, result.files);
+
+      // APIレスポンスにメタデータをマージ
+      const filesWithMetadata = result.files.map((f: { filePath: string; fileName: string; fileSize: number; mimeType: string }, i: number) => ({
+        ...f,
+        attachmentType: entries[i].attachmentType,
+        displayName: entries[i].displayName,
+        generatedName: generateAttachmentFileName(
+          entries[i].attachmentType,
+          entries[i].displayName,
+          getFileExtension(entries[i].file.name)
+        ),
+      }));
+
+      await addPaymentGroupAttachments(group.id, filesWithMetadata);
       const atts = await getPaymentGroupAttachments(group.id);
       setGroupAttachments(atts);
+      setShowUploadDialog(false);
+      setPendingFiles([]);
     } catch (err) {
       alert(err instanceof Error ? err.message : "アップロードに失敗しました");
     } finally {
       setUploadingAttachment(false);
-      e.target.value = "";
+    }
+  };
+
+  // 表示名のインライン編集を保存
+  const handleSaveDisplayName = async (attachmentId: number) => {
+    const trimmed = editingDisplayName.trim();
+    if (!trimmed) {
+      setEditingAttachmentId(null);
+      return;
+    }
+    try {
+      await updateAttachmentDisplayName(attachmentId, trimmed);
+      const atts = await getPaymentGroupAttachments(group.id);
+      setGroupAttachments(atts);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "変更に失敗しました");
+    } finally {
+      setEditingAttachmentId(null);
+    }
+  };
+
+  // 変更履歴の読み込み
+  const handleLoadHistory = async (attachmentId: number) => {
+    setHistoryAttachmentId(attachmentId);
+    setHistoryData([]);
+    setLoadingHistory(true);
+    try {
+      const history = await getAttachmentHistory(attachmentId);
+      setHistoryData(history);
+    } catch {
+      setHistoryData([]);
+    } finally {
+      setLoadingHistory(false);
     }
   };
 
@@ -412,8 +516,11 @@ export function PaymentGroupDetailModal({
       <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            支払詳細
-            <span className="text-xs text-muted-foreground bg-gray-100 px-2 py-0.5 rounded-full">
+            <span className="shrink-0">支払詳細</span>
+            <span className="font-mono text-xs text-muted-foreground bg-gray-100 px-1.5 py-0.5 rounded shrink-0">
+              #{group.id}
+            </span>
+            <span className="text-xs text-muted-foreground bg-gray-100 px-2 py-0.5 rounded-full shrink-0">
               {STATUS_LABELS[group.status] ?? group.status}
             </span>
           </DialogTitle>
@@ -479,11 +586,9 @@ export function PaymentGroupDetailModal({
         </div>
 
         <div className="flex-1 overflow-y-auto min-h-0">
-          {/* 基本情報タブ */}
-          {activeTab === "detail" && (
-            <div className="space-y-4 p-1">
-              {/* ステータスと操作ボタン */}
-              <div className="flex items-center justify-between rounded-lg bg-gray-50 p-3">
+          {/* ステータスと操作 - 全タブ共通・スクロール時固定 */}
+          <div className="sticky top-0 z-10 bg-white px-1 pt-1">
+            <div className="flex items-center justify-between rounded-lg bg-gray-50 p-3">
                 <div>
                   <span className="text-sm text-muted-foreground">
                     ステータス:{" "}
@@ -495,14 +600,21 @@ export function PaymentGroupDetailModal({
                 <div className="flex gap-2">
                   {/* before_request: 発行依頼メール送信 */}
                   {group.status === "before_request" && (
-                    <Button
-                      size="sm"
-                      onClick={() => setShowMailModal(true)}
-                      disabled={loading || !group.requestedPdfName}
-                    >
-                      <Mail className="mr-1 h-4 w-4" />
-                      発行依頼メール送信
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        onClick={() => setShowMailModal(true)}
+                        disabled={loading || !group.requestedPdfName}
+                      >
+                        <Mail className="mr-1 h-4 w-4" />
+                        発行依頼メール送信
+                      </Button>
+                      {!group.requestedPdfName && (
+                        <span className="text-xs text-amber-600">
+                          請求書PDF名を設定してください
+                        </span>
+                      )}
+                    </>
                   )}
 
                   {/* requested: 請求書受領を記録 */}
@@ -542,14 +654,21 @@ export function PaymentGroupDetailModal({
 
                   {/* rejected: 再依頼メール送信 */}
                   {group.status === "rejected" && (
-                    <Button
-                      size="sm"
-                      onClick={() => setShowMailModal(true)}
-                      disabled={loading}
-                    >
-                      <Mail className="mr-1 h-4 w-4" />
-                      再依頼メール送信
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        onClick={() => setShowMailModal(true)}
+                        disabled={loading || !group.requestedPdfName}
+                      >
+                        <Mail className="mr-1 h-4 w-4" />
+                        再依頼メール送信
+                      </Button>
+                      {!group.requestedPdfName && (
+                        <span className="text-xs text-amber-600">
+                          請求書PDF名を設定してください
+                        </span>
+                      )}
+                    </>
                   )}
 
                   {/* re_requested: 請求書受領を記録 */}
@@ -607,9 +726,62 @@ export function PaymentGroupDetailModal({
                       </Button>
                     </>
                   )}
-                </div>
-              </div>
 
+                  {/* awaiting_accounting: 差し戻し依頼のみ */}
+                  {group.status === "awaiting_accounting" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-amber-600 border-amber-300 hover:bg-amber-50"
+                      onClick={() => setShowReturnRequestDialog(true)}
+                      disabled={loading}
+                    >
+                      差し戻し依頼
+                    </Button>
+                  )}
+
+                  {/* paid: 差し戻し依頼のみ */}
+                  {group.status === "paid" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-amber-600 border-amber-300 hover:bg-amber-50"
+                      onClick={() => setShowReturnRequestDialog(true)}
+                      disabled={loading}
+                    >
+                      差し戻し依頼
+                    </Button>
+                  )}
+
+                  {/* returned: 確認済みに戻す */}
+                  {group.status === "returned" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        if (!confirm("確認済みに戻しますか？")) return;
+                        setLoading(true);
+                        try {
+                          await updatePaymentGroupStatus(group.id, "confirmed");
+                          onClose();
+                        } catch (e) {
+                          alert(e instanceof Error ? e.message : "エラーが発生しました");
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                      disabled={loading}
+                    >
+                      確認済みに戻す
+                    </Button>
+                  )}
+                </div>
+            </div>
+          </div>
+
+          {/* 基本情報タブ */}
+          {activeTab === "detail" && (
+            <div className="space-y-4 p-1">
               {/* 按分取引の処理状況警告 */}
               {allocationWarnings.length > 0 && (
                 <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
@@ -665,7 +837,7 @@ export function PaymentGroupDetailModal({
                   <Input
                     value={group.counterpartyName}
                     disabled
-                    className="mt-1"
+                    className="mt-1 disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-900"
                   />
                 </div>
                 <div>
@@ -673,14 +845,18 @@ export function PaymentGroupDetailModal({
                   <Input
                     value={group.operatingCompanyName}
                     disabled
-                    className="mt-1"
+                    className="mt-1 disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-900"
                   />
                 </div>
                 <div>
-                  <Label>対象月</Label>
-                  <Input
-                    value={group.targetMonth}
-                    disabled
+                  <Label htmlFor="detail-paymentDueDate">
+                    支払期限
+                  </Label>
+                  <DatePicker
+                    id="detail-paymentDueDate"
+                    value={paymentDueDate}
+                    onChange={setPaymentDueDate}
+                    disabled={!isEditable && group.status !== "invoice_received"}
                     className="mt-1"
                   />
                 </div>
@@ -688,38 +864,11 @@ export function PaymentGroupDetailModal({
                   <Label htmlFor="detail-expectedPaymentDate">
                     支払予定日
                   </Label>
-                  <Input
+                  <DatePicker
                     id="detail-expectedPaymentDate"
-                    type="date"
                     value={expectedPaymentDate}
-                    onChange={(e) => setExpectedPaymentDate(e.target.value)}
-                    disabled={!isEditable}
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="detail-paymentDueDate">
-                    支払期限
-                  </Label>
-                  <Input
-                    id="detail-paymentDueDate"
-                    type="date"
-                    value={paymentDueDate}
-                    onChange={(e) => setPaymentDueDate(e.target.value)}
-                    disabled={!isEditable}
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="detail-actualPaymentDate">
-                    実際の支払日
-                  </Label>
-                  <Input
-                    id="detail-actualPaymentDate"
-                    type="date"
-                    value={actualPaymentDate}
-                    onChange={(e) => setActualPaymentDate(e.target.value)}
-                    disabled={!["confirmed", "awaiting_accounting", "paid"].includes(group.status)}
+                    onChange={setExpectedPaymentDate}
+                    disabled={!isEditable && group.status !== "invoice_received"}
                     className="mt-1"
                   />
                 </div>
@@ -736,43 +885,65 @@ export function PaymentGroupDetailModal({
                     className="mt-1"
                   />
                 </div>
-                {group.receivedPdfFileName && (
-                  <div>
-                    <Label>受領済みPDFファイル名</Label>
-                    <Input
-                      value={group.receivedPdfFileName}
-                      disabled
-                      className="mt-1"
-                    />
-                  </div>
-                )}
               </div>
 
-              {/* 確認者・確認日時 */}
-              {(group.confirmedByName || group.confirmedAt) && (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* 参考情報（読み取り専用） */}
+              <div className="rounded-lg bg-gray-50 p-3 space-y-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div>
+                    <div className="text-xs text-muted-foreground">実際の支払日</div>
+                    {["confirmed"].includes(group.status) ? (
+                      <DatePicker
+                        id="detail-actualPaymentDate"
+                        value={actualPaymentDate}
+                        onChange={setActualPaymentDate}
+                        placeholder="日付を選択"
+                        className="mt-0.5 h-8 text-sm"
+                      />
+                    ) : (
+                      <div className="mt-0.5 text-sm font-medium">
+                        {actualPaymentDate || <span className="text-orange-600">未支払</span>}
+                      </div>
+                    )}
+                  </div>
+                  {group.receivedPdfFileName && (
+                    <div>
+                      <div className="text-xs text-muted-foreground">受領済みPDF</div>
+                      <div className="mt-0.5 text-sm font-medium truncate" title={group.receivedPdfFileName}>
+                        {group.receivedPdfFileName}
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <div className="text-xs text-muted-foreground">作成者</div>
+                    <div className="mt-0.5 text-sm font-medium">
+                      {group.createdByName ?? "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">作成日</div>
+                    <div className="mt-0.5 text-sm font-medium">
+                      {group.createdAt ?? "—"}
+                    </div>
+                  </div>
                   {group.confirmedByName && (
                     <div>
-                      <Label>確認者</Label>
-                      <Input
-                        value={group.confirmedByName}
-                        disabled
-                        className="mt-1"
-                      />
+                      <div className="text-xs text-muted-foreground">確認者</div>
+                      <div className="mt-0.5 text-sm font-medium">
+                        {group.confirmedByName}
+                      </div>
                     </div>
                   )}
                   {group.confirmedAt && (
                     <div>
-                      <Label>確認日時</Label>
-                      <Input
-                        value={group.confirmedAt}
-                        disabled
-                        className="mt-1"
-                      />
+                      <div className="text-xs text-muted-foreground">確認日時</div>
+                      <div className="mt-0.5 text-sm font-medium">
+                        {group.confirmedAt}
+                      </div>
                     </div>
                   )}
                 </div>
-              )}
+              </div>
 
               {/* 金額表示 */}
               <div className="rounded-lg border p-4">
@@ -810,7 +981,7 @@ export function PaymentGroupDetailModal({
                   </Button>
                 )}
                 <div className="ml-auto">
-                  {(isEditable || ["confirmed", "awaiting_accounting", "paid"].includes(group.status)) && (
+                  {(isEditable || ["invoice_received", "confirmed"].includes(group.status)) && (
                     <Button onClick={handleSave} disabled={loading}>
                       {loading && (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -973,7 +1144,7 @@ export function PaymentGroupDetailModal({
                     type="file"
                     multiple
                     accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp,.txt,.csv"
-                    onChange={handleAttachmentUpload}
+                    onChange={handleFileSelect}
                     disabled={uploadingAttachment}
                     className="hidden"
                   />
@@ -999,31 +1170,141 @@ export function PaymentGroupDetailModal({
                       className="flex items-center gap-2 p-2 border rounded-md bg-gray-50"
                     >
                       <FileText className="h-4 w-4 text-blue-600 flex-shrink-0" />
-                      <a
-                        href={att.filePath}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 text-sm truncate text-blue-600 underline"
-                      >
-                        {att.fileName}
-                      </a>
+                      {/* 証憑種類バッジ */}
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 shrink-0">
+                        {ATTACHMENT_TYPE_LABELS[att.attachmentType] ?? att.attachmentType}
+                      </span>
+                      {/* ファイル名（インライン編集対応） */}
+                      {editingAttachmentId === att.id ? (
+                        <div className="flex items-center gap-1 flex-1 min-w-0">
+                          <Input
+                            value={editingDisplayName}
+                            onChange={(e) => setEditingDisplayName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleSaveDisplayName(att.id);
+                              if (e.key === "Escape") setEditingAttachmentId(null);
+                            }}
+                            className="h-7 text-sm flex-1"
+                            autoFocus
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 text-green-600"
+                            onClick={() => handleSaveDisplayName(att.id)}
+                          >
+                            <Check className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 text-gray-400"
+                            onClick={() => setEditingAttachmentId(null)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <a
+                          href={att.filePath}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 text-sm truncate text-blue-600 underline"
+                        >
+                          {att.generatedName ?? att.fileName}
+                        </a>
+                      )}
                       {att.fileSize && (
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-xs text-muted-foreground shrink-0">
                           {(att.fileSize / 1024).toFixed(0)}KB
                         </span>
                       )}
+                      {/* 編集ボタン */}
+                      {editingAttachmentId !== att.id && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-gray-400 hover:text-gray-600"
+                          onClick={() => {
+                            setEditingAttachmentId(att.id);
+                            setEditingDisplayName(att.displayName ?? att.fileName);
+                          }}
+                          title="表示名を変更"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      )}
+                      {/* 変更履歴ボタン */}
+                      <Popover onOpenChange={(open) => {
+                        if (open) {
+                          handleLoadHistory(att.id);
+                        } else {
+                          setHistoryAttachmentId(null);
+                          setHistoryData([]);
+                        }
+                      }}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-gray-400 hover:text-gray-600"
+                            title="変更履歴"
+                          >
+                            <History className="h-3 w-3" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-72 p-3" align="end">
+                          <div className="text-xs font-medium mb-2">変更履歴</div>
+                          {loadingHistory ? (
+                            <div className="flex items-center justify-center py-2">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            </div>
+                          ) : historyData.length === 0 ? (
+                            <div className="text-xs text-muted-foreground py-2">
+                              変更履歴はありません
+                            </div>
+                          ) : (
+                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                              {historyData.map((h) => (
+                                <div key={h.id} className="text-xs border-b pb-1.5 last:border-0">
+                                  <div className="text-muted-foreground">
+                                    {new Date(h.changedAt).toLocaleString("ja-JP")} — {h.changedByName}
+                                  </div>
+                                  <div>
+                                    <span className="line-through text-red-500">{h.oldDisplayName ?? "（なし）"}</span>
+                                    {" → "}
+                                    <span className="text-green-600">{h.newDisplayName ?? "（なし）"}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </PopoverContent>
+                      </Popover>
+                      {/* 削除ボタン */}
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => handleDeleteAttachment(att.id)}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3 w-3" />
                       </Button>
                     </div>
                   ))}
                 </div>
               )}
+              {/* アップロード確認ダイアログ */}
+              <UploadConfirmationDialog
+                open={showUploadDialog}
+                onClose={() => {
+                  setShowUploadDialog(false);
+                  setPendingFiles([]);
+                }}
+                files={pendingFiles}
+                onConfirm={handleUploadConfirm}
+                uploading={uploadingAttachment}
+              />
             </div>
           )}
 
@@ -1117,6 +1398,48 @@ export function PaymentGroupDetailModal({
             expenseCategories={expenseCategories}
           />
         )}
+
+        {/* 差し戻し依頼ダイアログ */}
+        <AlertDialog open={showReturnRequestDialog} onOpenChange={setShowReturnRequestDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>差し戻し依頼</AlertDialogTitle>
+              <AlertDialogDescription>
+                経理担当者に差し戻しを依頼します。理由を入力してください。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <Textarea
+              value={returnRequestBody}
+              onChange={(e) => setReturnRequestBody(e.target.value)}
+              placeholder="差し戻し理由を入力してください"
+              rows={3}
+            />
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => { setReturnRequestBody(""); }}>
+                キャンセル
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={!returnRequestBody.trim() || loading}
+                onClick={async () => {
+                  setLoading(true);
+                  try {
+                    await requestReturnPaymentGroup(group.id, { body: returnRequestBody.trim() });
+                    alert("差し戻し依頼を送信しました");
+                    setShowReturnRequestDialog(false);
+                    setReturnRequestBody("");
+                    onClose();
+                  } catch (e) {
+                    alert(e instanceof Error ? e.message : "エラーが発生しました");
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+              >
+                送信
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { toLocalDateString } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CandidatesTable } from "./candidates-table";
 
@@ -66,7 +67,7 @@ export default async function CandidatesPage() {
   // 日付をフォーマットするヘルパー
   const formatDate = (date: Date | null): string | null => {
     if (!date) return null;
-    return date.toISOString().split("T")[0];
+    return toLocalDateString(date);
   };
 
   // 各求職者の契約マッチング状態を計算

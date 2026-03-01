@@ -150,7 +150,7 @@ export function BudgetPageClient({
       </div>
 
       {/* タブ */}
-      <Tabs defaultValue="input">
+      <Tabs defaultValue="input" idBase="accounting-budget-tabs">
         <TabsList>
           <TabsTrigger value="input">予算入力</TabsTrigger>
           <TabsTrigger value="comparison">予実比較</TabsTrigger>

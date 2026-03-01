@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireEdit } from "@/lib/auth";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
 import { revalidatePath } from "next/cache";
+import { toLocalDateString } from "@/lib/utils";
 import type {
   AllocationGroupItemSummary,
   TransactionListItem,
@@ -137,7 +138,7 @@ function mapTransactionRecord(r: {
     costCenterId: number;
     costCenter: { id: number; name: string };
     invoiceGroup: { invoiceNumber: string | null } | null;
-    paymentGroup: { targetMonth: Date } | null;
+    paymentGroup: { targetMonth: Date | null } | null;
   }[];
   amount: number;
   taxAmount: number;
@@ -172,7 +173,7 @@ function mapTransactionRecord(r: {
           groupLabel = item.invoiceGroup.invoiceNumber ?? "請求(下書き)";
         } else if (item?.paymentGroup) {
           const m = item.paymentGroup.targetMonth;
-          groupLabel = `支払 ${m.getUTCFullYear()}/${String(m.getUTCMonth() + 1).padStart(2, "0")}`;
+          groupLabel = m ? `支払 ${m.getUTCFullYear()}/${String(m.getUTCMonth() + 1).padStart(2, "0")}` : "支払（対象月未設定）";
         }
         return {
           costCenterId: l.costCenterId!,
@@ -197,10 +198,10 @@ function mapTransactionRecord(r: {
     taxAmount: r.taxAmount,
     taxRate: r.taxRate,
     taxType: r.taxType,
-    periodFrom: r.periodFrom.toISOString().split("T")[0],
-    periodTo: r.periodTo.toISOString().split("T")[0],
+    periodFrom: toLocalDateString(r.periodFrom),
+    periodTo: toLocalDateString(r.periodTo),
     paymentDueDate: r.paymentDueDate
-      ? r.paymentDueDate.toISOString().split("T")[0]
+      ? toLocalDateString(r.paymentDueDate)
       : null,
     status: r.status,
     note: r.note,
@@ -210,8 +211,8 @@ function mapTransactionRecord(r: {
     paymentGroupId: r.paymentGroupId,
     contractId: r.contractId,
     createdByName: r.creator.name,
-    createdAt: r.createdAt.toISOString().split("T")[0],
-    updatedAt: r.updatedAt.toISOString().split("T")[0],
+    createdAt: toLocalDateString(r.createdAt),
+    updatedAt: toLocalDateString(r.updatedAt),
     allocationGroupSummary,
   };
 }

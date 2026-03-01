@@ -71,6 +71,8 @@ export default async function TransactionDetailPage({ params }: Props) {
     paymentMethodId: transaction.paymentMethodId,
     paymentDueDate: transaction.paymentDueDate,
     note: transaction.note,
+    hasExpenseOwner: transaction.hasExpenseOwner,
+    expenseOwners: transaction.expenseOwners,
     isWithholdingTarget: transaction.isWithholdingTarget,
     withholdingTaxRate: transaction.withholdingTaxRate != null ? Number(transaction.withholdingTaxRate) : null,
     withholdingTaxAmount: transaction.withholdingTaxAmount,
@@ -115,6 +117,15 @@ export default async function TransactionDetailPage({ params }: Props) {
           <TransactionConfirmButton transactionId={transaction.id} />
         )}
       </div>
+
+      {/* 操作者情報 */}
+      {(transaction.creator || transaction.updater) && (
+        <p className="text-sm text-muted-foreground">
+          {transaction.creator && <>作成: {transaction.creator.name}</>}
+          {transaction.creator && transaction.updater && <> | </>}
+          {transaction.updater && <>最終更新: {transaction.updater.name}</>}
+        </p>
+      )}
 
       {/* 紐づけバナー */}
       {isLinked && (
@@ -202,7 +213,7 @@ export default async function TransactionDetailPage({ params }: Props) {
                   groupLabel = item.invoiceGroup.invoiceNumber ?? "請求(下書き)";
                 } else if (item?.paymentGroup) {
                   const m = item.paymentGroup.targetMonth;
-                  groupLabel = `支払 ${m.getUTCFullYear()}/${String(m.getUTCMonth() + 1).padStart(2, "0")}`;
+                  groupLabel = m ? `支払 ${m.getUTCFullYear()}/${String(m.getUTCMonth() + 1).padStart(2, "0")}` : "支払（対象月未設定）";
                 }
                 return {
                   costCenterName: l.costCenter!.name,
@@ -308,6 +319,27 @@ export default async function TransactionDetailPage({ params }: Props) {
               </dl>
             </CardContent>
           </Card>
+
+          {/* 経費負担者（該当する場合） */}
+          {transaction.hasExpenseOwner && transaction.expenseOwners.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>経費負担者</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  {transaction.expenseOwners.map((owner) => (
+                    <span
+                      key={owner.id}
+                      className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-sm"
+                    >
+                      {owner.staff?.name ?? owner.customName ?? "-"}
+                    </span>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* 源泉徴収（該当する場合） */}
           {transaction.isWithholdingTarget && (

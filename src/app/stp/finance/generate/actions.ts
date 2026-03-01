@@ -20,6 +20,7 @@ import {
 } from "@/app/accounting/changelog/actions";
 import { CANDIDATE_DECISION_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
 import { getSystemProjectContext } from "@/lib/project-context";
+import { toLocalDateString } from "@/lib/utils";
 
 // ============================================
 // 型定義
@@ -97,7 +98,7 @@ const startOfMonth = (date: Date) =>
 const endOfMonth = (date: Date) =>
   new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
 
-const formatDate = (date: Date): string => date.toISOString().split("T")[0];
+const formatDate = (date: Date): string => toLocalDateString(date);
 
 type ContractPlan = "monthly" | "performance" | string;
 
@@ -372,7 +373,7 @@ export async function detectTransactionCandidates(
     c.overrideTaxRate = decision.overrideTaxRate;
     c.overrideMemo = decision.overrideMemo;
     c.overrideScheduledPaymentDate = decision.overrideScheduledPaymentDate
-      ? decision.overrideScheduledPaymentDate.toISOString().split("T")[0]
+      ? toLocalDateString(decision.overrideScheduledPaymentDate)
       : null;
   }
 

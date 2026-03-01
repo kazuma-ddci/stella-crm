@@ -86,7 +86,7 @@ export async function createInvoiceTemplate(data: Record<string, unknown>) {
     });
   }
 
-  revalidatePath("/accounting/masters/invoice-templates");
+  revalidatePath("/settings/email-templates");
 }
 
 export async function updateInvoiceTemplate(id: number, data: Record<string, unknown>) {
@@ -201,7 +201,7 @@ export async function updateInvoiceTemplate(id: number, data: Record<string, unk
     });
   }
 
-  revalidatePath("/accounting/masters/invoice-templates");
+  revalidatePath("/settings/email-templates");
 }
 
 export async function deleteInvoiceTemplate(id: number) {
@@ -216,5 +216,5 @@ export async function deleteInvoiceTemplate(id: number) {
     },
   });
 
-  revalidatePath("/accounting/masters/invoice-templates");
+  revalidatePath("/settings/email-templates");
 }

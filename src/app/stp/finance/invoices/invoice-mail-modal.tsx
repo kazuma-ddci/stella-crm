@@ -20,12 +20,22 @@ import {
   X,
   RefreshCw,
   CheckCircle2,
+  CheckIcon,
   XCircle,
   Clock,
   MessageSquare,
+  UserPlus,
 } from "lucide-react";
 import { toast } from "sonner";
+import * as SelectPrimitive from "@radix-ui/react-select";
+import {
+  Select,
+  SelectContent,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { expandTemplate } from "@/lib/email/template-utils";
+import { addContact } from "@/app/companies/contact-actions";
 import type { InvoiceMailFormData } from "./mail-actions";
 import {
   getInvoiceMailData,
@@ -94,6 +104,11 @@ export function InvoiceMailModal({ open, onClose, invoiceGroupId }: Props) {
   const [manualEmail, setManualEmail] = useState("");
   const [manualName, setManualName] = useState("");
   const [manualType, setManualType] = useState<"to" | "cc" | "bcc">("to");
+
+  // 担当者追加確認用
+  const [pendingContacts, setPendingContacts] = useState<
+    { name: string; email: string }[]
+  >([]);
 
   // 手動送付記録
   const [manualSendMethod, setManualSendMethod] = useState<
@@ -312,7 +327,18 @@ export function InvoiceMailModal({ open, onClose, invoiceGroupId }: Props) {
       if (result.success) {
         toast.success("送信完了しました");
         setShowConfirm(false);
-        onClose();
+
+        // 手動入力宛先（名前あり）で取引先がStella全顧客マスタに属している場合、担当者追加を提案
+        const manualRecipients = recipients.filter(
+          (r) => r.contactId === null && r.name
+        );
+        if (data?.invoiceGroup.stellaCompanyId && manualRecipients.length > 0) {
+          setPendingContacts(
+            manualRecipients.map((r) => ({ name: r.name!, email: r.email }))
+          );
+        } else {
+          onClose();
+        }
       } else {
         toast.error(`送信に失敗しました: ${result.error}`);
         setShowConfirm(false);
@@ -335,6 +361,7 @@ export function InvoiceMailModal({ open, onClose, invoiceGroupId }: Props) {
     subject,
     body,
     recipients,
+    data,
     onClose,
     loadData,
   ]);
@@ -366,6 +393,38 @@ export function InvoiceMailModal({ open, onClose, invoiceGroupId }: Props) {
     },
     [loadData]
   );
+
+  // ============================================
+  // 担当者追加（送信後の確認）
+  // ============================================
+
+  const handleAddContacts = useCallback(async () => {
+    if (!data?.invoiceGroup.stellaCompanyId || pendingContacts.length === 0) return;
+    setSending(true);
+    try {
+      for (const contact of pendingContacts) {
+        await addContact(data.invoiceGroup.stellaCompanyId, {
+          name: contact.name,
+          email: contact.email,
+          isPrimary: false,
+        });
+      }
+      toast.success("担当者を追加しました");
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "担当者の追加に失敗しました"
+      );
+    } finally {
+      setSending(false);
+      setPendingContacts([]);
+      onClose();
+    }
+  }, [data, pendingContacts, onClose]);
+
+  const handleSkipAddContacts = useCallback(() => {
+    setPendingContacts([]);
+    onClose();
+  }, [onClose]);
 
   // ============================================
   // 手動送付記録
@@ -478,43 +537,72 @@ export function InvoiceMailModal({ open, onClose, invoiceGroupId }: Props) {
               {activeTab === "email" && !showConfirm && (
                 <div className="space-y-4 p-1">
                   {/* 送信先情報 */}
-                  <div className="rounded-lg bg-gray-50 p-3 text-sm">
-                    <span className="text-muted-foreground">送付先: </span>
-                    <span className="font-medium">
-                      {data.invoiceGroup.counterpartyName}
-                    </span>
+                  <div className="rounded-lg bg-gray-50 p-3 text-sm space-y-1">
+                    <div>
+                      <span className="text-muted-foreground inline-block w-[3em] text-justify mr-1" style={{ textAlignLast: "justify" }}>送付先</span>
+                      <span className="text-muted-foreground mr-2">:</span>
+                      <span className="font-medium">
+                        {data.invoiceGroup.counterpartyName}
+                      </span>
+                    </div>
                     {data.invoiceGroup.pdfFileName && (
-                      <>
-                        <span className="mx-2 text-muted-foreground">|</span>
-                        <span className="text-muted-foreground">添付: </span>
+                      <div>
+                        <span className="text-muted-foreground inline-block w-[3em] text-justify mr-1" style={{ textAlignLast: "justify" }}>添付</span>
+                        <span className="text-muted-foreground mr-2">:</span>
                         <span className="font-medium">
                           {data.invoiceGroup.pdfFileName}
                         </span>
-                      </>
+                      </div>
                     )}
                   </div>
 
                   {/* 送信元メールアドレス */}
                   <div>
-                    <Label htmlFor="sender-email">送信元メールアドレス</Label>
-                    <select
-                      id="sender-email"
+                    <Label>送信元メールアドレス</Label>
+                    <Select
                       value={senderEmailId}
-                      onChange={(e) => setSenderEmailId(e.target.value)}
-                      className="mt-1 w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      onValueChange={setSenderEmailId}
                     >
-                      <option value="">選択してください</option>
-                      {data.senderEmails.map((e) => (
-                        <option key={e.id} value={String(e.id)}>
-                          {e.email}
-                          {e.label ? ` (${e.label})` : ""}
-                          {e.isDefault ? " [デフォルト]" : ""}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="mt-1 w-full">
+                        <SelectValue placeholder="選択してください" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {data.senderEmails.map((e) => {
+                          const description = e.memo || e.label;
+                          return (
+                            <SelectPrimitive.Item
+                              key={e.id}
+                              value={String(e.id)}
+                              className="relative flex w-full cursor-default items-center rounded-sm py-1.5 pr-8 pl-2 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                            >
+                              <span className="absolute right-2 flex size-3.5 items-center justify-center">
+                                <SelectPrimitive.ItemIndicator>
+                                  <CheckIcon className="size-4" />
+                                </SelectPrimitive.ItemIndicator>
+                              </span>
+                              <div>
+                                <SelectPrimitive.ItemText>
+                                  {e.email}
+                                </SelectPrimitive.ItemText>
+                                {description && (
+                                  <span className="text-muted-foreground ml-1 text-xs">
+                                    ({description})
+                                  </span>
+                                )}
+                                {e.isDefault && (
+                                  <span className="text-muted-foreground ml-1 text-xs">
+                                    [デフォルト]
+                                  </span>
+                                )}
+                              </div>
+                            </SelectPrimitive.Item>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
                     {data.senderEmails.length === 0 && (
                       <p className="text-xs text-amber-600 mt-1">
-                        送信元メールアドレスが未設定です。運営法人マスタで設定してください。
+                        SMTP設定済みの送信元メールアドレスがありません。運営法人マスタで設定してください。
                       </p>
                     )}
                   </div>
@@ -667,12 +755,6 @@ export function InvoiceMailModal({ open, onClose, invoiceGroupId }: Props) {
                           value={manualEmail}
                           onChange={(e) => setManualEmail(e.target.value)}
                           className="h-8 text-sm"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              addManualRecipient();
-                            }
-                          }}
                         />
                       </div>
                       <div className="w-28">
@@ -1030,6 +1112,57 @@ export function InvoiceMailModal({ open, onClose, invoiceGroupId }: Props) {
                       })}
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* ============================================ */}
+              {/* 担当者追加確認（送信成功後） */}
+              {/* ============================================ */}
+              {pendingContacts.length > 0 && (
+                <div className="absolute inset-0 bg-background flex flex-col p-4 space-y-4">
+                  <div className="flex items-center gap-2 text-base font-medium">
+                    <UserPlus className="h-5 w-5" />
+                    担当者の追加
+                  </div>
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm">
+                    以下の情報を
+                    <span className="font-medium">
+                      {data?.invoiceGroup.counterpartyName}
+                    </span>
+                    の担当者に追加しますか？
+                  </div>
+                  <div className="border rounded-lg divide-y">
+                    {pendingContacts.map((c) => (
+                      <div
+                        key={c.email}
+                        className="px-4 py-3 flex items-center gap-3"
+                      >
+                        <UserPlus className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div>
+                          <div className="text-sm font-medium">{c.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {c.email}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleSkipAddContacts}
+                      disabled={sending}
+                    >
+                      スキップ
+                    </Button>
+                    <Button onClick={handleAddContacts} disabled={sending}>
+                      {sending && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      <UserPlus className="mr-2 h-4 w-4" />
+                      追加する
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>

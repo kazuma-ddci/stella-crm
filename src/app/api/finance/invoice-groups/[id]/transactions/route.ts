@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { toLocalDateString } from "@/lib/utils";
 
 export async function GET(
   _request: Request,
@@ -39,8 +40,8 @@ export async function GET(
     taxAmount: t.taxAmount,
     taxRate: t.taxRate,
     taxType: t.taxType,
-    periodFrom: t.periodFrom.toISOString().split("T")[0],
-    periodTo: t.periodTo.toISOString().split("T")[0],
+    periodFrom: toLocalDateString(t.periodFrom),
+    periodTo: toLocalDateString(t.periodTo),
     note: t.note,
   }));
 

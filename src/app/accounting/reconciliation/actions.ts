@@ -57,7 +57,7 @@ export type UnmatchedJournalEntry = {
     description: string | null;
   }[];
   invoiceGroup: { id: number; invoiceNumber: string | null } | null;
-  paymentGroup: { id: number; targetMonth: Date } | null;
+  paymentGroup: { id: number; targetMonth: Date | null } | null;
   transaction: {
     id: number;
     type: string;

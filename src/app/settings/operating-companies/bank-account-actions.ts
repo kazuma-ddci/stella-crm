@@ -9,6 +9,8 @@ export async function addOperatingCompanyBankAccount(
   data: Record<string, unknown>
 ) {
   await requireMasterDataEditPermission();
+  const isDefault = !!data.isDefault;
+
   const bankAccount = await prisma.operatingCompanyBankAccount.create({
     data: {
       operatingCompanyId,
@@ -19,8 +21,20 @@ export async function addOperatingCompanyBankAccount(
       accountNumber: data.accountNumber as string,
       accountHolderName: data.accountHolderName as string,
       note: (data.note as string) || null,
+      isDefault,
     },
   });
+
+  if (isDefault) {
+    await prisma.operatingCompanyBankAccount.updateMany({
+      where: {
+        operatingCompanyId,
+        id: { not: bankAccount.id },
+        deletedAt: null,
+      },
+      data: { isDefault: false },
+    });
+  }
 
   revalidatePath("/settings/operating-companies");
   return {
@@ -33,6 +47,7 @@ export async function addOperatingCompanyBankAccount(
     accountNumber: bankAccount.accountNumber,
     accountHolderName: bankAccount.accountHolderName,
     note: bankAccount.note,
+    isDefault: bankAccount.isDefault,
     createdAt: bankAccount.createdAt.toISOString(),
     updatedAt: bankAccount.updatedAt.toISOString(),
   };
@@ -48,6 +63,8 @@ export async function updateOperatingCompanyBankAccount(
   });
   if (!existing) throw new Error("Bank account not found");
 
+  const isDefault = !!data.isDefault;
+
   const bankAccount = await prisma.operatingCompanyBankAccount.update({
     where: { id },
     data: {
@@ -58,8 +75,20 @@ export async function updateOperatingCompanyBankAccount(
       accountNumber: data.accountNumber as string,
       accountHolderName: data.accountHolderName as string,
       note: (data.note as string) || null,
+      isDefault,
     },
   });
+
+  if (isDefault) {
+    await prisma.operatingCompanyBankAccount.updateMany({
+      where: {
+        operatingCompanyId: bankAccount.operatingCompanyId,
+        id: { not: bankAccount.id },
+        deletedAt: null,
+      },
+      data: { isDefault: false },
+    });
+  }
 
   revalidatePath("/settings/operating-companies");
   return {
@@ -72,6 +101,7 @@ export async function updateOperatingCompanyBankAccount(
     accountNumber: bankAccount.accountNumber,
     accountHolderName: bankAccount.accountHolderName,
     note: bankAccount.note,
+    isDefault: bankAccount.isDefault,
     createdAt: bankAccount.createdAt.toISOString(),
     updatedAt: bankAccount.updatedAt.toISOString(),
   };

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { requireEdit } from "@/lib/auth";
 import { sendInvoiceEmail } from "@/lib/email/invoice-email";
+import { toLocalDateString } from "@/lib/utils";
 
 // ============================================
 // 型定義
@@ -15,6 +16,7 @@ export type InvoiceMailFormData = {
     invoiceNumber: string | null;
     counterpartyId: number;
     counterpartyName: string;
+    stellaCompanyId: number | null;
     operatingCompanyId: number;
     operatingCompanyName: string;
     paymentDueDate: string | null;
@@ -34,6 +36,7 @@ export type InvoiceMailFormData = {
     id: number;
     email: string;
     label: string | null;
+    memo: string | null;
     isDefault: boolean;
   }[];
   templates: {
@@ -102,12 +105,39 @@ export async function getInvoiceMailData(
     },
     orderBy: [{ isDefault: "desc" }, { id: "asc" }],
   });
-  const senderEmails = emails.map((e) => ({
-    id: e.id,
-    email: e.email,
-    label: e.label,
-    isDefault: e.isDefault,
-  }));
+
+  // ProjectEmailのメモ取得
+  const projectEmails = group.projectId
+    ? await prisma.projectEmail.findMany({
+        where: { projectId: group.projectId },
+      })
+    : [];
+  const projectEmailMap = new Map(
+    projectEmails.map((pe) => [pe.emailId, pe.memo])
+  );
+
+  // 個別SMTP設定があるメールのみフィルタ＋memo追加
+  let senderEmails = emails
+    .filter((e) => !!(e.smtpHost && e.smtpUser && e.smtpPass))
+    .map((e) => ({
+      id: e.id,
+      email: e.email,
+      label: e.label,
+      memo: projectEmailMap.get(e.id) ?? null,
+      isDefault: e.isDefault,
+    }));
+
+  // ProjectEmail テーブルから該当PJのデフォルト送信元を取得
+  if (group.projectId) {
+    const defaultProjectEmail = projectEmails.find((pe) => pe.isDefault);
+    if (defaultProjectEmail) {
+      // senderEmails の isDefault をオーバーライド
+      senderEmails = senderEmails.map((e) => ({
+        ...e,
+        isDefault: e.id === defaultProjectEmail.emailId,
+      }));
+    }
+  }
 
   // InvoiceTemplate取得（deletedAt: null, templateType: "sending"）
   const templateRecords = await prisma.invoiceTemplate.findMany({
@@ -156,10 +186,11 @@ export async function getInvoiceMailData(
       invoiceNumber: group.invoiceNumber,
       counterpartyId: group.counterpartyId,
       counterpartyName: group.counterparty.name,
+      stellaCompanyId: group.counterparty.companyId,
       operatingCompanyId: group.operatingCompanyId,
       operatingCompanyName: group.operatingCompany.companyName,
       paymentDueDate:
-        group.paymentDueDate?.toISOString().split("T")[0] ?? null,
+        group.paymentDueDate ? toLocalDateString(group.paymentDueDate) : null,
       totalAmount: group.totalAmount,
       pdfPath: group.pdfPath,
       pdfFileName: group.pdfFileName,

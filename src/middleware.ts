@@ -44,6 +44,7 @@ const MASTER_DATA_PATHS = [
   "/staff/role-types",
   "/staff/field-restrictions",
   "/stp/settings/stages",
+  "/settings/email-templates",
 ];
 
 function isPublicPath(pathname: string): boolean {
@@ -73,6 +74,9 @@ function isMasterDataPath(pathname: string): boolean {
 function getRequiredProject(pathname: string): ProjectCode | null {
   if (pathname.startsWith("/stp")) {
     return "stp";
+  }
+  if (pathname.startsWith("/accounting")) {
+    return "accounting";
   }
   if (pathname.startsWith("/settings")) {
     return "stella";
@@ -183,6 +187,9 @@ export default auth((request) => {
   const isAdmin = userPermissions.some(
     (p: { permissionLevel: string }) => p.permissionLevel === "admin"
   );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const loginId = (session.user as any).loginId as string | null;
+  const isAdminUser = loginId === "admin";
 
   // 固定データ管理者（stella001）: 固定データパスのみアクセス可能
   if (canEditMasterData) {
@@ -248,11 +255,13 @@ export default auth((request) => {
       }
     }
 
-    // 社内スタッフ用のプロジェクト権限チェック
-    const requiredProject = getRequiredProject(pathname);
-    if (requiredProject) {
-      if (!hasPermission(userPermissions, requiredProject)) {
-        return NextResponse.redirect(new URL("/", request.url));
+    // 社内スタッフ用のプロジェクト権限チェック（adminユーザーはバイパス）
+    if (!isAdminUser) {
+      const requiredProject = getRequiredProject(pathname);
+      if (requiredProject) {
+        if (!hasPermission(userPermissions, requiredProject)) {
+          return NextResponse.redirect(new URL("/", request.url));
+        }
       }
     }
   }

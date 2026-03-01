@@ -8,24 +8,31 @@ import { recordChangeLog } from "@/app/accounting/changelog/actions";
 import { requireStpProjectId } from "@/lib/project-context";
 import fs from "fs/promises";
 import path from "path";
+import { formatTimestamp } from "@/lib/attachments/constants";
+import { toLocalDateString } from "@/lib/utils";
+import { calcDueDate } from "@/lib/finance/due-date";
+import { createNotificationBulk } from "@/lib/notifications/create-notification";
 
 // ============================================
-// 税額計算ヘルパー（取引の税額を単純合計）
+// 税額計算ヘルパー（グループレベル一括計算）
+// インボイス制度対応: 税率ごとに集計し端数処理は税率グループ単位で1回のみ
 // ============================================
+
+import { calcInvoiceTaxSummary, calcInvoiceTotalFromSummary } from "@/lib/finance/invoice-tax";
 
 function calcGroupTotals(transactions: { amount: number; taxAmount: number; taxRate: number; taxType: string }[]) {
-  let subtotal = 0;
-  let taxTotal = 0;
-  for (const t of transactions) {
-    if (t.taxType === "tax_excluded") {
-      subtotal += t.amount;
-      taxTotal += t.taxAmount;
-    } else {
-      subtotal += t.amount - t.taxAmount;
-      taxTotal += t.taxAmount;
-    }
-  }
-  return { subtotal, taxAmount: taxTotal, totalAmount: subtotal + taxTotal };
+  // 各取引の税抜金額を算出（knownTaxでDB保存済み税額をパススルーし¥1ズレを防ぐ）
+  const lineItems = transactions.map((t) => ({
+    amount: t.taxType === "tax_excluded" ? t.amount : t.amount - t.taxAmount,
+    taxRate: t.taxRate,
+    knownTax: t.taxAmount,
+  }));
+
+  const summary = calcInvoiceTaxSummary(lineItems);
+  const { totalAmount, taxAmount } = calcInvoiceTotalFromSummary(summary);
+  const subtotal = totalAmount - taxAmount;
+
+  return { subtotal, taxAmount, totalAmount };
 }
 
 // ============================================
@@ -61,6 +68,7 @@ export async function getInvoiceGroups(
       transactions: { where: { deletedAt: null }, select: { id: true } },
       allocationItems: { select: { id: true } },
       creator: true,
+      _count: { select: { memoLines: true } },
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
@@ -76,10 +84,10 @@ export async function getInvoiceGroups(
       ? `${r.bankAccount.bankName} ${r.bankAccount.branchName} ${r.bankAccount.accountNumber}`
       : null,
     invoiceNumber: r.invoiceNumber,
-    invoiceDate: r.invoiceDate?.toISOString().split("T")[0] ?? null,
-    paymentDueDate: r.paymentDueDate?.toISOString().split("T")[0] ?? null,
-    expectedPaymentDate: r.expectedPaymentDate?.toISOString().split("T")[0] ?? null,
-    actualPaymentDate: r.actualPaymentDate?.toISOString().split("T")[0] ?? null,
+    invoiceDate: r.invoiceDate ? toLocalDateString(r.invoiceDate) : null,
+    paymentDueDate: r.paymentDueDate ? toLocalDateString(r.paymentDueDate) : null,
+    expectedPaymentDate: r.expectedPaymentDate ? toLocalDateString(r.expectedPaymentDate) : null,
+    actualPaymentDate: r.actualPaymentDate ? toLocalDateString(r.actualPaymentDate) : null,
     subtotal: r.subtotal,
     taxAmount: r.taxAmount,
     totalAmount: r.totalAmount,
@@ -88,11 +96,67 @@ export async function getInvoiceGroups(
     correctionType: r.correctionType,
     originalInvoiceGroupId: r.originalInvoiceGroupId,
     originalInvoiceNumber: r.originalInvoiceGroup?.invoiceNumber ?? null,
+    honorific: r.honorific,
+    remarks: r.remarks,
+    lineOrder: r.lineOrder as string[] | null,
+    memoLineCount: r._count.memoLines,
     transactionCount: r.transactions.length,
     allocationItemCount: r.allocationItems.length,
     createdByName: r.creator.name,
-    createdAt: r.createdAt.toISOString().split("T")[0],
+    createdAt: toLocalDateString(r.createdAt),
   }));
+}
+
+// 単一の請求グループを取得
+export async function getInvoiceGroupById(
+  groupId: number
+): Promise<InvoiceGroupListItem | null> {
+  const r = await prisma.invoiceGroup.findFirst({
+    where: { id: groupId, deletedAt: null },
+    include: {
+      counterparty: true,
+      operatingCompany: true,
+      bankAccount: true,
+      originalInvoiceGroup: { select: { invoiceNumber: true } },
+      transactions: { where: { deletedAt: null }, select: { id: true } },
+      allocationItems: { select: { id: true } },
+      creator: true,
+      _count: { select: { memoLines: true } },
+    },
+  });
+  if (!r) return null;
+  return {
+    id: r.id,
+    counterpartyId: r.counterpartyId,
+    counterpartyName: r.counterparty.name,
+    operatingCompanyId: r.operatingCompanyId,
+    operatingCompanyName: r.operatingCompany.companyName,
+    bankAccountId: r.bankAccountId,
+    bankAccountLabel: r.bankAccount
+      ? `${r.bankAccount.bankName} ${r.bankAccount.branchName} ${r.bankAccount.accountNumber}`
+      : null,
+    invoiceNumber: r.invoiceNumber,
+    invoiceDate: r.invoiceDate ? toLocalDateString(r.invoiceDate) : null,
+    paymentDueDate: r.paymentDueDate ? toLocalDateString(r.paymentDueDate) : null,
+    expectedPaymentDate: r.expectedPaymentDate ? toLocalDateString(r.expectedPaymentDate) : null,
+    actualPaymentDate: r.actualPaymentDate ? toLocalDateString(r.actualPaymentDate) : null,
+    subtotal: r.subtotal,
+    taxAmount: r.taxAmount,
+    totalAmount: r.totalAmount,
+    pdfPath: r.pdfPath,
+    status: r.status,
+    correctionType: r.correctionType,
+    originalInvoiceGroupId: r.originalInvoiceGroupId,
+    originalInvoiceNumber: r.originalInvoiceGroup?.invoiceNumber ?? null,
+    honorific: r.honorific,
+    remarks: r.remarks,
+    lineOrder: r.lineOrder as string[] | null,
+    memoLineCount: r._count.memoLines,
+    transactionCount: r.transactions.length,
+    allocationItemCount: r.allocationItems.length,
+    createdByName: r.creator.name,
+    createdAt: toLocalDateString(r.createdAt),
+  };
 }
 
 // 確認済み＆未グループ化の売上取引を取得（按分取引は除外）
@@ -131,8 +195,8 @@ export async function getUngroupedTransactions(
     taxAmount: r.taxAmount,
     taxRate: r.taxRate,
     taxType: r.taxType,
-    periodFrom: r.periodFrom.toISOString().split("T")[0],
-    periodTo: r.periodTo.toISOString().split("T")[0],
+    periodFrom: toLocalDateString(r.periodFrom),
+    periodTo: toLocalDateString(r.periodTo),
     note: r.note,
   }));
 }
@@ -241,8 +305,8 @@ export async function getUngroupedAllocationItems(
         allocatedTaxAmount,
         ownerCostCenterName: ownerCcName,
         isOwnerProject: ownerCcId !== null && targetCcIds.includes(ownerCcId),
-        periodFrom: tx.periodFrom.toISOString().split("T")[0],
-        periodTo: tx.periodTo.toISOString().split("T")[0],
+        periodFrom: toLocalDateString(tx.periodFrom),
+        periodTo: toLocalDateString(tx.periodTo),
         note: tx.note,
         otherItems,
       });
@@ -317,21 +381,56 @@ export async function createInvoiceGroup(data: {
     // 金額計算（取引の税額を単純合計）
     const { subtotal, taxAmount, totalAmount } = calcGroupTotals(transactions);
 
+    // 日付自動計算: 請求日（未指定なら今日）、入金期限（取引先の支払条件から自動算出）
+    const autoInvoiceDate = data.invoiceDate ? new Date(data.invoiceDate) : new Date();
+
+    let autoPaymentDueDate: Date | null = data.paymentDueDate
+      ? new Date(data.paymentDueDate)
+      : null;
+
+    if (!autoPaymentDueDate) {
+      const counterparty = await tx.counterparty.findUnique({
+        where: { id: data.counterpartyId },
+        include: { company: true },
+      });
+      if (counterparty?.company) {
+        const { closingDay, paymentMonthOffset, paymentDay } = counterparty.company;
+        autoPaymentDueDate = calcDueDate({
+          invoiceDate: autoInvoiceDate,
+          closingDay,
+          paymentMonthOffset,
+          paymentDay,
+        });
+      }
+    }
+
+    // フォールバック: 運営法人の支払条件
+    if (!autoPaymentDueDate) {
+      const opCo = await tx.operatingCompany.findUnique({
+        where: { id: data.operatingCompanyId },
+        select: { paymentMonthOffset: true, paymentDay: true },
+      });
+      if (opCo) {
+        autoPaymentDueDate = calcDueDate({
+          invoiceDate: autoInvoiceDate,
+          closingDay: null,
+          paymentMonthOffset: opCo.paymentMonthOffset,
+          paymentDay: opCo.paymentDay,
+        });
+      }
+    }
+
     // InvoiceGroup作成（サーバー側で取得したprojectIdを使用）
     const group = await tx.invoiceGroup.create({
       data: {
         counterpartyId: data.counterpartyId,
         operatingCompanyId: data.operatingCompanyId,
         bankAccountId: data.bankAccountId ?? null,
-        invoiceDate: data.invoiceDate ? new Date(data.invoiceDate) : null,
-        paymentDueDate: data.paymentDueDate
-          ? new Date(data.paymentDueDate)
-          : null,
+        invoiceDate: autoInvoiceDate,
+        paymentDueDate: autoPaymentDueDate,
         expectedPaymentDate: data.expectedPaymentDate
           ? new Date(data.expectedPaymentDate)
-          : data.paymentDueDate
-          ? new Date(data.paymentDueDate)
-          : null,
+          : autoPaymentDueDate,
         subtotal,
         taxAmount,
         totalAmount,
@@ -346,6 +445,17 @@ export async function createInvoiceGroup(data: {
       where: { id: { in: transactions.map((t) => t.id) }, projectId: stpProjectId },
       data: { invoiceGroupId: group.id },
     });
+
+    await recordChangeLog(
+      {
+        tableName: "InvoiceGroup",
+        recordId: group.id,
+        changeType: "create",
+        newData: { status: "draft", counterpartyId: data.counterpartyId, operatingCompanyId: data.operatingCompanyId },
+      },
+      user.id,
+      tx
+    );
 
     return { id: group.id, invoiceNumber: null };
   });
@@ -370,6 +480,9 @@ export async function updateInvoiceGroup(
     subtotal?: number | null;
     taxAmount?: number | null;
     totalAmount?: number | null;
+    honorific?: string;
+    remarks?: string | null;
+    lineDescriptions?: Record<string, string> | null;
   }
 ): Promise<void> {
   const user = await requireEdit("stp");
@@ -383,6 +496,14 @@ export async function updateInvoiceGroup(
   // actualPaymentDate のみの更新は送付済み以降でも許可
   const onlyActualPaymentDate =
     Object.keys(data).length === 1 && "actualPaymentDate" in data;
+
+  // 経理引き渡し後は actualPaymentDate の編集も不可
+  if (
+    onlyActualPaymentDate &&
+    ["awaiting_accounting", "partially_paid", "paid"].includes(group.status)
+  ) {
+    throw new Error("経理引き渡し後は編集できません");
+  }
 
   // 送付済み以降・返送は編集不可（actualPaymentDateのみは例外）
   if (
@@ -417,6 +538,10 @@ export async function updateInvoiceGroup(
   if ("subtotal" in data) updateData.subtotal = data.subtotal;
   if ("taxAmount" in data) updateData.taxAmount = data.taxAmount;
   if ("totalAmount" in data) updateData.totalAmount = data.totalAmount;
+  if ("honorific" in data) updateData.honorific = data.honorific;
+  if ("remarks" in data) updateData.remarks = data.remarks ?? null;
+  if ("lineDescriptions" in data)
+    updateData.lineDescriptions = data.lineDescriptions ?? null;
 
   // pdf_created状態で情報が変更された場合、ステータスをdraftに戻す
   if (group.status === "pdf_created") {
@@ -425,9 +550,49 @@ export async function updateInvoiceGroup(
     updateData.status = "draft";
   }
 
-  await prisma.invoiceGroup.update({
-    where: { id },
-    data: updateData,
+  // 変更前後データを記録
+  const oldData: Record<string, unknown> = {};
+  const newData: Record<string, unknown> = {};
+  if ("bankAccountId" in data && data.bankAccountId !== (group.bankAccountId ?? null)) {
+    oldData.bankAccountId = group.bankAccountId;
+    newData.bankAccountId = data.bankAccountId ?? null;
+  }
+  if ("invoiceDate" in data) {
+    oldData.invoiceDate = group.invoiceDate ? toLocalDateString(group.invoiceDate) : null;
+    newData.invoiceDate = data.invoiceDate ?? null;
+  }
+  if ("paymentDueDate" in data) {
+    oldData.paymentDueDate = group.paymentDueDate ? toLocalDateString(group.paymentDueDate) : null;
+    newData.paymentDueDate = data.paymentDueDate ?? null;
+  }
+  if ("expectedPaymentDate" in data) {
+    oldData.expectedPaymentDate = group.expectedPaymentDate ? toLocalDateString(group.expectedPaymentDate) : null;
+    newData.expectedPaymentDate = data.expectedPaymentDate ?? null;
+  }
+  if ("actualPaymentDate" in data) {
+    oldData.actualPaymentDate = group.actualPaymentDate ? toLocalDateString(group.actualPaymentDate) : null;
+    newData.actualPaymentDate = data.actualPaymentDate ?? null;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.invoiceGroup.update({
+      where: { id },
+      data: updateData,
+    });
+
+    if (Object.keys(newData).length > 0) {
+      await recordChangeLog(
+        {
+          tableName: "InvoiceGroup",
+          recordId: id,
+          changeType: "update",
+          oldData,
+          newData,
+        },
+        user.id,
+        tx
+      );
+    }
   });
 
   revalidatePath("/stp/finance/invoices");
@@ -523,6 +688,17 @@ export async function addTransactionToGroup(
       where: { id: groupId },
       data: updateData,
     });
+
+    await recordChangeLog(
+      {
+        tableName: "InvoiceGroup",
+        recordId: groupId,
+        changeType: "update",
+        newData: { addedTransactionIds: transactions.map((t) => t.id) },
+      },
+      user.id,
+      tx
+    );
   });
 
   revalidatePath("/stp/finance/invoices");
@@ -578,6 +754,17 @@ export async function removeTransactionFromGroup(
       where: { id: groupId },
       data: updateData,
     });
+
+    await recordChangeLog(
+      {
+        tableName: "InvoiceGroup",
+        recordId: groupId,
+        changeType: "update",
+        newData: { removedTransactionIds: [transactionId] },
+      },
+      user.id,
+      tx
+    );
   });
 
   revalidatePath("/stp/finance/invoices");
@@ -625,6 +812,17 @@ export async function deleteInvoiceGroup(
       where: { id },
       data: { deletedAt: new Date(), updatedBy: user.id },
     });
+
+    await recordChangeLog(
+      {
+        tableName: "InvoiceGroup",
+        recordId: id,
+        changeType: "delete",
+        oldData: { status: group.status },
+      },
+      user.id,
+      tx
+    );
   });
 
   revalidatePath("/stp/finance/invoices");
@@ -797,11 +995,17 @@ export async function updateInvoiceGroupStatus(
     return;
   }
 
+  // paid への遷移時に actualPaymentDate を自動設定
+  const additionalData: Record<string, unknown> = {};
+  if (newStatus === "paid" && !group.actualPaymentDate) {
+    additionalData.actualPaymentDate = new Date(toLocalDateString(new Date()));
+  }
+
   const oldStatus = group.status;
   await prisma.$transaction(async (tx) => {
     await tx.invoiceGroup.update({
       where: { id },
-      data: { status: newStatus, updatedBy: user.id },
+      data: { status: newStatus, updatedBy: user.id, ...additionalData },
     });
 
     await recordChangeLog(
@@ -873,6 +1077,10 @@ export async function generateInvoicePdf(
     });
     if (!group) throw new Error("請求が見つかりません");
 
+    if (!group.bankAccountId) {
+      throw new Error("振込先口座が未設定です。基本情報タブで口座を設定してからPDFを作成してください。");
+    }
+
     // draft または pdf_created のみPDF生成可能
     if (!["draft", "pdf_created"].includes(group.status)) {
       throw new Error("このステータスではPDFを生成できません");
@@ -917,16 +1125,57 @@ export async function generateInvoicePdf(
 
   await fs.writeFile(filePath, buffer);
 
-  // DB更新: pdfPath, pdfFileName, status
-  const displayFileName = `請求書_${result.invoiceNumber}.pdf`;
-  await prisma.invoiceGroup.update({
-    where: { id: groupId },
-    data: {
-      pdfPath: publicPath,
-      pdfFileName: displayFileName,
-      status: "pdf_created",
-      updatedBy: user.id,
-    },
+  // DB更新: pdfPath, pdfFileName, status + 証憑（Attachment）に保存
+  // ファイル名: 請求書_{取引先名}{御中/様}_{YYYYMMDD_HHmmss}.pdf
+  const counterpartyName = data.counterpartyName ?? "";
+  const honorific = data.honorific ?? "御中";
+  const pdfDisplayName = `${counterpartyName}${honorific}`;
+  const timestamp = formatTimestamp(now);
+  const displayFileName = `請求書_${pdfDisplayName}_${timestamp}.pdf`;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.invoiceGroup.update({
+      where: { id: groupId },
+      data: {
+        pdfPath: publicPath,
+        pdfFileName: displayFileName,
+        status: "pdf_created",
+        updatedBy: user.id,
+      },
+    });
+
+    // 証憑タブに表示されるよう Attachment レコードを作成
+    // 既存のPDF証憑を「旧」にリネームして保持（論理削除ではなくattachmentType変更）
+    const existingInvoiceAttachments = await tx.attachment.findMany({
+      where: {
+        invoiceGroupId: groupId,
+        attachmentType: "invoice",
+        deletedAt: null,
+      },
+    });
+    for (const att of existingInvoiceAttachments) {
+      await tx.attachment.update({
+        where: { id: att.id },
+        data: {
+          attachmentType: "invoice_old",
+          generatedName: att.generatedName ? `[旧] ${att.generatedName}` : null,
+        },
+      });
+    }
+
+    await tx.attachment.create({
+      data: {
+        invoiceGroupId: groupId,
+        fileName: displayFileName,
+        filePath: publicPath,
+        fileSize: buffer.length,
+        mimeType: "application/pdf",
+        attachmentType: "invoice",
+        displayName: pdfDisplayName,
+        generatedName: displayFileName,
+        uploadedBy: user.id,
+      },
+    });
   });
 
   revalidatePath("/stp/finance/invoices");
@@ -1029,35 +1278,275 @@ export async function getInvoiceGroupAttachments(groupId: number) {
     filePath: a.filePath,
     fileSize: a.fileSize,
     mimeType: a.mimeType,
+    attachmentType: a.attachmentType,
+    displayName: a.displayName,
+    generatedName: a.generatedName,
     createdAt: a.createdAt.toISOString(),
   }));
 }
 
 export async function addInvoiceGroupAttachments(
   groupId: number,
-  files: { filePath: string; fileName: string; fileSize: number; mimeType: string }[]
+  files: {
+    filePath: string;
+    fileName: string;
+    fileSize: number;
+    mimeType: string;
+    attachmentType?: string;
+    displayName?: string;
+    generatedName?: string;
+  }[]
 ) {
   const session = await requireEdit("stp");
   await prisma.attachment.createMany({
     data: files.map((f) => ({
       invoiceGroupId: groupId,
       filePath: f.filePath,
-      fileName: f.fileName,
+      fileName: f.generatedName ?? f.fileName,
       fileSize: f.fileSize,
       mimeType: f.mimeType,
-      attachmentType: "voucher",
+      attachmentType: f.attachmentType ?? "voucher",
+      displayName: f.displayName ?? null,
+      generatedName: f.generatedName ?? null,
       uploadedBy: session.id,
     })),
   });
+
+  await recordChangeLog(
+    {
+      tableName: "InvoiceGroup",
+      recordId: groupId,
+      changeType: "update",
+      newData: { addedAttachments: files.map((f) => f.generatedName ?? f.fileName) },
+    },
+    session.id
+  );
+
   revalidatePath("/stp/finance/invoices");
 }
 
 export async function deleteInvoiceGroupAttachment(attachmentId: number) {
-  await requireEdit("stp");
+  const session = await requireEdit("stp");
+  const attachment = await prisma.attachment.findUnique({
+    where: { id: attachmentId },
+    select: { fileName: true, invoiceGroupId: true },
+  });
   await prisma.attachment.update({
     where: { id: attachmentId },
     data: { deletedAt: new Date() },
   });
+
+  if (attachment?.invoiceGroupId) {
+    await recordChangeLog(
+      {
+        tableName: "InvoiceGroup",
+        recordId: attachment.invoiceGroupId,
+        changeType: "update",
+        newData: { deletedAttachment: attachment.fileName },
+      },
+      session.id
+    );
+  }
+
+  revalidatePath("/stp/finance/invoices");
+}
+
+// ============================================
+// 請求書ビルダー: 詳細データ取得
+// ============================================
+
+export async function getInvoiceGroupDetail(groupId: number) {
+  const stpProjectId = await requireStpProjectId();
+
+  const group = await prisma.invoiceGroup.findUnique({
+    where: { id: groupId, deletedAt: null, projectId: stpProjectId },
+    include: {
+      counterparty: true,
+      operatingCompany: true,
+      bankAccount: true,
+      transactions: {
+        where: { deletedAt: null },
+        include: { expenseCategory: true },
+        orderBy: [{ periodFrom: "asc" }, { id: "asc" }],
+      },
+      memoLines: {
+        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+      },
+    },
+  });
+  if (!group) throw new Error("請求が見つかりません");
+
+  // 税額サマリー計算（プレビュー用）
+  const lineItemsForTax = group.transactions.map((t) => ({
+    amount: t.taxType === "tax_excluded" ? t.amount : t.amount - t.taxAmount,
+    taxRate: t.taxRate,
+  }));
+  const taxSummary = calcInvoiceTaxSummary(lineItemsForTax);
+
+  return {
+    id: group.id,
+    counterpartyId: group.counterpartyId,
+    counterpartyName: group.counterparty.name,
+    operatingCompanyId: group.operatingCompanyId,
+    operatingCompanyName: group.operatingCompany.companyName,
+    operatingCompany: {
+      companyName: group.operatingCompany.companyName,
+      registrationNumber: group.operatingCompany.registrationNumber,
+      postalCode: group.operatingCompany.postalCode,
+      address: group.operatingCompany.address,
+      representativeName: group.operatingCompany.representativeName,
+      phone: group.operatingCompany.phone,
+      logoPath: group.operatingCompany.logoPath,
+    },
+    bankAccountId: group.bankAccountId,
+    bankAccountLabel: group.bankAccount
+      ? `${group.bankAccount.bankName} ${group.bankAccount.branchName} ${group.bankAccount.accountNumber}`
+      : null,
+    bankAccount: group.bankAccount
+      ? {
+          bankName: group.bankAccount.bankName,
+          branchName: group.bankAccount.branchName,
+          accountNumber: group.bankAccount.accountNumber,
+          accountHolderName: group.bankAccount.accountHolderName,
+        }
+      : null,
+    invoiceNumber: group.invoiceNumber,
+    invoiceDate: group.invoiceDate ? toLocalDateString(group.invoiceDate) : null,
+    paymentDueDate: group.paymentDueDate ? toLocalDateString(group.paymentDueDate) : null,
+    honorific: group.honorific,
+    remarks: group.remarks,
+    lineOrder: group.lineOrder as string[] | null,
+    lineDescriptions: (group.lineDescriptions as Record<string, string> | null) ?? null,
+    status: group.status,
+    subtotal: group.subtotal,
+    taxAmount: group.taxAmount,
+    totalAmount: group.totalAmount,
+    pdfPath: group.pdfPath,
+    taxSummary,
+    transactions: group.transactions.map((t) => ({
+      id: t.id,
+      expenseCategoryName: t.expenseCategory.name,
+      amount: t.amount,
+      taxAmount: t.taxAmount,
+      taxRate: t.taxRate,
+      taxType: t.taxType,
+      periodFrom: toLocalDateString(t.periodFrom),
+      periodTo: toLocalDateString(t.periodTo),
+      note: t.note,
+    })),
+    memoLines: group.memoLines.map((m) => ({
+      id: m.id,
+      description: m.description,
+      sortOrder: m.sortOrder,
+    })),
+  };
+}
+
+// ============================================
+// 請求書ビルダー: メモ行 CRUD
+// ============================================
+
+export async function addMemoLine(
+  groupId: number,
+  description: string,
+  sortOrder?: number
+): Promise<{ id: number }> {
+  const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
+
+  const group = await prisma.invoiceGroup.findUnique({
+    where: { id: groupId, deletedAt: null, projectId: stpProjectId },
+  });
+  if (!group) throw new Error("請求が見つかりません");
+  if (!["draft", "pdf_created"].includes(group.status)) {
+    throw new Error("このステータスではメモ行を追加できません");
+  }
+
+  const maxOrder = sortOrder ?? (
+    await prisma.invoiceGroupMemoLine.aggregate({
+      where: { invoiceGroupId: groupId },
+      _max: { sortOrder: true },
+    })
+  )._max?.sortOrder ?? 0;
+
+  const line = await prisma.invoiceGroupMemoLine.create({
+    data: {
+      invoiceGroupId: groupId,
+      description,
+      sortOrder: sortOrder ?? maxOrder + 1,
+    },
+  });
+
+  revalidatePath("/stp/finance/invoices");
+  return { id: line.id };
+}
+
+export async function updateMemoLine(
+  memoLineId: number,
+  description: string
+): Promise<void> {
+  await requireEdit("stp");
+
+  const line = await prisma.invoiceGroupMemoLine.findUnique({
+    where: { id: memoLineId },
+    include: { invoiceGroup: true },
+  });
+  if (!line) throw new Error("メモ行が見つかりません");
+  if (!["draft", "pdf_created"].includes(line.invoiceGroup.status)) {
+    throw new Error("このステータスではメモ行を編集できません");
+  }
+
+  await prisma.invoiceGroupMemoLine.update({
+    where: { id: memoLineId },
+    data: { description },
+  });
+
+  revalidatePath("/stp/finance/invoices");
+}
+
+export async function deleteMemoLine(memoLineId: number): Promise<void> {
+  await requireEdit("stp");
+
+  const line = await prisma.invoiceGroupMemoLine.findUnique({
+    where: { id: memoLineId },
+    include: { invoiceGroup: true },
+  });
+  if (!line) throw new Error("メモ行が見つかりません");
+  if (!["draft", "pdf_created"].includes(line.invoiceGroup.status)) {
+    throw new Error("このステータスではメモ行を削除できません");
+  }
+
+  await prisma.invoiceGroupMemoLine.delete({
+    where: { id: memoLineId },
+  });
+
+  revalidatePath("/stp/finance/invoices");
+}
+
+// ============================================
+// 請求書ビルダー: 明細表示順の保存
+// ============================================
+
+export async function updateLineOrder(
+  groupId: number,
+  lineOrder: string[]
+): Promise<void> {
+  const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
+
+  const group = await prisma.invoiceGroup.findUnique({
+    where: { id: groupId, deletedAt: null, projectId: stpProjectId },
+  });
+  if (!group) throw new Error("請求が見つかりません");
+  if (!["draft", "pdf_created"].includes(group.status)) {
+    throw new Error("このステータスでは並び順を変更できません");
+  }
+
+  await prisma.invoiceGroup.update({
+    where: { id: groupId },
+    data: { lineOrder, updatedBy: user.id },
+  });
+
   revalidatePath("/stp/finance/invoices");
 }
 
@@ -1092,8 +1581,115 @@ export async function getUnconfirmedTransactions(
     taxAmount: r.taxAmount,
     taxRate: r.taxRate,
     taxType: r.taxType,
-    periodFrom: r.periodFrom.toISOString().split("T")[0],
-    periodTo: r.periodTo.toISOString().split("T")[0],
+    periodFrom: toLocalDateString(r.periodFrom),
+    periodTo: toLocalDateString(r.periodTo),
     note: r.note,
   }));
+}
+
+// ============================================
+// 入金期限自動計算（取引先 → 運営法人フォールバック）
+// ============================================
+
+export async function calculatePaymentDueDate(
+  counterpartyId: number,
+  operatingCompanyId: number,
+  invoiceDate?: string
+): Promise<string | null> {
+  const baseDate = invoiceDate ? new Date(invoiceDate) : new Date();
+
+  // 1. 取引先の支払条件
+  const counterparty = await prisma.counterparty.findUnique({
+    where: { id: counterpartyId },
+    include: { company: true },
+  });
+  if (counterparty?.company) {
+    const { closingDay, paymentMonthOffset, paymentDay } = counterparty.company;
+    const due = calcDueDate({ invoiceDate: baseDate, closingDay, paymentMonthOffset, paymentDay });
+    if (due) return toLocalDateString(due);
+  }
+
+  // 2. 運営法人の支払条件（フォールバック）
+  const opCo = await prisma.operatingCompany.findUnique({
+    where: { id: operatingCompanyId },
+    select: { paymentMonthOffset: true, paymentDay: true },
+  });
+  if (opCo) {
+    const due = calcDueDate({
+      invoiceDate: baseDate,
+      closingDay: null,
+      paymentMonthOffset: opCo.paymentMonthOffset,
+      paymentDay: opCo.paymentDay,
+    });
+    if (due) return toLocalDateString(due);
+  }
+
+  return null;
+}
+
+// ============================================
+// 差し戻し依頼
+// ============================================
+
+export async function requestReturnInvoiceGroup(
+  id: number,
+  data: { body: string }
+): Promise<void> {
+  const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
+
+  const group = await prisma.invoiceGroup.findUnique({
+    where: { id, deletedAt: null, projectId: stpProjectId },
+  });
+  if (!group) throw new Error("請求グループが見つかりません");
+
+  if (!["awaiting_accounting", "partially_paid", "paid"].includes(group.status)) {
+    throw new Error("このステータスでは差し戻し依頼できません");
+  }
+
+  if (!data.body.trim()) {
+    throw new Error("差し戻し理由を入力してください");
+  }
+
+  // コメントを作成
+  await prisma.transactionComment.create({
+    data: {
+      invoiceGroupId: id,
+      body: data.body.trim(),
+      commentType: "return",
+      returnReasonType: "correction_request",
+      createdBy: user.id,
+    },
+  });
+
+  // 経理権限を持つスタッフを取得して通知
+  const accountingProject = await prisma.masterProject.findFirst({
+    where: { code: "accounting" },
+    select: { id: true },
+  });
+
+  if (accountingProject) {
+    const permissions = await prisma.staffPermission.findMany({
+      where: {
+        projectId: accountingProject.id,
+        permissionLevel: { in: ["edit", "admin"] },
+      },
+      select: { staffId: true },
+    });
+
+    const recipientIds = permissions.map((p) => p.staffId);
+
+    if (recipientIds.length > 0) {
+      await createNotificationBulk(recipientIds, {
+        senderType: "staff",
+        senderId: user.id,
+        category: "accounting",
+        title: `差し戻し依頼: 請求グループ #${id}`,
+        message: data.body.trim(),
+        linkUrl: "/accounting/batch-complete",
+      });
+    }
+  }
+
+  revalidatePath("/stp/finance/invoices");
 }

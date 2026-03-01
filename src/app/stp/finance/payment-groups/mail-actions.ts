@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { requireEdit } from "@/lib/auth";
 import { sendInvoiceEmail } from "@/lib/email/invoice-email";
+import { toLocalDateString } from "@/lib/utils";
 
 // ============================================
 // 型定義
@@ -14,9 +15,10 @@ export type PaymentGroupMailFormData = {
     id: number;
     counterpartyId: number;
     counterpartyName: string;
+    stellaCompanyId: number | null;
     operatingCompanyId: number;
     operatingCompanyName: string;
-    targetMonth: string; // YYYY-MM
+    targetMonth: string | null; // YYYY-MM
     expectedPaymentDate: string | null;
     totalAmount: number | null;
     requestedPdfName: string | null;
@@ -33,6 +35,7 @@ export type PaymentGroupMailFormData = {
     id: number;
     email: string;
     label: string | null;
+    memo: string | null;
     isDefault: boolean;
   }[];
   templates: {
@@ -93,7 +96,7 @@ export async function getPaymentGroupMailData(
     }));
   }
 
-  // OperatingCompanyEmailを取得（deletedAt: null）
+  // OperatingCompanyEmailを取得（deletedAt: null、個別SMTP設定ありのみ）
   const emails = await prisma.operatingCompanyEmail.findMany({
     where: {
       operatingCompanyId: group.operatingCompanyId,
@@ -101,12 +104,15 @@ export async function getPaymentGroupMailData(
     },
     orderBy: [{ isDefault: "desc" }, { id: "asc" }],
   });
-  const senderEmails = emails.map((e) => ({
-    id: e.id,
-    email: e.email,
-    label: e.label,
-    isDefault: e.isDefault,
-  }));
+  const senderEmails = emails
+    .filter((e) => !!(e.smtpHost && e.smtpUser && e.smtpPass))
+    .map((e) => ({
+      id: e.id,
+      email: e.email,
+      label: e.label,
+      memo: null as string | null,
+      isDefault: e.isDefault,
+    }));
 
   // InvoiceTemplate取得（deletedAt: null, templateType: "request"）
   const templateRecords = await prisma.invoiceTemplate.findMany({
@@ -154,11 +160,12 @@ export async function getPaymentGroupMailData(
       id: group.id,
       counterpartyId: group.counterpartyId,
       counterpartyName: group.counterparty.name,
+      stellaCompanyId: group.counterparty.companyId,
       operatingCompanyId: group.operatingCompanyId,
       operatingCompanyName: group.operatingCompany.companyName,
-      targetMonth: group.targetMonth.toISOString().slice(0, 7), // YYYY-MM
+      targetMonth: group.targetMonth ? toLocalDateString(group.targetMonth).slice(0, 7) : null, // YYYY-MM
       expectedPaymentDate:
-        group.expectedPaymentDate?.toISOString().split("T")[0] ?? null,
+        group.expectedPaymentDate ? toLocalDateString(group.expectedPaymentDate) : null,
       totalAmount: group.totalAmount,
       requestedPdfName: group.requestedPdfName,
       status: group.status,
@@ -212,6 +219,17 @@ export async function sendPaymentGroupMail(data: {
       success: false,
       error:
         "依頼前・依頼済み・差し戻し・再依頼のステータスのみメール送信できます",
+    };
+  }
+
+  // before_request / rejected ステータスでは requestedPdfName が必須
+  if (
+    ["before_request", "rejected"].includes(group.status) &&
+    !group.requestedPdfName
+  ) {
+    return {
+      success: false,
+      error: "請求書PDF名を設定してからメールを送信してください",
     };
   }
 

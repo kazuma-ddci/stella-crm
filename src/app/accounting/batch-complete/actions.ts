@@ -1,6 +1,11 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
+import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import { createNotification } from "@/lib/notifications/create-notification";
+import { toLocalDateString } from "@/lib/utils";
 
 // ============================================
 // 型定義
@@ -98,7 +103,7 @@ export async function getAwaitingAccountingGroups(): Promise<AwaitingGroupItem[]
       transactionCount: g.transactions.length,
       allocationItemCount: g.allocationItems.length,
       hasUnprocessedAllocations: hasUnprocessed,
-      createdAt: g.createdAt.toISOString().split("T")[0],
+      createdAt: toLocalDateString(g.createdAt),
     });
   }
 
@@ -164,13 +169,132 @@ export async function getAwaitingAccountingGroups(): Promise<AwaitingGroupItem[]
       totalAmount: g.totalAmount,
       taxAmount: g.taxAmount,
       status: g.status,
-      label: `支払 ${month.getUTCFullYear()}/${String(month.getUTCMonth() + 1).padStart(2, "0")}`,
+      label: month ? `支払 ${month.getUTCFullYear()}/${String(month.getUTCMonth() + 1).padStart(2, "0")}` : "支払（対象月未設定）",
       transactionCount: g.transactions.length,
       allocationItemCount: g.allocationItems.length,
       hasUnprocessedAllocations: hasUnprocessed,
-      createdAt: g.createdAt.toISOString().split("T")[0],
+      createdAt: toLocalDateString(g.createdAt),
     });
   }
 
   return results;
+}
+
+// ============================================
+// グループをSTP側に差し戻し
+// ============================================
+
+export async function returnGroupToStp(
+  groupId: number,
+  groupType: "invoice" | "payment",
+  reason?: string
+): Promise<void> {
+  const session = await getSession();
+  const staffId = session.id;
+
+  if (groupType === "invoice") {
+    const group = await prisma.invoiceGroup.findFirst({
+      where: { id: groupId, deletedAt: null },
+      select: { id: true, status: true, createdBy: true },
+    });
+    if (!group) throw new Error("請求グループが見つかりません");
+    if (!["awaiting_accounting", "partially_paid"].includes(group.status)) {
+      throw new Error("このステータスでは差し戻しできません");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.invoiceGroup.update({
+        where: { id: groupId },
+        data: { status: "returned" },
+      });
+      if (reason) {
+        await tx.transactionComment.create({
+          data: {
+            invoiceGroupId: groupId,
+            body: reason,
+            commentType: "return",
+            returnReasonType: "accounting_return",
+            createdBy: staffId,
+          },
+        });
+      }
+      await recordChangeLog(
+        {
+          tableName: "InvoiceGroup",
+          recordId: groupId,
+          changeType: "update",
+          oldData: { status: group.status },
+          newData: { status: "returned" },
+        },
+        staffId,
+        tx
+      );
+    });
+
+    if (group.createdBy && group.createdBy !== staffId) {
+      await createNotification({
+        recipientId: group.createdBy,
+        senderType: "staff",
+        senderId: staffId,
+        category: "accounting",
+        title: "請求グループが差し戻されました",
+        message: reason || "経理担当者により差し戻されました",
+        linkUrl: "/stp/finance/invoices",
+      });
+    }
+  } else {
+    const group = await prisma.paymentGroup.findFirst({
+      where: { id: groupId, deletedAt: null },
+      select: { id: true, status: true, createdBy: true },
+    });
+    if (!group) throw new Error("支払グループが見つかりません");
+    if (group.status !== "awaiting_accounting") {
+      throw new Error("このステータスでは差し戻しできません");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.paymentGroup.update({
+        where: { id: groupId },
+        data: { status: "returned" },
+      });
+      if (reason) {
+        await tx.transactionComment.create({
+          data: {
+            paymentGroupId: groupId,
+            body: reason,
+            commentType: "return",
+            returnReasonType: "accounting_return",
+            createdBy: staffId,
+          },
+        });
+      }
+      await recordChangeLog(
+        {
+          tableName: "PaymentGroup",
+          recordId: groupId,
+          changeType: "update",
+          oldData: { status: group.status },
+          newData: { status: "returned" },
+        },
+        staffId,
+        tx
+      );
+    });
+
+    if (group.createdBy && group.createdBy !== staffId) {
+      await createNotification({
+        recipientId: group.createdBy,
+        senderType: "staff",
+        senderId: staffId,
+        category: "accounting",
+        title: "支払グループが差し戻されました",
+        message: reason || "経理担当者により差し戻されました",
+        linkUrl: "/stp/finance/payment-groups",
+      });
+    }
+  }
+
+  revalidatePath("/accounting/batch-complete");
+  revalidatePath("/stp/finance/invoices");
+  revalidatePath("/stp/finance/payment-groups");
 }

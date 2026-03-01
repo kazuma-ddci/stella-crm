@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RecurringTransactionsTable } from "./recurring-transactions-table";
+import { toLocalDateString } from "@/lib/utils";
 
 export default async function RecurringTransactionsPage() {
   const [
@@ -71,8 +72,8 @@ export default async function RecurringTransactionsPage() {
     taxRate: rt.taxRate,
     frequency: rt.frequency,
     executionDay: rt.executionDay,
-    startDate: rt.startDate.toISOString().split("T")[0],
-    endDate: rt.endDate ? rt.endDate.toISOString().split("T")[0] : "",
+    startDate: toLocalDateString(rt.startDate),
+    endDate: rt.endDate ? toLocalDateString(rt.endDate) : "",
     costCenterId: rt.costCenterId ? String(rt.costCenterId) : "",
     costCenterName: rt.costCenter?.name ?? "",
     allocationTemplateId: rt.allocationTemplateId

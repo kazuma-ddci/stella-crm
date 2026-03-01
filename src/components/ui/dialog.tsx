@@ -47,7 +47,7 @@ function DialogOverlay({
   )
 }
 
-type DialogSize = "default" | "form" | "mixed" | "datagrid" | "datagrid-cw"
+type DialogSize = "default" | "form" | "mixed" | "datagrid" | "datagrid-cw" | "wide" | "fullwidth"
 
 function DialogContent({
   className,
@@ -71,7 +71,7 @@ function DialogContent({
           data-slot="dialog-content"
           data-size={size}
           className={cn(
-            "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 relative z-50 grid w-full max-h-[88dvh] gap-4 rounded-lg border p-4 sm:p-6 shadow-lg duration-200 outline-none data-[size=default]:sm:max-w-lg data-[size=form]:sm:max-w-[720px] data-[size=mixed]:sm:max-w-[clamp(640px,72vw,920px)] data-[size=datagrid]:sm:max-w-[clamp(780px,72vw,1020px)]",
+            "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 relative z-50 grid w-full max-h-[88dvh] gap-4 rounded-lg border p-4 sm:p-6 shadow-lg duration-200 outline-none data-[size=default]:sm:max-w-lg data-[size=form]:sm:max-w-[720px] data-[size=mixed]:sm:max-w-[clamp(640px,72vw,920px)] data-[size=datagrid]:sm:max-w-[clamp(780px,72vw,1020px)] data-[size=wide]:sm:max-w-3xl data-[size=fullwidth]:sm:max-w-[92vw]",
             className
           )}
           {...props}

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { toLocalDateString } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
 import { autoGenerateFinanceForContractHistory, markFinanceRecordsForContractChange } from "@/lib/finance/auto-generate";
 import { isInvalidJobMedia } from "@/lib/stp/job-media";
@@ -45,8 +46,8 @@ export async function getContractHistories(companyId: number) {
     industryType: h.industryType,
     contractPlan: h.contractPlan,
     jobMedia: h.jobMedia,
-    contractStartDate: h.contractStartDate.toISOString().split("T")[0],
-    contractEndDate: h.contractEndDate?.toISOString().split("T")[0] || null,
+    contractStartDate: toLocalDateString(h.contractStartDate),
+    contractEndDate: h.contractEndDate ? toLocalDateString(h.contractEndDate) : null,
     initialFee: h.initialFee,
     monthlyFee: h.monthlyFee,
     performanceFee: h.performanceFee,

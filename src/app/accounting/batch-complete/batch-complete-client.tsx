@@ -12,6 +12,7 @@ import {
   FileText,
   Wallet,
   SplitSquareVertical,
+  Undo2,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -23,7 +24,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Textarea } from "@/components/ui/textarea";
 import type { AwaitingGroupItem } from "./actions";
+import { returnGroupToStp } from "./actions";
 import { batchUpdateGroupStatus } from "@/app/accounting/transactions/allocation-group-item-actions";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -46,6 +49,14 @@ export function BatchCompleteClient({ data }: Props) {
     skipped: { label: string; reason: string }[];
   } | null>(null);
   const [filter, setFilter] = useState<"all" | "invoice" | "payment">("all");
+  const [showReturnDialog, setShowReturnDialog] = useState(false);
+  const [returnTarget, setReturnTarget] = useState<{
+    groupId: number;
+    groupType: "invoice" | "payment";
+    label: string;
+  } | null>(null);
+  const [returnReason, setReturnReason] = useState("");
+  const [returnLoading, setReturnLoading] = useState(false);
 
   const filteredData = useMemo(() => {
     if (filter === "all") return data;
@@ -78,6 +89,27 @@ export function BatchCompleteClient({ data }: Props) {
 
   const deselectAll = () => {
     setSelectedIds(new Set());
+  };
+
+  const handleReturn = async () => {
+    if (!returnTarget) return;
+    setReturnLoading(true);
+    try {
+      await returnGroupToStp(
+        returnTarget.groupId,
+        returnTarget.groupType,
+        returnReason.trim() || undefined
+      );
+      alert(`${returnTarget.label} を差し戻しました`);
+      setShowReturnDialog(false);
+      setReturnTarget(null);
+      setReturnReason("");
+      router.refresh();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "エラーが発生しました");
+    } finally {
+      setReturnLoading(false);
+    }
   };
 
   const handleBatchComplete = async () => {
@@ -351,6 +383,25 @@ export function BatchCompleteClient({ data }: Props) {
                     </div>
                   )}
                 </div>
+
+                {/* 差し戻しボタン */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setReturnTarget({
+                      groupId: item.id,
+                      groupType: item.groupType,
+                      label: item.label,
+                    });
+                    setShowReturnDialog(true);
+                  }}
+                >
+                  <Undo2 className="h-4 w-4" />
+                </Button>
               </label>
             );
           })}
@@ -379,6 +430,46 @@ export function BatchCompleteClient({ data }: Props) {
             <AlertDialogAction onClick={handleBatchComplete} disabled={loading}>
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               完了にする
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 差し戻しダイアログ */}
+      <AlertDialog
+        open={showReturnDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowReturnDialog(false);
+            setReturnTarget(null);
+            setReturnReason("");
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {returnTarget?.label} を差し戻しますか？
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              STP側に差し戻します。理由を入力してください（任意）。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            value={returnReason}
+            onChange={(e) => setReturnReason(e.target.value)}
+            placeholder="差し戻し理由（任意）"
+            rows={3}
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={returnLoading}>
+              キャンセル
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleReturn} disabled={returnLoading}>
+              {returnLoading && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              差し戻す
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

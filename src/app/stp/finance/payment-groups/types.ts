@@ -4,7 +4,7 @@ export type PaymentGroupListItem = {
   counterpartyName: string;
   operatingCompanyId: number;
   operatingCompanyName: string;
-  targetMonth: string; // YYYY-MM
+  targetMonth: string | null;
   expectedPaymentDate: string | null;
   paymentDueDate: string | null;
   actualPaymentDate: string | null;

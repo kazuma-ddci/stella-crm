@@ -9,6 +9,11 @@ import {
   InvoicePdfTemplate,
   type InvoicePdfData,
 } from "./pdf-template";
+import {
+  buildDefaultDescription,
+  formatPeriodRange,
+} from "./description-utils";
+import { toLocalDateString } from "@/lib/utils";
 
 // ============================================
 // 請求書データ取得
@@ -29,6 +34,9 @@ export async function getInvoicePdfData(
         include: { expenseCategory: true },
         orderBy: [{ periodFrom: "asc" }, { id: "asc" }],
       },
+      memoLines: {
+        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+      },
     },
   });
 
@@ -36,16 +44,30 @@ export async function getInvoicePdfData(
     throw new Error("請求が見つかりません");
   }
 
+  // lineDescriptions オーバーライド
+  const lineDescs = (group.lineDescriptions as Record<string, string> | null) ?? {};
+  const counterpartyName = group.counterparty.name;
+
   // 明細データ
   const lineItems = group.transactions.map((t) => {
     const taxExcludedAmount =
       t.taxType === "tax_excluded" ? t.amount : t.amount - t.taxAmount;
 
+    // オーバーライドがあればそれを使用、なければデフォルト生成
+    const description =
+      lineDescs[String(t.id)] ||
+      buildDefaultDescription(t.expenseCategory.name, t.note, counterpartyName);
+
+    const periodFrom = toLocalDateString(t.periodFrom);
+    const periodTo = toLocalDateString(t.periodTo);
+
     return {
-      description: t.expenseCategory.name + (t.note ? `（${t.note}）` : ""),
-      period: `${t.periodFrom.toISOString().split("T")[0]} 〜 ${t.periodTo.toISOString().split("T")[0]}`,
+      id: t.id,
+      description,
+      period: formatPeriodRange(periodFrom, periodTo),
       amount: taxExcludedAmount,
       taxRate: t.taxRate,
+      knownTax: t.taxAmount,
     };
   });
 
@@ -68,9 +90,17 @@ export async function getInvoicePdfData(
       logoPath: group.operatingCompany.logoPath,
     },
     counterpartyName: group.counterparty.name,
+    honorific: group.honorific,
+    remarks: group.remarks,
+    memoLines: group.memoLines.map((m) => ({
+      id: m.id,
+      description: m.description,
+      sortOrder: m.sortOrder,
+    })),
+    lineOrder: group.lineOrder as string[] | null,
     invoiceNumber: group.invoiceNumber,
-    invoiceDate: group.invoiceDate?.toISOString().split("T")[0] ?? null,
-    paymentDueDate: group.paymentDueDate?.toISOString().split("T")[0] ?? null,
+    invoiceDate: group.invoiceDate ? toLocalDateString(group.invoiceDate) : null,
+    paymentDueDate: group.paymentDueDate ? toLocalDateString(group.paymentDueDate) : null,
     lineItems,
     taxSummary,
     subtotal,

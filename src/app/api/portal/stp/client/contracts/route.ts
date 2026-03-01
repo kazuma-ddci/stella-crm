@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { toLocalDateString } from "@/lib/utils";
 import { hasViewAccess } from "@/lib/auth/external-user";
 import type { DisplayViewPermission } from "@/types/auth";
 
@@ -101,9 +102,9 @@ export async function GET() {
     // レスポンス整形
     const formattedContracts = contracts.map((c) => ({
       id: c.id,
-      signedDate: c.signedDate ? c.signedDate.toISOString().split("T")[0] : null,
-      startDate: c.startDate ? c.startDate.toISOString().split("T")[0] : null,
-      endDate: c.endDate ? c.endDate.toISOString().split("T")[0] : null,
+      signedDate: c.signedDate ? toLocalDateString(c.signedDate) : null,
+      startDate: c.startDate ? toLocalDateString(c.startDate) : null,
+      endDate: c.endDate ? toLocalDateString(c.endDate) : null,
       filePath: c.filePath,
       fileName: c.fileName,
     }));
@@ -113,9 +114,9 @@ export async function GET() {
       industryType: h.industryType,
       contractPlan: h.contractPlan,
       jobMedia: h.jobMedia,
-      contractStartDate: h.contractStartDate.toISOString().split("T")[0],
+      contractStartDate: toLocalDateString(h.contractStartDate),
       contractEndDate: h.contractEndDate
-        ? h.contractEndDate.toISOString().split("T")[0]
+        ? toLocalDateString(h.contractEndDate)
         : null,
       initialFee: h.initialFee,
       monthlyFee: h.monthlyFee,

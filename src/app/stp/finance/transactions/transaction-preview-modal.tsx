@@ -12,12 +12,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Loader2, ExternalLink, Pencil } from "lucide-react";
 import {
   getTransactionById,
   updateTransaction,
   confirmTransaction,
 } from "@/app/accounting/transactions/actions";
+import { toLocalDateString } from "@/lib/utils";
 
 type TransactionData = NonNullable<
   Awaited<ReturnType<typeof getTransactionById>>
@@ -51,7 +53,7 @@ function formatDate(d: Date | string | null): string {
 function toDateInputValue(d: Date | string | null): string {
   if (!d) return "";
   const date = typeof d === "string" ? new Date(d) : d;
-  return date.toISOString().split("T")[0];
+  return toLocalDateString(date);
 }
 
 function calcTax(amt: string, rate: string, type: string): string {
@@ -390,21 +392,19 @@ export function TransactionPreviewModal({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="preview-period-from">対象期間From</Label>
-                  <Input
+                  <DatePicker
                     id="preview-period-from"
-                    type="date"
                     value={periodFrom}
-                    onChange={(e) => setPeriodFrom(e.target.value)}
+                    onChange={setPeriodFrom}
                     className="mt-1"
                   />
                 </div>
                 <div>
                   <Label htmlFor="preview-period-to">対象期間To</Label>
-                  <Input
+                  <DatePicker
                     id="preview-period-to"
-                    type="date"
                     value={periodTo}
-                    onChange={(e) => setPeriodTo(e.target.value)}
+                    onChange={setPeriodTo}
                     className="mt-1"
                   />
                 </div>

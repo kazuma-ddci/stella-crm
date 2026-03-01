@@ -5,6 +5,7 @@ import { Loader2, Upload, X, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
@@ -23,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { Combobox } from "@/components/ui/combobox";
 import { toast } from "sonner";
+import { toLocalDateString } from "@/lib/utils";
 import type { BankTransactionRow, BankTransactionFormData } from "./actions";
 import { createBankTransaction, updateBankTransaction } from "./actions";
 
@@ -60,8 +62,8 @@ export function BankTransactionModal({
   // フォーム状態
   const [transactionDate, setTransactionDate] = useState(
     editEntry
-      ? new Date(editEntry.transactionDate).toISOString().split("T")[0]
-      : new Date().toISOString().split("T")[0]
+      ? toLocalDateString(new Date(editEntry.transactionDate))
+      : toLocalDateString(new Date())
   );
   const [direction, setDirection] = useState(editEntry?.direction ?? "outgoing");
   const [paymentMethodId, setPaymentMethodId] = useState(
@@ -259,7 +261,7 @@ export function BankTransactionModal({
   };
 
   const resetForm = () => {
-    setTransactionDate(new Date().toISOString().split("T")[0]);
+    setTransactionDate(toLocalDateString(new Date()));
     setDirection("outgoing");
     setPaymentMethodId("");
     setCounterpartyId("");
@@ -296,10 +298,9 @@ export function BankTransactionModal({
             {/* 日付 */}
             <div className="space-y-2">
               <Label>日付 <span className="text-red-500">*</span></Label>
-              <Input
-                type="date"
+              <DatePicker
                 value={transactionDate}
-                onChange={(e) => setTransactionDate(e.target.value)}
+                onChange={setTransactionDate}
               />
             </div>
 

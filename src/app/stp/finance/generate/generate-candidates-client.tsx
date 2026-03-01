@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -1297,11 +1298,10 @@ export function GenerateCandidatesClient() {
                               </div>
                               <div className="min-w-[150px]">
                                 <Label className="text-xs text-muted-foreground">支払予定日</Label>
-                                <Input
-                                  type="date"
+                                <DatePicker
                                   value={overrideInput.scheduledPaymentDate}
-                                  onChange={(e) =>
-                                    updateOverrideInput(candidate.key, "scheduledPaymentDate", e.target.value)
+                                  onChange={(v) =>
+                                    updateOverrideInput(candidate.key, "scheduledPaymentDate", v)
                                   }
                                   className="h-8 mt-1"
                                 />

@@ -5,7 +5,9 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
+import { recordChangeLog } from "@/app/accounting/changelog/actions";
 import { calculateAllocatedAmounts } from "./allocation-actions";
+import { toLocalDateString } from "@/lib/utils";
 
 // ===== 共通定数・スキーマ =====
 
@@ -195,8 +197,9 @@ export async function addAllocationItemToGroup(
 
   // 9. AllocationGroupItem 作成 + グループ合計再計算（P2: トランザクションで包括）
   await prisma.$transaction(async (tx) => {
+    let item;
     try {
-      await tx.allocationGroupItem.create({
+      item = await tx.allocationGroupItem.create({
         data: {
           transactionId,
           costCenterId,
@@ -214,6 +217,22 @@ export async function addAllocationItemToGroup(
       }
       throw e;
     }
+
+    await recordChangeLog(
+      {
+        tableName: "AllocationGroupItem",
+        recordId: item.id,
+        changeType: "create",
+        newData: {
+          transactionId,
+          costCenterId,
+          groupType,
+          ...(groupType === "invoice" ? { invoiceGroupId: groupId } : { paymentGroupId: groupId }),
+        },
+      },
+      session.id,
+      tx
+    );
 
     // グループ合計の再計算（同一トランザクション内）
     await recalcGroupTotalsWithAllocations(groupType, groupId, tx);
@@ -259,8 +278,20 @@ export async function removeAllocationItemFromGroup(
   // P2: 削除 + グループ合計再計算をトランザクションで包括
   const groupId = item.groupType === "invoice" ? item.invoiceGroupId : item.paymentGroupId;
   const validGroupType = groupTypeSchema.parse(item.groupType);
+  const session = await getSession();
 
   await prisma.$transaction(async (tx) => {
+    await recordChangeLog(
+      {
+        tableName: "AllocationGroupItem",
+        recordId: item.id,
+        changeType: "delete",
+        oldData: { transactionId: item.transactionId, costCenterId: item.costCenterId },
+      },
+      session.id,
+      tx
+    );
+
     await tx.allocationGroupItem.delete({
       where: { id: allocationGroupItemId },
     });
@@ -358,7 +389,7 @@ export async function getAllocationGroupStatus(
       } else if (groupItem.paymentGroup) {
         groupStatus = groupItem.paymentGroup.status;
         const month = groupItem.paymentGroup.targetMonth;
-        groupLabel = `支払 ${month.getUTCFullYear()}/${String(month.getUTCMonth() + 1).padStart(2, "0")}`;
+        groupLabel = month ? `支払 ${month.getUTCFullYear()}/${String(month.getUTCMonth() + 1).padStart(2, "0")}` : "支払（対象月未設定）";
       }
 
       groupItemResult = {
@@ -502,7 +533,7 @@ export async function getUnprocessedAllocations(projectId?: number): Promise<{
             groupLabel = item.invoiceGroup.invoiceNumber ?? `請求#${item.invoiceGroup.id}`;
           } else if (item?.paymentGroup) {
             const m = item.paymentGroup.targetMonth;
-            groupLabel = `支払 ${m.getUTCFullYear()}/${String(m.getUTCMonth() + 1).padStart(2, "0")}`;
+            groupLabel = m ? `支払 ${m.getUTCFullYear()}/${String(m.getUTCMonth() + 1).padStart(2, "0")}` : "支払（対象月未設定）";
           }
           return {
             costCenterName: l.costCenter?.name ?? "不明",
@@ -780,7 +811,7 @@ export async function getGroupAllocationWarnings(
           groupLabel = item.invoiceGroup.invoiceNumber ?? null;
         } else if (item?.paymentGroup) {
           const m = item.paymentGroup.targetMonth;
-          groupLabel = `支払 ${m.getUTCFullYear()}/${String(m.getUTCMonth() + 1).padStart(2, "0")}`;
+          groupLabel = m ? `支払 ${m.getUTCFullYear()}/${String(m.getUTCMonth() + 1).padStart(2, "0")}` : "支払（対象月未設定）";
         }
         processedCostCenters.push({
           costCenterId: line.costCenterId,
@@ -882,7 +913,7 @@ export async function batchUpdateGroupStatus(
   // PaymentGroup の有効な遷移
   const paymentValidTransitions: Record<string, string[]> = {
     confirmed: ["paid"],
-    awaiting_accounting: ["paid"],
+    awaiting_accounting: ["paid", "returned"],
   };
 
   for (const item of items) {
@@ -933,7 +964,7 @@ export async function batchUpdateGroupStatus(
           where: { id: item.groupId },
           data: {
             status: newStatus,
-            ...(newStatus === "paid" ? { actualPaymentDate: new Date() } : {}),
+            ...(newStatus === "paid" ? { actualPaymentDate: new Date(toLocalDateString(new Date())) } : {}),
           },
         });
         result.success.push(item);

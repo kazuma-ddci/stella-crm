@@ -54,7 +54,7 @@ type JournalEntryRow = {
   } | null;
   paymentGroup: {
     id: number;
-    targetMonth: Date;
+    targetMonth: Date | null;
     counterparty: { id: number; name: string };
   } | null;
   transaction: {
@@ -142,10 +142,12 @@ export function JournalTable({ entries, formData }: Props) {
       return `請求: ${num} (${entry.invoiceGroup.counterparty.name})`;
     }
     if (entry.paymentGroup) {
-      const month = new Date(entry.paymentGroup.targetMonth).toLocaleDateString("ja-JP", {
-        year: "numeric",
-        month: "short",
-      });
+      const month = entry.paymentGroup.targetMonth
+        ? new Date(entry.paymentGroup.targetMonth).toLocaleDateString("ja-JP", {
+            year: "numeric",
+            month: "short",
+          })
+        : "対象月未設定";
       return `支払: ${month} (${entry.paymentGroup.counterparty.name})`;
     }
     if (entry.transaction) {

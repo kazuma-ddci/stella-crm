@@ -34,7 +34,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const projectIdParam = request.nextUrl.searchParams.get("projectId");
     const projectId = projectIdParam ? parseInt(projectIdParam, 10) : undefined;
 
-    // プレビュー: オンザフライでPDF生成
+    // プレビュー: オンザフライでPDF生成（ブラウザ内表示用）
     if (isPreview) {
       const data = await getInvoicePdfData(groupId, projectId);
       const buffer = await generateInvoicePdfBuffer(data);
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${encodeURIComponent(fileName)}"`,
+        "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
       },
     });
   } catch (error) {

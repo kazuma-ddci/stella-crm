@@ -40,6 +40,7 @@ export const PROJECT_CODES = {
   STELLA: "stella",
   COMMON: "common",
   STP: "stp",
+  ACCOUNTING: "accounting",
 } as const;
 
 export type ProjectCode = (typeof PROJECT_CODES)[keyof typeof PROJECT_CODES];

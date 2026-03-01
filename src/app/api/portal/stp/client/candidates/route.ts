@@ -1,6 +1,7 @@
 import { NextResponse, NextRequest } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { toLocalDateString } from "@/lib/utils";
 import { hasViewAccess } from "@/lib/auth/external-user";
 import { isInvalidJobMedia } from "@/lib/stp/job-media";
 import type { DisplayViewPermission } from "@/types/auth";
@@ -119,19 +120,19 @@ export async function GET() {
       lastName: c.lastName,
       firstName: c.firstName,
       interviewDate: c.interviewDate
-        ? c.interviewDate.toISOString().split("T")[0]
+        ? toLocalDateString(c.interviewDate)
         : null,
       interviewAttendance: c.interviewAttendance,
       selectionStatus: c.selectionStatus,
       offerDate: c.offerDate
-        ? c.offerDate.toISOString().split("T")[0]
+        ? toLocalDateString(c.offerDate)
         : null,
       joinDate: c.joinDate
-        ? c.joinDate.toISOString().split("T")[0]
+        ? toLocalDateString(c.joinDate)
         : null,
       joinConfirmed: c.joinDate !== null,
       sendDate: c.sendDate
-        ? c.sendDate.toISOString().split("T")[0]
+        ? toLocalDateString(c.sendDate)
         : null,
       industryType: c.industryType,
       jobMedia: c.jobMedia,

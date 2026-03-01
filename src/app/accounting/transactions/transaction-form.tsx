@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -25,7 +26,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FileText, Loader2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Check, ChevronsUpDown, FileText, Loader2, Plus, X } from "lucide-react";
+import { cn, matchesWithWordBoundary, toLocalDateString } from "@/lib/utils";
 import { toast } from "sonner";
 import { createTransaction, updateTransaction } from "./actions";
 import type { TransactionFormData } from "./actions";
@@ -61,6 +77,13 @@ type TransactionData = {
   paymentMethodId: number | null;
   paymentDueDate: Date | string | null;
   note: string | null;
+  hasExpenseOwner: boolean;
+  expenseOwners: {
+    id: number;
+    staffId: number | null;
+    customName: string | null;
+    staff: { id: number; name: string } | null;
+  }[];
   isWithholdingTarget: boolean;
   withholdingTaxRate: unknown;
   withholdingTaxAmount: number | null;
@@ -86,7 +109,7 @@ type Props = {
 function formatDate(d: Date | string | null | undefined): string {
   if (!d) return "";
   const date = typeof d === "string" ? new Date(d) : d;
-  return date.toISOString().split("T")[0];
+  return toLocalDateString(date);
 }
 
 // ============================================
@@ -135,6 +158,30 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
   const [contractId, setContractId] = useState(
     transaction?.contractId ? String(transaction.contractId) : ""
   );
+
+  // 経費負担者
+  const [hasExpenseOwner, setHasExpenseOwner] = useState(
+    transaction?.hasExpenseOwner || false
+  );
+  const [selectedStaffIds, setSelectedStaffIds] = useState<Set<number>>(() => {
+    if (transaction?.expenseOwners) {
+      return new Set(
+        transaction.expenseOwners.filter((o) => o.staffId).map((o) => o.staffId!)
+      );
+    }
+    return new Set();
+  });
+  const [customNames, setCustomNames] = useState<string[]>(() => {
+    if (transaction?.expenseOwners) {
+      return transaction.expenseOwners
+        .filter((o) => o.customName)
+        .map((o) => o.customName!);
+    }
+    return [];
+  });
+  const [customNameInput, setCustomNameInput] = useState("");
+  const [staffPopoverOpen, setStaffPopoverOpen] = useState(false);
+  const [staffSearchInput, setStaffSearchInput] = useState("");
 
   // 源泉徴収
   const [isWithholdingTarget, setIsWithholdingTarget] = useState(
@@ -407,10 +454,23 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
           ? Number(costCenterId)
           : null,
         contractId: contractId ? Number(contractId) : null,
-        projectId: projectContext?.projectId || null,
+        projectId: projectContext?.projectId ?? transaction?.projectId ?? null,
         paymentMethodId: paymentMethodId ? Number(paymentMethodId) : null,
         paymentDueDate: paymentDueDate || null,
         note: note || null,
+        hasExpenseOwner,
+        expenseOwners: hasExpenseOwner
+          ? [
+              ...Array.from(selectedStaffIds).map((sid) => ({
+                staffId: sid,
+                customName: null,
+              })),
+              ...customNames.map((name) => ({
+                staffId: null,
+                customName: name,
+              })),
+            ]
+          : [],
         isWithholdingTarget,
         withholdingTaxRate: isWithholdingTarget ? Number(withholdingTaxRate) : null,
         withholdingTaxAmount: isWithholdingTarget ? Number(withholdingTaxAmount) : null,
@@ -594,18 +654,16 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>開始日 <span className="text-red-500">*</span></Label>
-              <Input
-                type="date"
+              <DatePicker
                 value={periodFrom}
-                onChange={(e) => setPeriodFrom(e.target.value)}
+                onChange={setPeriodFrom}
               />
             </div>
             <div className="space-y-2">
               <Label>終了日 <span className="text-red-500">*</span></Label>
-              <Input
-                type="date"
+              <DatePicker
                 value={periodTo}
-                onChange={(e) => setPeriodTo(e.target.value)}
+                onChange={setPeriodTo}
               />
             </div>
           </div>
@@ -723,7 +781,189 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
         </CardContent>
       </Card>
 
-      {/* 6. 源泉徴収（経費の場合） */}
+      {/* 6. 経費負担者（経費の場合） */}
+      {type === "expense" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>経費負担者</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <RadioGroup
+              value={hasExpenseOwner ? "yes" : "no"}
+              onValueChange={(v) => {
+                const newValue = v === "yes";
+                setHasExpenseOwner(newValue);
+                if (newValue) {
+                  // ON → 自分を初期選択
+                  setSelectedStaffIds(new Set([formData.currentUserId]));
+                } else {
+                  // OFF → クリア
+                  setSelectedStaffIds(new Set());
+                  setCustomNames([]);
+                  setCustomNameInput("");
+                }
+              }}
+              className="flex gap-4"
+            >
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="no" id="expense-owner-no" />
+                <Label htmlFor="expense-owner-no" className="cursor-pointer">指定なし</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="yes" id="expense-owner-yes" />
+                <Label htmlFor="expense-owner-yes" className="cursor-pointer">指定する</Label>
+              </div>
+            </RadioGroup>
+
+            {hasExpenseOwner && (
+              <div className="space-y-4 pl-4 border-l-2">
+                {/* スタッフ選択 */}
+                <div className="space-y-2">
+                  <Label>スタッフ選択</Label>
+                  <Popover open={staffPopoverOpen} onOpenChange={setStaffPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={staffPopoverOpen}
+                        className="w-full justify-between font-normal"
+                      >
+                        <span className="text-muted-foreground">スタッフを検索...</span>
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                      <Command shouldFilter={false}>
+                        <CommandInput
+                          placeholder="スタッフを検索..."
+                          value={staffSearchInput}
+                          onValueChange={setStaffSearchInput}
+                        />
+                        <CommandList maxHeight={200}>
+                          <CommandEmpty>見つかりませんでした</CommandEmpty>
+                          <CommandGroup>
+                            {(staffSearchInput
+                              ? formData.staffOptions.filter((s) =>
+                                  matchesWithWordBoundary(s.name, staffSearchInput)
+                                )
+                              : formData.staffOptions
+                            ).map((staff) => (
+                              <CommandItem
+                                key={staff.id}
+                                value={String(staff.id)}
+                                onSelect={() => {
+                                  setSelectedStaffIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(staff.id)) {
+                                      next.delete(staff.id);
+                                    } else {
+                                      next.add(staff.id);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-2 h-4 w-4",
+                                    selectedStaffIds.has(staff.id) ? "opacity-100" : "opacity-0"
+                                  )}
+                                />
+                                {staff.name}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* 選択済みスタッフのバッジ */}
+                  {selectedStaffIds.size > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {Array.from(selectedStaffIds).map((sid) => {
+                        const staff = formData.staffOptions.find((s) => s.id === sid);
+                        return (
+                          <Badge key={sid} variant="secondary" className="gap-1">
+                            {staff?.name ?? `ID:${sid}`}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedStaffIds((prev) => {
+                                  const next = new Set(prev);
+                                  next.delete(sid);
+                                  return next;
+                                });
+                              }}
+                              className="ml-0.5 hover:text-destructive"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* スタッフ外の追加 */}
+                <div className="space-y-2">
+                  <Label>スタッフ外の追加</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={customNameInput}
+                      onChange={(e) => setCustomNameInput(e.target.value)}
+                      placeholder="名前を入力..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const name = customNameInput.trim();
+                        if (name && !customNames.includes(name)) {
+                          setCustomNames((prev) => [...prev, name]);
+                        }
+                        setCustomNameInput("");
+                      }}
+                      disabled={!customNameInput.trim()}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  {/* 手入力名のバッジ */}
+                  {customNames.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {customNames.map((name) => (
+                        <Badge key={name} variant="secondary" className="gap-1">
+                          {name}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomNames((prev) => prev.filter((n) => n !== name));
+                            }}
+                            className="ml-0.5 hover:text-destructive"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 7. 源泉徴収（経費の場合） */}
       {type === "expense" && (
         <Card>
           <CardHeader>
@@ -787,7 +1027,7 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
         </Card>
       )}
 
-      {/* 7. 支払管理（経費の場合） */}
+      {/* 8. 支払管理（経費の場合） */}
       {type === "expense" && (
         <Card>
           <CardHeader>
@@ -796,10 +1036,9 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>支払予定日</Label>
-              <Input
-                type="date"
+              <DatePicker
                 value={paymentDueDate}
-                onChange={(e) => setPaymentDueDate(e.target.value)}
+                onChange={setPaymentDueDate}
               />
             </div>
             <div className="space-y-2">
@@ -824,7 +1063,7 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
         </Card>
       )}
 
-      {/* 8. メモ・証憑 */}
+      {/* 9. メモ・証憑 */}
       <Card>
         <CardHeader>
           <CardTitle>その他</CardTitle>
@@ -890,7 +1129,7 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
         </CardContent>
       </Card>
 
-      {/* 9. アクション */}
+      {/* 10. アクション */}
       <div className="flex gap-3">
         <Button
           onClick={() => handleSubmit()}

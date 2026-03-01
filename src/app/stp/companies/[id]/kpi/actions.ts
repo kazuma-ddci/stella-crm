@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { requireEdit } from "@/lib/auth";
 import { randomBytes } from "crypto";
+import { toLocalDateString } from "@/lib/utils";
 
 // KPIシート一覧を取得
 export async function getKpiSheets(stpCompanyId: number) {
@@ -31,8 +32,8 @@ export async function getKpiSheets(stpCompanyId: number) {
     updatedAt: sheet.updatedAt.toISOString(),
     weeklyData: sheet.weeklyData.map((w) => ({
       id: w.id,
-      weekStartDate: w.weekStartDate.toISOString().split("T")[0],
-      weekEndDate: w.weekEndDate.toISOString().split("T")[0],
+      weekStartDate: toLocalDateString(w.weekStartDate),
+      weekEndDate: toLocalDateString(w.weekEndDate),
       targetImpressions: w.targetImpressions,
       targetCpm: w.targetCpm ? Number(w.targetCpm) : null,
       targetClicks: w.targetClicks,
@@ -345,8 +346,8 @@ export async function getKpiSheetByToken(token: string) {
       companyName: sheet.stpCompany.company.name,
       weeklyData: sheet.weeklyData.map((w) => ({
         id: w.id,
-        weekStartDate: w.weekStartDate.toISOString().split("T")[0],
-        weekEndDate: w.weekEndDate.toISOString().split("T")[0],
+        weekStartDate: toLocalDateString(w.weekStartDate),
+        weekEndDate: toLocalDateString(w.weekEndDate),
         targetImpressions: w.targetImpressions,
         targetCpm: w.targetCpm ? Number(w.targetCpm) : null,
         targetClicks: w.targetClicks,

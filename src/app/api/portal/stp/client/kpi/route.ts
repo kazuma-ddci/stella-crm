@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { toLocalDateString } from "@/lib/utils";
 import { hasViewAccess } from "@/lib/auth/external-user";
 import type { DisplayViewPermission } from "@/types/auth";
 
@@ -58,8 +59,8 @@ export async function GET() {
         stpCompanyId: stpCompany.id,
         weeklyData: sheet.weeklyData.map((w) => ({
           id: w.id,
-          weekStartDate: w.weekStartDate.toISOString().split("T")[0],
-          weekEndDate: w.weekEndDate.toISOString().split("T")[0],
+          weekStartDate: toLocalDateString(w.weekStartDate),
+          weekEndDate: toLocalDateString(w.weekEndDate),
           targetImpressions: w.targetImpressions,
           targetCpm: w.targetCpm ? Number(w.targetCpm) : null,
           targetClicks: w.targetClicks,
