@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw, Mail, MessageSquare, ArrowRight, Link2, Upload, Paperclip, PenTool, Send, CheckCircle2, Pencil, History, Check, X } from "lucide-react";
+import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw, Mail, MessageSquare, ArrowRight, Link2, Upload, Paperclip, PenTool, Send, CheckCircle2, Pencil, History, Check, X, Clock } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,6 +25,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { CommentSection } from "@/app/accounting/comments/comment-section";
 import { InvoiceMailModal } from "./invoice-mail-modal";
+import { getInvoiceGroupMailHistory, type MailHistoryItem } from "./mail-actions";
 import { InlineTransactionForm } from "./inline-transaction-form";
 import type { InvoiceGroupListItem, UngroupedTransaction } from "./actions";
 import {
@@ -112,7 +114,7 @@ export function InvoiceGroupDetailModal({
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [activeTab, setActiveTab] = useState<"detail" | "transactions" | "add" | "invoice-builder" | "attachments" | "comments">(
+  const [activeTab, setActiveTab] = useState<"detail" | "transactions" | "add" | "invoice-builder" | "attachments" | "history" | "comments">(
     "detail"
   );
   const [showReturnRequestDialog, setShowReturnRequestDialog] = useState(false);
@@ -204,6 +206,10 @@ export function InvoiceGroupDetailModal({
   }[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // 送信履歴
+  const [mailHistory, setMailHistory] = useState<MailHistoryItem[]>([]);
+  const [loadingMailHistory, setLoadingMailHistory] = useState(false);
+
   // 按分警告
   const [allocationWarnings, setAllocationWarnings] = useState<AllocationWarning[]>([]);
 
@@ -247,6 +253,24 @@ export function InvoiceGroupDetailModal({
       })
       .catch(() => {
         if (!cancelled) setGroupAttachments([]);
+      });
+    return () => { cancelled = true; };
+  }, [open, activeTab, group.id]);
+
+  // 送信履歴を取得
+  useEffect(() => {
+    if (!open || activeTab !== "history") return;
+    let cancelled = false;
+    setLoadingMailHistory(true);
+    getInvoiceGroupMailHistory(group.id)
+      .then((history) => {
+        if (!cancelled) setMailHistory(history);
+      })
+      .catch(() => {
+        if (!cancelled) setMailHistory([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingMailHistory(false);
       });
     return () => { cancelled = true; };
   }, [open, activeTab, group.id]);
@@ -784,6 +808,17 @@ export function InvoiceGroupDetailModal({
             }`}
           >
             証憑
+          </button>
+          <button
+            onClick={() => setActiveTab("history")}
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors shrink-0 ${
+              activeTab === "history"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground"
+            }`}
+          >
+            <Clock className="inline h-3 w-3 mr-1" />
+            送信履歴
           </button>
           <button
             onClick={() => setActiveTab("comments")}
@@ -1455,6 +1490,81 @@ export function InvoiceGroupDetailModal({
                 onInvoiceDateChange={setInvoiceDate}
                 onPaymentDueDateChange={setPaymentDueDate}
               />
+            </div>
+          )}
+
+          {/* 送信履歴タブ */}
+          {activeTab === "history" && (
+            <div className="p-1 space-y-3">
+              {loadingMailHistory ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : mailHistory.length === 0 ? (
+                <div className="text-center py-8 text-sm text-muted-foreground">
+                  送信履歴がありません
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {mailHistory.map((mail) => (
+                    <div
+                      key={mail.id}
+                      className="rounded-lg border p-3 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={
+                              mail.status === "sent"
+                                ? "default"
+                                : mail.status === "failed"
+                                  ? "destructive"
+                                  : "secondary"
+                            }
+                            className={
+                              mail.status === "sent"
+                                ? "bg-green-100 text-green-800 hover:bg-green-100"
+                                : undefined
+                            }
+                          >
+                            {mail.status === "sent"
+                              ? "送信済み"
+                              : mail.status === "failed"
+                                ? "失敗"
+                                : mail.status === "draft"
+                                  ? "下書き"
+                                  : mail.status}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {mail.sendMethod === "email" ? "メール" : mail.sendMethod === "line" ? "LINE" : mail.sendMethod === "postal" ? "郵送" : mail.sendMethod}
+                          </span>
+                          {mail.sentAt && (
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(mail.sentAt).toLocaleString("ja-JP")}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {mail.subject && (
+                        <p className="text-sm font-medium">{mail.subject}</p>
+                      )}
+                      <div className="text-xs text-muted-foreground space-y-0.5">
+                        {mail.recipientEmails.length > 0 && (
+                          <div>宛先: {mail.recipientEmails.join(", ")}</div>
+                        )}
+                        {mail.sentByName && (
+                          <div>送信者: {mail.sentByName}</div>
+                        )}
+                      </div>
+                      {mail.status === "failed" && mail.errorMessage && (
+                        <div className="text-xs text-red-600 bg-red-50 rounded p-2">
+                          {mail.errorMessage}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

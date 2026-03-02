@@ -31,7 +31,9 @@ import {
   X,
   Lock,
   Copy,
+  Clock,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,6 +47,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { CommentSection } from "@/app/accounting/comments/comment-section";
 import { PaymentGroupMailModal } from "./payment-group-mail-modal";
+import { getPaymentGroupMailHistory, type MailHistoryItem } from "./mail-actions";
 import { InlineTransactionForm } from "./inline-transaction-form";
 import type {
   PaymentGroupListItem,
@@ -63,7 +66,6 @@ import {
   getUngroupedExpenseTransactions,
   getPaymentGroupTransactions,
   submitPaymentGroupToAccounting,
-  requestInvoice,
   requestReturnPaymentGroup,
   getPaymentGroupAttachments,
   addPaymentGroupAttachments,
@@ -92,6 +94,13 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { toast } from "sonner";
+
+const SEND_METHOD_LABELS: Record<string, string> = {
+  email: "メール",
+  line: "LINE",
+  postal: "郵送",
+  other: "その他",
+};
 
 const STATUS_LABELS: Record<string, string> = {
   unprocessed: "未処理",
@@ -127,7 +136,7 @@ export function PaymentGroupDetailModal({
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "detail" | "transactions" | "add" | "attachments" | "comments"
+    "detail" | "transactions" | "add" | "attachments" | "history" | "comments"
   >("detail");
 
   // 編集可能な情報
@@ -136,9 +145,6 @@ export function PaymentGroupDetailModal({
   );
   const [paymentDueDate, setPaymentDueDate] = useState<string>(
     group.paymentDueDate ?? ""
-  );
-  const [requestedPdfName, setRequestedPdfName] = useState<string>(
-    group.requestedPdfName ?? ""
   );
   const [isConfidentialState, setIsConfidentialState] = useState<boolean>(
     group.isConfidential ?? false
@@ -171,6 +177,7 @@ export function PaymentGroupDetailModal({
 
   // メール送付モーダル
   const [showMailModal, setShowMailModal] = useState(false);
+  const [mailModalInitialTab, setMailModalInitialTab] = useState<"email" | "manual">("email");
 
   // 差し戻し依頼ダイアログ
   const [showReturnRequestDialog, setShowReturnRequestDialog] = useState(false);
@@ -205,6 +212,10 @@ export function PaymentGroupDetailModal({
     newDisplayName: string | null;
   }[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // 送信履歴
+  const [mailHistory, setMailHistory] = useState<MailHistoryItem[]>([]);
+  const [loadingMailHistory, setLoadingMailHistory] = useState(false);
 
   const isEditable = group.paymentType === "direct"
     ? group.status === "unprocessed"
@@ -256,9 +267,8 @@ export function PaymentGroupDetailModal({
   useEffect(() => {
     setExpectedPaymentDate(group.expectedPaymentDate ?? "");
     setPaymentDueDate(group.paymentDueDate ?? "");
-    setRequestedPdfName(group.requestedPdfName ?? "");
     setIsConfidentialState(group.isConfidential ?? false);
-  }, [group.expectedPaymentDate, group.paymentDueDate, group.requestedPdfName, group.isConfidential]);
+  }, [group.expectedPaymentDate, group.paymentDueDate, group.isConfidential]);
 
   // 按分警告を取得
   useEffect(() => {
@@ -289,13 +299,30 @@ export function PaymentGroupDetailModal({
     return () => { cancelled = true; };
   }, [open, activeTab, group.id]);
 
+  // 送信履歴を取得
+  useEffect(() => {
+    if (!open || activeTab !== "history") return;
+    let cancelled = false;
+    setLoadingMailHistory(true);
+    getPaymentGroupMailHistory(group.id)
+      .then((history) => {
+        if (!cancelled) setMailHistory(history);
+      })
+      .catch(() => {
+        if (!cancelled) setMailHistory([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingMailHistory(false);
+      });
+    return () => { cancelled = true; };
+  }, [open, activeTab, group.id]);
+
   const handleSave = async () => {
     setLoading(true);
     try {
       await updatePaymentGroup(group.id, {
         expectedPaymentDate: expectedPaymentDate || null,
         paymentDueDate: paymentDueDate || null,
-        requestedPdfName: requestedPdfName || null,
         isConfidential: isConfidentialState,
       });
       onClose();
@@ -428,24 +455,6 @@ export function PaymentGroupDetailModal({
     }
   };
 
-  // 手動で依頼済み（メール以外の方法で依頼した場合）
-  const handleRequestManual = async () => {
-    if (!confirm("手動で発行依頼を送信済みとして記録しますか？")) return;
-    setLoading(true);
-    try {
-      if (group.status === "before_request") {
-        await requestInvoice(group.id);
-      } else if (group.status === "rejected") {
-        await updatePaymentGroupStatus(group.id, "re_requested");
-      }
-      onClose();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "エラーが発生しました");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // 経理へ引渡
   const handleSubmitToAccounting = async () => {
     setLoading(true);
@@ -553,7 +562,7 @@ export function PaymentGroupDetailModal({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+      <DialogContent size="wide" className="max-h-[80vh] flex flex-col">
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 flex-wrap pr-6">
             <DialogTitle className="flex items-center gap-2 min-w-0">
@@ -573,7 +582,10 @@ export function PaymentGroupDetailModal({
                 <>
                   <Button
                     size="sm"
-                    onClick={() => setShowMailModal(true)}
+                    onClick={() => {
+                      setMailModalInitialTab("email");
+                      setShowMailModal(true);
+                    }}
                     disabled={loading}
                     className="bg-blue-600 hover:bg-blue-700"
                   >
@@ -583,7 +595,10 @@ export function PaymentGroupDetailModal({
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={handleRequestManual}
+                    onClick={() => {
+                      setMailModalInitialTab("manual");
+                      setShowMailModal(true);
+                    }}
                     disabled={loading}
                   >
                     手動で依頼済み
@@ -637,7 +652,10 @@ export function PaymentGroupDetailModal({
                 <>
                   <Button
                     size="sm"
-                    onClick={() => setShowMailModal(true)}
+                    onClick={() => {
+                      setMailModalInitialTab("email");
+                      setShowMailModal(true);
+                    }}
                     disabled={loading}
                     className="bg-blue-600 hover:bg-blue-700"
                   >
@@ -647,7 +665,10 @@ export function PaymentGroupDetailModal({
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={handleRequestManual}
+                    onClick={() => {
+                      setMailModalInitialTab("manual");
+                      setShowMailModal(true);
+                    }}
                     disabled={loading}
                   >
                     手動で依頼済み
@@ -791,10 +812,10 @@ export function PaymentGroupDetailModal({
         </DialogHeader>
 
         {/* タブ */}
-        <div className="flex gap-1 border-b">
+        <div className="flex border-b overflow-x-auto whitespace-nowrap">
           <button
             onClick={() => setActiveTab("detail")}
-            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors shrink-0 ${
               activeTab === "detail"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground"
@@ -804,7 +825,7 @@ export function PaymentGroupDetailModal({
           </button>
           <button
             onClick={() => setActiveTab("transactions")}
-            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors shrink-0 ${
               activeTab === "transactions"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground"
@@ -815,36 +836,46 @@ export function PaymentGroupDetailModal({
           {isEditable && (
             <button
               onClick={() => setActiveTab("add")}
-              className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+              className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors shrink-0 ${
                 activeTab === "add"
                   ? "border-primary text-primary"
                   : "border-transparent text-muted-foreground"
               }`}
             >
-              <Plus className="inline h-3 w-3 mr-1" />
-              取引を追加
+              + 取引追加
             </button>
           )}
           <button
             onClick={() => setActiveTab("attachments")}
-            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors shrink-0 ${
               activeTab === "attachments"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground"
             }`}
           >
-            <Paperclip className="inline h-3 w-3 mr-1" />
             証憑
           </button>
+          {group.paymentType === "invoice" && (
+            <button
+              onClick={() => setActiveTab("history")}
+              className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors shrink-0 ${
+                activeTab === "history"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground"
+              }`}
+            >
+              <Clock className="inline h-3 w-3 mr-1" />
+              送信履歴
+            </button>
+          )}
           <button
             onClick={() => setActiveTab("comments")}
-            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors shrink-0 ${
               activeTab === "comments"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground"
             }`}
           >
-            <MessageSquare className="inline h-3 w-3 mr-1" />
             コメント
           </button>
         </div>
@@ -858,11 +889,6 @@ export function PaymentGroupDetailModal({
                 <span className="font-medium">{STATUS_LABELS[group.status] ?? group.status}</span>
               </div>
               <div className="flex items-center gap-2">
-                {group.paymentType === "invoice" && group.status === "before_request" && !group.requestedPdfName && (
-                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                    PDF名未設定（参照コードが自動付与されます）
-                  </span>
-                )}
                 {/* awaiting_accounting / paid: 差し戻し依頼ボタン */}
                 {(group.status === "awaiting_accounting" || group.status === "paid") && (
                   <Button
@@ -972,21 +998,6 @@ export function PaymentGroupDetailModal({
                     className="mt-1"
                   />
                 </div>
-                {group.paymentType === "invoice" && (
-                  <div>
-                    <Label htmlFor="detail-requestedPdfName">
-                      請求書PDF名
-                    </Label>
-                    <Input
-                      id="detail-requestedPdfName"
-                      value={requestedPdfName}
-                      onChange={(e) => setRequestedPdfName(e.target.value)}
-                      disabled={!isEditable}
-                      placeholder="例: 2026年2月分請求書"
-                      className="mt-1"
-                    />
-                  </div>
-                )}
               </div>
 
               {/* 機密チェックボックス */}
@@ -1437,6 +1448,86 @@ export function PaymentGroupDetailModal({
             </div>
           )}
 
+          {/* 送信履歴タブ */}
+          {activeTab === "history" && (
+            <div className="p-1 space-y-3">
+              {loadingMailHistory ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : mailHistory.length === 0 ? (
+                <div className="text-center py-8 text-sm text-muted-foreground">
+                  送信履歴がありません
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {mailHistory.map((mail) => (
+                    <div
+                      key={mail.id}
+                      className="rounded-lg border p-3 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={
+                              mail.status === "sent"
+                                ? "default"
+                                : mail.status === "failed"
+                                  ? "destructive"
+                                  : "secondary"
+                            }
+                            className={
+                              mail.status === "sent"
+                                ? "bg-green-100 text-green-800 hover:bg-green-100"
+                                : undefined
+                            }
+                          >
+                            {mail.status === "sent"
+                              ? "送信済み"
+                              : mail.status === "failed"
+                                ? "失敗"
+                                : mail.status === "draft"
+                                  ? "下書き"
+                                  : mail.status}
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            {SEND_METHOD_LABELS[mail.sendMethod] ?? mail.sendMethod}
+                          </Badge>
+                          {mail.sentAt && (
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(mail.sentAt).toLocaleString("ja-JP")}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {mail.subject && (
+                        <p className="text-sm font-medium">{mail.subject}</p>
+                      )}
+                      <div className="text-xs text-muted-foreground space-y-0.5">
+                        {mail.recipientEmails.length > 0 && (
+                          <div>宛先: {mail.recipientEmails.join(", ")}</div>
+                        )}
+                        {mail.sentByName && (
+                          <div>送信者: {mail.sentByName}</div>
+                        )}
+                      </div>
+                      {mail.sendMethod !== "email" && mail.body && (
+                        <div className="text-xs text-muted-foreground bg-gray-50 rounded p-2">
+                          {mail.body}
+                        </div>
+                      )}
+                      {mail.status === "failed" && mail.errorMessage && (
+                        <div className="text-xs text-red-600 bg-red-50 rounded p-2">
+                          {mail.errorMessage}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* コメントタブ */}
           {activeTab === "comments" && (
             <div className="p-1">
@@ -1508,6 +1599,7 @@ export function PaymentGroupDetailModal({
             onClose();
           }}
           paymentGroupId={group.id}
+          initialTab={mailModalInitialTab}
         />
 
         {/* インライン取引作成 */}

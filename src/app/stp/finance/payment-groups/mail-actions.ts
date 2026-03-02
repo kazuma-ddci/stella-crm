@@ -21,7 +21,6 @@ export type PaymentGroupMailFormData = {
     targetMonth: string | null; // YYYY-MM
     expectedPaymentDate: string | null;
     totalAmount: number | null;
-    requestedPdfName: string | null;
     referenceCode: string | null;
     status: string;
   };
@@ -51,6 +50,7 @@ export type PaymentGroupMailFormData = {
     id: number;
     sendMethod: string;
     subject: string | null;
+    body: string | null;
     status: string;
     sentAt: string | null;
     sentByName: string | null;
@@ -149,6 +149,7 @@ export async function getPaymentGroupMailData(
     id: m.id,
     sendMethod: m.sendMethod,
     subject: m.subject,
+    body: m.body,
     status: m.status,
     sentAt: m.sentAt?.toISOString() ?? null,
     sentByName: m.sender?.name ?? null,
@@ -168,7 +169,6 @@ export async function getPaymentGroupMailData(
       expectedPaymentDate:
         group.expectedPaymentDate ? toLocalDateString(group.expectedPaymentDate) : null,
       totalAmount: group.totalAmount,
-      requestedPdfName: group.requestedPdfName,
       referenceCode: group.referenceCode,
       status: group.status,
     },
@@ -177,6 +177,49 @@ export async function getPaymentGroupMailData(
     templates,
     mailHistory,
   };
+}
+
+// ============================================
+// 送信履歴取得（詳細モーダル用・軽量）
+// ============================================
+
+export type MailHistoryItem = {
+  id: number;
+  sendMethod: string;
+  subject: string | null;
+  body: string | null;
+  status: string;
+  sentAt: string | null;
+  sentByName: string | null;
+  errorMessage: string | null;
+  recipientEmails: string[];
+};
+
+export async function getPaymentGroupMailHistory(
+  paymentGroupId: number
+): Promise<MailHistoryItem[]> {
+  const mails = await prisma.invoiceMail.findMany({
+    where: {
+      paymentGroupId,
+      deletedAt: null,
+    },
+    include: {
+      sender: true,
+      recipients: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  return mails.map((m) => ({
+    id: m.id,
+    sendMethod: m.sendMethod,
+    subject: m.subject,
+    body: m.body,
+    status: m.status,
+    sentAt: m.sentAt?.toISOString() ?? null,
+    sentByName: m.sender?.name ?? null,
+    errorMessage: m.errorMessage,
+    recipientEmails: m.recipients.map((r) => r.email),
+  }));
 }
 
 // ============================================
@@ -515,4 +558,58 @@ export async function resendPaymentGroupMail(
     revalidatePath("/stp/finance/payment-groups");
     return { success: false, error: errorMessage };
   }
+}
+
+// ============================================
+// 手動送付記録
+// ============================================
+
+export async function recordManualPaymentGroupSend(data: {
+  paymentGroupId: number;
+  sendMethod: "line" | "postal" | "other";
+  note?: string;
+}): Promise<void> {
+  const user = await requireEdit("stp");
+
+  const group = await prisma.paymentGroup.findUnique({
+    where: { id: data.paymentGroupId, deletedAt: null },
+  });
+  if (!group) throw new Error("支払が見つかりません");
+
+  if (group.paymentType === "direct") {
+    throw new Error("即時支払いタイプの支払には手動記録できません");
+  }
+
+  if (!["before_request", "rejected"].includes(group.status)) {
+    throw new Error("依頼前・差し戻しのステータスでのみ手動記録できます");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.invoiceMail.create({
+      data: {
+        invoiceGroupId: null,
+        paymentGroupId: data.paymentGroupId,
+        operatingCompanyId: group.operatingCompanyId,
+        sendMethod: data.sendMethod,
+        body: data.note ?? null,
+        status: "sent",
+        sentAt: new Date(),
+        sentBy: user.id,
+        createdBy: user.id,
+      },
+    });
+
+    // ステータス遷移: before_request → requested, rejected → re_requested
+    const newStatus =
+      group.status === "before_request" ? "requested" : "re_requested";
+    await tx.paymentGroup.update({
+      where: { id: data.paymentGroupId },
+      data: {
+        status: newStatus,
+        updatedBy: user.id,
+      },
+    });
+  });
+
+  revalidatePath("/stp/finance/payment-groups");
 }

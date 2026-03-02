@@ -204,6 +204,47 @@ export async function getInvoiceMailData(
 }
 
 // ============================================
+// 送信履歴取得（詳細モーダル用・軽量）
+// ============================================
+
+export type MailHistoryItem = {
+  id: number;
+  sendMethod: string;
+  subject: string | null;
+  status: string;
+  sentAt: string | null;
+  sentByName: string | null;
+  errorMessage: string | null;
+  recipientEmails: string[];
+};
+
+export async function getInvoiceGroupMailHistory(
+  invoiceGroupId: number
+): Promise<MailHistoryItem[]> {
+  const mails = await prisma.invoiceMail.findMany({
+    where: {
+      invoiceGroupId,
+      deletedAt: null,
+    },
+    include: {
+      sender: true,
+      recipients: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  return mails.map((m) => ({
+    id: m.id,
+    sendMethod: m.sendMethod,
+    subject: m.subject,
+    status: m.status,
+    sentAt: m.sentAt?.toISOString() ?? null,
+    sentByName: m.sender?.name ?? null,
+    errorMessage: m.errorMessage,
+    recipientEmails: m.recipients.map((r) => r.email),
+  }));
+}
+
+// ============================================
 // メール送信
 // ============================================
 
