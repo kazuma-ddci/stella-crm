@@ -98,6 +98,11 @@ export default async function ProjectsPage() {
       smtpPort: e.smtpPort,
       smtpUser: e.smtpUser,
       hasSmtpPass: !!e.smtpPass,
+      imapHost: e.imapHost,
+      imapPort: e.imapPort,
+      imapUser: e.imapUser,
+      hasImapPass: !!e.imapPass,
+      enableInbound: e.enableInbound,
       isDefault: e.isDefault,
     })),
   }));

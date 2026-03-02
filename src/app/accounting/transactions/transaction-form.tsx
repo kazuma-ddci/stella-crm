@@ -88,6 +88,7 @@ type TransactionData = {
   withholdingTaxRate: unknown;
   withholdingTaxAmount: number | null;
   netPaymentAmount: number | null;
+  isConfidential: boolean;
   attachments: AttachmentInput[];
 };
 
@@ -213,6 +214,9 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
 
   // メモ・証憑
   const [note, setNote] = useState(transaction?.note || "");
+  const [isConfidential, setIsConfidential] = useState(
+    transaction?.isConfidential ?? false
+  );
   const [attachments, setAttachments] = useState<AttachmentInput[]>(
     transaction?.attachments || []
   );
@@ -475,6 +479,7 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
         withholdingTaxRate: isWithholdingTarget ? Number(withholdingTaxRate) : null,
         withholdingTaxAmount: isWithholdingTarget ? Number(withholdingTaxAmount) : null,
         netPaymentAmount: isWithholdingTarget ? Number(netPaymentAmount) : null,
+        isConfidential,
         attachments,
       };
 
@@ -1078,6 +1083,20 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
               placeholder="メモを入力..."
               rows={3}
             />
+          </div>
+
+          {/* 機密フラグ */}
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="isConfidential"
+              checked={isConfidential}
+              onChange={(e) => setIsConfidential(e.target.checked)}
+              className="rounded"
+            />
+            <label htmlFor="isConfidential" className="text-sm cursor-pointer">
+              機密（作成者と経理担当のみ閲覧可能）
+            </label>
           </div>
 
           {/* 証憑（閲覧専用・表示する証憑がある場合のみ） */}

@@ -964,7 +964,9 @@ export async function batchUpdateGroupStatus(
           where: { id: item.groupId },
           data: {
             status: newStatus,
-            ...(newStatus === "paid" ? { actualPaymentDate: new Date(toLocalDateString(new Date())) } : {}),
+            ...(newStatus === "paid" && !group.actualPaymentDate ? {
+              actualPaymentDate: group.expectedPaymentDate ?? new Date(toLocalDateString(new Date()))
+            } : {}),
           },
         });
         result.success.push(item);

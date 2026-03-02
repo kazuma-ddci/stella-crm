@@ -32,7 +32,7 @@ const STAFF_ONLY_PATHS = [
 // 外部ユーザー専用パス
 const EXTERNAL_ONLY_PATHS = ["/portal"];
 
-// 固定データ編集パス（stella001 + admin権限ユーザー）
+// 固定データ編集パス（canEditMasterData + admin権限ユーザー）
 const MASTER_DATA_PATHS = [
   "/settings/operating-companies",
   "/settings/projects",
@@ -202,7 +202,15 @@ export default auth((request) => {
 
   // 固定データパスへのアクセス制御: admin権限があれば許可、それ以外は禁止
   if (isMasterDataPath(pathname)) {
-    if (isAdmin) {
+    if (isAdmin || isAdminUser) {
+      return NextResponse.next();
+    }
+    // メールテンプレートはstella閲覧権限でもアクセス可
+    if (
+      (pathname === "/settings/email-templates" ||
+        pathname.startsWith("/settings/email-templates/")) &&
+      hasPermission(userPermissions, "stella")
+    ) {
       return NextResponse.next();
     }
     return NextResponse.redirect(new URL("/", request.url));

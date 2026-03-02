@@ -5,11 +5,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PaymentGroupsTable } from "./payment-groups-table";
 import { UngroupedExpensesPanel } from "./ungrouped-expenses-panel";
+import { InboundInvoiceBanner } from "./inbound-invoice-banner";
 import type {
   PaymentGroupListItem,
   UngroupedExpenseTransaction,
   UngroupedAllocationItem,
 } from "./actions";
+import type { PendingInboundInvoice, MatchablePaymentGroup } from "./inbound-invoice-actions";
 
 type Props = {
   data: PaymentGroupListItem[];
@@ -20,6 +22,9 @@ type Props = {
   expenseCategories: { id: number; name: string; type: string }[];
   unconfirmedTransactions: UngroupedExpenseTransaction[];
   projectId?: number;
+  canEditAccounting?: boolean;
+  pendingInboundInvoices?: PendingInboundInvoice[];
+  matchablePaymentGroups?: MatchablePaymentGroup[];
 };
 
 export function PaymentGroupsPageClient({
@@ -31,6 +36,9 @@ export function PaymentGroupsPageClient({
   expenseCategories,
   unconfirmedTransactions,
   projectId,
+  canEditAccounting,
+  pendingInboundInvoices = [],
+  matchablePaymentGroups = [],
 }: Props) {
   const [activeTab, setActiveTab] = useState<string>(
     (ungroupedTransactions.length + ungroupedAllocationItems.length) > 0 ? "ungrouped" : "list"
@@ -38,22 +46,31 @@ export function PaymentGroupsPageClient({
 
   // サマリー計算
   const totalCount = data.length;
-  const beforeRequestCount = data.filter(
-    (r) => r.status === "before_request"
+  const invoiceBeforeRequestCount = data.filter(
+    (r) => r.paymentType === "invoice" && r.status === "before_request"
   ).length;
+  const directUnprocessedCount = data.filter(
+    (r) => r.paymentType === "direct" && r.status === "unprocessed"
+  ).length;
+  const actionRequiredCount = invoiceBeforeRequestCount + directUnprocessedCount;
   const totalAmount = data.reduce((sum, r) => sum + (r.totalAmount ?? 0), 0);
   const confirmedAmount = data
     .filter((r) => ["confirmed", "paid"].includes(r.status))
     .reduce((sum, r) => sum + (r.totalAmount ?? 0), 0);
 
-  // 下書き（before_request）の支払グループ
+  // 下書き（before_request）+ direct未処理の支払グループ
   const draftPaymentGroups = data.filter(
-    (r) => r.status === "before_request"
+    (r) => r.status === "before_request" || (r.paymentType === "direct" && r.status === "unprocessed")
   );
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">支払管理</h1>
+
+      <InboundInvoiceBanner
+        invoices={pendingInboundInvoices}
+        matchableGroups={matchablePaymentGroups}
+      />
 
       <Tabs
         value={activeTab}
@@ -101,10 +118,20 @@ export function PaymentGroupsPageClient({
               </Card>
               <Card>
                 <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">依頼前</div>
+                  <div className="text-sm text-muted-foreground">要対応</div>
                   <div className="text-2xl font-bold text-orange-600">
-                    {beforeRequestCount}件
+                    {actionRequiredCount}件
                   </div>
+                  {invoiceBeforeRequestCount > 0 && (
+                    <div className="text-xs text-muted-foreground mt-1">
+                      請求書: 依頼前 {invoiceBeforeRequestCount}件
+                    </div>
+                  )}
+                  {directUnprocessedCount > 0 && (
+                    <div className="text-xs text-muted-foreground mt-1">
+                      即時: 未処理 {directUnprocessedCount}件
+                    </div>
+                  )}
                 </CardContent>
               </Card>
               <Card>
@@ -135,6 +162,7 @@ export function PaymentGroupsPageClient({
               operatingCompanyOptions={operatingCompanyOptions}
               expenseCategories={expenseCategories}
               projectId={projectId}
+              canEditAccounting={canEditAccounting}
             />
           </div>
         </TabsContent>

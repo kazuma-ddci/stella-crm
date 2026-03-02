@@ -37,6 +37,11 @@ export type CompanyEmail = {
   smtpPort: number | null;
   smtpUser: string | null;
   hasSmtpPass: boolean;
+  imapHost: string | null;
+  imapPort: number | null;
+  imapUser: string | null;
+  hasImapPass: boolean;
+  enableInbound: boolean;
   isDefault: boolean;
 };
 
@@ -61,9 +66,10 @@ export function EmailsModal({
   const [isAddMode, setIsAddMode] = useState(false);
   const [editEmail, setEditEmail] = useState<CompanyEmail | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<CompanyEmail | null>(null);
-  const [formData, setFormData] = useState<Partial<CompanyEmail> & { smtpPass?: string | null }>({});
+  const [formData, setFormData] = useState<Partial<CompanyEmail> & { smtpPass?: string | null; imapPass?: string | null; useSmtpCredentials?: boolean }>({});
   const [loading, setLoading] = useState(false);
   const [showSmtp, setShowSmtp] = useState(false);
+  const [showImap, setShowImap] = useState(false);
 
   useEffect(() => {
     setEmails(initialEmails);
@@ -72,6 +78,7 @@ export function EmailsModal({
     setFormData({});
     setDeleteConfirm(null);
     setShowSmtp(false);
+    setShowImap(false);
   }, [initialEmails, open]);
 
   const openAddForm = () => {
@@ -82,15 +89,23 @@ export function EmailsModal({
       smtpPort: null,
       smtpUser: null,
       smtpPass: null,
+      imapHost: null,
+      imapPort: null,
+      imapUser: null,
+      imapPass: null,
+      useSmtpCredentials: false,
+      enableInbound: false,
       isDefault: false,
     });
     setShowSmtp(false);
+    setShowImap(false);
     setIsAddMode(true);
   };
 
   const openEditForm = (email: CompanyEmail) => {
-    setFormData({ ...email, smtpPass: null });
+    setFormData({ ...email, smtpPass: null, imapPass: null, useSmtpCredentials: false });
     setShowSmtp(!!(email.smtpHost || email.smtpPort || email.smtpUser));
+    setShowImap(!!(email.imapHost || email.imapPort || email.imapUser || email.enableInbound));
     setEditEmail(email);
   };
 
@@ -276,6 +291,107 @@ export function EmailsModal({
         )}
       </div>
 
+      {/* IMAP設定 */}
+      <div>
+        <button
+          type="button"
+          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          onClick={() => setShowImap(!showImap)}
+        >
+          {showImap ? (
+            <ChevronDown className="h-4 w-4" />
+          ) : (
+            <ChevronRight className="h-4 w-4" />
+          )}
+          IMAP設定（受信チェック用）
+        </button>
+        {showImap && (
+          <div className="mt-3 space-y-3 pl-5 border-l-2 border-muted">
+            <p className="text-xs text-muted-foreground">
+              受信メールのチェックに使用するIMAP接続設定です
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>IMAPホスト</Label>
+                <Input
+                  value={formData.imapHost || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, imapHost: e.target.value || null })
+                  }
+                  placeholder="imap.gmail.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>IMAPポート</Label>
+                <Input
+                  type="number"
+                  value={formData.imapPort ?? ""}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      imapPort: e.target.value ? Number(e.target.value) : null,
+                    })
+                  }
+                  placeholder="993"
+                />
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                checked={formData.useSmtpCredentials === true}
+                onCheckedChange={(checked: boolean) => {
+                  if (checked) {
+                    setFormData({
+                      ...formData,
+                      useSmtpCredentials: true,
+                      imapUser: formData.smtpUser || null,
+                      imapPass: formData.smtpPass || null,
+                    });
+                  } else {
+                    setFormData({ ...formData, useSmtpCredentials: false });
+                  }
+                }}
+              />
+              <Label className="text-sm font-normal">SMTPと同じ認証情報を使用</Label>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>IMAPユーザー</Label>
+                <Input
+                  value={formData.useSmtpCredentials ? (formData.smtpUser || "") : (formData.imapUser || "")}
+                  onChange={(e) =>
+                    setFormData({ ...formData, imapUser: e.target.value || null })
+                  }
+                  disabled={formData.useSmtpCredentials === true}
+                  placeholder="user@example.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>IMAPパスワード</Label>
+                <Input
+                  type="password"
+                  value={formData.useSmtpCredentials ? (formData.smtpPass || "") : (formData.imapPass || "")}
+                  onChange={(e) =>
+                    setFormData({ ...formData, imapPass: e.target.value || null })
+                  }
+                  disabled={formData.useSmtpCredentials === true}
+                  placeholder={editEmail?.hasImapPass ? "変更しない場合は空欄" : "パスワードを入力"}
+                />
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                checked={formData.enableInbound === true}
+                onCheckedChange={(checked: boolean) =>
+                  setFormData({ ...formData, enableInbound: checked })
+                }
+              />
+              <Label className="text-sm font-normal">このアドレスの受信メールをチェックする</Label>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="flex gap-2 justify-end">
         <Button
           variant="outline"
@@ -332,6 +448,7 @@ export function EmailsModal({
                       <TableHead>メールアドレス</TableHead>
                       <TableHead>用途</TableHead>
                       <TableHead>SMTP</TableHead>
+                      <TableHead>IMAP</TableHead>
                       <TableHead>デフォルト</TableHead>
                       {canEdit && <TableHead className="w-[120px]">操作</TableHead>}
                     </TableRow>
@@ -350,6 +467,15 @@ export function EmailsModal({
                             <span className="text-muted-foreground text-sm">
                               共通
                             </span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {email.enableInbound ? (
+                            <Badge variant="outline" className="border-green-300 text-green-700">受信ON</Badge>
+                          ) : email.imapHost ? (
+                            <Badge variant="outline">設定済</Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
                           )}
                         </TableCell>
                         <TableCell>

@@ -665,6 +665,7 @@ model MasterStaff {
   changeLogChanged            ChangeLog[]                @relation("ChangeLogChanger")
   candidateDecisions          TransactionCandidateDecision[] @relation("CandidateDecisionDecider")
   transactionExpenseOwners    TransactionExpenseOwner[]
+  processedInboundInvoices    InboundInvoice[]               @relation("InboundInvoiceProcessor")
 
   @@map("master_staff")
 }
@@ -2413,9 +2414,13 @@ model PaymentGroup {
   taxAmount             Int?      // 税額
 
   // 請求書発行依頼
+  referenceCode         String?   @unique  // "PG-0042" — 作成時自動生成
   requestedPdfName      String?   // 相手に指定するPDFファイル名
   receivedPdfPath       String?   // 受領した請求書PDFのパス
   receivedPdfFileName   String?   // 受領したPDFのファイル名
+
+  // 受信請求書マッチング
+  expectedInboundEmailId Int?     // 返信を待つ受信メールアドレス
 
   paymentType           String    @default("invoice")  // "invoice" | "direct"
   isConfidential        Boolean   @default(false)
@@ -2450,6 +2455,8 @@ model PaymentGroup {
   confirmer             MasterStaff?      @relation("PaymentGroupConfirmer", fields: [confirmedBy], references: [id])
   creator               MasterStaff       @relation("PaymentGroupCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?      @relation("PaymentGroupUpdater", fields: [updatedBy], references: [id])
+  expectedInboundEmail  OperatingCompanyEmail? @relation("ExpectedInbound", fields: [expectedInboundEmailId], references: [id])
+  inboundInvoices       InboundInvoice[]
 }
 
 // ============================================
@@ -3100,6 +3107,14 @@ model OperatingCompanyEmail {
   smtpUser              String?
   smtpPass              String?
   isDefault             Boolean   @default(false)
+
+  // IMAP設定（受信チェック用）
+  imapHost              String?
+  imapPort              Int?
+  imapUser              String?
+  imapPass              String?
+  enableInbound         Boolean   @default(false)
+
   deletedAt             DateTime?
 
   createdBy             Int?      // FK → MasterStaff
@@ -3111,6 +3126,8 @@ model OperatingCompanyEmail {
   operatingCompany      OperatingCompany? @relation(fields: [operatingCompanyId], references: [id])
   invoiceMails          InvoiceMail[]
   projectEmails         ProjectEmail[]
+  expectedInboundPaymentGroups PaymentGroup[] @relation("ExpectedInbound")
+  inboundInvoices       InboundInvoice[]
   creator               MasterStaff?     @relation("OpCoEmailCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?     @relation("OpCoEmailUpdater", fields: [updatedBy], references: [id])
 }
@@ -3366,4 +3383,41 @@ model SystemProjectBinding {
   operatingCompany      OperatingCompany? @relation(fields: [operatingCompanyId], references: [id])
 
   @@map("system_project_bindings")
+}
+
+// ============================================
+// 受信請求書（InboundInvoice）
+// ============================================
+
+model InboundInvoice {
+  id                 Int       @id @default(autoincrement())
+  messageId          String                      // メール Message-ID
+  attachmentIndex    Int                         // 同一メール内の添付ファイル番号（0始まり）
+  receivedByEmailId  Int                         // どのアドレスで受信したか
+  fromEmail          String
+  fromName           String?
+  subject            String?
+  receivedAt         DateTime
+
+  paymentGroupId     Int?                        // マッチ先（null = 未マッチ）
+  matchConfidence    String?                     // "high" | "medium" | "low"
+  referenceCode      String?                     // PDF名から抽出した PG-XXXX
+
+  attachmentFileName String?
+  attachmentPath     String?                     // 仮保存パス（/uploads/inbound-invoices/）
+  attachmentSize     Int?
+  attachmentMimeType String?
+
+  status             String    @default("pending") // pending | unmatched | confirmed | rejected
+  processedBy        Int?
+  processedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  receivedByEmail    OperatingCompanyEmail @relation(fields: [receivedByEmailId], references: [id])
+  paymentGroup       PaymentGroup?        @relation(fields: [paymentGroupId], references: [id])
+  processor          MasterStaff?         @relation("InboundInvoiceProcessor", fields: [processedBy], references: [id])
+
+  @@unique([messageId, attachmentIndex])
 }

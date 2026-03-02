@@ -22,6 +22,11 @@ export async function addOperatingCompanyEmail(
       smtpPort: data.smtpPort ? Number(data.smtpPort) : null,
       smtpUser: (data.smtpUser as string) || null,
       smtpPass: (data.smtpPass as string) || null,
+      imapHost: (data.imapHost as string) || null,
+      imapPort: data.imapPort ? Number(data.imapPort) : null,
+      imapUser: (data.imapUser as string) || null,
+      imapPass: (data.imapPass as string) || null,
+      enableInbound: data.enableInbound === true || data.enableInbound === "true",
       isDefault: data.isDefault === true || data.isDefault === "true",
       createdBy: staffId,
     },
@@ -49,6 +54,11 @@ export async function addOperatingCompanyEmail(
     smtpPort: email.smtpPort,
     smtpUser: email.smtpUser,
     hasSmtpPass: !!email.smtpPass,
+    imapHost: email.imapHost,
+    imapPort: email.imapPort,
+    imapUser: email.imapUser,
+    hasImapPass: !!email.imapPass,
+    enableInbound: email.enableInbound,
     isDefault: email.isDefault,
   };
 }
@@ -74,6 +84,10 @@ export async function updateOperatingCompanyEmail(
     smtpHost: (data.smtpHost as string) || null,
     smtpPort: data.smtpPort ? Number(data.smtpPort) : null,
     smtpUser: (data.smtpUser as string) || null,
+    imapHost: (data.imapHost as string) || null,
+    imapPort: data.imapPort ? Number(data.imapPort) : null,
+    imapUser: (data.imapUser as string) || null,
+    enableInbound: data.enableInbound === true || data.enableInbound === "true",
     isDefault,
     updatedBy: staffId,
   };
@@ -81,6 +95,11 @@ export async function updateOperatingCompanyEmail(
   // smtpPassが送信された場合のみ更新（空なら変更しない）
   if (data.smtpPass) {
     updateData.smtpPass = data.smtpPass as string;
+  }
+
+  // imapPassが送信された場合のみ更新（空なら変更しない）
+  if (data.imapPass) {
+    updateData.imapPass = data.imapPass as string;
   }
 
   const email = await prisma.operatingCompanyEmail.update({
@@ -110,6 +129,11 @@ export async function updateOperatingCompanyEmail(
     smtpPort: email.smtpPort,
     smtpUser: email.smtpUser,
     hasSmtpPass: !!email.smtpPass,
+    imapHost: email.imapHost,
+    imapPort: email.imapPort,
+    imapUser: email.imapUser,
+    hasImapPass: !!email.imapPass,
+    enableInbound: email.enableInbound,
     isDefault: email.isDefault,
   };
 }

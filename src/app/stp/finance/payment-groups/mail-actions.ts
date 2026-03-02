@@ -22,6 +22,7 @@ export type PaymentGroupMailFormData = {
     expectedPaymentDate: string | null;
     totalAmount: number | null;
     requestedPdfName: string | null;
+    referenceCode: string | null;
     status: string;
   };
   contacts: {
@@ -168,6 +169,7 @@ export async function getPaymentGroupMailData(
         group.expectedPaymentDate ? toLocalDateString(group.expectedPaymentDate) : null,
       totalAmount: group.totalAmount,
       requestedPdfName: group.requestedPdfName,
+      referenceCode: group.referenceCode,
       status: group.status,
     },
     contacts,
@@ -209,6 +211,12 @@ export async function sendPaymentGroupMail(data: {
   if (!group) {
     return { success: false, error: "支払が見つかりません" };
   }
+
+  // directタイプはメール送信不可
+  if (group.paymentType === "direct") {
+    return { success: false, error: "即時支払いタイプの支払にはメール送信できません" };
+  }
+
   // before_request | requested | rejected | re_requested のみ送信可能
   if (
     !["before_request", "requested", "rejected", "re_requested"].includes(
@@ -222,23 +230,18 @@ export async function sendPaymentGroupMail(data: {
     };
   }
 
-  // before_request / rejected ステータスでは requestedPdfName が必須
-  if (
-    ["before_request", "rejected"].includes(group.status) &&
-    !group.requestedPdfName
-  ) {
-    return {
-      success: false,
-      error: "請求書PDF名を設定してからメールを送信してください",
-    };
-  }
-
   // OperatingCompanyEmailの取得（SMTP設定含む）
   const senderEmail = await prisma.operatingCompanyEmail.findUnique({
     where: { id: data.senderEmailId, deletedAt: null },
   });
   if (!senderEmail) {
     return { success: false, error: "送信元メールアドレスが見つかりません" };
+  }
+
+  // referenceCode がメール本文に含まれていない場合、末尾に自動追記（DB保存・送信とも同一テキスト）
+  let finalBody = data.body;
+  if (group.referenceCode && !data.body.includes(group.referenceCode)) {
+    finalBody += `\n---\n※ 請求書PDFのファイル名末尾に「${group.referenceCode}」を含めてください。\n例: 請求書_2026年3月_${group.referenceCode}.pdf`;
   }
 
   // トランザクションでInvoiceMail + Recipients作成
@@ -251,7 +254,7 @@ export async function sendPaymentGroupMail(data: {
         senderEmailId: data.senderEmailId,
         sendMethod: "email",
         subject: data.subject,
-        body: data.body,
+        body: finalBody,
         pdfPath: null, // 支払グループにはPDF添付なし
         status: "draft",
         createdBy: user.id,
@@ -290,7 +293,7 @@ export async function sendPaymentGroupMail(data: {
         type: r.type,
       })),
       subject: data.subject,
-      body: data.body,
+      body: finalBody,
       pdfPath: null, // 支払グループにはPDF添付なし
     });
 
@@ -310,21 +313,23 @@ export async function sendPaymentGroupMail(data: {
       // before_request → requested
       // rejected → re_requested
       // それ以外はステータス変更しない
+      const statusUpdateData: Record<string, unknown> = { updatedBy: user.id };
+
       if (group.status === "before_request") {
-        await prisma.paymentGroup.update({
-          where: { id: data.paymentGroupId },
-          data: {
-            status: "requested",
-            updatedBy: user.id,
-          },
-        });
+        statusUpdateData.status = "requested";
       } else if (group.status === "rejected") {
+        statusUpdateData.status = "re_requested";
+      }
+
+      // expectedInboundEmailId が null の場合のみ初回自動設定
+      if (!group.expectedInboundEmailId && data.senderEmailId) {
+        statusUpdateData.expectedInboundEmailId = data.senderEmailId;
+      }
+
+      if (Object.keys(statusUpdateData).length > 1) {
         await prisma.paymentGroup.update({
           where: { id: data.paymentGroupId },
-          data: {
-            status: "re_requested",
-            updatedBy: user.id,
-          },
+          data: statusUpdateData,
         });
       }
 
@@ -396,6 +401,11 @@ export async function resendPaymentGroupMail(
       success: false,
       error: "支払に紐づくメールではありません",
     };
+  }
+
+  // directタイプはメール送信不可
+  if (mail.paymentGroup.paymentType === "direct") {
+    return { success: false, error: "即時支払いタイプの支払にはメール送信できません" };
   }
 
   // failed または sent ステータスのもののみ再送可能

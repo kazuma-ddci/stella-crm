@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { hasPermission } from "@/lib/auth";
+import type { UserPermission } from "@/types/auth";
 import { autoConfirmCreatorAllocations, checkAndTransitionToAwaitingAccounting, sendAllocationNotifications } from "./allocation-actions";
 import type { AllocationNotificationInfo } from "./allocation-actions";
 import { createNotification } from "@/lib/notifications/create-notification";
@@ -214,6 +216,10 @@ export async function createTransaction(data: Record<string, unknown>) {
     ? Number(data.netPaymentAmount)
     : null;
 
+  // 機密フラグ
+  const isConfidential =
+    data.isConfidential === true || data.isConfidential === "true";
+
   // 経費負担者
   const hasExpenseOwner =
     data.hasExpenseOwner === true || data.hasExpenseOwner === "true";
@@ -256,6 +262,7 @@ export async function createTransaction(data: Record<string, unknown>) {
         withholdingTaxRate,
         withholdingTaxAmount,
         netPaymentAmount,
+        isConfidential,
         createdBy: staffId,
       },
     });
@@ -387,6 +394,10 @@ export async function updateTransaction(
     ? Number(data.netPaymentAmount)
     : null;
 
+  // 機密フラグ
+  const isConfidential =
+    data.isConfidential === true || data.isConfidential === "true";
+
   // 経費負担者
   const hasExpenseOwner =
     data.hasExpenseOwner === true || data.hasExpenseOwner === "true";
@@ -431,6 +442,7 @@ export async function updateTransaction(
         withholdingTaxRate,
         withholdingTaxAmount,
         netPaymentAmount,
+        isConfidential,
         updatedBy: staffId,
       },
     });
@@ -609,6 +621,15 @@ const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
   partially_paid: ["paid"],
   paid: ["hidden"],
 };
+
+// ============================================
+// 機密フィルタヘルパー
+// ============================================
+
+function buildConfidentialFilter(userId: number, permissions: UserPermission[]) {
+  if (hasPermission(permissions, "accounting", "edit")) return {};
+  return { OR: [{ isConfidential: false }, { isConfidential: true, createdBy: userId }] };
+}
 
 // ============================================
 // 月次クローズチェック
@@ -1116,9 +1137,13 @@ export async function getTransactions(filters?: {
   status?: string;
   counterpartyId?: number;
 }) {
+  const session = await getSession();
+  const txConfidentialFilter = buildConfidentialFilter(session.id, session.permissions);
+
   const where: Record<string, unknown> = {
     deletedAt: null,
     status: { not: "hidden" },
+    ...txConfidentialFilter,
   };
 
   if (filters?.projectId) {

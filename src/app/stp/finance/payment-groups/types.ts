@@ -1,5 +1,6 @@
 export type PaymentGroupListItem = {
   id: number;
+  referenceCode: string | null;
   counterpartyId: number;
   counterpartyName: string;
   operatingCompanyId: number;
@@ -13,11 +14,14 @@ export type PaymentGroupListItem = {
   requestedPdfName: string | null;
   receivedPdfPath: string | null;
   receivedPdfFileName: string | null;
+  paymentType: "invoice" | "direct";
+  isConfidential: boolean;
   status: string;
   confirmedByName: string | null;
   confirmedAt: string | null;
   transactionCount: number;
   allocationItemCount: number;
+  expectedInboundEmail: { email: string } | null;
   createdByName: string;
   createdAt: string;
 };
@@ -53,6 +57,7 @@ export type UngroupedExpenseTransaction = {
   periodFrom: string;
   periodTo: string;
   note: string | null;
+  isConfidential: boolean;
 };
 
 export type PaymentGroupTransaction = {

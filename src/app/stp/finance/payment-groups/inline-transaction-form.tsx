@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Loader2 } from "lucide-react";
 import { createTransactionInline } from "../transactions/actions";
 
@@ -32,7 +33,6 @@ export function InlineTransactionForm({
   const [periodFrom, setPeriodFrom] = useState<string>("");
   const [periodTo, setPeriodTo] = useState<string>("");
   const [note, setNote] = useState<string>("");
-  const [focusedDateField, setFocusedDateField] = useState<string | null>(null);
 
   const filteredCategories = useMemo(
     () =>
@@ -183,29 +183,19 @@ export function InlineTransactionForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label htmlFor="inline-expense-period-from">対象期間From *</Label>
-          <Input
-            id="inline-expense-period-from"
-            type={focusedDateField === "periodFrom" || periodFrom ? "date" : "text"}
+          <Label>対象期間From *</Label>
+          <DatePicker
             value={periodFrom}
-            onFocus={() => setFocusedDateField("periodFrom")}
-            onBlur={() => setFocusedDateField(null)}
-            onChange={(e) => setPeriodFrom(e.target.value)}
-            placeholder="日付を入力"
-            className="mt-1"
+            onChange={setPeriodFrom}
+            placeholder="日付を選択"
           />
         </div>
         <div>
-          <Label htmlFor="inline-expense-period-to">対象期間To *</Label>
-          <Input
-            id="inline-expense-period-to"
-            type={focusedDateField === "periodTo" || periodTo ? "date" : "text"}
+          <Label>対象期間To *</Label>
+          <DatePicker
             value={periodTo}
-            onFocus={() => setFocusedDateField("periodTo")}
-            onBlur={() => setFocusedDateField(null)}
-            onChange={(e) => setPeriodTo(e.target.value)}
-            placeholder="日付を入力"
-            className="mt-1"
+            onChange={setPeriodTo}
+            placeholder="日付を選択"
           />
         </div>
       </div>

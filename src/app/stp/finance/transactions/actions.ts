@@ -1,8 +1,10 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireEdit } from "@/lib/auth";
+import { requireEdit, getSession } from "@/lib/auth";
+import { hasPermission } from "@/lib/auth";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import type { UserPermission } from "@/types/auth";
 import { revalidatePath } from "next/cache";
 import { toLocalDateString } from "@/lib/utils";
 import type {
@@ -11,6 +13,15 @@ import type {
   TransactionFilters,
   TransactionSort,
 } from "./types";
+
+// ============================================
+// 機密フィルタヘルパー
+// ============================================
+
+function buildConfidentialFilter(userId: number, permissions: UserPermission[]) {
+  if (hasPermission(permissions, "accounting", "edit")) return {};
+  return { OR: [{ isConfidential: false }, { isConfidential: true, createdBy: userId }] };
+}
 
 // 型を再エクスポート（既存の import { type ... } from "./actions" を壊さないため）
 export type {
@@ -26,9 +37,13 @@ export async function listTransactions(
   sort?: TransactionSort,
   projectId?: number
 ): Promise<TransactionListItem[]> {
+  const session = await getSession();
+  const txConfidentialFilter = buildConfidentialFilter(session.id, session.permissions);
+
   const where: Record<string, unknown> = {
     deletedAt: null,
     ...(projectId ? { projectId } : {}),
+    ...txConfidentialFilter,
   };
 
   if (filters?.type) {

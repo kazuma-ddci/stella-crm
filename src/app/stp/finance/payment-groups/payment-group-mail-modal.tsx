@@ -176,6 +176,7 @@ export function PaymentGroupMailModal({
           : "",
         支払予定日: group.expectedPaymentDate ?? "",
         指定PDF名: group.requestedPdfName ?? "",
+        参照コード: group.referenceCode ?? "",
       };
     },
     [recipients]

@@ -50,6 +50,7 @@ export default async function EditTransactionPage({ params }: Props) {
     withholdingTaxRate: transaction.withholdingTaxRate != null ? Number(transaction.withholdingTaxRate) : null,
     withholdingTaxAmount: transaction.withholdingTaxAmount,
     netPaymentAmount: transaction.netPaymentAmount,
+    isConfidential: transaction.isConfidential,
     attachments: transaction.attachments.map((att) => ({
       id: att.id,
       filePath: att.filePath,

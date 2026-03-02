@@ -2,11 +2,48 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import { requireEdit } from "@/lib/auth";
+import { requireEdit, getSession } from "@/lib/auth";
+import { hasPermission } from "@/lib/auth";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
 import { requireStpProjectId } from "@/lib/project-context";
 import { toLocalDateString } from "@/lib/utils";
 import { createNotificationBulk } from "@/lib/notifications/create-notification";
+import type { UserPermission } from "@/types/auth";
+
+// ============================================
+// ステータス遷移マップ
+// ============================================
+
+const INVOICE_TRANSITIONS: Record<string, string[]> = {
+  before_request: ["requested"],
+  requested: ["invoice_received"],
+  invoice_received: ["confirmed", "rejected"],
+  rejected: ["re_requested"],
+  re_requested: ["invoice_received"],
+  confirmed: ["awaiting_accounting", "paid"],
+  awaiting_accounting: ["paid", "returned"],
+  returned: ["confirmed"],
+};
+
+const DIRECT_TRANSITIONS: Record<string, string[]> = {
+  unprocessed: ["confirmed"],
+  confirmed: ["awaiting_accounting", "paid"],
+  awaiting_accounting: ["paid", "returned"],
+  returned: ["confirmed"],
+};
+
+function getTransitionsForType(paymentType: string): Record<string, string[]> {
+  return paymentType === "direct" ? DIRECT_TRANSITIONS : INVOICE_TRANSITIONS;
+}
+
+// ============================================
+// 機密フィルタヘルパー
+// ============================================
+
+function buildConfidentialFilter(userId: number, permissions: UserPermission[]) {
+  if (hasPermission(permissions, "accounting", "edit")) return {};
+  return { OR: [{ isConfidential: false }, { isConfidential: true, createdBy: userId }] };
+}
 
 // ============================================
 // 型定義（types.ts から再エクスポート）
@@ -33,8 +70,11 @@ export type {
 export async function getPaymentGroups(
   projectId?: number
 ): Promise<PaymentGroupListItem[]> {
+  const session = await getSession();
+  const confidentialFilter = buildConfidentialFilter(session.id, session.permissions);
+
   const records = await prisma.paymentGroup.findMany({
-    where: { deletedAt: null, ...(projectId ? { projectId } : {}) },
+    where: { deletedAt: null, ...(projectId ? { projectId } : {}), ...confidentialFilter },
     include: {
       counterparty: true,
       operatingCompany: true,
@@ -42,12 +82,14 @@ export async function getPaymentGroups(
       allocationItems: { select: { id: true } },
       creator: true,
       confirmer: true,
+      expectedInboundEmail: { select: { email: true } },
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
 
   return records.map((r) => ({
     id: r.id,
+    referenceCode: r.referenceCode,
     counterpartyId: r.counterpartyId,
     counterpartyName: r.counterparty.name,
     operatingCompanyId: r.operatingCompanyId,
@@ -64,9 +106,12 @@ export async function getPaymentGroups(
     requestedPdfName: r.requestedPdfName,
     receivedPdfPath: r.receivedPdfPath,
     receivedPdfFileName: r.receivedPdfFileName,
+    paymentType: r.paymentType as "invoice" | "direct",
+    isConfidential: r.isConfidential,
     status: r.status,
     confirmedByName: r.confirmer?.name ?? null,
     confirmedAt: r.confirmedAt ? toLocalDateString(r.confirmedAt) : null,
+    expectedInboundEmail: r.expectedInboundEmail ? { email: r.expectedInboundEmail.email } : null,
     transactionCount: r.transactions.length,
     allocationItemCount: r.allocationItems.length,
     createdByName: r.creator.name,
@@ -82,6 +127,9 @@ export async function getUngroupedExpenseTransactions(
   counterpartyId?: number,
   projectId?: number
 ): Promise<UngroupedExpenseTransaction[]> {
+  const session = await getSession();
+  const txConfidentialFilter = buildConfidentialFilter(session.id, session.permissions);
+
   const where: Record<string, unknown> = {
     deletedAt: null,
     type: "expense",
@@ -89,6 +137,7 @@ export async function getUngroupedExpenseTransactions(
     paymentGroupId: null,
     allocationTemplateId: null, // 按分取引は除外（AllocationGroupItem経由で処理）
     ...(projectId ? { projectId } : {}),
+    ...txConfidentialFilter,
   };
   if (counterpartyId) {
     where.counterpartyId = counterpartyId;
@@ -116,6 +165,7 @@ export async function getUngroupedExpenseTransactions(
     periodFrom: toLocalDateString(r.periodFrom),
     periodTo: toLocalDateString(r.periodTo),
     note: r.note,
+    isConfidential: r.isConfidential,
   }));
 }
 
@@ -253,6 +303,8 @@ export async function createPaymentGroup(data: {
   requestedPdfName?: string | null;
   transactionIds: number[];
   projectId?: number;
+  paymentType?: "invoice" | "direct";
+  isConfidential?: boolean;
 }): Promise<{ id: number }> {
   const user = await requireEdit("stp");
   const stpProjectId = await requireStpProjectId();
@@ -319,6 +371,9 @@ export async function createPaymentGroup(data: {
     }
 
     // PaymentGroup作成（サーバー側で取得したprojectIdを使用）
+    const paymentType = data.paymentType ?? "invoice";
+    const initialStatus = paymentType === "direct" ? "unprocessed" : "before_request";
+
     const group = await tx.paymentGroup.create({
       data: {
         counterpartyId: data.counterpartyId,
@@ -335,9 +390,18 @@ export async function createPaymentGroup(data: {
         totalAmount: subtotal + taxTotal,
         taxAmount: taxTotal,
         projectId: stpProjectId,
-        status: "before_request",
+        paymentType,
+        isConfidential: data.isConfidential ?? false,
+        status: initialStatus,
         createdBy: user.id,
       },
+    });
+
+    // referenceCode を設定（PG-0001 形式）
+    const code = `PG-${String(group.id).padStart(4, '0')}`;
+    await tx.paymentGroup.update({
+      where: { id: group.id },
+      data: { referenceCode: code },
     });
 
     // 取引をグループに紐づけ（projectIdでスコープ）
@@ -350,7 +414,7 @@ export async function createPaymentGroup(data: {
       tableName: "PaymentGroup",
       recordId: group.id,
       changeType: "create",
-      newData: { status: "before_request", counterpartyId: data.counterpartyId, operatingCompanyId: data.operatingCompanyId },
+      newData: { status: initialStatus, paymentType, counterpartyId: data.counterpartyId, operatingCompanyId: data.operatingCompanyId },
     }, user.id, tx);
 
     return { id: group.id };
@@ -372,32 +436,41 @@ export async function updatePaymentGroup(
     paymentDueDate?: string | null;
     actualPaymentDate?: string | null;
     requestedPdfName?: string | null;
+    isConfidential?: boolean;
   }
 ): Promise<void> {
   const user = await requireEdit("stp");
   const stpProjectId = await requireStpProjectId();
+
+  // actualPaymentDate の更新は経理権限が必要
+  if ("actualPaymentDate" in data) {
+    const session = await getSession();
+    if (!hasPermission(session.permissions, "accounting", "edit")) {
+      throw new Error("実際の支払日の変更は経理権限が必要です");
+    }
+  }
 
   const group = await prisma.paymentGroup.findUnique({
     where: { id, deletedAt: null, projectId: stpProjectId },
   });
   if (!group) throw new Error("支払が見つかりません");
 
-  // actualPaymentDate のみの更新は confirmed/paid でも許可
+  // actualPaymentDate のみの更新は confirmed/awaiting_accounting でも許可（経理権限チェック済み）
   const onlyActualPaymentDate =
     Object.keys(data).length === 1 && "actualPaymentDate" in data;
+  // isConfidential のみの更新は編集可能ステータス外でも許可（paid以前のすべて）
+  const onlyIsConfidential =
+    Object.keys(data).length === 1 && "isConfidential" in data;
 
-  // 経理引き渡し後は編集不可（actualPaymentDateのみでも）
-  if (
-    onlyActualPaymentDate &&
-    ["awaiting_accounting", "paid"].includes(group.status)
-  ) {
-    throw new Error("経理引き渡し後は編集できません");
-  }
+  // 編集可能ステータスの判定（paymentTypeに応じて分岐）
+  const editableStatuses = group.paymentType === "direct"
+    ? ["unprocessed"]
+    : ["before_request", "rejected", "invoice_received"];
 
-  // before_request, rejected, invoice_received のみ編集可能（actualPaymentDateのみは例外）
   if (
     !onlyActualPaymentDate &&
-    !["before_request", "rejected", "invoice_received"].includes(group.status)
+    !onlyIsConfidential &&
+    !editableStatuses.includes(group.status)
   ) {
     throw new Error("このステータスでは編集できません");
   }
@@ -434,6 +507,11 @@ export async function updatePaymentGroup(
     newData.requestedPdfName = data.requestedPdfName ?? null;
     updateData.requestedPdfName = data.requestedPdfName ?? null;
   }
+  if ("isConfidential" in data && data.isConfidential !== undefined) {
+    oldData.isConfidential = group.isConfidential;
+    newData.isConfidential = data.isConfidential;
+    updateData.isConfidential = data.isConfidential;
+  }
 
   await prisma.paymentGroup.update({
     where: { id },
@@ -467,10 +545,13 @@ export async function deletePaymentGroup(
   });
   if (!group) throw new Error("支払が見つかりません");
 
-  // before_request のみ削除可能
-  if (group.status !== "before_request") {
+  // 削除可能ステータスの分岐
+  const deletableStatus = group.paymentType === "direct" ? "unprocessed" : "before_request";
+  if (group.status !== deletableStatus) {
     throw new Error(
-      "「依頼前」ステータスの支払のみ削除できます"
+      group.paymentType === "direct"
+        ? "「未処理」ステータスの支払のみ削除できます"
+        : "「依頼前」ステータスの支払のみ削除できます"
     );
   }
 
@@ -522,15 +603,13 @@ export async function requestInvoice(
   });
   if (!group) throw new Error("支払が見つかりません");
 
+  if (group.paymentType !== "invoice") {
+    throw new Error("請求書ベースの支払のみ発行依頼できます");
+  }
+
   if (group.status !== "before_request") {
     throw new Error(
       "「依頼前」ステータスの支払のみ請求書発行依頼できます"
-    );
-  }
-
-  if (!group.requestedPdfName) {
-    throw new Error(
-      "請求書発行依頼にはPDFファイル名の指定が必要です"
     );
   }
 
@@ -559,6 +638,10 @@ export async function confirmReceivedInvoice(
     where: { id: paymentGroupId, deletedAt: null, projectId: stpProjectId },
   });
   if (!group) throw new Error("支払が見つかりません");
+
+  if (group.paymentType !== "invoice") {
+    throw new Error("請求書ベースの支払のみ確認できます");
+  }
 
   if (group.status !== "invoice_received") {
     throw new Error(
@@ -594,6 +677,52 @@ export async function confirmReceivedInvoice(
 }
 
 // ============================================
+// 即時支払い確認（direct: unprocessed → confirmed）
+// ============================================
+
+export async function confirmDirectPayment(
+  paymentGroupId: number
+): Promise<void> {
+  const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
+
+  const group = await prisma.paymentGroup.findUnique({
+    where: { id: paymentGroupId, deletedAt: null, projectId: stpProjectId },
+  });
+  if (!group) throw new Error("支払が見つかりません");
+
+  if (group.paymentType !== "direct") {
+    throw new Error("即時支払いタイプの支払のみ確認できます");
+  }
+
+  if (group.status !== "unprocessed") {
+    throw new Error("「未処理」ステータスの支払のみ確認できます");
+  }
+
+  const updateData: Record<string, unknown> = {
+    status: "confirmed",
+    confirmedBy: user.id,
+    confirmedAt: new Date(),
+    updatedBy: user.id,
+  };
+
+  await prisma.paymentGroup.update({
+    where: { id: paymentGroupId },
+    data: updateData,
+  });
+
+  await recordChangeLog({
+    tableName: "PaymentGroup",
+    recordId: paymentGroupId,
+    changeType: "update",
+    oldData: { status: group.status },
+    newData: { status: "confirmed" },
+  }, user.id);
+
+  revalidatePath("/stp/finance/payment-groups");
+}
+
+// ============================================
 // 請求書差し戻し
 // ============================================
 
@@ -608,6 +737,10 @@ export async function rejectInvoice(
     where: { id: paymentGroupId, deletedAt: null, projectId: stpProjectId },
   });
   if (!group) throw new Error("支払が見つかりません");
+
+  if (group.paymentType !== "invoice") {
+    throw new Error("請求書ベースの支払のみ差し戻しできます");
+  }
 
   if (group.status !== "invoice_received") {
     throw new Error(
@@ -660,18 +793,8 @@ export async function updatePaymentGroupStatus(
   });
   if (!group) throw new Error("支払が見つかりません");
 
-  // 遷移バリデーション
-  const validTransitions: Record<string, string[]> = {
-    before_request: ["requested"],
-    requested: ["invoice_received"],
-    invoice_received: ["confirmed", "rejected"],
-    rejected: ["re_requested"],
-    re_requested: ["invoice_received"],
-    confirmed: ["awaiting_accounting", "paid"],
-    awaiting_accounting: ["paid", "returned"],
-    returned: ["confirmed"],
-  };
-
+  // 遷移バリデーション（paymentTypeに応じてマップを選択）
+  const validTransitions = getTransitionsForType(group.paymentType);
   const allowed = validTransitions[group.status] ?? [];
   if (!allowed.includes(newStatus)) {
     throw new Error(
@@ -684,9 +807,10 @@ export async function updatePaymentGroupStatus(
     updatedBy: user.id,
   };
 
-  // paid に遷移する場合は実際の支払日を設定
-  if (newStatus === "paid") {
-    updateData.actualPaymentDate = new Date(toLocalDateString(new Date()));
+  // paid に遷移する場合: 既に設定済みならそのまま、未設定ならexpectedPaymentDateをデフォルト
+  if (newStatus === "paid" && !group.actualPaymentDate) {
+    updateData.actualPaymentDate = group.expectedPaymentDate
+      ?? new Date(toLocalDateString(new Date()));
   }
 
   await prisma.paymentGroup.update({
@@ -722,8 +846,11 @@ export async function addTransactionToPaymentGroup(
   });
   if (!group) throw new Error("支払が見つかりません");
 
-  // before_request, rejected のみ追加可能
-  if (!["before_request", "rejected"].includes(group.status)) {
+  // 追加可能ステータスの分岐
+  const addableStatuses = group.paymentType === "direct"
+    ? ["unprocessed"]
+    : ["before_request", "rejected"];
+  if (!addableStatuses.includes(group.status)) {
     throw new Error("このステータスでは取引を追加できません");
   }
 
@@ -822,8 +949,11 @@ export async function removeTransactionFromPaymentGroup(
   });
   if (!group) throw new Error("支払が見つかりません");
 
-  // before_request, rejected のみ削除可能
-  if (!["before_request", "rejected"].includes(group.status)) {
+  // 削除可能ステータスの分岐
+  const removableStatuses = group.paymentType === "direct"
+    ? ["unprocessed"]
+    : ["before_request", "rejected"];
+  if (!removableStatuses.includes(group.status)) {
     throw new Error("このステータスでは取引を削除できません");
   }
 
@@ -1149,12 +1279,16 @@ export async function requestReturnPaymentGroup(
 export async function getUnconfirmedExpenseTransactions(
   projectId?: number
 ): Promise<UngroupedExpenseTransaction[]> {
+  const session = await getSession();
+  const txConfidentialFilter = buildConfidentialFilter(session.id, session.permissions);
+
   const records = await prisma.transaction.findMany({
     where: {
       deletedAt: null,
       type: "expense",
       status: "unconfirmed",
       ...(projectId ? { projectId } : {}),
+      ...txConfidentialFilter,
     },
     include: {
       counterparty: true,
@@ -1176,5 +1310,6 @@ export async function getUnconfirmedExpenseTransactions(
     periodFrom: toLocalDateString(r.periodFrom),
     periodTo: toLocalDateString(r.periodTo),
     note: r.note,
+    isConfidential: r.isConfidential,
   }));
 }

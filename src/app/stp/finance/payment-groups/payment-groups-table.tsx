@@ -10,7 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Plus, Send } from "lucide-react";
+import { Plus, Send, Lock } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,8 +35,11 @@ type StatusTab =
   | "invoice_received"
   | "rejected"
   | "confirmed"
+  | "unprocessed"
   | "awaiting_accounting"
-  | "paid";
+  | "paid"
+  | "actionRequired"
+  | "processing";
 
 const STATUS_LABELS: Record<string, string> = {
   before_request: "依頼前",
@@ -45,6 +48,7 @@ const STATUS_LABELS: Record<string, string> = {
   rejected: "差し戻し",
   re_requested: "再依頼済み",
   confirmed: "確認済み",
+  unprocessed: "未処理",
   awaiting_accounting: "経理引渡済み",
   paid: "支払済み",
 };
@@ -56,16 +60,40 @@ const STATUS_STYLES: Record<string, string> = {
   rejected: "bg-red-100 text-red-700",
   re_requested: "bg-indigo-100 text-indigo-700",
   confirmed: "bg-emerald-100 text-emerald-700",
+  unprocessed: "bg-orange-100 text-orange-700",
   awaiting_accounting: "bg-purple-100 text-purple-700",
   paid: "bg-green-100 text-green-700",
 };
 
-const tabs: {
+type PaymentTypeFilter = "all" | "invoice" | "direct";
+
+type TabDef = {
   key: StatusTab;
   label: string;
   filter: (row: PaymentGroupListItem) => boolean;
-}[] = [
+};
+
+// All possible tab definitions
+const allTabDefs: TabDef[] = [
   { key: "all", label: "すべて", filter: () => true },
+  // Common tabs (for paymentTypeFilter === "all")
+  {
+    key: "actionRequired",
+    label: "要対応",
+    filter: (r) =>
+      (r.paymentType === "invoice" &&
+        ["before_request", "invoice_received", "rejected"].includes(r.status)) ||
+      (r.paymentType === "direct" && r.status === "unprocessed"),
+  },
+  {
+    key: "processing",
+    label: "処理中",
+    filter: (r) =>
+      (r.paymentType === "invoice" &&
+        ["requested", "re_requested", "confirmed"].includes(r.status)) ||
+      (r.paymentType === "direct" && r.status === "confirmed"),
+  },
+  // Invoice-specific tabs
   {
     key: "before_request",
     label: "依頼前",
@@ -86,6 +114,13 @@ const tabs: {
     label: "差し戻し",
     filter: (r) => r.status === "rejected",
   },
+  // Direct-specific tab
+  {
+    key: "unprocessed",
+    label: "未処理",
+    filter: (r) => r.status === "unprocessed",
+  },
+  // Shared tabs
   {
     key: "confirmed",
     label: "確認済み",
@@ -99,6 +134,25 @@ const tabs: {
   { key: "paid", label: "支払済み", filter: (r) => r.status === "paid" },
 ];
 
+function getTabDef(key: StatusTab): TabDef {
+  return allTabDefs.find((t) => t.key === key)!;
+}
+
+const TAB_KEYS_BY_TYPE: Record<PaymentTypeFilter, StatusTab[]> = {
+  all: ["all", "actionRequired", "processing", "awaiting_accounting", "paid"],
+  invoice: [
+    "all",
+    "before_request",
+    "requested",
+    "invoice_received",
+    "rejected",
+    "confirmed",
+    "awaiting_accounting",
+    "paid",
+  ],
+  direct: ["all", "unprocessed", "confirmed", "awaiting_accounting", "paid"],
+};
+
 type SortConfig = {
   field: keyof PaymentGroupListItem;
   direction: "asc" | "desc";
@@ -110,6 +164,7 @@ type Props = {
   operatingCompanyOptions: { value: string; label: string }[];
   expenseCategories: { id: number; name: string; type: string }[];
   projectId?: number;
+  canEditAccounting?: boolean;
 };
 
 export function PaymentGroupsTable({
@@ -118,9 +173,11 @@ export function PaymentGroupsTable({
   operatingCompanyOptions,
   expenseCategories,
   projectId,
+  canEditAccounting,
 }: Props) {
   const [activeTab, setActiveTab] = useState<StatusTab>("all");
   const [counterpartyFilter, setCounterpartyFilter] = useState<string>("all");
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState<PaymentTypeFilter>("all");
   const [sortConfig, setSortConfig] = useState<SortConfig>({
     field: "createdAt",
     direction: "desc",
@@ -129,30 +186,37 @@ export function PaymentGroupsTable({
   const [selectedGroup, setSelectedGroup] =
     useState<PaymentGroupListItem | null>(null);
 
+  const activeTabs = useMemo(() => {
+    return TAB_KEYS_BY_TYPE[paymentTypeFilter].map((key) => getTabDef(key));
+  }, [paymentTypeFilter]);
+
+  // Reset activeTab when paymentTypeFilter changes and current tab is not in new tabs
+  const effectiveActiveTab = useMemo(() => {
+    const validKeys = activeTabs.map((t) => t.key);
+    if (validKeys.includes(activeTab)) return activeTab;
+    return "all";
+  }, [activeTab, activeTabs]);
+
+  const typeFilteredData = useMemo(() => {
+    if (paymentTypeFilter === "all") return data;
+    return data.filter((row) => row.paymentType === paymentTypeFilter);
+  }, [data, paymentTypeFilter]);
+
   const tabCounts = useMemo(() => {
-    const counts: Record<StatusTab, number> = {
-      all: data.length,
-      before_request: 0,
-      requested: 0,
-      invoice_received: 0,
-      rejected: 0,
-      confirmed: 0,
-      awaiting_accounting: 0,
-      paid: 0,
-    };
-    for (const row of data) {
-      for (const tab of tabs) {
-        if (tab.key !== "all" && tab.filter(row)) {
-          counts[tab.key]++;
-        }
+    const counts: Partial<Record<StatusTab, number>> = {};
+    for (const tab of activeTabs) {
+      if (tab.key === "all") {
+        counts[tab.key] = typeFilteredData.length;
+      } else {
+        counts[tab.key] = typeFilteredData.filter((row) => tab.filter(row)).length;
       }
     }
     return counts;
-  }, [data]);
+  }, [typeFilteredData, activeTabs]);
 
   const filteredData = useMemo(() => {
-    const tab = tabs.find((t) => t.key === activeTab)!;
-    return data.filter((row) => {
+    const tab = activeTabs.find((t) => t.key === effectiveActiveTab) ?? activeTabs[0];
+    return typeFilteredData.filter((row) => {
       if (!tab.filter(row)) return false;
       if (
         counterpartyFilter !== "all" &&
@@ -161,7 +225,7 @@ export function PaymentGroupsTable({
         return false;
       return true;
     });
-  }, [data, activeTab, counterpartyFilter]);
+  }, [typeFilteredData, effectiveActiveTab, counterpartyFilter, activeTabs]);
 
   const sortedData = useMemo(() => {
     const sorted = [...filteredData];
@@ -215,6 +279,31 @@ export function PaymentGroupsTable({
               ))}
             </select>
           </div>
+          <div className="flex items-center gap-1 rounded-lg border p-0.5">
+            {(
+              [
+                { value: "all", label: "すべて" },
+                { value: "invoice", label: "請求書ベース" },
+                { value: "direct", label: "即時支払い" },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => {
+                  setPaymentTypeFilter(opt.value);
+                  // Reset tab when switching type filter
+                  setActiveTab("all");
+                }}
+                className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                  paymentTypeFilter === opt.value
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
         <Button onClick={() => setShowCreateModal(true)} size="sm">
           <Plus className="mr-1 h-4 w-4" />
@@ -224,19 +313,19 @@ export function PaymentGroupsTable({
 
       {/* タブ */}
       <div className="flex gap-1 border-b">
-        {tabs.map((tab) => (
+        {activeTabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab.key
+              effectiveActiveTab === tab.key
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
             }`}
           >
             {tab.label}
             <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-              {tabCounts[tab.key]}
+              {tabCounts[tab.key] ?? 0}
             </span>
           </button>
         ))}
@@ -315,7 +404,14 @@ export function PaymentGroupsTable({
                   <TableCell className="font-mono text-sm text-muted-foreground">
                     #{row.id}
                   </TableCell>
-                  <TableCell>{row.counterpartyName}</TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center gap-1">
+                      {row.counterpartyName}
+                      {row.isConfidential && (
+                        <Lock className="h-3.5 w-3.5 text-amber-500" />
+                      )}
+                    </span>
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {row.operatingCompanyName}
                   </TableCell>
@@ -335,6 +431,8 @@ export function PaymentGroupsTable({
                       ? row.actualPaymentDate
                       : row.status === "paid"
                       ? "—"
+                      : row.paymentType === "direct"
+                      ? <span className="text-blue-600 font-medium">経理確認中</span>
                       : <span className="text-orange-600 font-medium">未支払</span>}
                   </TableCell>
                   <TableCell className="text-right font-medium">
@@ -346,13 +444,20 @@ export function PaymentGroupsTable({
                     {row.transactionCount}件
                   </TableCell>
                   <TableCell>
-                    <span
-                      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                        STATUS_STYLES[row.status] ??
-                        "bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      {STATUS_LABELS[row.status] ?? row.status}
+                    <span className="inline-flex items-center gap-1.5">
+                      <span
+                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                          STATUS_STYLES[row.status] ??
+                          "bg-gray-100 text-gray-700"
+                        }`}
+                      >
+                        {STATUS_LABELS[row.status] ?? row.status}
+                      </span>
+                      {row.paymentType === "invoice" ? (
+                        <span className="inline-flex rounded px-1.5 py-0.5 text-xs bg-blue-50 text-blue-600">請求書</span>
+                      ) : (
+                        <span className="inline-flex rounded px-1.5 py-0.5 text-xs bg-amber-50 text-amber-600">即時</span>
+                      )}
                     </span>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
@@ -445,6 +550,7 @@ export function PaymentGroupsTable({
           counterpartyOptions={counterpartyOptions}
           operatingCompanyOptions={operatingCompanyOptions}
           expenseCategories={expenseCategories}
+          canEditAccounting={canEditAccounting}
         />
       )}
     </div>

@@ -72,7 +72,6 @@ const MASTER_DATA_HREFS = new Set([
   "/settings/lead-sources",
   "/stp/settings/stages",
   "/staff/field-restrictions",
-  "/settings/email-templates",
 ]);
 
 // 固定データ設定ナビゲーション（stella001専用レイアウト用）
@@ -401,12 +400,13 @@ function getFilteredNavigation(user?: SessionUser): NavItem[] {
     return masterDataNavigation;
   }
 
-  const isAdminUser = user?.loginId === "admin";
+  const showMasterData =
+    user?.loginId === "admin" || (user ? hasAdminPermission(user) : false);
   const baseNavigation = user
     ? filterNavigationByPermissions(navigation, user)
     : navigation;
 
-  return isAdminUser
+  return showMasterData
     ? [
         ...baseNavigation.filter((item) => item.name !== "設定"),
         ...masterDataNavigation,

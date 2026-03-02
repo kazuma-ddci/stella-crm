@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getSession, canEdit } from "@/lib/auth";
 import { PaymentGroupsPageClient } from "./payment-groups-page-client";
 import {
   getPaymentGroups,
@@ -8,12 +9,18 @@ import {
 } from "./actions";
 import { getExpenseCategories } from "../transactions/actions";
 import { getSystemProjectContext } from "@/lib/project-context";
+import {
+  getPendingInboundInvoices,
+  getMatchablePaymentGroups,
+} from "./inbound-invoice-actions";
 
 export default async function PaymentGroupsPage() {
   const ctx = await getSystemProjectContext("stp");
   if (!ctx) throw new Error("STPプロジェクトのコンテキストが取得できません");
   const projectId = ctx.projectId;
-  const [data, ungroupedTransactions, ungroupedAllocationItems, counterparties, operatingCompanies, expenseCategories, unconfirmedTransactions] =
+  const session = await getSession();
+  const canEditAccounting = canEdit(session.permissions, "accounting");
+  const [data, ungroupedTransactions, ungroupedAllocationItems, counterparties, operatingCompanies, expenseCategories, unconfirmedTransactions, pendingInboundInvoices, matchablePaymentGroups] =
     await Promise.all([
       getPaymentGroups(projectId),
       getUngroupedExpenseTransactions(undefined, projectId),
@@ -28,6 +35,8 @@ export default async function PaymentGroupsPage() {
       }),
       getExpenseCategories(),
       getUnconfirmedExpenseTransactions(projectId),
+      getPendingInboundInvoices(),
+      getMatchablePaymentGroups(),
     ]);
 
   const counterpartyOptions = counterparties.map((c) => ({
@@ -51,6 +60,9 @@ export default async function PaymentGroupsPage() {
       expenseCategories={expenseCategories}
       unconfirmedTransactions={unconfirmedTransactions}
       projectId={projectId}
+      canEditAccounting={canEditAccounting}
+      pendingInboundInvoices={pendingInboundInvoices}
+      matchablePaymentGroups={matchablePaymentGroups}
     />
   );
 }
