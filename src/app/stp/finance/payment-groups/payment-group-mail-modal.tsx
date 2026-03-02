@@ -24,6 +24,7 @@ import {
   XCircle,
   Clock,
   UserPlus,
+  MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import * as SelectPrimitive from "@radix-ui/react-select";
@@ -40,6 +41,7 @@ import {
   getPaymentGroupMailData,
   sendPaymentGroupMail,
   resendPaymentGroupMail,
+  recordManualPaymentGroupSend,
 } from "./mail-actions";
 
 // ============================================
@@ -57,6 +59,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   paymentGroupId: number;
+  initialTab?: "email" | "manual" | "history";
 };
 
 const MAIL_STATUS_CONFIG: Record<
@@ -68,6 +71,13 @@ const MAIL_STATUS_CONFIG: Record<
   failed: { label: "送信失敗", variant: "destructive" },
 };
 
+const SEND_METHOD_LABELS: Record<string, string> = {
+  email: "メール",
+  line: "LINE",
+  postal: "郵送",
+  other: "その他",
+};
+
 // ============================================
 // メインコンポーネント
 // ============================================
@@ -76,11 +86,18 @@ export function PaymentGroupMailModal({
   open,
   onClose,
   paymentGroupId,
+  initialTab = "email",
 }: Props) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [data, setData] = useState<PaymentGroupMailFormData | null>(null);
-  const [activeTab, setActiveTab] = useState<"email" | "history">("email");
+  const [activeTab, setActiveTab] = useState<"email" | "manual" | "history">(initialTab);
+
+  // 手動送付記録
+  const [manualSendMethod, setManualSendMethod] = useState<
+    "line" | "postal" | "other"
+  >("line");
+  const [manualNote, setManualNote] = useState("");
 
   // メール送信フォーム
   const [senderEmailId, setSenderEmailId] = useState<string>("");
@@ -152,9 +169,11 @@ export function PaymentGroupMailModal({
     if (open) {
       loadData();
       setShowConfirm(false);
-      setActiveTab("email");
+      setActiveTab(initialTab);
+      setManualSendMethod("line");
+      setManualNote("");
     }
-  }, [open, loadData]);
+  }, [open, loadData, initialTab]);
 
   // ============================================
   // テンプレート展開
@@ -175,7 +194,6 @@ export function PaymentGroupMailModal({
           ? `¥${group.totalAmount.toLocaleString()}`
           : "",
         支払予定日: group.expectedPaymentDate ?? "",
-        指定PDF名: group.requestedPdfName ?? "",
         参照コード: group.referenceCode ?? "",
       };
     },
@@ -378,6 +396,30 @@ export function PaymentGroupMailModal({
   );
 
   // ============================================
+  // 手動送付記録
+  // ============================================
+
+  const handleManualRecord = useCallback(async () => {
+    setSending(true);
+    try {
+      await recordManualPaymentGroupSend({
+        paymentGroupId,
+        sendMethod: manualSendMethod,
+        note: manualNote || undefined,
+      });
+      toast.success("送付記録を保存しました");
+      setManualNote("");
+      onClose();
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "送付記録の保存に失敗しました"
+      );
+    } finally {
+      setSending(false);
+    }
+  }, [paymentGroupId, manualSendMethod, manualNote, onClose]);
+
+  // ============================================
   // 担当者追加（送信後の確認）
   // ============================================
 
@@ -461,6 +503,17 @@ export function PaymentGroupMailModal({
                 メール送信
               </button>
               <button
+                onClick={() => setActiveTab("manual")}
+                className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === "manual"
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground"
+                }`}
+              >
+                <MessageSquare className="inline h-3.5 w-3.5 mr-1" />
+                手動記録
+              </button>
+              <button
                 onClick={() => setActiveTab("history")}
                 className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === "history"
@@ -490,17 +543,6 @@ export function PaymentGroupMailModal({
                     <span className="font-medium">
                       {data.paymentGroup.counterpartyName}
                     </span>
-                    {data.paymentGroup.requestedPdfName && (
-                      <>
-                        <span className="mx-2 text-muted-foreground">|</span>
-                        <span className="text-muted-foreground">
-                          指定PDF名:{" "}
-                        </span>
-                        <span className="font-medium">
-                          {data.paymentGroup.requestedPdfName}
-                        </span>
-                      </>
-                    )}
                   </div>
 
                   {/* 送信元メールアドレス */}
@@ -906,6 +948,56 @@ export function PaymentGroupMailModal({
               )}
 
               {/* ============================================ */}
+              {/* 手動送付記録タブ */}
+              {/* ============================================ */}
+              {activeTab === "manual" && (
+                <div className="space-y-4 p-1">
+                  <div className="rounded-lg bg-gray-50 p-3 text-sm text-muted-foreground">
+                    メール以外の方法で発行依頼を送付した場合に記録します。
+                  </div>
+
+                  <div>
+                    <Label htmlFor="manual-method">送付方法</Label>
+                    <select
+                      id="manual-method"
+                      value={manualSendMethod}
+                      onChange={(e) =>
+                        setManualSendMethod(
+                          e.target.value as "line" | "postal" | "other"
+                        )
+                      }
+                      className="mt-1 w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="line">LINE</option>
+                      <option value="postal">郵送</option>
+                      <option value="other">その他</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="manual-note">備考（任意）</Label>
+                    <Textarea
+                      id="manual-note"
+                      value={manualNote}
+                      onChange={(e) => setManualNote(e.target.value)}
+                      placeholder="送付に関するメモ"
+                      rows={3}
+                      className="mt-1"
+                    />
+                  </div>
+
+                  <div className="flex justify-end">
+                    <Button onClick={handleManualRecord} disabled={sending}>
+                      {sending && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      送付を記録
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* ============================================ */}
               {/* 送信履歴タブ */}
               {/* ============================================ */}
               {activeTab === "history" && (
@@ -933,6 +1025,9 @@ export function PaymentGroupMailModal({
                                 )}
                                 <Badge variant={statusConf.variant}>
                                   {statusConf.label}
+                                </Badge>
+                                <Badge variant="outline" className="text-xs">
+                                  {SEND_METHOD_LABELS[m.sendMethod] ?? m.sendMethod}
                                 </Badge>
                               </div>
                               <div className="flex items-center gap-2">
@@ -965,6 +1060,11 @@ export function PaymentGroupMailModal({
                             {m.recipientEmails.length > 0 && (
                               <div className="text-xs text-muted-foreground truncate">
                                 宛先: {m.recipientEmails.join(", ")}
+                              </div>
+                            )}
+                            {m.sendMethod !== "email" && m.body && (
+                              <div className="text-xs text-muted-foreground bg-gray-50 rounded p-2">
+                                {m.body}
                               </div>
                             )}
                             {m.sentByName && (

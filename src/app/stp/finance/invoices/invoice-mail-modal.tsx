@@ -190,7 +190,6 @@ export function InvoiceMailModal({ open, onClose, invoiceGroupId }: Props) {
           ? `¥${group.totalAmount.toLocaleString()}`
           : "",
         支払期限: group.paymentDueDate ?? "",
-        指定PDF名: group.pdfFileName ?? "",
         受信メールアドレス:
           recipients.find((r) => r.type === "to")?.email ?? "",
       };

@@ -103,7 +103,6 @@ export async function getPaymentGroups(
       r.actualPaymentDate ? toLocalDateString(r.actualPaymentDate) : null,
     totalAmount: r.totalAmount,
     taxAmount: r.taxAmount,
-    requestedPdfName: r.requestedPdfName,
     receivedPdfPath: r.receivedPdfPath,
     receivedPdfFileName: r.receivedPdfFileName,
     paymentType: r.paymentType as "invoice" | "direct",
@@ -300,7 +299,6 @@ export async function createPaymentGroup(data: {
   operatingCompanyId: number;
   expectedPaymentDate?: string | null;
   paymentDueDate?: string | null;
-  requestedPdfName?: string | null;
   transactionIds: number[];
   projectId?: number;
   paymentType?: "invoice" | "direct";
@@ -386,7 +384,6 @@ export async function createPaymentGroup(data: {
           : data.expectedPaymentDate
           ? new Date(data.expectedPaymentDate)
           : null,
-        requestedPdfName: data.requestedPdfName ?? null,
         totalAmount: subtotal + taxTotal,
         taxAmount: taxTotal,
         projectId: stpProjectId,
@@ -435,7 +432,6 @@ export async function updatePaymentGroup(
     expectedPaymentDate?: string | null;
     paymentDueDate?: string | null;
     actualPaymentDate?: string | null;
-    requestedPdfName?: string | null;
     isConfidential?: boolean;
   }
 ): Promise<void> {
@@ -501,11 +497,6 @@ export async function updatePaymentGroup(
     updateData.actualPaymentDate = data.actualPaymentDate
       ? new Date(data.actualPaymentDate)
       : null;
-  }
-  if ("requestedPdfName" in data) {
-    oldData.requestedPdfName = group.requestedPdfName ?? null;
-    newData.requestedPdfName = data.requestedPdfName ?? null;
-    updateData.requestedPdfName = data.requestedPdfName ?? null;
   }
   if ("isConfidential" in data && data.isConfidential !== undefined) {
     oldData.isConfidential = group.isConfidential;

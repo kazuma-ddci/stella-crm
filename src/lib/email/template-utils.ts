@@ -8,7 +8,6 @@
  * - {{年月}} - YYYY年MM月
  * - {{合計金額}} - 合計額のフォーマット
  * - {{支払期限}} - paymentDueDate のフォーマット
- * - {{指定PDF名}} - pdfFileName
  * - {{受信メールアドレス}} - recipient email
  *
  * 未定義の変数はそのまま残す

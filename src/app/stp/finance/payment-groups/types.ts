@@ -11,7 +11,6 @@ export type PaymentGroupListItem = {
   actualPaymentDate: string | null;
   totalAmount: number | null;
   taxAmount: number | null;
-  requestedPdfName: string | null;
   receivedPdfPath: string | null;
   receivedPdfFileName: string | null;
   paymentType: "invoice" | "direct";

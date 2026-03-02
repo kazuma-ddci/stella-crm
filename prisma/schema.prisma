@@ -2415,7 +2415,6 @@ model PaymentGroup {
 
   // 請求書発行依頼
   referenceCode         String?   @unique  // "PG-0042" — 作成時自動生成
-  requestedPdfName      String?   // 相手に指定するPDFファイル名
   receivedPdfPath       String?   // 受領した請求書PDFのパス
   receivedPdfFileName   String?   // 受領したPDFのファイル名
 

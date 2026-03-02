@@ -36,7 +36,6 @@ const VARIABLE_GROUPS = [
   {
     label: "その他",
     variables: [
-      { variable: "{{指定PDF名}}", description: "添付するPDFファイル名", sample: "請求書_2026_03.pdf" },
       { variable: "{{受信メールアドレス}}", description: "受け取り側のメールアドレス", sample: "tanaka@example.com" },
     ],
   },
