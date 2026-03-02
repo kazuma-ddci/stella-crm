@@ -24,12 +24,14 @@ import {
   generateAttachmentFileName,
   getFileExtension,
   getFileNameWithoutExtension,
+  getNextDuplicateSuffix,
 } from "@/lib/attachments/constants";
 
 export type FileUploadEntry = {
   file: File;
   attachmentType: string;
   displayName: string;
+  generatedName: string;
 };
 
 type Props = {
@@ -38,6 +40,10 @@ type Props = {
   files: File[];
   onConfirm: (entries: FileUploadEntry[]) => void;
   uploading: boolean;
+  /** デフォルトの表示名（未指定時は元ファイル名） */
+  defaultDisplayName?: string;
+  /** 既存の添付ファイル名リスト（重複連番の判定用） */
+  existingAttachmentNames?: string[];
 };
 
 export function UploadConfirmationDialog({
@@ -46,8 +52,12 @@ export function UploadConfirmationDialog({
   files,
   onConfirm,
   uploading,
+  defaultDisplayName,
+  existingAttachmentNames = [],
 }: Props) {
-  const [entries, setEntries] = useState<FileUploadEntry[]>([]);
+  const [entries, setEntries] = useState<
+    { file: File; attachmentType: string; displayName: string }[]
+  >([]);
 
   // files が変わるたびにリセット（open時にも反映されるように）
   useEffect(() => {
@@ -59,10 +69,11 @@ export function UploadConfirmationDialog({
       files.map((file) => ({
         file,
         attachmentType: "other",
-        displayName: getFileNameWithoutExtension(file.name),
+        displayName:
+          defaultDisplayName || getFileNameWithoutExtension(file.name),
       }))
     );
-  }, [files, open]);
+  }, [files, open, defaultDisplayName]);
 
   const updateEntry = (
     index: number,
@@ -74,9 +85,41 @@ export function UploadConfirmationDialog({
     );
   };
 
+  // 重複連番を考慮した生成ファイル名を計算
+  const generatedNames = useMemo(() => {
+    const names: string[] = [];
+    // バッチ内で先に処理されたファイル名も重複チェック対象に含める
+    const allNames = [...existingAttachmentNames];
+
+    for (const entry of entries) {
+      const ext = getFileExtension(entry.file.name);
+      const dn = entry.displayName || "（未入力）";
+      const suffix = getNextDuplicateSuffix(
+        entry.attachmentType,
+        dn,
+        allNames
+      );
+      const name = generateAttachmentFileName(
+        entry.attachmentType,
+        dn,
+        ext,
+        undefined,
+        suffix
+      );
+      names.push(name);
+      allNames.push(name);
+    }
+    return names;
+  }, [entries, existingAttachmentNames]);
+
   const handleConfirm = () => {
     if (entries.length === 0) return;
-    onConfirm(entries);
+    onConfirm(
+      entries.map((e, i) => ({
+        ...e,
+        generatedName: generatedNames[i],
+      }))
+    );
   };
 
   // entries が空でないこと + 全表示名が入力済みであることを確認
@@ -97,12 +140,7 @@ export function UploadConfirmationDialog({
             </div>
           ) : (
             entries.map((entry, index) => {
-              const ext = getFileExtension(entry.file.name);
-              const previewName = generateAttachmentFileName(
-                entry.attachmentType,
-                entry.displayName || "（未入力）",
-                ext
-              );
+              const previewName = generatedNames[index] ?? "";
               return (
                 <div key={index} className="border rounded-lg p-3 space-y-3">
                   {/* 元ファイル情報 */}

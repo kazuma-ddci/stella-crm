@@ -47,6 +47,7 @@ export async function getPendingInboundInvoices() {
     fromEmail: inv.fromEmail,
     fromName: inv.fromName,
     subject: inv.subject,
+    emailBody: inv.emailBody,
     receivedAt: inv.receivedAt.toISOString(),
     paymentGroupId: inv.paymentGroupId,
     matchConfidence: inv.matchConfidence,

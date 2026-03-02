@@ -13,14 +13,13 @@
 3. [契約管理](#3-契約管理)
 4. [財務（売上・経費）](#4-財務売上経費)
 5. [請求書管理](#5-請求書管理)
-6. [入出金・消込](#6-入出金消込)
-7. [月次締め](#7-月次締め)
-8. [認証・権限](#8-認証権限)
-9. [外部ユーザー管理](#9-外部ユーザー管理)
-10. [リード獲得フォーム](#10-リード獲得フォーム)
-11. [代理店管理](#11-代理店管理)
-12. [会計（横断）](#12-会計横断)
-13. [共通ロジック](#13-共通ロジック)
+6. [月次締め（経理）](#6-月次締め経理)
+7. [認証・権限](#7-認証権限)
+8. [外部ユーザー管理](#8-外部ユーザー管理)
+9. [リード獲得フォーム](#9-リード獲得フォーム)
+10. [代理店管理](#10-代理店管理)
+11. [会計（横断）](#11-会計横断)
+12. [共通ロジック](#12-共通ロジック)
 
 ---
 
@@ -112,31 +111,19 @@
 
 ---
 
-## 6. 入出金・消込
+## 6. 月次締め（経理）
+
+> STP側の入出金・消込機能（`StpPaymentTransaction`, `StpPaymentAllocation`）およびSTP側の月次締めページは廃止済み。入出金管理・月次締めは経理側（`/accounting/`）に一元化。
 
 | No. | カテゴリ | トリガー | 条件 | アクション | 影響先 | 実装場所 | 備考 |
 |-----|---------|---------|------|-----------|--------|---------|------|
-| 6-01 | ロジック | 消込操作 | 入出金に配分作成 | StpPaymentAllocation作成（revenueRecordIdまたはexpenseRecordIdのいずれか） | StpPaymentAllocation | `src/app/stp/finance/payments/actions.ts:82-118` | トランザクション内 |
-| 6-02 | ロジック | 消込ステータス再計算（取引側） | 配分作成/削除後 | totalAllocated=0→unmatched、<amount→partial、>=amount→matched | StpPaymentTransaction | `src/lib/finance/payment-matching.ts:7-34` | recalcTransactionStatus() |
-| 6-03 | ロジック | 消込ステータス再計算（レコード側） | 配分作成/削除後 | 0=null、<expected=partial、==expected=paid+paidDate設定、>expected=completed_different | StpRevenueRecord/StpExpenseRecord | `src/lib/finance/payment-matching.ts:37-118` | recalcRecordPaymentStatus() |
-| 6-04 | ロジック | 消込解除 | 配分レコード削除 | 物理削除後、関連取引・レコードのステータス再計算 | StpPaymentAllocation, StpPaymentTransaction, StpRevenueRecord/StpExpenseRecord | `src/app/stp/finance/payments/actions.ts:120-138` | |
+| 6-01 | ロジック | 会計月次締め | 経理が締め操作 | MonthlyCloseLogにclose記録＋PLスナップショット保存 | MonthlyCloseLog | `src/app/accounting/monthly-close/actions.ts` | |
+| 6-02 | ロジック | 会計月次再オープン | 問題発見時 | MonthlyCloseLogにreopen記録（理由必須） | MonthlyCloseLog | `src/app/accounting/monthly-close/actions.ts` | |
+| 6-03 | ロジック | 締め済み月の編集制限 | 月次締め済み | 売上/経費レコードの更新・削除をブロック | UI（エラー表示） | `src/lib/finance/monthly-close.ts` | ensureMonthNotClosed() |
 
 ---
 
-## 7. 月次締め
-
-| No. | カテゴリ | トリガー | 条件 | アクション | 影響先 | 実装場所 | 備考 |
-|-----|---------|---------|------|-----------|--------|---------|------|
-| 7-01 | ロジック | STP月次締め実行 | 「締める」ボタン | StpMonthlyCloseにupsert（closedAt=now()、reopenedAt/By/Reason=null） | StpMonthlyClose | `src/lib/finance/monthly-close.ts:21-41` | |
-| 7-02 | ロジック | STP月次再オープン | 「再オープン」ボタン + 理由入力 | reopenedAt/reopenedBy/reopenReasonを更新 | StpMonthlyClose | `src/lib/finance/monthly-close.ts:44-58` | |
-| 7-03 | ロジック | 締め済み月の編集制限 | reopenedAt===null | 売上/経費レコードの更新・削除をブロック（エラー: "YYYY年MM月は月次締め済み"） | UI（エラー表示） | `src/lib/finance/monthly-close.ts:6-68` | ensureMonthNotClosed() |
-| 7-04 | ロジック | 会計月次締め（プロジェクト側） | プロジェクト担当が締め | AccountingMonthlyClose.status: open → project_closed | AccountingMonthlyClose | `src/app/accounting/monthly-close/page.tsx` | |
-| 7-05 | ロジック | 会計月次締め（経理側最終） | 経理が最終確認 | status: project_closed → accounting_closed | AccountingMonthlyClose | `src/app/accounting/monthly-close/page.tsx` | 2段階承認 |
-| 7-06 | ロジック | 会計月次再オープン | 問題発見時 | status: accounting_closed → open（再オープン理由必須） | AccountingMonthlyClose | `src/app/accounting/monthly-close/page.tsx` | |
-
----
-
-## 8. 認証・権限
+## 7. 認証・権限
 
 | No. | カテゴリ | トリガー | 条件 | アクション | 影響先 | 実装場所 | 備考 |
 |-----|---------|---------|------|-----------|--------|---------|------|
@@ -152,7 +139,7 @@
 
 ---
 
-## 9. 外部ユーザー管理
+## 8. 外部ユーザー管理
 
 | No. | カテゴリ | トリガー | 条件 | アクション | 影響先 | 実装場所 | 備考 |
 |-----|---------|---------|------|-----------|--------|---------|------|
@@ -169,7 +156,7 @@
 
 ---
 
-## 10. リード獲得フォーム
+## 9. リード獲得フォーム
 
 | No. | カテゴリ | トリガー | 条件 | アクション | 影響先 | 実装場所 | 備考 |
 |-----|---------|---------|------|-----------|--------|---------|------|
@@ -181,7 +168,7 @@
 
 ---
 
-## 11. 代理店管理
+## 10. 代理店管理
 
 | No. | カテゴリ | トリガー | 条件 | アクション | 影響先 | 実装場所 | 備考 |
 |-----|---------|---------|------|-----------|--------|---------|------|
@@ -193,7 +180,7 @@
 
 ---
 
-## 12. 会計（横断）
+## 11. 会計（横断）
 
 | No. | カテゴリ | トリガー | 条件 | アクション | 影響先 | 実装場所 | 備考 |
 |-----|---------|---------|------|-----------|--------|---------|------|
@@ -205,7 +192,7 @@
 
 ---
 
-## 13. 共通ロジック
+## 12. 共通ロジック
 
 | No. | カテゴリ | トリガー | 条件 | アクション | 影響先 | 実装場所 | 備考 |
 |-----|---------|---------|------|-----------|--------|---------|------|

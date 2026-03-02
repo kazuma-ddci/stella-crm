@@ -54,6 +54,11 @@ export async function getProjectEmails(projectId: number) {
           smtpPort: true,
           smtpUser: true,
           smtpPass: true,
+          imapHost: true,
+          imapPort: true,
+          imapUser: true,
+          imapPass: true,
+          enableInbound: true,
         },
       },
     },
@@ -70,6 +75,9 @@ export async function getProjectEmails(projectId: number) {
     smtpPort: r.email.smtpPort,
     hasSmtpPass: !!r.email.smtpPass,
     hasSmtpConfig: !!(r.email.smtpHost && r.email.smtpUser && r.email.smtpPass),
+    imapHost: r.email.imapHost,
+    imapPort: r.email.imapPort,
+    enableInbound: r.email.enableInbound,
   }));
 }
 
@@ -84,6 +92,9 @@ export async function addProjectEmail(data: {
   smtpHost?: string | null;
   smtpPort?: number | null;
   smtpPass?: string | null;
+  imapHost?: string | null;
+  imapPort?: number | null;
+  enableInbound?: boolean;
 }): Promise<{ success: boolean; error?: string }> {
   await requireMasterDataEditPermission();
 
@@ -126,17 +137,27 @@ export async function addProjectEmail(data: {
           smtpPort: data.smtpPort ?? 587,
           smtpUser: emailAddr,
           smtpPass: data.smtpPass ?? null,
+          imapHost: data.imapHost ?? "imap.gmail.com",
+          imapPort: data.imapPort ?? 993,
+          imapUser: emailAddr,
+          imapPass: data.smtpPass ?? null,
+          enableInbound: data.enableInbound ?? false,
           isDefault: false,
           createdBy: user.id,
         },
       });
     } else if (data.smtpPass) {
-      // SMTP情報を更新（アプリパスワードが入力された場合のみ）
+      // SMTP/IMAP情報を更新（アプリパスワードが入力された場合のみ）
       const updateData: Record<string, unknown> = { updatedBy: user.id };
       if (data.smtpHost !== undefined) updateData.smtpHost = data.smtpHost ?? null;
       if (data.smtpPort !== undefined) updateData.smtpPort = data.smtpPort ?? null;
       updateData.smtpUser = emailAddr;
       updateData.smtpPass = data.smtpPass;
+      if (data.imapHost !== undefined) updateData.imapHost = data.imapHost ?? null;
+      if (data.imapPort !== undefined) updateData.imapPort = data.imapPort ?? null;
+      updateData.imapUser = emailAddr;
+      updateData.imapPass = data.smtpPass;
+      if (data.enableInbound !== undefined) updateData.enableInbound = data.enableInbound;
       if (data.memo !== undefined) updateData.label = data.memo ?? null;
 
       await tx.operatingCompanyEmail.update({
@@ -176,23 +197,26 @@ export async function updateProjectEmailMemo(
 }
 
 // ============================================
-// プロジェクトメール: SMTP更新（admin専用）
+// プロジェクトメール: メール設定更新（admin専用）
 // ============================================
 
 async function requireSystemAdmin() {
   const user = await getSession();
   if (user.loginId !== "admin") {
-    throw new Error("SMTP設定の変更にはシステム管理者権限が必要です");
+    throw new Error("メール設定の変更にはシステム管理者権限が必要です");
   }
   return user;
 }
 
-export async function updateEmailSmtp(
+export async function updateEmailSettings(
   emailId: number,
   data: {
     smtpHost?: string | null;
     smtpPort?: number | null;
     smtpPass?: string | null;
+    imapHost?: string | null;
+    imapPort?: number | null;
+    enableInbound?: boolean;
   }
 ): Promise<void> {
   const user = await requireSystemAdmin();
@@ -200,14 +224,27 @@ export async function updateEmailSmtp(
   const updateData: Record<string, unknown> = { updatedBy: user.id };
   if ("smtpHost" in data) updateData.smtpHost = data.smtpHost ?? null;
   if ("smtpPort" in data) updateData.smtpPort = data.smtpPort ?? null;
-  if ("smtpPass" in data && data.smtpPass) updateData.smtpPass = data.smtpPass;
+  if ("smtpPass" in data && data.smtpPass) {
+    updateData.smtpPass = data.smtpPass;
+    updateData.imapPass = data.smtpPass;
+  }
+  if ("imapHost" in data) updateData.imapHost = data.imapHost ?? null;
+  if ("imapPort" in data) updateData.imapPort = data.imapPort ?? null;
+  if ("enableInbound" in data) updateData.enableInbound = data.enableInbound;
 
-  // smtpUser はメールアドレスと同じ値を自動設定
+  // smtpUser/imapUser はメールアドレスと同じ値を自動設定
+  // enableInbound有効化時にimapPassが未設定ならsmtpPassをコピー
   const email = await prisma.operatingCompanyEmail.findUnique({
     where: { id: emailId },
-    select: { email: true },
+    select: { email: true, smtpPass: true, imapPass: true },
   });
-  if (email) updateData.smtpUser = email.email;
+  if (email) {
+    updateData.smtpUser = email.email;
+    updateData.imapUser = email.email;
+    if (data.enableInbound && !updateData.imapPass && !email.imapPass && email.smtpPass) {
+      updateData.imapPass = email.smtpPass;
+    }
+  }
 
   await prisma.operatingCompanyEmail.update({
     where: { id: emailId },
@@ -216,6 +253,9 @@ export async function updateEmailSmtp(
 
   revalidatePath("/settings/projects");
 }
+
+/** @deprecated updateEmailSettings を使用してください */
+export const updateEmailSmtp = updateEmailSettings;
 
 // ============================================
 // プロジェクトメール: デフォルト送信元の設定

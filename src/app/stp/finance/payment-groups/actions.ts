@@ -793,6 +793,18 @@ export async function updatePaymentGroupStatus(
     );
   }
 
+  // invoice_received への遷移には証憑が必須
+  if (newStatus === "invoice_received") {
+    const attachmentCount = await prisma.attachment.count({
+      where: { paymentGroupId: id, deletedAt: null },
+    });
+    if (attachmentCount === 0) {
+      throw new Error(
+        "請求書受領を記録するには、証憑（請求書ファイル）を先にアップロードしてください"
+      );
+    }
+  }
+
   const updateData: Record<string, unknown> = {
     status: newStatus,
     updatedBy: user.id,

@@ -49,19 +49,64 @@ export function formatTimestamp(date?: Date): string {
 /**
  * 自動生成ファイル名を生成する
  * フォーマット: {証憑種類ラベル}_{ユーザー入力名}_{YYYYMMDD_HHmmss}.{拡張子}
+ * 連番付き: {証憑種類ラベル}{NN}_{ユーザー入力名}_{YYYYMMDD_HHmmss}.{拡張子}
  *
  * 例: 請求書_テスト株式会社御中_20260227_191446.pdf
+ * 連番例: 請求書02_テスト株式会社御中_20260227_191446.pdf
  */
 export function generateAttachmentFileName(
   attachmentType: string,
   displayName: string,
   extension: string,
-  date?: Date
+  date?: Date,
+  suffixNumber?: number
 ): string {
   const typeLabel = ATTACHMENT_TYPE_LABELS[attachmentType] ?? "その他";
   const timestamp = formatTimestamp(date);
   const ext = extension.startsWith(".") ? extension : `.${extension}`;
-  return `${typeLabel}_${displayName}_${timestamp}${ext}`;
+  const suffix = suffixNumber && suffixNumber >= 2
+    ? String(suffixNumber).padStart(2, "0")
+    : "";
+  return `${typeLabel}${suffix}_${displayName}_${timestamp}${ext}`;
+}
+
+/**
+ * 既存ファイル名リストから重複を検出し、次の連番を返す
+ * 同一の {証憑種類}_{表示名} を持つファイルがあれば連番を付与
+ *
+ * @returns undefined=重複なし, 2以上=付与すべき連番
+ */
+export function getNextDuplicateSuffix(
+  attachmentType: string,
+  displayName: string,
+  existingNames: string[]
+): number | undefined {
+  const typeLabel = ATTACHMENT_TYPE_LABELS[attachmentType] ?? "その他";
+  // 日時部分以降を除いた接頭辞で比較
+  const basePrefix = `${typeLabel}_${displayName}_`;
+
+  let maxSuffix = 0;
+
+  for (const name of existingNames) {
+    // 完全一致プレフィックス: 請求書_テスト_... → 連番なし（=1番目）
+    if (name.startsWith(basePrefix)) {
+      maxSuffix = Math.max(maxSuffix, 1);
+      continue;
+    }
+    // 連番付きプレフィックス: 請求書02_テスト_... → 連番=02
+    const escapedLabel = typeLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escapedName = displayName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const suffixedRegex = new RegExp(
+      `^${escapedLabel}(\\d{2,})_${escapedName}_`
+    );
+    const match = name.match(suffixedRegex);
+    if (match) {
+      maxSuffix = Math.max(maxSuffix, parseInt(match[1], 10));
+    }
+  }
+
+  if (maxSuffix === 0) return undefined; // 重複なし
+  return maxSuffix + 1;
 }
 
 /**

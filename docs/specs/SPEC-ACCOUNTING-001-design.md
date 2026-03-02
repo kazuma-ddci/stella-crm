@@ -41,7 +41,7 @@
   /stp/finance/generate           - 取引候補検出・生成
   /stp/finance/invoices           - 請求グループ・請求書管理
   /stp/finance/payment-groups     - 支払グループ管理
-  /stp/finance/monthly-close      - 月次クローズ状況（閲覧のみ。クローズ操作は経理側）
+  /stp/finance/aging              - 売掛金年齢表（未入金企業の追跡用）
 
 経理側:
   /accounting/dashboard           - 経理ダッシュボード
@@ -1635,8 +1635,8 @@ FieldChangeLogは既存CRM機能（STP企業、代理店、契約履歴の担当
 | StpExpenseRecord | Transaction | type="expense", stpExpenseType=expenseType |
 | StpInvoice | InvoiceGroup | direction="outgoing"のもの |
 | StpInvoiceLineItem | Transaction.invoiceGroupId | 請求グループへの紐づけ |
-| StpPaymentTransaction | BankTransaction | direction変換 |
-| StpPaymentAllocation | Reconciliation | 消込テーブルへ変換 |
+| ~~StpPaymentTransaction~~ | ~~廃止済み（2026-03-03削除）~~ | |
+| ~~StpPaymentAllocation~~ | ~~廃止済み（2026-03-03削除）~~ | |
 | StpFinanceEditLog | ChangeLog | 統合 |
 
 ### 7.5 削除するページ

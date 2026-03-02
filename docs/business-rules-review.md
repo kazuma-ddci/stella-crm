@@ -37,7 +37,7 @@
 | 重要度 | 高 |
 |-------|-----|
 | **問題** | `StpCompany` 削除時、`StpRevenueRecord`/`StpExpenseRecord`/`StpInvoice` がカスケード削除される |
-| **影響** | 月次締め済みの売上・経費も含めて消失。消込済みの `StpPaymentAllocation` が孤立する可能性 |
+| **影響** | 月次締め済みの売上・経費も含めて消失 |
 | **提案** | 月次締め済み月のデータがある場合は削除をブロックする処理の追加 |
 
 ### 1-3. 代理店削除で経費データが消失
@@ -52,15 +52,7 @@
 
 ## 2. FK制約エラーのリスク（Cascadeなし）
 
-### 2-1. StpRevenueRecord/StpExpenseRecord → StpPaymentAllocation
-
-| 重要度 | 中〜高 |
-|-------|--------|
-| **問題** | `StpPaymentAllocation` の `revenueRecordId`/`expenseRecordId` にはonDelete: Cascadeが設定されていない |
-| **影響** | 売上/経費レコード削除（論理削除ではなく物理削除の場合）時にFK制約エラー。現在は論理削除なのでリスクは低いが、カスケード経由（STP企業削除→売上削除）では物理削除されるため発生する |
-| **提案** | (A) `StpPaymentAllocation` にonDelete: Cascadeを追加、または (B) STP企業削除前にPaymentAllocationの存在チェック |
-
-### 2-2. StpRevenueRecord/StpExpenseRecord → StpFinanceEditLog
+### 2-1. StpRevenueRecord/StpExpenseRecord → StpFinanceEditLog
 
 | 重要度 | 中 |
 |-------|-----|
@@ -144,14 +136,6 @@
 | **影響** | 請求書明細行が消えた後、売上/経費レコードから「どの明細行と紐づいていたか」の履歴が失われる |
 | **提案** | 影響は限定的だが、必要に応じて明細行にも論理削除を導入 |
 
-### 4-4. 消込ステータスと実態のずれリスク
-
-| 重要度 | 中 |
-|-------|-----|
-| **問題** | `StpPaymentTransaction.status`（unmatched/partial/matched）と `StpRevenueRecord.paymentStatus`（null/partial/paid/completed_different）は配分操作ごとに再計算されるが、配分を介さず直接レコードを更新した場合にステータスがずれる |
-| **影響** | 手動でpaidDate/paidAmountを直接編集した場合、消込ステータスとの不整合 |
-| **提案** | paidDate/paidAmountの手動編集を制限するか、編集時にpaymentStatusの再計算を強制する |
-
 ---
 
 ## 5. ロジックの重複・分散
@@ -169,10 +153,10 @@
 
 | 重要度 | 低 |
 |-------|-----|
-| **場所** | `src/lib/finance/monthly-close.ts` (STP月次締め) と `src/app/accounting/monthly-close/page.tsx` (会計月次締め) |
-| **状況** | STP月次締め（StpMonthlyClose）と会計月次締め（AccountingMonthlyClose）は独立した仕組み |
-| **影響** | STPが月次締めしても会計がオープン、またはその逆が発生しうる。2つの締めの関係が不明確 |
-| **提案** | (A) STP月次締め→会計月次締めの連携を明確にするか、(B) STP月次締めが会計月次締めの前提条件であることを強制するガード追加 |
+| **場所** | `src/app/accounting/monthly-close/actions.ts` (経理月次締め) |
+| **状況** | STP側の月次締めページは廃止済み。月次締めは経理側に一元化 |
+| **影響** | 解消済み（一元化による） |
+| **提案** | 対応不要 |
 
 ### 5-3. 契約番号の採番ロジック
 
@@ -274,10 +258,8 @@
 | StpRevenueRecord | 論理削除（deletedAt） | |
 | StpExpenseRecord | 論理削除（deletedAt） | |
 | StpInvoice | 論理削除（deletedAt） | |
-| StpPaymentTransaction | 論理削除（deletedAt） | |
 | StpAgentContractHistory | 論理削除（deletedAt） | |
 | ExternalUser（却下時） | **物理削除** | 7-1参照 |
-| StpPaymentAllocation | **物理削除** | 消込解除で物理削除 |
 | MasterStellaCompany | **Cascade物理削除** | 1-1参照 |
 | StpCompany | **Cascade物理削除** | 1-2参照 |
 | StpAgent | **Cascade物理削除** | 1-3参照 |
@@ -327,8 +309,7 @@
 | H-1 | Stella企業削除の波及範囲 (1-1) | 論理削除への変更、または子データ存在時の削除ブロック | `MasterStellaCompany` |
 | H-2 | STP企業削除で財務データ消失 (1-2) | 月次締め済みデータがある場合の削除ブロック | `StpCompany` |
 | H-3 | 代理店削除で経費データ消失 (1-3) | 論理削除への変更、または経費データ存在時の削除ブロック | `StpAgent` |
-| H-4 | PaymentAllocationのFK制約エラー (2-1) | onDelete: Cascade追加、またはSTP企業削除前チェック | `StpPaymentAllocation` |
-| H-5 | FinanceEditLogのFK制約エラー (2-2) | onDelete: Cascade追加 | `StpFinanceEditLog` |
+| H-4 | FinanceEditLogのFK制約エラー (2-1) | onDelete: Cascade追加 | `StpFinanceEditLog` |
 
 ### 優先度: 中（機能不全・仕様不明確）
 
@@ -336,7 +317,6 @@
 |---|------|------|------|
 | M-1 | アカウントロックアウト未使用 (3-1) | ログイン処理への組み込み、または削除 | `isAccountLocked()` |
 | M-2 | StpCompanyとStpContractHistoryの情報重複 (4-1) | Source of Truthの明確化 | スキーマ設計 |
-| M-3 | 消込ステータスと手動編集の不整合 (4-4) | 手動編集時のステータス再計算 | 消込ロジック |
 | M-4 | 月額売上の端数処理 (6-1) | 契約終了月の按分ロジック追加 | 自動生成ロジック |
 | M-5 | 成果報酬の複数契約マッチング (6-2) | 業種/媒体でのフィルタリング | 自動生成ロジック |
 | M-6 | 赤伝と消込の整合性 (6-4) | マイナス金額の処理フロー明文化 | 消込ロジック |
@@ -378,12 +358,10 @@ MasterStellaCompany
 │   │   ├── → StpKpiWeeklyData (Cascade)
 │   │   └── → StpKpiShareLink (Cascade)
 │   ├── → StpRevenueRecord (Cascade) ⚠️
-│   │   ├── → StpPaymentAllocation (Cascadeなし!) ❌
 │   │   ├── → StpFinanceEditLog (Cascadeなし!) ❌
 │   │   ├── → StpInvoiceLineItem (Cascadeなし!) ❌
 │   │   └── → AccountingReconciliation (Cascadeなし!) ❌
 │   ├── → StpExpenseRecord (Cascade) ⚠️
-│   │   ├── → StpPaymentAllocation (Cascadeなし!) ❌
 │   │   ├── → StpFinanceEditLog (Cascadeなし!) ❌
 │   │   ├── → StpInvoiceLineItem (Cascadeなし!) ❌
 │   │   └── → AccountingReconciliation (Cascadeなし!) ❌
@@ -405,7 +383,6 @@ StpAgent
 ├── → StpLeadFormToken (Cascade)
 │   └── → StpLeadFormSubmission (Cascade)
 ├── → StpExpenseRecord (Cascade)
-│   ├── → StpPaymentAllocation (Cascadeなし!) ❌
 │   ├── → StpFinanceEditLog (Cascadeなし!) ❌
 │   └── → StpInvoiceLineItem (Cascadeなし!) ❌
 └── → StpInvoice (Cascade)
@@ -427,8 +404,6 @@ MasterStaff
 ├── → StaffProjectAssignment (Cascade)
 └── → StpAgentStaff (Cascade)
 
-StpPaymentTransaction
-└── → StpPaymentAllocation (Cascade)
 ```
 
 **凡例**:

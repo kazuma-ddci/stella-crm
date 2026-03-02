@@ -64,8 +64,6 @@ graph TB
         SER[StpExpenseRecord]
         INV[StpInvoice]
         INVLI[StpInvoiceLineItem]
-        PT[StpPaymentTransaction]
-        PA[StpPaymentAllocation]
         MC[StpMonthlyClose]
         FEL[StpFinanceEditLog]
     end
@@ -205,16 +203,12 @@ graph TD
 
     INV ==>|"Cascade"| INVLI["StpInvoiceLineItem"]
 
-    SRR -.->|"FK参照（Cascadeなし）"| PA1["StpPaymentAllocation"]
-    SER -.->|"FK参照（Cascadeなし）"| PA2["StpPaymentAllocation"]
     SRR -.->|"FK参照（Cascadeなし）"| AR1["AccountingReconciliation"]
     SER -.->|"FK参照（Cascadeなし）"| AR2["AccountingReconciliation"]
     SRR -.->|"FK参照（Cascadeなし）"| FEL1["StpFinanceEditLog"]
     SER -.->|"FK参照（Cascadeなし）"| FEL2["StpFinanceEditLog"]
 
     style SC fill:#ff6b6b,color:#fff
-    style PA1 fill:#ffffcc,color:#000
-    style PA2 fill:#ffffcc,color:#000
     style AR1 fill:#ffffcc,color:#000
     style AR2 fill:#ffffcc,color:#000
     style FEL1 fill:#ffffcc,color:#000
@@ -424,22 +418,6 @@ graph TD
     INV -.->|"赤伝生成"| CN["StpInvoice<br/>(credit_note)"]
     CN -.->|"originalInvoiceId"| INV
 
-    subgraph "消込フロー"
-        PT["StpPaymentTransaction<br/>（入出金）"]
-        PA["StpPaymentAllocation<br/>（配分）"]
-    end
-
-    PT --> PA
-    PA -->|"revenueRecordId"| SRR
-    PA -->|"expenseRecordId"| SER
-
-    PA -.->|"配分後"| RTS["recalcTransactionStatus()<br/>unmatched→partial→matched"]
-    PA -.->|"配分後"| RRS["recalcRecordPaymentStatus()<br/>null→partial→paid"]
-
-    RTS -.-> PT
-    RRS -.-> SRR
-    RRS -.-> SER
-
     subgraph "請求書ステータス"
         OUT["outgoing:<br/>draft → issued → sent → paid"]
         IN["incoming:<br/>received → approved → paid"]
@@ -461,32 +439,24 @@ graph LR
 
 ## 8. 月次締めフロー
 
+> STP側の月次締めページは廃止済み。月次締めは経理側（`/accounting/monthly-close`）に一元化。
+
 ```mermaid
 graph TD
-    subgraph "STP月次締め"
-        CLOSE1["closeMonth()<br/>StpMonthlyClose"]
-        REOPEN1["reopenMonth()<br/>理由入力必須"]
-    end
-
-    subgraph "会計月次締め（2段階）"
-        CLOSE2["project_closed<br/>プロジェクト担当が締め"]
-        CLOSE3["accounting_closed<br/>経理が最終締め"]
-        REOPEN2["open<br/>再オープン"]
+    subgraph "経理月次締め"
+        CLOSE["closeMonthAction()<br/>MonthlyCloseLog"]
+        REOPEN["reopenMonthAction()<br/>理由入力必須"]
     end
 
     subgraph "編集制限"
         GUARD["ensureMonthNotClosed()"]
     end
 
-    CLOSE1 -->|"締め済み"| GUARD
+    CLOSE -->|"締め済み"| GUARD
     GUARD -.->|"ブロック"| SRR["売上更新/削除"]
     GUARD -.->|"ブロック"| SER["経費更新/削除"]
 
-    REOPEN1 -->|"再オープン"| CLOSE1
-
-    CLOSE2 -->|"project_closed"| CLOSE3
-    CLOSE3 -->|"accounting_closed"| AMC["AccountingMonthlyClose"]
-    REOPEN2 -->|"再オープン"| CLOSE2
+    REOPEN -->|"再オープン"| CLOSE
 
     style GUARD fill:#ff6b6b,color:#fff
 ```
@@ -642,7 +612,7 @@ graph TD
 | 全顧客マスタ | 4 | MasterStellaCompany, Location, Contact, BankAccount |
 | STPプロジェクト | 7 | StpCompany, StpStage, StpStageHistory, StpContractHistory, StpCompanyContract, StpCandidate, StpProposal |
 | 代理店 | 6 | StpAgent, StpAgentContract, StpAgentStaff, StpAgentContractHistory, StpAgentCommissionOverride, StpLeadFormToken |
-| 財務 | 8 | StpRevenueRecord, StpExpenseRecord, StpInvoice, StpInvoiceLineItem, StpPaymentTransaction, StpPaymentAllocation, StpMonthlyClose, StpFinanceEditLog |
+| 財務 | 6 | StpRevenueRecord, StpExpenseRecord, StpInvoice, StpInvoiceLineItem, StpMonthlyClose, StpFinanceEditLog |
 | 会計 | 5 | AccountingImportBatch, AccountingTransaction, AccountingReconciliation, AccountingVerification, AccountingMonthlyClose |
 | 認証・外部ユーザー | 8 | MasterStaff, ExternalUser, DisplayView, ExternalUserDisplayPermission, RegistrationToken, RegistrationTokenDefaultView, EmailVerificationToken, PasswordResetToken |
 | マスタ | 6 | MasterProject, OperatingCompany, MasterContractStatus, MasterContract, MasterContractStatusHistory, ContactMethod |

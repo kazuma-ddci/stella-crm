@@ -54,8 +54,6 @@ import {
 } from "@/components/attachments/upload-confirmation-dialog";
 import {
   ATTACHMENT_TYPE_LABELS,
-  generateAttachmentFileName,
-  getFileExtension,
 } from "@/lib/attachments/constants";
 import {
   updateAttachmentDisplayName,
@@ -133,9 +131,7 @@ export function InvoiceGroupDetailModal({
   const [expectedPaymentDate, setExpectedPaymentDate] = useState<string>(
     group.expectedPaymentDate ?? ""
   );
-  const [actualPaymentDate, setActualPaymentDate] = useState<string>(
-    group.actualPaymentDate ?? ""
-  );
+  const actualPaymentDate = group.actualPaymentDate ?? "";
 
   // グループ内の取引
   const [transactions, setTransactions] = useState<GroupTransaction[]>([]);
@@ -335,7 +331,6 @@ export function InvoiceGroupDetailModal({
         invoiceDate: invoiceDate || null,
         paymentDueDate: paymentDueDate || null,
         expectedPaymentDate: expectedPaymentDate || null,
-        actualPaymentDate: actualPaymentDate || null,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -551,16 +546,12 @@ export function InvoiceGroupDetailModal({
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "アップロードに失敗しました");
 
-      // APIレスポンスにメタデータをマージ
+      // APIレスポンスにメタデータをマージ（generatedNameはダイアログ側で重複連番込みで生成済み）
       const filesWithMetadata = result.files.map((f: { filePath: string; fileName: string; fileSize: number; mimeType: string }, i: number) => ({
         ...f,
         attachmentType: entries[i].attachmentType,
         displayName: entries[i].displayName,
-        generatedName: generateAttachmentFileName(
-          entries[i].attachmentType,
-          entries[i].displayName,
-          getFileExtension(entries[i].file.name)
-        ),
+        generatedName: entries[i].generatedName,
       }));
 
       await addInvoiceGroupAttachments(group.id, filesWithMetadata);
@@ -1064,19 +1055,9 @@ export function InvoiceGroupDetailModal({
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div>
                     <div className="text-xs text-muted-foreground">実際の入金日</div>
-                    {["sent"].includes(group.status) ? (
-                      <DatePicker
-                        id="detail-actualPaymentDate"
-                        value={actualPaymentDate}
-                        onChange={setActualPaymentDate}
-                        placeholder="日付を選択"
-                        className="mt-0.5 h-8 text-sm"
-                      />
-                    ) : (
-                      <div className="mt-0.5 text-sm font-medium">
-                        {actualPaymentDate || <span className="text-orange-600">未入金</span>}
-                      </div>
-                    )}
+                    <div className="mt-0.5 text-sm font-medium">
+                      {actualPaymentDate || <span className="text-orange-600">未入金</span>}
+                    </div>
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground">請求書番号</div>
@@ -1472,6 +1453,8 @@ export function InvoiceGroupDetailModal({
                 files={pendingFiles}
                 onConfirm={handleUploadConfirm}
                 uploading={uploadingAttachment}
+                defaultDisplayName={`${group.counterpartyName}_${group.invoiceNumber ?? `INV-${String(group.id).padStart(4, "0")}`}`}
+                existingAttachmentNames={groupAttachments.map((a) => a.generatedName || a.fileName)}
               />
             </div>
           )}

@@ -14,6 +14,7 @@ export interface InboundEmail {
   uid: number;
   from: { address: string; name?: string };
   subject?: string;
+  body?: string;
   date: Date;
   attachments: Array<{
     filename: string;
@@ -25,8 +26,13 @@ export interface InboundEmail {
 
 const MAX_MESSAGES_PER_BATCH = 50;
 
-export async function fetchUnreadWithPdfAttachments(
+/**
+ * sinceUid より大きいUIDのメールからPDF添付付きのものを取得する。
+ * IMAPの既読/未読フラグには依存せず、UIDベースでシステムが未チェックのメールのみ取得。
+ */
+export async function fetchNewWithPdfAttachments(
   config: ImapConfig,
+  sinceUid: number,
   emailAccountId?: number
 ): Promise<InboundEmail[]> {
   const client = new ImapFlow({
@@ -47,12 +53,17 @@ export async function fetchUnreadWithPdfAttachments(
     const lock = await client.getMailboxLock("INBOX");
 
     try {
-      // UNSEEN メッセージを検索
-      const searchResult = await client.search({ seen: false }, { uid: true });
-      const allUids = searchResult || [];
+      // sinceUid+1 以降のメッセージを検索（UIDベース）
+      const searchUid = sinceUid + 1;
+      const searchResult = await client.search(
+        { uid: `${searchUid}:*` },
+        { uid: true }
+      );
+      // IMAPの UID range検索では sinceUid 自体が含まれる場合があるのでフィルタ
+      const allUids = (searchResult || []).filter((uid: number) => uid > sinceUid);
       if (!allUids.length) return results;
 
-      // バッチ上限: メモリ圧迫防止。残りは次回cronで処理される（未読のまま）
+      // バッチ上限: メモリ圧迫防止。残りは次回cronで処理される
       const uids = allUids.slice(0, MAX_MESSAGES_PER_BATCH);
 
       for (const uid of uids) {
@@ -80,11 +91,16 @@ export async function fetchUnreadWithPdfAttachments(
             parsed.from?.value?.[0]?.address || "unknown@unknown.com";
           const fromName = parsed.from?.value?.[0]?.name;
 
+          // メール本文を取得（テキスト優先、なければHTMLからタグ除去）
+          const emailBody = parsed.text
+            || (parsed.html ? parsed.html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() : undefined);
+
           results.push({
             messageId: parsed.messageId || `no-mid_acct-${emailAccountId ?? 0}_uid-${uid}`,
             uid,
             from: { address: fromAddress, name: fromName },
             subject: parsed.subject,
+            body: emailBody ? emailBody.substring(0, 10000) : undefined,
             date: parsed.date || new Date(),
             attachments: pdfAttachments.map((att) => ({
               filename: att.filename || "attachment.pdf",
@@ -105,32 +121,4 @@ export async function fetchUnreadWithPdfAttachments(
   }
 
   return results;
-}
-
-export async function markAsRead(
-  config: ImapConfig,
-  uid: number
-): Promise<void> {
-  const client = new ImapFlow({
-    host: config.host,
-    port: config.port,
-    secure: config.tls ?? true,
-    auth: {
-      user: config.user,
-      pass: config.pass,
-    },
-    logger: false,
-  });
-
-  try {
-    await client.connect();
-    const lock = await client.getMailboxLock("INBOX");
-    try {
-      await client.messageFlagsAdd(String(uid), ["\\Seen"], { uid: true });
-    } finally {
-      lock.release();
-    }
-  } finally {
-    await client.logout();
-  }
 }

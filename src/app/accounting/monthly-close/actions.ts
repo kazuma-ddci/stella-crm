@@ -271,7 +271,6 @@ export async function closeMonthAction(targetMonth: string) {
   await doCloseMonth(monthDate, staffId, snapshot);
 
   revalidatePath("/accounting/monthly-close");
-  revalidatePath("/stp/finance/monthly-close");
 }
 
 export async function reopenMonthAction(
@@ -287,5 +286,4 @@ export async function reopenMonthAction(
   await doReopenMonth(new Date(targetMonth), staffId, reason);
 
   revalidatePath("/accounting/monthly-close");
-  revalidatePath("/stp/finance/monthly-close");
 }

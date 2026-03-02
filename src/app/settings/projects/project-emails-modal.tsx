@@ -33,7 +33,7 @@ import {
 import {
   addProjectEmail,
   updateProjectEmailMemo,
-  updateEmailSmtp,
+  updateEmailSettings,
   setProjectDefaultEmail,
   deleteProjectEmail,
   getProjectEmails,
@@ -53,6 +53,9 @@ type ProjectEmail = {
   smtpPort: number | null;
   hasSmtpPass: boolean;
   hasSmtpConfig: boolean;
+  imapHost: string | null;
+  imapPort: number | null;
+  enableInbound: boolean;
 };
 
 type Props = {
@@ -86,6 +89,9 @@ export function ProjectEmailsModal({
     smtpHost: "smtp.gmail.com",
     smtpPort: "587",
     smtpPass: "",
+    imapHost: "imap.gmail.com",
+    imapPort: "993",
+    enableInbound: false,
   });
   const [addSaving, setAddSaving] = useState(false);
 
@@ -93,12 +99,15 @@ export function ProjectEmailsModal({
   const [editingMemoId, setEditingMemoId] = useState<number | null>(null);
   const [memoValue, setMemoValue] = useState("");
 
-  // SMTP編集
+  // メール設定編集
   const [smtpEditId, setSmtpEditId] = useState<number | null>(null);
   const [smtpForm, setSmtpForm] = useState({
     smtpHost: "",
     smtpPort: "",
     smtpPass: "",
+    imapHost: "",
+    imapPort: "",
+    enableInbound: false,
   });
   const [smtpSaving, setSmtpSaving] = useState(false);
 
@@ -147,6 +156,9 @@ export function ProjectEmailsModal({
       smtpHost: "smtp.gmail.com",
       smtpPort: "587",
       smtpPass: "",
+      imapHost: "imap.gmail.com",
+      imapPort: "993",
+      enableInbound: false,
     });
     setIsAddMode(true);
   };
@@ -163,6 +175,9 @@ export function ProjectEmailsModal({
       smtpHost: isSystemAdmin ? (addForm.smtpHost.trim() || "smtp.gmail.com") : "smtp.gmail.com",
       smtpPort: isSystemAdmin ? (addForm.smtpPort ? parseInt(addForm.smtpPort) : 587) : 587,
       smtpPass: isSystemAdmin ? (addForm.smtpPass.trim() || null) : null,
+      imapHost: isSystemAdmin ? (addForm.imapHost.trim() || "imap.gmail.com") : "imap.gmail.com",
+      imapPort: isSystemAdmin ? (addForm.imapPort ? parseInt(addForm.imapPort) : 993) : 993,
+      enableInbound: isSystemAdmin ? addForm.enableInbound : false,
     });
 
     setAddSaving(false);
@@ -210,6 +225,9 @@ export function ProjectEmailsModal({
       smtpHost: pe.smtpHost ?? "smtp.gmail.com",
       smtpPort: pe.smtpPort?.toString() ?? "587",
       smtpPass: "",
+      imapHost: pe.imapHost ?? "imap.gmail.com",
+      imapPort: pe.imapPort?.toString() ?? "993",
+      enableInbound: pe.enableInbound,
     });
   };
 
@@ -219,15 +237,18 @@ export function ProjectEmailsModal({
     setError(null);
 
     try {
-      await updateEmailSmtp(smtpEditId, {
+      await updateEmailSettings(smtpEditId, {
         smtpHost: smtpForm.smtpHost.trim() || null,
         smtpPort: smtpForm.smtpPort ? parseInt(smtpForm.smtpPort) : null,
         smtpPass: smtpForm.smtpPass.trim() || null,
+        imapHost: smtpForm.imapHost.trim() || null,
+        imapPort: smtpForm.imapPort ? parseInt(smtpForm.imapPort) : null,
+        enableInbound: smtpForm.enableInbound,
       });
       setSmtpEditId(null);
       await loadEmails();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "SMTP設定の更新に失敗しました");
+      setError(err instanceof Error ? err.message : "メール設定の更新に失敗しました");
       clearError();
     } finally {
       setSmtpSaving(false);
@@ -325,10 +346,10 @@ export function ProjectEmailsModal({
 
             {isSystemAdmin && (
               <div className="space-y-2 border-t pt-3">
-                <p className="text-xs font-medium text-muted-foreground">SMTP設定</p>
-                <div className="grid grid-cols-3 gap-2">
+                <p className="text-xs font-medium text-muted-foreground">SMTP設定（送信）</p>
+                <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <Label className="text-xs">ホスト</Label>
+                    <Label className="text-xs">SMTPホスト</Label>
                     <Input
                       value={addForm.smtpHost}
                       onChange={(e) => setAddForm({ ...addForm, smtpHost: e.target.value })}
@@ -337,7 +358,7 @@ export function ProjectEmailsModal({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">ポート</Label>
+                    <Label className="text-xs">SMTPポート</Label>
                     <Input
                       type="number"
                       value={addForm.smtpPort}
@@ -346,17 +367,48 @@ export function ProjectEmailsModal({
                       className="h-7 text-xs"
                     />
                   </div>
+                </div>
+                <p className="text-xs font-medium text-muted-foreground pt-2">IMAP設定（受信）</p>
+                <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <Label className="text-xs">アプリパスワード</Label>
+                    <Label className="text-xs">IMAPホスト</Label>
                     <Input
-                      type="password"
-                      value={addForm.smtpPass}
-                      onChange={(e) => setAddForm({ ...addForm, smtpPass: e.target.value })}
-                      placeholder="xxxx xxxx xxxx xxxx"
+                      value={addForm.imapHost}
+                      onChange={(e) => setAddForm({ ...addForm, imapHost: e.target.value })}
+                      placeholder="imap.gmail.com"
+                      className="h-7 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">IMAPポート</Label>
+                    <Input
+                      type="number"
+                      value={addForm.imapPort}
+                      onChange={(e) => setAddForm({ ...addForm, imapPort: e.target.value })}
+                      placeholder="993"
                       className="h-7 text-xs"
                     />
                   </div>
                 </div>
+                <div className="space-y-1 pt-1">
+                  <Label className="text-xs">アプリパスワード（送受信共通）</Label>
+                  <Input
+                    type="password"
+                    value={addForm.smtpPass}
+                    onChange={(e) => setAddForm({ ...addForm, smtpPass: e.target.value })}
+                    placeholder="xxxx xxxx xxxx xxxx"
+                    className="h-7 text-xs"
+                  />
+                </div>
+                <label className="flex items-center gap-2 pt-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={addForm.enableInbound}
+                    onChange={(e) => setAddForm({ ...addForm, enableInbound: e.target.checked })}
+                    className="rounded border-gray-300"
+                  />
+                  <span className="text-xs">受信チェックを有効にする</span>
+                </label>
               </div>
             )}
 
@@ -383,13 +435,14 @@ export function ProjectEmailsModal({
           </div>
         )}
 
-        {/* SMTP編集フォーム（admin専用） */}
+        {/* メール設定編集フォーム（admin専用） */}
         {smtpEditId !== null && (
           <div className="space-y-3 border rounded-lg p-4 bg-muted/50">
-            <p className="text-sm font-medium">SMTP設定を編集</p>
-            <div className="grid grid-cols-3 gap-2">
+            <p className="text-sm font-medium">メール設定を編集</p>
+            <p className="text-xs font-medium text-muted-foreground">SMTP設定（送信）</p>
+            <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-xs">ホスト</Label>
+                <Label className="text-xs">SMTPホスト</Label>
                 <Input
                   value={smtpForm.smtpHost}
                   onChange={(e) => setSmtpForm({ ...smtpForm, smtpHost: e.target.value })}
@@ -398,7 +451,7 @@ export function ProjectEmailsModal({
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">ポート</Label>
+                <Label className="text-xs">SMTPポート</Label>
                 <Input
                   type="number"
                   value={smtpForm.smtpPort}
@@ -407,17 +460,48 @@ export function ProjectEmailsModal({
                   className="h-8 text-sm"
                 />
               </div>
+            </div>
+            <p className="text-xs font-medium text-muted-foreground pt-2">IMAP設定（受信）</p>
+            <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-xs">アプリパスワード</Label>
+                <Label className="text-xs">IMAPホスト</Label>
                 <Input
-                  type="password"
-                  value={smtpForm.smtpPass}
-                  onChange={(e) => setSmtpForm({ ...smtpForm, smtpPass: e.target.value })}
-                  placeholder="変更時のみ入力"
+                  value={smtpForm.imapHost}
+                  onChange={(e) => setSmtpForm({ ...smtpForm, imapHost: e.target.value })}
+                  placeholder="imap.gmail.com"
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">IMAPポート</Label>
+                <Input
+                  type="number"
+                  value={smtpForm.imapPort}
+                  onChange={(e) => setSmtpForm({ ...smtpForm, imapPort: e.target.value })}
+                  placeholder="993"
                   className="h-8 text-sm"
                 />
               </div>
             </div>
+            <div className="space-y-1 pt-1">
+              <Label className="text-xs">アプリパスワード（送受信共通）</Label>
+              <Input
+                type="password"
+                value={smtpForm.smtpPass}
+                onChange={(e) => setSmtpForm({ ...smtpForm, smtpPass: e.target.value })}
+                placeholder="変更時のみ入力"
+                className="h-8 text-sm"
+              />
+            </div>
+            <label className="flex items-center gap-2 pt-1 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={smtpForm.enableInbound}
+                onChange={(e) => setSmtpForm({ ...smtpForm, enableInbound: e.target.checked })}
+                className="rounded border-gray-300"
+              />
+              <span className="text-xs">受信チェックを有効にする</span>
+            </label>
             <div className="flex justify-end gap-2 pt-1">
               <Button
                 size="sm"
@@ -451,6 +535,7 @@ export function ProjectEmailsModal({
                   <TableHead>メールアドレス</TableHead>
                   <TableHead>メモ</TableHead>
                   <TableHead>送信</TableHead>
+                  <TableHead>受信</TableHead>
                   <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                     操作
                   </TableHead>
@@ -547,6 +632,23 @@ export function ProjectEmailsModal({
                         </Badge>
                       )}
                     </TableCell>
+                    <TableCell>
+                      {pe.enableInbound ? (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] px-1.5 py-0 text-blue-600 border-blue-300"
+                        >
+                          有効
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] px-1.5 py-0 text-gray-400 border-gray-300"
+                        >
+                          無効
+                        </Badge>
+                      )}
+                    </TableCell>
                     <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                       <div className="flex items-center gap-0.5">
                         <Button
@@ -564,7 +666,7 @@ export function ProjectEmailsModal({
                             variant="ghost"
                             className="h-7 w-7"
                             onClick={() => openSmtpEdit(pe)}
-                            title="SMTP設定"
+                            title="メール設定"
                           >
                             <Settings className="h-3 w-3" />
                           </Button>

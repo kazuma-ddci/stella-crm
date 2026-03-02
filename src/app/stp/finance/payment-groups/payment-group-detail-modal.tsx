@@ -81,8 +81,6 @@ import {
 } from "@/components/attachments/upload-confirmation-dialog";
 import {
   ATTACHMENT_TYPE_LABELS,
-  generateAttachmentFileName,
-  getFileExtension,
 } from "@/lib/attachments/constants";
 import {
   updateAttachmentDisplayName,
@@ -212,6 +210,9 @@ export function PaymentGroupDetailModal({
     newDisplayName: string | null;
   }[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // 受領記録待ちフラグ（証憑アップロード後に自動確認を出す）
+  const [pendingReceiptRecord, setPendingReceiptRecord] = useState(false);
 
   // 送信履歴
   const [mailHistory, setMailHistory] = useState<MailHistoryItem[]>([]);
@@ -384,9 +385,16 @@ export function PaymentGroupDetailModal({
 
   // 請求書受領を記録
   const handleRecordReceived = async () => {
-    if (!confirm("請求書の受領を記録しますか？")) return;
     setLoading(true);
     try {
+      const attachments = await getPaymentGroupAttachments(group.id);
+      if (attachments.length === 0) {
+        toast.error("証憑タブから請求書ファイルをアップロードしてください。");
+        setActiveTab("attachments");
+        setPendingReceiptRecord(true);
+        return;
+      }
+      if (!confirm("請求書の受領・保管が完了しました。受領を記録しますか？")) return;
       await updatePaymentGroupStatus(group.id, "invoice_received");
       onClose();
     } catch (e) {
@@ -492,16 +500,12 @@ export function PaymentGroupDetailModal({
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "アップロードに失敗しました");
 
-      // APIレスポンスにメタデータをマージ
+      // APIレスポンスにメタデータをマージ（generatedNameはダイアログ側で重複連番込みで生成済み）
       const filesWithMetadata = result.files.map((f: { filePath: string; fileName: string; fileSize: number; mimeType: string }, i: number) => ({
         ...f,
         attachmentType: entries[i].attachmentType,
         displayName: entries[i].displayName,
-        generatedName: generateAttachmentFileName(
-          entries[i].attachmentType,
-          entries[i].displayName,
-          getFileExtension(entries[i].file.name)
-        ),
+        generatedName: entries[i].generatedName,
       }));
 
       await addPaymentGroupAttachments(group.id, filesWithMetadata);
@@ -509,6 +513,16 @@ export function PaymentGroupDetailModal({
       setGroupAttachments(atts);
       setShowUploadDialog(false);
       setPendingFiles([]);
+
+      // 受領記録待ちの場合、アップロード完了後に確認を出す
+      if (pendingReceiptRecord) {
+        setPendingReceiptRecord(false);
+        if (confirm("請求書の受領・保管が完了しました。受領を記録しますか？")) {
+          await updatePaymentGroupStatus(group.id, "invoice_received");
+          onClose();
+          return;
+        }
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : "アップロードに失敗しました");
     } finally {
@@ -1046,6 +1060,12 @@ export function PaymentGroupDetailModal({
               {/* 参考情報（読み取り専用） */}
               <div className="rounded-lg bg-gray-50 p-3 space-y-3">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div>
+                    <div className="text-xs text-muted-foreground">実際の支払日</div>
+                    <div className="mt-0.5 text-sm font-medium">
+                      {group.actualPaymentDate || <span className="text-orange-600">未支払</span>}
+                    </div>
+                  </div>
                   {group.receivedPdfFileName && (
                     <div>
                       <div className="text-xs text-muted-foreground">受領済みPDF</div>
@@ -1087,7 +1107,15 @@ export function PaymentGroupDetailModal({
 
               {/* 金額表示 */}
               <div className="rounded-lg border p-4">
-                <div className="grid grid-cols-2 gap-4 text-center">
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div>
+                    <div className="text-sm text-muted-foreground">
+                      小計
+                    </div>
+                    <div className="text-lg font-bold">
+                      ¥{((group.totalAmount ?? 0) - (group.taxAmount ?? 0)).toLocaleString()}
+                    </div>
+                  </div>
                   <div>
                     <div className="text-sm text-muted-foreground">
                       消費税
@@ -1444,6 +1472,8 @@ export function PaymentGroupDetailModal({
                 files={pendingFiles}
                 onConfirm={handleUploadConfirm}
                 uploading={uploadingAttachment}
+                defaultDisplayName={`${group.counterpartyName}_${group.referenceCode ?? `PG-${String(group.id).padStart(4, "0")}`}`}
+                existingAttachmentNames={groupAttachments.map((a) => a.generatedName || a.fileName)}
               />
             </div>
           )}

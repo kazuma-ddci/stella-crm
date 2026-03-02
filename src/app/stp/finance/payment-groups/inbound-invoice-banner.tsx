@@ -11,7 +11,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Mail, FileText, Check, X, Link2, AlertTriangle } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Mail, FileText, Check, X, Link2, AlertTriangle, Eye, ExternalLink, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import type { PendingInboundInvoice } from "./inbound-invoice-actions";
 import type { MatchablePaymentGroup } from "./inbound-invoice-actions";
@@ -72,12 +78,91 @@ function formatFileSize(bytes: number | null) {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
+// ============================================
+// プレビューモーダル
+// ============================================
+
+function InvoicePreviewModal({
+  invoice,
+  open,
+  onOpenChange,
+}: {
+  invoice: PendingInboundInvoice;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <Mail className="h-4 w-4" />
+            メールプレビュー
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 min-h-0 overflow-auto space-y-3">
+          <div className="space-y-3 p-4 border rounded bg-muted/30">
+            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+              <span className="font-medium text-muted-foreground">差出人:</span>
+              <span>
+                {invoice.fromName
+                  ? `${invoice.fromName} <${invoice.fromEmail}>`
+                  : invoice.fromEmail}
+              </span>
+              <span className="font-medium text-muted-foreground">件名:</span>
+              <span>{invoice.subject ?? "(件名なし)"}</span>
+              <span className="font-medium text-muted-foreground">受信日時:</span>
+              <span>{new Date(invoice.receivedAt).toLocaleString("ja-JP")}</span>
+            </div>
+
+            {invoice.attachmentPath ? (
+              <div className="flex items-center gap-2 p-2 bg-white border rounded">
+                <Paperclip className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="text-sm truncate">
+                  {invoice.attachmentFileName ?? "添付ファイル"}
+                  {invoice.attachmentSize ? ` (${formatFileSize(invoice.attachmentSize)})` : ""}
+                </span>
+                <a
+                  href={invoice.attachmentPath}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-auto inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 hover:underline shrink-0"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  添付書類を確認する
+                </a>
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">添付ファイルなし</div>
+            )}
+
+            <hr />
+
+            <div className="whitespace-pre-wrap text-sm leading-relaxed">
+              {invoice.emailBody ?? (
+                <span className="text-muted-foreground italic">
+                  メール本文は保存されていません（次回の受信チェックから保存されます）
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================
+// マッチ済みカード
+// ============================================
+
 function MatchedInvoiceCard({
   invoice,
 }: {
   invoice: PendingInboundInvoice;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const handleConfirm = () => {
     startTransition(async () => {
@@ -156,18 +241,14 @@ function MatchedInvoiceCard({
       </div>
 
       <div className="flex items-center justify-end gap-2 pt-1">
-        {invoice.attachmentPath && (
-          <Button variant="outline" size="sm" asChild>
-            <a
-              href={invoice.attachmentPath}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <FileText className="h-3.5 w-3.5 mr-1" />
-              プレビュー
-            </a>
-          </Button>
-        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setPreviewOpen(true)}
+        >
+          <Eye className="h-3.5 w-3.5 mr-1" />
+          プレビュー
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -188,9 +269,19 @@ function MatchedInvoiceCard({
           承認して添付
         </Button>
       </div>
+
+      <InvoicePreviewModal
+        invoice={invoice}
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+      />
     </div>
   );
 }
+
+// ============================================
+// 未マッチカード
+// ============================================
 
 function UnmatchedInvoiceCard({
   invoice,
@@ -201,6 +292,7 @@ function UnmatchedInvoiceCard({
 }) {
   const [isPending, startTransition] = useTransition();
   const [selectedGroupId, setSelectedGroupId] = useState<string>("");
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const handleMatch = () => {
     if (!selectedGroupId) return;
@@ -266,18 +358,14 @@ function UnmatchedInvoiceCard({
       </div>
 
       <div className="flex items-center justify-end gap-2 pt-1">
-        {invoice.attachmentPath && (
-          <Button variant="outline" size="sm" asChild>
-            <a
-              href={invoice.attachmentPath}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <FileText className="h-3.5 w-3.5 mr-1" />
-              プレビュー
-            </a>
-          </Button>
-        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setPreviewOpen(true)}
+        >
+          <Eye className="h-3.5 w-3.5 mr-1" />
+          プレビュー
+        </Button>
         <div className="flex items-center gap-1">
           {matchableGroups.length === 0 ? (
             <span className="text-xs text-muted-foreground">マッチ可能な支払グループがありません</span>
@@ -318,6 +406,12 @@ function UnmatchedInvoiceCard({
           無視
         </Button>
       </div>
+
+      <InvoicePreviewModal
+        invoice={invoice}
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+      />
     </div>
   );
 }

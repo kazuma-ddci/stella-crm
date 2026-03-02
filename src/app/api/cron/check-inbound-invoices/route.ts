@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
-  fetchUnreadWithPdfAttachments,
-  markAsRead,
+  fetchNewWithPdfAttachments,
   type ImapConfig,
 } from "@/lib/email/imap-client";
 import { matchInboundInvoice } from "@/lib/email/inbound-invoice-matcher";
@@ -55,11 +54,18 @@ export async function GET(request: Request) {
           tls: true,
         };
 
-        // 未読+PDF添付メールを取得
-        const emails = await fetchUnreadWithPdfAttachments(imapConfig, emailAccount.id);
+        // lastCheckedImapUid より新しいメールのみ取得（システム未チェック分）
+        const emails = await fetchNewWithPdfAttachments(
+          imapConfig,
+          emailAccount.lastCheckedImapUid,
+          emailAccount.id
+        );
+
+        let maxUid = emailAccount.lastCheckedImapUid;
 
         for (const email of emails) {
-          let allAttachmentsOk = true;
+          // 処理したメールの最大UIDを追跡
+          if (email.uid > maxUid) maxUid = email.uid;
 
           for (let i = 0; i < email.attachments.length; i++) {
             const attachment = email.attachments[i];
@@ -116,6 +122,7 @@ export async function GET(request: Request) {
                   fromEmail: email.from.address,
                   fromName: email.from.name,
                   subject: email.subject,
+                  emailBody: email.body ?? null,
                   receivedAt: email.date,
                   paymentGroupId: matchResult.paymentGroupId,
                   matchConfidence: matchResult.matchConfidence,
@@ -130,7 +137,6 @@ export async function GET(request: Request) {
 
               accountResult.processed++;
             } catch (err) {
-              allAttachmentsOk = false;
               const errMsg =
                 err instanceof Error ? err.message : "Unknown error";
               accountResult.errors.push(
@@ -142,18 +148,14 @@ export async function GET(request: Request) {
               );
             }
           }
+        }
 
-          // 既読化: 全添付が成功 or 既処理スキップの場合のみ
-          if (allAttachmentsOk) {
-            try {
-              await markAsRead(imapConfig, email.uid);
-            } catch (err) {
-              console.error(
-                `[Cron] Failed to mark message uid=${email.uid} as read:`,
-                err
-              );
-            }
-          }
+        // lastCheckedImapUid を更新（次回はこのUID以降だけチェック）
+        if (maxUid > emailAccount.lastCheckedImapUid) {
+          await prisma.operatingCompanyEmail.update({
+            where: { id: emailAccount.id },
+            data: { lastCheckedImapUid: maxUid },
+          });
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : "Unknown error";

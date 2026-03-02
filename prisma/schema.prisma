@@ -589,7 +589,6 @@ model MasterStaff {
 
   // 会計関連Relations
   approvedRevenueRecords      StpRevenueRecord[]          @relation("RevenueApprover")
-  paymentTransactions         StpPaymentTransaction[]
   closedMonths                StpMonthlyClose[]           @relation("MonthCloser")
   reopenedMonths              StpMonthlyClose[]           @relation("MonthReopener")
   financeEditLogs             StpFinanceEditLog[]
@@ -1595,7 +1594,6 @@ model StpRevenueRecord {
   expenseRecords      StpExpenseRecord[]
   editLogs            StpFinanceEditLog[]     @relation("RevenueEditLogs")
   lineItems           StpInvoiceLineItem[]
-  paymentAllocations  StpPaymentAllocation[]
   accountingReconciliations AccountingReconciliation[] @relation("RevenueReconciliation")
 
   @@index([stpCompanyId])
@@ -1675,7 +1673,6 @@ model StpExpenseRecord {
   invoice              StpInvoice?               @relation(fields: [invoiceId], references: [id])
   editLogs             StpFinanceEditLog[]       @relation("ExpenseEditLogs")
   lineItems            StpInvoiceLineItem[]
-  paymentAllocations   StpPaymentAllocation[]
   accountingReconciliations AccountingReconciliation[] @relation("ExpenseReconciliation")
 
   @@index([agentId])
@@ -1827,88 +1824,6 @@ model StpInvoiceLineItem {
   @@map("stp_invoice_line_items")
 }
 
-// ============================================
-// 入出金履歴 (STP Payment Transactions)
-// 経理担当者が管理する実際の銀行取引記録
-// ============================================
-
-model StpPaymentTransaction {
-  id                    Int       @id @default(autoincrement())
-
-  // 取引区分
-  direction             String    @db.VarChar(20)                    // "incoming"（入金）/ "outgoing"（出金）
-
-  // 取引情報
-  transactionDate       DateTime  @db.Date                           // 取引日
-  amount                Int                                          // 取引金額
-  counterpartyName      String?   @db.VarChar(200)                   // 取引先名（銀行明細の振込名義人等）
-  bankAccountName       String?   @db.VarChar(100)                   // 自社の口座名
-
-  // 勘定科目（経理担当者が入力、将来freee連携用）
-  accountCode           String?   @db.VarChar(20)                    // 勘定科目コード
-  accountName           String?   @db.VarChar(100)                   // 勘定科目名
-  subAccountCode        String?   @db.VarChar(20)                    // 補助科目コード
-  subAccountName        String?   @db.VarChar(100)                   // 補助科目名
-
-  // freee連携用予約フィールド
-  freeeTransactionId    String?   @db.VarChar(100)                   // freee取引ID
-  freeeDealId           String?   @db.VarChar(100)                   // freee取引（税区分含む）ID
-  freeeSyncedAt         DateTime?                                     // freee同期日時
-
-  // 源泉徴収
-  withholdingTaxAmount  Int?                                          // 源泉徴収税額（経費支払時）
-
-  // 消込ステータス
-  status                String    @default("unmatched") @db.VarChar(20) // unmatched/partial/matched/excluded
-
-  // 操作者
-  processedBy           Int?                                          // 処理者（MasterStaffへの外部キー）
-
-  note                  String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
-  deletedAt             DateTime?
-
-  // Relations
-  processor             MasterStaff?              @relation(fields: [processedBy], references: [id])
-  allocations           StpPaymentAllocation[]
-
-  @@index([direction])
-  @@index([transactionDate])
-  @@index([status])
-  @@index([transactionDate, direction])
-  @@map("stp_payment_transactions")
-}
-
-// ============================================
-// 入出金配分 (STP Payment Allocations)
-// 入出金履歴と売上/経費レコードのN:N消込マッピング
-// ============================================
-
-model StpPaymentAllocation {
-  id                    Int       @id @default(autoincrement())
-  paymentTransactionId  Int                                          // 入出金履歴への外部キー
-
-  // 配分先（どちらか一方）
-  revenueRecordId       Int?                                         // 売上レコードへの外部キー
-  expenseRecordId       Int?                                         // 経費レコードへの外部キー
-
-  // 配分金額
-  allocatedAmount       Int                                          // この配分で消し込む金額
-
-  note                  String?
-  createdAt             DateTime  @default(now())
-
-  // Relations
-  paymentTransaction    StpPaymentTransaction @relation(fields: [paymentTransactionId], references: [id], onDelete: Cascade)
-  revenueRecord         StpRevenueRecord?     @relation(fields: [revenueRecordId], references: [id])
-  expenseRecord         StpExpenseRecord?     @relation(fields: [expenseRecordId], references: [id])
-
-  @@index([paymentTransactionId])
-  @@index([revenueRecordId])
-  @@index([expenseRecordId])
-  @@map("stp_payment_allocations")
-}
 
 // ============================================
 // 月次締めロック (STP Monthly Closes)
@@ -3113,6 +3028,7 @@ model OperatingCompanyEmail {
   imapUser              String?
   imapPass              String?
   enableInbound         Boolean   @default(false)
+  lastCheckedImapUid    Int       @default(0) // システムが最後にチェックしたIMAP UID
 
   deletedAt             DateTime?
 
@@ -3396,6 +3312,7 @@ model InboundInvoice {
   fromEmail          String
   fromName           String?
   subject            String?
+  emailBody          String?                     // メール本文（テキスト）
   receivedAt         DateTime
 
   paymentGroupId     Int?                        // マッチ先（null = 未マッチ）
