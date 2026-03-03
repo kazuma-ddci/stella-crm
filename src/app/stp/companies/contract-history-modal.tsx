@@ -77,6 +77,7 @@ const initialFeeOptions = [
 
 const statusOptions = [
   { value: "active", label: "契約中" },
+  { value: "scheduled", label: "契約予定" },
   { value: "cancelled", label: "解約" },
   { value: "dormant", label: "休眠" },
 ];
