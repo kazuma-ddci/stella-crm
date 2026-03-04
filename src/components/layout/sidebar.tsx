@@ -45,6 +45,7 @@ import {
   Zap,
   Wallet,
   CheckCircle2,
+  Target,
 } from "lucide-react";
 import { canView } from "@/lib/auth/permissions";
 import type { SessionUser } from "@/types/auth";
@@ -136,6 +137,7 @@ const navigation: NavItem[] = [
       { name: "代理店情報", href: "/stp/agents", icon: Users },
       { name: "求職者情報", href: "/stp/candidates", icon: UserSearch },
       { name: "リード回答", href: "/stp/lead-submissions", icon: ClipboardList },
+      { name: "KPI目標管理", href: "/stp/kpi-targets", icon: Target },
       { name: "契約書情報", href: "/stp/contracts", icon: FileCheck },
       {
         name: "売上・経費",
@@ -176,6 +178,7 @@ const navigation: NavItem[] = [
       { name: "一括完了", href: "/accounting/batch-complete", icon: CheckCircle2 },
       { name: "月次締め", href: "/accounting/monthly-close", icon: Lock },
       { name: "取込管理", href: "/accounting/imports", icon: Upload },
+      { name: "USDT日次レート", href: "/accounting/usdt-rates", icon: DollarSign },
       {
         name: "マスタ管理",
         icon: Settings,

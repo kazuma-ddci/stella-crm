@@ -1,0 +1,2523 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STELLA OS — KPIダッシュボード v2</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════
+   STELLA OS — Design System & Variables
+   ═══════════════════════════════════════════════ */
+:root {
+  /* Core palette */
+  --bg-deep: #070b14;
+  --bg-base: #0c1221;
+  --bg-surface: #131c31;
+  --bg-card: #172033;
+  --bg-card-hover: #1c2740;
+  --bg-elevated: #1e293b;
+  --border-subtle: #1e2d4a;
+  --border-default: #263354;
+  --border-strong: #334155;
+
+  /* Text hierarchy */
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #64748b;
+  --text-muted: #475569;
+
+  /* Accent */
+  --primary: #6366f1;
+  --primary-light: #818cf8;
+  --primary-glow: rgba(99, 102, 241, 0.15);
+  --primary-subtle: rgba(99, 102, 241, 0.08);
+
+  /* Status */
+  --green: #22c55e;
+  --green-bg: rgba(34, 197, 94, 0.1);
+  --green-border: rgba(34, 197, 94, 0.2);
+  --amber: #f59e0b;
+  --amber-bg: rgba(245, 158, 11, 0.08);
+  --amber-border: rgba(245, 158, 11, 0.2);
+  --red: #ef4444;
+  --red-bg: rgba(239, 68, 68, 0.1);
+  --red-border: rgba(239, 68, 68, 0.2);
+  --gray: #6b7280;
+  --gray-bg: rgba(107, 114, 128, 0.1);
+
+  /* Spacing */
+  --gap-xs: 4px;
+  --gap-sm: 8px;
+  --gap-md: 12px;
+  --gap-lg: 16px;
+  --gap-xl: 20px;
+  --gap-2xl: 24px;
+  --gap-3xl: 32px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  /* Sidebar */
+  --sidebar-w: 232px;
+}
+
+/* ═══════════════════════════════════════════════
+   Reset & Base
+   ═══════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: 'DM Sans', 'Noto Sans JP', sans-serif;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+/* Number font */
+.num {
+  font-family: 'JetBrains Mono', 'DM Sans', monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* ═══════════════════════════════════════════════
+   Layout
+   ═══════════════════════════════════════════════ */
+.app {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ═══════════════════════════════════════════════
+   Sidebar
+   ═══════════════════════════════════════════════ */
+.sidebar {
+  width: var(--sidebar-w);
+  min-width: var(--sidebar-w);
+  background: var(--bg-base);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 100;
+  overflow-y: auto;
+}
+
+.sidebar-logo {
+  padding: 20px 20px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sidebar-logo .logo-mark {
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, var(--primary), #a78bfa);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+}
+
+.sidebar-logo .logo-text {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 12px 10px;
+}
+
+.nav-section {
+  margin-bottom: 6px;
+}
+
+.nav-section-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 14px 10px 6px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 450;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.nav-item:hover {
+  background: var(--primary-subtle);
+  color: var(--text-primary);
+}
+
+.nav-item.active {
+  background: var(--primary-glow);
+  color: var(--primary-light);
+  font-weight: 550;
+}
+
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 16px;
+  background: var(--primary);
+  border-radius: 0 2px 2px 0;
+}
+
+.nav-item .icon {
+  font-size: 14px;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* Sidebar badge [v2] */
+.nav-badge {
+  margin-left: auto;
+  font-size: 9.5px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  padding: 0 5px;
+}
+
+.nav-badge.red { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
+.nav-badge.amber { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-border); }
+
+/* ═══════════════════════════════════════════════
+   Main Content
+   ═══════════════════════════════════════════════ */
+.main {
+  flex: 1;
+  margin-left: var(--sidebar-w);
+  min-height: 100vh;
+}
+
+/* Top Bar */
+.topbar {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--gap-2xl);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(12px);
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-md);
+}
+
+.topbar-breadcrumb {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.topbar-breadcrumb span {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.month-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.month-selector:hover {
+  border-color: var(--primary);
+}
+
+.month-selector .arrow {
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-lg);
+}
+
+.greeting {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.greeting .name {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary), #a78bfa);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+}
+
+/* Content Area */
+.content {
+  padding: var(--gap-2xl);
+  max-width: 1280px;
+}
+
+/* ═══════════════════════════════════════════════
+   [v2] Data Freshness Indicator
+   ═══════════════════════════════════════════════ */
+.data-freshness {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--gap-lg);
+  padding: 0 2px;
+}
+
+.freshness-left {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.freshness-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.freshness-right {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+/* ═══════════════════════════════════════════════
+   ZONE 1: Alerts [v2 — split by priority]
+   ═══════════════════════════════════════════════ */
+.zone-alerts-critical {
+  background: var(--red-bg);
+  border: 1px solid var(--red-border);
+  border-radius: var(--radius-lg);
+  padding: var(--gap-lg) var(--gap-xl);
+  margin-bottom: var(--gap-md);
+  animation: slideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.zone-alerts-warning {
+  background: var(--amber-bg);
+  border: 1px solid var(--amber-border);
+  border-radius: var(--radius-lg);
+  padding: var(--gap-lg) var(--gap-xl);
+  margin-bottom: var(--gap-2xl);
+  animation: slideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both;
+}
+
+.zone-alerts-warning.collapsed .alert-items {
+  display: none;
+}
+
+.zone-alerts-warning.collapsed .collapse-icon {
+  transform: rotate(-90deg);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.alerts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--gap-md);
+}
+
+.alerts-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.alerts-title.critical { color: var(--red); }
+.alerts-title.warning { color: var(--amber); }
+
+.alerts-link {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.alerts-link:hover { color: var(--text-secondary); }
+
+.collapse-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color 0.15s;
+  user-select: none;
+}
+
+.collapse-toggle:hover { color: var(--text-secondary); }
+
+.collapse-icon {
+  font-size: 9px;
+  transition: transform 0.2s;
+}
+
+.alert-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+}
+
+.alert-item {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-md);
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  transition: background 0.15s;
+}
+
+.alert-item:hover {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.alert-badge {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.alert-badge.critical { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.alert-badge.warning { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+
+/* [v2] Accessibility label next to dot */
+.alert-a11y {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.alert-a11y.critical { color: var(--red); background: var(--red-bg); }
+.alert-a11y.warning { color: var(--amber); background: var(--amber-bg); }
+
+.alert-type {
+  color: var(--text-secondary);
+  font-weight: 500;
+  min-width: 56px;
+}
+
+.alert-company {
+  color: var(--text-primary);
+  font-weight: 600;
+  min-width: 80px;
+}
+
+.alert-detail {
+  color: var(--text-tertiary);
+  flex: 1;
+}
+
+.alert-action {
+  font-size: 11px;
+  color: var(--primary-light);
+  font-weight: 500;
+  cursor: pointer;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.alert-action:hover {
+  background: var(--primary-glow);
+}
+
+/* ═══════════════════════════════════════════════
+   ZONE 2: KGI Cards [v2 — period label & forecast]
+   ═══════════════════════════════════════════════ */
+.zone-kgi {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--gap-lg);
+  margin-bottom: var(--gap-2xl);
+}
+
+.kgi-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--gap-xl);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease;
+  animation: fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  cursor: pointer;
+}
+
+.kgi-card:nth-child(1) { animation-delay: 0.05s; }
+.kgi-card:nth-child(2) { animation-delay: 0.1s; }
+.kgi-card:nth-child(3) { animation-delay: 0.15s; }
+.kgi-card:nth-child(4) { animation-delay: 0.2s; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.kgi-card:hover {
+  border-color: var(--border-default);
+  background: var(--bg-card-hover);
+  transform: translateY(-1px);
+}
+
+/* [v2] Drill-down affordance */
+.kgi-card .drill-down {
+  position: absolute;
+  bottom: 10px;
+  right: 16px;
+  font-size: 10.5px;
+  color: var(--primary-light);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+.kgi-card:hover .drill-down {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.kgi-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+}
+
+.kgi-card.status-red::before { background: linear-gradient(90deg, var(--red), transparent 80%); }
+.kgi-card.status-green::before { background: linear-gradient(90deg, var(--green), transparent 80%); }
+
+.kgi-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  margin-bottom: var(--gap-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* [v2] Status with accessible text */
+.kgi-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.kgi-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.kgi-status-dot.red { background: var(--red); box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
+.kgi-status-dot.green { background: var(--green); box-shadow: 0 0 8px rgba(34, 197, 94, 0.4); }
+
+.kgi-status-text {
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.kgi-status-text.red { color: var(--red); }
+.kgi-status-text.green { color: var(--green); }
+
+/* [v2] Period label */
+.kgi-period-label {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--primary-subtle);
+  color: var(--primary-light);
+  margin-left: 6px;
+}
+
+.kgi-value {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin-bottom: 2px;
+  line-height: 1.1;
+}
+
+.kgi-value.negative { color: var(--red); }
+
+.kgi-target {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-bottom: var(--gap-md);
+}
+
+/* [v2] Landing forecast */
+.kgi-forecast {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: var(--gap-sm);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.kgi-forecast .forecast-val {
+  color: var(--amber);
+  font-weight: 600;
+}
+
+/* Progress bar */
+.kgi-progress {
+  height: 4px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  margin-bottom: var(--gap-sm);
+  overflow: hidden;
+}
+
+.kgi-progress-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.kgi-progress-bar.red { background: var(--red); }
+.kgi-progress-bar.green { background: var(--green); }
+
+.kgi-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10.5px;
+}
+
+.kgi-percent {
+  font-weight: 600;
+}
+
+.kgi-percent.red { color: var(--red); }
+.kgi-percent.green { color: var(--green); }
+
+.kgi-prev {
+  color: var(--text-muted);
+}
+
+/* Sparkline */
+.sparkline {
+  position: absolute;
+  bottom: 30px;
+  right: 16px;
+  opacity: 0.25;
+}
+
+/* ═══════════════════════════════════════════════
+   ZONE 3: Department KPIs [v2 — tabs with JS]
+   ═══════════════════════════════════════════════ */
+.zone-dept {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--gap-2xl);
+  overflow: hidden;
+  animation: fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.25s both;
+}
+
+.dept-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 var(--gap-xl);
+  gap: 2px;
+  overflow-x: auto;
+}
+
+.dept-tab {
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.dept-tab:hover {
+  color: var(--text-secondary);
+}
+
+.dept-tab.active {
+  color: var(--primary-light);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}
+
+.dept-panel {
+  display: none;
+  padding: var(--gap-xl);
+}
+
+.dept-panel.active {
+  display: block;
+}
+
+.dept-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--gap-xl);
+}
+
+.dept-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dept-title .head {
+  color: var(--text-tertiary);
+  font-weight: 400;
+  margin-left: 8px;
+}
+
+.dept-period {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.dept-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--gap-lg);
+}
+
+.dept-kpi-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--gap-lg) var(--gap-xl);
+  transition: all 0.15s;
+  position: relative;
+  cursor: pointer;
+}
+
+.dept-kpi-card:hover {
+  border-color: var(--border-default);
+  background: var(--bg-card);
+}
+
+/* [v2] Drill-down on dept KPI cards */
+.dept-kpi-card .drill-down {
+  position: absolute;
+  bottom: 8px;
+  right: 12px;
+  font-size: 10px;
+  color: var(--primary-light);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+.dept-kpi-card:hover .drill-down {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.dept-kpi-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  margin-bottom: var(--gap-sm);
+}
+
+.dept-kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin-bottom: 4px;
+}
+
+.dept-kpi-value.unknown {
+  color: var(--text-muted);
+}
+
+.dept-kpi-target {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: var(--gap-md);
+}
+
+.dept-kpi-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dept-kpi-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.dept-kpi-badge.red { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
+.dept-kpi-badge.green { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
+.dept-kpi-badge.gray { background: var(--gray-bg); color: var(--gray); border: 1px solid rgba(107,114,128,0.2); }
+.dept-kpi-badge.amber { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-border); }
+
+/* [v2] Accessible status text in badge */
+.dept-kpi-badge .a11y-label {
+  margin-left: 3px;
+  font-size: 9px;
+}
+
+/* Mini progress */
+.dept-kpi-progress {
+  flex: 1;
+  height: 3px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.dept-kpi-progress-bar {
+  height: 100%;
+  border-radius: 2px;
+}
+
+/* [v2] Empty state CTA */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap-sm);
+  padding: var(--gap-xl);
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.empty-state-icon {
+  font-size: 28px;
+  opacity: 0.4;
+  margin-bottom: var(--gap-xs);
+}
+
+.empty-state-cta {
+  font-size: 11px;
+  color: var(--primary-light);
+  cursor: pointer;
+  padding: 4px 14px;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-sm);
+  transition: all 0.15s;
+  margin-top: var(--gap-xs);
+}
+
+.empty-state-cta:hover {
+  background: var(--primary-glow);
+  border-color: var(--primary);
+}
+
+/* ═══════════════════════════════════════════════
+   ZONE 4: Funnel & Lead Source [v2 — bottleneck]
+   ═══════════════════════════════════════════════ */
+.zone-funnel-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap-lg);
+  margin-bottom: var(--gap-2xl);
+  animation: fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
+}
+
+.panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--gap-xl);
+  transition: border-color 0.15s;
+}
+
+.panel:hover {
+  border-color: var(--border-default);
+}
+
+.panel-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: var(--gap-xl);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Funnel */
+.funnel-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.funnel-stage {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-md);
+}
+
+.funnel-label {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  min-width: 62px;
+  text-align: right;
+  font-weight: 500;
+}
+
+.funnel-bar-wrap {
+  flex: 1;
+  height: 28px;
+  background: rgba(255,255,255,0.03);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  position: relative;
+}
+
+.funnel-bar {
+  height: 100%;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  padding-left: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: white;
+  transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.funnel-bar.stage-0 { background: linear-gradient(90deg, var(--primary), #818cf8); }
+.funnel-bar.stage-1 { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+.funnel-bar.stage-2 { background: linear-gradient(90deg, #a855f7, #c084fc); }
+.funnel-bar.stage-3 { background: linear-gradient(90deg, #d946ef, #e879f9); }
+
+.funnel-count {
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 46px;
+  text-align: right;
+  color: var(--text-secondary);
+}
+
+.funnel-conversion {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0 2px 72px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.funnel-conversion .conv-arrow {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+/* [v2] Bottleneck highlight */
+.funnel-conversion.bottleneck {
+  background: var(--red-bg);
+  border: 1px solid var(--red-border);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px 3px 72px;
+  margin: 2px 0;
+  color: var(--red);
+  font-weight: 600;
+}
+
+.funnel-conversion.bottleneck .conv-arrow { color: var(--red); }
+
+.bottleneck-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--red);
+  margin-left: auto;
+  padding: 1px 6px;
+  background: var(--red-bg);
+  border-radius: 4px;
+}
+
+/* Lead Sources */
+.lead-sources {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-md);
+}
+
+.lead-source {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lead-source-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.lead-source-name {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.lead-source-count {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.lead-source-count .actual {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.lead-source-bar-wrap {
+  height: 8px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 4px;
+  position: relative;
+  overflow: visible;
+}
+
+.lead-source-forecast {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 4px;
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+}
+
+.lead-source-actual {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 4px;
+  transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.lead-source-actual.on-track { background: var(--primary); }
+.lead-source-actual.over { background: var(--green); }
+.lead-source-actual.under { background: var(--red); }
+
+.lead-source-badge {
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: 6px;
+}
+
+.lead-source-badge.over { background: var(--green-bg); color: var(--green); }
+.lead-source-badge.under { background: var(--red-bg); color: var(--red); }
+
+/* [v3] Lead Summary Cards */
+.lead-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--gap-sm);
+  margin-bottom: var(--gap-xl);
+}
+
+.lead-summary-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--gap-md) var(--gap-lg);
+  text-align: center;
+}
+
+.lead-summary-card.highlight {
+  border-color: var(--green-border);
+  background: var(--green-bg);
+}
+
+.lead-summary-label {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.lead-summary-value {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.lead-summary-value small {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+/* [v3] ROI display per lead source */
+.lead-source-roi {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  padding: 4px 0 0;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.roi-item {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.roi-divider {
+  color: var(--border-default);
+  font-size: 9px;
+}
+
+.roi-value {
+  font-weight: 600;
+}
+
+.roi-positive {
+  color: var(--green) !important;
+  font-weight: 700;
+}
+
+.roi-negative {
+  color: var(--red) !important;
+  font-weight: 700;
+}
+
+.roi-note {
+  margin-top: var(--gap-lg);
+  padding-top: var(--gap-md);
+  border-top: 1px solid var(--border-subtle);
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* ═══════════════════════════════════════════════
+   ZONE 5: Revenue Chart [v2 — zoom toggle]
+   ═══════════════════════════════════════════════ */
+.zone-revenue {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--gap-xl);
+  margin-bottom: var(--gap-2xl);
+  animation: fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.35s both;
+}
+
+.revenue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--gap-xl);
+}
+
+.revenue-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.revenue-toggles {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+
+.revenue-toggle {
+  font-size: 10.5px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.revenue-toggle.active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.chart-area {
+  position: relative;
+  height: 220px;
+  margin-bottom: var(--gap-md);
+}
+
+.chart-view {
+  width: 100%;
+  height: 100%;
+  display: none;
+}
+
+.chart-view.active {
+  display: block;
+}
+
+/* SVG Chart */
+.chart-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.chart-grid-line {
+  stroke: var(--border-subtle);
+  stroke-width: 0.5;
+}
+
+.chart-plan-line {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.chart-actual-line {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chart-actual-glow {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 6;
+  stroke-linecap: round;
+  opacity: 0.15;
+  filter: blur(2px);
+}
+
+.chart-gross-area {
+  fill: url(#grossGradient);
+}
+
+.chart-dot {
+  fill: var(--primary);
+  stroke: var(--bg-card);
+  stroke-width: 3;
+}
+
+.chart-label {
+  font-size: 9.5px;
+  fill: var(--text-muted);
+  font-family: 'DM Sans', sans-serif;
+}
+
+.chart-y-label {
+  font-size: 9px;
+  fill: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+  text-anchor: end;
+}
+
+.chart-value-label {
+  font-size: 9.5px;
+  fill: var(--primary-light);
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+
+.revenue-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-xl);
+  padding-top: var(--gap-md);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.legend-line {
+  width: 20px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.legend-line.plan {
+  background: repeating-linear-gradient(90deg, var(--text-muted) 0, var(--text-muted) 4px, transparent 4px, transparent 7px);
+}
+
+.legend-line.actual { background: var(--primary); }
+.legend-line.gross { background: rgba(99, 102, 241, 0.2); height: 8px; border-radius: 2px; }
+
+.revenue-summary {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.revenue-summary strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+/* ═══════════════════════════════════════════════
+   ZONE 6: Tasks & Activity
+   ═══════════════════════════════════════════════ */
+.zone-bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap-lg);
+  animation: fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both;
+}
+
+/* Tasks */
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-md);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  transition: background 0.15s;
+  cursor: pointer;
+}
+
+.task-item:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+.task-priority {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.task-priority.high { background: var(--red); box-shadow: 0 0 6px rgba(239,68,68,0.3); }
+.task-priority.medium { background: var(--amber); box-shadow: 0 0 6px rgba(245,158,11,0.3); }
+.task-priority.low { background: var(--green); box-shadow: 0 0 6px rgba(34,197,94,0.3); }
+
+.task-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-company {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-desc {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+}
+
+.task-due {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.task-due.overdue { color: var(--red); font-weight: 500; }
+.task-due.today { color: var(--amber); font-weight: 500; }
+
+.task-action {
+  font-size: 10px;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.task-action:hover {
+  border-color: var(--primary);
+  color: var(--primary-light);
+  background: var(--primary-glow);
+}
+
+.task-action.complete {
+  border-color: var(--green-border);
+  color: var(--green);
+}
+
+.task-action.complete:hover {
+  background: var(--green-bg);
+}
+
+.add-task {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all 0.15s;
+  border: 1px dashed var(--border-subtle);
+  margin-top: 4px;
+}
+
+.add-task:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-default);
+  background: rgba(255,255,255,0.02);
+}
+
+/* Activity feed */
+.activity-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-item {
+  display: flex;
+  gap: var(--gap-md);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+.activity-item:last-child { border-bottom: none; }
+
+.activity-time {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  min-width: 42px;
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+
+.activity-dot-line {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 16px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.activity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  margin-top: 5px;
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.activity-line {
+  width: 1px;
+  flex: 1;
+  background: var(--border-subtle);
+  margin-top: 4px;
+}
+
+.activity-item:last-child .activity-line { display: none; }
+
+.activity-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.activity-text .person {
+  color: var(--primary-light);
+  font-weight: 500;
+}
+
+.activity-text .target {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.activity-text .action-type {
+  color: var(--text-tertiary);
+}
+
+/* ═══════════════════════════════════════════════
+   Utility
+   ═══════════════════════════════════════════════ */
+.section-gap { margin-bottom: var(--gap-2xl); }
+
+/* Animated pulse for live dots */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.live-dot {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Responsive hint */
+@media (max-width: 1100px) {
+  .zone-kgi { grid-template-columns: repeat(2, 1fr); }
+  .zone-funnel-grid { grid-template-columns: 1fr; }
+  .zone-bottom-grid { grid-template-columns: 1fr; }
+  .dept-kpis { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ═══════════ SIDEBAR ═══════════ -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark">S</div>
+      <div class="logo-text">STELLA OS</div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">
+        <div class="nav-item active">
+          <span class="icon">🏠</span> ホーム
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">リード & 商談</div>
+        <div class="nav-item"><span class="icon">📥</span> リード管理 <span class="nav-badge amber num">5</span></div>
+        <div class="nav-item"><span class="icon">💼</span> 商談パイプライン <span class="nav-badge red num">3</span></div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">契約 & 運用</div>
+        <div class="nav-item"><span class="icon">📝</span> 契約管理</div>
+        <div class="nav-item"><span class="icon">⚙️</span> 運用プロジェクト</div>
+        <div class="nav-item"><span class="icon">📊</span> 運用KPI</div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">CS & 成長</div>
+        <div class="nav-item"><span class="icon">🤝</span> カスタマーサクセス</div>
+        <div class="nav-item"><span class="icon">📈</span> KPI目標管理</div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">管理</div>
+        <div class="nav-item"><span class="icon">💰</span> 売上・請求 <span class="nav-badge red num">1</span></div>
+        <div class="nav-item"><span class="icon">🏢</span> 代理店管理</div>
+        <div class="nav-item"><span class="icon">👥</span> スタッフ</div>
+        <div class="nav-item"><span class="icon">⚙️</span> 設定</div>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- ═══════════ MAIN ═══════════ -->
+  <main class="main">
+    <!-- Top Bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="topbar-breadcrumb">
+          <span>ホーム</span> / ダッシュボード
+        </div>
+        <div class="month-selector">
+          <span>📅</span> 2026年3月
+          <span class="arrow">▾</span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="greeting" id="greeting"></div>
+        <div class="avatar">青</div>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <div class="content">
+
+      <!-- [v2] Data Freshness -->
+      <div class="data-freshness">
+        <div class="freshness-left">
+          <div class="freshness-dot"></div>
+          <span>リアルタイム更新</span>
+          <span class="num" style="color:var(--text-tertiary)">最終更新: 10:28</span>
+        </div>
+        <div class="freshness-right">
+          データソース: Stella CRM・freee・CloudSign
+        </div>
+      </div>
+
+      <!-- ZONE 1: Alerts [v2 — split] -->
+      <!-- Critical Alerts -->
+      <div class="zone-alerts-critical">
+        <div class="alerts-header">
+          <div class="alerts-title critical">🚨 <span class="num">2</span>件の緊急対応</div>
+          <div class="alerts-link">すべて見る →</div>
+        </div>
+        <div class="alert-items">
+          <div class="alert-item">
+            <div class="alert-badge critical live-dot"></div>
+            <span class="alert-a11y critical">緊急</span>
+            <div class="alert-type">未入金</div>
+            <div class="alert-company">ABC工業</div>
+            <div class="alert-detail">支払期限+<span class="num">5</span>日超過</div>
+            <div class="alert-action">対応する →</div>
+          </div>
+          <div class="alert-item">
+            <div class="alert-badge critical live-dot"></div>
+            <span class="alert-a11y critical">緊急</span>
+            <div class="alert-type">応募0件</div>
+            <div class="alert-company">DEF建設</div>
+            <div class="alert-detail"><span class="num">3</span>日連続ゼロ</div>
+            <div class="alert-action">確認する →</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Warning Alerts [v2 — collapsible] -->
+      <div class="zone-alerts-warning" id="warningAlerts">
+        <div class="alerts-header">
+          <div class="alerts-title warning">⚠ <span class="num">1</span>件の注意事項</div>
+          <div class="collapse-toggle" id="collapseToggle">
+            <span class="collapse-icon">▾</span>
+            <span id="collapseText">折りたたむ</span>
+          </div>
+        </div>
+        <div class="alert-items">
+          <div class="alert-item">
+            <div class="alert-badge warning"></div>
+            <span class="alert-a11y warning">注意</span>
+            <div class="alert-type">契約書</div>
+            <div class="alert-company">GHI商事</div>
+            <div class="alert-detail">送付後<span class="num">2</span>日 未締結</div>
+            <div class="alert-action">確認する →</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ZONE 2: KGI Cards [v2 — period labels & forecasts] -->
+      <div class="zone-kgi">
+        <!-- Revenue -->
+        <div class="kgi-card status-red">
+          <div class="kgi-label">
+            月次売上 <span class="kgi-period-label">2月確定</span>
+            <div class="kgi-status">
+              <div class="kgi-status-dot red live-dot"></div>
+              <span class="kgi-status-text red">未達</span>
+            </div>
+          </div>
+          <div class="kgi-value num">¥130<small style="font-size:14px;font-weight:500;color:var(--text-tertiary)">万</small></div>
+          <div class="kgi-target">目標 <span class="num">¥848万</span></div>
+          <div class="kgi-forecast">着地予測: <span class="forecast-val num">¥260万</span>（現ペース推計）</div>
+          <div class="kgi-progress">
+            <div class="kgi-progress-bar red" style="width: 15.3%"></div>
+          </div>
+          <div class="kgi-meta">
+            <span class="kgi-percent red num">15.3%</span>
+            <span class="kgi-prev">前月 <span class="num">¥120万</span></span>
+          </div>
+          <svg class="sparkline" width="64" height="28" viewBox="0 0 64 28">
+            <polyline points="0,24 16,22 32,20 48,14 64,12" fill="none" stroke="var(--red)" stroke-width="1.5" opacity="0.5"/>
+          </svg>
+          <span class="drill-down">詳細を見る →</span>
+        </div>
+        <!-- Gross Profit -->
+        <div class="kgi-card status-red">
+          <div class="kgi-label">
+            月次粗利 <span class="kgi-period-label">2月確定</span>
+            <div class="kgi-status">
+              <div class="kgi-status-dot red live-dot"></div>
+              <span class="kgi-status-text red">赤字</span>
+            </div>
+          </div>
+          <div class="kgi-value num negative">▲300.5<small style="font-size:14px;font-weight:500">万</small></div>
+          <div class="kgi-target">目標 <span class="num">¥740万</span></div>
+          <div class="kgi-forecast">BEPまで: <span class="forecast-val num">¥300万</span></div>
+          <div class="kgi-progress">
+            <div class="kgi-progress-bar red" style="width: 0%"></div>
+          </div>
+          <div class="kgi-meta">
+            <span class="kgi-percent red">赤字</span>
+            <span class="kgi-prev">原価+販管 <span class="num">¥333万</span></span>
+          </div>
+          <span class="drill-down">詳細を見る →</span>
+        </div>
+        <!-- Customer Count -->
+        <div class="kgi-card status-green">
+          <div class="kgi-label">
+            累計顧客数 <span class="kgi-period-label">3月速報</span>
+            <div class="kgi-status">
+              <div class="kgi-status-dot green"></div>
+              <span class="kgi-status-text green">好調</span>
+            </div>
+          </div>
+          <div class="kgi-value num">13<small style="font-size:14px;font-weight:500;color:var(--text-tertiary)">社</small></div>
+          <div class="kgi-target">前月 <span class="num">6社</span></div>
+          <div class="kgi-forecast">3月末見込: <span class="forecast-val num" style="color:var(--green)">75社</span>（計画ベース）</div>
+          <div class="kgi-progress">
+            <div class="kgi-progress-bar green" style="width: 100%"></div>
+          </div>
+          <div class="kgi-meta">
+            <span class="kgi-percent green num">+117%</span>
+            <span class="kgi-prev">前月比</span>
+          </div>
+          <svg class="sparkline" width="64" height="28" viewBox="0 0 64 28">
+            <polyline points="0,26 16,22 32,16 48,10 64,4" fill="none" stroke="var(--green)" stroke-width="1.5" opacity="0.5"/>
+          </svg>
+          <span class="drill-down">詳細を見る →</span>
+        </div>
+        <!-- New Contracts -->
+        <div class="kgi-card status-green">
+          <div class="kgi-label">
+            新規契約 <span class="kgi-period-label">2月確定</span>
+            <div class="kgi-status">
+              <div class="kgi-status-dot green"></div>
+              <span class="kgi-status-text green">達成</span>
+            </div>
+          </div>
+          <div class="kgi-value num">4<small style="font-size:14px;font-weight:500;color:var(--text-tertiary)">社</small></div>
+          <div class="kgi-target">目標 <span class="num">2社</span></div>
+          <div class="kgi-forecast">3月目標: <span class="forecast-val num">72社</span>（36倍）</div>
+          <div class="kgi-progress">
+            <div class="kgi-progress-bar green" style="width: 100%"></div>
+          </div>
+          <div class="kgi-meta">
+            <span class="kgi-percent green num">200%</span>
+            <span class="kgi-prev">目標超過達成</span>
+          </div>
+          <span class="drill-down">詳細を見る →</span>
+        </div>
+      </div>
+
+      <!-- ZONE 3: Department KPIs [v2 — all 6 panels, JS tab switch] -->
+      <div class="zone-dept">
+        <div class="dept-tabs" id="deptTabs">
+          <div class="dept-tab" data-tab="kgi">KGI</div>
+          <div class="dept-tab active" data-tab="alliance">Alliance</div>
+          <div class="dept-tab" data-tab="sales">Sales</div>
+          <div class="dept-tab" data-tab="bo">バックオフィス</div>
+          <div class="dept-tab" data-tab="ops">Ops</div>
+          <div class="dept-tab" data-tab="cs">CS</div>
+        </div>
+
+        <!-- KGI Panel -->
+        <div class="dept-panel" data-panel="kgi">
+          <div class="dept-header">
+            <div class="dept-title">KGI（全社指標）<span class="head">（代表）</span></div>
+            <div class="dept-period num">2026年3月</div>
+          </div>
+          <div class="dept-kpis">
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">月次売上</div>
+              <div class="dept-kpi-value num">¥130<small style="font-size:13px;font-weight:400;color:var(--text-tertiary)">万</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">¥848万</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge red">15.3% <span class="a11y-label">未達</span></span>
+                <div class="dept-kpi-progress"><div class="dept-kpi-progress-bar" style="width:15.3%;background:var(--red)"></div></div>
+              </div>
+              <span class="drill-down">詳細を見る →</span>
+            </div>
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">月次粗利</div>
+              <div class="dept-kpi-value num" style="color:var(--red)">▲300.5<small style="font-size:13px;font-weight:400">万</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">¥740万</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge red">赤字 <span class="a11y-label">危険</span></span>
+                <div class="dept-kpi-progress"><div class="dept-kpi-progress-bar" style="width:0%;background:var(--red)"></div></div>
+              </div>
+              <span class="drill-down">詳細を見る →</span>
+            </div>
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">採用目標達成率</div>
+              <div class="dept-kpi-value num unknown">—<small style="font-size:13px;font-weight:400"> %</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">90%</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge gray">未計測 <span class="a11y-label">未入力</span></span>
+              </div>
+              <span class="drill-down">データを入力する →</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alliance Panel (default active) -->
+        <div class="dept-panel active" data-panel="alliance">
+          <div class="dept-header">
+            <div class="dept-title">Alliance部<span class="head">（宮原）</span></div>
+            <div class="dept-period num">2026年3月</div>
+          </div>
+          <div class="dept-kpis">
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">有効リード</div>
+              <div class="dept-kpi-value num unknown">—<small style="font-size:13px;font-weight:400"> 件</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">5件</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge red">未達 <span class="a11y-label">要改善</span></span>
+                <div class="dept-kpi-progress"><div class="dept-kpi-progress-bar" style="width:0%;background:var(--red)"></div></div>
+              </div>
+              <span class="drill-down">データを入力する →</span>
+            </div>
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">商談数</div>
+              <div class="dept-kpi-value num">43<small style="font-size:13px;font-weight:400;color:var(--text-tertiary)"> 件</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">4件</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge green">1075% <span class="a11y-label">達成</span></span>
+                <div class="dept-kpi-progress"><div class="dept-kpi-progress-bar" style="width:100%;background:var(--green)"></div></div>
+              </div>
+              <span class="drill-down">詳細を見る →</span>
+            </div>
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">SQL化率</div>
+              <div class="dept-kpi-value num unknown">—<small style="font-size:13px;font-weight:400"> %</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">80%</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge gray">未計測 <span class="a11y-label">未入力</span></span>
+              </div>
+              <span class="drill-down">データを入力する →</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sales Panel -->
+        <div class="dept-panel" data-panel="sales">
+          <div class="dept-header">
+            <div class="dept-title">Sales部<span class="head">（青山）</span></div>
+            <div class="dept-period num">2026年3月</div>
+          </div>
+          <div class="dept-kpis">
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">成約率</div>
+              <div class="dept-kpi-value num unknown">—<small style="font-size:13px;font-weight:400"> %</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">60%</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge gray">未計測 <span class="a11y-label">未入力</span></span>
+              </div>
+              <span class="drill-down">データを入力する →</span>
+            </div>
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">新規契約数</div>
+              <div class="dept-kpi-value num">4<small style="font-size:13px;font-weight:400;color:var(--text-tertiary)"> 社</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">2社</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge green">200% <span class="a11y-label">達成</span></span>
+                <div class="dept-kpi-progress"><div class="dept-kpi-progress-bar" style="width:100%;background:var(--green)"></div></div>
+              </div>
+              <span class="drill-down">詳細を見る →</span>
+            </div>
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">商談→契約LT</div>
+              <div class="dept-kpi-value num unknown">—<small style="font-size:13px;font-weight:400"> 日</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">14日</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge gray">未計測 <span class="a11y-label">未入力</span></span>
+              </div>
+              <span class="drill-down">データを入力する →</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- バックオフィス Panel -->
+        <div class="dept-panel" data-panel="bo">
+          <div class="dept-header">
+            <div class="dept-title">バックオフィス部<span class="head">（吉川）</span></div>
+            <div class="dept-period num">2026年3月</div>
+          </div>
+          <div class="dept-kpis">
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">運用開始LT</div>
+              <div class="dept-kpi-value num unknown">—<small style="font-size:13px;font-weight:400"> 営業日</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">5営業日</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge gray">未計測 <span class="a11y-label">未入力</span></span>
+              </div>
+              <span class="drill-down">データを入力する →</span>
+            </div>
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">回収遅延率</div>
+              <div class="dept-kpi-value num unknown">—<small style="font-size:13px;font-weight:400"> %</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">3%以下</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge gray">未計測 <span class="a11y-label">未入力</span></span>
+              </div>
+              <span class="drill-down">データを入力する →</span>
+            </div>
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">着金LT (L2C)</div>
+              <div class="dept-kpi-value num unknown">—<small style="font-size:13px;font-weight:400"> 日</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">45日</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge gray">未計測 <span class="a11y-label">未入力</span></span>
+              </div>
+              <span class="drill-down">データを入力する →</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ops Panel -->
+        <div class="dept-panel" data-panel="ops">
+          <div class="dept-header">
+            <div class="dept-title">Ops部（運用）<span class="head">（東田）</span></div>
+            <div class="dept-period num">2026年3月</div>
+          </div>
+          <div class="dept-kpis">
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">採用目標達成率</div>
+              <div class="dept-kpi-value num unknown">—<small style="font-size:13px;font-weight:400"> %</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">90%</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge gray">未計測 <span class="a11y-label">未入力</span></span>
+              </div>
+              <span class="drill-down">データを入力する →</span>
+            </div>
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">CPA</div>
+              <div class="dept-kpi-value num unknown">—<small style="font-size:13px;font-weight:400"> 円</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">¥8,000</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge gray">未計測 <span class="a11y-label">未入力</span></span>
+              </div>
+              <span class="drill-down">データを入力する →</span>
+            </div>
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">応募数</div>
+              <div class="dept-kpi-value num unknown">—<small style="font-size:13px;font-weight:400"> 件/社</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">12.5件/社</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge gray">未計測 <span class="a11y-label">未入力</span></span>
+              </div>
+              <span class="drill-down">データを入力する →</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- CS Panel -->
+        <div class="dept-panel" data-panel="cs">
+          <div class="dept-header">
+            <div class="dept-title">CS部<span class="head">（青山 兼務）</span></div>
+            <div class="dept-period num">2026年3月</div>
+          </div>
+          <div class="dept-kpis">
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">離反解約率</div>
+              <div class="dept-kpi-value num unknown">—<small style="font-size:13px;font-weight:400"> %</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">2%以下</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge gray">未計測 <span class="a11y-label">未入力</span></span>
+              </div>
+              <span class="drill-down">データを入力する →</span>
+            </div>
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">クロスセル数</div>
+              <div class="dept-kpi-value num unknown">—<small style="font-size:13px;font-weight:400"> 件</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">2件</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge gray">未計測 <span class="a11y-label">未入力</span></span>
+              </div>
+              <span class="drill-down">データを入力する →</span>
+            </div>
+            <div class="dept-kpi-card">
+              <div class="dept-kpi-label">リファラル数</div>
+              <div class="dept-kpi-value num unknown">—<small style="font-size:13px;font-weight:400"> 件</small></div>
+              <div class="dept-kpi-target">目標 <span class="num">1件</span></div>
+              <div class="dept-kpi-footer">
+                <span class="dept-kpi-badge gray">未計測 <span class="a11y-label">未入力</span></span>
+              </div>
+              <span class="drill-down">データを入力する →</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ZONE 4: Funnel & Lead Source [v2 — bottleneck highlight] -->
+      <div class="zone-funnel-grid">
+        <!-- Funnel -->
+        <div class="panel">
+          <div class="panel-title">🔻 セールスファネル</div>
+          <div class="funnel-stages">
+            <div class="funnel-stage">
+              <div class="funnel-label">リード</div>
+              <div class="funnel-bar-wrap">
+                <div class="funnel-bar stage-0 num" style="width:100%">—</div>
+              </div>
+              <div class="funnel-count num" style="color:var(--text-muted)">?件</div>
+            </div>
+            <div class="funnel-conversion">
+              <span class="conv-arrow">↓</span> 転換率 —%
+            </div>
+            <div class="funnel-stage">
+              <div class="funnel-label">商談</div>
+              <div class="funnel-bar-wrap">
+                <div class="funnel-bar stage-1 num" style="width:75%">43</div>
+              </div>
+              <div class="funnel-count num">43件</div>
+            </div>
+            <!-- [v2] Bottleneck highlighted -->
+            <div class="funnel-conversion bottleneck">
+              <span class="conv-arrow">↓</span> 転換率 9.3%
+              <span class="bottleneck-label">ボトルネック</span>
+            </div>
+            <div class="funnel-stage">
+              <div class="funnel-label">契約</div>
+              <div class="funnel-bar-wrap">
+                <div class="funnel-bar stage-2 num" style="width:20%">4</div>
+              </div>
+              <div class="funnel-count num">4件</div>
+            </div>
+            <div class="funnel-conversion">
+              <span class="conv-arrow">↓</span> 転換率 —%
+            </div>
+            <div class="funnel-stage">
+              <div class="funnel-label">運用開始</div>
+              <div class="funnel-bar-wrap">
+                <div class="funnel-bar stage-3 num" style="width:12%">—</div>
+              </div>
+              <div class="funnel-count num" style="color:var(--text-muted)">?件</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Lead Sources + Agency ROI [v3] -->
+        <div class="panel">
+          <div class="panel-title">📊 リード獲得 予実管理 & 代理店ROI</div>
+
+          <!-- リード獲得サマリー -->
+          <div class="lead-summary">
+            <div class="lead-summary-card">
+              <div class="lead-summary-label">月間リード目標</div>
+              <div class="lead-summary-value num">5<small>件</small></div>
+            </div>
+            <div class="lead-summary-card">
+              <div class="lead-summary-label">実績（累計）</div>
+              <div class="lead-summary-value num">6<small>件</small></div>
+            </div>
+            <div class="lead-summary-card highlight">
+              <div class="lead-summary-label">達成率</div>
+              <div class="lead-summary-value num" style="color:var(--green)">120%</div>
+            </div>
+          </div>
+
+          <!-- ソース別内訳 -->
+          <div class="lead-sources">
+            <!-- 代理店A -->
+            <div class="lead-source">
+              <div class="lead-source-header">
+                <div class="lead-source-name">代理店A（パートナーX）</div>
+                <div class="lead-source-count"><span class="actual num">2件</span> / 見込 <span class="num">3件</span></div>
+              </div>
+              <div class="lead-source-bar-wrap">
+                <div class="lead-source-forecast" style="width:100%"></div>
+                <div class="lead-source-actual on-track" style="width:66.6%"></div>
+              </div>
+              <div class="lead-source-roi">
+                <span class="roi-item">紹介料: <span class="num">¥60万</span></span>
+                <span class="roi-divider">|</span>
+                <span class="roi-item">契約売上: <span class="num">¥28万</span></span>
+                <span class="roi-divider">|</span>
+                <span class="roi-item roi-value">ROI: <span class="num roi-negative">-53%</span></span>
+              </div>
+            </div>
+            <!-- 代理店B -->
+            <div class="lead-source">
+              <div class="lead-source-header">
+                <div class="lead-source-name">代理店B（パートナーY） <span class="lead-source-badge over">超過達成</span></div>
+                <div class="lead-source-count"><span class="actual num">3件</span> / 見込 <span class="num">2件</span></div>
+              </div>
+              <div class="lead-source-bar-wrap">
+                <div class="lead-source-forecast" style="width:66.6%"></div>
+                <div class="lead-source-actual over" style="width:100%"></div>
+              </div>
+              <div class="lead-source-roi">
+                <span class="roi-item">紹介料: <span class="num">¥45万</span></span>
+                <span class="roi-divider">|</span>
+                <span class="roi-item">契約売上: <span class="num">¥42万</span></span>
+                <span class="roi-divider">|</span>
+                <span class="roi-item roi-value">ROI: <span class="num roi-negative">-7%</span></span>
+              </div>
+            </div>
+            <!-- 自社HP -->
+            <div class="lead-source">
+              <div class="lead-source-header">
+                <div class="lead-source-name">自社HP <span class="lead-source-badge under">未達</span></div>
+                <div class="lead-source-count"><span class="actual num">0件</span> / 見込 <span class="num">1件</span></div>
+              </div>
+              <div class="lead-source-bar-wrap">
+                <div class="lead-source-forecast" style="width:33.3%"></div>
+                <div class="lead-source-actual under" style="width:0%"></div>
+              </div>
+              <div class="lead-source-roi">
+                <span class="roi-item">広告費: <span class="num">¥0</span></span>
+                <span class="roi-divider">|</span>
+                <span class="roi-item">契約売上: <span class="num">¥0</span></span>
+                <span class="roi-divider">|</span>
+                <span class="roi-item roi-value" style="color:var(--text-muted)">ROI: <span class="num">—</span></span>
+              </div>
+            </div>
+            <!-- セミナー -->
+            <div class="lead-source">
+              <div class="lead-source-header">
+                <div class="lead-source-name">セミナー</div>
+                <div class="lead-source-count"><span class="actual num">1件</span> / 見込 <span class="num">2件</span></div>
+              </div>
+              <div class="lead-source-bar-wrap">
+                <div class="lead-source-forecast" style="width:66.6%"></div>
+                <div class="lead-source-actual on-track" style="width:33.3%"></div>
+              </div>
+              <div class="lead-source-roi">
+                <span class="roi-item">開催費: <span class="num">¥8万</span></span>
+                <span class="roi-divider">|</span>
+                <span class="roi-item">契約売上: <span class="num">¥14万</span></span>
+                <span class="roi-divider">|</span>
+                <span class="roi-item roi-value">ROI: <span class="num roi-positive">+75%</span></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 代理店ROI注記 -->
+          <div class="roi-note">
+            ※ ROI = (契約売上 - 獲得コスト) / 獲得コスト × 100。初月売上のみで算出。LTV考慮時は代理店経由が有利になる見込み。
+          </div>
+        </div>
+      </div>
+
+      <!-- ZONE 5: Revenue Chart [v2 — zoom toggle] -->
+      <div class="zone-revenue">
+        <div class="revenue-header">
+          <div class="revenue-title">📈 月次売上推移（計画 vs 実績）</div>
+          <div class="revenue-toggles" id="chartToggles">
+            <div class="revenue-toggle" data-view="q1">Q1拡大</div>
+            <div class="revenue-toggle active" data-view="full">年間</div>
+          </div>
+        </div>
+        <div class="chart-area">
+          <!-- Full Year Chart -->
+          <div class="chart-view active" id="chartFull">
+            <svg class="chart-svg" viewBox="0 0 800 200" preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <linearGradient id="grossGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="rgba(99, 102, 241, 0.15)"/>
+                  <stop offset="100%" stop-color="rgba(99, 102, 241, 0)"/>
+                </linearGradient>
+              </defs>
+              <!-- Grid -->
+              <line class="chart-grid-line" x1="60" y1="20" x2="780" y2="20"/>
+              <line class="chart-grid-line" x1="60" y1="60" x2="780" y2="60"/>
+              <line class="chart-grid-line" x1="60" y1="100" x2="780" y2="100"/>
+              <line class="chart-grid-line" x1="60" y1="140" x2="780" y2="140"/>
+              <line class="chart-grid-line" x1="60" y1="175" x2="780" y2="175"/>
+              <!-- Y labels -->
+              <text class="chart-y-label" x="55" y="24">¥9,000万</text>
+              <text class="chart-y-label" x="55" y="64">¥6,750万</text>
+              <text class="chart-y-label" x="55" y="104">¥4,500万</text>
+              <text class="chart-y-label" x="55" y="144">¥2,250万</text>
+              <text class="chart-y-label" x="55" y="178">¥0</text>
+              <!-- X labels -->
+              <text class="chart-label" x="120" y="195" text-anchor="middle">1月</text>
+              <text class="chart-label" x="180" y="195" text-anchor="middle">2月</text>
+              <text class="chart-label" x="240" y="195" text-anchor="middle">3月</text>
+              <text class="chart-label" x="300" y="195" text-anchor="middle">4月</text>
+              <text class="chart-label" x="360" y="195" text-anchor="middle">5月</text>
+              <text class="chart-label" x="420" y="195" text-anchor="middle">6月</text>
+              <text class="chart-label" x="480" y="195" text-anchor="middle">7月</text>
+              <text class="chart-label" x="540" y="195" text-anchor="middle">8月</text>
+              <text class="chart-label" x="600" y="195" text-anchor="middle">9月</text>
+              <text class="chart-label" x="660" y="195" text-anchor="middle">10月</text>
+              <text class="chart-label" x="720" y="195" text-anchor="middle">11月</text>
+              <text class="chart-label" x="780" y="195" text-anchor="middle">12月</text>
+              <!-- Plan line (dashed) — exponential growth -->
+              <polyline class="chart-plan-line"
+                points="120,173 180,172 240,160 300,150 360,138 420,124 480,108 540,90 600,70 660,48 720,28 780,20"/>
+              <!-- Gross profit area -->
+              <polygon class="chart-gross-area"
+                points="120,173 180,172 240,160 300,150 360,138 420,124 480,108 540,90 600,70 660,48 720,28 780,20 780,175 120,175"/>
+              <!-- Actual line (solid) — only Jan & Feb -->
+              <polyline class="chart-actual-glow" points="120,173 180,172"/>
+              <polyline class="chart-actual-line" points="120,173 180,172"/>
+              <!-- Actual dots -->
+              <circle class="chart-dot" cx="120" cy="173" r="4.5"/>
+              <circle class="chart-dot" cx="180" cy="172" r="4.5"/>
+              <!-- Value labels -->
+              <text class="chart-value-label" x="120" y="166">¥107万</text>
+              <text class="chart-value-label" x="180" y="165">¥130万</text>
+              <!-- Dec target label -->
+              <text class="chart-value-label" x="780" y="15" style="fill:var(--text-muted);font-weight:400">¥9,034万</text>
+            </svg>
+          </div>
+          <!-- Q1 Zoom Chart -->
+          <div class="chart-view" id="chartQ1">
+            <svg class="chart-svg" viewBox="0 0 800 200" preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <linearGradient id="grossGradientQ1" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="rgba(99, 102, 241, 0.15)"/>
+                  <stop offset="100%" stop-color="rgba(99, 102, 241, 0)"/>
+                </linearGradient>
+              </defs>
+              <!-- Grid -->
+              <line class="chart-grid-line" x1="60" y1="20" x2="780" y2="20"/>
+              <line class="chart-grid-line" x1="60" y1="60" x2="780" y2="60"/>
+              <line class="chart-grid-line" x1="60" y1="100" x2="780" y2="100"/>
+              <line class="chart-grid-line" x1="60" y1="140" x2="780" y2="140"/>
+              <line class="chart-grid-line" x1="60" y1="175" x2="780" y2="175"/>
+              <!-- Y labels (Q1 scale: 0 to 2500万) -->
+              <text class="chart-y-label" x="55" y="24">¥2,500万</text>
+              <text class="chart-y-label" x="55" y="64">¥1,875万</text>
+              <text class="chart-y-label" x="55" y="104">¥1,250万</text>
+              <text class="chart-y-label" x="55" y="144">¥625万</text>
+              <text class="chart-y-label" x="55" y="178">¥0</text>
+              <!-- X labels — 3 months with weeks -->
+              <text class="chart-label" x="180" y="195" text-anchor="middle">1月</text>
+              <text class="chart-label" x="420" y="195" text-anchor="middle">2月</text>
+              <text class="chart-label" x="660" y="195" text-anchor="middle">3月</text>
+              <!-- Plan line (Q1 zoomed: Jan 107, Feb 300, Mar 2502) -->
+              <polyline class="chart-plan-line"
+                points="180,168 420,156 660,20"/>
+              <!-- Gross profit area Q1 -->
+              <polygon class="chart-gross-area" style="fill:url(#grossGradientQ1)"
+                points="180,168 420,156 660,20 660,175 180,175"/>
+              <!-- Actual line — Jan & Feb -->
+              <polyline class="chart-actual-glow" points="180,168 420,167"/>
+              <polyline class="chart-actual-line" points="180,168 420,167"/>
+              <!-- Actual dots -->
+              <circle class="chart-dot" cx="180" cy="168" r="5.5"/>
+              <circle class="chart-dot" cx="420" cy="167" r="5.5"/>
+              <!-- Value labels (bigger in Q1 view) -->
+              <text class="chart-value-label" x="180" y="160" style="font-size:12px">¥107万</text>
+              <text class="chart-value-label" x="420" y="159" style="font-size:12px">¥130万</text>
+              <!-- March target -->
+              <text class="chart-value-label" x="660" y="15" style="font-size:11px;fill:var(--amber)">目標 ¥2,502万</text>
+              <!-- Gap annotation -->
+              <line x1="420" y1="156" x2="420" y2="167" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="3 2"/>
+              <text x="435" y="162" style="font-size:10px;fill:var(--red);font-family:'JetBrains Mono',monospace">GAP ¥170万</text>
+            </svg>
+          </div>
+        </div>
+        <div class="revenue-legend">
+          <div class="legend-item">
+            <div class="legend-line plan"></div> 計画
+          </div>
+          <div class="legend-item">
+            <div class="legend-line actual"></div> 実績
+          </div>
+          <div class="legend-item">
+            <div class="legend-line gross"></div> 粗利エリア
+          </div>
+          <div class="revenue-summary">
+            年間目標: <strong class="num">¥5.08億</strong> / 年間累計: <strong class="num">¥250万</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- ZONE 6: Tasks & Activity -->
+      <div class="zone-bottom-grid">
+        <!-- Tasks -->
+        <div class="panel">
+          <div class="panel-title">📋 あなたのタスク (<span class="num">5</span>件)</div>
+          <div class="task-list">
+            <div class="task-item">
+              <div class="task-priority high"></div>
+              <div class="task-info">
+                <div class="task-company">ABC工業</div>
+                <div class="task-desc">フォローアップ連絡</div>
+              </div>
+              <div class="task-due today num">今日</div>
+              <div class="task-action complete">✓ 完了</div>
+            </div>
+            <div class="task-item">
+              <div class="task-priority medium"></div>
+              <div class="task-info">
+                <div class="task-company">DEF建設</div>
+                <div class="task-desc">契約書送付</div>
+              </div>
+              <div class="task-due num">明日</div>
+              <div class="task-action">→ 対応</div>
+            </div>
+            <div class="task-item">
+              <div class="task-priority low"></div>
+              <div class="task-info">
+                <div class="task-company">GHI商事</div>
+                <div class="task-desc">月次定例準備</div>
+              </div>
+              <div class="task-due num">3/5</div>
+              <div class="task-action">→ 詳細</div>
+            </div>
+            <div class="task-item">
+              <div class="task-priority medium"></div>
+              <div class="task-info">
+                <div class="task-company">JKL工業</div>
+                <div class="task-desc">初回ヒアリング設定</div>
+              </div>
+              <div class="task-due num">3/4</div>
+              <div class="task-action">→ 対応</div>
+            </div>
+            <div class="task-item">
+              <div class="task-priority low"></div>
+              <div class="task-info">
+                <div class="task-company">MNO商事</div>
+                <div class="task-desc">運用KPI月次レポート</div>
+              </div>
+              <div class="task-due num">3/7</div>
+              <div class="task-action">→ 詳細</div>
+            </div>
+          </div>
+          <div class="add-task">+ タスクを追加</div>
+        </div>
+
+        <!-- Activity Feed -->
+        <div class="panel">
+          <div class="panel-title">🕐 最近の動き</div>
+          <div class="activity-list">
+            <div class="activity-item">
+              <div class="activity-time num">10:30</div>
+              <div class="activity-dot-line">
+                <div class="activity-dot" style="background:var(--primary)"></div>
+                <div class="activity-line"></div>
+              </div>
+              <div class="activity-text">
+                <span class="person">宮原</span>が<span class="target">DEF建設</span>を<span class="action-type">商談に変更</span>
+              </div>
+            </div>
+            <div class="activity-item">
+              <div class="activity-time num">09:15</div>
+              <div class="activity-dot-line">
+                <div class="activity-dot"></div>
+                <div class="activity-line"></div>
+              </div>
+              <div class="activity-text">
+                <span class="person">東田</span>が<span class="target">GHI商事</span>の<span class="action-type">週次KPI更新</span>
+              </div>
+            </div>
+            <div class="activity-item">
+              <div class="activity-time">昨日</div>
+              <div class="activity-dot-line">
+                <div class="activity-dot"></div>
+                <div class="activity-line"></div>
+              </div>
+              <div class="activity-text">
+                <span class="person">吉川</span>が<span class="target">JKL工業</span>の<span class="action-type">請求書発行</span>
+              </div>
+            </div>
+            <div class="activity-item">
+              <div class="activity-time">昨日</div>
+              <div class="activity-dot-line">
+                <div class="activity-dot"></div>
+              </div>
+              <div class="activity-text">
+                <span class="person">青山</span>が<span class="target">MNO商事</span>を<span class="action-type">受注に変更</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════
+   STELLA OS — Interactive Logic (XSS-safe, no innerHTML)
+   ═══════════════════════════════════════════════ */
+
+// [v2] Time-aware greeting
+(function initGreeting() {
+  var greetingEl = document.getElementById('greeting');
+  if (!greetingEl) return;
+  var hour = new Date().getHours();
+  var timeIcon, timeText;
+  if (hour >= 5 && hour < 12) {
+    timeIcon = '\u2600'; // ☀
+    timeText = 'おはようございます';
+  } else if (hour >= 12 && hour < 18) {
+    timeIcon = '\u2600\uFE0F'; // ☀️
+    timeText = 'こんにちは';
+  } else {
+    timeIcon = '\uD83C\uDF19'; // 🌙
+    timeText = 'お疲れさまです';
+  }
+  greetingEl.textContent = '';
+  var iconSpan = document.createElement('span');
+  iconSpan.textContent = timeIcon + ' ';
+  greetingEl.appendChild(iconSpan);
+  var textNode = document.createTextNode(timeText + '\u3001');
+  greetingEl.appendChild(textNode);
+  var nameSpan = document.createElement('span');
+  nameSpan.className = 'name';
+  nameSpan.textContent = '\u9752\u5C71\u3055\u3093'; // 青山さん
+  greetingEl.appendChild(nameSpan);
+})();
+
+// [v2] Collapsible warning alerts
+(function initCollapse() {
+  var toggle = document.getElementById('collapseToggle');
+  var wrapper = document.getElementById('warningAlerts');
+  var label = document.getElementById('collapseText');
+  if (!toggle || !wrapper) return;
+  toggle.addEventListener('click', function() {
+    wrapper.classList.toggle('collapsed');
+    if (wrapper.classList.contains('collapsed')) {
+      label.textContent = '\u5C55\u958B\u3059\u308B'; // 展開する
+    } else {
+      label.textContent = '\u6298\u308A\u305F\u305F\u3080'; // 折りたたむ
+    }
+  });
+})();
+
+// [v2] Department tab switching (no innerHTML — all panels pre-rendered)
+(function initDeptTabs() {
+  var tabContainer = document.getElementById('deptTabs');
+  if (!tabContainer) return;
+  var tabs = tabContainer.querySelectorAll('.dept-tab');
+  var panels = document.querySelectorAll('.dept-panel');
+
+  tabs.forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      var target = this.getAttribute('data-tab');
+      // Deactivate all
+      tabs.forEach(function(t) { t.classList.remove('active'); });
+      panels.forEach(function(p) { p.classList.remove('active'); });
+      // Activate selected
+      this.classList.add('active');
+      var targetPanel = document.querySelector('.dept-panel[data-panel="' + target + '"]');
+      if (targetPanel) targetPanel.classList.add('active');
+    });
+  });
+})();
+
+// [v2] Revenue chart zoom toggle (no innerHTML — both SVGs pre-rendered)
+(function initChartToggle() {
+  var toggleContainer = document.getElementById('chartToggles');
+  if (!toggleContainer) return;
+  var toggles = toggleContainer.querySelectorAll('.revenue-toggle');
+  var chartFull = document.getElementById('chartFull');
+  var chartQ1 = document.getElementById('chartQ1');
+
+  toggles.forEach(function(toggle) {
+    toggle.addEventListener('click', function() {
+      var view = this.getAttribute('data-view');
+      toggles.forEach(function(t) { t.classList.remove('active'); });
+      this.classList.add('active');
+      if (view === 'q1') {
+        chartFull.classList.remove('active');
+        chartQ1.classList.add('active');
+      } else {
+        chartQ1.classList.remove('active');
+        chartFull.classList.add('active');
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>

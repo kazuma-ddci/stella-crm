@@ -1,46 +1,163 @@
 "use client";
 
-import { CrudTable, ColumnDef } from "@/components/crud-table";
-import { addStageHistory, updateStageHistory, deleteStageHistory } from "./actions";
+import { useRef, useEffect, useState } from "react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { X } from "lucide-react";
+import { FilterableTableHead } from "@/components/filterable-table-head";
+import { useColumnFilters } from "@/hooks/use-column-filters";
 
 type Props = {
   data: Record<string, unknown>[];
-  stpCompanyOptions: { value: string; label: string }[];
-  stageOptions: { value: string; label: string }[];
 };
 
-const eventTypeOptions = [
-  { value: "stage_change", label: "パイプライン変更" },
-  { value: "target_set", label: "目標設定" },
-  { value: "target_achieved", label: "目標達成" },
-  { value: "manual", label: "手動登録" },
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  stage_change: "パイプライン変更",
+  target_set: "目標設定",
+  target_achieved: "目標達成",
+  manual: "手動登録",
+};
+
+function formatDateTime(dateString: string): string {
+  const date = new Date(dateString);
+  return date.toLocaleString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDate(dateString: string | undefined | null): string {
+  if (!dateString) return "-";
+  const date = new Date(dateString);
+  return date.toLocaleDateString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+const FILTER_KEYS = [
+  "companyName",
+  "eventTypeLabel",
+  "fromStageName",
+  "toStageName",
+  "changedBy",
 ];
 
-export function StageHistoriesTable({ data, stpCompanyOptions, stageOptions }: Props) {
-  const columns: ColumnDef[] = [
-    { key: "id", header: "ID", editable: false },
-    { key: "stpCompanyId", header: "企業", type: "select", options: stpCompanyOptions, required: true },
-    { key: "companyName", header: "企業名", editable: false },
-    { key: "eventType", header: "イベント種別", type: "select", options: eventTypeOptions, required: true },
-    { key: "fromStageId", header: "変更前パイプライン", type: "select", options: stageOptions },
-    { key: "fromStageName", header: "変更前パイプライン名", editable: false },
-    { key: "toStageId", header: "変更後パイプライン", type: "select", options: stageOptions },
-    { key: "toStageName", header: "変更後パイプライン名", editable: false },
-    { key: "targetDate", header: "目標日", type: "date" },
-    { key: "recordedAt", header: "記録日時", type: "datetime" },
-    { key: "changedBy", header: "変更者", type: "text" },
-    { key: "note", header: "備考", type: "textarea" },
-  ];
+const VALUE_EXTRACTORS: Record<string, (item: Record<string, unknown>) => string> = {
+  companyName: (item) => (item.companyName as string) || "",
+  eventTypeLabel: (item) => EVENT_TYPE_LABELS[item.eventType as string] || (item.eventType as string) || "",
+  fromStageName: (item) => (item.fromStageName as string) || "",
+  toStageName: (item) => (item.toStageName as string) || "",
+  changedBy: (item) => (item.changedBy as string) || "",
+};
+
+const FILTER_LABELS: Record<string, string> = {
+  companyName: "企業名",
+  eventTypeLabel: "イベント種別",
+  fromStageName: "変更前パイプライン",
+  toStageName: "変更後パイプライン",
+  changedBy: "変更者",
+};
+
+export function StageHistoriesTable({ data }: Props) {
+  const {
+    filters,
+    filteredData,
+    getUniqueValues,
+    setFilter,
+    clearAllFilters,
+    activeFilterCount,
+  } = useColumnFilters(data, FILTER_KEYS, VALUE_EXTRACTORS);
+
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const [tableMaxHeight, setTableMaxHeight] = useState<string | undefined>();
+
+  useEffect(() => {
+    const calc = () => {
+      if (tableContainerRef.current) {
+        const top = tableContainerRef.current.getBoundingClientRect().top;
+        const bottomMargin = 24;
+        setTableMaxHeight(`${window.innerHeight - top - bottomMargin}px`);
+      }
+    };
+    calc();
+    window.addEventListener("resize", calc);
+    return () => window.removeEventListener("resize", calc);
+  }, []);
 
   return (
-    <CrudTable
-      data={data}
-      columns={columns}
-      title="商談パイプライン履歴"
-      onAdd={addStageHistory}
-      onUpdate={updateStageHistory}
-      onDelete={deleteStageHistory}
-      emptyMessage="履歴がありません"
-    />
+    <div className="space-y-2">
+      {/* フィルタ状況サマリー */}
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <span>{filteredData.length} / {data.length} 件</span>
+        {activeFilterCount > 0 && (
+          <>
+            <span>（{activeFilterCount}列でフィルタ中）</span>
+            <Button variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={clearAllFilters}>
+              <X className="h-3 w-3 mr-1" />
+              フィルタ解除
+            </Button>
+          </>
+        )}
+      </div>
+
+      {/* テーブル */}
+      <Table containerRef={tableContainerRef} containerClassName="overflow-auto" containerStyle={{ maxHeight: tableMaxHeight }}>
+        <TableHeader>
+          <TableRow>
+            <TableHead>ID</TableHead>
+            {FILTER_KEYS.map((key) => (
+              <FilterableTableHead
+                key={key}
+                label={FILTER_LABELS[key]}
+                filterKey={key}
+                allValues={getUniqueValues(key)}
+                selectedValues={filters[key]}
+                onFilterChange={setFilter}
+              />
+            ))}
+            <TableHead>目標日</TableHead>
+            <TableHead>記録日時</TableHead>
+            <TableHead>備考</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {filteredData.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={9} className="text-center text-muted-foreground">
+                {data.length === 0 ? "履歴がありません" : "フィルタ条件に一致するデータがありません"}
+              </TableCell>
+            </TableRow>
+          ) : (
+            filteredData.map((item) => (
+              <TableRow key={item.id as number}>
+                <TableCell>{item.id as number}</TableCell>
+                <TableCell className="whitespace-nowrap">{(item.companyName as string) || "-"}</TableCell>
+                <TableCell>{EVENT_TYPE_LABELS[item.eventType as string] || (item.eventType as string) || "-"}</TableCell>
+                <TableCell>{(item.fromStageName as string) || "-"}</TableCell>
+                <TableCell>{(item.toStageName as string) || "-"}</TableCell>
+                <TableCell>{(item.changedBy as string) || "-"}</TableCell>
+                <TableCell className="whitespace-nowrap">{formatDate(item.targetDate as string | null)}</TableCell>
+                <TableCell className="whitespace-nowrap">{formatDateTime(item.recordedAt as string)}</TableCell>
+                <TableCell>{(item.note as string) || "-"}</TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+    </div>
   );
 }

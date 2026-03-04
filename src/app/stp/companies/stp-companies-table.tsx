@@ -210,6 +210,8 @@ export function StpCompaniesTable({
     { key: "leadSourceName", header: "流入経路", editable: false },
     // リード獲得日
     { key: "leadAcquiredDate", header: "リード獲得日", type: "date", simpleMode: true },
+    // リード有効性
+    { key: "leadValidity", header: "有効性", type: "select", options: [{ value: "有効", label: "有効" }], inlineEditable: true },
     // 最終接触日
     { key: "latestContactDate", header: "最終接触日", type: "date", editable: false },
     // 現在ステージ（IDは非表示、名前のみ表示）- セルクリックでステージモーダル
@@ -765,6 +767,7 @@ export function StpCompaniesTable({
     // インライン編集対象のカラム（note, pendingReason, lostReasonはTextPreviewCell形式で編集）
     columns: [
       "leadSourceId",      // 流入経路
+      "leadValidity",      // 有効性
       "forecast",          // ヨミ
       "salesStaffId",      // 担当営業
       "adminStaffId",      // 担当事務
@@ -793,6 +796,9 @@ export function StpCompaniesTable({
     getOptions: (row, columnKey) => {
       if (columnKey === "leadSourceId") {
         return leadSourceOptions;
+      }
+      if (columnKey === "leadValidity") {
+        return [{ value: "有効", label: "有効" }];
       }
       if (columnKey === "salesStaffId") {
         return staffOptions;

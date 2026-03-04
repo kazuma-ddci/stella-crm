@@ -42,73 +42,24 @@ function primaryContactId(companyId: number): number {
 }
 
 // ============================================
-// データベースクリア
+// データベースクリア（TRUNCATE CASCADE）
 // ============================================
 
 async function clearDatabase() {
   console.log('Clearing existing data...');
-  // 子テーブルから順に削除
-  await prisma.staffFieldRestriction.deleteMany();
-  // 経理系データ（FK依存順）
-  await prisma.transactionCandidateDecision.deleteMany();
-  await prisma.transaction.deleteMany();
-  await prisma.recurringTransaction.deleteMany();
-  await prisma.counterparty.deleteMany();
-  await prisma.expenseCategory.deleteMany();
-  await prisma.costCenterProjectAssignment.deleteMany();
-  await prisma.costCenter.deleteMany();
-  await prisma.stpKpiShareLink.deleteMany();
-  await prisma.stpKpiWeeklyData.deleteMany();
-  await prisma.stpKpiSheet.deleteMany();
-  await prisma.stpProposal.deleteMany();
-  await prisma.stpLeadFormSubmission.deleteMany();
-  await prisma.stpLeadFormToken.deleteMany();
-  await prisma.shortUrl.deleteMany();
-  await prisma.loginHistory.deleteMany();
-  await prisma.passwordResetToken.deleteMany();
-  await prisma.emailVerificationToken.deleteMany();
-  await prisma.externalUserDisplayPermission.deleteMany();
-  await prisma.externalUser.deleteMany();
-  await prisma.registrationTokenDefaultView.deleteMany();
-  await prisma.registrationToken.deleteMany();
-  await prisma.masterContractStatusHistory.deleteMany();
-  // 自己参照FKをnull化してから削除
-  await prisma.masterContract.updateMany({ data: { parentContractId: null } });
-  await prisma.masterContract.deleteMany();
-  // 財務系テーブル（請求書→経費→売上→報酬例外→代理店契約履歴→求職者）
-  await prisma.stpInvoice.deleteMany();
-  await prisma.stpExpenseRecord.deleteMany();
-  await prisma.stpRevenueRecord.deleteMany();
-  await prisma.stpAgentCommissionOverride.deleteMany();
-  await prisma.stpAgentContractHistory.deleteMany();
-  await prisma.stpCandidate.deleteMany();
-  await prisma.stpContractHistory.deleteMany();
-  await prisma.stpStageHistory.deleteMany();
-  await prisma.contactHistoryFile.deleteMany();
-  await prisma.contactHistoryRole.deleteMany();
-  await prisma.contactHistory.deleteMany();
-  await prisma.contactCategory.deleteMany();
-  await prisma.stpCompanyContract.deleteMany();
-  await prisma.stpCompany.deleteMany();
-  await prisma.stpAgentContract.deleteMany();
-  await prisma.stpAgentStaff.deleteMany();
-  await prisma.stpAgent.deleteMany();
-  await prisma.stellaCompanyContact.deleteMany();
-  await prisma.stellaCompanyLocation.deleteMany();
-  await prisma.masterStellaCompany.deleteMany();
-  await prisma.staffProjectAssignment.deleteMany();
-  await prisma.staffRoleAssignment.deleteMany();
-  await prisma.staffPermission.deleteMany();
-  await prisma.masterStaff.deleteMany();
-  await prisma.customerType.deleteMany();
-  await prisma.displayView.deleteMany();
-  await prisma.systemProjectBinding.deleteMany();
-  await prisma.masterProject.deleteMany();
-  await prisma.masterContractStatus.deleteMany();
-  await prisma.stpStage.deleteMany();
-  await prisma.contactMethod.deleteMany();
-  await prisma.stpLeadSource.deleteMany();
-  await prisma.staffRoleType.deleteMany();
+
+  // 全テーブルを一括TRUNCATE（FK依存を自動解決）
+  const tables = await prisma.$queryRaw<{ tablename: string }[]>`
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = 'public'
+    AND tablename != '_prisma_migrations'
+  `;
+
+  if (tables.length > 0) {
+    const tableNames = tables.map((t) => `"${t.tablename}"`).join(', ');
+    await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tableNames} RESTART IDENTITY CASCADE`);
+  }
+
   console.log('Data cleared.');
 }
 
@@ -138,6 +89,8 @@ async function resetSequences() {
     'stp_candidates', 'stp_revenue_records', 'stp_expense_records', 'stp_invoices',
     'staff_field_restrictions',
     'CostCenter', 'ExpenseCategory', 'Counterparty',
+    'kpi_monthly_targets',
+    'field_change_logs',
   ];
   for (const table of tables) {
     try {
@@ -153,7 +106,7 @@ async function resetSequences() {
 // ============================================
 
 async function main() {
-  console.log('=== Starting comprehensive seed ===\n');
+  console.log('=== Starting comprehensive seed (2026-01~) ===\n');
   await clearDatabase();
 
   // ============================================
@@ -190,7 +143,7 @@ async function main() {
   });
   console.log('✓ Contact methods (5)');
 
-  // プロジェクト（contactCategory より先に作成 — projectId FK 依存）
+  // プロジェクト
   await prisma.masterProject.createMany({
     data: [
       { id: 1, code: 'stp', name: 'STP', description: '採用支援サービスの商談・契約管理', displayOrder: 2 },
@@ -201,26 +154,23 @@ async function main() {
       { id: 6, code: 'accounting', name: '経理', description: '経理・会計管理', displayOrder: 5 },
     ],
   });
-  console.log('✓ Projects (6): Stella, Common, STP, SRD, SLO, Accounting');
+  console.log('✓ Projects (6)');
 
-  // SystemProjectBinding（route key → プロジェクト紐付け）
   await prisma.systemProjectBinding.createMany({
-    data: [
-      { routeKey: 'stp', projectId: 1 }, // STP
-    ],
+    data: [{ routeKey: 'stp', projectId: 1 }],
   });
-  console.log('✓ SystemProjectBindings (1): stp');
+  console.log('✓ SystemProjectBindings (1)');
 
-  // 経費部門（CostCenter）
+  // 経費部門
   await prisma.costCenter.createMany({
     data: [
       { id: 1, name: 'STP事業', projectId: 1, isActive: true },
       { id: 2, name: '管理部門', projectId: null, isActive: true },
     ],
   });
-  console.log('✓ CostCenters (2): STP事業, 管理部門');
+  console.log('✓ CostCenters (2)');
 
-  // 費目（ExpenseCategory）
+  // 費目
   await prisma.expenseCategory.createMany({
     data: [
       { id: 1, name: '初期費用売上', type: 'revenue', displayOrder: 1 },
@@ -259,8 +209,6 @@ async function main() {
   });
   console.log('✓ Lead sources (6)');
 
-  // スタッフ役割種別: 本番では管理画面から手入力のためシードデータなし
-
   // 契約書ステータスマスタ
   await prisma.masterContractStatus.createMany({
     data: [
@@ -276,7 +224,7 @@ async function main() {
   });
   console.log('✓ Contract statuses (8)');
 
-  // 表示ビュー（projectId: stp=1, srd=2）
+  // 表示ビュー
   await prisma.displayView.createMany({
     data: [
       { id: 1, viewKey: 'stp_client', viewName: '採用ブースト（企業版）', projectId: 1, description: '' },
@@ -302,7 +250,7 @@ async function main() {
   console.log('✓ Customer types (8)');
 
   // ============================================
-  // 2. スタッフ (10名)
+  // 2. スタッフ (13名)
   // ============================================
 
   await prisma.masterStaff.createMany({
@@ -317,16 +265,14 @@ async function main() {
       { id: 8, name: '小林理恵', nameKana: 'コバヤシリエ', email: 'kobayashi@example.com', phone: '090-8888-8888', contractType: '業務委託', loginId: 'kobayashi', passwordHash: DEFAULT_PASSWORD_HASH, displayOrder: 8 },
       { id: 9, name: '加藤誠', nameKana: 'カトウマコト', email: 'kato@example.com', phone: '090-9999-9999', contractType: '正社員', loginId: 'kato', passwordHash: DEFAULT_PASSWORD_HASH, displayOrder: 9 },
       { id: 10, name: '管理者', nameKana: 'カンリシャ', email: 'admin@example.com', phone: '090-0000-0000', contractType: '正社員', loginId: 'kanrisha', passwordHash: DEFAULT_PASSWORD_HASH, displayOrder: 10 },
-      // システム管理者（パスワードはbcryptハッシュ化済み・復元不可）
       { id: 11, name: 'システム管理者', nameKana: 'システムカンリシャ', email: 'sysadmin@stella-crm.local', phone: null, contractType: '正社員', loginId: 'admin', passwordHash: SYSTEM_ADMIN_HASH, isSystemUser: true },
       { id: 12, name: 'テストユーザー', nameKana: 'テストユーザー', email: 'testuser@stella-crm.local', phone: null, contractType: '正社員', loginId: 'test_user', passwordHash: SYSTEM_TEST_HASH, isSystemUser: true },
-      // 固定データ編集専用アカウント（この権限はstella001のみが持つ）
       { id: 13, name: '固定データ管理者', nameKana: 'コテイデータカンリシャ', email: 'stella001@stella-crm.local', phone: null, contractType: '正社員', loginId: 'stella001', passwordHash: STELLA001_HASH, canEditMasterData: true, isSystemUser: true },
     ],
   });
   console.log('✓ Staff (13)');
 
-  // スタッフ権限（projectId: stp=1, srd=2, slo=3, stella=4, common=5）
+  // スタッフ権限
   await prisma.staffPermission.createMany({
     data: [
       { staffId: 1, projectId: 1, permissionLevel: 'edit' },
@@ -344,44 +290,38 @@ async function main() {
       { staffId: 8, projectId: 2, permissionLevel: 'edit' },
       { staffId: 8, projectId: 3, permissionLevel: 'view' },
       { staffId: 9, projectId: 1, permissionLevel: 'edit' },
-      // 管理者（kanrisha）
+      // 管理者
       { staffId: 10, projectId: 4, permissionLevel: 'admin' },
       { staffId: 10, projectId: 5, permissionLevel: 'admin' },
       { staffId: 10, projectId: 1, permissionLevel: 'admin' },
       { staffId: 10, projectId: 2, permissionLevel: 'admin' },
       { staffId: 10, projectId: 3, permissionLevel: 'admin' },
       { staffId: 10, projectId: 6, permissionLevel: 'admin' },
-      // システム管理者（admin）
+      // システム管理者
       { staffId: 11, projectId: 4, permissionLevel: 'admin' },
       { staffId: 11, projectId: 5, permissionLevel: 'admin' },
       { staffId: 11, projectId: 1, permissionLevel: 'admin' },
       { staffId: 11, projectId: 2, permissionLevel: 'admin' },
       { staffId: 11, projectId: 3, permissionLevel: 'admin' },
       { staffId: 11, projectId: 6, permissionLevel: 'admin' },
-      // テストユーザー（test_user）
+      // テストユーザー
       { staffId: 12, projectId: 4, permissionLevel: 'admin' },
       { staffId: 12, projectId: 5, permissionLevel: 'admin' },
       { staffId: 12, projectId: 1, permissionLevel: 'admin' },
       { staffId: 12, projectId: 2, permissionLevel: 'admin' },
       { staffId: 12, projectId: 3, permissionLevel: 'admin' },
       { staffId: 12, projectId: 6, permissionLevel: 'admin' },
-      // 固定データ管理者（stella001）: プロジェクト権限なし（canEditMasterDataのみ）
     ],
   });
   console.log('✓ Staff permissions (30)');
 
-  // スタッフ役割割当: 役割種別を管理画面で登録後に設定するためシードデータなし
-
   // スタッフプロジェクト割当
   const staffProjectData: { staffId: number; projectId: number }[] = [];
-  // 全スタッフ → STP（stella001=13はプロジェクト割当なし）
   for (let s = 1; s <= 12; s++) staffProjectData.push({ staffId: s, projectId: 1 });
-  // SRD: 田中, 山本, 伊藤, 小林, 管理者, admin, test_user
   for (const s of [1, 3, 5, 8, 10, 11, 12]) staffProjectData.push({ staffId: s, projectId: 2 });
-  // SLO: 田中, 佐藤, 渡辺, 小林, 管理者, admin, test_user
   for (const s of [1, 4, 6, 8, 10, 11, 12]) staffProjectData.push({ staffId: s, projectId: 3 });
   await prisma.staffProjectAssignment.createMany({ data: staffProjectData });
-  console.log('✓ Staff project assignments (20)');
+  console.log('✓ Staff project assignments');
 
   // ============================================
   // 3. 全顧客マスタ (100社)
@@ -390,31 +330,26 @@ async function main() {
   const industries = ['IT・通信', '製造業', '商社', '医療機器', '外食', 'エネルギー', '金融', 'デザイン', '人材サービス', '不動産', '建設', '物流', '小売', '教育', 'コンサルティング'];
   const revenueScales = ['10億未満', '10億〜50億', '50億〜100億', '100億以上'];
   const companyNames = [
-    // 1-20
     '株式会社テックソリューション', '山田製造株式会社', 'グローバルトレード株式会社', 'メディカルケア株式会社',
     'フードサービス株式会社', 'エコエナジー株式会社', 'ファイナンシャルパートナーズ', 'クリエイティブデザイン株式会社',
     '東京システム開発', '大阪物産株式会社', '名古屋建設工業', '福岡トレーディング',
     '北海道フーズ', '札幌IT株式会社', '仙台メディカル', '広島エンジニアリング',
     '京都デザインラボ', '神戸物流センター', '横浜コンサルティング', '千葉不動産',
-    // 21-40
     'さいたまテック', '川崎製作所', '相模原システムズ', '堺エネルギー',
     '岡山商事', '静岡フーズ', '新潟工業', '浜松テクノロジー',
     '熊本サービス', '鹿児島ホールディングス', '長崎トレード', '金沢IT',
     '富山製造', '高松建設', '松山エージェント', '那覇リゾート',
     'アルファシステムズ', 'ベータコーポレーション', 'ガンマテクノロジー', 'デルタサービス',
-    // 41-60
     'イプシロンホールディングス', 'ゼータソリューションズ', 'イータコンサルティング', 'シータデザイン',
     'アイオータシステムズ', 'カッパエンタープライズ', 'ラムダテクノロジー', 'ミューコーポレーション',
     'ニューシステムズ', 'クサイサービス', 'オミクロンホールディングス', 'パイテクノロジー',
     'ローシステムズ', 'シグマコーポレーション', 'タウサービス', 'ウプシロンIT',
     'ファイソリューションズ', 'カイコンサルティング', 'プサイテクノロジー', 'オメガシステムズ',
-    // 61-80
     '日本テクノサービス', '全国物流ネットワーク', 'ユニバーサルデザイン', 'パシフィックトレード',
     'アジアンホールディングス', 'グローバルネットワーク', 'ナショナルサービス', 'インターナショナルIT',
     'ワールドコーポレーション', 'コンチネンタルシステムズ', 'メトロポリタンサービス', 'オーシャンテクノロジー',
     'マウンテンホールディングス', 'リバーサイドシステムズ', 'サンシャインサービス', 'ムーンライトIT',
     'スターシステムズ', 'プラネットコーポレーション', 'ギャラクシーテクノロジー', 'コスモスサービス',
-    // 81-100: 代理店/紹介者企業
     'ABCエージェント', 'XYZパートナーズ', 'グローバルリクルート', 'ヒューマンリソース',
     'タレントブリッジ', 'リクルートパートナーズ', 'キャリアコネクト', 'ジョブマッチング',
     'エンプロイメントサービス', 'ワークフォース', 'スタッフィングプロ', 'タレントスカウト',
@@ -499,7 +434,7 @@ async function main() {
   await prisma.stellaCompanyContact.createMany({ data: contactData });
   console.log(`✓ Company contacts (${ctId})`);
 
-  // 取引先（Counterparty）— 全master_stella_companiesから自動生成
+  // 取引先（Counterparty）
   const allCompanies = await prisma.masterStellaCompany.findMany({
     select: { id: true, name: true },
     orderBy: { id: 'asc' },
@@ -508,7 +443,7 @@ async function main() {
     id: i + 1,
     name: c.name,
     companyId: c.id,
-    counterpartyType: c.id <= 80 ? 'customer' : 'vendor', // 1-80: STP顧客, 81-100: 代理店
+    counterpartyType: c.id <= 80 ? 'customer' : 'vendor',
     isActive: true,
   }));
   await prisma.counterparty.createMany({ data: counterpartyData });
@@ -522,7 +457,7 @@ async function main() {
   for (let i = 0; i < 20; i++) {
     const agentId = i + 1;
     const companyId = 81 + i;
-    const isAdvisor = i >= 12 && i <= 15; // Agent 13-16: 顧問
+    const isAdvisor = i >= 12 && i <= 15;
     const status = i < 15 ? 'アクティブ' : i < 18 ? '休止' : '解約';
     const contractStatus = i < 8 ? '契約済み' : i < 12 ? '商談済み' : i < 14 ? '契約済み' : i < 16 ? '未商談' : '契約済み';
 
@@ -568,7 +503,7 @@ async function main() {
       id: i,
       agentId,
       contractUrl: `https://cloudsign.example.com/contracts/agent-${agentId}-${i}`,
-      signedDate: isSigned ? randomDate(new Date('2024-06-01'), new Date('2025-12-31')) : null,
+      signedDate: isSigned ? randomDate(new Date('2026-01-01'), new Date('2026-03-04')) : null,
       title: randomChoice(agentContractTitles),
       externalId: isSigned ? `CS-AGENT-${String(i).padStart(3, '0')}` : null,
       externalService: isSigned ? 'cloudsign' : null,
@@ -586,21 +521,18 @@ async function main() {
   const agentContractHistoryData = [];
   let achId = 0;
   for (let agentId = 1; agentId <= 20; agentId++) {
-    // アクティブ代理店(1-15)は2件（旧→現行）、その他は1件
     const numHistories = agentId <= 15 ? 2 : 1;
-
     for (let h = 0; h < numHistories; h++) {
       achId++;
       const isLatest = h === numHistories - 1;
       const isCurrent = isLatest && agentId <= 15;
       const startDate = h === 0
-        ? randomDate(new Date('2024-01-01'), new Date('2024-12-31'))
-        : randomDate(new Date('2025-01-01'), new Date('2025-06-30'));
+        ? randomDate(new Date('2026-01-01'), new Date('2026-01-31'))
+        : randomDate(new Date('2026-02-01'), new Date('2026-03-01'));
       const endDate = !isLatest
-        ? randomDate(new Date('2025-01-01'), new Date('2025-06-30'))
-        : agentId > 18 ? randomDate(new Date('2025-10-01'), new Date('2026-01-15')) : null;
+        ? randomDate(new Date('2026-02-01'), new Date('2026-02-28'))
+        : agentId > 18 ? randomDate(new Date('2026-02-15'), new Date('2026-03-04')) : null;
 
-      // 報酬率: 代理店ごとに少しばらつきを出す
       const baseInitialRate = randomInt(10, 20);
       const baseMonthlyRate = randomInt(5, 15);
       const basePerfRate = randomInt(15, 30);
@@ -613,17 +545,14 @@ async function main() {
         contractStartDate: startDate,
         contractEndDate: endDate,
         status: isCurrent ? '契約済み' : endDate ? '終了' : '契約前',
-        // 代理店への直接費用（顧問系は高め、一般は0〜少額）
         initialFee: agentId >= 13 && agentId <= 16 ? randomInt(50, 150) * 1000 : randomInt(0, 3) * 10000,
         monthlyFee: agentId >= 13 && agentId <= 16 ? randomInt(50, 200) * 1000 : randomInt(0, 2) * 10000,
-        // 月額プラン（MP）の報酬
         defaultMpInitialRate: baseInitialRate,
         defaultMpInitialDuration: randomChoice([1, 1, 3]),
         defaultMpMonthlyType: monthlyType,
         defaultMpMonthlyRate: monthlyType === 'rate' ? baseMonthlyRate : null,
         defaultMpMonthlyFixed: monthlyType === 'fixed' ? randomInt(1, 5) * 10000 : null,
         defaultMpMonthlyDuration: randomChoice([3, 6, 6, 12]),
-        // 成果報酬プラン（PP）の報酬
         defaultPpInitialRate: Math.max(baseInitialRate - 5, 5),
         defaultPpInitialDuration: randomChoice([1, 1]),
         defaultPpPerfType: perfType,
@@ -639,17 +568,44 @@ async function main() {
 
   // ============================================
   // 7. STP企業 (80社: companyId 1-80)
+  //    ステージ分布を部門KPI計算に最適化
+  //    ID 1-7: 運用中, 8-12: 運用準備, 13-17: キックオフ
+  //    18-25: 契約締結, 26-33: 口頭契約, 34-43: 提案中
+  //    44-55: 商談化, 56-70: リード, 71-75: 失注, 76-80: 検討中
   // ============================================
 
-  // ステージ分布: リード20, 商談化15, 提案中15, 見積提示10, 受注10, 失注5, 検討中5
-  function stageForIndex(i: number): number {
-    if (i <= 20) return 1;
-    if (i <= 35) return 2;
-    if (i <= 50) return 3;
-    if (i <= 60) return 4;
-    if (i <= 70) return 5;
+  function getStageId(i: number): number {
+    if (i <= 7) return 10;
+    if (i <= 12) return 9;
+    if (i <= 17) return 8;
+    if (i <= 25) return 5;
+    if (i <= 33) return 4;
+    if (i <= 43) return 3;
+    if (i <= 55) return 2;
+    if (i <= 70) return 1;
     if (i <= 75) return 6;
     return 7;
+  }
+
+  function getLeadDate(i: number): Date {
+    // Jan: companies 1-33, Feb: 34-55, Mar: 56-70, 失注/検討中: Jan-Feb
+    if (i <= 33) return new Date(2026, 0, 3 + Math.floor((i - 1) * 27 / 33));
+    if (i <= 55) return new Date(2026, 1, 1 + Math.floor((i - 34) * 24 / 22));
+    if (i <= 70) return new Date(2026, 2, 1 + Math.floor((i - 56) * 3 / 15));
+    if (i <= 75) return new Date(2026, 0, 10 + (i - 71) * 10);
+    return new Date(2026, 0, 15 + (i - 76) * 8);
+  }
+
+  function getLeadValidity(i: number): string | null {
+    if (i <= 25) return '有効';
+    if (i <= 33) return i % 4 !== 0 ? '有効' : null;
+    if (i <= 40) return '有効';
+    if (i <= 43) return null;
+    if (i <= 51) return '有効';
+    if (i <= 55) return null;
+    // March leads: specific 8/15 valid
+    if (i <= 70) return [56, 57, 59, 61, 62, 64, 66, 67].includes(i) ? '有効' : null;
+    return null;
   }
 
   const forecasts = ['MIN', '落とし', 'MAX', '来月', '辞退'];
@@ -657,21 +613,26 @@ async function main() {
   const industryTypes = ['一般', '派遣'];
   const mediaOptions = ['Airワーク', 'Wantedly', '求人ボックス'];
   const initialFees = [0, 100000, 150000];
-  const progressDetails = [
-    'リード獲得。メール返信待ち。', '初回商談完了。ニーズヒアリング済み。',
-    '提案書作成中。来週プレゼン予定。', '見積提示済み。決裁待ち。',
-    '受注済み。契約手続き中。', '失注。競合に決定。', '検討中。予算調整中。',
-  ];
+  const progressDetails: Record<number, string> = {
+    1: 'リード獲得。メール返信待ち。',
+    2: '初回商談完了。ニーズヒアリング済み。',
+    3: '提案書作成中。来週プレゼン予定。',
+    4: '見積提示済み。決裁待ち。',
+    5: '受注済み。契約手続き中。',
+    6: '失注。競合に決定。',
+    7: '検討中。予算調整中。',
+    8: 'キックオフ完了。運用準備開始。',
+    9: '運用準備中。媒体設定進行中。',
+    10: '運用中。月次レポート提出済み。',
+  };
 
   const stpCompanyData = [];
   for (let i = 1; i <= 80; i++) {
-    const stageId = stageForIndex(i);
-    const isProgress = stageId >= 1 && stageId <= 4;
+    const stageId = getStageId(i);
+    const isProgress = [1, 2, 3, 4].includes(stageId);
     const hasTarget = isProgress && Math.random() > 0.3;
     const hasAgent = Math.random() > 0.7;
-    const leadDate = randomDate(new Date('2025-06-01'), new Date('2026-01-31'));
-    const hasMeeting = stageId >= 2;
-    const meetDate = hasMeeting ? randomDate(leadDate, new Date('2026-02-15')) : null;
+    const leadDate = getLeadDate(i);
 
     stpCompanyData.push({
       id: i,
@@ -679,73 +640,114 @@ async function main() {
       agentId: hasAgent ? randomInt(1, 20) : null,
       currentStageId: stageId,
       nextTargetStageId: hasTarget ? Math.min(stageId + 1, 5) : null,
-      nextTargetDate: hasTarget ? randomDate(new Date('2026-02-01'), new Date('2026-04-30')) : null,
+      nextTargetDate: hasTarget ? randomDate(new Date('2026-03-01'), new Date('2026-05-31')) : null,
       leadAcquiredDate: leadDate,
-      meetingDate: meetDate,
-      firstKoDate: stageId >= 3 && meetDate ? randomDate(meetDate, new Date('2026-02-28')) : null,
-      jobPostingStartDate: stageId >= 4 ? `2026-0${randomInt(1, 3)}-${String(randomInt(10, 28)).padStart(2, '0')}` : null,
-      progressDetail: progressDetails[stageId - 1],
+      leadValidity: getLeadValidity(i),
+      meetingDate: stageId >= 2 || [6, 7].includes(stageId) ? randomDate(leadDate, new Date('2026-03-04')) : null,
+      firstKoDate: stageId >= 8 ? randomDate(new Date('2026-02-01'), new Date('2026-03-04')) : null,
+      jobPostingStartDate: stageId >= 4 && stageId !== 6 && stageId !== 7 ? `2026-0${randomInt(1, 3)}-${String(randomInt(10, 28)).padStart(2, '0')}` : null,
+      progressDetail: progressDetails[stageId] || null,
       forecast: isProgress ? randomChoice(forecasts) : null,
-      operationStatus: stageId >= 4 ? randomChoice(operationStatuses) : null,
+      operationStatus: stageId >= 8 && stageId <= 10 ? randomChoice(operationStatuses) : null,
       industryType: randomChoice(industryTypes),
       plannedHires: randomInt(1, 30),
       leadSourceId: randomInt(1, 5),
-      media: stageId >= 3 ? randomChoice(mediaOptions) : null,
-      initialFee: stageId >= 4 ? randomChoice(initialFees) : null,
-      monthlyFee: stageId >= 4 ? randomInt(3, 15) * 10000 : null,
-      performanceFee: stageId >= 4 && Math.random() > 0.5 ? randomInt(2, 5) * 10000 : null,
+      media: stageId >= 3 && stageId !== 6 && stageId !== 7 ? randomChoice(mediaOptions) : null,
+      initialFee: stageId >= 4 && stageId !== 6 && stageId !== 7 ? randomChoice(initialFees) : null,
+      monthlyFee: stageId >= 4 && stageId !== 6 && stageId !== 7 ? randomInt(3, 15) * 10000 : null,
+      performanceFee: stageId >= 4 && stageId !== 6 && stageId !== 7 && Math.random() > 0.5 ? randomInt(2, 5) * 10000 : null,
       salesStaffId: randomInt(1, 10),
-      operationStaffList: stageId >= 4 ? randomChoice(['indeed', 'indeed,運用2', '運用2']) : null,
-      accountId: stageId >= 4 ? `account-${i}` : null,
-      accountPass: stageId >= 4 ? `pass${randomInt(1000, 9999)}` : null,
+      operationStaffList: stageId >= 8 && stageId <= 10 ? randomChoice(['indeed', 'indeed,運用2', '運用2']) : null,
+      accountId: stageId >= 8 && stageId <= 10 ? `account-${i}` : null,
+      accountPass: stageId >= 8 && stageId <= 10 ? `pass${randomInt(1000, 9999)}` : null,
       note: `STP企業テストデータ${i}。`,
-      contractNote: stageId >= 4 ? `契約内容メモ${i}` : null,
+      contractNote: stageId >= 5 && stageId !== 6 && stageId !== 7 ? `契約内容メモ${i}` : null,
       lostReason: stageId === 6 ? randomChoice(['競合に決定', '予算不足', '時期尚早', '社内調整不可']) : null,
       pendingReason: stageId === 7 ? randomChoice(['予算調整中', '社内承認待ち', '人員確保待ち']) : null,
-      pendingResponseDate: stageId === 7 ? randomDate(new Date('2026-02-15'), new Date('2026-03-31')) : null,
-      billingCompanyName: stageId >= 4 ? companyNames[i - 1] : null,
-      billingAddress: stageId >= 4 ? `東京都千代田区${randomInt(1, 5)}-${randomInt(1, 10)}` : null,
-      paymentTerms: stageId >= 4 ? randomChoice(['月末締め翌月末払い', '月末締め翌々月末払い', '20日締め翌月末払い']) : null,
+      pendingResponseDate: stageId === 7 ? randomDate(new Date('2026-03-15'), new Date('2026-04-30')) : null,
+      billingCompanyName: stageId >= 5 && stageId !== 6 && stageId !== 7 ? companyNames[i - 1] : null,
+      billingAddress: stageId >= 5 && stageId !== 6 && stageId !== 7 ? `東京都千代田区${randomInt(1, 5)}-${randomInt(1, 10)}` : null,
+      paymentTerms: stageId >= 5 && stageId !== 6 && stageId !== 7 ? randomChoice(['月末締め翌月末払い', '月末締め翌々月末払い', '20日締め翌月末払い']) : null,
     });
   }
   // 成果報酬テスト用: 企業61-65に代理店を強制割り当て
-  stpCompanyData[60].agentId = 1;  // stpCompany 61 → agent 1
-  stpCompanyData[61].agentId = 2;  // stpCompany 62 → agent 2
-  stpCompanyData[62].agentId = 3;  // stpCompany 63 → agent 3
-  stpCompanyData[63].agentId = 5;  // stpCompany 64 → agent 5
-  stpCompanyData[64].agentId = 7;  // stpCompany 65 → agent 7
+  stpCompanyData[60].agentId = 1;
+  stpCompanyData[61].agentId = 2;
+  stpCompanyData[62].agentId = 3;
+  stpCompanyData[63].agentId = 5;
+  stpCompanyData[64].agentId = 7;
 
   await prisma.stpCompany.createMany({ data: stpCompanyData });
   console.log('✓ STP Companies (80)');
 
-  // STP企業契約書 (120件)
+  // ============================================
+  // STP企業契約書
+  // KPI用: 初回signedDateを明示的に管理
+  //   1-3: Jan signed, 4-20: Feb signed, 21-23: Mar signed
+  //   残り(24-80): ランダム/null
+  // ============================================
+
   const companyContractStatuses = ['draft', '送付済み', '先方情報待ち', 'signed', 'signed', 'expired'];
   const companyContractTitles = ['採用支援サービス利用契約書', '秘密保持契約書', '業務委託契約書', '求人広告掲載契約書', '成果報酬契約書'];
   const stpContractData = [];
-  for (let i = 1; i <= 120; i++) {
-    const stpCompanyId = ((i - 1) % 80) + 1;
-    const status = randomChoice(companyContractStatuses);
-    const isSigned = status === 'signed';
+  let contractIdx = 0;
+
+  // KPI用: 初回契約（1社1件ずつ、確定的なsignedDate）
+  const firstContractDates: Record<number, Date> = {
+    1: new Date('2026-01-25'), 2: new Date('2026-01-27'), 3: new Date('2026-01-29'),
+    4: new Date('2026-02-03'), 5: new Date('2026-02-05'), 6: new Date('2026-02-07'),
+    7: new Date('2026-02-10'), 8: new Date('2026-02-12'), 9: new Date('2026-02-14'),
+    10: new Date('2026-02-16'), 11: new Date('2026-02-18'), 12: new Date('2026-02-20'),
+    13: new Date('2026-02-22'), 14: new Date('2026-02-23'), 15: new Date('2026-02-24'),
+    16: new Date('2026-02-25'), 17: new Date('2026-02-26'), 18: new Date('2026-02-27'),
+    19: new Date('2026-02-27'), 20: new Date('2026-02-28'),
+    21: new Date('2026-03-01'), 22: new Date('2026-03-02'), 23: new Date('2026-03-03'),
+  };
+
+  // 初回契約（確定データ）
+  for (const [companyIdStr, signedDate] of Object.entries(firstContractDates)) {
+    contractIdx++;
+    const stpCompanyId = Number(companyIdStr);
     stpContractData.push({
-      id: i,
+      id: contractIdx,
       stpCompanyId,
-      contractUrl: status !== 'draft' ? `https://cloudsign.example.com/contracts/stp-${stpCompanyId}-${i}` : null,
-      signedDate: isSigned ? randomDate(new Date('2025-01-01'), new Date('2026-01-31')) : null,
-      title: randomChoice(companyContractTitles),
-      externalId: status !== 'draft' ? `CS-STP-${String(i).padStart(4, '0')}` : null,
-      externalService: status !== 'draft' ? 'cloudsign' : null,
-      status,
-      note: status === 'draft' ? '作成中' : status === '送付済み' ? '署名待ち' : null,
+      contractUrl: `https://cloudsign.example.com/contracts/stp-${stpCompanyId}-${contractIdx}`,
+      signedDate,
+      title: '業務委託契約書',
+      externalId: `CS-STP-${String(contractIdx).padStart(4, '0')}`,
+      externalService: 'cloudsign',
+      status: 'signed',
+      note: null,
     });
   }
+
+  // 追加契約（ランダム）
+  for (let i = 1; i <= 80; i++) {
+    const extraContracts = randomInt(0, 2);
+    for (let j = 0; j < extraContracts; j++) {
+      contractIdx++;
+      const status = randomChoice(companyContractStatuses);
+      const isSigned = status === 'signed';
+      stpContractData.push({
+        id: contractIdx,
+        stpCompanyId: i,
+        contractUrl: status !== 'draft' ? `https://cloudsign.example.com/contracts/stp-${i}-${contractIdx}` : null,
+        signedDate: isSigned ? randomDate(new Date('2026-01-01'), new Date('2026-03-04')) : null,
+        title: randomChoice(companyContractTitles),
+        externalId: status !== 'draft' ? `CS-STP-${String(contractIdx).padStart(4, '0')}` : null,
+        externalService: status !== 'draft' ? 'cloudsign' : null,
+        status,
+        note: status === 'draft' ? '作成中' : status === '送付済み' ? '署名待ち' : null,
+      });
+    }
+  }
   await prisma.stpCompanyContract.createMany({ data: stpContractData });
-  console.log('✓ STP Company contracts (120)');
+  console.log(`✓ STP Company contracts (${contractIdx})`);
 
   // ============================================
-  // 7b. 企業別報酬例外 + 求職者 (STP企業作成後)
+  // 7b. 企業別報酬例外 + 求職者
   // ============================================
 
-  // 企業別報酬例外 (10件: 一部の企業は特別レート)
   const overrideData = [];
   const overrideTargets = [
     { agentId: 1, stpCompanyId: 5, note: '大口顧客のため優遇レート' },
@@ -794,24 +796,22 @@ async function main() {
   await prisma.stpAgentCommissionOverride.createMany({ data: overrideData });
   console.log(`✓ Agent commission overrides (${overrideData.length})`);
 
-  // 求職者 (20件: 最初の5件は成果報酬テスト用の確定データ)
+  // 求職者 (20件)
   const candidateLastNames = ['山田', '佐藤', '田中', '鈴木', '高橋', '伊藤', '渡辺', '中村', '小林', '加藤'];
   const candidateFirstNames = ['太郎', '花子', '一郎', '美咲', '健太', '直樹', '恵', '拓也', '由美', '翔'];
   const selectionStatuses = ['書類選考中', '一次面接', '二次面接', '最終面接', '内定', '入社済み', '辞退', '不合格'];
   const candidateIndustryTypes = ['general', 'dispatch'];
   const candidateJobMedias = ['Airワーク', 'Wantedly', '求人ボックス'];
 
-  // 成果報酬テスト用: 確定的にマッチするデータ（5件）
   const perfCandidates = [
-    { id: 1, lastName: '山田', firstName: '太郎', stpCompanyId: 61, industryType: 'general' as string | null, jobMedia: 'Airワーク' as string | null, joinDate: new Date('2026-01-15') as Date | null, interviewDate: new Date('2025-12-01') as Date | null, offerDate: new Date('2025-12-20') as Date | null },
-    { id: 2, lastName: '佐藤', firstName: '花子', stpCompanyId: 62, industryType: 'dispatch' as string | null, jobMedia: '求人ボックス' as string | null, joinDate: new Date('2026-01-20') as Date | null, interviewDate: new Date('2025-12-05') as Date | null, offerDate: new Date('2025-12-25') as Date | null },
-    { id: 3, lastName: '田中', firstName: '一郎', stpCompanyId: 63, industryType: 'general' as string | null, jobMedia: 'Wantedly' as string | null, joinDate: new Date('2026-02-01') as Date | null, interviewDate: new Date('2025-12-10') as Date | null, offerDate: new Date('2026-01-10') as Date | null },
-    { id: 4, lastName: '鈴木', firstName: '美咲', stpCompanyId: 64, industryType: 'dispatch' as string | null, jobMedia: 'Airワーク' as string | null, joinDate: new Date('2025-12-15') as Date | null, interviewDate: new Date('2025-11-01') as Date | null, offerDate: new Date('2025-11-25') as Date | null },
-    { id: 5, lastName: '高橋', firstName: '健太', stpCompanyId: 65, industryType: 'general' as string | null, jobMedia: '求人ボックス' as string | null, joinDate: new Date('2026-01-10') as Date | null, interviewDate: new Date('2025-11-20') as Date | null, offerDate: new Date('2025-12-15') as Date | null },
+    { id: 1, lastName: '山田', firstName: '太郎', stpCompanyId: 61, industryType: 'general' as string | null, jobMedia: 'Airワーク' as string | null, joinDate: new Date('2026-02-15') as Date | null, interviewDate: new Date('2026-01-15') as Date | null, offerDate: new Date('2026-02-01') as Date | null },
+    { id: 2, lastName: '佐藤', firstName: '花子', stpCompanyId: 62, industryType: 'dispatch' as string | null, jobMedia: '求人ボックス' as string | null, joinDate: new Date('2026-02-20') as Date | null, interviewDate: new Date('2026-01-20') as Date | null, offerDate: new Date('2026-02-05') as Date | null },
+    { id: 3, lastName: '田中', firstName: '一郎', stpCompanyId: 63, industryType: 'general' as string | null, jobMedia: 'Wantedly' as string | null, joinDate: new Date('2026-03-01') as Date | null, interviewDate: new Date('2026-02-01') as Date | null, offerDate: new Date('2026-02-15') as Date | null },
+    { id: 4, lastName: '鈴木', firstName: '美咲', stpCompanyId: 64, industryType: 'dispatch' as string | null, jobMedia: 'Airワーク' as string | null, joinDate: new Date('2026-01-25') as Date | null, interviewDate: new Date('2026-01-05') as Date | null, offerDate: new Date('2026-01-15') as Date | null },
+    { id: 5, lastName: '高橋', firstName: '健太', stpCompanyId: 65, industryType: 'general' as string | null, jobMedia: '求人ボックス' as string | null, joinDate: new Date('2026-02-10') as Date | null, interviewDate: new Date('2026-01-10') as Date | null, offerDate: new Date('2026-01-25') as Date | null },
   ];
 
   const candidateData = [];
-  // 成果報酬テスト用の5件
   for (const pc of perfCandidates) {
     candidateData.push({
       id: pc.id,
@@ -828,8 +828,6 @@ async function main() {
       stpCompanyId: pc.stpCompanyId,
     });
   }
-
-  // 残り15件はランダム
   for (let i = 6; i <= 20; i++) {
     const hasInterview = Math.random() > 0.3;
     const hasOffer = hasInterview && Math.random() > 0.5;
@@ -839,11 +837,11 @@ async function main() {
       id: i,
       lastName: randomChoice(candidateLastNames),
       firstName: randomChoice(candidateFirstNames),
-      interviewDate: hasInterview ? randomDate(new Date('2025-10-01'), new Date('2026-01-31')) : null,
+      interviewDate: hasInterview ? randomDate(new Date('2026-01-01'), new Date('2026-03-04')) : null,
       interviewAttendance: hasInterview ? (Math.random() > 0.1 ? '参加' : '不参加') : null,
       selectionStatus: status,
-      offerDate: hasOffer ? randomDate(new Date('2025-11-01'), new Date('2026-01-31')) : null,
-      joinDate: hasJoin ? randomDate(new Date('2025-12-01'), new Date('2026-02-28')) : null,
+      offerDate: hasOffer ? randomDate(new Date('2026-01-15'), new Date('2026-03-04')) : null,
+      joinDate: hasJoin ? randomDate(new Date('2026-02-01'), new Date('2026-03-04')) : null,
       industryType: Math.random() > 0.5 ? randomChoice(candidateIndustryTypes) : null,
       jobMedia: Math.random() > 0.5 ? randomChoice(candidateJobMedias) : null,
       note: hasJoin ? '入社済み。' : hasOffer ? '内定承諾待ち。' : null,
@@ -851,10 +849,12 @@ async function main() {
     });
   }
   await prisma.stpCandidate.createMany({ data: candidateData });
-  console.log('✓ Candidates (20, 5 with perf fee matching)');
+  console.log('✓ Candidates (20)');
 
   // ============================================
-  // 8. 接触履歴 (200件)
+  // 8. 接触履歴 — KPI計算に最適化
+  //    商談(categoryId=1): 初回商談日が各月に分布
+  //    キックオフ(categoryId=2): stage8+の企業に初回KO日
   // ============================================
 
   const meetingMinutes = [
@@ -862,7 +862,6 @@ async function main() {
     '見積内容について質問あり。回答済み。', '契約条件について調整中。',
     '月次定例ミーティング。進捗共有。', '新規案件について相談。',
     '課題整理を実施。', 'サービス説明を実施。興味を示している。',
-    'フォローアップの電話。好感触。', '資料送付後の確認連絡。',
   ];
   const noteTemplates = [
     '60分のWeb会議を実施', '15分の電話', '90分の訪問商談', '45分のオンラインミーティング',
@@ -870,45 +869,199 @@ async function main() {
   ];
 
   const contactHistoryData = [];
-  for (let i = 1; i <= 200; i++) {
+  let chId = 0;
+
+  // --- 確定的データ: 初回商談（contactCategoryId=1）---
+  // Companies 1-25: first meeting in January
+  for (let i = 1; i <= 25; i++) {
+    chId++;
+    const day = 9 + Math.floor((i - 1) * 20 / 25); // Jan 9 ~ Jan 29
+    contactHistoryData.push({
+      id: chId,
+      companyId: i,
+      contactDate: new Date(2026, 0, day),
+      contactMethodId: 4,
+      contactCategoryId: 1,
+      staffId: ((i - 1) % 10) + 1,
+      meetingMinutes: 'ヒアリングを実施。採用課題について詳細確認。',
+      note: '初回商談',
+    });
+  }
+  // Companies 26-50: first meeting in February
+  for (let i = 26; i <= 50; i++) {
+    chId++;
+    const day = 2 + Math.floor((i - 26) * 25 / 25); // Feb 2 ~ Feb 27
+    contactHistoryData.push({
+      id: chId,
+      companyId: i,
+      contactDate: new Date(2026, 1, day),
+      contactMethodId: 4,
+      contactCategoryId: 1,
+      staffId: ((i - 1) % 10) + 1,
+      meetingMinutes: '提案内容について説明。前向きな反応あり。',
+      note: '初回商談',
+    });
+  }
+  // Companies 51-55: first meeting in March
+  for (let i = 51; i <= 55; i++) {
+    chId++;
+    contactHistoryData.push({
+      id: chId,
+      companyId: i,
+      contactDate: new Date(2026, 2, i - 50), // Mar 1-5
+      contactMethodId: 4,
+      contactCategoryId: 1,
+      staffId: ((i - 1) % 10) + 1,
+      meetingMinutes: 'サービス説明を実施。興味を示している。',
+      note: '初回商談',
+    });
+  }
+  // 失注/検討中の企業にも商談履歴
+  for (const i of [71, 72, 73, 74, 75, 76, 77]) {
+    chId++;
+    const isJan = i <= 73;
+    contactHistoryData.push({
+      id: chId,
+      companyId: i,
+      contactDate: isJan
+        ? new Date(2026, 0, 15 + (i - 71) * 5)
+        : new Date(2026, 1, 5 + (i - 74) * 5),
+      contactMethodId: 4,
+      contactCategoryId: 1,
+      staffId: ((i - 1) % 10) + 1,
+      meetingMinutes: '課題整理を実施。',
+      note: '商談実施',
+    });
+  }
+
+  // --- 確定的データ: 初回キックオフ（contactCategoryId=2）---
+  // Companies 1-7: kickoff in Feb (for 運用開始LT計算)
+  for (let i = 1; i <= 7; i++) {
+    chId++;
+    const day = 1 + i * 2; // Feb 3, 5, 7, 9, 11, 13, 15
+    contactHistoryData.push({
+      id: chId,
+      companyId: i,
+      contactDate: new Date(2026, 1, day),
+      contactMethodId: 3,
+      contactCategoryId: 2,
+      staffId: ((i - 1) % 10) + 1,
+      meetingMinutes: 'キックオフミーティング実施。運用開始に向けた準備計画を策定。',
+      note: 'キックオフ実施',
+    });
+  }
+  // Companies 8-12: kickoff in mid-Feb
+  for (let i = 8; i <= 12; i++) {
+    chId++;
+    const day = 15 + (i - 8) * 2; // Feb 15, 17, 19, 21, 23
+    contactHistoryData.push({
+      id: chId,
+      companyId: i,
+      contactDate: new Date(2026, 1, day),
+      contactMethodId: 3,
+      contactCategoryId: 2,
+      staffId: ((i - 1) % 10) + 1,
+      meetingMinutes: 'キックオフミーティング。媒体選定と求人原稿の方針を確認。',
+      note: 'キックオフ実施',
+    });
+  }
+  // Companies 13-17: kickoff in late Feb - early Mar
+  for (let i = 13; i <= 17; i++) {
+    chId++;
+    const offset = i - 13; // 0,1,2,3,4
+    const date = offset < 3
+      ? new Date(2026, 1, 25 + offset) // Feb 25, 26, 27
+      : new Date(2026, 2, offset - 2);  // Mar 1, 2
+    contactHistoryData.push({
+      id: chId,
+      companyId: i,
+      contactDate: date,
+      contactMethodId: 3,
+      contactCategoryId: 2,
+      staffId: ((i - 1) % 10) + 1,
+      meetingMinutes: 'キックオフ。アカウント発行とテスト運用の計画策定。',
+      note: 'キックオフ実施',
+    });
+  }
+
+  // --- ランダムデータ: 追加の接触履歴 ---
+  for (let i = 0; i < 130; i++) {
+    chId++;
     const isAgent = Math.random() > 0.7;
     const companyId = isAgent ? randomInt(81, 100) : randomInt(1, 80);
     contactHistoryData.push({
-      id: i,
+      id: chId,
       companyId,
-      contactDate: randomDate(new Date('2025-06-01'), new Date('2026-01-31')),
+      contactDate: randomDate(new Date('2026-01-01'), new Date('2026-03-04')),
       contactMethodId: randomInt(1, 5),
-      contactCategoryId: Math.random() > 0.3 ? randomInt(1, 4) : null,
+      contactCategoryId: randomInt(1, 4),
       staffId: randomInt(1, 10),
-      assignedTo: String(randomInt(1, 10)),
       meetingMinutes: Math.random() > 0.3 ? randomChoice(meetingMinutes) : null,
       note: randomChoice(noteTemplates),
     });
   }
+
   await prisma.contactHistory.createMany({ data: contactHistoryData });
-  console.log('✓ Contact histories (200)');
+  console.log(`✓ Contact histories (${chId})`);
 
   // 接触履歴ロール
   const contactHistoryRoleData = [];
-  for (let i = 1; i <= 200; i++) {
-    const companyId = contactHistoryData[i - 1].companyId;
+  for (let i = 0; i < contactHistoryData.length; i++) {
+    const companyId = contactHistoryData[i].companyId;
     const isAgent = companyId >= 81;
     contactHistoryRoleData.push({
-      contactHistoryId: i,
-      customerTypeId: isAgent ? 2 : 1, // STP代理店 or STP企業
+      contactHistoryId: contactHistoryData[i].id,
+      customerTypeId: isAgent ? 2 : 1,
     });
   }
   await prisma.contactHistoryRole.createMany({ data: contactHistoryRoleData });
-  console.log('✓ Contact history roles (200)');
+  console.log(`✓ Contact history roles (${contactHistoryRoleData.length})`);
 
   // ============================================
-  // 9. ステージ変更履歴 (150件)
+  // 9. ステージ変更履歴 — KPI計算に最適化
+  //    運用中への遷移: ID 1-3 → Mar, ID 4-7 → Feb
   // ============================================
 
-  const eventTypes = ['commit', 'achieved', 'recommit', 'progress', 'back', 'cancel'];
   const staffNames = ['田中太郎', '鈴木花子', '山本次郎', '佐藤美咲', '伊藤健一', '渡辺優子', '高橋大輔', '小林理恵', '加藤誠', '管理者'];
   const stageHistoryData = [];
-  for (let i = 1; i <= 150; i++) {
+  let shId = 0;
+
+  // 確定的データ: 運用中への遷移（BackOffice 運用開始LT用）
+  // Feb transitions (companies 4-7)
+  for (const [companyId, day] of [[4, 20], [5, 22], [6, 25], [7, 28]] as const) {
+    shId++;
+    stageHistoryData.push({
+      id: shId,
+      stpCompanyId: companyId,
+      eventType: 'achieved',
+      fromStageId: 9,
+      toStageId: 10,
+      targetDate: null,
+      recordedAt: new Date(2026, 1, day),
+      changedBy: randomChoice(staffNames),
+      note: '運用開始',
+    });
+  }
+  // Mar transitions (companies 1-3)
+  for (const [companyId, day] of [[1, 1], [2, 2], [3, 3]] as const) {
+    shId++;
+    stageHistoryData.push({
+      id: shId,
+      stpCompanyId: companyId,
+      eventType: 'achieved',
+      fromStageId: 9,
+      toStageId: 10,
+      targetDate: null,
+      recordedAt: new Date(2026, 2, day),
+      changedBy: randomChoice(staffNames),
+      note: '運用開始',
+    });
+  }
+
+  // ランダムデータ: その他のステージ変更
+  const eventTypes = ['commit', 'achieved', 'recommit', 'progress', 'back', 'cancel'];
+  for (let i = 0; i < 140; i++) {
+    shId++;
     const stpCompanyId = randomInt(1, 80);
     const eventType = randomChoice(eventTypes);
     const fromStageId = randomInt(1, 5);
@@ -919,19 +1072,19 @@ async function main() {
       case 'commit': case 'recommit': toStageId = Math.min(fromStageId + randomInt(1, 2), 5); break;
     }
     stageHistoryData.push({
-      id: i,
+      id: shId,
       stpCompanyId,
       eventType,
       fromStageId: eventType !== 'commit' ? fromStageId : null,
       toStageId,
-      targetDate: ['commit', 'recommit'].includes(eventType) ? randomDate(new Date('2026-02-01'), new Date('2026-04-30')) : null,
-      recordedAt: randomDate(new Date('2025-06-01'), new Date('2026-01-31')),
+      targetDate: ['commit', 'recommit'].includes(eventType) ? randomDate(new Date('2026-03-01'), new Date('2026-05-31')) : null,
+      recordedAt: randomDate(new Date('2026-01-01'), new Date('2026-03-04')),
       changedBy: randomChoice(staffNames),
       note: eventType === 'back' ? '戦略見直しのため' : eventType === 'achieved' ? '目標達成' : null,
     });
   }
   await prisma.stpStageHistory.createMany({ data: stageHistoryData });
-  console.log('✓ Stage histories (150)');
+  console.log(`✓ Stage histories (${shId})`);
 
   // ============================================
   // 10. 契約履歴 (100件)
@@ -941,7 +1094,7 @@ async function main() {
   const contractHistoryData = [];
   for (let i = 1; i <= 100; i++) {
     const companyId = randomInt(1, 80);
-    const startDate = randomDate(new Date('2024-01-01'), new Date('2025-12-31'));
+    const startDate = randomDate(new Date('2026-01-01'), new Date('2026-03-01'));
     const isActive = Math.random() > 0.3;
     contractHistoryData.push({
       id: i,
@@ -950,7 +1103,7 @@ async function main() {
       contractPlan: randomChoice(['monthly', 'performance']),
       jobMedia: randomChoice(jobMediaOptions),
       contractStartDate: startDate,
-      contractEndDate: isActive ? null : randomDate(startDate, new Date('2026-01-31')),
+      contractEndDate: isActive ? null : randomDate(startDate, new Date('2026-03-04')),
       initialFee: randomChoice(initialFees),
       monthlyFee: randomInt(3, 15) * 10000,
       performanceFee: Math.random() > 0.5 ? randomInt(2, 5) * 10000 : 0,
@@ -966,29 +1119,29 @@ async function main() {
   await prisma.stpContractHistory.createMany({ data: contractHistoryData });
   console.log('✓ Contract histories (100)');
 
-  // 成果報酬テスト用: 企業61-65の専用契約履歴（求職者とマッチするよう確定データ）
+  // 成果報酬テスト用: 企業61-65の専用契約履歴
   const perfContractHistories = [
-    { id: 101, companyId: 61, industryType: 'general', contractPlan: 'performance', jobMedia: 'Airワーク', contractStartDate: new Date('2025-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 50000, performanceFee: 80000, salesStaffId: 1, operationStaffId: 2, status: 'active', note: '成果報酬テスト（企業61・一般・Airワーク）', operationStatus: null as string | null, accountId: 'acc-61-perf', accountPass: 'pass1234' },
-    { id: 102, companyId: 62, industryType: 'dispatch', contractPlan: 'performance', jobMedia: '求人ボックス', contractStartDate: new Date('2025-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 40000, performanceFee: 60000, salesStaffId: 2, operationStaffId: 3, status: 'active', note: '成果報酬テスト（企業62・派遣・求人ボックス）', operationStatus: null as string | null, accountId: 'acc-62-perf', accountPass: 'pass2345' },
-    { id: 103, companyId: 63, industryType: 'general', contractPlan: 'performance', jobMedia: 'Wantedly', contractStartDate: new Date('2025-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 60000, performanceFee: 100000, salesStaffId: 3, operationStaffId: 4, status: 'active', note: '成果報酬テスト（企業63・一般・Wantedly）', operationStatus: null as string | null, accountId: 'acc-63-perf', accountPass: 'pass3456' },
-    { id: 104, companyId: 64, industryType: 'dispatch', contractPlan: 'performance', jobMedia: 'Airワーク', contractStartDate: new Date('2025-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 45000, performanceFee: 50000, salesStaffId: 4, operationStaffId: 5, status: 'active', note: '成果報酬テスト（企業64・派遣・Airワーク）', operationStatus: null as string | null, accountId: 'acc-64-perf', accountPass: 'pass4567' },
-    { id: 105, companyId: 65, industryType: 'general', contractPlan: 'performance', jobMedia: '求人ボックス', contractStartDate: new Date('2025-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 55000, performanceFee: 70000, salesStaffId: 5, operationStaffId: 6, status: 'active', note: '成果報酬テスト（企業65・一般・求人ボックス）', operationStatus: null as string | null, accountId: 'acc-65-perf', accountPass: 'pass5678' },
+    { id: 101, companyId: 61, industryType: 'general', contractPlan: 'performance', jobMedia: 'Airワーク', contractStartDate: new Date('2026-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 50000, performanceFee: 80000, salesStaffId: 1, operationStaffId: 2, status: 'active', note: '成果報酬テスト（企業61）', operationStatus: null as string | null, accountId: 'acc-61-perf', accountPass: 'pass1234' },
+    { id: 102, companyId: 62, industryType: 'dispatch', contractPlan: 'performance', jobMedia: '求人ボックス', contractStartDate: new Date('2026-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 40000, performanceFee: 60000, salesStaffId: 2, operationStaffId: 3, status: 'active', note: '成果報酬テスト（企業62）', operationStatus: null as string | null, accountId: 'acc-62-perf', accountPass: 'pass2345' },
+    { id: 103, companyId: 63, industryType: 'general', contractPlan: 'performance', jobMedia: 'Wantedly', contractStartDate: new Date('2026-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 60000, performanceFee: 100000, salesStaffId: 3, operationStaffId: 4, status: 'active', note: '成果報酬テスト（企業63）', operationStatus: null as string | null, accountId: 'acc-63-perf', accountPass: 'pass3456' },
+    { id: 104, companyId: 64, industryType: 'dispatch', contractPlan: 'performance', jobMedia: 'Airワーク', contractStartDate: new Date('2026-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 45000, performanceFee: 50000, salesStaffId: 4, operationStaffId: 5, status: 'active', note: '成果報酬テスト（企業64）', operationStatus: null as string | null, accountId: 'acc-64-perf', accountPass: 'pass4567' },
+    { id: 105, companyId: 65, industryType: 'general', contractPlan: 'performance', jobMedia: '求人ボックス', contractStartDate: new Date('2026-01-01'), contractEndDate: null as Date | null, initialFee: 0, monthlyFee: 55000, performanceFee: 70000, salesStaffId: 5, operationStaffId: 6, status: 'active', note: '成果報酬テスト（企業65）', operationStatus: null as string | null, accountId: 'acc-65-perf', accountPass: 'pass5678' },
   ];
   await prisma.stpContractHistory.createMany({ data: perfContractHistories });
   console.log('✓ Performance fee contract histories (5)');
 
   // ============================================
-  // 11. 契約書管理 (40件) + ステータス履歴 (80件)
+  // 11. 契約書管理 (40件) + ステータス履歴
   // ============================================
 
   const contractTypes = ['基本契約', '秘密保持契約', '業務委託契約', '保守契約', 'SLA契約'];
   const masterContractData = [];
   for (let i = 1; i <= 40; i++) {
-    const projectId = i <= 20 ? 1 : i <= 32 ? 2 : 3; // STP:20, SRD:12, SLO:8
+    const projectId = i <= 20 ? 1 : i <= 32 ? 2 : 3;
     const companyId = randomInt(1, 100);
     const statusId = randomInt(1, 8);
     const isActive = statusId === 7;
-    const startDate = randomDate(new Date('2024-06-01'), new Date('2026-01-01'));
+    const startDate = randomDate(new Date('2026-01-01'), new Date('2026-03-01'));
     masterContractData.push({
       id: i,
       companyId,
@@ -997,10 +1150,10 @@ async function main() {
       contractType: randomChoice(contractTypes),
       title: `${companyNames[companyId - 1]} ${randomChoice(contractTypes)}`,
       startDate,
-      endDate: isActive ? randomDate(startDate, new Date('2027-03-31')) : null,
+      endDate: isActive ? randomDate(startDate, new Date('2027-06-30')) : null,
       currentStatusId: statusId,
-      targetDate: statusId < 7 ? randomDate(new Date('2026-02-01'), new Date('2026-06-30')) : null,
-      signedDate: statusId >= 7 ? randomDate(startDate, new Date('2026-01-31')) : null,
+      targetDate: statusId < 7 ? randomDate(new Date('2026-03-01'), new Date('2026-06-30')) : null,
+      signedDate: statusId >= 7 ? randomDate(startDate, new Date('2026-03-04')) : null,
       isActive,
       signingMethod: randomChoice(['cloudsign', 'paper', 'cloudsign']),
       assignedTo: randomChoice(staffNames),
@@ -1010,31 +1163,30 @@ async function main() {
   await prisma.masterContract.createMany({ data: masterContractData });
   console.log('✓ Master contracts (40)');
 
-  // 契約書ステータス変更履歴
   const statusHistoryData = [];
-  let shId = 0;
+  let statusHistId = 0;
   for (let contractId = 1; contractId <= 40; contractId++) {
     const numHistory = randomInt(1, 3);
     let prevStatusId: number | null = null;
     for (let j = 0; j < numHistory; j++) {
-      shId++;
+      statusHistId++;
       const toStatusId: number = prevStatusId !== null ? Math.min(prevStatusId + randomInt(1, 2), 8) : randomInt(1, 3);
       statusHistoryData.push({
-        id: shId,
+        id: statusHistId,
         contractId,
         eventType: prevStatusId === null ? 'created' : 'status_changed',
         fromStatusId: prevStatusId,
         toStatusId,
-        targetDate: randomDate(new Date('2026-02-01'), new Date('2026-06-30')),
+        targetDate: randomDate(new Date('2026-03-01'), new Date('2026-06-30')),
         changedBy: randomChoice(staffNames),
         note: prevStatusId === null ? '契約書作成' : 'ステータス更新',
-        recordedAt: randomDate(new Date('2025-06-01'), new Date('2026-01-31')),
+        recordedAt: randomDate(new Date('2026-01-01'), new Date('2026-03-04')),
       });
       prevStatusId = toStatusId;
     }
   }
   await prisma.masterContractStatusHistory.createMany({ data: statusHistoryData });
-  console.log(`✓ Contract status histories (${shId})`);
+  console.log(`✓ Contract status histories (${statusHistId})`);
 
   // ============================================
   // 12. 登録トークン (8件) + デフォルトビュー
@@ -1042,7 +1194,6 @@ async function main() {
 
   const registrationTokenData = [];
   const tokenDefaultViewData: { registrationTokenId: number; displayViewId: number }[] = [];
-  // 5件: クライアント企業向け (companies 1-5)
   for (let i = 1; i <= 5; i++) {
     registrationTokenData.push({
       id: i,
@@ -1050,30 +1201,29 @@ async function main() {
       companyId: i,
       name: `${companyNames[i - 1]}向けトークン`,
       note: 'クライアント向け登録トークン',
-      expiresAt: new Date('2026-06-30'),
+      expiresAt: new Date('2026-09-30'),
       maxUses: 3,
       useCount: randomInt(0, 2),
       status: 'active',
-      issuedBy: 10, // 管理者
+      issuedBy: 10,
     });
-    tokenDefaultViewData.push({ registrationTokenId: i, displayViewId: 1 }); // stp_client
+    tokenDefaultViewData.push({ registrationTokenId: i, displayViewId: 1 });
   }
-  // 3件: 代理店向け (companies 81-83)
   for (let i = 6; i <= 8; i++) {
-    const companyId = 75 + i; // 81, 82, 83
+    const companyId = 75 + i;
     registrationTokenData.push({
       id: i,
       token: generateToken(),
       companyId,
       name: `${companyNames[companyId - 1]}向けトークン`,
       note: '代理店向け登録トークン',
-      expiresAt: new Date('2026-06-30'),
+      expiresAt: new Date('2026-09-30'),
       maxUses: 5,
       useCount: randomInt(0, 3),
       status: 'active',
       issuedBy: 10,
     });
-    tokenDefaultViewData.push({ registrationTokenId: i, displayViewId: 2 }); // stp_agent
+    tokenDefaultViewData.push({ registrationTokenId: i, displayViewId: 2 });
   }
   await prisma.registrationToken.createMany({ data: registrationTokenData });
   await prisma.registrationTokenDefaultView.createMany({ data: tokenDefaultViewData });
@@ -1086,7 +1236,6 @@ async function main() {
   const externalUserData = [];
   const displayPermData: { externalUserId: number; displayViewId: number }[] = [];
 
-  // 5件: 代理店ユーザー (companies 81-85, contacts 171-175)
   for (let i = 1; i <= 5; i++) {
     const companyId = 80 + i;
     const contactId = primaryContactId(companyId);
@@ -1094,24 +1243,23 @@ async function main() {
     externalUserData.push({
       id: i,
       companyId,
-      registrationTokenId: i <= 3 ? i + 5 : null, // tokens 6-8
+      registrationTokenId: i <= 3 ? i + 5 : null,
       contactId,
       name: `代理店ユーザー${i}`,
       position: randomChoice(['代表取締役', '営業部長', '営業担当']),
       email: `agent-user${i}@external.co.jp`,
       passwordHash: DEFAULT_PASSWORD_HASH,
       status,
-      emailVerifiedAt: status !== 'pending_email' ? new Date('2026-01-15') : null,
-      approvedAt: status === 'active' ? new Date('2026-01-16') : null,
+      emailVerifiedAt: status !== 'pending_email' ? new Date('2026-02-01') : null,
+      approvedAt: status === 'active' ? new Date('2026-02-02') : null,
       approvedBy: status === 'active' ? 10 : null,
-      lastLoginAt: status === 'active' ? randomDate(new Date('2026-01-20'), new Date('2026-02-04')) : null,
+      lastLoginAt: status === 'active' ? randomDate(new Date('2026-02-15'), new Date('2026-03-04')) : null,
     });
-    displayPermData.push({ externalUserId: i, displayViewId: 2 }); // stp_agent
+    displayPermData.push({ externalUserId: i, displayViewId: 2 });
   }
 
-  // 10件: クライアントユーザー (companies 1-10, primary contacts)
   for (let i = 6; i <= 15; i++) {
-    const companyId = i - 5; // 1-10
+    const companyId = i - 5;
     const contactId = primaryContactId(companyId);
     const status: string = i <= 12 ? 'active' : i <= 14 ? 'pending_approval' : 'pending_email';
     externalUserData.push({
@@ -1124,12 +1272,12 @@ async function main() {
       email: `client-user${i - 5}@external.co.jp`,
       passwordHash: DEFAULT_PASSWORD_HASH,
       status,
-      emailVerifiedAt: status !== 'pending_email' ? new Date('2026-01-10') : null,
-      approvedAt: status === 'active' ? new Date('2026-01-12') : null,
+      emailVerifiedAt: status !== 'pending_email' ? new Date('2026-01-20') : null,
+      approvedAt: status === 'active' ? new Date('2026-01-22') : null,
       approvedBy: status === 'active' ? 10 : null,
-      lastLoginAt: status === 'active' ? randomDate(new Date('2026-01-15'), new Date('2026-02-04')) : null,
+      lastLoginAt: status === 'active' ? randomDate(new Date('2026-02-01'), new Date('2026-03-04')) : null,
     });
-    displayPermData.push({ externalUserId: i, displayViewId: 1 }); // stp_client
+    displayPermData.push({ externalUserId: i, displayViewId: 1 });
   }
 
   await prisma.externalUser.createMany({ data: externalUserData });
@@ -1145,9 +1293,9 @@ async function main() {
     leadTokenData.push({
       id: i,
       token: generateToken(),
-      agentId: i, // Agent 1-15
+      agentId: i,
       status: i <= 12 ? 'active' : i <= 14 ? 'paused' : 'revoked',
-      expiresAt: i <= 12 ? new Date('2027-03-31') : new Date('2026-01-01'),
+      expiresAt: i <= 12 ? new Date('2027-06-30') : new Date('2026-01-01'),
     });
   }
   await prisma.stpLeadFormToken.createMany({ data: leadTokenData });
@@ -1157,7 +1305,7 @@ async function main() {
   const prefectureList = ['東京都', '大阪府', '愛知県', '神奈川県', '福岡県', '北海道', '宮城県', '広島県', '京都府', '兵庫県'];
   const submissionData = [];
   for (let i = 1; i <= 25; i++) {
-    const tokenId = ((i - 1) % 12) + 1; // Token 1-12 (active tokens)
+    const tokenId = ((i - 1) % 12) + 1;
     const status = i <= 15 ? 'processed' : i <= 22 ? 'pending' : 'rejected';
     const selectedJobs = [randomChoice(jobTypes), randomChoice(jobTypes)];
     const desiredJobs = [randomChoice(jobTypes)];
@@ -1184,10 +1332,10 @@ async function main() {
       requiredConditions: Math.random() > 0.5 ? '普通自動車免許' : null,
       preferredConditions: Math.random() > 0.5 ? '業界経験3年以上' : null,
       status,
-      processedAt: status === 'processed' ? randomDate(new Date('2026-01-01'), new Date('2026-01-31')) : null,
+      processedAt: status === 'processed' ? randomDate(new Date('2026-01-15'), new Date('2026-03-04')) : null,
       processedBy: status === 'processed' ? randomInt(1, 10) : null,
       processingNote: status === 'rejected' ? '重複データのため不受理' : null,
-      submittedAt: randomDate(new Date('2025-10-01'), new Date('2026-01-31')),
+      submittedAt: randomDate(new Date('2026-01-01'), new Date('2026-03-04')),
     });
   }
   await prisma.stpLeadFormSubmission.createMany({ data: submissionData });
@@ -1203,14 +1351,14 @@ async function main() {
     const status = randomChoice(['draft', 'sent', 'viewed', 'accepted', 'rejected'] as const);
     proposalData.push({
       id: i,
-      stpCompanyId: i <= 15 ? randomInt(36, 70) : null, // 提案中〜受注のSTP企業
-      submissionId: isAutoGenerated ? ((i - 1) % 15) + 1 : null, // processed submissions
+      stpCompanyId: i <= 15 ? randomInt(36, 70) : null,
+      submissionId: isAutoGenerated ? ((i - 1) % 15) + 1 : null,
       title: `提案書_${isAutoGenerated ? 'フォーム自動' : '手動作成'}_${i}`,
       proposalNumber: `PROP-${String(i).padStart(4, '0')}`,
       externalUrl: Math.random() > 0.5 ? `https://canva.com/design/proposal-${i}` : null,
       externalService: Math.random() > 0.5 ? 'canva' : null,
       status,
-      sentAt: ['sent', 'viewed', 'accepted'].includes(status) ? randomDate(new Date('2026-01-01'), new Date('2026-01-31')) : null,
+      sentAt: ['sent', 'viewed', 'accepted'].includes(status) ? randomDate(new Date('2026-01-15'), new Date('2026-03-04')) : null,
       assignedTo: randomChoice(staffNames),
       note: isAutoGenerated ? 'フォーム回答から自動生成' : '営業担当が手動作成',
       isAutoGenerated,
@@ -1238,14 +1386,13 @@ async function main() {
   console.log('✓ Short URLs (15)');
 
   // ============================================
-  // 17. KPIシート (12件) + 週次データ (~72件) + 共有リンク (8件)
+  // 17. KPIシート (12件) + 週次データ + 共有リンク
   // ============================================
 
-  // 受注ステージ (id 61-70) と見積提示 (id 51-60) の企業にKPIシート
   const kpiSheetData = [];
   const kpiMediaNames = ['Airワーク', 'Wantedly', '求人ボックス'];
   for (let i = 1; i <= 12; i++) {
-    const stpCompanyId = 50 + i; // companies 51-62
+    const stpCompanyId = i <= 7 ? i : 7 + i; // 運用中/運用準備の企業
     kpiSheetData.push({
       id: i,
       stpCompanyId,
@@ -1255,10 +1402,10 @@ async function main() {
   await prisma.stpKpiSheet.createMany({ data: kpiSheetData });
   console.log('✓ KPI sheets (12)');
 
-  // 週次データ (6週間 × 12シート = 72件)
+  // 週次データ (6週間 × 12シート)
   const weeklyData = [];
   let wdId = 0;
-  const baseDate = new Date('2025-12-29'); // 月曜始まり
+  const baseDate = new Date('2026-01-26'); // 月曜始まり
   for (let sheetId = 1; sheetId <= 12; sheetId++) {
     for (let week = 0; week < 6; week++) {
       wdId++;
@@ -1285,7 +1432,6 @@ async function main() {
         targetCvr: Number(((tApps / tClicks) * 100).toFixed(2)),
         targetCpc: Number((tCost / tClicks).toFixed(2)),
         targetCpa: Number((tCost / tApps).toFixed(2)),
-        // 実績（最新週はnull=未入力）
         actualImpressions: week < 5 ? randomInt(Math.floor(tImpressions * 0.7), Math.floor(tImpressions * 1.3)) : null,
         actualClicks: week < 5 ? randomInt(Math.floor(tClicks * 0.7), Math.floor(tClicks * 1.3)) : null,
         actualApplications: week < 5 ? randomInt(Math.floor(tApps * 0.5), Math.floor(tApps * 1.5)) : null,
@@ -1296,14 +1442,14 @@ async function main() {
   await prisma.stpKpiWeeklyData.createMany({ data: weeklyData });
   console.log(`✓ KPI weekly data (${wdId})`);
 
-  // KPI共有リンク (8件)
+  // KPI共有リンク
   const shareLinkData = [];
   for (let i = 1; i <= 8; i++) {
     shareLinkData.push({
       id: i,
-      kpiSheetId: i, // sheets 1-8
+      kpiSheetId: i,
       token: generateToken(),
-      expiresAt: new Date('2026-03-31'),
+      expiresAt: new Date('2026-06-30'),
       createdBy: randomInt(1, 10),
     });
   }
@@ -1311,10 +1457,48 @@ async function main() {
   console.log('✓ KPI share links (8)');
 
   // ============================================
-  // 18. スタッフ役割種別 + 担当者フィールド制約
+  // 18. KPI月次目標（部門KPIダッシュボード用）
   // ============================================
 
-  // スタッフ役割種別（本番では管理画面から登録するが、初期データとしてASを作成）
+  const kpiTargetData = [];
+  const kpiMonths = ['2026-01', '2026-02', '2026-03'];
+  const kpiTargets: Record<string, number> = {
+    // KGI
+    monthly_revenue: 50000000,
+    monthly_gross_profit: 20000000,
+    new_contracts: 10,
+    fixed_cost: 30000000,
+    monthly_leads: 30,
+    // Alliance部
+    alliance_valid_leads: 15,
+    alliance_meetings: 10,
+    alliance_sql_rate: 60,
+    // Sales部
+    sales_close_rate: 50,
+    sales_new_contracts: 5,
+    sales_meeting_to_contract_lt: 35,
+    // バックオフィス部
+    bo_operation_start_lt: 30,
+    bo_collection_delay_rate: 5,
+    bo_payment_lt: 45,
+  };
+
+  for (const month of kpiMonths) {
+    for (const [key, value] of Object.entries(kpiTargets)) {
+      kpiTargetData.push({
+        yearMonth: month,
+        kpiKey: key,
+        targetValue: value,
+      });
+    }
+  }
+  await prisma.kpiMonthlyTarget.createMany({ data: kpiTargetData });
+  console.log(`✓ KPI monthly targets (${kpiTargetData.length})`);
+
+  // ============================================
+  // 19. スタッフ役割種別 + 担当者フィールド制約
+  // ============================================
+
   await prisma.staffRoleType.createMany({
     data: [
       { id: 1, code: 'AS', name: 'AS', description: 'アカウントサポート', displayOrder: 1 },
@@ -1322,7 +1506,6 @@ async function main() {
   });
   console.log('✓ Staff role types (1): AS');
 
-  // 担当者フィールド制約の初期データ（全顧客マスタ担当者 = AS役割）
   const asRole = await prisma.staffRoleType.findFirst({ where: { name: 'AS' } });
   if (asRole) {
     await prisma.staffFieldRestriction.deleteMany({
@@ -1348,8 +1531,8 @@ async function main() {
   // サマリー
   // ============================================
 
-  console.log('\n=== Seed Summary ===');
-  console.log('Projects: 5 (Stella, Common, STP, SRD, SLO)');
+  console.log('\n=== Seed Summary (2026-01~) ===');
+  console.log('Projects: 6 (Stella, Common, STP, SRD, SLO, Accounting)');
   console.log('Staff: 13 members (10 test + 3 system admin)');
   console.log('Companies: 100 (1-80: STP clients, 81-100: agents)');
   console.log('Locations: ~200, Contacts: ~200');
@@ -1358,24 +1541,21 @@ async function main() {
   console.log(`Agent contract histories: ${achId} (commission terms)`);
   console.log(`Agent commission overrides: ${overrideData.length}`);
   console.log('Candidates: 20 (5 with performance fee matching)');
-  console.log('STP Companies: 80');
-  console.log('STP Company contracts: 120');
-  console.log('Contact histories: 200');
-  console.log('Stage histories: 150');
+  console.log('STP Companies: 80 (with leadValidity for KPI)');
+  console.log(`STP Company contracts: ${contractIdx} (23 with KPI-deterministic signedDate)`);
+  console.log(`Contact histories: ${chId} (62 KPI-deterministic + random)`);
+  console.log(`Stage histories: ${shId} (7 KPI-deterministic transitions + random)`);
   console.log('Contract histories: 105 (100 random + 5 perf fee test)');
+  console.log(`KPI monthly targets: ${kpiTargetData.length} (Jan/Feb/Mar 2026)`);
+  console.log('');
+  console.log('=== 部門KPI想定値 (2026-03) ===');
+  console.log('Alliance: 有効リード8/15件, 商談5件, SQL率53.3%');
+  console.log('Sales: 新規契約3件, 成約率60%, 商談→契約LT ~31日');
+  console.log('BackOffice: 運用開始LT ~25日');
+  console.log('');
   console.log('※ 成果報酬の売上・経費は「一括生成」ボタンで生成してください');
-  console.log('Master contracts: 40 + status histories');
-  console.log('External users: 15');
-  console.log('Registration tokens: 8');
-  console.log('Lead form tokens: 15, Submissions: 25');
-  console.log('Proposals: 20');
-  console.log('Short URLs: 15');
-  console.log('KPI sheets: 12, Weekly data: 72, Share links: 8');
-  console.log('Staff role types: 1 (AS)');
-  console.log('Staff field restrictions: 1 (MASTER_COMPANY_STAFF → AS)');
-  console.log('\nLogin (test): admin@example.com / password123');
+  console.log('Login (test): admin@example.com / password123');
   console.log('Login (system): loginId "admin", "test_user", or "stella001"');
-  console.log('Login (master data edit): loginId "stella001" (固定データ編集権限あり)');
   console.log('Seed completed successfully!');
 }
 

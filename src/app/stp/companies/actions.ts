@@ -165,6 +165,11 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
     updateData.leadAcquiredDate = data.leadAcquiredDate ? new Date(data.leadAcquiredDate as string) : null;
   }
 
+  // リード有効性
+  if ("leadValidity" in data) {
+    updateData.leadValidity = (data.leadValidity as string) || null;
+  }
+
   // ヨミ
   if ("forecast" in data) {
     updateData.forecast = (data.forecast as string) || null;

@@ -202,6 +202,7 @@ export default async function StpCompaniesPage() {
     companyName: c.company.name,
     note: c.note,
     leadAcquiredDate: c.leadAcquiredDate?.toISOString(),
+    leadValidity: c.leadValidity,
     // 最終接触日（接触履歴の最新日時）
     latestContactDate: companyContactHistories.length > 0
       ? companyContactHistories[0].contactDate.toISOString()

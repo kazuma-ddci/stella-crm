@@ -311,6 +311,7 @@ model StpCompany {
 
   // 日付情報
   leadAcquiredDate     DateTime? @db.Date                  // リード獲得日
+  leadValidity         String?   @db.VarChar(20)           // リード有効性（"有効" or null）
   meetingDate          DateTime? @db.Date                  // 初回商談日
   firstKoDate          DateTime? @db.Date                  // 初回KO日
   jobPostingStartDate  String?   @db.VarChar(100)          // 求人掲載開始日（テキスト入力）
@@ -3336,4 +3337,36 @@ model InboundInvoice {
   processor          MasterStaff?         @relation("InboundInvoiceProcessor", fields: [processedBy], references: [id])
 
   @@unique([messageId, attachmentIndex])
+}
+
+// ============================================
+// KPI月次目標 (KPI Monthly Targets)
+// 各月のKPI目標値を管理
+// ============================================
+
+model KpiMonthlyTarget {
+  id          Int      @id @default(autoincrement())
+  yearMonth   String   @db.VarChar(7)     // "2026-03"
+  kpiKey      String   @db.VarChar(50)    // "monthly_revenue", "monthly_gross_profit", "new_contracts", "fixed_cost"
+  targetValue Int                          // 目標値（円 or 件数）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([yearMonth, kpiKey])
+  @@map("kpi_monthly_targets")
+}
+
+// ============================================
+// USDT日次レート (USDT Daily Rates)
+// CoinGecko APIから取得したUSDT/JPYレートを日次で管理
+// ============================================
+
+model UsdtDailyRate {
+  id        Int      @id @default(autoincrement())
+  date      DateTime @unique @db.Date     // その日の日付（YYYY-MM-DD）
+  rate      Decimal  @db.Decimal(12, 4)   // USDT→JPYレート（例: 149.8500）
+  source    String   @default("coingecko") @db.VarChar(50) // データ取得元
+  createdAt DateTime @default(now())
+
+  @@map("usdt_daily_rates")
 }
