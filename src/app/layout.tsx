@@ -4,6 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
 import { PermissionGuard } from "@/components/auth/permission-guard";
 import { AuthenticatedLayout } from "@/components/layout/authenticated-layout";
 
@@ -30,6 +31,24 @@ export default async function RootLayout({
   const session = await auth();
   const user = session?.user;
 
+  // サイドバー設定をDBから取得
+  let hiddenItems: string[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userId = (user as any)?.id as number | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userType = (user as any)?.userType;
+  if (userId && userType === "staff") {
+    try {
+      const pref = await prisma.staffSidebarPreference.findUnique({
+        where: { staffId: userId },
+        select: { hiddenItems: true },
+      });
+      hiddenItems = pref?.hiddenItems ?? [];
+    } catch {
+      // DBエラー時は空のまま
+    }
+  }
+
   return (
     <html lang="ja">
       <body
@@ -38,7 +57,7 @@ export default async function RootLayout({
         <SessionProvider refetchInterval={30}>
           <PermissionGuard />
           {user ? (
-            <AuthenticatedLayout serverUser={user}>
+            <AuthenticatedLayout serverUser={user} hiddenItems={hiddenItems}>
               {children}
             </AuthenticatedLayout>
           ) : (

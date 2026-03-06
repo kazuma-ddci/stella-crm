@@ -2,10 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 
 export async function addCustomerType(data: Record<string, unknown>) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   const projectId = Number(data.projectId);
 
   // 同プロジェクト内の最大表示順を取得して+1
@@ -27,7 +27,7 @@ export async function addCustomerType(data: Record<string, unknown>) {
 }
 
 export async function updateCustomerType(id: number, data: Record<string, unknown>) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   const updateData: Record<string, unknown> = {};
   if ("projectId" in data) updateData.projectId = Number(data.projectId);
   if ("name" in data) updateData.name = data.name as string;
@@ -43,7 +43,7 @@ export async function updateCustomerType(id: number, data: Record<string, unknow
 }
 
 export async function deleteCustomerType(id: number) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   await prisma.customerType.delete({
     where: { id },
   });
@@ -51,7 +51,7 @@ export async function deleteCustomerType(id: number) {
 }
 
 export async function reorderCustomerTypes(orderedIds: number[]) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   // グループごとに表示順を更新
   // orderedIdsは既にグループ内でソートされている前提
 

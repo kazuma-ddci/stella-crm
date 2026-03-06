@@ -14,6 +14,7 @@ import type { SessionUser } from "@/types/auth";
 interface AuthenticatedLayoutProps {
   serverUser: SessionUser;
   children: React.ReactNode;
+  hiddenItems?: string[];
 }
 
 /**
@@ -25,6 +26,7 @@ interface AuthenticatedLayoutProps {
 export function AuthenticatedLayout({
   serverUser,
   children,
+  hiddenItems,
 }: AuthenticatedLayoutProps) {
   const { status } = useSession();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -90,6 +92,7 @@ export function AuthenticatedLayout({
           user={serverUser}
           collapsed={sidebarCollapsed}
           onToggleCollapse={toggleSidebar}
+          hiddenItems={hiddenItems}
         />
 
         {/* モバイル: ドロワーサイドバー */}
@@ -104,6 +107,7 @@ export function AuthenticatedLayout({
             <SidebarContent
               user={serverUser}
               onNavigate={() => setMobileMenuOpen(false)}
+              hiddenItems={hiddenItems}
             />
           </SheetContent>
         </Sheet>

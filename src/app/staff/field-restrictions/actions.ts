@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 import type { AssignableFieldCode } from "@/lib/staff/assignable-fields";
 
 export async function saveFieldRestrictions(
@@ -10,7 +10,7 @@ export async function saveFieldRestrictions(
   projectIds: number[],
   roleTypeIds: number[],
 ) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
 
   // 既存の制約を全削除して再作成
   await prisma.staffFieldRestriction.deleteMany({

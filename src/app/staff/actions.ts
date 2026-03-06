@@ -5,7 +5,7 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { sendStaffInviteEmail } from "@/lib/email";
 import { auth } from "@/auth";
-import type { UserPermission } from "@/types/auth";
+import type { UserPermission, OrganizationRole } from "@/types/auth";
 
 const PERM_PREFIX = "perm_";
 
@@ -14,38 +14,40 @@ const PERM_LEVEL_ORDER: Record<string, number> = {
   none: 0,
   view: 1,
   edit: 2,
-  admin: 3,
+  manager: 3,
 };
 
 /**
  * 現在のユーザーが権限変更可能なプロジェクトと天井レベルのリストを返す
- * - Stella管理者: 全プロジェクト maxLevel="admin"
- * - その他: edit以上のプロジェクトのみ、maxLevel=自分のレベル
+ * - admin/founder → 全PJ、maxLevel="manager"
+ * - manager → 自PJのみ、maxLevel="edit"（managerは付与不可）
+ * - edit以下 → 空配列（スタッフ管理不可）
  */
 export async function getEditableProjects(): Promise<{ code: string; maxLevel: string }[]> {
   const session = await auth();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const permissions = ((session?.user as any)?.permissions ?? []) as UserPermission[];
+  const user = session?.user as any;
+  const permissions = (user?.permissions ?? []) as UserPermission[];
+  const loginId = user?.loginId as string | null;
+  const organizationRole = (user?.organizationRole ?? "member") as string;
 
-  const isStellaAdmin = permissions.some(
-    (p) => p.projectCode === "stella" && p.permissionLevel === "admin"
-  );
+  const isAdminUser = loginId === "admin";
+  const isFounder = organizationRole === "founder";
 
-  if (isStellaAdmin) {
+  // admin or founder → 全PJ、maxLevel="manager"
+  if (isAdminUser || isFounder) {
     const allProjects = await prisma.masterProject.findMany({
       where: { isActive: true },
       select: { code: true },
     });
-    return [
-      { code: "stella", maxLevel: "admin" },
-      ...allProjects.map((p) => ({ code: p.code, maxLevel: "admin" })),
-    ];
+    return allProjects.map((p) => ({ code: p.code, maxLevel: "manager" }));
   }
 
-  // edit以上のプロジェクトのみ返す、maxLevel=自分のレベル（stellaは除外）
+  // manager → 自PJのみ、maxLevel="edit"（managerは付与不可）
+  // edit以下 → 空配列
   return permissions
-    .filter((p) => p.projectCode !== "stella" && (p.permissionLevel === "edit" || p.permissionLevel === "admin"))
-    .map((p) => ({ code: p.projectCode, maxLevel: p.permissionLevel }));
+    .filter((p) => p.permissionLevel === "manager")
+    .map((p) => ({ code: p.projectCode, maxLevel: "edit" }));
 }
 
 /** getEditableProjects からコードのみ抽出（後方互換ヘルパー） */
@@ -57,24 +59,14 @@ async function getEditableProjectCodes(): Promise<string[]> {
 /** 天井バリデーション: 指定されたpermissionLevelがmaxLevel以下であることを検証 */
 function validatePermissionCeiling(
   editableProjects: { code: string; maxLevel: string }[],
-  data: Record<string, unknown>,
-  stellaPermission: string
+  data: Record<string, unknown>
 ) {
   const projectMap = new Map(editableProjects.map((p) => [p.code, p.maxLevel]));
-
-  // stella権限のチェック
-  if (stellaPermission !== "none") {
-    const stellaMax = projectMap.get("stella");
-    if (!stellaMax || (PERM_LEVEL_ORDER[stellaPermission] ?? 0) > (PERM_LEVEL_ORDER[stellaMax] ?? 0)) {
-      throw new Error("自分の権限レベルを超える権限は設定できません");
-    }
-  }
 
   // プロジェクト権限のチェック
   for (const [key, value] of Object.entries(data)) {
     if (key.startsWith(PERM_PREFIX) && typeof value === "string" && value !== "none") {
       const projectCode = key.slice(PERM_PREFIX.length);
-      if (projectCode === "stella") continue;
       const maxLevel = projectMap.get(projectCode);
       if (!maxLevel || (PERM_LEVEL_ORDER[value] ?? 0) > (PERM_LEVEL_ORDER[maxLevel] ?? 0)) {
         throw new Error("自分の権限レベルを超える権限は設定できません");
@@ -84,13 +76,12 @@ function validatePermissionCeiling(
 }
 
 /**
- * Stella権限（固定）+ プロジェクト権限（perm_xxx キーから動的取得）を構築
+ * プロジェクト権限（perm_xxx キーから動的取得）を構築
  * projectCode → projectId の変換を行う
  */
 async function buildPermissions(
   staffId: number,
-  data: Record<string, unknown>,
-  stellaPermission: string
+  data: Record<string, unknown>
 ) {
   const permissions: { staffId: number; projectId: number; permissionLevel: string }[] = [];
 
@@ -100,17 +91,10 @@ async function buildPermissions(
   });
   const codeToId = new Map(allProjects.map((p) => [p.code, p.id]));
 
-  // Stella権限（固定）
-  const stellaId = codeToId.get("stella");
-  if (stellaPermission && stellaPermission !== "none" && stellaId) {
-    permissions.push({ staffId, projectId: stellaId, permissionLevel: stellaPermission });
-  }
-
-  // プロジェクト権限（perm_xxx キーから動的取得、stellaは上で処理済みなのでスキップ）
+  // プロジェクト権限（perm_xxx キーから動的取得）
   for (const [key, value] of Object.entries(data)) {
     if (key.startsWith(PERM_PREFIX) && typeof value === "string" && value !== "none") {
       const projectCode = key.slice(PERM_PREFIX.length);
-      if (projectCode === "stella") continue;
       const projectId = codeToId.get(projectCode);
       if (projectId) {
         permissions.push({ staffId, projectId, permissionLevel: value });
@@ -126,11 +110,21 @@ export async function addStaff(data: Record<string, unknown>) {
   const projectIds = (data.projectIds as string[]) || [];
   const editableProjectsList = await getEditableProjects();
   const editableCodes = editableProjectsList.map((p) => p.code);
-  const canEditStella = editableCodes.includes("stella");
-  const stellaPermission = canEditStella ? ((data.stellaPermission as string) || "none") : "none";
 
   // 天井バリデーション
-  validatePermissionCeiling(editableProjectsList, data, stellaPermission);
+  validatePermissionCeiling(editableProjectsList, data);
+
+  // organizationRole の設定（admin/founderのみ設定可能）
+  const session = await auth();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const currentUser = session?.user as any;
+  const isAdminUser = currentUser?.loginId === "admin";
+  const isFounder = currentUser?.organizationRole === "founder";
+  const requestedRole = (data.organizationRole as string) || "member";
+  // founderの設定はadminのみ可能
+  const organizationRole = (requestedRole === "founder" && !isAdminUser)
+    ? "member"
+    : (isAdminUser || isFounder) ? requestedRole : "member";
 
   const staff = await prisma.masterStaff.create({
     data: {
@@ -139,7 +133,8 @@ export async function addStaff(data: Record<string, unknown>) {
       email: (data.email as string) || null,
       phone: (data.phone as string) || null,
       contractType: (data.contractType as string) || null,
-      isActive: data.isActive !== false && data.isActive !== "false", // デフォルトで有効
+      isActive: data.isActive !== false && data.isActive !== "false",
+      organizationRole,
     },
   });
 
@@ -165,7 +160,7 @@ export async function addStaff(data: Record<string, unknown>) {
 
   // 権限を設定（編集可能なプロジェクトのみ）
   if (editableCodes.length > 0) {
-    const allPermissions = await buildPermissions(staff.id, data, stellaPermission);
+    const allPermissions = await buildPermissions(staff.id, data);
     // editableCodes は projectCode ベースなので、projectId→code の逆引きが必要
     const allProjects = await prisma.masterProject.findMany({ select: { id: true, code: true } });
     const idToCode = new Map(allProjects.map((p) => [p.id, p.code]));
@@ -195,6 +190,24 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
   if ("phone" in data) updateData.phone = (data.phone as string) || null;
   if ("contractType" in data) updateData.contractType = (data.contractType as string) || null;
   if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+
+  // organizationRole の更新
+  if ("organizationRole" in data) {
+    const session = await auth();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const currentUser = session?.user as any;
+    const isAdminUser = currentUser?.loginId === "admin";
+    const isFounder = currentUser?.organizationRole === "founder";
+    const requestedRole = data.organizationRole as string;
+    // founderの設定はadminのみ可能、memberへの変更はadmin/founderのみ
+    if (isAdminUser || isFounder) {
+      if (requestedRole === "founder" && !isAdminUser) {
+        // founderはadminのみ
+      } else {
+        updateData.organizationRole = requestedRole;
+      }
+    }
+  }
 
   if (Object.keys(updateData).length > 0) {
     await prisma.masterStaff.update({
@@ -236,12 +249,9 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
   }
 
   // 権限を更新（権限関連キーが渡された場合のみ）
-  const hasPermissionChange = "stellaPermission" in data ||
-    Object.keys(data).some((k) => k.startsWith(PERM_PREFIX));
+  const hasPermissionChange = Object.keys(data).some((k) => k.startsWith(PERM_PREFIX));
 
   if (hasPermissionChange && editableCodes.length > 0) {
-    const canEditStella = editableCodes.includes("stella");
-
     // editableCodes → editableProjectIds に変換
     const allProjects = await prisma.masterProject.findMany({ select: { id: true, code: true } });
     const codeToId = new Map(allProjects.map((p) => [p.code, p.id]));
@@ -258,16 +268,8 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
     // 送信されたデータと既存データをマージしたフル権限データを構築
     const mergedData: Record<string, unknown> = { ...data };
 
-    // stellaPermission: 送信されていなければ既存値を保持
-    if (!("stellaPermission" in data) && canEditStella) {
-      const stellaId = codeToId.get("stella");
-      const existingStella = existingPermissions.find((p) => p.projectId === stellaId);
-      mergedData.stellaPermission = existingStella?.permissionLevel || "none";
-    }
-
     // プロジェクト権限: 送信されていなければ既存値を保持
     for (const code of editableCodes) {
-      if (code === "stella") continue;
       const permKey = `${PERM_PREFIX}${code}`;
       if (!(permKey in data)) {
         const projectId = codeToId.get(code);
@@ -276,10 +278,8 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
       }
     }
 
-    const stellaPermission = canEditStella ? ((mergedData.stellaPermission as string) || "none") : "none";
-
     // 天井バリデーション
-    validatePermissionCeiling(editableProjectsList, mergedData, stellaPermission);
+    validatePermissionCeiling(editableProjectsList, mergedData);
 
     // 編集可能なプロジェクトの権限のみ削除
     await prisma.staffPermission.deleteMany({
@@ -287,7 +287,7 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
     });
 
     // マージ済みデータから権限を再作成
-    const allPermissions = await buildPermissions(id, mergedData, stellaPermission);
+    const allPermissions = await buildPermissions(id, mergedData);
     const permissionsToCreate = allPermissions.filter((p) => {
       const code = idToCode.get(p.projectId);
       return code && editableCodes.includes(code);

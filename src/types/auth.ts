@@ -1,6 +1,9 @@
 // ユーザータイプ
 export type UserType = "staff" | "external";
 
+// 組織ロール
+export type OrganizationRole = "member" | "founder";
+
 // 社内スタッフ用セッション
 export interface SessionUser {
   id: number;
@@ -10,6 +13,7 @@ export interface SessionUser {
   userType: UserType;
   permissions: UserPermission[];
   canEditMasterData: boolean;
+  organizationRole: OrganizationRole;
 }
 
 // 外部ユーザー用セッション情報
@@ -34,12 +38,13 @@ export interface UserPermission {
   permissionLevel: PermissionLevel;
 }
 
-export type PermissionLevel = "none" | "view" | "edit" | "admin";
+export type PermissionLevel = "none" | "view" | "edit" | "manager";
 
 export const PROJECT_CODES = {
   STELLA: "stella",
-  COMMON: "common",
   STP: "stp",
+  SRD: "srd",
+  SLP: "slp",
   ACCOUNTING: "accounting",
 } as const;
 

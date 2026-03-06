@@ -442,13 +442,13 @@ function TemplateField({
 
     // 前後のZWSのみテキストノードを統合
     // 前がZWSのみ && 次がZWSのみ → 片方を残す
-    if (isZwsOnly(prev) && isZwsOnly(next)) {
+    if (prev && next && isZwsOnly(prev) && isZwsOnly(next)) {
       prev.parentNode?.removeChild(prev);
       setCaret(next, 0);
-    } else if (isZwsOnly(prev) && next && next.nodeType === Node.TEXT_NODE) {
+    } else if (prev && isZwsOnly(prev) && next && next.nodeType === Node.TEXT_NODE) {
       prev.parentNode?.removeChild(prev);
       setCaret(next, 0);
-    } else if (isZwsOnly(next) && prev && prev.nodeType === Node.TEXT_NODE) {
+    } else if (next && isZwsOnly(next) && prev && prev.nodeType === Node.TEXT_NODE) {
       next.parentNode?.removeChild(next);
       setCaret(prev, (prev.textContent || "").length);
     } else if (next && next.nodeType === Node.TEXT_NODE) {

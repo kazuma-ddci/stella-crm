@@ -58,21 +58,34 @@ type NavItem = {
   children?: NavItem[];
   requiredProject?: ProjectCode;
   requireAnyEdit?: boolean; // いずれかのプロジェクトでedit以上なら表示
-  adminOnly?: boolean;
+  founderOrManager?: boolean; // founder or manager以上のみ
+  editOrAbove?: boolean; // edit以上のみ
+  key?: string; // サイドバーカスタマイズ用のキー
 };
 
-// 固定データ設定のパス一覧（stella001 + admin権限ユーザー）
-const MASTER_DATA_HREFS = new Set([
+// 共通固定データ設定のパス一覧（stella001 + admin専用）
+const COMMON_MASTER_DATA_HREFS = new Set([
   "/settings/projects",
+  "/settings/contact-methods",
+  "/settings/contract-statuses",
+  "/settings/operating-companies",
+]);
+
+// PJ固有固定データ設定のパス一覧
+const PROJECT_MASTER_DATA_HREFS = new Set([
   "/staff/role-types",
   "/settings/customer-types",
-  "/settings/contact-methods",
   "/settings/contact-categories",
-  "/settings/contract-statuses",
   "/settings/display-views",
   "/settings/lead-sources",
   "/stp/settings/stages",
   "/staff/field-restrictions",
+]);
+
+// 全固定データパス（統合セット）
+const ALL_MASTER_DATA_HREFS = new Set([
+  ...COMMON_MASTER_DATA_HREFS,
+  ...PROJECT_MASTER_DATA_HREFS,
 ]);
 
 // 固定データ設定ナビゲーション（stella001専用レイアウト用）
@@ -106,7 +119,7 @@ function removeMasterDataItems(items: NavItem[]): NavItem[] {
       return item;
     })
     .filter((item) => {
-      if (item.href && MASTER_DATA_HREFS.has(item.href)) {
+      if (item.href && ALL_MASTER_DATA_HREFS.has(item.href)) {
         return false;
       }
       if (item.children && item.children.length === 0) {
@@ -121,18 +134,21 @@ const navigation: NavItem[] = [
   {
     name: "Stella",
     icon: Building2,
+    key: "stella",
     children: [
       { name: "ダッシュボード", href: "/", icon: Home },
-      { name: "Stella全顧客マスタ", href: "/companies", icon: Building2, requireAnyEdit: true },
-      { name: "スタッフ管理", href: "/staff", icon: Users, requireAnyEdit: true },
     ],
   },
   {
     name: "STP(採用ブースト)",
     icon: Briefcase,
     requiredProject: "stp",
+    key: "stp",
     children: [
       { name: "ダッシュボード", href: "/stp/dashboard", icon: Home },
+      { name: "全顧客マスタ", href: "/companies", icon: Building2, requireAnyEdit: true },
+      { name: "スタッフ管理", href: "/staff", icon: Users, founderOrManager: true },
+      { name: "外部ユーザー管理", href: "/admin/users", icon: Shield, editOrAbove: true },
       { name: "企業情報", href: "/stp/companies", icon: Building2 },
       { name: "代理店情報", href: "/stp/agents", icon: Users },
       { name: "求職者情報", href: "/stp/candidates", icon: UserSearch },
@@ -161,14 +177,33 @@ const navigation: NavItem[] = [
           { name: "商談パイプライン履歴", href: "/stp/records/stage-histories", icon: History },
         ],
       },
+      {
+        name: "固有設定",
+        icon: Settings,
+        founderOrManager: true,
+        children: [
+          { name: "顧客種別", href: "/settings/customer-types", icon: UserSquare2 },
+          { name: "接触種別", href: "/settings/contact-categories", icon: Tag },
+          { name: "流入経路", href: "/settings/lead-sources", icon: UserPlus },
+          { name: "商談パイプライン", href: "/stp/settings/stages", icon: Layers },
+          { name: "表示区分", href: "/settings/display-views", icon: Shield },
+          { name: "スタッフ役割種別", href: "/staff/role-types", icon: Tags },
+          { name: "担当者フィールド制約", href: "/staff/field-restrictions", icon: Shield },
+          { name: "メールテンプレート", href: "/settings/email-templates", icon: FileText },
+        ],
+      },
     ],
   },
   {
     name: "経理",
     icon: Calculator,
     requiredProject: "accounting",
+    key: "accounting",
     children: [
       { name: "ダッシュボード", href: "/accounting/dashboard", icon: Home },
+      { name: "全顧客マスタ", href: "/companies", icon: Building2, requireAnyEdit: true },
+      { name: "スタッフ管理", href: "/staff", icon: Users, founderOrManager: true },
+      { name: "外部ユーザー管理", href: "/admin/users", icon: Shield, editOrAbove: true },
       { name: "会計取引", href: "/accounting/transactions", icon: Landmark },
       { name: "入出金管理", href: "/accounting/bank-transactions", icon: Receipt },
       { name: "消込管理", href: "/accounting/reconciliation", icon: ArrowLeftRight },
@@ -194,23 +229,10 @@ const navigation: NavItem[] = [
   {
     name: "設定",
     icon: Settings,
-    requiredProject: "stella",
     children: [
-      { name: "スタッフ役割種別", href: "/staff/role-types", icon: Tags },
       { name: "組織・プロジェクト管理", href: "/settings/projects", icon: Building2 },
-      { name: "顧客種別", href: "/settings/customer-types", icon: UserSquare2 },
-      { name: "担当者フィールド制約", href: "/staff/field-restrictions", icon: Shield },
-      { name: "メールテンプレート", href: "/settings/email-templates", icon: FileText },
-    ],
-  },
-  {
-    name: "外部ユーザー",
-    icon: Shield,
-    adminOnly: true,
-    children: [
-      { name: "外部ユーザー管理", href: "/admin/users", icon: Users },
-      { name: "承認待ちユーザー", href: "/admin/pending-users", icon: UserPlus },
-      { name: "登録トークン管理", href: "/admin/registration-tokens", icon: Key },
+      { name: "接触方法", href: "/settings/contact-methods", icon: Phone },
+      { name: "契約ステータス", href: "/settings/contract-statuses", icon: FileCheck },
     ],
   },
 ];
@@ -285,38 +307,55 @@ function NavItemComponent({
   );
 }
 
-function hasAdminPermission(user: SessionUser): boolean {
-  return user.permissions.some((p) => p.permissionLevel === "admin");
+function hasManagerPermission(user: SessionUser): boolean {
+  return user.permissions.some((p) => p.permissionLevel === "manager");
 }
 
 function hasAnyEditPermission(user: SessionUser): boolean {
   return user.permissions.some(
-    (p) => p.permissionLevel === "edit" || p.permissionLevel === "admin"
+    (p) => p.permissionLevel === "edit" || p.permissionLevel === "manager"
   );
+}
+
+function isFounderUser(user: SessionUser): boolean {
+  return user.organizationRole === "founder";
 }
 
 function filterNavigationByPermissions(
   items: NavItem[],
-  user: SessionUser
+  user: SessionUser,
+  hiddenItems?: string[]
 ): NavItem[] {
-  const isAdmin = hasAdminPermission(user);
   const isAdminUser = user.loginId === "admin";
+  const isFounder = isFounderUser(user);
 
   return items
     .filter((item) => {
+      // サイドバーカスタマイズ: hiddenItemsに含まれるキーは非表示
+      if (item.key && hiddenItems?.includes(item.key)) {
+        return false;
+      }
       // adminユーザーは全メニュー表示
       if (isAdminUser) {
         return true;
       }
-      // 管理者専用メニューのチェック
-      if (item.adminOnly && !isAdmin) {
-        return false;
+      // founderOrManager: founder or いずれかのPJでmanager以上
+      if (item.founderOrManager) {
+        return isFounder || hasManagerPermission(user);
+      }
+      // editOrAbove: edit以上
+      if (item.editOrAbove) {
+        return isFounder || hasAnyEditPermission(user);
       }
       // いずれかのプロジェクトでedit以上なら表示
       if (item.requireAnyEdit) {
-        return hasAnyEditPermission(user);
+        return isFounder || hasAnyEditPermission(user);
       }
       if (!item.requiredProject) {
+        return true;
+      }
+      // founderは全PJアクセス可
+      if (isFounder) {
         return true;
       }
       return canView(user.permissions, item.requiredProject);
@@ -325,7 +364,7 @@ function filterNavigationByPermissions(
       if (item.children) {
         return {
           ...item,
-          children: filterNavigationByPermissions(item.children, user),
+          children: filterNavigationByPermissions(item.children, user, hiddenItems),
         };
       }
       return item;
@@ -396,23 +435,62 @@ function CollapsedNavItem({
 }
 
 /** ナビゲーション項目のフィルタリング共通ロジック */
-function getFilteredNavigation(user?: SessionUser): NavItem[] {
-  if (user?.canEditMasterData) {
+function getFilteredNavigation(user?: SessionUser, hiddenItems?: string[]): NavItem[] {
+  if (user?.canEditMasterData && user.loginId !== "admin") {
     return masterDataNavigation;
   }
 
-  const showMasterData =
-    user?.loginId === "admin" || (user ? hasAdminPermission(user) : false);
+  const isAdminUser = user?.loginId === "admin";
+  const isFounder = user ? isFounderUser(user) : false;
+  const showCommonMasterData = isAdminUser;
+  const showProjectMasterData =
+    isAdminUser || isFounder || (user ? hasManagerPermission(user) : false);
+
   const baseNavigation = user
-    ? filterNavigationByPermissions(navigation, user)
+    ? filterNavigationByPermissions(navigation, user, hiddenItems)
     : navigation;
 
-  return showMasterData
-    ? [
-        ...baseNavigation.filter((item) => item.name !== "設定"),
-        ...masterDataNavigation,
-      ]
-    : removeMasterDataItems(baseNavigation);
+  // 設定フォルダ: admin以外は非表示
+  let result = baseNavigation;
+  if (!isAdminUser) {
+    result = result.filter((item) => item.name !== "設定");
+  }
+
+  // PJ固有固定データは各PJフォルダ内に配置済みなので、showProjectMasterDataでない場合は除外
+  if (!showProjectMasterData) {
+    result = removeMasterDataItems(result);
+  } else if (!showCommonMasterData) {
+    // PJ固有は表示するが共通固定データは除外
+    result = result
+      .map((item) => {
+        if (item.children) {
+          return {
+            ...item,
+            children: item.children.filter((child) => {
+              if (child.href && COMMON_MASTER_DATA_HREFS.has(child.href)) {
+                return false;
+              }
+              return true;
+            }),
+          };
+        }
+        return item;
+      })
+      .filter((item) => {
+        if (item.children && item.children.length === 0) return false;
+        return true;
+      });
+  }
+
+  // admin向け: 共通固定データナビも追加
+  if (showCommonMasterData) {
+    result = [
+      ...result,
+      ...masterDataNavigation,
+    ];
+  }
+
+  return result;
 }
 
 interface SidebarContentProps {
@@ -420,6 +498,7 @@ interface SidebarContentProps {
   onNavigate?: () => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  hiddenItems?: string[];
 }
 
 export function SidebarContent({
@@ -427,9 +506,10 @@ export function SidebarContent({
   onNavigate,
   collapsed,
   onToggleCollapse,
+  hiddenItems,
 }: SidebarContentProps) {
   const appTitle = process.env.NEXT_PUBLIC_APP_TITLE || "Stella 基幹OS";
-  const navItems = getFilteredNavigation(user);
+  const navItems = getFilteredNavigation(user, hiddenItems);
 
   // 折りたたみモード: アイコンのみ表示
   if (collapsed) {
@@ -492,9 +572,10 @@ interface SidebarProps {
   user?: SessionUser;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  hiddenItems?: string[];
 }
 
-export function Sidebar({ user, collapsed, onToggleCollapse }: SidebarProps) {
+export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems }: SidebarProps) {
   return (
     <div
       className={cn(
@@ -506,6 +587,7 @@ export function Sidebar({ user, collapsed, onToggleCollapse }: SidebarProps) {
         user={user}
         collapsed={collapsed}
         onToggleCollapse={onToggleCollapse}
+        hiddenItems={hiddenItems}
       />
     </div>
   );

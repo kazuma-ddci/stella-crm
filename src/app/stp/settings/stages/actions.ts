@@ -2,10 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 
 export async function addStage(data: Record<string, unknown>) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   await prisma.stpStage.create({
     data: {
       name: data.name as string,
@@ -18,7 +18,7 @@ export async function addStage(data: Record<string, unknown>) {
 }
 
 export async function updateStage(id: number, data: Record<string, unknown>) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   const updateData: Record<string, unknown> = {};
   if ("name" in data) updateData.name = data.name as string;
   if ("stageType" in data) updateData.stageType = data.stageType as string;
@@ -35,7 +35,7 @@ export async function updateStage(id: number, data: Record<string, unknown>) {
 }
 
 export async function deleteStage(id: number) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   await prisma.stpStage.delete({
     where: { id },
   });

@@ -569,11 +569,13 @@ model MasterStaff {
   isActive             Boolean   @default(true)                   // 有効フラグ
   isSystemUser         Boolean   @default(false) @map("is_system_user") // システムユーザーフラグ（UI非表示）
   canEditMasterData    Boolean   @default(false)                  // 固定データ編集権限
+  organizationRole     String    @default("member") @db.VarChar(20) @map("organization_role") // "founder" | "member"
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   // Relations
   permissions                 StaffPermission[]
+  sidebarPreference           StaffSidebarPreference?
   roleAssignments             StaffRoleAssignment[]
   projectAssignments          StaffProjectAssignment[]
   salesContractHistories      StpContractHistory[]   @relation("SalesStaff")
@@ -739,7 +741,7 @@ model StaffPermission {
   id              Int      @id @default(autoincrement())
   staffId         Int                                     // master_staffへの外部キー
   projectId       Int                                     // master_projectsへの外部キー
-  permissionLevel String   @db.VarChar(20)                // none, view, edit, admin
+  permissionLevel String   @db.VarChar(20)                // none, view, edit, manager
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -749,6 +751,23 @@ model StaffPermission {
 
   @@unique([staffId, projectId])
   @@map("staff_permissions")
+}
+
+// ============================================
+// サイドバー表示設定 (Staff Sidebar Preferences)
+// スタッフごとのサイドバーナビ表示/非表示設定
+// ============================================
+
+model StaffSidebarPreference {
+  id          Int      @id @default(autoincrement())
+  staffId     Int      @unique
+  hiddenItems String[] @default([])  // 非表示ナビアイテムのキー配列
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  staff       MasterStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@map("staff_sidebar_preferences")
 }
 
 // ============================================

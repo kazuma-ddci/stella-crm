@@ -6,11 +6,10 @@ import { getProjectEmails, getProjects } from "./actions";
 export default async function EmailSettingsPage() {
   const user = await getSession();
 
-  // 管理者権限チェック（いずれかのプロジェクトでadmin）
+  // 管理者権限チェック（いずれかのプロジェクトでmanager以上）
   const hasAdmin =
     isAdmin(user.permissions, "stella") ||
-    isAdmin(user.permissions, "stp") ||
-    isAdmin(user.permissions, "common");
+    isAdmin(user.permissions, "stp");
 
   if (!hasAdmin) {
     redirect("/");

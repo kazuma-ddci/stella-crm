@@ -148,9 +148,9 @@ async function main() {
     data: [
       { id: 1, code: 'stp', name: 'STP', description: '採用支援サービスの商談・契約管理', displayOrder: 2 },
       { id: 2, code: 'srd', name: 'SRD', description: 'システム受託開発プロジェクト管理', displayOrder: 3 },
-      { id: 3, code: 'slo', name: 'SLO', description: '公的財団関連プロジェクト管理', displayOrder: 4 },
+      { id: 3, code: 'slp', name: 'SLP', description: '公的財団関連プロジェクト管理', displayOrder: 4 },
       { id: 4, code: 'stella', name: 'Stella', description: '全顧客マスタ管理', displayOrder: 0 },
-      { id: 5, code: 'common', name: '共通', description: '企業マスタ・スタッフ管理等の共通機能', displayOrder: 1 },
+      { id: 5, code: 'common', name: '共通', description: '企業マスタ・スタッフ管理等の共通機能', displayOrder: 1, isActive: false },
       { id: 6, code: 'accounting', name: '経理', description: '経理・会計管理', displayOrder: 5 },
     ],
   });
@@ -264,9 +264,9 @@ async function main() {
       { id: 7, name: '高橋大輔', nameKana: 'タカハシダイスケ', email: 'takahashi@example.com', phone: '090-7777-7777', contractType: '正社員', loginId: 'takahashi', passwordHash: DEFAULT_PASSWORD_HASH, displayOrder: 7 },
       { id: 8, name: '小林理恵', nameKana: 'コバヤシリエ', email: 'kobayashi@example.com', phone: '090-8888-8888', contractType: '業務委託', loginId: 'kobayashi', passwordHash: DEFAULT_PASSWORD_HASH, displayOrder: 8 },
       { id: 9, name: '加藤誠', nameKana: 'カトウマコト', email: 'kato@example.com', phone: '090-9999-9999', contractType: '正社員', loginId: 'kato', passwordHash: DEFAULT_PASSWORD_HASH, displayOrder: 9 },
-      { id: 10, name: '管理者', nameKana: 'カンリシャ', email: 'admin@example.com', phone: '090-0000-0000', contractType: '正社員', loginId: 'kanrisha', passwordHash: DEFAULT_PASSWORD_HASH, displayOrder: 10 },
+      { id: 10, name: '管理者', nameKana: 'カンリシャ', email: 'admin@example.com', phone: '090-0000-0000', contractType: '正社員', loginId: 'kanrisha', passwordHash: DEFAULT_PASSWORD_HASH, displayOrder: 10, organizationRole: 'founder' },
       { id: 11, name: 'システム管理者', nameKana: 'システムカンリシャ', email: 'sysadmin@stella-crm.local', phone: null, contractType: '正社員', loginId: 'admin', passwordHash: SYSTEM_ADMIN_HASH, isSystemUser: true },
-      { id: 12, name: 'テストユーザー', nameKana: 'テストユーザー', email: 'testuser@stella-crm.local', phone: null, contractType: '正社員', loginId: 'test_user', passwordHash: SYSTEM_TEST_HASH, isSystemUser: true },
+      { id: 12, name: 'テストユーザー', nameKana: 'テストユーザー', email: 'testuser@stella-crm.local', phone: null, contractType: '正社員', loginId: 'test_user', passwordHash: SYSTEM_TEST_HASH, isSystemUser: true, organizationRole: 'founder' },
       { id: 13, name: '固定データ管理者', nameKana: 'コテイデータカンリシャ', email: 'stella001@stella-crm.local', phone: null, contractType: '正社員', loginId: 'stella001', passwordHash: STELLA001_HASH, canEditMasterData: true, isSystemUser: true },
     ],
   });
@@ -290,27 +290,24 @@ async function main() {
       { staffId: 8, projectId: 2, permissionLevel: 'edit' },
       { staffId: 8, projectId: 3, permissionLevel: 'view' },
       { staffId: 9, projectId: 1, permissionLevel: 'edit' },
-      // 管理者
-      { staffId: 10, projectId: 4, permissionLevel: 'admin' },
-      { staffId: 10, projectId: 5, permissionLevel: 'admin' },
-      { staffId: 10, projectId: 1, permissionLevel: 'admin' },
-      { staffId: 10, projectId: 2, permissionLevel: 'admin' },
-      { staffId: 10, projectId: 3, permissionLevel: 'admin' },
-      { staffId: 10, projectId: 6, permissionLevel: 'admin' },
-      // システム管理者
-      { staffId: 11, projectId: 4, permissionLevel: 'admin' },
-      { staffId: 11, projectId: 5, permissionLevel: 'admin' },
-      { staffId: 11, projectId: 1, permissionLevel: 'admin' },
-      { staffId: 11, projectId: 2, permissionLevel: 'admin' },
-      { staffId: 11, projectId: 3, permissionLevel: 'admin' },
-      { staffId: 11, projectId: 6, permissionLevel: 'admin' },
-      // テストユーザー
-      { staffId: 12, projectId: 4, permissionLevel: 'admin' },
-      { staffId: 12, projectId: 5, permissionLevel: 'admin' },
-      { staffId: 12, projectId: 1, permissionLevel: 'admin' },
-      { staffId: 12, projectId: 2, permissionLevel: 'admin' },
-      { staffId: 12, projectId: 3, permissionLevel: 'admin' },
-      { staffId: 12, projectId: 6, permissionLevel: 'admin' },
+      // 管理者（founder）
+      { staffId: 10, projectId: 4, permissionLevel: 'manager' },
+      { staffId: 10, projectId: 1, permissionLevel: 'manager' },
+      { staffId: 10, projectId: 2, permissionLevel: 'manager' },
+      { staffId: 10, projectId: 3, permissionLevel: 'manager' },
+      { staffId: 10, projectId: 6, permissionLevel: 'manager' },
+      // システム管理者（admin）
+      { staffId: 11, projectId: 4, permissionLevel: 'manager' },
+      { staffId: 11, projectId: 1, permissionLevel: 'manager' },
+      { staffId: 11, projectId: 2, permissionLevel: 'manager' },
+      { staffId: 11, projectId: 3, permissionLevel: 'manager' },
+      { staffId: 11, projectId: 6, permissionLevel: 'manager' },
+      // テストユーザー（founder）
+      { staffId: 12, projectId: 4, permissionLevel: 'manager' },
+      { staffId: 12, projectId: 1, permissionLevel: 'manager' },
+      { staffId: 12, projectId: 2, permissionLevel: 'manager' },
+      { staffId: 12, projectId: 3, permissionLevel: 'manager' },
+      { staffId: 12, projectId: 6, permissionLevel: 'manager' },
     ],
   });
   console.log('✓ Staff permissions (30)');
@@ -1146,7 +1143,7 @@ async function main() {
       id: i,
       companyId,
       projectId,
-      contractNumber: `CTR-${['STP', 'SRD', 'SLO'][projectId - 1]}-${String(i).padStart(4, '0')}`,
+      contractNumber: `CTR-${['STP', 'SRD', 'SLP'][projectId - 1]}-${String(i).padStart(4, '0')}`,
       contractType: randomChoice(contractTypes),
       title: `${companyNames[companyId - 1]} ${randomChoice(contractTypes)}`,
       startDate,
@@ -1532,7 +1529,7 @@ async function main() {
   // ============================================
 
   console.log('\n=== Seed Summary (2026-01~) ===');
-  console.log('Projects: 6 (Stella, Common, STP, SRD, SLO, Accounting)');
+  console.log('Projects: 6 (Stella, Common, STP, SRD, SLP, Accounting)');
   console.log('Staff: 13 members (10 test + 3 system admin)');
   console.log('Companies: 100 (1-80: STP clients, 81-100: agents)');
   console.log('Locations: ~200, Contacts: ~200');

@@ -22,12 +22,12 @@
 目的:
 - `/stp/finance/*` では **STPプロジェクトのデータのみ** を表示する
 - 請求/支払グループ作成時に `projectId` を自動付与する
-- 将来の SRD / SLO 等とのデータ混在に備え、クエリ側で `projectId` スコープを入れる
+- 将来の SRD / SLP 等とのデータ混在に備え、クエリ側で `projectId` スコープを入れる
 
 前提としてログに明示されている既存インフラ:
 - `SystemProjectBinding`（`routeKey="stp"` -> `projectId=1`）
 - `getSystemProjectContext("stp")`（5分キャッシュ）
-- `MasterProject` に STP/SRD/SLO/Stella/Common がある
+- `MasterProject` に STP/SRD/SLP/Stella/Common がある
 
 ### 1.2 実装計画（ユーザー指定の Phase 1-5）
 

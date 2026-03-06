@@ -32,18 +32,23 @@ const STAFF_ONLY_PATHS = [
 // 外部ユーザー専用パス
 const EXTERNAL_ONLY_PATHS = ["/portal"];
 
-// 固定データ編集パス（canEditMasterData + admin権限ユーザー）
-const MASTER_DATA_PATHS = [
-  "/settings/operating-companies",
+// 共通固定データパス（admin + stella001のみ）
+const COMMON_MASTER_DATA_PATHS = [
   "/settings/projects",
-  "/settings/customer-types",
   "/settings/contact-methods",
   "/settings/contract-statuses",
+  "/settings/operating-companies",
+];
+
+// PJ固有固定データパス（admin + stella001 + founder + manager）
+const PROJECT_MASTER_DATA_PATHS = [
+  "/settings/customer-types",
+  "/settings/contact-categories",
   "/settings/display-views",
   "/settings/lead-sources",
+  "/stp/settings/stages",
   "/staff/role-types",
   "/staff/field-restrictions",
-  "/stp/settings/stages",
   "/settings/email-templates",
 ];
 
@@ -65,8 +70,14 @@ function isExternalOnlyPath(pathname: string): boolean {
   );
 }
 
-function isMasterDataPath(pathname: string): boolean {
-  return MASTER_DATA_PATHS.some(
+function isCommonMasterDataPath(pathname: string): boolean {
+  return COMMON_MASTER_DATA_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(path + "/")
+  );
+}
+
+function isProjectMasterDataPath(pathname: string): boolean {
+  return PROJECT_MASTER_DATA_PATHS.some(
     (path) => pathname === path || pathname.startsWith(path + "/")
   );
 }
@@ -94,8 +105,17 @@ function getRequiredProject(pathname: string): ProjectCode | null {
 function hasAnyEditPermission(
   permissions: Array<{ projectCode: string; permissionLevel: string }>
 ): boolean {
-  const editLevels = new Set(["edit", "admin"]);
+  const editLevels = new Set(["edit", "manager"]);
   return permissions.some((p) => editLevels.has(p.permissionLevel));
+}
+
+/**
+ * いずれかのプロジェクトでmanager権限があるかチェック
+ */
+function hasAnyManagerPermission(
+  permissions: Array<{ projectCode: string; permissionLevel: string }>
+): boolean {
+  return permissions.some((p) => p.permissionLevel === "manager");
 }
 
 function hasPermission(
@@ -182,27 +202,33 @@ export default auth((request) => {
     []) as DisplayViewPermission[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const canEditMasterData = (session.user as any).canEditMasterData === true;
-
-  // admin権限チェック（いずれかのプロジェクトでadmin）
-  const isAdmin = userPermissions.some(
-    (p: { permissionLevel: string }) => p.permissionLevel === "admin"
-  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const organizationRole = (session.user as any).organizationRole ?? "member";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const loginId = (session.user as any).loginId as string | null;
   const isAdminUser = loginId === "admin";
+  const isFounderUser = organizationRole === "founder";
 
   // 固定データ管理者（stella001）: 固定データパスのみアクセス可能
-  if (canEditMasterData) {
-    if (isMasterDataPath(pathname)) {
+  if (canEditMasterData && !isAdminUser) {
+    if (isCommonMasterDataPath(pathname) || isProjectMasterDataPath(pathname)) {
       return NextResponse.next();
     }
     // それ以外はすべて固定データ設定にリダイレクト
     return NextResponse.redirect(new URL("/settings/projects", request.url));
   }
 
-  // 固定データパスへのアクセス制御: admin権限があれば許可、それ以外は禁止
-  if (isMasterDataPath(pathname)) {
-    if (isAdmin || isAdminUser) {
+  // 共通固定データパス: admin + stella001のみ
+  if (isCommonMasterDataPath(pathname)) {
+    if (isAdminUser || canEditMasterData) {
+      return NextResponse.next();
+    }
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  // PJ固有固定データパス: admin + stella001 + founder + manager
+  if (isProjectMasterDataPath(pathname)) {
+    if (isAdminUser || canEditMasterData || isFounderUser || hasAnyManagerPermission(userPermissions)) {
       return NextResponse.next();
     }
     // メールテンプレートはstella閲覧権限でもアクセス可
@@ -249,22 +275,29 @@ export default auth((request) => {
       return NextResponse.redirect(new URL("/", request.url));
     }
 
-    // /companies: いずれかのプロジェクトでedit以上なら許可
+    // /companies: founderまたはいずれかのプロジェクトでedit以上なら許可
     if (pathname.startsWith("/companies")) {
-      if (!hasAnyEditPermission(userPermissions)) {
+      if (!isFounderUser && !hasAnyEditPermission(userPermissions) && !isAdminUser) {
         return NextResponse.redirect(new URL("/", request.url));
       }
     }
 
-    // /staff: いずれかのプロジェクトでedit以上なら許可
+    // /staff: founderまたはいずれかのプロジェクトでedit以上なら許可
     if (pathname.startsWith("/staff")) {
-      if (!hasAnyEditPermission(userPermissions)) {
+      if (!isFounderUser && !hasAnyEditPermission(userPermissions) && !isAdminUser) {
         return NextResponse.redirect(new URL("/", request.url));
       }
     }
 
-    // 社内スタッフ用のプロジェクト権限チェック（adminユーザーはバイパス）
-    if (!isAdminUser) {
+    // /admin: edit以上で外部ユーザー管理にアクセス可
+    if (pathname.startsWith("/admin")) {
+      if (!isAdminUser && !isFounderUser && !hasAnyEditPermission(userPermissions)) {
+        return NextResponse.redirect(new URL("/", request.url));
+      }
+    }
+
+    // 社内スタッフ用のプロジェクト権限チェック（adminユーザー・founderはバイパス）
+    if (!isAdminUser && !isFounderUser) {
       const requiredProject = getRequiredProject(pathname);
       if (requiredProject) {
         if (!hasPermission(userPermissions, requiredProject)) {

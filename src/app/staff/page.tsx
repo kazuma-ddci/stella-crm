@@ -2,8 +2,15 @@ import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StaffTable } from "./staff-table";
 import { getEditableProjects } from "./actions";
+import { auth } from "@/auth";
 
 export default async function StaffPage() {
+  const session = await auth();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const currentUser = session?.user as any;
+  const isAdminUser = currentUser?.loginId === "admin";
+  const isFounder = currentUser?.organizationRole === "founder";
+
   const [staffList, roleTypes, projects, editableProjects] = await Promise.all([
     prisma.masterStaff.findMany({
       where: { isSystemUser: false },
@@ -34,21 +41,16 @@ export default async function StaffPage() {
     getEditableProjects(),
   ]);
 
-  // プロジェクト権限のカラム情報を構築（stellaは別カラムで管理するため除外）
-  const permissionProjects = projects
-    .filter((p) => p.code !== "stella")
-    .map((p) => ({
-      code: p.code,
-      name: p.name,
-    }));
+  // プロジェクト権限のカラム情報を構築
+  const permissionProjects = projects.map((p) => ({
+    code: p.code,
+    name: p.name,
+  }));
 
   const data = staffList.map((s) => {
-    const stellaPermission = s.permissions.find((p) => p.project.code === "stella");
-
-    // 動的にプロジェクト権限を構築（stellaは stellaPermission で別管理）
+    // 動的にプロジェクト権限を構築
     const projectPermissions: Record<string, string> = {};
     for (const project of projects) {
-      if (project.code === "stella") continue;
       const perm = s.permissions.find((p) => p.project.code === project.code);
       projectPermissions[`perm_${project.code}`] = perm?.permissionLevel || "none";
     }
@@ -67,8 +69,10 @@ export default async function StaffPage() {
       // プロジェクト（複数選択）
       projectIds: s.projectAssignments.map((pa) => String(pa.projectId)),
       projectNames: s.projectAssignments.map((pa) => pa.project.name).join(", "),
+      // 組織ロール
+      organizationRole: s.organizationRole,
+      organizationRoleLabel: s.organizationRole === "founder" ? "ファウンダー" : "メンバー",
       // 権限
-      stellaPermission: stellaPermission?.permissionLevel || "none",
       ...projectPermissions,
       // 招待状態
       hasPassword: !!s.passwordHash,
@@ -122,6 +126,8 @@ export default async function StaffPage() {
             projectOptions={projectOptions}
             permissionProjects={permissionProjects}
             editableProjects={editableProjects}
+            canEditOrganizationRole={isAdminUser || isFounder}
+            canSetFounder={isAdminUser}
             dynamicOptions={dynamicOptions}
           />
         </CardContent>

@@ -1672,7 +1672,7 @@ export async function requestReturnInvoiceGroup(
     const permissions = await prisma.staffPermission.findMany({
       where: {
         projectId: accountingProject.id,
-        permissionLevel: { in: ["edit", "admin"] },
+        permissionLevel: { in: ["edit", "manager"] },
       },
       select: { staffId: true },
     });

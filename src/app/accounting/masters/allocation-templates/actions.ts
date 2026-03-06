@@ -103,8 +103,8 @@ export async function updateAllocationTemplate(
   const hasClosedMonth = await checkClosedMonthInvolvement(id);
   if (hasClosedMonth) {
     const isAdmin = session.permissions.some(
-      (p) => p.permissionLevel === "admin"
-    );
+      (p) => p.permissionLevel === "manager"
+    ) || session.organizationRole === "founder";
     if (!isAdmin) {
       throw new Error(
         "クローズ済みの月に関わるテンプレートの変更は経理管理者権限が必要です"

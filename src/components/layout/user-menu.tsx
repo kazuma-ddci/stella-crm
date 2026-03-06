@@ -1,6 +1,7 @@
 "use client";
 
 import { signOut } from "next-auth/react";
+import Link from "next/link";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { User, LogOut } from "lucide-react";
+import { User, LogOut, Settings } from "lucide-react";
 import type { SessionUser } from "@/types/auth";
 
 interface UserMenuProps {
@@ -40,6 +41,12 @@ export function UserMenu({ user }: UserMenuProps) {
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/profile">
+            <Settings className="mr-2 h-4 w-4" />
+            プロフィール設定
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={handleSignOut} className="text-red-600">
           <LogOut className="mr-2 h-4 w-4" />
           ログアウト

@@ -11,8 +11,7 @@ import { getSession, isAdmin } from "@/lib/auth";
 async function requireAdminUser() {
   const user = await getSession();
   const hasAdmin = isAdmin(user.permissions, "stella") ||
-    isAdmin(user.permissions, "stp") ||
-    isAdmin(user.permissions, "common");
+    isAdmin(user.permissions, "stp");
   if (!hasAdmin) {
     throw new Error("管理者権限が必要です");
   }

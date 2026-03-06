@@ -26,10 +26,10 @@ export default async function AllocationTemplatesPage() {
     }),
   ]);
 
-  // ★ Issue 1: 経理管理者判定（admin権限を持つユーザー）
+  // ★ Issue 1: 経理管理者判定（manager権限を持つユーザー or founder）
   const isAdmin = session.permissions.some(
-    (p) => p.permissionLevel === "admin"
-  );
+    (p) => p.permissionLevel === "manager"
+  ) || session.organizationRole === "founder";
 
   const data = templates.map((t) => ({
     id: t.id,

@@ -413,7 +413,7 @@ export async function autoConfirmCreatorAllocations(
   const permissions = await tx.staffPermission.findMany({
     where: {
       projectId: { in: otherProjectIds },
-      permissionLevel: { in: ["edit", "admin"] },
+      permissionLevel: { in: ["edit", "manager"] },
       staffId: { not: staffId },
     },
     select: { staffId: true },

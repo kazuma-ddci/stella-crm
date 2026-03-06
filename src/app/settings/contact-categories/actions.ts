@@ -2,10 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 
 export async function addContactCategory(data: Record<string, unknown>) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   const projectId = Number(data.projectId);
 
   // 同プロジェクト内の最大表示順を取得して+1
@@ -27,7 +27,7 @@ export async function addContactCategory(data: Record<string, unknown>) {
 }
 
 export async function updateContactCategory(id: number, data: Record<string, unknown>) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   const updateData: Record<string, unknown> = {};
   if ("projectId" in data) updateData.projectId = Number(data.projectId);
   if ("name" in data) updateData.name = data.name as string;
@@ -43,7 +43,7 @@ export async function updateContactCategory(id: number, data: Record<string, unk
 }
 
 export async function deleteContactCategory(id: number) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
 
   // 接触履歴で使用中の場合はエラー
   const usageCount = await prisma.contactHistory.count({
@@ -60,7 +60,7 @@ export async function deleteContactCategory(id: number) {
 }
 
 export async function reorderContactCategories(orderedIds: number[]) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
 
   // まず全ての接触種別を取得してプロジェクト別にグループ化
   const contactCategories = await prisma.contactCategory.findMany({

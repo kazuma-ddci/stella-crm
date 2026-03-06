@@ -2,11 +2,11 @@ import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LeadSourcesTable } from "./lead-sources-table";
 import { auth } from "@/auth";
-import { canEditMasterDataSync } from "@/lib/auth/master-data-permission";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 
 export default async function LeadSourcesPage() {
   const session = await auth();
-  const canEditMasterData = canEditMasterDataSync(session?.user);
+  const canEditMasterData = canEditProjectMasterDataSync(session?.user);
 
   const leadSources = await prisma.stpLeadSource.findMany({
     orderBy: { displayOrder: "asc" },

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { isAdmin } from "@/lib/auth/permissions";
+import { isManager, isFounder } from "@/lib/auth/permissions";
 import {
   closeMonth as doCloseMonth,
   reopenMonth as doReopenMonth,
@@ -258,8 +258,8 @@ async function generatePLSnapshot(targetMonth: Date) {
 
 export async function closeMonthAction(targetMonth: string) {
   const session = await getSession();
-  if (!isAdmin(session.permissions, "stp")) {
-    throw new Error("月次クローズはSTP管理者権限が必要です");
+  if (!isManager(session.permissions, "accounting") && !isFounder(session)) {
+    throw new Error("月次クローズは経理マネージャー権限が必要です");
   }
   const staffId = session.id;
 
@@ -278,8 +278,8 @@ export async function reopenMonthAction(
   reason: string
 ) {
   const session = await getSession();
-  if (!isAdmin(session.permissions, "stp")) {
-    throw new Error("月次クローズ解除はSTP管理者権限が必要です");
+  if (!isManager(session.permissions, "accounting") && !isFounder(session)) {
+    throw new Error("月次クローズ解除は経理マネージャー権限が必要です");
   }
   const staffId = session.id;
 

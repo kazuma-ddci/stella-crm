@@ -2,11 +2,11 @@ import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DisplayViewsTable } from "./display-views-table";
 import { auth } from "@/auth";
-import { canEditMasterDataSync } from "@/lib/auth/master-data-permission";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 
 export default async function DisplayViewsPage() {
   const session = await auth();
-  const canEditMasterData = canEditMasterDataSync(session?.user);
+  const canEditMasterData = canEditProjectMasterDataSync(session?.user);
 
   const [views, projects] = await Promise.all([
     prisma.displayView.findMany({

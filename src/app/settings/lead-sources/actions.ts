@@ -2,10 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 
 export async function addLeadSource(data: Record<string, unknown>) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   const maxOrder = await prisma.stpLeadSource.aggregate({
     _max: { displayOrder: true },
   });
@@ -22,7 +22,7 @@ export async function addLeadSource(data: Record<string, unknown>) {
 }
 
 export async function updateLeadSource(id: number, data: Record<string, unknown>) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   const updateData: Record<string, unknown> = {};
   if ("name" in data) updateData.name = data.name as string;
   if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
@@ -37,7 +37,7 @@ export async function updateLeadSource(id: number, data: Record<string, unknown>
 }
 
 export async function deleteLeadSource(id: number) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   await prisma.stpLeadSource.delete({
     where: { id },
   });
@@ -45,7 +45,7 @@ export async function deleteLeadSource(id: number) {
 }
 
 export async function reorderLeadSources(orderedIds: number[]) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   await prisma.$transaction(
     orderedIds.map((id, index) =>
       prisma.stpLeadSource.update({

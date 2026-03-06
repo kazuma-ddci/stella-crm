@@ -48,6 +48,7 @@
     "next-themes": "^0.4.6",
     "nodemailer": "^7.0.13",
     "prisma": "^6.19.2",
+    "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-datepicker": "^9.1.0",
     "react-day-picker": "^9.14.0",

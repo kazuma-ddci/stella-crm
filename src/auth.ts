@@ -6,6 +6,7 @@ import type {
   UserPermission,
   PermissionLevel,
   UserType,
+  OrganizationRole,
   DisplayViewPermission,
 } from "@/types/auth";
 import { authenticateExternalUser } from "@/lib/auth/external-user";
@@ -20,6 +21,7 @@ declare module "next-auth" {
       userType: UserType;
       permissions: UserPermission[];
       canEditMasterData: boolean;
+      organizationRole: OrganizationRole;
       // 外部ユーザー用
       companyId?: number;
       companyName?: string;
@@ -35,6 +37,7 @@ declare module "next-auth" {
     userType: UserType;
     permissions: UserPermission[];
     canEditMasterData: boolean;
+    organizationRole: OrganizationRole;
     // 外部ユーザー用
     companyId?: number;
     companyName?: string;
@@ -51,6 +54,7 @@ declare module "@auth/core/jwt" {
     userType: UserType;
     permissions: UserPermission[];
     canEditMasterData: boolean;
+    organizationRole: OrganizationRole;
     permissionsCheckedAt?: number;
     permissionsExpired?: boolean;
     // 外部ユーザー用
@@ -117,6 +121,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               userType: "staff" as UserType,
               permissions,
               canEditMasterData: staff.canEditMasterData,
+              organizationRole: (staff.organizationRole ?? "member") as OrganizationRole,
             };
           }
         }
@@ -135,6 +140,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             userType: "external" as UserType,
             permissions: [], // 外部ユーザーはpermissionsを使わない
             canEditMasterData: false,
+            organizationRole: "member" as OrganizationRole,
             companyId: externalUser.companyId,
             companyName: externalUser.companyName,
             displayViews: externalUser.displayViews,
@@ -156,6 +162,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.userType = user.userType ?? "staff";
         token.permissions = user.permissions ?? [];
         token.canEditMasterData = user.canEditMasterData ?? false;
+        token.organizationRole = (user.organizationRole ?? "member") as OrganizationRole;
         token.permissionsCheckedAt = Date.now();
 
         // 外部ユーザー用
@@ -190,6 +197,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               if (dbPerms !== tokenPerms) {
                 token.permissionsExpired = true;
               }
+              // organizationRoleの変更も検知
+              if (staff.organizationRole !== token.organizationRole) {
+                token.permissionsExpired = true;
+              }
             }
           } catch {
             // DB接続エラー時は既存のセッションを維持
@@ -216,6 +227,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       (session.user as any).permissions = token.permissions ?? [];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (session.user as any).canEditMasterData = token.canEditMasterData ?? false;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (session.user as any).organizationRole = token.organizationRole ?? "member";
 
       // 外部ユーザー用
       if (token.userType === "external") {

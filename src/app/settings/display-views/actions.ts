@@ -2,10 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 
 export async function updateDisplayView(id: number, data: Record<string, unknown>) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   // viewKey は変更不可（コード側でロジック分岐に使用するため）
   const updateData: Record<string, unknown> = {};
   if ("viewName" in data) updateData.viewName = data.viewName as string;

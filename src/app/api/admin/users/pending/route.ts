@@ -18,13 +18,13 @@ export async function GET() {
       where: { staffId: userId },
     });
 
-    const hasAdminPermission = staffPermissions.some(
-      (p) => p.permissionLevel === "admin"
+    const hasEditPermission = staffPermissions.some(
+      (p) => p.permissionLevel === "edit" || p.permissionLevel === "manager"
     );
 
-    if (!hasAdminPermission) {
+    if (!hasEditPermission) {
       return NextResponse.json(
-        { error: "管理者権限が必要です" },
+        { error: "編集権限が必要です" },
         { status: 403 }
       );
     }

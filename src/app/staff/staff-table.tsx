@@ -14,6 +14,8 @@ type Props = {
   projectOptions: { value: string; label: string }[];
   permissionProjects: { code: string; name: string }[];
   editableProjects: { code: string; maxLevel: string }[];
+  canEditOrganizationRole: boolean;
+  canSetFounder: boolean;
   dynamicOptions?: Record<string, Record<string, { value: string; label: string }[]>>;
 };
 
@@ -30,7 +32,12 @@ const PERMISSION_LEVELS = [
   { value: "none", label: "なし" },
   { value: "view", label: "閲覧" },
   { value: "edit", label: "編集" },
-  { value: "admin", label: "管理者" },
+  { value: "manager", label: "マネージャー" },
+];
+
+const ORGANIZATION_ROLES = [
+  { value: "member", label: "メンバー" },
+  { value: "founder", label: "ファウンダー" },
 ];
 
 function InviteButton({ row }: { row: Record<string, unknown> }) {
@@ -120,21 +127,17 @@ function InviteButton({ row }: { row: Record<string, unknown> }) {
 
 /** 天井レベルに基づいて選択可能な権限レベルを返す */
 function getPermissionLevelsForMaxLevel(maxLevel: string): { value: string; label: string }[] {
-  const levelOrder: Record<string, number> = { none: 0, view: 1, edit: 2, admin: 3 };
+  const levelOrder: Record<string, number> = { none: 0, view: 1, edit: 2, manager: 3 };
   const max = levelOrder[maxLevel] ?? 0;
   return PERMISSION_LEVELS.filter((l) => (levelOrder[l.value] ?? 0) <= max);
 }
 
-export function StaffTable({ data, roleTypeOptions, projectOptions, permissionProjects, editableProjects, dynamicOptions }: Props) {
+export function StaffTable({ data, roleTypeOptions, projectOptions, permissionProjects, editableProjects, canEditOrganizationRole, canSetFounder, dynamicOptions }: Props) {
   // 権限カラム（編集可能なプロジェクトがある場合のみ表示）
   const editableMap = new Map(editableProjects.map((p) => [p.code, p.maxLevel]));
-  const canEditStella = editableMap.has("stella");
-  const stellaMaxLevel = editableMap.get("stella");
   const permissionColumns: ColumnDef[] = editableProjects.length > 0
     ? [
-        // Stella権限はStella管理者のみ表示・編集可能
-        ...(canEditStella && stellaMaxLevel ? [{ key: "stellaPermission", header: "Stella権限", type: "select" as const, options: getPermissionLevelsForMaxLevel(stellaMaxLevel), simpleMode: true }] : []),
-        // 各プロジェクト権限は、そのプロジェクトのedit以上のユーザーが編集可能（天井に基づく選択肢制限）
+        // 各プロジェクト権限（天井に基づく選択肢制限）
         ...permissionProjects
           .filter((p) => editableMap.has(p.code))
           .map((p) => ({
@@ -146,6 +149,21 @@ export function StaffTable({ data, roleTypeOptions, projectOptions, permissionPr
           })),
       ]
     : [];
+
+  // 組織ロールカラム（admin/founderのみ編集可能）
+  const organizationRoleColumn: ColumnDef[] = canEditOrganizationRole
+    ? [{
+        key: "organizationRole",
+        header: "組織ロール",
+        type: "select" as const,
+        options: canSetFounder ? ORGANIZATION_ROLES : ORGANIZATION_ROLES.filter((r) => r.value !== "founder"),
+        simpleMode: true,
+      }]
+    : [{
+        key: "organizationRoleLabel",
+        header: "組織ロール",
+        editable: false,
+      }];
 
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
@@ -160,7 +178,9 @@ export function StaffTable({ data, roleTypeOptions, projectOptions, permissionPr
     // 役割（複数選択）
     { key: "roleTypeIds", header: "役割（選択）", type: "multiselect", dynamicOptionsKey: "roleTypesByProject", dependsOn: "projectIds", simpleMode: true, hidden: true },
     { key: "roleTypeNames", header: "役割", editable: false, filterable: true },
-    // 権限（Stella admin のみ）
+    // 組織ロール
+    ...organizationRoleColumn,
+    // 権限
     ...permissionColumns,
     { key: "isActive", header: "有効", type: "boolean" },
     // 招待状態

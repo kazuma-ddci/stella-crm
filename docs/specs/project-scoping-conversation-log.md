@@ -13,7 +13,7 @@ Implement the following plan:
 
 ## Context
 
-現状、Transaction/InvoiceGroup/PaymentGroupの全データが単一テーブルにあるが、プロジェクト（STP, SRD, SLO等）による絞り込みが行われていない。STP財務ページ（`/stp/finance/*`）はSTPプロジェクトのデータのみ表示し、作成時にはprojectIdを自動付与する必要がある。
+現状、Transaction/InvoiceGroup/PaymentGroupの全データが単一テーブルにあるが、プロジェクト（STP, SRD, SLP等）による絞り込みが行われていない。STP財務ページ（`/stp/finance/*`）はSTPプロジェクトのデータのみ表示し、作成時にはprojectIdを自動付与する必要がある。
 
 **問題:**
 - `Transaction`は`projectId`フィールドを持つが、STPクエリでフィルタ未実装
@@ -23,7 +23,7 @@ Implement the following plan:
 **既存インフラ:**
 - `SystemProjectBinding`: routeKey="stp" → projectId=1 のマッピング
 - `getSystemProjectContext("stp")`: ProjectContext取得（5分キャッシュ）→ `src/lib/project-context.ts`
-- `MasterProject`: 5プロジェクト（STP=1, SRD=2, SLO=3, Stella=4, Common=5）
+- `MasterProject`: 5プロジェクト（STP=1, SRD=2, SLP=3, Stella=4, Common=5）
 
 ---
 
