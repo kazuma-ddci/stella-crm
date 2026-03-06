@@ -11,8 +11,9 @@ type StaffOption = { value: string; label: string };
 export async function validateStaffForField(
   fieldCode: AssignableFieldCode,
   staffId: number,
+  managingProjectId?: number,
 ): Promise<boolean> {
-  const options = await getStaffOptionsByField(fieldCode);
+  const options = await getStaffOptionsByField(fieldCode, managingProjectId);
   return options.some((opt) => opt.value === String(staffId));
 }
 
@@ -22,31 +23,40 @@ export async function validateStaffForField(
  */
 export async function getStaffOptionsByField(
   fieldCode: AssignableFieldCode,
+  managingProjectId?: number,
 ): Promise<StaffOption[]> {
-  const result = await getStaffOptionsByFields([fieldCode]);
+  const result = await getStaffOptionsByFields([fieldCode], managingProjectId);
   return result[fieldCode];
 }
 
 /**
  * 複数フィールドの制約を1クエリで一括取得してスタッフ選択肢を返す
+ * managingProjectIdが指定された場合、そのPJが設定した制約のみ使用
+ * managingProjectIdが未指定の場合、全制約を使用（後方互換）
  */
 export async function getStaffOptionsByFields<T extends AssignableFieldCode>(
   fieldCodes: T[],
+  managingProjectId?: number,
 ): Promise<Record<T, StaffOption[]>> {
-  // 全制約を一括取得
+  // 全制約を一括取得（新スキーマ: fieldDefinition経由でfieldCodeを参照）
   const restrictions = await prisma.staffFieldRestriction.findMany({
-    where: { fieldCode: { in: fieldCodes } },
+    where: {
+      fieldDefinition: { fieldCode: { in: fieldCodes } },
+      ...(managingProjectId ? { managingProjectId } : {}),
+    },
+    include: { fieldDefinition: true },
   });
 
-  // フィールドごとに制約を分類
-  const restrictionsByField = new Map<string, { projectIds: number[]; roleTypeIds: number[] }>();
+  // フィールドごとに制約を分類（OR結合: sourceProjectId ∪ roleTypeId）
+  const restrictionsByField = new Map<string, { sourceProjectIds: number[]; roleTypeIds: number[] }>();
   for (const r of restrictions) {
-    let entry = restrictionsByField.get(r.fieldCode);
+    const code = r.fieldDefinition.fieldCode;
+    let entry = restrictionsByField.get(code);
     if (!entry) {
-      entry = { projectIds: [], roleTypeIds: [] };
-      restrictionsByField.set(r.fieldCode, entry);
+      entry = { sourceProjectIds: [], roleTypeIds: [] };
+      restrictionsByField.set(code, entry);
     }
-    if (r.projectId != null) entry.projectIds.push(r.projectId);
+    if (r.sourceProjectId != null) entry.sourceProjectIds.push(r.sourceProjectId);
     if (r.roleTypeId != null) entry.roleTypeIds.push(r.roleTypeId);
   }
 
@@ -57,7 +67,7 @@ export async function getStaffOptionsByFields<T extends AssignableFieldCode>(
 
   for (const code of fieldCodes) {
     const entry = restrictionsByField.get(code);
-    if (!entry || (entry.projectIds.length === 0 && entry.roleTypeIds.length === 0)) {
+    if (!entry || (entry.sourceProjectIds.length === 0 && entry.roleTypeIds.length === 0)) {
       // 制約なし → 全スタッフ
       const key = "__all__";
       fieldToFilterKey.set(code, key);
@@ -65,12 +75,13 @@ export async function getStaffOptionsByFields<T extends AssignableFieldCode>(
         filterMap.set(key, {});
       }
     } else {
-      const pIds = [...entry.projectIds].sort();
+      const pIds = [...entry.sourceProjectIds].sort();
       const rIds = [...entry.roleTypeIds].sort();
       const key = `p:${pIds.join(",")}_r:${rIds.join(",")}`;
       fieldToFilterKey.set(code, key);
 
       if (!filterMap.has(key)) {
+        // OR結合: sourceProjectIdのスタッフ集合 ∪ roleTypeIdのスタッフ集合
         const conditions: Prisma.MasterStaffWhereInput[] = [];
         if (pIds.length > 0) {
           conditions.push({
@@ -82,7 +93,7 @@ export async function getStaffOptionsByFields<T extends AssignableFieldCode>(
             roleAssignments: { some: { roleTypeId: { in: rIds } } },
           });
         }
-        filterMap.set(key, conditions.length > 1 ? { AND: conditions } : conditions[0]);
+        filterMap.set(key, conditions.length > 1 ? { OR: conditions } : conditions[0]);
       }
     }
   }

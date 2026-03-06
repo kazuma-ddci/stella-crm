@@ -850,7 +850,7 @@ export function CrudTable({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">すべて</SelectItem>
-            {selectedCol.options.map((opt) => (
+            {selectedCol.options.filter((opt) => opt.value !== "").map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 {opt.label}
               </SelectItem>
@@ -1117,7 +1117,7 @@ export function CrudTable({
             {!options.some((opt) => opt.value === "none") && (
               <SelectItem value="__empty__">-</SelectItem>
             )}
-            {options.map((opt) => (
+            {options.filter((opt) => opt.value !== "").map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 {opt.label}
               </SelectItem>

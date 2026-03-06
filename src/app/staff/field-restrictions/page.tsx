@@ -3,15 +3,30 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { FieldRestrictionsEditor } from "./field-restrictions-editor";
 import { auth } from "@/auth";
 import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
-import { ASSIGNABLE_FIELDS, type AssignableFieldCode } from "@/lib/staff/assignable-fields";
+import { ASSIGNABLE_FIELDS } from "@/lib/staff/assignable-fields";
 import { Info } from "lucide-react";
 
-export default async function FieldRestrictionsPage() {
+type Props = {
+  searchParams: Promise<{ project?: string }>;
+};
+
+export default async function FieldRestrictionsPage({ searchParams }: Props) {
+  const params = await searchParams;
+  const projectFilter = params.project;
   const session = await auth();
   const canEdit = canEditProjectMasterDataSync(session?.user);
 
-  const [restrictions, projects, roleTypes] = await Promise.all([
-    prisma.staffFieldRestriction.findMany(),
+  const [fieldDefinitions, fieldDefProjects, restrictions, projects, roleTypes] = await Promise.all([
+    prisma.staffFieldDefinition.findMany({
+      where: { isActive: true },
+      orderBy: { displayOrder: "asc" },
+    }),
+    prisma.staffFieldDefinitionProject.findMany({
+      include: { fieldDefinition: true },
+    }),
+    prisma.staffFieldRestriction.findMany({
+      include: { fieldDefinition: true },
+    }),
     prisma.masterProject.findMany({
       where: { isActive: true },
       orderBy: { displayOrder: "asc" },
@@ -22,24 +37,52 @@ export default async function FieldRestrictionsPage() {
     }),
   ]);
 
-  // フィールドごとの制約をまとめる
-  const fieldData: Record<string, { projectIds: number[]; roleTypeIds: number[] }> = {};
-  for (const code of Object.keys(ASSIGNABLE_FIELDS) as AssignableFieldCode[]) {
-    fieldData[code] = { projectIds: [], roleTypeIds: [] };
+  // フィールド定義一覧
+  const fields = fieldDefinitions.map((fd) => ({
+    code: fd.fieldCode,
+    label: fd.fieldName || ASSIGNABLE_FIELDS[fd.fieldCode as keyof typeof ASSIGNABLE_FIELDS]?.label || fd.fieldCode,
+  }));
+
+  // フィールド × PJ の出現マッピング
+  const fieldProjectMap: Record<string, number[]> = {};
+  for (const fdp of fieldDefProjects) {
+    const code = fdp.fieldDefinition.fieldCode;
+    if (!fieldProjectMap[code]) fieldProjectMap[code] = [];
+    fieldProjectMap[code].push(fdp.projectId);
+  }
+
+  // PJごと × フィールドごとの制約データ
+  // key: `${managingProjectId}:${fieldCode}`
+  const fieldData: Record<string, Record<string, { sourceProjectIds: number[]; roleTypeIds: number[] }>> = {};
+  for (const p of projects) {
+    fieldData[String(p.id)] = {};
+    for (const fd of fieldDefinitions) {
+      fieldData[String(p.id)][fd.fieldCode] = { sourceProjectIds: [], roleTypeIds: [] };
+    }
   }
   for (const r of restrictions) {
-    if (fieldData[r.fieldCode]) {
-      if (r.projectId != null) fieldData[r.fieldCode].projectIds.push(r.projectId);
-      if (r.roleTypeId != null) fieldData[r.fieldCode].roleTypeIds.push(r.roleTypeId);
+    const code = r.fieldDefinition.fieldCode;
+    const pId = String(r.managingProjectId);
+    if (fieldData[pId]?.[code]) {
+      if (r.sourceProjectId != null) fieldData[pId][code].sourceProjectIds.push(r.sourceProjectId);
+      if (r.roleTypeId != null) fieldData[pId][code].roleTypeIds.push(r.roleTypeId);
     }
   }
 
   const projectOptions = projects.map((p) => ({ value: p.id, label: p.name }));
   const roleTypeOptions = roleTypes.map((r) => ({ value: r.id, label: r.name }));
 
+  // プロジェクトフィルタ: codeが一致するプロジェクトのみ表示
+  const filteredProject = projectFilter
+    ? projects.find((p) => p.code === projectFilter)
+    : null;
+  const displayProjects = filteredProject ? [filteredProject] : projects;
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">担当者フィールド制約</h1>
+      <h1 className="text-2xl font-bold">
+        {filteredProject ? `${filteredProject.name} の担当者フィールド制約` : "担当者フィールド制約"}
+      </h1>
 
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-3">
         <div className="flex items-start gap-2">
@@ -47,46 +90,48 @@ export default async function FieldRestrictionsPage() {
           <div className="space-y-2 text-sm text-blue-900">
             <p className="font-semibold">この画面の使い方</p>
             <p>
-              各担当者フィールド（STP企業の担当営業、契約履歴の担当運用など）に対して、
-              <strong>どのプロジェクト・どの役割のスタッフだけを選択肢に表示するか</strong>を設定できます。
+              各担当者フィールドに対して、プロジェクトごとに
+              <strong>どのプロジェクト・どの役割のスタッフを選択肢に表示するか</strong>を設定できます。
             </p>
             <ul className="list-disc pl-5 space-y-1">
               <li>
-                <strong>プロジェクト制約</strong>：指定したプロジェクトに所属するスタッフのみ、そのフィールドの担当者候補に表示されます。
+                <strong>ソースプロジェクト</strong>：指定したプロジェクトに所属するスタッフが候補に表示されます。
               </li>
               <li>
-                <strong>役割制約</strong>：指定した役割を持つスタッフのみ、そのフィールドの担当者候補に表示されます。
+                <strong>役割</strong>：指定した役割を持つスタッフが候補に表示されます。
               </li>
               <li>
-                プロジェクト・役割の両方を設定した場合、<strong>両方の条件を満たす</strong>スタッフのみが候補に表示されます。
+                両方を設定した場合、<strong>いずれかの条件を満たす</strong>スタッフが候補に表示されます（OR結合）。
               </li>
               <li>
-                何も設定しない場合（制約なし）は、<strong>全スタッフ</strong>が候補として表示されます。
+                何も設定しない場合は、<strong>全スタッフ</strong>が候補として表示されます。
               </li>
             </ul>
-            <p className="text-blue-700">
-              例：「STP企業 担当営業」にプロジェクト「STP」と役割「営業」を設定すると、STPプロジェクトに所属し、かつ営業の役割を持つスタッフだけが選択肢に表示されます。
-            </p>
           </div>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>フィールドごとの担当者制約設定</CardTitle>
-          <CardDescription>
-            各フィールドの「+」ボタンからプロジェクトや役割を追加し、「保存」ボタンで反映してください。
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FieldRestrictionsEditor
-            fieldData={fieldData}
-            projectOptions={projectOptions}
-            roleTypeOptions={roleTypeOptions}
-            canEdit={canEdit}
-          />
-        </CardContent>
-      </Card>
+      {displayProjects.map((project) => (
+        <Card key={project.id}>
+          <CardHeader>
+            <CardTitle>{project.name} の担当者制約設定</CardTitle>
+            <CardDescription>
+              {project.name}のページで入力する際の担当者候補を絞り込みます。
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FieldRestrictionsEditor
+              fields={fields}
+              fieldData={fieldData[String(project.id)] ?? {}}
+              projectOptions={projectOptions}
+              roleTypeOptions={roleTypeOptions}
+              canEdit={canEdit}
+              managingProjectId={project.id}
+              fieldProjectMap={fieldProjectMap}
+            />
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }

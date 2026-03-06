@@ -67,7 +67,8 @@ const columns: ColumnDef[] = [
   { key: "representativeName", header: "代表者名", type: "text" },
   { key: "phone", header: "電話番号", type: "text" },
   { key: "postalCode", header: "郵便番号", type: "text" },
-  { key: "address", header: "住所", type: "text" },
+  { key: "address", header: "住所1", type: "text" },
+  { key: "address2", header: "住所2", type: "text" },
 ];
 
 export function OperatingCompaniesTable({ data, canEdit }: Props) {

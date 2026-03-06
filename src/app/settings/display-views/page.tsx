@@ -4,12 +4,30 @@ import { DisplayViewsTable } from "./display-views-table";
 import { auth } from "@/auth";
 import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 
-export default async function DisplayViewsPage() {
+export default async function DisplayViewsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ project?: string }>;
+}) {
   const session = await auth();
   const canEditMasterData = canEditProjectMasterDataSync(session?.user);
+  const { project } = await searchParams;
+
+  // プロジェクトコードからIDを取得
+  let filterProjectId: number | undefined;
+  if (project) {
+    const masterProject = await prisma.masterProject.findUnique({
+      where: { code: project },
+      select: { id: true },
+    });
+    if (masterProject) {
+      filterProjectId = masterProject.id;
+    }
+  }
 
   const [views, projects] = await Promise.all([
     prisma.displayView.findMany({
+      where: filterProjectId ? { projectId: filterProjectId } : undefined,
       orderBy: { id: "asc" },
       include: { project: true },
     }),
@@ -42,7 +60,12 @@ export default async function DisplayViewsPage() {
           <CardTitle>表示区分一覧</CardTitle>
         </CardHeader>
         <CardContent>
-          <DisplayViewsTable data={data} canEdit={canEditMasterData} projectOptions={projectOptions} />
+          <DisplayViewsTable
+            data={data}
+            canEdit={canEditMasterData}
+            projectOptions={projectOptions}
+            filterProjectId={filterProjectId ? String(filterProjectId) : undefined}
+          />
         </CardContent>
       </Card>
     </div>

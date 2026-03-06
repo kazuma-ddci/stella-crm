@@ -4,13 +4,31 @@ import { CustomerTypesTable } from "./customer-types-table";
 import { auth } from "@/auth";
 import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 
-export default async function CustomerTypesPage() {
+export default async function CustomerTypesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ project?: string }>;
+}) {
+  const { project: projectCode } = await searchParams;
   const session = await auth();
   const canEditMasterData = canEditProjectMasterDataSync(session?.user);
+
+  // プロジェクトコードからIDを解決
+  let filterProjectId: number | undefined;
+  if (projectCode) {
+    const proj = await prisma.masterProject.findFirst({
+      where: { code: projectCode },
+    });
+    if (proj) {
+      filterProjectId = proj.id;
+    }
+  }
+
   const customerTypes = await prisma.customerType.findMany({
     include: {
       project: true,
     },
+    where: filterProjectId ? { projectId: filterProjectId } : undefined,
     orderBy: [
       { projectId: "asc" },
       { displayOrder: "asc" },
@@ -44,7 +62,7 @@ export default async function CustomerTypesPage() {
           <CardTitle>顧客種別一覧</CardTitle>
         </CardHeader>
         <CardContent>
-          <CustomerTypesTable data={data} projectOptions={projectOptions} canEdit={canEditMasterData} />
+          <CustomerTypesTable data={data} projectOptions={projectOptions} canEdit={canEditMasterData} filterProjectId={filterProjectId} />
         </CardContent>
       </Card>
     </div>

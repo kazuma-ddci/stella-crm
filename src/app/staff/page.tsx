@@ -71,8 +71,8 @@ export default async function StaffPage() {
       roleTypeIds: s.roleAssignments.map((ra) => String(ra.roleTypeId)),
       roleTypeNames: s.roleAssignments.map((ra) => ra.roleType.name).join(", "),
       // プロジェクト（複数選択）
-      projectIds: s.projectAssignments.map((pa) => String(pa.projectId)),
-      projectNames: s.projectAssignments.map((pa) => pa.project.name).join(", "),
+      projectIds: s.projectAssignments.filter((pa) => pa.project.isActive).map((pa) => String(pa.projectId)),
+      projectNames: s.projectAssignments.filter((pa) => pa.project.isActive).map((pa) => pa.project.name).join(", "),
       // 組織ロール
       organizationRole: s.organizationRole,
       organizationRoleLabel: s.organizationRole === "founder" ? "ファウンダー" : "メンバー",

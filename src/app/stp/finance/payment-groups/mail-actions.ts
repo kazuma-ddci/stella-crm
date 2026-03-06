@@ -115,12 +115,23 @@ export async function getPaymentGroupMailData(
       isDefault: e.isDefault,
     }));
 
-  // InvoiceTemplate取得（deletedAt: null, templateType: "request"）
+  // STPプロジェクトのIDを取得
+  const stpProject = await prisma.masterProject.findFirst({
+    where: { code: "stp" },
+    select: { id: true },
+  });
+  const stpProjectId = stpProject?.id ?? null;
+
+  // InvoiceTemplate取得（deletedAt: null, templateType: "request", STPまたは共通）
   const templateRecords = await prisma.invoiceTemplate.findMany({
     where: {
       operatingCompanyId: group.operatingCompanyId,
       deletedAt: null,
       templateType: "request",
+      OR: [
+        { projectId: stpProjectId },
+        { projectId: null },
+      ],
     },
     orderBy: [{ isDefault: "desc" }, { id: "asc" }],
   });

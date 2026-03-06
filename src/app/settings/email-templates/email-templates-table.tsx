@@ -127,6 +127,8 @@ type CompanyOption = {
 type Props = {
   data: Record<string, unknown>[];
   companyOptions: CompanyOption[];
+  projectOptions: CompanyOption[];
+  filterProjectId?: string;
 };
 
 function TemplateField({
@@ -664,7 +666,7 @@ function TemplateField({
   );
 }
 
-export function EmailTemplatesTable({ data, companyOptions }: Props) {
+export function EmailTemplatesTable({ data, companyOptions, projectOptions, filterProjectId }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
     {
@@ -674,6 +676,15 @@ export function EmailTemplatesTable({ data, companyOptions }: Props) {
       options: companyOptions,
       required: true,
       filterable: true,
+    },
+    {
+      key: "projectId",
+      header: "プロジェクト",
+      type: "select",
+      options: projectOptions,
+      filterable: !filterProjectId,
+      hidden: !!filterProjectId,
+      defaultValue: filterProjectId ?? "",
     },
     {
       key: "name",
@@ -717,6 +728,13 @@ export function EmailTemplatesTable({ data, companyOptions }: Props) {
       if (option) return option.label;
       const label = item?.operatingCompanyLabel as string | undefined;
       return label ? `${label}（無効）` : "（なし）";
+    },
+    projectId: (value, item) => {
+      if (!value) return "（共通）";
+      const option = projectOptions.find((o) => o.value === String(value));
+      if (option) return option.label;
+      const label = item?.projectLabel as string | undefined;
+      return label ? `${label}（無効）` : "（共通）";
     },
     templateType: (value) => {
       const option = TEMPLATE_TYPE_OPTIONS.find((o) => o.value === value);

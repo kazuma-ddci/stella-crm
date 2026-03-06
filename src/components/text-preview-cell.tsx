@@ -106,7 +106,7 @@ export function TextPreviewCell({ text, title = "詳細", onEdit }: TextPreviewC
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent
           className="max-h-[80vh] flex flex-col"
-          style={{ maxWidth: "672px", width: "calc(100vw - 2rem)" }}
+          style={{ maxWidth: "400px", width: "calc(100vw - 2rem)" }}
         >
           <DialogHeader className="flex-shrink-0">
             <DialogTitle>{isEditing ? `${title}を編集` : title}</DialogTitle>

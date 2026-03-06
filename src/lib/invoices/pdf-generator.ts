@@ -88,6 +88,7 @@ export async function getInvoicePdfData(
       representativeName: group.operatingCompany.representativeName,
       phone: group.operatingCompany.phone,
       logoPath: group.operatingCompany.logoPath,
+      address2: group.operatingCompany.address2,
     },
     counterpartyName: group.counterparty.name,
     honorific: group.honorific,
@@ -110,6 +111,7 @@ export async function getInvoicePdfData(
       ? {
           bankName: group.bankAccount.bankName,
           branchName: group.bankAccount.branchName,
+          branchCode: group.bankAccount.branchCode,
           accountNumber: group.bankAccount.accountNumber,
           accountHolderName: group.bankAccount.accountHolderName,
         }

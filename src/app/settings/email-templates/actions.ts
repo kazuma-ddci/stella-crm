@@ -13,6 +13,7 @@ export async function createInvoiceTemplate(data: Record<string, unknown>) {
   const name = ((data.name as string) ?? "").trim();
   const templateType = data.templateType as string;
   const operatingCompanyId = Number(data.operatingCompanyId);
+  const projectId = data.projectId ? Number(data.projectId) : null;
   const emailSubjectTemplate = ((data.emailSubjectTemplate as string) ?? "").trim();
   const emailBodyTemplate = ((data.emailBodyTemplate as string) ?? "").trim();
   const isDefault = data.isDefault === true || data.isDefault === "true";
@@ -34,18 +35,30 @@ export async function createInvoiceTemplate(data: Record<string, unknown>) {
     throw new Error("指定された運営法人が見つかりません");
   }
 
-  // 同一法人・同一種別での名称重複チェック
+  // プロジェクトの存在チェック
+  if (projectId) {
+    const project = await prisma.masterProject.findUnique({
+      where: { id: projectId },
+      select: { id: true },
+    });
+    if (!project) {
+      throw new Error("指定されたプロジェクトが見つかりません");
+    }
+  }
+
+  // 同一PJ・法人・種別での名称重複チェック
   const existing = await prisma.invoiceTemplate.findFirst({
     where: {
       name,
       operatingCompanyId,
       templateType,
+      projectId,
       deletedAt: null,
     },
     select: { id: true },
   });
   if (existing) {
-    throw new Error(`テンプレート名「${name}」は同じ法人・種別で既に使用されています`);
+    throw new Error(`テンプレート名「${name}」は同じプロジェクト・法人・種別で既に使用されています`);
   }
 
   // isDefaultがtrueの場合、既存デフォルト解除とcreateをトランザクションで実行
@@ -65,6 +78,7 @@ export async function createInvoiceTemplate(data: Record<string, unknown>) {
           name,
           templateType,
           operatingCompanyId,
+          projectId,
           emailSubjectTemplate,
           emailBodyTemplate,
           isDefault,
@@ -78,6 +92,7 @@ export async function createInvoiceTemplate(data: Record<string, unknown>) {
         name,
         templateType,
         operatingCompanyId,
+        projectId,
         emailSubjectTemplate,
         emailBodyTemplate,
         isDefault,
@@ -98,7 +113,7 @@ export async function updateInvoiceTemplate(id: number, data: Record<string, unk
   // 更新対象のテンプレートを取得
   const current = await prisma.invoiceTemplate.findUnique({
     where: { id },
-    select: { id: true, operatingCompanyId: true, templateType: true, name: true },
+    select: { id: true, operatingCompanyId: true, templateType: true, name: true, projectId: true },
   });
   if (!current) {
     throw new Error("テンプレートが見つかりません");
@@ -108,6 +123,7 @@ export async function updateInvoiceTemplate(id: number, data: Record<string, unk
   let operatingCompanyId = current.operatingCompanyId;
   let templateType = current.templateType;
   let name = current.name;
+  let projectId: number | null = current.projectId;
 
   if ("operatingCompanyId" in data) {
     const newCompanyId = Number(data.operatingCompanyId);
@@ -122,6 +138,21 @@ export async function updateInvoiceTemplate(id: number, data: Record<string, unk
     }
     operatingCompanyId = newCompanyId;
     updateData.operatingCompanyId = newCompanyId;
+  }
+
+  if ("projectId" in data) {
+    const newProjectId = data.projectId ? Number(data.projectId) : null;
+    if (newProjectId) {
+      const project = await prisma.masterProject.findUnique({
+        where: { id: newProjectId },
+        select: { id: true },
+      });
+      if (!project) {
+        throw new Error("指定されたプロジェクトが見つかりません");
+      }
+    }
+    projectId = newProjectId;
+    updateData.projectId = newProjectId;
   }
 
   if ("templateType" in data) {
@@ -140,20 +171,21 @@ export async function updateInvoiceTemplate(id: number, data: Record<string, unk
     updateData.name = newName;
   }
 
-  // 名称・法人・種別のいずれかが変更された場合、最終値で重複チェック
-  if ("name" in data || "operatingCompanyId" in data || "templateType" in data) {
+  // 名称・法人・種別・PJのいずれかが変更された場合、最終値で重複チェック
+  if ("name" in data || "operatingCompanyId" in data || "templateType" in data || "projectId" in data) {
     const existing = await prisma.invoiceTemplate.findFirst({
       where: {
         name,
         operatingCompanyId,
         templateType,
+        projectId,
         deletedAt: null,
         id: { not: id },
       },
       select: { id: true },
     });
     if (existing) {
-      throw new Error(`テンプレート名「${name}」は同じ法人・種別で既に使用されています`);
+      throw new Error(`テンプレート名「${name}」は同じプロジェクト・法人・種別で既に使用されています`);
     }
   }
 

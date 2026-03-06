@@ -4,11 +4,32 @@ import { RoleTypesTable } from "./role-types-table";
 import { auth } from "@/auth";
 import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 
-export default async function RoleTypesPage() {
+export default async function RoleTypesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ project?: string }>;
+}) {
   const session = await auth();
   const canEditMasterData = canEditProjectMasterDataSync(session?.user);
+  const { project } = await searchParams;
+
+  // プロジェクトコードからIDを取得
+  let filterProjectId: number | undefined;
+  if (project) {
+    const masterProject = await prisma.masterProject.findUnique({
+      where: { code: project },
+      select: { id: true },
+    });
+    if (masterProject) {
+      filterProjectId = masterProject.id;
+    }
+  }
+
   const [roleTypes, projects] = await Promise.all([
     prisma.staffRoleType.findMany({
+      where: filterProjectId
+        ? { projectLinks: { some: { projectId: filterProjectId } } }
+        : undefined,
       orderBy: { displayOrder: "asc" },
       include: {
         projectLinks: true,
@@ -47,7 +68,12 @@ export default async function RoleTypesPage() {
           <CardTitle>役割種別一覧</CardTitle>
         </CardHeader>
         <CardContent>
-          <RoleTypesTable data={data} canEdit={canEditMasterData} projectOptions={projectOptions} />
+          <RoleTypesTable
+            data={data}
+            canEdit={canEditMasterData}
+            projectOptions={projectOptions}
+            filterProjectId={filterProjectId ? String(filterProjectId) : undefined}
+          />
         </CardContent>
       </Card>
     </div>

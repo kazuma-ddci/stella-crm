@@ -17,52 +17,63 @@ import {
 } from "@/components/ui/command";
 import { X, Plus, Save, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { ASSIGNABLE_FIELDS, type AssignableFieldCode } from "@/lib/staff/assignable-fields";
+import type { AssignableFieldCode } from "@/lib/staff/assignable-fields";
 import { saveFieldRestrictions } from "./actions";
 
 type Props = {
-  fieldData: Record<string, { projectIds: number[]; roleTypeIds: number[] }>;
+  fields: { code: string; label: string }[];
+  fieldData: Record<string, { sourceProjectIds: number[]; roleTypeIds: number[] }>;
   projectOptions: { value: number; label: string }[];
   roleTypeOptions: { value: number; label: string }[];
   canEdit: boolean;
+  managingProjectId: number;
+  fieldProjectMap: Record<string, number[]>;
 };
 
 export function FieldRestrictionsEditor({
+  fields,
   fieldData,
   projectOptions,
   roleTypeOptions,
   canEdit,
+  managingProjectId,
+  fieldProjectMap,
 }: Props) {
   const [editData, setEditData] = useState<
-    Record<string, { projectIds: number[]; roleTypeIds: number[] }>
+    Record<string, { sourceProjectIds: number[]; roleTypeIds: number[] }>
   >(JSON.parse(JSON.stringify(fieldData)));
   const [savingField, setSavingField] = useState<string | null>(null);
 
-  const fieldCodes = Object.keys(ASSIGNABLE_FIELDS) as AssignableFieldCode[];
+  // このPJに出現するフィールドのみ表示（出現設定がない場合は全フィールド表示）
+  const visibleFields = fields.filter((f) => {
+    const assignedProjects = fieldProjectMap[f.code];
+    if (!assignedProjects || assignedProjects.length === 0) return true;
+    return assignedProjects.includes(managingProjectId);
+  });
 
   function hasChanged(code: string) {
     return JSON.stringify(editData[code]) !== JSON.stringify(fieldData[code]);
   }
 
-  function addProject(code: string, projectId: number) {
+  function addSourceProject(code: string, projectId: number) {
     setEditData((prev) => {
       const field = prev[code];
-      if (field.projectIds.includes(projectId)) return prev;
+      if (field.sourceProjectIds.includes(projectId)) return prev;
       return {
         ...prev,
-        [code]: { ...field, projectIds: [...field.projectIds, projectId] },
+        [code]: { ...field, sourceProjectIds: [...field.sourceProjectIds, projectId] },
       };
     });
   }
 
-  function removeProject(code: string, projectId: number) {
+  function removeSourceProject(code: string, projectId: number) {
     setEditData((prev) => {
       const field = prev[code];
       return {
         ...prev,
         [code]: {
           ...field,
-          projectIds: field.projectIds.filter((id) => id !== projectId),
+          sourceProjectIds: field.sourceProjectIds.filter((id) => id !== projectId),
         },
       };
     });
@@ -92,15 +103,17 @@ export function FieldRestrictionsEditor({
     });
   }
 
-  async function handleSave(code: AssignableFieldCode) {
+  async function handleSave(code: string) {
     setSavingField(code);
     try {
+      const fieldLabel = fields.find((f) => f.code === code)?.label ?? code;
       await saveFieldRestrictions(
-        code,
-        editData[code].projectIds,
+        code as AssignableFieldCode,
+        managingProjectId,
+        editData[code].sourceProjectIds,
         editData[code].roleTypeIds,
       );
-      toast.success(`${ASSIGNABLE_FIELDS[code].label} の制約を保存しました`);
+      toast.success(`${fieldLabel} の制約を保存しました`);
     } catch {
       toast.error("保存に失敗しました");
     } finally {
@@ -108,11 +121,19 @@ export function FieldRestrictionsEditor({
     }
   }
 
+  if (visibleFields.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        このプロジェクトに割り当てられたフィールドはありません。
+      </p>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      {fieldCodes.map((code) => {
+      {visibleFields.map(({ code, label }) => {
         const field = editData[code];
-        const label = ASSIGNABLE_FIELDS[code].label;
+        if (!field) return null;
         const changed = hasChanged(code);
         const isSaving = savingField === code;
 
@@ -136,11 +157,11 @@ export function FieldRestrictionsEditor({
               )}
             </div>
 
-            {/* プロジェクト制約 */}
+            {/* ソースプロジェクト制約（OR条件） */}
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">プロジェクト制約</p>
+              <p className="text-xs text-muted-foreground">プロジェクトで絞り込み</p>
               <div className="flex flex-wrap items-center gap-1">
-                {field.projectIds.map((id) => {
+                {field.sourceProjectIds.map((id) => {
                   const opt = projectOptions.find((o) => o.value === id);
                   return (
                     <span
@@ -151,7 +172,7 @@ export function FieldRestrictionsEditor({
                       {canEdit && (
                         <button
                           type="button"
-                          onClick={() => removeProject(code, id)}
+                          onClick={() => removeSourceProject(code, id)}
                           className="hover:text-destructive"
                         >
                           <X className="h-3 w-3" />
@@ -163,20 +184,20 @@ export function FieldRestrictionsEditor({
                 {canEdit && (
                   <MultiSelectPopover
                     options={projectOptions}
-                    selectedIds={field.projectIds}
-                    onSelect={(id) => addProject(code, id)}
+                    selectedIds={field.sourceProjectIds}
+                    onSelect={(id) => addSourceProject(code, id)}
                     placeholder="プロジェクトを検索..."
                   />
                 )}
-                {field.projectIds.length === 0 && !canEdit && (
+                {field.sourceProjectIds.length === 0 && !canEdit && (
                   <span className="text-xs text-muted-foreground">制約なし</span>
                 )}
               </div>
             </div>
 
-            {/* 役割制約 */}
+            {/* 役割制約（OR条件） */}
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">役割制約</p>
+              <p className="text-xs text-muted-foreground">役割で絞り込み</p>
               <div className="flex flex-wrap items-center gap-1">
                 {field.roleTypeIds.map((id) => {
                   const opt = roleTypeOptions.find((o) => o.value === id);

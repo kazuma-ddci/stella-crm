@@ -1,0 +1,64 @@
+import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
+import { redirect } from "next/navigation";
+import { ProjectSettings } from "./project-settings";
+
+export default async function StpProjectSettingsPage() {
+  const session = await auth();
+  const user = session?.user;
+
+  if (!canEditProjectMasterDataSync(user, "stp")) {
+    redirect("/stp/dashboard");
+  }
+
+  const stpProject = await prisma.masterProject.findFirst({
+    where: { code: "stp" },
+    include: {
+      operatingCompany: true,
+    },
+  });
+
+  if (!stpProject) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold">プロジェクト設定</h1>
+        <p className="text-muted-foreground">
+          STPプロジェクトが見つかりません。
+        </p>
+      </div>
+    );
+  }
+
+  const isSystemAdmin = user?.loginId === "admin";
+
+  const projectData = {
+    id: stpProject.id,
+    name: stpProject.name,
+    description: stpProject.description,
+  };
+
+  const operatingCompanyData = stpProject.operatingCompany
+    ? {
+        id: stpProject.operatingCompany.id,
+        companyName: stpProject.operatingCompany.companyName,
+        registrationNumber: stpProject.operatingCompany.registrationNumber,
+        postalCode: stpProject.operatingCompany.postalCode,
+        address: stpProject.operatingCompany.address,
+        address2: stpProject.operatingCompany.address2,
+        representativeName: stpProject.operatingCompany.representativeName,
+        phone: stpProject.operatingCompany.phone,
+      }
+    : null;
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">プロジェクト設定</h1>
+      <ProjectSettings
+        project={projectData}
+        operatingCompany={operatingCompanyData}
+        isSystemAdmin={isSystemAdmin}
+      />
+    </div>
+  );
+}

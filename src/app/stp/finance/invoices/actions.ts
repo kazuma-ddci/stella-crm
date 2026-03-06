@@ -1394,6 +1394,7 @@ export async function getInvoiceGroupDetail(groupId: number) {
       registrationNumber: group.operatingCompany.registrationNumber,
       postalCode: group.operatingCompany.postalCode,
       address: group.operatingCompany.address,
+      address2: group.operatingCompany.address2,
       representativeName: group.operatingCompany.representativeName,
       phone: group.operatingCompany.phone,
       logoPath: group.operatingCompany.logoPath,
@@ -1406,6 +1407,7 @@ export async function getInvoiceGroupDetail(groupId: number) {
       ? {
           bankName: group.bankAccount.bankName,
           branchName: group.bankAccount.branchName,
+          branchCode: group.bankAccount.branchCode,
           accountNumber: group.bankAccount.accountNumber,
           accountHolderName: group.bankAccount.accountHolderName,
         }

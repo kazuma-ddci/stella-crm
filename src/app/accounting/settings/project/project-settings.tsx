@@ -1,0 +1,313 @@
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Loader2, Mail, Landmark } from "lucide-react";
+import { updateProjectBasicInfo, updateOperatingCompanyInfo } from "./actions";
+import { ProjectEmailsModal } from "@/app/settings/projects/project-emails-modal";
+import { ProjectBankAccountsModal } from "@/app/settings/projects/project-bank-accounts-modal";
+
+type ProjectData = {
+  id: number;
+  name: string;
+  description: string | null;
+};
+
+type OperatingCompanyData = {
+  id: number;
+  companyName: string;
+  registrationNumber: string | null;
+  postalCode: string | null;
+  address: string | null;
+  address2: string | null;
+  representativeName: string | null;
+  phone: string | null;
+} | null;
+
+type Props = {
+  project: ProjectData;
+  operatingCompany: OperatingCompanyData;
+  isSystemAdmin: boolean;
+};
+
+export function ProjectSettings({ project, operatingCompany, isSystemAdmin }: Props) {
+  // プロジェクト基本情報
+  const [projectName, setProjectName] = useState(project.name);
+  const [projectDescription, setProjectDescription] = useState(
+    project.description ?? ""
+  );
+  const [projectSaving, setProjectSaving] = useState(false);
+  const [projectSuccess, setProjectSuccess] = useState(false);
+
+  // 運営法人情報
+  const [companyName, setCompanyName] = useState(
+    operatingCompany?.companyName ?? ""
+  );
+  const [registrationNumber, setRegistrationNumber] = useState(
+    operatingCompany?.registrationNumber ?? ""
+  );
+  const [postalCode, setPostalCode] = useState(
+    operatingCompany?.postalCode ?? ""
+  );
+  const [address, setAddress] = useState(operatingCompany?.address ?? "");
+  const [address2, setAddress2] = useState(operatingCompany?.address2 ?? "");
+  const [representativeName, setRepresentativeName] = useState(
+    operatingCompany?.representativeName ?? ""
+  );
+  const [phone, setPhone] = useState(operatingCompany?.phone ?? "");
+  const [companySaving, setCompanySaving] = useState(false);
+  const [companySuccess, setCompanySuccess] = useState(false);
+
+  // モーダル
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [bankModalOpen, setBankModalOpen] = useState(false);
+
+  const handleSaveProject = async () => {
+    setProjectSaving(true);
+    setProjectSuccess(false);
+    try {
+      await updateProjectBasicInfo(project.id, {
+        name: projectName,
+        description: projectDescription,
+      });
+      setProjectSuccess(true);
+      setTimeout(() => setProjectSuccess(false), 3000);
+    } finally {
+      setProjectSaving(false);
+    }
+  };
+
+  const handleSaveCompany = async () => {
+    if (!operatingCompany) return;
+    setCompanySaving(true);
+    setCompanySuccess(false);
+    try {
+      await updateOperatingCompanyInfo(operatingCompany.id, {
+        companyName,
+        registrationNumber,
+        postalCode,
+        address,
+        address2,
+        representativeName,
+        phone,
+      });
+      setCompanySuccess(true);
+      setTimeout(() => setCompanySuccess(false), 3000);
+    } finally {
+      setCompanySaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* プロジェクト基本情報 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>基本情報</CardTitle>
+          <CardDescription>プロジェクトの名前と説明を管理します</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="project-name">プロジェクト名</Label>
+            <Input
+              id="project-name"
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+              placeholder="プロジェクト名"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="project-description">説明</Label>
+            <Textarea
+              id="project-description"
+              value={projectDescription}
+              onChange={(e) => setProjectDescription(e.target.value)}
+              placeholder="プロジェクトの説明"
+              rows={3}
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={handleSaveProject}
+              disabled={projectSaving || !projectName.trim()}
+            >
+              {projectSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  保存中...
+                </>
+              ) : (
+                "保存"
+              )}
+            </Button>
+            {projectSuccess && (
+              <span className="text-sm text-green-600">保存しました</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 運営法人情報 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>運営法人情報</CardTitle>
+          <CardDescription>
+            このプロジェクトの運営法人の基本情報を管理します
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {operatingCompany ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="company-name">法人名</Label>
+                  <Input
+                    id="company-name"
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    placeholder="法人名"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="registration-number">
+                    適格請求書発行事業者登録番号
+                  </Label>
+                  <Input
+                    id="registration-number"
+                    value={registrationNumber}
+                    onChange={(e) => setRegistrationNumber(e.target.value)}
+                    placeholder="T1234567890123"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="postal-code">郵便番号</Label>
+                  <Input
+                    id="postal-code"
+                    value={postalCode}
+                    onChange={(e) => setPostalCode(e.target.value)}
+                    placeholder="123-4567"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">電話番号</Label>
+                  <Input
+                    id="phone"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="03-1234-5678"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="address">住所1</Label>
+                <Input
+                  id="address"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="住所1"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="address2">住所2</Label>
+                <Input
+                  id="address2"
+                  value={address2}
+                  onChange={(e) => setAddress2(e.target.value)}
+                  placeholder="住所2（建物名・階数など）"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="representative-name">代表者名</Label>
+                <Input
+                  id="representative-name"
+                  value={representativeName}
+                  onChange={(e) => setRepresentativeName(e.target.value)}
+                  placeholder="代表者名"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <Button
+                  onClick={handleSaveCompany}
+                  disabled={companySaving || !companyName.trim()}
+                >
+                  {companySaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      保存中...
+                    </>
+                  ) : (
+                    "保存"
+                  )}
+                </Button>
+                {companySuccess && (
+                  <span className="text-sm text-green-600">保存しました</span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              運営法人が設定されていません。管理者に設定を依頼してください。
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* メール管理 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>メール管理</CardTitle>
+          <CardDescription>
+            プロジェクトで使用するメールアドレスを管理します
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="outline" onClick={() => setEmailModalOpen(true)}>
+            <Mail className="h-4 w-4 mr-2" />
+            メールアドレスを管理
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* 口座管理 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>口座管理</CardTitle>
+          <CardDescription>
+            プロジェクトで使用する銀行口座を管理します
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="outline" onClick={() => setBankModalOpen(true)}>
+            <Landmark className="h-4 w-4 mr-2" />
+            銀行口座を管理
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* モーダル */}
+      <ProjectEmailsModal
+        open={emailModalOpen}
+        onOpenChange={setEmailModalOpen}
+        projectId={project.id}
+        projectName={project.name}
+        isSystemAdmin={isSystemAdmin}
+      />
+      <ProjectBankAccountsModal
+        open={bankModalOpen}
+        onOpenChange={setBankModalOpen}
+        projectId={project.id}
+        projectName={project.name}
+      />
+    </div>
+  );
+}

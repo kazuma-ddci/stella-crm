@@ -156,11 +156,6 @@ async function main() {
   });
   console.log('✓ Projects (6)');
 
-  await prisma.systemProjectBinding.createMany({
-    data: [{ routeKey: 'stp', projectId: 1 }],
-  });
-  console.log('✓ SystemProjectBindings (1)');
-
   // 経費部門
   await prisma.costCenter.createMany({
     data: [
@@ -1503,18 +1498,37 @@ async function main() {
   });
   console.log('✓ Staff role types (1): AS');
 
+  // 担当者フィールド定義（StaffFieldDefinition）のシード
+  await prisma.staffFieldDefinition.createMany({
+    data: [
+      { id: 1, fieldCode: 'STP_COMPANY_SALES', fieldName: 'STP企業 担当営業', displayOrder: 1 },
+      { id: 2, fieldCode: 'STP_COMPANY_ADMIN', fieldName: 'STP企業 担当事務', displayOrder: 2 },
+      { id: 3, fieldCode: 'MASTER_COMPANY_STAFF', fieldName: '全顧客マスタ 担当者', displayOrder: 3 },
+      { id: 4, fieldCode: 'CONTRACT_HISTORY_SALES', fieldName: '契約履歴 担当営業', displayOrder: 4 },
+      { id: 5, fieldCode: 'CONTRACT_HISTORY_OPERATION', fieldName: '契約履歴 担当運用', displayOrder: 5 },
+      { id: 6, fieldCode: 'STP_AGENT_STAFF', fieldName: '代理店 担当営業', displayOrder: 6 },
+      { id: 7, fieldCode: 'STP_AGENT_ADMIN', fieldName: '代理店 担当事務', displayOrder: 7 },
+      { id: 8, fieldCode: 'PROPOSAL_STAFF', fieldName: '提案書 担当者', displayOrder: 8 },
+    ],
+    skipDuplicates: true,
+  });
+  console.log('✓ Staff field definitions (8)');
+
   const asRole = await prisma.staffRoleType.findFirst({ where: { name: 'AS' } });
-  if (asRole) {
+  const stpProject = await prisma.masterProject.findFirst({ where: { code: 'stp' } });
+  const masterCompanyField = await prisma.staffFieldDefinition.findFirst({ where: { fieldCode: 'MASTER_COMPANY_STAFF' } });
+  if (asRole && stpProject && masterCompanyField) {
     await prisma.staffFieldRestriction.deleteMany({
-      where: { fieldCode: 'MASTER_COMPANY_STAFF' },
+      where: { fieldDefinitionId: masterCompanyField.id },
     });
     await prisma.staffFieldRestriction.create({
       data: {
-        fieldCode: 'MASTER_COMPANY_STAFF',
+        fieldDefinitionId: masterCompanyField.id,
+        managingProjectId: stpProject.id,
         roleTypeId: asRole.id,
       },
     });
-    console.log('  StaffFieldRestriction: MASTER_COMPANY_STAFF → AS role created');
+    console.log('  StaffFieldRestriction: MASTER_COMPANY_STAFF → AS role (managed by STP)');
   }
 
   // ============================================

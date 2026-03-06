@@ -819,11 +819,13 @@ model MasterProject {
   isActive            Boolean  @default(true) @map("is_active")
   displayOrder        Int      @default(0) @map("display_order")
   operatingCompanyId  Int?     @map("operating_company_id")
+  defaultCostCenterId Int?    @map("default_cost_center_id")
 
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   operatingCompany   OperatingCompany? @relation(fields: [operatingCompanyId], references: [id])
+  defaultCostCenter  CostCenter?       @relation("ProjectDefaultCostCenter", fields: [defaultCostCenterId], references: [id])
   contracts          MasterContract[]
   staffAssignments   StaffProjectAssignment[]
   staffPermissions   StaffPermission[]
@@ -834,7 +836,9 @@ model MasterProject {
   accountingMonthlyCloses AccountingMonthlyClose[]
   accountingReconciliations AccountingReconciliation[]
   roleTypeLinks      StaffRoleTypeProject[]
-  fieldRestrictions  StaffFieldRestriction[]
+  fieldDefinitionProjects StaffFieldDefinitionProject[]
+  managingRestrictions    StaffFieldRestriction[]  @relation("ManagingProjectRestrictions")
+  sourceRestrictions      StaffFieldRestriction[]  @relation("SourceProjectRestrictions")
 
   // 経理システム追加Relations
   costCenters             CostCenter[]
@@ -842,11 +846,11 @@ model MasterProject {
   finTransactions         Transaction[]
   finRecurringTransactions RecurringTransaction[]
   monthlyCloseLogs        MonthlyCloseLog[]
-  systemProjectBindings   SystemProjectBinding[]
   finInvoiceGroups        InvoiceGroup[]   @relation("ProjectInvoiceGroups")
   finPaymentGroups        PaymentGroup[]   @relation("ProjectPaymentGroups")
   projectEmails           ProjectEmail[]
   projectBankAccounts     ProjectBankAccount[]
+  invoiceTemplates        InvoiceTemplate[]
 
   @@map("master_projects")
 }
@@ -861,7 +865,8 @@ model OperatingCompany {
   companyName           String    @db.VarChar(200)                    // 法人名
   registrationNumber    String?   @unique @db.VarChar(20)             // 適格請求書発行事業者登録番号（T+13桁）
   postalCode            String?   @db.VarChar(10)                     // 郵便番号
-  address               String?                                       // 住所
+  address               String?                                       // 住所1
+  address2              String?                                       // 住所2
   representativeName    String?   @db.VarChar(100)                    // 代表者名
   phone                 String?   @db.VarChar(50)                     // 電話番号
   isActive              Boolean   @default(true)
@@ -885,7 +890,6 @@ model OperatingCompany {
   invoiceTemplates        InvoiceTemplate[]
   invoiceMails            InvoiceMail[]
   invoiceNumberSequences  StpInvoiceNumberSequence[]
-  systemProjectBindings   SystemProjectBinding[]
 
   @@map("operating_companies")
 }
@@ -2086,21 +2090,66 @@ model StaffRoleTypeProject {
 }
 
 // ============================================
+// 担当者フィールド定義 (Staff Field Definitions)
+// stella001が管理するフィールドマスタ
+// ============================================
+
+model StaffFieldDefinition {
+  id           Int      @id @default(autoincrement())
+  fieldCode    String   @unique @db.VarChar(50) @map("field_code")    // "STP_COMPANY_SALES" 等
+  fieldName    String   @db.VarChar(100) @map("field_name")           // "STP企業 担当営業"
+  description  String?
+  isActive     Boolean  @default(true) @map("is_active")
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  projectLinks  StaffFieldDefinitionProject[]
+  restrictions  StaffFieldRestriction[]
+
+  @@map("staff_field_definitions")
+}
+
+// ============================================
+// 担当者フィールド × プロジェクト (どのPJの設定画面に出現するか)
+// stella001が管理
+// ============================================
+
+model StaffFieldDefinitionProject {
+  id                Int      @id @default(autoincrement())
+  fieldDefinitionId Int      @map("field_definition_id")
+  projectId         Int      @map("project_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  fieldDefinition StaffFieldDefinition @relation(fields: [fieldDefinitionId], references: [id], onDelete: Cascade)
+  project         MasterProject        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([fieldDefinitionId, projectId])
+  @@map("staff_field_definition_projects")
+}
+
+// ============================================
 // 担当者フィールド制約 (Staff Field Restrictions)
-// フィールドごとにプロジェクト・役割で担当者を絞り込む
+// PJ側が管理: フィールドごとにプロジェクト・役割で担当者を絞り込む
+// sourceProjectId OR roleTypeId で OR結合
 // ============================================
 
 model StaffFieldRestriction {
-  id         Int      @id @default(autoincrement())
-  fieldCode  String   @db.VarChar(50) @map("field_code")
-  projectId  Int?     @map("project_id")
-  roleTypeId Int?     @map("role_type_id")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id                Int      @id @default(autoincrement())
+  fieldDefinitionId Int      @map("field_definition_id")      // FK → StaffFieldDefinition
+  managingProjectId Int      @map("managing_project_id")      // この制約を設定したPJ
+  sourceProjectId   Int?     @map("source_project_id")        // 選択肢に含めるPJ（OR条件）
+  roleTypeId        Int?     @map("role_type_id")             // 選択肢に含める役割（OR条件）
+  createdAt         DateTime @default(now()) @map("created_at")
 
-  project  MasterProject? @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  roleType StaffRoleType? @relation(fields: [roleTypeId], references: [id], onDelete: Cascade)
+  fieldDefinition StaffFieldDefinition @relation(fields: [fieldDefinitionId], references: [id], onDelete: Cascade)
+  managingProject MasterProject        @relation("ManagingProjectRestrictions", fields: [managingProjectId], references: [id], onDelete: Cascade)
+  sourceProject   MasterProject?       @relation("SourceProjectRestrictions", fields: [sourceProjectId], references: [id], onDelete: Cascade)
+  roleType        StaffRoleType?       @relation(fields: [roleTypeId], references: [id], onDelete: Cascade)
 
-  @@unique([fieldCode, projectId, roleTypeId])
+  @@unique([fieldDefinitionId, managingProjectId, sourceProjectId, roleTypeId])
+  @@index([fieldDefinitionId, managingProjectId], map: "idx_field_restrictions_field_managing")
   @@map("staff_field_restrictions")
 }
 
@@ -2465,7 +2514,7 @@ model CostCenter {
   budgets               Budget[]
   creator               MasterStaff?    @relation("CostCenterCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?    @relation("CostCenterUpdater", fields: [updatedBy], references: [id])
-  systemProjectBindings SystemProjectBinding[]
+  projectDefaultCostCenters MasterProject[] @relation("ProjectDefaultCostCenter")
 }
 
 // ============================================
@@ -3112,6 +3161,7 @@ model ProjectBankAccount {
 model InvoiceTemplate {
   id                    Int       @id @default(autoincrement())
   operatingCompanyId    Int       // FK → OperatingCompany
+  projectId             Int?      @map("project_id")  // FK → MasterProject（PJごとの管理）
   name                  String    // テンプレート名
   templateType          String    // "sending" | "request"（送付用/発行依頼用）
   emailSubjectTemplate  String    // メール件名テンプレート
@@ -3126,6 +3176,7 @@ model InvoiceTemplate {
 
   // Relations
   operatingCompany      OperatingCompany @relation(fields: [operatingCompanyId], references: [id])
+  project               MasterProject?   @relation(fields: [projectId], references: [id])
   creator               MasterStaff      @relation("InvoiceTemplateCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?     @relation("InvoiceTemplateUpdater", fields: [updatedBy], references: [id])
 }
@@ -3296,28 +3347,6 @@ model TransactionCandidateDecision {
   decider           MasterStaff? @relation("CandidateDecisionDecider", fields: [decidedBy], references: [id])
 
   @@unique([candidateKey, targetMonth])
-}
-
-// ============================================
-// システムプロジェクトバインディング
-// ============================================
-
-model SystemProjectBinding {
-  id                    Int       @id @default(autoincrement())
-  routeKey              String    @unique @db.VarChar(50)  // "stp" 等（immutable）
-  projectId             Int
-  defaultCostCenterId   Int?
-  operatingCompanyId    Int?
-  isActive              Boolean   @default(true)
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
-
-  // Relations
-  project               MasterProject     @relation(fields: [projectId], references: [id])
-  defaultCostCenter     CostCenter?       @relation(fields: [defaultCostCenterId], references: [id])
-  operatingCompany      OperatingCompany? @relation(fields: [operatingCompanyId], references: [id])
-
-  @@map("system_project_bindings")
 }
 
 // ============================================

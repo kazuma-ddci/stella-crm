@@ -26,48 +26,47 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5分
 // ============================================
 
 /**
- * SystemProjectBinding テーブルから routeKey に対応するプロジェクト情報を取得する。
+ * MasterProject テーブルから code に対応するプロジェクト情報を取得する。
  * 結果はプロセス内メモリにキャッシュされる（TTL: 5分）。
  *
- * @param routeKey - ルートキー（例: "stp"）
+ * @param projectCode - プロジェクトコード（例: "stp"）
  * @returns ProjectContext or null（未登録または無効の場合）
  */
 export async function getSystemProjectContext(
-  routeKey: string
+  projectCode: string
 ): Promise<ProjectContext | null> {
   // キャッシュ確認
-  const cached = contextCache.get(routeKey);
+  const cached = contextCache.get(projectCode);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.data;
   }
 
   // DB参照
-  const binding = await prisma.systemProjectBinding.findUnique({
-    where: { routeKey },
+  const project = await prisma.masterProject.findUnique({
+    where: { code: projectCode },
     include: {
-      project: true,
       defaultCostCenter: true,
       operatingCompany: true,
     },
   });
 
-  if (!binding || !binding.isActive) {
-    contextCache.delete(routeKey);
+  if (!project || !project.isActive) {
+    contextCache.delete(projectCode);
     return null;
   }
 
   const context: ProjectContext = {
-    projectId: binding.project.id,
-    projectCode: binding.project.code,
-    projectName: binding.project.name,
-    defaultCostCenterId: binding.defaultCostCenter?.id ?? null,
-    defaultCostCenterName: binding.defaultCostCenter?.name ?? null,
-    operatingCompanyId: binding.operatingCompany?.id ?? null,
-    operatingCompanyName: binding.operatingCompany?.companyName ?? null,
+    projectId: project.id,
+    projectCode: project.code,
+    projectName: project.name,
+    defaultCostCenterId: project.defaultCostCenter?.id ?? null,
+    defaultCostCenterName: project.defaultCostCenter?.name ?? null,
+    operatingCompanyId: project.operatingCompany?.id ?? null,
+    operatingCompanyName: project.operatingCompany?.companyName ?? null,
   };
 
   // キャッシュ保存
-  contextCache.set(routeKey, {
+  contextCache.set(projectCode, {
     data: context,
     expiresAt: Date.now() + CACHE_TTL_MS,
   });
@@ -82,7 +81,7 @@ export async function getSystemProjectContext(
 export async function requireStpProjectId(): Promise<number> {
   const ctx = await getSystemProjectContext("stp");
   if (!ctx) {
-    throw new Error("STPプロジェクトのコンテキストが取得できません。SystemProjectBindingの設定を確認してください。");
+    throw new Error("STPプロジェクトのコンテキストが取得できません。MasterProjectの設定を確認してください。");
   }
   return ctx.projectId;
 }
@@ -90,9 +89,9 @@ export async function requireStpProjectId(): Promise<number> {
 /**
  * キャッシュをクリアする（テスト用、設定変更後のリロード用）
  */
-export function clearProjectContextCache(routeKey?: string): void {
-  if (routeKey) {
-    contextCache.delete(routeKey);
+export function clearProjectContextCache(projectCode?: string): void {
+  if (projectCode) {
+    contextCache.delete(projectCode);
   } else {
     contextCache.clear();
   }

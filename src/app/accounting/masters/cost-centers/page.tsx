@@ -33,7 +33,7 @@ export default async function CostCentersPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">按分先マスタ</h1>
+      <h1 className="text-2xl font-bold">経理用プロジェクト管理</h1>
       <Card>
         <CardHeader>
           <CardTitle>按分先一覧</CardTitle>

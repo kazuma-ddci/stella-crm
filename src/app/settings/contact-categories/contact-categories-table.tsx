@@ -8,9 +8,10 @@ type Props = {
   data: Record<string, unknown>[];
   projectOptions: { value: string; label: string }[];
   canEdit: boolean;
+  filterProjectId?: number;
 };
 
-export function ContactCategoriesTable({ data, projectOptions, canEdit }: Props) {
+export function ContactCategoriesTable({ data, projectOptions, canEdit, filterProjectId }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
     {
@@ -20,6 +21,8 @@ export function ContactCategoriesTable({ data, projectOptions, canEdit }: Props)
       options: projectOptions,
       required: true,
       simpleMode: true,
+      hidden: !!filterProjectId,
+      defaultValue: filterProjectId ? String(filterProjectId) : undefined,
     },
     { key: "projectName", header: "プロジェクト", editable: false, hidden: true },
     { key: "name", header: "接触種別名", type: "text", required: true, simpleMode: true },

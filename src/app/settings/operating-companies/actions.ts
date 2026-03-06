@@ -12,6 +12,7 @@ export async function addOperatingCompany(data: Record<string, unknown>) {
       registrationNumber: (data.registrationNumber as string) || null,
       postalCode: (data.postalCode as string) || null,
       address: (data.address as string) || null,
+      address2: (data.address2 as string) || null,
       representativeName: (data.representativeName as string) || null,
       phone: (data.phone as string) || null,
       abbreviation: (data.abbreviation as string) || null,
@@ -38,6 +39,7 @@ export async function updateOperatingCompany(
   if ("registrationNumber" in data) updateData.registrationNumber = (data.registrationNumber as string) || null;
   if ("postalCode" in data) updateData.postalCode = (data.postalCode as string) || null;
   if ("address" in data) updateData.address = (data.address as string) || null;
+  if ("address2" in data) updateData.address2 = (data.address2 as string) || null;
   if ("representativeName" in data) updateData.representativeName = (data.representativeName as string) || null;
   if ("phone" in data) updateData.phone = (data.phone as string) || null;
   if ("abbreviation" in data) updateData.abbreviation = (data.abbreviation as string) || null;

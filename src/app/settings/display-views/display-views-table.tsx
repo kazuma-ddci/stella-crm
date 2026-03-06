@@ -7,14 +7,23 @@ type Props = {
   data: Record<string, unknown>[];
   canEdit: boolean;
   projectOptions: { value: string; label: string }[];
+  filterProjectId?: string;
 };
 
-export function DisplayViewsTable({ data, canEdit, projectOptions }: Props) {
+export function DisplayViewsTable({ data, canEdit, projectOptions, filterProjectId }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
     { key: "viewKey", header: "ビューキー", type: "text", editable: false },
     { key: "viewName", header: "表示名", type: "text", required: true, simpleMode: true },
-    { key: "projectId", header: "プロジェクト", type: "select", options: projectOptions, required: true },
+    {
+      key: "projectId",
+      header: "プロジェクト",
+      type: "select",
+      options: projectOptions,
+      required: true,
+      hidden: !!filterProjectId,
+      defaultValue: filterProjectId,
+    },
     { key: "description", header: "説明", type: "text" },
     { key: "isActive", header: "有効", type: "boolean" },
   ];

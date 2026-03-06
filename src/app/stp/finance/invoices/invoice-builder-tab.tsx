@@ -86,6 +86,7 @@ type GroupDetailData = {
   bankAccount: {
     bankName: string;
     branchName: string;
+    branchCode: string;
     accountNumber: string;
     accountHolderName: string;
   } | null;
@@ -94,6 +95,7 @@ type GroupDetailData = {
     registrationNumber: string | null;
     postalCode: string | null;
     address: string | null;
+    address2: string | null;
     representativeName: string | null;
     phone: string | null;
     logoPath: string | null;

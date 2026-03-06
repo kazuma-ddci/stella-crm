@@ -8,16 +8,24 @@ type Props = {
   data: Record<string, unknown>[];
   canEdit: boolean;
   projectOptions: { value: string; label: string }[];
+  filterProjectId?: string;
 };
 
-export function RoleTypesTable({ data, canEdit, projectOptions }: Props) {
+export function RoleTypesTable({ data, canEdit, projectOptions, filterProjectId }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
     { key: "code", header: "コード", editable: false, hidden: true },
     { key: "name", header: "役割名", type: "text", required: true, simpleMode: true },
     { key: "description", header: "説明", type: "textarea" },
-    { key: "projectIds", header: "プロジェクト（選択）", type: "multiselect", options: projectOptions, hidden: true },
-    { key: "projectNames", header: "プロジェクト", editable: false, filterable: true },
+    {
+      key: "projectIds",
+      header: "プロジェクト（選択）",
+      type: "multiselect",
+      options: projectOptions,
+      hidden: true,
+      defaultValue: filterProjectId ? [filterProjectId] : undefined,
+    },
+    { key: "projectNames", header: "プロジェクト", editable: false, filterable: true, hidden: !!filterProjectId },
     { key: "isActive", header: "有効", type: "boolean" },
   ];
 

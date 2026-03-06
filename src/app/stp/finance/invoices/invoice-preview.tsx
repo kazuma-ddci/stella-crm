@@ -12,6 +12,7 @@ export type InvoicePreviewProps = {
     registrationNumber: string | null;
     postalCode: string | null;
     address: string | null;
+    address2: string | null;
     representativeName: string | null;
     phone: string | null;
     logoPath: string | null;
@@ -37,6 +38,7 @@ export type InvoicePreviewProps = {
   bankAccount: {
     bankName: string;
     branchName: string;
+    branchCode: string;
     accountNumber: string;
     accountHolderName: string;
   } | null;
@@ -44,17 +46,23 @@ export type InvoicePreviewProps = {
 };
 
 // ============================================
+// 定数
+// ============================================
+
+const MIN_TABLE_ROWS = 8;
+
+// ============================================
 // ヘルパー
 // ============================================
 
 function formatCurrency(value: number): string {
-  return `\u00a5${value.toLocaleString("ja-JP")}`;
+  return `${value.toLocaleString("ja-JP")}`;
 }
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "";
   const [year, month, day] = dateStr.split("-");
-  return `${year}年${Number(month)}月${Number(day)}日`;
+  return `${year}.${Number(month)}.${Number(day)}`;
 }
 
 // ============================================
@@ -74,7 +82,6 @@ function buildOrderedLines(
     return lineItems.map((item, index) => ({ type: "transaction", item, index }));
   }
 
-  // IDベースで取引をマッピング
   const txMap = new Map<number, { item: InvoicePreviewProps["lineItems"][number]; index: number }>();
   lineItems.forEach((item, index) => {
     txMap.set(item.id, { item, index });
@@ -107,14 +114,12 @@ function buildOrderedLines(
     }
   }
 
-  // lineOrder に含まれなかった取引を末尾に追加
   lineItems.forEach((item, index) => {
     if (!usedTxIds.has(item.id)) {
       ordered.push({ type: "transaction", item, index });
     }
   });
 
-  // lineOrder に含まれなかったメモを末尾に追加
   memoLines.forEach((ml) => {
     if (!usedMemoIds.has(ml.id)) {
       ordered.push({ type: "memo", memo: ml });
@@ -125,12 +130,10 @@ function buildOrderedLines(
 }
 
 // ============================================
-// A4サイズ定数（@react-pdfと同じpt単位）
-// プレビューを595px幅で描画し、CSSスケーリングでコンテナに合わせる
-// これによりPDFテンプレートと同じ数値を使って完全に一致させる
+// A4サイズ定数
 // ============================================
-const A4_WIDTH = 595; // A4幅 in pt (= @react-pdfのPage幅)
-const A4_HEIGHT = 842; // A4高さ in pt (= @react-pdfのPage高さ)
+const A4_WIDTH = 595;
+const A4_HEIGHT = 842;
 
 // ============================================
 // コンポーネント
@@ -149,7 +152,6 @@ export function InvoicePreview(props: InvoicePreviewProps) {
     lineOrder,
     taxSummary,
     subtotal,
-    taxAmount,
     totalAmount,
     bankAccount,
     remarks,
@@ -188,7 +190,8 @@ export function InvoicePreview(props: InvoicePreviewProps) {
     [lineItems, memoLines, lineOrder]
   );
 
-  // 全スタイル値はpdf-template.tsxのStyleSheetと完全一致させる
+  const emptyRowsCount = Math.max(0, MIN_TABLE_ROWS - orderedLines.length);
+
   return (
     <div
       ref={containerRef}
@@ -209,87 +212,129 @@ export function InvoicePreview(props: InvoicePreviewProps) {
           fontSize: 10,
           color: "#1f2937",
           backgroundColor: "#ffffff",
+          overflow: "hidden",
         }}
         className="border border-gray-300 shadow-sm"
       >
-        {/* ページ内容: padding 48 = pdf-template.tsxのpage.padding */}
-        <div style={{ padding: 48 }}>
-          {/* タイトル: fontSize 24, marginBottom 30, letterSpacing 8 */}
-          <div
-            style={{
-              fontSize: 24,
-              fontWeight: "bold",
-              marginBottom: 30,
-              textAlign: "center",
-              letterSpacing: 8,
-            }}
-          >
-            請 求 書
+        {/* ウェーブ装飾（上部・全幅カバー） */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/images/invoice-wave.png"
+          alt=""
+          style={{
+            position: "absolute",
+            top: 0,
+            left: -1,
+            width: "calc(100% + 2px)",
+            height: 50,
+            objectFit: "fill",
+          }}
+        />
+
+        {/* ウォーターマーク（中央下部・アスペクト比保持） */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/images/invoice-watermark.png"
+          alt=""
+          style={{
+            position: "absolute",
+            bottom: 100,
+            left: "50%",
+            width: 200,
+            transform: "translateX(-50%)",
+            opacity: 0.15,
+            pointerEvents: "none",
+          }}
+        />
+
+        {/* メインコンテンツ */}
+        <div style={{ padding: 48, paddingTop: 60, position: "relative" }}>
+          {/* 上部: 請求書番号・発行日（左・縦並び） + ロゴ（右） */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+            <div>
+              <div style={{ display: "flex", marginBottom: 2 }}>
+                <span style={{ fontSize: 8, color: "#6b7280", width: 65 }}>請求書番号：</span>
+                <span style={{ fontSize: 9, fontWeight: "bold" }}>
+                  {invoiceNumber ?? "（未採番）"}
+                </span>
+              </div>
+              <div style={{ display: "flex", marginBottom: 2 }}>
+                <span style={{ fontSize: 8, color: "#6b7280", width: 65 }}>請求発行日：</span>
+                <span style={{ fontSize: 9, fontWeight: "bold" }}>
+                  {formatDate(invoiceDate)}
+                </span>
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/images/stp-logo.png"
+                alt="STELLA"
+                style={{ width: 160, height: 52, objectFit: "contain" }}
+              />
+            </div>
           </div>
 
-          {/* ヘッダー: marginBottom 36 */}
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 36 }}>
+          {/* 区切り線 */}
+          <div style={{ borderBottom: "1px solid #d1d5db", marginBottom: 16 }} />
+
+          {/* ヘッダー: 左（宛先＋合計）・右（請求書タイトル＋発行元） */}
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 28 }}>
             {/* 左: 宛先 */}
-            <div style={{ flex: 1 }}>
-              {/* 宛名セクション: marginBottom 20 */}
-              <div style={{ marginBottom: 20 }}>
-                <div
-                  style={{
-                    fontSize: 15,
-                    fontWeight: "bold",
-                    borderBottom: "1px solid #1f2937",
-                    paddingBottom: 4,
-                    marginBottom: 4,
-                  }}
-                >
-                  {counterpartyName}
-                  <span style={{ fontSize: 13, marginLeft: 4 }}>
-                    {honorific}
-                  </span>
-                </div>
+            <div style={{ flex: 1, paddingRight: 20 }}>
+              <div
+                style={{
+                  fontSize: 15,
+                  fontWeight: "bold",
+                  borderBottom: "1px solid #1f2937",
+                  paddingBottom: 4,
+                  marginBottom: 6,
+                }}
+              >
+                {counterpartyName}
+                <span style={{ fontSize: 13, marginLeft: 8 }}>{honorific}</span>
+              </div>
+              <div style={{ fontSize: 9, color: "#4b5563", marginBottom: 16 }}>
+                下記のとおり、請求いたします
               </div>
 
-              {/* 合計金額ボックス: padding 12, marginBottom 20 */}
+              {/* 合計金額ボックス */}
               <div
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  backgroundColor: "#f0fdf4",
-                  border: "1px solid #86efac",
-                  borderRadius: 4,
-                  padding: 12,
-                  marginBottom: 20,
+                  backgroundColor: "#f3f4f6",
+                  borderRadius: 2,
+                  paddingTop: 10,
+                  paddingBottom: 10,
+                  paddingLeft: 16,
+                  paddingRight: 16,
                 }}
               >
-                <span style={{ fontSize: 13, fontWeight: "bold" }}>
-                  ご請求金額（税込）
+                <span style={{ fontSize: 11, fontWeight: "bold", color: "#374151" }}>
+                  合計金額
                 </span>
-                <span style={{ fontSize: 20, fontWeight: "bold" }}>
-                  {formatCurrency(totalAmount)}
+                <span style={{ fontSize: 18, fontWeight: "bold", color: "#111827" }}>
+                  {formatCurrency(totalAmount)}円(税込)
                 </span>
               </div>
             </div>
 
-            {/* 右: 発行元情報: width 220 */}
+            {/* 右: 請求書タイトル + 発行元情報 */}
             <div style={{ width: 220, textAlign: "right" }}>
-              {/* ロゴ */}
-              {operatingCompany.logoPath && (
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={operatingCompany.logoPath}
-                    alt="ロゴ"
-                    style={{ width: 100, height: 40, objectFit: "contain" }}
-                  />
-                </div>
-              )}
-
-              {/* 発行元詳細: marginBottom 4 */}
-              <div style={{ textAlign: "right", marginBottom: 4 }}>
-                <div style={{ fontSize: 11, fontWeight: "bold", marginBottom: 2 }}>
-                  {operatingCompany.companyName}
-                </div>
+              <div
+                style={{
+                  fontSize: 26,
+                  fontWeight: "bold",
+                  letterSpacing: 6,
+                  marginBottom: 12,
+                  textAlign: "right",
+                }}
+              >
+                請求書
+              </div>
+              <div style={{ textAlign: "right" }}>
                 {operatingCompany.postalCode && (
                   <div style={{ fontSize: 8, color: "#4b5563", marginBottom: 1 }}>
                     〒{operatingCompany.postalCode}
@@ -300,64 +345,32 @@ export function InvoicePreview(props: InvoicePreviewProps) {
                     {operatingCompany.address}
                   </div>
                 )}
-                {operatingCompany.phone && (
+                {operatingCompany.address2 && (
                   <div style={{ fontSize: 8, color: "#4b5563", marginBottom: 1 }}>
-                    TEL: {operatingCompany.phone}
+                    {operatingCompany.address2}
                   </div>
                 )}
-                {operatingCompany.representativeName && (
-                  <div style={{ fontSize: 8, color: "#4b5563", marginBottom: 1 }}>
-                    代表: {operatingCompany.representativeName}
-                  </div>
-                )}
+                <div style={{ fontSize: 10, fontWeight: "bold", marginTop: 4 }}>
+                  {operatingCompany.companyName}
+                </div>
                 {operatingCompany.registrationNumber && (
-                  <div style={{ fontSize: 8, color: "#4b5563", marginTop: 2 }}>
+                  <div style={{ fontSize: 7, color: "#6b7280", marginTop: 2 }}>
                     登録番号: {operatingCompany.registrationNumber}
-                  </div>
-                )}
-              </div>
-
-              {/* 請求情報: marginTop 12 */}
-              <div style={{ marginTop: 12 }}>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 2 }}>
-                  <span style={{ fontSize: 9, color: "#6b7280", width: 80, textAlign: "right", marginRight: 8 }}>
-                    請求書番号:
-                  </span>
-                  <span style={{ fontSize: 9, fontWeight: "bold", width: 120, textAlign: "left" }}>
-                    {invoiceNumber ?? "（未採番）"}
-                  </span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 2 }}>
-                  <span style={{ fontSize: 9, color: "#6b7280", width: 80, textAlign: "right", marginRight: 8 }}>
-                    請求日:
-                  </span>
-                  <span style={{ fontSize: 9, fontWeight: "bold", width: 120, textAlign: "left" }}>
-                    {formatDate(invoiceDate)}
-                  </span>
-                </div>
-                {paymentDueDate && (
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 2 }}>
-                    <span style={{ fontSize: 9, color: "#6b7280", width: 80, textAlign: "right", marginRight: 8 }}>
-                      お支払期限:
-                    </span>
-                    <span style={{ fontSize: 9, fontWeight: "bold", width: 120, textAlign: "left" }}>
-                      {formatDate(paymentDueDate)}
-                    </span>
                   </div>
                 )}
               </div>
             </div>
           </div>
 
-          {/* 明細テーブル: marginBottom 28 */}
-          <div style={{ marginBottom: 28 }}>
-            {/* ヘッダー行: paddingV 8, paddingH 8, fontSize 9 */}
+          {/* 明細テーブル */}
+          <div style={{ marginBottom: 20 }}>
+            {/* ヘッダー行 */}
             <div
               style={{
                 display: "flex",
-                backgroundColor: "#374151",
-                paddingTop: 8,
-                paddingBottom: 8,
+                backgroundColor: "#9ca3af",
+                paddingTop: 7,
+                paddingBottom: 7,
                 paddingLeft: 8,
                 paddingRight: 8,
                 color: "#ffffff",
@@ -365,13 +378,13 @@ export function InvoicePreview(props: InvoicePreviewProps) {
                 fontSize: 9,
               }}
             >
-              <div style={{ width: "40%" }}>品目・摘要</div>
+              <div style={{ width: "40%" }}>摘要</div>
               <div style={{ width: "25%" }}>対象期間</div>
               <div style={{ width: "10%", textAlign: "right" }}>税率</div>
               <div style={{ width: "25%", textAlign: "right" }}>金額（税抜）</div>
             </div>
 
-            {/* 明細行: paddingV 8, paddingH 8, fontSize 10 */}
+            {/* データ行 */}
             {orderedLines.map((line, i) => {
               if (line.type === "memo") {
                 return (
@@ -379,12 +392,13 @@ export function InvoicePreview(props: InvoicePreviewProps) {
                     key={`memo-${line.memo.id}`}
                     style={{
                       borderBottom: "0.5px solid #e5e7eb",
-                      paddingTop: 8,
-                      paddingBottom: 8,
+                      paddingTop: 7,
+                      paddingBottom: 7,
                       paddingLeft: 8,
                       paddingRight: 8,
                       backgroundColor: i % 2 === 0 ? "transparent" : "#f9fafb",
-                      fontSize: 10,
+                      fontSize: 9,
+                      minHeight: 26,
                     }}
                   >
                     {line.memo.description}
@@ -398,12 +412,13 @@ export function InvoicePreview(props: InvoicePreviewProps) {
                   style={{
                     display: "flex",
                     borderBottom: "0.5px solid #e5e7eb",
-                    paddingTop: 8,
-                    paddingBottom: 8,
+                    paddingTop: 7,
+                    paddingBottom: 7,
                     paddingLeft: 8,
                     paddingRight: 8,
                     backgroundColor: i % 2 === 0 ? "transparent" : "#f9fafb",
-                    fontSize: 10,
+                    fontSize: 9,
+                    minHeight: 26,
                   }}
                 >
                   <div style={{ width: "40%" }}>{line.item.description}</div>
@@ -417,141 +432,120 @@ export function InvoicePreview(props: InvoicePreviewProps) {
                 </div>
               );
             })}
+
+            {/* 空行で埋める */}
+            {Array.from({ length: emptyRowsCount }).map((_, i) => (
+              <div
+                key={`empty-${i}`}
+                style={{
+                  borderBottom: "0.5px solid #e5e7eb",
+                  paddingTop: 7,
+                  paddingBottom: 7,
+                  paddingLeft: 8,
+                  paddingRight: 8,
+                  backgroundColor:
+                    (orderedLines.length + i) % 2 === 0 ? "transparent" : "#f9fafb",
+                  minHeight: 26,
+                }}
+              >
+                &nbsp;
+              </div>
+            ))}
           </div>
 
-          {/* 小計・税額・合計: marginBottom 28 */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", marginBottom: 28 }}>
-            {/* 小計: fontSize 10/11, paddingV 4 */}
+          {/* 小計・税額・合計 */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", marginBottom: 20 }}>
             <div
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                width: 250,
-                paddingTop: 4,
-                paddingBottom: 4,
+                width: 220,
+                paddingTop: 3,
+                paddingBottom: 3,
                 borderBottom: "0.5px solid #e5e7eb",
               }}
             >
-              <span style={{ fontSize: 10, color: "#4b5563" }}>
-                小計
-              </span>
-              <span style={{ fontSize: 11, fontWeight: "bold" }}>
+              <span style={{ fontSize: 9, color: "#4b5563" }}>小計：</span>
+              <span style={{ fontSize: 10, fontWeight: "bold" }}>
                 {formatCurrency(subtotal)}
               </span>
             </div>
 
-            {/* 税率別消費税 */}
             {taxRates.map((rate) => (
               <div
                 key={rate}
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
-                  width: 250,
-                  paddingTop: 4,
-                  paddingBottom: 4,
+                  width: 220,
+                  paddingTop: 3,
+                  paddingBottom: 3,
                   borderBottom: "0.5px solid #e5e7eb",
                 }}
               >
-                <span style={{ fontSize: 10, color: "#4b5563" }}>
-                  消費税（{rate}%）
+                <span style={{ fontSize: 9, color: "#4b5563" }}>
+                  消費税（{rate}%）：
                 </span>
-                <span style={{ fontSize: 11, fontWeight: "bold" }}>
+                <span style={{ fontSize: 10, fontWeight: "bold" }}>
                   {formatCurrency(taxSummary[rate].tax)}
                 </span>
               </div>
             ))}
 
-            {/* 合計: fontSize 12/15, paddingV 6, borderTop 2px */}
             <div
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                width: 250,
+                width: 220,
                 paddingTop: 6,
                 paddingBottom: 6,
-                borderTop: "2px solid #374151",
+                paddingLeft: 8,
+                paddingRight: 8,
+                backgroundColor: "#f3f4f6",
                 marginTop: 4,
               }}
             >
-              <span style={{ fontSize: 12, fontWeight: "bold" }}>
-                合計（税込）
-              </span>
-              <span style={{ fontSize: 15, fontWeight: "bold" }}>
+              <span style={{ fontSize: 11, fontWeight: "bold" }}>合計：</span>
+              <span style={{ fontSize: 14, fontWeight: "bold" }}>
                 {formatCurrency(totalAmount)}
               </span>
             </div>
           </div>
 
-          {/* 振込先情報: padding 12, marginBottom 24 */}
+          {/* 振込先情報 */}
           {bankAccount && (
-            <div
-              style={{
-                border: "1px solid #d1d5db",
-                borderRadius: 4,
-                padding: 12,
-                marginBottom: 24,
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 10,
-                  fontWeight: "bold",
-                  marginBottom: 8,
-                  borderBottom: "1px solid #e5e7eb",
-                  paddingBottom: 4,
-                }}
-              >
-                お振込先
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: "bold", marginBottom: 6 }}>
+                振込先：
               </div>
-              <div style={{ display: "flex", marginBottom: 3, fontSize: 9 }}>
-                <span style={{ color: "#6b7280", width: 80 }}>金融機関:</span>
-                <span style={{ fontWeight: "bold" }}>{bankAccount.bankName}</span>
+              {paymentDueDate && (
+                <div style={{ fontSize: 8, color: "#374151", marginBottom: 2 }}>
+                  支払期限：{formatDate(paymentDueDate)}
+                </div>
+              )}
+              <div style={{ fontSize: 8, color: "#374151", marginBottom: 2 }}>
+                {bankAccount.bankName}　{bankAccount.branchName}({bankAccount.branchCode})
               </div>
-              <div style={{ display: "flex", marginBottom: 3, fontSize: 9 }}>
-                <span style={{ color: "#6b7280", width: 80 }}>支店名:</span>
-                <span style={{ fontWeight: "bold" }}>{bankAccount.branchName}</span>
+              <div style={{ fontSize: 8, color: "#374151", marginBottom: 2 }}>
+                普通口座　{bankAccount.accountNumber}
               </div>
-              <div style={{ display: "flex", marginBottom: 3, fontSize: 9 }}>
-                <span style={{ color: "#6b7280", width: 80 }}>口座番号:</span>
-                <span style={{ fontWeight: "bold" }}>普通 {bankAccount.accountNumber}</span>
-              </div>
-              <div style={{ display: "flex", marginBottom: 3, fontSize: 9 }}>
-                <span style={{ color: "#6b7280", width: 80 }}>口座名義:</span>
-                <span style={{ fontWeight: "bold" }}>
-                  {bankAccount.accountHolderName}
-                </span>
+              <div style={{ fontSize: 8, color: "#374151", marginBottom: 2 }}>
+                口座名義　{bankAccount.accountHolderName}
               </div>
             </div>
           )}
 
           {/* 備考欄 */}
           {remarks && (
-            <div style={{ marginTop: 12, marginBottom: 8, border: "1px solid #9ca3af" }}>
-              <div
-                style={{
-                  fontSize: 10,
-                  fontWeight: "bold",
-                  textAlign: "center",
-                  paddingTop: 4,
-                  paddingBottom: 4,
-                  borderBottom: "1px solid #9ca3af",
-                  letterSpacing: 8,
-                }}
-              >
-                備　考
+            <div style={{ marginTop: 24 }}>
+              <div style={{ fontSize: 9, fontWeight: "bold", marginBottom: 4 }}>
+                備考欄
               </div>
-              <div style={{ fontSize: 9, color: "#1f2937", whiteSpace: "pre-wrap", padding: 8, minHeight: 48 }}>
+              <div style={{ fontSize: 8, color: "#4b5563", whiteSpace: "pre-wrap" }}>
                 {remarks}
               </div>
             </div>
           )}
-
-          {/* 注意書き: fontSize 9, marginTop 16 */}
-          <div style={{ fontSize: 9, color: "#6b7280", marginTop: 16 }}>
-            ※
-            上記金額のお振込みをお願い申し上げます。振込手数料は貴社ご負担にてお願いいたします。
-          </div>
         </div>
       </div>
     </div>

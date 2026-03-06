@@ -411,33 +411,13 @@ export function StpCompaniesTable({
         />
       );
     },
-    // 検討理由：検討中ステージ以外はグレーアウト（編集機能付き）
+    // 検討理由：値がある場合はモーダル表示＋編集可、値なし＆該当外はグレー
     pendingReason: (value, row) => {
       const currentStageId = row.currentStageId as number | null;
-      const isDisabled = currentStageId !== pendingStageId;
+      const isNotPending = currentStageId !== pendingStageId;
 
-      if (!value) {
-        if (isDisabled) {
-          return <span className="text-gray-300">(該当なし)</span>;
-        }
-        return (
-          <TextPreviewCell
-            text={null}
-            title="検討理由"
-            onEdit={async (newValue) => {
-              await updateStpCompany(row.id as number, { pendingReason: newValue });
-              router.refresh();
-            }}
-          />
-        );
-      }
-
-      if (isDisabled) {
-        return (
-          <span className="text-gray-300 max-w-xs truncate block">
-            {String(value)}
-          </span>
-        );
+      if (!value && isNotPending) {
+        return <span className="text-gray-300">(該当なし)</span>;
       }
 
       return (
@@ -451,33 +431,13 @@ export function StpCompaniesTable({
         />
       );
     },
-    // 失注理由：失注ステージ以外はグレーアウト（編集機能付き）
+    // 失注理由：値がある場合はモーダル表示＋編集可、値なし＆該当外はグレー
     lostReason: (value, row) => {
       const currentStageId = row.currentStageId as number | null;
-      const isDisabled = currentStageId !== lostStageId;
+      const isNotLost = currentStageId !== lostStageId;
 
-      if (!value) {
-        if (isDisabled) {
-          return <span className="text-gray-300">(該当なし)</span>;
-        }
-        return (
-          <TextPreviewCell
-            text={null}
-            title="失注理由"
-            onEdit={async (newValue) => {
-              await updateStpCompany(row.id as number, { lostReason: newValue });
-              router.refresh();
-            }}
-          />
-        );
-      }
-
-      if (isDisabled) {
-        return (
-          <span className="text-gray-300 max-w-xs truncate block">
-            {String(value)}
-          </span>
-        );
+      if (!value && isNotLost) {
+        return <span className="text-gray-300">(該当なし)</span>;
       }
 
       return (
