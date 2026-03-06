@@ -33,17 +33,25 @@ export default async function RootLayout({
 
   // サイドバー設定をDBから取得
   let hiddenItems: string[] = [];
+  let projectNames: Record<string, string> = {};
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userId = (user as any)?.id as number | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userType = (user as any)?.userType;
   if (userId && userType === "staff") {
     try {
-      const pref = await prisma.staffSidebarPreference.findUnique({
-        where: { staffId: userId },
-        select: { hiddenItems: true },
-      });
+      const [pref, projects] = await Promise.all([
+        prisma.staffSidebarPreference.findUnique({
+          where: { staffId: userId },
+          select: { hiddenItems: true },
+        }),
+        prisma.masterProject.findMany({
+          where: { isActive: true },
+          select: { code: true, name: true },
+        }),
+      ]);
       hiddenItems = pref?.hiddenItems ?? [];
+      projectNames = Object.fromEntries(projects.map((p) => [p.code, p.name]));
     } catch {
       // DBエラー時は空のまま
     }
@@ -57,7 +65,7 @@ export default async function RootLayout({
         <SessionProvider refetchInterval={30}>
           <PermissionGuard />
           {user ? (
-            <AuthenticatedLayout serverUser={user} hiddenItems={hiddenItems}>
+            <AuthenticatedLayout serverUser={user} hiddenItems={hiddenItems} projectNames={projectNames}>
               {children}
             </AuthenticatedLayout>
           ) : (

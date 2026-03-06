@@ -19,6 +19,7 @@ export async function addContractType(data: Record<string, unknown>) {
     data: {
       projectId,
       name: data.name as string,
+      description: (data.description as string) || null,
       displayOrder,
       isActive: data.isActive === true || data.isActive === "true",
     },
@@ -31,6 +32,7 @@ export async function updateContractType(id: number, data: Record<string, unknow
   const updateData: Record<string, unknown> = {};
   if ("projectId" in data) updateData.projectId = Number(data.projectId);
   if ("name" in data) updateData.name = data.name as string;
+  if ("description" in data) updateData.description = (data.description as string) || null;
   if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
 
   if (Object.keys(updateData).length > 0) {

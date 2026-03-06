@@ -45,6 +45,7 @@ export default async function ContractTypesPage({
     projectId: String(ct.projectId),
     projectName: ct.project.name,
     name: ct.name,
+    description: ct.description ?? "",
     displayOrder: ct.displayOrder,
     isActive: ct.isActive,
   }));

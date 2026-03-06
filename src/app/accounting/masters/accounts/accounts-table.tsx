@@ -49,6 +49,12 @@ export function AccountsTable({ data }: Props) {
       filterable: true,
     },
     {
+      key: "subcategory",
+      header: "サブカテゴリ",
+      type: "text",
+      filterable: true,
+    },
+    {
       key: "displayOrder",
       header: "表示順",
       type: "number",

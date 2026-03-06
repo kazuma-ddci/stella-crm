@@ -30,6 +30,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CrudTable, type ColumnDef } from "@/components/crud-table";
+import { updateDisplayView } from "@/app/settings/display-views/actions";
 import {
   Loader2,
   RefreshCw,
@@ -75,9 +78,23 @@ interface ExternalUser {
   } | null;
 }
 
+// API views の型（projectId含む）
+interface DisplayViewFull {
+  id: number;
+  viewKey: string;
+  viewName: string;
+  projectId: number;
+  description: string | null;
+  isActive: boolean;
+  project: { id: number; code: string; name: string };
+}
+
+type ActiveTab = "users" | "display-views";
+
 export default function ExternalUsersPage() {
   const [users, setUsers] = useState<ExternalUser[]>([]);
   const [projects, setProjects] = useState<ProjectWithViews[]>([]);
+  const [views, setViews] = useState<DisplayViewFull[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -95,6 +112,9 @@ export default function ExternalUsersPage() {
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
   const [selectedViewIds, setSelectedViewIds] = useState<number[]>([]);
 
+  // タブ
+  const [activeTab, setActiveTab] = useState<ActiveTab>("users");
+
   const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
@@ -109,6 +129,7 @@ export default function ExternalUsersPage() {
 
       setUsers(data.users);
       setProjects(data.projects ?? []);
+      setViews(data.views ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "エラーが発生しました");
     } finally {
@@ -262,9 +283,47 @@ export default function ExternalUsersPage() {
     }
   }, [success]);
 
+  // 表示区分テーブル用データ
+  const displayViewsData = views.map((v) => ({
+    id: v.id,
+    viewKey: v.viewKey,
+    viewName: v.viewName,
+    projectId: String(v.projectId),
+    projectName: v.project.name,
+    description: v.description,
+    isActive: v.isActive,
+  }));
+
+  const projectOptions = [...new Set(views.map((v) => v.projectId))].map((pid) => {
+    const v = views.find((vw) => vw.projectId === pid)!;
+    return { value: String(pid), label: v.project.name };
+  });
+
+  const displayViewColumns: ColumnDef[] = [
+    { key: "id", header: "ID", editable: false, hidden: true },
+    { key: "viewKey", header: "ビューキー", type: "text", editable: false },
+    { key: "viewName", header: "表示名", type: "text", required: true, simpleMode: true },
+    {
+      key: "projectId",
+      header: "プロジェクト",
+      type: "select",
+      options: projectOptions,
+      required: true,
+    },
+    { key: "description", header: "説明", type: "text" },
+    { key: "isActive", header: "有効", type: "boolean" },
+  ];
+
+  const handleDisplayViewUpdate = async (id: number, data: Record<string, unknown>) => {
+    await updateDisplayView(id, data);
+    // データをリフレッシュ
+    fetchUsers();
+  };
+
   if (loading) {
     return (
-      <div className="container mx-auto py-8">
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold">外部ユーザー管理</h1>
         <Card>
           <CardContent className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
@@ -275,105 +334,145 @@ export default function ExternalUsersPage() {
   }
 
   return (
-    <div className="container mx-auto py-8">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>外部ユーザー管理</CardTitle>
-              <CardDescription>
-                外部ユーザーのステータスと権限を管理します
-              </CardDescription>
-            </div>
-            <Button variant="outline" size="sm" onClick={fetchUsers}>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              更新
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {error && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">外部ユーザー管理</h1>
 
-          {success && (
-            <Alert className="mb-4">
-              <AlertDescription>{success}</AlertDescription>
-            </Alert>
-          )}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
-          {users.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              外部ユーザーはいません
+      {success && (
+        <Alert>
+          <AlertDescription>{success}</AlertDescription>
+        </Alert>
+      )}
+
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as ActiveTab)}
+        idBase="external-users-tabs"
+      >
+        <TabsList>
+          <TabsTrigger value="users">
+            ユーザー一覧
+            <span className="ml-1 text-muted-foreground">({users.length})</span>
+          </TabsTrigger>
+          <TabsTrigger value="display-views">
+            表示区分設定
+            <span className="ml-1 text-muted-foreground">({views.length})</span>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {activeTab === "users" && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>ユーザー一覧</CardTitle>
+                <CardDescription>
+                  外部ユーザーのステータスと権限を管理します
+                </CardDescription>
+              </div>
+              <Button variant="outline" size="sm" onClick={fetchUsers}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                更新
+              </Button>
             </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>名前</TableHead>
-                  <TableHead>メールアドレス</TableHead>
-                  <TableHead>企業名</TableHead>
-                  <TableHead>ステータス</TableHead>
-                  <TableHead>権限</TableHead>
-                  <TableHead>最終ログイン</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map((user) => (
-                  <TableRow key={user.id}>
-                    <TableCell className="font-medium">{user.name}</TableCell>
-                    <TableCell>{user.email}</TableCell>
-                    <TableCell>{user.company.name}</TableCell>
-                    <TableCell>{getStatusBadge(user.status)}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {user.displayPermissions.map((dp) => (
-                          <Badge
-                            key={dp.displayView.id}
-                            variant="outline"
-                            className="text-xs"
-                          >
-                            {dp.displayView.viewName}
-                          </Badge>
-                        ))}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {user.lastLoginAt
-                        ? new Date(user.lastLoginAt).toLocaleString("ja-JP")
-                        : "-"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex gap-2 justify-end">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openEditDialog(user)}
-                        >
-                          <Edit className="h-4 w-4 mr-1" />
-                          編集
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openResetPasswordDialog(user)}
-                        >
-                          <KeyRound className="h-4 w-4 mr-1" />
-                          PW
-                        </Button>
-                      </div>
-                    </TableCell>
+          </CardHeader>
+          <CardContent>
+            {users.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                外部ユーザーはいません
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>名前</TableHead>
+                    <TableHead>メールアドレス</TableHead>
+                    <TableHead>企業名</TableHead>
+                    <TableHead>ステータス</TableHead>
+                    <TableHead>権限</TableHead>
+                    <TableHead>最終ログイン</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                </TableHeader>
+                <TableBody>
+                  {users.map((user) => (
+                    <TableRow key={user.id}>
+                      <TableCell className="font-medium">{user.name}</TableCell>
+                      <TableCell>{user.email}</TableCell>
+                      <TableCell>{user.company.name}</TableCell>
+                      <TableCell>{getStatusBadge(user.status)}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {user.displayPermissions.map((dp) => (
+                            <Badge
+                              key={dp.displayView.id}
+                              variant="outline"
+                              className="text-xs"
+                            >
+                              {dp.displayView.viewName}
+                            </Badge>
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {user.lastLoginAt
+                          ? new Date(user.lastLoginAt).toLocaleString("ja-JP")
+                          : "-"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex gap-2 justify-end">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openEditDialog(user)}
+                          >
+                            <Edit className="h-4 w-4 mr-1" />
+                            編集
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openResetPasswordDialog(user)}
+                          >
+                            <KeyRound className="h-4 w-4 mr-1" />
+                            PW
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {activeTab === "display-views" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>表示区分設定</CardTitle>
+            <CardDescription>
+              外部ユーザーに割り当てる表示区分を管理します
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CrudTable
+              data={displayViewsData}
+              columns={displayViewColumns}
+              onUpdate={handleDisplayViewUpdate}
+              emptyMessage="表示区分が登録されていません"
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* 編集ダイアログ */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>

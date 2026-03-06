@@ -12,6 +12,7 @@ export default async function AccountsPage() {
     code: a.code,
     name: a.name,
     category: a.category,
+    subcategory: a.subcategory,
     displayOrder: a.displayOrder,
     isActive: a.isActive,
   }));

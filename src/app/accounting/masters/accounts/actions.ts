@@ -4,7 +4,11 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 
-const VALID_CATEGORIES = ["asset", "liability", "revenue", "expense"] as const;
+const VALID_CATEGORIES = [
+  "asset", "liability", "equity", "revenue", "cost_of_sales",
+  "sga", "non_operating_revenue", "non_operating_expense",
+  "extraordinary_income", "extraordinary_loss",
+] as const;
 
 export async function createAccount(data: Record<string, unknown>) {
   const session = await getSession();
@@ -13,6 +17,7 @@ export async function createAccount(data: Record<string, unknown>) {
   const code = (data.code as string).trim();
   const name = (data.name as string).trim();
   const category = data.category as string;
+  const subcategory = data.subcategory ? (data.subcategory as string).trim() : null;
   const displayOrder = data.displayOrder ? Number(data.displayOrder) : 0;
   const isActive = data.isActive !== false && data.isActive !== "false";
 
@@ -38,6 +43,7 @@ export async function createAccount(data: Record<string, unknown>) {
       code,
       name,
       category,
+      subcategory,
       displayOrder,
       isActive,
       createdBy: staffId,
@@ -80,6 +86,10 @@ export async function updateAccount(id: number, data: Record<string, unknown>) {
       throw new Error("無効な区分です");
     }
     updateData.category = category;
+  }
+
+  if ("subcategory" in data) {
+    updateData.subcategory = data.subcategory ? (data.subcategory as string).trim() : null;
   }
 
   if ("displayOrder" in data) {

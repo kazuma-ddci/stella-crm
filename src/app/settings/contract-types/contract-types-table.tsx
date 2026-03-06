@@ -26,6 +26,7 @@ export function ContractTypesTable({ data, projectOptions, canEdit, filterProjec
     },
     { key: "projectName", header: "プロジェクト", editable: false, hidden: true },
     { key: "name", header: "契約種別名", type: "text", required: true, simpleMode: true },
+    { key: "description", header: "説明", type: "text" },
     { key: "isActive", header: "有効", type: "boolean" },
   ];
 

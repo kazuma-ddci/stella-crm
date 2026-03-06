@@ -26,6 +26,7 @@ import {
   ClipboardList,
   UserSearch,
   DollarSign,
+  ListChecks,
   TrendingUp,
   TrendingDown,
   Receipt,
@@ -62,6 +63,8 @@ type NavItem = {
   founderOrManager?: boolean; // founder or manager以上のみ
   editOrAbove?: boolean; // edit以上のみ
   key?: string; // サイドバーカスタマイズ用のキー
+  sectionLabel?: boolean; // true: 開閉なしのセクションラベル（子はフラット表示）
+  collapsible?: boolean; // true: 開閉式（chevron表示）。sectionLabelと排他
 };
 
 // 固定データ設定のパス一覧（stella001の固定データ設定 + 各PJ固有設定に表示）
@@ -92,6 +95,7 @@ const masterDataNavigation: NavItem[] = [
   {
     name: "固定データ設定",
     icon: Settings,
+    collapsible: true,
     children: [
       { name: "組織・プロジェクト管理", href: "/settings/projects", icon: Building2 },
       { name: "接触方法", href: "/settings/contact-methods", icon: Phone },
@@ -130,36 +134,41 @@ function removeMasterDataItems(items: NavItem[]): NavItem[] {
 
 const navigation: NavItem[] = [
   { name: "通知", href: "/notifications", icon: Bell },
+  { name: "セットアップ状況", href: "/admin/setup-status", icon: ListChecks, founderOrManager: true },
   {
     name: "Stella",
     icon: Building2,
     key: "stella",
+    collapsible: true,
     children: [
       { name: "ダッシュボード", href: "/", icon: Home },
     ],
   },
   {
-    name: "STP(採用ブースト)",
+    name: "STP",
     icon: Briefcase,
     requiredProject: "stp",
     key: "stp",
+    collapsible: true,
     children: [
       { name: "ダッシュボード", href: "/stp/dashboard", icon: Home },
       { name: "KPI目標管理", href: "/stp/kpi-targets", icon: Target },
       {
         name: "営業管理",
         icon: Briefcase,
+        sectionLabel: true,
         children: [
           { name: "全顧客マスタ", href: "/companies", icon: BookOpen, requireAnyEdit: true },
           { name: "企業情報", href: "/stp/companies", icon: Building2 },
           { name: "代理店情報", href: "/stp/agents", icon: Handshake },
           { name: "求職者情報", href: "/stp/candidates", icon: UserSearch },
           { name: "リード回答", href: "/stp/lead-submissions", icon: ClipboardList },
-          ],
+        ],
       },
       {
         name: "活動記録",
         icon: Phone,
+        sectionLabel: true,
         children: [
           { name: "契約書進捗", href: "/stp/contracts", icon: FileCheck },
           { name: "企業接触履歴", href: "/stp/records/company-contacts", icon: Phone },
@@ -170,6 +179,7 @@ const navigation: NavItem[] = [
       {
         name: "売上・経費",
         icon: DollarSign,
+        sectionLabel: true,
         children: [
           { name: "ダッシュボード", href: "/stp/finance/overview", icon: DollarSign },
           { name: "取引管理", href: "/stp/finance/transactions", icon: Landmark },
@@ -183,6 +193,7 @@ const navigation: NavItem[] = [
       {
         name: "管理",
         icon: Settings,
+        sectionLabel: true,
         founderOrManager: true,
         children: [
           { name: "スタッフ管理", href: "/staff", icon: Users },
@@ -190,6 +201,7 @@ const navigation: NavItem[] = [
           {
             name: "固有設定",
             icon: Settings,
+            collapsible: true,
             children: [
               { name: "プロジェクト設定", href: "/stp/settings/project", icon: Building2 },
               { name: "契約種別", href: "/settings/contract-types?project=stp", icon: FileText },
@@ -197,7 +209,6 @@ const navigation: NavItem[] = [
               { name: "接触種別", href: "/settings/contact-categories?project=stp", icon: Tag },
               { name: "流入経路", href: "/settings/lead-sources", icon: UserPlus },
               { name: "商談パイプライン", href: "/stp/settings/stages", icon: Layers },
-              { name: "表示区分", href: "/settings/display-views?project=stp", icon: Shield },
               { name: "スタッフ役割種別", href: "/staff/role-types?project=stp", icon: Tags },
               { name: "担当者フィールド制約", href: "/staff/field-restrictions?project=stp", icon: Shield },
               { name: "メールテンプレート", href: "/settings/email-templates?project=stp", icon: FileText },
@@ -212,6 +223,7 @@ const navigation: NavItem[] = [
     icon: Calculator,
     requiredProject: "accounting",
     key: "accounting",
+    collapsible: true,
     children: [
       { name: "ダッシュボード", href: "/accounting/dashboard", icon: Home },
       { name: "全顧客マスタ", href: "/companies", icon: Building2, requireAnyEdit: true },
@@ -230,6 +242,7 @@ const navigation: NavItem[] = [
       {
         name: "マスタ管理",
         icon: Settings,
+        collapsible: true,
         children: [
           { name: "勘定科目", href: "/accounting/masters/accounts", icon: BookOpen },
           { name: "その他取引先", href: "/accounting/masters/counterparties", icon: Building2 },
@@ -240,13 +253,13 @@ const navigation: NavItem[] = [
       {
         name: "固有設定",
         icon: Settings,
+        collapsible: true,
         founderOrManager: true,
         children: [
           { name: "プロジェクト設定", href: "/accounting/settings/project", icon: Building2 },
           { name: "契約種別", href: "/settings/contract-types?project=accounting", icon: FileText },
           { name: "顧客種別", href: "/settings/customer-types?project=accounting", icon: UserSquare2 },
           { name: "接触種別", href: "/settings/contact-categories?project=accounting", icon: Tag },
-          { name: "表示区分", href: "/settings/display-views?project=accounting", icon: Shield },
           { name: "スタッフ役割種別", href: "/staff/role-types?project=accounting", icon: Tags },
           { name: "担当者フィールド制約", href: "/staff/field-restrictions?project=accounting", icon: Shield },
           { name: "メールテンプレート", href: "/settings/email-templates?project=accounting", icon: FileText },
@@ -277,21 +290,65 @@ function saveSidebarState(userId: string, state: Record<string, boolean>) {
   }
 }
 
-function NavItemComponent({
+/** セクションラベル: 開閉なし、区切り線+ラベルで表示 */
+function SectionLabelComponent({
   item,
-  depth = 0,
+  depth,
   onNavigate,
-  parentPath = "",
+  parentPath,
   userId,
 }: {
   item: NavItem;
-  depth?: number;
+  depth: number;
   onNavigate?: () => void;
-  parentPath?: string;
+  parentPath: string;
   userId?: string;
 }) {
-  const pathname = usePathname();
+  const paddingLeft = 12 + depth * 16;
+
+  return (
+    <div className="pt-3 first:pt-0">
+      <div
+        className="mb-1 flex items-center gap-2 px-3"
+        style={{ paddingLeft }}
+      >
+        <span className="text-xs font-semibold text-gray-400">
+          {item.name}
+        </span>
+        <div className="h-px flex-1 bg-gray-500/40" />
+      </div>
+      <div className="space-y-0.5">
+        {item.children?.map((child) => (
+          <NavItemComponent
+            key={child.name}
+            item={child}
+            depth={depth}
+            onNavigate={onNavigate}
+            parentPath={parentPath}
+            userId={userId}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 開閉式ナビ: chevronアイコン付き */
+function CollapsibleNavComponent({
+  item,
+  depth,
+  onNavigate,
+  parentPath,
+  userId,
+}: {
+  item: NavItem;
+  depth: number;
+  onNavigate?: () => void;
+  parentPath: string;
+  userId?: string;
+}) {
   const itemPath = parentPath ? `${parentPath}/${item.name}` : item.name;
+  const paddingLeft = 12 + depth * 16;
 
   // 初期値はfalse（全て閉じた状態）。hydration後にlocalStorageから復元
   const [isOpen, setIsOpen] = useState(false);
@@ -317,41 +374,90 @@ function NavItemComponent({
     });
   }, [itemPath, userId]);
 
+  return (
+    <div>
+      <button
+        onClick={handleToggle}
+        className={cn(
+          "group flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white"
+        )}
+        style={{ paddingLeft }}
+      >
+        <item.icon className="mr-3 h-4 w-4 flex-shrink-0 text-gray-400 group-hover:text-white" />
+        <span className="flex-1 text-left">{item.name}</span>
+        {isOpen ? (
+          <ChevronDown className="h-4 w-4 text-gray-500" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-gray-500" />
+        )}
+      </button>
+      {hydrated && isOpen && (
+        <div className="mt-0.5 space-y-0.5">
+          {item.children!.map((child) => (
+            <NavItemComponent
+              key={child.name}
+              item={child}
+              depth={depth + 1}
+              onNavigate={onNavigate}
+              parentPath={itemPath}
+              userId={userId}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NavItemComponent({
+  item,
+  depth = 0,
+  onNavigate,
+  parentPath = "",
+  userId,
+}: {
+  item: NavItem;
+  depth?: number;
+  onNavigate?: () => void;
+  parentPath?: string;
+  userId?: string;
+}) {
+  const pathname = usePathname();
+  const itemPath = parentPath ? `${parentPath}/${item.name}` : item.name;
   const hasChildren = item.children && item.children.length > 0;
+
+  // セクションラベル（フラット表示）
+  if (hasChildren && item.sectionLabel) {
+    return (
+      <SectionLabelComponent
+        item={item}
+        depth={depth}
+        onNavigate={onNavigate}
+        parentPath={itemPath}
+        userId={userId}
+      />
+    );
+  }
+
+  // 開閉式
+  if (hasChildren) {
+    return (
+      <CollapsibleNavComponent
+        item={item}
+        depth={depth}
+        onNavigate={onNavigate}
+        parentPath={itemPath}
+        userId={userId}
+      />
+    );
+  }
+
+  // リーフ項目
   const isActive = item.href
     ? pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href))
     : false;
 
   const paddingLeft = 12 + depth * 16;
-
-  if (hasChildren) {
-    return (
-      <div>
-        <button
-          onClick={handleToggle}
-          className={cn(
-            "group flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white"
-          )}
-          style={{ paddingLeft }}
-        >
-          <item.icon className="mr-3 h-4 w-4 flex-shrink-0 text-gray-400 group-hover:text-white" />
-          <span className="flex-1 text-left">{item.name}</span>
-          {isOpen ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-        </button>
-        {hydrated && isOpen && (
-          <div className="mt-1 space-y-1">
-            {item.children!.map((child) => (
-              <NavItemComponent key={child.name} item={child} depth={depth + 1} onNavigate={onNavigate} parentPath={itemPath} userId={userId} />
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
 
   return (
     <Link
@@ -503,8 +609,22 @@ function CollapsedNavItem({
   );
 }
 
+/** プロジェクトコードに対応する名前をナビに適用 */
+function applyProjectNames(items: NavItem[], projectNames: Record<string, string>): NavItem[] {
+  return items.map((item) => {
+    let updated = item;
+    if (item.requiredProject && projectNames[item.requiredProject]) {
+      updated = { ...updated, name: projectNames[item.requiredProject] };
+    }
+    if (updated.children) {
+      updated = { ...updated, children: applyProjectNames(updated.children, projectNames) };
+    }
+    return updated;
+  });
+}
+
 /** ナビゲーション項目のフィルタリング共通ロジック */
-function getFilteredNavigation(user?: SessionUser, hiddenItems?: string[]): NavItem[] {
+function getFilteredNavigation(user?: SessionUser, hiddenItems?: string[], projectNames?: Record<string, string>): NavItem[] {
   if (user?.canEditMasterData && user.loginId !== "admin") {
     return masterDataNavigation;
   }
@@ -533,6 +653,11 @@ function getFilteredNavigation(user?: SessionUser, hiddenItems?: string[]): NavI
     ];
   }
 
+  // プロジェクト名をDBの値で上書き
+  if (projectNames && Object.keys(projectNames).length > 0) {
+    result = applyProjectNames(result, projectNames);
+  }
+
   return result;
 }
 
@@ -542,6 +667,7 @@ interface SidebarContentProps {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   hiddenItems?: string[];
+  projectNames?: Record<string, string>;
 }
 
 export function SidebarContent({
@@ -550,9 +676,10 @@ export function SidebarContent({
   collapsed,
   onToggleCollapse,
   hiddenItems,
+  projectNames,
 }: SidebarContentProps) {
   const appTitle = process.env.NEXT_PUBLIC_APP_TITLE || "Stella 基幹OS";
-  const navItems = getFilteredNavigation(user, hiddenItems);
+  const navItems = getFilteredNavigation(user, hiddenItems, projectNames);
   const userId = user?.loginId ?? undefined;
 
   // 折りたたみモード: アイコンのみ表示
@@ -617,9 +744,10 @@ interface SidebarProps {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   hiddenItems?: string[];
+  projectNames?: Record<string, string>;
 }
 
-export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems }: SidebarProps) {
+export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems, projectNames }: SidebarProps) {
   return (
     <div
       className={cn(
@@ -632,6 +760,7 @@ export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems }: Side
         collapsed={collapsed}
         onToggleCollapse={onToggleCollapse}
         hiddenItems={hiddenItems}
+        projectNames={projectNames}
       />
     </div>
   );
