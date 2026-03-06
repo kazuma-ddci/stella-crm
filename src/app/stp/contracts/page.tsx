@@ -4,11 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ContractsTable } from "./contracts-table";
 import { TERMINAL_STATUS_IDS, SENT_STATUS_ID, STALE_ALERT_DAYS } from "@/lib/contract-status/constants";
 import { ContractRowWithProgress } from "@/lib/contract-status/types";
+import { getStaffOptionsByField } from "@/lib/staff/get-staff-by-field";
 
 export default async function StpContractsPage() {
   const STP_PROJECT_ID = 1; // 採用ブースト
 
-  const [contracts, companies, statuses, staffProjectAssignments, contractHistories] = await Promise.all([
+  const [contracts, contractHistories] = await Promise.all([
     prisma.masterContract.findMany({
       where: { projectId: STP_PROJECT_ID },
       include: {
@@ -17,18 +18,6 @@ export default async function StpContractsPage() {
       },
       orderBy: { createdAt: "desc" },
     }),
-    prisma.masterStellaCompany.findMany({
-      where: { deletedAt: null },
-      orderBy: { id: "desc" },
-    }),
-    prisma.masterContractStatus.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: "asc" },
-    }),
-    prisma.staffProjectAssignment.findMany({
-      where: { projectId: STP_PROJECT_ID },
-      include: { staff: true },
-    }),
     // 各契約書の最新履歴を取得（滞在日数計算用）
     prisma.masterContractStatusHistory.findMany({
       orderBy: { recordedAt: "desc" },
@@ -36,9 +25,11 @@ export default async function StpContractsPage() {
     }),
   ]);
 
+  const staffOptions = await getStaffOptionsByField("CONTRACT_ASSIGNED_TO");
+
   // スタッフIDから名前を取得するマップを作成
   const staffMap = new Map(
-    staffProjectAssignments.map((a) => [String(a.staff.id), a.staff.name])
+    staffOptions.map((o) => [o.value, o.label])
   );
 
   // 契約書IDから最新履歴日時のマップを作成
@@ -99,25 +90,6 @@ export default async function StpContractsPage() {
     };
   });
 
-  const companyOptions = companies.map((c) => ({
-    value: String(c.id),
-    label: `${c.companyCode} ${c.name}`,
-  }));
-
-  const statusOptions = statuses.map((s) => ({
-    value: String(s.id),
-    label: s.name,
-    isTerminal: s.isTerminal,
-    displayOrder: s.displayOrder,
-  }));
-
-  const staffOptions = staffProjectAssignments
-    .filter((a) => a.staff.isActive)
-    .map((a) => ({
-      value: String(a.staff.id),
-      label: a.staff.name,
-    }));
-
   // タブごとのカウント
   const inProgressCount = data.filter(
     (c) => !c.currentStatusIsTerminal
@@ -131,17 +103,14 @@ export default async function StpContractsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">STP 契約書情報</h1>
+      <h1 className="text-2xl font-bold">STP 契約書進捗</h1>
       <Card>
         <CardHeader>
-          <CardTitle>契約書一覧</CardTitle>
+          <CardTitle>契約書進捗一覧</CardTitle>
         </CardHeader>
         <CardContent>
           <ContractsTable
             data={data}
-            companyOptions={companyOptions}
-            statusOptions={statusOptions}
-            staffOptions={staffOptions}
             tabCounts={{
               inProgress: inProgressCount,
               signed: signedCount,

@@ -3,12 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StpCompaniesTable } from "./stp-companies-table";
 import type { ProposalContent } from "@/lib/proposals/simulation";
-import { getStaffOptionsByFields } from "@/lib/staff/get-staff-by-field";
+import { getStaffOptionsByField, getStaffOptionsByFields } from "@/lib/staff/get-staff-by-field";
 
 export default async function StpCompaniesPage() {
   const STP_PROJECT_ID = 1; // 採用ブースト
 
-  const [companies, masterCompanies, stages, agents, staff, staffProjectAssignments, allStaffProjectAssignments, leadSources, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, contractHistoriesData, editorProposalsRaw, contactCategories] = await Promise.all([
+  const [companies, masterCompanies, stages, agents, staff, contractTypes, leadSources, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, contractHistoriesData, editorProposalsRaw, contactCategories] = await Promise.all([
     prisma.stpCompany.findMany({
       include: {
         company: {
@@ -50,13 +50,9 @@ export default async function StpCompaniesPage() {
       where: { isActive: true, isSystemUser: false },
       orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
     }),
-    prisma.staffProjectAssignment.findMany({
-      where: { projectId: STP_PROJECT_ID },
-      include: { staff: true },
-    }),
-    // 全プロジェクトのスタッフ割当（接触履歴モーダルでプロジェクト連動担当者選択に使用）
-    prisma.staffProjectAssignment.findMany({
-      include: { staff: true, project: true },
+    prisma.contractType.findMany({
+      where: { projectId: STP_PROJECT_ID, isActive: true },
+      orderBy: { displayOrder: "asc" },
     }),
     prisma.stpLeadSource.findMany({
       where: { isActive: true },
@@ -339,33 +335,23 @@ export default async function StpCompaniesPage() {
     label: a.company.name,
   }));
 
-  const staffOptionsByField = await getStaffOptionsByFields(["STP_COMPANY_SALES", "STP_COMPANY_ADMIN"]);
-  const staffOptions = staffOptionsByField.STP_COMPANY_SALES;
-  const adminStaffOptions = staffOptionsByField.STP_COMPANY_ADMIN;
+  const staffOptionsByFieldResult = await getStaffOptionsByFields(["STP_COMPANY_SALES", "STP_COMPANY_ADMIN", "CONTRACT_ASSIGNED_TO", "CONTACT_HISTORY_STAFF"]);
+  const staffOptions = staffOptionsByFieldResult.STP_COMPANY_SALES;
+  const adminStaffOptions = staffOptionsByFieldResult.STP_COMPANY_ADMIN;
+  const contractStaffOptions = staffOptionsByFieldResult.CONTRACT_ASSIGNED_TO;
 
-  // 契約書用：STPプロジェクトに割り当てられたスタッフのみ
-  const contractStaffOptions = staffProjectAssignments
-    .filter((a) => a.staff.isActive)
-    .map((a) => ({
-      value: String(a.staff.id),
-      label: a.staff.name,
-    }));
+  // 契約種別選択肢
+  const contractTypeOptions = contractTypes.map((ct) => ({
+    value: ct.name,
+    label: ct.name,
+  }));
 
   // プロジェクトごとの担当者オプション（接触履歴モーダル用）
+  const allProjects = await prisma.masterProject.findMany({ where: { isActive: true } });
   const staffByProject: Record<number, { value: string; label: string }[]> = {};
-  allStaffProjectAssignments.forEach((assignment) => {
-    if (!assignment.staff.isActive) return;
-    if (!staffByProject[assignment.projectId]) {
-      staffByProject[assignment.projectId] = [];
-    }
-    // 重複チェック
-    if (!staffByProject[assignment.projectId].some(s => s.value === String(assignment.staff.id))) {
-      staffByProject[assignment.projectId].push({
-        value: String(assignment.staff.id),
-        label: assignment.staff.name,
-      });
-    }
-  });
+  for (const project of allProjects) {
+    staffByProject[project.id] = await getStaffOptionsByField("CONTACT_HISTORY_STAFF", project.id);
+  }
 
   const leadSourceOptions = leadSources.map((ls) => ({
     value: String(ls.id),
@@ -417,6 +403,7 @@ export default async function StpCompaniesPage() {
             staffOptions={staffOptions}
             adminStaffOptions={adminStaffOptions}
             contractStaffOptions={contractStaffOptions}
+            contractTypeOptions={contractTypeOptions}
             leadSourceOptions={leadSourceOptions}
             billingAddressByCompany={billingAddressByCompany}
             billingContactByCompany={billingContactByCompany}

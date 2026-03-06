@@ -18,6 +18,7 @@ export default async function StageHistoriesPage() {
 
   const data = histories.map((h) => ({
     id: h.id,
+    companyCode: h.stpCompany.company.companyCode,
     companyName: h.stpCompany.company.name,
     eventType: h.eventType,
     fromStageName: h.fromStage?.name,

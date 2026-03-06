@@ -207,32 +207,3 @@ export async function getMasterContractStatuses() {
     label: s.name,
   }));
 }
-
-/**
- * プロジェクトに割り当てられたスタッフ一覧を取得
- * @param projectId プロジェクトID（省略時はSTP_PROJECT_ID）
- */
-export async function getStaffByProject(projectId?: number) {
-  const targetProjectId = projectId ?? STP_PROJECT_ID;
-
-  const staffAssignments = await prisma.staffProjectAssignment.findMany({
-    where: {
-      projectId: targetProjectId,
-    },
-    include: {
-      staff: true,
-    },
-    orderBy: {
-      staff: {
-        name: "asc",
-      },
-    },
-  });
-
-  return staffAssignments
-    .filter((a) => a.staff.isActive)
-    .map((a) => ({
-      value: String(a.staff.id),
-      label: a.staff.name,
-    }));
-}

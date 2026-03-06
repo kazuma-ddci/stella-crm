@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Building2,
   Home,
@@ -41,6 +41,7 @@ import {
   PanelLeftOpen,
   BookOpen,
   Bell,
+  Handshake,
   Repeat,
   Zap,
   Wallet,
@@ -63,46 +64,43 @@ type NavItem = {
   key?: string; // サイドバーカスタマイズ用のキー
 };
 
-// 共通固定データ設定のパス一覧（stella001 + admin専用）
-const COMMON_MASTER_DATA_HREFS = new Set([
+// 固定データ設定のパス一覧（stella001の固定データ設定 + 各PJ固有設定に表示）
+// 通常ユーザーのナビゲーションからはこれらのパスを非表示にする
+const ALL_MASTER_DATA_HREFS = new Set([
+  // 共通（stella001固定データ設定のみ）
   "/settings/projects",
   "/settings/contact-methods",
   "/settings/contract-statuses",
   "/settings/operating-companies",
-]);
-
-// PJ固有固定データ設定のパス一覧
-const PROJECT_MASTER_DATA_HREFS = new Set([
-  "/staff/role-types",
+  "/staff/field-definitions",
+  // プロジェクト横断（stella001固定データ設定 + 各PJ固有設定）
+  "/settings/contract-types",
   "/settings/customer-types",
   "/settings/contact-categories",
   "/settings/display-views",
+  "/settings/email-templates",
+  "/staff/role-types",
+  "/staff/field-restrictions",
+  // 1PJ専用（各PJ固有設定のみ）
   "/settings/lead-sources",
   "/stp/settings/stages",
-  "/staff/field-restrictions",
-]);
-
-// 全固定データパス（統合セット）
-const ALL_MASTER_DATA_HREFS = new Set([
-  ...COMMON_MASTER_DATA_HREFS,
-  ...PROJECT_MASTER_DATA_HREFS,
 ]);
 
 // 固定データ設定ナビゲーション（stella001専用レイアウト用）
+// 共通設定＋プロジェクト横断マスタ。1PJ専用の項目（流入経路・商談パイプライン等）は各PJの固有設定のみ
 const masterDataNavigation: NavItem[] = [
   {
     name: "固定データ設定",
     icon: Settings,
     children: [
       { name: "組織・プロジェクト管理", href: "/settings/projects", icon: Building2 },
-      { name: "スタッフ役割種別", href: "/staff/role-types", icon: Tags },
-      { name: "顧客種別", href: "/settings/customer-types", icon: UserSquare2 },
       { name: "接触方法", href: "/settings/contact-methods", icon: Phone },
-      { name: "接触種別", href: "/settings/contact-categories", icon: Tag },
+      { name: "契約種別", href: "/settings/contract-types", icon: FileText },
       { name: "契約ステータス", href: "/settings/contract-statuses", icon: FileCheck },
+      { name: "顧客種別", href: "/settings/customer-types", icon: UserSquare2 },
+      { name: "接触種別", href: "/settings/contact-categories", icon: Tag },
       { name: "外部ユーザー表示区分", href: "/settings/display-views", icon: Shield },
-      { name: "STP_流入経路", href: "/settings/lead-sources", icon: UserPlus },
-      { name: "STP_商談パイプライン", href: "/stp/settings/stages", icon: Layers },
+      { name: "スタッフ役割種別", href: "/staff/role-types", icon: Tags },
       { name: "担当者フィールド出現設定", href: "/staff/field-definitions", icon: CheckSquare },
       { name: "担当者フィールド制約", href: "/staff/field-restrictions", icon: Shield },
       { name: "メールテンプレート", href: "/settings/email-templates", icon: FileText },
@@ -147,15 +145,28 @@ const navigation: NavItem[] = [
     key: "stp",
     children: [
       { name: "ダッシュボード", href: "/stp/dashboard", icon: Home },
-      { name: "全顧客マスタ", href: "/companies", icon: Building2, requireAnyEdit: true },
-      { name: "スタッフ管理", href: "/staff", icon: Users, founderOrManager: true },
-      { name: "外部ユーザー管理", href: "/admin/users", icon: Shield, editOrAbove: true },
-      { name: "企業情報", href: "/stp/companies", icon: Building2 },
-      { name: "代理店情報", href: "/stp/agents", icon: Users },
-      { name: "求職者情報", href: "/stp/candidates", icon: UserSearch },
-      { name: "リード回答", href: "/stp/lead-submissions", icon: ClipboardList },
       { name: "KPI目標管理", href: "/stp/kpi-targets", icon: Target },
-      { name: "契約書情報", href: "/stp/contracts", icon: FileCheck },
+      {
+        name: "営業管理",
+        icon: Briefcase,
+        children: [
+          { name: "全顧客マスタ", href: "/companies", icon: BookOpen, requireAnyEdit: true },
+          { name: "企業情報", href: "/stp/companies", icon: Building2 },
+          { name: "代理店情報", href: "/stp/agents", icon: Handshake },
+          { name: "求職者情報", href: "/stp/candidates", icon: UserSearch },
+          { name: "リード回答", href: "/stp/lead-submissions", icon: ClipboardList },
+          ],
+      },
+      {
+        name: "活動記録",
+        icon: Phone,
+        children: [
+          { name: "契約書進捗", href: "/stp/contracts", icon: FileCheck },
+          { name: "企業接触履歴", href: "/stp/records/company-contacts", icon: Phone },
+          { name: "代理店接触履歴", href: "/stp/records/agent-contacts", icon: Phone },
+          { name: "商談パイプライン履歴", href: "/stp/records/stage-histories", icon: History },
+        ],
+      },
       {
         name: "売上・経費",
         icon: DollarSign,
@@ -170,28 +181,28 @@ const navigation: NavItem[] = [
         ],
       },
       {
-        name: "記録",
-        icon: FileText,
-        children: [
-          { name: "企業接触履歴", href: "/stp/records/company-contacts", icon: Phone },
-          { name: "代理店接触履歴", href: "/stp/records/agent-contacts", icon: Phone },
-          { name: "商談パイプライン履歴", href: "/stp/records/stage-histories", icon: History },
-        ],
-      },
-      {
-        name: "固有設定",
+        name: "管理",
         icon: Settings,
         founderOrManager: true,
         children: [
-          { name: "プロジェクト設定", href: "/stp/settings/project", icon: Building2 },
-          { name: "顧客種別", href: "/settings/customer-types?project=stp", icon: UserSquare2 },
-          { name: "接触種別", href: "/settings/contact-categories?project=stp", icon: Tag },
-          { name: "流入経路", href: "/settings/lead-sources", icon: UserPlus },
-          { name: "商談パイプライン", href: "/stp/settings/stages", icon: Layers },
-          { name: "表示区分", href: "/settings/display-views?project=stp", icon: Shield },
-          { name: "スタッフ役割種別", href: "/staff/role-types?project=stp", icon: Tags },
-          { name: "担当者フィールド制約", href: "/staff/field-restrictions?project=stp", icon: Shield },
-          { name: "メールテンプレート", href: "/settings/email-templates?project=stp", icon: FileText },
+          { name: "スタッフ管理", href: "/staff", icon: Users },
+          { name: "外部ユーザー管理", href: "/admin/users", icon: Shield, editOrAbove: true },
+          {
+            name: "固有設定",
+            icon: Settings,
+            children: [
+              { name: "プロジェクト設定", href: "/stp/settings/project", icon: Building2 },
+              { name: "契約種別", href: "/settings/contract-types?project=stp", icon: FileText },
+              { name: "顧客種別", href: "/settings/customer-types?project=stp", icon: UserSquare2 },
+              { name: "接触種別", href: "/settings/contact-categories?project=stp", icon: Tag },
+              { name: "流入経路", href: "/settings/lead-sources", icon: UserPlus },
+              { name: "商談パイプライン", href: "/stp/settings/stages", icon: Layers },
+              { name: "表示区分", href: "/settings/display-views?project=stp", icon: Shield },
+              { name: "スタッフ役割種別", href: "/staff/role-types?project=stp", icon: Tags },
+              { name: "担当者フィールド制約", href: "/staff/field-restrictions?project=stp", icon: Shield },
+              { name: "メールテンプレート", href: "/settings/email-templates?project=stp", icon: FileText },
+            ],
+          },
         ],
       },
     ],
@@ -232,6 +243,7 @@ const navigation: NavItem[] = [
         founderOrManager: true,
         children: [
           { name: "プロジェクト設定", href: "/accounting/settings/project", icon: Building2 },
+          { name: "契約種別", href: "/settings/contract-types?project=accounting", icon: FileText },
           { name: "顧客種別", href: "/settings/customer-types?project=accounting", icon: UserSquare2 },
           { name: "接触種別", href: "/settings/contact-categories?project=accounting", icon: Tag },
           { name: "表示区分", href: "/settings/display-views?project=accounting", icon: Shield },
@@ -242,28 +254,69 @@ const navigation: NavItem[] = [
       },
     ],
   },
-  {
-    name: "設定",
-    icon: Settings,
-    children: [
-      { name: "組織・プロジェクト管理", href: "/settings/projects", icon: Building2 },
-      { name: "接触方法", href: "/settings/contact-methods", icon: Phone },
-      { name: "契約ステータス", href: "/settings/contract-statuses", icon: FileCheck },
-    ],
-  },
 ];
+
+function getSidebarStateKey(userId: string) {
+  return `sidebar-open-state-${userId}`;
+}
+
+function getSidebarState(userId: string): Record<string, boolean> {
+  try {
+    const stored = localStorage.getItem(getSidebarStateKey(userId));
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSidebarState(userId: string, state: Record<string, boolean>) {
+  try {
+    localStorage.setItem(getSidebarStateKey(userId), JSON.stringify(state));
+  } catch {
+    // localStorage unavailable
+  }
+}
 
 function NavItemComponent({
   item,
   depth = 0,
   onNavigate,
+  parentPath = "",
+  userId,
 }: {
   item: NavItem;
   depth?: number;
   onNavigate?: () => void;
+  parentPath?: string;
+  userId?: string;
 }) {
   const pathname = usePathname();
-  const [isOpen, setIsOpen] = useState(true);
+  const itemPath = parentPath ? `${parentPath}/${item.name}` : item.name;
+
+  // 初期値はfalse（全て閉じた状態）。hydration後にlocalStorageから復元
+  const [isOpen, setIsOpen] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    if (!userId) { setHydrated(true); return; }
+    const state = getSidebarState(userId);
+    if (state[itemPath]) {
+      setIsOpen(true);
+    }
+    setHydrated(true);
+  }, [itemPath, userId]);
+
+  const handleToggle = useCallback(() => {
+    setIsOpen((prev) => {
+      const next = !prev;
+      if (userId) {
+        const state = getSidebarState(userId);
+        state[itemPath] = next;
+        saveSidebarState(userId, state);
+      }
+      return next;
+    });
+  }, [itemPath, userId]);
+
   const hasChildren = item.children && item.children.length > 0;
   const isActive = item.href
     ? pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href))
@@ -275,7 +328,7 @@ function NavItemComponent({
     return (
       <div>
         <button
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={handleToggle}
           className={cn(
             "group flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white"
           )}
@@ -289,10 +342,10 @@ function NavItemComponent({
             <ChevronRight className="h-4 w-4" />
           )}
         </button>
-        {isOpen && (
+        {hydrated && isOpen && (
           <div className="mt-1 space-y-1">
             {item.children!.map((child) => (
-              <NavItemComponent key={child.name} item={child} depth={depth + 1} onNavigate={onNavigate} />
+              <NavItemComponent key={child.name} item={child} depth={depth + 1} onNavigate={onNavigate} parentPath={itemPath} userId={userId} />
             ))}
           </div>
         )}
@@ -466,36 +519,10 @@ function getFilteredNavigation(user?: SessionUser, hiddenItems?: string[]): NavI
     ? filterNavigationByPermissions(navigation, user, hiddenItems)
     : navigation;
 
-  // 設定フォルダ: admin以外は非表示
+  // 固定データ設定ページは各PJフォルダ内に配置済みなので、showProjectMasterDataでない場合は除外
   let result = baseNavigation;
-  if (!isAdminUser) {
-    result = result.filter((item) => item.name !== "設定");
-  }
-
-  // PJ固有固定データは各PJフォルダ内に配置済みなので、showProjectMasterDataでない場合は除外
   if (!showProjectMasterData) {
     result = removeMasterDataItems(result);
-  } else if (!showCommonMasterData) {
-    // PJ固有は表示するが共通固定データは除外
-    result = result
-      .map((item) => {
-        if (item.children) {
-          return {
-            ...item,
-            children: item.children.filter((child) => {
-              if (child.href && COMMON_MASTER_DATA_HREFS.has(child.href)) {
-                return false;
-              }
-              return true;
-            }),
-          };
-        }
-        return item;
-      })
-      .filter((item) => {
-        if (item.children && item.children.length === 0) return false;
-        return true;
-      });
   }
 
   // admin向け: 共通固定データナビも追加
@@ -526,6 +553,7 @@ export function SidebarContent({
 }: SidebarContentProps) {
   const appTitle = process.env.NEXT_PUBLIC_APP_TITLE || "Stella 基幹OS";
   const navItems = getFilteredNavigation(user, hiddenItems);
+  const userId = user?.loginId ?? undefined;
 
   // 折りたたみモード: アイコンのみ表示
   if (collapsed) {
@@ -566,7 +594,7 @@ export function SidebarContent({
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {navItems.map((item) => (
-          <NavItemComponent key={item.name} item={item} onNavigate={onNavigate} />
+          <NavItemComponent key={item.name} item={item} onNavigate={onNavigate} userId={userId} />
         ))}
       </nav>
       {onToggleCollapse && (

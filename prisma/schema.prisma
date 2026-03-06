@@ -32,7 +32,7 @@ model MasterStellaCompany {
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  deletedAt     DateTime? @map("deleted_at")
+  deletedAt     DateTime?
 
   // 企業統合（マージ）
   mergedIntoId  Int?                              // 統合先企業ID（統合済みの場合）
@@ -428,7 +428,7 @@ model ContactHistory {
   contactCategoryId    Int?      @map("contact_category_id")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
-  deletedAt            DateTime? @map("deleted_at")
+  deletedAt            DateTime?
 
   // Relations
   company         MasterStellaCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -486,6 +486,28 @@ model ContactHistoryRole {
   @@index([contactHistoryId], map: "idx_contact_history_roles_contact_history_id")
   @@index([customerTypeId], map: "idx_contact_history_roles_customer_type_id")
   @@map("contact_history_roles")
+}
+
+// ============================================
+// 契約種別マスタ (Contract Types)
+// プロジェクトごとの契約種別を管理
+// ============================================
+
+model ContractType {
+  id           Int      @id @default(autoincrement())
+  projectId    Int      @map("project_id")
+  name         String   @db.VarChar(50)
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  project MasterProject @relation(fields: [projectId], references: [id])
+
+  @@unique([projectId, name])
+  @@index([projectId], map: "idx_contract_types_project_id")
+  @@map("contract_types")
 }
 
 // ============================================
@@ -830,6 +852,7 @@ model MasterProject {
   staffAssignments   StaffProjectAssignment[]
   staffPermissions   StaffPermission[]
   displayViews       DisplayView[]
+  contractTypes      ContractType[]
   customerTypes      CustomerType[]
   contactCategories  ContactCategory[]
   accountingTransactions AccountingTransaction[]
@@ -851,6 +874,7 @@ model MasterProject {
   projectEmails           ProjectEmail[]
   projectBankAccounts     ProjectBankAccount[]
   invoiceTemplates        InvoiceTemplate[]
+  expenseCategories       ExpenseCategory[]
 
   @@map("master_projects")
 }
@@ -2668,6 +2692,7 @@ model ExpenseCategory {
   id                    Int       @id @default(autoincrement())
   name                  String    // 名称（外注費、サブスク費、家賃等）
   type                  String    // "revenue" | "expense" | "both"
+  projectId             Int?      // FK → MasterProject（nullの場合は全プロジェクト共通）
   defaultAccountId      Int?      // FK → Account（デフォルト勘定科目）
   displayOrder          Int       @default(0)
   isActive              Boolean   @default(true)
@@ -2679,6 +2704,7 @@ model ExpenseCategory {
   updatedAt             DateTime  @updatedAt
 
   // Relations
+  project               MasterProject?        @relation(fields: [projectId], references: [id])
   defaultAccount        Account?              @relation(fields: [defaultAccountId], references: [id])
   transactions          Transaction[]
   recurringTransactions RecurringTransaction[]
@@ -2757,7 +2783,8 @@ model Account {
   id                    Int       @id @default(autoincrement())
   code                  String    @unique // 科目コード（例: "1100"）
   name                  String    // 科目名（例: 売掛金）
-  category              String    // "asset" | "liability" | "revenue" | "expense"
+  category              String    // "asset" | "liability" | "equity" | "revenue" | "cost_of_sales" | "sga" | "non_operating_revenue" | "non_operating_expense" | "extraordinary_income" | "extraordinary_loss"
+  subcategory           String?   // サブカテゴリ（例: "流動資産", "有形固定資産", "人件費"）
   displayOrder          Int       @default(0)
   isActive              Boolean   @default(true)
 

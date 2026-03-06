@@ -7,8 +7,14 @@ import { createAccount, updateAccount, reorderAccounts } from "./actions";
 const CATEGORY_OPTIONS = [
   { value: "asset", label: "資産" },
   { value: "liability", label: "負債" },
-  { value: "revenue", label: "収益" },
-  { value: "expense", label: "費用" },
+  { value: "equity", label: "純資産" },
+  { value: "revenue", label: "売上高" },
+  { value: "cost_of_sales", label: "売上原価" },
+  { value: "sga", label: "販売費及び一般管理費" },
+  { value: "non_operating_revenue", label: "営業外収益" },
+  { value: "non_operating_expense", label: "営業外費用" },
+  { value: "extraordinary_income", label: "特別利益" },
+  { value: "extraordinary_loss", label: "特別損失" },
 ];
 
 type Props = {

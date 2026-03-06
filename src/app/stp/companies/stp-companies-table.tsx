@@ -57,6 +57,7 @@ type Props = {
   pendingStageId?: number;
   lostStageId?: number;
   masterContractStatusOptions: { value: string; label: string }[];
+  contractTypeOptions: { value: string; label: string }[];
   customerTypes: CustomerType[];
   staffByProject: Record<number, { value: string; label: string }[]>;
   contactCategories: { id: number; name: string; projectId: number; project: { id: number; name: string; displayOrder: number } }[];
@@ -77,6 +78,7 @@ export function StpCompaniesTable({
   pendingStageId,
   lostStageId,
   masterContractStatusOptions,
+  contractTypeOptions,
   customerTypes,
   staffByProject,
   contactCategories,
@@ -849,6 +851,7 @@ export function StpCompaniesTable({
           companyName={selectedCompany.companyName as string}
           contractStatusOptions={masterContractStatusOptions}
           staffOptions={contractStaffOptions}
+          contractTypeOptions={contractTypeOptions}
         />
       )}
 

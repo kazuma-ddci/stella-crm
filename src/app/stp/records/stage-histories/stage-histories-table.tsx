@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import { FilterableTableHead } from "@/components/filterable-table-head";
 import { useColumnFilters } from "@/hooks/use-column-filters";
+import { CompanyCodeLabel } from "@/components/company-code-label";
 
 type Props = {
   data: Record<string, unknown>[];
@@ -57,7 +58,11 @@ const FILTER_KEYS = [
 ];
 
 const VALUE_EXTRACTORS: Record<string, (item: Record<string, unknown>) => string> = {
-  companyName: (item) => (item.companyName as string) || "",
+  companyName: (item) => {
+    const code = (item.companyCode as string) || "";
+    const name = (item.companyName as string) || "";
+    return code ? `${code} ${name}` : name;
+  },
   eventTypeLabel: (item) => EVENT_TYPE_LABELS[item.eventType as string] || (item.eventType as string) || "",
   fromStageName: (item) => (item.fromStageName as string) || "",
   toStageName: (item) => (item.toStageName as string) || "",
@@ -118,7 +123,6 @@ export function StageHistoriesTable({ data }: Props) {
       <Table containerRef={tableContainerRef} containerClassName="overflow-auto" containerStyle={{ maxHeight: tableMaxHeight }}>
         <TableHeader>
           <TableRow>
-            <TableHead>ID</TableHead>
             {FILTER_KEYS.map((key) => (
               <FilterableTableHead
                 key={key}
@@ -137,15 +141,19 @@ export function StageHistoriesTable({ data }: Props) {
         <TableBody>
           {filteredData.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={9} className="text-center text-muted-foreground">
+              <TableCell colSpan={8} className="text-center text-muted-foreground">
                 {data.length === 0 ? "履歴がありません" : "フィルタ条件に一致するデータがありません"}
               </TableCell>
             </TableRow>
           ) : (
             filteredData.map((item) => (
               <TableRow key={item.id as number}>
-                <TableCell>{item.id as number}</TableCell>
-                <TableCell className="whitespace-nowrap">{(item.companyName as string) || "-"}</TableCell>
+                <TableCell className="whitespace-nowrap">
+                  {(item.companyCode as string)
+                    ? <CompanyCodeLabel code={item.companyCode as string} name={(item.companyName as string) || "-"} />
+                    : (item.companyName as string) || "-"
+                  }
+                </TableCell>
                 <TableCell>{EVENT_TYPE_LABELS[item.eventType as string] || (item.eventType as string) || "-"}</TableCell>
                 <TableCell>{(item.fromStageName as string) || "-"}</TableCell>
                 <TableCell>{(item.toStageName as string) || "-"}</TableCell>

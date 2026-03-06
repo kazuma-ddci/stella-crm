@@ -5,21 +5,16 @@ import { useRouter } from "next/navigation";
 import {
   CrudTable,
   type ColumnDef,
-  type CustomFormFields,
   type CustomRenderers,
 } from "@/components/crud-table";
-import { updateContract, deleteContract } from "./actions";
 import { CompanyCodeLabel } from "@/components/company-code-label";
-import { FileUpload } from "@/components/file-upload";
 import {
   FileText,
   ExternalLink,
-  Plus,
-  Settings2,
+  ArrowRightLeft,
   AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ContractAddModal } from "@/components/contract-add-modal";
 import { ContractStatusModal } from "@/components/contract-status-management/contract-status-modal";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ContractRowWithProgress, ContractTabType } from "@/lib/contract-status/types";
@@ -31,14 +26,6 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   data: ContractRowWithProgress[];
-  companyOptions: { value: string; label: string }[];
-  statusOptions: {
-    value: string;
-    label: string;
-    isTerminal?: boolean;
-    displayOrder?: number;
-  }[];
-  staffOptions: { value: string; label: string }[];
   tabCounts: {
     inProgress: number;
     signed: number;
@@ -48,14 +35,9 @@ type Props = {
 
 export function ContractsTable({
   data,
-  companyOptions,
-  statusOptions,
-  staffOptions,
   tabCounts,
 }: Props) {
   const router = useRouter();
-  // 契約書追加モーダルの状態
-  const [addModalOpen, setAddModalOpen] = useState(false);
   // ステータス管理モーダルの状態
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [selectedContractId, setSelectedContractId] = useState<number | null>(
@@ -139,16 +121,6 @@ export function ContractsTable({
       hidden: true,
     },
     {
-      key: "companyId",
-      header: "企業",
-      type: "select",
-      options: companyOptions,
-      required: true,
-      searchable: true,
-      simpleMode: true,
-      hidden: true,
-    },
-    {
       key: "companyName",
       header: "企業名",
       editable: false,
@@ -157,36 +129,19 @@ export function ContractsTable({
     {
       key: "contractType",
       header: "契約種別",
-      type: "select",
-      options: [
-        { value: "新規契約", label: "新規契約" },
-        { value: "更新契約", label: "更新契約" },
-        { value: "追加契約", label: "追加契約" },
-        { value: "変更契約", label: "変更契約" },
-        { value: "解約", label: "解約" },
-      ],
-      required: true,
+      editable: false,
       simpleMode: true,
     },
     {
       key: "title",
       header: "契約書名",
-      required: true,
+      editable: false,
       simpleMode: true,
     },
     {
       key: "contractNumber",
       header: "契約番号",
       editable: false,
-    },
-    {
-      key: "currentStatusId",
-      header: "ステータス選択",
-      type: "select",
-      options: statusOptions,
-      searchable: true,
-      simpleMode: true,
-      hidden: true,
     },
     {
       key: "currentStatusName",
@@ -201,12 +156,14 @@ export function ContractsTable({
             key: "progress",
             header: "進捗",
             editable: false,
+            filterable: false,
             simpleMode: true,
           },
           {
             key: "daysSinceStatusChange",
             header: "滞在日数",
             editable: false,
+            filterable: false,
             simpleMode: true,
           },
         ]
@@ -217,50 +174,11 @@ export function ContractsTable({
           {
             key: "signedDate",
             header: "締結日",
-            type: "date" as const,
+            editable: false,
             simpleMode: true,
           },
         ]
       : []),
-    {
-      key: "startDate",
-      header: "契約開始日",
-      type: "date",
-    },
-    {
-      key: "endDate",
-      header: "契約終了日",
-      type: "date",
-    },
-    ...(activeTab !== "signed"
-      ? [
-          {
-            key: "signedDate",
-            header: "締結日",
-            type: "date" as const,
-            hidden: true,
-          },
-        ]
-      : []),
-    {
-      key: "signingMethod",
-      header: "締結方法",
-      type: "select",
-      options: [
-        { value: "cloudsign", label: "クラウドサイン" },
-        { value: "paper", label: "紙" },
-        { value: "other", label: "その他" },
-      ],
-    },
-    {
-      key: "assignedTo",
-      header: "担当者選択",
-      type: "multiselect",
-      options: staffOptions,
-      searchable: true,
-      simpleMode: true,
-      hidden: true,
-    },
     {
       key: "assignedToName",
       header: "担当者",
@@ -270,29 +188,19 @@ export function ContractsTable({
     {
       key: "fileUpload",
       header: "契約書ファイル",
-      editable: true,
-    },
-    {
-      key: "filePath",
-      header: "ファイルパス",
-      hidden: true,
       editable: false,
-    },
-    {
-      key: "fileName",
-      header: "ファイル名",
-      hidden: true,
-      editable: false,
+      filterable: false,
     },
     {
       key: "note",
       header: "備考",
-      type: "textarea",
+      editable: false,
     },
     {
       key: "statusAction",
-      header: "",
+      header: "ステータス変更",
       editable: false,
+      filterable: false,
       simpleMode: true,
     },
     {
@@ -361,51 +269,19 @@ export function ContractsTable({
     statusAction: (_value, row) => {
       return (
         <Button
-          variant="ghost"
-          size="icon"
+          variant="outline"
+          size="sm"
           onClick={(e) => {
             e.stopPropagation();
             handleOpenStatusModal(row.id as number);
           }}
-          title="ステータス管理"
+          className="flex items-center gap-1 text-blue-600 border-blue-200 hover:bg-blue-50 hover:text-blue-700"
         >
-          <Settings2 className="h-4 w-4" />
+          <ArrowRightLeft className="h-3.5 w-3.5" />
+          <span className="text-xs">変更</span>
         </Button>
       );
     },
-  };
-
-  // カスタムフォームフィールド（編集ダイアログ用）
-  const customFormFields: CustomFormFields = {
-    fileUpload: {
-      render: (_value, _onChange, formData, setFormData) => {
-        return (
-          <FileUpload
-            value={{
-              filePath: formData.filePath as string | null,
-              fileName: formData.fileName as string | null,
-            }}
-            onChange={(newValue) => {
-              // setFormDataを使って複数フィールドを同時に更新
-              setFormData({
-                ...formData,
-                filePath: newValue.filePath,
-                fileName: newValue.fileName,
-              });
-            }}
-            contractId={formData.id as number | undefined}
-          />
-        );
-      },
-    },
-  };
-
-  const handleUpdate = async (id: number, newData: Record<string, unknown>) => {
-    await updateContract(id, newData);
-  };
-
-  const handleDelete = async (id: number) => {
-    await deleteContract(id);
   };
 
   return (
@@ -442,24 +318,7 @@ export function ContractsTable({
       <CrudTable
         data={filteredData as unknown as Record<string, unknown>[]}
         columns={columns}
-        onUpdate={handleUpdate}
-        onDelete={handleDelete}
         customRenderers={customRenderers}
-        customFormFields={customFormFields}
-        customAddButton={
-          <Button onClick={() => setAddModalOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            契約書を追加
-          </Button>
-        }
-      />
-
-      {/* 契約書追加モーダル */}
-      <ContractAddModal
-        open={addModalOpen}
-        onOpenChange={setAddModalOpen}
-        contractStatusOptions={statusOptions}
-        staffOptions={staffOptions}
       />
 
       {/* ステータス管理モーダル */}

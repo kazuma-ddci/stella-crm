@@ -49,6 +49,7 @@ type Props = {
   staffOptions: { value: string; label: string }[];
   adminStaffOptions: { value: string; label: string }[];
   contractStaffOptions: { value: string; label: string }[];
+  contractTypeOptions: { value: string; label: string }[];
   contactMethodOptions: { value: string; label: string }[];
   masterContractStatusOptions: { value: string; label: string }[];
   customerTypes: CustomerType[];
@@ -77,6 +78,7 @@ export function AgentsTable({
   staffOptions,
   adminStaffOptions,
   contractStaffOptions,
+  contractTypeOptions,
   contactMethodOptions,
   masterContractStatusOptions,
   customerTypes,
@@ -762,6 +764,7 @@ export function AgentsTable({
             companyName={selectedAgent.companyName as string}
             contractStatusOptions={masterContractStatusOptions}
             staffOptions={contractStaffOptions}
+            contractTypeOptions={contractTypeOptions}
           />
         </>
       )}

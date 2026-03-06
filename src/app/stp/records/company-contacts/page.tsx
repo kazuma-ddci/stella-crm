@@ -1,11 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CompanyContactsTable } from "./company-contacts-table";
+import { getStaffOptionsByField } from "@/lib/staff/get-staff-by-field";
 
 export default async function CompanyContactsPage() {
   const STP_PROJECT_ID = 1; // 採用ブースト
 
-  const [contacts, stpCompanies, allStaff, staffProjectAssignments, customerTypes] = await Promise.all([
+  const [contacts, stpCompanies, allStaff, customerTypes] = await Promise.all([
     // 接触履歴（顧客種別「企業」のコンテキストを持つもの）
     prisma.contactHistory.findMany({
       where: {
@@ -44,9 +45,6 @@ export default async function CompanyContactsPage() {
       where: { isActive: true, isSystemUser: false },
       orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
     }),
-    prisma.staffProjectAssignment.findMany({
-      include: { staff: true },
-    }),
     prisma.customerType.findMany({
       where: { isActive: true },
       include: { project: true },
@@ -69,14 +67,13 @@ export default async function CompanyContactsPage() {
     staffIdToName[String(s.id)] = s.name;
   });
 
-  // プロジェクトIDごとのスタッフIDセット
+  // プロジェクトIDごとのスタッフIDセット（担当者フィールドシステム経由）
+  const allProjects = await prisma.masterProject.findMany({ where: { isActive: true } });
   const projectIdToStaffIds: Record<number, Set<string>> = {};
-  staffProjectAssignments.forEach((spa) => {
-    if (!projectIdToStaffIds[spa.projectId]) {
-      projectIdToStaffIds[spa.projectId] = new Set();
-    }
-    projectIdToStaffIds[spa.projectId].add(String(spa.staffId));
-  });
+  for (const project of allProjects) {
+    const staffOpts = await getStaffOptionsByField("CONTACT_HISTORY_STAFF", project.id);
+    projectIdToStaffIds[project.id] = new Set(staffOpts.map(s => s.value));
+  }
 
   // customerTypeIdからprojectIdを取得するマップ
   const customerTypeIdToProjectId: Record<number, number> = {};

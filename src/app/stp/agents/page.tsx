@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgentsTable } from "./agents-table";
-import { getStaffOptionsByFields } from "@/lib/staff/get-staff-by-field";
+import { getStaffOptionsByFields, getStaffOptionsByField } from "@/lib/staff/get-staff-by-field";
 import crypto from "crypto";
 
 // ユニークなトークンを生成
@@ -39,7 +39,7 @@ export default async function StpAgentsPage() {
   // 既存代理店にトークンがなければ自動生成
   await ensureLeadFormTokensExist();
 
-  const [agents, masterCompanies, staff, staffProjectAssignments, allStaffProjectAssignments, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, stpCompanies, contactCategories] = await Promise.all([
+  const [agents, masterCompanies, staff, contractTypes, _unused, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, stpCompanies, contactCategories] = await Promise.all([
     prisma.stpAgent.findMany({
       include: {
         company: {
@@ -83,14 +83,12 @@ export default async function StpAgentsPage() {
       where: { isActive: true, isSystemUser: false },
       orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
     }),
-    prisma.staffProjectAssignment.findMany({
-      where: { projectId: STP_PROJECT_ID },
-      include: { staff: true },
+    prisma.contractType.findMany({
+      where: { projectId: STP_PROJECT_ID, isActive: true },
+      orderBy: { displayOrder: "asc" },
     }),
-    // 全プロジェクトのスタッフ割当（接触履歴モーダルでプロジェクト連動担当者選択に使用）
-    prisma.staffProjectAssignment.findMany({
-      include: { staff: true, project: true },
-    }),
+    // プレースホルダー（後方互換のためPromise.allの要素数を維持）
+    Promise.resolve(null),
     prisma.contactMethod.findMany({
       where: { isActive: true },
       orderBy: { displayOrder: "asc" },
@@ -339,34 +337,23 @@ export default async function StpAgentsPage() {
     label: `${c.companyCode} ${c.name}`,
   }));
 
-  // 代理店担当営業・担当事務
-  const staffOptionsByField = await getStaffOptionsByFields(["STP_AGENT_STAFF", "STP_AGENT_ADMIN"]);
+  // 代理店担当営業・担当事務・契約書担当者・接触履歴担当者
+  const staffOptionsByField = await getStaffOptionsByFields(["STP_AGENT_STAFF", "STP_AGENT_ADMIN", "CONTRACT_ASSIGNED_TO", "CONTACT_HISTORY_STAFF"]);
   const staffOptions = staffOptionsByField.STP_AGENT_STAFF;
   const adminStaffOptions = staffOptionsByField.STP_AGENT_ADMIN;
-
-  // 契約書用：STPプロジェクトに割り当てられたスタッフのみ
-  const contractStaffOptions = staffProjectAssignments
-    .filter((a) => a.staff.isActive)
-    .map((a) => ({
-      value: String(a.staff.id),
-      label: a.staff.name,
-    }));
+  const contractStaffOptions = staffOptionsByField.CONTRACT_ASSIGNED_TO;
 
   // プロジェクトごとの担当者オプション（接触履歴モーダル用）
+  const allProjects = await prisma.masterProject.findMany({ where: { isActive: true } });
   const staffByProject: Record<number, { value: string; label: string }[]> = {};
-  allStaffProjectAssignments.forEach((assignment) => {
-    if (!assignment.staff.isActive) return;
-    if (!staffByProject[assignment.projectId]) {
-      staffByProject[assignment.projectId] = [];
-    }
-    // 重複チェック
-    if (!staffByProject[assignment.projectId].some(s => s.value === String(assignment.staff.id))) {
-      staffByProject[assignment.projectId].push({
-        value: String(assignment.staff.id),
-        label: assignment.staff.name,
-      });
-    }
-  });
+  for (const project of allProjects) {
+    staffByProject[project.id] = await getStaffOptionsByField("CONTACT_HISTORY_STAFF", project.id);
+  }
+
+  const contractTypeOptions = contractTypes.map((ct) => ({
+    value: ct.name,
+    label: ct.name,
+  }));
 
   const contactMethodOptions = contactMethods.map((m) => ({
     value: String(m.id),
@@ -388,6 +375,7 @@ export default async function StpAgentsPage() {
             staffOptions={staffOptions}
             adminStaffOptions={adminStaffOptions}
             contractStaffOptions={contractStaffOptions}
+            contractTypeOptions={contractTypeOptions}
             contactMethodOptions={contactMethodOptions}
             masterContractStatusOptions={masterContractStatusOptions}
             customerTypes={customerTypes}

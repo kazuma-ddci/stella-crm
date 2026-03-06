@@ -39,15 +39,8 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   contractStatusOptions: { value: string; label: string }[];
   staffOptions: { value: string; label: string }[];
+  contractTypeOptions: { value: string; label: string }[];
 };
-
-const contractTypeOptions = [
-  { value: "業務委託契約", label: "業務委託契約" },
-  { value: "秘密保持契約", label: "秘密保持契約" },
-  { value: "代理店契約", label: "代理店契約" },
-  { value: "利用規約同意書", label: "利用規約同意書" },
-  { value: "その他", label: "その他" },
-];
 
 const signingMethodOptions = [
   { value: "cloudsign", label: "クラウドサイン" },
@@ -92,6 +85,7 @@ export function ContractAddModal({
   onOpenChange,
   contractStatusOptions,
   staffOptions,
+  contractTypeOptions,
 }: Props) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);

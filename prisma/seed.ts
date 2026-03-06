@@ -1509,10 +1509,12 @@ async function main() {
       { id: 6, fieldCode: 'STP_AGENT_STAFF', fieldName: '代理店 担当営業', displayOrder: 6 },
       { id: 7, fieldCode: 'STP_AGENT_ADMIN', fieldName: '代理店 担当事務', displayOrder: 7 },
       { id: 8, fieldCode: 'PROPOSAL_STAFF', fieldName: '提案書 担当者', displayOrder: 8 },
+      { id: 9, fieldCode: 'CONTRACT_ASSIGNED_TO', fieldName: '契約書 担当者', displayOrder: 9 },
+      { id: 10, fieldCode: 'CONTACT_HISTORY_STAFF', fieldName: '接触履歴 担当者', displayOrder: 10 },
     ],
     skipDuplicates: true,
   });
-  console.log('✓ Staff field definitions (8)');
+  console.log('✓ Staff field definitions (10)');
 
   const asRole = await prisma.staffRoleType.findFirst({ where: { name: 'AS' } });
   const stpProject = await prisma.masterProject.findFirst({ where: { code: 'stp' } });

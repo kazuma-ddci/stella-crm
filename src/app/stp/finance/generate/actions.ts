@@ -1,3 +1,107 @@
+/**
+ * ============================================================================
+ * STP 取引候補（Transaction Candidate）自動生成ロジック
+ * ============================================================================
+ *
+ * ## 概要
+ * CRM上の契約データ・定期取引データから、対象月に発生するはずの取引候補を
+ * 自動検出し、取引レコード（Transaction）として生成する。
+ *
+ * ## 処理フロー
+ * 1. detectTransactionCandidates(targetMonth) — 候補を検出
+ * 2. ユーザーが画面上で候補を確認・判定（承認/保留/却下）
+ * 3. generateTransactions() — 承認された候補から取引レコードを作成
+ *
+ * ============================================================================
+ * ## 売上候補（Revenue）の生成条件
+ * ============================================================================
+ *
+ * ### 初期費用（revenue-initial）
+ * - 条件: 契約の initialFee > 0 かつ 契約開始月 = 対象月
+ * - 金額: StpContractHistory.initialFee
+ * - 頻度: 契約開始月の1回のみ
+ *
+ * ### 月額費用（revenue-monthly）
+ * - 条件: 契約の monthlyFee > 0 かつ 契約期間が対象月と重複
+ * - 金額: StpContractHistory.monthlyFee
+ * - 頻度: 契約期間中、毎月
+ *
+ * ### 成果報酬（revenue-performance）
+ * - 条件: 求職者の入社日（joinDate）が対象月内
+ * - 金額: 契約の performanceFee（1人あたり単価）
+ * - マッチング: 求職者の入社先企業 × industryType × jobMedia で契約を特定
+ * - 重要: マッチする契約が正確に1件の場合のみ生成（曖昧な場合はスキップ）
+ *
+ * ※ 共通条件: 契約の status="active" かつ deletedAt=null
+ *
+ * ============================================================================
+ * ## 経費候補（Expense）の生成条件
+ * ============================================================================
+ *
+ * 以下は企業に代理店（StpCompany.agentId）が紐づいている場合に生成される。
+ *
+ * ### 代理店初期費用（expense-agent_initial）
+ * - 条件: 企業契約の開始月 かつ 代理店契約の initialFee > 0
+ * - 金額: StpAgentContractHistory.initialFee
+ * - 頻度: 企業契約の開始月の1回のみ
+ *
+ * ### 代理店月額費用（expense-agent_monthly）
+ * - 条件: 代理店契約の monthlyFee > 0
+ * - 金額: StpAgentContractHistory.monthlyFee
+ * - 頻度: 企業契約の期間中、毎月
+ *
+ * ### 初期費用の紹介報酬（expense-commission_initial）
+ * - 条件: 企業契約の開始月 かつ 報酬率 > 0
+ * - 金額: 企業の初期費用 × 報酬率（%）
+ * - 報酬率: 代理店契約のデフォルト値 or 企業別オーバーライド
+ *
+ * ### 月額の紹介報酬（expense-commission_monthly）
+ * - 条件: 契約開始からの経過月数 < 報酬発生期間（デフォルト12ヶ月）
+ * - 金額: rate型 → 企業月額 × 報酬率 / fixed型 → 固定額
+ * - 頻度: 報酬発生期間中、毎月
+ * - 注意: 成果報酬プラン（contractPlan="performance"）では生成されない
+ *
+ * ### 成果報酬の紹介報酬（expense-commission_performance）
+ * - 条件: 成果報酬の売上候補が存在する場合
+ * - 金額: rate型 → 成果報酬単価 × 報酬率 / fixed型 → 固定額
+ *
+ * ※ 報酬設定のカスタマイズ:
+ *   - デフォルト: StpAgentContractHistory の各フィールド
+ *   - 企業別: StpAgentCommissionOverride でオーバーライド可能
+ *   - 月額プラン用（Mp***）と成果報酬プラン用（Pp***）で設定が分かれる
+ *
+ * ============================================================================
+ * ## 定期取引候補（Recurring）
+ * ============================================================================
+ *
+ * RecurringTransaction テーブルから対象月に該当する候補を検出。
+ * - 月次（monthly）: 毎月生成
+ * - 年次（yearly）: 開始月と同じ月のみ生成
+ * - 金額: fixed → 固定額 / variable → null（画面でオーバーライド入力が必要）
+ *
+ * ============================================================================
+ * ## 重複防止
+ * ============================================================================
+ *
+ * 1. 候補キー（candidateKey）: 契約ID・タイプ・代理店ID等の組み合わせで一意
+ * 2. Transaction既存チェック: 同一条件のTransactionが存在すれば alreadyGenerated=true
+ * 3. 成果報酬の1件マッチ: 複数契約にマッチする場合は生成しない
+ *
+ * ## ソースデータ変更検出
+ *
+ * フィンガープリント（金額・取引先・費目・税率のSHA256ハッシュ）で
+ * CRMデータの変更を自動検出。converted済み以外の候補で変更があれば
+ * needsReview=true となり、再確認を促す。
+ *
+ * ## 源泉徴収（経費のみ）
+ *
+ * 代理店が個人事業主（isIndividualBusiness=true）の場合に適用。
+ * - 100万円以下: 10.21%
+ * - 100万円超: 20.42%
+ *
+ * ============================================================================
+ */
+
 "use server";
 
 import { prisma } from "@/lib/prisma";
@@ -31,9 +135,9 @@ export type TransactionCandidate = {
   key: string;
   source: "crm" | "recurring";
   type: "revenue" | "expense";
-  counterpartyId: number;
+  counterpartyId: number | null;
   counterpartyName: string;
-  expenseCategoryId: number;
+  expenseCategoryId: number | null;
   expenseCategoryName: string;
   amount: number | null; // 変動金額の場合null
   taxAmount: number | null;
@@ -220,8 +324,8 @@ function buildCommissionConfig(
 
 function computeFingerprint(candidate: {
   amount: number | null;
-  counterpartyId: number;
-  expenseCategoryId: number;
+  counterpartyId: number | null;
+  expenseCategoryId: number | null;
   taxRate: number;
 }): string {
   const data = JSON.stringify({
@@ -565,8 +669,7 @@ async function detectCrmCandidates(
   // --- メインループ ---
 
   for (const contract of activeContracts) {
-    const counterparty = counterpartyByCompanyId.get(contract.companyId);
-    if (!counterparty) continue;
+    const counterparty = counterpartyByCompanyId.get(contract.companyId) ?? null;
 
     const contractStart = startOfMonth(contract.contractStartDate);
     const periodFromStr = formatDate(monthStart);
@@ -577,8 +680,8 @@ async function detectCrmCandidates(
       contract.initialFee > 0 &&
       contractStart.getTime() === monthStart.getTime()
     ) {
-      const revCategory = revenueCategoryInitial ?? defaultRevenueCategory;
-      if (revCategory) {
+      const revCategory = revenueCategoryInitial ?? defaultRevenueCategory ?? null;
+      {
         const key = `crm-revenue-initial-${contract.id}`;
         const existing = existingTransactions.find(
           (t) =>
@@ -592,10 +695,10 @@ async function detectCrmCandidates(
           key,
           source: "crm",
           type: "revenue",
-          counterpartyId: counterparty.id,
-          counterpartyName: counterparty.name,
-          expenseCategoryId: revCategory.id,
-          expenseCategoryName: revCategory.name,
+          counterpartyId: counterparty?.id ?? null,
+          counterpartyName: counterparty?.name ?? contract.company.name,
+          expenseCategoryId: revCategory?.id ?? null,
+          expenseCategoryName: revCategory?.name ?? "（未設定）",
           amount: contract.initialFee,
           taxAmount: calcTaxAmount(contract.initialFee, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
           taxRate: DEFAULT_TAX_RATE,
@@ -639,8 +742,8 @@ async function detectCrmCandidates(
 
     // === 売上: 月額費用 ===
     if (contract.monthlyFee > 0) {
-      const revCategory = revenueCategoryMonthly ?? defaultRevenueCategory;
-      if (revCategory) {
+      const revCategory = revenueCategoryMonthly ?? defaultRevenueCategory ?? null;
+      {
         const key = `crm-revenue-monthly-${contract.id}`;
         const existing = existingTransactions.find(
           (t) =>
@@ -654,10 +757,10 @@ async function detectCrmCandidates(
           key,
           source: "crm",
           type: "revenue",
-          counterpartyId: counterparty.id,
-          counterpartyName: counterparty.name,
-          expenseCategoryId: revCategory.id,
-          expenseCategoryName: revCategory.name,
+          counterpartyId: counterparty?.id ?? null,
+          counterpartyName: counterparty?.name ?? contract.company.name,
+          expenseCategoryId: revCategory?.id ?? null,
+          expenseCategoryName: revCategory?.name ?? "（未設定）",
           amount: contract.monthlyFee,
           taxAmount: calcTaxAmount(contract.monthlyFee, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
           taxRate: DEFAULT_TAX_RATE,
@@ -718,11 +821,11 @@ async function detectCrmCandidates(
           ? counterpartyByCompanyId.get(agent.companyId) ?? null
           : null;
 
-        const agentCpId = agentCounterparty?.id;
+        const agentCpId = agentCounterparty?.id ?? null;
         const agentCpName = agentCounterparty?.name ?? agent.company?.name ?? "不明な代理店";
-        const expCategory = expenseCategoryOutsourcing ?? defaultExpenseCategory;
+        const expCategory = expenseCategoryOutsourcing ?? defaultExpenseCategory ?? null;
 
-        if (expCategory && agentCpId) {
+        {
           const override =
             overrideMap.get(
               `${agentContractHistory.id}-${stpCompany.id}`
@@ -774,8 +877,8 @@ async function detectCrmCandidates(
               type: "expense",
               counterpartyId: agentCpId,
               counterpartyName: agentCpName,
-              expenseCategoryId: expCategory.id,
-              expenseCategoryName: expCategory.name,
+              expenseCategoryId: expCategory?.id ?? null,
+              expenseCategoryName: expCategory?.name ?? "（未設定）",
               amount: amt,
               taxAmount: calcTaxAmount(amt, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
               taxRate: DEFAULT_TAX_RATE,
@@ -831,8 +934,8 @@ async function detectCrmCandidates(
               type: "expense",
               counterpartyId: agentCpId,
               counterpartyName: agentCpName,
-              expenseCategoryId: expCategory.id,
-              expenseCategoryName: expCategory.name,
+              expenseCategoryId: expCategory?.id ?? null,
+              expenseCategoryName: expCategory?.name ?? "（未設定）",
               amount: amt,
               taxAmount: calcTaxAmount(amt, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
               taxRate: DEFAULT_TAX_RATE,
@@ -893,8 +996,8 @@ async function detectCrmCandidates(
                 type: "expense",
                 counterpartyId: agentCpId,
                 counterpartyName: agentCpName,
-                expenseCategoryId: expCategory.id,
-                expenseCategoryName: expCategory.name,
+                expenseCategoryId: expCategory?.id ?? null,
+                expenseCategoryName: expCategory?.name ?? "（未設定）",
                 amount: amt,
                 taxAmount: calcTaxAmount(amt, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
                 taxRate: DEFAULT_TAX_RATE,
@@ -967,8 +1070,8 @@ async function detectCrmCandidates(
                   type: "expense",
                   counterpartyId: agentCpId,
                   counterpartyName: agentCpName,
-                  expenseCategoryId: expCategory.id,
-                  expenseCategoryName: expCategory.name,
+                  expenseCategoryId: expCategory?.id ?? null,
+                  expenseCategoryName: expCategory?.name ?? "（未設定）",
                   amount: monthlyCommission,
                   taxAmount: calcTaxAmount(
                     monthlyCommission,
@@ -1035,8 +1138,7 @@ async function detectCrmCandidates(
     });
     if (!company) continue;
 
-    const counterparty = counterpartyByCompanyId.get(stpCompanyForCandidate.companyId);
-    if (!counterparty) continue;
+    const counterparty = counterpartyByCompanyId.get(stpCompanyForCandidate.companyId) ?? null;
 
     // 入社日時点でアクティブな契約
     const matchingContracts = await prisma.stpContractHistory.findMany({
@@ -1059,8 +1161,7 @@ async function detectCrmCandidates(
     if (matchingContracts.length !== 1) continue;
     const contractHistory = matchingContracts[0];
 
-    const revCategory = revenueCategoryPerformance ?? defaultRevenueCategory;
-    if (!revCategory) continue;
+    const revCategory = revenueCategoryPerformance ?? defaultRevenueCategory ?? null;
 
     const periodStr = formatDate(monthStart);
 
@@ -1082,10 +1183,10 @@ async function detectCrmCandidates(
       key,
       source: "crm",
       type: "revenue",
-      counterpartyId: counterparty.id,
-      counterpartyName: counterparty.name,
-      expenseCategoryId: revCategory.id,
-      expenseCategoryName: revCategory.name,
+      counterpartyId: counterparty?.id ?? null,
+      counterpartyName: counterparty?.name ?? company.name,
+      expenseCategoryId: revCategory?.id ?? null,
+      expenseCategoryName: revCategory?.name ?? "（未設定）",
       amount: contractHistory.performanceFee,
       taxAmount: calcTaxAmount(
         contractHistory.performanceFee,
@@ -1144,12 +1245,12 @@ async function detectCrmCandidates(
         const agentCounterparty = agent.companyId
           ? counterpartyByCompanyId.get(agent.companyId) ?? null
           : null;
-        const agentCpId = agentCounterparty?.id;
+        const agentCpId = agentCounterparty?.id ?? null;
         const agentCpName =
           agentCounterparty?.name ?? agent.company?.name ?? "不明な代理店";
-        const expCategory = expenseCategoryOutsourcing ?? defaultExpenseCategory;
+        const expCategory = expenseCategoryOutsourcing ?? defaultExpenseCategory ?? null;
 
-        if (expCategory && agentCpId) {
+        {
           const override =
             overrideMap.get(
               `${agentContractHistory.id}-${stpCompanyForCandidate.id}`
@@ -1207,8 +1308,8 @@ async function detectCrmCandidates(
               type: "expense",
               counterpartyId: agentCpId,
               counterpartyName: agentCpName,
-              expenseCategoryId: expCategory.id,
-              expenseCategoryName: expCategory.name,
+              expenseCategoryId: expCategory?.id ?? null,
+              expenseCategoryName: expCategory?.name ?? "（未設定）",
               amount: perfCommission,
               taxAmount: calcTaxAmount(
                 perfCommission,
@@ -1407,6 +1508,12 @@ export async function generateTransactions(
   let skippedNoAmount = 0;
 
   for (const candidate of selectedCandidates) {
+    // 取引先・費目が未設定の候補は生成不可
+    if (candidate.counterpartyId === null || candidate.expenseCategoryId === null) {
+      skipped++;
+      continue;
+    }
+
     // overrideAmount があれば優先、なければ候補の自動計算値
     const effectiveAmount =
       candidate.overrideAmount ?? candidate.amount ?? null;
