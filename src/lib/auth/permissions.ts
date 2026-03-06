@@ -1,10 +1,11 @@
 import type { UserPermission, PermissionLevel, ProjectCode, SessionUser } from "@/types/auth";
 
-const PERMISSION_LEVELS: Record<PermissionLevel, number> = {
+const PERMISSION_LEVELS: Record<string, number> = {
   none: 0,
   view: 1,
   edit: 2,
   manager: 3,
+  admin: 3, // 後方互換: 旧JWTセッションに"admin"が残っている場合にmanagerと同等に扱う
 };
 
 export function hasPermission(

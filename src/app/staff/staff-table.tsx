@@ -16,6 +16,8 @@ type Props = {
   editableProjects: { code: string; maxLevel: string }[];
   canEditOrganizationRole: boolean;
   canSetFounder: boolean;
+  canEditRoleTypes: boolean;
+  canManageStaff: boolean;
   dynamicOptions?: Record<string, Record<string, { value: string; label: string }[]>>;
 };
 
@@ -132,12 +134,12 @@ function getPermissionLevelsForMaxLevel(maxLevel: string): { value: string; labe
   return PERMISSION_LEVELS.filter((l) => (levelOrder[l.value] ?? 0) <= max);
 }
 
-export function StaffTable({ data, roleTypeOptions, projectOptions, permissionProjects, editableProjects, canEditOrganizationRole, canSetFounder, dynamicOptions }: Props) {
+export function StaffTable({ data, roleTypeOptions, projectOptions, permissionProjects, editableProjects, canEditOrganizationRole, canSetFounder, canEditRoleTypes, canManageStaff, dynamicOptions }: Props) {
   // 権限カラム（編集可能なプロジェクトがある場合のみ表示）
   const editableMap = new Map(editableProjects.map((p) => [p.code, p.maxLevel]));
   const permissionColumns: ColumnDef[] = editableProjects.length > 0
     ? [
-        // 各プロジェクト権限（天井に基づく選択肢制限）
+        // 各プロジェクト権限（天井に基づく選択肢制限、ファウンダー時は非表示）
         ...permissionProjects
           .filter((p) => editableMap.has(p.code))
           .map((p) => ({
@@ -146,9 +148,15 @@ export function StaffTable({ data, roleTypeOptions, projectOptions, permissionPr
             type: "select" as const,
             options: getPermissionLevelsForMaxLevel(editableMap.get(p.code)!),
             simpleMode: true,
+            hiddenWhen: { field: "organizationRole", value: "founder" },
           })),
       ]
     : [];
+
+  // 権限カラムのキー一覧（customRenderers用）
+  const permissionColumnKeys = permissionProjects
+    .filter((p) => editableMap.has(p.code))
+    .map((p) => `perm_${p.code}`);
 
   // 組織ロールカラム（admin/founderのみ編集可能）
   const organizationRoleColumn: ColumnDef[] = canEditOrganizationRole
@@ -175,19 +183,40 @@ export function StaffTable({ data, roleTypeOptions, projectOptions, permissionPr
     // プロジェクト（複数選択）
     { key: "projectIds", header: "プロジェクト（選択）", type: "multiselect", options: projectOptions, simpleMode: true, hidden: true },
     { key: "projectNames", header: "プロジェクト", editable: false, filterable: true },
-    // 役割（複数選択）
-    { key: "roleTypeIds", header: "役割（選択）", type: "multiselect", dynamicOptionsKey: "roleTypesByProject", dependsOn: "projectIds", simpleMode: true, hidden: true },
-    { key: "roleTypeNames", header: "役割", editable: false, filterable: true },
+    // 役割（複数選択）— edit以上で編集可能
+    ...(canEditRoleTypes
+      ? [
+          { key: "roleTypeIds", header: "役割（選択）", type: "multiselect" as const, dynamicOptionsKey: "roleTypesByProject", dependsOn: "projectIds", simpleMode: true, hidden: true },
+          { key: "roleTypeNames", header: "役割", editable: false, filterable: true },
+        ]
+      : [
+          { key: "roleTypeNames", header: "役割", editable: false, filterable: true },
+        ]),
     // 組織ロール
     ...organizationRoleColumn,
     // 権限
     ...permissionColumns,
-    { key: "isActive", header: "有効", type: "boolean" },
+    { key: "isActive", header: "有効", type: "boolean" as const, ...(canManageStaff ? {} : { editable: false }) },
     // 招待状態
     { key: "inviteStatus", header: "アカウント", editable: false },
   ];
 
+  // ファウンダーの行では権限カラムに「ファウンダー（全権限）」を表示
+  const founderPermRenderers: CustomRenderers = {};
+  for (const key of permissionColumnKeys) {
+    founderPermRenderers[key] = (_value, row) => {
+      if (row.organizationRole === "founder") {
+        return (
+          <span className="text-xs text-muted-foreground">(全権限)</span>
+        );
+      }
+      const level = PERMISSION_LEVELS.find((l) => l.value === _value);
+      return <span>{level?.label ?? String(_value ?? "なし")}</span>;
+    };
+  }
+
   const customRenderers: CustomRenderers = {
+    ...founderPermRenderers,
     inviteStatus: (_value, row) => <InviteButton row={row} />,
   };
 
@@ -202,9 +231,9 @@ export function StaffTable({ data, roleTypeOptions, projectOptions, permissionPr
       data={data}
       columns={columns}
       title="スタッフ"
-      onAdd={addStaff}
+      onAdd={canManageStaff ? addStaff : undefined}
       onUpdate={updateStaff}
-      onDelete={deleteStaff}
+      onDelete={canManageStaff ? deleteStaff : undefined}
       customRenderers={customRenderers}
       emptyMessage="スタッフが登録されていません"
       sortableItems={sortableItems}

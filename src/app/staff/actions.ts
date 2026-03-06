@@ -121,10 +121,8 @@ export async function addStaff(data: Record<string, unknown>) {
   const isAdminUser = currentUser?.loginId === "admin";
   const isFounder = currentUser?.organizationRole === "founder";
   const requestedRole = (data.organizationRole as string) || "member";
-  // founderの設定はadminのみ可能
-  const organizationRole = (requestedRole === "founder" && !isAdminUser)
-    ? "member"
-    : (isAdminUser || isFounder) ? requestedRole : "member";
+  // founderの設定はadmin/founderが可能
+  const organizationRole = (isAdminUser || isFounder) ? requestedRole : "member";
 
   const staff = await prisma.masterStaff.create({
     data: {
@@ -158,8 +156,8 @@ export async function addStaff(data: Record<string, unknown>) {
     });
   }
 
-  // 権限を設定（編集可能なプロジェクトのみ）
-  if (editableCodes.length > 0) {
+  // ファウンダーの場合は権限を設定しない（全権限が組織ロールで付与される）
+  if (organizationRole !== "founder" && editableCodes.length > 0) {
     const allPermissions = await buildPermissions(staff.id, data);
     // editableCodes は projectCode ベースなので、projectId→code の逆引きが必要
     const allProjects = await prisma.masterProject.findMany({ select: { id: true, code: true } });
@@ -199,12 +197,15 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
     const isAdminUser = currentUser?.loginId === "admin";
     const isFounder = currentUser?.organizationRole === "founder";
     const requestedRole = data.organizationRole as string;
-    // founderの設定はadminのみ可能、memberへの変更はadmin/founderのみ
+    // founderの設定はadmin/founderが可能
     if (isAdminUser || isFounder) {
-      if (requestedRole === "founder" && !isAdminUser) {
-        // founderはadminのみ
-      } else {
-        updateData.organizationRole = requestedRole;
+      updateData.organizationRole = requestedRole;
+
+      // ファウンダーに変更された場合、全プロジェクト権限を削除
+      if (requestedRole === "founder") {
+        await prisma.staffPermission.deleteMany({
+          where: { staffId: id },
+        });
       }
     }
   }
@@ -248,10 +249,15 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
     }
   }
 
-  // 権限を更新（権限関連キーが渡された場合のみ）
+  // ファウンダーの場合は権限更新をスキップ（組織ロールで全権限が付与される）
+  const targetRole = (updateData.organizationRole as string) ?? (
+    await prisma.masterStaff.findUnique({ where: { id }, select: { organizationRole: true } })
+  )?.organizationRole ?? "member";
+
+  // 権限を更新（権限関連キーが渡された場合のみ、かつファウンダーでない場合）
   const hasPermissionChange = Object.keys(data).some((k) => k.startsWith(PERM_PREFIX));
 
-  if (hasPermissionChange && editableCodes.length > 0) {
+  if (targetRole !== "founder" && hasPermissionChange && editableCodes.length > 0) {
     // editableCodes → editableProjectIds に変換
     const allProjects = await prisma.masterProject.findMany({ select: { id: true, code: true } });
     const codeToId = new Map(allProjects.map((p) => [p.code, p.id]));

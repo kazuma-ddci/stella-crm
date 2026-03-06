@@ -83,6 +83,7 @@ export type ColumnDef = {
   currency?: boolean; // 通貨フォーマット（¥#,##0）で表示・入力
   defaultValue?: unknown; // 新規追加時のデフォルト値
   visibleWhen?: { field: string; value: unknown }; // フォームでの条件付き表示（指定フィールドが指定値の時のみ表示）
+  hiddenWhen?: { field: string; value: unknown }; // フォームでの条件付き非表示（指定フィールドが指定値の時に非表示）
 };
 
 // カスタムアクションの定義
@@ -1441,6 +1442,10 @@ export function CrudTable({
               if (col.visibleWhen && formData[col.visibleWhen.field] !== col.visibleWhen.value) {
                 return null;
               }
+              // hiddenWhen条件チェック
+              if (col.hiddenWhen && formData[col.hiddenWhen.field] === col.hiddenWhen.value) {
+                return null;
+              }
               return (
                 <div key={col.key} className="space-y-2">
                   <Label>
@@ -1484,6 +1489,10 @@ export function CrudTable({
             {visibleColumnsForUpdate.map((col) => {
               // visibleWhen条件チェック
               if (col.visibleWhen && formData[col.visibleWhen.field] !== col.visibleWhen.value) {
+                return null;
+              }
+              // hiddenWhen条件チェック
+              if (col.hiddenWhen && formData[col.hiddenWhen.field] === col.hiddenWhen.value) {
                 return null;
               }
               return (

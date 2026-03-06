@@ -318,7 +318,7 @@ function hasAnyEditPermission(user: SessionUser): boolean {
 }
 
 function isFounderUser(user: SessionUser): boolean {
-  return user.organizationRole === "founder";
+  return (user.organizationRole ?? "member") === "founder";
 }
 
 function filterNavigationByPermissions(
@@ -331,8 +331,8 @@ function filterNavigationByPermissions(
 
   return items
     .filter((item) => {
-      // サイドバーカスタマイズ: hiddenItemsに含まれるキーは非表示
-      if (item.key && hiddenItems?.includes(item.key)) {
+      // サイドバーカスタマイズ: hiddenItemsに含まれるキーは非表示（デフォルト: 全て表示）
+      if (item.key && Array.isArray(hiddenItems) && hiddenItems.length > 0 && hiddenItems.includes(item.key)) {
         return false;
       }
       // adminユーザーは全メニュー表示
