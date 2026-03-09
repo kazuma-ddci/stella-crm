@@ -27,6 +27,11 @@ export default async function ContractTypesPage({
   const contractTypes = await prisma.contractType.findMany({
     include: {
       project: true,
+      cloudsignTemplates: {
+        include: {
+          template: { select: { name: true } },
+        },
+      },
     },
     where: filterProjectId ? { projectId: filterProjectId } : undefined,
     orderBy: [
@@ -48,6 +53,8 @@ export default async function ContractTypesPage({
     description: ct.description ?? "",
     displayOrder: ct.displayOrder,
     isActive: ct.isActive,
+    templateCount: ct.cloudsignTemplates.length,
+    templateNames: ct.cloudsignTemplates.map((l) => l.template.name).join(", "),
   }));
 
   const projectOptions = projects.map((p) => ({

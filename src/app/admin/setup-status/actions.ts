@@ -176,6 +176,29 @@ const checkDefinitions: CheckDefinition[] = [
     },
   },
 
+  {
+    id: "stp-cloudsign-templates",
+    category: "STP",
+    name: "CloudSignテンプレート",
+    description: "クラウドサイン連携で使用する契約書テンプレートの登録",
+    required: 0,
+    href: "/settings/contract-types",
+    countFn: () =>
+      prisma.cloudSignTemplate.count({ where: { isActive: true } }),
+  },
+  {
+    id: "stp-cloudsign-config",
+    category: "STP",
+    name: "CloudSignクライアントID設定",
+    description: "運営法人にクラウドサインのクライアントIDが設定されているか",
+    required: 0,
+    href: "/settings/projects",
+    countFn: () =>
+      prisma.operatingCompany.count({
+        where: { isActive: true, cloudsignClientId: { not: null } },
+      }),
+  },
+
   // ========================================
   // 経理
   // ========================================

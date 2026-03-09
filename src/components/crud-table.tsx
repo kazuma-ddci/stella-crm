@@ -66,7 +66,7 @@ registerLocale("ja", ja);
 export type ColumnDef = {
   key: string;
   header: string;
-  type?: "text" | "number" | "date" | "datetime" | "month" | "boolean" | "textarea" | "select" | "multiselect";
+  type?: "text" | "number" | "date" | "datetime" | "month" | "boolean" | "textarea" | "select" | "multiselect" | "password";
   editable?: boolean;
   editableOnCreate?: boolean; // 新規作成時のみ編集可能（未指定の場合はeditable準拠）
   editableOnUpdate?: boolean; // 編集時のみ編集可能（未指定の場合はeditable準拠）
@@ -166,6 +166,7 @@ type CrudTableProps = {
 
 function formatValue(value: unknown, type?: string, options?: { value: string; label: string }[]): string {
   if (value === null || value === undefined) return "-";
+  if (type === "password") return value ? "••••••••" : "-";
   if (typeof value === "boolean") return value ? "有効" : "無効";
   if (Array.isArray(value)) {
     if (value.length === 0) return "-";
@@ -750,9 +751,9 @@ export function CrudTable({
     if (item.id !== undefined) {
       initialData.id = item.id;
     }
-    // 編集可能なカラムの値を設定
+    // 編集可能なカラムの値を設定（password型は空にして新規入力を促す）
     editableColumnsForUpdate.forEach((col) => {
-      initialData[col.key] = item[col.key];
+      initialData[col.key] = col.type === "password" ? "" : item[col.key];
     });
     // dependsOnで参照されているフィールドも追加（動的選択肢のため）
     columns.forEach((col) => {
@@ -1212,7 +1213,7 @@ export function CrudTable({
 
     return (
       <Input
-        type={col.type === "number" ? "number" : "text"}
+        type={col.type === "password" ? "password" : col.type === "number" ? "number" : "text"}
         value={formatForInput(value, col.type)}
         onChange={(e) => {
           let newValue: unknown = e.target.value || null;
@@ -1222,6 +1223,8 @@ export function CrudTable({
           handleFormFieldChange(col.key, newValue);
         }}
         required={col.required}
+        autoComplete={col.type === "password" ? "off" : undefined}
+        placeholder={col.type === "password" && editItem ? "変更する場合のみ入力" : undefined}
       />
     );
   };
@@ -1320,7 +1323,8 @@ export function CrudTable({
                         key={col.key}
                         className={cn(
                           col.type === "textarea" ? "" : "whitespace-nowrap max-w-xs overflow-auto",
-                          isInlineEditable && !isEditing && "cursor-pointer hover:bg-muted/50 transition-colors"
+                          isInlineEditable && !isEditing && "cursor-pointer hover:bg-muted/50 transition-colors",
+                          col.type === "password" && "select-none"
                         )}
                         onClick={
                           isInlineEditable && !isEditing

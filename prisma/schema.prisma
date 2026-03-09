@@ -503,17 +503,59 @@ model ContractType {
   projectId    Int      @map("project_id")
   name         String   @db.VarChar(50)
   description  String?  @db.VarChar(200)
-  displayOrder Int      @default(0) @map("display_order")
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  displayOrder          Int      @default(0) @map("display_order")
+  isActive              Boolean  @default(true) @map("is_active")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
 
   // Relations
   project MasterProject @relation(fields: [projectId], references: [id])
+  cloudsignTemplates    CloudSignTemplateContractType[]
 
   @@unique([projectId, name])
   @@index([projectId], map: "idx_contract_types_project_id")
   @@map("contract_types")
+}
+
+// ============================================
+// クラウドサインテンプレートマスタ (CloudSign Templates)
+// 運営法人ごとに管理。複数の契約種別と多対多で紐づく
+// ============================================
+
+model CloudSignTemplate {
+  id                   Int       @id @default(autoincrement())
+  operatingCompanyId   Int       @map("operating_company_id")
+  cloudsignTemplateId  String    @db.VarChar(100) @map("cloudsign_template_id")
+  name                 String    @db.VarChar(200)
+  description          String?   @db.VarChar(500)
+  isActive             Boolean   @default(true) @map("is_active")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  operatingCompany     OperatingCompany @relation(fields: [operatingCompanyId], references: [id])
+  contractTypes        CloudSignTemplateContractType[]
+
+  @@unique([operatingCompanyId, cloudsignTemplateId])
+  @@index([operatingCompanyId], map: "idx_cloudsign_templates_operating_company_id")
+  @@map("cloudsign_templates")
+}
+
+// ============================================
+// クラウドサインテンプレート × 契約種別 中間テーブル
+// ============================================
+
+model CloudSignTemplateContractType {
+  id              Int      @id @default(autoincrement())
+  templateId      Int      @map("template_id")
+  contractTypeId  Int      @map("contract_type_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  template     CloudSignTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  contractType ContractType      @relation(fields: [contractTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, contractTypeId])
+  @@index([contractTypeId], map: "idx_cloudsign_template_contract_types_contract_type_id")
+  @@map("cloudsign_template_contract_types")
 }
 
 // ============================================
@@ -913,7 +955,8 @@ model OperatingCompany {
   paymentDay              Int?      // 支払日（0=末日, 1-28=指定日）
 
   // クラウドサイン連携
-  cloudsignClientId       String?   @db.VarChar(500)  // クラウドサインWeb APIクライアントID
+  cloudsignClientId           String?   @db.VarChar(500)  // クラウドサインWeb APIクライアントID
+  cloudsignRegisteredEmail    String?   @db.VarChar(255) @map("cloudsign_registered_email")  // 登録メールアドレス（先方/弊社破棄判定用）
 
   projects              MasterProject[]
   bankAccounts          OperatingCompanyBankAccount[]
@@ -925,6 +968,7 @@ model OperatingCompany {
   invoiceTemplates        InvoiceTemplate[]
   invoiceMails            InvoiceMail[]
   invoiceNumberSequences  StpInvoiceNumberSequence[]
+  cloudsignTemplates      CloudSignTemplate[]
 
   @@map("operating_companies")
 }
@@ -963,13 +1007,14 @@ model OperatingCompanyBankAccount {
 // ============================================
 
 model MasterContractStatus {
-  id           Int       @id @default(autoincrement())
-  name         String    @db.VarChar(50)
-  displayOrder Int       @default(0) @map("display_order")
-  isTerminal   Boolean   @default(false) @map("is_terminal")
-  isActive     Boolean   @default(true) @map("is_active")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id                     Int       @id @default(autoincrement())
+  name                   String    @db.VarChar(50)
+  displayOrder           Int       @default(0) @map("display_order")
+  isTerminal             Boolean   @default(false) @map("is_terminal")
+  isActive               Boolean   @default(true) @map("is_active")
+  cloudsignStatusMapping String?   @db.VarChar(30) @map("cloudsign_status_mapping")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
 
   contractsCurrent       MasterContract[]                  @relation("CurrentStatus")
   historiesFrom          MasterContractStatusHistory[]     @relation("FromStatus")
@@ -1002,6 +1047,8 @@ model MasterContract {
   cloudsignSentAt       DateTime? @map("cloudsign_sent_at")
   cloudsignCompletedAt  DateTime? @map("cloudsign_completed_at")
   cloudsignUrl          String?   @db.VarChar(500) @map("cloudsign_url")
+  cloudsignTitle        String?   @db.VarChar(200) @map("cloudsign_title")
+  cloudsignAutoSync     Boolean   @default(true) @map("cloudsign_auto_sync")
   filePath              String?   @db.VarChar(500) @map("file_path")
   fileName              String?   @db.VarChar(200) @map("file_name")
   assignedTo            String?   @db.VarChar(500) @map("assigned_to")
@@ -1015,6 +1062,9 @@ model MasterContract {
   parentContract        MasterContract?           @relation("ContractHierarchy", fields: [parentContractId], references: [id])
   childContracts        MasterContract[]          @relation("ContractHierarchy")
   statusHistories       MasterContractStatusHistory[]
+  contractFiles         ContractFile[]
+  relationsAsSource     ContractRelation[]        @relation("RelationSource")
+  relationsAsTarget     ContractRelation[]        @relation("RelationTarget")
   finTransactions       Transaction[]             // 経理システム追加
 
   @@index([companyId], map: "idx_master_contracts_company_id")
@@ -1048,6 +1098,48 @@ model MasterContractStatusHistory {
   @@index([contractId], map: "idx_master_contract_status_histories_contract_id")
   @@index([recordedAt], map: "idx_master_contract_status_histories_recorded_at")
   @@map("master_contract_status_histories")
+}
+
+// ============================================
+// 契約ファイル (Contract Files)
+// ============================================
+
+model ContractFile {
+  id          Int      @id @default(autoincrement())
+  contractId  Int      @map("contract_id")
+  filePath    String   @db.VarChar(500) @map("file_path")
+  fileName    String   @db.VarChar(200) @map("file_name")
+  fileSize    Int?     @map("file_size")
+  mimeType    String?  @db.VarChar(100) @map("mime_type")
+  category    String   @default("other") @db.VarChar(30)
+  isVisible   Boolean  @default(true) @map("is_visible")
+  uploadedBy  String?  @db.VarChar(100) @map("uploaded_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  contract MasterContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([contractId], map: "idx_contract_files_contract_id")
+  @@map("contract_files")
+}
+
+// ============================================
+// 契約関連 (Contract Relations)
+// ============================================
+
+model ContractRelation {
+  id                Int      @id @default(autoincrement())
+  sourceContractId  Int      @map("source_contract_id")
+  targetContractId  Int      @map("target_contract_id")
+  relationType      String   @db.VarChar(30) @map("relation_type")
+  note              String?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  sourceContract MasterContract @relation("RelationSource", fields: [sourceContractId], references: [id], onDelete: Cascade)
+  targetContract MasterContract @relation("RelationTarget", fields: [targetContractId], references: [id], onDelete: Cascade)
+
+  @@index([sourceContractId], map: "idx_contract_relations_source")
+  @@index([targetContractId], map: "idx_contract_relations_target")
+  @@map("contract_relations")
 }
 
 // ============================================

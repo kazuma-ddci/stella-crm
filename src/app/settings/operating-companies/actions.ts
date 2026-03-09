@@ -45,7 +45,13 @@ export async function updateOperatingCompany(
   if ("phone" in data) updateData.phone = (data.phone as string) || null;
   if ("abbreviation" in data) updateData.abbreviation = (data.abbreviation as string) || null;
   if ("invoicePrefix" in data) updateData.invoicePrefix = (data.invoicePrefix as string) || null;
-  if ("cloudsignClientId" in data) updateData.cloudsignClientId = (data.cloudsignClientId as string) || null;
+  if ("cloudsignClientId" in data) {
+    const val = data.cloudsignClientId as string;
+    // マスク値("********")は変更なしとして無視し、空文字はクリア、それ以外は新しい値として保存
+    if (val !== "********") {
+      updateData.cloudsignClientId = val || null;
+    }
+  }
   if ("paymentMonthOffset" in data) updateData.paymentMonthOffset = data.paymentMonthOffset != null && data.paymentMonthOffset !== ""
     ? Number(data.paymentMonthOffset)
     : null;

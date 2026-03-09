@@ -51,6 +51,18 @@ export async function getMasterContracts(companyId: number) {
     orderBy: { createdAt: "desc" },
   });
 
+  // cloudsignStatusMapping → CRMステータス名の逆引きマップを構築
+  const statusMaster = await prisma.masterContractStatus.findMany({
+    where: { isActive: true, cloudsignStatusMapping: { not: null } },
+    select: { name: true, cloudsignStatusMapping: true },
+  });
+  const csStatusToName = new Map<string, string>();
+  for (const s of statusMaster) {
+    if (s.cloudsignStatusMapping) {
+      csStatusToName.set(s.cloudsignStatusMapping, s.name);
+    }
+  }
+
   return contracts.map((c) => ({
     id: c.id,
     contractType: c.contractType,
@@ -66,6 +78,13 @@ export async function getMasterContracts(companyId: number) {
     fileName: c.fileName,
     assignedTo: c.assignedTo,
     note: c.note,
+    cloudsignDocumentId: c.cloudsignDocumentId,
+    cloudsignStatus: c.cloudsignStatus,
+    cloudsignUrl: c.cloudsignUrl,
+    cloudsignAutoSync: c.cloudsignAutoSync,
+    cloudsignExpectedStatusName: c.cloudsignStatus
+      ? csStatusToName.get(c.cloudsignStatus) || null
+      : null,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   }));

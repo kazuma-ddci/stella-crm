@@ -62,7 +62,7 @@ const columns: ColumnDef[] = [
       { value: "25", label: "25日" },
     ],
   },
-  { key: "cloudsignClientId", header: "クラウドサインAPI", type: "text" },
+  { key: "cloudsignClientId", header: "クラウドサインAPI", type: "password" },
   { key: "emailList", header: "メール", editable: false, filterable: false },
   { key: "bankAccountList", header: "銀行口座", editable: false, filterable: false },
   { key: "representativeName", header: "代表者名", type: "text" },

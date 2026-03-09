@@ -80,3 +80,132 @@ export async function reorderContractTypes(orderedIds: number[]) {
 
   revalidatePath("/settings/contract-types");
 }
+
+// ============================================
+// テンプレート紐づけ管理
+// ============================================
+
+/**
+ * 契約種別に紐づくテンプレート一覧を取得
+ */
+export async function getLinkedTemplates(contractTypeId: number) {
+  const links = await prisma.cloudSignTemplateContractType.findMany({
+    where: { contractTypeId },
+    include: {
+      template: {
+        include: {
+          operatingCompany: {
+            select: { companyName: true },
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return links.map((l) => ({
+    linkId: l.id,
+    templateId: l.template.id,
+    cloudsignTemplateId: l.template.cloudsignTemplateId,
+    name: l.template.name,
+    description: l.template.description,
+    operatingCompanyName: l.template.operatingCompany.companyName,
+  }));
+}
+
+/**
+ * テンプレートを契約種別に紐づける
+ * - テンプレートが未登録なら新規作成してから紐づけ
+ * - 既存なら紐づけのみ追加
+ * - 運営法人の整合性チェック付き
+ */
+export async function addTemplateLink(
+  contractTypeId: number,
+  input: {
+    cloudsignTemplateId: string;
+    name: string;
+    description: string | null;
+  }
+) {
+  await requireProjectMasterDataEditPermission();
+
+  // 契約種別のプロジェクト → 運営法人を取得
+  const contractType = await prisma.contractType.findUnique({
+    where: { id: contractTypeId },
+    include: {
+      project: {
+        include: {
+          operatingCompany: { select: { id: true, companyName: true } },
+        },
+      },
+    },
+  });
+
+  if (!contractType) {
+    throw new Error("契約種別が見つかりません");
+  }
+
+  const operatingCompanyId = contractType.project.operatingCompanyId;
+  if (!operatingCompanyId) {
+    throw new Error("この契約種別のプロジェクトに運営法人が設定されていません");
+  }
+
+  // 同じ運営法人で同じテンプレートIDが既に登録されているか確認
+  let template = await prisma.cloudSignTemplate.findUnique({
+    where: {
+      operatingCompanyId_cloudsignTemplateId: {
+        operatingCompanyId,
+        cloudsignTemplateId: input.cloudsignTemplateId,
+      },
+    },
+  });
+
+  if (!template) {
+    // テンプレートマスタに新規登録
+    template = await prisma.cloudSignTemplate.create({
+      data: {
+        operatingCompanyId,
+        cloudsignTemplateId: input.cloudsignTemplateId,
+        name: input.name,
+        description: input.description,
+      },
+    });
+  }
+
+  // 既に紐づいていないか確認
+  const existing = await prisma.cloudSignTemplateContractType.findUnique({
+    where: {
+      templateId_contractTypeId: {
+        templateId: template.id,
+        contractTypeId,
+      },
+    },
+  });
+
+  if (existing) {
+    throw new Error("このテンプレートは既に紐づいています");
+  }
+
+  // 紐づけを作成
+  await prisma.cloudSignTemplateContractType.create({
+    data: {
+      templateId: template.id,
+      contractTypeId,
+    },
+  });
+
+  revalidatePath("/settings/contract-types");
+}
+
+/**
+ * テンプレート紐づけを解除（中間テーブルのレコード削除）
+ */
+export async function removeTemplateLink(linkId: number) {
+  await requireProjectMasterDataEditPermission();
+
+  await prisma.cloudSignTemplateContractType.delete({
+    where: { id: linkId },
+  });
+
+  revalidatePath("/settings/contract-types");
+}

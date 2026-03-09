@@ -35,7 +35,7 @@ import {
   getNextContractNumber,
   getMasterContracts,
 } from "@/app/stp/master-contract-actions";
-import { Plus, Pencil, Trash2, X, FileText, ExternalLink } from "lucide-react";
+import { Plus, Pencil, Trash2, X, FileText, ExternalLink, Send, Loader2, Play, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { FileUpload } from "@/components/file-upload";
@@ -44,6 +44,7 @@ import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
 import { useTimedFormCache } from "@/hooks/use-timed-form-cache";
+import { ContractSendModal } from "@/components/contract-send-modal";
 
 // 日本語ロケールを登録
 registerLocale("ja", ja);
@@ -63,6 +64,11 @@ type Contract = {
   fileName?: string | null;
   assignedTo?: string | null;
   note?: string | null;
+  cloudsignDocumentId?: string | null;
+  cloudsignStatus?: string | null;
+  cloudsignUrl?: string | null;
+  cloudsignAutoSync?: boolean;
+  cloudsignExpectedStatusName?: string | null;
 };
 
 type Props = {
@@ -126,6 +132,44 @@ export function MasterContractModal({
   const [localContracts, setLocalContracts] = useState<Contract[]>([]);
   const [nextContractNumber, setNextContractNumber] = useState<string>("");
   const [initialLoading, setInitialLoading] = useState(true);
+  const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [syncingContractId, setSyncingContractId] = useState<number | null>(null);
+  const [togglingAutoSyncId, setTogglingAutoSyncId] = useState<number | null>(null);
+
+  // 下書き管理
+  const [draftSelectOpen, setDraftSelectOpen] = useState(false);
+  const [drafts, setDrafts] = useState<{
+    id: number;
+    contractNumber: string;
+    title: string;
+    contractType: string;
+    cloudsignDocumentId: string | null;
+    cloudsignTitle: string | null;
+    assignedTo: string | null;
+    note: string | null;
+    createdAt: string;
+  }[]>([]);
+  const [loadingDrafts, setLoadingDrafts] = useState(false);
+  const [deletingDraftId, setDeletingDraftId] = useState<number | null>(null);
+  const [resumeDraft, setResumeDraft] = useState<{
+    contractId: number;
+    contractNumber: string;
+    cloudsignDocumentId: string;
+    contractType: string;
+    title: string;
+    cloudsignTitle?: string | null;
+    assignedTo?: string | null;
+    note?: string | null;
+  } | undefined>(undefined);
+
+  // CloudSign送付モーダル用のデータ（遅延ロード）
+  const [cloudsignData, setCloudsignData] = useState<{
+    contractTypes: { id: number; name: string; templates: { id: number; cloudsignTemplateId: string; name: string; description: string | null }[] }[];
+    contacts: { id: number; name: string; email: string | null; position: string | null }[];
+    operatingCompany: { id: number; companyName: string; cloudsignClientId: string | null } | null;
+    projectId: number;
+  } | null>(null);
+  const [loadingCloudsign, setLoadingCloudsign] = useState(false);
 
   type CachedState = {
     formData: FormData;
@@ -313,8 +357,58 @@ export function MasterContractModal({
         </DialogHeader>
 
         <div className="px-6 py-4 flex flex-col gap-4 flex-1 min-h-0">
-          {/* 追加ボタン */}
-          <div className="flex justify-end shrink-0">
+          {/* 追加・送付ボタン */}
+          <div className="flex justify-end gap-2 shrink-0">
+            <Button
+              onClick={async () => {
+                // CloudSignデータを取得
+                if (!cloudsignData) {
+                  setLoadingCloudsign(true);
+                  try {
+                    const { getCloudsignModalData } = await import("@/app/stp/cloudsign-actions");
+                    const data = await getCloudsignModalData(companyId);
+                    setCloudsignData(data);
+                    if (!data.operatingCompany?.cloudsignClientId) {
+                      toast.error("運営法人にクラウドサインのクライアントIDが設定されていません。設定画面から登録してください。");
+                      return;
+                    }
+                  } catch (error) {
+                    console.error(error);
+                    toast.error("クラウドサイン情報の取得に失敗しました");
+                    return;
+                  } finally {
+                    setLoadingCloudsign(false);
+                  }
+                }
+
+                // 下書きをチェック
+                setLoadingDrafts(true);
+                try {
+                  const { getDraftsForCompany } = await import("@/app/stp/cloudsign-actions");
+                  const existingDrafts = await getDraftsForCompany(companyId);
+                  if (existingDrafts.length > 0) {
+                    setDrafts(existingDrafts);
+                    setDraftSelectOpen(true);
+                  } else {
+                    setResumeDraft(undefined);
+                    setSendModalOpen(true);
+                  }
+                } catch (error) {
+                  console.error(error);
+                  // 下書きチェック失敗でも送付モーダルは開ける
+                  setResumeDraft(undefined);
+                  setSendModalOpen(true);
+                } finally {
+                  setLoadingDrafts(false);
+                }
+              }}
+              size="sm"
+              variant="outline"
+              disabled={formOpen || loadingCloudsign || loadingDrafts}
+            >
+              <Send className="h-4 w-4 mr-1" />
+              {loadingCloudsign || loadingDrafts ? "読込中..." : "契約書を送付"}
+            </Button>
             <Button onClick={handleAdd} size="sm" disabled={formOpen}>
               <Plus className="h-4 w-4 mr-1" />
               契約書を追加
@@ -538,6 +632,7 @@ export function MasterContractModal({
                   <TableHead>締結日</TableHead>
                   <TableHead>締結方法</TableHead>
                   <TableHead>担当者</TableHead>
+                  <TableHead>クラウドサイン</TableHead>
                   <TableHead>ファイル</TableHead>
                   <TableHead>備考</TableHead>
                   <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
@@ -553,6 +648,44 @@ export function MasterContractModal({
                     <TableCell>{formatDate(contract.signedDate)}</TableCell>
                     <TableCell>{getSigningMethodLabel(contract.signingMethod)}</TableCell>
                     <TableCell>{getStaffName(contract.assignedTo)}</TableCell>
+                    <TableCell>
+                      {contract.cloudsignDocumentId ? (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => window.open(contract.cloudsignUrl || `https://www.cloudsign.jp/documents/${contract.cloudsignDocumentId}`, "_blank")}
+                            className="flex items-center gap-1 text-blue-600 text-xs px-1"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            {contract.cloudsignStatus === "sent" ? "送付済" :
+                             contract.cloudsignStatus === "completed" ? "締結済" :
+                             contract.cloudsignStatus === "draft" ? "下書き" :
+                             contract.cloudsignStatus?.startsWith("canceled") ? "破棄" :
+                             contract.cloudsignStatus || "-"}
+                          </Button>
+                          {/* ステータス不一致警告 */}
+                          {contract.cloudsignExpectedStatusName &&
+                           contract.currentStatusName &&
+                           contract.currentStatusName !== contract.cloudsignExpectedStatusName && (
+                            <span
+                              className="inline-flex items-center rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-medium text-orange-700 cursor-help"
+                              title={`CRM: ${contract.currentStatusName} / CloudSign: ${contract.cloudsignExpectedStatusName}`}
+                            >
+                              不一致
+                            </span>
+                          )}
+                          {/* 自動同期停止中 */}
+                          {contract.cloudsignAutoSync === false && (
+                            <span className="inline-flex items-center rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">
+                              同期停止
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 text-xs">-</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {contract.filePath && contract.fileName ? (
                         <Button
@@ -573,6 +706,117 @@ export function MasterContractModal({
                     </TableCell>
                     <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                       <div className="flex gap-1">
+                        {/* CloudSign連携: 手動同期ボタン */}
+                        {contract.cloudsignDocumentId && contract.cloudsignStatus !== "draft" && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="CloudSignから最新ステータスを取得"
+                            disabled={syncingContractId === contract.id}
+                            onClick={async () => {
+                              setSyncingContractId(contract.id);
+                              try {
+                                const { syncContractCloudsignStatus } = await import("@/app/stp/cloudsign-actions");
+                                const result = await syncContractCloudsignStatus(contract.id);
+                                if (result.previousStatus === result.newStatus) {
+                                  toast.info("ステータスに変更はありません");
+                                } else {
+                                  toast.success(`ステータスを同期しました: ${result.previousStatus} → ${result.newStatus}`);
+                                }
+                                await loadContracts();
+                                router.refresh();
+                              } catch (error) {
+                                console.error(error);
+                                toast.error("同期に失敗しました");
+                              } finally {
+                                setSyncingContractId(null);
+                              }
+                            }}
+                          >
+                            {syncingContractId === contract.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <RotateCcw className="h-4 w-4 text-blue-500" />
+                            )}
+                          </Button>
+                        )}
+                        {/* CloudSign連携: 自動同期ON/OFFトグル */}
+                        {contract.cloudsignDocumentId && contract.cloudsignStatus !== "draft" &&
+                         contract.cloudsignStatus !== "completed" &&
+                         !contract.cloudsignStatus?.startsWith("canceled") && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title={contract.cloudsignAutoSync ? "自動同期をOFFにする" : "自動同期をONにする"}
+                            disabled={togglingAutoSyncId === contract.id}
+                            onClick={async () => {
+                              const newState = !contract.cloudsignAutoSync;
+                              if (!newState) {
+                                if (!confirm("CloudSign側のステータス変更がCRMに反映されなくなります。よろしいですか？")) return;
+                              }
+                              setTogglingAutoSyncId(contract.id);
+                              try {
+                                const { toggleCloudsignAutoSync } = await import("@/app/stp/cloudsign-actions");
+                                await toggleCloudsignAutoSync(contract.id, newState);
+                                toast.success(newState ? "自動同期をONにしました" : "自動同期をOFFにしました");
+                                await loadContracts();
+                                router.refresh();
+                              } catch (error) {
+                                console.error(error);
+                                toast.error("切替に失敗しました");
+                              } finally {
+                                setTogglingAutoSyncId(null);
+                              }
+                            }}
+                            className={contract.cloudsignAutoSync ? "text-green-600" : "text-gray-400"}
+                          >
+                            {togglingAutoSyncId === contract.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : contract.cloudsignAutoSync ? (
+                              <span className="text-[10px] font-bold">自動</span>
+                            ) : (
+                              <span className="text-[10px]">停止</span>
+                            )}
+                          </Button>
+                        )}
+                        {contract.cloudsignStatus === "draft" && contract.cloudsignDocumentId && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="送付を再開"
+                            onClick={async () => {
+                              // CloudSignデータを取得
+                              if (!cloudsignData) {
+                                setLoadingCloudsign(true);
+                                try {
+                                  const { getCloudsignModalData } = await import("@/app/stp/cloudsign-actions");
+                                  const data = await getCloudsignModalData(companyId);
+                                  setCloudsignData(data);
+                                  if (!data.operatingCompany?.cloudsignClientId) {
+                                    toast.error("クラウドサインのクライアントIDが未設定です");
+                                    return;
+                                  }
+                                } catch (error) {
+                                  console.error(error);
+                                  toast.error("クラウドサイン情報の取得に失敗しました");
+                                  return;
+                                } finally {
+                                  setLoadingCloudsign(false);
+                                }
+                              }
+                              setResumeDraft({
+                                contractId: contract.id,
+                                contractNumber: contract.contractNumber || "",
+                                cloudsignDocumentId: contract.cloudsignDocumentId!,
+                                contractType: contract.contractType,
+                                title: contract.title,
+                              });
+                              setSendModalOpen(true);
+                            }}
+                          >
+                            <Play className="h-4 w-4 text-blue-500" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -580,13 +824,43 @@ export function MasterContractModal({
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDelete(contract.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </Button>
+                        {contract.cloudsignStatus === "draft" ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={deletingDraftId === contract.id}
+                            onClick={async () => {
+                              if (!confirm("この下書きを削除しますか？CloudSign側のドラフトも削除されます。")) return;
+                              setDeletingDraftId(contract.id);
+                              try {
+                                const { deleteDraftContract } = await import("@/app/stp/cloudsign-actions");
+                                await deleteDraftContract(contract.id);
+                                toast.success("下書きを削除しました");
+                                await loadContracts();
+                                router.refresh();
+                              } catch (error) {
+                                console.error(error);
+                                toast.error("削除に失敗しました");
+                              } finally {
+                                setDeletingDraftId(null);
+                              }
+                            }}
+                          >
+                            {deletingDraftId === contract.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            )}
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(contract.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -600,6 +874,123 @@ export function MasterContractModal({
           )}
         </div>
       </DialogContent>
+
+      {/* 下書き選択ダイアログ */}
+      <Dialog open={draftSelectOpen} onOpenChange={setDraftSelectOpen}>
+        <DialogContent size="form" className="p-0 overflow-hidden flex flex-col">
+          <DialogHeader className="px-6 py-4 border-b shrink-0">
+            <DialogTitle>下書きが{drafts.length}件あります</DialogTitle>
+          </DialogHeader>
+          <div className="px-6 py-4 space-y-3 max-h-[60vh] overflow-y-auto">
+            {drafts.map((draft) => (
+              <div key={draft.id} className="border rounded-lg p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm truncate">{draft.title}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {draft.contractType} ・ {draft.contractNumber}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      作成: {new Date(draft.createdAt).toLocaleString("ja-JP")}
+                    </p>
+                  </div>
+                  <div className="flex gap-1 shrink-0 ml-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setResumeDraft({
+                          contractId: draft.id,
+                          contractNumber: draft.contractNumber,
+                          cloudsignDocumentId: draft.cloudsignDocumentId || "",
+                          contractType: draft.contractType,
+                          title: draft.title,
+                          cloudsignTitle: draft.cloudsignTitle,
+                          assignedTo: draft.assignedTo,
+                          note: draft.note,
+                        });
+                        setDraftSelectOpen(false);
+                        setSendModalOpen(true);
+                      }}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                      再開
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={deletingDraftId === draft.id}
+                      onClick={async () => {
+                        if (!confirm("この下書きを削除しますか？")) return;
+                        setDeletingDraftId(draft.id);
+                        try {
+                          const { deleteDraftContract } = await import("@/app/stp/cloudsign-actions");
+                          await deleteDraftContract(draft.id);
+                          toast.success("下書きを削除しました");
+                          setDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+                          await loadContracts();
+                          // 下書きが全部削除された場合はダイアログを閉じて新規作成へ
+                          if (drafts.length <= 1) {
+                            setDraftSelectOpen(false);
+                            setResumeDraft(undefined);
+                            setSendModalOpen(true);
+                          }
+                        } catch (error) {
+                          console.error(error);
+                          toast.error("削除に失敗しました");
+                        } finally {
+                          setDeletingDraftId(null);
+                        }
+                      }}
+                    >
+                      {deletingDraftId === draft.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="px-6 py-4 border-t shrink-0 flex justify-between">
+            <Button variant="outline" onClick={() => setDraftSelectOpen(false)}>
+              キャンセル
+            </Button>
+            <Button
+              onClick={() => {
+                setDraftSelectOpen(false);
+                setResumeDraft(undefined);
+                setSendModalOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              新規で作成
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 契約書送付モーダル */}
+      {cloudsignData && cloudsignData.operatingCompany && (
+        <ContractSendModal
+          open={sendModalOpen}
+          onOpenChange={(v) => {
+            setSendModalOpen(v);
+            if (!v) setResumeDraft(undefined);
+          }}
+          companyId={companyId}
+          companyName={companyName}
+          projectId={cloudsignData.projectId}
+          contractTypes={cloudsignData.contractTypes}
+          contacts={cloudsignData.contacts}
+          operatingCompany={cloudsignData.operatingCompany}
+          staffOptions={staffOptions}
+          onSuccess={loadContracts}
+          resumeDraft={resumeDraft}
+        />
+      )}
     </Dialog>
   );
 }

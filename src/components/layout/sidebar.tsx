@@ -61,6 +61,7 @@ type NavItem = {
   requiredProject?: ProjectCode;
   requireAnyEdit?: boolean; // いずれかのプロジェクトでedit以上なら表示
   founderOrManager?: boolean; // founder or manager以上のみ
+  adminOnly?: boolean; // adminユーザーのみ
   editOrAbove?: boolean; // edit以上のみ
   key?: string; // サイドバーカスタマイズ用のキー
   sectionLabel?: boolean; // true: 開閉なしのセクションラベル（子はフラット表示）
@@ -134,7 +135,7 @@ function removeMasterDataItems(items: NavItem[]): NavItem[] {
 
 const navigation: NavItem[] = [
   { name: "通知", href: "/notifications", icon: Bell },
-  { name: "セットアップ状況", href: "/admin/setup-status", icon: ListChecks, founderOrManager: true },
+  { name: "セットアップ状況", href: "/admin/setup-status", icon: ListChecks, adminOnly: true },
   {
     name: "Stella",
     icon: Building2,
@@ -510,6 +511,10 @@ function filterNavigationByPermissions(
       // adminユーザーは全メニュー表示
       if (isAdminUser) {
         return true;
+      }
+      // adminOnly: adminユーザーのみ（上のチェックで通過済みなのでここではfalse）
+      if (item.adminOnly) {
+        return false;
       }
       // founderOrManager: founder or いずれかのPJでmanager以上
       if (item.founderOrManager) {

@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import {
   Card,
@@ -14,6 +15,8 @@ import {
   XCircle,
   ArrowRight,
 } from "lucide-react";
+import { auth } from "@/auth";
+import { isSystemAdmin } from "@/lib/auth/permissions";
 import { getSetupStatus, type SetupCheckItem, type SetupCheckStatus } from "./actions";
 
 function StatusIcon({ status }: { status: SetupCheckStatus }) {
@@ -62,6 +65,11 @@ function groupByCategory(items: SetupCheckItem[]): Record<string, SetupCheckItem
 }
 
 export default async function SetupStatusPage() {
+  const session = await auth();
+  if (!session?.user || !isSystemAdmin(session.user)) {
+    redirect("/");
+  }
+
   const items = await getSetupStatus();
   const groups = groupByCategory(items);
 
