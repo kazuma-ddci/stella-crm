@@ -39,6 +39,9 @@ export default async function CompaniesPage() {
     industry: c.industry,
     revenueScale: c.revenueScale,
     note: c.note,
+    // インボイス情報
+    isInvoiceRegistered: c.isInvoiceRegistered,
+    invoiceRegistrationNumber: c.invoiceRegistrationNumber,
     // 支払い条件
     closingDay: c.closingDay,
     paymentMonthOffset: c.paymentMonthOffset,

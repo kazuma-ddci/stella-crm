@@ -68,7 +68,11 @@ export function BankTransactionsTable({ transactions, formData }: Props) {
           tx.counterparty?.name?.toLowerCase().includes(q) ||
           tx.description?.toLowerCase().includes(q) ||
           tx.paymentMethod.name.toLowerCase().includes(q) ||
-          String(tx.amount).includes(q)
+          String(tx.amount).includes(q) ||
+          tx.invoiceGroup?.counterparty?.name?.toLowerCase().includes(q) ||
+          tx.invoiceGroup?.invoiceNumber?.toLowerCase().includes(q) ||
+          tx.paymentGroup?.counterparty?.name?.toLowerCase().includes(q) ||
+          tx.paymentGroup?.referenceCode?.toLowerCase().includes(q)
       );
     }
 
@@ -118,7 +122,7 @@ export function BankTransactionsTable({ transactions, formData }: Props) {
       {/* フィルタ・操作バー */}
       <div className="flex items-center gap-3 flex-wrap">
         <Input
-          placeholder="取引先・摘要・決済手段で検索..."
+          placeholder="紐付け・摘要・決済手段で検索..."
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
           className="w-64"
@@ -167,7 +171,7 @@ export function BankTransactionsTable({ transactions, formData }: Props) {
                 <th className="px-3 py-2 font-medium">日付</th>
                 <th className="px-3 py-2 font-medium">区分</th>
                 <th className="px-3 py-2 font-medium">決済手段</th>
-                <th className="px-3 py-2 font-medium">取引先</th>
+                <th className="px-3 py-2 font-medium">紐付け</th>
                 <th className="px-3 py-2 font-medium text-right">金額</th>
                 <th className="px-3 py-2 font-medium">摘要</th>
                 <th className="px-3 py-2 font-medium">消込状態</th>
@@ -199,7 +203,19 @@ export function BankTransactionsTable({ transactions, formData }: Props) {
                       {tx.paymentMethod.name}
                     </td>
                     <td className="px-3 py-2">
-                      {tx.counterparty?.name ?? "-"}
+                      {tx.invoiceGroup ? (
+                        <span className="inline-flex items-center gap-1 text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-xs font-medium">
+                          請求: {tx.invoiceGroup.invoiceNumber || `#${tx.invoiceGroup.id}`} / {tx.invoiceGroup.counterparty.name}
+                        </span>
+                      ) : tx.paymentGroup ? (
+                        <span className="inline-flex items-center gap-1 text-purple-700 bg-purple-50 px-2 py-0.5 rounded text-xs font-medium">
+                          支払: {tx.paymentGroup.referenceCode || `#${tx.paymentGroup.id}`} / {tx.paymentGroup.counterparty.name}
+                        </span>
+                      ) : tx.counterparty?.name ? (
+                        <span className="text-muted-foreground text-xs">{tx.counterparty.name}</span>
+                      ) : (
+                        "-"
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       ¥{tx.amount.toLocaleString()}

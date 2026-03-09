@@ -133,33 +133,38 @@ export async function getDeptKpiData(yearMonth: string): Promise<DeptTabData[]> 
   // Sales部の計算
   // ============================================
 
-  // 新規契約数: StpCompanyContract で signedDate が該当月の企業で初回契約
-  // 各企業の最初のsignedDate
-  const allContracts = await prisma.stpCompanyContract.findMany({
+  // 新規契約数: MasterContract（基本契約）で signedDate が該当月の企業で初回契約
+  // MasterContractはcompanyId(=MasterStellaCompanyのID)で紐付いている
+  const allContracts = await prisma.masterContract.findMany({
     where: {
+      projectId: 1, // STP
+      contractType: "基本契約",
       signedDate: { not: null },
     },
     select: {
-      stpCompanyId: true,
+      companyId: true,
       signedDate: true,
     },
   });
 
-  // stpCompanyIdごとの最初のsignedDateを計算
-  const firstContractByStpCompany = new Map<number, Date>();
+  // companyId(masterCompanyId)ごとの最初のsignedDateを計算
+  const firstContractByMasterCompany = new Map<number, Date>();
   for (const c of allContracts) {
     if (!c.signedDate) continue;
-    const existing = firstContractByStpCompany.get(c.stpCompanyId);
+    const existing = firstContractByMasterCompany.get(c.companyId);
     if (!existing || c.signedDate < existing) {
-      firstContractByStpCompany.set(c.stpCompanyId, c.signedDate);
+      firstContractByMasterCompany.set(c.companyId, c.signedDate);
     }
   }
 
-  // 該当月に初めて契約したstpCompanyIdをカウント
+  // 該当月に初めて契約したstpCompanyIdをカウント（masterCompanyId→stpCompanyIdに変換）
   const newContractStpCompanyIds = new Set<number>();
-  for (const [stpCompanyId, firstDate] of firstContractByStpCompany) {
+  for (const [masterCompanyId, firstDate] of firstContractByMasterCompany) {
     if (firstDate >= monthStart && firstDate <= monthEnd) {
-      newContractStpCompanyIds.add(stpCompanyId);
+      const stpCompanyId = masterToStpMap.get(masterCompanyId);
+      if (stpCompanyId !== undefined) {
+        newContractStpCompanyIds.add(stpCompanyId);
+      }
     }
   }
   const salesNewContracts = newContractStpCompanyIds.size;
@@ -201,7 +206,7 @@ export async function getDeptKpiData(yearMonth: string): Promise<DeptTabData[]> 
       const masterCompanyId = stpToMasterMap.get(stpCompanyId);
       if (!masterCompanyId) continue;
       const firstMeetingDate = firstMeetingByMasterMap.get(masterCompanyId);
-      const firstContractDate = firstContractByStpCompany.get(stpCompanyId);
+      const firstContractDate = firstContractByMasterCompany.get(masterCompanyId);
       if (firstMeetingDate && firstContractDate) {
         const days = Math.floor(
           (firstContractDate.getTime() - new Date(firstMeetingDate).getTime()) /

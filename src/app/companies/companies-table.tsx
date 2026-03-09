@@ -77,6 +77,19 @@ const createColumns = (staffOptions: StaffOption[]): ColumnDef[] => [
   { key: "industry", header: "業界", type: "text" },
   { key: "revenueScale", header: "売上規模", type: "text" },
   { key: "websiteUrl", header: "企業HP", type: "text" },
+  // インボイス制度
+  {
+    key: "isInvoiceRegistered",
+    header: "インボイス",
+    type: "boolean",
+    defaultValue: false,
+  },
+  {
+    key: "invoiceRegistrationNumber",
+    header: "インボイス登録番号",
+    type: "text",
+    visibleWhen: { field: "isInvoiceRegistered", value: true },
+  },
   // 支払い条件
   {
     key: "closingDay",
@@ -304,6 +317,19 @@ export function CompaniesTable({ data, staffOptions }: Props) {
           {url}
         </a>
       );
+    },
+    // インボイス
+    isInvoiceRegistered: (value: unknown) => {
+      return value ? (
+        <span className="text-green-700 font-medium">有</span>
+      ) : (
+        <span className="text-muted-foreground">無</span>
+      );
+    },
+    // インボイス登録番号
+    invoiceRegistrationNumber: (value: unknown) => {
+      if (!value) return <span className="text-muted-foreground">-</span>;
+      return <span className="font-mono text-xs">{String(value)}</span>;
     },
     // 締め日
     closingDay: (value: unknown) => {

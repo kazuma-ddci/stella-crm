@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MultiSelectCombobox } from "@/components/ui/multi-select-combobox";
 import {
   addMasterContract,
   getNextContractNumber,
@@ -325,24 +326,15 @@ export function ContractAddModal({
               />
             </div>
 
-            {/* 担当者 */}
+            {/* 担当者（複数選択可） */}
             <div className="col-span-2">
               <Label htmlFor="assignedTo">担当者</Label>
-              <Select
-                value={formData.assignedTo}
-                onValueChange={(value) => setFormData({ ...formData, assignedTo: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="選択してください" />
-                </SelectTrigger>
-                <SelectContent>
-                  {staffOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <MultiSelectCombobox
+                options={staffOptions}
+                value={formData.assignedTo ? formData.assignedTo.split(",").filter(Boolean) : []}
+                onChange={(values) => setFormData({ ...formData, assignedTo: values.join(",") })}
+                placeholder="担当者を選択"
+              />
             </div>
           </div>
 

@@ -23,4 +23,25 @@ export function JournalStatusBadge({ status }: { status: string }) {
   );
 }
 
+const realizationStatusLabel: Record<string, string> = {
+  realized: "実現",
+  unrealized: "未実現",
+};
+
+const realizationStatusColor: Record<string, string> = {
+  realized: "bg-blue-100 text-blue-800 border-blue-200",
+  unrealized: "bg-orange-100 text-orange-800 border-orange-200",
+};
+
+export function RealizationStatusBadge({ status }: { status: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={realizationStatusColor[status] ?? ""}
+    >
+      {realizationStatusLabel[status] ?? status}
+    </Badge>
+  );
+}
+
 export { journalStatusLabel };

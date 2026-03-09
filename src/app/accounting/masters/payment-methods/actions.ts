@@ -12,6 +12,8 @@ const VALID_METHOD_TYPES = [
   "crypto_wallet",
 ] as const;
 
+const VALID_AVAILABLE_FOR = ["both", "incoming", "outgoing"] as const;
+
 const DETAIL_FIELDS = [
   "bankName",
   "branchName",
@@ -130,6 +132,11 @@ export async function createPaymentMethod(data: Record<string, unknown>) {
     : null;
   const isActive = data.isActive !== false && data.isActive !== "false";
 
+  const availableFor = (data.availableFor as string) || "both";
+  if (!(VALID_AVAILABLE_FOR as readonly string[]).includes(availableFor)) {
+    throw new Error("無効な利用区分です");
+  }
+
   await prisma.paymentMethod.create({
     data: {
       methodType,
@@ -144,6 +151,7 @@ export async function createPaymentMethod(data: Record<string, unknown>) {
       closingDay,
       paymentDay,
       settlementAccountId,
+      availableFor,
       isActive,
       createdBy: staffId,
     },
@@ -254,6 +262,14 @@ export async function updatePaymentMethod(
     updateData.balanceAlertThreshold = data.balanceAlertThreshold
       ? Number(data.balanceAlertThreshold)
       : null;
+  }
+
+  if ("availableFor" in data) {
+    const availableFor = data.availableFor as string;
+    if (!(VALID_AVAILABLE_FOR as readonly string[]).includes(availableFor)) {
+      throw new Error("無効な利用区分です");
+    }
+    updateData.availableFor = availableFor;
   }
 
   if ("isActive" in data) {

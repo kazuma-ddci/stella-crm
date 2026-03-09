@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Loader2, Upload, X, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,8 +69,14 @@ export function BankTransactionModal({
   const [paymentMethodId, setPaymentMethodId] = useState(
     editEntry?.paymentMethod.id ? String(editEntry.paymentMethod.id) : ""
   );
-  const [counterpartyId, setCounterpartyId] = useState(
-    editEntry?.counterparty?.id ? String(editEntry.counterparty.id) : ""
+  const [linkedGroupType, setLinkedGroupType] = useState(
+    editEntry?.invoiceGroup ? "invoice" : editEntry?.paymentGroup ? "payment" : "none"
+  );
+  const [invoiceGroupId, setInvoiceGroupId] = useState(
+    editEntry?.invoiceGroup?.id ? String(editEntry.invoiceGroup.id) : ""
+  );
+  const [paymentGroupId, setPaymentGroupId] = useState(
+    editEntry?.paymentGroup?.id ? String(editEntry.paymentGroup.id) : ""
   );
   const [amount, setAmount] = useState(
     editEntry?.amount !== undefined ? String(editEntry.amount) : ""
@@ -127,14 +133,43 @@ export function BankTransactionModal({
 
   const isCrypto = selectedPaymentMethod?.methodType === "crypto_wallet";
 
-  // 取引先オプション
-  const counterpartyOptions = useMemo(
+  // directionに応じた決済手段フィルタ
+  const filteredPaymentMethods = useMemo(
     () =>
-      formData.counterparties.map((c) => ({
-        value: String(c.id),
-        label: c.displayId ? `${c.displayId} ${c.name}` : c.name,
+      formData.paymentMethods.filter(
+        (pm) => pm.availableFor === "both" || pm.availableFor === direction
+      ),
+    [formData.paymentMethods, direction]
+  );
+
+  // direction変更時に決済手段をリセット
+  useEffect(() => {
+    if (paymentMethodId) {
+      const still = filteredPaymentMethods.find(
+        (pm) => pm.id === Number(paymentMethodId)
+      );
+      if (!still) setPaymentMethodId("");
+    }
+  }, [direction]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 請求グループオプション
+  const invoiceGroupOptions = useMemo(
+    () =>
+      formData.invoiceGroups.map((ig) => ({
+        value: String(ig.id),
+        label: `${ig.invoiceNumber || `#${ig.id}`} / ${ig.counterpartyName}${ig.totalAmount ? ` (¥${ig.totalAmount.toLocaleString()})` : ""}`,
       })),
-    [formData.counterparties]
+    [formData.invoiceGroups]
+  );
+
+  // 支払グループオプション
+  const paymentGroupOptions = useMemo(
+    () =>
+      formData.paymentGroups.map((pg) => ({
+        value: String(pg.id),
+        label: `${pg.referenceCode || `#${pg.id}`} / ${pg.counterpartyName}${pg.totalAmount ? ` (¥${pg.totalAmount.toLocaleString()})` : ""}`,
+      })),
+    [formData.paymentGroups]
   );
 
   // 日本円金額の自動計算
@@ -224,7 +259,9 @@ export function BankTransactionModal({
         transactionDate,
         direction,
         paymentMethodId: Number(paymentMethodId),
-        counterpartyId: counterpartyId ? Number(counterpartyId) : null,
+        counterpartyId: null,
+        invoiceGroupId: linkedGroupType === "invoice" && invoiceGroupId ? Number(invoiceGroupId) : null,
+        paymentGroupId: linkedGroupType === "payment" && paymentGroupId ? Number(paymentGroupId) : null,
         amount: Number(amount),
         description: description || null,
         attachments,
@@ -264,7 +301,9 @@ export function BankTransactionModal({
     setTransactionDate(toLocalDateString(new Date()));
     setDirection("outgoing");
     setPaymentMethodId("");
-    setCounterpartyId("");
+    setLinkedGroupType("none");
+    setInvoiceGroupId("");
+    setPaymentGroupId("");
     setAmount("");
     setDescription("");
     setCryptoCurrency("");
@@ -331,7 +370,7 @@ export function BankTransactionModal({
                   <SelectValue placeholder="決済手段を選択" />
                 </SelectTrigger>
                 <SelectContent>
-                  {formData.paymentMethods.map((pm) => (
+                  {filteredPaymentMethods.map((pm) => (
                     <SelectItem key={pm.id} value={String(pm.id)}>
                       {pm.name}
                     </SelectItem>
@@ -340,16 +379,51 @@ export function BankTransactionModal({
               </Select>
             </div>
 
-            {/* 取引先 */}
+            {/* 紐付けグループ */}
             <div className="space-y-2">
-              <Label>取引先</Label>
-              <Combobox
-                options={counterpartyOptions}
-                value={counterpartyId}
-                onChange={setCounterpartyId}
-                placeholder="取引先を検索..."
-              />
+              <Label>紐付け</Label>
+              <Select
+                value={linkedGroupType}
+                onValueChange={(v) => {
+                  setLinkedGroupType(v);
+                  if (v !== "invoice") setInvoiceGroupId("");
+                  if (v !== "payment") setPaymentGroupId("");
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="紐付けなし" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">紐付けなし</SelectItem>
+                  <SelectItem value="invoice">請求グループ</SelectItem>
+                  <SelectItem value="payment">支払グループ</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+
+            {linkedGroupType === "invoice" && (
+              <div className="space-y-2">
+                <Label>請求グループ</Label>
+                <Combobox
+                  options={invoiceGroupOptions}
+                  value={invoiceGroupId}
+                  onChange={setInvoiceGroupId}
+                  placeholder="請求グループを検索..."
+                />
+              </div>
+            )}
+
+            {linkedGroupType === "payment" && (
+              <div className="space-y-2">
+                <Label>支払グループ</Label>
+                <Combobox
+                  options={paymentGroupOptions}
+                  value={paymentGroupId}
+                  onChange={setPaymentGroupId}
+                  placeholder="支払グループを検索..."
+                />
+              </div>
+            )}
 
             {/* 金額 */}
             <div className="space-y-2">

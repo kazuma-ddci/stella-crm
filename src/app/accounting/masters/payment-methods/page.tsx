@@ -46,6 +46,7 @@ export default async function PaymentMethodsPage() {
       cryptoNetwork: (details.network as string) || "",
       walletAddress: (details.walletAddress as string) || "",
       // 共通フィールド
+      availableFor: pm.availableFor,
       initialBalance: pm.initialBalance,
       initialBalanceDate: pm.initialBalanceDate
         ? toLocalDateString(pm.initialBalanceDate)

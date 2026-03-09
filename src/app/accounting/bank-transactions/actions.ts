@@ -15,12 +15,19 @@ export type BankTransactionFormData = {
     id: number;
     name: string;
     methodType: string;
+    availableFor: string;
   }[];
-  counterparties: {
+  invoiceGroups: {
     id: number;
-    name: string;
-    displayId: string | null;
-    counterpartyType: string;
+    invoiceNumber: string | null;
+    counterpartyName: string;
+    totalAmount: number | null;
+  }[];
+  paymentGroups: {
+    id: number;
+    referenceCode: string | null;
+    counterpartyName: string;
+    totalAmount: number | null;
   }[];
 };
 
@@ -59,6 +66,18 @@ export type BankTransactionRow = {
   counterparty: {
     id: number;
     name: string;
+  } | null;
+  invoiceGroup: {
+    id: number;
+    invoiceNumber: string | null;
+    counterparty: { name: string };
+    totalAmount: number | null;
+  } | null;
+  paymentGroup: {
+    id: number;
+    referenceCode: string | null;
+    counterparty: { name: string };
+    totalAmount: number | null;
   } | null;
   reconciliations: {
     id: number;
@@ -119,6 +138,13 @@ function validateBankTransactionData(data: Record<string, unknown>) {
     throw new Error("取引先IDが不正です");
   }
 
+  // invoiceGroupId / paymentGroupId（排他）
+  const invoiceGroupId = data.invoiceGroupId ? Number(data.invoiceGroupId) : null;
+  const paymentGroupId = data.paymentGroupId ? Number(data.paymentGroupId) : null;
+  if (invoiceGroupId && paymentGroupId) {
+    throw new Error("請求グループと支払グループは同時に指定できません");
+  }
+
   // amount
   const amount = Number(data.amount);
   if (isNaN(amount) || amount <= 0 || !Number.isInteger(amount)) {
@@ -133,6 +159,8 @@ function validateBankTransactionData(data: Record<string, unknown>) {
     direction,
     paymentMethodId,
     counterpartyId,
+    invoiceGroupId,
+    paymentGroupId,
     amount,
     description,
   };
@@ -177,20 +205,51 @@ function validateCryptoDetail(data: CryptoDetailInput) {
 // ============================================
 
 export async function getBankTransactionFormData(): Promise<BankTransactionFormData> {
-  const [paymentMethods, counterparties] = await Promise.all([
+  const [paymentMethods, invoiceGroups, paymentGroups] = await Promise.all([
     prisma.paymentMethod.findMany({
       where: { deletedAt: null, isActive: true },
-      select: { id: true, name: true, methodType: true },
+      select: { id: true, name: true, methodType: true, availableFor: true },
       orderBy: { name: "asc" },
     }),
-    prisma.counterparty.findMany({
-      where: { deletedAt: null, mergedIntoId: null, isActive: true },
-      select: { id: true, name: true, displayId: true, counterpartyType: true },
-      orderBy: { name: "asc" },
+    prisma.invoiceGroup.findMany({
+      where: { deletedAt: null },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        totalAmount: true,
+        counterparty: { select: { name: true } },
+      },
+      orderBy: { id: "desc" },
+      take: 200,
+    }),
+    prisma.paymentGroup.findMany({
+      where: { deletedAt: null },
+      select: {
+        id: true,
+        referenceCode: true,
+        totalAmount: true,
+        counterparty: { select: { name: true } },
+      },
+      orderBy: { id: "desc" },
+      take: 200,
     }),
   ]);
 
-  return { paymentMethods, counterparties };
+  return {
+    paymentMethods,
+    invoiceGroups: invoiceGroups.map((ig) => ({
+      id: ig.id,
+      invoiceNumber: ig.invoiceNumber,
+      counterpartyName: ig.counterparty.name,
+      totalAmount: ig.totalAmount,
+    })),
+    paymentGroups: paymentGroups.map((pg) => ({
+      id: pg.id,
+      referenceCode: pg.referenceCode,
+      counterpartyName: pg.counterparty.name,
+      totalAmount: pg.totalAmount,
+    })),
+  };
 }
 
 export async function getBankTransactions(filters?: {
@@ -218,6 +277,22 @@ export async function getBankTransactions(filters?: {
       },
       counterparty: {
         select: { id: true, name: true },
+      },
+      invoiceGroup: {
+        select: {
+          id: true,
+          invoiceNumber: true,
+          counterparty: { select: { name: true } },
+          totalAmount: true,
+        },
+      },
+      paymentGroup: {
+        select: {
+          id: true,
+          referenceCode: true,
+          counterparty: { select: { name: true } },
+          totalAmount: true,
+        },
       },
       reconciliations: {
         select: { id: true, amount: true },
@@ -256,7 +331,11 @@ export async function getBankTransactions(filters?: {
       (tx) =>
         tx.counterparty?.name?.toLowerCase().includes(q) ||
         tx.description?.toLowerCase().includes(q) ||
-        tx.paymentMethod.name.toLowerCase().includes(q)
+        tx.paymentMethod.name.toLowerCase().includes(q) ||
+        tx.invoiceGroup?.counterparty?.name?.toLowerCase().includes(q) ||
+        tx.invoiceGroup?.invoiceNumber?.toLowerCase().includes(q) ||
+        tx.paymentGroup?.counterparty?.name?.toLowerCase().includes(q) ||
+        tx.paymentGroup?.referenceCode?.toLowerCase().includes(q)
     );
   }
 
@@ -272,6 +351,22 @@ export async function getBankTransaction(id: number): Promise<BankTransactionRow
       },
       counterparty: {
         select: { id: true, name: true },
+      },
+      invoiceGroup: {
+        select: {
+          id: true,
+          invoiceNumber: true,
+          counterparty: { select: { name: true } },
+          totalAmount: true,
+        },
+      },
+      paymentGroup: {
+        select: {
+          id: true,
+          referenceCode: true,
+          counterparty: { select: { name: true } },
+          totalAmount: true,
+        },
       },
       reconciliations: {
         select: { id: true, amount: true },
@@ -334,6 +429,8 @@ export async function createBankTransaction(data: Record<string, unknown>) {
         direction: validated.direction,
         paymentMethodId: validated.paymentMethodId,
         counterpartyId: validated.counterpartyId,
+        invoiceGroupId: validated.invoiceGroupId,
+        paymentGroupId: validated.paymentGroupId,
         amount: validated.amount,
         description: validated.description,
         source: "manual",
@@ -428,6 +525,8 @@ export async function updateBankTransaction(id: number, data: Record<string, unk
         direction: validated.direction,
         paymentMethodId: validated.paymentMethodId,
         counterpartyId: validated.counterpartyId,
+        invoiceGroupId: validated.invoiceGroupId,
+        paymentGroupId: validated.paymentGroupId,
         amount: validated.amount,
         description: validated.description,
         updatedBy: staffId,

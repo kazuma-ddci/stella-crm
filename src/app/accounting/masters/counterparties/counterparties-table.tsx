@@ -76,6 +76,24 @@ export function CounterpartiesTable({ data }: Props) {
       defaultValue: "other",
     },
     {
+      key: "isInvoiceRegistered",
+      header: "インボイス",
+      type: "boolean",
+      defaultValue: false,
+    },
+    {
+      key: "invoiceRegistrationNumber",
+      header: "登録番号",
+      type: "text",
+      visibleWhen: { field: "isInvoiceRegistered", value: true },
+    },
+    {
+      key: "invoiceEffectiveDate",
+      header: "インボイス適用日",
+      type: "date",
+      visibleWhen: { field: "isInvoiceRegistered", value: true },
+    },
+    {
       key: "memo",
       header: "メモ",
       type: "textarea",

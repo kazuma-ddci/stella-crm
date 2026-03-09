@@ -43,7 +43,7 @@ import {
 import { Check, ChevronsUpDown, FileText, Loader2, Plus, X } from "lucide-react";
 import { cn, matchesWithWordBoundary, toLocalDateString } from "@/lib/utils";
 import { toast } from "sonner";
-import { createTransaction, updateTransaction } from "./actions";
+import { createTransaction, createAccountingTransaction, updateTransaction } from "./actions";
 import type { TransactionFormData } from "./actions";
 
 // ============================================
@@ -105,6 +105,7 @@ type Props = {
     fileName: string;
     filePath: string;
   }[];
+  accountingMode?: boolean;
 };
 
 function formatDate(d: Date | string | null | undefined): string {
@@ -117,7 +118,7 @@ function formatDate(d: Date | string | null | undefined): string {
 // メインコンポーネント
 // ============================================
 
-export function TransactionForm({ formData, transaction, projectContext, linkedGroupAttachments }: Props) {
+export function TransactionForm({ formData, transaction, projectContext, linkedGroupAttachments, accountingMode }: Props) {
   const router = useRouter();
   const isEdit = !!transaction;
 
@@ -220,6 +221,10 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
   const [attachments, setAttachments] = useState<AttachmentInput[]>(
     transaction?.attachments || []
   );
+  // グループ紐づけ（経理モード用）
+  const [invoiceGroupId, setInvoiceGroupId] = useState("");
+  const [paymentGroupId, setPaymentGroupId] = useState("");
+
   // ダイアログ
   const [contractWarningOpen, setContractWarningOpen] = useState(false);
   const [contractWarningMessage, setContractWarningMessage] = useState("");
@@ -299,6 +304,25 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
         label: `${c.title} (${c.company.name})`,
       })),
     [filteredContracts]
+  );
+
+  // 経理モード用: グループ選択肢
+  const invoiceGroupOptions = useMemo(
+    () =>
+      (formData.invoiceGroups ?? []).map((g) => ({
+        value: String(g.id),
+        label: `${g.invoiceNumber ?? `ID:${g.id}`} - ${g.counterparty.name}${g.totalAmount != null ? ` (¥${g.totalAmount.toLocaleString()})` : ""}`,
+      })),
+    [formData.invoiceGroups]
+  );
+
+  const paymentGroupOptions = useMemo(
+    () =>
+      (formData.paymentGroups ?? []).map((g) => ({
+        value: String(g.id),
+        label: `${g.referenceCode ?? `ID:${g.id}`} - ${g.counterparty.name}${g.totalAmount != null ? ` (¥${g.totalAmount.toLocaleString()})` : ""}`,
+      })),
+    [formData.paymentGroups]
   );
 
   // --- 自動計算 ---
@@ -486,6 +510,14 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
       if (isEdit && transaction) {
         await updateTransaction(transaction.id, data);
         toast.success("取引を更新しました");
+      } else if (accountingMode) {
+        // グループ紐づけ
+        if (invoiceGroupId) data.invoiceGroupId = Number(invoiceGroupId);
+        if (paymentGroupId) data.paymentGroupId = Number(paymentGroupId);
+        const result = await createAccountingTransaction(data);
+        toast.success("取引を作成しました（経理処理待ち）");
+        router.push(`/accounting/transactions/${result.id}/edit`);
+        return;
       } else {
         const result = await createTransaction(data);
         toast.success("取引を作成しました");
@@ -785,6 +817,54 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
           </div>
         </CardContent>
       </Card>
+
+      {/* 5b. グループ紐づけ（経理モード） */}
+      {accountingMode && (
+        <Card>
+          <CardHeader>
+            <CardTitle>請求/支払グループ紐づけ（任意）</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              既存の請求グループまたは支払グループに紐づける場合は選択してください。空欄の場合はスタンドアロンの取引として作成されます。
+            </p>
+            {type === "revenue" && invoiceGroupOptions.length > 0 && (
+              <div className="space-y-2">
+                <Label>請求グループ</Label>
+                <Combobox
+                  options={invoiceGroupOptions}
+                  value={invoiceGroupId}
+                  onChange={(v) => {
+                    setInvoiceGroupId(v);
+                    setPaymentGroupId("");
+                  }}
+                  placeholder="請求グループを検索..."
+                />
+              </div>
+            )}
+            {type === "expense" && paymentGroupOptions.length > 0 && (
+              <div className="space-y-2">
+                <Label>支払グループ</Label>
+                <Combobox
+                  options={paymentGroupOptions}
+                  value={paymentGroupId}
+                  onChange={(v) => {
+                    setPaymentGroupId(v);
+                    setInvoiceGroupId("");
+                  }}
+                  placeholder="支払グループを検索..."
+                />
+              </div>
+            )}
+            {type === "revenue" && invoiceGroupOptions.length === 0 && (
+              <p className="text-sm text-muted-foreground">紐づけ可能な請求グループはありません</p>
+            )}
+            {type === "expense" && paymentGroupOptions.length === 0 && (
+              <p className="text-sm text-muted-foreground">紐づけ可能な支払グループはありません</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* 6. 経費負担者（経費の場合） */}
       {type === "expense" && (

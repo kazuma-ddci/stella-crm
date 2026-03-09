@@ -938,7 +938,12 @@ export async function batchUpdateGroupStatus(
 
         await prisma.invoiceGroup.update({
           where: { id: item.groupId },
-          data: { status: newStatus },
+          data: {
+            status: newStatus,
+            ...(newStatus === "paid" && !group.actualPaymentDate ? {
+              actualPaymentDate: group.expectedPaymentDate ?? new Date(toLocalDateString(new Date()))
+            } : {}),
+          },
         });
         result.success.push(item);
 

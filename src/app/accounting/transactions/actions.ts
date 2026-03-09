@@ -58,6 +58,21 @@ export type TransactionFormData = {
   }[];
   staffOptions: { id: number; name: string }[];
   currentUserId: number;
+  // 経理モード用：紐づけ可能なグループ
+  invoiceGroups?: {
+    id: number;
+    invoiceNumber: string | null;
+    counterparty: { id: number; name: string };
+    totalAmount: number | null;
+    status: string;
+  }[];
+  paymentGroups?: {
+    id: number;
+    referenceCode: string | null;
+    counterparty: { id: number; name: string };
+    totalAmount: number | null;
+    status: string;
+  }[];
 };
 
 // ============================================
@@ -1180,6 +1195,181 @@ export async function getTransactions(filters?: {
 }
 
 // ============================================
+// 9b. getAccountingTransactions（経理側一覧取得 — awaiting_accounting以降のみ）
+// ============================================
+
+const ACCOUNTING_VISIBLE_STATUSES = [
+  "awaiting_accounting",
+  "journalized",
+  "partially_paid",
+  "paid",
+];
+
+export async function getAccountingTransactions() {
+  const session = await getSession();
+  const txConfidentialFilter = buildConfidentialFilter(session.id, session.permissions);
+
+  const transactions = await prisma.transaction.findMany({
+    where: {
+      deletedAt: null,
+      status: { in: ACCOUNTING_VISIBLE_STATUSES },
+      ...txConfidentialFilter,
+    },
+    include: {
+      counterparty: { select: { id: true, name: true } },
+      expenseCategory: { select: { id: true, name: true } },
+      costCenter: { select: { id: true, name: true } },
+      project: { select: { id: true, name: true, code: true } },
+      confirmer: { select: { id: true, name: true } },
+      allocationTemplate: { select: { id: true, name: true } },
+      creator: { select: { id: true, name: true } },
+    },
+    orderBy: [{ periodFrom: "desc" }, { id: "desc" }],
+  });
+
+  return transactions.map((t) => ({
+    ...t,
+    withholdingTaxRate: t.withholdingTaxRate != null ? Number(t.withholdingTaxRate) : null,
+  }));
+}
+
+// ============================================
+// 9c. createAccountingTransaction（経理側から取引作成 — 直接awaiting_accountingで作成）
+// ============================================
+
+export async function createAccountingTransaction(data: Record<string, unknown>) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const validated = validateTransactionData(data);
+
+  // 月次クローズチェック
+  await checkMonthlyClose(validated.periodFrom, validated.periodTo);
+
+  const contractId = data.contractId ? Number(data.contractId) : null;
+  const projectId = data.projectId ? Number(data.projectId) : null;
+  const paymentMethodId = data.paymentMethodId
+    ? Number(data.paymentMethodId)
+    : null;
+  const paymentDueDate = data.paymentDueDate
+    ? new Date(data.paymentDueDate as string)
+    : null;
+  const note = data.note ? (data.note as string).trim() || null : null;
+
+  // 源泉徴収
+  const isWithholdingTarget =
+    data.isWithholdingTarget === true || data.isWithholdingTarget === "true";
+  const withholdingTaxRate = data.withholdingTaxRate
+    ? Number(data.withholdingTaxRate)
+    : null;
+  const withholdingTaxAmount = data.withholdingTaxAmount
+    ? Number(data.withholdingTaxAmount)
+    : null;
+  const netPaymentAmount = data.netPaymentAmount
+    ? Number(data.netPaymentAmount)
+    : null;
+
+  // 機密フラグ
+  const isConfidential =
+    data.isConfidential === true || data.isConfidential === "true";
+
+  // グループ紐づけ
+  const invoiceGroupId = data.invoiceGroupId ? Number(data.invoiceGroupId) : null;
+  const paymentGroupId = data.paymentGroupId ? Number(data.paymentGroupId) : null;
+
+  // バリデーション: 請求グループは売上のみ、支払グループは経費のみ
+  if (invoiceGroupId && validated.type !== "revenue") {
+    throw new Error("請求グループには売上取引のみ紐づけできます");
+  }
+  if (paymentGroupId && validated.type !== "expense") {
+    throw new Error("支払グループには経費取引のみ紐づけできます");
+  }
+  if (invoiceGroupId && paymentGroupId) {
+    throw new Error("請求グループと支払グループを同時に指定できません");
+  }
+
+  // グループの存在・ステータスチェック
+  if (invoiceGroupId) {
+    const group = await prisma.invoiceGroup.findFirst({
+      where: { id: invoiceGroupId, deletedAt: null },
+      select: { id: true, status: true },
+    });
+    if (!group) throw new Error("指定された請求グループが見つかりません");
+    if (!["awaiting_accounting", "partially_paid"].includes(group.status)) {
+      throw new Error("この請求グループには取引を追加できません（経理処理待ちまたは一部入金済みのみ可能）");
+    }
+  }
+  if (paymentGroupId) {
+    const group = await prisma.paymentGroup.findFirst({
+      where: { id: paymentGroupId, deletedAt: null },
+      select: { id: true, status: true },
+    });
+    if (!group) throw new Error("指定された支払グループが見つかりません");
+    if (!["awaiting_accounting", "confirmed"].includes(group.status)) {
+      throw new Error("この支払グループには取引を追加できません（経理処理待ちまたは確認済みのみ可能）");
+    }
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const transaction = await tx.transaction.create({
+      data: {
+        type: validated.type,
+        counterpartyId: validated.counterpartyId,
+        expenseCategoryId: validated.expenseCategoryId,
+        amount: validated.amount,
+        taxAmount: validated.taxAmount,
+        taxRate: validated.taxRate,
+        taxType: validated.taxType,
+        periodFrom: validated.periodFrom,
+        periodTo: validated.periodTo,
+        allocationTemplateId: validated.allocationTemplateId,
+        costCenterId: validated.costCenterId,
+        contractId,
+        projectId,
+        paymentMethodId,
+        paymentDueDate,
+        note,
+        sourceType: "accounting",
+        status: "awaiting_accounting",
+        hasExpenseOwner: false,
+        isWithholdingTarget,
+        withholdingTaxRate,
+        withholdingTaxAmount,
+        netPaymentAmount,
+        isConfidential,
+        invoiceGroupId,
+        paymentGroupId,
+        createdBy: staffId,
+        confirmedBy: staffId,
+        confirmedAt: new Date(),
+      },
+    });
+
+    // 変更履歴を記録
+    await recordChangeLog(
+      {
+        tableName: "Transaction",
+        recordId: transaction.id,
+        changeType: "create",
+        newData: await pickRecordData(
+          transaction as unknown as Record<string, unknown>,
+          [...TRANSACTION_LOG_FIELDS]
+        ),
+      },
+      staffId,
+      tx
+    );
+
+    return { transaction };
+  });
+
+  revalidatePath("/accounting/transactions");
+  revalidatePath("/accounting/dashboard");
+
+  return { id: result.transaction.id };
+}
+
+// ============================================
 // 10. isMonthClosed（月次クローズ状態チェック）
 // ============================================
 
@@ -1314,5 +1504,55 @@ export async function getTransactionFormData(): Promise<TransactionFormData> {
     contracts,
     staffOptions,
     currentUserId: session.id,
+  };
+}
+
+// ============================================
+// 12. getAccountingTransactionFormData（経理モード用）
+// ============================================
+
+export async function getAccountingTransactionFormData(): Promise<TransactionFormData> {
+  const [baseFormData, invoiceGroups, paymentGroups] = await Promise.all([
+    getTransactionFormData(),
+
+    // 経理処理待ち以降の請求グループ
+    prisma.invoiceGroup.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: ["awaiting_accounting", "partially_paid"] },
+      },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        totalAmount: true,
+        status: true,
+        counterparty: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    }),
+
+    // 経理処理待ち以降の支払グループ
+    prisma.paymentGroup.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: ["awaiting_accounting", "confirmed"] },
+      },
+      select: {
+        id: true,
+        referenceCode: true,
+        totalAmount: true,
+        status: true,
+        counterparty: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    }),
+  ]);
+
+  return {
+    ...baseFormData,
+    invoiceGroups,
+    paymentGroups,
   };
 }

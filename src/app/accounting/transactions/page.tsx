@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TransactionsTable } from "./transactions-table";
-import { getTransactions } from "./actions";
+import { getAccountingTransactions } from "./actions";
 
 const reconciliationStatusLabel: Record<string, string> = {
   unmatched: "未消込",
@@ -22,7 +22,7 @@ const reconciliationStatusColor: Record<string, string> = {
 
 export default async function AccountingTransactionsPage() {
   const [businessTransactions, accountingTransactions] = await Promise.all([
-    getTransactions(),
+    getAccountingTransactions(),
     prisma.accountingTransaction.findMany({
       orderBy: { transactionDate: "desc" },
       take: 100,
@@ -34,15 +34,25 @@ export default async function AccountingTransactionsPage() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">取引管理</h1>
-        <Button asChild>
-          <Link href="/accounting/transactions/new">新規取引</Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button asChild variant="outline">
+            <Link href="/accounting/transactions/new">新規取引（プロジェクト向け）</Link>
+          </Button>
+          <Button asChild>
+            <Link href="/accounting/transactions/new?mode=accounting">新規取引（経理）</Link>
+          </Button>
+        </div>
       </div>
 
-      {/* 取引一覧（Transaction モデル） */}
+      {/* 取引一覧（経理処理待ち以降のみ表示） */}
       <Card>
         <CardHeader>
-          <CardTitle>取引一覧</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            取引一覧
+            <span className="text-sm font-normal text-muted-foreground">
+              （経理処理待ち以降のステータスのみ表示）
+            </span>
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <TransactionsTable transactions={businessTransactions} />

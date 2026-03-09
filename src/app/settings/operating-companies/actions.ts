@@ -23,6 +23,7 @@ export async function addOperatingCompany(data: Record<string, unknown>) {
       paymentDay: data.paymentDay != null && data.paymentDay !== ""
         ? Number(data.paymentDay)
         : null,
+      cloudsignClientId: (data.cloudsignClientId as string) || null,
     },
   });
   revalidatePath("/settings/operating-companies");
@@ -44,6 +45,7 @@ export async function updateOperatingCompany(
   if ("phone" in data) updateData.phone = (data.phone as string) || null;
   if ("abbreviation" in data) updateData.abbreviation = (data.abbreviation as string) || null;
   if ("invoicePrefix" in data) updateData.invoicePrefix = (data.invoicePrefix as string) || null;
+  if ("cloudsignClientId" in data) updateData.cloudsignClientId = (data.cloudsignClientId as string) || null;
   if ("paymentMonthOffset" in data) updateData.paymentMonthOffset = data.paymentMonthOffset != null && data.paymentMonthOffset !== ""
     ? Number(data.paymentMonthOffset)
     : null;

@@ -6,7 +6,7 @@ import { getSession } from "@/lib/auth";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
 import { generateOtherCounterpartyDisplayId } from "@/lib/counterparty-sync";
 
-const VALID_TYPES = ["customer", "vendor", "service", "other"] as const;
+const VALID_TYPES = ["customer", "vendor", "service", "project", "other"] as const;
 
 // 正規化比較用（設計書5.7: 全角/半角、カタカナ/ひらがな等の正規化後マッチング）
 function normalizeCounterpartyName(name: string): string {
@@ -91,6 +91,11 @@ export async function createCounterparty(data: Record<string, unknown>) {
   // TP-X displayId 自動採番
   const displayId = await generateOtherCounterpartyDisplayId();
 
+  const isInvoiceRegistered = data.isInvoiceRegistered === true || data.isInvoiceRegistered === "true";
+  const invoiceRegistrationNumber = data.invoiceRegistrationNumber
+    ? (data.invoiceRegistrationNumber as string).trim() || null
+    : null;
+
   await prisma.counterparty.create({
     data: {
       displayId,
@@ -98,6 +103,8 @@ export async function createCounterparty(data: Record<string, unknown>) {
       counterpartyType,
       memo: memo || null,
       isActive,
+      isInvoiceRegistered,
+      invoiceRegistrationNumber,
       createdBy: staffId,
     },
   });
@@ -144,6 +151,22 @@ export async function updateCounterparty(
 
   if ("isActive" in data) {
     updateData.isActive = data.isActive === true || data.isActive === "true";
+  }
+
+  if ("isInvoiceRegistered" in data) {
+    updateData.isInvoiceRegistered = data.isInvoiceRegistered === true || data.isInvoiceRegistered === "true";
+  }
+
+  if ("invoiceRegistrationNumber" in data) {
+    updateData.invoiceRegistrationNumber = data.invoiceRegistrationNumber
+      ? (data.invoiceRegistrationNumber as string).trim() || null
+      : null;
+  }
+
+  if ("invoiceEffectiveDate" in data) {
+    updateData.invoiceEffectiveDate = data.invoiceEffectiveDate
+      ? new Date(data.invoiceEffectiveDate as string)
+      : null;
   }
 
   updateData.updatedBy = staffId;
@@ -211,6 +234,156 @@ export async function syncCounterparties() {
   revalidatePath("/accounting/masters/counterparties");
 
   return { created, updated, total: companies.length };
+}
+
+// CostCenter → 取引先の同期（経理プロジェクト按分先用）
+export async function syncCostCenterCounterparties() {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const costCenters = await prisma.costCenter.findMany({
+    where: { isActive: true, deletedAt: null },
+    select: { id: true, name: true },
+  });
+
+  const existingLinks = await prisma.counterparty.findMany({
+    where: { costCenterId: { not: null }, deletedAt: null },
+    select: { id: true, costCenterId: true, name: true },
+  });
+
+  const linkedCostCenterIds = new Set(
+    existingLinks.map((link) => link.costCenterId as number)
+  );
+
+  let created = 0;
+  let updated = 0;
+
+  for (const costCenter of costCenters) {
+    if (linkedCostCenterIds.has(costCenter.id)) {
+      const existing = existingLinks.find(
+        (link) => link.costCenterId === costCenter.id
+      );
+      if (existing && existing.name !== costCenter.name) {
+        await prisma.counterparty.update({
+          where: { id: existing.id },
+          data: { name: costCenter.name, updatedBy: staffId },
+        });
+        updated++;
+      }
+    } else {
+      const displayId = await generateOtherCounterpartyDisplayId();
+      await prisma.counterparty.create({
+        data: {
+          displayId,
+          name: costCenter.name,
+          costCenterId: costCenter.id,
+          counterpartyType: "project",
+          isActive: true,
+          createdBy: staffId,
+        },
+      });
+      created++;
+    }
+  }
+
+  revalidatePath("/accounting/masters/counterparties");
+
+  return { created, updated, total: costCenters.length };
+}
+
+// ============================================
+// 全顧客マスタ（MasterStellaCompany）のインボイス情報更新
+// ============================================
+
+export async function getStellaCompaniesForAccounting() {
+  return prisma.masterStellaCompany.findMany({
+    where: { deletedAt: null, mergedIntoId: null },
+    select: {
+      id: true,
+      companyCode: true,
+      name: true,
+      corporateNumber: true,
+      isInvoiceRegistered: true,
+      invoiceRegistrationNumber: true,
+      invoiceEffectiveDate: true,
+      closingDay: true,
+      paymentMonthOffset: true,
+      paymentDay: true,
+      bankAccounts: {
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          bankName: true,
+          branchName: true,
+          accountNumber: true,
+          accountHolderName: true,
+        },
+      },
+      counterparties: {
+        where: { deletedAt: null },
+        select: { id: true, displayId: true },
+        take: 1,
+      },
+    },
+    orderBy: [{ companyCode: "asc" }],
+  });
+}
+
+export async function updateStellaCompanyInvoiceInfo(
+  id: number,
+  data: {
+    isInvoiceRegistered?: boolean;
+    invoiceRegistrationNumber?: string | null;
+    invoiceEffectiveDate?: Date | string | null;
+  }
+) {
+  const updateData: Record<string, unknown> = {};
+
+  if ("isInvoiceRegistered" in data) {
+    updateData.isInvoiceRegistered = data.isInvoiceRegistered === true;
+  }
+
+  if ("invoiceRegistrationNumber" in data) {
+    updateData.invoiceRegistrationNumber = data.invoiceRegistrationNumber?.trim() || null;
+  }
+
+  if ("invoiceEffectiveDate" in data) {
+    updateData.invoiceEffectiveDate = data.invoiceEffectiveDate
+      ? new Date(data.invoiceEffectiveDate)
+      : null;
+  }
+
+  await prisma.masterStellaCompany.update({
+    where: { id },
+    data: updateData,
+  });
+
+  // 紐づくCounterpartyにも同期
+  const counterparty = await prisma.counterparty.findFirst({
+    where: { companyId: id, deletedAt: null },
+  });
+  if (counterparty) {
+    const cpUpdate: Record<string, unknown> = {};
+    if ("isInvoiceRegistered" in data) {
+      cpUpdate.isInvoiceRegistered = data.isInvoiceRegistered === true;
+    }
+    if ("invoiceRegistrationNumber" in data) {
+      cpUpdate.invoiceRegistrationNumber = data.invoiceRegistrationNumber?.trim() || null;
+    }
+    if ("invoiceEffectiveDate" in data) {
+      cpUpdate.invoiceEffectiveDate = data.invoiceEffectiveDate
+        ? new Date(data.invoiceEffectiveDate)
+        : null;
+    }
+    if (Object.keys(cpUpdate).length > 0) {
+      await prisma.counterparty.update({
+        where: { id: counterparty.id },
+        data: cpUpdate,
+      });
+    }
+  }
+
+  revalidatePath("/accounting/masters/counterparties");
 }
 
 // ============================================

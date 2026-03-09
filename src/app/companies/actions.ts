@@ -60,6 +60,8 @@ export async function addCompany(data: Record<string, unknown>) {
       closingDay: data.closingDay != null ? Number(data.closingDay) : null,
       paymentMonthOffset: data.paymentMonthOffset != null ? Number(data.paymentMonthOffset) : null,
       paymentDay: data.paymentDay != null ? Number(data.paymentDay) : null,
+      isInvoiceRegistered: data.isInvoiceRegistered === true || data.isInvoiceRegistered === "true",
+      invoiceRegistrationNumber: (data.invoiceRegistrationNumber as string)?.trim() || null,
     },
   });
 
@@ -110,6 +112,8 @@ export async function updateCompany(id: number, data: Record<string, unknown>) {
   if ("closingDay" in data) updateData.closingDay = data.closingDay != null ? Number(data.closingDay) : null;
   if ("paymentMonthOffset" in data) updateData.paymentMonthOffset = data.paymentMonthOffset != null ? Number(data.paymentMonthOffset) : null;
   if ("paymentDay" in data) updateData.paymentDay = data.paymentDay != null ? Number(data.paymentDay) : null;
+  if ("isInvoiceRegistered" in data) updateData.isInvoiceRegistered = data.isInvoiceRegistered === true || data.isInvoiceRegistered === "true";
+  if ("invoiceRegistrationNumber" in data) updateData.invoiceRegistrationNumber = (data.invoiceRegistrationNumber as string)?.trim() || null;
 
   await prisma.masterStellaCompany.update({
     where: { id },
@@ -121,6 +125,30 @@ export async function updateCompany(id: number, data: Record<string, unknown>) {
     try {
       const session = await getSession();
       await updateCounterpartyForCompany(id, data.name as string, session.id);
+    } catch {
+      // 同期失敗時は無視
+    }
+  }
+
+  // インボイス情報変更時、紐づくCounterpartyにも同期
+  if ("isInvoiceRegistered" in data || "invoiceRegistrationNumber" in data) {
+    try {
+      const counterparty = await prisma.counterparty.findFirst({
+        where: { companyId: id, deletedAt: null },
+      });
+      if (counterparty) {
+        const cpUpdate: Record<string, unknown> = {};
+        if ("isInvoiceRegistered" in data) {
+          cpUpdate.isInvoiceRegistered = data.isInvoiceRegistered === true || data.isInvoiceRegistered === "true";
+        }
+        if ("invoiceRegistrationNumber" in data) {
+          cpUpdate.invoiceRegistrationNumber = (data.invoiceRegistrationNumber as string)?.trim() || null;
+        }
+        await prisma.counterparty.update({
+          where: { id: counterparty.id },
+          data: cpUpdate,
+        });
+      }
     } catch {
       // 同期失敗時は無視
     }

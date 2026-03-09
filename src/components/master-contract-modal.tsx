@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MultiSelectCombobox } from "@/components/ui/multi-select-combobox";
 import {
   Table,
   TableBody,
@@ -293,7 +294,10 @@ export function MasterContractModal({
 
   const getStaffName = (staffId: string | null | undefined) => {
     if (!staffId) return "-";
-    return staffOptions.find((o) => o.value === staffId)?.label || staffId;
+    return staffId
+      .split(",")
+      .map((id) => staffOptions.find((o) => o.value === id.trim())?.label || id.trim())
+      .join(", ");
   };
 
   const datePickerClassName = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
@@ -482,24 +486,15 @@ export function MasterContractModal({
                     />
                   </div>
 
-                  {/* 担当者 */}
-                  <div>
+                  {/* 担当者（複数選択可） */}
+                  <div className="col-span-2">
                     <Label htmlFor="assignedTo">担当者</Label>
-                    <Select
-                      value={formData.assignedTo}
-                      onValueChange={(value) => setFormData({ ...formData, assignedTo: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="選択してください" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {staffOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <MultiSelectCombobox
+                      options={staffOptions}
+                      value={formData.assignedTo ? formData.assignedTo.split(",").filter(Boolean) : []}
+                      onChange={(values) => setFormData({ ...formData, assignedTo: values.join(",") })}
+                      placeholder="担当者を選択"
+                    />
                   </div>
                 </div>
 

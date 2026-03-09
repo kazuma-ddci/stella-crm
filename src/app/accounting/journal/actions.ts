@@ -16,6 +16,8 @@ export type JournalEntryLineInput = {
   accountId: number;
   amount: number;
   description?: string;
+  taxClassification?: string;
+  taxAmount?: number;
 };
 
 export type JournalFormData = {
@@ -25,6 +27,32 @@ export type JournalFormData = {
     name: string;
     category: string;
   }[];
+  bankTransactions: {
+    id: number;
+    transactionDate: Date;
+    direction: string;
+    amount: number;
+    description: string | null;
+    counterparty: { id: number; name: string } | null;
+    paymentMethod: { id: number; name: string };
+  }[];
+  projects: {
+    id: number;
+    code: string;
+    name: string;
+  }[];
+  counterparties: {
+    id: number;
+    displayId: string | null;
+    name: string;
+    companyId: number | null;
+    costCenterId: number | null;
+    isInvoiceRegistered: boolean;
+  }[];
+  taxAccounts: {
+    inputTaxAccountId: number | null;  // 仮払消費税
+    outputTaxAccountId: number | null; // 仮受消費税
+  };
 };
 
 // ============================================
@@ -33,6 +61,11 @@ export type JournalFormData = {
 
 const VALID_STATUSES = ["draft", "confirmed"] as const;
 const VALID_SIDES = ["debit", "credit"] as const;
+const VALID_REALIZATION_STATUSES = ["realized", "unrealized"] as const;
+const VALID_TAX_CLASSIFICATIONS = [
+  "taxable_10", "taxable_8", "exempt", "non_taxable",
+  "tax_free_export", "taxable_10_no_invoice", "taxable_8_no_invoice",
+] as const;
 
 function validateJournalEntryData(data: Record<string, unknown>) {
   // journalDate
@@ -60,6 +93,16 @@ function validateJournalEntryData(data: Record<string, unknown>) {
   const transactionId = data.transactionId
     ? Number(data.transactionId)
     : null;
+
+  if (invoiceGroupId !== null && (isNaN(invoiceGroupId) || !Number.isInteger(invoiceGroupId) || invoiceGroupId <= 0)) {
+    throw new Error("請求グループIDが不正です");
+  }
+  if (paymentGroupId !== null && (isNaN(paymentGroupId) || !Number.isInteger(paymentGroupId) || paymentGroupId <= 0)) {
+    throw new Error("支払グループIDが不正です");
+  }
+  if (transactionId !== null && (isNaN(transactionId) || !Number.isInteger(transactionId) || transactionId <= 0)) {
+    throw new Error("取引IDが不正です");
+  }
 
   const nonNullCount = [invoiceGroupId, paymentGroupId, transactionId].filter(
     (v) => v !== null
@@ -114,12 +157,73 @@ function validateJournalEntryData(data: Record<string, unknown>) {
     throw new Error("借方・貸方の合計金額が0円です");
   }
 
+  // 消費税区分バリデーション
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.taxClassification && !(VALID_TAX_CLASSIFICATIONS as readonly string[]).includes(line.taxClassification)) {
+      throw new Error(`明細${i + 1}: 無効な消費税区分です`);
+    }
+  }
+
+  // ステータス
+  const status = (data.status as string) || "draft";
+  if (!(VALID_STATUSES as readonly string[]).includes(status)) {
+    throw new Error("無効なステータスです");
+  }
+
+  // 実現/未実現
+  const realizationStatus = (data.realizationStatus as string) || "";
+  if (status === "confirmed" && !realizationStatus) {
+    throw new Error("実現ステータスを選択してください");
+  }
+  if (realizationStatus && !(VALID_REALIZATION_STATUSES as readonly string[]).includes(realizationStatus)) {
+    throw new Error("無効な実現ステータスです");
+  }
+
+  const scheduledDate = data.scheduledDate
+    ? new Date(data.scheduledDate as string)
+    : null;
+  if (scheduledDate && isNaN(scheduledDate.getTime())) {
+    throw new Error("実現予定日が無効な日付です");
+  }
+
+  // 未実現の場合は予定日が推奨
+  if (realizationStatus === "unrealized" && !scheduledDate) {
+    // 警告だけで必須にはしない
+  }
+
+  const bankTransactionId = data.bankTransactionId
+    ? Number(data.bankTransactionId)
+    : null;
+
+  if (bankTransactionId !== null && (isNaN(bankTransactionId) || !Number.isInteger(bankTransactionId) || bankTransactionId <= 0)) {
+    throw new Error("入出金IDが不正です");
+  }
+
+  // プロジェクト・取引先・インボイス有無
+  const projectId = data.projectId ? Number(data.projectId) : null;
+  if (projectId !== null && (isNaN(projectId) || !Number.isInteger(projectId) || projectId <= 0)) {
+    throw new Error("プロジェクトIDが不正です");
+  }
+  const counterpartyId = data.counterpartyId ? Number(data.counterpartyId) : null;
+  if (counterpartyId !== null && (isNaN(counterpartyId) || !Number.isInteger(counterpartyId) || counterpartyId <= 0)) {
+    throw new Error("取引先IDが不正です");
+  }
+  const hasInvoice = data.hasInvoice !== false;
+
   return {
     journalDate,
     description,
     invoiceGroupId,
     paymentGroupId,
     transactionId,
+    bankTransactionId,
+    projectId,
+    counterpartyId,
+    hasInvoice,
+    status,
+    realizationStatus: realizationStatus || "unrealized",
+    scheduledDate,
     lines,
     debitTotal,
     creditTotal,
@@ -184,8 +288,20 @@ export async function getJournalEntries(filters?: {
           counterparty: { select: { id: true, name: true } },
         },
       },
+      bankTransaction: {
+        select: {
+          id: true,
+          transactionDate: true,
+          direction: true,
+          amount: true,
+          description: true,
+        },
+      },
+      project: { select: { id: true, code: true, name: true } },
+      counterparty: { select: { id: true, name: true, isInvoiceRegistered: true } },
       creator: { select: { id: true, name: true } },
       approver: { select: { id: true, name: true } },
+      realizer: { select: { id: true, name: true } },
     },
     orderBy: [{ journalDate: "desc" }, { id: "desc" }],
   });
@@ -232,6 +348,15 @@ export async function createJournalEntry(data: Record<string, unknown>) {
       throw new Error("指定された取引が見つかりません");
     }
   }
+  if (validated.bankTransactionId) {
+    const bt = await prisma.bankTransaction.findFirst({
+      where: { id: validated.bankTransactionId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!bt) {
+      throw new Error("指定された入出金が見つかりません");
+    }
+  }
 
   // 勘定科目の存在チェック
   const accountIds = [
@@ -248,7 +373,9 @@ export async function createJournalEntry(data: Record<string, unknown>) {
     }
   }
 
-  const result = await prisma.$transaction(async (tx) => {
+  let result;
+  try {
+  result = await prisma.$transaction(async (tx) => {
     const journalEntry = await tx.journalEntry.create({
       data: {
         journalDate: validated.journalDate,
@@ -256,8 +383,14 @@ export async function createJournalEntry(data: Record<string, unknown>) {
         invoiceGroupId: validated.invoiceGroupId,
         paymentGroupId: validated.paymentGroupId,
         transactionId: validated.transactionId,
+        bankTransactionId: validated.bankTransactionId,
+        projectId: validated.projectId,
+        counterpartyId: validated.counterpartyId,
+        hasInvoice: validated.hasInvoice,
+        realizationStatus: validated.realizationStatus,
+        scheduledDate: validated.scheduledDate,
         isAutoGenerated: false,
-        status: "draft",
+        status: validated.status,
         createdBy: staffId,
       },
     });
@@ -269,6 +402,8 @@ export async function createJournalEntry(data: Record<string, unknown>) {
         accountId: Number(line.accountId),
         amount: Number(line.amount),
         description: line.description?.trim() || null,
+        taxClassification: line.taxClassification || null,
+        taxAmount: line.taxAmount != null ? Number(line.taxAmount) : null,
         createdBy: staffId,
       })),
     });
@@ -290,6 +425,12 @@ export async function createJournalEntry(data: Record<string, unknown>) {
 
     return journalEntry;
   });
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("Foreign key constraint")) {
+      throw new Error("紐づき先のレコードが見つかりません。入力内容を確認してください");
+    }
+    throw err;
+  }
 
   revalidatePath("/accounting/journal");
   return { id: result.id };
@@ -324,6 +465,17 @@ export async function updateJournalEntry(
   // 月次クローズチェック（新しい日付）
   await ensureMonthNotClosed(validated.journalDate);
 
+  // bankTransaction存在チェック
+  if (validated.bankTransactionId) {
+    const bt = await prisma.bankTransaction.findFirst({
+      where: { id: validated.bankTransactionId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!bt) {
+      throw new Error("指定された入出金が見つかりません");
+    }
+  }
+
   // 勘定科目の存在チェック
   const accountIds = [
     ...new Set(validated.lines.map((l) => Number(l.accountId))),
@@ -339,6 +491,7 @@ export async function updateJournalEntry(
     }
   }
 
+  try {
   await prisma.$transaction(async (tx) => {
     const updated = await tx.journalEntry.update({
       where: { id },
@@ -348,6 +501,12 @@ export async function updateJournalEntry(
         invoiceGroupId: validated.invoiceGroupId,
         paymentGroupId: validated.paymentGroupId,
         transactionId: validated.transactionId,
+        bankTransactionId: validated.bankTransactionId,
+        projectId: validated.projectId,
+        counterpartyId: validated.counterpartyId,
+        hasInvoice: validated.hasInvoice,
+        realizationStatus: validated.realizationStatus,
+        scheduledDate: validated.scheduledDate,
         updatedBy: staffId,
       },
     });
@@ -364,6 +523,8 @@ export async function updateJournalEntry(
         accountId: Number(line.accountId),
         amount: Number(line.amount),
         description: line.description?.trim() || null,
+        taxClassification: line.taxClassification || null,
+        taxAmount: line.taxAmount != null ? Number(line.taxAmount) : null,
         createdBy: staffId,
       })),
     });
@@ -392,6 +553,12 @@ export async function updateJournalEntry(
       );
     }
   });
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("Foreign key constraint")) {
+      throw new Error("紐づき先のレコードが見つかりません。入力内容を確認してください");
+    }
+    throw err;
+  }
 
   revalidatePath("/accounting/journal");
 }
@@ -575,11 +742,197 @@ export async function deleteJournalEntry(id: number) {
 // ============================================
 
 export async function getJournalFormData(): Promise<JournalFormData> {
-  const accounts = await prisma.account.findMany({
-    where: { isActive: true },
-    select: { id: true, code: true, name: true, category: true },
-    orderBy: [{ displayOrder: "asc" }, { code: "asc" }],
+  const [accounts, bankTransactions, projects, counterparties, inputTaxAccount, outputTaxAccount] = await Promise.all([
+    prisma.account.findMany({
+      where: { isActive: true },
+      select: { id: true, code: true, name: true, category: true },
+      orderBy: [{ displayOrder: "asc" }, { code: "asc" }],
+    }),
+    prisma.bankTransaction.findMany({
+      where: { deletedAt: null },
+      select: {
+        id: true,
+        transactionDate: true,
+        direction: true,
+        amount: true,
+        description: true,
+        counterparty: { select: { id: true, name: true } },
+        paymentMethod: { select: { id: true, name: true } },
+      },
+      orderBy: { transactionDate: "desc" },
+      take: 200,
+    }),
+    prisma.masterProject.findMany({
+      where: { isActive: true },
+      select: { id: true, code: true, name: true },
+      orderBy: { displayOrder: "asc" },
+    }),
+    prisma.counterparty.findMany({
+      where: { isActive: true, deletedAt: null, mergedIntoId: null },
+      select: { id: true, displayId: true, name: true, companyId: true, costCenterId: true, isInvoiceRegistered: true },
+      orderBy: { displayId: "asc" },
+    }),
+    prisma.account.findFirst({
+      where: { name: "仮払消費税", isActive: true },
+      select: { id: true },
+    }),
+    prisma.account.findFirst({
+      where: { name: "仮受消費税", isActive: true },
+      select: { id: true },
+    }),
+  ]);
+
+  return {
+    accounts,
+    bankTransactions,
+    projects,
+    counterparties,
+    taxAccounts: {
+      inputTaxAccountId: inputTaxAccount?.id ?? null,
+      outputTaxAccountId: outputTaxAccount?.id ?? null,
+    },
+  };
+}
+
+// ============================================
+// 7. realizeJournalEntry（仕訳を実現に変更）
+// ============================================
+
+export async function realizeJournalEntry(id: number) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const entry = await prisma.journalEntry.findFirst({
+    where: { id, deletedAt: null },
+  });
+  if (!entry) {
+    throw new Error("仕訳が見つかりません");
+  }
+  if (entry.status !== "confirmed") {
+    throw new Error("確定済みの仕訳のみ実現に変更できます");
+  }
+  if (entry.realizationStatus !== "unrealized") {
+    throw new Error("未実現の仕訳のみ実現に変更できます");
+  }
+
+  // 月次クローズチェック
+  await ensureMonthNotClosed(entry.journalDate);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.journalEntry.update({
+      where: { id },
+      data: {
+        realizationStatus: "realized",
+        realizedAt: new Date(),
+        realizedBy: staffId,
+        updatedBy: staffId,
+      },
+    });
+
+    await recordChangeLog(
+      {
+        tableName: "JournalEntry",
+        recordId: id,
+        changeType: "update",
+        oldData: { realizationStatus: "unrealized" },
+        newData: { realizationStatus: "realized" },
+      },
+      staffId,
+      tx
+    );
   });
 
-  return { accounts };
+  revalidatePath("/accounting/journal");
+  revalidatePath("/accounting/workflow");
+}
+
+// ============================================
+// 8. unrealizeJournalEntry（仕訳を未実現に戻す）
+// ============================================
+
+export async function unrealizeJournalEntry(id: number) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const entry = await prisma.journalEntry.findFirst({
+    where: { id, deletedAt: null },
+  });
+  if (!entry) {
+    throw new Error("仕訳が見つかりません");
+  }
+  if (entry.status !== "confirmed") {
+    throw new Error("確定済みの仕訳のみ実現ステータスを変更できます");
+  }
+  if (entry.realizationStatus !== "realized") {
+    throw new Error("実現済みの仕訳のみ未実現に戻せます");
+  }
+
+  // 月次クローズチェック
+  await ensureMonthNotClosed(entry.journalDate);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.journalEntry.update({
+      where: { id },
+      data: {
+        realizationStatus: "unrealized",
+        realizedAt: null,
+        realizedBy: null,
+        updatedBy: staffId,
+      },
+    });
+
+    await recordChangeLog(
+      {
+        tableName: "JournalEntry",
+        recordId: id,
+        changeType: "update",
+        oldData: { realizationStatus: "realized" },
+        newData: { realizationStatus: "unrealized" },
+      },
+      staffId,
+      tx
+    );
+  });
+
+  revalidatePath("/accounting/journal");
+  revalidatePath("/accounting/workflow");
+}
+
+// ============================================
+// 9. getUnrealizedScheduledEntries（実現予定日到来の未実現仕訳一覧）
+// ============================================
+
+export async function getUnrealizedScheduledEntries() {
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+
+  return prisma.journalEntry.findMany({
+    where: {
+      deletedAt: null,
+      realizationStatus: "unrealized",
+      scheduledDate: { lte: today },
+    },
+    include: {
+      lines: {
+        include: {
+          account: { select: { id: true, code: true, name: true } },
+        },
+      },
+      invoiceGroup: {
+        select: {
+          id: true,
+          invoiceNumber: true,
+          counterparty: { select: { id: true, name: true } },
+        },
+      },
+      paymentGroup: {
+        select: {
+          id: true,
+          counterparty: { select: { id: true, name: true } },
+        },
+      },
+      creator: { select: { id: true, name: true } },
+    },
+    orderBy: [{ scheduledDate: "asc" }, { id: "asc" }],
+  });
 }

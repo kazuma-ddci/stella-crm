@@ -149,6 +149,21 @@ function validateReconciliationData(data: Record<string, unknown>) {
     if (!differenceLines || differenceLines.length < 2) {
       throw new Error("差額仕訳は最低2行（借方・貸方）必要です");
     }
+    // 各行の詳細バリデーション
+    for (let i = 0; i < differenceLines.length; i++) {
+      const line = differenceLines[i];
+      if (line.side !== "debit" && line.side !== "credit") {
+        throw new Error(`差額仕訳の明細${i + 1}: 借方/貸方の指定が不正です`);
+      }
+      const lineAccountId = Number(line.accountId);
+      if (!line.accountId || isNaN(lineAccountId) || !Number.isInteger(lineAccountId) || lineAccountId <= 0) {
+        throw new Error(`差額仕訳の明細${i + 1}: 勘定科目は必須です`);
+      }
+      const lineAmount = Number(line.amount);
+      if (isNaN(lineAmount) || lineAmount <= 0 || !Number.isInteger(lineAmount)) {
+        throw new Error(`差額仕訳の明細${i + 1}: 金額は1以上の整数で入力してください`);
+      }
+    }
     const debitTotal = differenceLines
       .filter((l) => l.side === "debit")
       .reduce((sum, l) => sum + Number(l.amount), 0);
@@ -420,6 +435,7 @@ export async function getUnmatchedJournalEntries(): Promise<
     where: {
       deletedAt: null,
       status: "confirmed",
+      sourceReconciliationId: null, // 消込自動仕訳は除外
     },
     include: {
       lines: {
@@ -548,7 +564,7 @@ export async function createReconciliation(data: Record<string, unknown>) {
 
   const validated = validateReconciliationData(data);
 
-  // 仕訳の存在チェック
+  // 仕訳の存在チェック（事前チェック）
   const journalEntry = await prisma.journalEntry.findFirst({
     where: {
       id: validated.journalEntryId,
@@ -557,37 +573,16 @@ export async function createReconciliation(data: Record<string, unknown>) {
     },
     include: {
       lines: true,
-      reconciliations: { select: { amount: true } },
     },
   });
   if (!journalEntry) {
     throw new Error("仕訳が見つかりません（確定済みの仕訳が必要です）");
   }
 
-  // 仕訳の借方合計
-  const journalDebitTotal = journalEntry.lines
-    .filter((l) => l.side === "debit")
-    .reduce((sum, l) => sum + l.amount, 0);
-
-  // 仕訳側の既消込金額
-  const journalReconciledAmount = journalEntry.reconciliations.reduce(
-    (sum, r) => sum + r.amount,
-    0
-  );
-
-  // 消込金額が仕訳の残額を超えないか
-  const journalRemaining = journalDebitTotal - journalReconciledAmount;
-  if (validated.amount > journalRemaining) {
-    throw new Error(
-      `消込金額（${validated.amount.toLocaleString()}円）が仕訳の未消込残額（${journalRemaining.toLocaleString()}円）を超えています`
-    );
-  }
-
-  // 入出金の存在チェック（paymentMethodを含む）
+  // 入出金の存在チェック（事前チェック）
   const bankTransaction = await prisma.bankTransaction.findFirst({
     where: { id: validated.bankTransactionId, deletedAt: null },
     include: {
-      reconciliations: { select: { amount: true } },
       paymentMethod: { select: { id: true, methodType: true } },
     },
   });
@@ -595,18 +590,19 @@ export async function createReconciliation(data: Record<string, unknown>) {
     throw new Error("入出金が見つかりません");
   }
 
-  // 入出金側の既消込金額
-  const bankReconciledAmount = bankTransaction.reconciliations.reduce(
-    (sum, r) => sum + r.amount,
-    0
-  );
-
-  // 消込金額が入出金の残額を超えないか
-  const bankRemaining = bankTransaction.amount - bankReconciledAmount;
-  if (validated.amount > bankRemaining) {
-    throw new Error(
-      `消込金額（${validated.amount.toLocaleString()}円）が入出金の未消込残額（${bankRemaining.toLocaleString()}円）を超えています`
-    );
+  // 差額仕訳の勘定科目存在チェック
+  if (validated.differenceLines && validated.differenceLines.length > 0) {
+    const diffAccountIds = [...new Set(validated.differenceLines.map((l) => Number(l.accountId)))];
+    const diffAccounts = await prisma.account.findMany({
+      where: { id: { in: diffAccountIds } },
+      select: { id: true },
+    });
+    const foundIds = new Set(diffAccounts.map((a) => a.id));
+    for (const aid of diffAccountIds) {
+      if (!foundIds.has(aid)) {
+        throw new Error(`差額仕訳の勘定科目ID ${aid} が見つかりません`);
+      }
+    }
   }
 
   // P3: 月次クローズチェック
@@ -615,8 +611,43 @@ export async function createReconciliation(data: Record<string, unknown>) {
     bankTransaction.transactionDate
   );
 
-  // トランザクションで消込＋入金仕訳＋差額仕訳を作成
+  // トランザクション内で残額を再計算し、過消込を防止
   const result = await prisma.$transaction(async (tx) => {
+    // トランザクション内で仕訳側の残額を再検証
+    const jeReconciliations = await tx.reconciliation.findMany({
+      where: { journalEntryId: validated.journalEntryId },
+      select: { amount: true },
+    });
+    const journalDebitTotal = journalEntry.lines
+      .filter((l) => l.side === "debit")
+      .reduce((sum, l) => sum + l.amount, 0);
+    const journalReconciledAmount = jeReconciliations.reduce(
+      (sum, r) => sum + r.amount,
+      0
+    );
+    const journalRemaining = journalDebitTotal - journalReconciledAmount;
+    if (validated.amount > journalRemaining) {
+      throw new Error(
+        `消込金額（${validated.amount.toLocaleString()}円）が仕訳の未消込残額（${journalRemaining.toLocaleString()}円）を超えています`
+      );
+    }
+
+    // トランザクション内で入出金側の残額を再検証
+    const btReconciliations = await tx.reconciliation.findMany({
+      where: { bankTransactionId: validated.bankTransactionId },
+      select: { amount: true },
+    });
+    const bankReconciledAmount = btReconciliations.reduce(
+      (sum, r) => sum + r.amount,
+      0
+    );
+    const bankRemaining = bankTransaction.amount - bankReconciledAmount;
+    if (validated.amount > bankRemaining) {
+      throw new Error(
+        `消込金額（${validated.amount.toLocaleString()}円）が入出金の未消込残額（${bankRemaining.toLocaleString()}円）を超えています`
+      );
+    }
+
     // 消込レコード作成
     const reconciliation = await tx.reconciliation.create({
       data: {
@@ -657,6 +688,7 @@ export async function createReconciliation(data: Record<string, unknown>) {
             journalDate: bankTransaction.transactionDate,
             description: cashDescription,
             isAutoGenerated: true,
+            sourceReconciliationId: reconciliation.id,
             status: "confirmed",
             approvedBy: staffId,
             approvedAt: new Date(),
@@ -709,6 +741,7 @@ export async function createReconciliation(data: Record<string, unknown>) {
           journalDate: bankTransaction.transactionDate,
           description: diffDescription,
           isAutoGenerated: true,
+          sourceReconciliationId: reconciliation.id,
           status: "confirmed",
           approvedBy: staffId,
           approvedAt: new Date(),
@@ -784,21 +817,14 @@ export async function cancelReconciliation(id: number) {
   );
 
   await prisma.$transaction(async (tx) => {
-    // 消込に紐づく自動生成仕訳（入金仕訳・差額仕訳）を論理削除
-    // 部分一致による誤マッチを防ぐため、消込IDの後に非数字が続くパターンで検索
-    const candidateJournals = await tx.journalEntry.findMany({
+    // 消込に紐づく自動生成仕訳を参照ベースで論理削除
+    const autoJournals = await tx.journalEntry.findMany({
       where: {
-        isAutoGenerated: true,
+        sourceReconciliationId: id,
         deletedAt: null,
-        description: { contains: `消込#${id}` },
       },
-      select: { id: true, description: true },
+      select: { id: true },
     });
-    // 厳密マッチ: "消込#${id}" の後に数字が続かないことを確認
-    const pattern = new RegExp(`消込#${id}(?!\\d)`);
-    const autoJournals = candidateJournals.filter(
-      (j) => j.description && pattern.test(j.description)
-    );
 
     for (const journal of autoJournals) {
       await tx.journalEntry.update({

@@ -22,11 +22,16 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Plus, CheckCircle, Pencil, Trash2 } from "lucide-react";
+import { Plus, CheckCircle, Pencil, Trash2, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
-import { JournalStatusBadge } from "./journal-status-badge";
+import { JournalStatusBadge, RealizationStatusBadge } from "./journal-status-badge";
 import { JournalEntryModal } from "./journal-entry-modal";
-import { confirmJournalEntry, deleteJournalEntry } from "./actions";
+import {
+  confirmJournalEntry,
+  deleteJournalEntry,
+  realizeJournalEntry,
+  unrealizeJournalEntry,
+} from "./actions";
 import type { JournalFormData } from "./actions";
 
 type JournalEntryRow = {
@@ -38,6 +43,10 @@ type JournalEntryRow = {
   invoiceGroupId: number | null;
   paymentGroupId: number | null;
   transactionId: number | null;
+  bankTransactionId: number | null;
+  realizationStatus: string;
+  scheduledDate: Date | null;
+  realizedAt: Date | null;
   approvedAt: Date | null;
   lines: {
     id: number;
@@ -45,6 +54,8 @@ type JournalEntryRow = {
     accountId: number;
     amount: number;
     description: string | null;
+    taxClassification: string | null;
+    taxAmount: number | null;
     account: { id: number; code: string; name: string };
   }[];
   invoiceGroup: {
@@ -63,8 +74,21 @@ type JournalEntryRow = {
     amount: number;
     counterparty: { id: number; name: string } | null;
   } | null;
+  bankTransaction: {
+    id: number;
+    transactionDate: Date;
+    direction: string;
+    amount: number;
+    description: string | null;
+  } | null;
+  projectId: number | null;
+  counterpartyId: number | null;
+  hasInvoice: boolean;
+  project: { id: number; code: string; name: string } | null;
+  counterparty: { id: number; name: string; isInvoiceRegistered: boolean } | null;
   creator: { id: number; name: string } | null;
   approver: { id: number; name: string } | null;
+  realizer: { id: number; name: string } | null;
 };
 
 type Props = {
@@ -78,6 +102,7 @@ export function JournalTable({ entries, formData }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<JournalEntryRow | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [realizationFilter, setRealizationFilter] = useState<string>("all");
   const [searchText, setSearchText] = useState("");
 
   // フィルタリング
@@ -86,6 +111,10 @@ export function JournalTable({ entries, formData }: Props) {
 
     if (statusFilter !== "all") {
       result = result.filter((e) => e.status === statusFilter);
+    }
+
+    if (realizationFilter !== "all") {
+      result = result.filter((e) => e.realizationStatus === realizationFilter);
     }
 
     if (searchText.trim()) {
@@ -106,7 +135,7 @@ export function JournalTable({ entries, formData }: Props) {
     }
 
     return result;
-  }, [entries, statusFilter, searchText]);
+  }, [entries, statusFilter, realizationFilter, searchText]);
 
   const handleConfirm = (id: number) => {
     startTransition(async () => {
@@ -136,6 +165,34 @@ export function JournalTable({ entries, formData }: Props) {
     });
   };
 
+  const handleRealize = (id: number) => {
+    startTransition(async () => {
+      try {
+        await realizeJournalEntry(id);
+        toast.success("仕訳を実現にしました");
+        router.refresh();
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "実現に失敗しました"
+        );
+      }
+    });
+  };
+
+  const handleUnrealize = (id: number) => {
+    startTransition(async () => {
+      try {
+        await unrealizeJournalEntry(id);
+        toast.success("仕訳を未実現に戻しました");
+        router.refresh();
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "未実現に戻す処理に失敗しました"
+        );
+      }
+    });
+  };
+
   const getSourceLabel = (entry: JournalEntryRow): string => {
     if (entry.invoiceGroup) {
       const num = entry.invoiceGroup.invoiceNumber ?? `#${entry.invoiceGroup.id}`;
@@ -154,6 +211,10 @@ export function JournalTable({ entries, formData }: Props) {
       const type = entry.transaction.type === "revenue" ? "売上" : "経費";
       const name = entry.transaction.counterparty?.name ?? "";
       return `${type}: ${name}`;
+    }
+    if (entry.bankTransaction) {
+      const dir = entry.bankTransaction.direction === "incoming" ? "入金" : "出金";
+      return `${dir}: ¥${entry.bankTransaction.amount.toLocaleString()}`;
     }
     return "手動仕訳";
   };
@@ -176,6 +237,16 @@ export function JournalTable({ entries, formData }: Props) {
             <SelectItem value="all">全てのステータス</SelectItem>
             <SelectItem value="draft">下書き</SelectItem>
             <SelectItem value="confirmed">確定</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={realizationFilter} onValueChange={setRealizationFilter}>
+          <SelectTrigger className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">実現/未実現</SelectItem>
+            <SelectItem value="realized">実現のみ</SelectItem>
+            <SelectItem value="unrealized">未実現のみ</SelectItem>
           </SelectContent>
         </Select>
         <div className="ml-auto">
@@ -203,6 +274,7 @@ export function JournalTable({ entries, formData }: Props) {
                 <th className="px-3 py-2 font-medium text-right">金額</th>
                 <th className="px-3 py-2 font-medium">紐づき先</th>
                 <th className="px-3 py-2 font-medium">ステータス</th>
+                <th className="px-3 py-2 font-medium">実現</th>
                 <th className="px-3 py-2 font-medium">作成者</th>
                 <th className="px-3 py-2 font-medium">操作</th>
               </tr>
@@ -259,6 +331,16 @@ export function JournalTable({ entries, formData }: Props) {
                     <td className="px-3 py-2">
                       <JournalStatusBadge status={entry.status} />
                     </td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-col gap-1">
+                        <RealizationStatusBadge status={entry.realizationStatus} />
+                        {entry.realizationStatus === "unrealized" && entry.scheduledDate && (
+                          <span className="text-xs text-muted-foreground">
+                            予定: {new Date(entry.scheduledDate).toLocaleDateString("ja-JP")}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
                       {entry.creator?.name ?? "-"}
                       {entry.approver && (
@@ -269,9 +351,73 @@ export function JournalTable({ entries, formData }: Props) {
                           </span>
                         </>
                       )}
+                      {entry.realizer && (
+                        <>
+                          <br />
+                          <span className="text-blue-600">
+                            実現: {entry.realizer.name}
+                          </span>
+                        </>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1">
+                        {/* 実現/未実現切替ボタン */}
+                        {entry.realizationStatus === "unrealized" ? (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700"
+                                disabled={isPending}
+                                title="実現にする"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>仕訳を実現にしますか？</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  この仕訳を実現済みに変更します。
+                                  <br /><br />
+                                  <strong>摘要:</strong> {entry.description}
+                                  <br />
+                                  <strong>金額:</strong> ¥{totalAmount.toLocaleString()}
+                                  {entry.scheduledDate && (
+                                    <>
+                                      <br />
+                                      <strong>予定日:</strong>{" "}
+                                      {new Date(entry.scheduledDate).toLocaleDateString("ja-JP")}
+                                    </>
+                                  )}
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleRealize(entry.id)}
+                                  disabled={isPending}
+                                >
+                                  実現にする
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-orange-600"
+                            disabled={isPending}
+                            title="未実現に戻す"
+                            onClick={() => handleUnrealize(entry.id)}
+                          >
+                            <EyeOff className="h-4 w-4" />
+                          </Button>
+                        )}
+
                         {entry.status === "draft" && (
                           <>
                             {/* 編集ボタン */}

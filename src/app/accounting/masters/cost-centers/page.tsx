@@ -36,7 +36,7 @@ export default async function CostCentersPage() {
       <h1 className="text-2xl font-bold">経理用プロジェクト管理</h1>
       <Card>
         <CardHeader>
-          <CardTitle>按分先一覧</CardTitle>
+          <CardTitle>経理専用プロジェクト一覧</CardTitle>
         </CardHeader>
         <CardContent>
           <CostCentersTable data={data} projectOptions={projectOptions} />

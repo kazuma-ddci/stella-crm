@@ -10,6 +10,12 @@ const METHOD_TYPE_OPTIONS = [
   { value: "crypto_wallet", label: "仮想通貨ウォレット" },
 ];
 
+const AVAILABLE_FOR_OPTIONS = [
+  { value: "both", label: "入金・出金" },
+  { value: "incoming", label: "入金のみ" },
+  { value: "outgoing", label: "出金のみ" },
+];
+
 const ACCOUNT_TYPE_OPTIONS = [
   { value: "", label: "（選択してください）" },
   { value: "ordinary", label: "普通" },
@@ -146,6 +152,13 @@ export function PaymentMethodsTable({
     },
     // === 共通フィールド ===
     {
+      key: "availableFor",
+      header: "利用区分",
+      type: "select",
+      options: AVAILABLE_FOR_OPTIONS,
+      defaultValue: "both",
+    },
+    {
       key: "initialBalance",
       header: "初期残高",
       type: "number",
@@ -175,6 +188,10 @@ export function PaymentMethodsTable({
   const customRenderers: CustomRenderers = {
     methodType: (value) => {
       const option = METHOD_TYPE_OPTIONS.find((o) => o.value === value);
+      return option ? option.label : String(value);
+    },
+    availableFor: (value) => {
+      const option = AVAILABLE_FOR_OPTIONS.find((o) => o.value === value);
       return option ? option.label : String(value);
     },
     settlementAccountId: (value, item) => {

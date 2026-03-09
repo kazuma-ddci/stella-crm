@@ -11,6 +11,7 @@ type TransactionRow = {
   amount: number;
   taxAmount: number;
   status: string;
+  sourceType: string | null;
   periodFrom: Date;
   periodTo: Date;
   note: string | null;
@@ -21,6 +22,7 @@ type TransactionRow = {
   confirmer: { id: number; name: string } | null;
   confirmedAt: Date | null;
   allocationTemplate: { id: number; name: string } | null;
+  creator?: { id: number; name: string } | null;
 };
 
 export function TransactionsTable({
@@ -49,7 +51,7 @@ export function TransactionsTable({
             <th className="px-3 py-2 font-medium text-right">消費税</th>
             <th className="px-3 py-2 font-medium">プロジェクト</th>
             <th className="px-3 py-2 font-medium">ステータス</th>
-            <th className="px-3 py-2 font-medium">確認者</th>
+            <th className="px-3 py-2 font-medium">ソース</th>
             <th className="px-3 py-2 font-medium">操作</th>
           </tr>
         </thead>
@@ -86,18 +88,12 @@ export function TransactionsTable({
                 <TransactionStatusBadge status={tx.status} />
               </td>
               <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground">
-                {tx.confirmer ? (
-                  <span>
-                    {tx.confirmer.name}
-                    {tx.confirmedAt && (
-                      <>
-                        <br />
-                        {new Date(tx.confirmedAt).toLocaleDateString("ja-JP")}
-                      </>
-                    )}
-                  </span>
+                {tx.sourceType === "accounting" ? (
+                  <span className="text-blue-600">経理作成</span>
+                ) : tx.project ? (
+                  <span>{tx.project.code}</span>
                 ) : (
-                  "-"
+                  <span>{tx.creator?.name ?? "-"}</span>
                 )}
               </td>
               <td className="px-3 py-2">
