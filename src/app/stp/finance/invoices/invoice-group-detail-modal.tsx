@@ -415,7 +415,6 @@ export function InvoiceGroupDetailModal({
         setPdfPreviewUrl(null);
       }
       setShowPdfPreview(false);
-      onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : "PDF保存に失敗しました");
     } finally {

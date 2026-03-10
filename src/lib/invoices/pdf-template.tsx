@@ -39,6 +39,7 @@ export type InvoicePdfData = {
     representativeName: string | null;
     phone: string | null;
     logoPath: string | null;
+    email: string | null;
   };
   counterpartyName: string;
   honorific?: string;
@@ -73,8 +74,8 @@ export type InvoicePdfData = {
 // ============================================
 
 const MIN_TABLE_ROWS = 8;
+const LOGO_HEIGHT = 52;
 const WAVE_PATH = path.join(process.cwd(), "public/images/invoice-wave.png");
-const WATERMARK_PATH = path.join(process.cwd(), "public/images/invoice-watermark.png");
 const STP_LOGO_PATH = path.join(process.cwd(), "public/images/stp-logo.png");
 
 // ============================================
@@ -93,39 +94,38 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 0,
     left: 0,
-    right: 0,
-    height: 50,
-  },
-  watermark: {
-    position: "absolute",
-    bottom: 100,
-    left: 198,
-    width: 200,
-    height: 200,
-    opacity: 0.15,
+    width: "100%",
+    height: 70,
   },
   content: {
     padding: 48,
-    paddingTop: 60,
+    paddingTop: 86,
   },
   // 上部メタ情報
   metaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 8,
+    alignItems: "stretch",
+    marginBottom: 6,
+    height: LOGO_HEIGHT,
   },
   metaLeft: {
     flexDirection: "column",
+    justifyContent: "center",
+    height: LOGO_HEIGHT,
   },
   metaLine: {
     flexDirection: "row",
+    alignItems: "center",
+  },
+  metaLineFirst: {
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 2,
   },
   metaLabel: {
     fontSize: 8,
     color: "#6b7280",
-    width: 65,
   },
   metaValue: {
     fontSize: 9,
@@ -133,10 +133,11 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     alignItems: "flex-end",
+    justifyContent: "center",
   },
   logo: {
     width: 160,
-    height: 52,
+    height: LOGO_HEIGHT,
     objectFit: "contain",
   },
   // 区切り線
@@ -149,11 +150,13 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "stretch",
     marginBottom: 28,
   },
   headerLeft: {
     flex: 1,
     paddingRight: 20,
+    flexDirection: "column",
   },
   headerRight: {
     width: 220,
@@ -176,22 +179,36 @@ const styles = StyleSheet.create({
     color: "#4b5563",
     marginBottom: 16,
   },
+  // 合計金額ボックス（2カラム・枠線付き）
   totalBox: {
-    backgroundColor: "#f3f4f6",
-    borderRadius: 2,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
     flexDirection: "row",
-    justifyContent: "space-between",
+    alignItems: "stretch",
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    marginTop: "auto",
+  },
+  totalLabelBox: {
+    backgroundColor: "#f3f4f6",
+    paddingHorizontal: 24,
+    justifyContent: "center",
     alignItems: "center",
+    borderRightWidth: 1,
+    borderRightColor: "#d1d5db",
   },
   totalLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "bold",
-    color: "#374151",
+    color: "#1f2937",
+  },
+  totalValueBox: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
   },
   totalValue: {
-    fontSize: 18,
+    fontSize: 13,
     fontWeight: "bold",
     color: "#111827",
   },
@@ -199,7 +216,7 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: "bold",
     letterSpacing: 6,
-    marginBottom: 12,
+    marginBottom: 8,
     textAlign: "right",
   },
   issuerSection: {
@@ -219,14 +236,14 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   registrationNumber: {
-    fontSize: 7,
+    fontSize: 8.4,
     color: "#6b7280",
-    marginTop: 2,
+    marginTop: 5,
     textAlign: "right",
   },
   // 明細テーブル
   table: {
-    marginBottom: 20,
+    marginBottom: 12,
   },
   tableHeader: {
     flexDirection: "row",
@@ -259,67 +276,82 @@ const styles = StyleSheet.create({
   tableCell: {
     fontSize: 9,
   },
-  colDescription: { width: "40%" },
-  colPeriod: { width: "25%" },
-  colTaxRate: { width: "10%", textAlign: "right" as const },
+  colDescription: { width: "35%" },
+  colPeriod: { width: "32%" },
+  colTaxRate: { width: "8%", textAlign: "right" as const },
   colAmount: { width: "25%", textAlign: "right" as const },
+  // 小計・振込先の2カラムラッパー
+  summaryBankRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
   // 小計・税額セクション
   summarySection: {
     alignItems: "flex-end",
-    marginBottom: 20,
+    width: 200,
   },
   summaryRow: {
     flexDirection: "row",
-    width: 220,
-    justifyContent: "space-between",
-    paddingVertical: 3,
+    width: 200,
+    alignItems: "center",
+    height: 28,
+    paddingRight: 8,
     borderBottomWidth: 0.5,
     borderBottomColor: "#e5e7eb",
   },
   summaryLabel: {
     fontSize: 9,
     color: "#4b5563",
+    width: 85,
+    textAlign: "right" as const,
   },
   summaryValue: {
-    fontSize: 10,
-    fontWeight: "bold",
+    fontSize: 9,
+    flex: 1,
+    textAlign: "right" as const,
   },
   summaryTotalRow: {
     flexDirection: "row",
-    width: 220,
-    justifyContent: "space-between",
-    paddingVertical: 6,
-    paddingHorizontal: 8,
+    width: 200,
+    alignItems: "center",
+    height: 32,
+    paddingRight: 8,
     backgroundColor: "#f3f4f6",
-    marginTop: 4,
+    marginTop: 2,
   },
   summaryTotalLabel: {
     fontSize: 11,
     fontWeight: "bold",
+    width: 85,
+    textAlign: "right" as const,
   },
   summaryTotalValue: {
     fontSize: 14,
     fontWeight: "bold",
+    flex: 1,
+    textAlign: "right" as const,
   },
   // 振込先
   bankSection: {
-    marginTop: 8,
+    flex: 1,
+    paddingTop: 26,
   },
   bankTitle: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "bold",
-    marginBottom: 6,
+    marginBottom: 5,
   },
   bankRow: {
-    marginBottom: 2,
+    marginBottom: 3,
   },
   bankText: {
-    fontSize: 8,
+    fontSize: 10,
     color: "#374151",
   },
   // 備考
   remarksSection: {
-    marginTop: 24,
+    marginTop: 12,
   },
   remarksTitle: {
     fontSize: 9,
@@ -421,15 +453,12 @@ export function InvoicePdfTemplate({ data }: Props) {
         {/* ウェーブ装飾 */}
         <Image src={WAVE_PATH} style={styles.waveContainer} />
 
-        {/* ウォーターマーク */}
-        <Image src={WATERMARK_PATH} style={styles.watermark} />
-
         {/* メインコンテンツ */}
         <View style={styles.content}>
           {/* 上部: 請求書番号・発行日（左・縦並び） + ロゴ（右） */}
           <View style={styles.metaRow}>
             <View style={styles.metaLeft}>
-              <View style={styles.metaLine}>
+              <View style={styles.metaLineFirst}>
                 <Text style={styles.metaLabel}>請求書番号：</Text>
                 <Text style={styles.metaValue}>
                   {invoiceNumber ?? "（未採番）"}
@@ -461,14 +490,19 @@ export function InvoicePdfTemplate({ data }: Props) {
                 </Text>
               </Text>
               <Text style={styles.subText}>
-                下記のとおり、請求いたします
+                下記のとおり、請求致します
               </Text>
 
+              {/* 合計金額ボックス（2カラム） */}
               <View style={styles.totalBox}>
-                <Text style={styles.totalLabel}>合計金額</Text>
-                <Text style={styles.totalValue}>
-                  {formatCurrency(totalAmount)}円(税込)
-                </Text>
+                <View style={styles.totalLabelBox}>
+                  <Text style={styles.totalLabel}>合計金額</Text>
+                </View>
+                <View style={styles.totalValueBox}>
+                  <Text style={styles.totalValue}>
+                    {formatCurrency(totalAmount)}円(税込)
+                  </Text>
+                </View>
               </View>
             </View>
 
@@ -488,6 +522,11 @@ export function InvoicePdfTemplate({ data }: Props) {
                 {operatingCompany.address2 && (
                   <Text style={styles.issuerDetail}>
                     {operatingCompany.address2}
+                  </Text>
+                )}
+                {operatingCompany.email && (
+                  <Text style={styles.issuerDetail}>
+                    {operatingCompany.email}
                   </Text>
                 )}
                 <Text style={styles.issuerName}>
@@ -569,62 +608,67 @@ export function InvoicePdfTemplate({ data }: Props) {
             ))}
           </View>
 
-          {/* 小計・税額・合計 */}
-          <View style={styles.summarySection}>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>小計：</Text>
-              <Text style={styles.summaryValue}>
-                {formatCurrency(subtotal)}
-              </Text>
+          {/* 小計・税額・合計 + 振込先（2カラム） */}
+          <View style={styles.summaryBankRow}>
+            {/* 左: 振込先情報 */}
+            <View style={styles.bankSection}>
+              {bankAccount && (
+                <>
+                  <Text style={styles.bankTitle}>振込先：</Text>
+                  {paymentDueDate && (
+                    <View style={styles.bankRow}>
+                      <Text style={styles.bankText}>
+                        支払期限：{formatDate(paymentDueDate)}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.bankRow}>
+                    <Text style={styles.bankText}>
+                      {bankAccount.bankName}　{bankAccount.branchName}({bankAccount.branchCode})
+                    </Text>
+                  </View>
+                  <View style={styles.bankRow}>
+                    <Text style={styles.bankText}>
+                      普通口座　{bankAccount.accountNumber}
+                    </Text>
+                  </View>
+                  <View style={styles.bankRow}>
+                    <Text style={styles.bankText}>
+                      口座名義　{bankAccount.accountHolderName}
+                    </Text>
+                  </View>
+                </>
+              )}
             </View>
 
-            {taxRates.map((rate) => (
-              <View key={rate} style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>
-                  消費税（{rate}%）：
-                </Text>
+            {/* 右: 小計・税額・合計 */}
+            <View style={styles.summarySection}>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>小計：</Text>
                 <Text style={styles.summaryValue}>
-                  {formatCurrency(taxSummary[rate].tax)}
+                  {formatCurrency(subtotal)}
                 </Text>
               </View>
-            ))}
 
-            <View style={styles.summaryTotalRow}>
-              <Text style={styles.summaryTotalLabel}>合計：</Text>
-              <Text style={styles.summaryTotalValue}>
-                {formatCurrency(totalAmount)}
-              </Text>
-            </View>
-          </View>
-
-          {/* 振込先情報 */}
-          {bankAccount && (
-            <View style={styles.bankSection}>
-              <Text style={styles.bankTitle}>振込先：</Text>
-              {paymentDueDate && (
-                <View style={styles.bankRow}>
-                  <Text style={styles.bankText}>
-                    支払期限：{formatDate(paymentDueDate)}
+              {taxRates.map((rate) => (
+                <View key={rate} style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>
+                    消費税（{rate}%）：
+                  </Text>
+                  <Text style={styles.summaryValue}>
+                    {formatCurrency(taxSummary[rate].tax)}
                   </Text>
                 </View>
-              )}
-              <View style={styles.bankRow}>
-                <Text style={styles.bankText}>
-                  {bankAccount.bankName}　{bankAccount.branchName}({bankAccount.branchCode})
-                </Text>
-              </View>
-              <View style={styles.bankRow}>
-                <Text style={styles.bankText}>
-                  普通口座　{bankAccount.accountNumber}
-                </Text>
-              </View>
-              <View style={styles.bankRow}>
-                <Text style={styles.bankText}>
-                  口座名義　{bankAccount.accountHolderName}
+              ))}
+
+              <View style={styles.summaryTotalRow}>
+                <Text style={styles.summaryTotalLabel}>合計：</Text>
+                <Text style={styles.summaryTotalValue}>
+                  {formatCurrency(totalAmount)}
                 </Text>
               </View>
             </View>
-          )}
+          </View>
 
           {/* 備考欄 */}
           {data.remarks && (

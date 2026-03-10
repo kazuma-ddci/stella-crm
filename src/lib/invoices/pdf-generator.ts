@@ -44,6 +44,26 @@ export async function getInvoicePdfData(
     throw new Error("請求が見つかりません");
   }
 
+  // デフォルト送信元メールアドレスを取得
+  let senderEmail: string | null = null;
+  if (group.projectId) {
+    const projectEmail = await prisma.projectEmail.findFirst({
+      where: { projectId: group.projectId, isDefault: true },
+      include: { email: true },
+    });
+    if (projectEmail) {
+      senderEmail = projectEmail.email.email;
+    }
+  }
+  if (!senderEmail && group.operatingCompanyId) {
+    const defaultEmail = await prisma.operatingCompanyEmail.findFirst({
+      where: { operatingCompanyId: group.operatingCompanyId, isDefault: true, deletedAt: null },
+    });
+    if (defaultEmail) {
+      senderEmail = defaultEmail.email;
+    }
+  }
+
   // lineDescriptions オーバーライド
   const lineDescs = (group.lineDescriptions as Record<string, string> | null) ?? {};
   const counterpartyName = group.counterparty.name;
@@ -89,6 +109,7 @@ export async function getInvoicePdfData(
       phone: group.operatingCompany.phone,
       logoPath: group.operatingCompany.logoPath,
       address2: group.operatingCompany.address2,
+      email: senderEmail,
     },
     counterpartyName: group.counterparty.name,
     honorific: group.honorific,

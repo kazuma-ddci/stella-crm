@@ -216,7 +216,7 @@ export function EmailsModal({
             setFormData({ ...formData, isDefault: checked })
           }
         />
-        <Label>デフォルトに設定</Label>
+        <Label>送信デフォルトに設定</Label>
       </div>
 
       {/* SMTP設定 */}
@@ -449,7 +449,7 @@ export function EmailsModal({
                       <TableHead>用途</TableHead>
                       <TableHead>SMTP</TableHead>
                       <TableHead>IMAP</TableHead>
-                      <TableHead>デフォルト</TableHead>
+                      <TableHead>送信デフォルト</TableHead>
                       {canEdit && <TableHead className="w-[120px]">操作</TableHead>}
                     </TableRow>
                   </TableHeader>
@@ -480,7 +480,7 @@ export function EmailsModal({
                         </TableCell>
                         <TableCell>
                           {email.isDefault && (
-                            <Badge>デフォルト</Badge>
+                            <Badge>送信デフォルト</Badge>
                           )}
                         </TableCell>
                         {canEdit && (

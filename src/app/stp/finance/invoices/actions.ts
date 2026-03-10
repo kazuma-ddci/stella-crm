@@ -1376,6 +1376,26 @@ export async function getInvoiceGroupDetail(groupId: number) {
   });
   if (!group) throw new Error("請求が見つかりません");
 
+  // デフォルト送信元メールアドレスを取得
+  let senderEmail: string | null = null;
+  if (group.projectId) {
+    const projectEmail = await prisma.projectEmail.findFirst({
+      where: { projectId: group.projectId, isDefault: true },
+      include: { email: true },
+    });
+    if (projectEmail) {
+      senderEmail = projectEmail.email.email;
+    }
+  }
+  if (!senderEmail && group.operatingCompanyId) {
+    const defaultEmail = await prisma.operatingCompanyEmail.findFirst({
+      where: { operatingCompanyId: group.operatingCompanyId, isDefault: true, deletedAt: null },
+    });
+    if (defaultEmail) {
+      senderEmail = defaultEmail.email;
+    }
+  }
+
   // 税額サマリー計算（プレビュー用）
   const lineItemsForTax = group.transactions.map((t) => ({
     amount: t.taxType === "tax_excluded" ? t.amount : t.amount - t.taxAmount,
@@ -1398,6 +1418,7 @@ export async function getInvoiceGroupDetail(groupId: number) {
       representativeName: group.operatingCompany.representativeName,
       phone: group.operatingCompany.phone,
       logoPath: group.operatingCompany.logoPath,
+      email: senderEmail,
     },
     bankAccountId: group.bankAccountId,
     bankAccountLabel: group.bankAccount
