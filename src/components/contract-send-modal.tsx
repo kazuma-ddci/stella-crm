@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { PdfPreviewWithOverlay } from "@/components/pdf-preview-with-overlay";
+import { saveDraftContract, sendContractViaCloudsign } from "@/app/stp/cloudsign-actions";
 
 // ============================================
 // Types
@@ -544,7 +545,6 @@ export function ContractSendModal({
       }
 
       // ドラフトをDBに保存
-      const { saveDraftContract } = await import("@/app/stp/cloudsign-actions");
       const saved = await saveDraftContract({
         companyId,
         projectId,
@@ -664,8 +664,6 @@ export function ContractSendModal({
 
     setIsSubmitting(true);
     try {
-      const { sendContractViaCloudsign } = await import("@/app/stp/cloudsign-actions");
-
       const recipients = participantEdits
         .filter((p) => p.isFromTemplate)
         .map((p) => ({

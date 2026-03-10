@@ -2,8 +2,14 @@
 
 import { ContractStatusInfo } from "@/lib/contract-status/types";
 import { cn } from "@/lib/utils";
-import { MapPin, CheckCircle2, Circle } from "lucide-react";
-import { TERMINAL_STATUS_IDS, PROGRESS_STATUS_COUNT } from "@/lib/contract-status/constants";
+import { MapPin, CheckCircle2, Circle, Pause } from "lucide-react";
+import {
+  isSignedStatus,
+  isDiscardedStatus,
+  isPendingStatus,
+  isProgressStatus,
+  getProgressStatusCount,
+} from "@/lib/contract-status/constants";
 
 interface StatusProgressVisualProps {
   statuses: ContractStatusInfo[];
@@ -14,29 +20,35 @@ export function StatusProgressVisual({
   statuses,
   currentStatusId,
 }: StatusProgressVisualProps) {
-  // 進行中ステータス（displayOrder 1-6、isTerminal=false）をフィルタ
+  // 進行中ステータス（statusType === 'progress'）をフィルタ
   const progressStatuses = statuses
-    .filter((s) => !s.isTerminal && s.displayOrder <= PROGRESS_STATUS_COUNT)
+    .filter((s) => isProgressStatus(s))
     .sort((a, b) => a.displayOrder - b.displayOrder);
 
-  // 終了ステータス（締結、破棄）
-  const terminalStatuses = statuses.filter((s) => s.isTerminal);
+  // 終了ステータス（signed, discarded）
+  const terminalStatuses = statuses.filter(
+    (s) => isSignedStatus(s) || isDiscardedStatus(s)
+  );
+
+  // 保留ステータス
+  const pendingStatuses = statuses.filter((s) => isPendingStatus(s));
+
+  const progressStatusCount = getProgressStatusCount(statuses);
 
   const currentStatus = statuses.find((s) => s.id === currentStatusId);
   const currentOrder = currentStatus?.displayOrder ?? 0;
-  const currentIsTerminal = currentStatus?.isTerminal ?? false;
+
+  const isCurrentSigned = currentStatus ? isSignedStatus(currentStatus) : false;
+  const isCurrentDiscarded = currentStatus ? isDiscardedStatus(currentStatus) : false;
+  const isCurrentPending = currentStatus ? isPendingStatus(currentStatus) : false;
+  const isCurrentTerminal = isCurrentSigned || isCurrentDiscarded;
 
   const isPassed = (status: ContractStatusInfo) => {
-    if (!currentStatus || currentIsTerminal) return false;
+    if (!currentStatus || isCurrentTerminal || isCurrentPending) return false;
     return status.displayOrder < currentOrder;
   };
 
   const isCurrent = (status: ContractStatusInfo) => status.id === currentStatusId;
-
-  // 現在が終了ステータスかどうか
-  const isCurrentTerminal = currentIsTerminal;
-  const isCurrentSigned = currentStatusId === TERMINAL_STATUS_IDS.SIGNED;
-  const isCurrentDiscarded = currentStatusId === TERMINAL_STATUS_IDS.DISCARDED;
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -135,7 +147,11 @@ export function StatusProgressVisual({
 
       {/* 現在のサマリー */}
       <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md p-3 mb-3">
-        <MapPin className="w-4 h-4 text-blue-500" />
+        {isCurrentPending ? (
+          <Pause className="w-4 h-4 text-orange-500" />
+        ) : (
+          <MapPin className="w-4 h-4 text-blue-500" />
+        )}
         <span>
           現在のステータス：
           <span
@@ -143,37 +159,56 @@ export function StatusProgressVisual({
               "font-medium ml-1",
               isCurrentSigned && "text-green-600",
               isCurrentDiscarded && "text-red-600",
-              !isCurrentTerminal && "text-blue-600"
+              isCurrentPending && "text-orange-600",
+              !isCurrentTerminal && !isCurrentPending && "text-blue-600"
             )}
           >
             {currentStatus?.name ?? "未設定"}
           </span>
         </span>
-        {!isCurrentTerminal && currentOrder > 0 && (
+        {!isCurrentTerminal && !isCurrentPending && currentOrder > 0 && (
           <span className="text-muted-foreground ml-2">
-            （{currentOrder}/{PROGRESS_STATUS_COUNT}ステップ目）
+            （{currentOrder}/{progressStatusCount}ステップ目）
+          </span>
+        )}
+        {isCurrentPending && (
+          <span className="text-orange-600 ml-2 text-xs font-medium">
+            （保留中）
           </span>
         )}
       </div>
 
-      {/* 終了ステータスの説明 */}
-      {terminalStatuses.length > 0 && (
-        <div className="text-xs text-muted-foreground flex items-center gap-2">
-          <span>※</span>
-          <span>
-            {terminalStatuses.map((s) => s.name).join("・")}
-            は終了ステータスです
-          </span>
-          {isCurrentTerminal && currentStatus && (
-            <span
-              className={cn(
-                "ml-2 font-medium",
-                isCurrentSigned && "text-green-600",
-                isCurrentDiscarded && "text-red-600"
+      {/* 終了ステータス・保留ステータスの説明 */}
+      {(terminalStatuses.length > 0 || pendingStatuses.length > 0) && (
+        <div className="text-xs text-muted-foreground space-y-1">
+          {terminalStatuses.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span>※</span>
+              <span>
+                {terminalStatuses.map((s) => s.name).join("・")}
+                は終了ステータスです
+              </span>
+              {isCurrentTerminal && currentStatus && (
+                <span
+                  className={cn(
+                    "ml-2 font-medium",
+                    isCurrentSigned && "text-green-600",
+                    isCurrentDiscarded && "text-red-600"
+                  )}
+                >
+                  （現在：{currentStatus.name}）
+                </span>
               )}
-            >
-              （現在：{currentStatus.name}）
-            </span>
+            </div>
+          )}
+          {pendingStatuses.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span>※</span>
+              <span>
+                {pendingStatuses.map((s) => s.name).join("・")}
+                は保留ステータスです
+              </span>
+            </div>
           )}
         </div>
       )}

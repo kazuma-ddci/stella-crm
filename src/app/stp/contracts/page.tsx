@@ -2,14 +2,14 @@ import { prisma } from "@/lib/prisma";
 import { toLocalDateString } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ContractsTable } from "./contracts-table";
-import { TERMINAL_STATUS_IDS, SENT_STATUS_ID, STALE_ALERT_DAYS } from "@/lib/contract-status/constants";
-import { ContractRowWithProgress } from "@/lib/contract-status/types";
+import { STALE_ALERT_DAYS, STALE_CHECK_CLOUDSIGN_MAPPING, getProgressStatusCount } from "@/lib/contract-status/constants";
+import { ContractRowWithProgress, ContractStatusType } from "@/lib/contract-status/types";
 import { getStaffOptionsByField } from "@/lib/staff/get-staff-by-field";
 
 export default async function StpContractsPage() {
   const STP_PROJECT_ID = 1; // 採用ブースト
 
-  const [contracts, contractHistories] = await Promise.all([
+  const [contracts, contractHistories, statusRecords] = await Promise.all([
     prisma.masterContract.findMany({
       where: { projectId: STP_PROJECT_ID },
       include: {
@@ -23,6 +23,11 @@ export default async function StpContractsPage() {
       orderBy: { recordedAt: "desc" },
       distinct: ["contractId"],
     }),
+    // ステータスマスタ取得（進行中ステータス数の動的計算用）
+    prisma.masterContractStatus.findMany({
+      where: { isActive: true },
+      orderBy: { displayOrder: "asc" },
+    }),
   ]);
 
   const staffOptions = await getStaffOptionsByField("CONTRACT_ASSIGNED_TO");
@@ -35,6 +40,23 @@ export default async function StpContractsPage() {
   // 契約書IDから最新履歴日時のマップを作成
   const latestHistoryMap = new Map(
     contractHistories.map((h) => [h.contractId, h.recordedAt])
+  );
+
+  // 進行中ステータスの数を動的に計算
+  const progressStatusCount = getProgressStatusCount(
+    statusRecords.map((s) => ({
+      id: s.id,
+      name: s.name,
+      displayOrder: s.displayOrder,
+      isTerminal: s.isTerminal,
+      statusType: s.statusType as ContractStatusType,
+      isActive: s.isActive,
+    }))
+  );
+
+  // ステータスIDからcloudsignStatusMappingのマップ
+  const statusMappingMap = new Map(
+    statusRecords.map((s) => [s.id, s.cloudsignStatusMapping])
   );
 
   // 滞在日数を計算する関数
@@ -51,8 +73,9 @@ export default async function StpContractsPage() {
 
   const data: ContractRowWithProgress[] = contracts.map((c) => {
     const daysSinceStatusChange = calculateDaysSinceStatusChange(c.id);
+    const cloudsignMapping = c.currentStatusId ? statusMappingMap.get(c.currentStatusId) : null;
     const hasStaleAlert =
-      c.currentStatusId === SENT_STATUS_ID &&
+      cloudsignMapping === STALE_CHECK_CLOUDSIGN_MAPPING &&
       daysSinceStatusChange !== null &&
       daysSinceStatusChange >= STALE_ALERT_DAYS;
 
@@ -70,6 +93,7 @@ export default async function StpContractsPage() {
       currentStatusName: c.currentStatus?.name || null,
       currentStatusDisplayOrder: c.currentStatus?.displayOrder ?? null,
       currentStatusIsTerminal: c.currentStatus?.isTerminal ?? false,
+      currentStatusType: (c.currentStatus?.statusType as ContractStatusType) ?? null,
       signedDate: c.signedDate ? toLocalDateString(c.signedDate) : null,
       signingMethod: c.signingMethod,
       filePath: c.filePath,
@@ -90,15 +114,15 @@ export default async function StpContractsPage() {
     };
   });
 
-  // タブごとのカウント
+  // タブごとのカウント（statusTypeベース）
   const inProgressCount = data.filter(
-    (c) => !c.currentStatusIsTerminal
+    (c) => c.currentStatusType === "progress" || c.currentStatusType === "pending" || (!c.currentStatusType && !c.currentStatusIsTerminal)
   ).length;
   const signedCount = data.filter(
-    (c) => c.currentStatusId === TERMINAL_STATUS_IDS.SIGNED
+    (c) => c.currentStatusType === "signed"
   ).length;
   const discardedCount = data.filter(
-    (c) => c.currentStatusId === TERMINAL_STATUS_IDS.DISCARDED
+    (c) => c.currentStatusType === "discarded"
   ).length;
 
   return (
@@ -116,6 +140,7 @@ export default async function StpContractsPage() {
               signed: signedCount,
               discarded: discardedCount,
             }}
+            progressStatusCount={progressStatusCount}
           />
         </CardContent>
       </Card>

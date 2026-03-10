@@ -9,10 +9,13 @@ import {
 } from './types';
 import {
   CONTRACT_STATUS_ALERT_DEFINITIONS,
-  TERMINAL_STATUS_IDS,
-  SENT_STATUS_ID,
   STALE_ALERT_DAYS,
   SEVERITY_ORDER,
+  isDiscardedStatus,
+  isSignedStatus,
+  isProgressStatus,
+  isPendingStatus,
+  STALE_CHECK_CLOUDSIGN_MAPPING,
 } from './constants';
 
 /**
@@ -45,12 +48,12 @@ export function validateContractStatusChange(
   }
 
   // TRANS-001: 破棄からの復活（理由必須）
-  if (currentStatus?.id === TERMINAL_STATUS_IDS.DISCARDED && newStatus && !newStatus.isTerminal) {
+  if (currentStatus && isDiscardedStatus(currentStatus) && newStatus && (isProgressStatus(newStatus) || isPendingStatus(newStatus))) {
     alerts.push(CONTRACT_STATUS_ALERT_DEFINITIONS['TRANS-001']);
   }
 
   // TRANS-002: 締結済みからの再開（理由必須）
-  if (currentStatus?.id === TERMINAL_STATUS_IDS.SIGNED && newStatus && !newStatus.isTerminal) {
+  if (currentStatus && isSignedStatus(currentStatus) && newStatus && (isProgressStatus(newStatus) || isPendingStatus(newStatus))) {
     alerts.push(CONTRACT_STATUS_ALERT_DEFINITIONS['TRANS-002']);
   }
 
@@ -76,14 +79,15 @@ export function validateContractStatusChange(
 
 /**
  * 滞留アラートをチェック（一覧表示用）
+ * cloudsignStatusMappingが'created'（送付済み）のステータスで滞留していればアラート
  */
 export function checkStaleAlert(
-  currentStatusId: number | null,
+  currentStatus: ContractStatusInfo | null,
   daysSinceStatusChange: number | null
 ): boolean {
-  // 送付済みステータスで3日以上滞留していればアラート
   if (
-    currentStatusId === SENT_STATUS_ID &&
+    currentStatus &&
+    currentStatus.cloudsignStatusMapping === STALE_CHECK_CLOUDSIGN_MAPPING &&
     daysSinceStatusChange !== null &&
     daysSinceStatusChange >= STALE_ALERT_DAYS
   ) {

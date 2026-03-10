@@ -12,7 +12,8 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { Loader2, Mail, Landmark } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Mail, Landmark, Star } from "lucide-react";
 import { updateProjectBasicInfo, updateOperatingCompanyInfo } from "./actions";
 import { ProjectEmailsModal } from "@/app/settings/projects/project-emails-modal";
 import { ProjectBankAccountsModal } from "@/app/settings/projects/project-bank-accounts-modal";
@@ -34,13 +35,29 @@ type OperatingCompanyData = {
   phone: string | null;
 } | null;
 
+type EmailItem = {
+  email: string;
+  label: string | null;
+  isDefault: boolean;
+};
+
+type BankAccountItem = {
+  bankName: string;
+  branchName: string;
+  accountNumber: string;
+  accountHolderName: string;
+  isDefault: boolean;
+};
+
 type Props = {
   project: ProjectData;
   operatingCompany: OperatingCompanyData;
   isSystemAdmin: boolean;
+  emails: EmailItem[];
+  bankAccounts: BankAccountItem[];
 };
 
-export function ProjectSettings({ project, operatingCompany, isSystemAdmin }: Props) {
+export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emails, bankAccounts }: Props) {
   // プロジェクト基本情報
   const [projectName, setProjectName] = useState(project.name);
   const [projectDescription, setProjectDescription] = useState(
@@ -270,7 +287,35 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin }: Pr
             プロジェクトで使用するメールアドレスを管理します
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {emails.length > 0 ? (
+            <div className="space-y-2">
+              {emails.map((item, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                >
+                  <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className={item.isDefault ? "font-semibold" : ""}>
+                    {item.email}
+                  </span>
+                  {item.label && (
+                    <span className="text-muted-foreground">({item.label})</span>
+                  )}
+                  {item.isDefault && (
+                    <Badge variant="secondary" className="ml-auto shrink-0">
+                      <Star className="h-3 w-3 mr-1" />
+                      デフォルト
+                    </Badge>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              メールアドレスが登録されていません
+            </p>
+          )}
           <Button variant="outline" onClick={() => setEmailModalOpen(true)}>
             <Mail className="h-4 w-4 mr-2" />
             メールアドレスを管理
@@ -286,7 +331,32 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin }: Pr
             プロジェクトで使用する銀行口座を管理します
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {bankAccounts.length > 0 ? (
+            <div className="space-y-2">
+              {bankAccounts.map((item, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                >
+                  <Landmark className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className={item.isDefault ? "font-semibold" : ""}>
+                    {item.bankName} {item.branchName} {item.accountNumber} ({item.accountHolderName})
+                  </span>
+                  {item.isDefault && (
+                    <Badge variant="secondary" className="ml-auto shrink-0">
+                      <Star className="h-3 w-3 mr-1" />
+                      デフォルト
+                    </Badge>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              銀行口座が登録されていません
+            </p>
+          )}
           <Button variant="outline" onClick={() => setBankModalOpen(true)}>
             <Landmark className="h-4 w-4 mr-2" />
             銀行口座を管理

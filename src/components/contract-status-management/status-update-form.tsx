@@ -10,7 +10,11 @@ import {
   getContractStatusChangeType,
 } from "@/lib/contract-status/event-detector";
 import { validateContractStatusChange } from "@/lib/contract-status/alert-validator";
-import { TERMINAL_STATUS_IDS } from "@/lib/contract-status/constants";
+import {
+  isSignedStatus,
+  isDiscardedStatus,
+  isPendingStatus,
+} from "@/lib/contract-status/constants";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,6 +30,7 @@ import { cn, toLocalDateString } from "@/lib/utils";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
+import { CloudOff, RefreshCw } from "lucide-react";
 
 // 日本語ロケールを登録
 registerLocale("ja", ja);
@@ -44,6 +49,10 @@ interface StatusUpdateFormProps {
   loading?: boolean;
   hasChanges: boolean;
   onHasChangesChange: (hasChanges: boolean) => void;
+  // CloudSign同期情報
+  cloudsignDocumentId?: string | null;
+  cloudsignAutoSync?: boolean;
+  onToggleAutoSync?: () => void;
 }
 
 // 「変更なし」を表す特別な値
@@ -56,12 +65,18 @@ export function StatusUpdateForm({
   onCancel,
   loading,
   onHasChangesChange,
+  cloudsignDocumentId,
+  cloudsignAutoSync,
+  onToggleAutoSync,
 }: StatusUpdateFormProps) {
   const [selectedStatusValue, setSelectedStatusValue] = useState<string>(NO_CHANGE);
   const [note, setNote] = useState("");
   // 締結日の状態
   const [signedDateOption, setSignedDateOption] = useState<"today" | "custom">("today");
   const [customSignedDate, setCustomSignedDate] = useState<Date | null>(null);
+
+  // CloudSign同期中かどうか
+  const isCloudSignSynced = !!(cloudsignDocumentId && cloudsignAutoSync);
 
   // 実効値の計算
   const effectiveNewStatusId =
@@ -76,7 +91,8 @@ export function StatusUpdateForm({
   const hasAnyChange = hasStatusChange;
 
   // 締結済みが選択されているかチェック
-  const isSelectingSigned = effectiveNewStatusId === TERMINAL_STATUS_IDS.SIGNED;
+  const selectedNewStatus = statuses.find((s) => s.id === effectiveNewStatusId);
+  const isSelectingSigned = selectedNewStatus ? isSignedStatus(selectedNewStatus) : false;
 
   // 締結日の計算
   const getSignedDate = (): string | undefined => {
@@ -157,8 +173,36 @@ export function StatusUpdateForm({
 
   return (
     <div className="space-y-6">
+      {/* CloudSign同期中バナー */}
+      {isCloudSignSynced && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 text-blue-600" />
+              <span className="text-sm font-medium text-blue-800">
+                CloudSign同期中
+              </span>
+            </div>
+            {onToggleAutoSync && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onToggleAutoSync}
+                className="text-orange-600 border-orange-200 hover:bg-orange-50"
+              >
+                <CloudOff className="h-3.5 w-3.5 mr-1" />
+                同期をOFFにする
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-blue-700 mt-2">
+            CloudSign同期中のため、ステータスはCloudSignの状態に基づいて自動更新されます。手動で変更するには同期をOFFにしてください。
+          </p>
+        </div>
+      )}
+
       {/* ステータス更新セクション */}
-      <div className="rounded-lg border p-4">
+      <div className={cn("rounded-lg border p-4", isCloudSignSynced && "opacity-60")}>
         <h4 className="font-medium mb-4">ステータスを更新する</h4>
 
         <div className="space-y-2">
@@ -174,6 +218,7 @@ export function StatusUpdateForm({
               <Select
                 value={selectedStatusValue}
                 onValueChange={setSelectedStatusValue}
+                disabled={isCloudSignSynced}
               >
                 <SelectTrigger id="new-status">
                   <SelectValue placeholder="更新する場合は選択してください" />
@@ -186,12 +231,14 @@ export function StatusUpdateForm({
                     <SelectItem key={status.id} value={status.id.toString()}>
                       <span
                         className={cn(
-                          status.id === TERMINAL_STATUS_IDS.SIGNED && "text-green-600",
-                          status.id === TERMINAL_STATUS_IDS.DISCARDED && "text-red-600"
+                          isSignedStatus(status) && "text-green-600",
+                          isDiscardedStatus(status) && "text-red-600",
+                          isPendingStatus(status) && "text-orange-600"
                         )}
                       >
                         {status.name}
-                        {status.isTerminal && " (終了)"}
+                        {(isSignedStatus(status) || isDiscardedStatus(status)) && " (終了)"}
+                        {isPendingStatus(status) && " (保留)"}
                       </span>
                     </SelectItem>
                   ))}
@@ -221,6 +268,8 @@ export function StatusUpdateForm({
                 changeType.type === "discarded" && "bg-red-50 text-red-800",
                 changeType.type === "revived" && "bg-purple-50 text-purple-800",
                 changeType.type === "reopened" && "bg-orange-50 text-orange-800",
+                changeType.type === "suspended" && "bg-orange-50 text-orange-800",
+                changeType.type === "resumed" && "bg-blue-50 text-blue-800",
                 changeType.type === "created" && "bg-gray-50 text-gray-800"
               )}
             >
@@ -306,6 +355,7 @@ export function StatusUpdateForm({
           }
           rows={3}
           className="mt-2"
+          disabled={isCloudSignSynced}
         />
         {noteRequired && (
           <p className="text-sm text-destructive mt-1">
@@ -322,7 +372,7 @@ export function StatusUpdateForm({
         <Button variant="outline" onClick={onCancel}>
           キャンセル
         </Button>
-        <Button onClick={handleSubmit} disabled={!canSubmit || loading}>
+        <Button onClick={handleSubmit} disabled={!canSubmit || loading || isCloudSignSynced}>
           {loading ? "更新中..." : "更新する"}
         </Button>
       </div>

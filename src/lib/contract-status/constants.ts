@@ -1,6 +1,6 @@
 // 契約書ステータス管理の定数
 
-import { ContractStatusAlertId, AlertSeverity, ContractStatusEventType } from './types';
+import { ContractStatusAlertId, AlertSeverity, ContractStatusEventType, ContractStatusInfo, ContractStatusType } from './types';
 
 // イベントラベルとアイコン
 export const CONTRACT_STATUS_EVENT_LABELS: Record<ContractStatusEventType, { label: string; icon: string }> = {
@@ -11,19 +11,41 @@ export const CONTRACT_STATUS_EVENT_LABELS: Record<ContractStatusEventType, { lab
   discarded: { label: '破棄', icon: '🗑️' },
   revived: { label: '復活', icon: '🔄' },
   reopened: { label: '再開', icon: '▶️' },
+  suspended: { label: '保留', icon: '⏸️' },
+  resumed: { label: '保留解除', icon: '▶️' },
 };
 
-// 終了ステータス（締結=7, 破棄=8）
-export const TERMINAL_STATUS_IDS = {
-  SIGNED: 7,     // 締結済み
-  DISCARDED: 8,  // 破棄
-};
+// statusType ベースのヘルパー関数
+export function isSignedStatus(s: { statusType: ContractStatusType }): boolean {
+  return s.statusType === 'signed';
+}
 
-// 送付済みステータスID（滞留アラート用）
-export const SENT_STATUS_ID = 6; // 送付済み
+export function isDiscardedStatus(s: { statusType: ContractStatusType }): boolean {
+  return s.statusType === 'discarded';
+}
+
+export function isTerminalStatus(s: { statusType: ContractStatusType }): boolean {
+  return s.statusType !== 'progress' && s.statusType !== 'pending';
+}
+
+export function isPendingStatus(s: { statusType: ContractStatusType }): boolean {
+  return s.statusType === 'pending';
+}
+
+export function isProgressStatus(s: { statusType: ContractStatusType }): boolean {
+  return s.statusType === 'progress';
+}
+
+// 進行中ステータスの数を動的に取得
+export function getProgressStatusCount(statuses: ContractStatusInfo[]): number {
+  return statuses.filter((s) => s.statusType === 'progress').length;
+}
 
 // 滞留アラートの日数閾値
 export const STALE_ALERT_DAYS = 3;
+
+// 滞留チェック対象のCloudSignマッピング値（送付済み = "created"）
+export const STALE_CHECK_CLOUDSIGN_MAPPING = 'created';
 
 // アラート定義
 export interface ContractStatusAlertDefinition {
@@ -83,9 +105,6 @@ export const ALERT_COLORS: Record<AlertSeverity, { bg: string; border: string; t
   },
 };
 
-// 進捗バー用ステータス（進行中のステータス、表示順1-6）
-export const PROGRESS_STATUS_COUNT = 6;
-
 // ステータスの背景色
 export const STATUS_COLORS: Record<string, string> = {
   default: 'bg-gray-100 text-gray-700',
@@ -93,4 +112,5 @@ export const STATUS_COLORS: Record<string, string> = {
   completed: 'bg-green-500 text-white',
   terminal_signed: 'bg-green-600 text-white',
   terminal_discarded: 'bg-red-500 text-white',
+  pending: 'bg-orange-100 text-orange-700',
 };

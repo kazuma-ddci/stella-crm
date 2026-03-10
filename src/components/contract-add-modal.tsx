@@ -132,8 +132,8 @@ export function ContractAddModal({
         note: formData.note || null,
       };
 
-      const savedContractNumber = await addMasterContract(formData.companyId, data);
-      toast.success(`契約書番号「${savedContractNumber}」で保存しました。`);
+      const result = await addMasterContract(formData.companyId, data);
+      toast.success(`契約書番号「${result.contractNumber}」で保存しました。`);
 
       setFormData(EMPTY_FORM_DATA);
       onOpenChange(false);

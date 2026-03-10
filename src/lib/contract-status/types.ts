@@ -1,5 +1,8 @@
 // 契約書ステータス管理の型定義
 
+// ステータスタイプ（パイプライン種別）
+export type ContractStatusType = 'progress' | 'signed' | 'discarded' | 'pending';
+
 // イベント種別
 export type ContractStatusEventType =
   | 'created'    // 新規作成
@@ -8,7 +11,9 @@ export type ContractStatusEventType =
   | 'signed'     // 締結
   | 'discarded'  // 破棄
   | 'revived'    // 破棄から復活
-  | 'reopened';  // 締結済みから再開
+  | 'reopened'   // 締結済みから再開
+  | 'suspended'  // 保留
+  | 'resumed';   // 保留解除
 
 // アラートの深刻度
 export type AlertSeverity = 'ERROR' | 'WARNING' | 'INFO';
@@ -33,7 +38,9 @@ export interface ContractStatusInfo {
   name: string;
   displayOrder: number;
   isTerminal: boolean;
+  statusType: ContractStatusType;
   isActive: boolean;
+  cloudsignStatusMapping?: string | null;
 }
 
 // ステータス変更入力
@@ -112,6 +119,10 @@ export interface ContractStatusManagementData {
 
   // ステータスマスタ
   statuses: ContractStatusInfo[];
+
+  // CloudSign情報
+  cloudsignDocumentId: string | null;
+  cloudsignAutoSync: boolean;
 }
 
 // ステータス更新パラメータ
@@ -140,6 +151,7 @@ export interface ContractRowWithProgress {
   currentStatusName: string | null;
   currentStatusDisplayOrder: number | null;
   currentStatusIsTerminal: boolean;
+  currentStatusType: ContractStatusType | null;
   signedDate: string | null;
   signingMethod: string | null;
   filePath: string | null;

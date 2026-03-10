@@ -5,22 +5,37 @@ import { syncContractStatus } from "@/lib/cloudsign-sync";
 
 /**
  * CloudSign APIステータスマッピング
- * status: 0→draft, 10/20→sent, 30→completed, 40→canceled_by_recipient, 50→canceled_by_sender
+ * CloudSign API v0.33.2 公式ステータス:
+ *   0=下書き, 1=先方確認中, 2=締結完了, 3=取消/却下, 4=テンプレート, 13=インポート書類
  */
-function mapCloudsignApiStatus(apiStatus: number): string | null {
+function mapCloudsignApiStatus(
+  apiStatus: number,
+  doc?: { participants?: { status?: number; order?: number }[] }
+): string | null {
   switch (apiStatus) {
     case 0:
       return "draft";
-    case 10:
-    case 20:
+    case 1:
       return "sent";
-    case 30:
+    case 2:
       return "completed";
-    case 40:
-      return "canceled_by_recipient";
-    case 50:
+    case 3: {
+      // participant status 9=却下(受信者), 10=取消(送信者)
+      if (doc?.participants) {
+        const hasRejected = doc.participants.some(
+          (p) => p.order !== undefined && p.order >= 1 && p.status === 9
+        );
+        if (hasRejected) {
+          return "canceled_by_recipient";
+        }
+      }
       return "canceled_by_sender";
+    }
+    case 4:
+    case 13:
+      return null;
     default:
+      console.warn(`[CloudSign Cron] 未知のAPIステータス: ${apiStatus}`);
       return null;
   }
 }
@@ -76,6 +91,7 @@ export async function GET(request: Request) {
     // 運営法人ごとにグループ化してトークン取得を効率化
     const projectIds = [...new Set(contracts.map((c) => c.projectId).filter(Boolean))] as number[];
     const tokenMap = new Map<number, string>(); // projectId → token
+    const clientIdMap = new Map<number, string>(); // projectId → clientId
 
     for (const projectId of projectIds) {
       try {
@@ -91,28 +107,13 @@ export async function GET(request: Request) {
         if (clientId) {
           const token = await cloudsignClient.getToken(clientId);
           tokenMap.set(projectId, token);
+          clientIdMap.set(projectId, clientId);
         }
       } catch (err) {
         console.error(
           `[Cron] Token取得失敗 (projectId=${projectId}):`,
           err
         );
-      }
-    }
-
-    // clientIdマップも作成
-    const clientIdMap = new Map<number, string>();
-    for (const projectId of projectIds) {
-      const project = await prisma.masterProject.findUnique({
-        where: { id: projectId },
-        include: {
-          operatingCompany: {
-            select: { cloudsignClientId: true },
-          },
-        },
-      });
-      if (project?.operatingCompany?.cloudsignClientId) {
-        clientIdMap.set(projectId, project.operatingCompany.cloudsignClientId);
       }
     }
 
@@ -139,7 +140,7 @@ export async function GET(request: Request) {
           token,
           contract.cloudsignDocumentId
         );
-        const mappedStatus = mapCloudsignApiStatus(doc.status);
+        const mappedStatus = mapCloudsignApiStatus(doc.status, doc);
 
         if (!mappedStatus) {
           results.push({

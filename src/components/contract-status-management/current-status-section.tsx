@@ -3,7 +3,7 @@
 import { ContractStatusManagementData } from "@/lib/contract-status/types";
 import { cn } from "@/lib/utils";
 import { AlertTriangle } from "lucide-react";
-import { STALE_ALERT_DAYS, SENT_STATUS_ID } from "@/lib/contract-status/constants";
+import { STALE_ALERT_DAYS, STALE_CHECK_CLOUDSIGN_MAPPING } from "@/lib/contract-status/constants";
 
 interface CurrentStatusSectionProps {
   data: ContractStatusManagementData;
@@ -20,11 +20,11 @@ export function CurrentStatusSection({ data }: CurrentStatusSectionProps) {
     });
   };
 
-  const { statistics, currentStatus, currentStatusId } = data;
+  const { statistics, currentStatus } = data;
 
-  // 滞留アラートのチェック
+  // 滞留アラートのチェック（送付済みステータス = cloudsignStatusMapping が 'created'）
   const isStale =
-    currentStatusId === SENT_STATUS_ID &&
+    currentStatus?.cloudsignStatusMapping === STALE_CHECK_CLOUDSIGN_MAPPING &&
     statistics.currentStatusDays >= STALE_ALERT_DAYS;
 
   return (

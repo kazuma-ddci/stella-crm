@@ -11,11 +11,15 @@ export async function addContractStatus(data: Record<string, unknown>) {
   });
   const displayOrder = (maxOrder._max.displayOrder ?? 0) + 1;
 
+  const statusType = (data.statusType as string) || "progress";
+  const isTerminal = statusType !== "progress" && statusType !== "pending";
+
   await prisma.masterContractStatus.create({
     data: {
       name: data.name as string,
       displayOrder,
-      isTerminal: data.isTerminal === true || data.isTerminal === "true",
+      statusType,
+      isTerminal,
       isActive: data.isActive === true || data.isActive === "true",
     },
   });
@@ -26,7 +30,12 @@ export async function updateContractStatus(id: number, data: Record<string, unkn
   await requireMasterDataEditPermission();
   const updateData: Record<string, unknown> = {};
   if ("name" in data) updateData.name = data.name as string;
-  if ("isTerminal" in data) updateData.isTerminal = data.isTerminal === true || data.isTerminal === "true";
+  if ("statusType" in data) {
+    const statusType = data.statusType as string;
+    updateData.statusType = statusType;
+    // isTerminalをstatusTypeから自動計算
+    updateData.isTerminal = statusType !== "progress" && statusType !== "pending";
+  }
   if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
 
   if (Object.keys(updateData).length > 0) {

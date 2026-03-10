@@ -18,10 +18,7 @@ import { Button } from "@/components/ui/button";
 import { ContractStatusModal } from "@/components/contract-status-management/contract-status-modal";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ContractRowWithProgress, ContractTabType } from "@/lib/contract-status/types";
-import {
-  TERMINAL_STATUS_IDS,
-  PROGRESS_STATUS_COUNT,
-} from "@/lib/contract-status/constants";
+import { getProgressStatusCount } from "@/lib/contract-status/constants";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -31,11 +28,13 @@ type Props = {
     signed: number;
     discarded: number;
   };
+  progressStatusCount: number;
 };
 
 export function ContractsTable({
   data,
   tabCounts,
+  progressStatusCount,
 }: Props) {
   const router = useRouter();
   // ステータス管理モーダルの状態
@@ -50,15 +49,13 @@ export function ContractsTable({
   const filteredData = useMemo(() => {
     switch (activeTab) {
       case "in_progress":
-        return data.filter((c) => !c.currentStatusIsTerminal);
+        return data.filter(
+          (c) => c.currentStatusType === "progress" || c.currentStatusType === "pending" || (!c.currentStatusType && !c.currentStatusIsTerminal)
+        );
       case "signed":
-        return data.filter(
-          (c) => c.currentStatusId === TERMINAL_STATUS_IDS.SIGNED
-        );
+        return data.filter((c) => c.currentStatusType === "signed");
       case "discarded":
-        return data.filter(
-          (c) => c.currentStatusId === TERMINAL_STATUS_IDS.DISCARDED
-        );
+        return data.filter((c) => c.currentStatusType === "discarded");
       default:
         return data;
     }
@@ -66,11 +63,11 @@ export function ContractsTable({
 
   // 進捗バーをレンダリング
   const renderProgressBar = (row: ContractRowWithProgress) => {
-    const { currentStatusDisplayOrder, currentStatusIsTerminal, currentStatusId } = row;
+    const { currentStatusDisplayOrder, currentStatusType } = row;
 
     // 終了ステータスの場合は進捗バーを表示しない
-    if (currentStatusIsTerminal) {
-      const isSigned = currentStatusId === TERMINAL_STATUS_IDS.SIGNED;
+    if (currentStatusType === "signed" || currentStatusType === "discarded") {
+      const isSigned = currentStatusType === "signed";
       return (
         <span
           className={cn(
@@ -83,9 +80,18 @@ export function ContractsTable({
       );
     }
 
+    // 保留ステータスの場合
+    if (currentStatusType === "pending") {
+      return (
+        <span className="px-2 py-1 rounded text-xs font-medium bg-orange-100 text-orange-700">
+          保留中
+        </span>
+      );
+    }
+
     // 進行中ステータスの場合は進捗バーを表示
     const currentOrder = currentStatusDisplayOrder ?? 0;
-    const progress = Math.min(currentOrder / PROGRESS_STATUS_COUNT, 1);
+    const progress = progressStatusCount > 0 ? Math.min(currentOrder / progressStatusCount, 1) : 0;
 
     return (
       <div className="flex items-center gap-2 min-w-[120px]">
@@ -96,7 +102,7 @@ export function ContractsTable({
           />
         </div>
         <span className="text-xs text-muted-foreground whitespace-nowrap">
-          {currentOrder}/{PROGRESS_STATUS_COUNT}
+          {currentOrder}/{progressStatusCount}
         </span>
       </div>
     );

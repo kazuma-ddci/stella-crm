@@ -11,6 +11,7 @@ import {
   ContractStatusStatistics,
   ContractStatusUpdateParams,
   ContractStatusEventType,
+  ContractStatusType,
 } from "@/lib/contract-status/types";
 import {
   detectContractStatusEvent,
@@ -20,6 +21,28 @@ import {
   validateContractStatusChange,
   calculateDaysSinceStatusChange,
 } from "@/lib/contract-status/alert-validator";
+import { isSignedStatus } from "@/lib/contract-status/constants";
+
+// DBレコードからContractStatusInfoに変換するヘルパー
+function toContractStatusInfo(s: {
+  id: number;
+  name: string;
+  displayOrder: number;
+  isTerminal: boolean;
+  statusType: string;
+  isActive: boolean;
+  cloudsignStatusMapping: string | null;
+}): ContractStatusInfo {
+  return {
+    id: s.id,
+    name: s.name,
+    displayOrder: s.displayOrder,
+    isTerminal: s.isTerminal,
+    statusType: s.statusType as ContractStatusType,
+    isActive: s.isActive,
+    cloudsignStatusMapping: s.cloudsignStatusMapping,
+  };
+}
 
 /**
  * 契約書のステータス管理データを取得
@@ -46,13 +69,7 @@ export async function getContractStatusManagementData(
     orderBy: { displayOrder: "asc" },
   });
 
-  const statuses: ContractStatusInfo[] = statusRecords.map((s) => ({
-    id: s.id,
-    name: s.name,
-    displayOrder: s.displayOrder,
-    isTerminal: s.isTerminal,
-    isActive: s.isActive,
-  }));
+  const statuses: ContractStatusInfo[] = statusRecords.map(toContractStatusInfo);
 
   // 履歴を取得
   const historyRecords = await prisma.masterContractStatusHistory.findMany({
@@ -74,22 +91,10 @@ export async function getContractStatusManagementData(
     changedBy: h.changedBy,
     note: h.note,
     fromStatus: h.fromStatus
-      ? {
-          id: h.fromStatus.id,
-          name: h.fromStatus.name,
-          displayOrder: h.fromStatus.displayOrder,
-          isTerminal: h.fromStatus.isTerminal,
-          isActive: h.fromStatus.isActive,
-        }
+      ? toContractStatusInfo(h.fromStatus)
       : null,
     toStatus: h.toStatus
-      ? {
-          id: h.toStatus.id,
-          name: h.toStatus.name,
-          displayOrder: h.toStatus.displayOrder,
-          isTerminal: h.toStatus.isTerminal,
-          isActive: h.toStatus.isActive,
-        }
+      ? toContractStatusInfo(h.toStatus)
       : null,
   }));
 
@@ -98,13 +103,7 @@ export async function getContractStatusManagementData(
 
   // 現在のステータス情報
   const currentStatus = contract.currentStatus
-    ? {
-        id: contract.currentStatus.id,
-        name: contract.currentStatus.name,
-        displayOrder: contract.currentStatus.displayOrder,
-        isTerminal: contract.currentStatus.isTerminal,
-        isActive: contract.currentStatus.isActive,
-      }
+    ? toContractStatusInfo(contract.currentStatus)
     : null;
 
   return {
@@ -117,6 +116,8 @@ export async function getContractStatusManagementData(
     histories,
     statistics,
     statuses,
+    cloudsignDocumentId: contract.cloudsignDocumentId,
+    cloudsignAutoSync: contract.cloudsignAutoSync,
   };
 }
 
@@ -203,13 +204,7 @@ export async function updateContractStatusWithHistory(
       orderBy: { displayOrder: "asc" },
     });
 
-    const statuses: ContractStatusInfo[] = statusRecords.map((s) => ({
-      id: s.id,
-      name: s.name,
-      displayOrder: s.displayOrder,
-      isTerminal: s.isTerminal,
-      isActive: s.isActive,
-    }));
+    const statuses: ContractStatusInfo[] = statusRecords.map(toContractStatusInfo);
 
     // イベントを検出
     const eventResult = detectContractStatusEvent(
@@ -261,8 +256,7 @@ export async function updateContractStatusWithHistory(
 
       // 締結ステータスに変更した場合、締結日を設定
       const newStatus = statuses.find((s) => s.id === newStatusId);
-      if (newStatus?.id === 7) {
-        // TERMINAL_STATUS_IDS.SIGNED = 7
+      if (newStatus && isSignedStatus(newStatus)) {
         // フォームから締結日が指定された場合はその日付を使用
         if (signedDate) {
           updateData.signedDate = new Date(signedDate);
@@ -296,6 +290,43 @@ export async function updateContractStatusWithHistory(
   } catch (error) {
     console.error("Failed to update contract status:", error);
     return { success: false, error: "ステータスの更新に失敗しました" };
+  }
+}
+
+/**
+ * CloudSign自動同期のON/OFFを切り替え
+ */
+export async function toggleContractAutoSync(
+  contractId: number
+): Promise<{ success: boolean; autoSync?: boolean; error?: string }> {
+  try {
+    await requireEdit("stp");
+
+    const contract = await prisma.masterContract.findUnique({
+      where: { id: contractId },
+      select: { cloudsignAutoSync: true, cloudsignDocumentId: true },
+    });
+
+    if (!contract) {
+      return { success: false, error: "契約書が見つかりません" };
+    }
+
+    if (!contract.cloudsignDocumentId) {
+      return { success: false, error: "CloudSign未連携の契約書です" };
+    }
+
+    const newAutoSync = !contract.cloudsignAutoSync;
+
+    await prisma.masterContract.update({
+      where: { id: contractId },
+      data: { cloudsignAutoSync: newAutoSync },
+    });
+
+    revalidatePath("/stp/contracts");
+    return { success: true, autoSync: newAutoSync };
+  } catch (error) {
+    console.error("Failed to toggle auto sync:", error);
+    return { success: false, error: "同期設定の変更に失敗しました" };
   }
 }
 

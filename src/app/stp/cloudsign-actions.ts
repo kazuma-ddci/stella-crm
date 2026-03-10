@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { generateContractNumber } from "@/lib/contracts/generate-number";
 import { recordContractCreationInTx } from "@/lib/contract-status/record-status-change";
 import { cloudsignClient } from "@/lib/cloudsign";
+import { syncContractStatus, saveSignedPdf } from "@/lib/cloudsign-sync";
 
 // ============================================
 // Types
@@ -437,6 +438,7 @@ export async function syncContractCloudsignStatus(contractId: number) {
       cloudsignStatus: true,
       cloudsignTitle: true,
       cloudsignDocumentId: true,
+      filePath: true,
       projectId: true,
     },
   });
@@ -457,7 +459,7 @@ export async function syncContractCloudsignStatus(contractId: number) {
   const doc = await cloudsignClient.getDocument(token, contract.cloudsignDocumentId);
 
   // CloudSign APIステータス → CRMステータス名
-  const mappedStatus = mapCloudsignApiStatus(doc.status);
+  const mappedStatus = mapCloudsignApiStatus(doc.status, doc);
   if (!mappedStatus) {
     throw new Error(`未知のCloudSignステータス: ${doc.status}`);
   }
@@ -465,7 +467,35 @@ export async function syncContractCloudsignStatus(contractId: number) {
   const session = await getSession();
   const changedBy = session.name ?? "手動同期";
 
-  const { syncContractStatus } = await import("@/lib/cloudsign-sync");
+  // 既にcompletedでPDFが未取得の場合、PDF再取得を試みる
+  if (
+    mappedStatus === "completed" &&
+    contract.cloudsignStatus === "completed" &&
+    !contract.filePath
+  ) {
+    try {
+      const pdfResult = await saveSignedPdf(
+        token,
+        contract.cloudsignDocumentId,
+        contract.id
+      );
+      await prisma.masterContract.update({
+        where: { id: contract.id },
+        data: { filePath: pdfResult.filePath, fileName: pdfResult.fileName },
+      });
+    } catch (pdfErr) {
+      console.error(
+        `[CloudSign Sync] PDF再取得失敗 (contract #${contract.id}):`,
+        pdfErr
+      );
+    }
+
+    revalidatePath("/stp/companies");
+    revalidatePath("/stp/agents");
+    revalidatePath("/stp/contracts");
+    return { previousStatus: contract.cloudsignStatus, newStatus: mappedStatus };
+  }
+
   await syncContractStatus(
     {
       id: contract.id,
@@ -500,12 +530,8 @@ export async function toggleCloudsignAutoSync(
 ) {
   if (enabled) {
     // ONに戻す場合: 最新ステータスを同期してからフラグを更新
-    try {
-      await syncContractCloudsignStatus(contractId);
-    } catch (err) {
-      console.error("[CloudSign AutoSync] 復帰時の同期失敗:", err);
-      // 同期失敗でもフラグは更新する
-    }
+    // 同期失敗時はフラグを更新せずエラーをそのまま投げる
+    await syncContractCloudsignStatus(contractId);
   }
 
   await prisma.masterContract.update({
@@ -518,23 +544,106 @@ export async function toggleCloudsignAutoSync(
   revalidatePath("/stp/contracts");
 }
 
+// ============================================
+// 9. ドキュメントID手動紐付け＆同期
+// ============================================
+
+/**
+ * CloudSignドキュメントIDを手動で紐付けて同期する
+ * 先にCloudSign APIでドキュメントの存在を検証してからDB保存する
+ */
+export async function linkCloudsignDocument(
+  contractId: number,
+  documentId: string
+) {
+  const trimmedId = documentId.trim();
+
+  // 契約のプロジェクトIDを取得
+  const contract = await prisma.masterContract.findUnique({
+    where: { id: contractId },
+    select: { projectId: true },
+  });
+  if (!contract) {
+    throw new Error("契約が見つかりません");
+  }
+
+  const operatingCompany = contract.projectId
+    ? await getOperatingCompanyForProject(contract.projectId)
+    : null;
+  if (!operatingCompany?.cloudsignClientId) {
+    throw new Error("運営法人のクラウドサインClientIDが未設定です");
+  }
+
+  // 先にCloudSign APIでドキュメントの存在を検証
+  const token = await cloudsignClient.getToken(operatingCompany.cloudsignClientId);
+  let doc;
+  try {
+    doc = await cloudsignClient.getDocument(token, trimmedId);
+  } catch {
+    throw new Error("CloudSignにこのドキュメントIDの書類が見つかりません。IDを確認してください。");
+  }
+
+  // 検証OK → DB保存
+  const mappedStatus = mapCloudsignApiStatus(doc.status, doc);
+
+  await prisma.masterContract.update({
+    where: { id: contractId },
+    data: {
+      cloudsignDocumentId: trimmedId,
+      cloudsignUrl: `https://www.cloudsign.jp/documents/${trimmedId}`,
+      cloudsignAutoSync: true,
+      signingMethod: "cloudsign",
+      cloudsignStatus: mappedStatus,
+    },
+  });
+
+  // ステータス同期
+  const result = await syncContractCloudsignStatus(contractId);
+
+  revalidatePath("/stp/companies");
+  revalidatePath("/stp/agents");
+  revalidatePath("/stp/contracts");
+
+  return result;
+}
+
 /**
  * CloudSign APIステータスマッピング (Cronと共有)
+ * CloudSign API v0.33.2 公式ステータス:
+ *   0=下書き, 1=先方確認中, 2=締結完了, 3=取消/却下, 4=テンプレート, 13=インポート書類
  */
-function mapCloudsignApiStatus(apiStatus: number): string | null {
+function mapCloudsignApiStatus(
+  apiStatus: number,
+  doc?: { participants?: { status?: number; order?: number }[] }
+): string | null {
   switch (apiStatus) {
     case 0:
       return "draft";
-    case 10:
-    case 20:
+    case 1:
       return "sent";
-    case 30:
+    case 2:
       return "completed";
-    case 40:
-      return "canceled_by_recipient";
-    case 50:
+    case 3: {
+      // 破棄者の判定: participant個別ステータスから推定
+      // participant status 9=却下(受信者), 10=取消(送信者)
+      if (doc?.participants) {
+        const hasRejected = doc.participants.some(
+          (p) => p.order !== undefined && p.order >= 1 && p.status === 9
+        );
+        if (hasRejected) {
+          return "canceled_by_recipient";
+        }
+      }
+      // 受信者の却下が見つからなければ送信者による取消
       return "canceled_by_sender";
+    }
+    // status=4(テンプレート), status=13(インポート書類) は通常取得されないが、
+    // 手動でdocumentIDを入力した場合等に到達しうる。同期対象外としてスキップ
+    case 4:
+    case 13:
+      return null;
     default:
+      console.warn(`[CloudSign] 未知のAPIステータス: ${apiStatus}`);
       return null;
   }
 }

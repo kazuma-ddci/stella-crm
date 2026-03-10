@@ -20,7 +20,7 @@ const CLOUDSIGN_API_BASE = "https://api.cloudsign.jp";
 
 export type CloudSignWidget = {
   id: string;
-  widget_type: number; // 0=署名, 1=フリーテキスト, 2=チェックボックス
+  widget_type: number; // 0=署名(stamp), 1=フリーテキスト(text), 2=チェックボックス(checkbox)
   participant_id: string;
   file_id: string;
   page: number;
@@ -29,7 +29,7 @@ export type CloudSignWidget = {
   w: number;
   h: number;
   text: string;
-  status: number;
+  status: number; // 0=未入力, 1=入力完了
   label: string;
   required?: boolean;
 };
@@ -48,6 +48,8 @@ export type CloudSignParticipant = {
   name: string;
   organization: string;
   order: number; // 0=送信元, 1以降=送信先
+  // 0=アクセス不可, 2=下書き, 3=配送待ち, 4=確認待ち, 6=送信済み,
+  // 7=確認済み, 8=捺印/入力完了, 9=却下, 10=取消, 12=署名中
   status: number;
   language_code: string;
 };
@@ -55,6 +57,7 @@ export type CloudSignParticipant = {
 export type CloudSignDocument = {
   id: string;
   title: string;
+  // 0=下書き, 1=先方確認中, 2=締結完了, 3=取消/却下, 4=テンプレート, 13=インポート書類
   status: number;
   note: string;
   message: string;
@@ -155,8 +158,12 @@ export const cloudsignClient = {
    */
   async getToken(clientId: string): Promise<string> {
     const cached = tokenCache.get(clientId);
-    if (cached && cached.expiresAt > Date.now() + TOKEN_EXPIRY_MARGIN_MS) {
-      return cached.token;
+    if (cached) {
+      if (cached.expiresAt > Date.now() + TOKEN_EXPIRY_MARGIN_MS) {
+        return cached.token;
+      }
+      // 期限切れキャッシュを削除
+      tokenCache.delete(clientId);
     }
 
     const params = new URLSearchParams();

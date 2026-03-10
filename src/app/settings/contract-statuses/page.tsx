@@ -16,6 +16,7 @@ export default async function ContractStatusesPage() {
     id: cs.id,
     name: cs.name,
     displayOrder: cs.displayOrder,
+    statusType: cs.statusType,
     isTerminal: cs.isTerminal,
     isActive: cs.isActive,
   }));

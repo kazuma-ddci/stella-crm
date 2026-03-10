@@ -51,6 +51,7 @@ export async function recordStatusChangeIfNeeded(
     name: s.name,
     displayOrder: s.displayOrder,
     isTerminal: s.isTerminal,
+    statusType: s.statusType as ContractStatusInfo["statusType"],
     isActive: s.isActive,
   }));
 

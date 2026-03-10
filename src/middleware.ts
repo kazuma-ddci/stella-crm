@@ -158,12 +158,18 @@ function hasAnyStpViewAccess(displayViews: DisplayViewPermission[]): boolean {
 export default auth((request) => {
   const { pathname } = request.nextUrl;
 
+  // 権限変更検知: permissionsExpired の場合はページ遷移をブロックしない。
+  // クライアント側の PermissionGuard が signOut() を呼んで正しくログアウトする。
+  // middleware では cookie を直接操作しない（auth() ラッパーとの競合を防止）。
+  const session = request.auth;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const permissionsExpired = !!(session?.user && (session as any).permissionsExpired);
+
   // 公開パスは許可
   if (isPublicPath(pathname)) {
-    // ただし /login は認証済みならリダイレクト
+    // ただし /login は認証済み（かつ権限有効）ならリダイレクト
     if (pathname === "/login") {
-      const session = request.auth;
-      if (session?.user) {
+      if (session?.user && !permissionsExpired) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const userType = (session.user as any).userType ?? "staff";
         const redirectUrl = userType === "external" ? "/portal" : "/";
@@ -174,23 +180,10 @@ export default auth((request) => {
   }
 
   // 認証チェック
-  const session = request.auth;
   if (!session?.user) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
-  }
-
-  // 権限変更検知: セッションCookieを削除して強制ログアウト
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  if ((session as any).permissionsExpired) {
-    const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("reason", "permissions_changed");
-    const response = NextResponse.redirect(loginUrl);
-    // NextAuth v5のセッションCookieを削除（HTTP/HTTPS両方に対応）
-    response.cookies.delete("authjs.session-token");
-    response.cookies.delete("__Secure-authjs.session-token");
-    return response;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

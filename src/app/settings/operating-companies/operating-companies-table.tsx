@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CrudTable, ColumnDef, CustomRenderers } from "@/components/crud-table";
+import { CrudTable, ColumnDef, CustomRenderers, DynamicOptionsMap } from "@/components/crud-table";
 import {
   addOperatingCompany,
   updateOperatingCompany,
@@ -63,6 +63,7 @@ const columns: ColumnDef[] = [
     ],
   },
   { key: "cloudsignClientId", header: "クラウドサインAPI", type: "password" },
+  { key: "cloudsignRegisteredEmail", header: "クラウドサイン登録メール", type: "select", dynamicOptionsKey: "emailsByCompany", dependsOn: "id", editableOnCreate: false },
   { key: "emailList", header: "メール", editable: false, filterable: false },
   { key: "bankAccountList", header: "銀行口座", editable: false, filterable: false },
   { key: "representativeName", header: "代表者名", type: "text" },
@@ -165,6 +166,22 @@ export function OperatingCompaniesTable({ data, canEdit }: Props) {
     },
   };
 
+  // 運営法人IDごとのメールアドレス選択肢を構築
+  const emailsByCompany: DynamicOptionsMap = {
+    emailsByCompany: Object.fromEntries(
+      data.map((row) => {
+        const emails = (row.emails as CompanyEmail[]) || [];
+        return [
+          String(row.id),
+          [
+            { value: "", label: "未設定" },
+            ...emails.map((e) => ({ value: e.email, label: e.email })),
+          ],
+        ];
+      })
+    ),
+  };
+
   const customActions = [
     {
       label: "ロゴ",
@@ -195,6 +212,7 @@ export function OperatingCompaniesTable({ data, canEdit }: Props) {
         emptyMessage="運営法人が登録されていません"
         customActions={customActions}
         customRenderers={customRenderers}
+        dynamicOptions={emailsByCompany}
       />
       <BankAccountsModal
         open={bankAccountsModal.open}

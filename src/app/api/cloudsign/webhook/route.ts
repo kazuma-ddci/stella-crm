@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { syncContractStatus } from "@/lib/cloudsign-sync";
 
 /**
  * POST /api/cloudsign/webhook
@@ -30,14 +31,16 @@ type WebhookPayload = {
 
 export async function POST(request: NextRequest) {
   try {
-    // Webhook認証: CLOUDSIGN_WEBHOOK_SECRET が設定されている場合はトークン検証
+    // Webhook認証: CLOUDSIGN_WEBHOOK_SECRET によるトークン検証
     const webhookSecret = process.env.CLOUDSIGN_WEBHOOK_SECRET;
-    if (webhookSecret) {
-      const url = new URL(request.url);
-      const token = url.searchParams.get("token");
-      if (token !== webhookSecret) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
+    if (!webhookSecret) {
+      console.error("[CloudSign Webhook] CLOUDSIGN_WEBHOOK_SECRET が未設定です。Webhookを受け付けません。");
+      return NextResponse.json({ error: "Server misconfiguration" }, { status: 500 });
+    }
+    const url = new URL(request.url);
+    const token = url.searchParams.get("token");
+    if (token !== webhookSecret) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body: WebhookPayload = await request.json();
@@ -57,6 +60,7 @@ export async function POST(request: NextRequest) {
         currentStatusId: true,
         cloudsignStatus: true,
         cloudsignTitle: true,
+        cloudsignDocumentId: true,
         projectId: true,
       },
     });
@@ -117,7 +121,6 @@ export async function POST(request: NextRequest) {
     const clientId = project?.operatingCompany?.cloudsignClientId;
 
     // 共通ヘルパーでステータス同期
-    const { syncContractStatus } = await import("@/lib/cloudsign-sync");
     await syncContractStatus(
       {
         id: contract.id,

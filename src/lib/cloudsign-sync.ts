@@ -9,7 +9,7 @@
 import { prisma } from "@/lib/prisma";
 import { cloudsignClient } from "@/lib/cloudsign";
 import { recordStatusChangeIfNeeded } from "@/lib/contract-status/record-status-change";
-import * as fs from "fs";
+import * as fs from "fs/promises";
 import * as path from "path";
 
 type ContractForSync = {
@@ -43,11 +43,11 @@ export async function saveSignedPdf(
     year,
     month
   );
-  fs.mkdirSync(dirPath, { recursive: true });
+  await fs.mkdir(dirPath, { recursive: true });
 
   const fileName = `signed_${contractId}_${timestamp}.pdf`;
   const fullPath = path.join(dirPath, fileName);
-  fs.writeFileSync(fullPath, pdfBuffer);
+  await fs.writeFile(fullPath, pdfBuffer);
 
   const filePath = `/uploads/contracts/${year}/${month}/${fileName}`;
 
@@ -106,8 +106,10 @@ export async function syncContractStatus(
             contract.id
           );
         } catch (pdfErr) {
+          // PDF保存失敗してもステータス更新は続行する。
+          // 手動同期ボタンで後からPDF再取得可能
           console.error(
-            `[CloudSign Sync] PDF保存失敗 (contract #${contract.id}):`,
+            `[CloudSign Sync] PDF保存失敗 (contract #${contract.id}). 手動同期で再取得してください:`,
             pdfErr
           );
         }

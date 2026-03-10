@@ -78,6 +78,7 @@ export default async function ProjectsPage() {
     paymentMonthOffset: c.paymentMonthOffset != null ? String(c.paymentMonthOffset) : "",
     paymentDay: c.paymentDay != null ? String(c.paymentDay) : "",
     cloudsignClientId: c.cloudsignClientId ? "********" : "",
+    cloudsignRegisteredEmail: c.cloudsignRegisteredEmail || "",
     logoPath: c.logoPath,
     bankAccounts: c.bankAccounts.map((b) => ({
       id: b.id,

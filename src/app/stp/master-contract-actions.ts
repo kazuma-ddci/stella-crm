@@ -26,6 +26,7 @@ type ContractInput = {
   fileName?: string | null;
   assignedTo?: string | null;
   note?: string | null;
+  cloudsignDocumentId?: string | null;
 };
 
 /**
@@ -96,7 +97,7 @@ export async function getMasterContracts(companyId: number) {
  * @param data 契約書データ
  * @returns 作成された契約番号
  */
-export async function addMasterContract(companyId: number, data: ContractInput): Promise<string> {
+export async function addMasterContract(companyId: number, data: ContractInput): Promise<{ contractNumber: string; contractId: number }> {
   // 契約番号を自動生成
   const contractNumber = await generateContractNumber();
 
@@ -105,7 +106,7 @@ export async function addMasterContract(companyId: number, data: ContractInput):
   const changedBy = session?.user?.name ?? null;
 
   // トランザクションで作成と履歴記録を実行
-  await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const contract = await tx.masterContract.create({
       data: {
         companyId,
@@ -134,13 +135,15 @@ export async function addMasterContract(companyId: number, data: ContractInput):
         changedBy ?? undefined
       );
     }
+
+    return contract;
   });
 
   revalidatePath("/stp/companies");
   revalidatePath("/stp/agents");
   revalidatePath("/stp/contracts");
 
-  return contractNumber;
+  return { contractNumber, contractId: result.id };
 }
 
 /**

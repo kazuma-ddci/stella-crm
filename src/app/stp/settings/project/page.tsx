@@ -16,6 +16,14 @@ export default async function StpProjectSettingsPage() {
     where: { code: "stp" },
     include: {
       operatingCompany: true,
+      projectEmails: {
+        include: { email: true },
+        orderBy: [{ isDefault: "desc" }, { id: "asc" }],
+      },
+      projectBankAccounts: {
+        include: { bankAccount: true },
+        orderBy: [{ isDefault: "desc" }, { id: "asc" }],
+      },
     },
   });
 
@@ -58,6 +66,18 @@ export default async function StpProjectSettingsPage() {
         project={projectData}
         operatingCompany={operatingCompanyData}
         isSystemAdmin={isSystemAdmin}
+        emails={stpProject.projectEmails.map((pe) => ({
+          email: pe.email.email,
+          label: pe.email.label,
+          isDefault: pe.isDefault,
+        }))}
+        bankAccounts={stpProject.projectBankAccounts.map((pba) => ({
+          bankName: pba.bankAccount.bankName,
+          branchName: pba.bankAccount.branchName,
+          accountNumber: pba.bankAccount.accountNumber,
+          accountHolderName: pba.bankAccount.accountHolderName,
+          isDefault: pba.isDefault,
+        }))}
       />
     </div>
   );

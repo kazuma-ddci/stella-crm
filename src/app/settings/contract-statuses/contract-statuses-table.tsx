@@ -12,7 +12,12 @@ type Props = {
 const columns: ColumnDef[] = [
   { key: "id", header: "ID", editable: false, hidden: true },
   { key: "name", header: "ステータス名", type: "text", required: true, simpleMode: true },
-  { key: "isTerminal", header: "終了フラグ", type: "boolean" },
+  { key: "statusType", header: "タイプ", type: "select", required: true, options: [
+    { value: "progress", label: "進行" },
+    { value: "signed", label: "締結" },
+    { value: "discarded", label: "破棄" },
+    { value: "pending", label: "保留" },
+  ], simpleMode: true },
   { key: "isActive", header: "有効", type: "boolean" },
 ];
 

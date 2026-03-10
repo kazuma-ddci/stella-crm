@@ -7,7 +7,7 @@ import {
   ContractStatusEventDetectionResult,
   ContractStatusEventType,
 } from './types';
-import { TERMINAL_STATUS_IDS } from './constants';
+import { isSignedStatus, isDiscardedStatus, isPendingStatus, isProgressStatus } from './constants';
 
 /**
  * ステータス変更からイベントを検出する
@@ -63,49 +63,45 @@ function detectEventType(
     return 'created';
   }
 
-  const currentIsTerminal = currentStatus.isTerminal;
-  const newIsTerminal = newStatus.isTerminal;
   const currentOrder = currentStatus.displayOrder;
   const newOrder = newStatus.displayOrder;
 
   // 締結済みへの遷移
-  if (newStatus.id === TERMINAL_STATUS_IDS.SIGNED) {
+  if (isSignedStatus(newStatus)) {
     return 'signed';
   }
 
   // 破棄への遷移
-  if (newStatus.id === TERMINAL_STATUS_IDS.DISCARDED) {
+  if (isDiscardedStatus(newStatus)) {
     return 'discarded';
   }
 
-  // 破棄から進行中への復活
-  if (currentStatus.id === TERMINAL_STATUS_IDS.DISCARDED && !newIsTerminal) {
+  // 保留への遷移
+  if (isPendingStatus(newStatus) && !isPendingStatus(currentStatus)) {
+    return 'suspended';
+  }
+
+  // 保留から進行中への復帰
+  if (isPendingStatus(currentStatus) && isProgressStatus(newStatus)) {
+    return 'resumed';
+  }
+
+  // 破棄から進行中/保留への復活
+  if (isDiscardedStatus(currentStatus) && !isDiscardedStatus(newStatus)) {
     return 'revived';
   }
 
-  // 締結済みから進行中への再開
-  if (currentStatus.id === TERMINAL_STATUS_IDS.SIGNED && !newIsTerminal) {
+  // 締結済みから進行中/保留への再開
+  if (isSignedStatus(currentStatus) && !isSignedStatus(newStatus)) {
     return 'reopened';
   }
 
   // 進行中ステータス間の移動
-  if (!currentIsTerminal && !newIsTerminal) {
+  if (isProgressStatus(currentStatus) && isProgressStatus(newStatus)) {
     if (newOrder > currentOrder) {
       return 'progress'; // 前進
     } else if (newOrder < currentOrder) {
       return 'back'; // 後退
-    }
-  }
-
-  // 終了ステータスから別の終了ステータスへ（破棄→締結など）
-  if (currentIsTerminal && newIsTerminal) {
-    // 締結に変更
-    if (newStatus.id === TERMINAL_STATUS_IDS.SIGNED) {
-      return 'signed';
-    }
-    // 破棄に変更
-    if (newStatus.id === TERMINAL_STATUS_IDS.DISCARDED) {
-      return 'discarded';
     }
   }
 
@@ -160,6 +156,10 @@ export function getContractStatusEventDescription(
       return `破棄から復活 → ${toStatus?.name ?? '不明'}`;
     case 'reopened':
       return `締結済みから再開 → ${toStatus?.name ?? '不明'}`;
+    case 'suspended':
+      return `保留 → ${toStatus?.name ?? '不明'}`;
+    case 'resumed':
+      return `保留解除 → ${toStatus?.name ?? '不明'}`;
     default:
       return '';
   }
@@ -188,27 +188,37 @@ export function getContractStatusChangeType(
   }
 
   // 締結に変更
-  if (newStatus.id === TERMINAL_STATUS_IDS.SIGNED) {
+  if (isSignedStatus(newStatus)) {
     return { type: 'signed', message: '✅ 契約書を締結として記録します' };
   }
 
   // 破棄に変更
-  if (newStatus.id === TERMINAL_STATUS_IDS.DISCARDED) {
+  if (isDiscardedStatus(newStatus)) {
     return { type: 'discarded', message: '🗑️ 契約書を破棄として記録します' };
   }
 
+  // 保留に変更
+  if (isPendingStatus(newStatus) && currentStatus && !isPendingStatus(currentStatus)) {
+    return { type: 'suspended', message: '⏸️ 契約書を保留にします' };
+  }
+
+  // 保留から復帰
+  if (currentStatus && isPendingStatus(currentStatus) && isProgressStatus(newStatus)) {
+    return { type: 'resumed', message: '▶️ 保留を解除します' };
+  }
+
   // 破棄から復活
-  if (currentStatus?.id === TERMINAL_STATUS_IDS.DISCARDED) {
+  if (currentStatus && isDiscardedStatus(currentStatus)) {
     return { type: 'revived', message: '🔄 破棄された契約書を復活します' };
   }
 
   // 締結済みから再開
-  if (currentStatus?.id === TERMINAL_STATUS_IDS.SIGNED) {
+  if (currentStatus && isSignedStatus(currentStatus)) {
     return { type: 'reopened', message: '▶️ 締結済みの契約書を再開します' };
   }
 
   // 進行中ステータス間の移動
-  if (currentStatus && !currentStatus.isTerminal && !newStatus.isTerminal) {
+  if (currentStatus && isProgressStatus(currentStatus) && isProgressStatus(newStatus)) {
     const currentOrder = currentStatus.displayOrder;
     const newOrder = newStatus.displayOrder;
 

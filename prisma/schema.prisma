@@ -1012,6 +1012,7 @@ model MasterContractStatus {
   displayOrder           Int       @default(0) @map("display_order")
   isTerminal             Boolean   @default(false) @map("is_terminal")
   isActive               Boolean   @default(true) @map("is_active")
+  statusType             String    @default("progress") @db.VarChar(20) @map("status_type")
   cloudsignStatusMapping String?   @db.VarChar(30) @map("cloudsign_status_mapping")
   createdAt              DateTime  @default(now()) @map("created_at")
   updatedAt              DateTime  @updatedAt @map("updated_at")

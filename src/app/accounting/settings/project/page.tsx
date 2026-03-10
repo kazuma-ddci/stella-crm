@@ -16,6 +16,14 @@ export default async function AccountingProjectSettingsPage() {
     where: { code: "accounting" },
     include: {
       operatingCompany: true,
+      projectEmails: {
+        include: { email: true },
+        orderBy: [{ isDefault: "desc" }, { id: "asc" }],
+      },
+      projectBankAccounts: {
+        include: { bankAccount: true },
+        orderBy: [{ isDefault: "desc" }, { id: "asc" }],
+      },
     },
   });
 
@@ -58,6 +66,18 @@ export default async function AccountingProjectSettingsPage() {
         project={projectData}
         operatingCompany={operatingCompanyData}
         isSystemAdmin={isSystemAdmin}
+        emails={accountingProject.projectEmails.map((pe) => ({
+          email: pe.email.email,
+          label: pe.email.label,
+          isDefault: pe.isDefault,
+        }))}
+        bankAccounts={accountingProject.projectBankAccounts.map((pba) => ({
+          bankName: pba.bankAccount.bankName,
+          branchName: pba.bankAccount.branchName,
+          accountNumber: pba.bankAccount.accountNumber,
+          accountHolderName: pba.bankAccount.accountHolderName,
+          isDefault: pba.isDefault,
+        }))}
       />
     </div>
   );

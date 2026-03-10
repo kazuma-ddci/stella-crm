@@ -24,6 +24,7 @@ import {
 import {
   getContractStatusManagementData,
   updateContractStatusWithHistory,
+  toggleContractAutoSync,
 } from "@/app/stp/contracts/status-management/actions";
 import { CurrentStatusSection } from "./current-status-section";
 import { StatusProgressVisual } from "./status-progress-visual";
@@ -97,6 +98,24 @@ export function ContractStatusModal({
   const handleHasChangesChange = useCallback((hasChanges: boolean) => {
     setHasFormChanges(hasChanges);
   }, []);
+
+  // CloudSign同期切り替え
+  const handleToggleAutoSync = useCallback(async () => {
+    if (!contractId || !data) return;
+    try {
+      const result = await toggleContractAutoSync(contractId);
+      if (result.success) {
+        // データを再読み込み
+        const newData = await getContractStatusManagementData(contractId);
+        setData(newData);
+        toast.success(result.autoSync ? "CloudSign同期をONにしました" : "CloudSign同期をOFFにしました");
+      } else {
+        toast.error(result.error ?? "同期設定の変更に失敗しました");
+      }
+    } catch {
+      toast.error("同期設定の変更に失敗しました");
+    }
+  }, [contractId, data]);
 
   // キャンセルボタンのクリックハンドラ
   const handleCancel = () => {
@@ -239,6 +258,9 @@ export function ContractStatusModal({
                     loading={saving}
                     hasChanges={hasFormChanges}
                     onHasChangesChange={handleHasChangesChange}
+                    cloudsignDocumentId={data.cloudsignDocumentId}
+                    cloudsignAutoSync={data.cloudsignAutoSync}
+                    onToggleAutoSync={handleToggleAutoSync}
                   />
                 </div>
               </div>
