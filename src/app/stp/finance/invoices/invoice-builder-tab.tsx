@@ -99,6 +99,7 @@ type GroupDetailData = {
     representativeName: string | null;
     phone: string | null;
     logoPath: string | null;
+    email: string | null;
   };
   transactions: {
     id: number;
