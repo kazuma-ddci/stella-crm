@@ -13,19 +13,36 @@ export async function addOperatingCompanyEmail(
   const session = await getSession();
   const staffId = session.id;
 
+  // 同じメールアドレスの重複チェック
+  const emailAddr = (data.email as string).trim();
+  const duplicate = await prisma.operatingCompanyEmail.findFirst({
+    where: { email: emailAddr, deletedAt: null },
+  });
+  if (duplicate) {
+    throw new Error(
+      duplicate.operatingCompanyId === operatingCompanyId
+        ? "このメールアドレスは既に登録されています"
+        : "このメールアドレスは別の運営法人で既に登録されています"
+    );
+  }
+
+  // smtpUser/imapUser はメールアドレスと同じ値を自動設定
+  // imapPass は smtpPass と共通（アプリパスワード）
+  const appPass = (data.smtpPass as string) || null;
+
   const email = await prisma.operatingCompanyEmail.create({
     data: {
       operatingCompanyId,
-      email: data.email as string,
+      email: emailAddr,
       label: (data.label as string) || null,
       smtpHost: (data.smtpHost as string) || null,
       smtpPort: data.smtpPort ? Number(data.smtpPort) : null,
-      smtpUser: (data.smtpUser as string) || null,
-      smtpPass: (data.smtpPass as string) || null,
+      smtpUser: emailAddr,
+      smtpPass: appPass,
       imapHost: (data.imapHost as string) || null,
       imapPort: data.imapPort ? Number(data.imapPort) : null,
-      imapUser: (data.imapUser as string) || null,
-      imapPass: (data.imapPass as string) || null,
+      imapUser: emailAddr,
+      imapPass: appPass,
       enableInbound: data.enableInbound === true || data.enableInbound === "true",
       isDefault: data.isDefault === true || data.isDefault === "true",
       createdBy: staffId,
@@ -76,30 +93,38 @@ export async function updateOperatingCompanyEmail(
   });
   if (!existing) throw new Error("メールアドレスが見つかりません");
 
+  // メールアドレスが変更された場合の重複チェック
+  const newEmailAddr = (data.email as string).trim();
+  if (newEmailAddr !== existing.email) {
+    const duplicate = await prisma.operatingCompanyEmail.findFirst({
+      where: { email: newEmailAddr, deletedAt: null, id: { not: id } },
+    });
+    if (duplicate) {
+      throw new Error("このメールアドレスは既に使用されています");
+    }
+  }
+
   const isDefault = data.isDefault === true || data.isDefault === "true";
 
+  // smtpUser/imapUser はメールアドレスと同じ値を自動設定
   const updateData: Record<string, unknown> = {
-    email: data.email as string,
+    email: newEmailAddr,
     label: (data.label as string) || null,
     smtpHost: (data.smtpHost as string) || null,
     smtpPort: data.smtpPort ? Number(data.smtpPort) : null,
-    smtpUser: (data.smtpUser as string) || null,
+    smtpUser: newEmailAddr,
     imapHost: (data.imapHost as string) || null,
     imapPort: data.imapPort ? Number(data.imapPort) : null,
-    imapUser: (data.imapUser as string) || null,
+    imapUser: newEmailAddr,
     enableInbound: data.enableInbound === true || data.enableInbound === "true",
     isDefault,
     updatedBy: staffId,
   };
 
-  // smtpPassが送信された場合のみ更新（空なら変更しない）
+  // アプリパスワードが送信された場合のみ更新（SMTP/IMAP共通）
   if (data.smtpPass) {
     updateData.smtpPass = data.smtpPass as string;
-  }
-
-  // imapPassが送信された場合のみ更新（空なら変更しない）
-  if (data.imapPass) {
-    updateData.imapPass = data.imapPass as string;
+    updateData.imapPass = data.smtpPass as string;
   }
 
   const email = await prisma.operatingCompanyEmail.update({

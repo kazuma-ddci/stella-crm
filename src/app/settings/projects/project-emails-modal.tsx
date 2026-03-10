@@ -23,15 +23,14 @@ import {
   Plus,
   Trash2,
   Pencil,
-  Settings,
   Star,
   StarOff,
   Loader2,
-  X,
-  Check,
 } from "lucide-react";
 import {
   addProjectEmail,
+  linkExistingEmail,
+  getAvailableEmails,
   updateProjectEmailMemo,
   updateEmailSettings,
   setProjectDefaultEmail,
@@ -58,6 +57,14 @@ type ProjectEmail = {
   enableInbound: boolean;
 };
 
+type AvailableEmail = {
+  id: number;
+  email: string;
+  label: string | null;
+  hasSmtpConfig: boolean;
+  enableInbound: boolean;
+};
+
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -81,8 +88,11 @@ export function ProjectEmailsModal({
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 追加フォーム
-  const [isAddMode, setIsAddMode] = useState(false);
+  // 追加モード: "select" = 既存から選択, "new" = 新規追加, null = 非表示
+  const [addMode, setAddMode] = useState<"select" | "new" | null>(null);
+  const [availableEmails, setAvailableEmails] = useState<AvailableEmail[]>([]);
+  const [selectedEmailId, setSelectedEmailId] = useState<number | null>(null);
+  const [selectMemo, setSelectMemo] = useState("");
   const [addForm, setAddForm] = useState({
     email: "",
     memo: "",
@@ -95,13 +105,10 @@ export function ProjectEmailsModal({
   });
   const [addSaving, setAddSaving] = useState(false);
 
-  // メモ編集
-  const [editingMemoId, setEditingMemoId] = useState<number | null>(null);
-  const [memoValue, setMemoValue] = useState("");
-
-  // メール設定編集
-  const [smtpEditId, setSmtpEditId] = useState<number | null>(null);
-  const [smtpForm, setSmtpForm] = useState({
+  // 編集（メモ + メール設定を統合）
+  const [editingEmail, setEditingEmail] = useState<ProjectEmail | null>(null);
+  const [editForm, setEditForm] = useState({
+    memo: "",
     smtpHost: "",
     smtpPort: "",
     smtpPass: "",
@@ -109,7 +116,7 @@ export function ProjectEmailsModal({
     imapPort: "",
     enableInbound: false,
   });
-  const [smtpSaving, setSmtpSaving] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
 
   // 削除確認
   const [deleteConfirm, setDeleteConfirm] = useState<ProjectEmail | null>(null);
@@ -136,9 +143,8 @@ export function ProjectEmailsModal({
 
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
-      setIsAddMode(false);
-      setEditingMemoId(null);
-      setSmtpEditId(null);
+      setAddMode(null);
+      setEditingEmail(null);
       setDeleteConfirm(null);
       setError(null);
     }
@@ -149,7 +155,19 @@ export function ProjectEmailsModal({
   // メール追加
   // ============================================
 
-  const openAddForm = () => {
+  const openSelectMode = async () => {
+    const available = await getAvailableEmails(projectId);
+    setAvailableEmails(available);
+    setSelectedEmailId(null);
+    setSelectMemo("");
+    if (available.length > 0) {
+      setAddMode("select");
+    } else {
+      openNewMode();
+    }
+  };
+
+  const openNewMode = () => {
     setAddForm({
       email: "",
       memo: "",
@@ -160,10 +178,32 @@ export function ProjectEmailsModal({
       imapPort: "993",
       enableInbound: false,
     });
-    setIsAddMode(true);
+    setAddMode("new");
   };
 
-  const handleAdd = async () => {
+  const handleLinkExisting = async () => {
+    if (!selectedEmailId) return;
+    setAddSaving(true);
+    setError(null);
+
+    const result = await linkExistingEmail({
+      projectId,
+      emailId: selectedEmailId,
+      memo: selectMemo.trim() || null,
+    });
+
+    setAddSaving(false);
+    if (!result.success) {
+      setError(result.error ?? "追加に失敗しました");
+      clearError();
+      return;
+    }
+
+    setAddMode(null);
+    await loadEmails();
+  };
+
+  const handleAddNew = async () => {
     if (!addForm.email.trim()) return;
     setAddSaving(true);
     setError(null);
@@ -187,41 +227,18 @@ export function ProjectEmailsModal({
       return;
     }
 
-    setIsAddMode(false);
+    setAddMode(null);
     await loadEmails();
   };
 
   // ============================================
-  // メモ編集
+  // 編集（メモ + メール設定統合）
   // ============================================
 
-  const startMemoEdit = (pe: ProjectEmail) => {
-    setEditingMemoId(pe.id);
-    setMemoValue(pe.memo ?? "");
-  };
-
-  const saveMemo = async (peId: number) => {
-    try {
-      await updateProjectEmailMemo(peId, memoValue.trim() || null);
-      setEmails((prev) =>
-        prev.map((e) =>
-          e.id === peId ? { ...e, memo: memoValue.trim() || null } : e
-        )
-      );
-      setEditingMemoId(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "メモの更新に失敗しました");
-      clearError();
-    }
-  };
-
-  // ============================================
-  // SMTP編集（admin専用）
-  // ============================================
-
-  const openSmtpEdit = (pe: ProjectEmail) => {
-    setSmtpEditId(pe.emailId);
-    setSmtpForm({
+  const openEditForm = (pe: ProjectEmail) => {
+    setEditingEmail(pe);
+    setEditForm({
+      memo: pe.memo ?? "",
       smtpHost: pe.smtpHost ?? "smtp.gmail.com",
       smtpPort: pe.smtpPort?.toString() ?? "587",
       smtpPass: "",
@@ -231,27 +248,34 @@ export function ProjectEmailsModal({
     });
   };
 
-  const saveSmtp = async () => {
-    if (smtpEditId === null) return;
-    setSmtpSaving(true);
+  const saveEdit = async () => {
+    if (!editingEmail) return;
+    setEditSaving(true);
     setError(null);
 
     try {
-      await updateEmailSettings(smtpEditId, {
-        smtpHost: smtpForm.smtpHost.trim() || null,
-        smtpPort: smtpForm.smtpPort ? parseInt(smtpForm.smtpPort) : null,
-        smtpPass: smtpForm.smtpPass.trim() || null,
-        imapHost: smtpForm.imapHost.trim() || null,
-        imapPort: smtpForm.imapPort ? parseInt(smtpForm.imapPort) : null,
-        enableInbound: smtpForm.enableInbound,
-      });
-      setSmtpEditId(null);
+      // メモを更新
+      await updateProjectEmailMemo(editingEmail.id, editForm.memo.trim() || null);
+
+      // メール設定を更新（admin のみ）
+      if (isSystemAdmin) {
+        await updateEmailSettings(editingEmail.emailId, {
+          smtpHost: editForm.smtpHost.trim() || null,
+          smtpPort: editForm.smtpPort ? parseInt(editForm.smtpPort) : null,
+          smtpPass: editForm.smtpPass.trim() || null,
+          imapHost: editForm.imapHost.trim() || null,
+          imapPort: editForm.imapPort ? parseInt(editForm.imapPort) : null,
+          enableInbound: editForm.enableInbound,
+        });
+      }
+
+      setEditingEmail(null);
       await loadEmails();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "メール設定の更新に失敗しました");
+      setError(err instanceof Error ? err.message : "保存に失敗しました");
       clearError();
     } finally {
-      setSmtpSaving(false);
+      setEditSaving(false);
     }
   };
 
@@ -291,6 +315,9 @@ export function ProjectEmailsModal({
     }
   };
 
+  // フォーム表示中かどうか
+  const isFormOpen = !!addMode || !!editingEmail;
+
   // ============================================
   // レンダリング
   // ============================================
@@ -308,19 +335,107 @@ export function ProjectEmailsModal({
           </div>
         )}
 
-        {/* 追加ボタン / 追加フォーム */}
-        {!isAddMode && !smtpEditId && (
+        {/* 追加ボタン */}
+        {!isFormOpen && (
           <div className="flex justify-end">
-            <Button size="sm" onClick={openAddForm}>
+            <Button size="sm" onClick={openSelectMode}>
               <Plus className="h-4 w-4 mr-1" />
               メールアドレスを追加
             </Button>
           </div>
         )}
 
-        {isAddMode && (
+        {/* 既存メールから選択 */}
+        {addMode === "select" && (
           <div className="space-y-3 border rounded-lg p-4 bg-muted/50">
-            <p className="text-sm font-medium">メールアドレスを追加</p>
+            <p className="text-sm font-medium">運営法人のメールアドレスから選択</p>
+            <div className="space-y-2">
+              {availableEmails.map((ae) => (
+                <label
+                  key={ae.id}
+                  className={`flex items-center gap-3 p-2.5 border rounded-md cursor-pointer transition-colors ${
+                    selectedEmailId === ae.id
+                      ? "border-primary bg-primary/5"
+                      : "hover:bg-muted/80"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="selectEmail"
+                    checked={selectedEmailId === ae.id}
+                    onChange={() => setSelectedEmailId(ae.id)}
+                    className="accent-primary"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <span className="font-mono text-sm">{ae.email}</span>
+                    {ae.label && (
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        ({ae.label})
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex gap-1">
+                    {ae.hasSmtpConfig ? (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-600 border-green-300">
+                        送信可
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-orange-500 border-orange-300">
+                        SMTP未設定
+                      </Badge>
+                    )}
+                  </div>
+                </label>
+              ))}
+            </div>
+            {selectedEmailId && (
+              <div className="space-y-1">
+                <Label className="text-xs">メモ（プロジェクト用）</Label>
+                <Input
+                  value={selectMemo}
+                  onChange={(e) => setSelectMemo(e.target.value)}
+                  placeholder="例: 請求書送付用"
+                  className="h-8 text-sm"
+                />
+              </div>
+            )}
+            <div className="flex items-center justify-between pt-1">
+              <Button
+                size="sm"
+                variant="link"
+                className="text-xs px-0"
+                onClick={openNewMode}
+              >
+                新しいメールアドレスを登録
+              </Button>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setAddMode(null)}
+                >
+                  キャンセル
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleLinkExisting}
+                  disabled={addSaving || !selectedEmailId}
+                >
+                  {addSaving ? (
+                    <><Loader2 className="h-3 w-3 mr-1 animate-spin" />追加中</>
+                  ) : (
+                    "追加"
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 新規メールアドレス追加 */}
+        {addMode === "new" && (
+          <div className="space-y-3 border rounded-lg p-4 bg-muted/50">
+            <p className="text-sm font-medium">新しいメールアドレスを登録</p>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">メールアドレス *</Label>
@@ -416,13 +531,13 @@ export function ProjectEmailsModal({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setIsAddMode(false)}
+                onClick={() => setAddMode(null)}
               >
                 キャンセル
               </Button>
               <Button
                 size="sm"
-                onClick={handleAdd}
+                onClick={handleAddNew}
                 disabled={addSaving || !addForm.email.trim()}
               >
                 {addSaving ? (
@@ -435,83 +550,101 @@ export function ProjectEmailsModal({
           </div>
         )}
 
-        {/* メール設定編集フォーム（admin専用） */}
-        {smtpEditId !== null && (
+        {/* 編集フォーム（メモ + メール設定統合） */}
+        {editingEmail && (
           <div className="space-y-3 border rounded-lg p-4 bg-muted/50">
-            <p className="text-sm font-medium">メール設定を編集</p>
-            <p className="text-xs font-medium text-muted-foreground">SMTP設定（送信）</p>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <Label className="text-xs">SMTPホスト</Label>
-                <Input
-                  value={smtpForm.smtpHost}
-                  onChange={(e) => setSmtpForm({ ...smtpForm, smtpHost: e.target.value })}
-                  placeholder="smtp.gmail.com"
-                  className="h-8 text-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">SMTPポート</Label>
-                <Input
-                  type="number"
-                  value={smtpForm.smtpPort}
-                  onChange={(e) => setSmtpForm({ ...smtpForm, smtpPort: e.target.value })}
-                  placeholder="587"
-                  className="h-8 text-sm"
-                />
-              </div>
-            </div>
-            <p className="text-xs font-medium text-muted-foreground pt-2">IMAP設定（受信）</p>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <Label className="text-xs">IMAPホスト</Label>
-                <Input
-                  value={smtpForm.imapHost}
-                  onChange={(e) => setSmtpForm({ ...smtpForm, imapHost: e.target.value })}
-                  placeholder="imap.gmail.com"
-                  className="h-8 text-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">IMAPポート</Label>
-                <Input
-                  type="number"
-                  value={smtpForm.imapPort}
-                  onChange={(e) => setSmtpForm({ ...smtpForm, imapPort: e.target.value })}
-                  placeholder="993"
-                  className="h-8 text-sm"
-                />
-              </div>
-            </div>
-            <div className="space-y-1 pt-1">
-              <Label className="text-xs">アプリパスワード（送受信共通）</Label>
+            <p className="text-sm font-medium">
+              <span className="font-mono">{editingEmail.email}</span> の設定
+            </p>
+            <div className="space-y-1">
+              <Label className="text-xs">メモ（プロジェクト用）</Label>
               <Input
-                type="password"
-                value={smtpForm.smtpPass}
-                onChange={(e) => setSmtpForm({ ...smtpForm, smtpPass: e.target.value })}
-                placeholder="変更時のみ入力"
+                value={editForm.memo}
+                onChange={(e) => setEditForm({ ...editForm, memo: e.target.value })}
+                placeholder="例: 請求書送付用"
                 className="h-8 text-sm"
+                autoFocus
               />
             </div>
-            <label className="flex items-center gap-2 pt-1 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={smtpForm.enableInbound}
-                onChange={(e) => setSmtpForm({ ...smtpForm, enableInbound: e.target.checked })}
-                className="rounded border-gray-300"
-              />
-              <span className="text-xs">受信チェックを有効にする</span>
-            </label>
+
+            {isSystemAdmin && (
+              <div className="space-y-2 border-t pt-3">
+                <p className="text-xs font-medium text-muted-foreground">SMTP設定（送信）</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">SMTPホスト</Label>
+                    <Input
+                      value={editForm.smtpHost}
+                      onChange={(e) => setEditForm({ ...editForm, smtpHost: e.target.value })}
+                      placeholder="smtp.gmail.com"
+                      className="h-7 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">SMTPポート</Label>
+                    <Input
+                      type="number"
+                      value={editForm.smtpPort}
+                      onChange={(e) => setEditForm({ ...editForm, smtpPort: e.target.value })}
+                      placeholder="587"
+                      className="h-7 text-xs"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs font-medium text-muted-foreground pt-2">IMAP設定（受信）</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">IMAPホスト</Label>
+                    <Input
+                      value={editForm.imapHost}
+                      onChange={(e) => setEditForm({ ...editForm, imapHost: e.target.value })}
+                      placeholder="imap.gmail.com"
+                      className="h-7 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">IMAPポート</Label>
+                    <Input
+                      type="number"
+                      value={editForm.imapPort}
+                      onChange={(e) => setEditForm({ ...editForm, imapPort: e.target.value })}
+                      placeholder="993"
+                      className="h-7 text-xs"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1 pt-1">
+                  <Label className="text-xs">アプリパスワード（送受信共通）</Label>
+                  <Input
+                    type="password"
+                    value={editForm.smtpPass}
+                    onChange={(e) => setEditForm({ ...editForm, smtpPass: e.target.value })}
+                    placeholder="変更時のみ入力"
+                    className="h-7 text-xs"
+                  />
+                </div>
+                <label className="flex items-center gap-2 pt-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editForm.enableInbound}
+                    onChange={(e) => setEditForm({ ...editForm, enableInbound: e.target.checked })}
+                    className="rounded border-gray-300"
+                  />
+                  <span className="text-xs">受信チェックを有効にする</span>
+                </label>
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 pt-1">
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setSmtpEditId(null)}
+                onClick={() => setEditingEmail(null)}
               >
                 キャンセル
               </Button>
-              <Button size="sm" onClick={saveSmtp} disabled={smtpSaving}>
-                {smtpSaving ? (
+              <Button size="sm" onClick={saveEdit} disabled={editSaving}>
+                {editSaving ? (
                   <><Loader2 className="h-3 w-3 mr-1 animate-spin" />保存中</>
                 ) : (
                   "保存"
@@ -536,7 +669,7 @@ export function ProjectEmailsModal({
                   <TableHead>メモ</TableHead>
                   <TableHead>送信</TableHead>
                   <TableHead>受信</TableHead>
-                  <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
+                  <TableHead className="w-[80px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                     操作
                   </TableHead>
                 </TableRow>
@@ -572,48 +705,11 @@ export function ProjectEmailsModal({
                       <span className="font-mono text-sm">{pe.email}</span>
                     </TableCell>
                     <TableCell>
-                      {editingMemoId === pe.id ? (
-                        <div className="flex gap-1 items-center">
-                          <Input
-                            value={memoValue}
-                            onChange={(e) => setMemoValue(e.target.value)}
-                            className="h-7 text-xs w-32"
-                            placeholder="メモ"
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") saveMemo(pe.id);
-                              if (e.key === "Escape") setEditingMemoId(null);
-                            }}
-                            autoFocus
-                          />
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-6 w-6"
-                            onClick={() => saveMemo(pe.id)}
-                          >
-                            <Check className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-6 w-6"
-                            onClick={() => setEditingMemoId(null)}
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <button
-                          className="text-xs text-left hover:text-primary cursor-pointer"
-                          onClick={() => startMemoEdit(pe)}
-                        >
-                          {pe.memo || (
-                            <span className="text-muted-foreground italic">
-                              メモを追加
-                            </span>
-                          )}
-                        </button>
-                      )}
+                      <span className="text-xs">
+                        {pe.memo || (
+                          <span className="text-muted-foreground italic">-</span>
+                        )}
+                      </span>
                     </TableCell>
                     <TableCell>
                       {pe.hasSmtpConfig ? (
@@ -655,27 +751,18 @@ export function ProjectEmailsModal({
                           size="icon"
                           variant="ghost"
                           className="h-7 w-7"
-                          onClick={() => startMemoEdit(pe)}
-                          title="メモを編集"
+                          onClick={() => openEditForm(pe)}
+                          disabled={isFormOpen}
+                          title="設定を編集"
                         >
                           <Pencil className="h-3 w-3" />
                         </Button>
-                        {isSystemAdmin && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7"
-                            onClick={() => openSmtpEdit(pe)}
-                            title="メール設定"
-                          >
-                            <Settings className="h-3 w-3" />
-                          </Button>
-                        )}
                         <Button
                           size="icon"
                           variant="ghost"
                           className="h-7 w-7 text-red-500 hover:text-red-700"
                           onClick={() => setDeleteConfirm(pe)}
+                          disabled={isFormOpen}
                           title="削除"
                         >
                           <Trash2 className="h-3 w-3" />

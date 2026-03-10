@@ -12,7 +12,10 @@ export default async function EmailTemplatesPage({ searchParams }: Props) {
 
   // プロジェクトフィルタの解決: code → id
   const filterProject = projectFilter
-    ? await prisma.masterProject.findFirst({ where: { code: projectFilter, isActive: true } })
+    ? await prisma.masterProject.findFirst({
+        where: { code: projectFilter, isActive: true },
+        select: { id: true, name: true, operatingCompanyId: true },
+      })
     : null;
 
   const [invoiceTemplates, operatingCompanies, projects] = await Promise.all([
@@ -79,6 +82,7 @@ export default async function EmailTemplatesPage({ searchParams }: Props) {
             companyOptions={companyOptions}
             projectOptions={projectOptions}
             filterProjectId={filterProject ? String(filterProject.id) : undefined}
+            filterOperatingCompanyId={filterProject?.operatingCompanyId ? String(filterProject.operatingCompanyId) : undefined}
           />
         </CardContent>
       </Card>

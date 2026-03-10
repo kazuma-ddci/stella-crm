@@ -129,6 +129,7 @@ type Props = {
   companyOptions: CompanyOption[];
   projectOptions: CompanyOption[];
   filterProjectId?: string;
+  filterOperatingCompanyId?: string;
 };
 
 function TemplateField({
@@ -143,6 +144,7 @@ function TemplateField({
   rows: number;
 }) {
   const [showPreview, setShowPreview] = useState(false);
+  const [hasContent, setHasContent] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
   const lastValueRef = useRef<string>("");
   const isFocusedRef = useRef(false);
@@ -154,14 +156,24 @@ function TemplateField({
     if (editorRef.current && !isFocusedRef.current) {
       editorRef.current.innerHTML = textToHtml(text);
       lastValueRef.current = text;
+      setHasContent(!!text);
     }
   }, [text, showPreview]);
+
+  /** エディタDOMに実際のコンテンツがあるか判定（ZWSやBRのみは空とみなす） */
+  function checkHasContent() {
+    if (!editorRef.current) return;
+    const raw = editorRef.current.textContent || "";
+    const stripped = raw.replace(/\u200B/g, "");
+    setHasContent(stripped.length > 0 || editorRef.current.querySelector("[data-variable]") !== null);
+  }
 
   function syncToState() {
     if (!editorRef.current) return;
     const newText = domToText(editorRef.current);
     lastValueRef.current = newText;
     onChange(newText);
+    checkHasContent();
   }
 
   // --- chip をアトミックに扱うカーソル操作ヘルパー ---
@@ -560,6 +572,8 @@ function TemplateField({
                 onChange(currentText);
               }}
               onInput={(e) => {
+                // IME変換中でもプレースホルダーは即座に消す
+                checkHasContent();
                 // IME変換中はシリアライズしない（変換が壊れるため）
                 if ((e.nativeEvent as InputEvent).isComposing) return;
                 syncToState();
@@ -635,7 +649,7 @@ function TemplateField({
               role="textbox"
               aria-label={label}
             />
-            {!text && (
+            {!hasContent && (
               <div className="absolute top-2 left-3 text-muted-foreground pointer-events-none md:text-sm">
                 {label}を入力
               </div>
@@ -666,7 +680,7 @@ function TemplateField({
   );
 }
 
-export function EmailTemplatesTable({ data, companyOptions, projectOptions, filterProjectId }: Props) {
+export function EmailTemplatesTable({ data, companyOptions, projectOptions, filterProjectId, filterOperatingCompanyId }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
     {
@@ -675,7 +689,11 @@ export function EmailTemplatesTable({ data, companyOptions, projectOptions, filt
       type: "select",
       options: companyOptions,
       required: true,
-      filterable: true,
+      filterable: !filterProjectId,
+      hidden: !!filterProjectId,
+      ...(filterProjectId
+        ? { editableOnCreate: false, editableOnUpdate: false, defaultValue: filterOperatingCompanyId }
+        : {}),
     },
     {
       key: "projectId",
@@ -685,6 +703,9 @@ export function EmailTemplatesTable({ data, companyOptions, projectOptions, filt
       filterable: !filterProjectId,
       hidden: !!filterProjectId,
       defaultValue: filterProjectId ?? "",
+      ...(filterProjectId
+        ? { editableOnCreate: false, editableOnUpdate: false }
+        : {}),
     },
     {
       key: "name",
@@ -717,7 +738,7 @@ export function EmailTemplatesTable({ data, companyOptions, projectOptions, filt
       key: "isDefault",
       header: "デフォルト",
       type: "boolean",
-      defaultValue: false,
+      defaultValue: true,
     },
   ];
 

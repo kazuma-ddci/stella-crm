@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   addOperatingCompanyEmail,
@@ -54,6 +54,30 @@ type Props = {
   canEdit: boolean;
 };
 
+type FormData = {
+  email: string;
+  label: string;
+  isDefault: boolean;
+  smtpHost: string;
+  smtpPort: string;
+  smtpPass: string;
+  imapHost: string;
+  imapPort: string;
+  enableInbound: boolean;
+};
+
+const defaultForm: FormData = {
+  email: "",
+  label: "",
+  isDefault: false,
+  smtpHost: "smtp.gmail.com",
+  smtpPort: "587",
+  smtpPass: "",
+  imapHost: "imap.gmail.com",
+  imapPort: "993",
+  enableInbound: false,
+};
+
 export function EmailsModal({
   open,
   onOpenChange,
@@ -63,85 +87,100 @@ export function EmailsModal({
   canEdit,
 }: Props) {
   const [emails, setEmails] = useState<CompanyEmail[]>(initialEmails);
-  const [isAddMode, setIsAddMode] = useState(false);
+  const [mode, setMode] = useState<"list" | "add" | "edit">("list");
   const [editEmail, setEditEmail] = useState<CompanyEmail | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<CompanyEmail | null>(null);
-  const [formData, setFormData] = useState<Partial<CompanyEmail> & { smtpPass?: string | null; imapPass?: string | null; useSmtpCredentials?: boolean }>({});
+  const [form, setForm] = useState<FormData>(defaultForm);
   const [loading, setLoading] = useState(false);
-  const [showSmtp, setShowSmtp] = useState(false);
-  const [showImap, setShowImap] = useState(false);
 
   useEffect(() => {
     setEmails(initialEmails);
-    setIsAddMode(false);
+    setMode("list");
     setEditEmail(null);
-    setFormData({});
+    setForm(defaultForm);
     setDeleteConfirm(null);
-    setShowSmtp(false);
-    setShowImap(false);
   }, [initialEmails, open]);
 
   const openAddForm = () => {
-    setFormData({
-      email: "",
-      label: null,
-      smtpHost: null,
-      smtpPort: null,
-      smtpUser: null,
-      smtpPass: null,
-      imapHost: null,
-      imapPort: null,
-      imapUser: null,
-      imapPass: null,
-      useSmtpCredentials: false,
-      enableInbound: false,
-      isDefault: false,
-    });
-    setShowSmtp(false);
-    setShowImap(false);
-    setIsAddMode(true);
+    setForm(defaultForm);
+    setMode("add");
   };
 
   const openEditForm = (email: CompanyEmail) => {
-    setFormData({ ...email, smtpPass: null, imapPass: null, useSmtpCredentials: false });
-    setShowSmtp(!!(email.smtpHost || email.smtpPort || email.smtpUser));
-    setShowImap(!!(email.imapHost || email.imapPort || email.imapUser || email.enableInbound));
     setEditEmail(email);
+    setForm({
+      email: email.email,
+      label: email.label || "",
+      isDefault: email.isDefault,
+      smtpHost: email.smtpHost || "smtp.gmail.com",
+      smtpPort: email.smtpPort?.toString() || "587",
+      smtpPass: "",
+      imapHost: email.imapHost || "imap.gmail.com",
+      imapPort: email.imapPort?.toString() || "993",
+      enableInbound: email.enableInbound,
+    });
+    setMode("edit");
+  };
+
+  const cancelForm = () => {
+    setMode("list");
+    setEditEmail(null);
+    setForm(defaultForm);
   };
 
   const handleAdd = async () => {
-    if (!formData.email) {
+    if (!form.email.trim()) {
       toast.error("メールアドレスは必須です");
       return;
     }
     setLoading(true);
     try {
-      const newEmail = await addOperatingCompanyEmail(companyId, formData);
+      const newEmail = await addOperatingCompanyEmail(companyId, {
+        email: form.email.trim(),
+        label: form.label.trim() || null,
+        isDefault: form.isDefault,
+        smtpHost: form.smtpHost.trim() || null,
+        smtpPort: form.smtpPort ? Number(form.smtpPort) : null,
+        smtpPass: form.smtpPass.trim() || null,
+        imapHost: form.imapHost.trim() || null,
+        imapPort: form.imapPort ? Number(form.imapPort) : null,
+        enableInbound: form.enableInbound,
+      });
       if (newEmail.isDefault) {
-        setEmails((prev) =>
-          [...prev.map((e) => ({ ...e, isDefault: false })), newEmail as unknown as CompanyEmail]
-        );
+        setEmails((prev) => [
+          ...prev.map((e) => ({ ...e, isDefault: false })),
+          newEmail as unknown as CompanyEmail,
+        ]);
       } else {
         setEmails([...emails, newEmail as unknown as CompanyEmail]);
       }
       toast.success("メールアドレスを追加しました");
-      setIsAddMode(false);
-      setFormData({});
-    } catch {
-      toast.error("追加に失敗しました");
+      cancelForm();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "追加に失敗しました");
     } finally {
       setLoading(false);
     }
   };
 
   const handleUpdate = async () => {
-    if (!editEmail || !formData.email) {
+    if (!editEmail || !form.email.trim()) {
       toast.error("メールアドレスは必須です");
       return;
     }
     setLoading(true);
     try {
-      const updated = await updateOperatingCompanyEmail(editEmail.id, formData);
+      const updated = await updateOperatingCompanyEmail(editEmail.id, {
+        email: form.email.trim(),
+        label: form.label.trim() || null,
+        isDefault: form.isDefault,
+        smtpHost: form.smtpHost.trim() || null,
+        smtpPort: form.smtpPort ? Number(form.smtpPort) : null,
+        smtpPass: form.smtpPass.trim() || null,
+        imapHost: form.imapHost.trim() || null,
+        imapPort: form.imapPort ? Number(form.imapPort) : null,
+        enableInbound: form.enableInbound,
+      });
       if (updated.isDefault) {
         setEmails(
           emails.map((e) =>
@@ -158,10 +197,9 @@ export function EmailsModal({
         );
       }
       toast.success("メールアドレスを更新しました");
-      setEditEmail(null);
-      setFormData({});
-    } catch {
-      toast.error("更新に失敗しました");
+      cancelForm();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "更新に失敗しました");
     } finally {
       setLoading(false);
     }
@@ -183,231 +221,125 @@ export function EmailsModal({
   };
 
   const renderForm = () => (
-    <div className="space-y-4 border rounded-lg p-4 bg-muted/50">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label>
+    <div className="space-y-3 border rounded-lg p-4 bg-muted/50">
+      <p className="text-sm font-medium">
+        {mode === "add" ? "メールアドレスを追加" : "メールアドレスを編集"}
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">
             メールアドレス <span className="text-destructive">*</span>
           </Label>
           <Input
             type="email"
-            value={formData.email || ""}
-            onChange={(e) =>
-              setFormData({ ...formData, email: e.target.value })
-            }
-            placeholder="info@example.com"
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+            placeholder="example@gmail.com"
+            className="h-8 text-sm"
+            autoFocus
           />
         </div>
-        <div className="space-y-2">
-          <Label>用途ラベル</Label>
+        <div className="space-y-1">
+          <Label className="text-xs">用途ラベル</Label>
           <Input
-            value={formData.label || ""}
-            onChange={(e) =>
-              setFormData({ ...formData, label: e.target.value || null })
-            }
-            placeholder="請求書送付用"
+            value={form.label}
+            onChange={(e) => setForm({ ...form, label: e.target.value })}
+            placeholder="例: 請求書送付用"
+            className="h-8 text-sm"
           />
         </div>
       </div>
+
       <div className="flex items-center space-x-2">
         <Checkbox
-          checked={formData.isDefault === true}
+          checked={form.isDefault}
           onCheckedChange={(checked: boolean) =>
-            setFormData({ ...formData, isDefault: checked })
+            setForm({ ...form, isDefault: checked })
           }
         />
-        <Label>送信デフォルトに設定</Label>
+        <Label className="text-xs">送信デフォルトに設定</Label>
       </div>
 
-      {/* SMTP設定 */}
-      <div>
-        <button
-          type="button"
-          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-          onClick={() => setShowSmtp(!showSmtp)}
-        >
-          {showSmtp ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-          SMTP設定（個別設定する場合）
-        </button>
-        {showSmtp && (
-          <div className="mt-3 space-y-3 pl-5 border-l-2 border-muted">
-            <p className="text-xs text-muted-foreground">
-              未入力の場合はシステム共通のSMTP設定が使用されます
-            </p>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>SMTPホスト</Label>
-                <Input
-                  value={formData.smtpHost || ""}
-                  onChange={(e) =>
-                    setFormData({ ...formData, smtpHost: e.target.value || null })
-                  }
-                  placeholder="smtp.gmail.com"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>SMTPポート</Label>
-                <Input
-                  type="number"
-                  value={formData.smtpPort ?? ""}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      smtpPort: e.target.value ? Number(e.target.value) : null,
-                    })
-                  }
-                  placeholder="587"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>SMTPユーザー</Label>
-                <Input
-                  value={formData.smtpUser || ""}
-                  onChange={(e) =>
-                    setFormData({ ...formData, smtpUser: e.target.value || null })
-                  }
-                  placeholder="user@example.com"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>SMTPパスワード</Label>
-                <Input
-                  type="password"
-                  value={formData.smtpPass || ""}
-                  onChange={(e) =>
-                    setFormData({ ...formData, smtpPass: e.target.value || null })
-                  }
-                  placeholder={editEmail?.hasSmtpPass ? "変更しない場合は空欄" : "パスワードを入力"}
-                />
-              </div>
-            </div>
+      <div className="space-y-2 border-t pt-3">
+        <p className="text-xs font-medium text-muted-foreground">SMTP設定（送信）</p>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs">SMTPホスト</Label>
+            <Input
+              value={form.smtpHost}
+              onChange={(e) => setForm({ ...form, smtpHost: e.target.value })}
+              placeholder="smtp.gmail.com"
+              className="h-7 text-xs"
+            />
           </div>
-        )}
-      </div>
-
-      {/* IMAP設定 */}
-      <div>
-        <button
-          type="button"
-          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-          onClick={() => setShowImap(!showImap)}
-        >
-          {showImap ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-          IMAP設定（受信チェック用）
-        </button>
-        {showImap && (
-          <div className="mt-3 space-y-3 pl-5 border-l-2 border-muted">
-            <p className="text-xs text-muted-foreground">
-              受信メールのチェックに使用するIMAP接続設定です
-            </p>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>IMAPホスト</Label>
-                <Input
-                  value={formData.imapHost || ""}
-                  onChange={(e) =>
-                    setFormData({ ...formData, imapHost: e.target.value || null })
-                  }
-                  placeholder="imap.gmail.com"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>IMAPポート</Label>
-                <Input
-                  type="number"
-                  value={formData.imapPort ?? ""}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      imapPort: e.target.value ? Number(e.target.value) : null,
-                    })
-                  }
-                  placeholder="993"
-                />
-              </div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                checked={formData.useSmtpCredentials === true}
-                onCheckedChange={(checked: boolean) => {
-                  if (checked) {
-                    setFormData({
-                      ...formData,
-                      useSmtpCredentials: true,
-                      imapUser: formData.smtpUser || null,
-                      imapPass: formData.smtpPass || null,
-                    });
-                  } else {
-                    setFormData({ ...formData, useSmtpCredentials: false });
-                  }
-                }}
-              />
-              <Label className="text-sm font-normal">SMTPと同じ認証情報を使用</Label>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>IMAPユーザー</Label>
-                <Input
-                  value={formData.useSmtpCredentials ? (formData.smtpUser || "") : (formData.imapUser || "")}
-                  onChange={(e) =>
-                    setFormData({ ...formData, imapUser: e.target.value || null })
-                  }
-                  disabled={formData.useSmtpCredentials === true}
-                  placeholder="user@example.com"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>IMAPパスワード</Label>
-                <Input
-                  type="password"
-                  value={formData.useSmtpCredentials ? (formData.smtpPass || "") : (formData.imapPass || "")}
-                  onChange={(e) =>
-                    setFormData({ ...formData, imapPass: e.target.value || null })
-                  }
-                  disabled={formData.useSmtpCredentials === true}
-                  placeholder={editEmail?.hasImapPass ? "変更しない場合は空欄" : "パスワードを入力"}
-                />
-              </div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                checked={formData.enableInbound === true}
-                onCheckedChange={(checked: boolean) =>
-                  setFormData({ ...formData, enableInbound: checked })
-                }
-              />
-              <Label className="text-sm font-normal">このアドレスの受信メールをチェックする</Label>
-            </div>
+          <div className="space-y-1">
+            <Label className="text-xs">SMTPポート</Label>
+            <Input
+              type="number"
+              value={form.smtpPort}
+              onChange={(e) => setForm({ ...form, smtpPort: e.target.value })}
+              placeholder="587"
+              className="h-7 text-xs"
+            />
           </div>
-        )}
+        </div>
+        <p className="text-xs font-medium text-muted-foreground pt-2">IMAP設定（受信）</p>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs">IMAPホスト</Label>
+            <Input
+              value={form.imapHost}
+              onChange={(e) => setForm({ ...form, imapHost: e.target.value })}
+              placeholder="imap.gmail.com"
+              className="h-7 text-xs"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">IMAPポート</Label>
+            <Input
+              type="number"
+              value={form.imapPort}
+              onChange={(e) => setForm({ ...form, imapPort: e.target.value })}
+              placeholder="993"
+              className="h-7 text-xs"
+            />
+          </div>
+        </div>
+        <div className="space-y-1 pt-1">
+          <Label className="text-xs">アプリパスワード（送受信共通）</Label>
+          <Input
+            type="password"
+            value={form.smtpPass}
+            onChange={(e) => setForm({ ...form, smtpPass: e.target.value })}
+            placeholder={mode === "edit" && editEmail?.hasSmtpPass ? "変更時のみ入力" : "xxxx xxxx xxxx xxxx"}
+            className="h-7 text-xs"
+          />
+        </div>
+        <label className="flex items-center gap-2 pt-1 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.enableInbound}
+            onChange={(e) => setForm({ ...form, enableInbound: e.target.checked })}
+            className="rounded border-gray-300"
+          />
+          <span className="text-xs">受信チェックを有効にする</span>
+        </label>
       </div>
 
-      <div className="flex gap-2 justify-end">
-        <Button
-          variant="outline"
-          onClick={() => {
-            setIsAddMode(false);
-            setEditEmail(null);
-            setFormData({});
-          }}
-        >
+      <div className="flex justify-end gap-2 pt-1">
+        <Button size="sm" variant="outline" onClick={cancelForm}>
           キャンセル
         </Button>
         <Button
-          onClick={isAddMode ? handleAdd : handleUpdate}
-          disabled={loading}
+          size="sm"
+          onClick={mode === "add" ? handleAdd : handleUpdate}
+          disabled={loading || !form.email.trim()}
         >
-          {loading ? "保存中..." : isAddMode ? "追加" : "更新"}
+          {loading ? (
+            <><Loader2 className="h-3 w-3 mr-1 animate-spin" />{mode === "add" ? "追加中" : "保存中"}</>
+          ) : (
+            mode === "add" ? "追加" : "保存"
+          )}
         </Button>
       </div>
     </div>
@@ -423,21 +355,21 @@ export function EmailsModal({
         <div className="flex-1 overflow-y-auto min-h-0 px-4 sm:px-6 py-4">
           <div className="space-y-4">
             {/* 追加ボタン */}
-            {canEdit && !isAddMode && !editEmail && (
+            {canEdit && mode === "list" && (
               <div className="flex justify-end">
-                <Button onClick={openAddForm}>
-                  <Plus className="mr-2 h-4 w-4" />
+                <Button size="sm" onClick={openAddForm}>
+                  <Plus className="mr-1 h-4 w-4" />
                   メールアドレスを追加
                 </Button>
               </div>
             )}
 
             {/* 追加/編集フォーム */}
-            {(isAddMode || editEmail) && renderForm()}
+            {(mode === "add" || mode === "edit") && renderForm()}
 
             {/* メールアドレス一覧 */}
             {emails.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8">
+              <div className="text-center text-muted-foreground py-8 text-sm">
                 メールアドレスが登録されていません
               </div>
             ) : (
@@ -447,60 +379,88 @@ export function EmailsModal({
                     <TableRow>
                       <TableHead>メールアドレス</TableHead>
                       <TableHead>用途</TableHead>
-                      <TableHead>SMTP</TableHead>
-                      <TableHead>IMAP</TableHead>
-                      <TableHead>送信デフォルト</TableHead>
-                      {canEdit && <TableHead className="w-[120px]">操作</TableHead>}
+                      <TableHead>送信</TableHead>
+                      <TableHead>受信</TableHead>
+                      <TableHead>デフォルト</TableHead>
+                      {canEdit && (
+                        <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
+                          操作
+                        </TableHead>
+                      )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {emails.map((email) => (
-                      <TableRow key={email.id}>
-                        <TableCell className="font-medium">
+                      <TableRow key={email.id} className="group/row">
+                        <TableCell className="font-mono text-sm">
                           {email.email}
                         </TableCell>
-                        <TableCell>{email.label || "-"}</TableCell>
+                        <TableCell className="text-sm">
+                          {email.label || "-"}
+                        </TableCell>
                         <TableCell>
-                          {email.smtpHost ? (
-                            <Badge variant="outline">個別設定</Badge>
+                          {email.smtpHost && email.smtpUser && email.hasSmtpPass ? (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] px-1.5 py-0 text-green-600 border-green-300"
+                            >
+                              可能
+                            </Badge>
                           ) : (
-                            <span className="text-muted-foreground text-sm">
-                              共通
-                            </span>
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] px-1.5 py-0 text-orange-500 border-orange-300"
+                            >
+                              未設定
+                            </Badge>
                           )}
                         </TableCell>
                         <TableCell>
                           {email.enableInbound ? (
-                            <Badge variant="outline" className="border-green-300 text-green-700">受信ON</Badge>
-                          ) : email.imapHost ? (
-                            <Badge variant="outline">設定済</Badge>
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] px-1.5 py-0 text-blue-600 border-blue-300"
+                            >
+                              有効
+                            </Badge>
                           ) : (
-                            <span className="text-muted-foreground text-sm">-</span>
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] px-1.5 py-0 text-gray-400 border-gray-300"
+                            >
+                              無効
+                            </Badge>
                           )}
                         </TableCell>
                         <TableCell>
                           {email.isDefault && (
-                            <Badge>送信デフォルト</Badge>
+                            <Badge className="text-[10px] px-1.5 py-0">
+                              デフォルト
+                            </Badge>
                           )}
                         </TableCell>
                         {canEdit && (
-                          <TableCell>
-                            <div className="flex gap-1">
+                          <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
+                            <div className="flex gap-0.5">
                               <Button
                                 variant="ghost"
                                 size="icon"
+                                className="h-7 w-7"
                                 onClick={() => openEditForm(email)}
-                                disabled={isAddMode || !!editEmail}
+                                disabled={mode !== "list"}
+                                title="編集"
                               >
-                                <Pencil className="h-4 w-4" />
+                                <Pencil className="h-3 w-3" />
                               </Button>
                               <Button
                                 variant="ghost"
                                 size="icon"
+                                className="h-7 w-7 text-red-500 hover:text-red-700"
                                 onClick={() => setDeleteConfirm(email)}
-                                disabled={isAddMode || !!editEmail}
+                                disabled={mode !== "list"}
+                                title="削除"
                               >
-                                <Trash2 className="h-4 w-4 text-destructive" />
+                                <Trash2 className="h-3 w-3" />
                               </Button>
                             </div>
                           </TableCell>
@@ -514,18 +474,25 @@ export function EmailsModal({
 
             {/* 削除確認 */}
             {deleteConfirm && (
-              <div className="border rounded-lg p-4 bg-destructive/10">
-                <p className="mb-4">
-                  「{deleteConfirm.email}」を削除しますか？
+              <div className="border rounded-lg p-4 bg-destructive/10 space-y-2">
+                <p className="text-sm">
+                  <strong>{deleteConfirm.email}</strong> を削除しますか？
                 </p>
+                {deleteConfirm.isDefault && (
+                  <p className="text-xs text-destructive">
+                    ※ 現在のデフォルト送信元です。削除するとデフォルトが未設定になります。
+                  </p>
+                )}
                 <div className="flex gap-2 justify-end">
                   <Button
+                    size="sm"
                     variant="outline"
                     onClick={() => setDeleteConfirm(null)}
                   >
                     キャンセル
                   </Button>
                   <Button
+                    size="sm"
                     variant="destructive"
                     onClick={handleDelete}
                     disabled={loading}

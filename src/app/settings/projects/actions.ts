@@ -82,7 +82,91 @@ export async function getProjectEmails(projectId: number) {
 }
 
 // ============================================
-// プロジェクトメール: 追加
+// プロジェクトメール: 運営法人の未追加メール一覧取得
+// ============================================
+
+export async function getAvailableEmails(projectId: number) {
+  const project = await prisma.masterProject.findUnique({
+    where: { id: projectId },
+    select: { operatingCompanyId: true },
+  });
+  if (!project?.operatingCompanyId) return [];
+
+  const existing = await prisma.projectEmail.findMany({
+    where: { projectId },
+    select: { emailId: true },
+  });
+  const existingIds = existing.map((e) => e.emailId);
+
+  const emails = await prisma.operatingCompanyEmail.findMany({
+    where: {
+      operatingCompanyId: project.operatingCompanyId,
+      deletedAt: null,
+      ...(existingIds.length > 0 ? { id: { notIn: existingIds } } : {}),
+    },
+    orderBy: { id: "asc" },
+    select: {
+      id: true,
+      email: true,
+      label: true,
+      smtpHost: true,
+      smtpUser: true,
+      smtpPass: true,
+      enableInbound: true,
+    },
+  });
+
+  return emails.map((e) => ({
+    id: e.id,
+    email: e.email,
+    label: e.label,
+    hasSmtpConfig: !!(e.smtpHost && e.smtpUser && e.smtpPass),
+    enableInbound: e.enableInbound,
+  }));
+}
+
+// ============================================
+// プロジェクトメール: 既存メールをリンク
+// ============================================
+
+export async function linkExistingEmail(data: {
+  projectId: number;
+  emailId: number;
+  memo?: string | null;
+}): Promise<{ success: boolean; error?: string }> {
+  await requireMasterDataEditPermission();
+
+  // 重複チェック
+  const existing = await prisma.projectEmail.findUnique({
+    where: { projectId_emailId: { projectId: data.projectId, emailId: data.emailId } },
+  });
+  if (existing) {
+    return { success: false, error: "このメールアドレスは既に登録されています" };
+  }
+
+  // メールが存在するか確認
+  const opEmail = await prisma.operatingCompanyEmail.findFirst({
+    where: { id: data.emailId, deletedAt: null },
+  });
+  if (!opEmail) {
+    return { success: false, error: "メールアドレスが見つかりません" };
+  }
+
+  await prisma.projectEmail.create({
+    data: {
+      projectId: data.projectId,
+      emailId: data.emailId,
+      isDefault: false,
+      memo: data.memo ?? null,
+    },
+  });
+
+  revalidatePath("/settings/projects");
+  return { success: true };
+}
+
+// ============================================
+// プロジェクトメール: 新規追加
 // ============================================
 
 export async function addProjectEmail(data: {
@@ -107,69 +191,62 @@ export async function addProjectEmail(data: {
   const emailAddr = data.email.trim();
 
   // 同じメールアドレスが既に OperatingCompanyEmail に存在するか確認
-  let opEmail = await prisma.operatingCompanyEmail.findFirst({
+  const existingOpEmail = await prisma.operatingCompanyEmail.findFirst({
     where: {
       email: emailAddr,
       deletedAt: null,
     },
   });
 
-  // 既にこのプロジェクトに同じメールが登録されているか確認
-  if (opEmail) {
-    const existing = await prisma.projectEmail.findUnique({
-      where: { projectId_emailId: { projectId: data.projectId, emailId: opEmail.id } },
+  if (existingOpEmail) {
+    // 既に存在する場合はリンクのみ作成（重複登録防止）
+    const existingLink = await prisma.projectEmail.findUnique({
+      where: { projectId_emailId: { projectId: data.projectId, emailId: existingOpEmail.id } },
     });
-    if (existing) {
+    if (existingLink) {
       return { success: false, error: "このメールアドレスは既に登録されています" };
     }
+
+    await prisma.projectEmail.create({
+      data: {
+        projectId: data.projectId,
+        emailId: existingOpEmail.id,
+        isDefault: false,
+        memo: data.memo ?? null,
+      },
+    });
+
+    revalidatePath("/settings/projects");
+    return { success: true };
   }
 
+  // 新規作成
   const user = await getSession();
 
   await prisma.$transaction(async (tx) => {
-    if (!opEmail) {
-      opEmail = await tx.operatingCompanyEmail.create({
-        data: {
-          operatingCompanyId: project?.operatingCompanyId ?? null,
-          email: emailAddr,
-          label: data.memo ?? null,
-          smtpHost: data.smtpHost ?? "smtp.gmail.com",
-          smtpPort: data.smtpPort ?? 587,
-          smtpUser: emailAddr,
-          smtpPass: data.smtpPass ?? null,
-          imapHost: data.imapHost ?? "imap.gmail.com",
-          imapPort: data.imapPort ?? 993,
-          imapUser: emailAddr,
-          imapPass: data.smtpPass ?? null,
-          enableInbound: data.enableInbound ?? false,
-          isDefault: false,
-          createdBy: user.id,
-        },
-      });
-    } else if (data.smtpPass) {
-      // SMTP/IMAP情報を更新（アプリパスワードが入力された場合のみ）
-      const updateData: Record<string, unknown> = { updatedBy: user.id };
-      if (data.smtpHost !== undefined) updateData.smtpHost = data.smtpHost ?? null;
-      if (data.smtpPort !== undefined) updateData.smtpPort = data.smtpPort ?? null;
-      updateData.smtpUser = emailAddr;
-      updateData.smtpPass = data.smtpPass;
-      if (data.imapHost !== undefined) updateData.imapHost = data.imapHost ?? null;
-      if (data.imapPort !== undefined) updateData.imapPort = data.imapPort ?? null;
-      updateData.imapUser = emailAddr;
-      updateData.imapPass = data.smtpPass;
-      if (data.enableInbound !== undefined) updateData.enableInbound = data.enableInbound;
-      if (data.memo !== undefined) updateData.label = data.memo ?? null;
-
-      await tx.operatingCompanyEmail.update({
-        where: { id: opEmail.id },
-        data: updateData,
-      });
-    }
+    const opEmail = await tx.operatingCompanyEmail.create({
+      data: {
+        operatingCompanyId: project?.operatingCompanyId ?? null,
+        email: emailAddr,
+        label: data.memo ?? null,
+        smtpHost: data.smtpHost ?? "smtp.gmail.com",
+        smtpPort: data.smtpPort ?? 587,
+        smtpUser: emailAddr,
+        smtpPass: data.smtpPass ?? null,
+        imapHost: data.imapHost ?? "imap.gmail.com",
+        imapPort: data.imapPort ?? 993,
+        imapUser: emailAddr,
+        imapPass: data.smtpPass ?? null,
+        enableInbound: data.enableInbound ?? false,
+        isDefault: false,
+        createdBy: user.id,
+      },
+    });
 
     await tx.projectEmail.create({
       data: {
         projectId: data.projectId,
-        emailId: opEmail!.id,
+        emailId: opEmail.id,
         isDefault: false,
         memo: data.memo ?? null,
       },
