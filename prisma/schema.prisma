@@ -1050,6 +1050,7 @@ model MasterContract {
   cloudsignUrl          String?   @db.VarChar(500) @map("cloudsign_url")
   cloudsignTitle        String?   @db.VarChar(200) @map("cloudsign_title")
   cloudsignAutoSync     Boolean   @default(true) @map("cloudsign_auto_sync")
+  cloudsignLastRemindedAt DateTime? @map("cloudsign_last_reminded_at")
   filePath              String?   @db.VarChar(500) @map("file_path")
   fileName              String?   @db.VarChar(200) @map("file_name")
   assignedTo            String?   @db.VarChar(500) @map("assigned_to")

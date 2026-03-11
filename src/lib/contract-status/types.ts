@@ -164,4 +164,8 @@ export interface ContractRowWithProgress {
   // 進捗表示用
   daysSinceStatusChange: number | null;
   hasStaleAlert: boolean;
+  // CloudSign情報
+  cloudsignDocumentId: string | null;
+  cloudsignStatus: string | null;
+  cloudsignLastRemindedAt: string | null;
 }

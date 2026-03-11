@@ -42,6 +42,7 @@ import {
   getCloudsignModalData,
   getDraftsForCompany,
   deleteDraftContract,
+  remindCloudsignDocument,
 } from "@/app/stp/cloudsign-actions";
 import { Plus, Pencil, Trash2, X, FileText, ExternalLink, Send, Loader2, Play, RotateCcw, Link2 } from "lucide-react";
 import { toast } from "sonner";
@@ -76,6 +77,7 @@ type Contract = {
   cloudsignStatus?: string | null;
   cloudsignUrl?: string | null;
   cloudsignAutoSync?: boolean;
+  cloudsignLastRemindedAt?: string | null;
   cloudsignExpectedStatusName?: string | null;
 };
 
@@ -146,6 +148,7 @@ export function MasterContractModal({
   const [syncingContractId, setSyncingContractId] = useState<number | null>(null);
   const [togglingAutoSyncId, setTogglingAutoSyncId] = useState<number | null>(null);
   const [linkingContractId, setLinkingContractId] = useState<number | null>(null);
+  const [remindingContractId, setRemindingContractId] = useState<number | null>(null);
 
   // 下書き管理
   const [draftSelectOpen, setDraftSelectOpen] = useState(false);
@@ -750,9 +753,9 @@ export function MasterContractModal({
                     <TableCell>{getStaffName(contract.assignedTo)}</TableCell>
                     <TableCell>
                       {contract.cloudsignDocumentId ? (
-                        <div className="min-w-[140px]">
-                          {/* ステータスバッジ + 外部リンク */}
-                          <div className="flex items-center gap-1.5 mb-1.5">
+                        <div className="min-w-[160px] space-y-1.5">
+                          {/* Row 1: ステータスバッジ + 同期状態 */}
+                          <div className="flex items-center gap-1.5">
                             <span
                               className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium cursor-pointer hover:opacity-80 ${
                                 contract.cloudsignStatus === "completed"
@@ -784,16 +787,55 @@ export function MasterContractModal({
                               </span>
                             )}
                           </div>
-                          {/* アクションリンク */}
-                          <div className="flex items-center gap-2">
+                          {/* Row 2: リマインド情報（送付済みのみ） */}
+                          {contract.cloudsignStatus === "sent" && (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-orange-600 bg-orange-50 border border-orange-200 hover:bg-orange-100 transition-colors disabled:opacity-40"
+                                disabled={remindingContractId === contract.id}
+                                onClick={async () => {
+                                  if (!confirm("先方にリマインドメールを送信しますか？")) return;
+                                  setRemindingContractId(contract.id);
+                                  try {
+                                    const result = await remindCloudsignDocument(contract.id);
+                                    if (result.success) {
+                                      toast.success("リマインドを送信しました");
+                                      await loadContracts();
+                                    } else {
+                                      toast.error(result.error ?? "リマインドの送信に失敗しました");
+                                    }
+                                  } catch (error) {
+                                    console.error(error);
+                                    toast.error("リマインドの送信に失敗しました");
+                                  } finally {
+                                    setRemindingContractId(null);
+                                  }
+                                }}
+                              >
+                                {remindingContractId === contract.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <RotateCcw className="h-3 w-3" />
+                                )}
+                                催促
+                              </button>
+                              {contract.cloudsignLastRemindedAt && (
+                                <span className="text-[10px] text-gray-400">
+                                  前回: {new Date(contract.cloudsignLastRemindedAt).toLocaleDateString("ja-JP", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {/* Row 3: 同期 & 自動同期切替 */}
+                          <div className="flex items-center gap-1.5">
                             <button
                               type="button"
-                              className="text-[11px] text-gray-500 hover:text-blue-600 underline decoration-dotted underline-offset-2 disabled:opacity-50 disabled:no-underline"
+                              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-gray-500 bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors disabled:opacity-40"
                               disabled={syncingContractId === contract.id}
                               onClick={async () => {
                                 setSyncingContractId(contract.id);
                                 try {
-                                  
                                   const result = await syncContractCloudsignStatus(contract.id);
                                   if (result.previousStatus === result.newStatus) {
                                     toast.info("ステータスに変更はありません");
@@ -811,50 +853,49 @@ export function MasterContractModal({
                               }}
                             >
                               {syncingContractId === contract.id ? (
-                                <span className="flex items-center gap-0.5"><Loader2 className="h-2.5 w-2.5 animate-spin" /> 同期中...</span>
+                                <Loader2 className="h-3 w-3 animate-spin" />
                               ) : (
-                                "今すぐ同期"
+                                <RotateCcw className="h-3 w-3" />
                               )}
+                              同期
                             </button>
                             {contract.cloudsignStatus !== "completed" &&
                              !contract.cloudsignStatus?.startsWith("canceled") && (
-                              <>
-                                <span className="text-gray-300">|</span>
-                                <button
-                                  type="button"
-                                  className={`text-[11px] underline decoration-dotted underline-offset-2 disabled:opacity-50 disabled:no-underline ${
-                                    contract.cloudsignAutoSync ? "text-gray-500 hover:text-orange-600" : "text-blue-600 hover:text-blue-800 font-medium"
-                                  }`}
-                                  disabled={togglingAutoSyncId === contract.id}
-                                  onClick={async () => {
-                                    const newState = !contract.cloudsignAutoSync;
-                                    if (!newState) {
-                                      if (!confirm("CloudSign側のステータス変更がCRMに反映されなくなります。よろしいですか？")) return;
-                                    }
-                                    setTogglingAutoSyncId(contract.id);
-                                    try {
-                                      
-                                      await toggleCloudsignAutoSync(contract.id, newState);
-                                      toast.success(newState ? "自動同期をONにしました" : "自動同期をOFFにしました");
-                                      await loadContracts();
-                                      router.refresh();
-                                    } catch (error) {
-                                      console.error(error);
-                                      toast.error("切替に失敗しました");
-                                    } finally {
-                                      setTogglingAutoSyncId(null);
-                                    }
-                                  }}
-                                >
-                                  {togglingAutoSyncId === contract.id ? (
-                                    <span className="flex items-center gap-0.5"><Loader2 className="h-2.5 w-2.5 animate-spin" /> 処理中</span>
-                                  ) : contract.cloudsignAutoSync ? (
-                                    "自動同期を停止"
-                                  ) : (
-                                    "自動同期を再開"
-                                  )}
-                                </button>
-                              </>
+                              <button
+                                type="button"
+                                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] border transition-colors disabled:opacity-40 ${
+                                  contract.cloudsignAutoSync
+                                    ? "text-gray-500 bg-gray-50 border-gray-200 hover:bg-gray-100"
+                                    : "text-blue-600 bg-blue-50 border-blue-200 hover:bg-blue-100 font-medium"
+                                }`}
+                                disabled={togglingAutoSyncId === contract.id}
+                                onClick={async () => {
+                                  const newState = !contract.cloudsignAutoSync;
+                                  if (!newState) {
+                                    if (!confirm("CloudSign側のステータス変更がCRMに反映されなくなります。よろしいですか？")) return;
+                                  }
+                                  setTogglingAutoSyncId(contract.id);
+                                  try {
+                                    await toggleCloudsignAutoSync(contract.id, newState);
+                                    toast.success(newState ? "自動同期をONにしました" : "自動同期をOFFにしました");
+                                    await loadContracts();
+                                    router.refresh();
+                                  } catch (error) {
+                                    console.error(error);
+                                    toast.error("切替に失敗しました");
+                                  } finally {
+                                    setTogglingAutoSyncId(null);
+                                  }
+                                }}
+                              >
+                                {togglingAutoSyncId === contract.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : contract.cloudsignAutoSync ? (
+                                  "自動同期を停止"
+                                ) : (
+                                  "自動同期を再開"
+                                )}
+                              </button>
                             )}
                           </div>
                         </div>

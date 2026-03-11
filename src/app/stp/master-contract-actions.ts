@@ -83,6 +83,7 @@ export async function getMasterContracts(companyId: number) {
     cloudsignStatus: c.cloudsignStatus,
     cloudsignUrl: c.cloudsignUrl,
     cloudsignAutoSync: c.cloudsignAutoSync,
+    cloudsignLastRemindedAt: c.cloudsignLastRemindedAt?.toISOString() || null,
     cloudsignExpectedStatusName: c.cloudsignStatus
       ? csStatusToName.get(c.cloudsignStatus) || null
       : null,

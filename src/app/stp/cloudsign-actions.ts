@@ -718,3 +718,60 @@ export async function getCloudsignModalData(companyId: number) {
     })),
   };
 }
+
+// ============================================
+// 10. CloudSignリマインド送信
+// ============================================
+
+/**
+ * 送付済み書類のリマインドを送信する
+ * CloudSign APIでは送信済み書類に対するPOST /documents/{id} がリマインドとして機能し、
+ * 現在確認作業を行っている相手にリマインドメールが送られる
+ */
+export async function remindCloudsignDocument(
+  contractId: number
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const contract = await prisma.masterContract.findUnique({
+      where: { id: contractId },
+      select: {
+        cloudsignDocumentId: true,
+        cloudsignStatus: true,
+        projectId: true,
+        title: true,
+      },
+    });
+
+    if (!contract) {
+      return { success: false, error: "契約書が見つかりません" };
+    }
+
+    if (!contract.cloudsignDocumentId) {
+      return { success: false, error: "CloudSign未連携の契約書です" };
+    }
+
+    if (contract.cloudsignStatus !== "sent") {
+      return { success: false, error: "送付済みの契約書のみリマインドできます" };
+    }
+
+    const operatingCompany = await getOperatingCompanyForProject(contract.projectId);
+    if (!operatingCompany?.cloudsignClientId) {
+      return { success: false, error: "運営法人のクラウドサインClientIDが未設定です" };
+    }
+
+    const token = await cloudsignClient.getToken(operatingCompany.cloudsignClientId);
+    await cloudsignClient.remindDocument(token, contract.cloudsignDocumentId);
+
+    // リマインド送信日時をDBに記録
+    await prisma.masterContract.update({
+      where: { id: contractId },
+      data: { cloudsignLastRemindedAt: new Date() },
+    });
+
+    revalidatePath("/stp/contracts");
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to send CloudSign reminder:", error);
+    return { success: false, error: "リマインドの送信に失敗しました" };
+  }
+}

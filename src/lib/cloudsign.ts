@@ -297,6 +297,15 @@ export const cloudsignClient = {
   },
 
   /**
+   * 送信済み書類のリマインドを送信
+   * CloudSign APIでは送信済み書類に対する POST /documents/{documentID} がリマインドとして機能
+   * 現在確認作業を行っている相手にリマインドメールが送られる
+   */
+  async remindDocument(token: string, documentId: string): Promise<void> {
+    await apiRequestForm<unknown>(token, "POST", `/documents/${documentId}`, {});
+  },
+
+  /**
    * ドラフト書類を削除
    */
   async deleteDocument(token: string, documentId: string): Promise<void> {

@@ -111,6 +111,9 @@ export default async function StpContractsPage() {
       updatedAt: toLocalDateString(c.updatedAt),
       daysSinceStatusChange,
       hasStaleAlert,
+      cloudsignDocumentId: c.cloudsignDocumentId,
+      cloudsignStatus: c.cloudsignStatus,
+      cloudsignLastRemindedAt: c.cloudsignLastRemindedAt ? c.cloudsignLastRemindedAt.toISOString() : null,
     };
   });
 

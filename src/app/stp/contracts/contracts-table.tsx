@@ -13,13 +13,23 @@ import {
   ExternalLink,
   ArrowRightLeft,
   AlertTriangle,
+  Bell,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ContractStatusModal } from "@/components/contract-status-management/contract-status-modal";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ContractRowWithProgress, ContractTabType } from "@/lib/contract-status/types";
 import { getProgressStatusCount } from "@/lib/contract-status/constants";
 import { cn } from "@/lib/utils";
+import { remindCloudsignDocument } from "@/app/stp/cloudsign-actions";
+import { toast } from "sonner";
 
 type Props = {
   data: ContractRowWithProgress[];
@@ -42,6 +52,8 @@ export function ContractsTable({
   const [selectedContractId, setSelectedContractId] = useState<number | null>(
     null
   );
+  // CloudSignリマインド中の契約書ID
+  const [remindingContractId, setRemindingContractId] = useState<number | null>(null);
   // 現在のタブ
   const [activeTab, setActiveTab] = useState<ContractTabType>("in_progress");
 
@@ -117,6 +129,37 @@ export function ContractsTable({
   // ステータス更新成功時のコールバック
   const handleStatusUpdateSuccess = () => {
     router.refresh();
+  };
+
+  // CloudSignリマインド送信
+  const handleRemind = async (contractId: number) => {
+    if (!confirm("先方にリマインドメールを送信しますか？")) return;
+    setRemindingContractId(contractId);
+    try {
+      const result = await remindCloudsignDocument(contractId);
+      if (result.success) {
+        toast.success("リマインドを送信しました");
+        router.refresh();
+      } else {
+        toast.error(result.error || "リマインド送信に失敗しました");
+      }
+    } catch {
+      toast.error("リマインド送信中にエラーが発生しました");
+    } finally {
+      setRemindingContractId(null);
+    }
+  };
+
+  // 直近のリマインド日をフォーマット
+  const formatRemindedAt = (isoString: string | null): string | null => {
+    if (!isoString) return null;
+    const d = new Date(isoString);
+    return d.toLocaleDateString("ja-JP", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   const columns: ColumnDef[] = [
@@ -204,7 +247,7 @@ export function ContractsTable({
     },
     {
       key: "statusAction",
-      header: "ステータス変更",
+      header: "操作",
       editable: false,
       filterable: false,
       simpleMode: true,
@@ -273,19 +316,63 @@ export function ContractsTable({
       );
     },
     statusAction: (_value, row) => {
+      const contractRow = row as unknown as ContractRowWithProgress;
+      const isReminding = remindingContractId === contractRow.id;
+      const canRemind = contractRow.cloudsignDocumentId && contractRow.cloudsignStatus === "sent";
+      const lastReminded = formatRemindedAt(contractRow.cloudsignLastRemindedAt);
+
       return (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleOpenStatusModal(row.id as number);
-          }}
-          className="flex items-center gap-1 text-blue-600 border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-        >
-          <ArrowRightLeft className="h-3.5 w-3.5" />
-          <span className="text-xs">変更</span>
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenStatusModal(row.id as number);
+            }}
+            className="h-7 px-2 text-blue-600 border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+          >
+            <ArrowRightLeft className="h-3.5 w-3.5 mr-1" />
+            <span className="text-xs">変更</span>
+          </Button>
+          {canRemind && (
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isReminding}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemind(contractRow.id);
+                    }}
+                    className={cn(
+                      "h-7 px-2 border-orange-200 hover:bg-orange-50",
+                      lastReminded
+                        ? "text-orange-400 hover:text-orange-600"
+                        : "text-orange-600 hover:text-orange-700"
+                    )}
+                  >
+                    {isReminding ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Bell className="h-3.5 w-3.5 mr-1" />
+                    )}
+                    <span className="text-xs">催促</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  {lastReminded ? (
+                    <span>前回催促: {lastReminded}</span>
+                  ) : (
+                    <span>リマインドメールを送信</span>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
       );
     },
   };
