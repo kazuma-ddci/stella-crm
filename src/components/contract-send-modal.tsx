@@ -136,12 +136,6 @@ type ResumeDraft = {
   note?: string | null;
 };
 
-type InboundEmailOption = {
-  id: number;
-  email: string;
-  label: string | null;
-};
-
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -158,8 +152,6 @@ type Props = {
   staffOptions: { value: string; label: string }[];
   onSuccess?: () => void;
   resumeDraft?: ResumeDraft;
-  /** 受信チェック有効なメールアドレス一覧（自社署名URL取得用） */
-  inboundEmails?: InboundEmailOption[];
 };
 
 // ============================================
@@ -218,7 +210,6 @@ export function ContractSendModal({
   staffOptions,
   onSuccess,
   resumeDraft,
-  inboundEmails = [],
 }: Props) {
   const router = useRouter();
   const isWide = useMediaQuery("(min-width: 1024px)");
@@ -253,9 +244,6 @@ export function ContractSendModal({
   // Participants (participant-based UI)
   const [senderInfo, setSenderInfo] = useState<{ name: string; email: string; widgets: WidgetInfo[] } | null>(null);
   const [participantEdits, setParticipantEdits] = useState<ParticipantEdit[]>([]);
-
-  // 自社署名メールアドレス
-  const [selfSigningEmailId, setSelfSigningEmailId] = useState<string>("");
 
   // その他
   const [assignedTo, setAssignedTo] = useState("");
@@ -724,7 +712,6 @@ export function ContractSendModal({
         note: note.trim() || undefined,
         sendImmediately,
         existingContractId: draftContractId || undefined,
-        selfSigningEmailId: selfSigningEmailId ? Number(selfSigningEmailId) : undefined,
       });
 
       if (sendImmediately && result.selfSigningRequired) {
@@ -816,33 +803,6 @@ export function ContractSendModal({
         </div>
       )}
 
-      {/* 自社署名メールアドレス選択 */}
-      {inboundEmails.length > 0 && (
-        <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-          <div className="flex items-center gap-1.5 mb-2">
-            <PenTool className="h-3.5 w-3.5 text-blue-600" />
-            <span className="text-xs font-medium text-blue-800">自社署名</span>
-          </div>
-          <p className="text-[10px] text-blue-600 mb-2">
-            自社の署名者としてメールアドレスを選択すると、送信後に署名画面へ直接アクセスできます
-          </p>
-          <Select value={selfSigningEmailId || "none"} onValueChange={(v) => setSelfSigningEmailId(v === "none" ? "" : v)}>
-            <SelectTrigger className="h-8 text-sm bg-white">
-              <SelectValue placeholder="自社署名しない" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">自社署名しない</SelectItem>
-              {inboundEmails.map((em) => (
-                <SelectItem key={em.id} value={String(em.id)}>
-                  {em.email}
-                  {em.label && <span className="text-gray-400 ml-1">({em.label})</span>}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
       {/* 受信者セクション */}
       {participantEdits.map((participant) => (
         <div key={participant.participantId} className="border rounded-lg p-3">
@@ -894,25 +854,6 @@ export function ContractSendModal({
               />
             </div>
           </div>
-
-          {/* 自社署名メールを入力 */}
-          {selfSigningEmailId && (() => {
-            const selectedEmail = inboundEmails.find((em) => String(em.id) === selfSigningEmailId);
-            return selectedEmail && participant.email !== selectedEmail.email ? (
-              <div className="mt-1.5">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="text-xs h-6 px-2 border-blue-300 text-blue-600 hover:bg-blue-50"
-                  onClick={() => updateParticipantField(participant.participantId, "email", selectedEmail.email)}
-                >
-                  <PenTool className="h-3 w-3 mr-1" />
-                  自社署名メール ({selectedEmail.email}) を入力
-                </Button>
-              </div>
-            ) : null;
-          })()}
 
           {/* 担当者から選択 */}
           {contactsWithEmail.length > 0 && (
