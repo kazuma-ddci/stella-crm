@@ -115,7 +115,7 @@ export default async function TransactionDetailPage({ params }: Props) {
         <h1 className="text-2xl font-bold">取引 #{transaction.id}</h1>
         <TransactionStatusBadge status={transaction.status} />
         {transaction.status === "unconfirmed" && (
-          <TransactionConfirmButton transactionId={transaction.id} />
+          <TransactionConfirmButton transactionId={transaction.id} hasExpenseCategory={transaction.expenseCategoryId !== null} />
         )}
       </div>
 

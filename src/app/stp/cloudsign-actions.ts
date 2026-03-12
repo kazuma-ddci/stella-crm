@@ -456,6 +456,8 @@ export async function syncContractCloudsignStatus(contractId: number) {
       cloudsignStatus: true,
       cloudsignTitle: true,
       cloudsignDocumentId: true,
+      cloudsignSelfSigningEmailId: true,
+      cloudsignSelfSignedAt: true,
       filePath: true,
       projectId: true,
     },
@@ -791,6 +793,8 @@ export async function getCloudsignSelfSigningUrl(
 
     const { fetchCloudSignSigningEmails } = await import("@/lib/email/imap-client");
 
+    // アクティブ検索モード: ドキュメントIDを指定して直近7日分のCloudSignメールから検索
+    // メール本文にドキュメントIDが含まれているかで照合する
     const emails = await fetchCloudSignSigningEmails(
       {
         host: emailAccount.imapHost,
@@ -799,35 +803,42 @@ export async function getCloudsignSelfSigningUrl(
         pass: emailAccount.imapPass,
         tls: true,
       },
-      emailAccount.lastCheckedCloudsignUid
+      0,
+      contract.cloudsignDocumentId
     );
 
-    let maxUid = emailAccount.lastCheckedCloudsignUid;
-    let foundUrl: string | null = null;
+    // メール本文にドキュメントIDが含まれるものを探す
+    const matchedEmail = emails.find(
+      (e) => e.rawContent.includes(contract.cloudsignDocumentId!)
+    );
 
-    for (const email of emails) {
-      if (email.uid > maxUid) maxUid = email.uid;
-
-      if (email.cloudsignDocumentId === contract.cloudsignDocumentId) {
-        foundUrl = email.signingUrl;
-      }
-    }
-
-    // UID更新
-    if (maxUid > emailAccount.lastCheckedCloudsignUid) {
-      await prisma.operatingCompanyEmail.update({
-        where: { id: emailAccount.id },
-        data: { lastCheckedCloudsignUid: maxUid },
-      });
-    }
-
-    if (foundUrl) {
-      // DB保存
+    if (matchedEmail) {
       await prisma.masterContract.update({
         where: { id: contractId },
-        data: { cloudsignSelfSigningUrl: foundUrl },
+        data: { cloudsignSelfSigningUrl: matchedEmail.signingUrl },
       });
-      return { url: foundUrl, status: "ready" };
+
+      console.log(
+        `[CloudSign] 署名URL取得成功 (contract #${contractId}): ${matchedEmail.signingUrl}`
+      );
+      return { url: matchedEmail.signingUrl, status: "ready" };
+    }
+
+    // デバッグログ
+    if (emails.length > 0) {
+      console.log(
+        `[CloudSign] メール${emails.length}件取得したがドキュメントID「${contract.cloudsignDocumentId}」がメール本文に含まれず (contract #${contractId})`
+      );
+      // 最初のメールの件名とURLをログ出力
+      for (const e of emails.slice(0, 3)) {
+        console.log(
+          `  - 件名: ${e.subject}, URL: ${e.signingUrl}`
+        );
+      }
+    } else {
+      console.log(
+        `[CloudSign] CloudSignメールが見つかりません (contract #${contractId})`
+      );
     }
   } catch (err) {
     console.error(`[CloudSign] IMAP check failed for contract ${contractId}:`, err);

@@ -87,6 +87,9 @@ export async function getMasterContracts(companyId: number) {
     cloudsignExpectedStatusName: c.cloudsignStatus
       ? csStatusToName.get(c.cloudsignStatus) || null
       : null,
+    cloudsignSelfSigningEmailId: c.cloudsignSelfSigningEmailId,
+    cloudsignSelfSignedAt: c.cloudsignSelfSignedAt?.toISOString() || null,
+    cloudsignSelfSigningUrl: c.cloudsignSelfSigningUrl,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   }));

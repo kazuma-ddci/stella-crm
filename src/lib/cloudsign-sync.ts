@@ -18,6 +18,8 @@ type ContractForSync = {
   cloudsignStatus: string | null;
   cloudsignTitle: string | null;
   cloudsignDocumentId: string | null;
+  cloudsignSelfSigningEmailId?: number | null;
+  cloudsignSelfSignedAt?: Date | null;
 };
 
 /**
@@ -95,6 +97,31 @@ export async function syncContractStatus(
       );
       if (doc.title && doc.title !== contract.cloudsignTitle) {
         cloudTitle = doc.title;
+      }
+
+      // 自社署名完了チェック: participantのステータスが8(捺印/入力完了)以上
+      if (
+        contract.cloudsignSelfSigningEmailId &&
+        !contract.cloudsignSelfSignedAt &&
+        doc.participants
+      ) {
+        // 自社署名用メールアドレスを取得
+        const selfEmail = await prisma.operatingCompanyEmail.findUnique({
+          where: { id: contract.cloudsignSelfSigningEmailId },
+          select: { email: true },
+        });
+        if (selfEmail) {
+          const selfParticipant = doc.participants.find(
+            (p) => p.email.toLowerCase() === selfEmail.email.toLowerCase()
+          );
+          // status 7=確認済み, 8=捺印/入力完了 → 署名完了とみなす
+          if (selfParticipant && selfParticipant.status >= 7) {
+            await prisma.masterContract.update({
+              where: { id: contract.id },
+              data: { cloudsignSelfSignedAt: new Date() },
+            });
+          }
+        }
       }
 
       // completed時にPDFをダウンロード

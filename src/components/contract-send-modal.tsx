@@ -714,6 +714,10 @@ export function ContractSendModal({
         existingContractId: draftContractId || undefined,
       });
 
+      // 送付成功時は即座に親の契約書一覧を更新
+      onSuccess?.();
+      router.refresh();
+
       if (sendImmediately && result.selfSigningRequired) {
         toast.success(`契約書「${result.contractNumber}」を送付しました`);
         // 自社署名ダイアログを表示
@@ -731,8 +735,6 @@ export function ContractSendModal({
             : `契約書「${result.contractNumber}」を下書き保存しました`
         );
         onOpenChange(false);
-        onSuccess?.();
-        router.refresh();
       }
     } catch (error) {
       console.error("Error sending contract:", error);

@@ -63,17 +63,17 @@ export async function GET(request: Request) {
       },
     });
 
-    // 契約をメールアカウントID別にグループ化（docIdで検索用）
-    const contractsByEmail = new Map<number, Map<string, number>>();
+    // 契約をメールアカウントID別にグループ化（本文内のdocId照合用）
+    const contractsByEmail = new Map<number, Array<{ docId: string; contractId: number }>>();
     for (const c of pendingContracts) {
       if (!c.cloudsignDocumentId || !c.cloudsignSelfSigningEmailId) continue;
       if (!contractsByEmail.has(c.cloudsignSelfSigningEmailId)) {
-        contractsByEmail.set(c.cloudsignSelfSigningEmailId, new Map());
+        contractsByEmail.set(c.cloudsignSelfSigningEmailId, []);
       }
-      contractsByEmail.get(c.cloudsignSelfSigningEmailId)!.set(
-        c.cloudsignDocumentId,
-        c.id
-      );
+      contractsByEmail.get(c.cloudsignSelfSigningEmailId)!.push({
+        docId: c.cloudsignDocumentId,
+        contractId: c.id,
+      });
     }
 
     for (const emailAccount of emailAccounts) {
@@ -98,28 +98,29 @@ export async function GET(request: Request) {
         );
 
         let maxUid = emailAccount.lastCheckedCloudsignUid;
-        const docIdMap = contractsByEmail.get(emailAccount.id);
+        const contracts = contractsByEmail.get(emailAccount.id);
 
         for (const email of emails) {
           if (email.uid > maxUid) maxUid = email.uid;
 
-          if (!docIdMap) continue;
+          if (!contracts) continue;
 
-          // ドキュメントIDでマッチ
-          const contractId = docIdMap.get(email.cloudsignDocumentId);
-          if (contractId) {
-            try {
-              await prisma.masterContract.update({
-                where: { id: contractId },
-                data: { cloudsignSelfSigningUrl: email.signingUrl },
-              });
-              accountResult.matched++;
-              console.log(
-                `[Cron/CloudSign] Matched signing URL for contract ${contractId}, docId=${email.cloudsignDocumentId}`
-              );
-            } catch (err) {
-              const errMsg = err instanceof Error ? err.message : "Unknown error";
-              accountResult.errors.push(`Contract ${contractId}: ${errMsg}`);
+          // メール本文にドキュメントIDが含まれているかで照合
+          for (const { docId, contractId } of contracts) {
+            if (email.rawContent.includes(docId)) {
+              try {
+                await prisma.masterContract.update({
+                  where: { id: contractId },
+                  data: { cloudsignSelfSigningUrl: email.signingUrl },
+                });
+                accountResult.matched++;
+                console.log(
+                  `[Cron/CloudSign] Matched signing URL for contract ${contractId}, docId=${docId}`
+                );
+              } catch (err) {
+                const errMsg = err instanceof Error ? err.message : "Unknown error";
+                accountResult.errors.push(`Contract ${contractId}: ${errMsg}`);
+              }
             }
           }
         }

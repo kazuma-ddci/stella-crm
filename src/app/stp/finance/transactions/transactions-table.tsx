@@ -196,6 +196,12 @@ export function TransactionsTable({ data, deletedData, counterpartyOptions }: Pr
 
   // 取引確定アクション
   const handleConfirm = async (id: number) => {
+    // 費目未設定チェック
+    const target = data.find((r) => r.id === id);
+    if (target && target.expenseCategoryId === null) {
+      toast.error("費目が未設定の取引は確定できません。取引詳細画面で費目を設定してください。");
+      return;
+    }
     try {
       await confirmTransaction(id);
       toast.success("取引を確定しました");

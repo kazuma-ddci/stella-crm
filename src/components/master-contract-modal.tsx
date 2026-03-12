@@ -43,8 +43,9 @@ import {
   getDraftsForCompany,
   deleteDraftContract,
   remindCloudsignDocument,
+  getCloudsignSelfSigningUrl,
 } from "@/app/stp/cloudsign-actions";
-import { Plus, Pencil, Trash2, X, FileText, ExternalLink, Send, Loader2, Play, RotateCcw, Link2 } from "lucide-react";
+import { Plus, Pencil, Trash2, X, FileText, ExternalLink, Send, Loader2, Play, RotateCcw, Link2, PenTool } from "lucide-react";
 import { toast } from "sonner";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { FileUpload } from "@/components/file-upload";
@@ -79,6 +80,9 @@ type Contract = {
   cloudsignAutoSync?: boolean;
   cloudsignLastRemindedAt?: string | null;
   cloudsignExpectedStatusName?: string | null;
+  cloudsignSelfSigningEmailId?: number | null;
+  cloudsignSelfSignedAt?: string | null;
+  cloudsignSelfSigningUrl?: string | null;
 };
 
 type Props = {
@@ -149,6 +153,7 @@ export function MasterContractModal({
   const [togglingAutoSyncId, setTogglingAutoSyncId] = useState<number | null>(null);
   const [linkingContractId, setLinkingContractId] = useState<number | null>(null);
   const [remindingContractId, setRemindingContractId] = useState<number | null>(null);
+  const [fetchingSigningUrlId, setFetchingSigningUrlId] = useState<number | null>(null);
 
   // 下書き管理
   const [draftSelectOpen, setDraftSelectOpen] = useState(false);
@@ -825,6 +830,58 @@ export function MasterContractModal({
                                   前回: {new Date(contract.cloudsignLastRemindedAt).toLocaleDateString("ja-JP", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                                 </span>
                               )}
+                            </div>
+                          )}
+                          {/* Row 2.5: 自社署名ボタン（署名が必要 & 未完了 & 送付済みの場合のみ） */}
+                          {contract.cloudsignSelfSigningEmailId && !contract.cloudsignSelfSignedAt && contract.cloudsignStatus === "sent" && (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-violet-600 bg-violet-50 border border-violet-200 hover:bg-violet-100 transition-colors disabled:opacity-40"
+                                disabled={fetchingSigningUrlId === contract.id}
+                                onClick={async () => {
+                                  // URLが既にDBにある場合はそのまま開く
+                                  if (contract.cloudsignSelfSigningUrl) {
+                                    window.open(contract.cloudsignSelfSigningUrl, "_blank");
+                                    return;
+                                  }
+                                  // URLを取得する
+                                  setFetchingSigningUrlId(contract.id);
+                                  try {
+                                    const result = await getCloudsignSelfSigningUrl(contract.id);
+                                    if (result.url) {
+                                      window.open(result.url, "_blank");
+                                      await loadContracts();
+                                    } else {
+                                      toast.info("署名用URLがまだ届いていません。しばらく経ってからお試しください。");
+                                    }
+                                  } catch (error) {
+                                    console.error(error);
+                                    toast.error("署名用URLの取得に失敗しました");
+                                  } finally {
+                                    setFetchingSigningUrlId(null);
+                                  }
+                                }}
+                              >
+                                {fetchingSigningUrlId === contract.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <PenTool className="h-3 w-3" />
+                                )}
+                                署名する
+                              </button>
+                              <span className="text-[10px] text-gray-400" title="CloudSignに送信者アカウントでログイン中の場合、署名ページではなく書類詳細が表示されます。その場合はシークレットウィンドウで開くか、メールのリンクから署名してください。">
+                                ※ CS未ログイン時のみ
+                              </span>
+                            </div>
+                          )}
+                          {/* 自社署名済みの表示 */}
+                          {contract.cloudsignSelfSigningEmailId && contract.cloudsignSelfSignedAt && (
+                            <div className="flex items-center gap-1">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-medium text-green-700 border border-green-200">
+                                <PenTool className="h-2.5 w-2.5" />
+                                自社署名済
+                              </span>
                             </div>
                           )}
                           {/* Row 3: 同期 & 自動同期切替 */}

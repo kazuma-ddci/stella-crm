@@ -31,8 +31,8 @@ export interface CloudSignEmail {
   date: Date;
   /** メール本文から抽出した署名用URL */
   signingUrl: string;
-  /** URLから抽出したCloudSignドキュメントID */
-  cloudsignDocumentId: string;
+  /** メール本文の全文（ドキュメントID照合用） */
+  rawContent: string;
 }
 
 const MAX_MESSAGES_PER_BATCH = 50;
@@ -137,10 +137,15 @@ export async function fetchNewWithPdfAttachments(
 /**
  * CloudSignからの署名依頼メールを取得し、署名用URLを抽出する。
  * from が cloudsign.jp ドメインのメールのみ対象。
+ *
+ * @param sinceUid - この UID より新しいメールのみ取得（cron用の増分チェック）
+ * @param targetDocumentId - 特定のドキュメントIDを探す場合（アクティブ検索モード）。
+ *   指定時は sinceUid を無視し、直近7日分のCloudSignメールから検索する。
  */
 export async function fetchCloudSignSigningEmails(
   config: ImapConfig,
-  sinceUid: number
+  sinceUid: number,
+  targetDocumentId?: string
 ): Promise<CloudSignEmail[]> {
   const client = new ImapFlow({
     host: config.host,
@@ -160,15 +165,34 @@ export async function fetchCloudSignSigningEmails(
     const lock = await client.getMailboxLock("INBOX");
 
     try {
-      const searchUid = sinceUid + 1;
-      const searchResult = await client.search(
-        { uid: `${searchUid}:*` },
-        { uid: true }
-      );
-      const allUids = (searchResult || []).filter((uid: number) => uid > sinceUid);
-      if (!allUids.length) return results;
+      let uids: number[];
 
-      const uids = allUids.slice(0, MAX_MESSAGES_PER_BATCH);
+      if (targetDocumentId) {
+        // アクティブ検索モード: CloudSignからの直近メールを検索
+        const sinceDate = new Date();
+        sinceDate.setDate(sinceDate.getDate() - 7);
+        const searchResult = await client.search(
+          {
+            from: "cloudsign.jp",
+            since: sinceDate,
+          },
+          { uid: true }
+        );
+        // 新しい順にソート（最新のメールを優先）
+        uids = (searchResult || []).sort((a: number, b: number) => b - a).slice(0, MAX_MESSAGES_PER_BATCH);
+      } else {
+        // 増分チェックモード（cron用）: sinceUid以降を古い順に処理
+        const searchUid = sinceUid + 1;
+        const searchResult = await client.search(
+          { uid: `${searchUid}:*` },
+          { uid: true }
+        );
+        const allUids = (searchResult || []).filter((uid: number) => uid > sinceUid);
+        if (!allUids.length) return results;
+        uids = allUids.slice(0, MAX_MESSAGES_PER_BATCH);
+      }
+
+      if (!uids.length) return results;
 
       for (const uid of uids) {
         try {
@@ -181,7 +205,7 @@ export async function fetchCloudSignSigningEmails(
 
           const parsed = await simpleParser(message.source);
 
-          // CloudSignからのメールのみ処理
+          // CloudSignからのメールのみ処理（アクティブ検索では既にフィルタ済みだが念のため）
           const fromAddress = parsed.from?.value?.[0]?.address || "";
           if (!fromAddress.toLowerCase().includes("cloudsign.jp")) continue;
 
@@ -190,17 +214,22 @@ export async function fetchCloudSignSigningEmails(
           const text = parsed.text || "";
           const content = html || text;
 
-          const signingInfo = extractCloudSignSigningUrl(content);
-          if (!signingInfo) continue;
+          const signingUrl = extractCloudSignSigningUrl(content);
+          if (!signingUrl) continue;
 
           results.push({
             messageId: parsed.messageId || `no-mid_uid-${uid}`,
             uid,
             subject: parsed.subject,
             date: parsed.date || new Date(),
-            signingUrl: signingInfo.url,
-            cloudsignDocumentId: signingInfo.documentId,
+            signingUrl,
+            rawContent: content,
           });
+
+          // アクティブ検索: メール本文にドキュメントIDが含まれていたら即座に返す
+          if (targetDocumentId && content.includes(targetDocumentId)) {
+            return results;
+          }
         } catch (err) {
           console.error(`[IMAP/CloudSign] Failed to parse message uid=${uid}:`, err);
         }
@@ -216,13 +245,10 @@ export async function fetchCloudSignSigningEmails(
 }
 
 /**
- * CloudSignメールのHTML/テキストから署名用URLとドキュメントIDを抽出。
- * CloudSignの署名リンクは https://www.cloudsign.jp/... の形式で、
- * ドキュメントIDはUUID形式でURL内に含まれる。
+ * CloudSignメールのHTML/テキストから署名用URLを抽出。
+ * 署名/受信者用のパスを含むURLを優先し、管理画面URLは除外する。
  */
-function extractCloudSignSigningUrl(
-  content: string
-): { url: string; documentId: string } | null {
+function extractCloudSignSigningUrl(content: string): string | null {
   // HTMLリンクからCloudSign URLを抽出（href="..." 内のURL）
   const hrefRegex = /href=["']?(https?:\/\/[^"'\s]*cloudsign\.jp[^"'\s]*)["']?/gi;
   const plainUrlRegex = /(https?:\/\/[^\s<>"]*cloudsign\.jp[^\s<>"]*)/gi;
@@ -242,34 +268,24 @@ function extractCloudSignSigningUrl(
     }
   }
 
-  // CloudSign ドキュメントID（UUID形式）を含むURLを優先
-  // 署名URLの典型的パターン:
-  //   https://www.cloudsign.jp/recipient/documents/{uuid}
-  //   https://www.cloudsign.jp/documents/{uuid}/...
-  const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
-
+  // 署名/受信者用URLを優先（recipient, sign, confirm パス）
   for (const url of urls) {
-    // 管理画面URL（/documents/{id} のみ）ではなく、署名/受信者用のURLを優先
-    // recipient, sign, confirm 等のパスを含むURLを優先
     if (
       url.includes("/recipient/") ||
       url.includes("/sign") ||
       url.includes("/confirm")
     ) {
-      const uuidMatch = url.match(uuidPattern);
-      if (uuidMatch) {
-        return { url: decodeHtmlEntities(url), documentId: uuidMatch[0] };
-      }
+      return decodeHtmlEntities(url);
     }
   }
 
-  // 優先パターンがなければ、UUIDを含む最初のURLを使用
+  // 上記パターンがなければ、管理系URL以外の最初のCloudSign URLを返す
   for (const url of urls) {
-    const uuidMatch = url.match(uuidPattern);
-    if (uuidMatch) {
-      // ログイン画面や利用規約のURLを除外
-      if (url.includes("/login") || url.includes("/terms") || url.includes("/privacy")) continue;
-      return { url: decodeHtmlEntities(url), documentId: uuidMatch[0] };
+    if (url.includes("/login") || url.includes("/terms") || url.includes("/privacy")) continue;
+    // トップページや静的ページのような短いURLも除外
+    const path = new URL(url).pathname;
+    if (path.length > 10) {
+      return decodeHtmlEntities(url);
     }
   }
 

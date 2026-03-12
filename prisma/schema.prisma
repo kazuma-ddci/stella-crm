@@ -1054,6 +1054,7 @@ model MasterContract {
   cloudsignLastRemindedAt DateTime? @map("cloudsign_last_reminded_at")
   cloudsignSelfSigningUrl    String?   @db.VarChar(2000) @map("cloudsign_self_signing_url")
   cloudsignSelfSigningEmailId Int?     @map("cloudsign_self_signing_email_id")
+  cloudsignSelfSignedAt DateTime?      @map("cloudsign_self_signed_at")
   filePath              String?   @db.VarChar(500) @map("file_path")
   fileName              String?   @db.VarChar(200) @map("file_name")
   assignedTo            String?   @db.VarChar(500) @map("assigned_to")
