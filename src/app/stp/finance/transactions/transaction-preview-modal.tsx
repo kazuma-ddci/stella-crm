@@ -439,7 +439,7 @@ export function TransactionPreviewModal({
                 </div>
                 <div>
                   <dt className="text-muted-foreground font-medium">費目</dt>
-                  <dd className="mt-0.5">{transaction.expenseCategory.name}</dd>
+                  <dd className="mt-0.5">{transaction.expenseCategory?.name ?? "（未設定）"}</dd>
                 </div>
                 <div>
                   <dt className="text-muted-foreground font-medium">

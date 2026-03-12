@@ -168,14 +168,14 @@ async function main() {
   // 費目
   await prisma.expenseCategory.createMany({
     data: [
-      { id: 1, name: '初期費用売上', type: 'revenue', displayOrder: 1 },
-      { id: 2, name: '月額売上', type: 'revenue', displayOrder: 2 },
-      { id: 3, name: '成果報酬売上', type: 'revenue', displayOrder: 3 },
-      { id: 4, name: '外注費', type: 'expense', displayOrder: 4 },
-      { id: 5, name: '通信費', type: 'expense', displayOrder: 5 },
-      { id: 6, name: '家賃', type: 'expense', displayOrder: 6 },
-      { id: 7, name: 'その他売上', type: 'revenue', displayOrder: 7 },
-      { id: 8, name: 'その他経費', type: 'expense', displayOrder: 8 },
+      { id: 1, name: '初期費用売上', type: 'revenue', projectId: 1, displayOrder: 1 },
+      { id: 2, name: '月額売上', type: 'revenue', projectId: 1, displayOrder: 2 },
+      { id: 3, name: '成果報酬売上', type: 'revenue', projectId: 1, displayOrder: 3 },
+      { id: 4, name: '外注費', type: 'expense', projectId: 1, displayOrder: 4 },
+      { id: 5, name: '通信費', type: 'expense', projectId: 1, displayOrder: 5 },
+      { id: 6, name: '家賃', type: 'expense', projectId: 1, displayOrder: 6 },
+      { id: 7, name: 'その他売上', type: 'revenue', projectId: 1, displayOrder: 7 },
+      { id: 8, name: 'その他経費', type: 'expense', projectId: 1, displayOrder: 8 },
     ],
   });
   console.log('✓ ExpenseCategories (8)');

@@ -37,7 +37,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { toLocalDateString } from "@/lib/utils";
 import DatePicker, { registerLocale } from "react-datepicker";
@@ -51,9 +51,17 @@ import {
   getStaffList,
   ContractHistoryData,
 } from "./contract-history-actions";
+import { Badge } from "@/components/ui/badge";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { useTimedFormCache } from "@/hooks/use-timed-form-cache";
 import { JOB_MEDIA_OPTIONS, isInvalidJobMedia } from "@/lib/stp/job-media";
+import {
+  getCompanyContractTransactionBadges,
+  getContractHistoryTransactionSummary,
+  type AggregateStatus,
+  type ContractTransaction,
+  type MonthlyTransactionStatus,
+} from "@/app/stp/finance/contract-status/actions";
 
 // 日本語ロケールを登録
 registerLocale("ja", ja);
@@ -109,6 +117,58 @@ function calculatePerformanceFee(contractPlan: string): number {
     return 150000;
   }
   return 0;
+}
+
+// ステータスバッジ設定
+const AGGREGATE_STATUS_CONFIG: Record<
+  AggregateStatus,
+  { label: string; color: string; bgColor: string; dotColor: string }
+> = {
+  no_transactions: { label: "未生成", color: "text-gray-500", bgColor: "bg-gray-100", dotColor: "bg-gray-400" },
+  unconfirmed: { label: "未確認", color: "text-orange-700", bgColor: "bg-orange-100", dotColor: "bg-orange-500" },
+  confirmed: { label: "確認済", color: "text-blue-700", bgColor: "bg-blue-100", dotColor: "bg-blue-500" },
+  grouped: { label: "処理中", color: "text-indigo-700", bgColor: "bg-indigo-100", dotColor: "bg-indigo-500" },
+  awaiting_payment: { label: "入金待ち", color: "text-yellow-700", bgColor: "bg-yellow-100", dotColor: "bg-yellow-500" },
+  partially_paid: { label: "一部完了", color: "text-amber-700", bgColor: "bg-amber-100", dotColor: "bg-amber-500" },
+  completed: { label: "完了", color: "text-green-700", bgColor: "bg-green-100", dotColor: "bg-green-500" },
+};
+
+const TX_STATUS_LABELS: Record<string, string> = {
+  unconfirmed: "未確認", confirmed: "確認済", awaiting_accounting: "経理待ち",
+  returned: "差戻し", resubmitted: "再提出", journalized: "仕訳済",
+  partially_paid: "一部入金", paid: "完了", hidden: "非表示",
+};
+
+const INVOICE_STATUS_LABELS: Record<string, string> = {
+  draft: "下書き", pdf_created: "PDF作成済", sent: "送付済",
+  awaiting_accounting: "経理確認中", partially_paid: "一部入金", paid: "入金済",
+  returned: "差戻し", corrected: "訂正済",
+};
+
+const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  before_request: "請求前", requested: "請求済", invoice_received: "請求書受領",
+  confirmed: "確認済", awaiting_accounting: "経理確認中", paid: "支払済",
+  returned: "差戻し", rejected: "却下", re_requested: "再請求", unprocessed: "未処理",
+};
+
+const REVENUE_TYPE_LABELS: Record<string, string> = {
+  initial: "初期費用", monthly: "月額", performance: "成果報酬",
+};
+
+const EXPENSE_TYPE_LABELS: Record<string, string> = {
+  agent_initial: "代理店初期", agent_monthly: "代理店月額",
+  commission_initial: "手数料(初期)", commission_monthly: "手数料(月額)",
+  commission_performance: "手数料(成果)",
+};
+
+function ContractStatusBadge({ status }: { status: AggregateStatus }) {
+  const config = AGGREGATE_STATUS_CONFIG[status];
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${config.bgColor} ${config.color}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${config.dotColor}`} />
+      {config.label}
+    </span>
+  );
 }
 
 type ContractHistory = {
@@ -175,6 +235,17 @@ export function ContractHistoryModal({
   const [isManualPerformanceFee, setIsManualPerformanceFee] = useState(false);
   const [financeWarning, setFinanceWarning] = useState<number | null>(null);
   const [operationStaffChangeNote, setOperationStaffChangeNote] = useState("");
+  // 取引ステータスバッジ
+  const [statusBadges, setStatusBadges] = useState<
+    Map<number, { currentMonthStatus: AggregateStatus; recentMonthStatuses: { month: string; status: AggregateStatus }[] }>
+  >(new Map());
+  // 取引詳細ビュー
+  const [detailHistory, setDetailHistory] = useState<ContractHistory | null>(null);
+  const [detailData, setDetailData] = useState<{
+    transactions: ContractTransaction[];
+    monthlyStatuses: MonthlyTransactionStatus[];
+  } | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   type CachedState = {
     formData: Partial<ContractHistoryData>;
@@ -207,13 +278,23 @@ export function ContractHistoryModal({
   const loadData = useCallback(async () => {
     setInitialLoading(true);
     try {
-      const [historiesData, staffData] = await Promise.all([
+      const [historiesData, staffData, badges] = await Promise.all([
         getContractHistories(companyId),
         getStaffList(),
+        getCompanyContractTransactionBadges(companyId),
       ]);
       setHistories(historiesData);
       setSalesStaffOptions(staffData.salesOptions);
       setOperationStaffOptions(staffData.operationOptions);
+      // バッジをマップに変換
+      const badgeMap = new Map<number, { currentMonthStatus: AggregateStatus; recentMonthStatuses: { month: string; status: AggregateStatus }[] }>();
+      for (const b of badges) {
+        badgeMap.set(b.contractHistoryId, {
+          currentMonthStatus: b.currentMonthStatus,
+          recentMonthStatuses: b.recentMonthStatuses,
+        });
+      }
+      setStatusBadges(badgeMap);
     } catch {
       toast.error("データの取得に失敗しました");
     } finally {
@@ -487,6 +568,19 @@ export function ContractHistoryModal({
       toast.error(`削除に失敗しました: ${errorMessage}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openDetailView = async (history: ContractHistory) => {
+    setDetailHistory(history);
+    setDetailLoading(true);
+    try {
+      const data = await getContractHistoryTransactionSummary(history.id);
+      setDetailData(data);
+    } catch {
+      toast.error("取引データの取得に失敗しました");
+    } finally {
+      setDetailLoading(false);
     }
   };
 
@@ -875,7 +969,8 @@ export function ContractHistoryModal({
                     <TableHead className="whitespace-nowrap">アカウントID</TableHead>
                     <TableHead className="whitespace-nowrap">アカウントPASS</TableHead>
                     <TableHead className="whitespace-nowrap">備考</TableHead>
-                    <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
+                    <TableHead className="whitespace-nowrap">請求状況</TableHead>
+                    <TableHead className="w-[120px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -914,8 +1009,42 @@ export function ContractHistoryModal({
                       <TableCell>
                         <TextPreviewCell text={history.note} title="備考" />
                       </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const badge = statusBadges.get(history.id);
+                          if (!badge) return <span className="text-xs text-muted-foreground">-</span>;
+                          return (
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-muted-foreground">今月:</span>
+                                <ContractStatusBadge status={badge.currentMonthStatus} />
+                              </div>
+                              <div className="flex gap-0.5">
+                                {badge.recentMonthStatuses.map((ms) => {
+                                  const config = AGGREGATE_STATUS_CONFIG[ms.status];
+                                  return (
+                                    <span
+                                      key={ms.month}
+                                      title={`${ms.month}: ${config.label}`}
+                                      className={`w-2 h-2 rounded-full ${config.dotColor}`}
+                                    />
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </TableCell>
                       <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                         <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openDetailView(history)}
+                            title="取引詳細"
+                          >
+                            <Eye className="h-4 w-4 text-blue-600" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1007,6 +1136,117 @@ export function ContractHistoryModal({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 取引詳細モーダル */}
+      <Dialog open={!!detailHistory} onOpenChange={(open) => { if (!open) { setDetailHistory(null); setDetailData(null); } }}>
+        <DialogContent size="datagrid" className="p-0 overflow-hidden flex flex-col">
+          <DialogHeader className="px-6 py-4 border-b shrink-0">
+            <DialogTitle>
+              取引ステータス - {companyName}
+              {detailHistory && (
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  ({getLabelByValue(industryTypeOptions, detailHistory.industryType)}/
+                  {getLabelByValue(contractPlanOptions, detailHistory.contractPlan)}
+                  {detailHistory.jobMedia ? `/${detailHistory.jobMedia}` : ""})
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="px-6 py-4 flex-1 overflow-y-auto min-h-0">
+            {detailLoading ? (
+              <div className="text-center text-muted-foreground py-8">読み込み中...</div>
+            ) : !detailData || detailData.transactions.length === 0 ? (
+              <div className="text-center text-muted-foreground py-8">
+                この契約に紐づく取引はありません
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* サマリーカード */}
+                <div className="grid grid-cols-4 gap-3">
+                  {Object.entries(
+                    detailData.transactions.reduce((acc, tx) => {
+                      acc[tx.status] = (acc[tx.status] || 0) + 1;
+                      return acc;
+                    }, {} as Record<string, number>)
+                  ).map(([status, count]) => (
+                    <div key={status} className="border rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold">{count}</div>
+                      <div className="text-xs text-muted-foreground">{TX_STATUS_LABELS[status] || status}</div>
+                    </div>
+                  ))}
+                </div>
+                {/* 月別セクション */}
+                {detailData.monthlyStatuses.map((ms) => (
+                  <div key={ms.month} className="space-y-2">
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-sm font-semibold">{ms.month.replace("-", "/")}</h3>
+                      <ContractStatusBadge status={ms.aggregateStatus} />
+                    </div>
+                    <Table containerClassName="border rounded-lg">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[60px]">ID</TableHead>
+                          <TableHead>種別</TableHead>
+                          <TableHead>取引先</TableHead>
+                          <TableHead className="text-right">金額(税抜)</TableHead>
+                          <TableHead>取引ステータス</TableHead>
+                          <TableHead>請求/支払</TableHead>
+                          <TableHead>グループステータス</TableHead>
+                          <TableHead>摘要</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {ms.transactions.map((tx) => (
+                          <TableRow key={tx.id}>
+                            <TableCell className="font-mono text-xs">{tx.id}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-0.5">
+                                <Badge variant={tx.type === "revenue" ? "default" : "secondary"} className="w-fit text-[10px]">
+                                  {tx.type === "revenue" ? "売上" : "経費"}
+                                </Badge>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {tx.stpRevenueType ? (REVENUE_TYPE_LABELS[tx.stpRevenueType] || tx.stpRevenueType)
+                                    : tx.stpExpenseType ? (EXPENSE_TYPE_LABELS[tx.stpExpenseType] || tx.stpExpenseType) : ""}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-xs">{tx.counterpartyName}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{tx.amount.toLocaleString()}</TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={tx.status === "paid" ? "default" : tx.status === "unconfirmed" ? "destructive" : "outline"}
+                                className="text-[10px]"
+                              >
+                                {TX_STATUS_LABELS[tx.status] || tx.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {tx.invoiceNumber || tx.paymentGroupRef || <span className="text-muted-foreground">未グループ</span>}
+                            </TableCell>
+                            <TableCell>
+                              {tx.invoiceGroupStatus && (
+                                <Badge variant="outline" className="text-[10px]">
+                                  {INVOICE_STATUS_LABELS[tx.invoiceGroupStatus] || tx.invoiceGroupStatus}
+                                </Badge>
+                              )}
+                              {tx.paymentGroupStatus && (
+                                <Badge variant="outline" className="text-[10px]">
+                                  {PAYMENT_STATUS_LABELS[tx.paymentGroupStatus] || tx.paymentGroupStatus}
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-xs max-w-[150px] truncate">{tx.note || "-"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 会計データ影響警告ダイアログ */}
       <AlertDialog open={financeWarning !== null} onOpenChange={(open) => !open && setFinanceWarning(null)}>

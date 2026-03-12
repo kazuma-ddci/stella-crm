@@ -547,9 +547,9 @@ async function detectCrmCandidates(
     },
   });
 
-  // 費目マスタ（売上用・経費用）
+  // 費目マスタ（売上用・経費用）— STPプロジェクトに絞る
   const expenseCategories = await prisma.expenseCategory.findMany({
-    where: { deletedAt: null, isActive: true },
+    where: { deletedAt: null, isActive: true, ...(stpProjectId ? { projectId: stpProjectId } : {}) },
   });
   const revenueCategoryInitial = expenseCategories.find(
     (c) => c.type !== "expense" && c.name.includes("初期")
@@ -1508,8 +1508,8 @@ export async function generateTransactions(
   let skippedNoAmount = 0;
 
   for (const candidate of selectedCandidates) {
-    // 取引先・費目が未設定の候補は生成不可
-    if (candidate.counterpartyId === null || candidate.expenseCategoryId === null) {
+    // 取引先が未設定の候補は生成不可
+    if (candidate.counterpartyId === null) {
       skipped++;
       continue;
     }

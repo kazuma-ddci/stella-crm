@@ -213,7 +213,7 @@ export function StpCompaniesTable({
     // リード獲得日
     { key: "leadAcquiredDate", header: "リード獲得日", type: "date", simpleMode: true },
     // リード有効性
-    { key: "leadValidity", header: "有効性", type: "select", options: [{ value: "有効", label: "有効" }], inlineEditable: true },
+    { key: "leadValidity", header: "有効性", type: "select", options: [{ value: "有効", label: "有効" }, { value: "無効", label: "無効" }], inlineEditable: true },
     // 最終接触日
     { key: "latestContactDate", header: "最終接触日", type: "date", editable: false },
     // 現在ステージ（IDは非表示、名前のみ表示）- セルクリックでステージモーダル
@@ -760,7 +760,7 @@ export function StpCompaniesTable({
         return leadSourceOptions;
       }
       if (columnKey === "leadValidity") {
-        return [{ value: "有効", label: "有効" }];
+        return [{ value: "有効", label: "有効" }, { value: "無効", label: "無効" }];
       }
       if (columnKey === "salesStaffId") {
         return staffOptions;

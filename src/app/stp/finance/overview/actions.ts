@@ -271,7 +271,7 @@ export async function getProjectDashboard(): Promise<ProjectDashboardData> {
       id: activities.length,
       entityType: "transaction",
       entityId: t.id,
-      description: `${typeLabel}: ${t.counterparty.name} - ${t.expenseCategory.name}`,
+      description: `${typeLabel}: ${t.counterparty.name} - ${t.expenseCategory?.name ?? "（未設定）"}`,
       status: TRANSACTION_STATUS_LABELS[t.status] ?? t.status,
       amount: totalWithTax,
       createdAt: t.createdAt.toISOString(),

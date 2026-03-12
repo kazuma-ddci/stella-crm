@@ -63,7 +63,7 @@ type TransactionData = {
   id: number;
   type: string;
   counterpartyId: number;
-  expenseCategoryId: number;
+  expenseCategoryId: number | null;
   amount: number;
   taxAmount: number;
   taxRate: number;

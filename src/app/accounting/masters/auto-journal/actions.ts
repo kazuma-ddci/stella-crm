@@ -494,7 +494,7 @@ function findMatchingRule(
   transaction: {
     counterpartyId: number;
     type: string;
-    expenseCategoryId: number;
+    expenseCategoryId: number | null;
   }
 ) {
   for (const rule of rules) {

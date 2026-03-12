@@ -182,7 +182,7 @@ export default async function TransactionDetailPage({ params }: Props) {
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-muted-foreground">費目</dt>
-                  <dd className="mt-1">{transaction.expenseCategory.name}</dd>
+                  <dd className="mt-1">{transaction.expenseCategory?.name ?? "（未設定）"}</dd>
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-muted-foreground">

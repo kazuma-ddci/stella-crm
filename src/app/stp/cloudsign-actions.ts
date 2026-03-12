@@ -40,6 +40,8 @@ type SendContractInput = {
   sendImmediately: boolean;
   /** 既存の下書きMasterContractレコードID（再開時） */
   existingContractId?: number;
+  /** 自社署名用メールアドレスID（OperatingCompanyEmail） */
+  selfSigningEmailId?: number;
 };
 
 // ============================================
@@ -175,16 +177,21 @@ export async function sendContractViaCloudsign(input: SendContractInput) {
     cloudsignStatus = "sent";
     cloudsignSentAt = new Date();
 
-    // 自社メールアドレスが受信者に含まれているか判定
-    const registeredEmail = operatingCompany.cloudsignRegisteredEmail;
-    if (registeredEmail) {
-      const allRecipientEmails = [
-        ...input.recipients.map((r) => r.email.trim().toLowerCase()),
-        ...(input.newParticipants || []).map((p) => p.email.trim().toLowerCase()),
-      ];
-      selfSigningRequired = allRecipientEmails.includes(
-        registeredEmail.trim().toLowerCase()
-      );
+    // selfSigningEmailId が指定されている場合、自社署名が必要
+    if (input.selfSigningEmailId) {
+      selfSigningRequired = true;
+    } else {
+      // 後方互換: cloudsignRegisteredEmail で自動判定
+      const registeredEmail = operatingCompany.cloudsignRegisteredEmail;
+      if (registeredEmail) {
+        const allRecipientEmails = [
+          ...input.recipients.map((r) => r.email.trim().toLowerCase()),
+          ...(input.newParticipants || []).map((p) => p.email.trim().toLowerCase()),
+        ];
+        selfSigningRequired = allRecipientEmails.includes(
+          registeredEmail.trim().toLowerCase()
+        );
+      }
     }
   } else {
     cloudsignStatus = "draft";
@@ -212,6 +219,7 @@ export async function sendContractViaCloudsign(input: SendContractInput) {
           cloudsignStatus,
           cloudsignSentAt,
           cloudsignTitle: input.cloudsignTitle || input.title,
+          cloudsignSelfSigningEmailId: selfSigningRequired ? (input.selfSigningEmailId ?? null) : null,
           assignedTo: input.assignedTo || null,
           note: input.note || null,
         },
@@ -246,6 +254,7 @@ export async function sendContractViaCloudsign(input: SendContractInput) {
         cloudsignSentAt,
         cloudsignTitle: input.cloudsignTitle || input.title,
         cloudsignAutoSync: true,
+        cloudsignSelfSigningEmailId: selfSigningRequired ? (input.selfSigningEmailId ?? null) : null,
         assignedTo: input.assignedTo || null,
         note: input.note || null,
       },
@@ -694,6 +703,24 @@ export async function getCloudsignModalData(companyId: number) {
     orderBy: { id: "asc" },
   });
 
+  // 受信チェックが有効なメールアドレス一覧（自社署名用）
+  const inboundEmails = project?.operatingCompany
+    ? await prisma.operatingCompanyEmail.findMany({
+        where: {
+          operatingCompanyId: project.operatingCompany.id,
+          enableInbound: true,
+          deletedAt: null,
+          imapHost: { not: null },
+        },
+        select: {
+          id: true,
+          email: true,
+          label: true,
+        },
+        orderBy: { id: "asc" },
+      })
+    : [];
+
   return {
     projectId: STP_PROJECT_ID,
     operatingCompany: project?.operatingCompany ?? null,
@@ -716,7 +743,38 @@ export async function getCloudsignModalData(companyId: number) {
       email: c.email,
       position: c.department,
     })),
+    inboundEmails,
   };
+}
+
+// ============================================
+// 10-b. CloudSign自社署名URL取得（ポーリング用）
+// ============================================
+
+/**
+ * 契約書の自社署名URLを取得する（ポーリング用）
+ */
+export async function getCloudsignSelfSigningUrl(
+  contractId: number
+): Promise<{ url: string | null; status: "ready" | "pending" | "not_required" }> {
+  const contract = await prisma.masterContract.findUnique({
+    where: { id: contractId },
+    select: {
+      cloudsignSelfSigningUrl: true,
+      cloudsignSelfSigningEmailId: true,
+      cloudsignStatus: true,
+    },
+  });
+
+  if (!contract || !contract.cloudsignSelfSigningEmailId) {
+    return { url: null, status: "not_required" };
+  }
+
+  if (contract.cloudsignSelfSigningUrl) {
+    return { url: contract.cloudsignSelfSigningUrl, status: "ready" };
+  }
+
+  return { url: null, status: "pending" };
 }
 
 // ============================================

@@ -10,7 +10,7 @@ export type TransactionListItem = {
   type: string;
   counterpartyId: number;
   counterpartyName: string;
-  expenseCategoryId: number;
+  expenseCategoryId: number | null;
   expenseCategoryName: string;
   costCenterName: string | null;
   allocationTemplateName: string | null;

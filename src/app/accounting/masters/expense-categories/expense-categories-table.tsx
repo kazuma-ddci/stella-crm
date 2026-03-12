@@ -19,12 +19,18 @@ type AccountOption = {
   label: string;
 };
 
+type ProjectOption = {
+  value: string;
+  label: string;
+};
+
 type Props = {
   data: Record<string, unknown>[];
   accountOptions: AccountOption[];
+  projectOptions: ProjectOption[];
 };
 
-export function ExpenseCategoriesTable({ data, accountOptions }: Props) {
+export function ExpenseCategoriesTable({ data, accountOptions, projectOptions }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
     {
@@ -39,6 +45,14 @@ export function ExpenseCategoriesTable({ data, accountOptions }: Props) {
       header: "種別",
       type: "select",
       options: TYPE_OPTIONS,
+      required: true,
+      filterable: true,
+    },
+    {
+      key: "projectId",
+      header: "プロジェクト",
+      type: "select",
+      options: projectOptions,
       required: true,
       filterable: true,
     },
@@ -69,6 +83,11 @@ export function ExpenseCategoriesTable({ data, accountOptions }: Props) {
       if (option) return option.label;
       const label = item?.defaultAccountLabel as string | undefined;
       return label ? `${label}（無効）` : "（なし）";
+    },
+    projectId: (value) => {
+      if (!value) return "（未設定）";
+      const option = projectOptions.find((o) => o.value === String(value));
+      return option?.label ?? "（未設定）";
     },
   };
 

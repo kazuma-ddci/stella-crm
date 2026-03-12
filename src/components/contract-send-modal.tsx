@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { PdfPreviewWithOverlay } from "@/components/pdf-preview-with-overlay";
-import { saveDraftContract, sendContractViaCloudsign } from "@/app/stp/cloudsign-actions";
+import { saveDraftContract, sendContractViaCloudsign, getCloudsignSelfSigningUrl } from "@/app/stp/cloudsign-actions";
 
 // ============================================
 // Types
@@ -136,6 +136,12 @@ type ResumeDraft = {
   note?: string | null;
 };
 
+type InboundEmailOption = {
+  id: number;
+  email: string;
+  label: string | null;
+};
+
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -152,6 +158,8 @@ type Props = {
   staffOptions: { value: string; label: string }[];
   onSuccess?: () => void;
   resumeDraft?: ResumeDraft;
+  /** 受信チェック有効なメールアドレス一覧（自社署名URL取得用） */
+  inboundEmails?: InboundEmailOption[];
 };
 
 // ============================================
@@ -210,10 +218,18 @@ export function ContractSendModal({
   staffOptions,
   onSuccess,
   resumeDraft,
+  inboundEmails = [],
 }: Props) {
   const router = useRouter();
   const isWide = useMediaQuery("(min-width: 1024px)");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // 自社署名ダイアログの状態
+  const [signingDialogOpen, setSigningDialogOpen] = useState(false);
+  const [signingDialogContractId, setSigningDialogContractId] = useState<number | null>(null);
+  const [signingDialogContractNumber, setSigningDialogContractNumber] = useState<string>("");
+  const [signingUrl, setSigningUrl] = useState<string | null>(null);
+  const [signingUrlLoading, setSigningUrlLoading] = useState(false);
 
   // Step 1
   const [selectedContractTypeId, setSelectedContractTypeId] = useState<string>("");
@@ -237,6 +253,9 @@ export function ContractSendModal({
   // Participants (participant-based UI)
   const [senderInfo, setSenderInfo] = useState<{ name: string; email: string; widgets: WidgetInfo[] } | null>(null);
   const [participantEdits, setParticipantEdits] = useState<ParticipantEdit[]>([]);
+
+  // 自社署名メールアドレス
+  const [selfSigningEmailId, setSelfSigningEmailId] = useState<string>("");
 
   // その他
   const [assignedTo, setAssignedTo] = useState("");
@@ -705,34 +724,70 @@ export function ContractSendModal({
         note: note.trim() || undefined,
         sendImmediately,
         existingContractId: draftContractId || undefined,
+        selfSigningEmailId: selfSigningEmailId ? Number(selfSigningEmailId) : undefined,
       });
 
       if (sendImmediately && result.selfSigningRequired) {
-        // 自社メールが受信者に含まれている → 署名確認ポップアップ
-        const shouldSign = window.confirm(
-          `契約書「${result.contractNumber}」を送付しました。\n\n自社の受信者が含まれています。\nこのままクラウドサインで自社署名しますか？`
-        );
-        if (shouldSign) {
-          window.open(result.cloudsignUrl, "_blank", "noopener,noreferrer");
-        }
         toast.success(`契約書「${result.contractNumber}」を送付しました`);
+        // 自社署名ダイアログを表示
+        setSigningDialogContractId(result.id);
+        setSigningDialogContractNumber(result.contractNumber ?? "");
+        setSigningUrl(null);
+        setSigningUrlLoading(true);
+        setSigningDialogOpen(true);
+        // ポーリング開始
+        pollSigningUrl(result.id);
       } else {
         toast.success(
           sendImmediately
             ? `契約書「${result.contractNumber}」を送付しました`
             : `契約書「${result.contractNumber}」を下書き保存しました`
         );
+        onOpenChange(false);
+        onSuccess?.();
+        router.refresh();
       }
-
-      onOpenChange(false);
-      onSuccess?.();
-      router.refresh();
     } catch (error) {
       console.error("Error sending contract:", error);
       toast.error(error instanceof Error ? error.message : "送付に失敗しました");
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // ============================================
+  // 署名URLポーリング
+  // ============================================
+  const pollSigningUrl = useCallback(async (contractId: number) => {
+    const maxAttempts = 30; // 最大30回（約60秒）
+    const interval = 2000; // 2秒間隔
+
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const result = await getCloudsignSelfSigningUrl(contractId);
+        if (result.status === "ready" && result.url) {
+          setSigningUrl(result.url);
+          setSigningUrlLoading(false);
+          return;
+        }
+        if (result.status === "not_required") {
+          setSigningUrlLoading(false);
+          return;
+        }
+      } catch {
+        // エラー時は続行
+      }
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
+    // タイムアウト
+    setSigningUrlLoading(false);
+  }, []);
+
+  const handleCloseSigningDialog = () => {
+    setSigningDialogOpen(false);
+    onOpenChange(false);
+    onSuccess?.();
+    router.refresh();
   };
 
   // ============================================
@@ -758,6 +813,33 @@ export function ContractSendModal({
               入力項目: {senderInfo.widgets.map((w) => widgetTypeName(w.widgetType)).join("、")}
             </p>
           )}
+        </div>
+      )}
+
+      {/* 自社署名メールアドレス選択 */}
+      {inboundEmails.length > 0 && (
+        <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+          <div className="flex items-center gap-1.5 mb-2">
+            <PenTool className="h-3.5 w-3.5 text-blue-600" />
+            <span className="text-xs font-medium text-blue-800">自社署名</span>
+          </div>
+          <p className="text-[10px] text-blue-600 mb-2">
+            自社の署名者としてメールアドレスを選択すると、送信後に署名画面へ直接アクセスできます
+          </p>
+          <Select value={selfSigningEmailId || "none"} onValueChange={(v) => setSelfSigningEmailId(v === "none" ? "" : v)}>
+            <SelectTrigger className="h-8 text-sm bg-white">
+              <SelectValue placeholder="自社署名しない" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">自社署名しない</SelectItem>
+              {inboundEmails.map((em) => (
+                <SelectItem key={em.id} value={String(em.id)}>
+                  {em.email}
+                  {em.label && <span className="text-gray-400 ml-1">({em.label})</span>}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )}
 
@@ -812,6 +894,25 @@ export function ContractSendModal({
               />
             </div>
           </div>
+
+          {/* 自社署名メールを入力 */}
+          {selfSigningEmailId && (() => {
+            const selectedEmail = inboundEmails.find((em) => String(em.id) === selfSigningEmailId);
+            return selectedEmail && participant.email !== selectedEmail.email ? (
+              <div className="mt-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="text-xs h-6 px-2 border-blue-300 text-blue-600 hover:bg-blue-50"
+                  onClick={() => updateParticipantField(participant.participantId, "email", selectedEmail.email)}
+                >
+                  <PenTool className="h-3 w-3 mr-1" />
+                  自社署名メール ({selectedEmail.email}) を入力
+                </Button>
+              </div>
+            ) : null;
+          })()}
 
           {/* 担当者から選択 */}
           {contactsWithEmail.length > 0 && (
@@ -1130,6 +1231,7 @@ export function ContractSendModal({
   // Render: Step 1 — 基本情報入力
   // ============================================
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="form" className="p-0 overflow-hidden flex flex-col max-h-[90vh]">
         <DialogHeader className="px-4 sm:px-6 py-4 border-b shrink-0">
@@ -1270,5 +1372,80 @@ export function ContractSendModal({
         </div>
       </DialogContent>
     </Dialog>
+
+    {/* 自社署名ダイアログ */}
+    <Dialog open={signingDialogOpen} onOpenChange={(open) => { if (!open) handleCloseSigningDialog(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <PenTool className="h-5 w-5 text-blue-600" />
+            契約書の署名
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="py-4">
+          <p className="text-sm text-gray-700 mb-4">
+            契約書「<span className="font-medium">{signingDialogContractNumber}</span>」を送付しました。
+          </p>
+
+          {signingUrlLoading ? (
+            <div className="flex flex-col items-center gap-3 py-6 px-4 bg-gray-50 rounded-lg border">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+              <div className="text-center">
+                <p className="text-sm font-medium text-gray-700">
+                  署名用リンクを取得しています...
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  クラウドサインからメールが届くまでしばらくお待ちください
+                </p>
+              </div>
+            </div>
+          ) : signingUrl ? (
+            <div className="flex flex-col items-center gap-3 py-6 px-4 bg-green-50 rounded-lg border border-green-200">
+              <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
+                <PenTool className="h-5 w-5 text-green-600" />
+              </div>
+              <p className="text-sm font-medium text-green-800">
+                署名の準備ができました
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3 py-6 px-4 bg-amber-50 rounded-lg border border-amber-200">
+              <p className="text-sm text-amber-700 text-center">
+                署名用リンクの取得に時間がかかっています。<br />
+                後ほどメールをご確認ください。
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-2 justify-end">
+          <Button
+            variant="outline"
+            onClick={handleCloseSigningDialog}
+          >
+            今は署名しない
+          </Button>
+          {signingUrl ? (
+            <Button
+              onClick={() => {
+                window.open(signingUrl, "_blank", "noopener,noreferrer");
+                handleCloseSigningDialog();
+              }}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <PenTool className="h-4 w-4 mr-2" />
+              署名に進む
+            </Button>
+          ) : (
+            <Button disabled className="bg-blue-600">
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              署名に進む
+            </Button>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

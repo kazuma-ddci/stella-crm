@@ -672,7 +672,7 @@ export async function confirmTransaction(id: number) {
 
   const transaction = await prisma.transaction.findFirst({
     where: { id, deletedAt: null },
-    select: { id: true, status: true, periodFrom: true, periodTo: true, projectId: true },
+    select: { id: true, status: true, periodFrom: true, periodTo: true, projectId: true, expenseCategoryId: true },
   });
   if (!transaction) {
     throw new Error("取引が見つかりません");
@@ -682,6 +682,10 @@ export async function confirmTransaction(id: number) {
     throw new Error(
       `ステータス「${transaction.status}」の取引は確認できません（未確認の取引のみ確認可能です）`
     );
+  }
+
+  if (transaction.expenseCategoryId === null) {
+    throw new Error("費目が未設定の取引は確定できません。先に費目を設定してください。");
   }
 
   await checkMonthlyClose(transaction.periodFrom, transaction.periodTo);

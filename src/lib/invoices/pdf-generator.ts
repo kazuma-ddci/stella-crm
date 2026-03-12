@@ -76,7 +76,7 @@ export async function getInvoicePdfData(
     // オーバーライドがあればそれを使用、なければデフォルト生成
     const description =
       lineDescs[String(t.id)] ||
-      buildDefaultDescription(t.expenseCategory.name, t.note, counterpartyName);
+      buildDefaultDescription(t.expenseCategory?.name ?? "（未設定）", t.note, counterpartyName);
 
     const periodFrom = toLocalDateString(t.periodFrom);
     const periodTo = toLocalDateString(t.periodTo);

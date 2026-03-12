@@ -874,6 +874,7 @@ model StpContractHistory {
   operationStaff MasterStaff?        @relation("OperationStaff", fields: [operationStaffId], references: [id])
   revenueRecords StpRevenueRecord[]
   expenseRecords StpExpenseRecord[]
+  transactions   Transaction[]
 
   @@map("stp_contract_histories")
 }
@@ -1051,6 +1052,8 @@ model MasterContract {
   cloudsignTitle        String?   @db.VarChar(200) @map("cloudsign_title")
   cloudsignAutoSync     Boolean   @default(true) @map("cloudsign_auto_sync")
   cloudsignLastRemindedAt DateTime? @map("cloudsign_last_reminded_at")
+  cloudsignSelfSigningUrl    String?   @db.VarChar(2000) @map("cloudsign_self_signing_url")
+  cloudsignSelfSigningEmailId Int?     @map("cloudsign_self_signing_email_id")
   filePath              String?   @db.VarChar(500) @map("file_path")
   fileName              String?   @db.VarChar(200) @map("file_name")
   assignedTo            String?   @db.VarChar(500) @map("assigned_to")
@@ -1068,6 +1071,7 @@ model MasterContract {
   relationsAsSource     ContractRelation[]        @relation("RelationSource")
   relationsAsTarget     ContractRelation[]        @relation("RelationTarget")
   finTransactions       Transaction[]             // 経理システム追加
+  selfSigningEmail      OperatingCompanyEmail?    @relation("SelfSigningEmail", fields: [cloudsignSelfSigningEmailId], references: [id])
 
   @@index([companyId], map: "idx_master_contracts_company_id")
   @@index([projectId], map: "idx_master_contracts_project_id")
@@ -2335,7 +2339,7 @@ model Transaction {
   recurringTransactionId Int?     // FK → RecurringTransaction（定期取引から生成された場合）
   allocationTemplateId  Int?      // FK → AllocationTemplate（按分ありの場合）
   costCenterId          Int?      // FK → CostCenter（按分なしの場合のプロジェクト）
-  expenseCategoryId     Int       // FK → ExpenseCategory（費目）
+  expenseCategoryId     Int?      // FK → ExpenseCategory（費目、未設定可）
   projectId             Int?      // FK → MasterProject（どのプロジェクトで作成されたか）
 
   type                  String    // "revenue" | "expense"
@@ -2368,6 +2372,7 @@ model Transaction {
   stpExpenseType        String?   // "agent_initial" | "agent_monthly" | "commission_initial" etc.
   stpCandidateId        Int?      // FK → StpCandidate（成果報酬の場合）
   stpContractHistoryId  Int?      // FK → StpContractHistory
+  stpContractHistory    StpContractHistory? @relation(fields: [stpContractHistoryId], references: [id])
   stpAgentId            Int?      // FK → StpAgent
 
   // 経費負担者
@@ -2400,7 +2405,7 @@ model Transaction {
   recurringTransaction  RecurringTransaction? @relation(fields: [recurringTransactionId], references: [id])
   allocationTemplate    AllocationTemplate?   @relation(fields: [allocationTemplateId], references: [id])
   costCenter            CostCenter?           @relation(fields: [costCenterId], references: [id])
-  expenseCategory       ExpenseCategory       @relation(fields: [expenseCategoryId], references: [id])
+  expenseCategory       ExpenseCategory?      @relation(fields: [expenseCategoryId], references: [id])
   project               MasterProject?        @relation(fields: [projectId], references: [id])
   paymentMethod         PaymentMethod?        @relation(fields: [paymentMethodId], references: [id])
   confirmer             MasterStaff?          @relation("TransactionConfirmer", fields: [confirmedBy], references: [id])
@@ -2802,7 +2807,7 @@ model ExpenseCategory {
   id                    Int       @id @default(autoincrement())
   name                  String    // 名称（外注費、サブスク費、家賃等）
   type                  String    // "revenue" | "expense" | "both"
-  projectId             Int?      // FK → MasterProject（nullの場合は全プロジェクト共通）
+  projectId             Int       // FK → MasterProject（必須）
   defaultAccountId      Int?      // FK → Account（デフォルト勘定科目）
   displayOrder          Int       @default(0)
   isActive              Boolean   @default(true)
@@ -2814,7 +2819,7 @@ model ExpenseCategory {
   updatedAt             DateTime  @updatedAt
 
   // Relations
-  project               MasterProject?        @relation(fields: [projectId], references: [id])
+  project               MasterProject         @relation(fields: [projectId], references: [id])
   defaultAccount        Account?              @relation(fields: [defaultAccountId], references: [id])
   transactions          Transaction[]
   recurringTransactions RecurringTransaction[]
@@ -3270,6 +3275,7 @@ model OperatingCompanyEmail {
   imapPass              String?
   enableInbound         Boolean   @default(false)
   lastCheckedImapUid    Int       @default(0) // システムが最後にチェックしたIMAP UID
+  lastCheckedCloudsignUid Int     @default(0) // CloudSign署名メール用の最終チェックUID
 
   deletedAt             DateTime?
 
@@ -3284,6 +3290,7 @@ model OperatingCompanyEmail {
   projectEmails         ProjectEmail[]
   expectedInboundPaymentGroups PaymentGroup[] @relation("ExpectedInbound")
   inboundInvoices       InboundInvoice[]
+  selfSigningContracts  MasterContract[] @relation("SelfSigningEmail")
   creator               MasterStaff?     @relation("OpCoEmailCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?     @relation("OpCoEmailUpdater", fields: [updatedBy], references: [id])
 }

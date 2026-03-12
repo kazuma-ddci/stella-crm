@@ -182,6 +182,7 @@ export function MasterContractModal({
     contacts: { id: number; name: string; email: string | null; position: string | null }[];
     operatingCompany: { id: number; companyName: string; cloudsignClientId: string | null } | null;
     projectId: number;
+    inboundEmails: { id: number; email: string; label: string | null }[];
   } | null>(null);
   const [loadingCloudsign, setLoadingCloudsign] = useState(false);
 
@@ -1161,6 +1162,7 @@ export function MasterContractModal({
           staffOptions={staffOptions}
           onSuccess={loadContracts}
           resumeDraft={resumeDraft}
+          inboundEmails={cloudsignData.inboundEmails}
         />
       )}
     </Dialog>

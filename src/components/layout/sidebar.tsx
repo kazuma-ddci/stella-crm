@@ -48,6 +48,7 @@ import {
   Wallet,
   CheckCircle2,
   Target,
+  MessageSquare,
 } from "lucide-react";
 import { canView } from "@/lib/auth/permissions";
 import type { SessionUser } from "@/types/auth";
@@ -153,6 +154,7 @@ const navigation: NavItem[] = [
     collapsible: true,
     children: [
       { name: "ダッシュボード", href: "/stp/dashboard", icon: Home },
+      { name: "経営インサイト", href: "/stp/insights", icon: MessageSquare },
       { name: "KPI目標管理", href: "/stp/kpi-targets", icon: Target },
       {
         name: "営業管理",
@@ -188,6 +190,7 @@ const navigation: NavItem[] = [
           { name: "請求管理（売上）", href: "/stp/finance/invoices", icon: Receipt },
           { name: "支払管理（経費）", href: "/stp/finance/payment-groups", icon: Wallet },
           { name: "売掛金年齢表", href: "/stp/finance/aging", icon: Clock },
+          { name: "契約別ステータス", href: "/stp/finance/contract-status", icon: CheckCircle2 },
           { name: "代理店別サマリー", href: "/stp/finance/agent-summary", icon: Users },
         ],
       },
@@ -213,6 +216,7 @@ const navigation: NavItem[] = [
               { name: "スタッフ役割種別", href: "/staff/role-types?project=stp", icon: Tags },
               { name: "担当者フィールド制約", href: "/staff/field-restrictions?project=stp", icon: Shield },
               { name: "メールテンプレート", href: "/settings/email-templates?project=stp", icon: FileText },
+              { name: "費目マスタ", href: "/stp/settings/expense-categories", icon: Tag },
             ],
           },
         ],
@@ -250,6 +254,7 @@ const navigation: NavItem[] = [
           { name: "決済手段", href: "/accounting/masters/payment-methods", icon: Wallet },
           { name: "定期取引", href: "/accounting/masters/recurring-transactions", icon: Repeat },
           { name: "経理用プロジェクト管理", href: "/accounting/masters/cost-centers", icon: Tag },
+          { name: "費目マスタ", href: "/accounting/masters/expense-categories", icon: Tag },
         ],
       },
       {

@@ -35,7 +35,7 @@ export async function GET(
 
   const data = transactions.map((t) => ({
     id: t.id,
-    expenseCategoryName: t.expenseCategory.name,
+    expenseCategoryName: t.expenseCategory?.name ?? "（未設定）",
     amount: t.amount,
     taxAmount: t.taxAmount,
     taxRate: t.taxRate,

@@ -322,7 +322,7 @@ export async function getCashflowForecast(
         date: toDateString(tx.paymentDueDate),
         type: "outgoing",
         source: "transaction",
-        description: `${tx.counterparty.name} - ${tx.expenseCategory.name}`,
+        description: `${tx.counterparty.name} - ${tx.expenseCategory?.name ?? "（未設定）"}`,
         amount: remainingAmount,
         paymentMethodId: tx.paymentMethodId,
         paymentMethodName: tx.paymentMethod?.name ?? null,

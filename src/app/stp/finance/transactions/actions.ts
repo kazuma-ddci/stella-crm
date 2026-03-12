@@ -138,8 +138,8 @@ function mapTransactionRecord(r: {
   type: string;
   counterpartyId: number;
   counterparty: { name: string };
-  expenseCategoryId: number;
-  expenseCategory: { name: string };
+  expenseCategoryId: number | null;
+  expenseCategory: { name: string } | null;
   costCenter: { name: string } | null;
   allocationTemplate: {
     id: number;
@@ -205,7 +205,7 @@ function mapTransactionRecord(r: {
     counterpartyId: r.counterpartyId,
     counterpartyName: r.counterparty.name,
     expenseCategoryId: r.expenseCategoryId,
-    expenseCategoryName: r.expenseCategory.name,
+    expenseCategoryName: r.expenseCategory?.name ?? "（未設定）",
     costCenterName: r.costCenter?.name ?? null,
     allocationTemplateName: r.allocationTemplate?.name ?? null,
     allocationTemplateId: r.allocationTemplate?.id ?? null,

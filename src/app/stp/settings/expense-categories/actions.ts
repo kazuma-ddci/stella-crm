@@ -3,22 +3,23 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { getSystemProjectContext } from "@/lib/project-context";
 
 const VALID_TYPES = ["revenue", "expense", "both"] as const;
+
+async function getStpProjectId(): Promise<number> {
+  const ctx = await getSystemProjectContext("stp");
+  if (!ctx) throw new Error("STPプロジェクトのコンテキストが取得できません");
+  return ctx.projectId;
+}
 
 export async function createExpenseCategory(data: Record<string, unknown>) {
   const session = await getSession();
   const staffId = session.id;
+  const projectId = await getStpProjectId();
 
   const name = (data.name as string).trim();
   const type = data.type as string;
-  const projectId = data.projectId ? Number(data.projectId) : null;
-  if (!projectId) {
-    throw new Error("プロジェクトは必須です");
-  }
-  const defaultAccountId = data.defaultAccountId
-    ? Number(data.defaultAccountId)
-    : null;
   const displayOrder = data.displayOrder ? Number(data.displayOrder) : 0;
   const isActive = data.isActive !== false && data.isActive !== "false";
 
@@ -44,14 +45,15 @@ export async function createExpenseCategory(data: Record<string, unknown>) {
       name,
       type,
       projectId,
-      defaultAccountId,
       displayOrder,
       isActive,
       createdBy: staffId,
     },
   });
 
-  revalidatePath("/accounting/masters/expense-categories");
+  revalidatePath("/stp/settings/expense-categories");
+  revalidatePath("/stp/finance/generate");
+  revalidatePath("/stp/finance/transactions");
 }
 
 export async function updateExpenseCategory(
@@ -60,6 +62,15 @@ export async function updateExpenseCategory(
 ) {
   const session = await getSession();
   const staffId = session.id;
+  const projectId = await getStpProjectId();
+
+  // 自プロジェクトの費目のみ編集可能
+  const target = await prisma.expenseCategory.findFirst({
+    where: { id, projectId, deletedAt: null },
+  });
+  if (!target) {
+    throw new Error("この費目は編集できません");
+  }
 
   const updateData: Record<string, unknown> = {};
 
@@ -67,14 +78,8 @@ export async function updateExpenseCategory(
     const name = (data.name as string).trim();
     if (!name) throw new Error("名称は必須です");
 
-    // Get current projectId for duplicate check scope
-    const current = await prisma.expenseCategory.findUnique({
-      where: { id },
-      select: { projectId: true },
-    });
-
     const existing = await prisma.expenseCategory.findFirst({
-      where: { name, deletedAt: null, projectId: current?.projectId, id: { not: id } },
+      where: { name, deletedAt: null, projectId, id: { not: id } },
       select: { id: true },
     });
     if (existing) {
@@ -89,17 +94,6 @@ export async function updateExpenseCategory(
       throw new Error("無効な種別です");
     }
     updateData.type = type;
-  }
-
-  if ("projectId" in data) {
-    if (!data.projectId) throw new Error("プロジェクトは必須です");
-    updateData.projectId = Number(data.projectId);
-  }
-
-  if ("defaultAccountId" in data) {
-    updateData.defaultAccountId = data.defaultAccountId
-      ? Number(data.defaultAccountId)
-      : null;
   }
 
   if ("displayOrder" in data) {
@@ -117,7 +111,9 @@ export async function updateExpenseCategory(
     data: updateData,
   });
 
-  revalidatePath("/accounting/masters/expense-categories");
+  revalidatePath("/stp/settings/expense-categories");
+  revalidatePath("/stp/finance/generate");
+  revalidatePath("/stp/finance/transactions");
 }
 
 export async function reorderExpenseCategories(orderedIds: number[]) {
@@ -133,5 +129,5 @@ export async function reorderExpenseCategories(orderedIds: number[]) {
     )
   );
 
-  revalidatePath("/accounting/masters/expense-categories");
+  revalidatePath("/stp/settings/expense-categories");
 }

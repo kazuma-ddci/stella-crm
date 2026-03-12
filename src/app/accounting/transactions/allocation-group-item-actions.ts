@@ -834,7 +834,7 @@ export async function getGroupAllocationWarnings(
       warnings.push({
         transactionId: tx.id,
         counterpartyName: tx.counterparty?.name ?? "不明",
-        expenseCategoryName: tx.expenseCategory.name,
+        expenseCategoryName: tx.expenseCategory?.name ?? "（未設定）",
         amountIncludingTax,
         unprocessedCostCenters,
         processedCostCenters,
