@@ -1067,6 +1067,84 @@ export function ContractSendModal({
   );
 
   // ============================================
+  // Shared: 自社署名ダイアログ
+  // ============================================
+  const signingDialog = (
+    <Dialog open={signingDialogOpen} onOpenChange={(o) => { if (!o) handleCloseSigningDialog(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <PenTool className="h-5 w-5 text-blue-600" />
+            契約書の署名
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="py-4">
+          <p className="text-sm text-gray-700 mb-4">
+            契約書「<span className="font-medium">{signingDialogContractNumber}</span>」を送付しました。
+          </p>
+
+          {signingUrlLoading ? (
+            <div className="flex flex-col items-center gap-3 py-6 px-4 bg-gray-50 rounded-lg border">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+              <div className="text-center">
+                <p className="text-sm font-medium text-gray-700">
+                  署名用リンクを取得しています...
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  クラウドサインからメールが届くまでしばらくお待ちください
+                </p>
+              </div>
+            </div>
+          ) : signingUrl ? (
+            <div className="flex flex-col items-center gap-3 py-6 px-4 bg-green-50 rounded-lg border border-green-200">
+              <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
+                <PenTool className="h-5 w-5 text-green-600" />
+              </div>
+              <p className="text-sm font-medium text-green-800">
+                署名の準備ができました
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3 py-6 px-4 bg-amber-50 rounded-lg border border-amber-200">
+              <p className="text-sm text-amber-700 text-center">
+                署名用リンクの取得に時間がかかっています。<br />
+                後ほどメールをご確認ください。
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-2 justify-end">
+          <Button
+            variant="outline"
+            onClick={handleCloseSigningDialog}
+          >
+            今は署名しない
+          </Button>
+          {signingUrl ? (
+            <Button
+              onClick={() => {
+                window.open(signingUrl, "_blank", "noopener,noreferrer");
+                handleCloseSigningDialog();
+              }}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <PenTool className="h-4 w-4 mr-2" />
+              署名に進む
+            </Button>
+          ) : (
+            <Button disabled className="bg-blue-600">
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              署名に進む
+            </Button>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
+  // ============================================
   // Render: クラウドサイン未設定
   // ============================================
   if (!operatingCompany?.cloudsignClientId) {
@@ -1092,49 +1170,52 @@ export function ContractSendModal({
   // ============================================
   if (draftDocument) {
     return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent size="cloudsign" className="overflow-hidden flex flex-col h-[95dvh] lg:h-[88dvh]">
-          <DialogHeader className="px-4 sm:px-6 py-3 border-b shrink-0">
-            <DialogTitle className="text-base">
-              契約書を送付 - {companyName}
-            </DialogTitle>
-          </DialogHeader>
+      <>
+        <Dialog open={open} onOpenChange={onOpenChange}>
+          <DialogContent size="cloudsign" className="overflow-hidden flex flex-col h-[95dvh] lg:h-[88dvh]">
+            <DialogHeader className="px-4 sm:px-6 py-3 border-b shrink-0">
+              <DialogTitle className="text-base">
+                契約書を送付 - {companyName}
+              </DialogTitle>
+            </DialogHeader>
 
-          {isWide ? (
-            <div className="flex-1 flex min-h-0">
-              <div className="flex-1 min-w-0 border-r bg-gray-100">
-                {pdfContent}
-              </div>
-              <div className="w-[380px] shrink-0 flex flex-col min-h-0">
-                <div className="flex-1 overflow-y-auto px-4 py-3">
-                  {formContent}
+            {isWide ? (
+              <div className="flex-1 flex min-h-0">
+                <div className="flex-1 min-w-0 border-r bg-gray-100">
+                  {pdfContent}
                 </div>
-                {footer}
+                <div className="w-[380px] shrink-0 flex flex-col min-h-0">
+                  <div className="flex-1 overflow-y-auto px-4 py-3">
+                    {formContent}
+                  </div>
+                  {footer}
+                </div>
               </div>
-            </div>
-          ) : (
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-              <TabsList className="mx-4 mt-2 shrink-0 h-9 bg-gray-100 rounded-md">
-                <TabsTrigger value="preview" className="text-xs data-[state=active]:text-sm px-3 py-1">
-                  <Eye className="h-3.5 w-3.5 mr-1" />
-                  プレビュー
-                </TabsTrigger>
-                <TabsTrigger value="form" className="text-xs data-[state=active]:text-sm px-3 py-1">
-                  <Edit3 className="h-3.5 w-3.5 mr-1" />
-                  入力項目
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="preview" className="flex-1 min-h-0 mt-0 bg-gray-100">
-                {pdfContent}
-              </TabsContent>
-              <TabsContent value="form" className="flex-1 min-h-0 mt-0 overflow-y-auto px-4 py-3">
-                {formContent}
-              </TabsContent>
-              {footer}
-            </Tabs>
-          )}
-        </DialogContent>
-      </Dialog>
+            ) : (
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+                <TabsList className="mx-4 mt-2 shrink-0 h-9 bg-gray-100 rounded-md">
+                  <TabsTrigger value="preview" className="text-xs data-[state=active]:text-sm px-3 py-1">
+                    <Eye className="h-3.5 w-3.5 mr-1" />
+                    プレビュー
+                  </TabsTrigger>
+                  <TabsTrigger value="form" className="text-xs data-[state=active]:text-sm px-3 py-1">
+                    <Edit3 className="h-3.5 w-3.5 mr-1" />
+                    入力項目
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="preview" className="flex-1 min-h-0 mt-0 bg-gray-100">
+                  {pdfContent}
+                </TabsContent>
+                <TabsContent value="form" className="flex-1 min-h-0 mt-0 overflow-y-auto px-4 py-3">
+                  {formContent}
+                </TabsContent>
+                {footer}
+              </Tabs>
+            )}
+          </DialogContent>
+        </Dialog>
+        {signingDialog}
+      </>
     );
   }
 
@@ -1313,80 +1394,7 @@ export function ContractSendModal({
         </div>
       </DialogContent>
     </Dialog>
-
-    {/* 自社署名ダイアログ */}
-    <Dialog open={signingDialogOpen} onOpenChange={(open) => { if (!open) handleCloseSigningDialog(); }}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <PenTool className="h-5 w-5 text-blue-600" />
-            契約書の署名
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="py-4">
-          <p className="text-sm text-gray-700 mb-4">
-            契約書「<span className="font-medium">{signingDialogContractNumber}</span>」を送付しました。
-          </p>
-
-          {signingUrlLoading ? (
-            <div className="flex flex-col items-center gap-3 py-6 px-4 bg-gray-50 rounded-lg border">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-              <div className="text-center">
-                <p className="text-sm font-medium text-gray-700">
-                  署名用リンクを取得しています...
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  クラウドサインからメールが届くまでしばらくお待ちください
-                </p>
-              </div>
-            </div>
-          ) : signingUrl ? (
-            <div className="flex flex-col items-center gap-3 py-6 px-4 bg-green-50 rounded-lg border border-green-200">
-              <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
-                <PenTool className="h-5 w-5 text-green-600" />
-              </div>
-              <p className="text-sm font-medium text-green-800">
-                署名の準備ができました
-              </p>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-3 py-6 px-4 bg-amber-50 rounded-lg border border-amber-200">
-              <p className="text-sm text-amber-700 text-center">
-                署名用リンクの取得に時間がかかっています。<br />
-                後ほどメールをご確認ください。
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="flex gap-2 justify-end">
-          <Button
-            variant="outline"
-            onClick={handleCloseSigningDialog}
-          >
-            今は署名しない
-          </Button>
-          {signingUrl ? (
-            <Button
-              onClick={() => {
-                window.open(signingUrl, "_blank", "noopener,noreferrer");
-                handleCloseSigningDialog();
-              }}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              <PenTool className="h-4 w-4 mr-2" />
-              署名に進む
-            </Button>
-          ) : (
-            <Button disabled className="bg-blue-600">
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              署名に進む
-            </Button>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+    {signingDialog}
     </>
   );
 }
