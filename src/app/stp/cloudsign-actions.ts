@@ -738,11 +738,12 @@ export async function getCloudsignModalData(companyId: number) {
 }
 
 // ============================================
-// 10-b. CloudSign自社署名URL取得（ポーリング用）
+// 10-b. CloudSign自社署名URL取得（アクティブIMAPチェック）
 // ============================================
 
 /**
- * 契約書の自社署名URLを取得する（ポーリング用）
+ * 契約書の自社署名URLを取得する。
+ * DBにURLがなければIMAPを直接チェックして取得を試みる。
  */
 export async function getCloudsignSelfSigningUrl(
   contractId: number
@@ -752,6 +753,7 @@ export async function getCloudsignSelfSigningUrl(
     select: {
       cloudsignSelfSigningUrl: true,
       cloudsignSelfSigningEmailId: true,
+      cloudsignDocumentId: true,
       cloudsignStatus: true,
     },
   });
@@ -760,8 +762,75 @@ export async function getCloudsignSelfSigningUrl(
     return { url: null, status: "not_required" };
   }
 
+  // 既に取得済み
   if (contract.cloudsignSelfSigningUrl) {
     return { url: contract.cloudsignSelfSigningUrl, status: "ready" };
+  }
+
+  // IMAPを直接チェック
+  if (!contract.cloudsignDocumentId) {
+    return { url: null, status: "pending" };
+  }
+
+  try {
+    const emailAccount = await prisma.operatingCompanyEmail.findUnique({
+      where: { id: contract.cloudsignSelfSigningEmailId },
+      select: {
+        id: true,
+        imapHost: true,
+        imapPort: true,
+        imapUser: true,
+        imapPass: true,
+        lastCheckedCloudsignUid: true,
+      },
+    });
+
+    if (!emailAccount?.imapHost || !emailAccount.imapUser || !emailAccount.imapPass) {
+      return { url: null, status: "pending" };
+    }
+
+    const { fetchCloudSignSigningEmails } = await import("@/lib/email/imap-client");
+
+    const emails = await fetchCloudSignSigningEmails(
+      {
+        host: emailAccount.imapHost,
+        port: emailAccount.imapPort || 993,
+        user: emailAccount.imapUser,
+        pass: emailAccount.imapPass,
+        tls: true,
+      },
+      emailAccount.lastCheckedCloudsignUid
+    );
+
+    let maxUid = emailAccount.lastCheckedCloudsignUid;
+    let foundUrl: string | null = null;
+
+    for (const email of emails) {
+      if (email.uid > maxUid) maxUid = email.uid;
+
+      if (email.cloudsignDocumentId === contract.cloudsignDocumentId) {
+        foundUrl = email.signingUrl;
+      }
+    }
+
+    // UID更新
+    if (maxUid > emailAccount.lastCheckedCloudsignUid) {
+      await prisma.operatingCompanyEmail.update({
+        where: { id: emailAccount.id },
+        data: { lastCheckedCloudsignUid: maxUid },
+      });
+    }
+
+    if (foundUrl) {
+      // DB保存
+      await prisma.masterContract.update({
+        where: { id: contractId },
+        data: { cloudsignSelfSigningUrl: foundUrl },
+      });
+      return { url: foundUrl, status: "ready" };
+    }
+  } catch (err) {
+    console.error(`[CloudSign] IMAP check failed for contract ${contractId}:`, err);
   }
 
   return { url: null, status: "pending" };

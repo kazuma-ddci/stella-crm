@@ -746,8 +746,8 @@ export function ContractSendModal({
   // 署名URLポーリング
   // ============================================
   const pollSigningUrl = useCallback(async (contractId: number) => {
-    const maxAttempts = 30; // 最大30回（約60秒）
-    const interval = 2000; // 2秒間隔
+    const maxAttempts = 30; // 最大30回（約5分）
+    const interval = 10000; // 10秒間隔（毎回IMAPチェックするため間隔を空ける）
 
     for (let i = 0; i < maxAttempts; i++) {
       try {
