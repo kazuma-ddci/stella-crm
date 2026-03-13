@@ -55,7 +55,6 @@ export async function GET(request: Request) {
     const emailAccounts = await prisma.operatingCompanyEmail.findMany({
       where: {
         id: { in: emailIds },
-        enableInbound: true,
         deletedAt: null,
         imapHost: { not: null },
         imapUser: { not: null },

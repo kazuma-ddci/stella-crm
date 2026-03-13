@@ -17,6 +17,7 @@ services:
       - TZ=Asia/Tokyo
     volumes:
       - ./credentials:/app/credentials:ro
+      - stg_uploads:/app/public/uploads
     depends_on:
       db-stg:
         condition: service_healthy
@@ -52,3 +53,4 @@ services:
 
 volumes:
   postgres_stg_data:
+  stg_uploads:

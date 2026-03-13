@@ -17,6 +17,7 @@ services:
       - TZ=Asia/Tokyo
     volumes:
       - ./credentials:/app/credentials:ro
+      - prod_uploads:/app/public/uploads
     depends_on:
       db-prod:
         condition: service_healthy
@@ -52,3 +53,4 @@ services:
 
 volumes:
   postgres_prod_data:
+  prod_uploads:

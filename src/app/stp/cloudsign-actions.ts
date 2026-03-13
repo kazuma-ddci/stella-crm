@@ -197,7 +197,6 @@ export async function sendContractViaCloudsign(input: SendContractInput) {
       where: {
         operatingCompanyId: operatingCompany.id,
         email: { equals: registeredEmail, mode: "insensitive" },
-        enableInbound: true,
         deletedAt: null,
         imapHost: { not: null },
       },
@@ -622,7 +621,6 @@ export async function linkCloudsignDocument(
         where: {
           operatingCompanyId: operatingCompany.id,
           email: { equals: registeredEmail, mode: "insensitive" },
-          enableInbound: true,
           deletedAt: null,
           imapHost: { not: null },
         },
