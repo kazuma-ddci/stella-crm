@@ -6,7 +6,7 @@ import Link from "next/link";
 import { CrudTable, ColumnDef, CustomAction, CustomRenderers, DynamicOptionsMap, CustomFormFields, InlineEditConfig } from "@/components/crud-table";
 import { StageManagementModal } from "@/components/stage-management";
 import { CompanyContactHistoryModal } from "./contact-history-modal";
-import { ContractHistoryModal } from "./contract-history-modal";
+
 import { MasterContractModal } from "@/components/master-contract-modal";
 import { ProposalModal } from "@/components/proposal-modal";
 import { FieldChangeLogModal } from "@/components/field-change-log-modal";
@@ -86,7 +86,7 @@ export function StpCompaniesTable({
   const router = useRouter();
   const [stageModalOpen, setStageModalOpen] = useState(false);
   const [contactHistoryModalOpen, setContactHistoryModalOpen] = useState(false);
-  const [contractHistoryModalOpen, setContractHistoryModalOpen] = useState(false);
+
   const [masterContractModalOpen, setMasterContractModalOpen] = useState(false);
   const [proposalModalOpen, setProposalModalOpen] = useState(false);
   const [changeLogModalOpen, setChangeLogModalOpen] = useState(false);
@@ -674,10 +674,6 @@ export function StpCompaniesTable({
     setContactHistoryModalOpen(true);
   };
 
-  const handleOpenContractHistoryModal = (item: Record<string, unknown>) => {
-    setSelectedCompany(item);
-    setContractHistoryModalOpen(true);
-  };
 
   const handleOpenMasterContractModal = (item: Record<string, unknown>) => {
     setSelectedCompany(item);
@@ -696,13 +692,8 @@ export function StpCompaniesTable({
     },
     {
       icon: <ScrollText className="h-4 w-4" />,
-      label: "契約書",
+      label: "契約管理",
       onClick: handleOpenMasterContractModal,
-    },
-    {
-      icon: <FileText className="h-4 w-4" />,
-      label: "契約履歴",
-      onClick: handleOpenContractHistoryModal,
     },
     {
       icon: <BarChart3 className="h-4 w-4" />,
@@ -834,14 +825,6 @@ export function StpCompaniesTable({
         />
       )}
 
-      {selectedCompany && (
-        <ContractHistoryModal
-          open={contractHistoryModalOpen}
-          onOpenChange={setContractHistoryModalOpen}
-          companyId={selectedCompany.companyId as number}
-          companyName={selectedCompany.companyName as string}
-        />
-      )}
 
       {selectedCompany && (
         <MasterContractModal

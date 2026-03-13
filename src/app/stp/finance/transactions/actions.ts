@@ -168,7 +168,6 @@ function mapTransactionRecord(r: {
   sourceType: string | null;
   invoiceGroupId: number | null;
   paymentGroupId: number | null;
-  contractId: number | null;
   creator: { name: string };
   createdAt: Date;
   updatedAt: Date;
@@ -224,7 +223,6 @@ function mapTransactionRecord(r: {
     sourceType: r.sourceType,
     invoiceGroupId: r.invoiceGroupId,
     paymentGroupId: r.paymentGroupId,
-    contractId: r.contractId,
     createdByName: r.creator.name,
     createdAt: toLocalDateString(r.createdAt),
     updatedAt: toLocalDateString(r.updatedAt),

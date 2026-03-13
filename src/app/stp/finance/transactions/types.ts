@@ -28,7 +28,6 @@ export type TransactionListItem = {
   sourceType: string | null;
   invoiceGroupId: number | null;
   paymentGroupId: number | null;
-  contractId: number | null;
   createdByName: string;
   createdAt: string;
   updatedAt: string;

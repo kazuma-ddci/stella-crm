@@ -33,8 +33,6 @@ export default async function AccountingDashboardPage() {
   const data = await getDashboardData();
 
   const totalAlerts =
-    data.alerts.missingTransactions.length +
-    data.alerts.contractMismatches.length +
     data.alerts.balanceAlerts.length +
     data.alerts.overdueInvoices.length;
 
@@ -128,63 +126,6 @@ export default async function AccountingDashboardPage() {
               </p>
             ) : (
               <div className="space-y-4">
-                {/* 取引未申請 */}
-                {data.alerts.missingTransactions.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-medium text-orange-700 mb-2">
-                      取引未申請（{data.alerts.missingTransactions.length}件）
-                    </h4>
-                    <div className="space-y-1">
-                      {data.alerts.missingTransactions.map((alert) => (
-                        <div
-                          key={alert.contractId}
-                          className="flex items-center justify-between text-sm py-1 border-b last:border-b-0"
-                        >
-                          <span className="text-gray-700 truncate mr-2">
-                            {alert.companyName} - {alert.contractTitle}
-                          </span>
-                          <Link
-                            href={`/accounting/transactions?contractId=${alert.contractId}`}
-                            className="text-blue-600 hover:underline whitespace-nowrap"
-                          >
-                            確認
-                          </Link>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* 契約矛盾 */}
-                {data.alerts.contractMismatches.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-medium text-red-700 mb-2">
-                      契約との矛盾（{data.alerts.contractMismatches.length}件）
-                    </h4>
-                    <div className="space-y-1">
-                      {data.alerts.contractMismatches.map((alert) => (
-                        <div
-                          key={alert.transactionId}
-                          className="flex items-center justify-between text-sm py-1 border-b last:border-b-0"
-                        >
-                          <span className="text-gray-700 truncate mr-2">
-                            {alert.companyName} - {alert.contractTitle}
-                            <span className="text-xs text-gray-500 ml-1">
-                              （契約終了: {formatDate(alert.contractEndDate)}）
-                            </span>
-                          </span>
-                          <Link
-                            href={`/accounting/transactions/${alert.transactionId}/edit`}
-                            className="text-blue-600 hover:underline whitespace-nowrap"
-                          >
-                            確認
-                          </Link>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 {/* 残高アラート */}
                 {data.alerts.balanceAlerts.length > 0 && (
                   <div>

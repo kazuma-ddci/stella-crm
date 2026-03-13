@@ -9,18 +9,6 @@ export type DashboardData = {
     unconfirmedAllocations: number;
   };
   alerts: {
-    missingTransactions: Array<{
-      contractId: number;
-      contractTitle: string;
-      companyName: string;
-    }>;
-    contractMismatches: Array<{
-      transactionId: number;
-      contractTitle: string;
-      contractEndDate: Date;
-      periodFrom: Date;
-      companyName: string;
-    }>;
     balanceAlerts: Array<{
       paymentMethodId: number;
       name: string;
@@ -101,53 +89,9 @@ export async function getDashboardData(): Promise<DashboardData> {
 
   // --- アラート ---
   const [
-    missingTransactions,
-    transactionsWithContracts,
     paymentMethodsWithThreshold,
     overdueInvoicesRaw,
   ] = await Promise.all([
-    // 取引未申請: 有効な契約があるのに当月取引がない
-    prisma.masterContract.findMany({
-      where: {
-        isActive: true,
-        OR: [{ endDate: null }, { endDate: { gte: startOfMonth } }],
-        finTransactions: {
-          none: {
-            deletedAt: null,
-            periodFrom: { lte: endOfMonth },
-            periodTo: { gte: startOfMonth },
-          },
-        },
-      },
-      select: {
-        id: true,
-        title: true,
-        company: { select: { name: true } },
-      },
-      take: 10,
-    }),
-    // 契約矛盾: 契約終了後に取引が登録されている
-    prisma.transaction.findMany({
-      where: {
-        deletedAt: null,
-        contractId: { not: null },
-        contract: { endDate: { not: null } },
-        status: { notIn: ["hidden"] },
-      },
-      select: {
-        id: true,
-        periodFrom: true,
-        contract: {
-          select: {
-            id: true,
-            title: true,
-            endDate: true,
-            company: { select: { name: true } },
-          },
-        },
-      },
-      take: 100,
-    }),
     // 残高アラート用: 閾値設定済みの決済手段
     prisma.paymentMethod.findMany({
       where: {
@@ -182,20 +126,6 @@ export async function getDashboardData(): Promise<DashboardData> {
       take: 10,
     }),
   ]);
-
-  // 契約矛盾: JS 側で endDate < periodFrom をフィルタ
-  const contractMismatches = transactionsWithContracts
-    .filter(
-      (t) => t.contract?.endDate && t.contract.endDate < t.periodFrom
-    )
-    .slice(0, 10)
-    .map((t) => ({
-      transactionId: t.id,
-      contractTitle: t.contract!.title,
-      contractEndDate: t.contract!.endDate!,
-      periodFrom: t.periodFrom,
-      companyName: t.contract!.company.name,
-    }));
 
   // 残高アラート: 各決済手段の残高を計算
   const balanceAlerts: DashboardData["alerts"]["balanceAlerts"] = [];
@@ -370,12 +300,6 @@ export async function getDashboardData(): Promise<DashboardData> {
       unconfirmedAllocations,
     },
     alerts: {
-      missingTransactions: missingTransactions.map((c) => ({
-        contractId: c.id,
-        contractTitle: c.title,
-        companyName: c.company.name,
-      })),
-      contractMismatches,
       balanceAlerts,
       overdueInvoices,
     },

@@ -24,13 +24,19 @@ type ContractForSync = {
 
 /**
  * 締結済みPDFをCloudSign APIからダウンロードしてローカルに保存
+ *
+ * CloudSign APIでは /documents/{id}/files/{fileId} で個別ファイルを取得する。
+ * ドキュメントに含まれる全ファイルをダウンロードし、最初のファイルのパスを返す。
  */
 export async function saveSignedPdf(
   token: string,
   documentId: string,
-  contractId: number
+  contractId: number,
+  files: { id: string; name: string }[]
 ): Promise<{ filePath: string; fileName: string }> {
-  const pdfBuffer = await cloudsignClient.getDocumentFiles(token, documentId);
+  if (files.length === 0) {
+    throw new Error("ドキュメントにファイルが含まれていません");
+  }
 
   const now = new Date();
   const year = now.getFullYear().toString();
@@ -47,13 +53,29 @@ export async function saveSignedPdf(
   );
   await fs.mkdir(dirPath, { recursive: true });
 
-  const fileName = `signed_${contractId}_${timestamp}.pdf`;
-  const fullPath = path.join(dirPath, fileName);
-  await fs.writeFile(fullPath, pdfBuffer);
+  let firstFilePath = "";
+  let firstFileName = "";
 
-  const filePath = `/uploads/contracts/${year}/${month}/${fileName}`;
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const pdfBuffer = await cloudsignClient.getDocumentFile(
+      token,
+      documentId,
+      file.id
+    );
 
-  return { filePath, fileName };
+    const suffix = files.length > 1 ? `_${i + 1}` : "";
+    const fileName = `signed_${contractId}${suffix}_${timestamp}.pdf`;
+    const fullPath = path.join(dirPath, fileName);
+    await fs.writeFile(fullPath, pdfBuffer);
+
+    if (i === 0) {
+      firstFilePath = `/uploads/contracts/${year}/${month}/${fileName}`;
+      firstFileName = fileName;
+    }
+  }
+
+  return { filePath: firstFilePath, fileName: firstFileName };
 }
 
 /**
@@ -124,13 +146,14 @@ export async function syncContractStatus(
         }
       }
 
-      // completed時にPDFをダウンロード
-      if (newCloudsignStatus === "completed") {
+      // completed時にPDFをダウンロード（ファイルID指定）
+      if (newCloudsignStatus === "completed" && doc.files && doc.files.length > 0) {
         try {
           pdfResult = await saveSignedPdf(
             token,
             contract.cloudsignDocumentId,
-            contract.id
+            contract.id,
+            doc.files.map((f) => ({ id: f.id, name: f.name }))
           );
         } catch (pdfErr) {
           // PDF保存失敗してもステータス更新は続行する。

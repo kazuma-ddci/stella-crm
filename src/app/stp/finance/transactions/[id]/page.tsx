@@ -66,7 +66,6 @@ export default async function TransactionDetailPage({ params }: Props) {
     periodTo: transaction.periodTo,
     allocationTemplateId: transaction.allocationTemplateId,
     costCenterId: transaction.costCenterId,
-    contractId: transaction.contractId,
     projectId: transaction.projectId,
     paymentMethodId: transaction.paymentMethodId,
     paymentDueDate: transaction.paymentDueDate,
@@ -115,7 +114,7 @@ export default async function TransactionDetailPage({ params }: Props) {
         <h1 className="text-2xl font-bold">取引 #{transaction.id}</h1>
         <TransactionStatusBadge status={transaction.status} />
         {transaction.status === "unconfirmed" && (
-          <TransactionConfirmButton transactionId={transaction.id} hasExpenseCategory={transaction.expenseCategoryId !== null} />
+          <TransactionConfirmButton transactionId={transaction.id} />
         )}
       </div>
 
@@ -361,23 +360,6 @@ export default async function TransactionDetailPage({ params }: Props) {
                   <div>
                     <dt className="text-sm font-medium text-muted-foreground">差引支払額</dt>
                     <dd className="mt-1 font-bold">{transaction.netPaymentAmount != null ? `¥${transaction.netPaymentAmount.toLocaleString()}` : "-"}</dd>
-                  </div>
-                </dl>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* CRM連携 */}
-          {transaction.contract && (
-            <Card>
-              <CardHeader>
-                <CardTitle>CRM連携</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <dl>
-                  <div>
-                    <dt className="text-sm font-medium text-muted-foreground">契約</dt>
-                    <dd className="mt-1">{transaction.contract.title}（{transaction.contract.company.name}）</dd>
                   </div>
                 </dl>
               </CardContent>

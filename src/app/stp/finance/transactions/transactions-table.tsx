@@ -196,34 +196,28 @@ export function TransactionsTable({ data, deletedData, counterpartyOptions }: Pr
 
   // 取引確定アクション
   const handleConfirm = async (id: number) => {
-    // 費目未設定チェック
-    const target = data.find((r) => r.id === id);
-    if (target && target.expenseCategoryId === null) {
-      toast.error("費目が未設定の取引は確定できません。取引詳細画面で費目を設定してください。");
+    const result = await confirmTransaction(id);
+    if (result && "error" in result) {
+      toast.error(result.error);
       return;
     }
-    try {
-      await confirmTransaction(id);
-      toast.success("取引を確定しました");
-      startTransition(() => {
-        router.refresh();
-      });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "取引確定に失敗しました");
-    }
+    toast.success("取引を確定しました");
+    startTransition(() => {
+      router.refresh();
+    });
   };
 
   // 確定取消アクション
   const handleUnconfirm = async (id: number) => {
-    try {
-      await unconfirmTransaction(id);
-      toast.success("確定を取り消しました");
-      startTransition(() => {
-        router.refresh();
-      });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "確定取消に失敗しました");
+    const result = await unconfirmTransaction(id);
+    if (result && "error" in result) {
+      toast.error(result.error);
+      return;
     }
+    toast.success("確定を取り消しました");
+    startTransition(() => {
+      router.refresh();
+    });
   };
 
   // 削除アクション

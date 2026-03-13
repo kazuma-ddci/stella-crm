@@ -497,7 +497,8 @@ export async function syncContractCloudsignStatus(contractId: number) {
       const pdfResult = await saveSignedPdf(
         token,
         contract.cloudsignDocumentId,
-        contract.id
+        contract.id,
+        doc.files.map((f) => ({ id: f.id, name: f.name }))
       );
       await prisma.masterContract.update({
         where: { id: contract.id },

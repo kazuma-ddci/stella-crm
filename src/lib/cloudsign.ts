@@ -330,18 +330,26 @@ export const cloudsignClient = {
   },
 
   /**
-   * 締結済みPDFをダウンロード
+   * 締結済みPDFをダウンロード（個別ファイルID指定）
+   *
+   * CloudSign API: GET /documents/{documentId}/files/{fileId}
+   * ※ /files（fileId無し）は403になるため、必ずfileIdを指定すること
    */
-  async getDocumentFiles(
+  async getDocumentFile(
     token: string,
-    documentId: string
+    documentId: string,
+    fileId: string
   ): Promise<Buffer> {
-    const url = `${CLOUDSIGN_API_BASE}/documents/${documentId}/files`;
+    const url = `${CLOUDSIGN_API_BASE}/documents/${documentId}/files/${fileId}`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
     if (!res.ok) {
+      const errorText = await res.text().catch(() => "");
+      console.error(
+        `[CloudSign API] GET /documents/${documentId}/files/${fileId} → ${res.status}: ${errorText}`
+      );
       throw new Error(
         `締結済みPDFの取得に失敗しました（${res.status}）`
       );

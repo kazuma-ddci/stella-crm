@@ -12,14 +12,6 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Combobox } from "@/components/ui/combobox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -72,7 +64,6 @@ type TransactionData = {
   periodTo: Date | string;
   allocationTemplateId: number | null;
   costCenterId: number | null;
-  contractId: number | null;
   projectId: number | null;
   paymentMethodId: number | null;
   paymentDueDate: Date | string | null;
@@ -156,11 +147,6 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
         : ""
   );
 
-  // CRM連携
-  const [contractId, setContractId] = useState(
-    transaction?.contractId ? String(transaction.contractId) : ""
-  );
-
   // 経費負担者
   const [hasExpenseOwner, setHasExpenseOwner] = useState(
     transaction?.hasExpenseOwner || false
@@ -226,8 +212,6 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
   const [paymentGroupId, setPaymentGroupId] = useState("");
 
   // ダイアログ
-  const [contractWarningOpen, setContractWarningOpen] = useState(false);
-  const [contractWarningMessage, setContractWarningMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   // --- 派生値 ---
@@ -238,18 +222,6 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
       (c) => c.type === type || c.type === "both"
     );
   }, [formData.expenseCategories, type]);
-
-  // 取引先に紐づく契約一覧
-  const filteredContracts = useMemo(() => {
-    if (!counterpartyId) return [];
-    const cp = formData.counterparties.find(
-      (c) => c.id === Number(counterpartyId)
-    );
-    if (!cp) return [];
-    // 取引先→companyを介した契約フィルタはCounterparty.companyIdがないため
-    // 全契約を表示してユーザーに選択させる
-    return formData.contracts;
-  }, [counterpartyId, formData.counterparties, formData.contracts]);
 
   // 選択中のテンプレートの按分明細
   const selectedTemplateLines = useMemo(() => {
@@ -295,15 +267,6 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
         label: p.name,
       })),
     [formData.paymentMethods]
-  );
-
-  const contractOptions = useMemo(
-    () =>
-      filteredContracts.map((c) => ({
-        value: String(c.id),
-        label: `${c.title} (${c.company.name})`,
-      })),
-    [filteredContracts]
   );
 
   // 経理モード用: グループ選択肢
@@ -415,30 +378,6 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
     calculateWithholding(amount, taxAmount, value, taxType);
   };
 
-  // --- 契約終了警告チェック ---
-
-  const checkContractEndWarning = (): boolean => {
-    if (!contractId || !periodFrom) return false;
-    const contract = formData.contracts.find(
-      (c) => c.id === Number(contractId)
-    );
-    if (!contract?.endDate) return false;
-
-    const endDate = new Date(contract.endDate);
-    const fromDate = new Date(periodFrom);
-    const toDate = periodTo ? new Date(periodTo) : fromDate;
-    // 契約終了日 < 取引期間のいずれかの日付なら警告
-    if (endDate < fromDate || endDate < toDate) {
-      const endStr = endDate.toLocaleDateString("ja-JP");
-      setContractWarningMessage(
-        `この契約は${endStr}に終了しています。取引を登録しますか？`
-      );
-      setContractWarningOpen(true);
-      return true;
-    }
-    return false;
-  };
-
   // --- プロジェクトページでの按分先変更チェック ---
 
   const handleCostCenterChange = (value: string) => {
@@ -457,12 +396,7 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
 
   // --- 保存処理 ---
 
-  const handleSubmit = async (skipWarning = false) => {
-    // 契約終了警告チェック
-    if (!skipWarning && checkContractEndWarning()) {
-      return;
-    }
-
+  const handleSubmit = async () => {
     setSubmitting(true);
     try {
       const data: Record<string, unknown> = {
@@ -481,7 +415,6 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
         costCenterId: !useAllocation && costCenterId
           ? Number(costCenterId)
           : null,
-        contractId: contractId ? Number(contractId) : null,
         projectId: projectContext?.projectId ?? transaction?.projectId ?? null,
         paymentMethodId: paymentMethodId ? Number(paymentMethodId) : null,
         paymentDueDate: paymentDueDate || null,
@@ -508,18 +441,30 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
       };
 
       if (isEdit && transaction) {
-        await updateTransaction(transaction.id, data);
+        const result = await updateTransaction(transaction.id, data);
+        if (result && "error" in result) {
+          toast.error(result.error);
+          return;
+        }
         toast.success("取引を更新しました");
       } else if (accountingMode) {
         // グループ紐づけ
         if (invoiceGroupId) data.invoiceGroupId = Number(invoiceGroupId);
         if (paymentGroupId) data.paymentGroupId = Number(paymentGroupId);
         const result = await createAccountingTransaction(data);
+        if ("error" in result) {
+          toast.error(result.error);
+          return;
+        }
         toast.success("取引を作成しました（経理処理待ち）");
         router.push(`/accounting/transactions/${result.id}/edit`);
         return;
       } else {
         const result = await createTransaction(data);
+        if ("error" in result) {
+          toast.error(result.error);
+          return;
+        }
         toast.success("取引を作成しました");
         router.push(`/accounting/transactions/${result.id}/edit`);
         return;
@@ -573,10 +518,7 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
             <Combobox
               options={counterpartyOptions}
               value={counterpartyId}
-              onChange={(v) => {
-                setCounterpartyId(v);
-                setContractId("");
-              }}
+              onChange={setCounterpartyId}
               placeholder="取引先を検索..."
             />
           </div>
@@ -800,25 +742,7 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
         </CardContent>
       </Card>
 
-      {/* 5. CRM連携 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>CRM連携（任意）</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>契約</Label>
-            <Combobox
-              options={contractOptions}
-              value={contractId}
-              onChange={setContractId}
-              placeholder="契約を検索..."
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 5b. グループ紐づけ（経理モード） */}
+      {/* 5. グループ紐づけ（経理モード） */}
       {accountingMode && (
         <Card>
           <CardHeader>
@@ -1254,50 +1178,6 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
         </Button>
       </div>
 
-      {/* 契約終了警告ダイアログ */}
-      <Dialog open={contractWarningOpen} onOpenChange={setContractWarningOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>契約終了の確認</DialogTitle>
-            <DialogDescription>{contractWarningMessage}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setContractWarningOpen(false)}
-            >
-              キャンセル
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setContractWarningOpen(false);
-                if (contractId) {
-                  const contract = formData.contracts.find(
-                    (c) => c.id === Number(contractId)
-                  );
-                  if (contract) {
-                    window.open(
-                      `/companies/${contract.company.id}/contracts`,
-                      "_blank"
-                    );
-                  }
-                }
-              }}
-            >
-              契約情報を確認
-            </Button>
-            <Button
-              onClick={() => {
-                setContractWarningOpen(false);
-                handleSubmit(true);
-              }}
-            >
-              登録を続行
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -27,6 +27,7 @@ type ContractInput = {
   assignedTo?: string | null;
   note?: string | null;
   cloudsignDocumentId?: string | null;
+  parentContractId?: number | null;
 };
 
 /**
@@ -48,6 +49,17 @@ export async function getMasterContracts(companyId: number) {
     },
     include: {
       currentStatus: true,
+      parentContract: {
+        select: { id: true, contractNumber: true, title: true, contractType: true },
+      },
+      contractHistories: {
+        where: { deletedAt: null },
+        include: {
+          salesStaff: { select: { id: true, name: true } },
+          operationStaff: { select: { id: true, name: true } },
+        },
+        orderBy: { contractStartDate: "desc" },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -90,6 +102,37 @@ export async function getMasterContracts(companyId: number) {
     cloudsignSelfSigningEmailId: c.cloudsignSelfSigningEmailId,
     cloudsignSelfSignedAt: c.cloudsignSelfSignedAt?.toISOString() || null,
     cloudsignSelfSigningUrl: c.cloudsignSelfSigningUrl,
+    parentContractId: c.parentContractId,
+    parentContract: c.parentContract
+      ? {
+          id: c.parentContract.id,
+          contractNumber: c.parentContract.contractNumber,
+          title: c.parentContract.title,
+          contractType: c.parentContract.contractType,
+        }
+      : null,
+    contractHistories: c.contractHistories.map((ch) => ({
+      id: ch.id,
+      industryType: ch.industryType,
+      contractPlan: ch.contractPlan,
+      jobMedia: ch.jobMedia,
+      contractStartDate: ch.contractStartDate.toISOString(),
+      contractEndDate: ch.contractEndDate?.toISOString() || null,
+      initialFee: ch.initialFee,
+      monthlyFee: ch.monthlyFee,
+      performanceFee: ch.performanceFee,
+      salesStaffId: ch.salesStaffId,
+      salesStaffName: ch.salesStaff?.name || null,
+      operationStaffId: ch.operationStaffId,
+      operationStaffName: ch.operationStaff?.name || null,
+      status: ch.status,
+      operationStatus: ch.operationStatus,
+      accountId: ch.accountId,
+      accountPass: ch.accountPass,
+      note: ch.note,
+      masterContractId: ch.masterContractId,
+      contractDate: ch.contractDate?.toISOString() || null,
+    })),
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   }));
@@ -127,6 +170,7 @@ export async function addMasterContract(companyId: number, data: ContractInput):
         fileName: data.fileName || null,
         assignedTo: data.assignedTo || null,
         note: data.note || null,
+        parentContractId: data.parentContractId || null,
       },
     });
 
@@ -187,6 +231,7 @@ export async function updateMasterContract(id: number, data: ContractInput) {
         fileName: data.fileName || null,
         assignedTo: data.assignedTo || null,
         note: data.note || null,
+        parentContractId: data.parentContractId || null,
       },
     });
 

@@ -381,7 +381,6 @@ model StpCompany {
   salesStaff          MasterStaff?            @relation("SalesStaffCompanies", fields: [salesStaffId], references: [id])
   adminStaff          MasterStaff?            @relation("AdminStaffCompanies", fields: [adminStaffId], references: [id])
   stageHistories      StpStageHistory[]
-  contracts           StpCompanyContract[]
   proposals           StpProposal[]
   kpiSheets           StpKpiSheet[]
   candidates          StpCandidate[]
@@ -391,28 +390,6 @@ model StpCompany {
   invoices            StpInvoice[]
 
   @@map("stp_companies")
-}
-
-// ============================================
-// STP企業契約書 (STP Company Contracts)
-// ============================================
-
-model StpCompanyContract {
-  id              Int       @id @default(autoincrement())
-  stpCompanyId    Int                                     // stp_companiesへの外部キー
-  contractUrl     String?                                 // 契約書URL
-  signedDate      DateTime? @db.Date                      // 締結日（未締結はnull）
-  title           String?   @db.VarChar(200)              // 契約書タイトル
-  externalId      String?   @db.VarChar(100)              // 外部サービスID（クラウドサイン等）
-  externalService String?   @db.VarChar(50)               // 外部サービス名
-  status          String    @default("draft") @db.VarChar(50) // draft/送付済み/先方情報待ち/signed/expired等
-  note            String?                                 // 備考
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  stpCompany StpCompany @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
-
-  @@map("stp_company_contracts")
 }
 
 // ============================================
@@ -863,6 +840,8 @@ model StpContractHistory {
   operationStatus   String?   @db.VarChar(20)              // 運用ステータス（テスト1,テスト2）
   accountId         String?   @db.VarChar(100)             // アカウントID
   accountPass       String?   @db.VarChar(100)             // アカウントPASS
+  masterContractId  Int?                                   // 関連する契約書（master_contractsへの外部キー）
+  contractDate      DateTime? @db.Date                     // 契約日（署名日）— 初期費用の発生日に使用
 
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -872,11 +851,40 @@ model StpContractHistory {
   company        MasterStellaCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
   salesStaff     MasterStaff?        @relation("SalesStaff", fields: [salesStaffId], references: [id])
   operationStaff MasterStaff?        @relation("OperationStaff", fields: [operationStaffId], references: [id])
+  masterContract MasterContract?     @relation(fields: [masterContractId], references: [id])
   revenueRecords StpRevenueRecord[]
   expenseRecords StpExpenseRecord[]
   transactions   Transaction[]
 
+  @@index([masterContractId], map: "idx_stp_contract_histories_master_contract_id")
   @@map("stp_contract_histories")
+}
+
+// ============================================
+// 請求ルール (STP Billing Rules)
+// ============================================
+
+model StpBillingRule {
+  id                    Int       @id @default(autoincrement())
+  projectId             Int
+  feeType               String    // "initial" | "monthly" | "performance"
+
+  // 初期費用用
+  invoiceBusinessDays   Int?      @default(3)   // 契約日からN営業日で請求書発行
+  paymentBusinessDays   Int?      @default(5)   // 請求書発行からN営業日で支払期限
+
+  // 月額・成果報酬用
+  closingDay            Int?      @default(0)   // 0=末日, 1-28
+  paymentMonthOffset    Int?      @default(1)   // 1=翌月
+  paymentDay            Int?      @default(15)  // 15日
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  project               MasterProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, feeType])
+  @@map("stp_billing_rules")
 }
 
 // ============================================
@@ -926,6 +934,7 @@ model MasterProject {
   invoiceTemplates        InvoiceTemplate[]
   expenseCategories       ExpenseCategory[]
   journalEntries          JournalEntry[]
+  billingRules            StpBillingRule[]
 
   @@map("master_projects")
 }
@@ -1071,8 +1080,8 @@ model MasterContract {
   contractFiles         ContractFile[]
   relationsAsSource     ContractRelation[]        @relation("RelationSource")
   relationsAsTarget     ContractRelation[]        @relation("RelationTarget")
-  finTransactions       Transaction[]             // 経理システム追加
   selfSigningEmail      OperatingCompanyEmail?    @relation("SelfSigningEmail", fields: [cloudsignSelfSigningEmailId], references: [id])
+  contractHistories     StpContractHistory[]
 
   @@index([companyId], map: "idx_master_contracts_company_id")
   @@index([projectId], map: "idx_master_contracts_project_id")
@@ -2336,7 +2345,6 @@ model Transaction {
   invoiceGroupId        Int?      // FK → InvoiceGroup（売上側の請求グループ）
   paymentGroupId        Int?      // FK → PaymentGroup（経費側の支払グループ）
   counterpartyId        Int       // FK → Counterparty（取引先）
-  contractId            Int?      // FK → MasterContract（CRM契約に紐づく場合）
   recurringTransactionId Int?     // FK → RecurringTransaction（定期取引から生成された場合）
   allocationTemplateId  Int?      // FK → AllocationTemplate（按分ありの場合）
   costCenterId          Int?      // FK → CostCenter（按分なしの場合のプロジェクト）
@@ -2402,7 +2410,6 @@ model Transaction {
   invoiceGroup          InvoiceGroup?         @relation(fields: [invoiceGroupId], references: [id])
   paymentGroup          PaymentGroup?         @relation(fields: [paymentGroupId], references: [id])
   counterparty          Counterparty          @relation(fields: [counterpartyId], references: [id])
-  contract              MasterContract?       @relation(fields: [contractId], references: [id])
   recurringTransaction  RecurringTransaction? @relation(fields: [recurringTransactionId], references: [id])
   allocationTemplate    AllocationTemplate?   @relation(fields: [allocationTemplateId], references: [id])
   costCenter            CostCenter?           @relation(fields: [costCenterId], references: [id])

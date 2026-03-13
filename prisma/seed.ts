@@ -679,62 +679,7 @@ async function main() {
   //   残り(24-80): ランダム/null
   // ============================================
 
-  const companyContractStatuses = ['draft', '送付済み', '先方情報待ち', 'signed', 'signed', 'expired'];
-  const companyContractTitles = ['採用支援サービス利用契約書', '秘密保持契約書', '業務委託契約書', '求人広告掲載契約書', '成果報酬契約書'];
-  const stpContractData = [];
-  let contractIdx = 0;
-
-  // KPI用: 初回契約（1社1件ずつ、確定的なsignedDate）
-  const firstContractDates: Record<number, Date> = {
-    1: new Date('2026-01-25'), 2: new Date('2026-01-27'), 3: new Date('2026-01-29'),
-    4: new Date('2026-02-03'), 5: new Date('2026-02-05'), 6: new Date('2026-02-07'),
-    7: new Date('2026-02-10'), 8: new Date('2026-02-12'), 9: new Date('2026-02-14'),
-    10: new Date('2026-02-16'), 11: new Date('2026-02-18'), 12: new Date('2026-02-20'),
-    13: new Date('2026-02-22'), 14: new Date('2026-02-23'), 15: new Date('2026-02-24'),
-    16: new Date('2026-02-25'), 17: new Date('2026-02-26'), 18: new Date('2026-02-27'),
-    19: new Date('2026-02-27'), 20: new Date('2026-02-28'),
-    21: new Date('2026-03-01'), 22: new Date('2026-03-02'), 23: new Date('2026-03-03'),
-  };
-
-  // 初回契約（確定データ）
-  for (const [companyIdStr, signedDate] of Object.entries(firstContractDates)) {
-    contractIdx++;
-    const stpCompanyId = Number(companyIdStr);
-    stpContractData.push({
-      id: contractIdx,
-      stpCompanyId,
-      contractUrl: `https://cloudsign.example.com/contracts/stp-${stpCompanyId}-${contractIdx}`,
-      signedDate,
-      title: '業務委託契約書',
-      externalId: `CS-STP-${String(contractIdx).padStart(4, '0')}`,
-      externalService: 'cloudsign',
-      status: 'signed',
-      note: null,
-    });
-  }
-
-  // 追加契約（ランダム）
-  for (let i = 1; i <= 80; i++) {
-    const extraContracts = randomInt(0, 2);
-    for (let j = 0; j < extraContracts; j++) {
-      contractIdx++;
-      const status = randomChoice(companyContractStatuses);
-      const isSigned = status === 'signed';
-      stpContractData.push({
-        id: contractIdx,
-        stpCompanyId: i,
-        contractUrl: status !== 'draft' ? `https://cloudsign.example.com/contracts/stp-${i}-${contractIdx}` : null,
-        signedDate: isSigned ? randomDate(new Date('2026-01-01'), new Date('2026-03-04')) : null,
-        title: randomChoice(companyContractTitles),
-        externalId: status !== 'draft' ? `CS-STP-${String(contractIdx).padStart(4, '0')}` : null,
-        externalService: status !== 'draft' ? 'cloudsign' : null,
-        status,
-        note: status === 'draft' ? '作成中' : status === '送付済み' ? '署名待ち' : null,
-      });
-    }
-  }
-  await prisma.stpCompanyContract.createMany({ data: stpContractData });
-  console.log(`✓ STP Company contracts (${contractIdx})`);
+  // StpCompanyContract は廃止済み（MasterContractに統合）
 
   // ============================================
   // 7b. 企業別報酬例外 + 求職者
@@ -1555,7 +1500,7 @@ async function main() {
   console.log(`Agent commission overrides: ${overrideData.length}`);
   console.log('Candidates: 20 (5 with performance fee matching)');
   console.log('STP Companies: 80 (with leadValidity for KPI)');
-  console.log(`STP Company contracts: ${contractIdx} (23 with KPI-deterministic signedDate)`);
+  console.log('STP Company contracts: removed (migrated to MasterContract)');
   console.log(`Contact histories: ${chId} (62 KPI-deterministic + random)`);
   console.log(`Stage histories: ${shId} (7 KPI-deterministic transitions + random)`);
   console.log('Contract histories: 105 (100 random + 5 perf fee test)');

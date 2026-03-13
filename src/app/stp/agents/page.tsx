@@ -64,7 +64,6 @@ export default async function StpAgentsPage() {
         leadFormToken: true,
         stpCompanies: {
           include: {
-            contracts: true,
             company: true,
             currentStage: true,
           },
@@ -135,14 +134,8 @@ export default async function StpAgentsPage() {
         { displayOrder: "asc" },
       ],
     }),
-    // 全STP企業（紹介件数・契約件数計算用）
-    prisma.stpCompany.findMany({
-      include: {
-        contracts: {
-          where: { status: "signed" },
-        },
-      },
-    }),
+    // 全STP企業（紹介件数計算用）
+    prisma.stpCompany.findMany(),
     // 接触種別マスタ
     prisma.contactCategory.findMany({
       where: { isActive: true },
@@ -190,20 +183,24 @@ export default async function StpAgentsPage() {
     // 紹介件数：この代理店が紹介したSTP企業の数
     const referralCount = a.stpCompanies.length;
 
-    // 契約件数：この代理店が紹介したSTP企業のうち、契約書がsignedの企業数
-    const contractedCount = a.stpCompanies.filter((sc) =>
-      sc.contracts.some((c) => c.status === "signed")
-    ).length;
+    // 契約件数：この代理店が紹介したSTP企業のうち、MasterContractで署名済みの企業数
+    const contractedCount = a.stpCompanies.filter((sc) => {
+      const companyContracts = masterContractsByCompanyId[sc.companyId] || [];
+      return companyContracts.some((c) => c.currentStatus?.statusType === "signed");
+    }).length;
 
     // 紹介企業一覧（モーダル表示用）
-    const stpCompaniesData = a.stpCompanies.map((sc) => ({
-      id: sc.id,
-      companyId: sc.companyId,
-      companyName: sc.company.name,
-      companyCode: sc.company.companyCode,
-      currentStageName: sc.currentStage?.name || "-",
-      hasSignedContract: sc.contracts.some((c) => c.status === "signed"),
-    }));
+    const stpCompaniesData = a.stpCompanies.map((sc) => {
+      const companyContracts = masterContractsByCompanyId[sc.companyId] || [];
+      return {
+        id: sc.id,
+        companyId: sc.companyId,
+        companyName: sc.company.name,
+        companyCode: sc.company.companyCode,
+        currentStageName: sc.currentStage?.name || "-",
+        hasSignedContract: companyContracts.some((c) => c.currentStatus?.statusType === "signed"),
+      };
+    });
 
     return {
     hasDuplicateCompanyWarning: (agentCompanyIdCounts[a.companyId] || 0) > 1,

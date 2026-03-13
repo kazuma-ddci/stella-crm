@@ -125,6 +125,7 @@ import {
 import { CANDIDATE_DECISION_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
 import { getSystemProjectContext } from "@/lib/project-context";
 import { toLocalDateString } from "@/lib/utils";
+import { calculateProratedFee, getDaysInMonth, addBusinessDays } from "@/lib/business-days";
 
 // ============================================
 // 型定義
@@ -146,8 +147,6 @@ export type TransactionCandidate = {
   periodFrom: string;
   periodTo: string;
   note: string | null;
-  /** CRM由来の場合 */
-  contractId: number | null;
   contractTitle: string | null;
   stpContractHistoryId: number | null;
   stpRevenueType: string | null;
@@ -236,6 +235,58 @@ const calcByType = (
   if (type === "rate") return Math.round((baseAmount * (rate ?? 0)) / 100);
   return 0;
 };
+
+/**
+ * 支払期限日を計算する（月額・成果報酬用）
+ * @param periodTo 発生期間の終了日
+ * @param closingDay 締め日（0=末日, 1-28）
+ * @param paymentMonthOffset 支払月オフセット（1=翌月）
+ * @param paymentDay 支払日（0=末日, 1-28）
+ */
+function calcPaymentDueDate(
+  periodTo: Date,
+  closingDay: number,
+  paymentMonthOffset: number,
+  paymentDay: number,
+): Date {
+  const year = periodTo.getUTCFullYear();
+  const month = periodTo.getUTCMonth(); // 0-indexed
+  const day = periodTo.getUTCDate();
+
+  // 1. 締め日の月を特定
+  // closingDay=0 は末日扱い
+  const effectiveClosingDay = closingDay === 0 ? 31 : closingDay;
+  // periodTo が closingDay 以前ならその月、以降なら翌月
+  let closingMonth = month;
+  let closingYear = year;
+  if (day > effectiveClosingDay) {
+    closingMonth += 1;
+    if (closingMonth > 11) {
+      closingMonth = 0;
+      closingYear += 1;
+    }
+  }
+
+  // 2. paymentMonthOffset 分月を進める
+  let paymentMonth = closingMonth + paymentMonthOffset;
+  let paymentYear = closingYear;
+  while (paymentMonth > 11) {
+    paymentMonth -= 12;
+    paymentYear += 1;
+  }
+
+  // 3. paymentDay の日付を設定（0なら月末）
+  if (paymentDay === 0) {
+    // 月末日を取得
+    const lastDay = getDaysInMonth(paymentYear, paymentMonth + 1); // getDaysInMonth expects 1-indexed month
+    return new Date(Date.UTC(paymentYear, paymentMonth, lastDay));
+  }
+
+  // 月の最大日数を超えないように
+  const maxDay = getDaysInMonth(paymentYear, paymentMonth + 1);
+  const actualDay = Math.min(paymentDay, maxDay);
+  return new Date(Date.UTC(paymentYear, paymentMonth, actualDay));
+}
 
 function buildCommissionConfig(
   contractPlan: ContractPlan,
@@ -645,6 +696,30 @@ async function detectCrmCandidates(
     ])
   );
 
+  // StpBillingRule を一括取得（feeType別に保持）
+  const billingRules = stpProjectId
+    ? await prisma.stpBillingRule.findMany({
+        where: { projectId: stpProjectId },
+      })
+    : [];
+  const billingRuleByFeeType = new Map(
+    billingRules.map((r) => [r.feeType, r])
+  );
+
+  // MasterStellaCompany の支払条件を一括取得
+  const companies = await prisma.masterStellaCompany.findMany({
+    where: { id: { in: companyIds }, deletedAt: null },
+    select: {
+      id: true,
+      closingDay: true,
+      paymentMonthOffset: true,
+      paymentDay: true,
+    },
+  });
+  const companyPaymentTerms = new Map(
+    companies.map((c) => [c.id, c])
+  );
+
   // ソースデータ変更検出用ヘルパー
   const detectSourceChange = (
     existing: (typeof existingTransactions)[number] | undefined,
@@ -672,15 +747,36 @@ async function detectCrmCandidates(
     const counterparty = counterpartyByCompanyId.get(contract.companyId) ?? null;
 
     const contractStart = startOfMonth(contract.contractStartDate);
+    // 初期費用の発生日: contractDate があればそちら、なければ contractStartDate
+    const initialFeeDate = contract.contractDate ?? contract.contractStartDate;
+    const initialFeeMonth = startOfMonth(initialFeeDate);
     const periodFromStr = formatDate(monthStart);
     const periodToStr = formatDate(monthEnd);
+
+    // 企業の支払条件を取得
+    const companyTerms = companyPaymentTerms.get(contract.companyId);
+
+    // 初期費用の発生日文字列
+    const initialFeeDateStr = formatDate(initialFeeDate);
+
+    // 初期費用の支払期限を計算（売上・経費の両方で使用）
+    let initialPaymentDueDateStr: string | null = null;
+    const initialBillingRule = billingRuleByFeeType.get("initial");
+    if (initialBillingRule) {
+      const invoiceBizDays = initialBillingRule.invoiceBusinessDays ?? 3;
+      const paymentBizDays = initialBillingRule.paymentBusinessDays ?? 5;
+      const invoiceDate = addBusinessDays(initialFeeDate, invoiceBizDays);
+      const paymentDueDate = addBusinessDays(invoiceDate, paymentBizDays);
+      initialPaymentDueDateStr = formatDate(paymentDueDate);
+    }
 
     // === 売上: 初期費用 ===
     if (
       contract.initialFee > 0 &&
-      contractStart.getTime() === monthStart.getTime()
+      initialFeeMonth.getTime() === monthStart.getTime()
     ) {
       const revCategory = revenueCategoryInitial ?? defaultRevenueCategory ?? null;
+
       {
         const key = `crm-revenue-initial-${contract.id}`;
         const existing = existingTransactions.find(
@@ -703,10 +799,9 @@ async function detectCrmCandidates(
           taxAmount: calcTaxAmount(contract.initialFee, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
           taxRate: DEFAULT_TAX_RATE,
           taxType: DEFAULT_TAX_TYPE,
-          periodFrom: periodFromStr,
-          periodTo: periodFromStr,
+          periodFrom: initialFeeDateStr,
+          periodTo: initialFeeDateStr,
           note: `${contract.company.name} 初期費用`,
-          contractId: null,
           contractTitle: null,
           stpContractHistoryId: contract.id,
           stpRevenueType: "initial",
@@ -735,14 +830,47 @@ async function detectCrmCandidates(
           overrideTaxAmount: null,
           overrideTaxRate: null,
           overrideMemo: null,
-          overrideScheduledPaymentDate: null,
+          overrideScheduledPaymentDate: initialPaymentDueDateStr,
         });
       }
+    }
+
+    // 月額の支払期限を計算（売上・経費の両方で使用）
+    let monthlyPaymentDueDateStr: string | null = null;
+    const monthlyBillingRule = billingRuleByFeeType.get("monthly");
+    if (monthlyBillingRule) {
+      const closingDay = companyTerms?.closingDay ?? monthlyBillingRule.closingDay ?? 0;
+      const paymentMonthOffset = companyTerms?.paymentMonthOffset ?? monthlyBillingRule.paymentMonthOffset ?? 1;
+      const paymentDay = companyTerms?.paymentDay ?? monthlyBillingRule.paymentDay ?? 15;
+      monthlyPaymentDueDateStr = formatDate(
+        calcPaymentDueDate(monthEnd, closingDay, paymentMonthOffset, paymentDay)
+      );
     }
 
     // === 売上: 月額費用 ===
     if (contract.monthlyFee > 0) {
       const revCategory = revenueCategoryMonthly ?? defaultRevenueCategory ?? null;
+
+      // 日割り計算: contractStartDate の月 = 対象月の場合
+      const isFirstMonth = contractStart.getTime() === monthStart.getTime();
+      let monthlyAmount: number;
+      let monthlyPeriodFrom: string;
+      let monthlyPeriodTo: string;
+
+      if (isFirstMonth) {
+        const startDay = contract.contractStartDate.getUTCDate();
+        const year = monthStart.getUTCFullYear();
+        const month = monthStart.getUTCMonth() + 1; // 1-indexed for getDaysInMonth
+        const totalDays = getDaysInMonth(year, month);
+        monthlyAmount = calculateProratedFee(contract.monthlyFee, startDay, totalDays);
+        monthlyPeriodFrom = formatDate(contract.contractStartDate);
+        monthlyPeriodTo = formatDate(monthEnd);
+      } else {
+        monthlyAmount = contract.monthlyFee;
+        monthlyPeriodFrom = periodFromStr;
+        monthlyPeriodTo = periodToStr;
+      }
+
       {
         const key = `crm-revenue-monthly-${contract.id}`;
         const existing = existingTransactions.find(
@@ -751,7 +879,7 @@ async function detectCrmCandidates(
             t.stpRevenueType === "monthly" &&
             t.type === "revenue"
         );
-        const changeInfo = detectSourceChange(existing, contract.monthlyFee);
+        const changeInfo = detectSourceChange(existing, monthlyAmount);
 
         candidates.push({
           key,
@@ -761,14 +889,13 @@ async function detectCrmCandidates(
           counterpartyName: counterparty?.name ?? contract.company.name,
           expenseCategoryId: revCategory?.id ?? null,
           expenseCategoryName: revCategory?.name ?? "（未設定）",
-          amount: contract.monthlyFee,
-          taxAmount: calcTaxAmount(contract.monthlyFee, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
+          amount: monthlyAmount,
+          taxAmount: calcTaxAmount(monthlyAmount, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
           taxRate: DEFAULT_TAX_RATE,
           taxType: DEFAULT_TAX_TYPE,
-          periodFrom: periodFromStr,
-          periodTo: periodToStr,
-          note: `${contract.company.name} 月額費用`,
-          contractId: null,
+          periodFrom: monthlyPeriodFrom,
+          periodTo: monthlyPeriodTo,
+          note: `${contract.company.name} 月額費用${isFirstMonth ? "（日割り）" : ""}`,
           contractTitle: null,
           stpContractHistoryId: contract.id,
           stpRevenueType: "monthly",
@@ -797,7 +924,7 @@ async function detectCrmCandidates(
           overrideTaxAmount: null,
           overrideTaxRate: null,
           overrideMemo: null,
-          overrideScheduledPaymentDate: null,
+          overrideScheduledPaymentDate: monthlyPaymentDueDateStr,
         });
       }
     }
@@ -859,7 +986,7 @@ async function detectCrmCandidates(
           // 代理店初期費用
           if (
             (agentContractHistory.initialFee ?? 0) > 0 &&
-            contractStart.getTime() === monthStart.getTime()
+            initialFeeMonth.getTime() === monthStart.getTime()
           ) {
             const amt = agentContractHistory.initialFee ?? 0;
             const key = `crm-expense-agent_initial-${contract.id}-${stpCompany.agentId}`;
@@ -883,10 +1010,9 @@ async function detectCrmCandidates(
               taxAmount: calcTaxAmount(amt, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
               taxRate: DEFAULT_TAX_RATE,
               taxType: DEFAULT_TAX_TYPE,
-              periodFrom: periodFromStr,
-              periodTo: periodFromStr,
+              periodFrom: formatDate(initialFeeDate),
+              periodTo: formatDate(initialFeeDate),
               note: `${contract.company.name} 代理店初期費用 (${agentCpName})`,
-              contractId: null,
               contractTitle: null,
               stpContractHistoryId: contract.id,
               stpRevenueType: null,
@@ -912,7 +1038,7 @@ async function detectCrmCandidates(
               overrideTaxAmount: null,
               overrideTaxRate: null,
               overrideMemo: null,
-              overrideScheduledPaymentDate: null,
+              overrideScheduledPaymentDate: initialPaymentDueDateStr,
             });
           }
 
@@ -943,7 +1069,6 @@ async function detectCrmCandidates(
               periodFrom: periodFromStr,
               periodTo: periodToStr,
               note: `${contract.company.name} 代理店月額費用 (${agentCpName})`,
-              contractId: null,
               contractTitle: null,
               stpContractHistoryId: contract.id,
               stpRevenueType: null,
@@ -969,14 +1094,14 @@ async function detectCrmCandidates(
               overrideTaxAmount: null,
               overrideTaxRate: null,
               overrideMemo: null,
-              overrideScheduledPaymentDate: null,
+              overrideScheduledPaymentDate: monthlyPaymentDueDateStr,
             });
           }
 
           // 初期費用紹介報酬
           if (
             contract.initialFee > 0 &&
-            contractStart.getTime() === monthStart.getTime()
+            initialFeeMonth.getTime() === monthStart.getTime()
           ) {
             const rate = commissionConfig.initialRate ?? 0;
             const amt = Math.round((contract.initialFee * rate) / 100);
@@ -1002,10 +1127,9 @@ async function detectCrmCandidates(
                 taxAmount: calcTaxAmount(amt, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
                 taxRate: DEFAULT_TAX_RATE,
                 taxType: DEFAULT_TAX_TYPE,
-                periodFrom: periodFromStr,
-                periodTo: periodFromStr,
+                periodFrom: formatDate(initialFeeDate),
+                periodTo: formatDate(initialFeeDate),
                 note: `${contract.company.name} 初期紹介報酬 (${agentCpName})`,
-                contractId: null,
                 contractTitle: null,
                 stpContractHistoryId: contract.id,
                 stpRevenueType: null,
@@ -1031,7 +1155,7 @@ async function detectCrmCandidates(
                 overrideTaxAmount: null,
                 overrideTaxRate: null,
                 overrideMemo: null,
-                overrideScheduledPaymentDate: null,
+                overrideScheduledPaymentDate: initialPaymentDueDateStr,
               });
             }
           }
@@ -1083,7 +1207,6 @@ async function detectCrmCandidates(
                   periodFrom: periodFromStr,
                   periodTo: periodToStr,
                   note: `${contract.company.name} 月額紹介報酬 (${agentCpName})`,
-                  contractId: null,
                   contractTitle: null,
                   stpContractHistoryId: contract.id,
                   stpRevenueType: null,
@@ -1109,7 +1232,7 @@ async function detectCrmCandidates(
                   overrideTaxAmount: null,
                   overrideTaxRate: null,
                   overrideMemo: null,
-                  overrideScheduledPaymentDate: null,
+                  overrideScheduledPaymentDate: monthlyPaymentDueDateStr,
                 });
               }
             }
@@ -1165,6 +1288,19 @@ async function detectCrmCandidates(
 
     const periodStr = formatDate(monthStart);
 
+    // 成果報酬の支払期限を計算
+    let perfPaymentDueDateStr: string | null = null;
+    const perfBillingRule = billingRuleByFeeType.get("performance");
+    if (perfBillingRule) {
+      const perfCompanyTerms = companyPaymentTerms.get(stpCompanyForCandidate.companyId);
+      const closingDay = perfCompanyTerms?.closingDay ?? perfBillingRule.closingDay ?? 0;
+      const paymentMonthOffset = perfCompanyTerms?.paymentMonthOffset ?? perfBillingRule.paymentMonthOffset ?? 1;
+      const paymentDay = perfCompanyTerms?.paymentDay ?? perfBillingRule.paymentDay ?? 15;
+      perfPaymentDueDateStr = formatDate(
+        calcPaymentDueDate(monthEnd, closingDay, paymentMonthOffset, paymentDay)
+      );
+    }
+
     // 売上: 成果報酬
     const key = `crm-revenue-performance-${contractHistory.id}-${candidate.id}`;
     const existingPerf = existingTransactions.find(
@@ -1198,7 +1334,6 @@ async function detectCrmCandidates(
       periodFrom: periodStr,
       periodTo: periodStr,
       note: `${company.name} 成果報酬 (${candidate.lastName}${candidate.firstName})`,
-      contractId: null,
       contractTitle: null,
       stpContractHistoryId: contractHistory.id,
       stpRevenueType: "performance",
@@ -1227,7 +1362,7 @@ async function detectCrmCandidates(
       overrideTaxAmount: null,
       overrideTaxRate: null,
       overrideMemo: null,
-      overrideScheduledPaymentDate: null,
+      overrideScheduledPaymentDate: perfPaymentDueDateStr,
     });
 
     // minor-3: 成果報酬に対応する代理店紹介報酬（commission_performance）
@@ -1321,7 +1456,6 @@ async function detectCrmCandidates(
               periodFrom: periodStr,
               periodTo: periodStr,
               note: `${company.name} 成果紹介報酬 (${candidate.lastName}${candidate.firstName}) (${agentCpName})`,
-              contractId: null,
               contractTitle: null,
               stpContractHistoryId: contractHistory.id,
               stpRevenueType: null,
@@ -1347,7 +1481,7 @@ async function detectCrmCandidates(
               overrideTaxAmount: null,
               overrideTaxRate: null,
               overrideMemo: null,
-              overrideScheduledPaymentDate: null,
+              overrideScheduledPaymentDate: perfPaymentDueDateStr,
             });
           }
         }
@@ -1428,7 +1562,6 @@ async function detectRecurringCandidates(
       periodFrom: periodFromStr,
       periodTo: periodToStr,
       note: rt.name + (rt.note ? ` - ${rt.note}` : ""),
-      contractId: null,
       contractTitle: null,
       stpContractHistoryId: null,
       stpRevenueType: null,
@@ -1588,7 +1721,6 @@ export async function generateTransactions(
         costCenterId: candidate.costCenterId,
         allocationTemplateId: candidate.allocationTemplateId,
         paymentMethodId: candidate.paymentMethodId,
-        contractId: candidate.contractId,
         recurringTransactionId: candidate.recurringTransactionId,
         stpContractHistoryId: candidate.stpContractHistoryId,
         stpRevenueType: candidate.stpRevenueType,

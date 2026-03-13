@@ -24,6 +24,8 @@ export type ContractHistoryData = {
   operationStatus: string | null;
   accountId: string | null;
   accountPass: string | null;
+  masterContractId: number | null;
+  contractDate: string | null;
 };
 
 // 契約履歴一覧取得（deletedAt: null のみ）
@@ -60,6 +62,8 @@ export async function getContractHistories(companyId: number) {
     operationStatus: h.operationStatus,
     accountId: h.accountId,
     accountPass: h.accountPass,
+    masterContractId: h.masterContractId,
+    contractDate: h.contractDate ? toLocalDateString(h.contractDate) : null,
     createdAt: h.createdAt.toISOString(),
     updatedAt: h.updatedAt.toISOString(),
   }));
@@ -90,6 +94,8 @@ export async function addContractHistory(companyId: number, data: ContractHistor
         operationStatus: data.operationStatus,
         accountId: data.accountId,
         accountPass: data.accountPass,
+        masterContractId: data.masterContractId,
+        contractDate: data.contractDate ? new Date(data.contractDate) : null,
       },
     });
 
@@ -157,6 +163,8 @@ export async function updateContractHistory(
           operationStatus: data.operationStatus,
           accountId: data.accountId,
           accountPass: data.accountPass,
+          masterContractId: data.masterContractId,
+          contractDate: data.contractDate ? new Date(data.contractDate) : null,
         },
       });
     });
@@ -189,6 +197,26 @@ export async function deleteContractHistory(id: number): Promise<{ success: bool
     return { success: true };
   } catch (error) {
     console.error("契約履歴削除エラー:", error);
+    const errorMessage = error instanceof Error ? error.message : "不明なエラーが発生しました";
+    return { success: false, error: errorMessage };
+  }
+}
+
+// 契約履歴を契約書に紐づける（masterContractIdのみ更新）
+export async function linkContractHistoryToContract(
+  historyId: number,
+  masterContractId: number | null,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await prisma.stpContractHistory.update({
+      where: { id: historyId },
+      data: { masterContractId },
+    });
+    revalidatePath("/stp/companies");
+    revalidatePath("/companies");
+    return { success: true };
+  } catch (error) {
+    console.error("契約履歴紐づけエラー:", error);
     const errorMessage = error instanceof Error ? error.message : "不明なエラーが発生しました";
     return { success: false, error: errorMessage };
   }

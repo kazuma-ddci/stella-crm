@@ -49,6 +49,7 @@ import {
   CheckCircle2,
   Target,
   MessageSquare,
+  ClipboardCheck,
 } from "lucide-react";
 import { canView } from "@/lib/auth/permissions";
 import type { SessionUser } from "@/types/auth";
@@ -187,6 +188,7 @@ const navigation: NavItem[] = [
           { name: "ダッシュボード", href: "/stp/finance/overview", icon: DollarSign },
           { name: "取引管理", href: "/stp/finance/transactions", icon: Landmark },
           { name: "取引候補生成", href: "/stp/finance/generate", icon: Zap },
+          { name: "売上・支払トラッカー", href: "/stp/finance/billing", icon: ClipboardCheck },
           { name: "請求管理（売上）", href: "/stp/finance/invoices", icon: Receipt },
           { name: "支払管理（経費）", href: "/stp/finance/payment-groups", icon: Wallet },
           { name: "売掛金年齢表", href: "/stp/finance/aging", icon: Clock },
@@ -217,6 +219,7 @@ const navigation: NavItem[] = [
               { name: "担当者フィールド制約", href: "/staff/field-restrictions?project=stp", icon: Shield },
               { name: "メールテンプレート", href: "/settings/email-templates?project=stp", icon: FileText },
               { name: "費目マスタ", href: "/stp/settings/expense-categories", icon: Tag },
+              { name: "請求ルール設定", href: "/stp/settings/billing-rules", icon: FileText },
             ],
           },
         ],

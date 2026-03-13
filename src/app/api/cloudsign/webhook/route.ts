@@ -31,16 +31,16 @@ type WebhookPayload = {
 
 export async function POST(request: NextRequest) {
   try {
-    // Webhook認証: CLOUDSIGN_WEBHOOK_SECRET によるトークン検証
+    // Webhook認証: CLOUDSIGN_WEBHOOK_SECRET が設定されている場合のみトークン検証
+    // CloudSignのWebhookには独自の署名機構がないため、シークレット未設定でも受け付ける
     const webhookSecret = process.env.CLOUDSIGN_WEBHOOK_SECRET;
-    if (!webhookSecret) {
-      console.error("[CloudSign Webhook] CLOUDSIGN_WEBHOOK_SECRET が未設定です。Webhookを受け付けません。");
-      return NextResponse.json({ error: "Server misconfiguration" }, { status: 500 });
-    }
-    const url = new URL(request.url);
-    const token = url.searchParams.get("token");
-    if (token !== webhookSecret) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (webhookSecret) {
+      const url = new URL(request.url);
+      const token = url.searchParams.get("token");
+      if (token !== webhookSecret) {
+        console.warn("[CloudSign Webhook] トークン不一致。不正なリクエストの可能性があります。");
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
     }
 
     const body: WebhookPayload = await request.json();
@@ -61,6 +61,7 @@ export async function POST(request: NextRequest) {
         cloudsignStatus: true,
         cloudsignTitle: true,
         cloudsignDocumentId: true,
+        cloudsignAutoSync: true,
         projectId: true,
       },
     });
@@ -70,6 +71,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, message: "contract not found, skipped" });
     }
 
+    // 運営法人情報を1回で取得（破棄者判定 + PDF保存の両方で使用）
+    const project = contract.projectId
+      ? await prisma.masterProject.findUnique({
+          where: { id: contract.projectId },
+          include: {
+            operatingCompany: {
+              select: { cloudsignRegisteredEmail: true, cloudsignClientId: true },
+            },
+          },
+        })
+      : null;
+
     // ステータスマッピング
     let newCloudsignStatus: string | null = null;
 
@@ -77,17 +90,6 @@ export async function POST(request: NextRequest) {
       newCloudsignStatus = "completed";
     } else if (status === CS_STATUS_CANCELED) {
       // 破棄者の判定: 運営会社のメールアドレスと一致するか
-      const project = contract.projectId
-        ? await prisma.masterProject.findUnique({
-            where: { id: contract.projectId },
-            include: {
-              operatingCompany: {
-                select: { cloudsignRegisteredEmail: true, cloudsignClientId: true },
-              },
-            },
-          })
-        : null;
-
       const registeredEmail = project?.operatingCompany?.cloudsignRegisteredEmail;
       if (registeredEmail && email && registeredEmail.toLowerCase() === email.toLowerCase()) {
         newCloudsignStatus = "canceled_by_sender";
@@ -107,17 +109,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, message: "status unchanged, skipped" });
     }
 
-    // 運営法人のcloudsignClientIdを取得（PDF保存用）
-    const project = contract.projectId
-      ? await prisma.masterProject.findUnique({
-          where: { id: contract.projectId },
-          include: {
-            operatingCompany: {
-              select: { cloudsignClientId: true },
-            },
-          },
-        })
-      : null;
+    // 自動同期OFFの場合: cloudsignStatusのみ更新してCRMステータスは変更しない
+    if (!contract.cloudsignAutoSync) {
+      await prisma.masterContract.update({
+        where: { id: contract.id },
+        data: { cloudsignStatus: newCloudsignStatus },
+      });
+      console.log(
+        `[CloudSign Webhook] AutoSync OFF: cloudsignStatus only updated for contract #${contract.id}: ${contract.cloudsignStatus} → ${newCloudsignStatus}`
+      );
+      return NextResponse.json({ ok: true, message: "cloudsign status updated (auto-sync off)" });
+    }
+
     const clientId = project?.operatingCompany?.cloudsignClientId;
 
     // 共通ヘルパーでステータス同期

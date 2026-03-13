@@ -49,13 +49,6 @@ export type TransactionFormData = {
     name: string;
     methodType: string;
   }[];
-  contracts: {
-    id: number;
-    title: string;
-    companyId: number;
-    company: { id: number; name: string };
-    endDate: Date | null;
-  }[];
   staffOptions: { id: number; name: string }[];
   currentUserId: number;
   // 経理モード用：紐づけ可能なグループ
@@ -199,7 +192,8 @@ function validateTransactionData(data: Record<string, unknown>) {
 // 1. createTransaction
 // ============================================
 
-export async function createTransaction(data: Record<string, unknown>) {
+export async function createTransaction(data: Record<string, unknown>): Promise<{ id: number } | { error: string }> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -208,7 +202,6 @@ export async function createTransaction(data: Record<string, unknown>) {
   // 月次クローズチェック
   await checkMonthlyClose(validated.periodFrom, validated.periodTo);
 
-  const contractId = data.contractId ? Number(data.contractId) : null;
   const projectId = data.projectId ? Number(data.projectId) : null;
   const paymentMethodId = data.paymentMethodId
     ? Number(data.paymentMethodId)
@@ -266,7 +259,6 @@ export async function createTransaction(data: Record<string, unknown>) {
         periodTo: validated.periodTo,
         allocationTemplateId: validated.allocationTemplateId,
         costCenterId: validated.costCenterId,
-        contractId,
         projectId,
         paymentMethodId,
         paymentDueDate,
@@ -346,6 +338,9 @@ export async function createTransaction(data: Record<string, unknown>) {
   revalidatePath("/accounting/dashboard");
 
   return { id: result.transaction.id };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "取引の作成に失敗しました" };
+  }
 }
 
 // ============================================
@@ -355,7 +350,8 @@ export async function createTransaction(data: Record<string, unknown>) {
 export async function updateTransaction(
   id: number,
   data: Record<string, unknown>
-) {
+): Promise<{ error: string } | void> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -386,7 +382,6 @@ export async function updateTransaction(
   // 月次クローズチェック（新しい日付）
   await checkMonthlyClose(validated.periodFrom, validated.periodTo);
 
-  const contractId = data.contractId ? Number(data.contractId) : null;
   const projectId = data.projectId ? Number(data.projectId) : null;
   const paymentMethodId = data.paymentMethodId
     ? Number(data.paymentMethodId)
@@ -447,7 +442,6 @@ export async function updateTransaction(
         periodTo: validated.periodTo,
         allocationTemplateId: validated.allocationTemplateId,
         costCenterId: validated.costCenterId,
-        contractId,
         projectId,
         paymentMethodId,
         paymentDueDate,
@@ -539,6 +533,9 @@ export async function updateTransaction(
 
   revalidatePath("/accounting/transactions");
   revalidatePath("/stp/finance/transactions");
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "取引の更新に失敗しました" };
+  }
 }
 
 // ============================================
@@ -551,13 +548,6 @@ export async function getTransactionById(id: number) {
     include: {
       counterparty: {
         select: { id: true, name: true, counterpartyType: true },
-      },
-      contract: {
-        select: {
-          id: true,
-          title: true,
-          company: { select: { id: true, name: true } },
-        },
       },
       allocationTemplate: {
         include: {
@@ -666,7 +656,8 @@ async function checkMonthlyClose(periodFrom: Date, periodTo: Date) {
 // 5. confirmTransaction（未確認→確認済み）
 // ============================================
 
-export async function confirmTransaction(id: number) {
+export async function confirmTransaction(id: number): Promise<{ error: string } | void> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -719,13 +710,17 @@ export async function confirmTransaction(id: number) {
   await checkAndTransitionToAwaitingAccounting(id);
 
   revalidatePath("/accounting/transactions");
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "取引確定に失敗しました" };
+  }
 }
 
 // ============================================
 // 5b. unconfirmTransaction（確認済み→未確認）
 // ============================================
 
-export async function unconfirmTransaction(id: number) {
+export async function unconfirmTransaction(id: number): Promise<{ error: string } | void> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -790,6 +785,9 @@ export async function unconfirmTransaction(id: number) {
   });
 
   revalidatePath("/accounting/transactions");
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "確定取消に失敗しました" };
+  }
 }
 
 // ============================================
@@ -1241,7 +1239,8 @@ export async function getAccountingTransactions() {
 // 9c. createAccountingTransaction（経理側から取引作成 — 直接awaiting_accountingで作成）
 // ============================================
 
-export async function createAccountingTransaction(data: Record<string, unknown>) {
+export async function createAccountingTransaction(data: Record<string, unknown>): Promise<{ id: number } | { error: string }> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -1250,7 +1249,6 @@ export async function createAccountingTransaction(data: Record<string, unknown>)
   // 月次クローズチェック
   await checkMonthlyClose(validated.periodFrom, validated.periodTo);
 
-  const contractId = data.contractId ? Number(data.contractId) : null;
   const projectId = data.projectId ? Number(data.projectId) : null;
   const paymentMethodId = data.paymentMethodId
     ? Number(data.paymentMethodId)
@@ -1328,7 +1326,6 @@ export async function createAccountingTransaction(data: Record<string, unknown>)
         periodTo: validated.periodTo,
         allocationTemplateId: validated.allocationTemplateId,
         costCenterId: validated.costCenterId,
-        contractId,
         projectId,
         paymentMethodId,
         paymentDueDate,
@@ -1371,6 +1368,9 @@ export async function createAccountingTransaction(data: Record<string, unknown>)
   revalidatePath("/accounting/dashboard");
 
   return { id: result.transaction.id };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "取引の作成に失敗しました" };
+  }
 }
 
 // ============================================
@@ -1411,7 +1411,6 @@ export async function getTransactionFormData(): Promise<TransactionFormData> {
     costCenters,
     allocationTemplates,
     paymentMethods,
-    contracts,
     staffOptions,
   ] = await Promise.all([
     getSession(),
@@ -1457,19 +1456,6 @@ export async function getTransactionFormData(): Promise<TransactionFormData> {
       orderBy: { name: "asc" },
     }),
 
-    // 契約一覧（取引先との紐づけ用にcompanyIdを保持）
-    prisma.masterContract.findMany({
-      select: {
-        id: true,
-        title: true,
-        companyId: true,
-        company: { select: { id: true, name: true } },
-        endDate: true,
-      },
-      orderBy: { id: "desc" },
-      take: 500,
-    }),
-
     // スタッフ一覧（経費負担者選択用）
     prisma.masterStaff.findMany({
       where: { isActive: true, isSystemUser: false },
@@ -1505,7 +1491,6 @@ export async function getTransactionFormData(): Promise<TransactionFormData> {
       })),
     })),
     paymentMethods,
-    contracts,
     staffOptions,
     currentUserId: session.id,
   };

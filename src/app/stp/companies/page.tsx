@@ -25,7 +25,6 @@ export default async function StpCompaniesPage() {
         leadSource: true,
         salesStaff: true,
         adminStaff: true,
-        contracts: true,
       },
       orderBy: { id: "asc" },
     }),
@@ -210,8 +209,6 @@ export default async function StpCompaniesPage() {
     nextTargetDate: c.nextTargetDate?.toISOString(),
     forecast: c.forecast,
     plannedHires: c.plannedHires,
-    // 契約書情報
-    contracts: c.contracts,
     salesStaffId: c.salesStaffId,
     salesStaffName: c.salesStaff?.name,
     adminStaffId: c.adminStaffId,

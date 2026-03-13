@@ -39,7 +39,6 @@ export default async function EditTransactionPage({ params }: Props) {
     periodTo: transaction.periodTo,
     allocationTemplateId: transaction.allocationTemplateId,
     costCenterId: transaction.costCenterId,
-    contractId: transaction.contractId,
     projectId: transaction.projectId,
     paymentMethodId: transaction.paymentMethodId,
     paymentDueDate: transaction.paymentDueDate,

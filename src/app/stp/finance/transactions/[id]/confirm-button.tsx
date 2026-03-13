@@ -19,27 +19,22 @@ import { toast } from "sonner";
 
 type Props = {
   transactionId: number;
-  hasExpenseCategory?: boolean;
 };
 
-export function TransactionConfirmButton({ transactionId, hasExpenseCategory = true }: Props) {
+export function TransactionConfirmButton({ transactionId }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const handleConfirm = async () => {
-    if (!hasExpenseCategory) {
-      toast.error("費目が未設定の取引は確定できません。先に費目を設定してください。");
+    const result = await confirmTransaction(transactionId);
+    if (result && "error" in result) {
+      toast.error(result.error);
       return;
     }
-    try {
-      await confirmTransaction(transactionId);
-      toast.success("取引を確定しました");
-      startTransition(() => {
-        router.refresh();
-      });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "取引確定に失敗しました");
-    }
+    toast.success("取引を確定しました");
+    startTransition(() => {
+      router.refresh();
+    });
   };
 
   return (

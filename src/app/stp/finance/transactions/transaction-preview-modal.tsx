@@ -185,7 +185,6 @@ export function TransactionPreviewModal({
       periodTo,
       allocationTemplateId: transaction.allocationTemplateId ?? undefined,
       costCenterId: transaction.costCenterId ?? undefined,
-      contractId: transaction.contractId ?? undefined,
       projectId: transaction.projectId ?? undefined,
       paymentMethodId: transaction.paymentMethodId ?? undefined,
       paymentDueDate: transaction.paymentDueDate
@@ -215,11 +214,13 @@ export function TransactionPreviewModal({
     if (!data) return;
     setIsSaving(true);
     try {
-      await updateTransaction(transactionId, data as Record<string, unknown>);
+      const result = await updateTransaction(transactionId, data as Record<string, unknown>);
+      if (result && "error" in result) {
+        alert(result.error);
+        return;
+      }
       await loadTransaction();
       setIsEditing(false);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "保存に失敗しました");
     } finally {
       setIsSaving(false);
     }
@@ -228,12 +229,14 @@ export function TransactionPreviewModal({
   const handleConfirm = async () => {
     setIsConfirming(true);
     try {
-      await confirmTransaction(transactionId);
+      const result = await confirmTransaction(transactionId);
+      if (result && "error" in result) {
+        alert(result.error);
+        return;
+      }
       router.refresh();
       onConfirmed?.();
       onClose();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "確定に失敗しました");
     } finally {
       setIsConfirming(false);
     }
@@ -244,13 +247,19 @@ export function TransactionPreviewModal({
     if (!data) return;
     setIsSaving(true);
     try {
-      await updateTransaction(transactionId, data as Record<string, unknown>);
-      await confirmTransaction(transactionId);
+      const updateResult = await updateTransaction(transactionId, data as Record<string, unknown>);
+      if (updateResult && "error" in updateResult) {
+        alert(updateResult.error);
+        return;
+      }
+      const confirmResult = await confirmTransaction(transactionId);
+      if (confirmResult && "error" in confirmResult) {
+        alert(confirmResult.error);
+        return;
+      }
       router.refresh();
       onConfirmed?.();
       onClose();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "保存・確定に失敗しました");
     } finally {
       setIsSaving(false);
     }

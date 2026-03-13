@@ -3,6 +3,7 @@ import {
   calcWithholdingTax,
   isWithholdingTarget,
 } from "./withholding-tax";
+import { calculateProratedFee, getDaysInMonth } from "@/lib/business-days";
 
 const AUTO_GENERATE_MONTHS = 3;
 
@@ -139,6 +140,7 @@ export async function autoGenerateFinanceForContractHistory(
     contractHistoryId: contractHistory.id,
     stpCompanyId: stpCompany.id,
     contractStartDate: contractHistory.contractStartDate,
+    contractDate: contractHistory.contractDate,
     initialFee: contractHistory.initialFee,
     monthlyFee: contractHistory.monthlyFee,
     targetMonths,
@@ -162,6 +164,7 @@ type RevenueGenerateParams = {
   contractHistoryId: number;
   stpCompanyId: number;
   contractStartDate: Date;
+  contractDate: Date | null;
   initialFee: number;
   monthlyFee: number;
   targetMonths: Date[];
@@ -176,26 +179,41 @@ async function generateRevenueRecords(params: RevenueGenerateParams) {
     targetMonths,
   } = params;
 
-  const startMonth = startOfMonth(params.contractStartDate);
+  // 初期費用の発生日: contractDate があればそちら、なければ contractStartDate
+  const initialFeeDate = params.contractDate ?? params.contractStartDate;
+  const initialFeeMonth = startOfMonth(initialFeeDate);
+  const contractStartMonth = startOfMonth(params.contractStartDate);
 
   if (initialFee > 0) {
     await ensureRevenueRecord({
       contractHistoryId,
       stpCompanyId,
       revenueType: "initial",
-      targetMonth: startMonth,
+      targetMonth: initialFeeMonth,
       expectedAmount: initialFee,
     });
   }
 
   if (monthlyFee > 0) {
     for (const month of targetMonths) {
+      // 日割り計算: contractStartDate の月 = 対象月の場合
+      const isFirstMonth = contractStartMonth.getTime() === month.getTime();
+      let amount = monthlyFee;
+
+      if (isFirstMonth) {
+        const startDay = params.contractStartDate.getUTCDate();
+        const year = month.getUTCFullYear();
+        const m = month.getUTCMonth() + 1; // 1-indexed for getDaysInMonth
+        const totalDays = getDaysInMonth(year, m);
+        amount = calculateProratedFee(monthlyFee, startDay, totalDays);
+      }
+
       await ensureRevenueRecord({
         contractHistoryId,
         stpCompanyId,
         revenueType: "monthly",
         targetMonth: month,
-        expectedAmount: monthlyFee,
+        expectedAmount: amount,
       });
     }
   }
@@ -556,6 +574,7 @@ export async function generateMonthlyRecordsForAllContracts(
       contractHistoryId: contract.id,
       stpCompanyId: stpCompany.id,
       contractStartDate: contract.contractStartDate,
+      contractDate: contract.contractDate,
       initialFee: contract.initialFee,
       monthlyFee: contract.monthlyFee,
       targetMonths: filteredMonths,

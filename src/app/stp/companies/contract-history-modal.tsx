@@ -456,6 +456,8 @@ export function ContractHistoryModal({
         operationStatus: formData.operationStatus || null,
         accountId: formData.accountId || null,
         accountPass: formData.accountPass || null,
+        masterContractId: null,
+        contractDate: null,
       });
       if (!result.success) {
         console.error("契約履歴追加エラー:", result.error);
@@ -522,6 +524,8 @@ export function ContractHistoryModal({
         operationStatus: pendingEditData.operationStatus || null,
         accountId: pendingEditData.accountId || null,
         accountPass: pendingEditData.accountPass || null,
+        masterContractId: null,
+        contractDate: null,
       }, changeNotes);
       if (!result.success) {
         console.error("契約履歴更新エラー:", result.error);

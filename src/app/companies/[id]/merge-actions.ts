@@ -118,10 +118,6 @@ async function moveStpCompanyChildren(
       where: { stpCompanyId: fromStpCompanyId },
       data: { stpCompanyId: toStpCompanyId },
     }),
-    tx.stpCompanyContract.updateMany({
-      where: { stpCompanyId: fromStpCompanyId },
-      data: { stpCompanyId: toStpCompanyId },
-    }),
     tx.stpProposal.updateMany({
       where: { stpCompanyId: fromStpCompanyId },
       data: { stpCompanyId: toStpCompanyId },

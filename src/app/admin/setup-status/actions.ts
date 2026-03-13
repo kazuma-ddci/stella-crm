@@ -198,6 +198,15 @@ const checkDefinitions: CheckDefinition[] = [
         where: { isActive: true, cloudsignClientId: { not: null } },
       }),
   },
+  {
+    id: "stp-billing-rules",
+    category: "STP",
+    name: "請求ルール設定",
+    description: "STPプロジェクトの請求ルール（初期費用・月額・成果報酬）が設定されているか",
+    required: 3,
+    href: "/stp/settings/billing-rules",
+    countFn: () => prisma.stpBillingRule.count(),
+  },
 
   // ========================================
   // 経理

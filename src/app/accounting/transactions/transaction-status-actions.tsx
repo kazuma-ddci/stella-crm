@@ -38,24 +38,24 @@ export function TransactionStatusActions({
   const handleConfirm = () => {
     setError(null);
     startTransition(async () => {
-      try {
-        await confirmTransaction(transactionId);
-        router.refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "エラーが発生しました");
+      const result = await confirmTransaction(transactionId);
+      if (result && "error" in result) {
+        setError(result.error);
+        return;
       }
+      router.refresh();
     });
   };
 
   const handleUnconfirm = () => {
     setError(null);
     startTransition(async () => {
-      try {
-        await unconfirmTransaction(transactionId);
-        router.refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "エラーが発生しました");
+      const result = await unconfirmTransaction(transactionId);
+      if (result && "error" in result) {
+        setError(result.error);
+        return;
       }
+      router.refresh();
     });
   };
 
