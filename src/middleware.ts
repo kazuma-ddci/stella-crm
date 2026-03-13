@@ -158,6 +158,13 @@ function hasAnyStpViewAccess(displayViews: DisplayViewPermission[]): boolean {
 export default auth((request) => {
   const { pathname } = request.nextUrl;
 
+  // /uploads/* → /api/uploads/* にリライト（standaloneモードではpublic/が配信されないため）
+  if (pathname.startsWith("/uploads/")) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/api${pathname}`;
+    return NextResponse.rewrite(url);
+  }
+
   // 権限変更検知: permissionsExpired の場合はページ遷移をブロックしない。
   // クライアント側の PermissionGuard が signOut() を呼んで正しくログアウトする。
   // middleware では cookie を直接操作しない（auth() ラッパーとの競合を防止）。
@@ -311,6 +318,6 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      */
-    "/((?!_next/static|_next/image|favicon.ico|images/|api/cron/|api/cloudsign/webhook).*)",
+    "/((?!_next/static|_next/image|favicon.ico|images/|api/cron/|api/cloudsign/webhook|api/health/).*)",
   ],
 };

@@ -607,6 +607,31 @@ export async function linkCloudsignDocument(
   // 検証OK → DB保存
   const mappedStatus = mapCloudsignApiStatus(doc.status, doc);
 
+  // 自社署名判定: participantに自社のregisteredEmailが含まれているかチェック
+  let selfSigningEmailId: number | null = null;
+  const registeredEmail = operatingCompany.cloudsignRegisteredEmail;
+  if (registeredEmail) {
+    const recipientEmails = doc.participants
+      .filter((p) => p.order >= 1)
+      .map((p) => p.email.trim().toLowerCase());
+    const isSelfSigning = recipientEmails.includes(
+      registeredEmail.trim().toLowerCase()
+    );
+    if (isSelfSigning) {
+      const matchingEmail = await prisma.operatingCompanyEmail.findFirst({
+        where: {
+          operatingCompanyId: operatingCompany.id,
+          email: { equals: registeredEmail, mode: "insensitive" },
+          enableInbound: true,
+          deletedAt: null,
+          imapHost: { not: null },
+        },
+        select: { id: true },
+      });
+      selfSigningEmailId = matchingEmail?.id ?? null;
+    }
+  }
+
   await prisma.masterContract.update({
     where: { id: contractId },
     data: {
@@ -615,6 +640,7 @@ export async function linkCloudsignDocument(
       cloudsignAutoSync: true,
       signingMethod: "cloudsign",
       cloudsignStatus: mappedStatus,
+      cloudsignSelfSigningEmailId: selfSigningEmailId,
     },
   });
 

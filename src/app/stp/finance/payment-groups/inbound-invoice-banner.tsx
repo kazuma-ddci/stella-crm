@@ -123,7 +123,7 @@ function InvoicePreviewModal({
                   {invoice.attachmentSize ? ` (${formatFileSize(invoice.attachmentSize)})` : ""}
                 </span>
                 <a
-                  href={`/api${invoice.attachmentPath}`}
+                  href={invoice.attachmentPath}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="ml-auto inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 hover:underline shrink-0"
