@@ -58,7 +58,7 @@ echo ""
 
 # 起動待ち（最大60秒）
 for i in $(seq 1 12); do
-  if curl -s -o /dev/null -w "%{http_code}" http://localhost:$STG_PORT | grep -q "200\|302"; then
+  if curl -s -o /dev/null -w "%{http_code}" http://localhost:$STG_PORT | grep -q "200\|301\|302\|307\|308"; then
     break
   fi
   if [ "$i" -eq 12 ]; then
