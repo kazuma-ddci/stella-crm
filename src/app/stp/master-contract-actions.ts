@@ -14,6 +14,14 @@ import {
 
 const STP_PROJECT_ID = 1; // 採用ブースト
 
+type ContractFileInput = {
+  id?: number;
+  filePath: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+};
+
 type ContractInput = {
   contractType: string;
   title: string;
@@ -28,6 +36,7 @@ type ContractInput = {
   note?: string | null;
   cloudsignDocumentId?: string | null;
   parentContractId?: number | null;
+  files?: ContractFileInput[];
 };
 
 /**
@@ -51,6 +60,10 @@ export async function getMasterContracts(companyId: number) {
       currentStatus: true,
       parentContract: {
         select: { id: true, contractNumber: true, title: true, contractType: true },
+      },
+      contractFiles: {
+        where: { isVisible: true },
+        orderBy: { createdAt: "asc" },
       },
       contractHistories: {
         where: { deletedAt: null },
@@ -102,6 +115,14 @@ export async function getMasterContracts(companyId: number) {
     cloudsignSelfSigningEmailId: c.cloudsignSelfSigningEmailId,
     cloudsignSelfSignedAt: c.cloudsignSelfSignedAt?.toISOString() || null,
     cloudsignSelfSigningUrl: c.cloudsignSelfSigningUrl,
+    contractFiles: c.contractFiles.map((cf) => ({
+      id: cf.id,
+      filePath: cf.filePath,
+      fileName: cf.fileName,
+      fileSize: cf.fileSize,
+      mimeType: cf.mimeType,
+      category: cf.category,
+    })),
     parentContractId: c.parentContractId,
     parentContract: c.parentContract
       ? {
@@ -174,6 +195,21 @@ export async function addMasterContract(companyId: number, data: ContractInput):
       },
     });
 
+    // 契約ファイルを保存
+    if (data.files && data.files.length > 0) {
+      await tx.contractFile.createMany({
+        data: data.files.map((f) => ({
+          contractId: contract.id,
+          filePath: f.filePath,
+          fileName: f.fileName,
+          fileSize: f.fileSize,
+          mimeType: f.mimeType,
+          category: "other",
+          uploadedBy: changedBy,
+        })),
+      });
+    }
+
     // ステータスが設定されている場合は履歴を記録
     if (data.currentStatusId) {
       await recordContractCreationInTx(
@@ -234,6 +270,27 @@ export async function updateMasterContract(id: number, data: ContractInput) {
         parentContractId: data.parentContractId || null,
       },
     });
+
+    // 契約ファイルを更新（replace方式: 既存を削除して新規作成）
+    if (data.files !== undefined) {
+      // 手動アップロード分のみ削除（category="other"）
+      await tx.contractFile.deleteMany({
+        where: { contractId: id, category: "other" },
+      });
+      if (data.files.length > 0) {
+        await tx.contractFile.createMany({
+          data: data.files.map((f) => ({
+            contractId: id,
+            filePath: f.filePath,
+            fileName: f.fileName,
+            fileSize: f.fileSize,
+            mimeType: f.mimeType,
+            category: "other",
+            uploadedBy: changedBy,
+          })),
+        });
+      }
+    }
 
     // ステータスが変更された場合は履歴を記録
     await recordStatusChangeIfNeeded(

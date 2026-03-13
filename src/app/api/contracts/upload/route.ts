@@ -76,6 +76,8 @@ export async function POST(request: NextRequest) {
       success: true,
       filePath: publicPath,
       fileName: file.name,
+      fileSize: file.size,
+      mimeType: file.type,
     });
   } catch (error) {
     console.error("Upload error:", error);

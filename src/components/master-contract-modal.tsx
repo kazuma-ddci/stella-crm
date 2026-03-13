@@ -58,7 +58,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { TextPreviewCell } from "@/components/text-preview-cell";
-import { FileUpload } from "@/components/file-upload";
+import { MultiFileUpload, type FileInfo } from "@/components/multi-file-upload";
 import { toLocalDateString } from "@/lib/utils";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
@@ -124,6 +124,7 @@ type Contract = {
     title: string;
     contractType: string;
   } | null;
+  contractFiles?: { id: number; filePath: string; fileName: string; fileSize: number | null; mimeType: string | null; category: string }[];
   contractHistories: ContractHistory[];
 };
 
@@ -151,8 +152,7 @@ type FormData = {
   currentStatusId: string;
   signedDate: Date | null;
   signingMethod: string;
-  filePath: string;
-  fileName: string;
+  files: FileInfo[];
   assignedTo: string;
   note: string;
   cloudsignDocumentId: string;
@@ -167,8 +167,7 @@ const EMPTY_FORM_DATA: FormData = {
   currentStatusId: "",
   signedDate: null,
   signingMethod: "",
-  filePath: "",
-  fileName: "",
+  files: [],
   assignedTo: "",
   note: "",
   cloudsignDocumentId: "",
@@ -655,13 +654,32 @@ function ContractCard({
             {contract.signedDate && <span>締結日: {formatDate(contract.signedDate)}</span>}
             {contract.signingMethod && <span>方法: {signingMethodOptions.find(o => o.value === contract.signingMethod)?.label}</span>}
             {contract.filePath && contract.fileName && (
-              <button
-                className="text-blue-600 hover:underline flex items-center gap-0.5"
-                onClick={() => window.open(contract.filePath!, "_blank")}
-              >
-                <FileText className="h-3 w-3" />
-                <ExternalLink className="h-2.5 w-2.5" />
-              </button>
+              <span className="flex items-center gap-0.5">
+                <button
+                  className="text-blue-600 hover:underline flex items-center gap-0.5"
+                  onClick={() => window.open(contract.filePath!, "_blank")}
+                  title={`CloudSign署名PDF: ${contract.fileName}`}
+                >
+                  <PenTool className="h-2.5 w-2.5" />
+                  <FileText className="h-3 w-3" />
+                  <ExternalLink className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            )}
+            {contract.contractFiles && contract.contractFiles.length > 0 && (
+              <span className="flex items-center gap-1">
+                {contract.contractFiles.map((cf) => (
+                  <button
+                    key={cf.id}
+                    className="text-blue-600 hover:underline flex items-center gap-0.5"
+                    onClick={() => window.open(cf.filePath, "_blank")}
+                    title={cf.fileName}
+                  >
+                    <FileText className="h-3 w-3" />
+                    <ExternalLink className="h-2.5 w-2.5" />
+                  </button>
+                ))}
+              </span>
             )}
           </div>
         </div>
@@ -1136,8 +1154,13 @@ export function MasterContractModal({
       currentStatusId: contract.currentStatusId ? String(contract.currentStatusId) : "",
       signedDate: parseDate(contract.signedDate),
       signingMethod: contract.signingMethod || "",
-      filePath: contract.filePath || "",
-      fileName: contract.fileName || "",
+      files: (contract.contractFiles || []).map((cf) => ({
+        id: cf.id,
+        filePath: cf.filePath,
+        fileName: cf.fileName,
+        fileSize: cf.fileSize ?? 0,
+        mimeType: cf.mimeType ?? "",
+      })),
       assignedTo: contract.assignedTo || "",
       note: contract.note || "",
       cloudsignDocumentId: contract.cloudsignDocumentId || "",
@@ -1178,8 +1201,7 @@ export function MasterContractModal({
         currentStatusId: formData.currentStatusId ? Number(formData.currentStatusId) : null,
         signedDate: formData.signedDate ? toLocalDateString(formData.signedDate) : null,
         signingMethod: formData.signingMethod || null,
-        filePath: formData.filePath || null,
-        fileName: formData.fileName || null,
+        files: formData.files,
         assignedTo: formData.assignedTo || null,
         note: formData.note || null,
         parentContractId: formData.parentContractId && formData.parentContractId !== "none" ? Number(formData.parentContractId) : null,
@@ -1697,19 +1719,12 @@ export function MasterContractModal({
                   {/* 契約書ファイル */}
                   <div className="col-span-2">
                     <Label htmlFor="fileUpload">契約書ファイル</Label>
-                    <FileUpload
-                      value={{
-                        filePath: formData.filePath || null,
-                        fileName: formData.fileName || null,
-                      }}
-                      onChange={(newValue) => {
-                        setFormData({
-                          ...formData,
-                          filePath: newValue.filePath || "",
-                          fileName: newValue.fileName || "",
-                        });
-                      }}
-                      contractId={editingId || undefined}
+                    <MultiFileUpload
+                      value={formData.files}
+                      onChange={(files) => setFormData({ ...formData, files })}
+                      uploadUrl="/api/contracts/upload"
+                      entityIdKey="contractId"
+                      entityId={editingId || undefined}
                     />
                   </div>
 

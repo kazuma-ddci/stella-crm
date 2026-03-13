@@ -16,7 +16,14 @@ export type FileInfo = {
 type MultiFileUploadProps = {
   value: FileInfo[];
   onChange: (files: FileInfo[]) => void;
+  /** @deprecated Use entityId instead */
   contactHistoryId?: string | number;
+  /** Generic entity ID to pass in the upload FormData */
+  entityId?: string | number;
+  /** FormData key name for the entity ID (default: "contactHistoryId") */
+  entityIdKey?: string;
+  /** Upload endpoint URL (default: "/api/contact-histories/upload") */
+  uploadUrl?: string;
   disabled?: boolean;
   className?: string;
   maxFiles?: number;
@@ -26,6 +33,9 @@ export function MultiFileUpload({
   value = [],
   onChange,
   contactHistoryId,
+  entityId,
+  entityIdKey = "contactHistoryId",
+  uploadUrl = "/api/contact-histories/upload",
   disabled = false,
   className,
   maxFiles = 10,
@@ -55,11 +65,13 @@ export function MultiFileUpload({
         try {
           const formData = new FormData();
           formData.append("file", file);
-          if (contactHistoryId) {
-            formData.append("contactHistoryId", String(contactHistoryId));
+          // Support both legacy contactHistoryId and new entityId props
+          const resolvedEntityId = entityId ?? contactHistoryId;
+          if (resolvedEntityId) {
+            formData.append(entityIdKey, String(resolvedEntityId));
           }
 
-          const response = await fetch("/api/contact-histories/upload", {
+          const response = await fetch(uploadUrl, {
             method: "POST",
             body: formData,
           });
@@ -92,7 +104,7 @@ export function MultiFileUpload({
         fileInputRef.current.value = "";
       }
     },
-    [contactHistoryId, onChange, value, maxFiles]
+    [contactHistoryId, entityId, entityIdKey, uploadUrl, onChange, value, maxFiles]
   );
 
   const handleRemove = useCallback(
