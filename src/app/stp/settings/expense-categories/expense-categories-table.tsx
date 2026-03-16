@@ -2,9 +2,11 @@
 
 import { CrudTable, ColumnDef } from "@/components/crud-table";
 import { SortableItem } from "@/components/sortable-list-modal";
+import { Badge } from "@/components/ui/badge";
 import {
   createExpenseCategory,
   updateExpenseCategory,
+  deleteExpenseCategory,
   reorderExpenseCategories,
 } from "./actions";
 
@@ -42,6 +44,7 @@ export function ExpenseCategoriesTable({ data, canEdit }: Props) {
       header: "表示順",
       type: "number",
       defaultValue: 0,
+      hidden: true,
     },
     {
       key: "isActive",
@@ -65,9 +68,23 @@ export function ExpenseCategoriesTable({ data, canEdit }: Props) {
       title="費目"
       onAdd={canEdit ? createExpenseCategory : undefined}
       onUpdate={canEdit ? updateExpenseCategory : undefined}
+      onDelete={canEdit ? deleteExpenseCategory : undefined}
+      isDeleteDisabled={(item) => !!item.systemCode}
       emptyMessage="費目が登録されていません"
       sortableItems={sortableItems}
       onReorder={canEdit ? reorderExpenseCategories : undefined}
+      customRenderers={{
+        name: (value, row) => (
+          <span className="flex items-center gap-2">
+            {String(value)}
+            {!!row.systemCode && (
+              <Badge variant="secondary" className="text-xs">
+                システム
+              </Badge>
+            )}
+          </span>
+        ),
+      }}
     />
   );
 }

@@ -8,6 +8,7 @@ import { auth } from "@/auth";
 import type { UserPermission, OrganizationRole } from "@/types/auth";
 
 const PERM_PREFIX = "perm_";
+const APPROVE_PREFIX = "approve_";
 
 // 権限レベルの序列（天井バリデーション用）
 const PERM_LEVEL_ORDER: Record<string, number> = {
@@ -81,9 +82,10 @@ function validatePermissionCeiling(
  */
 async function buildPermissions(
   staffId: number,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  canSetApprove: boolean
 ) {
-  const permissions: { staffId: number; projectId: number; permissionLevel: string }[] = [];
+  const permissions: { staffId: number; projectId: number; permissionLevel: string; canApprove: boolean }[] = [];
 
   // プロジェクトコード → ID のマッピングを取得
   const allProjects = await prisma.masterProject.findMany({
@@ -91,13 +93,29 @@ async function buildPermissions(
   });
   const codeToId = new Map(allProjects.map((p) => [p.code, p.id]));
 
+  // 承認権限マップを構築（approve_xxx キーから取得）
+  const approveMap = new Map<string, boolean>();
+  if (canSetApprove) {
+    for (const [key, value] of Object.entries(data)) {
+      if (key.startsWith(APPROVE_PREFIX)) {
+        const projectCode = key.slice(APPROVE_PREFIX.length);
+        approveMap.set(projectCode, value === true || value === "true");
+      }
+    }
+  }
+
   // プロジェクト権限（perm_xxx キーから動的取得）
   for (const [key, value] of Object.entries(data)) {
     if (key.startsWith(PERM_PREFIX) && typeof value === "string" && value !== "none") {
       const projectCode = key.slice(PERM_PREFIX.length);
       const projectId = codeToId.get(projectCode);
       if (projectId) {
-        permissions.push({ staffId, projectId, permissionLevel: value });
+        permissions.push({
+          staffId,
+          projectId,
+          permissionLevel: value,
+          canApprove: approveMap.get(projectCode) ?? false,
+        });
       }
     }
   }
@@ -158,7 +176,7 @@ export async function addStaff(data: Record<string, unknown>) {
 
   // ファウンダーの場合は権限を設定しない（全権限が組織ロールで付与される）
   if (organizationRole !== "founder" && editableCodes.length > 0) {
-    const allPermissions = await buildPermissions(staff.id, data);
+    const allPermissions = await buildPermissions(staff.id, data, isAdminUser || isFounder);
     // editableCodes は projectCode ベースなので、projectId→code の逆引きが必要
     const allProjects = await prisma.masterProject.findMany({ select: { id: true, code: true } });
     const idToCode = new Map(allProjects.map((p) => [p.id, p.code]));
@@ -255,7 +273,16 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
   )?.organizationRole ?? "member";
 
   // 権限を更新（権限関連キーが渡された場合のみ、かつファウンダーでない場合）
-  const hasPermissionChange = Object.keys(data).some((k) => k.startsWith(PERM_PREFIX));
+  const hasPermissionChange = Object.keys(data).some((k) => k.startsWith(PERM_PREFIX) || k.startsWith(APPROVE_PREFIX));
+
+  // 承認権限の設定はadmin/founderのみ
+  let canSetApproveForUpdate = false;
+  {
+    const sess = await auth();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const u = sess?.user as any;
+    canSetApproveForUpdate = u?.loginId === "admin" || u?.organizationRole === "founder";
+  }
 
   if (targetRole !== "founder" && hasPermissionChange && editableCodes.length > 0) {
     // editableCodes → editableProjectIds に変換
@@ -277,10 +304,16 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
     // プロジェクト権限: 送信されていなければ既存値を保持
     for (const code of editableCodes) {
       const permKey = `${PERM_PREFIX}${code}`;
+      const approveKey = `${APPROVE_PREFIX}${code}`;
       if (!(permKey in data)) {
         const projectId = codeToId.get(code);
         const existing = existingPermissions.find((p) => p.projectId === projectId);
         mergedData[permKey] = existing?.permissionLevel || "none";
+      }
+      if (!(approveKey in data)) {
+        const projectId = codeToId.get(code);
+        const existing = existingPermissions.find((p) => p.projectId === projectId);
+        mergedData[approveKey] = existing?.canApprove ?? false;
       }
     }
 
@@ -293,7 +326,7 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
     });
 
     // マージ済みデータから権限を再作成
-    const allPermissions = await buildPermissions(id, mergedData);
+    const allPermissions = await buildPermissions(id, mergedData, canSetApproveForUpdate);
     const permissionsToCreate = allPermissions.filter((p) => {
       const code = idToCode.get(p.projectId);
       return code && editableCodes.includes(code);

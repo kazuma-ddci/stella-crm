@@ -39,6 +39,7 @@ export function AuthenticatedLayout({
   useEffect(() => {
     const saved = localStorage.getItem("sidebar-collapsed");
     if (saved === "true") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- hydration-safe localStorage restore on mount
       setSidebarCollapsed(true);
     }
   }, []);

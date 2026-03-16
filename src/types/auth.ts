@@ -36,6 +36,7 @@ export interface DisplayViewPermission {
 export interface UserPermission {
   projectCode: string;
   permissionLevel: PermissionLevel;
+  canApprove: boolean;
 }
 
 export type PermissionLevel = "none" | "view" | "edit" | "manager";

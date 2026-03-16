@@ -5,6 +5,7 @@ import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExpenseCategoriesTable } from "./expense-categories-table";
 import { getSystemProjectContext } from "@/lib/project-context";
+import { ensureSystemExpenseCategories } from "@/lib/expense-category-defaults";
 
 export default async function StpExpenseCategoriesPage() {
   const session = await auth();
@@ -13,6 +14,9 @@ export default async function StpExpenseCategoriesPage() {
 
   const ctx = await getSystemProjectContext("stp");
   if (!ctx) throw new Error("STPプロジェクトのコンテキストが取得できません");
+
+  // システムデフォルト費目を自動作成（不足分のみ）
+  await ensureSystemExpenseCategories(ctx.projectId);
 
   const expenseCategories = await prisma.expenseCategory.findMany({
     where: {
@@ -26,6 +30,7 @@ export default async function StpExpenseCategoriesPage() {
     id: ec.id,
     name: ec.name,
     type: ec.type,
+    systemCode: ec.systemCode,
     displayOrder: ec.displayOrder,
     isActive: ec.isActive,
   }));

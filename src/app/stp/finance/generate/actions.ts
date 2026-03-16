@@ -189,6 +189,9 @@ export type TransactionCandidate = {
   overrideTaxRate: number | null;
   overrideMemo: string | null;
   overrideScheduledPaymentDate: string | null;
+  /** 警告情報 */
+  warningType: string | null;
+  warningMessage: string | null;
 };
 
 // ============================================
@@ -599,21 +602,23 @@ async function detectCrmCandidates(
   });
 
   // 費目マスタ（売上用・経費用）— STPプロジェクトに絞る
+  // システムデフォルト費目を自動作成（不足分のみ）
+  if (stpProjectId) {
+    const { ensureSystemExpenseCategories } = await import("@/lib/expense-category-defaults");
+    await ensureSystemExpenseCategories(stpProjectId);
+  }
   const expenseCategories = await prisma.expenseCategory.findMany({
     where: { deletedAt: null, isActive: true, ...(stpProjectId ? { projectId: stpProjectId } : {}) },
   });
-  const revenueCategoryInitial = expenseCategories.find(
-    (c) => c.type !== "expense" && c.name.includes("初期")
+  // systemCodeベースのMap検索
+  const categoryByCode = new Map(
+    expenseCategories.filter((c) => c.systemCode).map((c) => [c.systemCode, c])
   );
-  const revenueCategoryMonthly = expenseCategories.find(
-    (c) => c.type !== "expense" && c.name.includes("月額")
-  );
-  const revenueCategoryPerformance = expenseCategories.find(
-    (c) => c.type !== "expense" && c.name.includes("成果")
-  );
-  const expenseCategoryOutsourcing = expenseCategories.find(
-    (c) => c.type !== "revenue" && c.name.includes("外注")
-  );
+  const revenueCategoryInitial = categoryByCode.get("stp_revenue_initial") ?? null;
+  const revenueCategoryMonthly = categoryByCode.get("stp_revenue_monthly") ?? null;
+  const revenueCategoryPerformance = categoryByCode.get("stp_revenue_performance") ?? null;
+  const expenseCategoryAgent = categoryByCode.get("stp_expense_agent") ?? null;
+  const expenseCategoryCommission = categoryByCode.get("stp_expense_commission") ?? null;
   // フォールバック: 見つからない場合は最初のものを使う
   const defaultRevenueCategory = expenseCategories.find(
     (c) => c.type === "revenue" || c.type === "both"
@@ -831,6 +836,8 @@ async function detectCrmCandidates(
           overrideTaxRate: null,
           overrideMemo: null,
           overrideScheduledPaymentDate: initialPaymentDueDateStr,
+          warningType: null,
+          warningMessage: null,
         });
       }
     }
@@ -925,6 +932,8 @@ async function detectCrmCandidates(
           overrideTaxRate: null,
           overrideMemo: null,
           overrideScheduledPaymentDate: monthlyPaymentDueDateStr,
+          warningType: null,
+          warningMessage: null,
         });
       }
     }
@@ -950,7 +959,8 @@ async function detectCrmCandidates(
 
         const agentCpId = agentCounterparty?.id ?? null;
         const agentCpName = agentCounterparty?.name ?? agent.company?.name ?? "不明な代理店";
-        const expCategory = expenseCategoryOutsourcing ?? defaultExpenseCategory ?? null;
+        const agentExpCategory = expenseCategoryAgent ?? defaultExpenseCategory ?? null;
+        const commissionExpCategory = expenseCategoryCommission ?? defaultExpenseCategory ?? null;
 
         {
           const override =
@@ -983,121 +993,6 @@ async function detectCrmCandidates(
             };
           };
 
-          // 代理店初期費用
-          if (
-            (agentContractHistory.initialFee ?? 0) > 0 &&
-            initialFeeMonth.getTime() === monthStart.getTime()
-          ) {
-            const amt = agentContractHistory.initialFee ?? 0;
-            const key = `crm-expense-agent_initial-${contract.id}-${stpCompany.agentId}`;
-            const existing = existingTransactions.find(
-              (t) =>
-                t.stpContractHistoryId === contract.id &&
-                t.stpExpenseType === "agent_initial" &&
-                t.type === "expense"
-            );
-            const changeInfo = detectSourceChange(existing, amt);
-
-            candidates.push({
-              key,
-              source: "crm",
-              type: "expense",
-              counterpartyId: agentCpId,
-              counterpartyName: agentCpName,
-              expenseCategoryId: expCategory?.id ?? null,
-              expenseCategoryName: expCategory?.name ?? "（未設定）",
-              amount: amt,
-              taxAmount: calcTaxAmount(amt, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
-              taxRate: DEFAULT_TAX_RATE,
-              taxType: DEFAULT_TAX_TYPE,
-              periodFrom: formatDate(initialFeeDate),
-              periodTo: formatDate(initialFeeDate),
-              note: `${contract.company.name} 代理店初期費用 (${agentCpName})`,
-              contractTitle: null,
-              stpContractHistoryId: contract.id,
-              stpRevenueType: null,
-              stpExpenseType: "agent_initial",
-              stpCandidateId: null,
-              stpAgentId: stpCompany.agentId,
-              recurringTransactionId: null,
-              costCenterId: stpCostCenter?.id ?? null,
-              costCenterName: stpCostCenter?.name ?? null,
-              allocationTemplateId: null,
-              allocationTemplateName: null,
-              paymentMethodId: null,
-              ...buildWh(amt),
-              projectId: stpProjectId,
-              ...changeInfo,
-              alreadyGenerated: !!existing,
-              decisionStatus: null,
-              decisionReasonType: null,
-              decisionMemo: null,
-              decisionNeedsReview: false,
-              currentFingerprint: null,
-              overrideAmount: null,
-              overrideTaxAmount: null,
-              overrideTaxRate: null,
-              overrideMemo: null,
-              overrideScheduledPaymentDate: initialPaymentDueDateStr,
-            });
-          }
-
-          // 代理店月額費用
-          if ((agentContractHistory.monthlyFee ?? 0) > 0) {
-            const amt = agentContractHistory.monthlyFee ?? 0;
-            const key = `crm-expense-agent_monthly-${contract.id}-${stpCompany.agentId}`;
-            const existing = existingTransactions.find(
-              (t) =>
-                t.stpContractHistoryId === contract.id &&
-                t.stpExpenseType === "agent_monthly" &&
-                t.type === "expense"
-            );
-            const changeInfo = detectSourceChange(existing, amt);
-
-            candidates.push({
-              key,
-              source: "crm",
-              type: "expense",
-              counterpartyId: agentCpId,
-              counterpartyName: agentCpName,
-              expenseCategoryId: expCategory?.id ?? null,
-              expenseCategoryName: expCategory?.name ?? "（未設定）",
-              amount: amt,
-              taxAmount: calcTaxAmount(amt, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
-              taxRate: DEFAULT_TAX_RATE,
-              taxType: DEFAULT_TAX_TYPE,
-              periodFrom: periodFromStr,
-              periodTo: periodToStr,
-              note: `${contract.company.name} 代理店月額費用 (${agentCpName})`,
-              contractTitle: null,
-              stpContractHistoryId: contract.id,
-              stpRevenueType: null,
-              stpExpenseType: "agent_monthly",
-              stpCandidateId: null,
-              stpAgentId: stpCompany.agentId,
-              recurringTransactionId: null,
-              costCenterId: stpCostCenter?.id ?? null,
-              costCenterName: stpCostCenter?.name ?? null,
-              allocationTemplateId: null,
-              allocationTemplateName: null,
-              paymentMethodId: null,
-              ...buildWh(amt),
-              projectId: stpProjectId,
-              ...changeInfo,
-              alreadyGenerated: !!existing,
-              decisionStatus: null,
-              decisionReasonType: null,
-              decisionMemo: null,
-              decisionNeedsReview: false,
-              currentFingerprint: null,
-              overrideAmount: null,
-              overrideTaxAmount: null,
-              overrideTaxRate: null,
-              overrideMemo: null,
-              overrideScheduledPaymentDate: monthlyPaymentDueDateStr,
-            });
-          }
-
           // 初期費用紹介報酬
           if (
             contract.initialFee > 0 &&
@@ -1121,8 +1016,8 @@ async function detectCrmCandidates(
                 type: "expense",
                 counterpartyId: agentCpId,
                 counterpartyName: agentCpName,
-                expenseCategoryId: expCategory?.id ?? null,
-                expenseCategoryName: expCategory?.name ?? "（未設定）",
+                expenseCategoryId: commissionExpCategory?.id ?? null,
+                expenseCategoryName: commissionExpCategory?.name ?? "（未設定）",
                 amount: amt,
                 taxAmount: calcTaxAmount(amt, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
                 taxRate: DEFAULT_TAX_RATE,
@@ -1156,6 +1051,8 @@ async function detectCrmCandidates(
                 overrideTaxRate: null,
                 overrideMemo: null,
                 overrideScheduledPaymentDate: initialPaymentDueDateStr,
+                warningType: null,
+                warningMessage: null,
               });
             }
           }
@@ -1194,8 +1091,8 @@ async function detectCrmCandidates(
                   type: "expense",
                   counterpartyId: agentCpId,
                   counterpartyName: agentCpName,
-                  expenseCategoryId: expCategory?.id ?? null,
-                  expenseCategoryName: expCategory?.name ?? "（未設定）",
+                  expenseCategoryId: commissionExpCategory?.id ?? null,
+                  expenseCategoryName: commissionExpCategory?.name ?? "（未設定）",
                   amount: monthlyCommission,
                   taxAmount: calcTaxAmount(
                     monthlyCommission,
@@ -1233,12 +1130,208 @@ async function detectCrmCandidates(
                   overrideTaxRate: null,
                   overrideMemo: null,
                   overrideScheduledPaymentDate: monthlyPaymentDueDateStr,
+                  warningType: null,
+                  warningMessage: null,
                 });
               }
             }
           }
         }
       }
+    }
+  }
+
+  // === 経費: 代理店直接費用（企業契約に依存しない） ===
+  const activeAgentContracts = await prisma.stpAgentContractHistory.findMany({
+    where: {
+      deletedAt: null,
+      contractStartDate: { lte: monthEnd },
+      OR: [
+        { contractEndDate: null },
+        { contractEndDate: { gte: monthStart } },
+      ],
+    },
+    include: {
+      agent: { include: { company: true } },
+    },
+  });
+
+  // 代理店の既存取引を取得（重複チェック用）
+  const activeAgentContractIds = activeAgentContracts.map((h) => h.id);
+  const existingAgentExpenseTransactions = activeAgentContractIds.length > 0
+    ? await prisma.transaction.findMany({
+        where: {
+          deletedAt: null,
+          periodFrom: { gte: monthStart, lte: monthEnd },
+          sourceType: "crm",
+          stpExpenseType: { in: ["agent_initial", "agent_monthly"] },
+          stpAgentId: { in: activeAgentContracts.map((h) => h.agentId) },
+        },
+      })
+    : [];
+
+  for (const agentContract of activeAgentContracts) {
+    const agent = agentContract.agent;
+    const agentCounterparty = agent.companyId
+      ? counterpartyByCompanyId.get(agent.companyId) ?? null
+      : null;
+    const agentCpId = agentCounterparty?.id ?? null;
+    const agentCpName = agentCounterparty?.name ?? agent.company?.name ?? "不明な代理店";
+    const agentExpCategory = expenseCategoryAgent ?? defaultExpenseCategory ?? null;
+
+    const needsWithholding = agent && isWithholdingTarget(agent);
+    const buildWh = (amount: number) => {
+      if (!needsWithholding || amount <= 0)
+        return {
+          isWithholdingTarget: false,
+          withholdingTaxRate: null as number | null,
+          withholdingTaxAmount: null as number | null,
+          netPaymentAmount: null as number | null,
+        };
+      const whTax = calcWithholdingTax(amount);
+      return {
+        isWithholdingTarget: true,
+        withholdingTaxRate: amount <= 1_000_000 ? 10.21 : 20.42,
+        withholdingTaxAmount: whTax,
+        netPaymentAmount: amount - whTax,
+      };
+    };
+
+    // 初期費用: contractDate があればそちら、なければ contractStartDate
+    const agentInitialFeeDate = agentContract.contractDate ?? agentContract.contractStartDate;
+    const agentInitialFeeMonth = startOfMonth(agentInitialFeeDate);
+
+    // 代理店初期費用
+    if (
+      (agentContract.initialFee ?? 0) > 0 &&
+      agentInitialFeeMonth.getTime() === monthStart.getTime()
+    ) {
+      const amt = agentContract.initialFee ?? 0;
+      const key = `crm-expense-agent_initial-agent${agentContract.id}`;
+      const existing = existingAgentExpenseTransactions.find(
+        (t) =>
+          t.stpAgentId === agentContract.agentId &&
+          t.stpExpenseType === "agent_initial"
+      );
+      const changeInfo = detectSourceChange(existing, amt);
+
+      candidates.push({
+        key,
+        source: "crm",
+        type: "expense",
+        counterpartyId: agentCpId,
+        counterpartyName: agentCpName,
+        expenseCategoryId: agentExpCategory?.id ?? null,
+        expenseCategoryName: agentExpCategory?.name ?? "（未設定）",
+        amount: amt,
+        taxAmount: calcTaxAmount(amt, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
+        taxRate: DEFAULT_TAX_RATE,
+        taxType: DEFAULT_TAX_TYPE,
+        periodFrom: formatDate(agentInitialFeeDate),
+        periodTo: formatDate(agentInitialFeeDate),
+        note: `代理店初期費用 (${agentCpName})`,
+        contractTitle: null,
+        stpContractHistoryId: null,
+        stpRevenueType: null,
+        stpExpenseType: "agent_initial",
+        stpCandidateId: null,
+        stpAgentId: agentContract.agentId,
+        recurringTransactionId: null,
+        costCenterId: stpCostCenter?.id ?? null,
+        costCenterName: stpCostCenter?.name ?? null,
+        allocationTemplateId: null,
+        allocationTemplateName: null,
+        paymentMethodId: null,
+        ...buildWh(amt),
+        projectId: stpProjectId,
+        ...changeInfo,
+        alreadyGenerated: !!existing,
+        decisionStatus: null,
+        decisionReasonType: null,
+        decisionMemo: null,
+        decisionNeedsReview: false,
+        currentFingerprint: null,
+        overrideAmount: null,
+        overrideTaxAmount: null,
+        overrideTaxRate: null,
+        overrideMemo: null,
+        overrideScheduledPaymentDate: null,
+        warningType: null,
+        warningMessage: null,
+      });
+    }
+
+    // 代理店月額費用（日割り対応）
+    if ((agentContract.monthlyFee ?? 0) > 0) {
+      const amt = agentContract.monthlyFee ?? 0;
+      const agentContractStart = startOfMonth(agentContract.contractStartDate);
+      const isFirstMonth = agentContractStart.getTime() === monthStart.getTime();
+
+      let monthlyAmount = amt;
+      let monthlyPeriodFrom = formatDate(monthStart);
+      const monthlyPeriodTo = formatDate(monthEnd);
+
+      if (isFirstMonth) {
+        const startDay = agentContract.contractStartDate.getUTCDate();
+        const year = monthStart.getUTCFullYear();
+        const month = monthStart.getUTCMonth() + 1;
+        const totalDays = getDaysInMonth(year, month);
+        monthlyAmount = calculateProratedFee(amt, startDay, totalDays);
+        monthlyPeriodFrom = formatDate(agentContract.contractStartDate);
+      }
+
+      const key = `crm-expense-agent_monthly-agent${agentContract.id}`;
+      const existing = existingAgentExpenseTransactions.find(
+        (t) =>
+          t.stpAgentId === agentContract.agentId &&
+          t.stpExpenseType === "agent_monthly"
+      );
+      const changeInfo = detectSourceChange(existing, monthlyAmount);
+
+      candidates.push({
+        key,
+        source: "crm",
+        type: "expense",
+        counterpartyId: agentCpId,
+        counterpartyName: agentCpName,
+        expenseCategoryId: agentExpCategory?.id ?? null,
+        expenseCategoryName: agentExpCategory?.name ?? "（未設定）",
+        amount: monthlyAmount,
+        taxAmount: calcTaxAmount(monthlyAmount, DEFAULT_TAX_TYPE, DEFAULT_TAX_RATE),
+        taxRate: DEFAULT_TAX_RATE,
+        taxType: DEFAULT_TAX_TYPE,
+        periodFrom: monthlyPeriodFrom,
+        periodTo: monthlyPeriodTo,
+        note: `代理店月額費用 (${agentCpName})${isFirstMonth ? "（日割り）" : ""}`,
+        contractTitle: null,
+        stpContractHistoryId: null,
+        stpRevenueType: null,
+        stpExpenseType: "agent_monthly",
+        stpCandidateId: null,
+        stpAgentId: agentContract.agentId,
+        recurringTransactionId: null,
+        costCenterId: stpCostCenter?.id ?? null,
+        costCenterName: stpCostCenter?.name ?? null,
+        allocationTemplateId: null,
+        allocationTemplateName: null,
+        paymentMethodId: null,
+        ...buildWh(monthlyAmount),
+        projectId: stpProjectId,
+        ...changeInfo,
+        alreadyGenerated: !!existing,
+        decisionStatus: null,
+        decisionReasonType: null,
+        decisionMemo: null,
+        decisionNeedsReview: false,
+        currentFingerprint: null,
+        overrideAmount: null,
+        overrideTaxAmount: null,
+        overrideTaxRate: null,
+        overrideMemo: null,
+        overrideScheduledPaymentDate: null,
+        warningType: null,
+        warningMessage: null,
+      });
     }
   }
 
@@ -1281,7 +1374,69 @@ async function detectCrmCandidates(
       orderBy: { contractStartDate: "desc" },
     });
 
-    if (matchingContracts.length !== 1) continue;
+    if (matchingContracts.length === 0) continue;
+
+    if (matchingContracts.length > 1) {
+      // 複数マッチ: 各契約ごとに警告候補を生成
+      for (const mc of matchingContracts) {
+        const revCategory = revenueCategoryPerformance ?? defaultRevenueCategory ?? null;
+        const periodStr = formatDate(monthStart);
+        const key = `crm-revenue-performance-${mc.id}-${candidate.id}-warning`;
+
+        candidates.push({
+          key,
+          source: "crm",
+          type: "revenue",
+          counterpartyId: counterparty?.id ?? null,
+          counterpartyName: counterparty?.name ?? company.name,
+          expenseCategoryId: revCategory?.id ?? null,
+          expenseCategoryName: revCategory?.name ?? "（未設定）",
+          amount: mc.performanceFee,
+          taxAmount: calcTaxAmount(mc.performanceFee, "tax_included", 10),
+          taxRate: 10,
+          taxType: "tax_included",
+          periodFrom: periodStr,
+          periodTo: periodStr,
+          note: `${company.name} 成果報酬 (${candidate.lastName}${candidate.firstName})`,
+          contractTitle: null,
+          stpContractHistoryId: mc.id,
+          stpRevenueType: "performance",
+          stpExpenseType: null,
+          stpCandidateId: candidate.id,
+          stpAgentId: null,
+          recurringTransactionId: null,
+          costCenterId: stpCostCenter?.id ?? null,
+          costCenterName: stpCostCenter?.name ?? null,
+          allocationTemplateId: null,
+          allocationTemplateName: null,
+          paymentMethodId: null,
+          isWithholdingTarget: false,
+          withholdingTaxRate: null,
+          withholdingTaxAmount: null,
+          netPaymentAmount: null,
+          projectId: stpProjectId,
+          sourceDataChanged: false,
+          previousAmount: null,
+          latestCalculatedAmount: null,
+          existingTransactionId: null,
+          alreadyGenerated: false,
+          decisionStatus: null,
+          decisionReasonType: null,
+          decisionMemo: null,
+          decisionNeedsReview: false,
+          currentFingerprint: null,
+          overrideAmount: null,
+          overrideTaxAmount: null,
+          overrideTaxRate: null,
+          overrideMemo: null,
+          overrideScheduledPaymentDate: null,
+          warningType: "multiple_contracts",
+          warningMessage: `${matchingContracts.length}件の契約がマッチしています。正しい契約を選択してください。`,
+        });
+      }
+      continue;
+    }
+
     const contractHistory = matchingContracts[0];
 
     const revCategory = revenueCategoryPerformance ?? defaultRevenueCategory ?? null;
@@ -1363,6 +1518,8 @@ async function detectCrmCandidates(
       overrideTaxRate: null,
       overrideMemo: null,
       overrideScheduledPaymentDate: perfPaymentDueDateStr,
+      warningType: null,
+      warningMessage: null,
     });
 
     // minor-3: 成果報酬に対応する代理店紹介報酬（commission_performance）
@@ -1383,7 +1540,7 @@ async function detectCrmCandidates(
         const agentCpId = agentCounterparty?.id ?? null;
         const agentCpName =
           agentCounterparty?.name ?? agent.company?.name ?? "不明な代理店";
-        const expCategory = expenseCategoryOutsourcing ?? defaultExpenseCategory ?? null;
+        const expCategory = expenseCategoryCommission ?? defaultExpenseCategory ?? null;
 
         {
           const override =
@@ -1482,6 +1639,8 @@ async function detectCrmCandidates(
               overrideTaxRate: null,
               overrideMemo: null,
               overrideScheduledPaymentDate: perfPaymentDueDateStr,
+              warningType: null,
+              warningMessage: null,
             });
           }
         }
@@ -1594,6 +1753,8 @@ async function detectRecurringCandidates(
       overrideTaxRate: null,
       overrideMemo: null,
       overrideScheduledPaymentDate: null,
+      warningType: null,
+      warningMessage: null,
     });
   }
 }

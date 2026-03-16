@@ -44,7 +44,6 @@ import {
   Bell,
   Handshake,
   Repeat,
-  Zap,
   Wallet,
   CheckCircle2,
   Target,
@@ -187,7 +186,6 @@ const navigation: NavItem[] = [
         children: [
           { name: "ダッシュボード", href: "/stp/finance/overview", icon: DollarSign },
           { name: "取引管理", href: "/stp/finance/transactions", icon: Landmark },
-          { name: "取引候補生成", href: "/stp/finance/generate", icon: Zap },
           { name: "売上・支払トラッカー", href: "/stp/finance/billing", icon: ClipboardCheck },
           { name: "請求管理（売上）", href: "/stp/finance/invoices", icon: Receipt },
           { name: "支払管理（経費）", href: "/stp/finance/payment-groups", icon: Wallet },
@@ -360,6 +358,7 @@ function CollapsibleNavComponent({
   const [isOpen, setIsOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydration-safe localStorage restore on mount
     if (!userId) { setHydrated(true); return; }
     const state = getSidebarState(userId);
     if (state[itemPath]) {

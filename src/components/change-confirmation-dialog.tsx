@@ -78,6 +78,7 @@ export function ChangeConfirmationDialog({
   // ダイアログが開くたびにメモをリセット
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset notes when dialog opens
       setNotes({});
     }
   }, [open]);

@@ -78,6 +78,15 @@ export function canEditProjectMasterData(
   return user.permissions.some((p) => p.permissionLevel === "manager");
 }
 
+/** プロジェクトの承認権限を持つか */
+export function canApprove(
+  permissions: UserPermission[],
+  projectCode: ProjectCode
+): boolean {
+  const permission = permissions.find((p) => p.projectCode === projectCode);
+  return permission?.canApprove === true;
+}
+
 export function getPermissionLevel(
   permissions: UserPermission[],
   projectCode: ProjectCode

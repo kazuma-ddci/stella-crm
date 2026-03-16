@@ -74,6 +74,20 @@ export function EditableCell({
   const inputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Currency formatting helpers & state (always declared to satisfy rules of hooks)
+  const formatCurrency = (val: unknown): string => {
+    if (val === null || val === undefined || val === "") return "";
+    return `¥${Number(val).toLocaleString()}`;
+  };
+  const parseCurrency = (str: string): number | null => {
+    const cleaned = str.replace(/[¥,\s]/g, "");
+    if (cleaned === "" || cleaned === "-") return null;
+    const num = Number(cleaned);
+    return isNaN(num) ? null : num;
+  };
+  const [displayValue, setDisplayValue] = useState(formatCurrency(value));
+  const [isFocused, setIsFocused] = useState(false);
+
   // Focus input on mount
   useEffect(() => {
     if (type === "text" || type === "number") {
@@ -82,6 +96,7 @@ export function EditableCell({
     } else if (type === "textarea") {
       textareaRef.current?.focus();
     } else if (type === "select" || type === "multiselect") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- mount時のUI初期化
       setPopoverOpen(true);
     }
   }, [type]);
@@ -154,20 +169,6 @@ export function EditableCell({
   // Number input (with optional currency formatting)
   if (type === "number") {
     if (currency) {
-      // 通貨フォーマット: ¥#,##0 で表示、数値のみ入力可能
-      const formatCurrency = (val: unknown): string => {
-        if (val === null || val === undefined || val === "") return "";
-        return `¥${Number(val).toLocaleString()}`;
-      };
-      const parseCurrency = (str: string): number | null => {
-        const cleaned = str.replace(/[¥,\s]/g, "");
-        if (cleaned === "" || cleaned === "-") return null;
-        const num = Number(cleaned);
-        return isNaN(num) ? null : num;
-      };
-      const [displayValue, setDisplayValue] = useState(formatCurrency(value));
-      const [isFocused, setIsFocused] = useState(false);
-
       // Focus時は数値のみ表示、Blur時はフォーマット表示
       return (
         <Input

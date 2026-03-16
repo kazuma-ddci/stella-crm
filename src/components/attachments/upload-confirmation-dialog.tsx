@@ -62,6 +62,7 @@ export function UploadConfirmationDialog({
   // files が変わるたびにリセット（open時にも反映されるように）
   useEffect(() => {
     if (!open || files.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset entries when dialog closes or files cleared
       setEntries([]);
       return;
     }

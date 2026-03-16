@@ -20,7 +20,6 @@ type Props = {
   counterpartyOptions: { value: string; label: string; isStellaCustomer: boolean }[];
   operatingCompanyOptions: { value: string; label: string }[];
   expenseCategories: { id: number; name: string; type: string }[];
-  unconfirmedTransactions: UngroupedExpenseTransaction[];
   projectId?: number;
   canEditAccounting?: boolean;
   pendingInboundInvoices?: PendingInboundInvoice[];
@@ -34,7 +33,6 @@ export function PaymentGroupsPageClient({
   counterpartyOptions,
   operatingCompanyOptions,
   expenseCategories,
-  unconfirmedTransactions,
   projectId,
   canEditAccounting,
   pendingInboundInvoices = [],
@@ -46,21 +44,20 @@ export function PaymentGroupsPageClient({
 
   // サマリー計算
   const totalCount = data.length;
-  const invoiceBeforeRequestCount = data.filter(
-    (r) => r.paymentType === "invoice" && r.status === "before_request"
+  const pendingApprovalCount = data.filter(
+    (r) => r.status === "pending_approval"
   ).length;
-  const directUnprocessedCount = data.filter(
-    (r) => r.paymentType === "direct" && r.status === "unprocessed"
+  const actionRequiredCount = data.filter(
+    (r) => ["pending_approval", "before_request", "invoice_received", "rejected"].includes(r.status)
   ).length;
-  const actionRequiredCount = invoiceBeforeRequestCount + directUnprocessedCount;
   const totalAmount = data.reduce((sum, r) => sum + (r.totalAmount ?? 0), 0);
   const confirmedAmount = data
     .filter((r) => ["confirmed", "paid"].includes(r.status))
     .reduce((sum, r) => sum + (r.totalAmount ?? 0), 0);
 
-  // 下書き（before_request）+ direct未処理の支払グループ
+  // 下書き（pending_approval / before_request）の支払グループ
   const draftPaymentGroups = data.filter(
-    (r) => r.status === "before_request" || (r.paymentType === "direct" && r.status === "unprocessed")
+    (r) => r.status === "pending_approval" || r.status === "before_request"
   );
 
   return (
@@ -102,7 +99,6 @@ export function PaymentGroupsPageClient({
             counterpartyOptions={counterpartyOptions}
             operatingCompanyOptions={operatingCompanyOptions}
             expenseCategories={expenseCategories}
-            unconfirmedTransactions={unconfirmedTransactions}
             projectId={projectId}
           />
         </TabsContent>
@@ -122,14 +118,9 @@ export function PaymentGroupsPageClient({
                   <div className="text-2xl font-bold text-orange-600">
                     {actionRequiredCount}件
                   </div>
-                  {invoiceBeforeRequestCount > 0 && (
+                  {pendingApprovalCount > 0 && (
                     <div className="text-xs text-muted-foreground mt-1">
-                      請求書: 依頼前 {invoiceBeforeRequestCount}件
-                    </div>
-                  )}
-                  {directUnprocessedCount > 0 && (
-                    <div className="text-xs text-muted-foreground mt-1">
-                      即時: 未処理 {directUnprocessedCount}件
+                      承認待ち {pendingApprovalCount}件
                     </div>
                   )}
                 </CardContent>

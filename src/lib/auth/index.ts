@@ -8,6 +8,7 @@ export {
   isFounder,
   isSystemAdmin,
   canEditCommonMasterData,
+  canApprove,
   canEditProjectMasterData,
   getPermissionLevel,
 } from "./permissions";

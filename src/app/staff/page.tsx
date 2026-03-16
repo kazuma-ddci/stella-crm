@@ -53,10 +53,11 @@ export default async function StaffPage() {
 
   const data = staffList.map((s) => {
     // 動的にプロジェクト権限を構築
-    const projectPermissions: Record<string, string> = {};
+    const projectPermissions: Record<string, string | boolean> = {};
     for (const project of projects) {
       const perm = s.permissions.find((p) => p.project.code === project.code);
       projectPermissions[`perm_${project.code}`] = perm?.permissionLevel || "none";
+      projectPermissions[`approve_${project.code}`] = perm?.canApprove ?? false;
     }
 
     return {

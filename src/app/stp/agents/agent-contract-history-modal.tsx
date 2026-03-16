@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -73,6 +73,7 @@ type ContractHistory = {
   agentId: number;
   contractStartDate: string;
   contractEndDate: string | null;
+  contractDate: string | null;
   status: string;
   initialFee: number | null;
   monthlyFee: number | null;
@@ -91,6 +92,7 @@ type ContractHistory = {
   defaultPpPerfFixed: number | null;
   defaultPpPerfDuration: number | null;
   note: string | null;
+  masterContractId: number | null;
   commissionOverrides: CommissionOverride[];
 };
 
@@ -155,15 +157,13 @@ function CurrencyInput({
   placeholder?: string;
   className?: string;
 }) {
-  const [displayValue, setDisplayValue] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (!isFocused) {
-      setDisplayValue(value != null ? formatCurrency(value) : "");
-    }
-  }, [value, isFocused]);
+  const displayValue = useMemo(
+    () => (value != null ? formatCurrency(value) : ""),
+    [value],
+  );
 
   return (
     <Input
@@ -373,6 +373,7 @@ export function AgentContractHistoryModal({
   const getDefaultFormData = (): Partial<AgentContractHistoryData> => ({
     contractStartDate: "",
     contractEndDate: null,
+    contractDate: null,
     status: "契約前",
     initialFee: null,
     monthlyFee: null,
@@ -401,6 +402,7 @@ export function AgentContractHistoryModal({
     setFormData({
       contractStartDate: history.contractStartDate,
       contractEndDate: history.contractEndDate,
+      contractDate: history.contractDate,
       status: history.status,
       initialFee: history.initialFee,
       monthlyFee: history.monthlyFee,
@@ -432,6 +434,7 @@ export function AgentContractHistoryModal({
       const result = await addAgentContractHistory(agentId, {
         contractStartDate: formData.contractStartDate,
         contractEndDate: formData.contractEndDate || null,
+        contractDate: formData.contractDate || null,
         status: formData.status,
         initialFee: formData.initialFee ?? null,
         monthlyFee: formData.monthlyFee ?? null,
@@ -448,6 +451,7 @@ export function AgentContractHistoryModal({
         defaultPpPerfFixed: formData.defaultPpPerfFixed ?? null,
         defaultPpPerfDuration: formData.defaultPpPerfDuration ?? null,
         note: formData.note || null,
+        masterContractId: null,
       });
       if (!result.success) {
         toast.error(`追加に失敗しました: ${result.error}`);
@@ -480,6 +484,7 @@ export function AgentContractHistoryModal({
       const result = await updateAgentContractHistory(editHistory.id, {
         contractStartDate: pendingEditData.contractStartDate,
         contractEndDate: pendingEditData.contractEndDate || null,
+        contractDate: pendingEditData.contractDate || null,
         status: pendingEditData.status,
         initialFee: pendingEditData.initialFee ?? null,
         monthlyFee: pendingEditData.monthlyFee ?? null,
@@ -496,6 +501,7 @@ export function AgentContractHistoryModal({
         defaultPpPerfFixed: pendingEditData.defaultPpPerfFixed ?? null,
         defaultPpPerfDuration: pendingEditData.defaultPpPerfDuration ?? null,
         note: pendingEditData.note || null,
+        masterContractId: editHistory.masterContractId ?? null,
       });
       if (!result.success) {
         toast.error(`更新に失敗しました: ${result.error}`);
@@ -936,7 +942,7 @@ export function AgentContractHistoryModal({
       </h3>
 
       {/* 契約情報 */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <div className="space-y-2">
           <Label>
             契約開始日 <span className="text-destructive">*</span>
@@ -971,6 +977,25 @@ export function AgentContractHistoryModal({
             dateFormat="yyyy/MM/dd"
             locale="ja"
             placeholderText="日付を選択"
+            isClearable
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            wrapperClassName="w-full"
+            calendarClassName="shadow-lg"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>契約日</Label>
+          <DatePicker
+            selected={formData.contractDate ? new Date(formData.contractDate) : null}
+            onChange={(date: Date | null) => {
+              setFormData({
+                ...formData,
+                contractDate: date ? toLocalDateString(date) : null,
+              });
+            }}
+            dateFormat="yyyy/MM/dd"
+            locale="ja"
+            placeholderText="初期費用発生日"
             isClearable
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             wrapperClassName="w-full"

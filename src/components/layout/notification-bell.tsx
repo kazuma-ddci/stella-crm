@@ -19,6 +19,7 @@ export function NotificationBell() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async polling: initial fetch + interval
     fetchCount();
     // 60秒ごとにポーリング
     const interval = setInterval(fetchCount, 60_000);

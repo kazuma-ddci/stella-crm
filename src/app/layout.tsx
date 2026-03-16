@@ -7,6 +7,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { PermissionGuard } from "@/components/auth/permission-guard";
 import { AuthenticatedLayout } from "@/components/layout/authenticated-layout";
+import { BuildVersionChecker } from "@/components/build-version-checker";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -63,6 +64,7 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <SessionProvider refetchInterval={30}>
+          <BuildVersionChecker />
           <PermissionGuard />
           {user ? (
             <AuthenticatedLayout serverUser={user} hiddenItems={hiddenItems} projectNames={projectNames}>

@@ -8,9 +8,8 @@ import { addAgent, updateAgent, deleteAgent } from "./actions";
 import { ContactHistoryModal } from "./contact-history-modal";
 import { MasterContractModal } from "@/components/master-contract-modal";
 import { ReferredCompaniesModal } from "./referred-companies-modal";
-import { AgentContractHistoryModal } from "./agent-contract-history-modal";
 import { FieldChangeLogModal } from "@/components/field-change-log-modal";
-import { FileText, MessageSquare, ScrollText, Copy, Check, Loader2, DollarSign, AlertTriangle, History } from "lucide-react";
+import { MessageSquare, ScrollText, Copy, Check, Loader2, DollarSign, AlertTriangle, History } from "lucide-react";
 import { TextPreviewCell } from "@/components/text-preview-cell";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -88,7 +87,6 @@ export function AgentsTable({
   const router = useRouter();
   const [contactHistoryModalOpen, setContactHistoryModalOpen] = useState(false);
   const [masterContractModalOpen, setMasterContractModalOpen] = useState(false);
-  const [agentContractHistoryModalOpen, setAgentContractHistoryModalOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<Record<string, unknown> | null>(null);
 
   // 変更履歴モーダル用ステート
@@ -615,14 +613,6 @@ export function AgentsTable({
 
   const customActions: CustomAction[] = [
     {
-      icon: <FileText className="h-4 w-4" />,
-      label: "契約条件",
-      onClick: (item) => {
-        setSelectedAgent(item);
-        setAgentContractHistoryModalOpen(true);
-      },
-    },
-    {
       icon: <MessageSquare className="h-4 w-4" />,
       label: "接触履歴",
       onClick: (item) => {
@@ -632,7 +622,7 @@ export function AgentsTable({
     },
     {
       icon: <ScrollText className="h-4 w-4" />,
-      label: "契約書",
+      label: "契約管理",
       onClick: (item) => {
         setSelectedAgent(item);
         setMasterContractModalOpen(true);
@@ -739,12 +729,6 @@ export function AgentsTable({
 
       {selectedAgent && (
         <>
-          <AgentContractHistoryModal
-            open={agentContractHistoryModalOpen}
-            onOpenChange={setAgentContractHistoryModalOpen}
-            agentId={selectedAgent.id as number}
-            agentName={selectedAgent.companyName as string}
-          />
           <ContactHistoryModal
             open={contactHistoryModalOpen}
             onOpenChange={setContactHistoryModalOpen}
@@ -765,6 +749,7 @@ export function AgentsTable({
             contractStatusOptions={masterContractStatusOptions}
             staffOptions={contractStaffOptions}
             contractTypeOptions={contractTypeOptions}
+            agentId={selectedAgent.id as number}
           />
         </>
       )}

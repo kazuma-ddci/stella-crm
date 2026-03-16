@@ -10,6 +10,7 @@ import { markExpenseRecordsForAgentChange } from "@/lib/finance/auto-generate";
 export type AgentContractHistoryData = {
   contractStartDate: string;
   contractEndDate: string | null;
+  contractDate: string | null;
   status: string;
   initialFee: number | null;
   monthlyFee: number | null;
@@ -28,6 +29,7 @@ export type AgentContractHistoryData = {
   defaultPpPerfFixed: number | null;
   defaultPpPerfDuration: number | null;
   note: string | null;
+  masterContractId: number | null;
 };
 
 export type CommissionOverrideData = {
@@ -78,6 +80,7 @@ export async function getAgentContractHistories(agentId: number) {
     agentId: h.agentId,
     contractStartDate: toLocalDateString(h.contractStartDate),
     contractEndDate: h.contractEndDate ? toLocalDateString(h.contractEndDate) : null,
+    contractDate: h.contractDate ? toLocalDateString(h.contractDate) : null,
     status: h.status,
     initialFee: h.initialFee,
     monthlyFee: h.monthlyFee,
@@ -96,6 +99,7 @@ export async function getAgentContractHistories(agentId: number) {
     defaultPpPerfFixed: h.defaultPpPerfFixed,
     defaultPpPerfDuration: h.defaultPpPerfDuration,
     note: h.note,
+    masterContractId: h.masterContractId,
     commissionOverrides: h.commissionOverrides.map((o) => ({
       id: o.id,
       agentContractHistoryId: o.agentContractHistoryId,
@@ -131,6 +135,7 @@ export async function addAgentContractHistory(
         agentId,
         contractStartDate: new Date(data.contractStartDate),
         contractEndDate: data.contractEndDate ? new Date(data.contractEndDate) : null,
+        contractDate: data.contractDate ? new Date(data.contractDate) : null,
         status: data.status,
         initialFee: data.initialFee,
         monthlyFee: data.monthlyFee,
@@ -147,6 +152,7 @@ export async function addAgentContractHistory(
         defaultPpPerfFixed: data.defaultPpPerfFixed,
         defaultPpPerfDuration: data.defaultPpPerfDuration,
         note: data.note,
+        masterContractId: data.masterContractId,
       },
     });
 
@@ -170,6 +176,7 @@ export async function updateAgentContractHistory(
       data: {
         contractStartDate: new Date(data.contractStartDate),
         contractEndDate: data.contractEndDate ? new Date(data.contractEndDate) : null,
+        contractDate: data.contractDate ? new Date(data.contractDate) : null,
         status: data.status,
         initialFee: data.initialFee,
         monthlyFee: data.monthlyFee,
@@ -186,6 +193,7 @@ export async function updateAgentContractHistory(
         defaultPpPerfFixed: data.defaultPpPerfFixed,
         defaultPpPerfDuration: data.defaultPpPerfDuration,
         note: data.note,
+        masterContractId: data.masterContractId,
       },
     });
 
@@ -330,6 +338,26 @@ export async function deleteCommissionOverride(
     return { success: true };
   } catch (error) {
     console.error("報酬例外削除エラー:", error);
+    const errorMessage = error instanceof Error ? error.message : "不明なエラーが発生しました";
+    return { success: false, error: errorMessage };
+  }
+}
+
+// 代理店契約履歴を契約書に紐づける
+export async function linkAgentContractHistoryToContract(
+  historyId: number,
+  contractId: number
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await prisma.stpAgentContractHistory.update({
+      where: { id: historyId },
+      data: { masterContractId: contractId },
+    });
+
+    revalidatePath("/stp/agents");
+    return { success: true };
+  } catch (error) {
+    console.error("代理店契約履歴の紐づけエラー:", error);
     const errorMessage = error instanceof Error ? error.message : "不明なエラーが発生しました";
     return { success: false, error: errorMessage };
   }

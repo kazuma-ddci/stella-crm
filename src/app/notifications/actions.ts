@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { getSession, canApprove } from "@/lib/auth";
+import { recordChangeLog } from "@/app/accounting/changelog/actions";
 
 // ============================================
 // 型定義
@@ -20,6 +21,8 @@ export type NotificationRow = {
   status: string;
   statusChangedAt: Date | null;
   statusChangedBy: number | null;
+  actionType: string | null;
+  actionTargetId: number | null;
   createdAt: Date;
   sender: { id: number; name: string } | null;
   statusChanger: { id: number; name: string } | null;
@@ -163,4 +166,132 @@ export async function getUnreadNotificationCount(): Promise<number> {
   });
 
   return count;
+}
+
+// ============================================
+// アクション付き通知
+// ============================================
+
+/**
+ * 支払グループの概要を取得（通知内表示用）
+ */
+export type PaymentGroupSummary = {
+  id: number;
+  counterpartyName: string;
+  operatingCompanyName: string;
+  totalAmount: number | null;
+  taxAmount: number | null;
+  transactionCount: number;
+  status: string;
+  createdByName: string;
+};
+
+export async function getPaymentGroupSummary(
+  groupId: number
+): Promise<PaymentGroupSummary | null> {
+  const group = await prisma.paymentGroup.findUnique({
+    where: { id: groupId, deletedAt: null },
+    include: {
+      counterparty: { select: { name: true } },
+      operatingCompany: { select: { companyName: true } },
+      transactions: { where: { deletedAt: null }, select: { id: true } },
+      creator: { select: { name: true } },
+    },
+  });
+  if (!group) return null;
+
+  return {
+    id: group.id,
+    counterpartyName: group.counterparty.name,
+    operatingCompanyName: group.operatingCompany.companyName,
+    totalAmount: group.totalAmount,
+    taxAmount: group.taxAmount,
+    transactionCount: group.transactions.length,
+    status: group.status,
+    createdByName: group.creator.name,
+  };
+}
+
+/**
+ * 通知からの支払グループ承認
+ */
+export async function approvePaymentGroupFromNotification(
+  notificationId: number
+): Promise<void> {
+  const session = await getSession();
+
+  // 承認権限チェック
+  if (!canApprove(session.permissions, "stp")) {
+    throw new Error("承認権限がありません");
+  }
+
+  // 通知を取得
+  const notification = await prisma.notification.findUnique({
+    where: { id: notificationId },
+  });
+  if (!notification) throw new Error("通知が見つかりません");
+  if (notification.recipientId !== session.id) {
+    throw new Error("この通知を操作する権限がありません");
+  }
+  if (notification.actionType !== "payment_group_approval" || !notification.actionTargetId) {
+    throw new Error("この通知にはアクションがありません");
+  }
+
+  // 支払グループを承認
+  const group = await prisma.paymentGroup.findUnique({
+    where: { id: notification.actionTargetId, deletedAt: null },
+  });
+  if (!group) throw new Error("支払グループが見つかりません");
+  if (group.status !== "pending_approval") {
+    throw new Error("既に承認済みまたはステータスが変更されています");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // 支払グループを承認
+    await tx.paymentGroup.update({
+      where: { id: group.id },
+      data: {
+        status: "before_request",
+        confirmedBy: session.id,
+        confirmedAt: new Date(),
+        updatedBy: session.id,
+      },
+    });
+
+    // 通知を完了に更新
+    await tx.notification.update({
+      where: { id: notificationId },
+      data: {
+        status: "completed",
+        statusChangedAt: new Date(),
+        statusChangedBy: session.id,
+      },
+    });
+
+    // 同じ支払グループの承認通知を他の承認者にも完了にする
+    await tx.notification.updateMany({
+      where: {
+        actionType: "payment_group_approval",
+        actionTargetId: group.id,
+        id: { not: notificationId },
+        status: { not: "completed" },
+      },
+      data: {
+        status: "completed",
+        statusChangedAt: new Date(),
+        statusChangedBy: session.id,
+      },
+    });
+
+    await recordChangeLog({
+      tableName: "PaymentGroup",
+      recordId: group.id,
+      changeType: "update",
+      oldData: { status: "pending_approval" },
+      newData: { status: "before_request", approvedBy: session.id },
+    }, session.id, tx);
+  });
+
+  revalidatePath("/notifications");
+  revalidatePath("/stp/finance/payment-groups");
 }

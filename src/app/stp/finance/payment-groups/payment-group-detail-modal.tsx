@@ -58,7 +58,7 @@ import {
   updatePaymentGroup,
   deletePaymentGroup,
   confirmReceivedInvoice,
-  confirmDirectPayment,
+  approvePaymentGroup,
   rejectInvoice,
   updatePaymentGroupStatus,
   addTransactionToPaymentGroup,
@@ -101,6 +101,7 @@ const SEND_METHOD_LABELS: Record<string, string> = {
 };
 
 const STATUS_LABELS: Record<string, string> = {
+  pending_approval: "承認待ち",
   unprocessed: "未処理",
   before_request: "依頼前",
   requested: "発行依頼済み",
@@ -218,12 +219,8 @@ export function PaymentGroupDetailModal({
   const [mailHistory, setMailHistory] = useState<MailHistoryItem[]>([]);
   const [loadingMailHistory, setLoadingMailHistory] = useState(false);
 
-  const isEditable = group.paymentType === "direct"
-    ? group.status === "unprocessed"
-    : ["before_request", "rejected"].includes(group.status);
-  const canDelete = group.paymentType === "direct"
-    ? group.status === "unprocessed"
-    : group.status === "before_request";
+  const isEditable = ["pending_approval", "before_request", "rejected"].includes(group.status);
+  const canDelete = ["pending_approval", "before_request"].includes(group.status);
 
   // グループ内の取引を取得
   const loadTransactions = useCallback(async () => {
@@ -430,12 +427,12 @@ export function PaymentGroupDetailModal({
     }
   };
 
-  // 確認する（直接支払）
-  const handleConfirmDirect = async () => {
-    if (!confirm("この支払を確認済みにしますか？")) return;
+  // 承認する（pending_approval → before_request）
+  const handleApprove = async () => {
+    if (!confirm("この支払を承認しますか？承認後、請求書発行依頼に進めます。")) return;
     setLoading(true);
     try {
-      await confirmDirectPayment(group.id);
+      await approvePaymentGroup(group.id);
       onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -690,11 +687,11 @@ export function PaymentGroupDetailModal({
                 </>
               )}
 
-              {/* unprocessed (direct): 確認する */}
-              {group.paymentType === "direct" && group.status === "unprocessed" && (
-                <Button size="sm" onClick={handleConfirmDirect} disabled={loading}>
+              {/* pending_approval: 承認する */}
+              {group.status === "pending_approval" && (
+                <Button size="sm" onClick={handleApprove} disabled={loading}>
                   <CheckCircle2 className="mr-1 h-4 w-4" />
-                  確認する
+                  承認する
                 </Button>
               )}
 
@@ -765,14 +762,8 @@ export function PaymentGroupDetailModal({
           </div>
           {/* ステータスフロー ステップインジケータ */}
           {(() => {
-            const steps = group.paymentType === "direct"
-              ? [
-                  { key: "unprocessed", label: "未処理" },
-                  { key: "confirmed", label: "確認済み" },
-                  { key: "awaiting_accounting", label: "経理引渡" },
-                  { key: "paid", label: "支払済み" },
-                ]
-              : [
+            const steps = [
+                  { key: "pending_approval", label: "承認待ち" },
                   { key: "before_request", label: "依頼前" },
                   { key: "requested", label: "依頼済み" },
                   { key: "invoice_received", label: "請求書受領" },

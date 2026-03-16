@@ -39,6 +39,7 @@ export function FieldChangeLogModal({
 
   useEffect(() => {
     if (!open || !entityId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetching pattern: set loading before fetch
     setLoading(true);
     getFieldChangeLogs(entityType, entityId)
       .then((data) => setLogs(data))

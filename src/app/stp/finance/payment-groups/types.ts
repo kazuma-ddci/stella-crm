@@ -13,7 +13,7 @@ export type PaymentGroupListItem = {
   taxAmount: number | null;
   receivedPdfPath: string | null;
   receivedPdfFileName: string | null;
-  paymentType: "invoice" | "direct";
+  paymentType: "invoice" | "direct"; // direct は旧データ後方互換用
   isConfidential: boolean;
   status: string;
   confirmedByName: string | null;
@@ -46,6 +46,7 @@ export type UngroupedAllocationItem = {
 export type UngroupedExpenseTransaction = {
   id: number;
   type: string;
+  status: "confirmed" | "unconfirmed";
   counterpartyId: number;
   counterpartyName: string;
   expenseCategoryName: string;

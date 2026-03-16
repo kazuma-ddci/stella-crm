@@ -286,44 +286,6 @@ export function ChatContainer() {
     });
   }, [addMessages]);
 
-  // アイテム選択
-  const handleSelectItem = useCallback(async (item: InsightItem) => {
-    if (item.params && item.params.length > 0) {
-      addMessages({ id: generateId(), role: "user", content: item.name });
-      await sleep(300 + Math.random() * 200);
-      const prompts = [
-        "分析する対象月を選んでください。",
-        "どの月のデータを確認しますか？",
-        "対象期間をお選びください。",
-      ];
-      addMessages({
-        id: generateId(),
-        role: "system",
-        content: prompts[Math.floor(Math.random() * prompts.length)],
-        params: item.params,
-      });
-      pendingItemRef.current = item;
-    } else {
-      addMessages({ id: generateId(), role: "user", content: item.name });
-      fetchData(item.id, {});
-    }
-  }, [addMessages]);
-
-  // パラメータ送信
-  const handleParamSubmit = useCallback((values: Record<string, string | number>) => {
-    const item = pendingItemRef.current;
-    if (!item) return;
-    pendingItemRef.current = null;
-
-    const paramLabel = values.yearMonth
-      ? `${values.yearMonth}`
-      : Object.values(values).join(", ");
-    if (paramLabel) {
-      addMessages({ id: generateId(), role: "user", content: paramLabel });
-    }
-    fetchData(item.id, values);
-  }, [addMessages]);
-
   // データ取得（プログレッシブローディング演出付き）
   const fetchData = useCallback(async (insightId: string, params: Record<string, string | number>) => {
     setIsLoading(true);
@@ -376,6 +338,44 @@ export function ChatContainer() {
       });
     }
   }, [addMessages]);
+
+  // アイテム選択
+  const handleSelectItem = useCallback(async (item: InsightItem) => {
+    if (item.params && item.params.length > 0) {
+      addMessages({ id: generateId(), role: "user", content: item.name });
+      await sleep(300 + Math.random() * 200);
+      const prompts = [
+        "分析する対象月を選んでください。",
+        "どの月のデータを確認しますか？",
+        "対象期間をお選びください。",
+      ];
+      addMessages({
+        id: generateId(),
+        role: "system",
+        content: prompts[Math.floor(Math.random() * prompts.length)],
+        params: item.params,
+      });
+      pendingItemRef.current = item;
+    } else {
+      addMessages({ id: generateId(), role: "user", content: item.name });
+      fetchData(item.id, {});
+    }
+  }, [addMessages, fetchData]);
+
+  // パラメータ送信
+  const handleParamSubmit = useCallback((values: Record<string, string | number>) => {
+    const item = pendingItemRef.current;
+    if (!item) return;
+    pendingItemRef.current = null;
+
+    const paramLabel = values.yearMonth
+      ? `${values.yearMonth}`
+      : Object.values(values).join(", ");
+    if (paramLabel) {
+      addMessages({ id: generateId(), role: "user", content: paramLabel });
+    }
+    fetchData(item.id, values);
+  }, [addMessages, fetchData]);
 
   // ナビゲーション
   const handleBackToCategories = useCallback(async () => {

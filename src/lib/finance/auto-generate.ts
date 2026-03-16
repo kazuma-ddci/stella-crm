@@ -352,36 +352,6 @@ async function generateExpenseRecords(params: ExpenseGenerateParams) {
 
   const startMonth = startOfMonth(params.contractStartDate);
 
-  if ((agentContractHistory.initialFee ?? 0) > 0) {
-    const amt = agentContractHistory.initialFee ?? 0;
-    await ensureExpenseRecord({
-      agentId: params.agentId,
-      stpCompanyId: params.stpCompanyId,
-      agentContractHistoryId: agentContractHistory.id,
-      contractHistoryId: params.contractHistoryId,
-      expenseType: "agent_initial",
-      targetMonth: startMonth,
-      expectedAmount: amt,
-      ...buildWithholdingFields(amt),
-    });
-  }
-
-  if ((agentContractHistory.monthlyFee ?? 0) > 0) {
-    const amt = agentContractHistory.monthlyFee ?? 0;
-    for (const month of params.targetMonths) {
-      await ensureExpenseRecord({
-        agentId: params.agentId,
-        stpCompanyId: params.stpCompanyId,
-        agentContractHistoryId: agentContractHistory.id,
-        contractHistoryId: params.contractHistoryId,
-        expenseType: "agent_monthly",
-        targetMonth: month,
-        expectedAmount: amt,
-        ...buildWithholdingFields(amt),
-      });
-    }
-  }
-
   if (params.initialFee > 0) {
     const initialRate = commissionConfig.initialRate ?? 0;
     const initialCommission = Math.round((params.initialFee * initialRate) / 100);
@@ -433,11 +403,85 @@ async function generateExpenseRecords(params: ExpenseGenerateParams) {
   }
 }
 
+type AgentDirectExpenseParams = {
+  agentContractHistory: {
+    id: number;
+    agentId: number;
+    contractStartDate: Date;
+    contractEndDate: Date | null;
+    contractDate: Date | null;
+    initialFee: number | null;
+    monthlyFee: number | null;
+    agent: { isIndividualBusiness: boolean } | null;
+  };
+  targetMonths: Date[];
+};
+
+async function generateAgentDirectExpenses(params: AgentDirectExpenseParams) {
+  const { agentContractHistory, targetMonths } = params;
+  const agent = agentContractHistory.agent;
+  const needsWithholding = agent && isWithholdingTarget(agent);
+
+  const buildWithholdingFields = (amount: number) => {
+    if (!needsWithholding || amount <= 0) return {};
+    const whTax = calcWithholdingTax(amount);
+    return {
+      withholdingTaxRate: amount <= 1_000_000 ? 10.21 : 20.42,
+      withholdingTaxAmount: whTax,
+      netPaymentAmount: amount - whTax,
+    };
+  };
+
+  // 初期費用: contractDate があればそちら、なければ contractStartDate の月に1回
+  if ((agentContractHistory.initialFee ?? 0) > 0) {
+    const initialFeeDate = agentContractHistory.contractDate ?? agentContractHistory.contractStartDate;
+    const initialFeeMonth = startOfMonth(initialFeeDate);
+    const amt = agentContractHistory.initialFee ?? 0;
+    await ensureExpenseRecord({
+      agentId: agentContractHistory.agentId,
+      agentContractHistoryId: agentContractHistory.id,
+      expenseType: "agent_initial",
+      targetMonth: initialFeeMonth,
+      expectedAmount: amt,
+      ...buildWithholdingFields(amt),
+    });
+  }
+
+  // 月額費用: contractStartDate から contractEndDate まで毎月、初月は日割り
+  if ((agentContractHistory.monthlyFee ?? 0) > 0) {
+    const amt = agentContractHistory.monthlyFee ?? 0;
+    const contractStartMonth = startOfMonth(agentContractHistory.contractStartDate);
+
+    for (const month of targetMonths) {
+      // 日割り計算: contractStartDate の月 = 対象月の場合
+      const isFirstMonth = contractStartMonth.getTime() === month.getTime();
+      let monthlyAmount = amt;
+
+      if (isFirstMonth) {
+        const startDay = agentContractHistory.contractStartDate.getUTCDate();
+        const year = month.getUTCFullYear();
+        const m = month.getUTCMonth() + 1;
+        const totalDays = getDaysInMonth(year, m);
+        monthlyAmount = calculateProratedFee(amt, startDay, totalDays);
+      }
+
+      await ensureExpenseRecord({
+        agentId: agentContractHistory.agentId,
+        agentContractHistoryId: agentContractHistory.id,
+        expenseType: "agent_monthly",
+        targetMonth: month,
+        expectedAmount: monthlyAmount,
+        ...buildWithholdingFields(monthlyAmount),
+      });
+    }
+  }
+}
+
 type EnsureExpenseParams = {
   agentId: number;
-  stpCompanyId: number;
+  stpCompanyId?: number | null;
   agentContractHistoryId: number;
-  contractHistoryId: number;
+  contractHistoryId?: number | null;
   expenseType: string;
   targetMonth: Date;
   expectedAmount: number;
@@ -459,9 +503,9 @@ async function ensureExpenseRecord(params: EnsureExpenseParams) {
   const existing = await prisma.stpExpenseRecord.findFirst({
     where: {
       agentId: params.agentId,
-      stpCompanyId: params.stpCompanyId,
+      stpCompanyId: params.stpCompanyId ?? null,
       agentContractHistoryId: params.agentContractHistoryId,
-      contractHistoryId: params.contractHistoryId,
+      contractHistoryId: params.contractHistoryId ?? null,
       expenseType: params.expenseType,
       targetMonth: params.targetMonth,
       deletedAt: null,
@@ -472,9 +516,9 @@ async function ensureExpenseRecord(params: EnsureExpenseParams) {
     await prisma.stpExpenseRecord.create({
       data: {
         agentId: params.agentId,
-        stpCompanyId: params.stpCompanyId,
+        stpCompanyId: params.stpCompanyId ?? null,
         agentContractHistoryId: params.agentContractHistoryId,
-        contractHistoryId: params.contractHistoryId,
+        contractHistoryId: params.contractHistoryId ?? null,
         expenseType: params.expenseType,
         targetMonth: params.targetMonth,
         expectedAmount: params.expectedAmount,
@@ -525,7 +569,7 @@ async function ensureExpenseRecord(params: EnsureExpenseParams) {
  */
 export async function generateMonthlyRecordsForAllContracts(
   baseMonth?: Date
-): Promise<{ revenueCreated: number; expenseCreated: number }> {
+): Promise<{ revenueCreated: number; expenseCreated: number; warnings: string[] }> {
   const now = baseMonth ?? new Date();
   const from = startOfMonth(now);
   const targetMonths = Array.from({ length: AUTO_GENERATE_MONTHS }, (_, i) =>
@@ -541,6 +585,7 @@ export async function generateMonthlyRecordsForAllContracts(
 
   let revenueCreated = 0;
   let expenseCreated = 0;
+  const warnings: string[] = [];
 
   for (const contract of activeContracts) {
     const stpCompany = await prisma.stpCompany.findFirst({
@@ -621,6 +666,56 @@ export async function generateMonthlyRecordsForAllContracts(
     }
   }
 
+  // === 代理店直接費用の生成（企業契約に依存しない） ===
+  const activeAgentContracts = await prisma.stpAgentContractHistory.findMany({
+    where: {
+      deletedAt: null,
+      contractStartDate: { lte: targetMonths[targetMonths.length - 1] },
+      OR: [
+        { contractEndDate: null },
+        { contractEndDate: { gte: targetMonths[0] } },
+      ],
+    },
+    include: {
+      agent: true,
+    },
+  });
+
+  for (const agentContract of activeAgentContracts) {
+    const contractStart = startOfMonth(agentContract.contractStartDate);
+    const validMonths = targetMonths.filter((m) => m >= contractStart);
+    const endMonth = agentContract.contractEndDate
+      ? startOfMonth(agentContract.contractEndDate)
+      : null;
+    const filteredMonths = endMonth
+      ? validMonths.filter((m) => m <= endMonth)
+      : validMonths;
+
+    if (filteredMonths.length === 0) continue;
+
+    const expBefore = await prisma.stpExpenseRecord.count({
+      where: {
+        agentContractHistoryId: agentContract.id,
+        expenseType: { in: ["agent_initial", "agent_monthly"] },
+        deletedAt: null,
+      },
+    });
+
+    await generateAgentDirectExpenses({
+      agentContractHistory: agentContract,
+      targetMonths: filteredMonths,
+    });
+
+    const expAfter = await prisma.stpExpenseRecord.count({
+      where: {
+        agentContractHistoryId: agentContract.id,
+        expenseType: { in: ["agent_initial", "agent_monthly"] },
+        deletedAt: null,
+      },
+    });
+    expenseCreated += expAfter - expBefore;
+  }
+
   // 成果報酬の一括生成（入社日のある求職者全員）
   const candidatesWithJoin = await prisma.stpCandidate.findMany({
     where: {
@@ -636,7 +731,12 @@ export async function generateMonthlyRecordsForAllContracts(
   });
 
   for (const candidate of candidatesWithJoin) {
-    await autoGeneratePerformanceFeeForCandidate(candidate.id);
+    const result = await autoGeneratePerformanceFeeForCandidate(candidate.id);
+    if (result.error === "multiple_contracts") {
+      warnings.push(
+        `求職者ID:${candidate.id} の成果報酬に複数の契約がマッチしました（${result.matchCount}件）。手動で確認してください。`
+      );
+    }
   }
 
   const perfRevAfter = await prisma.stpRevenueRecord.count({
@@ -648,7 +748,7 @@ export async function generateMonthlyRecordsForAllContracts(
   revenueCreated += perfRevAfter - perfRevBefore;
   expenseCreated += perfExpAfter - perfExpBefore;
 
-  return { revenueCreated, expenseCreated };
+  return { revenueCreated, expenseCreated, warnings };
 }
 
 // ============================================
@@ -666,6 +766,7 @@ export type PerformanceFeeResult = {
   expenseCreated: boolean;
   error?: "no_contract" | "multiple_contracts" | "no_join_date" | "no_company";
   matchCount?: number;
+  matchingContractIds?: number[];
 };
 
 export async function autoGeneratePerformanceFeeForCandidate(
@@ -723,7 +824,7 @@ export async function autoGeneratePerformanceFeeForCandidate(
   }
 
   if (matchingContracts.length > 1) {
-    return { revenueCreated: false, expenseCreated: false, error: "multiple_contracts", matchCount: matchingContracts.length };
+    return { revenueCreated: false, expenseCreated: false, error: "multiple_contracts", matchCount: matchingContracts.length, matchingContractIds: matchingContracts.map((c) => c.id) };
   }
 
   const contractHistory = matchingContracts[0];

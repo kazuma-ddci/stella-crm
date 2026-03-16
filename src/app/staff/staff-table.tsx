@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CrudTable, ColumnDef, CustomRenderers } from "@/components/crud-table";
+import { CrudTable, ColumnDef, CustomRenderers, CustomFormFields } from "@/components/crud-table";
 import { SortableItem } from "@/components/sortable-list-modal";
 import { Button } from "@/components/ui/button";
 import { addStaff, updateStaff, deleteStaff, sendStaffInvite, reorderStaff } from "./actions";
@@ -142,14 +142,24 @@ export function StaffTable({ data, roleTypeOptions, projectOptions, permissionPr
         // 各プロジェクト権限（天井に基づく選択肢制限、ファウンダー時は非表示）
         ...permissionProjects
           .filter((p) => editableMap.has(p.code))
-          .map((p) => ({
-            key: `perm_${p.code}`,
-            header: `${p.name}権限`,
-            type: "select" as const,
-            options: getPermissionLevelsForMaxLevel(editableMap.get(p.code)!),
-            simpleMode: true,
-            hiddenWhen: { field: "organizationRole", value: "founder" },
-          })),
+          .flatMap((p) => [
+            {
+              key: `perm_${p.code}`,
+              header: `${p.name}権限`,
+              type: "select" as const,
+              options: getPermissionLevelsForMaxLevel(editableMap.get(p.code)!),
+              simpleMode: true,
+              hiddenWhen: { field: "organizationRole", value: "founder" },
+            },
+            // approve_xxx はデータ保持用の非表示カラム（perm_xxx のカスタムフォームから制御）
+            {
+              key: `approve_${p.code}`,
+              header: `${p.name}承認`,
+              type: "boolean" as const,
+              hidden: true,
+              simpleMode: true,
+            },
+          ]),
       ]
     : [];
 
@@ -201,22 +211,80 @@ export function StaffTable({ data, roleTypeOptions, projectOptions, permissionPr
     { key: "inviteStatus", header: "アカウント", editable: false },
   ];
 
-  // ファウンダーの行では権限カラムに「ファウンダー（全権限）」を表示
-  const founderPermRenderers: CustomRenderers = {};
-  for (const key of permissionColumnKeys) {
-    founderPermRenderers[key] = (_value, row) => {
+  // 権限カラムの表示カスタマイズ（ファウンダー表示 + 承認権限の2行表示）
+  const permRenderers: CustomRenderers = {};
+  for (const project of permissionProjects.filter((p) => editableMap.has(p.code))) {
+    const permKey = `perm_${project.code}`;
+    const approveKey = `approve_${project.code}`;
+    permRenderers[permKey] = (_value, row) => {
       if (row.organizationRole === "founder") {
         return (
           <span className="text-xs text-muted-foreground">(全権限)</span>
         );
       }
       const level = PERMISSION_LEVELS.find((l) => l.value === _value);
-      return <span>{level?.label ?? String(_value ?? "なし")}</span>;
+      const hasApprove = row[approveKey] === true;
+      return (
+        <div>
+          <span>{level?.label ?? String(_value ?? "なし")}</span>
+          {hasApprove && (
+            <div className="text-xs text-blue-600 font-medium">承認権限あり</div>
+          )}
+        </div>
+      );
     };
   }
 
+  // perm_xxx のカスタムフォームフィールド（セレクト + 承認チェックボックス）
+  const permFormFields: CustomFormFields = {};
+  if (canSetFounder) {
+    // admin/founder のみ承認権限の編集が可能
+    for (const project of permissionProjects.filter((p) => editableMap.has(p.code))) {
+      const permKey = `perm_${project.code}`;
+      const approveKey = `approve_${project.code}`;
+      const options = getPermissionLevelsForMaxLevel(editableMap.get(project.code)!);
+      permFormFields[permKey] = {
+        render: (_value, onChange, formData, setFormData) => {
+          const permValue = (formData[permKey] as string) ?? "none";
+          const approveValue = formData[approveKey] === true || formData[approveKey] === "true";
+          const hasPermission = permValue !== "none";
+          return (
+            <div className="space-y-2">
+              <select
+                value={permValue}
+                onChange={(e) => {
+                  onChange(e.target.value);
+                  // 権限がnoneになったら承認も外す
+                  if (e.target.value === "none") {
+                    setFormData({ ...formData, [permKey]: e.target.value, [approveKey]: false });
+                  }
+                }}
+                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                {options.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              {hasPermission && (
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={approveValue}
+                    onChange={(e) => setFormData({ ...formData, [approveKey]: e.target.checked })}
+                    className="rounded"
+                  />
+                  承認権限
+                </label>
+              )}
+            </div>
+          );
+        },
+      };
+    }
+  }
+
   const customRenderers: CustomRenderers = {
-    ...founderPermRenderers,
+    ...permRenderers,
     inviteStatus: (_value, row) => <InviteButton row={row} />,
   };
 
@@ -235,6 +303,7 @@ export function StaffTable({ data, roleTypeOptions, projectOptions, permissionPr
       onUpdate={updateStaff}
       onDelete={canManageStaff ? deleteStaff : undefined}
       customRenderers={customRenderers}
+      customFormFields={permFormFields}
       emptyMessage="スタッフが登録されていません"
       sortableItems={sortableItems}
       onReorder={reorderStaff}

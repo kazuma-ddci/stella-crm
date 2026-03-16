@@ -156,6 +156,7 @@ function TemplateField({
     if (editorRef.current && !isFocusedRef.current) {
       editorRef.current.innerHTML = textToHtml(text);
       lastValueRef.current = text;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- DOM sync requires setState after innerHTML update
       setHasContent(!!text);
     }
   }, [text, showPreview]);

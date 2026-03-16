@@ -93,6 +93,10 @@ export async function updateExpenseCategory(
     if (!(VALID_TYPES as readonly string[]).includes(type)) {
       throw new Error("無効な種別です");
     }
+    // システム費目は種別変更不可
+    if (target.systemCode && type !== target.type) {
+      throw new Error("システム費目の種別は変更できません");
+    }
     updateData.type = type;
   }
 
@@ -109,6 +113,31 @@ export async function updateExpenseCategory(
   await prisma.expenseCategory.update({
     where: { id },
     data: updateData,
+  });
+
+  revalidatePath("/stp/settings/expense-categories");
+  revalidatePath("/stp/finance/generate");
+  revalidatePath("/stp/finance/transactions");
+}
+
+export async function deleteExpenseCategory(id: number) {
+  const session = await getSession();
+  const staffId = session.id;
+  const projectId = await getStpProjectId();
+
+  const target = await prisma.expenseCategory.findFirst({
+    where: { id, projectId, deletedAt: null },
+  });
+  if (!target) {
+    throw new Error("この費目は削除できません");
+  }
+  if (target.systemCode) {
+    throw new Error("システム費目は削除できません");
+  }
+
+  await prisma.expenseCategory.update({
+    where: { id },
+    data: { deletedAt: new Date(), updatedBy: staffId },
   });
 
   revalidatePath("/stp/settings/expense-categories");

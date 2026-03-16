@@ -162,6 +162,8 @@ type CrudTableProps = {
   changeTrackedFields?: { key: string; displayName: string }[];
   // 削除ダイアログオープン時に呼ばれるコールバック（関連データ件数表示など）
   onDeletePrepare?: (id: number) => Promise<ReactNode | null>;
+  // 行単位で削除を無効にする（trueを返すと削除ボタン非表示）
+  isDeleteDisabled?: (item: Record<string, unknown>) => boolean;
 };
 
 function formatValue(value: unknown, type?: string, options?: { value: string; label: string }[]): string {
@@ -252,6 +254,7 @@ export function CrudTable({
   updateWarningMessage,
   changeTrackedFields = [],
   onDeletePrepare,
+  isDeleteDisabled,
 }: CrudTableProps) {
   const router = useRouter();
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -1389,10 +1392,10 @@ export function CrudTable({
                                   {action.label}
                                 </DropdownMenuItem>
                               ))}
-                              {customActions.length > 0 && onDelete && (
+                              {customActions.length > 0 && onDelete && !(isDeleteDisabled?.(item)) && (
                                 <DropdownMenuSeparator />
                               )}
-                              {onDelete && (
+                              {onDelete && !(isDeleteDisabled?.(item)) && (
                                 <DropdownMenuItem
                                   variant="destructive"
                                   onClick={() => {

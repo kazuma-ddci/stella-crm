@@ -209,6 +209,7 @@ function TransactionDetailModal({
 
   useEffect(() => {
     if (!open || !contractHistoryId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetching pattern: set loading before fetch
     setLoading(true);
     getContractHistoryTransactionSummary(contractHistoryId)
       .then(setData)

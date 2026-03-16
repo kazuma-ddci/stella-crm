@@ -66,6 +66,14 @@ import "react-datepicker/dist/react-datepicker.css";
 import { useTimedFormCache } from "@/hooks/use-timed-form-cache";
 import { ContractSendModal } from "@/components/contract-send-modal";
 import { JOB_MEDIA_OPTIONS, isInvalidJobMedia } from "@/lib/stp/job-media";
+import {
+  getAgentContractHistories,
+  addAgentContractHistory,
+  updateAgentContractHistory,
+  deleteAgentContractHistory,
+  linkAgentContractHistoryToContract,
+  type AgentContractHistoryData,
+} from "@/app/stp/agents/agent-contract-history-actions";
 
 // 日本語ロケールを登録
 registerLocale("ja", ja);
@@ -126,6 +134,7 @@ type Contract = {
   } | null;
   contractFiles?: { id: number; filePath: string; fileName: string; fileSize: number | null; mimeType: string | null; category: string }[];
   contractHistories: ContractHistory[];
+  agentContractHistories?: AgentContractHistory[];
 };
 
 type Props = {
@@ -136,6 +145,7 @@ type Props = {
   contractStatusOptions: { value: string; label: string }[];
   staffOptions: { value: string; label: string }[];
   contractTypeOptions: { value: string; label: string }[];
+  agentId?: number;
 };
 
 const signingMethodOptions = [
@@ -214,6 +224,86 @@ const EMPTY_HISTORY_FORM: HistoryFormData = {
   accountPass: "",
   masterContractId: "",
 };
+
+// 代理店契約履歴の型
+type AgentContractHistory = {
+  id: number;
+  agentId: number;
+  contractStartDate: string;
+  contractEndDate: string | null;
+  status: string;
+  initialFee: number | null;
+  monthlyFee: number | null;
+  defaultMpInitialRate: number | null;
+  defaultMpInitialDuration: number | null;
+  defaultMpMonthlyType: string | null;
+  defaultMpMonthlyRate: number | null;
+  defaultMpMonthlyFixed: number | null;
+  defaultMpMonthlyDuration: number | null;
+  defaultPpInitialRate: number | null;
+  defaultPpInitialDuration: number | null;
+  defaultPpPerfType: string | null;
+  defaultPpPerfRate: number | null;
+  defaultPpPerfFixed: number | null;
+  defaultPpPerfDuration: number | null;
+  note: string | null;
+  masterContractId: number | null;
+};
+
+// 代理店契約履歴フォーム
+type AgentHistoryFormData = {
+  contractStartDate: Date | null;
+  contractEndDate: Date | null;
+  status: string;
+  initialFee: string;
+  monthlyFee: string;
+  defaultMpInitialRate: string;
+  defaultMpInitialDuration: string;
+  defaultMpMonthlyType: string;
+  defaultMpMonthlyRate: string;
+  defaultMpMonthlyFixed: string;
+  defaultMpMonthlyDuration: string;
+  defaultPpInitialRate: string;
+  defaultPpInitialDuration: string;
+  defaultPpPerfType: string;
+  defaultPpPerfRate: string;
+  defaultPpPerfFixed: string;
+  defaultPpPerfDuration: string;
+  note: string;
+};
+
+const EMPTY_AGENT_HISTORY_FORM: AgentHistoryFormData = {
+  contractStartDate: null,
+  contractEndDate: null,
+  status: "active",
+  initialFee: "",
+  monthlyFee: "",
+  defaultMpInitialRate: "",
+  defaultMpInitialDuration: "",
+  defaultMpMonthlyType: "",
+  defaultMpMonthlyRate: "",
+  defaultMpMonthlyFixed: "",
+  defaultMpMonthlyDuration: "",
+  defaultPpInitialRate: "",
+  defaultPpInitialDuration: "",
+  defaultPpPerfType: "",
+  defaultPpPerfRate: "",
+  defaultPpPerfFixed: "",
+  defaultPpPerfDuration: "",
+  note: "",
+};
+
+const agentStatusOptions = [
+  { value: "active", label: "契約中" },
+  { value: "scheduled", label: "契約予定" },
+  { value: "cancelled", label: "解約" },
+  { value: "dormant", label: "休眠" },
+];
+
+const commMonthlyTypeOptions = [
+  { value: "rate", label: "率(%)" },
+  { value: "fixed", label: "固定額" },
+];
 
 // 選択肢定義
 const industryTypeOptions = [
@@ -493,6 +583,132 @@ function ContractHistoryCard({
   );
 }
 
+// --- 代理店契約履歴の報酬サマリー ---
+function formatAgentCommissionSummary(h: AgentContractHistory): string {
+  const lines: string[] = [];
+  const mpParts: string[] = [];
+  if (h.defaultMpInitialRate != null) mpParts.push(`初期${h.defaultMpInitialRate}%${h.defaultMpInitialDuration ? `(${h.defaultMpInitialDuration}ヶ月)` : ""}`);
+  if (h.defaultMpMonthlyType === "rate" && h.defaultMpMonthlyRate != null) {
+    mpParts.push(`月額${h.defaultMpMonthlyRate}%${h.defaultMpMonthlyDuration ? `(${h.defaultMpMonthlyDuration}ヶ月)` : ""}`);
+  } else if (h.defaultMpMonthlyType === "fixed" && h.defaultMpMonthlyFixed != null) {
+    mpParts.push(`月額¥${h.defaultMpMonthlyFixed.toLocaleString()}${h.defaultMpMonthlyDuration ? `(${h.defaultMpMonthlyDuration}ヶ月)` : ""}`);
+  }
+  if (mpParts.length > 0) lines.push(`MP: ${mpParts.join(" / ")}`);
+
+  const ppParts: string[] = [];
+  if (h.defaultPpInitialRate != null) ppParts.push(`初期${h.defaultPpInitialRate}%${h.defaultPpInitialDuration ? `(${h.defaultPpInitialDuration}ヶ月)` : ""}`);
+  if (h.defaultPpPerfType === "rate" && h.defaultPpPerfRate != null) {
+    ppParts.push(`成果${h.defaultPpPerfRate}%${h.defaultPpPerfDuration ? `(${h.defaultPpPerfDuration}ヶ月)` : ""}`);
+  } else if (h.defaultPpPerfType === "fixed" && h.defaultPpPerfFixed != null) {
+    ppParts.push(`成果¥${h.defaultPpPerfFixed.toLocaleString()}${h.defaultPpPerfDuration ? `(${h.defaultPpPerfDuration}ヶ月)` : ""}`);
+  } else if (h.defaultPpPerfRate != null) {
+    ppParts.push(`成果${h.defaultPpPerfRate}%${h.defaultPpPerfDuration ? `(${h.defaultPpPerfDuration}ヶ月)` : ""}`);
+  }
+  if (ppParts.length > 0) lines.push(`PP: ${ppParts.join(" / ")}`);
+  return lines.join(" / ");
+}
+
+// --- 代理店契約履歴の行表示（契約書カード内） ---
+function AgentContractHistoryRow({
+  history,
+  onEdit,
+  onDelete,
+}: {
+  history: AgentContractHistory;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const commSummary = formatAgentCommissionSummary(history);
+  return (
+    <div className="px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 group">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant={history.status === "active" ? "default" : "secondary"} className="text-[10px]">
+            {statusLabels[history.status] || history.status}
+          </Badge>
+          <span className="text-xs text-gray-500">
+            {new Date(history.contractStartDate).toLocaleDateString("ja-JP")}〜
+            {history.contractEndDate ? new Date(history.contractEndDate).toLocaleDateString("ja-JP") : ""}
+          </span>
+        </div>
+        <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500 flex-wrap">
+          {history.initialFee != null && history.initialFee > 0 && <span>初期(経費): ¥{history.initialFee.toLocaleString()}</span>}
+          {history.monthlyFee != null && history.monthlyFee > 0 && <span>月額(経費): ¥{history.monthlyFee.toLocaleString()}</span>}
+          {commSummary && <span>{commSummary}</span>}
+        </div>
+        {history.note && <div className="text-xs text-gray-400 mt-0.5">{history.note}</div>}
+      </div>
+      <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <Button variant="ghost" size="sm" onClick={onEdit}><Pencil className="h-3.5 w-3.5" /></Button>
+        <Button variant="ghost" size="sm" onClick={onDelete}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
+      </div>
+    </div>
+  );
+}
+
+// --- 代理店契約履歴カード（紐づかない履歴用） ---
+function AgentContractHistoryCard({
+  history,
+  onEdit,
+  onDelete,
+  contracts,
+  onLink,
+}: {
+  history: AgentContractHistory;
+  onEdit: () => void;
+  onDelete: () => void;
+  contracts: Contract[];
+  onLink: (historyId: number, contractId: number) => void;
+}) {
+  const commSummary = formatAgentCommissionSummary(history);
+  return (
+    <div className="border rounded-lg hover:bg-gray-50 group p-3">
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant={history.status === "契約済み" ? "default" : "secondary"} className="text-[10px]">
+              {history.status}
+            </Badge>
+            <span className="text-xs text-gray-500">
+              {new Date(history.contractStartDate).toLocaleDateString("ja-JP")}〜
+              {history.contractEndDate ? new Date(history.contractEndDate).toLocaleDateString("ja-JP") : ""}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500 flex-wrap">
+            {history.initialFee != null && history.initialFee > 0 && <span>初期費用: ¥{history.initialFee.toLocaleString()}</span>}
+            {history.monthlyFee != null && history.monthlyFee > 0 && <span>月額: ¥{history.monthlyFee.toLocaleString()}</span>}
+            {commSummary && <span>{commSummary}</span>}
+          </div>
+          {history.note && <div className="text-xs text-gray-400 mt-0.5">{history.note}</div>}
+        </div>
+        <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          {contracts.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" title="契約書に紐づける">
+                  <Link2 className="h-3.5 w-3.5 text-blue-500" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72">
+                <div className="px-2 py-1.5 text-xs font-medium text-gray-500">契約書に紐づける</div>
+                <DropdownMenuSeparator />
+                {contracts.map((c) => (
+                  <DropdownMenuItem key={c.id} onClick={() => onLink(history.id, c.id)}>
+                    <FileText className="h-3.5 w-3.5 mr-2 text-gray-400" />
+                    <span className="truncate">{c.contractNumber} {c.contractType} - {c.title}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <Button variant="ghost" size="sm" onClick={onEdit}><Pencil className="h-3.5 w-3.5" /></Button>
+          <Button variant="ghost" size="sm" onClick={onDelete}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- ContractCard ---
 function ContractCard({
   contract,
@@ -502,6 +718,10 @@ function ContractCard({
   onEditHistory,
   onDeleteHistory,
   onAddHistoryForContract,
+  isAgentMode,
+  onEditAgentHistory,
+  onDeleteAgentHistory,
+  onAddAgentHistoryForContract,
   formatDate,
   // CloudSign related
   cloudsignData,
@@ -537,6 +757,10 @@ function ContractCard({
   onEditHistory: (history: ContractHistory) => void;
   onDeleteHistory: (historyId: number) => void;
   onAddHistoryForContract: (contractId: number) => void;
+  isAgentMode?: boolean;
+  onEditAgentHistory?: (history: AgentContractHistory) => void;
+  onDeleteAgentHistory?: (historyId: number) => void;
+  onAddAgentHistoryForContract?: (contractId: number) => void;
   formatDate: (dateStr: string | null | undefined) => string;
   cloudsignData: {
     contractTypes: { id: number; name: string; templates: { id: number; cloudsignTemplateId: string; name: string; description: string | null }[] }[];
@@ -938,33 +1162,64 @@ function ContractCard({
         </div>
       </div>
 
-      {/* 展開部分（契約履歴） */}
+      {/* 展開部分（契約履歴 or 契約条件） */}
       {expanded && (
         <div className="border-t">
-          {contract.contractHistories.length > 0 ? (
-            <div className="divide-y">
-              {contract.contractHistories.map((history) => (
-                <ContractHistoryRow
-                  key={history.id}
-                  history={history}
-                  onEdit={() => onEditHistory(history)}
-                  onDelete={() => onDeleteHistory(history.id)}
-                />
-              ))}
-            </div>
+          {isAgentMode ? (
+            <>
+              {(contract.agentContractHistories || []).length > 0 ? (
+                <div className="divide-y">
+                  {(contract.agentContractHistories || []).map((history) => (
+                    <AgentContractHistoryRow
+                      key={history.id}
+                      history={history}
+                      onEdit={() => onEditAgentHistory?.(history)}
+                      onDelete={() => onDeleteAgentHistory?.(history.id)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="px-4 py-2 text-xs text-gray-400">紐づく契約条件なし</div>
+              )}
+              <div className="px-4 py-2 border-t bg-gray-50/30">
+                <button
+                  type="button"
+                  className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                  onClick={() => onAddAgentHistoryForContract?.(contract.id)}
+                >
+                  <Plus className="h-3 w-3" />
+                  この契約書に契約条件を追加
+                </button>
+              </div>
+            </>
           ) : (
-            <div className="px-4 py-2 text-xs text-gray-400">紐づく契約履歴なし</div>
+            <>
+              {contract.contractHistories.length > 0 ? (
+                <div className="divide-y">
+                  {contract.contractHistories.map((history) => (
+                    <ContractHistoryRow
+                      key={history.id}
+                      history={history}
+                      onEdit={() => onEditHistory(history)}
+                      onDelete={() => onDeleteHistory(history.id)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="px-4 py-2 text-xs text-gray-400">紐づく契約履歴なし</div>
+              )}
+              <div className="px-4 py-2 border-t bg-gray-50/30">
+                <button
+                  type="button"
+                  className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                  onClick={() => onAddHistoryForContract(contract.id)}
+                >
+                  <Plus className="h-3 w-3" />
+                  この契約書に契約履歴を追加
+                </button>
+              </div>
+            </>
           )}
-          <div className="px-4 py-2 border-t bg-gray-50/30">
-            <button
-              type="button"
-              className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
-              onClick={() => onAddHistoryForContract(contract.id)}
-            >
-              <Plus className="h-3 w-3" />
-              この契約書に契約履歴を追加
-            </button>
-          </div>
         </div>
       )}
     </div>
@@ -980,7 +1235,9 @@ export function MasterContractModal({
   contractStatusOptions,
   staffOptions,
   contractTypeOptions,
+  agentId,
 }: Props) {
+  const isAgentMode = !!agentId;
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
@@ -1007,6 +1264,13 @@ export function MasterContractModal({
   }>({ salesOptions: [], operationOptions: [] });
   const [isManualMonthlyFee, setIsManualMonthlyFee] = useState(false);
   const [isManualPerformanceFee, setIsManualPerformanceFee] = useState(false);
+
+  // 代理店契約履歴フォーム
+  const agentHistoryFormRef = useRef<HTMLDivElement>(null);
+  const [agentHistoryFormOpen, setAgentHistoryFormOpen] = useState(false);
+  const [editingAgentHistoryId, setEditingAgentHistoryId] = useState<number | null>(null);
+  const [agentHistoryFormData, setAgentHistoryFormData] = useState<AgentHistoryFormData>(EMPTY_AGENT_HISTORY_FORM);
+  const [unlinkedAgentHistories, setUnlinkedAgentHistories] = useState<AgentContractHistory[]>([]);
 
   // 紐づかない契約履歴
   const [unlinkedHistories, setUnlinkedHistories] = useState<(ContractHistory & { companyId?: number })[]>([]);
@@ -1075,19 +1339,31 @@ export function MasterContractModal({
   const loadContracts = useCallback(async () => {
     setInitialLoading(true);
     try {
-      const [contracts, allHistories] = await Promise.all([
-        getMasterContracts(companyId),
-        getContractHistories(companyId),
-      ]);
-      setLocalContracts(contracts);
-      // masterContractId が null の契約履歴 = 紐づかない履歴
-      setUnlinkedHistories(allHistories.filter((h) => !h.masterContractId));
+      if (isAgentMode && agentId) {
+        // 代理店モード: 契約書 + 代理店契約履歴を読み込む
+        const [contracts, allAgentHistories] = await Promise.all([
+          getMasterContracts(companyId),
+          getAgentContractHistories(agentId),
+        ]);
+        setLocalContracts(contracts);
+        setUnlinkedHistories([]);
+        // masterContractId が null の代理店契約履歴 = 紐づかない履歴
+        setUnlinkedAgentHistories(allAgentHistories.filter((h) => !h.masterContractId));
+      } else {
+        const [contracts, allHistories] = await Promise.all([
+          getMasterContracts(companyId),
+          getContractHistories(companyId),
+        ]);
+        setLocalContracts(contracts);
+        // masterContractId が null の契約履歴 = 紐づかない履歴
+        setUnlinkedHistories(allHistories.filter((h) => !h.masterContractId));
+      }
     } catch (error) {
       console.error("Error fetching contracts:", error);
     } finally {
       setInitialLoading(false);
     }
-  }, [companyId]);
+  }, [companyId, isAgentMode, agentId]);
 
   useEffect(() => {
     if (open) {
@@ -1108,6 +1384,10 @@ export function MasterContractModal({
       setHistoryFormOpen(false);
       setEditingHistoryId(null);
       setHistoryFormData(EMPTY_HISTORY_FORM);
+      // 代理店契約履歴フォームもリセット
+      setAgentHistoryFormOpen(false);
+      setEditingAgentHistoryId(null);
+      setAgentHistoryFormData(EMPTY_AGENT_HISTORY_FORM);
     }
   }, [open, loadContracts, restore]);
 
@@ -1119,6 +1399,14 @@ export function MasterContractModal({
       }, 50);
     }
   }, [historyFormOpen]);
+
+  useEffect(() => {
+    if (agentHistoryFormOpen && agentHistoryFormRef.current) {
+      setTimeout(() => {
+        agentHistoryFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
+    }
+  }, [agentHistoryFormOpen]);
 
   const resetForm = () => {
     setFormData(EMPTY_FORM_DATA);
@@ -1388,6 +1676,130 @@ export function MasterContractModal({
     }
   };
 
+  // --- 代理店契約履歴ハンドラ ---
+  const handleAddAgentHistory = (masterContractId?: number) => {
+    setFormOpen(false);
+    setHistoryFormOpen(false);
+    setAgentHistoryFormData({
+      ...EMPTY_AGENT_HISTORY_FORM,
+      ...(masterContractId ? {} : {}),
+    });
+    setEditingAgentHistoryId(null);
+    setAgentHistoryFormOpen(true);
+    // masterContractIdを保存（フォーム送信時に使う）
+    agentHistoryMasterContractIdRef.current = masterContractId || null;
+  };
+
+  const agentHistoryMasterContractIdRef = useRef<number | null>(null);
+
+  const handleEditAgentHistory = (history: AgentContractHistory) => {
+    setFormOpen(false);
+    setHistoryFormOpen(false);
+    setAgentHistoryFormData({
+      contractStartDate: new Date(history.contractStartDate),
+      contractEndDate: history.contractEndDate ? new Date(history.contractEndDate) : null,
+      status: history.status,
+      initialFee: history.initialFee != null ? String(history.initialFee) : "",
+      monthlyFee: history.monthlyFee != null ? String(history.monthlyFee) : "",
+      defaultMpInitialRate: history.defaultMpInitialRate != null ? String(history.defaultMpInitialRate) : "",
+      defaultMpInitialDuration: history.defaultMpInitialDuration != null ? String(history.defaultMpInitialDuration) : "",
+      defaultMpMonthlyType: history.defaultMpMonthlyType || "",
+      defaultMpMonthlyRate: history.defaultMpMonthlyRate != null ? String(history.defaultMpMonthlyRate) : "",
+      defaultMpMonthlyFixed: history.defaultMpMonthlyFixed != null ? String(history.defaultMpMonthlyFixed) : "",
+      defaultMpMonthlyDuration: history.defaultMpMonthlyDuration != null ? String(history.defaultMpMonthlyDuration) : "",
+      defaultPpInitialRate: history.defaultPpInitialRate != null ? String(history.defaultPpInitialRate) : "",
+      defaultPpInitialDuration: history.defaultPpInitialDuration != null ? String(history.defaultPpInitialDuration) : "",
+      defaultPpPerfType: history.defaultPpPerfType || "",
+      defaultPpPerfRate: history.defaultPpPerfRate != null ? String(history.defaultPpPerfRate) : "",
+      defaultPpPerfFixed: history.defaultPpPerfFixed != null ? String(history.defaultPpPerfFixed) : "",
+      defaultPpPerfDuration: history.defaultPpPerfDuration != null ? String(history.defaultPpPerfDuration) : "",
+      note: history.note || "",
+    });
+    setEditingAgentHistoryId(history.id);
+    agentHistoryMasterContractIdRef.current = history.masterContractId || null;
+    setAgentHistoryFormOpen(true);
+  };
+
+  const handleSubmitAgentHistory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!agentId || !agentHistoryFormData.contractStartDate || !agentHistoryFormData.status) {
+      toast.error("契約開始日とステータスは必須です");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const data: AgentContractHistoryData = {
+        contractStartDate: toLocalDateString(agentHistoryFormData.contractStartDate),
+        contractEndDate: agentHistoryFormData.contractEndDate ? toLocalDateString(agentHistoryFormData.contractEndDate) : null,
+        contractDate: null,
+        status: agentHistoryFormData.status,
+        initialFee: agentHistoryFormData.initialFee ? Number(agentHistoryFormData.initialFee) : null,
+        monthlyFee: agentHistoryFormData.monthlyFee ? Number(agentHistoryFormData.monthlyFee) : null,
+        defaultMpInitialRate: agentHistoryFormData.defaultMpInitialRate ? Number(agentHistoryFormData.defaultMpInitialRate) : null,
+        defaultMpInitialDuration: agentHistoryFormData.defaultMpInitialDuration ? Number(agentHistoryFormData.defaultMpInitialDuration) : null,
+        defaultMpMonthlyType: agentHistoryFormData.defaultMpMonthlyType || null,
+        defaultMpMonthlyRate: agentHistoryFormData.defaultMpMonthlyRate ? Number(agentHistoryFormData.defaultMpMonthlyRate) : null,
+        defaultMpMonthlyFixed: agentHistoryFormData.defaultMpMonthlyFixed ? Number(agentHistoryFormData.defaultMpMonthlyFixed) : null,
+        defaultMpMonthlyDuration: agentHistoryFormData.defaultMpMonthlyDuration ? Number(agentHistoryFormData.defaultMpMonthlyDuration) : null,
+        defaultPpInitialRate: agentHistoryFormData.defaultPpInitialRate ? Number(agentHistoryFormData.defaultPpInitialRate) : null,
+        defaultPpInitialDuration: agentHistoryFormData.defaultPpInitialDuration ? Number(agentHistoryFormData.defaultPpInitialDuration) : null,
+        defaultPpPerfType: agentHistoryFormData.defaultPpPerfType || null,
+        defaultPpPerfRate: agentHistoryFormData.defaultPpPerfRate ? Number(agentHistoryFormData.defaultPpPerfRate) : null,
+        defaultPpPerfFixed: agentHistoryFormData.defaultPpPerfFixed ? Number(agentHistoryFormData.defaultPpPerfFixed) : null,
+        defaultPpPerfDuration: agentHistoryFormData.defaultPpPerfDuration ? Number(agentHistoryFormData.defaultPpPerfDuration) : null,
+        note: agentHistoryFormData.note || null,
+        masterContractId: agentHistoryMasterContractIdRef.current,
+      };
+      if (editingAgentHistoryId) {
+        const result = await updateAgentContractHistory(editingAgentHistoryId, data);
+        if (!result.success) { toast.error(result.error); return; }
+        toast.success("契約条件を更新しました");
+      } else {
+        const result = await addAgentContractHistory(agentId, data);
+        if (!result.success) { toast.error(result.error); return; }
+        toast.success("契約条件を追加しました");
+      }
+      setAgentHistoryFormOpen(false);
+      setEditingAgentHistoryId(null);
+      setAgentHistoryFormData(EMPTY_AGENT_HISTORY_FORM);
+      agentHistoryMasterContractIdRef.current = null;
+      await loadContracts();
+      router.refresh();
+    } catch (error) {
+      console.error(error);
+      toast.error("保存に失敗しました");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteAgentHistory = async (id: number) => {
+    if (!confirm("この契約条件を削除してもよろしいですか？")) return;
+    try {
+      const result = await deleteAgentContractHistory(id);
+      if (!result.success) { toast.error(result.error); return; }
+      toast.success("契約条件を削除しました");
+      await loadContracts();
+      router.refresh();
+    } catch (error) {
+      console.error(error);
+      toast.error("削除に失敗しました");
+    }
+  };
+
+  const handleLinkAgentHistoryToContract = async (historyId: number, contractId: number) => {
+    try {
+      const result = await linkAgentContractHistoryToContract(historyId, contractId);
+      if (!result.success) { toast.error(result.error); return; }
+      toast.success("契約書に紐づけました");
+      await loadContracts();
+      router.refresh();
+    } catch (error) {
+      console.error(error);
+      toast.error("紐づけに失敗しました");
+    }
+  };
+
   // 業種区分変更時
   const handleHistoryIndustryTypeChange = (value: string) => {
     const newData = { ...historyFormData, industryType: value };
@@ -1480,13 +1892,20 @@ export function MasterContractModal({
 
         <div className="px-6 py-4 flex flex-col gap-4 flex-1 min-h-0">
           {/* ボタン行 */}
-          {!formOpen && !historyFormOpen && (
+          {!formOpen && !historyFormOpen && !agentHistoryFormOpen && (
             <div className="flex justify-end gap-2 shrink-0">
-              {/* 契約履歴を追加 */}
-              <Button onClick={() => handleAddHistory()} size="sm" variant="outline">
-                <Plus className="h-4 w-4 mr-1" />
-                契約履歴を追加
-              </Button>
+              {/* 契約履歴/契約条件を追加 */}
+              {isAgentMode ? (
+                <Button onClick={() => handleAddAgentHistory()} size="sm" variant="outline">
+                  <Plus className="h-4 w-4 mr-1" />
+                  契約条件を追加
+                </Button>
+              ) : (
+                <Button onClick={() => handleAddHistory()} size="sm" variant="outline">
+                  <Plus className="h-4 w-4 mr-1" />
+                  契約履歴を追加
+                </Button>
+              )}
               {/* 契約書を作成 ドロップダウン */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -1782,8 +2201,8 @@ export function MasterContractModal({
             </div>
           )}
 
-          {/* 契約履歴フォーム（折りたたみ） */}
-          {historyFormOpen && (
+          {/* 契約履歴フォーム（折りたたみ）（代理店モードでは非表示） */}
+          {!isAgentMode && historyFormOpen && (
             <div ref={historyFormRef} className="border rounded-lg p-4 bg-gray-50 shrink-0 max-h-[50vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-medium">
@@ -2136,13 +2555,214 @@ export function MasterContractModal({
             </div>
           )}
 
+          {/* 代理店契約条件フォーム（折りたたみ） */}
+          {isAgentMode && agentHistoryFormOpen && (
+            <div ref={agentHistoryFormRef} className="border rounded-lg p-4 bg-gray-50 shrink-0 max-h-[50vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-medium">
+                  {editingAgentHistoryId ? "契約条件を編集" : "新規契約条件を追加"}
+                </h3>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  setAgentHistoryFormOpen(false);
+                  setEditingAgentHistoryId(null);
+                  setAgentHistoryFormData(EMPTY_AGENT_HISTORY_FORM);
+                  agentHistoryMasterContractIdRef.current = null;
+                }}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <form onSubmit={handleSubmitAgentHistory} className="space-y-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>ステータス <span className="text-red-500">*</span></Label>
+                    <Select
+                      value={agentHistoryFormData.status}
+                      onValueChange={(v) => setAgentHistoryFormData({ ...agentHistoryFormData, status: v })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
+                      <SelectContent>
+                        {agentStatusOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>契約開始日 <span className="text-red-500">*</span></Label>
+                    <DatePicker
+                      selected={agentHistoryFormData.contractStartDate}
+                      onChange={(date: Date | null) => setAgentHistoryFormData({ ...agentHistoryFormData, contractStartDate: date })}
+                      dateFormat="yyyy/MM/dd"
+                      locale="ja"
+                      placeholderText="選択"
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>契約終了日</Label>
+                    <DatePicker
+                      selected={agentHistoryFormData.contractEndDate}
+                      onChange={(date: Date | null) => setAgentHistoryFormData({ ...agentHistoryFormData, contractEndDate: date })}
+                      dateFormat="yyyy/MM/dd"
+                      locale="ja"
+                      placeholderText="選択"
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                      isClearable
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>初期費用(経費)</Label>
+                    <Input
+                      type="number"
+                      value={agentHistoryFormData.initialFee}
+                      onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, initialFee: e.target.value })}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>月額費用(経費)</Label>
+                    <Input
+                      type="number"
+                      value={agentHistoryFormData.monthlyFee}
+                      onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, monthlyFee: e.target.value })}
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+
+                {/* 月額プラン報酬 */}
+                <div className="border rounded-md p-3 space-y-3">
+                  <h4 className="text-sm font-medium text-gray-700">月額プラン報酬（デフォルト）</h4>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">初期報酬率(%)</Label>
+                      <Input type="number" step="0.01" value={agentHistoryFormData.defaultMpInitialRate}
+                        onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpInitialRate: e.target.value })} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">初期報酬期間(ヶ月)</Label>
+                      <Input type="number" value={agentHistoryFormData.defaultMpInitialDuration}
+                        onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpInitialDuration: e.target.value })} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">月額報酬タイプ</Label>
+                      <Select value={agentHistoryFormData.defaultMpMonthlyType || "none"}
+                        onValueChange={(v) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpMonthlyType: v === "none" ? "" : v })}>
+                        <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">未設定</SelectItem>
+                          {commMonthlyTypeOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    {agentHistoryFormData.defaultMpMonthlyType === "rate" ? (
+                      <div className="space-y-1">
+                        <Label className="text-xs">月額報酬率(%)</Label>
+                        <Input type="number" step="0.01" value={agentHistoryFormData.defaultMpMonthlyRate}
+                          onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpMonthlyRate: e.target.value })} />
+                      </div>
+                    ) : agentHistoryFormData.defaultMpMonthlyType === "fixed" ? (
+                      <div className="space-y-1">
+                        <Label className="text-xs">月額報酬固定額</Label>
+                        <Input type="number" value={agentHistoryFormData.defaultMpMonthlyFixed}
+                          onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpMonthlyFixed: e.target.value })} />
+                      </div>
+                    ) : <div />}
+                    <div className="space-y-1">
+                      <Label className="text-xs">月額報酬期間(ヶ月)</Label>
+                      <Input type="number" value={agentHistoryFormData.defaultMpMonthlyDuration}
+                        onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpMonthlyDuration: e.target.value })} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 成果報酬プラン報酬 */}
+                <div className="border rounded-md p-3 space-y-3">
+                  <h4 className="text-sm font-medium text-gray-700">成果報酬プラン報酬（デフォルト）</h4>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">初期報酬率(%)</Label>
+                      <Input type="number" step="0.01" value={agentHistoryFormData.defaultPpInitialRate}
+                        onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpInitialRate: e.target.value })} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">初期報酬期間(ヶ月)</Label>
+                      <Input type="number" value={agentHistoryFormData.defaultPpInitialDuration}
+                        onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpInitialDuration: e.target.value })} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">成果報酬タイプ</Label>
+                      <Select value={agentHistoryFormData.defaultPpPerfType || "none"}
+                        onValueChange={(v) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpPerfType: v === "none" ? "" : v })}>
+                        <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">未設定</SelectItem>
+                          {commMonthlyTypeOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    {agentHistoryFormData.defaultPpPerfType === "rate" ? (
+                      <div className="space-y-1">
+                        <Label className="text-xs">成果報酬率(%)</Label>
+                        <Input type="number" step="0.01" value={agentHistoryFormData.defaultPpPerfRate}
+                          onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpPerfRate: e.target.value })} />
+                      </div>
+                    ) : agentHistoryFormData.defaultPpPerfType === "fixed" ? (
+                      <div className="space-y-1">
+                        <Label className="text-xs">成果報酬固定額</Label>
+                        <Input type="number" value={agentHistoryFormData.defaultPpPerfFixed}
+                          onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpPerfFixed: e.target.value })} />
+                      </div>
+                    ) : <div />}
+                    <div className="space-y-1">
+                      <Label className="text-xs">成果報酬期間(ヶ月)</Label>
+                      <Input type="number" value={agentHistoryFormData.defaultPpPerfDuration}
+                        onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpPerfDuration: e.target.value })} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>備考</Label>
+                  <Textarea
+                    value={agentHistoryFormData.note}
+                    onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, note: e.target.value })}
+                    rows={2}
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button type="button" variant="outline" onClick={() => {
+                    setAgentHistoryFormOpen(false);
+                    setEditingAgentHistoryId(null);
+                    setAgentHistoryFormData(EMPTY_AGENT_HISTORY_FORM);
+                    agentHistoryMasterContractIdRef.current = null;
+                  }}>
+                    キャンセル
+                  </Button>
+                  <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? "保存中..." : editingAgentHistoryId ? "更新" : "追加"}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          )}
+
           {/* 契約書一覧（ツリー表示） — フォームが開いている時は非表示 */}
-          {formOpen || historyFormOpen ? null : initialLoading ? (
+          {formOpen || historyFormOpen || agentHistoryFormOpen ? null : initialLoading ? (
             <div className="text-center py-8 text-gray-500">読み込み中...</div>
           ) : (
             <div className="flex-1 min-h-0 overflow-y-auto space-y-3">
-              {localContracts.length === 0 && unlinkedHistories.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">契約書・契約履歴が登録されていません</div>
+              {localContracts.length === 0 && (isAgentMode ? unlinkedAgentHistories.length === 0 : unlinkedHistories.length === 0) ? (
+                <div className="text-center py-8 text-gray-500">{isAgentMode ? "契約書・契約条件が登録されていません" : "契約書・契約履歴が登録されていません"}</div>
               ) : (
                 <>
                   {/* 契約書セクション */}
@@ -2156,6 +2776,10 @@ export function MasterContractModal({
                       onEditHistory={(history) => handleEditHistory(history)}
                       onDeleteHistory={(historyId) => handleDeleteHistory(historyId)}
                       onAddHistoryForContract={(contractId) => handleAddHistory(contractId)}
+                      isAgentMode={isAgentMode}
+                      onEditAgentHistory={(history) => handleEditAgentHistory(history)}
+                      onDeleteAgentHistory={(historyId) => handleDeleteAgentHistory(historyId)}
+                      onAddAgentHistoryForContract={(contractId) => handleAddAgentHistory(contractId)}
                       formatDate={formatDate}
                       cloudsignData={cloudsignData}
                       setCloudsignData={setCloudsignData}
@@ -2185,25 +2809,49 @@ export function MasterContractModal({
                     />
                   ))}
 
-                  {/* 契約書に紐づかない契約履歴 */}
-                  {unlinkedHistories.length > 0 && (
-                    <div className="mt-4">
-                      <h3 className="text-sm font-medium text-gray-500 mb-2 flex items-center gap-2">
-                        <div className="flex-1 border-t border-gray-200" />
-                        <span className="whitespace-nowrap">契約書に紐づかない契約履歴</span>
-                        <div className="flex-1 border-t border-gray-200" />
-                      </h3>
-                      {unlinkedHistories.map((history) => (
-                        <ContractHistoryCard
-                          key={history.id}
-                          history={history}
-                          onEdit={() => handleEditHistory(history)}
-                          onDelete={() => handleDeleteHistory(history.id)}
-                          contracts={localContracts}
-                          onLink={handleLinkHistoryToContract}
-                        />
-                      ))}
-                    </div>
+                  {/* 契約書に紐づかない契約履歴/契約条件 */}
+                  {isAgentMode ? (
+                    unlinkedAgentHistories.length > 0 && (
+                      <div className="mt-4">
+                        <h3 className="text-sm font-medium text-gray-500 mb-2 flex items-center gap-2">
+                          <div className="flex-1 border-t border-gray-200" />
+                          <span className="whitespace-nowrap">契約書に紐づかない契約条件</span>
+                          <div className="flex-1 border-t border-gray-200" />
+                        </h3>
+                        <div className="space-y-2">
+                          {unlinkedAgentHistories.map((history) => (
+                            <AgentContractHistoryCard
+                              key={history.id}
+                              history={history}
+                              onEdit={() => handleEditAgentHistory(history)}
+                              onDelete={() => handleDeleteAgentHistory(history.id)}
+                              contracts={localContracts}
+                              onLink={handleLinkAgentHistoryToContract}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  ) : (
+                    unlinkedHistories.length > 0 && (
+                      <div className="mt-4">
+                        <h3 className="text-sm font-medium text-gray-500 mb-2 flex items-center gap-2">
+                          <div className="flex-1 border-t border-gray-200" />
+                          <span className="whitespace-nowrap">契約書に紐づかない契約履歴</span>
+                          <div className="flex-1 border-t border-gray-200" />
+                        </h3>
+                        {unlinkedHistories.map((history) => (
+                          <ContractHistoryCard
+                            key={history.id}
+                            history={history}
+                            onEdit={() => handleEditHistory(history)}
+                            onDelete={() => handleDeleteHistory(history.id)}
+                            contracts={localContracts}
+                            onLink={handleLinkHistoryToContract}
+                          />
+                        ))}
+                      </div>
+                    )
                   )}
                 </>
               )}

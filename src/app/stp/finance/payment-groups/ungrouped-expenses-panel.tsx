@@ -9,10 +9,12 @@ import {
   ChevronDown,
   ChevronRight,
   AlertTriangle,
-  Info,
   Plus,
   PlusCircle,
   Eye,
+  Pencil,
+  CheckCircle2,
+  Sparkles,
 } from "lucide-react";
 import type {
   UngroupedExpenseTransaction,
@@ -21,6 +23,7 @@ import type {
 } from "./actions";
 import { CreatePaymentGroupModal } from "./create-payment-group-modal";
 import { TransactionPreviewModal } from "../transactions/transaction-preview-modal";
+import { CandidateDetectionPanel } from "./candidate-detection-panel";
 
 type Props = {
   ungroupedTransactions: UngroupedExpenseTransaction[];
@@ -29,15 +32,16 @@ type Props = {
   counterpartyOptions: { value: string; label: string; isStellaCustomer: boolean }[];
   operatingCompanyOptions: { value: string; label: string }[];
   expenseCategories: { id: number; name: string; type: string }[];
-  unconfirmedTransactions: UngroupedExpenseTransaction[];
   projectId?: number;
 };
 
 type CounterpartyGroup = {
   counterpartyId: number;
   counterpartyName: string;
-  transactions: UngroupedExpenseTransaction[];
-  totalAmount: number;
+  confirmedTransactions: UngroupedExpenseTransaction[];
+  unconfirmedTransactions: UngroupedExpenseTransaction[];
+  totalConfirmedAmount: number;
+  totalUnconfirmedAmount: number;
   draftGroup: PaymentGroupListItem | null;
 };
 
@@ -48,7 +52,6 @@ export function UngroupedExpensesPanel({
   counterpartyOptions,
   operatingCompanyOptions,
   expenseCategories,
-  unconfirmedTransactions,
   projectId,
 }: Props) {
   const router = useRouter();
@@ -57,22 +60,32 @@ export function UngroupedExpensesPanel({
   const [preSelectedCounterpartyId, setPreSelectedCounterpartyId] = useState<
     string | null
   >(null);
-  const [expandedUnconfirmed, setExpandedUnconfirmed] = useState<Set<number>>(new Set());
   const [previewTxId, setPreviewTxId] = useState<number | null>(null);
+  const [showCandidatePanel, setShowCandidatePanel] = useState(false);
 
-  // 取引先ごとにグループ化
+  // 取引先ごとにグループ化（confirmed + unconfirmed を統合）
   const counterpartyGroups = useMemo(() => {
-    const grouped = new Map<number, UngroupedExpenseTransaction[]>();
+    const grouped = new Map<number, { confirmed: UngroupedExpenseTransaction[]; unconfirmed: UngroupedExpenseTransaction[] }>();
+
     for (const tx of ungroupedTransactions) {
       if (!grouped.has(tx.counterpartyId)) {
-        grouped.set(tx.counterpartyId, []);
+        grouped.set(tx.counterpartyId, { confirmed: [], unconfirmed: [] });
       }
-      grouped.get(tx.counterpartyId)!.push(tx);
+      const group = grouped.get(tx.counterpartyId)!;
+      if (tx.status === "confirmed") {
+        group.confirmed.push(tx);
+      } else {
+        group.unconfirmed.push(tx);
+      }
     }
 
     const result: CounterpartyGroup[] = [];
-    for (const [counterpartyId, transactions] of grouped) {
-      const totalAmount = transactions.reduce((sum, tx) => sum + tx.amount, 0);
+    for (const [counterpartyId, { confirmed, unconfirmed }] of grouped) {
+      const allTx = [...confirmed, ...unconfirmed];
+      if (allTx.length === 0) continue;
+
+      const totalConfirmedAmount = confirmed.reduce((sum, tx) => sum + tx.amount, 0);
+      const totalUnconfirmedAmount = unconfirmed.reduce((sum, tx) => sum + tx.amount, 0);
       const draftGroup =
         draftPaymentGroups.find(
           (g) =>
@@ -82,44 +95,25 @@ export function UngroupedExpensesPanel({
 
       result.push({
         counterpartyId,
-        counterpartyName: transactions[0].counterpartyName,
-        transactions,
-        totalAmount,
+        counterpartyName: allTx[0].counterpartyName,
+        confirmedTransactions: confirmed,
+        unconfirmedTransactions: unconfirmed,
+        totalConfirmedAmount,
+        totalUnconfirmedAmount,
         draftGroup,
       });
     }
 
     // 件数の多い順にソート
-    result.sort((a, b) => b.transactions.length - a.transactions.length);
+    result.sort((a, b) =>
+      (b.confirmedTransactions.length + b.unconfirmedTransactions.length) -
+      (a.confirmedTransactions.length + a.unconfirmedTransactions.length)
+    );
     return result;
   }, [ungroupedTransactions, draftPaymentGroups]);
 
-  // 未確定取引を取引先ごとにグループ化
-  const unconfirmedByCounterparty = useMemo(() => {
-    const grouped = new Map<number, UngroupedExpenseTransaction[]>();
-    for (const t of unconfirmedTransactions) {
-      if (!grouped.has(t.counterpartyId)) {
-        grouped.set(t.counterpartyId, []);
-      }
-      grouped.get(t.counterpartyId)!.push(t);
-    }
-    return grouped;
-  }, [unconfirmedTransactions]);
-
   const toggleExpand = (counterpartyId: number) => {
     setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(counterpartyId)) {
-        next.delete(counterpartyId);
-      } else {
-        next.add(counterpartyId);
-      }
-      return next;
-    });
-  };
-
-  const toggleUnconfirmedExpanded = (counterpartyId: number) => {
-    setExpandedUnconfirmed((prev) => {
       const next = new Set(prev);
       if (next.has(counterpartyId)) {
         next.delete(counterpartyId);
@@ -135,16 +129,78 @@ export function UngroupedExpensesPanel({
     setShowCreateModal(true);
   };
 
-  if (ungroupedTransactions.length === 0 && ungroupedAllocationItems.length === 0 && unconfirmedTransactions.length === 0) {
+  const totalConfirmed = ungroupedTransactions.filter((t) => t.status === "confirmed").length;
+  const totalUnconfirmed = ungroupedTransactions.filter((t) => t.status === "unconfirmed").length;
+
+  if (ungroupedTransactions.length === 0 && ungroupedAllocationItems.length === 0 && !showCandidatePanel) {
     return (
-      <div className="text-center py-12 text-muted-foreground">
-        未処理の経費取引はありません
+      <div className="space-y-4">
+        {/* 候補検出ボタン */}
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowCandidatePanel(true)}
+          >
+            <Sparkles className="mr-1 h-4 w-4" />
+            契約から候補を検出
+          </Button>
+        </div>
+        <div className="text-center py-12 text-muted-foreground">
+          未処理の経費取引はありません
+        </div>
+
+        {/* 取引プレビューモーダル */}
+        {previewTxId !== null && (
+          <TransactionPreviewModal
+            transactionId={previewTxId}
+            open={true}
+            onClose={() => setPreviewTxId(null)}
+            onConfirmed={() => router.refresh()}
+            expenseCategories={expenseCategories}
+            transactionType="expense"
+          />
+        )}
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
+      {/* 候補検出セクション */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          {totalConfirmed > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+              確認済み {totalConfirmed}件
+            </span>
+          )}
+          {totalUnconfirmed > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+              未確定 {totalUnconfirmed}件
+            </span>
+          )}
+        </div>
+        <Button
+          variant={showCandidatePanel ? "secondary" : "outline"}
+          size="sm"
+          onClick={() => setShowCandidatePanel(!showCandidatePanel)}
+        >
+          <Sparkles className="mr-1 h-4 w-4" />
+          契約から候補を検出
+        </Button>
+      </div>
+
+      {/* 候補検出パネル */}
+      {showCandidatePanel && (
+        <CandidateDetectionPanel
+          expenseCategories={expenseCategories}
+          onClose={() => setShowCandidatePanel(false)}
+        />
+      )}
+
       {/* 按分取引セクション */}
       {ungroupedAllocationItems.length > 0 && (
         <div className="space-y-3">
@@ -217,26 +273,25 @@ export function UngroupedExpensesPanel({
       )}
 
       {/* 通常取引セクション */}
+      {ungroupedTransactions.length > 0 && ungroupedAllocationItems.length > 0 && (
+        <div className="flex items-center gap-2 pt-2">
+          <h3 className="text-sm font-medium">
+            通常の経費取引（{ungroupedTransactions.length}件）
+          </h3>
+        </div>
+      )}
+
       {ungroupedTransactions.length > 0 && (
-        <>
-          {ungroupedAllocationItems.length > 0 && (
-            <div className="flex items-center gap-2 pt-2">
-              <h3 className="text-sm font-medium">
-                通常の経費取引（{ungroupedTransactions.length}件）
-              </h3>
-            </div>
-          )}
-          <p className="text-sm text-muted-foreground">
-            確認済みで、まだ支払に紐づいていない経費取引の一覧です。取引先ごとにまとめて支払を作成できます。
-          </p>
-        </>
+        <p className="text-sm text-muted-foreground">
+          まだ支払に紐づいていない経費取引の一覧です。確認済みの取引を選んで支払を作成できます。
+        </p>
       )}
 
       <div className="space-y-3">
         {counterpartyGroups.map((group) => {
           const isExpanded = expandedGroups.has(group.counterpartyId);
-          const unconfirmedForCp = unconfirmedByCounterparty.get(group.counterpartyId);
-          const isUnconfirmedExpanded = expandedUnconfirmed.has(group.counterpartyId);
+          const totalCount = group.confirmedTransactions.length + group.unconfirmedTransactions.length;
+          const totalAmount = group.totalConfirmedAmount + group.totalUnconfirmedAmount;
 
           return (
             <Card key={group.counterpartyId}>
@@ -256,50 +311,54 @@ export function UngroupedExpensesPanel({
                       {group.counterpartyName}
                     </CardTitle>
                     <span className="text-sm text-muted-foreground">
-                      {group.transactions.length}件
+                      {totalCount}件
                     </span>
                     <span className="text-sm font-medium text-emerald-600">
-                      ¥{group.totalAmount.toLocaleString()}
+                      ¥{totalAmount.toLocaleString()}
                     </span>
                   </button>
 
                   <div className="flex items-center gap-2">
-                    {group.draftGroup ? (
+                    {group.confirmedTransactions.length > 0 && (
                       <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            router.refresh();
-                          }}
-                        >
-                          <PlusCircle className="mr-1 h-3 w-3" />
-                          下書きに追加
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() =>
-                            handleCreatePayment(
-                              String(group.counterpartyId)
-                            )
-                          }
-                        >
-                          <Plus className="mr-1 h-3 w-3" />
-                          新しい支払を作成
-                        </Button>
+                        {group.draftGroup ? (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                router.refresh();
+                              }}
+                            >
+                              <PlusCircle className="mr-1 h-3 w-3" />
+                              下書きに追加
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() =>
+                                handleCreatePayment(
+                                  String(group.counterpartyId)
+                                )
+                              }
+                            >
+                              <Plus className="mr-1 h-3 w-3" />
+                              新しい支払を作成
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              handleCreatePayment(
+                                String(group.counterpartyId)
+                              )
+                            }
+                          >
+                            <Plus className="mr-1 h-3 w-3" />
+                            支払を作成
+                          </Button>
+                        )}
                       </>
-                    ) : (
-                      <Button
-                        size="sm"
-                        onClick={() =>
-                          handleCreatePayment(
-                            String(group.counterpartyId)
-                          )
-                        }
-                      >
-                        <Plus className="mr-1 h-3 w-3" />
-                        支払を作成
-                      </Button>
                     )}
                   </div>
                 </div>
@@ -313,65 +372,13 @@ export function UngroupedExpensesPanel({
                   </div>
                 )}
 
-                {unconfirmedForCp && unconfirmedForCp.length > 0 && (
-                  <div className="mt-2 rounded-md bg-blue-50 border border-blue-200 overflow-hidden">
-                    <button
-                      onClick={() => toggleUnconfirmedExpanded(group.counterpartyId)}
-                      className="flex items-center gap-2 w-full px-3 py-2 text-sm text-blue-800 hover:bg-blue-100 transition-colors"
-                    >
-                      <Info className="h-4 w-4 flex-shrink-0" />
-                      <span className="flex-1 text-left">
-                        この取引先の未確定の取引が{unconfirmedForCp.length}件あります
-                      </span>
-                      {isUnconfirmedExpanded ? (
-                        <ChevronDown className="h-4 w-4 flex-shrink-0" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 flex-shrink-0" />
-                      )}
-                    </button>
-                    {isUnconfirmedExpanded && (
-                      <div className="border-t border-blue-200 divide-y divide-blue-100">
-                        {unconfirmedForCp.map((t) => (
-                          <div
-                            key={t.id}
-                            className="flex items-center gap-3 px-4 py-2.5 bg-white/50"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium">
-                                  {t.expenseCategoryName}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                  {t.periodFrom} 〜 {t.periodTo}
-                                </span>
-                              </div>
-                              {t.note && (
-                                <div className="text-xs text-muted-foreground truncate">
-                                  {t.note}
-                                </div>
-                              )}
-                            </div>
-                            <div className="text-right text-sm mr-2">
-                              <div className="font-medium">
-                                ¥{t.amount.toLocaleString()}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                税¥{t.taxAmount.toLocaleString()} ({t.taxRate}%)
-                              </div>
-                            </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-xs"
-                              onClick={() => setPreviewTxId(t.id)}
-                            >
-                              <Eye className="mr-1 h-3 w-3" />
-                              詳細
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                {/* 未確定件数の案内 */}
+                {group.unconfirmedTransactions.length > 0 && group.confirmedTransactions.length > 0 && (
+                  <div className="flex items-center gap-2 mt-2 rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800">
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0 text-blue-500" />
+                    <span>
+                      未確定の取引が{group.unconfirmedTransactions.length}件あります。確定してから支払を作成してください。
+                    </span>
                   </div>
                 )}
               </CardHeader>
@@ -380,35 +387,21 @@ export function UngroupedExpensesPanel({
               {isExpanded && (
                 <CardContent className="pt-0">
                   <div className="border rounded-lg divide-y">
-                    {group.transactions.map((tx) => (
-                      <div
+                    {/* 確認済み取引 */}
+                    {group.confirmedTransactions.map((tx) => (
+                      <TransactionRow
                         key={tx.id}
-                        className="flex items-center gap-3 px-4 py-2.5"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium">
-                              {tx.expenseCategoryName}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              {tx.periodFrom} ~ {tx.periodTo}
-                            </span>
-                          </div>
-                          {tx.note && (
-                            <div className="text-xs text-muted-foreground truncate">
-                              {tx.note}
-                            </div>
-                          )}
-                        </div>
-                        <div className="text-right text-sm">
-                          <div className="font-medium">
-                            ¥{tx.amount.toLocaleString()}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            税¥{tx.taxAmount.toLocaleString()} ({tx.taxRate}%)
-                          </div>
-                        </div>
-                      </div>
+                        tx={tx}
+                        onEdit={() => setPreviewTxId(tx.id)}
+                      />
+                    ))}
+                    {/* 未確定取引 */}
+                    {group.unconfirmedTransactions.map((tx) => (
+                      <TransactionRow
+                        key={tx.id}
+                        tx={tx}
+                        onEdit={() => setPreviewTxId(tx.id)}
+                      />
                     ))}
                   </div>
                 </CardContent>
@@ -417,80 +410,6 @@ export function UngroupedExpensesPanel({
           );
         })}
       </div>
-
-      {/* 確認済み取引がないが未確定取引だけがある取引先 */}
-      {Array.from(unconfirmedByCounterparty.entries())
-        .filter(([cpId]) => !counterpartyGroups.some((g) => g.counterpartyId === cpId))
-        .sort(([a], [b]) => a - b)
-        .map(([counterpartyId, txs]) => {
-          const isUnconfirmedExpanded = expandedUnconfirmed.has(counterpartyId);
-          return (
-            <Card key={`unconfirmed-${counterpartyId}`}>
-              <CardHeader className="pb-3">
-                <div className="mt-0 rounded-md bg-blue-50 border border-blue-200 overflow-hidden">
-                  <button
-                    onClick={() => toggleUnconfirmedExpanded(counterpartyId)}
-                    className="flex items-center gap-2 w-full px-3 py-2 text-sm text-blue-800 hover:bg-blue-100 transition-colors"
-                  >
-                    <Info className="h-4 w-4 flex-shrink-0" />
-                    <span className="font-medium mr-1">{txs[0].counterpartyName}</span>
-                    <span className="flex-1 text-left">
-                      — 未確定の取引が{txs.length}件あります
-                    </span>
-                    {isUnconfirmedExpanded ? (
-                      <ChevronDown className="h-4 w-4 flex-shrink-0" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 flex-shrink-0" />
-                    )}
-                  </button>
-                  {isUnconfirmedExpanded && (
-                    <div className="border-t border-blue-200 divide-y divide-blue-100">
-                      {txs.map((t) => (
-                        <div
-                          key={t.id}
-                          className="flex items-center gap-3 px-4 py-2.5 bg-white/50"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium">
-                                {t.expenseCategoryName}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {t.periodFrom} 〜 {t.periodTo}
-                              </span>
-                            </div>
-                            {t.note && (
-                              <div className="text-xs text-muted-foreground truncate">
-                                {t.note}
-                              </div>
-                            )}
-                          </div>
-                          <div className="text-right text-sm mr-2">
-                            <div className="font-medium">
-                              ¥{t.amount.toLocaleString()}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              税¥{t.taxAmount.toLocaleString()} ({t.taxRate}%)
-                            </div>
-                          </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs"
-                            onClick={() => setPreviewTxId(t.id)}
-                          >
-                            <Eye className="mr-1 h-3 w-3" />
-                            詳細
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </CardHeader>
-            </Card>
-          );
-        })}
 
       {/* 取引プレビューモーダル */}
       {previewTxId !== null && (
@@ -522,6 +441,72 @@ export function UngroupedExpensesPanel({
           }}
         />
       )}
+    </div>
+  );
+}
+
+// 取引行コンポーネント
+function TransactionRow({
+  tx,
+  onEdit,
+}: {
+  tx: UngroupedExpenseTransaction;
+  onEdit: () => void;
+}) {
+  const isUnconfirmed = tx.status === "unconfirmed";
+
+  return (
+    <div
+      className={`flex items-center gap-3 px-4 py-2.5 ${
+        isUnconfirmed ? "bg-amber-50/50" : ""
+      }`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">
+            {tx.expenseCategoryName}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {tx.periodFrom} ~ {tx.periodTo}
+          </span>
+          {isUnconfirmed && (
+            <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+              未確定
+            </span>
+          )}
+        </div>
+        {tx.note && (
+          <div className="text-xs text-muted-foreground truncate">
+            {tx.note}
+          </div>
+        )}
+      </div>
+      <div className="text-right text-sm mr-2">
+        <div className="font-medium">
+          ¥{tx.amount.toLocaleString()}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          税¥{tx.taxAmount.toLocaleString()} ({tx.taxRate}%)
+        </div>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 text-xs"
+        onClick={onEdit}
+      >
+        {isUnconfirmed ? (
+          <>
+            <Pencil className="mr-1 h-3 w-3" />
+            編集・確定
+          </>
+        ) : (
+          <>
+            <Eye className="mr-1 h-3 w-3" />
+            詳細
+          </>
+        )}
+      </Button>
     </div>
   );
 }

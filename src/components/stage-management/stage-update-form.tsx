@@ -217,6 +217,7 @@ export function StageUpdateForm({
         newStage?.stageType === 'closed_lost' ||
         newStage?.stageType === 'pending'
       ) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- clear target fields when stage changes to terminal state
         setSelectedTargetStageValue(CLEAR_VALUE);
         setSelectedTargetDateMode(CLEAR_VALUE);
         setSelectedTargetDate(null);
@@ -233,6 +234,7 @@ export function StageUpdateForm({
   // ステージ変更時に失注理由・検討中理由をリセット
   useEffect(() => {
     if (!isChangingToLost) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset lost/pending reason when stage selection changes
       setLostReason("");
     }
     if (!isChangingToPending) {

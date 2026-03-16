@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -165,7 +165,7 @@ export function GroupsList({ groups, projects }: Props) {
     });
   };
 
-  const applyFilters = (items: WorkflowGroup[]) => {
+  const applyFilters = useCallback((items: WorkflowGroup[]) => {
     let filtered = items;
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -181,23 +181,23 @@ export function GroupsList({ groups, projects }: Props) {
       );
     }
     return filtered;
-  };
+  }, [search, selectedProjectIds]);
 
   const needsJournal = useMemo(
     () => applyFilters(groups.filter((g) => g.category === "needs_journal")),
-    [groups, search, selectedProjectIds]
+    [applyFilters, groups]
   );
   const inProgress = useMemo(
     () => applyFilters(groups.filter((g) => g.category === "in_progress")),
-    [groups, search, selectedProjectIds]
+    [applyFilters, groups]
   );
   const completed = useMemo(
     () => applyFilters(groups.filter((g) => g.category === "completed")),
-    [groups, search, selectedProjectIds]
+    [applyFilters, groups]
   );
   const returned = useMemo(
     () => applyFilters(groups.filter((g) => g.category === "returned")),
-    [groups, search, selectedProjectIds]
+    [applyFilters, groups]
   );
 
   return (

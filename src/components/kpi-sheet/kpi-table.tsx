@@ -229,25 +229,33 @@ export function KpiTable({
       metric: KpiMetricKey,
       rowType: RowType
     ): number | null => {
-      if (rowType === "diff") {
-        // 差分：実績 - 目標
-        const targetValue = getCellValue(week, metric, "target");
-        const actualValue = getCellValue(week, metric, "actual");
-        return calculateDiff(targetValue, actualValue);
-      }
+      const getValueInner = (
+        w: KpiWeeklyData,
+        m: KpiMetricKey,
+        rt: RowType
+      ): number | null => {
+        if (rt === "diff") {
+          // 差分：実績 - 目標
+          const targetValue = getValueInner(w, m, "target");
+          const actualValue = getValueInner(w, m, "actual");
+          return calculateDiff(targetValue, actualValue);
+        }
 
-      // 手入力項目は直接値を返す
-      if (isManualInput(metric)) {
-        const field = getFieldName(
-          rowType as KpiDataType,
-          metric
-        ) as keyof KpiWeeklyData;
-        return week[field] as number | null;
-      }
+        // 手入力項目は直接値を返す
+        if (isManualInput(m)) {
+          const field = getFieldName(
+            rt as KpiDataType,
+            m
+          ) as keyof KpiWeeklyData;
+          return w[field] as number | null;
+        }
 
-      // 計算項目は算出
-      const inputData = getManualInputData(week, rowType as KpiDataType);
-      return calculateMetricValue(metric, inputData);
+        // 計算項目は算出
+        const inputData = getManualInputData(w, rt as KpiDataType);
+        return calculateMetricValue(m, inputData);
+      };
+
+      return getValueInner(week, metric, rowType);
     },
     [getManualInputData]
   );

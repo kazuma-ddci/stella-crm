@@ -285,6 +285,7 @@ function RevenueItemRow({
 }) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
+  const [now] = useState(() => Date.now());
 
   const handleNavigate = () => {
     if (status === "not_created") return;
@@ -302,7 +303,7 @@ function RevenueItemRow({
   const isNavigable = status !== "not_created" && item.transactionId;
   const overdueDays =
     status === "overdue" && item.paymentDueDate
-      ? Math.floor((Date.now() - new Date(item.paymentDueDate).getTime()) / (1000 * 60 * 60 * 24))
+      ? Math.floor((now - new Date(item.paymentDueDate).getTime()) / (1000 * 60 * 60 * 24))
       : null;
 
   return (
@@ -396,6 +397,7 @@ function ExpenseItemRow({
 }) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
+  const [now] = useState(() => Date.now());
 
   const handleNavigate = () => {
     if (status === "pending" || status === "approved") return;
@@ -413,7 +415,7 @@ function ExpenseItemRow({
   const isNavigable = status !== "pending" && status !== "approved" && item.transactionId;
   const overdueDays =
     status === "overdue" && item.paymentDueDate
-      ? Math.floor((Date.now() - new Date(item.paymentDueDate).getTime()) / (1000 * 60 * 60 * 24))
+      ? Math.floor((now - new Date(item.paymentDueDate).getTime()) / (1000 * 60 * 60 * 24))
       : null;
 
   return (

@@ -14,6 +14,8 @@ type CreateNotificationParams = {
   title: string;
   message: string;
   linkUrl?: string;
+  actionType?: string;
+  actionTargetId?: number;
 };
 
 // ============================================
@@ -36,6 +38,8 @@ export async function createNotification(
       title: params.title,
       message: params.message,
       linkUrl: params.linkUrl ?? null,
+      actionType: params.actionType ?? null,
+      actionTargetId: params.actionTargetId ?? null,
     },
   });
 }
@@ -58,6 +62,8 @@ export async function createNotificationBulk(
       title: params.title,
       message: params.message,
       linkUrl: params.linkUrl ?? null,
+      actionType: params.actionType ?? null,
+      actionTargetId: params.actionTargetId ?? null,
     })),
   });
 }

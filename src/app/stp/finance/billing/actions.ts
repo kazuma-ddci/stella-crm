@@ -287,7 +287,7 @@ export async function getBillingLifecycleData(
 
     // 支払期限計算
     const rule = ruleByFeeType.get("monthly");
-    let expectedInvoiceDate: string | null = null;
+    const expectedInvoiceDate: string | null = null;
     let expectedPaymentDeadline: string | null = null;
 
     const company = contract.company;
@@ -625,7 +625,8 @@ export async function createTransactionFromBilling(
   const note = `${contractHistory.company.name} ${feeTypeLabel}`;
 
   const taxRate = 10;
-  const taxAmount = Math.floor((item.amount * taxRate) / 100);
+  // 契約金額は税込で入力されている → 内税計算
+  const taxAmount = Math.floor((item.amount * taxRate) / (100 + taxRate));
 
   const transaction = await prisma.transaction.create({
     data: {
@@ -636,7 +637,7 @@ export async function createTransactionFromBilling(
       amount: item.amount,
       taxAmount,
       taxRate,
-      taxType: "tax_excluded",
+      taxType: "tax_included",
       periodFrom: new Date(item.periodFrom),
       periodTo: new Date(item.periodTo),
       paymentDueDate: item.paymentDueDate ? new Date(item.paymentDueDate) : null,
@@ -753,6 +754,7 @@ export async function getExpenseLifecycleData(
   const year = parseInt(yearStr, 10);
   const month = parseInt(monthStr, 10);
   const monthStart = startOfMonth(year, month);
+  const monthEnd = endOfMonth(year, month);
 
   // 対象月のStpExpenseRecordを取得
   const expenseRecords = await prisma.stpExpenseRecord.findMany({
@@ -839,7 +841,7 @@ export async function getExpenseLifecycleData(
         type: "expense",
         deletedAt: null,
         stpExpenseType: { not: null },
-        periodFrom: { gte: monthStart, lte: monthStart },
+        periodFrom: { gte: monthStart, lte: monthEnd },
         OR: [
           ...(agentIds.length > 0 ? [{ stpAgentId: { in: agentIds } }] : []),
           ...(contractHistoryIds.length > 0 ? [{ stpContractHistoryId: { in: contractHistoryIds } }] : []),

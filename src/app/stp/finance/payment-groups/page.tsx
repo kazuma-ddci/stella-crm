@@ -5,7 +5,6 @@ import {
   getPaymentGroups,
   getUngroupedExpenseTransactions,
   getUngroupedAllocationItems,
-  getUnconfirmedExpenseTransactions,
 } from "./actions";
 import { getExpenseCategories } from "../transactions/actions";
 import { getSystemProjectContext } from "@/lib/project-context";
@@ -20,7 +19,7 @@ export default async function PaymentGroupsPage() {
   const projectId = ctx.projectId;
   const session = await getSession();
   const canEditAccounting = canEdit(session.permissions, "accounting");
-  const [data, ungroupedTransactions, ungroupedAllocationItems, counterparties, operatingCompanies, expenseCategories, unconfirmedTransactions, pendingInboundInvoices, matchablePaymentGroups] =
+  const [data, ungroupedTransactions, ungroupedAllocationItems, counterparties, operatingCompanies, expenseCategories, pendingInboundInvoices, matchablePaymentGroups] =
     await Promise.all([
       getPaymentGroups(projectId),
       getUngroupedExpenseTransactions(undefined, projectId),
@@ -34,7 +33,6 @@ export default async function PaymentGroupsPage() {
         orderBy: { id: "asc" },
       }),
       getExpenseCategories(),
-      getUnconfirmedExpenseTransactions(projectId),
       getPendingInboundInvoices(),
       getMatchablePaymentGroups(),
     ]);
@@ -58,7 +56,6 @@ export default async function PaymentGroupsPage() {
       counterpartyOptions={counterpartyOptions}
       operatingCompanyOptions={operatingCompanyOptions}
       expenseCategories={expenseCategories}
-      unconfirmedTransactions={unconfirmedTransactions}
       projectId={projectId}
       canEditAccounting={canEditAccounting}
       pendingInboundInvoices={pendingInboundInvoices}

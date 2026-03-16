@@ -790,6 +790,7 @@ model StaffPermission {
   staffId         Int                                     // master_staffへの外部キー
   projectId       Int                                     // master_projectsへの外部キー
   permissionLevel String   @db.VarChar(20)                // none, view, edit, manager
+  canApprove      Boolean  @default(false)                // 承認権限（支払グループ等の承認が可能）
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1081,7 +1082,8 @@ model MasterContract {
   relationsAsSource     ContractRelation[]        @relation("RelationSource")
   relationsAsTarget     ContractRelation[]        @relation("RelationTarget")
   selfSigningEmail      OperatingCompanyEmail?    @relation("SelfSigningEmail", fields: [cloudsignSelfSigningEmailId], references: [id])
-  contractHistories     StpContractHistory[]
+  contractHistories          StpContractHistory[]
+  agentContractHistories     StpAgentContractHistory[]
 
   @@index([companyId], map: "idx_master_contracts_company_id")
   @@index([projectId], map: "idx_master_contracts_project_id")
@@ -1623,6 +1625,7 @@ model StpAgentContractHistory {
   agentId                  Int                                    // 代理店（stp_agentsへの外部キー）
   contractStartDate        DateTime  @db.Date                     // 契約開始日
   contractEndDate          DateTime? @db.Date                     // 契約終了日（null = 現在有効）
+  contractDate             DateTime? @db.Date                     // 契約日（初期費用発生タイミング）
   status                   String    @db.VarChar(20)              // "契約前" / "契約済み"
 
   // 代理店への直接費用
@@ -1646,17 +1649,20 @@ model StpAgentContractHistory {
   defaultPpPerfDuration        Int?                               // 報酬発生期間(ヶ月)
 
   note                     String?                                // 備考
+  masterContractId         Int?      @map("master_contract_id")   // 紐づく契約書
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
   deletedAt                DateTime?                              // 論理削除日時
 
   // Relations
   agent               StpAgent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  masterContract      MasterContract?   @relation(fields: [masterContractId], references: [id])
   expenseRecords       StpExpenseRecord[]
   commissionOverrides  StpAgentCommissionOverride[]
 
   @@index([agentId])
   @@index([agentId, contractStartDate])
+  @@index([masterContractId])
   @@map("stp_agent_contract_histories")
 }
 
@@ -2815,6 +2821,7 @@ model ExpenseCategory {
   id                    Int       @id @default(autoincrement())
   name                  String    // 名称（外注費、サブスク費、家賃等）
   type                  String    // "revenue" | "expense" | "both"
+  systemCode            String?   @unique @db.VarChar(50) // NULLならユーザー作成、非NULLならシステム予約
   projectId             Int       // FK → MasterProject（必須）
   defaultAccountId      Int?      // FK → Account（デフォルト勘定科目）
   displayOrder          Int       @default(0)
@@ -3474,6 +3481,10 @@ model Notification {
   // "unread" | "read" | "in_progress" | "completed"
   statusChangedAt       DateTime?
   statusChangedBy       Int?      // FK → MasterStaff
+
+  // アクション（承認など）
+  actionType            String?   // "payment_group_approval" など
+  actionTargetId        Int?      // 対象レコードのID
 
   createdAt             DateTime  @default(now())
 

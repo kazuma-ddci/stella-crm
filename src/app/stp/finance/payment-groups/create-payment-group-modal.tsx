@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Loader2, ChevronRight, ChevronLeft, Plus, FileText, Zap } from "lucide-react";
+import { Loader2, ChevronRight, ChevronLeft, Plus } from "lucide-react";
 import {
   createPaymentGroup,
   getUngroupedExpenseTransactions,
@@ -20,7 +20,7 @@ import {
 } from "./actions";
 import { InlineTransactionForm } from "./inline-transaction-form";
 
-type Step = "type" | "counterparty" | "transactions" | "info";
+type Step = "counterparty" | "transactions" | "info";
 
 type Props = {
   open: boolean;
@@ -44,11 +44,10 @@ export function CreatePaymentGroupModal({
   onCreated,
 }: Props) {
   const [step, setStep] = useState<Step>(
-    defaultCounterpartyId ? "transactions" : "type"
+    defaultCounterpartyId ? "transactions" : "counterparty"
   );
   const [loading, setLoading] = useState(false);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
-  const [paymentType, setPaymentType] = useState<"invoice" | "direct">("invoice");
   const [isConfidential, setIsConfidential] = useState(false);
 
   // Step 1: 取引先選択
@@ -177,7 +176,6 @@ export function CreatePaymentGroupModal({
         operatingCompanyId: Number(operatingCompanyId),
         transactionIds: Array.from(selectedTransactionIds),
         projectId,
-        paymentType,
         isConfidential,
       });
       onClose();
@@ -191,7 +189,6 @@ export function CreatePaymentGroupModal({
     }
   };
 
-  const canGoToType = true;
   const canGoToTransactions = !!counterpartyId;
   const canGoToInfo = selectedTransactionIds.size > 0;
   const canSubmit = !!operatingCompanyId && selectedTransactionIds.size > 0;
@@ -205,15 +202,14 @@ export function CreatePaymentGroupModal({
             <span className="ml-2 text-sm font-normal text-muted-foreground">
               {defaultCounterpartyId ? (
                 <>
-                  {step === "transactions" && "Step 1/3: 取引選択"}
-                  {step === "info" && "Step 2/3: 支払情報設定"}
+                  {step === "transactions" && "Step 1/2: 取引選択"}
+                  {step === "info" && "Step 2/2: 支払情報設定"}
                 </>
               ) : (
                 <>
-                  {step === "type" && "Step 1/4: タイプ選択"}
-                  {step === "counterparty" && "Step 2/4: 取引先選択"}
-                  {step === "transactions" && "Step 3/4: 取引選択"}
-                  {step === "info" && "Step 4/4: 支払情報設定"}
+                  {step === "counterparty" && "Step 1/3: 取引先選択"}
+                  {step === "transactions" && "Step 2/3: 取引選択"}
+                  {step === "info" && "Step 3/3: 支払情報設定"}
                 </>
               )}
             </span>
@@ -221,44 +217,7 @@ export function CreatePaymentGroupModal({
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto min-h-0">
-          {/* Step 1: タイプ選択 */}
-          {step === "type" && (
-            <div className="space-y-4 p-1">
-              <Label>支払タイプを選択</Label>
-              <div className="grid grid-cols-2 gap-4">
-                <button
-                  onClick={() => setPaymentType("invoice")}
-                  className={`text-left border rounded-lg p-4 transition-all hover:border-blue-300 ${
-                    paymentType === "invoice" ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200" : "border-gray-200"
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <FileText className="h-5 w-5 text-blue-600" />
-                    <span className="font-medium">請求書ベース</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    請求書の発行依頼→受領→確認→支払の流れ
-                  </p>
-                </button>
-                <button
-                  onClick={() => setPaymentType("direct")}
-                  className={`text-left border rounded-lg p-4 transition-all hover:border-amber-300 ${
-                    paymentType === "direct" ? "border-amber-500 bg-amber-50 ring-2 ring-amber-200" : "border-gray-200"
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <Zap className="h-5 w-5 text-amber-600" />
-                    <span className="font-medium">即時支払い</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    既に支払済み、または即時支払いが必要な経費
-                  </p>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: 取引先選択 */}
+          {/* Step 1: 取引先選択 */}
           {step === "counterparty" && (
             <div className="space-y-4 p-1">
               <div>
@@ -501,20 +460,19 @@ export function CreatePaymentGroupModal({
         </div>
 
         <DialogFooter className="gap-2">
-          {step !== "type" && !defaultCounterpartyId && (
+          {step !== "counterparty" && !defaultCounterpartyId && (
             <Button
               variant="outline"
               onClick={() => {
                 if (step === "info") setStep("transactions");
                 else if (step === "transactions") setStep("counterparty");
-                else if (step === "counterparty") setStep("type");
               }}
             >
               <ChevronLeft className="mr-1 h-4 w-4" />
               戻る
             </Button>
           )}
-          {step !== "transactions" && defaultCounterpartyId && step !== "type" && (
+          {step !== "transactions" && defaultCounterpartyId && (
             <Button
               variant="outline"
               onClick={() => {
@@ -528,15 +486,6 @@ export function CreatePaymentGroupModal({
           <Button variant="outline" onClick={onClose}>
             キャンセル
           </Button>
-          {step === "type" && (
-            <Button
-              onClick={() => setStep("counterparty")}
-              disabled={!canGoToType}
-            >
-              次へ
-              <ChevronRight className="ml-1 h-4 w-4" />
-            </Button>
-          )}
           {step === "counterparty" && (
             <Button
               onClick={() => setStep("transactions")}

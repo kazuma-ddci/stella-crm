@@ -110,6 +110,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               (p) => ({
                 projectCode: p.project.code,
                 permissionLevel: p.permissionLevel as PermissionLevel,
+                canApprove: p.canApprove,
               })
             );
 
@@ -187,11 +188,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             } else {
               // DB権限とトークン権限を比較
               const dbPerms = staff.permissions
-                .map((p) => `${p.project.code}:${p.permissionLevel}`)
+                .map((p) => `${p.project.code}:${p.permissionLevel}:${p.canApprove}`)
                 .sort()
                 .join(",");
               const tokenPerms = (token.permissions ?? [])
-                .map((p) => `${p.projectCode}:${p.permissionLevel}`)
+                .map((p: { projectCode: string; permissionLevel: string; canApprove?: boolean }) => `${p.projectCode}:${p.permissionLevel}:${p.canApprove ?? false}`)
                 .sort()
                 .join(",");
               if (dbPerms !== tokenPerms) {
