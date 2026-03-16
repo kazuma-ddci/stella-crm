@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile.prod
       args:
-        NEXT_PUBLIC_APP_TITLE: "Stella 基幹OS デモ"
+        NEXT_PUBLIC_APP_TITLE: "Stella 基盤OS"
     container_name: stella-demo-app
     ports:
       - "4002:3000"
