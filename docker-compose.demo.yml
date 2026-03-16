@@ -1,0 +1,56 @@
+name: stella-demo
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      args:
+        NEXT_PUBLIC_APP_TITLE: "Stella 基幹OS デモ"
+    container_name: stella-demo-app
+    ports:
+      - "4002:3000"
+    env_file:
+      - .env.demo
+    environment:
+      - NODE_ENV=production
+      - TZ=Asia/Tokyo
+    volumes:
+      - ./credentials:/app/credentials:ro
+      - demo_uploads:/app/public/uploads
+    depends_on:
+      db-demo:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+        reservations:
+          memory: 512m
+
+  db-demo:
+    image: postgres:15
+    container_name: stella-demo-db
+    ports:
+      - "127.0.0.1:5435:5432"
+    env_file:
+      - .env.demo
+    volumes:
+      - postgres_demo_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stella_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 256m
+
+volumes:
+  postgres_demo_data:
+  demo_uploads:
