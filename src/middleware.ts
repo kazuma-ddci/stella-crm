@@ -100,6 +100,15 @@ function getRequiredProject(pathname: string): ProjectCode | null {
 }
 
 /**
+ * いずれかのプロジェクトで権限があるかチェック（view以上）
+ */
+function hasAnyPermission(
+  permissions: Array<{ projectCode: string; permissionLevel: string }>
+): boolean {
+  return permissions.some((p) => p.permissionLevel !== "none");
+}
+
+/**
  * いずれかのプロジェクトでedit以上の権限があるかチェック
  */
 function hasAnyEditPermission(
@@ -282,16 +291,16 @@ export default auth((request) => {
       }
     }
 
-    // /staff: founderまたはいずれかのプロジェクトでedit以上なら許可
+    // /staff: いずれかのプロジェクトで権限があれば許可（閲覧のみ/編集はページ側で制御）
     if (pathname.startsWith("/staff")) {
-      if (!isFounderUser && !hasAnyEditPermission(userPermissions) && !isAdminUser) {
+      if (!isFounderUser && !hasAnyPermission(userPermissions) && !isAdminUser) {
         return NextResponse.redirect(new URL("/", request.url));
       }
     }
 
-    // /admin: edit以上で外部ユーザー管理にアクセス可
+    // /admin: いずれかのプロジェクトで権限があれば許可（閲覧のみ/編集はページ側で制御）
     if (pathname.startsWith("/admin")) {
-      if (!isAdminUser && !isFounderUser && !hasAnyEditPermission(userPermissions)) {
+      if (!isAdminUser && !isFounderUser && !hasAnyPermission(userPermissions)) {
         return NextResponse.redirect(new URL("/", request.url));
       }
     }

@@ -198,10 +198,9 @@ const navigation: NavItem[] = [
         name: "管理",
         icon: Settings,
         sectionLabel: true,
-        founderOrManager: true,
         children: [
           { name: "スタッフ管理", href: "/staff", icon: Users },
-          { name: "外部ユーザー管理", href: "/admin/users", icon: Shield, editOrAbove: true },
+          { name: "外部ユーザー管理", href: "/admin/users", icon: Shield },
           {
             name: "固有設定",
             icon: Settings,
