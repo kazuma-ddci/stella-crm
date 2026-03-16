@@ -173,6 +173,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.displayViews = user.displayViews ?? [];
         }
       } else if (token.userType === "staff" && token.id && !token.permissionsExpired) {
+        // Edge runtime（middleware）ではPrismaが使えないのでスキップ
+        // @ts-expect-error EdgeRuntime is defined only in edge runtime
+        const isEdge = typeof EdgeRuntime !== "undefined";
+        if (isEdge) return token;
+
         // 既存セッション: セッションリフェッチ時にDBの権限と比較し、変更があれば強制ログアウト
         const now = Date.now();
         const checkedAt = token.permissionsCheckedAt ?? 0;
