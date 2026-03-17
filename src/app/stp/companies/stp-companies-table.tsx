@@ -185,18 +185,9 @@ export function StpCompaniesTable({
     },
   };
 
-  // ヨミの選択肢
-  const forecastOptions = [
-    { value: "MIN", label: "MIN" },
-    { value: "落とし", label: "落とし" },
-    { value: "MAX", label: "MAX" },
-    { value: "来月", label: "来月" },
-    { value: "辞退", label: "辞退" },
-  ];
-
   const columns: ColumnDef[] = [
     // プロジェクトNo.（STP企業ID）
-    { key: "id", header: "プロジェクトNo.", editable: false },
+    { key: "id", header: "PJ No.", editable: false },
     // 企業ID（全顧客マスタから選択）- フォーム用、テーブル非表示
     { key: "companyId", header: "企業ID", type: "select", options: companyOptions, required: true, searchable: true, simpleMode: true, editableOnCreate: true, editableOnUpdate: false, hidden: true },
     // 企業名
@@ -224,8 +215,6 @@ export function StpCompaniesTable({
     { key: "nextTargetStageName", header: "ネクストパイプライン", editable: false },
     // ステージコミット（次回商談日コミットから名前変更）- セルクリックでステージモーダル
     { key: "nextTargetDate", header: "パイプラインコミット", type: "date", simpleMode: true, editableOnCreate: true, editableOnUpdate: false },
-    // ヨミ - インライン編集可能
-    { key: "forecast", header: "ヨミ", type: "select", options: forecastOptions, inlineEditable: true },
     // 担当営業（IDは非表示）- インライン編集可能
     { key: "salesStaffId", header: "担当営業（選択）", type: "select", options: staffOptions, searchable: true, hidden: true, inlineEditable: true },
     { key: "salesStaffName", header: "担当営業", editable: false },
@@ -721,7 +710,6 @@ export function StpCompaniesTable({
     columns: [
       "leadSourceId",      // 流入経路
       "leadValidity",      // 有効性
-      "forecast",          // ヨミ
       "salesStaffId",      // 担当営業
       "adminStaffId",      // 担当事務
       "plannedHires",      // 採用予定人数
@@ -759,9 +747,6 @@ export function StpCompaniesTable({
       if (columnKey === "adminStaffId") {
         return adminStaffOptions;
       }
-      if (columnKey === "forecast") {
-        return forecastOptions;
-      }
       if (columnKey === "billingAddress") {
         const companyId = row.companyId as number;
         return billingAddressByCompany[String(companyId)] || [];
@@ -787,6 +772,7 @@ export function StpCompaniesTable({
         onAdd={addStpCompany}
         onUpdate={updateStpCompany}
         onDelete={deleteStpCompany}
+        stickyLeftCount={2}
         emptyMessage="企業が登録されていません"
         enableInputModeToggle={false}
         customActions={customActions}
@@ -796,8 +782,6 @@ export function StpCompaniesTable({
         enableInlineEdit={true}
         inlineEditConfig={inlineEditConfig}
         changeTrackedFields={[
-          { key: "salesStaffId", displayName: "担当営業" },
-          { key: "adminStaffId", displayName: "担当事務" },
           { key: "plannedHires", displayName: "採用予定人数" },
           { key: "billingContactIds", displayName: "請求先担当者" },
         ]}

@@ -430,6 +430,7 @@ export function CandidatesTable({ data, stpCompanyOptions, contractOptionsByStpC
         onAdd={handleAdd}
         onUpdate={handleUpdate}
         onDelete={handleDelete}
+        stickyLeftCount={3}
         enableInlineEdit={true}
         inlineEditConfig={inlineEditConfig}
         dynamicOptions={dynamicOptions}

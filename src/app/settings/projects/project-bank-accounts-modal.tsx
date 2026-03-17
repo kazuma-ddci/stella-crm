@@ -19,13 +19,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Plus,
   Trash2,
   Pencil,
@@ -39,6 +32,7 @@ import {
   getProjectBankAccounts,
   getAvailableBankAccounts,
   addProjectBankAccount,
+  createAndAddProjectBankAccount,
   updateProjectBankAccountMemo,
   setProjectDefaultBankAccount,
   deleteProjectBankAccount,
@@ -89,10 +83,19 @@ export function ProjectBankAccountsModal({
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 追加フォーム
-  const [isAddMode, setIsAddMode] = useState(false);
-  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>("");
-  const [addMemo, setAddMemo] = useState("");
+  // 追加モード: "select" = 既存から選択, "new" = 新規追加, null = 非表示
+  const [addMode, setAddMode] = useState<"select" | "new" | null>(null);
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<number | null>(null);
+  const [selectMemo, setSelectMemo] = useState("");
+  const [addForm, setAddForm] = useState({
+    bankName: "",
+    bankCode: "",
+    branchName: "",
+    branchCode: "",
+    accountNumber: "",
+    accountHolderName: "",
+    memo: "",
+  });
   const [addSaving, setAddSaving] = useState(false);
 
   // メモ編集
@@ -128,7 +131,7 @@ export function ProjectBankAccountsModal({
 
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
-      setIsAddMode(false);
+      setAddMode(null);
       setEditingMemoId(null);
       setDeleteConfirm(null);
       setError(null);
@@ -136,25 +139,45 @@ export function ProjectBankAccountsModal({
     onOpenChange(newOpen);
   };
 
+  // フォーム表示中かどうか
+  const isFormOpen = !!addMode;
+
   // ============================================
   // 口座追加
   // ============================================
 
-  const openAddForm = () => {
-    setSelectedBankAccountId("");
-    setAddMemo("");
-    setIsAddMode(true);
+  const openSelectMode = () => {
+    setSelectedBankAccountId(null);
+    setSelectMemo("");
+    if (available.length > 0) {
+      setAddMode("select");
+    } else {
+      openNewMode();
+    }
   };
 
-  const handleAdd = async () => {
+  const openNewMode = () => {
+    setAddForm({
+      bankName: "",
+      bankCode: "",
+      branchName: "",
+      branchCode: "",
+      accountNumber: "",
+      accountHolderName: "",
+      memo: "",
+    });
+    setAddMode("new");
+  };
+
+  const handleLinkExisting = async () => {
     if (!selectedBankAccountId) return;
     setAddSaving(true);
     setError(null);
 
     const result = await addProjectBankAccount({
       projectId,
-      bankAccountId: parseInt(selectedBankAccountId),
-      memo: addMemo.trim() || null,
+      bankAccountId: selectedBankAccountId,
+      memo: selectMemo.trim() || null,
     });
 
     setAddSaving(false);
@@ -164,7 +187,34 @@ export function ProjectBankAccountsModal({
       return;
     }
 
-    setIsAddMode(false);
+    setAddMode(null);
+    await loadData();
+  };
+
+  const handleAddNew = async () => {
+    if (!addForm.bankName.trim() || !addForm.accountNumber.trim() || !addForm.accountHolderName.trim()) return;
+    setAddSaving(true);
+    setError(null);
+
+    const result = await createAndAddProjectBankAccount({
+      projectId,
+      bankName: addForm.bankName.trim(),
+      bankCode: addForm.bankCode.trim(),
+      branchName: addForm.branchName.trim(),
+      branchCode: addForm.branchCode.trim(),
+      accountNumber: addForm.accountNumber.trim(),
+      accountHolderName: addForm.accountHolderName.trim(),
+      memo: addForm.memo.trim() || null,
+    });
+
+    setAddSaving(false);
+    if (!result.success) {
+      setError(result.error ?? "追加に失敗しました");
+      clearError();
+      return;
+    }
+
+    setAddMode(null);
     await loadData();
   };
 
@@ -256,65 +306,177 @@ export function ProjectBankAccountsModal({
           </div>
         )}
 
-        {/* 追加ボタン / 追加フォーム */}
-        {!isAddMode && (
+        {/* 追加ボタン */}
+        {!isFormOpen && (
           <div className="flex justify-end">
-            <Button
-              size="sm"
-              onClick={openAddForm}
-              disabled={available.length === 0}
-              title={available.length === 0 ? "追加できる口座がありません" : undefined}
-            >
+            <Button size="sm" onClick={openSelectMode}>
               <Plus className="h-4 w-4 mr-1" />
               銀行口座を追加
             </Button>
           </div>
         )}
 
-        {isAddMode && (
+        {/* 既存口座から選択 */}
+        {addMode === "select" && (
           <div className="space-y-3 border rounded-lg p-4 bg-muted/50">
-            <p className="text-sm font-medium">銀行口座を追加</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">口座を選択 *</Label>
-                <Select
-                  value={selectedBankAccountId}
-                  onValueChange={setSelectedBankAccountId}
+            <p className="text-sm font-medium">運営法人の銀行口座から選択</p>
+            <div className="space-y-2">
+              {available.map((ba) => (
+                <label
+                  key={ba.id}
+                  className={`flex items-center gap-3 p-2.5 border rounded-md cursor-pointer transition-colors ${
+                    selectedBankAccountId === ba.id
+                      ? "border-primary bg-primary/5"
+                      : "hover:bg-muted/80"
+                  }`}
                 >
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue placeholder="口座を選択..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {available.map((ba) => (
-                      <SelectItem key={ba.id} value={String(ba.id)}>
-                        {ba.bankName} {ba.branchName} {ba.accountNumber}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  <input
+                    type="radio"
+                    name="selectBankAccount"
+                    checked={selectedBankAccountId === ba.id}
+                    onChange={() => setSelectedBankAccountId(ba.id)}
+                    className="accent-primary"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm">
+                      {ba.bankName} {ba.branchName}
+                    </span>
+                    <span className="ml-2 font-mono text-xs text-muted-foreground">
+                      {ba.accountNumber}
+                    </span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {ba.accountHolderName}
+                    </span>
+                  </div>
+                </label>
+              ))}
+            </div>
+            {selectedBankAccountId && (
               <div className="space-y-1">
-                <Label className="text-xs">メモ</Label>
+                <Label className="text-xs">メモ（プロジェクト用）</Label>
                 <Input
-                  value={addMemo}
-                  onChange={(e) => setAddMemo(e.target.value)}
+                  value={selectMemo}
+                  onChange={(e) => setSelectMemo(e.target.value)}
                   placeholder="例: 請求書振込先"
                   className="h-8 text-sm"
                 />
               </div>
+            )}
+            <div className="flex items-center justify-between pt-1">
+              <Button
+                size="sm"
+                variant="link"
+                className="text-xs px-0"
+                onClick={openNewMode}
+              >
+                新しい銀行口座を登録
+              </Button>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setAddMode(null)}
+                >
+                  キャンセル
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleLinkExisting}
+                  disabled={addSaving || !selectedBankAccountId}
+                >
+                  {addSaving ? (
+                    <><Loader2 className="h-3 w-3 mr-1 animate-spin" />追加中</>
+                  ) : (
+                    "追加"
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 新規銀行口座追加 */}
+        {addMode === "new" && (
+          <div className="space-y-3 border rounded-lg p-4 bg-muted/50">
+            <p className="text-sm font-medium">新しい銀行口座を登録</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">銀行名 *</Label>
+                <Input
+                  value={addForm.bankName}
+                  onChange={(e) => setAddForm({ ...addForm, bankName: e.target.value })}
+                  placeholder="例: 三菱UFJ銀行"
+                  className="h-8 text-sm"
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">銀行コード</Label>
+                <Input
+                  value={addForm.bankCode}
+                  onChange={(e) => setAddForm({ ...addForm, bankCode: e.target.value })}
+                  placeholder="例: 0005"
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">支店名</Label>
+                <Input
+                  value={addForm.branchName}
+                  onChange={(e) => setAddForm({ ...addForm, branchName: e.target.value })}
+                  placeholder="例: 渋谷支店"
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">支店コード</Label>
+                <Input
+                  value={addForm.branchCode}
+                  onChange={(e) => setAddForm({ ...addForm, branchCode: e.target.value })}
+                  placeholder="例: 001"
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">口座番号 *</Label>
+                <Input
+                  value={addForm.accountNumber}
+                  onChange={(e) => setAddForm({ ...addForm, accountNumber: e.target.value })}
+                  placeholder="例: 1234567"
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">口座名義人 *</Label>
+                <Input
+                  value={addForm.accountHolderName}
+                  onChange={(e) => setAddForm({ ...addForm, accountHolderName: e.target.value })}
+                  placeholder="例: カ）ステラ"
+                  className="h-8 text-sm"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">メモ</Label>
+              <Input
+                value={addForm.memo}
+                onChange={(e) => setAddForm({ ...addForm, memo: e.target.value })}
+                placeholder="例: 請求書振込先"
+                className="h-8 text-sm"
+              />
             </div>
             <div className="flex justify-end gap-2 pt-1">
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setIsAddMode(false)}
+                onClick={() => setAddMode(null)}
               >
                 キャンセル
               </Button>
               <Button
                 size="sm"
-                onClick={handleAdd}
-                disabled={addSaving || !selectedBankAccountId}
+                onClick={handleAddNew}
+                disabled={addSaving || !addForm.bankName.trim() || !addForm.accountNumber.trim() || !addForm.accountHolderName.trim()}
               >
                 {addSaving ? (
                   <><Loader2 className="h-3 w-3 mr-1 animate-spin" />追加中</>

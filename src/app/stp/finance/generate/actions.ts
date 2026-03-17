@@ -209,7 +209,9 @@ const formatDate = (date: Date): string => toLocalDateString(date);
 type ContractPlan = "monthly" | "performance" | string;
 
 type CommissionConfig = {
+  initialType?: string | null;
   initialRate?: number | null;
+  initialFixed?: number | null;
   initialDuration?: number | null;
   monthlyType?: string | null;
   monthlyRate?: number | null;
@@ -294,13 +296,17 @@ function calcPaymentDueDate(
 function buildCommissionConfig(
   contractPlan: ContractPlan,
   agentContractHistory: {
+    defaultMpInitialType: string | null;
     defaultMpInitialRate: unknown;
+    defaultMpInitialFixed: unknown;
     defaultMpInitialDuration: unknown;
     defaultMpMonthlyType: string | null;
     defaultMpMonthlyRate: unknown;
     defaultMpMonthlyFixed: unknown;
     defaultMpMonthlyDuration: unknown;
+    defaultPpInitialType: string | null;
     defaultPpInitialRate: unknown;
+    defaultPpInitialFixed: unknown;
     defaultPpInitialDuration: unknown;
     defaultPpPerfType: string | null;
     defaultPpPerfRate: unknown;
@@ -308,13 +314,17 @@ function buildCommissionConfig(
     defaultPpPerfDuration: unknown;
   },
   override: {
+    mpInitialType: string | null;
     mpInitialRate: unknown;
+    mpInitialFixed: unknown;
     mpInitialDuration: unknown;
     mpMonthlyType: string | null;
     mpMonthlyRate: unknown;
     mpMonthlyFixed: unknown;
     mpMonthlyDuration: unknown;
+    ppInitialType: string | null;
     ppInitialRate: unknown;
+    ppInitialFixed: unknown;
     ppInitialDuration: unknown;
     ppPerfType: string | null;
     ppPerfRate: unknown;
@@ -324,8 +334,12 @@ function buildCommissionConfig(
 ): CommissionConfig {
   if (contractPlan === "performance") {
     return {
+      initialType: override?.ppInitialType ?? agentContractHistory.defaultPpInitialType,
       initialRate: toNumber(
         override?.ppInitialRate ?? agentContractHistory.defaultPpInitialRate
+      ),
+      initialFixed: toNumber(
+        override?.ppInitialFixed ?? agentContractHistory.defaultPpInitialFixed
       ),
       initialDuration: toNumber(
         override?.ppInitialDuration ??
@@ -349,8 +363,12 @@ function buildCommissionConfig(
   }
 
   return {
+    initialType: override?.mpInitialType ?? agentContractHistory.defaultMpInitialType,
     initialRate: toNumber(
       override?.mpInitialRate ?? agentContractHistory.defaultMpInitialRate
+    ),
+    initialFixed: toNumber(
+      override?.mpInitialFixed ?? agentContractHistory.defaultMpInitialFixed
     ),
     initialDuration: toNumber(
       override?.mpInitialDuration ?? agentContractHistory.defaultMpInitialDuration
@@ -998,8 +1016,12 @@ async function detectCrmCandidates(
             contract.initialFee > 0 &&
             initialFeeMonth.getTime() === monthStart.getTime()
           ) {
-            const rate = commissionConfig.initialRate ?? 0;
-            const amt = Math.round((contract.initialFee * rate) / 100);
+            const amt = calcByType(
+              contract.initialFee,
+              commissionConfig.initialType,
+              commissionConfig.initialRate,
+              commissionConfig.initialFixed
+            );
             if (amt > 0) {
               const key = `crm-expense-commission_initial-${contract.id}-${stpCompany.agentId}`;
               const existing = existingTransactions.find(

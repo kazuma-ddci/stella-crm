@@ -10,7 +10,9 @@ const AUTO_GENERATE_MONTHS = 3;
 type ContractPlan = "monthly" | "performance" | string;
 
 type CommissionConfig = {
+  initialType?: string | null;
   initialRate?: number | null;
+  initialFixed?: number | null;
   initialDuration?: number | null;
   monthlyType?: string | null;
   monthlyRate?: number | null;
@@ -353,8 +355,12 @@ async function generateExpenseRecords(params: ExpenseGenerateParams) {
   const startMonth = startOfMonth(params.contractStartDate);
 
   if (params.initialFee > 0) {
-    const initialRate = commissionConfig.initialRate ?? 0;
-    const initialCommission = Math.round((params.initialFee * initialRate) / 100);
+    const initialCommission = calcByType(
+      params.initialFee,
+      commissionConfig.initialType,
+      commissionConfig.initialRate,
+      commissionConfig.initialFixed
+    );
 
     if (initialCommission > 0) {
       await ensureExpenseRecord({
@@ -365,8 +371,8 @@ async function generateExpenseRecords(params: ExpenseGenerateParams) {
         expenseType: "commission_initial",
         targetMonth: startMonth,
         expectedAmount: initialCommission,
-        appliedCommissionRate: initialRate,
-        appliedCommissionType: "rate",
+        appliedCommissionRate: commissionConfig.initialType === "rate" ? (commissionConfig.initialRate ?? undefined) : undefined,
+        appliedCommissionType: commissionConfig.initialType ?? undefined,
         ...buildWithholdingFields(initialCommission),
       });
     }
@@ -1024,13 +1030,17 @@ export async function autoGeneratePerformanceFeeForCandidate(
 function buildCommissionConfig(
   contractPlan: ContractPlan,
   agentContractHistory: {
+    defaultMpInitialType: string | null;
     defaultMpInitialRate: unknown;
+    defaultMpInitialFixed: unknown;
     defaultMpInitialDuration: unknown;
     defaultMpMonthlyType: string | null;
     defaultMpMonthlyRate: unknown;
     defaultMpMonthlyFixed: unknown;
     defaultMpMonthlyDuration: unknown;
+    defaultPpInitialType: string | null;
     defaultPpInitialRate: unknown;
+    defaultPpInitialFixed: unknown;
     defaultPpInitialDuration: unknown;
     defaultPpPerfType: string | null;
     defaultPpPerfRate: unknown;
@@ -1038,13 +1048,17 @@ function buildCommissionConfig(
     defaultPpPerfDuration: unknown;
   },
   override: {
+    mpInitialType: string | null;
     mpInitialRate: unknown;
+    mpInitialFixed: unknown;
     mpInitialDuration: unknown;
     mpMonthlyType: string | null;
     mpMonthlyRate: unknown;
     mpMonthlyFixed: unknown;
     mpMonthlyDuration: unknown;
+    ppInitialType: string | null;
     ppInitialRate: unknown;
+    ppInitialFixed: unknown;
     ppInitialDuration: unknown;
     ppPerfType: string | null;
     ppPerfRate: unknown;
@@ -1054,8 +1068,12 @@ function buildCommissionConfig(
 ): CommissionConfig {
   if (contractPlan === "performance") {
     return {
+      initialType: override?.ppInitialType ?? agentContractHistory.defaultPpInitialType,
       initialRate: toNumber(
         override?.ppInitialRate ?? agentContractHistory.defaultPpInitialRate
+      ),
+      initialFixed: toNumber(
+        override?.ppInitialFixed ?? agentContractHistory.defaultPpInitialFixed
       ),
       initialDuration: toNumber(
         override?.ppInitialDuration ??
@@ -1079,8 +1097,12 @@ function buildCommissionConfig(
   }
 
   return {
+    initialType: override?.mpInitialType ?? agentContractHistory.defaultMpInitialType,
     initialRate: toNumber(
       override?.mpInitialRate ?? agentContractHistory.defaultMpInitialRate
+    ),
+    initialFixed: toNumber(
+      override?.mpInitialFixed ?? agentContractHistory.defaultMpInitialFixed
     ),
     initialDuration: toNumber(
       override?.mpInitialDuration ?? agentContractHistory.defaultMpInitialDuration
@@ -1197,8 +1219,12 @@ export async function markFinanceRecordsForContractChange(
             agentContract,
             override
           );
-          const rate = commissionConfig.initialRate ?? 0;
-          calculatedAmount = Math.round((contractHistory.initialFee * rate) / 100);
+          calculatedAmount = calcByType(
+            contractHistory.initialFee,
+            commissionConfig.initialType,
+            commissionConfig.initialRate,
+            commissionConfig.initialFixed
+          );
         }
       }
     } else if (record.expenseType === "commission_monthly") {
@@ -1308,8 +1334,12 @@ export async function markExpenseRecordsForAgentChange(
         );
 
         if (record.expenseType === "commission_initial") {
-          const rate = commissionConfig.initialRate ?? 0;
-          calculatedAmount = Math.round((record.contractHistory.initialFee * rate) / 100);
+          calculatedAmount = calcByType(
+            record.contractHistory.initialFee,
+            commissionConfig.initialType,
+            commissionConfig.initialRate,
+            commissionConfig.initialFixed
+          );
         } else if (record.expenseType === "commission_monthly") {
           calculatedAmount = calcByType(
             record.contractHistory.monthlyFee,

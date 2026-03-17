@@ -114,6 +114,8 @@ export default async function StpContractsPage() {
       cloudsignDocumentId: c.cloudsignDocumentId,
       cloudsignStatus: c.cloudsignStatus,
       cloudsignLastRemindedAt: c.cloudsignLastRemindedAt ? c.cloudsignLastRemindedAt.toISOString() : null,
+      cloudsignAutoSync: c.cloudsignAutoSync,
+      cloudsignTitle: c.cloudsignTitle,
     };
   });
 

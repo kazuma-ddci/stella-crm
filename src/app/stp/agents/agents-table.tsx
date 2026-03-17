@@ -716,15 +716,13 @@ export function AgentsTable({
         onAdd={addAgent}
         onUpdate={updateAgent}
         onDelete={deleteAgent}
+        stickyLeftCount={2}
         emptyMessage="代理店が登録されていません"
         customActions={customActions}
         customRenderers={customRenderers}
         enableInlineEdit={true}
         inlineEditConfig={inlineEditConfig}
-        changeTrackedFields={[
-          { key: "staffAssignments", displayName: "担当営業" },
-          { key: "adminStaffId", displayName: "担当事務" },
-        ]}
+        changeTrackedFields={[]}
       />
 
       {selectedAgent && (

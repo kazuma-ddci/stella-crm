@@ -123,6 +123,7 @@ export interface ContractStatusManagementData {
   // CloudSign情報
   cloudsignDocumentId: string | null;
   cloudsignAutoSync: boolean;
+  cloudsignTitle: string | null;
 }
 
 // ステータス更新パラメータ
@@ -168,4 +169,6 @@ export interface ContractRowWithProgress {
   cloudsignDocumentId: string | null;
   cloudsignStatus: string | null;
   cloudsignLastRemindedAt: string | null;
+  cloudsignAutoSync: boolean;
+  cloudsignTitle: string | null;
 }

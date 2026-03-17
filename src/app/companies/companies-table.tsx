@@ -531,6 +531,7 @@ export function CompaniesTable({ data, staffOptions }: Props) {
         onAdd={handleAdd}
         onUpdate={handleUpdate}
         onDelete={deleteCompany}
+        stickyLeftCount={2}
         onDeletePrepare={async (id: number) => {
           const info = await getCompanyDeleteInfo(id);
           const labels: { key: keyof CompanyRelatedData; label: string }[] = [

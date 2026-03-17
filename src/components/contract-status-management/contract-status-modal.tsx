@@ -229,6 +229,9 @@ export function ContractStatusModal({
               {data && (
                 <span className="font-normal text-muted-foreground ml-2">
                   {data.contractTitle}
+                  {data.cloudsignTitle != null && (
+                    <span className="text-xs ml-2">（CS: {data.cloudsignTitle}）</span>
+                  )}
                 </span>
               )}
             </DialogTitle>

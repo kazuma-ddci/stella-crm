@@ -15,8 +15,21 @@ import {
   AlertTriangle,
   Bell,
   Loader2,
+  MoreVertical,
+  RefreshCw,
+  Pause,
+  Play,
+  Copy,
+  Link2,
+  Cloud,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -28,7 +41,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ContractRowWithProgress, ContractTabType } from "@/lib/contract-status/types";
 import { getProgressStatusCount } from "@/lib/contract-status/constants";
 import { cn } from "@/lib/utils";
-import { remindCloudsignDocument } from "@/app/stp/cloudsign-actions";
+import { remindCloudsignDocument, syncContractCloudsignStatus, toggleCloudsignAutoSync, linkCloudsignDocument } from "@/app/stp/cloudsign-actions";
 import { toast } from "sonner";
 
 type Props = {
@@ -54,6 +67,10 @@ export function ContractsTable({
   );
   // CloudSignリマインド中の契約書ID
   const [remindingContractId, setRemindingContractId] = useState<number | null>(null);
+  // CloudSign同期操作中の契約書ID
+  const [syncingContractId, setSyncingContractId] = useState<number | null>(null);
+  const [togglingAutoSyncId, setTogglingAutoSyncId] = useState<number | null>(null);
+  const [linkingContractId, setLinkingContractId] = useState<number | null>(null);
   // 現在のタブ
   const [activeTab, setActiveTab] = useState<ContractTabType>("in_progress");
 
@@ -147,6 +164,53 @@ export function ContractsTable({
       toast.error("リマインド送信中にエラーが発生しました");
     } finally {
       setRemindingContractId(null);
+    }
+  };
+
+  // CloudSign手動同期
+  const handleSync = async (contractId: number) => {
+    setSyncingContractId(contractId);
+    try {
+      await syncContractCloudsignStatus(contractId);
+      toast.success("CloudSignステータスを同期しました");
+      router.refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "同期中にエラーが発生しました");
+    } finally {
+      setSyncingContractId(null);
+    }
+  };
+
+  // CloudSign自動同期切替
+  const handleToggleAutoSync = async (contractId: number, currentEnabled: boolean) => {
+    const action = currentEnabled ? "停止" : "再開";
+    if (!confirm(`自動同期を${action}しますか？`)) return;
+    setTogglingAutoSyncId(contractId);
+    try {
+      await toggleCloudsignAutoSync(contractId, !currentEnabled);
+      toast.success(`自動同期を${action}しました`);
+      router.refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : `自動同期の${action}中にエラーが発生しました`);
+    } finally {
+      setTogglingAutoSyncId(null);
+    }
+  };
+
+  // CloudSignドキュメントID紐付け
+  const handleLink = async (contractId: number) => {
+    const documentId = prompt("CloudSignのドキュメントIDを入力してください:");
+    if (!documentId) return;
+    if (!confirm("入力したドキュメントIDで紐付けて同期しますか？")) return;
+    setLinkingContractId(contractId);
+    try {
+      await linkCloudsignDocument(contractId, documentId);
+      toast.success("ドキュメントIDを紐付けて同期しました");
+      router.refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "紐付け中にエラーが発生しました");
+    } finally {
+      setLinkingContractId(null);
     }
   };
 
@@ -273,6 +337,21 @@ export function ContractsTable({
         ? <CompanyCodeLabel code={companyCode} name={String(value)} />
         : String(value);
     },
+    title: (value, row) => {
+      const contractRow = row as unknown as ContractRowWithProgress;
+      const csTitle = contractRow.cloudsignTitle;
+      return (
+        <div className="space-y-0.5">
+          <div>{String(value)}</div>
+          {csTitle != null && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Cloud className="h-3 w-3 shrink-0" />
+              <span className="truncate max-w-[200px]">{csTitle}</span>
+            </div>
+          )}
+        </div>
+      );
+    },
     fileUpload: (_value, row) => {
       const filePath = row.filePath as string | null;
       const fileName = row.fileName as string | null;
@@ -318,8 +397,13 @@ export function ContractsTable({
     statusAction: (_value, row) => {
       const contractRow = row as unknown as ContractRowWithProgress;
       const isReminding = remindingContractId === contractRow.id;
+      const isSyncing = syncingContractId === contractRow.id;
+      const isTogglingAutoSync = togglingAutoSyncId === contractRow.id;
+      const isLinking = linkingContractId === contractRow.id;
       const canRemind = contractRow.cloudsignDocumentId && contractRow.cloudsignStatus === "sent";
       const lastReminded = formatRemindedAt(contractRow.cloudsignLastRemindedAt);
+      const hasDocId = !!contractRow.cloudsignDocumentId;
+      const isTerminalCloudsign = contractRow.cloudsignStatus === "completed" || contractRow.cloudsignStatus === "canceled";
 
       return (
         <div className="flex items-center gap-1.5">
@@ -368,6 +452,82 @@ export function ContractsTable({
                   ) : (
                     <span>リマインドメールを送信</span>
                   )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {hasDocId ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isSyncing || isTogglingAutoSync}
+                  onClick={(e) => e.stopPropagation()}
+                  className="h-7 w-7 p-0 border-gray-200"
+                >
+                  {isSyncing || isTogglingAutoSync ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <MoreVertical className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                <DropdownMenuItem onClick={() => handleSync(contractRow.id)}>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  手動で同期
+                </DropdownMenuItem>
+                {!isTerminalCloudsign && (
+                  <DropdownMenuItem onClick={() => handleToggleAutoSync(contractRow.id, contractRow.cloudsignAutoSync)}>
+                    {contractRow.cloudsignAutoSync ? (
+                      <>
+                        <Pause className="h-4 w-4 mr-2" />
+                        自動同期を停止
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-4 w-4 mr-2" />
+                        自動同期を再開
+                      </>
+                    )}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem
+                  onClick={() => {
+                    navigator.clipboard.writeText(contractRow.cloudsignDocumentId!);
+                    toast.success("ドキュメントIDをコピーしました");
+                  }}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  ID: {contractRow.cloudsignDocumentId!.substring(0, 8)}… コピー
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isLinking}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleLink(contractRow.id);
+                    }}
+                    className="h-7 px-2 text-gray-500 border-gray-200 hover:bg-gray-50 hover:text-gray-700"
+                  >
+                    {isLinking ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Link2 className="h-3.5 w-3.5 mr-1" />
+                    )}
+                    <span className="text-xs">紐付け</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  CloudSignドキュメントIDを紐付け
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

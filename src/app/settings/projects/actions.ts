@@ -544,6 +544,60 @@ export async function deleteProjectBankAccount(id: number): Promise<void> {
 }
 
 // ============================================
+// プロジェクト銀行口座: 新規追加（運営法人にも自動作成）
+// ============================================
+
+export async function createAndAddProjectBankAccount(data: {
+  projectId: number;
+  bankName: string;
+  bankCode: string;
+  branchName: string;
+  branchCode: string;
+  accountNumber: string;
+  accountHolderName: string;
+  memo?: string | null;
+}): Promise<{ success: boolean; error?: string }> {
+  await requireMasterDataEditPermission();
+
+  // プロジェクトの運営法人を確認
+  const project = await prisma.masterProject.findUnique({
+    where: { id: data.projectId },
+    select: { operatingCompanyId: true },
+  });
+  if (!project?.operatingCompanyId) {
+    return { success: false, error: "プロジェクトに運営法人が設定されていません" };
+  }
+
+  // トランザクションで運営法人口座作成 + プロジェクトリンク
+  await prisma.$transaction(async (tx) => {
+    const bankAccount = await tx.operatingCompanyBankAccount.create({
+      data: {
+        operatingCompanyId: project.operatingCompanyId!,
+        bankName: data.bankName.trim(),
+        bankCode: data.bankCode.trim(),
+        branchName: data.branchName.trim(),
+        branchCode: data.branchCode.trim(),
+        accountNumber: data.accountNumber.trim(),
+        accountHolderName: data.accountHolderName.trim(),
+        note: data.memo?.trim() || null,
+      },
+    });
+
+    await tx.projectBankAccount.create({
+      data: {
+        projectId: data.projectId,
+        bankAccountId: bankAccount.id,
+        isDefault: false,
+        memo: data.memo?.trim() || null,
+      },
+    });
+  });
+
+  revalidatePath("/settings/projects");
+  return { success: true };
+}
+
+// ============================================
 // プロジェクト銀行口座: 未追加口座一覧取得
 // ============================================
 

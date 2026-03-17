@@ -50,7 +50,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Pencil, Trash2, ChevronsUpDown, Check, AlertCircle, FileText, ExternalLink } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronsUpDown, Check, AlertCircle, FileText, ExternalLink, Eye } from "lucide-react";
 import { toast } from "sonner";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
@@ -151,6 +151,7 @@ export function CompanyContactHistoryModal({
   );
   const [isAddMode, setIsAddMode] = useState(false);
   const [editHistory, setEditHistory] = useState<ContactHistory | null>(null);
+  const [viewHistory, setViewHistory] = useState<ContactHistory | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<ContactHistory | null>(null);
   const [editConfirm, setEditConfirm] = useState(false);
   const [pendingEditData, setPendingEditData] = useState<Partial<ContactHistory> | null>(null);
@@ -407,6 +408,75 @@ export function CompanyContactHistoryModal({
   };
 
   const availableStaffOptions = getAvailableStaffOptions();
+
+  const renderViewDetail = (history: ContactHistory) => {
+    // 顧客種別名を取得
+    const customerTypeNames = (history.customerTypeIds || [])
+      .map((id) => customerTypes.find((ct) => ct.id === id)?.name)
+      .filter(Boolean)
+      .join(", ");
+
+    return (
+      <div className="space-y-3 border rounded-lg p-4 bg-muted/50">
+        <div className="flex justify-between items-center">
+          <h3 className="text-sm font-medium">接触履歴の詳細</h3>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewHistory(null)}
+          >
+            閉じる
+          </Button>
+        </div>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+          <div>
+            <span className="text-muted-foreground">接触日時:</span>
+            <span className="ml-2">{formatDateTime(history.contactDate)}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">接触方法:</span>
+            <span className="ml-2">{history.contactMethodName || "-"}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">プロジェクト・顧客種別:</span>
+            <span className="ml-2">{customerTypeNames || "-"}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">接触種別:</span>
+            <span className="ml-2">{history.contactCategoryName || "-"}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">担当者:</span>
+            <span className="ml-2">{history.assignedToNames || getStaffNames(history.assignedTo)}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">先方参加者:</span>
+            <span className="ml-2">{history.customerParticipants || "-"}</span>
+          </div>
+        </div>
+        {history.meetingMinutes && (
+          <div className="text-sm">
+            <span className="text-muted-foreground">議事録:</span>
+            <pre className="mt-1 whitespace-pre-wrap bg-white border rounded p-2 text-sm">{history.meetingMinutes}</pre>
+          </div>
+        )}
+        {history.note && (
+          <div className="text-sm">
+            <span className="text-muted-foreground">備考:</span>
+            <pre className="mt-1 whitespace-pre-wrap bg-white border rounded p-2 text-sm">{history.note}</pre>
+          </div>
+        )}
+        {history.files && history.files.length > 0 && (
+          <div className="text-sm">
+            <span className="text-muted-foreground">添付ファイル:</span>
+            <div className="mt-1">
+              <FileDisplay files={history.files} />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderForm = () => (
     <div className="space-y-4 border rounded-lg p-4 bg-muted/50">
@@ -686,12 +756,19 @@ export function CompanyContactHistoryModal({
 
           <div className="px-4 py-3 flex flex-col gap-2 flex-1 min-h-0">
             {/* 追加ボタン */}
-            {!isAddMode && !editHistory && (
+            {!isAddMode && !editHistory && !viewHistory && (
               <div className="flex justify-end shrink-0">
                 <Button size="sm" onClick={openAddForm}>
                   <Plus className="mr-1 h-3.5 w-3.5" />
                   接触履歴を追加
                 </Button>
+              </div>
+            )}
+
+            {/* 閲覧モード */}
+            {viewHistory && (
+              <div className="shrink-0 max-h-[50vh] overflow-y-auto">
+                {renderViewDetail(viewHistory)}
               </div>
             )}
 
@@ -719,7 +796,7 @@ export function CompanyContactHistoryModal({
                     <TableHead className="min-w-[120px] whitespace-nowrap">議事録</TableHead>
                     <TableHead className="min-w-[100px] whitespace-nowrap">備考</TableHead>
                     <TableHead className="w-[48px] whitespace-nowrap">添付</TableHead>
-                    <TableHead className="w-[100px] whitespace-nowrap sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
+                    <TableHead className="w-[130px] whitespace-nowrap sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -746,7 +823,22 @@ export function CompanyContactHistoryModal({
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => openEditForm(history)}
+                            onClick={() => {
+                              setViewHistory(history);
+                              setEditHistory(null);
+                              setIsAddMode(false);
+                            }}
+                            disabled={isAddMode || !!editHistory}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setViewHistory(null);
+                              openEditForm(history);
+                            }}
                             disabled={isAddMode || !!editHistory}
                           >
                             <Pencil className="h-4 w-4" />

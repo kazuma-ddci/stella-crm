@@ -118,6 +118,7 @@ export async function getContractStatusManagementData(
     statuses,
     cloudsignDocumentId: contract.cloudsignDocumentId,
     cloudsignAutoSync: contract.cloudsignAutoSync,
+    cloudsignTitle: contract.cloudsignTitle,
   };
 }
 

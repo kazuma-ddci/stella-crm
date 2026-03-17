@@ -48,7 +48,7 @@ import {
   getStaffList,
   ContractHistoryData,
 } from "@/app/stp/companies/contract-history-actions";
-import { Plus, Pencil, Trash2, X, FileText, ExternalLink, Send, Loader2, Play, RotateCcw, Link2, PenTool, MoreVertical, Copy, RefreshCw, Pause, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, X, FileText, ExternalLink, Send, Loader2, Play, RotateCcw, Link2, PenTool, MoreVertical, Copy, RefreshCw, Pause, ChevronDown, ChevronRight, Cloud } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -122,6 +122,7 @@ type Contract = {
   cloudsignAutoSync?: boolean;
   cloudsignLastRemindedAt?: string | null;
   cloudsignExpectedStatusName?: string | null;
+  cloudsignTitle?: string | null;
   cloudsignSelfSigningEmailId?: number | null;
   cloudsignSelfSignedAt?: string | null;
   cloudsignSelfSigningUrl?: string | null;
@@ -231,16 +232,21 @@ type AgentContractHistory = {
   agentId: number;
   contractStartDate: string;
   contractEndDate: string | null;
+  contractDate: string | null;
   status: string;
   initialFee: number | null;
   monthlyFee: number | null;
+  defaultMpInitialType: string | null;
   defaultMpInitialRate: number | null;
+  defaultMpInitialFixed: number | null;
   defaultMpInitialDuration: number | null;
   defaultMpMonthlyType: string | null;
   defaultMpMonthlyRate: number | null;
   defaultMpMonthlyFixed: number | null;
   defaultMpMonthlyDuration: number | null;
+  defaultPpInitialType: string | null;
   defaultPpInitialRate: number | null;
+  defaultPpInitialFixed: number | null;
   defaultPpInitialDuration: number | null;
   defaultPpPerfType: string | null;
   defaultPpPerfRate: number | null;
@@ -254,16 +260,21 @@ type AgentContractHistory = {
 type AgentHistoryFormData = {
   contractStartDate: Date | null;
   contractEndDate: Date | null;
+  contractDate: Date | null;
   status: string;
   initialFee: string;
   monthlyFee: string;
+  defaultMpInitialType: string;
   defaultMpInitialRate: string;
+  defaultMpInitialFixed: string;
   defaultMpInitialDuration: string;
   defaultMpMonthlyType: string;
   defaultMpMonthlyRate: string;
   defaultMpMonthlyFixed: string;
   defaultMpMonthlyDuration: string;
+  defaultPpInitialType: string;
   defaultPpInitialRate: string;
+  defaultPpInitialFixed: string;
   defaultPpInitialDuration: string;
   defaultPpPerfType: string;
   defaultPpPerfRate: string;
@@ -275,16 +286,21 @@ type AgentHistoryFormData = {
 const EMPTY_AGENT_HISTORY_FORM: AgentHistoryFormData = {
   contractStartDate: null,
   contractEndDate: null,
+  contractDate: null,
   status: "active",
   initialFee: "",
   monthlyFee: "",
+  defaultMpInitialType: "",
   defaultMpInitialRate: "",
+  defaultMpInitialFixed: "",
   defaultMpInitialDuration: "",
   defaultMpMonthlyType: "",
   defaultMpMonthlyRate: "",
   defaultMpMonthlyFixed: "",
   defaultMpMonthlyDuration: "",
+  defaultPpInitialType: "",
   defaultPpInitialRate: "",
+  defaultPpInitialFixed: "",
   defaultPpInitialDuration: "",
   defaultPpPerfType: "",
   defaultPpPerfRate: "",
@@ -457,37 +473,39 @@ function ContractHistoryRow({
 }) {
   const [expanded, setExpanded] = useState(false);
 
+  // 金額サマリーを構築
+  const priceParts: string[] = [];
+  if (history.monthlyFee > 0) priceParts.push(`月額${history.monthlyFee.toLocaleString()}円`);
+  if (history.initialFee > 0) priceParts.push(`初期${history.initialFee.toLocaleString()}円`);
+  if (history.performanceFee > 0) priceParts.push(`成果${history.performanceFee.toLocaleString()}円`);
+
   return (
     <div>
       <div
-        className="px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 group cursor-pointer"
+        className="px-4 py-2 flex items-center gap-2 hover:bg-gray-50 group cursor-pointer"
         onClick={() => setExpanded(!expanded)}
       >
         <button type="button" className="w-4 shrink-0 text-gray-400">
           {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant="outline" className="text-[10px]">{industryLabels[history.industryType] || history.industryType}</Badge>
-            <Badge variant="outline" className="text-[10px]">{planLabels[history.contractPlan] || history.contractPlan}</Badge>
-            {history.jobMedia && <Badge variant="outline" className="text-[10px]">{history.jobMedia}</Badge>}
-            <span className="text-xs text-gray-500">
-              {new Date(history.contractStartDate).toLocaleDateString("ja-JP")}〜
-              {history.contractEndDate ? new Date(history.contractEndDate).toLocaleDateString("ja-JP") : ""}
-            </span>
-            <Badge variant={history.status === "active" ? "default" : "secondary"} className="text-[10px]">
-              {statusLabels[history.status] || history.status}
-            </Badge>
-          </div>
-          <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
-            {history.initialFee > 0 && <span>初期: {history.initialFee.toLocaleString()}円</span>}
-            {history.monthlyFee > 0 && <span>月額: {history.monthlyFee.toLocaleString()}円</span>}
-            {history.performanceFee > 0 && <span>成果: {history.performanceFee.toLocaleString()}円</span>}
-            {history.salesStaffName && <span>営業: {history.salesStaffName}</span>}
-            {history.operationStaffName && <span>運用: {history.operationStaffName}</span>}
-          </div>
-        </div>
-        <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+        <Badge variant={history.status === "active" ? "default" : "secondary"} className="text-[10px] shrink-0">
+          {statusLabels[history.status] || history.status}
+        </Badge>
+        <span className="text-xs text-gray-500 shrink-0">
+          {planLabels[history.contractPlan] || history.contractPlan}
+        </span>
+        <span className="text-[10px] text-gray-300 shrink-0">|</span>
+        <span className="text-xs text-gray-500 shrink-0">
+          {new Date(history.contractStartDate).toLocaleDateString("ja-JP")}〜
+          {history.contractEndDate ? new Date(history.contractEndDate).toLocaleDateString("ja-JP") : ""}
+        </span>
+        {priceParts.length > 0 && (
+          <>
+            <span className="text-[10px] text-gray-300 shrink-0">|</span>
+            <span className="text-xs text-gray-500 truncate">{priceParts.join(" / ")}</span>
+          </>
+        )}
+        <div className="flex gap-1 shrink-0 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
           <Button variant="ghost" size="sm" onClick={onEdit}><Pencil className="h-3.5 w-3.5" /></Button>
           <Button variant="ghost" size="sm" onClick={onDelete}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
         </div>
@@ -517,37 +535,38 @@ function ContractHistoryCard({
 }) {
   const [expanded, setExpanded] = useState(false);
 
+  const priceParts: string[] = [];
+  if (history.monthlyFee > 0) priceParts.push(`月額${history.monthlyFee.toLocaleString()}円`);
+  if (history.initialFee > 0) priceParts.push(`初期${history.initialFee.toLocaleString()}円`);
+  if (history.performanceFee > 0) priceParts.push(`成果${history.performanceFee.toLocaleString()}円`);
+
   return (
     <div className="border rounded-lg hover:bg-gray-50 group">
       <div
-        className="p-3 flex items-center gap-3 cursor-pointer"
+        className="px-3 py-2 flex items-center gap-2 cursor-pointer"
         onClick={() => setExpanded(!expanded)}
       >
         <button type="button" className="w-4 shrink-0 text-gray-400">
           {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant="outline" className="text-[10px]">{industryLabels[history.industryType] || history.industryType}</Badge>
-            <Badge variant="outline" className="text-[10px]">{planLabels[history.contractPlan] || history.contractPlan}</Badge>
-            {history.jobMedia && <Badge variant="outline" className="text-[10px]">{history.jobMedia}</Badge>}
-            <span className="text-xs text-gray-500">
-              {new Date(history.contractStartDate).toLocaleDateString("ja-JP")}〜
-              {history.contractEndDate ? new Date(history.contractEndDate).toLocaleDateString("ja-JP") : ""}
-            </span>
-            <Badge variant={history.status === "active" ? "default" : "secondary"} className="text-[10px]">
-              {statusLabels[history.status] || history.status}
-            </Badge>
-          </div>
-          <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
-            {history.initialFee > 0 && <span>初期: {history.initialFee.toLocaleString()}円</span>}
-            {history.monthlyFee > 0 && <span>月額: {history.monthlyFee.toLocaleString()}円</span>}
-            {history.performanceFee > 0 && <span>成果: {history.performanceFee.toLocaleString()}円</span>}
-            {history.salesStaffName && <span>営業: {history.salesStaffName}</span>}
-            {history.operationStaffName && <span>運用: {history.operationStaffName}</span>}
-          </div>
-        </div>
-        <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+        <Badge variant={history.status === "active" ? "default" : "secondary"} className="text-[10px] shrink-0">
+          {statusLabels[history.status] || history.status}
+        </Badge>
+        <span className="text-xs text-gray-500 shrink-0">
+          {planLabels[history.contractPlan] || history.contractPlan}
+        </span>
+        <span className="text-[10px] text-gray-300 shrink-0">|</span>
+        <span className="text-xs text-gray-500 shrink-0">
+          {new Date(history.contractStartDate).toLocaleDateString("ja-JP")}〜
+          {history.contractEndDate ? new Date(history.contractEndDate).toLocaleDateString("ja-JP") : ""}
+        </span>
+        {priceParts.length > 0 && (
+          <>
+            <span className="text-[10px] text-gray-300 shrink-0">|</span>
+            <span className="text-xs text-gray-500 truncate">{priceParts.join(" / ")}</span>
+          </>
+        )}
+        <div className="flex gap-1 shrink-0 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
           {contracts.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -587,7 +606,11 @@ function ContractHistoryCard({
 function formatAgentCommissionSummary(h: AgentContractHistory): string {
   const lines: string[] = [];
   const mpParts: string[] = [];
-  if (h.defaultMpInitialRate != null) mpParts.push(`初期${h.defaultMpInitialRate}%${h.defaultMpInitialDuration ? `(${h.defaultMpInitialDuration}ヶ月)` : ""}`);
+  if (h.defaultMpInitialType === "fixed" && h.defaultMpInitialFixed != null) {
+    mpParts.push(`初期¥${h.defaultMpInitialFixed.toLocaleString()}`);
+  } else if (h.defaultMpInitialRate != null) {
+    mpParts.push(`初期${h.defaultMpInitialRate}%`);
+  }
   if (h.defaultMpMonthlyType === "rate" && h.defaultMpMonthlyRate != null) {
     mpParts.push(`月額${h.defaultMpMonthlyRate}%${h.defaultMpMonthlyDuration ? `(${h.defaultMpMonthlyDuration}ヶ月)` : ""}`);
   } else if (h.defaultMpMonthlyType === "fixed" && h.defaultMpMonthlyFixed != null) {
@@ -596,7 +619,11 @@ function formatAgentCommissionSummary(h: AgentContractHistory): string {
   if (mpParts.length > 0) lines.push(`MP: ${mpParts.join(" / ")}`);
 
   const ppParts: string[] = [];
-  if (h.defaultPpInitialRate != null) ppParts.push(`初期${h.defaultPpInitialRate}%${h.defaultPpInitialDuration ? `(${h.defaultPpInitialDuration}ヶ月)` : ""}`);
+  if (h.defaultPpInitialType === "fixed" && h.defaultPpInitialFixed != null) {
+    ppParts.push(`初期¥${h.defaultPpInitialFixed.toLocaleString()}`);
+  } else if (h.defaultPpInitialRate != null) {
+    ppParts.push(`初期${h.defaultPpInitialRate}%`);
+  }
   if (h.defaultPpPerfType === "rate" && h.defaultPpPerfRate != null) {
     ppParts.push(`成果${h.defaultPpPerfRate}%${h.defaultPpPerfDuration ? `(${h.defaultPpPerfDuration}ヶ月)` : ""}`);
   } else if (h.defaultPpPerfType === "fixed" && h.defaultPpPerfFixed != null) {
@@ -817,122 +844,154 @@ function ContractCard({
   setDraftSelectOpen: (v: boolean) => void;
   router: ReturnType<typeof useRouter>;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+
+  // CloudSign操作のハンドラ群
+  const handleRemind = async () => {
+    if (!confirm("先方にリマインドメールを送信しますか？")) return;
+    setRemindingContractId(contract.id);
+    try {
+      const result = await remindCloudsignDocument(contract.id);
+      if (result.success) {
+        toast.success("リマインドを送信しました");
+        await loadContracts();
+      } else {
+        toast.error(result.error ?? "リマインドの送信に失敗しました");
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("リマインドの送信に失敗しました");
+    } finally {
+      setRemindingContractId(null);
+    }
+  };
+
+  const handleSelfSign = async () => {
+    if (contract.cloudsignSelfSigningUrl) {
+      window.open(contract.cloudsignSelfSigningUrl, "_blank");
+      return;
+    }
+    setFetchingSigningUrlId(contract.id);
+    try {
+      const result = await getCloudsignSelfSigningUrl(contract.id);
+      if (result.url) {
+        window.open(result.url, "_blank");
+        await loadContracts();
+      } else {
+        toast.info("署名用URLがまだ届いていません。しばらく経ってからお試しください。");
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("署名用URLの取得に失敗しました");
+    } finally {
+      setFetchingSigningUrlId(null);
+    }
+  };
+
+  const handleResumeDraft = async () => {
+    if (!cloudsignData) {
+      setLoadingCloudsign(true);
+      try {
+        const data = await getCloudsignModalData(companyId);
+        setCloudsignData(data);
+        if (!data.operatingCompany?.cloudsignClientId) {
+          toast.error("クラウドサインのクライアントIDが未設定です");
+          return;
+        }
+      } catch (error) {
+        console.error(error);
+        toast.error("クラウドサイン情報の取得に失敗しました");
+        return;
+      } finally {
+        setLoadingCloudsign(false);
+      }
+    }
+    setResumeDraft({
+      contractId: contract.id,
+      contractNumber: contract.contractNumber || "",
+      cloudsignDocumentId: contract.cloudsignDocumentId!,
+      contractType: contract.contractType,
+      title: contract.title,
+    });
+    setSendModalOpen(true);
+  };
+
+  const handleDeleteDraft = async () => {
+    if (!confirm("この下書きを削除しますか？CloudSign側のドラフトも削除されます。")) return;
+    setDeletingDraftId(contract.id);
+    try {
+      await deleteDraftContract(contract.id);
+      toast.success("下書きを削除しました");
+      await loadContracts();
+      router.refresh();
+    } catch (error) {
+      console.error(error);
+      toast.error("削除に失敗しました");
+    } finally {
+      setDeletingDraftId(null);
+    }
+  };
+
+  const handleLinkCloudsign = async () => {
+    const docId = prompt("CloudSignのドキュメントIDを入力してください");
+    if (!docId?.trim()) return;
+    if (!confirm(`ドキュメントID「${docId.trim()}」で同期しますか？`)) return;
+    setLinkingContractId(contract.id);
+    try {
+      const result = await linkCloudsignDocument(contract.id, docId.trim());
+      toast.success(`CloudSignと紐付けました（ステータス: ${result.newStatus}）`);
+      await loadContracts();
+      router.refresh();
+    } catch (error) {
+      console.error(error);
+      toast.error("紐付けに失敗しました。ドキュメントIDが正しいか確認してください。");
+    } finally {
+      setLinkingContractId(null);
+    }
+  };
+
+  // CloudSignステータスのラベルと色
+  const csStatusConfig = contract.cloudsignDocumentId ? (() => {
+    const s = contract.cloudsignStatus;
+    if (s === "completed") return { label: "締結済", color: "bg-green-50 text-green-700 border-green-200" };
+    if (s === "sent") return { label: "送付済", color: "bg-blue-50 text-blue-700 border-blue-200" };
+    if (s === "draft") return { label: "下書き", color: "bg-gray-50 text-gray-600 border-gray-200" };
+    if (s?.startsWith("canceled")) return { label: "破棄", color: "bg-red-50 text-red-700 border-red-200" };
+    return { label: s || "-", color: "bg-gray-50 text-gray-600 border-gray-200" };
+  })() : null;
+
+  // ファイルリンク（署名PDF + 添付ファイル）
+  const hasFiles = (contract.filePath && contract.fileName) || (contract.contractFiles && contract.contractFiles.length > 0);
 
   return (
     <div className="border rounded-lg">
-      {/* ヘッダー（契約書情報） */}
-      <div className="p-3 flex items-start gap-3 bg-gray-50/50">
-        <button onClick={() => setExpanded(!expanded)} className="mt-0.5">
-          <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? 'rotate-90' : ''}`} />
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-xs text-gray-500">{contract.contractNumber}</span>
-            <Badge variant="outline" className="text-xs">{contract.contractType}</Badge>
-            <span className="font-medium text-sm truncate">{contract.title}</span>
-            {contract.currentStatusName && (
-              <Badge variant="secondary" className="text-xs">{contract.currentStatusName}</Badge>
-            )}
-            {/* CloudSign status badge */}
-            {contract.cloudsignDocumentId && (
-              <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium cursor-pointer hover:opacity-80 ${
-                  contract.cloudsignStatus === "completed"
-                    ? "bg-green-50 text-green-700 border border-green-200"
-                    : contract.cloudsignStatus === "sent"
-                    ? "bg-blue-50 text-blue-700 border border-blue-200"
-                    : contract.cloudsignStatus?.startsWith("canceled")
-                    ? "bg-red-50 text-red-700 border border-red-200"
-                    : "bg-gray-50 text-gray-600 border border-gray-200"
-                }`}
-                onClick={() => window.open(contract.cloudsignUrl || `https://www.cloudsign.jp/documents/${contract.cloudsignDocumentId}`, "_blank")}
-                title="CloudSignで開く"
-              >
-                {contract.cloudsignStatus === "sent" ? "送付済" :
-                 contract.cloudsignStatus === "completed" ? "締結済" :
-                 contract.cloudsignStatus === "draft" ? "下書き" :
-                 contract.cloudsignStatus?.startsWith("canceled") ? "破棄" :
-                 contract.cloudsignStatus || "-"}
-                <ExternalLink className="h-2.5 w-2.5 opacity-50" />
-              </span>
-            )}
-            {contract.cloudsignDocumentId && contract.cloudsignAutoSync === false && (
-              <span className="inline-flex items-center rounded-full bg-orange-50 px-1.5 py-0.5 text-[10px] font-medium text-orange-600 border border-orange-200">
-                停止中
-              </span>
-            )}
-            {contract.cloudsignSelfSigningEmailId && contract.cloudsignSelfSignedAt && (
-              <span className="inline-flex items-center gap-0.5 rounded-full bg-green-50 px-1.5 py-0.5 text-[10px] font-medium text-green-700 border border-green-200">
-                <PenTool className="h-2.5 w-2.5" />
-                自社署名済
-              </span>
-            )}
-          </div>
-          {contract.parentContract && (
-            <p className="text-xs text-gray-500 mt-0.5">
-              親契約: {contract.parentContract.contractNumber} {contract.parentContract.contractType}
-            </p>
-          )}
-          <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-            {contract.signedDate && <span>締結日: {formatDate(contract.signedDate)}</span>}
-            {contract.signingMethod && <span>方法: {signingMethodOptions.find(o => o.value === contract.signingMethod)?.label}</span>}
-            {contract.filePath && contract.fileName && (
-              <span className="flex items-center gap-0.5">
-                <button
-                  className="text-blue-600 hover:underline flex items-center gap-0.5"
-                  onClick={() => window.open(contract.filePath!, "_blank")}
-                  title={`CloudSign署名PDF: ${contract.fileName}`}
-                >
-                  <PenTool className="h-2.5 w-2.5" />
-                  <FileText className="h-3 w-3" />
-                  <ExternalLink className="h-2.5 w-2.5" />
-                </button>
-              </span>
-            )}
-            {contract.contractFiles && contract.contractFiles.length > 0 && (
-              <span className="flex items-center gap-1">
-                {contract.contractFiles.map((cf) => (
-                  <button
-                    key={cf.id}
-                    className="text-blue-600 hover:underline flex items-center gap-0.5"
-                    onClick={() => window.open(cf.filePath, "_blank")}
-                    title={cf.fileName}
-                  >
-                    <FileText className="h-3 w-3" />
-                    <ExternalLink className="h-2.5 w-2.5" />
-                  </button>
-                ))}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="flex gap-1 shrink-0">
-          {/* CloudSign actions for sent status */}
+      {/* ヘッダー（常に表示 — コンパクトな1行） */}
+      <div
+        className="px-3 py-2.5 flex items-center gap-2 bg-gray-50/50 cursor-pointer hover:bg-gray-100/50 transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <ChevronRight className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+        <span className="font-mono text-xs text-gray-400 shrink-0">{contract.contractNumber}</span>
+        <Badge variant="outline" className="text-[10px] shrink-0">{contract.contractType}</Badge>
+        <span className="font-medium text-sm truncate">{contract.title}</span>
+        {/* 主要ステータスだけ表示 */}
+        {contract.currentStatusName && (
+          <Badge variant="secondary" className="text-[10px] shrink-0">{contract.currentStatusName}</Badge>
+        )}
+        {csStatusConfig && (
+          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border shrink-0 ${csStatusConfig.color}`}>
+            {csStatusConfig.label}
+          </span>
+        )}
+        {/* アクションボタン（右端） */}
+        <div className="flex items-center gap-0.5 shrink-0 ml-auto" onClick={(e) => e.stopPropagation()}>
           {contract.cloudsignStatus === "sent" && (
             <>
               <button
                 type="button"
                 className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-orange-600 bg-orange-50 border border-orange-200 hover:bg-orange-100 transition-colors disabled:opacity-40"
                 disabled={remindingContractId === contract.id}
-                onClick={async () => {
-                  if (!confirm("先方にリマインドメールを送信しますか？")) return;
-                  setRemindingContractId(contract.id);
-                  try {
-                    const result = await remindCloudsignDocument(contract.id);
-                    if (result.success) {
-                      toast.success("リマインドを送信しました");
-                      await loadContracts();
-                    } else {
-                      toast.error(result.error ?? "リマインドの送信に失敗しました");
-                    }
-                  } catch (error) {
-                    console.error(error);
-                    toast.error("リマインドの送信に失敗しました");
-                  } finally {
-                    setRemindingContractId(null);
-                  }
-                }}
+                onClick={handleRemind}
               >
                 {remindingContractId === contract.id ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -947,27 +1006,7 @@ function ContractCard({
                   className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-violet-600 bg-violet-50 border border-violet-200 hover:bg-violet-100 transition-colors disabled:opacity-40"
                   disabled={fetchingSigningUrlId === contract.id}
                   title="CloudSignに送信者アカウントでログイン中の場合は、シークレットウィンドウで開くか、メールのリンクから署名してください。"
-                  onClick={async () => {
-                    if (contract.cloudsignSelfSigningUrl) {
-                      window.open(contract.cloudsignSelfSigningUrl, "_blank");
-                      return;
-                    }
-                    setFetchingSigningUrlId(contract.id);
-                    try {
-                      const result = await getCloudsignSelfSigningUrl(contract.id);
-                      if (result.url) {
-                        window.open(result.url, "_blank");
-                        await loadContracts();
-                      } else {
-                        toast.info("署名用URLがまだ届いていません。しばらく経ってからお試しください。");
-                      }
-                    } catch (error) {
-                      console.error(error);
-                      toast.error("署名用URLの取得に失敗しました");
-                    } finally {
-                      setFetchingSigningUrlId(null);
-                    }
-                  }}
+                  onClick={handleSelfSign}
                 >
                   {fetchingSigningUrlId === contract.id ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
@@ -979,145 +1018,14 @@ function ContractCard({
               )}
             </>
           )}
-          {/* CloudSign menu */}
-          {contract.cloudsignDocumentId && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center rounded p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                >
-                  <MoreVertical className="h-3.5 w-3.5" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuItem
-                  disabled={syncingContractId === contract.id}
-                  onClick={async () => {
-                    setSyncingContractId(contract.id);
-                    try {
-                      const result = await syncContractCloudsignStatus(contract.id);
-                      if (result.previousStatus === result.newStatus) {
-                        toast.info("ステータスに変更はありません");
-                      } else {
-                        toast.success(`ステータスを同期しました: ${result.previousStatus} → ${result.newStatus}`);
-                      }
-                      await loadContracts();
-                      router.refresh();
-                    } catch (error) {
-                      console.error(error);
-                      toast.error("同期に失敗しました");
-                    } finally {
-                      setSyncingContractId(null);
-                    }
-                  }}
-                >
-                  <RefreshCw className="h-3.5 w-3.5 mr-2" />
-                  {syncingContractId === contract.id ? "同期中..." : "手動で同期"}
-                </DropdownMenuItem>
-                {contract.cloudsignStatus !== "completed" &&
-                 !contract.cloudsignStatus?.startsWith("canceled") && (
-                  <DropdownMenuItem
-                    disabled={togglingAutoSyncId === contract.id}
-                    onClick={async () => {
-                      const newState = !contract.cloudsignAutoSync;
-                      if (!newState) {
-                        if (!confirm("CloudSign側のステータス変更がCRMに反映されなくなります。よろしいですか？")) return;
-                      }
-                      setTogglingAutoSyncId(contract.id);
-                      try {
-                        await toggleCloudsignAutoSync(contract.id, newState);
-                        toast.success(newState ? "自動同期をONにしました" : "自動同期をOFFにしました");
-                        await loadContracts();
-                        router.refresh();
-                      } catch (error) {
-                        console.error(error);
-                        toast.error("切替に失敗しました");
-                      } finally {
-                        setTogglingAutoSyncId(null);
-                      }
-                    }}
-                  >
-                    <Pause className="h-3.5 w-3.5 mr-2" />
-                    {togglingAutoSyncId === contract.id
-                      ? "切替中..."
-                      : contract.cloudsignAutoSync
-                      ? "自動同期を停止"
-                      : "自動同期を再開"}
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => {
-                    navigator.clipboard.writeText(contract.cloudsignDocumentId || "");
-                    toast.success("ドキュメントIDをコピーしました");
-                  }}
-                >
-                  <Copy className="h-3.5 w-3.5 mr-2" />
-                  <span className="truncate">ID: {contract.cloudsignDocumentId?.slice(0, 12)}...</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          {/* Draft resume button */}
-          {contract.cloudsignStatus === "draft" && contract.cloudsignDocumentId && (
-            <Button
-              variant="ghost"
-              size="sm"
-              title="送付を再開"
-              onClick={async () => {
-                if (!cloudsignData) {
-                  setLoadingCloudsign(true);
-                  try {
-                    const data = await getCloudsignModalData(companyId);
-                    setCloudsignData(data);
-                    if (!data.operatingCompany?.cloudsignClientId) {
-                      toast.error("クラウドサインのクライアントIDが未設定です");
-                      return;
-                    }
-                  } catch (error) {
-                    console.error(error);
-                    toast.error("クラウドサイン情報の取得に失敗しました");
-                    return;
-                  } finally {
-                    setLoadingCloudsign(false);
-                  }
-                }
-                setResumeDraft({
-                  contractId: contract.id,
-                  contractNumber: contract.contractNumber || "",
-                  cloudsignDocumentId: contract.cloudsignDocumentId!,
-                  contractType: contract.contractType,
-                  title: contract.title,
-                });
-                setSendModalOpen(true);
-              }}
-            >
-              <Play className="h-4 w-4 text-blue-500" />
-            </Button>
-          )}
-          {/* Edit/Delete buttons */}
-          <Button variant="ghost" size="sm" onClick={onEdit}><Pencil className="h-3.5 w-3.5" /></Button>
+          <Button variant="ghost" size="sm" onClick={onEdit} title="編集"><Pencil className="h-3.5 w-3.5" /></Button>
           {contract.cloudsignStatus === "draft" ? (
             <Button
               variant="ghost"
               size="sm"
               disabled={deletingDraftId === contract.id}
-              onClick={async () => {
-                if (!confirm("この下書きを削除しますか？CloudSign側のドラフトも削除されます。")) return;
-                setDeletingDraftId(contract.id);
-                try {
-                  await deleteDraftContract(contract.id);
-                  toast.success("下書きを削除しました");
-                  await loadContracts();
-                  router.refresh();
-                } catch (error) {
-                  console.error(error);
-                  toast.error("削除に失敗しました");
-                } finally {
-                  setDeletingDraftId(null);
-                }
-              }}
+              onClick={handleDeleteDraft}
+              title="削除"
             >
               {deletingDraftId === contract.id ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1126,45 +1034,171 @@ function ContractCard({
               )}
             </Button>
           ) : (
-            <Button variant="ghost" size="sm" onClick={onDelete}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
+            <Button variant="ghost" size="sm" onClick={onDelete} title="削除"><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
           )}
-          {/* Link CloudSign by ID */}
-          {!contract.cloudsignDocumentId && (
-            <button
-              type="button"
-              className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] text-gray-400 hover:text-blue-600 underline decoration-dotted underline-offset-2 disabled:opacity-50"
-              disabled={linkingContractId === contract.id}
-              onClick={async () => {
-                const docId = prompt("CloudSignのドキュメントIDを入力してください");
-                if (!docId?.trim()) return;
-                if (!confirm(`ドキュメントID「${docId.trim()}」で同期しますか？`)) return;
-                setLinkingContractId(contract.id);
-                try {
-                  const result = await linkCloudsignDocument(contract.id, docId.trim());
-                  toast.success(`CloudSignと紐付けました（ステータス: ${result.newStatus}）`);
-                  await loadContracts();
-                  router.refresh();
-                } catch (error) {
-                  console.error(error);
-                  toast.error("紐付けに失敗しました。ドキュメントIDが正しいか確認してください。");
-                } finally {
-                  setLinkingContractId(null);
-                }
-              }}
-            >
-              {linkingContractId === contract.id ? (
-                <span className="flex items-center gap-0.5"><Loader2 className="h-2.5 w-2.5 animate-spin" /> 紐付け中...</span>
-              ) : (
-                <Link2 className="h-3 w-3" />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                <MoreVertical className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              {contract.cloudsignDocumentId && (
+                <>
+                  <DropdownMenuItem
+                    onClick={() => window.open(contract.cloudsignUrl || `https://www.cloudsign.jp/documents/${contract.cloudsignDocumentId}`, "_blank")}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 mr-2" />
+                    CloudSignで開く
+                  </DropdownMenuItem>
+                  {contract.cloudsignStatus === "draft" && (
+                    <DropdownMenuItem onClick={handleResumeDraft}>
+                      <Play className="h-3.5 w-3.5 mr-2" />
+                      送付を再開
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={syncingContractId === contract.id}
+                    onClick={async () => {
+                      setSyncingContractId(contract.id);
+                      try {
+                        const result = await syncContractCloudsignStatus(contract.id);
+                        if (result.previousStatus === result.newStatus) {
+                          toast.info("ステータスに変更はありません");
+                        } else {
+                          toast.success(`ステータスを同期しました: ${result.previousStatus} → ${result.newStatus}`);
+                        }
+                        await loadContracts();
+                        router.refresh();
+                      } catch (error) {
+                        console.error(error);
+                        toast.error("同期に失敗しました");
+                      } finally {
+                        setSyncingContractId(null);
+                      }
+                    }}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5 mr-2" />
+                    {syncingContractId === contract.id ? "同期中..." : "手動で同期"}
+                  </DropdownMenuItem>
+                  {contract.cloudsignStatus !== "completed" &&
+                   !contract.cloudsignStatus?.startsWith("canceled") && (
+                    <DropdownMenuItem
+                      disabled={togglingAutoSyncId === contract.id}
+                      onClick={async () => {
+                        const newState = !contract.cloudsignAutoSync;
+                        if (!newState) {
+                          if (!confirm("CloudSign側のステータス変更がCRMに反映されなくなります。よろしいですか？")) return;
+                        }
+                        setTogglingAutoSyncId(contract.id);
+                        try {
+                          await toggleCloudsignAutoSync(contract.id, newState);
+                          toast.success(newState ? "自動同期をONにしました" : "自動同期をOFFにしました");
+                          await loadContracts();
+                          router.refresh();
+                        } catch (error) {
+                          console.error(error);
+                          toast.error("切替に失敗しました");
+                        } finally {
+                          setTogglingAutoSyncId(null);
+                        }
+                      }}
+                    >
+                      <Pause className="h-3.5 w-3.5 mr-2" />
+                      {togglingAutoSyncId === contract.id
+                        ? "切替中..."
+                        : contract.cloudsignAutoSync
+                        ? "自動同期を停止"
+                        : "自動同期を再開"}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      navigator.clipboard.writeText(contract.cloudsignDocumentId || "");
+                      toast.success("ドキュメントIDをコピーしました");
+                    }}
+                  >
+                    <Copy className="h-3.5 w-3.5 mr-2" />
+                    <span className="truncate">ID: {contract.cloudsignDocumentId?.slice(0, 12)}...</span>
+                  </DropdownMenuItem>
+                </>
               )}
-            </button>
-          )}
+              {!contract.cloudsignDocumentId && (
+                <DropdownMenuItem
+                  disabled={linkingContractId === contract.id}
+                  onClick={handleLinkCloudsign}
+                >
+                  <Link2 className="h-3.5 w-3.5 mr-2" />
+                  {linkingContractId === contract.id ? "紐付け中..." : "CloudSignと紐付け"}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
-      {/* 展開部分（契約履歴 or 契約条件） */}
+      {/* 展開部分 */}
       {expanded && (
         <div className="border-t">
+          {/* 契約書の詳細情報（展開時のみ表示） */}
+          {(contract.signingMethod || hasFiles || contract.parentContract || contract.cloudsignTitle != null ||
+            (contract.cloudsignDocumentId && contract.cloudsignAutoSync === false) ||
+            (contract.cloudsignSelfSigningEmailId && contract.cloudsignSelfSignedAt)) && (
+            <div className="px-4 py-2 bg-gray-50/30 flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+              {contract.cloudsignTitle != null && (
+                <span className="flex items-center gap-0.5 text-muted-foreground">
+                  <Cloud className="h-3 w-3" />
+                  {contract.cloudsignTitle}
+                </span>
+              )}
+              {contract.signingMethod && (
+                <span>方法: {signingMethodOptions.find(o => o.value === contract.signingMethod)?.label}</span>
+              )}
+              {contract.parentContract && (
+                <span>親契約: {contract.parentContract.contractNumber}</span>
+              )}
+              {contract.cloudsignDocumentId && contract.cloudsignAutoSync === false && (
+                <span className="inline-flex items-center rounded-full bg-orange-50 px-1.5 py-0.5 text-[10px] font-medium text-orange-600 border border-orange-200">
+                  同期停止中
+                </span>
+              )}
+              {contract.cloudsignSelfSigningEmailId && contract.cloudsignSelfSignedAt && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-green-50 px-1.5 py-0.5 text-[10px] font-medium text-green-700 border border-green-200">
+                  <PenTool className="h-2.5 w-2.5" />
+                  自社署名済
+                </span>
+              )}
+              {contract.filePath && contract.fileName && (
+                <button
+                  className="text-blue-600 hover:underline flex items-center gap-0.5"
+                  onClick={() => window.open(contract.filePath!, "_blank")}
+                  title={`署名PDF: ${contract.fileName}`}
+                >
+                  <PenTool className="h-2.5 w-2.5" />
+                  <FileText className="h-3 w-3" />
+                </button>
+              )}
+              {contract.contractFiles && contract.contractFiles.length > 0 && (
+                <span className="flex items-center gap-1">
+                  {contract.contractFiles.map((cf) => (
+                    <button
+                      key={cf.id}
+                      className="text-blue-600 hover:underline flex items-center gap-0.5"
+                      onClick={() => window.open(cf.filePath, "_blank")}
+                      title={cf.fileName}
+                    >
+                      <FileText className="h-3 w-3" />
+                    </button>
+                  ))}
+                </span>
+              )}
+            </div>
+          )}
           {isAgentMode ? (
             <>
               {(contract.agentContractHistories || []).length > 0 ? (
@@ -1698,16 +1732,21 @@ export function MasterContractModal({
     setAgentHistoryFormData({
       contractStartDate: new Date(history.contractStartDate),
       contractEndDate: history.contractEndDate ? new Date(history.contractEndDate) : null,
+      contractDate: history.contractDate ? new Date(history.contractDate) : null,
       status: history.status,
       initialFee: history.initialFee != null ? String(history.initialFee) : "",
       monthlyFee: history.monthlyFee != null ? String(history.monthlyFee) : "",
+      defaultMpInitialType: history.defaultMpInitialType || "",
       defaultMpInitialRate: history.defaultMpInitialRate != null ? String(history.defaultMpInitialRate) : "",
+      defaultMpInitialFixed: history.defaultMpInitialFixed != null ? String(history.defaultMpInitialFixed) : "",
       defaultMpInitialDuration: history.defaultMpInitialDuration != null ? String(history.defaultMpInitialDuration) : "",
       defaultMpMonthlyType: history.defaultMpMonthlyType || "",
       defaultMpMonthlyRate: history.defaultMpMonthlyRate != null ? String(history.defaultMpMonthlyRate) : "",
       defaultMpMonthlyFixed: history.defaultMpMonthlyFixed != null ? String(history.defaultMpMonthlyFixed) : "",
       defaultMpMonthlyDuration: history.defaultMpMonthlyDuration != null ? String(history.defaultMpMonthlyDuration) : "",
+      defaultPpInitialType: history.defaultPpInitialType || "",
       defaultPpInitialRate: history.defaultPpInitialRate != null ? String(history.defaultPpInitialRate) : "",
+      defaultPpInitialFixed: history.defaultPpInitialFixed != null ? String(history.defaultPpInitialFixed) : "",
       defaultPpInitialDuration: history.defaultPpInitialDuration != null ? String(history.defaultPpInitialDuration) : "",
       defaultPpPerfType: history.defaultPpPerfType || "",
       defaultPpPerfRate: history.defaultPpPerfRate != null ? String(history.defaultPpPerfRate) : "",
@@ -1731,17 +1770,21 @@ export function MasterContractModal({
       const data: AgentContractHistoryData = {
         contractStartDate: toLocalDateString(agentHistoryFormData.contractStartDate),
         contractEndDate: agentHistoryFormData.contractEndDate ? toLocalDateString(agentHistoryFormData.contractEndDate) : null,
-        contractDate: null,
+        contractDate: agentHistoryFormData.contractDate ? toLocalDateString(agentHistoryFormData.contractDate) : null,
         status: agentHistoryFormData.status,
         initialFee: agentHistoryFormData.initialFee ? Number(agentHistoryFormData.initialFee) : null,
         monthlyFee: agentHistoryFormData.monthlyFee ? Number(agentHistoryFormData.monthlyFee) : null,
+        defaultMpInitialType: agentHistoryFormData.defaultMpInitialType || null,
         defaultMpInitialRate: agentHistoryFormData.defaultMpInitialRate ? Number(agentHistoryFormData.defaultMpInitialRate) : null,
+        defaultMpInitialFixed: agentHistoryFormData.defaultMpInitialFixed ? Number(agentHistoryFormData.defaultMpInitialFixed) : null,
         defaultMpInitialDuration: agentHistoryFormData.defaultMpInitialDuration ? Number(agentHistoryFormData.defaultMpInitialDuration) : null,
         defaultMpMonthlyType: agentHistoryFormData.defaultMpMonthlyType || null,
         defaultMpMonthlyRate: agentHistoryFormData.defaultMpMonthlyRate ? Number(agentHistoryFormData.defaultMpMonthlyRate) : null,
         defaultMpMonthlyFixed: agentHistoryFormData.defaultMpMonthlyFixed ? Number(agentHistoryFormData.defaultMpMonthlyFixed) : null,
         defaultMpMonthlyDuration: agentHistoryFormData.defaultMpMonthlyDuration ? Number(agentHistoryFormData.defaultMpMonthlyDuration) : null,
+        defaultPpInitialType: agentHistoryFormData.defaultPpInitialType || null,
         defaultPpInitialRate: agentHistoryFormData.defaultPpInitialRate ? Number(agentHistoryFormData.defaultPpInitialRate) : null,
+        defaultPpInitialFixed: agentHistoryFormData.defaultPpInitialFixed ? Number(agentHistoryFormData.defaultPpInitialFixed) : null,
         defaultPpInitialDuration: agentHistoryFormData.defaultPpInitialDuration ? Number(agentHistoryFormData.defaultPpInitialDuration) : null,
         defaultPpPerfType: agentHistoryFormData.defaultPpPerfType || null,
         defaultPpPerfRate: agentHistoryFormData.defaultPpPerfRate ? Number(agentHistoryFormData.defaultPpPerfRate) : null,
@@ -1994,6 +2037,15 @@ export function MasterContractModal({
                       onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                       placeholder="契約書タイトル"
                     />
+                    {(() => {
+                      const ec = editingId ? localContracts.find(c => c.id === editingId) : null;
+                      return ec?.cloudsignTitle ? (
+                        <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                          <Cloud className="h-3 w-3 shrink-0" />
+                          CloudSign上のタイトル: {ec.cloudsignTitle}
+                        </p>
+                      ) : null;
+                    })()}
                   </div>
 
                   {/* 親契約 */}
@@ -2219,8 +2271,9 @@ export function MasterContractModal({
                 </Button>
               </div>
 
-              <form onSubmit={handleSubmitHistory} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+              <form onSubmit={handleSubmitHistory} className="space-y-3">
+                {/* 契約基本情報 */}
+                <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label>
                       業種区分 <span className="text-red-500">*</span>
@@ -2230,7 +2283,7 @@ export function MasterContractModal({
                       onValueChange={handleHistoryIndustryTypeChange}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="選択してください" />
+                        <SelectValue placeholder="選択" />
                       </SelectTrigger>
                       <SelectContent>
                         {industryTypeOptions.map((opt) => (
@@ -2250,7 +2303,7 @@ export function MasterContractModal({
                       onValueChange={handleHistoryContractPlanChange}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="選択してください" />
+                        <SelectValue placeholder="選択" />
                       </SelectTrigger>
                       <SelectContent>
                         {contractPlanOptions.map((opt) => (
@@ -2261,34 +2314,67 @@ export function MasterContractModal({
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-2">
+                    <Label>求人媒体</Label>
+                    {isInvalidJobMedia(historyFormData.jobMedia || null) && (
+                      <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-md px-2 py-1">
+                        無効な媒体「{historyFormData.jobMedia}」
+                      </div>
+                    )}
+                    <Select
+                      value={historyFormData.jobMedia || "none"}
+                      onValueChange={(v) => setHistoryFormData({ ...historyFormData, jobMedia: v === "none" ? "" : v })}
+                    >
+                      <SelectTrigger className={isInvalidJobMedia(historyFormData.jobMedia || null) ? "border-red-500" : ""}>
+                        <SelectValue placeholder="選択なし" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">選択なし</SelectItem>
+                        {jobMediaOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>求人媒体</Label>
-                  {isInvalidJobMedia(historyFormData.jobMedia || null) && (
-                    <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-2">
-                      無効な媒体「{historyFormData.jobMedia}」が設定されています。変更してください。
-                    </div>
-                  )}
-                  <Select
-                    value={historyFormData.jobMedia || "none"}
-                    onValueChange={(v) => setHistoryFormData({ ...historyFormData, jobMedia: v === "none" ? "" : v })}
-                  >
-                    <SelectTrigger className={isInvalidJobMedia(historyFormData.jobMedia || null) ? "border-red-500" : ""}>
-                      <SelectValue placeholder="選択してください" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">選択なし</SelectItem>
-                      {jobMediaOptions.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-4 gap-4">
+                  <div className="space-y-2">
+                    <Label>ステータス</Label>
+                    <Select
+                      value={historyFormData.status}
+                      onValueChange={(v) => setHistoryFormData({ ...historyFormData, status: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="選択" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {statusOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>
+                      契約日 <span className="text-red-500">*</span>
+                    </Label>
+                    <DatePicker
+                      selected={historyFormData.contractDate}
+                      onChange={(date: Date | null) => setHistoryFormData({ ...historyFormData, contractDate: date })}
+                      dateFormat="yyyy/MM/dd"
+                      locale="ja"
+                      placeholderText="日付を選択"
+                      isClearable
+                      className={datePickerClassName}
+                      wrapperClassName="w-full"
+                      calendarClassName="shadow-lg"
+                    />
+                  </div>
                   <div className="space-y-2">
                     <Label>
                       契約開始日 <span className="text-red-500">*</span>
@@ -2319,222 +2405,194 @@ export function MasterContractModal({
                       calendarClassName="shadow-lg"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>
-                      契約日 <span className="text-red-500">*</span>
-                    </Label>
-                    <DatePicker
-                      selected={historyFormData.contractDate}
-                      onChange={(date: Date | null) => setHistoryFormData({ ...historyFormData, contractDate: date })}
-                      dateFormat="yyyy/MM/dd"
-                      locale="ja"
-                      placeholderText="日付を選択"
-                      isClearable
-                      className={datePickerClassName}
-                      wrapperClassName="w-full"
-                      calendarClassName="shadow-lg"
-                    />
-                  </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label>初期費用</Label>
-                    <Input
-                      type="number"
-                      value={historyFormData.initialFee}
-                      onChange={(e) => setHistoryFormData({ ...historyFormData, initialFee: e.target.value })}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label>月額</Label>
-                      <div className="flex items-center space-x-2">
-                        <Checkbox
-                          id="histManualMonthlyFee"
-                          checked={isManualMonthlyFee}
-                          onCheckedChange={(checked) => handleManualMonthlyFeeChange(checked === true)}
-                        />
-                        <label htmlFor="histManualMonthlyFee" className="text-xs text-muted-foreground cursor-pointer">
-                          手動入力
-                        </label>
-                      </div>
+                {/* 金額 */}
+                <div className="border-t pt-3">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>初期費用</Label>
+                      <Input
+                        type="number"
+                        value={historyFormData.initialFee}
+                        onChange={(e) => setHistoryFormData({ ...historyFormData, initialFee: e.target.value })}
+                        placeholder="0"
+                      />
                     </div>
-                    <Input
-                      type="number"
-                      value={historyFormData.monthlyFee}
-                      onChange={(e) => setHistoryFormData({ ...historyFormData, monthlyFee: e.target.value })}
-                      placeholder="0"
-                      disabled={!isManualMonthlyFee}
-                      className={!isManualMonthlyFee ? "bg-muted" : ""}
-                    />
-                    {!isManualMonthlyFee && (
-                      <p className="text-xs text-muted-foreground">
-                        自動計算: {formatCurrency(calculateMonthlyFee(historyFormData.industryType, historyFormData.contractPlan))}
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label>成果報酬単価</Label>
-                      <div className="flex items-center space-x-2">
-                        <Checkbox
-                          id="histManualPerformanceFee"
-                          checked={isManualPerformanceFee}
-                          onCheckedChange={(checked) => handleManualPerformanceFeeChange(checked === true)}
-                        />
-                        <label htmlFor="histManualPerformanceFee" className="text-xs text-muted-foreground cursor-pointer">
-                          手動入力
-                        </label>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>月額</Label>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="histManualMonthlyFee"
+                            checked={isManualMonthlyFee}
+                            onCheckedChange={(checked) => handleManualMonthlyFeeChange(checked === true)}
+                          />
+                          <label htmlFor="histManualMonthlyFee" className="text-xs text-muted-foreground cursor-pointer">
+                            手動入力
+                          </label>
+                        </div>
                       </div>
+                      <Input
+                        type="number"
+                        value={historyFormData.monthlyFee}
+                        onChange={(e) => setHistoryFormData({ ...historyFormData, monthlyFee: e.target.value })}
+                        placeholder="0"
+                        disabled={!isManualMonthlyFee}
+                        className={!isManualMonthlyFee ? "bg-muted" : ""}
+                      />
+                      {!isManualMonthlyFee && (
+                        <p className="text-xs text-muted-foreground">
+                          自動計算: {formatCurrency(calculateMonthlyFee(historyFormData.industryType, historyFormData.contractPlan))}
+                        </p>
+                      )}
                     </div>
-                    <Input
-                      type="number"
-                      value={historyFormData.performanceFee}
-                      onChange={(e) => setHistoryFormData({ ...historyFormData, performanceFee: e.target.value })}
-                      placeholder="0"
-                      disabled={!isManualPerformanceFee}
-                      className={!isManualPerformanceFee ? "bg-muted" : ""}
-                    />
-                    {!isManualPerformanceFee && (
-                      <p className="text-xs text-muted-foreground">
-                        自動計算: {formatCurrency(calculatePerformanceFee(historyFormData.contractPlan))}
-                      </p>
-                    )}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>成果報酬単価</Label>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="histManualPerformanceFee"
+                            checked={isManualPerformanceFee}
+                            onCheckedChange={(checked) => handleManualPerformanceFeeChange(checked === true)}
+                          />
+                          <label htmlFor="histManualPerformanceFee" className="text-xs text-muted-foreground cursor-pointer">
+                            手動入力
+                          </label>
+                        </div>
+                      </div>
+                      <Input
+                        type="number"
+                        value={historyFormData.performanceFee}
+                        onChange={(e) => setHistoryFormData({ ...historyFormData, performanceFee: e.target.value })}
+                        placeholder="0"
+                        disabled={!isManualPerformanceFee}
+                        className={!isManualPerformanceFee ? "bg-muted" : ""}
+                      />
+                      {!isManualPerformanceFee && (
+                        <p className="text-xs text-muted-foreground">
+                          自動計算: {formatCurrency(calculatePerformanceFee(historyFormData.contractPlan))}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>担当営業</Label>
-                    <Select
-                      value={historyFormData.salesStaffId || "none"}
-                      onValueChange={(v) => setHistoryFormData({ ...historyFormData, salesStaffId: v === "none" ? "" : v })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="選択してください" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">選択なし</SelectItem>
-                        {historyStaffOptions.salesOptions.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                {/* 担当・運用 */}
+                <div className="border-t pt-3">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>担当営業</Label>
+                      <Select
+                        value={historyFormData.salesStaffId || "none"}
+                        onValueChange={(v) => setHistoryFormData({ ...historyFormData, salesStaffId: v === "none" ? "" : v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="選択なし" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">選択なし</SelectItem>
+                          {historyStaffOptions.salesOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>担当運用</Label>
+                      <Select
+                        value={historyFormData.operationStaffId || "none"}
+                        onValueChange={(v) => setHistoryFormData({ ...historyFormData, operationStaffId: v === "none" ? "" : v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="選択なし" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">選択なし</SelectItem>
+                          {historyStaffOptions.operationOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>運用ステータス</Label>
+                      <Select
+                        value={historyFormData.operationStatus || "none"}
+                        onValueChange={(v) => setHistoryFormData({ ...historyFormData, operationStatus: v === "none" ? "" : v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="選択なし" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">選択なし</SelectItem>
+                          {operationStatusOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>担当運用</Label>
-                    <Select
-                      value={historyFormData.operationStaffId || "none"}
-                      onValueChange={(v) => setHistoryFormData({ ...historyFormData, operationStaffId: v === "none" ? "" : v })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="選択してください" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">選択なし</SelectItem>
-                        {historyStaffOptions.operationOptions.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>ステータス</Label>
-                  <Select
-                    value={historyFormData.status}
-                    onValueChange={(v) => setHistoryFormData({ ...historyFormData, status: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="選択してください" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {statusOptions.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>運用ステータス</Label>
-                  <Select
-                    value={historyFormData.operationStatus || "none"}
-                    onValueChange={(v) => setHistoryFormData({ ...historyFormData, operationStatus: v === "none" ? "" : v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="選択してください" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">選択なし</SelectItem>
-                      {operationStatusOptions.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>アカウントID</Label>
-                    <Input
-                      type="text"
-                      value={historyFormData.accountId}
-                      onChange={(e) => setHistoryFormData({ ...historyFormData, accountId: e.target.value })}
-                      placeholder="アカウントIDを入力"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>アカウントPASS</Label>
-                    <Input
-                      type="text"
-                      value={historyFormData.accountPass}
-                      onChange={(e) => setHistoryFormData({ ...historyFormData, accountPass: e.target.value })}
-                      placeholder="パスワードを入力"
-                    />
+                  <div className="grid grid-cols-2 gap-4 mt-3">
+                    <div className="space-y-2">
+                      <Label>アカウントID</Label>
+                      <Input
+                        type="text"
+                        value={historyFormData.accountId}
+                        onChange={(e) => setHistoryFormData({ ...historyFormData, accountId: e.target.value })}
+                        placeholder="アカウントIDを入力"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>アカウントPASS</Label>
+                      <Input
+                        type="text"
+                        value={historyFormData.accountPass}
+                        onChange={(e) => setHistoryFormData({ ...historyFormData, accountPass: e.target.value })}
+                        placeholder="パスワードを入力"
+                      />
+                    </div>
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>備考</Label>
-                  <Textarea
-                    value={historyFormData.note}
-                    onChange={(e) => setHistoryFormData({ ...historyFormData, note: e.target.value })}
-                    rows={2}
-                    placeholder="備考を入力"
-                  />
-                </div>
-
-                {/* 関連する契約書 */}
-                <div className="space-y-2">
-                  <Label>関連する契約書</Label>
-                  <Select
-                    value={historyFormData.masterContractId || "none"}
-                    onValueChange={(v) => setHistoryFormData({ ...historyFormData, masterContractId: v === "none" ? "" : v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="なし" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">なし</SelectItem>
-                      {localContracts.map((c) => (
-                        <SelectItem key={c.id} value={String(c.id)}>
-                          {c.contractNumber} {c.contractType} - {c.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                {/* その他 */}
+                <div className="border-t pt-3">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>備考</Label>
+                      <Textarea
+                        value={historyFormData.note}
+                        onChange={(e) => setHistoryFormData({ ...historyFormData, note: e.target.value })}
+                        rows={2}
+                        placeholder="備考を入力"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>関連する契約書</Label>
+                      <Select
+                        value={historyFormData.masterContractId || "none"}
+                        onValueChange={(v) => setHistoryFormData({ ...historyFormData, masterContractId: v === "none" ? "" : v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="なし" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">なし</SelectItem>
+                          {localContracts.map((c) => (
+                            <SelectItem key={c.id} value={String(c.id)}>
+                              {c.contractNumber} {c.contractType} - {c.title}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex justify-end gap-2">
@@ -2573,7 +2631,7 @@ export function MasterContractModal({
               </div>
 
               <form onSubmit={handleSubmitAgentHistory} className="space-y-4">
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-4 gap-4">
                   <div className="space-y-2">
                     <Label>ステータス <span className="text-red-500">*</span></Label>
                     <Select
@@ -2587,6 +2645,18 @@ export function MasterContractModal({
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>契約日</Label>
+                    <DatePicker
+                      selected={agentHistoryFormData.contractDate}
+                      onChange={(date: Date | null) => setAgentHistoryFormData({ ...agentHistoryFormData, contractDate: date })}
+                      dateFormat="yyyy/MM/dd"
+                      locale="ja"
+                      placeholderText="初期費用発生日"
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                      isClearable
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>契約開始日 <span className="text-red-500">*</span></Label>
@@ -2634,98 +2704,150 @@ export function MasterContractModal({
                   </div>
                 </div>
 
-                {/* 月額プラン報酬 */}
+                {/* 紹介報酬（月額プラン） */}
                 <div className="border rounded-md p-3 space-y-3">
-                  <h4 className="text-sm font-medium text-gray-700">月額プラン報酬（デフォルト）</h4>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs">初期報酬率(%)</Label>
-                      <Input type="number" step="0.01" value={agentHistoryFormData.defaultMpInitialRate}
-                        onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpInitialRate: e.target.value })} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">初期報酬期間(ヶ月)</Label>
-                      <Input type="number" value={agentHistoryFormData.defaultMpInitialDuration}
-                        onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpInitialDuration: e.target.value })} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">月額報酬タイプ</Label>
-                      <Select value={agentHistoryFormData.defaultMpMonthlyType || "none"}
-                        onValueChange={(v) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpMonthlyType: v === "none" ? "" : v })}>
-                        <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">未設定</SelectItem>
-                          {commMonthlyTypeOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
+                  <h4 className="text-sm font-medium text-blue-700">紹介報酬（月額プラン）</h4>
+                  {/* 初期費用分 */}
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">初期費用分</Label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">報酬タイプ</Label>
+                        <Select value={agentHistoryFormData.defaultMpInitialType || "none"}
+                          onValueChange={(v) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpInitialType: v === "none" ? "" : v })}>
+                          <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">未設定</SelectItem>
+                            {commMonthlyTypeOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {agentHistoryFormData.defaultMpInitialType === "rate" && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">報酬率(%)</Label>
+                          <Input type="number" step="0.01" value={agentHistoryFormData.defaultMpInitialRate}
+                            onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpInitialRate: e.target.value })} />
+                        </div>
+                      )}
+                      {agentHistoryFormData.defaultMpInitialType === "fixed" && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">報酬固定額</Label>
+                          <Input type="number" value={agentHistoryFormData.defaultMpInitialFixed}
+                            onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpInitialFixed: e.target.value })} />
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    {agentHistoryFormData.defaultMpMonthlyType === "rate" ? (
+                  {/* 月額費用分 */}
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">月額費用分</Label>
+                    <div className="grid grid-cols-3 gap-3">
                       <div className="space-y-1">
-                        <Label className="text-xs">月額報酬率(%)</Label>
-                        <Input type="number" step="0.01" value={agentHistoryFormData.defaultMpMonthlyRate}
-                          onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpMonthlyRate: e.target.value })} />
+                        <Label className="text-xs">報酬タイプ</Label>
+                        <Select value={agentHistoryFormData.defaultMpMonthlyType || "none"}
+                          onValueChange={(v) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpMonthlyType: v === "none" ? "" : v })}>
+                          <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">未設定</SelectItem>
+                            {commMonthlyTypeOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
                       </div>
-                    ) : agentHistoryFormData.defaultMpMonthlyType === "fixed" ? (
-                      <div className="space-y-1">
-                        <Label className="text-xs">月額報酬固定額</Label>
-                        <Input type="number" value={agentHistoryFormData.defaultMpMonthlyFixed}
-                          onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpMonthlyFixed: e.target.value })} />
-                      </div>
-                    ) : <div />}
-                    <div className="space-y-1">
-                      <Label className="text-xs">月額報酬期間(ヶ月)</Label>
-                      <Input type="number" value={agentHistoryFormData.defaultMpMonthlyDuration}
-                        onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpMonthlyDuration: e.target.value })} />
+                      {agentHistoryFormData.defaultMpMonthlyType === "rate" && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">報酬率(%)</Label>
+                          <Input type="number" step="0.01" value={agentHistoryFormData.defaultMpMonthlyRate}
+                            onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpMonthlyRate: e.target.value })} />
+                        </div>
+                      )}
+                      {agentHistoryFormData.defaultMpMonthlyType === "fixed" && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">報酬固定額</Label>
+                          <Input type="number" value={agentHistoryFormData.defaultMpMonthlyFixed}
+                            onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpMonthlyFixed: e.target.value })} />
+                        </div>
+                      )}
+                      {agentHistoryFormData.defaultMpMonthlyType && agentHistoryFormData.defaultMpMonthlyType !== "none" && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">報酬発生期間(ヶ月)</Label>
+                          <Input type="number" value={agentHistoryFormData.defaultMpMonthlyDuration}
+                            onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultMpMonthlyDuration: e.target.value })} />
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* 成果報酬プラン報酬 */}
+                {/* 紹介報酬（成果報酬プラン） */}
                 <div className="border rounded-md p-3 space-y-3">
-                  <h4 className="text-sm font-medium text-gray-700">成果報酬プラン報酬（デフォルト）</h4>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs">初期報酬率(%)</Label>
-                      <Input type="number" step="0.01" value={agentHistoryFormData.defaultPpInitialRate}
-                        onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpInitialRate: e.target.value })} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">初期報酬期間(ヶ月)</Label>
-                      <Input type="number" value={agentHistoryFormData.defaultPpInitialDuration}
-                        onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpInitialDuration: e.target.value })} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">成果報酬タイプ</Label>
-                      <Select value={agentHistoryFormData.defaultPpPerfType || "none"}
-                        onValueChange={(v) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpPerfType: v === "none" ? "" : v })}>
-                        <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">未設定</SelectItem>
-                          {commMonthlyTypeOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
+                  <h4 className="text-sm font-medium text-green-700">紹介報酬（成果報酬プラン）</h4>
+                  {/* 初期費用分 */}
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">初期費用分</Label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">報酬タイプ</Label>
+                        <Select value={agentHistoryFormData.defaultPpInitialType || "none"}
+                          onValueChange={(v) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpInitialType: v === "none" ? "" : v })}>
+                          <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">未設定</SelectItem>
+                            {commMonthlyTypeOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {agentHistoryFormData.defaultPpInitialType === "rate" && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">報酬率(%)</Label>
+                          <Input type="number" step="0.01" value={agentHistoryFormData.defaultPpInitialRate}
+                            onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpInitialRate: e.target.value })} />
+                        </div>
+                      )}
+                      {agentHistoryFormData.defaultPpInitialType === "fixed" && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">報酬固定額</Label>
+                          <Input type="number" value={agentHistoryFormData.defaultPpInitialFixed}
+                            onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpInitialFixed: e.target.value })} />
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    {agentHistoryFormData.defaultPpPerfType === "rate" ? (
+                  {/* 成果報酬分 */}
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">成果報酬分</Label>
+                    <div className="grid grid-cols-3 gap-3">
                       <div className="space-y-1">
-                        <Label className="text-xs">成果報酬率(%)</Label>
-                        <Input type="number" step="0.01" value={agentHistoryFormData.defaultPpPerfRate}
-                          onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpPerfRate: e.target.value })} />
+                        <Label className="text-xs">報酬タイプ</Label>
+                        <Select value={agentHistoryFormData.defaultPpPerfType || "none"}
+                          onValueChange={(v) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpPerfType: v === "none" ? "" : v })}>
+                          <SelectTrigger><SelectValue placeholder="選択" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">未設定</SelectItem>
+                            {commMonthlyTypeOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
                       </div>
-                    ) : agentHistoryFormData.defaultPpPerfType === "fixed" ? (
-                      <div className="space-y-1">
-                        <Label className="text-xs">成果報酬固定額</Label>
-                        <Input type="number" value={agentHistoryFormData.defaultPpPerfFixed}
-                          onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpPerfFixed: e.target.value })} />
-                      </div>
-                    ) : <div />}
-                    <div className="space-y-1">
-                      <Label className="text-xs">成果報酬期間(ヶ月)</Label>
-                      <Input type="number" value={agentHistoryFormData.defaultPpPerfDuration}
-                        onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpPerfDuration: e.target.value })} />
+                      {agentHistoryFormData.defaultPpPerfType === "rate" && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">報酬率(%)</Label>
+                          <Input type="number" step="0.01" value={agentHistoryFormData.defaultPpPerfRate}
+                            onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpPerfRate: e.target.value })} />
+                        </div>
+                      )}
+                      {agentHistoryFormData.defaultPpPerfType === "fixed" && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">報酬固定額</Label>
+                          <Input type="number" value={agentHistoryFormData.defaultPpPerfFixed}
+                            onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpPerfFixed: e.target.value })} />
+                        </div>
+                      )}
+                      {agentHistoryFormData.defaultPpPerfType && agentHistoryFormData.defaultPpPerfType !== "none" && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">報酬発生期間(ヶ月)</Label>
+                          <Input type="number" value={agentHistoryFormData.defaultPpPerfDuration}
+                            onChange={(e) => setAgentHistoryFormData({ ...agentHistoryFormData, defaultPpPerfDuration: e.target.value })} />
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2760,7 +2882,7 @@ export function MasterContractModal({
           {formOpen || historyFormOpen || agentHistoryFormOpen ? null : initialLoading ? (
             <div className="text-center py-8 text-gray-500">読み込み中...</div>
           ) : (
-            <div className="flex-1 min-h-0 overflow-y-auto space-y-3">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
               {localContracts.length === 0 && (isAgentMode ? unlinkedAgentHistories.length === 0 : unlinkedHistories.length === 0) ? (
                 <div className="text-center py-8 text-gray-500">{isAgentMode ? "契約書・契約条件が登録されていません" : "契約書・契約履歴が登録されていません"}</div>
               ) : (

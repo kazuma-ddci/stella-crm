@@ -78,14 +78,18 @@ type ContractHistory = {
   initialFee: number | null;
   monthlyFee: number | null;
   // 月額プラン
+  defaultMpInitialType: string | null;
   defaultMpInitialRate: number | null;
+  defaultMpInitialFixed: number | null;
   defaultMpInitialDuration: number | null;
   defaultMpMonthlyType: string | null;
   defaultMpMonthlyRate: number | null;
   defaultMpMonthlyFixed: number | null;
   defaultMpMonthlyDuration: number | null;
   // 成果報酬プラン
+  defaultPpInitialType: string | null;
   defaultPpInitialRate: number | null;
+  defaultPpInitialFixed: number | null;
   defaultPpInitialDuration: number | null;
   defaultPpPerfType: string | null;
   defaultPpPerfRate: number | null;
@@ -102,14 +106,18 @@ type CommissionOverride = {
   stpCompanyId: number;
   stpCompanyName: string;
   // 月額プラン
+  mpInitialType: string | null;
   mpInitialRate: number | null;
+  mpInitialFixed: number | null;
   mpInitialDuration: number | null;
   mpMonthlyType: string | null;
   mpMonthlyRate: number | null;
   mpMonthlyFixed: number | null;
   mpMonthlyDuration: number | null;
   // 成果報酬プラン
+  ppInitialType: string | null;
   ppInitialRate: number | null;
+  ppInitialFixed: number | null;
   ppInitialDuration: number | null;
   ppPerfType: string | null;
   ppPerfRate: number | null;
@@ -187,27 +195,35 @@ function CurrencyInput({
 
 function formatCommissionSummary(history: {
   // 月額プラン
+  defaultMpInitialType?: string | null;
   defaultMpInitialRate?: number | null;
+  defaultMpInitialFixed?: number | null;
   defaultMpInitialDuration?: number | null;
   defaultMpMonthlyType?: string | null;
   defaultMpMonthlyRate?: number | null;
   defaultMpMonthlyFixed?: number | null;
   defaultMpMonthlyDuration?: number | null;
   // 成果報酬プラン
+  defaultPpInitialType?: string | null;
   defaultPpInitialRate?: number | null;
+  defaultPpInitialFixed?: number | null;
   defaultPpInitialDuration?: number | null;
   defaultPpPerfType?: string | null;
   defaultPpPerfRate?: number | null;
   defaultPpPerfFixed?: number | null;
   defaultPpPerfDuration?: number | null;
   // Override用（prefix無し）
+  mpInitialType?: string | null;
   mpInitialRate?: number | null;
+  mpInitialFixed?: number | null;
   mpInitialDuration?: number | null;
   mpMonthlyType?: string | null;
   mpMonthlyRate?: number | null;
   mpMonthlyFixed?: number | null;
   mpMonthlyDuration?: number | null;
+  ppInitialType?: string | null;
   ppInitialRate?: number | null;
+  ppInitialFixed?: number | null;
   ppInitialDuration?: number | null;
   ppPerfType?: string | null;
   ppPerfRate?: number | null;
@@ -217,16 +233,19 @@ function formatCommissionSummary(history: {
   const lines: string[] = [];
 
   // 月額プラン
+  const mpInitType = history.defaultMpInitialType ?? history.mpInitialType;
   const mpInitRate = history.defaultMpInitialRate ?? history.mpInitialRate;
-  const mpInitDur = history.defaultMpInitialDuration ?? history.mpInitialDuration;
+  const mpInitFixed = history.defaultMpInitialFixed ?? history.mpInitialFixed;
   const mpMonType = history.defaultMpMonthlyType ?? history.mpMonthlyType;
   const mpMonRate = history.defaultMpMonthlyRate ?? history.mpMonthlyRate;
   const mpMonFixed = history.defaultMpMonthlyFixed ?? history.mpMonthlyFixed;
   const mpMonDur = history.defaultMpMonthlyDuration ?? history.mpMonthlyDuration;
 
   const mpParts: string[] = [];
-  if (mpInitRate != null) {
-    mpParts.push(`初期${mpInitRate}%${mpInitDur ? `(${mpInitDur}ヶ月)` : ""}`);
+  if (mpInitType === "fixed" && mpInitFixed != null) {
+    mpParts.push(`初期${formatCurrency(mpInitFixed)}`);
+  } else if (mpInitRate != null) {
+    mpParts.push(`初期${mpInitRate}%`);
   }
   if (mpMonType === "rate" && mpMonRate != null) {
     mpParts.push(`月額${mpMonRate}%${mpMonDur ? `(${mpMonDur}ヶ月)` : ""}`);
@@ -238,23 +257,25 @@ function formatCommissionSummary(history: {
   }
 
   // 成果報酬プラン
+  const ppInitType = history.defaultPpInitialType ?? history.ppInitialType;
   const ppInitRate = history.defaultPpInitialRate ?? history.ppInitialRate;
-  const ppInitDur = history.defaultPpInitialDuration ?? history.ppInitialDuration;
+  const ppInitFixed = history.defaultPpInitialFixed ?? history.ppInitialFixed;
   const ppPerfType = history.defaultPpPerfType ?? history.ppPerfType;
   const ppPerfRate = history.defaultPpPerfRate ?? history.ppPerfRate;
   const ppPerfFixed = history.defaultPpPerfFixed ?? history.ppPerfFixed;
   const ppPerfDur = history.defaultPpPerfDuration ?? history.ppPerfDuration;
 
   const ppParts: string[] = [];
-  if (ppInitRate != null) {
-    ppParts.push(`初期${ppInitRate}%${ppInitDur ? `(${ppInitDur}ヶ月)` : ""}`);
+  if (ppInitType === "fixed" && ppInitFixed != null) {
+    ppParts.push(`初期${formatCurrency(ppInitFixed)}`);
+  } else if (ppInitRate != null) {
+    ppParts.push(`初期${ppInitRate}%`);
   }
   if (ppPerfType === "rate" && ppPerfRate != null) {
     ppParts.push(`成果${ppPerfRate}%${ppPerfDur ? `(${ppPerfDur}ヶ月)` : ""}`);
   } else if (ppPerfType === "fixed" && ppPerfFixed != null) {
     ppParts.push(`成果${formatCurrency(ppPerfFixed)}${ppPerfDur ? `(${ppPerfDur}ヶ月)` : ""}`);
   } else if (ppPerfRate != null) {
-    // ppPerfType未設定の場合は既存のrate表示（後方互換）
     ppParts.push(`成果${ppPerfRate}%${ppPerfDur ? `(${ppPerfDur}ヶ月)` : ""}`);
   }
   if (ppParts.length > 0) {
@@ -406,13 +427,17 @@ export function AgentContractHistoryModal({
       status: history.status,
       initialFee: history.initialFee,
       monthlyFee: history.monthlyFee,
+      defaultMpInitialType: history.defaultMpInitialType,
       defaultMpInitialRate: history.defaultMpInitialRate,
+      defaultMpInitialFixed: history.defaultMpInitialFixed,
       defaultMpInitialDuration: history.defaultMpInitialDuration,
       defaultMpMonthlyType: history.defaultMpMonthlyType,
       defaultMpMonthlyRate: history.defaultMpMonthlyRate,
       defaultMpMonthlyFixed: history.defaultMpMonthlyFixed,
       defaultMpMonthlyDuration: history.defaultMpMonthlyDuration,
+      defaultPpInitialType: history.defaultPpInitialType,
       defaultPpInitialRate: history.defaultPpInitialRate,
+      defaultPpInitialFixed: history.defaultPpInitialFixed,
       defaultPpInitialDuration: history.defaultPpInitialDuration,
       defaultPpPerfType: history.defaultPpPerfType,
       defaultPpPerfRate: history.defaultPpPerfRate,
@@ -438,13 +463,17 @@ export function AgentContractHistoryModal({
         status: formData.status,
         initialFee: formData.initialFee ?? null,
         monthlyFee: formData.monthlyFee ?? null,
+        defaultMpInitialType: formData.defaultMpInitialType || null,
         defaultMpInitialRate: formData.defaultMpInitialRate ?? null,
+        defaultMpInitialFixed: formData.defaultMpInitialFixed ?? null,
         defaultMpInitialDuration: formData.defaultMpInitialDuration ?? null,
         defaultMpMonthlyType: formData.defaultMpMonthlyType || null,
         defaultMpMonthlyRate: formData.defaultMpMonthlyRate ?? null,
         defaultMpMonthlyFixed: formData.defaultMpMonthlyFixed ?? null,
         defaultMpMonthlyDuration: formData.defaultMpMonthlyDuration ?? null,
+        defaultPpInitialType: formData.defaultPpInitialType || null,
         defaultPpInitialRate: formData.defaultPpInitialRate ?? null,
+        defaultPpInitialFixed: formData.defaultPpInitialFixed ?? null,
         defaultPpInitialDuration: formData.defaultPpInitialDuration ?? null,
         defaultPpPerfType: formData.defaultPpPerfType || null,
         defaultPpPerfRate: formData.defaultPpPerfRate ?? null,
@@ -488,13 +517,17 @@ export function AgentContractHistoryModal({
         status: pendingEditData.status,
         initialFee: pendingEditData.initialFee ?? null,
         monthlyFee: pendingEditData.monthlyFee ?? null,
+        defaultMpInitialType: pendingEditData.defaultMpInitialType || null,
         defaultMpInitialRate: pendingEditData.defaultMpInitialRate ?? null,
+        defaultMpInitialFixed: pendingEditData.defaultMpInitialFixed ?? null,
         defaultMpInitialDuration: pendingEditData.defaultMpInitialDuration ?? null,
         defaultMpMonthlyType: pendingEditData.defaultMpMonthlyType || null,
         defaultMpMonthlyRate: pendingEditData.defaultMpMonthlyRate ?? null,
         defaultMpMonthlyFixed: pendingEditData.defaultMpMonthlyFixed ?? null,
         defaultMpMonthlyDuration: pendingEditData.defaultMpMonthlyDuration ?? null,
+        defaultPpInitialType: pendingEditData.defaultPpInitialType || null,
         defaultPpInitialRate: pendingEditData.defaultPpInitialRate ?? null,
+        defaultPpInitialFixed: pendingEditData.defaultPpInitialFixed ?? null,
         defaultPpInitialDuration: pendingEditData.defaultPpInitialDuration ?? null,
         defaultPpPerfType: pendingEditData.defaultPpPerfType || null,
         defaultPpPerfRate: pendingEditData.defaultPpPerfRate ?? null,
@@ -552,13 +585,17 @@ export function AgentContractHistoryModal({
 
   const getDefaultOverrideFormData = (): Partial<CommissionOverrideData> => ({
     stpCompanyId: undefined,
+    mpInitialType: null,
     mpInitialRate: null,
+    mpInitialFixed: null,
     mpInitialDuration: null,
     mpMonthlyType: null,
     mpMonthlyRate: null,
     mpMonthlyFixed: null,
     mpMonthlyDuration: null,
+    ppInitialType: null,
     ppInitialRate: null,
+    ppInitialFixed: null,
     ppInitialDuration: null,
     ppPerfType: null,
     ppPerfRate: null,
@@ -576,13 +613,17 @@ export function AgentContractHistoryModal({
   const openOverrideEdit = (override: CommissionOverride) => {
     setOverrideFormData({
       stpCompanyId: override.stpCompanyId,
+      mpInitialType: override.mpInitialType,
       mpInitialRate: override.mpInitialRate,
+      mpInitialFixed: override.mpInitialFixed,
       mpInitialDuration: override.mpInitialDuration,
       mpMonthlyType: override.mpMonthlyType,
       mpMonthlyRate: override.mpMonthlyRate,
       mpMonthlyFixed: override.mpMonthlyFixed,
       mpMonthlyDuration: override.mpMonthlyDuration,
+      ppInitialType: override.ppInitialType,
       ppInitialRate: override.ppInitialRate,
+      ppInitialFixed: override.ppInitialFixed,
       ppInitialDuration: override.ppInitialDuration,
       ppPerfType: override.ppPerfType,
       ppPerfRate: override.ppPerfRate,
@@ -604,13 +645,17 @@ export function AgentContractHistoryModal({
       const result = await addCommissionOverride({
         agentContractHistoryId: selectedHistoryId,
         stpCompanyId: overrideFormData.stpCompanyId,
+        mpInitialType: overrideFormData.mpInitialType || null,
         mpInitialRate: overrideFormData.mpInitialRate ?? null,
+        mpInitialFixed: overrideFormData.mpInitialFixed ?? null,
         mpInitialDuration: overrideFormData.mpInitialDuration ?? null,
         mpMonthlyType: overrideFormData.mpMonthlyType || null,
         mpMonthlyRate: overrideFormData.mpMonthlyRate ?? null,
         mpMonthlyFixed: overrideFormData.mpMonthlyFixed ?? null,
         mpMonthlyDuration: overrideFormData.mpMonthlyDuration ?? null,
+        ppInitialType: overrideFormData.ppInitialType || null,
         ppInitialRate: overrideFormData.ppInitialRate ?? null,
+        ppInitialFixed: overrideFormData.ppInitialFixed ?? null,
         ppInitialDuration: overrideFormData.ppInitialDuration ?? null,
         ppPerfType: overrideFormData.ppPerfType || null,
         ppPerfRate: overrideFormData.ppPerfRate ?? null,
@@ -639,13 +684,17 @@ export function AgentContractHistoryModal({
     setLoading(true);
     try {
       const result = await updateCommissionOverride(overrideEditTarget.id, {
+        mpInitialType: overrideFormData.mpInitialType || null,
         mpInitialRate: overrideFormData.mpInitialRate ?? null,
+        mpInitialFixed: overrideFormData.mpInitialFixed ?? null,
         mpInitialDuration: overrideFormData.mpInitialDuration ?? null,
         mpMonthlyType: overrideFormData.mpMonthlyType || null,
         mpMonthlyRate: overrideFormData.mpMonthlyRate ?? null,
         mpMonthlyFixed: overrideFormData.mpMonthlyFixed ?? null,
         mpMonthlyDuration: overrideFormData.mpMonthlyDuration ?? null,
+        ppInitialType: overrideFormData.ppInitialType || null,
         ppInitialRate: overrideFormData.ppInitialRate ?? null,
+        ppInitialFixed: overrideFormData.ppInitialFixed ?? null,
         ppInitialDuration: overrideFormData.ppInitialDuration ?? null,
         ppPerfType: overrideFormData.ppPerfType || null,
         ppPerfRate: overrideFormData.ppPerfRate ?? null,
@@ -710,8 +759,9 @@ export function AgentContractHistoryModal({
     setData: (d: Record<string, unknown>) => void,
     compact?: boolean
   ) => {
+    const mpInitialType = prefix === "default" ? "defaultMpInitialType" : "mpInitialType";
     const mpInitialRate = prefix === "default" ? "defaultMpInitialRate" : "mpInitialRate";
-    const mpInitialDuration = prefix === "default" ? "defaultMpInitialDuration" : "mpInitialDuration";
+    const mpInitialFixed = prefix === "default" ? "defaultMpInitialFixed" : "mpInitialFixed";
     const mpMonthlyType = prefix === "default" ? "defaultMpMonthlyType" : "mpMonthlyType";
     const mpMonthlyRate = prefix === "default" ? "defaultMpMonthlyRate" : "mpMonthlyRate";
     const mpMonthlyFixed = prefix === "default" ? "defaultMpMonthlyFixed" : "mpMonthlyFixed";
@@ -723,97 +773,127 @@ export function AgentContractHistoryModal({
     return (
       <div className="space-y-3">
         <h4 className={`${compact ? "text-xs" : "text-sm"} font-medium text-blue-700`}>
-          月額プランを契約した企業からの報酬
+          紹介報酬（月額プラン）
         </h4>
-        <div className={`grid ${compact ? "grid-cols-2" : "grid-cols-2"} gap-3`}>
-          <div className="space-y-1">
-            <Label className={labelClass}>初期費用報酬率(%)</Label>
-            <Input
-              type="number"
-              step="0.01"
-              value={(data[mpInitialRate] as number) ?? ""}
-              onChange={(e) =>
-                setData({ ...data, [mpInitialRate]: e.target.value ? Number(e.target.value) : null })
-              }
-              placeholder={placeholder || "例: 10"}
-              className={inputClass}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className={labelClass}>報酬発生期間(ヶ月)</Label>
-            <Input
-              type="number"
-              value={(data[mpInitialDuration] as number) ?? ""}
-              onChange={(e) =>
-                setData({ ...data, [mpInitialDuration]: e.target.value ? Number(e.target.value) : null })
-              }
-              placeholder={placeholder || "例: 12"}
-              className={inputClass}
-            />
+        {/* 初期費用分 */}
+        <div className="space-y-1">
+          <Label className={`${labelClass} text-muted-foreground`}>初期費用分</Label>
+          <div className={`grid ${compact ? "grid-cols-2" : "grid-cols-2"} gap-3`}>
+            <div className="space-y-1">
+              <Label className={labelClass}>報酬タイプ</Label>
+              <Select
+                value={(data[mpInitialType] as string) || "none"}
+                onValueChange={(v) =>
+                  setData({ ...data, [mpInitialType]: v === "none" ? null : v })
+                }
+              >
+                <SelectTrigger className={inputClass}>
+                  <SelectValue placeholder="選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{compact ? "デフォルト" : "選択なし"}</SelectItem>
+                  {commMonthlyTypeOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {(data[mpInitialType] as string) === "rate" && (
+              <div className="space-y-1">
+                <Label className={labelClass}>報酬率(%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={(data[mpInitialRate] as number) ?? ""}
+                  onChange={(e) =>
+                    setData({ ...data, [mpInitialRate]: e.target.value ? Number(e.target.value) : null })
+                  }
+                  placeholder={placeholder || "例: 10"}
+                  className={inputClass}
+                />
+              </div>
+            )}
+            {(data[mpInitialType] as string) === "fixed" && (
+              <div className="space-y-1">
+                <Label className={labelClass}>報酬固定額</Label>
+                <CurrencyInput
+                  value={(data[mpInitialFixed] as number) ?? null}
+                  onChange={(v) => setData({ ...data, [mpInitialFixed]: v })}
+                  placeholder={placeholder || "例: 50,000"}
+                  className={inputClass}
+                />
+              </div>
+            )}
           </div>
         </div>
-        <div className={`grid ${compact ? "grid-cols-3" : "grid-cols-3"} gap-3`}>
-          <div className="space-y-1">
-            <Label className={labelClass}>月額報酬タイプ</Label>
-            <Select
-              value={(data[mpMonthlyType] as string) || "none"}
-              onValueChange={(v) =>
-                setData({ ...data, [mpMonthlyType]: v === "none" ? null : v })
-              }
-            >
-              <SelectTrigger className={inputClass}>
-                <SelectValue placeholder="選択" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">{compact ? "デフォルト" : "選択なし"}</SelectItem>
-                {commMonthlyTypeOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        {/* 月額費用分 */}
+        <div className="space-y-1">
+          <Label className={`${labelClass} text-muted-foreground`}>月額費用分</Label>
+          <div className={`grid ${compact ? "grid-cols-3" : "grid-cols-3"} gap-3`}>
+            <div className="space-y-1">
+              <Label className={labelClass}>報酬タイプ</Label>
+              <Select
+                value={(data[mpMonthlyType] as string) || "none"}
+                onValueChange={(v) =>
+                  setData({ ...data, [mpMonthlyType]: v === "none" ? null : v })
+                }
+              >
+                <SelectTrigger className={inputClass}>
+                  <SelectValue placeholder="選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{compact ? "デフォルト" : "選択なし"}</SelectItem>
+                  {commMonthlyTypeOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {(data[mpMonthlyType] as string) === "rate" && (
+              <div className="space-y-1">
+                <Label className={labelClass}>報酬率(%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={(data[mpMonthlyRate] as number) ?? ""}
+                  onChange={(e) =>
+                    setData({ ...data, [mpMonthlyRate]: e.target.value ? Number(e.target.value) : null })
+                  }
+                  placeholder={placeholder || "例: 5"}
+                  className={inputClass}
+                />
+              </div>
+            )}
+            {(data[mpMonthlyType] as string) === "fixed" && (
+              <div className="space-y-1">
+                <Label className={labelClass}>報酬固定額</Label>
+                <CurrencyInput
+                  value={(data[mpMonthlyFixed] as number) ?? null}
+                  onChange={(v) => setData({ ...data, [mpMonthlyFixed]: v })}
+                  placeholder={placeholder || "例: 50,000"}
+                  className={inputClass}
+                />
+              </div>
+            )}
+            {(data[mpMonthlyType] as string) && (data[mpMonthlyType] as string) !== "none" && (
+              <div className="space-y-1">
+                <Label className={labelClass}>報酬発生期間(ヶ月)</Label>
+                <Input
+                  type="number"
+                  value={(data[mpMonthlyDuration] as number) ?? ""}
+                  onChange={(e) =>
+                    setData({ ...data, [mpMonthlyDuration]: e.target.value ? Number(e.target.value) : null })
+                  }
+                  placeholder={placeholder || "例: 24"}
+                  className={inputClass}
+                />
+              </div>
+            )}
           </div>
-          {(data[mpMonthlyType] as string) === "rate" && (
-            <div className="space-y-1">
-              <Label className={labelClass}>月額報酬率(%)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={(data[mpMonthlyRate] as number) ?? ""}
-                onChange={(e) =>
-                  setData({ ...data, [mpMonthlyRate]: e.target.value ? Number(e.target.value) : null })
-                }
-                placeholder={placeholder || "例: 5"}
-                className={inputClass}
-              />
-            </div>
-          )}
-          {(data[mpMonthlyType] as string) === "fixed" && (
-            <div className="space-y-1">
-              <Label className={labelClass}>月額報酬固定額</Label>
-              <CurrencyInput
-                value={(data[mpMonthlyFixed] as number) ?? null}
-                onChange={(v) => setData({ ...data, [mpMonthlyFixed]: v })}
-                placeholder={placeholder || "例: 50,000"}
-                className={inputClass}
-              />
-            </div>
-          )}
-          {(data[mpMonthlyType] as string) && (data[mpMonthlyType] as string) !== "none" && (
-            <div className="space-y-1">
-              <Label className={labelClass}>月額報酬期間(ヶ月)</Label>
-              <Input
-                type="number"
-                value={(data[mpMonthlyDuration] as number) ?? ""}
-                onChange={(e) =>
-                  setData({ ...data, [mpMonthlyDuration]: e.target.value ? Number(e.target.value) : null })
-                }
-                placeholder={placeholder || "例: 24"}
-                className={inputClass}
-              />
-            </div>
-          )}
         </div>
       </div>
     );
@@ -826,8 +906,9 @@ export function AgentContractHistoryModal({
     setData: (d: Record<string, unknown>) => void,
     compact?: boolean
   ) => {
+    const ppInitialType = prefix === "default" ? "defaultPpInitialType" : "ppInitialType";
     const ppInitialRate = prefix === "default" ? "defaultPpInitialRate" : "ppInitialRate";
-    const ppInitialDuration = prefix === "default" ? "defaultPpInitialDuration" : "ppInitialDuration";
+    const ppInitialFixed = prefix === "default" ? "defaultPpInitialFixed" : "ppInitialFixed";
     const ppPerfType = prefix === "default" ? "defaultPpPerfType" : "ppPerfType";
     const ppPerfRate = prefix === "default" ? "defaultPpPerfRate" : "ppPerfRate";
     const ppPerfFixed = prefix === "default" ? "defaultPpPerfFixed" : "ppPerfFixed";
@@ -839,97 +920,127 @@ export function AgentContractHistoryModal({
     return (
       <div className="space-y-3">
         <h4 className={`${compact ? "text-xs" : "text-sm"} font-medium text-green-700`}>
-          成果報酬プランを契約した企業からの報酬
+          紹介報酬（成果報酬プラン）
         </h4>
-        <div className={`grid grid-cols-2 gap-3`}>
-          <div className="space-y-1">
-            <Label className={labelClass}>初期費用報酬率(%)</Label>
-            <Input
-              type="number"
-              step="0.01"
-              value={(data[ppInitialRate] as number) ?? ""}
-              onChange={(e) =>
-                setData({ ...data, [ppInitialRate]: e.target.value ? Number(e.target.value) : null })
-              }
-              placeholder={placeholder || "例: 10"}
-              className={inputClass}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className={labelClass}>報酬発生期間(ヶ月)</Label>
-            <Input
-              type="number"
-              value={(data[ppInitialDuration] as number) ?? ""}
-              onChange={(e) =>
-                setData({ ...data, [ppInitialDuration]: e.target.value ? Number(e.target.value) : null })
-              }
-              placeholder={placeholder || "例: 12"}
-              className={inputClass}
-            />
+        {/* 初期費用分 */}
+        <div className="space-y-1">
+          <Label className={`${labelClass} text-muted-foreground`}>初期費用分</Label>
+          <div className={`grid ${compact ? "grid-cols-2" : "grid-cols-2"} gap-3`}>
+            <div className="space-y-1">
+              <Label className={labelClass}>報酬タイプ</Label>
+              <Select
+                value={(data[ppInitialType] as string) || "none"}
+                onValueChange={(v) =>
+                  setData({ ...data, [ppInitialType]: v === "none" ? null : v })
+                }
+              >
+                <SelectTrigger className={inputClass}>
+                  <SelectValue placeholder="選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{compact ? "デフォルト" : "選択なし"}</SelectItem>
+                  {commMonthlyTypeOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {(data[ppInitialType] as string) === "rate" && (
+              <div className="space-y-1">
+                <Label className={labelClass}>報酬率(%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={(data[ppInitialRate] as number) ?? ""}
+                  onChange={(e) =>
+                    setData({ ...data, [ppInitialRate]: e.target.value ? Number(e.target.value) : null })
+                  }
+                  placeholder={placeholder || "例: 10"}
+                  className={inputClass}
+                />
+              </div>
+            )}
+            {(data[ppInitialType] as string) === "fixed" && (
+              <div className="space-y-1">
+                <Label className={labelClass}>報酬固定額</Label>
+                <CurrencyInput
+                  value={(data[ppInitialFixed] as number) ?? null}
+                  onChange={(v) => setData({ ...data, [ppInitialFixed]: v })}
+                  placeholder={placeholder || "例: 50,000"}
+                  className={inputClass}
+                />
+              </div>
+            )}
           </div>
         </div>
-        <div className={`grid ${compact ? "grid-cols-3" : "grid-cols-3"} gap-3`}>
-          <div className="space-y-1">
-            <Label className={labelClass}>成果報酬タイプ</Label>
-            <Select
-              value={(data[ppPerfType] as string) || "none"}
-              onValueChange={(v) =>
-                setData({ ...data, [ppPerfType]: v === "none" ? null : v })
-              }
-            >
-              <SelectTrigger className={inputClass}>
-                <SelectValue placeholder="選択" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">{compact ? "デフォルト" : "選択なし"}</SelectItem>
-                {commMonthlyTypeOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        {/* 成果報酬分 */}
+        <div className="space-y-1">
+          <Label className={`${labelClass} text-muted-foreground`}>成果報酬分</Label>
+          <div className={`grid ${compact ? "grid-cols-3" : "grid-cols-3"} gap-3`}>
+            <div className="space-y-1">
+              <Label className={labelClass}>報酬タイプ</Label>
+              <Select
+                value={(data[ppPerfType] as string) || "none"}
+                onValueChange={(v) =>
+                  setData({ ...data, [ppPerfType]: v === "none" ? null : v })
+                }
+              >
+                <SelectTrigger className={inputClass}>
+                  <SelectValue placeholder="選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{compact ? "デフォルト" : "選択なし"}</SelectItem>
+                  {commMonthlyTypeOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {(data[ppPerfType] as string) === "rate" && (
+              <div className="space-y-1">
+                <Label className={labelClass}>報酬率(%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={(data[ppPerfRate] as number) ?? ""}
+                  onChange={(e) =>
+                    setData({ ...data, [ppPerfRate]: e.target.value ? Number(e.target.value) : null })
+                  }
+                  placeholder={placeholder || "例: 20"}
+                  className={inputClass}
+                />
+              </div>
+            )}
+            {(data[ppPerfType] as string) === "fixed" && (
+              <div className="space-y-1">
+                <Label className={labelClass}>報酬固定額</Label>
+                <CurrencyInput
+                  value={(data[ppPerfFixed] as number) ?? null}
+                  onChange={(v) => setData({ ...data, [ppPerfFixed]: v })}
+                  placeholder={placeholder || "例: 100,000"}
+                  className={inputClass}
+                />
+              </div>
+            )}
+            {(data[ppPerfType] as string) && (data[ppPerfType] as string) !== "none" && (
+              <div className="space-y-1">
+                <Label className={labelClass}>報酬発生期間(ヶ月)</Label>
+                <Input
+                  type="number"
+                  value={(data[ppPerfDuration] as number) ?? ""}
+                  onChange={(e) =>
+                    setData({ ...data, [ppPerfDuration]: e.target.value ? Number(e.target.value) : null })
+                  }
+                  placeholder={placeholder || "例: 12"}
+                  className={inputClass}
+                />
+              </div>
+            )}
           </div>
-          {(data[ppPerfType] as string) === "rate" && (
-            <div className="space-y-1">
-              <Label className={labelClass}>成果報酬率(%)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={(data[ppPerfRate] as number) ?? ""}
-                onChange={(e) =>
-                  setData({ ...data, [ppPerfRate]: e.target.value ? Number(e.target.value) : null })
-                }
-                placeholder={placeholder || "例: 20"}
-                className={inputClass}
-              />
-            </div>
-          )}
-          {(data[ppPerfType] as string) === "fixed" && (
-            <div className="space-y-1">
-              <Label className={labelClass}>成果報酬固定額</Label>
-              <CurrencyInput
-                value={(data[ppPerfFixed] as number) ?? null}
-                onChange={(v) => setData({ ...data, [ppPerfFixed]: v })}
-                placeholder={placeholder || "例: 100,000"}
-                className={inputClass}
-              />
-            </div>
-          )}
-          {(data[ppPerfType] as string) && (data[ppPerfType] as string) !== "none" && (
-            <div className="space-y-1">
-              <Label className={labelClass}>成果報酬期間(ヶ月)</Label>
-              <Input
-                type="number"
-                value={(data[ppPerfDuration] as number) ?? ""}
-                onChange={(e) =>
-                  setData({ ...data, [ppPerfDuration]: e.target.value ? Number(e.target.value) : null })
-                }
-                placeholder={placeholder || "例: 12"}
-                className={inputClass}
-              />
-            </div>
-          )}
         </div>
       </div>
     );
@@ -943,6 +1054,45 @@ export function AgentContractHistoryModal({
 
       {/* 契約情報 */}
       <div className="grid grid-cols-4 gap-4">
+        <div className="space-y-2">
+          <Label>
+            ステータス <span className="text-destructive">*</span>
+          </Label>
+          <Select
+            value={formData.status || ""}
+            onValueChange={(v) => setFormData({ ...formData, status: v })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="選択してください" />
+            </SelectTrigger>
+            <SelectContent>
+              {statusOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>契約日</Label>
+          <DatePicker
+            selected={formData.contractDate ? new Date(formData.contractDate) : null}
+            onChange={(date: Date | null) => {
+              setFormData({
+                ...formData,
+                contractDate: date ? toLocalDateString(date) : null,
+              });
+            }}
+            dateFormat="yyyy/MM/dd"
+            locale="ja"
+            placeholderText="初期費用発生日"
+            isClearable
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            wrapperClassName="w-full"
+            calendarClassName="shadow-lg"
+          />
+        </div>
         <div className="space-y-2">
           <Label>
             契約開始日 <span className="text-destructive">*</span>
@@ -982,45 +1132,6 @@ export function AgentContractHistoryModal({
             wrapperClassName="w-full"
             calendarClassName="shadow-lg"
           />
-        </div>
-        <div className="space-y-2">
-          <Label>契約日</Label>
-          <DatePicker
-            selected={formData.contractDate ? new Date(formData.contractDate) : null}
-            onChange={(date: Date | null) => {
-              setFormData({
-                ...formData,
-                contractDate: date ? toLocalDateString(date) : null,
-              });
-            }}
-            dateFormat="yyyy/MM/dd"
-            locale="ja"
-            placeholderText="初期費用発生日"
-            isClearable
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            wrapperClassName="w-full"
-            calendarClassName="shadow-lg"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>
-            ステータス <span className="text-destructive">*</span>
-          </Label>
-          <Select
-            value={formData.status || ""}
-            onValueChange={(v) => setFormData({ ...formData, status: v })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="選択してください" />
-            </SelectTrigger>
-            <SelectContent>
-              {statusOptions.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">

@@ -1633,7 +1633,9 @@ model StpAgentContractHistory {
   monthlyFee               Int?                                   // 月額費用
 
   // 月額プランを契約した企業からの報酬
+  defaultMpInitialType         String?   @db.VarChar(10)          // "rate" or "fixed"
   defaultMpInitialRate         Decimal?  @db.Decimal(5,2)         // 初期費用報酬率(%)
+  defaultMpInitialFixed        Int?                               // 初期費用固定報酬額
   defaultMpInitialDuration     Int?                               // 報酬発生期間(ヶ月)
   defaultMpMonthlyType         String?   @db.VarChar(10)          // "rate" or "fixed"
   defaultMpMonthlyRate         Decimal?  @db.Decimal(5,2)         // 月額報酬率(%)
@@ -1641,7 +1643,9 @@ model StpAgentContractHistory {
   defaultMpMonthlyDuration     Int?                               // 月額報酬発生期間(ヶ月)
 
   // 成果報酬プランを契約した企業からの報酬
+  defaultPpInitialType         String?   @db.VarChar(10)          // "rate" or "fixed"
   defaultPpInitialRate         Decimal?  @db.Decimal(5,2)         // 初期費用報酬率(%)
+  defaultPpInitialFixed        Int?                               // 初期費用固定報酬額
   defaultPpInitialDuration     Int?                               // 報酬発生期間(ヶ月)
   defaultPpPerfType            String?   @db.VarChar(10)          // "rate" or "fixed"
   defaultPpPerfRate            Decimal?  @db.Decimal(5,2)         // 成果報酬率(%)
@@ -1677,7 +1681,9 @@ model StpAgentCommissionOverride {
   stpCompanyId             Int                                    // STP企業への外部キー
 
   // 月額プラン
+  mpInitialType            String?   @db.VarChar(10)              // "rate" or "fixed"
   mpInitialRate            Decimal?  @db.Decimal(5,2)             // 初期費用報酬率(%)
+  mpInitialFixed           Int?                                   // 初期費用固定報酬額
   mpInitialDuration        Int?                                   // 報酬発生期間(ヶ月)
   mpMonthlyType            String?   @db.VarChar(10)              // "rate" or "fixed"
   mpMonthlyRate            Decimal?  @db.Decimal(5,2)             // 月額報酬率(%)
@@ -1685,7 +1691,9 @@ model StpAgentCommissionOverride {
   mpMonthlyDuration        Int?                                   // 月額報酬発生期間(ヶ月)
 
   // 成果報酬プラン
+  ppInitialType            String?   @db.VarChar(10)              // "rate" or "fixed"
   ppInitialRate            Decimal?  @db.Decimal(5,2)             // 初期費用報酬率(%)
+  ppInitialFixed           Int?                                   // 初期費用固定報酬額
   ppInitialDuration        Int?                                   // 報酬発生期間(ヶ月)
   ppPerfType               String?   @db.VarChar(10)              // "rate" or "fixed"
   ppPerfRate               Decimal?  @db.Decimal(5,2)             // 成果報酬率(%)

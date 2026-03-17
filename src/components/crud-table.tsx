@@ -164,6 +164,8 @@ type CrudTableProps = {
   onDeletePrepare?: (id: number) => Promise<ReactNode | null>;
   // 行単位で削除を無効にする（trueを返すと削除ボタン非表示）
   isDeleteDisabled?: (item: Record<string, unknown>) => boolean;
+  // 左側から固定する列数（可視列のみカウント）
+  stickyLeftCount?: number;
 };
 
 function formatValue(value: unknown, type?: string, options?: { value: string; label: string }[]): string {
@@ -255,6 +257,7 @@ export function CrudTable({
   changeTrackedFields = [],
   onDeletePrepare,
   isDeleteDisabled,
+  stickyLeftCount = 0,
 }: CrudTableProps) {
   const router = useRouter();
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -284,6 +287,31 @@ export function CrudTable({
     window.addEventListener('resize', calc);
     return () => window.removeEventListener('resize', calc);
   }, []);
+
+  // 左側固定列のオフセット計算
+  const stickyHeaderRefs = useRef<(HTMLTableCellElement | null)[]>([]);
+  const [stickyLeftOffsets, setStickyLeftOffsets] = useState<number[]>([]);
+
+  useEffect(() => {
+    if (stickyLeftCount <= 0) return;
+    const calcOffsets = () => {
+      const offsets: number[] = [];
+      let cumulative = 0;
+      for (let i = 0; i < stickyLeftCount; i++) {
+        offsets.push(cumulative);
+        const el = stickyHeaderRefs.current[i];
+        if (el) cumulative += el.offsetWidth;
+      }
+      setStickyLeftOffsets(offsets);
+    };
+    // 初回レンダリング後に計算
+    const timer = setTimeout(calcOffsets, 50);
+    window.addEventListener('resize', calcOffsets);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', calcOffsets);
+    };
+  }, [stickyLeftCount, data]);
 
   // インライン編集用の状態
   const [editingCell, setEditingCell] = useState<{ rowId: number; columnKey: string } | null>(null);
@@ -1285,11 +1313,24 @@ export function CrudTable({
         <Table containerRef={tableContainerRef} containerClassName="overflow-auto" containerStyle={{ maxHeight: tableMaxHeight }}>
           <TableHeader>
             <TableRow>
-              {visibleColumns.map((col) => (
-                <TableHead key={col.key} className="whitespace-nowrap">
-                  {col.header}
-                </TableHead>
-              ))}
+              {visibleColumns.map((col, colIdx) => {
+                const isSticky = colIdx < stickyLeftCount;
+                const isLastSticky = colIdx === stickyLeftCount - 1;
+                return (
+                  <TableHead
+                    key={col.key}
+                    ref={isSticky ? (el) => { stickyHeaderRefs.current[colIdx] = el; } : undefined}
+                    className={cn(
+                      "whitespace-nowrap",
+                      isSticky && "sticky z-30 bg-white",
+                      isLastSticky && "shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]"
+                    )}
+                    style={isSticky ? { left: stickyLeftOffsets[colIdx] ?? 0 } : undefined}
+                  >
+                    {col.header}
+                  </TableHead>
+                );
+              })}
               {(onUpdate || onDelete || customActions.length > 0) && (
                 <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
               )}
@@ -1308,7 +1349,7 @@ export function CrudTable({
             ) : (
               filteredData.map((item, index) => (
                 <TableRow key={(item.id as number) || index}>
-                  {visibleColumns.map((col) => {
+                  {visibleColumns.map((col, colIdx) => {
                     // 表示用カラムから編集用カラムへのマッピングを取得
                     const editColumnKey = inlineEditConfig?.displayToEditMapping?.[col.key] || col.key;
                     // 編集中かどうか（マッピングを考慮）
@@ -1321,14 +1362,20 @@ export function CrudTable({
                       ? columns.find((c) => c.key === editColumnKey)
                       : col;
 
+                    const isStickyLeft = colIdx < stickyLeftCount;
+                    const isLastStickyLeft = colIdx === stickyLeftCount - 1;
+
                     return (
                       <TableCell
                         key={col.key}
                         className={cn(
                           col.type === "textarea" ? "" : "whitespace-nowrap max-w-xs overflow-auto",
                           isInlineEditable && !isEditing && "cursor-pointer hover:bg-muted/50 transition-colors",
-                          col.type === "password" && "select-none"
+                          col.type === "password" && "select-none",
+                          isStickyLeft && "sticky z-10 bg-white group-hover/row:bg-gray-50",
+                          isLastStickyLeft && "shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]"
                         )}
+                        style={isStickyLeft ? { left: stickyLeftOffsets[colIdx] ?? 0 } : undefined}
                         onClick={
                           isInlineEditable && !isEditing
                             ? () => handleCellClick(item, col.key)

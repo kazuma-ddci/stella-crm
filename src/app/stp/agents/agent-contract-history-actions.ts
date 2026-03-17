@@ -15,14 +15,18 @@ export type AgentContractHistoryData = {
   initialFee: number | null;
   monthlyFee: number | null;
   // 月額プラン
+  defaultMpInitialType: string | null;
   defaultMpInitialRate: number | null;
+  defaultMpInitialFixed: number | null;
   defaultMpInitialDuration: number | null;
   defaultMpMonthlyType: string | null;
   defaultMpMonthlyRate: number | null;
   defaultMpMonthlyFixed: number | null;
   defaultMpMonthlyDuration: number | null;
   // 成果報酬プラン
+  defaultPpInitialType: string | null;
   defaultPpInitialRate: number | null;
+  defaultPpInitialFixed: number | null;
   defaultPpInitialDuration: number | null;
   defaultPpPerfType: string | null;
   defaultPpPerfRate: number | null;
@@ -36,14 +40,18 @@ export type CommissionOverrideData = {
   agentContractHistoryId: number;
   stpCompanyId: number;
   // 月額プラン
+  mpInitialType: string | null;
   mpInitialRate: number | null;
+  mpInitialFixed: number | null;
   mpInitialDuration: number | null;
   mpMonthlyType: string | null;
   mpMonthlyRate: number | null;
   mpMonthlyFixed: number | null;
   mpMonthlyDuration: number | null;
   // 成果報酬プラン
+  ppInitialType: string | null;
   ppInitialRate: number | null;
+  ppInitialFixed: number | null;
   ppInitialDuration: number | null;
   ppPerfType: string | null;
   ppPerfRate: number | null;
@@ -85,14 +93,18 @@ export async function getAgentContractHistories(agentId: number) {
     initialFee: h.initialFee,
     monthlyFee: h.monthlyFee,
     // 月額プラン
+    defaultMpInitialType: h.defaultMpInitialType,
     defaultMpInitialRate: decimalToNumber(h.defaultMpInitialRate),
+    defaultMpInitialFixed: h.defaultMpInitialFixed,
     defaultMpInitialDuration: h.defaultMpInitialDuration,
     defaultMpMonthlyType: h.defaultMpMonthlyType,
     defaultMpMonthlyRate: decimalToNumber(h.defaultMpMonthlyRate),
     defaultMpMonthlyFixed: h.defaultMpMonthlyFixed,
     defaultMpMonthlyDuration: h.defaultMpMonthlyDuration,
     // 成果報酬プラン
+    defaultPpInitialType: h.defaultPpInitialType,
     defaultPpInitialRate: decimalToNumber(h.defaultPpInitialRate),
+    defaultPpInitialFixed: h.defaultPpInitialFixed,
     defaultPpInitialDuration: h.defaultPpInitialDuration,
     defaultPpPerfType: h.defaultPpPerfType,
     defaultPpPerfRate: decimalToNumber(h.defaultPpPerfRate),
@@ -106,14 +118,18 @@ export async function getAgentContractHistories(agentId: number) {
       stpCompanyId: o.stpCompanyId,
       stpCompanyName: `${o.stpCompany.company.companyCode} ${o.stpCompany.company.name}`,
       // 月額プラン
+      mpInitialType: o.mpInitialType,
       mpInitialRate: decimalToNumber(o.mpInitialRate),
+      mpInitialFixed: o.mpInitialFixed,
       mpInitialDuration: o.mpInitialDuration,
       mpMonthlyType: o.mpMonthlyType,
       mpMonthlyRate: decimalToNumber(o.mpMonthlyRate),
       mpMonthlyFixed: o.mpMonthlyFixed,
       mpMonthlyDuration: o.mpMonthlyDuration,
       // 成果報酬プラン
+      ppInitialType: o.ppInitialType,
       ppInitialRate: decimalToNumber(o.ppInitialRate),
+      ppInitialFixed: o.ppInitialFixed,
       ppInitialDuration: o.ppInitialDuration,
       ppPerfType: o.ppPerfType,
       ppPerfRate: decimalToNumber(o.ppPerfRate),
@@ -139,13 +155,17 @@ export async function addAgentContractHistory(
         status: data.status,
         initialFee: data.initialFee,
         monthlyFee: data.monthlyFee,
+        defaultMpInitialType: data.defaultMpInitialType,
         defaultMpInitialRate: data.defaultMpInitialRate,
+        defaultMpInitialFixed: data.defaultMpInitialFixed,
         defaultMpInitialDuration: data.defaultMpInitialDuration,
         defaultMpMonthlyType: data.defaultMpMonthlyType,
         defaultMpMonthlyRate: data.defaultMpMonthlyRate,
         defaultMpMonthlyFixed: data.defaultMpMonthlyFixed,
         defaultMpMonthlyDuration: data.defaultMpMonthlyDuration,
+        defaultPpInitialType: data.defaultPpInitialType,
         defaultPpInitialRate: data.defaultPpInitialRate,
+        defaultPpInitialFixed: data.defaultPpInitialFixed,
         defaultPpInitialDuration: data.defaultPpInitialDuration,
         defaultPpPerfType: data.defaultPpPerfType,
         defaultPpPerfRate: data.defaultPpPerfRate,
@@ -180,13 +200,17 @@ export async function updateAgentContractHistory(
         status: data.status,
         initialFee: data.initialFee,
         monthlyFee: data.monthlyFee,
+        defaultMpInitialType: data.defaultMpInitialType,
         defaultMpInitialRate: data.defaultMpInitialRate,
+        defaultMpInitialFixed: data.defaultMpInitialFixed,
         defaultMpInitialDuration: data.defaultMpInitialDuration,
         defaultMpMonthlyType: data.defaultMpMonthlyType,
         defaultMpMonthlyRate: data.defaultMpMonthlyRate,
         defaultMpMonthlyFixed: data.defaultMpMonthlyFixed,
         defaultMpMonthlyDuration: data.defaultMpMonthlyDuration,
+        defaultPpInitialType: data.defaultPpInitialType,
         defaultPpInitialRate: data.defaultPpInitialRate,
+        defaultPpInitialFixed: data.defaultPpInitialFixed,
         defaultPpInitialDuration: data.defaultPpInitialDuration,
         defaultPpPerfType: data.defaultPpPerfType,
         defaultPpPerfRate: data.defaultPpPerfRate,
@@ -261,13 +285,17 @@ export async function addCommissionOverride(
       data: {
         agentContractHistoryId: data.agentContractHistoryId,
         stpCompanyId: data.stpCompanyId,
+        mpInitialType: data.mpInitialType,
         mpInitialRate: data.mpInitialRate,
+        mpInitialFixed: data.mpInitialFixed,
         mpInitialDuration: data.mpInitialDuration,
         mpMonthlyType: data.mpMonthlyType,
         mpMonthlyRate: data.mpMonthlyRate,
         mpMonthlyFixed: data.mpMonthlyFixed,
         mpMonthlyDuration: data.mpMonthlyDuration,
+        ppInitialType: data.ppInitialType,
         ppInitialRate: data.ppInitialRate,
+        ppInitialFixed: data.ppInitialFixed,
         ppInitialDuration: data.ppInitialDuration,
         ppPerfType: data.ppPerfType,
         ppPerfRate: data.ppPerfRate,
@@ -295,13 +323,17 @@ export async function updateCommissionOverride(
     const override = await prisma.stpAgentCommissionOverride.update({
       where: { id },
       data: {
+        mpInitialType: data.mpInitialType,
         mpInitialRate: data.mpInitialRate,
+        mpInitialFixed: data.mpInitialFixed,
         mpInitialDuration: data.mpInitialDuration,
         mpMonthlyType: data.mpMonthlyType,
         mpMonthlyRate: data.mpMonthlyRate,
         mpMonthlyFixed: data.mpMonthlyFixed,
         mpMonthlyDuration: data.mpMonthlyDuration,
+        ppInitialType: data.ppInitialType,
         ppInitialRate: data.ppInitialRate,
+        ppInitialFixed: data.ppInitialFixed,
         ppInitialDuration: data.ppInitialDuration,
         ppPerfType: data.ppPerfType,
         ppPerfRate: data.ppPerfRate,

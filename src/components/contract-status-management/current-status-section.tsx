@@ -35,7 +35,12 @@ export function CurrentStatusSection({ data }: CurrentStatusSectionProps) {
       <div className="space-y-2 text-sm">
         <div className="flex justify-between">
           <span className="text-muted-foreground">契約書名</span>
-          <span className="font-medium">{data.contractTitle}</span>
+          <div className="text-right">
+            <span className="font-medium">{data.contractTitle}</span>
+            {data.cloudsignTitle != null && (
+              <div className="text-xs text-muted-foreground">CS: {data.cloudsignTitle}</div>
+            )}
+          </div>
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">企業名</span>
