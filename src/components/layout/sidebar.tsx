@@ -71,6 +71,7 @@ type NavItem = {
 
 // 固定データ設定のパス一覧（stella001の固定データ設定 + 各PJ固有設定に表示）
 // 通常ユーザーのナビゲーションからはこれらのパスを非表示にする
+// 注: 各PJ固有設定内の項目（流入経路・商談パイプライン等）はここに含めない（全権限で表示する）
 const ALL_MASTER_DATA_HREFS = new Set([
   // 共通（stella001固定データ設定のみ）
   "/settings/projects",
@@ -86,9 +87,6 @@ const ALL_MASTER_DATA_HREFS = new Set([
   "/settings/email-templates",
   "/staff/role-types",
   "/staff/field-restrictions",
-  // 1PJ専用（各PJ固有設定のみ）
-  "/settings/lead-sources",
-  "/stp/settings/stages",
 ]);
 
 // 固定データ設定ナビゲーション（stella001専用レイアウト用）
