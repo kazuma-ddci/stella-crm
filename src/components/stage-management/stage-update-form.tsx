@@ -128,7 +128,6 @@ export function StageUpdateForm({
 
   // イベント検出とバリデーション
   const { events, hasDetectedChanges, validation } = useMemo(() => {
-    // 失注・検討中の理由をnoteに含める（バリデーション用）
     const combinedNote = isChangingToLost ? lostReason : isChangingToPending ? pendingReason : note;
 
     const detectionResult = detectEvents(
@@ -184,7 +183,6 @@ export function StageUpdateForm({
   const targetableStages = useMemo(() => {
     const currentStage = stages.find((s) => s.id === effectiveNewStageId);
 
-    // 失注・検討中の場合は、すべての進行ステージと受注を選択可能
     if (currentStage?.stageType === 'closed_lost' || currentStage?.stageType === 'pending') {
       return stages.filter(
         (s) =>
@@ -193,7 +191,6 @@ export function StageUpdateForm({
       );
     }
 
-    // 通常の進行ステージの場合は、現在より上位のステージのみ
     if (!currentStage || currentStage.stageType !== 'progress') {
       return [];
     }
@@ -211,7 +208,6 @@ export function StageUpdateForm({
     if (hasStageChange && selectedStageValue !== NO_CHANGE) {
       const newStageId = Number(selectedStageValue);
       const newStage = stages.find((s) => s.id === newStageId);
-      // 終了ステージ・検討中に変更した場合は目標をクリア
       if (
         newStage?.stageType === 'closed_won' ||
         newStage?.stageType === 'closed_lost' ||
@@ -222,7 +218,6 @@ export function StageUpdateForm({
         setSelectedTargetDateMode(CLEAR_VALUE);
         setSelectedTargetDate(null);
       }
-      // 目標に到達した場合も目標をクリア
       else if (newStageId === currentTargetStageId) {
         setSelectedTargetStageValue(CLEAR_VALUE);
         setSelectedTargetDateMode(CLEAR_VALUE);
@@ -302,100 +297,224 @@ export function StageUpdateForm({
   const isClosedWon = newStageType === 'closed_won';
 
   return (
-    <div className="space-y-6">
-      {/* ステージ更新セクション */}
-      <div className="rounded-lg border p-4">
-        <h4 className="font-medium mb-4">パイプラインを更新する</h4>
-
-        <div className="space-y-2">
-          <div className="flex gap-6">
-            {/* 左側：新しいステージ選択 */}
-            <div className="flex-1">
-              <Label htmlFor="new-stage" className="text-sm text-muted-foreground mb-1.5 block">
-                新しいパイプライン
-              </Label>
-              <Select
-                value={selectedStageValue}
-                onValueChange={setSelectedStageValue}
-              >
-                <SelectTrigger id="new-stage">
-                  <SelectValue placeholder="更新する場合は選択してください" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_CHANGE}>
-                    <span className="text-muted-foreground">変更しない</span>
-                  </SelectItem>
-                  {stages.map((stage) => (
-                    <SelectItem key={stage.id} value={stage.id.toString()}>
-                      {stage.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 右側：現在の値 */}
-            <div className="w-24 shrink-0 text-right">
-              <span className="text-sm text-muted-foreground block mb-1.5">現在</span>
-              <div className="h-9 flex items-center justify-end">
-                <span className="text-sm font-medium">{getCurrentStageName()}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* 変更タイプの表示 */}
-          {hasStageChange && changeType.message && (
-            <div
-              className={cn(
-                "p-3 rounded-md text-sm mt-2",
-                changeType.type === "achieved" && "bg-green-50 text-green-800",
-                changeType.type === "progress" && "bg-blue-50 text-blue-800",
-                changeType.type === "back" && "bg-yellow-50 text-yellow-800",
-                changeType.type === "won" && "bg-green-50 text-green-800",
-                changeType.type === "lost" && "bg-gray-100 text-gray-800",
-                changeType.type === "suspended" && "bg-orange-50 text-orange-800",
-                changeType.type === "resumed" && "bg-blue-50 text-blue-800",
-                changeType.type === "revived" && "bg-purple-50 text-purple-800"
-              )}
-            >
-              {changeType.message}
-            </div>
-          )}
-        </div>
+    <div className="space-y-4">
+      {/* セクションヘッダー */}
+      <div>
+        <h3 className="font-semibold text-sm">パイプラインを更新</h3>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          現在: {getCurrentStageName()}
+        </p>
       </div>
 
-      {/* 検討中の詳細セクション（検討中選択時のみ表示） */}
+      {/* ステージ選択 */}
+      <div className="space-y-1.5">
+        <Label htmlFor="new-stage" className="text-xs text-muted-foreground">
+          新しいパイプライン
+        </Label>
+        <Select
+          value={selectedStageValue}
+          onValueChange={setSelectedStageValue}
+        >
+          <SelectTrigger id="new-stage" className="h-9">
+            <SelectValue placeholder="選択してください" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NO_CHANGE}>
+              <span className="text-muted-foreground">変更しない</span>
+            </SelectItem>
+            {stages.map((stage) => (
+              <SelectItem key={stage.id} value={stage.id.toString()}>
+                {stage.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* 変更タイプの表示 */}
+      {hasStageChange && changeType.message && (
+        <div
+          className={cn(
+            "px-3 py-2 rounded-md text-xs",
+            changeType.type === "achieved" && "bg-green-50 text-green-800 border border-green-200",
+            changeType.type === "progress" && "bg-blue-50 text-blue-800 border border-blue-200",
+            changeType.type === "back" && "bg-yellow-50 text-yellow-800 border border-yellow-200",
+            changeType.type === "won" && "bg-green-50 text-green-800 border border-green-200",
+            changeType.type === "lost" && "bg-gray-50 text-gray-700 border border-gray-200",
+            changeType.type === "suspended" && "bg-orange-50 text-orange-800 border border-orange-200",
+            changeType.type === "resumed" && "bg-blue-50 text-blue-800 border border-blue-200",
+            changeType.type === "revived" && "bg-purple-50 text-purple-800 border border-purple-200"
+          )}
+        >
+          {changeType.message}
+        </div>
+      )}
+
+      {/* 検討中の詳細セクション */}
       {isChangingToPending && (
-        <div className="rounded-lg border border-orange-200 bg-orange-50/50 p-4">
-          <h4 className="font-medium mb-4 text-orange-800">検討中の詳細</h4>
-
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="pending-reason" className="text-sm text-orange-800">
-                検討中理由
-                <span className="text-destructive ml-1">*</span>
-              </Label>
-              <Textarea
-                id="pending-reason"
-                value={pendingReason}
-                onChange={(e) => setPendingReason(e.target.value)}
-                placeholder="理由を入力してください..."
-                rows={3}
-                className="mt-1.5"
+        <div className="rounded-md border border-orange-200 bg-orange-50/50 p-3 space-y-3">
+          <h4 className="font-medium text-xs text-orange-800">検討中の詳細</h4>
+          <div>
+            <Label htmlFor="pending-reason" className="text-xs text-orange-800">
+              検討中理由<span className="text-destructive ml-0.5">*</span>
+            </Label>
+            <Textarea
+              id="pending-reason"
+              value={pendingReason}
+              onChange={(e) => setPendingReason(e.target.value)}
+              placeholder="理由を入力..."
+              rows={2}
+              className="mt-1 text-sm"
+            />
+            {requiresPendingReason && (
+              <p className="text-xs text-destructive mt-1">検討中理由は必須です</p>
+            )}
+          </div>
+          <div>
+            <Label htmlFor="pending-response-date" className="text-xs text-orange-800">
+              回答予定日（任意）
+            </Label>
+            <div className="mt-1">
+              <DatePicker
+                selected={pendingResponseDate}
+                onChange={(date: Date | null) => setPendingResponseDate(date)}
+                dateFormat="yyyy/MM/dd"
+                locale="ja"
+                placeholderText="日付を選択"
+                isClearable
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                wrapperClassName="w-full"
+                calendarClassName="shadow-lg"
               />
-              {requiresPendingReason && (
-                <p className="text-sm text-destructive mt-1">検討中理由は必須です</p>
-              )}
             </div>
+          </div>
+        </div>
+      )}
 
-            <div>
-              <Label htmlFor="pending-response-date" className="text-sm text-orange-800">
-                回答予定日（任意）
-              </Label>
+      {/* 失注の詳細セクション */}
+      {isChangingToLost && (
+        <div className="rounded-md border border-gray-300 bg-gray-50/50 p-3">
+          <h4 className="font-medium text-xs text-gray-800 mb-2">失注の詳細</h4>
+          <div>
+            <Label htmlFor="lost-reason" className="text-xs text-gray-800">
+              失注理由<span className="text-destructive ml-0.5">*</span>
+            </Label>
+            <Textarea
+              id="lost-reason"
+              value={lostReason}
+              onChange={(e) => setLostReason(e.target.value)}
+              placeholder="理由を入力..."
+              rows={2}
+              className="mt-1 text-sm"
+            />
+            {requiresLostReason && (
+              <p className="text-xs text-destructive mt-1">失注理由は必須です</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 目標設定セクション（受注以外で表示） */}
+      {!isClosedWon && (
+        <div className="pt-3 border-t space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h4 className="font-semibold text-xs text-muted-foreground">
+              次の目標
+            </h4>
+            {(isChangingToLost || isChangingToPending) && (
+              <span className="text-[10px] text-muted-foreground">任意</span>
+            )}
+          </div>
+
+          {(isChangingToLost || isChangingToPending) && (
+            <p className="text-xs text-muted-foreground -mt-1">
+              {isChangingToLost
+                ? "失注後に再挑戦する目標を設定できます"
+                : "検討中から再開時の目標を設定できます"}
+            </p>
+          )}
+
+          {/* 目標ステージ */}
+          <div className="space-y-1.5">
+            <Label htmlFor="target-stage" className="text-xs text-muted-foreground">
+              目標パイプライン
+              <span className="ml-1.5 text-[10px]">現在: {getCurrentTargetStageName()}</span>
+            </Label>
+            <Select
+              value={selectedTargetStageValue}
+              onValueChange={setSelectedTargetStageValue}
+            >
+              <SelectTrigger id="target-stage" className="h-9">
+                <SelectValue placeholder="選択してください" />
+              </SelectTrigger>
+              <SelectContent>
+                {(isChangingToLost || isChangingToPending) ? (
+                  <SelectItem value={CLEAR_VALUE}>
+                    <span className="text-muted-foreground">設定しない（クリア）</span>
+                  </SelectItem>
+                ) : (
+                  <>
+                    <SelectItem value={NO_CHANGE}>
+                      <span className="text-muted-foreground">変更しない</span>
+                    </SelectItem>
+                    <SelectItem value={CLEAR_VALUE}>
+                      <span className="text-muted-foreground">目標をクリア</span>
+                    </SelectItem>
+                  </>
+                )}
+                {targetableStages.map((stage) => (
+                  <SelectItem key={stage.id} value={stage.id.toString()}>
+                    {stage.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* 目標日 */}
+          <div className="space-y-1.5">
+            <Label htmlFor="target-date-mode" className="text-xs text-muted-foreground">
+              目標日
+              <span className="ml-1.5 text-[10px]">現在: {formatDate(currentTargetDate)}</span>
+            </Label>
+            <Select
+              value={selectedTargetDateMode}
+              onValueChange={handleTargetDateModeChange}
+            >
+              <SelectTrigger id="target-date-mode" className="h-9">
+                <SelectValue placeholder="選択してください" />
+              </SelectTrigger>
+              <SelectContent>
+                {(isChangingToLost || isChangingToPending) ? (
+                  <>
+                    <SelectItem value={CLEAR_VALUE}>
+                      <span className="text-muted-foreground">設定しない（クリア）</span>
+                    </SelectItem>
+                    <SelectItem value={SET_NEW_DATE}>
+                      <span>新しい目標日を設定</span>
+                    </SelectItem>
+                  </>
+                ) : (
+                  <>
+                    <SelectItem value={NO_CHANGE}>
+                      <span className="text-muted-foreground">変更しない</span>
+                    </SelectItem>
+                    <SelectItem value={SET_NEW_DATE}>
+                      <span>新しい目標日を設定</span>
+                    </SelectItem>
+                    <SelectItem value={CLEAR_VALUE}>
+                      <span className="text-muted-foreground">目標日を削除</span>
+                    </SelectItem>
+                  </>
+                )}
+              </SelectContent>
+            </Select>
+
+            {selectedTargetDateMode === SET_NEW_DATE && (
               <div className="mt-1.5">
                 <DatePicker
-                  selected={pendingResponseDate}
-                  onChange={(date: Date | null) => setPendingResponseDate(date)}
+                  selected={selectedTargetDate}
+                  onChange={handleTargetDateChange}
                   dateFormat="yyyy/MM/dd"
                   locale="ja"
                   placeholderText="日付を選択"
@@ -405,181 +524,17 @@ export function StageUpdateForm({
                   calendarClassName="shadow-lg"
                 />
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 失注の詳細セクション（失注選択時のみ表示） */}
-      {isChangingToLost && (
-        <div className="rounded-lg border border-gray-300 bg-gray-50/50 p-4">
-          <h4 className="font-medium mb-4 text-gray-800">失注の詳細</h4>
-
-          <div>
-            <Label htmlFor="lost-reason" className="text-sm text-gray-800">
-              失注理由
-              <span className="text-destructive ml-1">*</span>
-            </Label>
-            <Textarea
-              id="lost-reason"
-              value={lostReason}
-              onChange={(e) => setLostReason(e.target.value)}
-              placeholder="理由を入力してください..."
-              rows={3}
-              className="mt-1.5"
-            />
-            {requiresLostReason && (
-              <p className="text-sm text-destructive mt-1">失注理由は必須です</p>
             )}
           </div>
         </div>
       )}
 
-      {/* 目標設定セクション（受注以外で表示） */}
-      {!isClosedWon && (
-        <div className="rounded-lg border p-4">
-          <h4 className="font-medium mb-4">
-            次の目標を設定する
-            {(isChangingToLost || isChangingToPending) && (
-              <span className="text-muted-foreground font-normal ml-1">（任意）</span>
-            )}
-          </h4>
-
-          {/* 失注・検討中の場合の説明 */}
-          {(isChangingToLost || isChangingToPending) && (
-            <p className="text-sm text-muted-foreground mb-4">
-              {isChangingToLost
-                ? "失注後に再挑戦する目標を設定できます。設定しない場合はクリアされます。"
-                : "検討中から再開時の目標を設定できます。設定しない場合はクリアされます。"}
-            </p>
-          )}
-
-          {/* 目標ステージ */}
-          <div className="space-y-4">
-            <div className="flex gap-6">
-              {/* 左側：目標ステージ選択 */}
-              <div className="flex-1">
-                <Label htmlFor="target-stage" className="text-sm text-muted-foreground mb-1.5 block">
-                  目標パイプライン
-                </Label>
-                <Select
-                  value={selectedTargetStageValue}
-                  onValueChange={setSelectedTargetStageValue}
-                >
-                  <SelectTrigger id="target-stage">
-                    <SelectValue placeholder="更新する場合は選択してください" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {/* 失注・検討中の場合は「変更しない」ではなく「設定しない」 */}
-                    {(isChangingToLost || isChangingToPending) ? (
-                      <SelectItem value={CLEAR_VALUE}>
-                        <span className="text-muted-foreground">設定しない（クリア）</span>
-                      </SelectItem>
-                    ) : (
-                      <>
-                        <SelectItem value={NO_CHANGE}>
-                          <span className="text-muted-foreground">変更しない</span>
-                        </SelectItem>
-                        <SelectItem value={CLEAR_VALUE}>
-                          <span className="text-muted-foreground">目標をクリア</span>
-                        </SelectItem>
-                      </>
-                    )}
-                    {targetableStages.map((stage) => (
-                      <SelectItem key={stage.id} value={stage.id.toString()}>
-                        {stage.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* 右側：現在の値 */}
-              <div className="w-24 shrink-0 text-right">
-                <span className="text-sm text-muted-foreground block mb-1.5">現在</span>
-                <div className="h-9 flex items-center justify-end">
-                  <span className="text-sm font-medium">{getCurrentTargetStageName()}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* 目標日 */}
-            <div className="flex gap-6">
-              {/* 左側：目標日入力 */}
-              <div className="flex-1">
-                <Label htmlFor="target-date-mode" className="text-sm text-muted-foreground mb-1.5 block">
-                  目標日
-                </Label>
-                <Select
-                  value={selectedTargetDateMode}
-                  onValueChange={handleTargetDateModeChange}
-                >
-                  <SelectTrigger id="target-date-mode">
-                    <SelectValue placeholder="更新する場合は選択してください" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {/* 失注・検討中の場合は「変更しない」ではなく「設定しない」 */}
-                    {(isChangingToLost || isChangingToPending) ? (
-                      <>
-                        <SelectItem value={CLEAR_VALUE}>
-                          <span className="text-muted-foreground">設定しない（クリア）</span>
-                        </SelectItem>
-                        <SelectItem value={SET_NEW_DATE}>
-                          <span>新しい目標日を設定</span>
-                        </SelectItem>
-                      </>
-                    ) : (
-                      <>
-                        <SelectItem value={NO_CHANGE}>
-                          <span className="text-muted-foreground">変更しない</span>
-                        </SelectItem>
-                        <SelectItem value={SET_NEW_DATE}>
-                          <span>新しい目標日を設定</span>
-                        </SelectItem>
-                        <SelectItem value={CLEAR_VALUE}>
-                          <span className="text-muted-foreground">目標日を削除</span>
-                        </SelectItem>
-                      </>
-                    )}
-                  </SelectContent>
-                </Select>
-
-                {/* 日付選択（「新しい目標日を設定」選択時のみ表示） */}
-                {selectedTargetDateMode === SET_NEW_DATE && (
-                  <div className="mt-2">
-                    <DatePicker
-                      selected={selectedTargetDate}
-                      onChange={handleTargetDateChange}
-                      dateFormat="yyyy/MM/dd"
-                      locale="ja"
-                      placeholderText="日付を選択"
-                      isClearable
-                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      wrapperClassName="w-full"
-                      calendarClassName="shadow-lg"
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* 右側：現在の値 */}
-              <div className="w-24 shrink-0 text-right">
-                <span className="text-sm text-muted-foreground block mb-1.5">現在</span>
-                <div className="h-9 flex items-center justify-end">
-                  <span className="text-sm font-medium">{formatDate(currentTargetDate)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* メモセクション */}
-      <div className="rounded-lg border p-4">
-        <Label htmlFor="note" className="font-medium">
+      {/* メモ */}
+      <div className="pt-3 border-t">
+        <Label htmlFor="note" className="text-xs text-muted-foreground">
           メモ
           {isBackward && (
-            <span className="text-muted-foreground font-normal ml-1">（推奨）</span>
+            <span className="text-orange-600 ml-1">（推奨）</span>
           )}
         </Label>
         <Textarea
@@ -588,11 +543,11 @@ export function StageUpdateForm({
           onChange={(e) => setNote(e.target.value)}
           placeholder={
             isBackward
-              ? "後退の理由を入力してください..."
-              : "メモを入力してください..."
+              ? "後退の理由を入力..."
+              : "メモを入力..."
           }
-          rows={3}
-          className="mt-2"
+          rows={2}
+          className="mt-1 text-sm"
         />
       </div>
 
@@ -600,13 +555,14 @@ export function StageUpdateForm({
       <InlineAlert alerts={validation.alerts} />
 
       {/* ボタン */}
-      <div className="flex justify-end gap-2 pt-4">
-        <Button variant="outline" onClick={onCancel}>
+      <div className="flex gap-2 pt-2">
+        <Button variant="outline" onClick={onCancel} className="flex-1 h-9">
           キャンセル
         </Button>
         <Button
           onClick={handleSubmit}
           disabled={!canSubmit || loading}
+          className="flex-1 h-9"
         >
           {loading ? "更新中..." : "更新する"}
         </Button>

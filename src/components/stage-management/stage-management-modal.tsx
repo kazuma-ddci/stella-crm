@@ -22,7 +22,6 @@ import { getStageManagementData, updateStageWithHistory } from "@/app/stp/compan
 import { CurrentStatusSection } from "./current-status-section";
 import { StageProgressVisual } from "./stage-progress-visual";
 import { StageHistorySection } from "./stage-history-section";
-import { StatisticsSection } from "./statistics-section";
 import { StageUpdateForm } from "./stage-update-form";
 import { StageAlertDialog } from "./alert-dialog";
 import { ReasonEditSection } from "./reason-edit-section";
@@ -47,6 +46,7 @@ export function StageManagementModal({
   const [saving, setSaving] = useState(false);
   const [hasFormChanges, setHasFormChanges] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [formKey, setFormKey] = useState(0); // フォームリマウント用
 
   // アラートダイアログの状態
   const [alertDialogOpen, setAlertDialogOpen] = useState(false);
@@ -184,8 +184,11 @@ export function StageManagementModal({
 
       if (result.success) {
         toast.success("パイプラインを更新しました");
-        // モーダルを閉じる
-        onOpenChange(false);
+        // モーダルを閉じずにデータを再取得して表示を更新
+        const refreshed = await getStageManagementData(stpCompanyId);
+        setData(refreshed);
+        setHasFormChanges(false);
+        setFormKey((k) => k + 1); // フォームをリセット
         // 親コンポーネントに成功を通知（一覧の再取得などのため）
         onUpdateSuccess?.();
       } else {
@@ -209,14 +212,14 @@ export function StageManagementModal({
         }
       }}>
         <DialogContent
-          size="form"
+          size="datagrid"
           className="p-0 overflow-hidden flex flex-col"
         >
           <DialogHeader className="px-6 py-4 border-b shrink-0">
-            <DialogTitle>
-              パイプライン管理
+            <DialogTitle className="flex items-center gap-3">
+              <span>パイプライン管理</span>
               {data && (
-                <span className="font-normal text-muted-foreground ml-2">
+                <span className="font-normal text-base text-muted-foreground">
                   {data.companyName}
                 </span>
               )}
@@ -224,32 +227,40 @@ export function StageManagementModal({
           </DialogHeader>
 
           {loading ? (
-            <div className="flex items-center justify-center py-12 flex-1">
+            <div className="flex items-center justify-center py-16 flex-1">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
           ) : data ? (
-            <div className="px-6 py-4 flex-1 overflow-y-auto min-h-0">
-              <div className="space-y-4">
-                <CurrentStatusSection data={data} />
+            <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
+              {/* ヘッダー: パイプライン進捗（常に全幅） */}
+              <div className="shrink-0 border-b px-5 py-3">
                 <StageProgressVisual
                   stages={data.stages}
                   currentStageId={data.currentStageId}
                   targetStageId={data.nextTargetStageId}
                 />
-                <ReasonEditSection
-                  data={data}
-                  onUpdateSuccess={async () => {
-                    // データを再取得
-                    const result = await getStageManagementData(stpCompanyId!);
-                    setData(result);
-                    onUpdateSuccess?.();
-                  }}
-                />
-                <StageHistorySection histories={data.histories} />
-                <StatisticsSection statistics={data.statistics} />
+              </div>
 
-                <div className="pt-4 border-t">
+              {/* 2カラムレイアウト（狭い画面では1カラムにフォールバック） */}
+              <div className="flex flex-col min-[1100px]:flex-row flex-1 overflow-hidden min-h-0">
+                {/* 左カラム: 情報パネル (6割) */}
+                <div className="min-[1100px]:w-[60%] overflow-y-auto min-[1100px]:border-r px-5 py-4 space-y-4 min-w-0">
+                  <CurrentStatusSection data={data} />
+                  <ReasonEditSection
+                    data={data}
+                    onUpdateSuccess={async () => {
+                      const result = await getStageManagementData(stpCompanyId!);
+                      setData(result);
+                      onUpdateSuccess?.();
+                    }}
+                  />
+                  <StageHistorySection histories={data.histories} />
+                </div>
+
+                {/* 右カラム: 操作パネル (4割) */}
+                <div className="min-[1100px]:w-[40%] shrink-0 overflow-y-auto border-t min-[1100px]:border-t-0 px-5 py-4">
                   <StageUpdateForm
+                    key={formKey}
                     stages={data.stages}
                     currentStageId={data.currentStageId}
                     currentTargetStageId={data.nextTargetStageId}
@@ -264,7 +275,7 @@ export function StageManagementModal({
               </div>
             </div>
           ) : (
-            <div className="py-12 text-center text-muted-foreground flex-1">
+            <div className="py-16 text-center text-muted-foreground flex-1">
               データが見つかりませんでした
             </div>
           )}

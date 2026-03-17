@@ -6,6 +6,9 @@ interface StatisticsSectionProps {
   statistics: StageStatistics;
 }
 
+// 統計情報はCurrentStatusSectionに統合されたため、
+// このコンポーネントは互換性のために残しています。
+// 新しいレイアウトでは使用されません。
 export function StatisticsSection({ statistics }: StatisticsSectionProps) {
   return (
     <div className="rounded-lg border bg-card p-4">
