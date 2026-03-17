@@ -1,11 +1,8 @@
 #!/bin/sh
 set -e
 
-echo "=== Generating Prisma Client ==="
-npx prisma generate
-
 echo "=== Running database migrations ==="
-npx prisma migrate deploy
+node ./node_modules/prisma/build/index.js migrate deploy
 
 echo "=== Starting application ==="
 node server.js
