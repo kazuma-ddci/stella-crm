@@ -235,17 +235,9 @@ export default auth((request) => {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
-  // PJ固有固定データパス: admin + stella001 + founder + manager
+  // PJ固有固定データパス: いずれかのプロジェクトで権限があれば許可（閲覧/編集はページ側で制御）
   if (isProjectMasterDataPath(pathname)) {
-    if (isAdminUser || canEditMasterData || isFounderUser || hasAnyManagerPermission(userPermissions)) {
-      return NextResponse.next();
-    }
-    // メールテンプレートはstella閲覧権限でもアクセス可
-    if (
-      (pathname === "/settings/email-templates" ||
-        pathname.startsWith("/settings/email-templates/")) &&
-      hasPermission(userPermissions, "stella")
-    ) {
+    if (isAdminUser || canEditMasterData || isFounderUser || hasAnyPermission(userPermissions)) {
       return NextResponse.next();
     }
     return NextResponse.redirect(new URL("/", request.url));
