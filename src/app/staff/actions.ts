@@ -5,6 +5,7 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { sendStaffInviteEmail } from "@/lib/email";
 import { auth } from "@/auth";
+import { requireEdit } from "@/lib/auth";
 import type { UserPermission, OrganizationRole } from "@/types/auth";
 
 const PERM_PREFIX = "perm_";
@@ -342,6 +343,7 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
 }
 
 export async function deleteStaff(id: number) {
+  await requireEdit("stella");
   await prisma.masterStaff.delete({
     where: { id },
   });
@@ -389,6 +391,7 @@ export async function sendStaffInvite(
 }
 
 export async function reorderStaff(orderedIds: number[]) {
+  await requireEdit("stella");
   await prisma.$transaction(
     orderedIds.map((id, index) =>
       prisma.masterStaff.update({

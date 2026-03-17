@@ -566,8 +566,9 @@ export function CrudTable({
       setEditingCell(null);
       setConfirmDialogOpen(false);
       setPendingChange(null);
-    } catch {
-      toast.error("更新に失敗しました");
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "更新に失敗しました";
+      toast.error(msg);
     } finally {
       setInlineLoading(false);
     }

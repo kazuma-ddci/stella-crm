@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireEdit } from "@/lib/auth";
 
 type BillingRuleData = {
   feeType: string;
@@ -75,6 +76,7 @@ export async function getBillingRules(): Promise<BillingRuleData[]> {
 export async function saveBillingRules(
   rules: BillingRuleData[]
 ): Promise<{ success: boolean; error?: string }> {
+  await requireEdit("stp");
   try {
     const projectId = await getStpProjectId();
 

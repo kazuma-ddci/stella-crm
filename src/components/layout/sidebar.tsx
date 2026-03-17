@@ -159,7 +159,7 @@ const navigation: NavItem[] = [
         icon: Briefcase,
         sectionLabel: true,
         children: [
-          { name: "全顧客マスタ", href: "/companies", icon: BookOpen, requireAnyEdit: true },
+          { name: "全顧客マスタ", href: "/companies", icon: BookOpen },
           { name: "企業情報", href: "/stp/companies", icon: Building2 },
           { name: "代理店情報", href: "/stp/agents", icon: Handshake },
           { name: "求職者情報", href: "/stp/candidates", icon: UserSearch },
@@ -229,7 +229,7 @@ const navigation: NavItem[] = [
     collapsible: true,
     children: [
       { name: "ダッシュボード", href: "/accounting/dashboard", icon: Home },
-      { name: "スタッフ管理", href: "/staff", icon: Users, founderOrManager: true },
+      { name: "スタッフ管理", href: "/staff", icon: Users },
       { name: "ワークフロー", href: "/accounting/workflow", icon: ClipboardList },
       { name: "税区分チェック", href: "/accounting/invoice-check", icon: FileCheck },
       { name: "会計取引", href: "/accounting/transactions", icon: Landmark },
@@ -259,7 +259,6 @@ const navigation: NavItem[] = [
         name: "固有設定",
         icon: Settings,
         collapsible: true,
-        founderOrManager: true,
         children: [
           { name: "プロジェクト設定", href: "/accounting/settings/project", icon: Building2 },
           { name: "スタッフ役割種別", href: "/staff/role-types?project=accounting", icon: Tags },

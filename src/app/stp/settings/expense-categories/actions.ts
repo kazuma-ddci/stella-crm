@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { requireEdit } from "@/lib/auth";
 import { getSystemProjectContext } from "@/lib/project-context";
 
 const VALID_TYPES = ["revenue", "expense", "both"] as const;
@@ -14,7 +14,7 @@ async function getStpProjectId(): Promise<number> {
 }
 
 export async function createExpenseCategory(data: Record<string, unknown>) {
-  const session = await getSession();
+  const session = await requireEdit("stp");
   const staffId = session.id;
   const projectId = await getStpProjectId();
 
@@ -60,7 +60,7 @@ export async function updateExpenseCategory(
   id: number,
   data: Record<string, unknown>
 ) {
-  const session = await getSession();
+  const session = await requireEdit("stp");
   const staffId = session.id;
   const projectId = await getStpProjectId();
 
@@ -121,7 +121,7 @@ export async function updateExpenseCategory(
 }
 
 export async function deleteExpenseCategory(id: number) {
-  const session = await getSession();
+  const session = await requireEdit("stp");
   const staffId = session.id;
   const projectId = await getStpProjectId();
 
@@ -146,7 +146,7 @@ export async function deleteExpenseCategory(id: number) {
 }
 
 export async function reorderExpenseCategories(orderedIds: number[]) {
-  const session = await getSession();
+  const session = await requireEdit("stp");
   const staffId = session.id;
 
   await prisma.$transaction(
