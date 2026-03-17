@@ -227,7 +227,7 @@ async function checkCloudSign(): Promise<{
   return { status: "ok", message: `${companies.length}社トークン取得成功` };
 }
 
-// 6. Cronエンドポイント到達性チェック
+// 6. Cron設定チェック（CRON_SECRETとエンドポイント定義の確認のみ）
 async function checkCronEndpoints(): Promise<{
   status: CheckStatus;
   message?: string;
@@ -237,38 +237,9 @@ async function checkCronEndpoints(): Promise<{
     return { status: "warn", message: "CRON_SECRETが未設定" };
   }
 
-  const errors: string[] = [];
-
-  for (const endpoint of CRON_ENDPOINTS) {
-    try {
-      const res = await Promise.race([
-        fetch(`http://localhost:3000${endpoint}`, {
-          headers: { Authorization: `Bearer ${cronSecret}` },
-        }),
-        new Promise<Response>((_, reject) =>
-          setTimeout(() => reject(new Error("タイムアウト(5秒)")), 5000)
-        ),
-      ]);
-      if (!res.ok) {
-        errors.push(`${endpoint}: HTTP ${res.status}`);
-      }
-    } catch (err) {
-      errors.push(
-        `${endpoint}: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
-  }
-
-  if (errors.length > 0) {
-    // 起動直後は自分自身にアクセスできない場合があるためwarn扱い
-    return {
-      status: "warn",
-      message: errors.join("; "),
-    };
-  }
   return {
     status: "ok",
-    message: `${CRON_ENDPOINTS.length}エンドポイント到達OK`,
+    message: `CRON_SECRET設定済み, ${CRON_ENDPOINTS.length}エンドポイント定義あり`,
   };
 }
 
@@ -294,7 +265,7 @@ export async function GET(request: Request) {
     runCheck("IMAP接続", checkImap),
     runCheck("ファイルシステム", checkFilesystem),
     runCheck("CloudSign API", checkCloudSign),
-    runCheck("Cronエンドポイント到達性", checkCronEndpoints),
+    runCheck("Cron設定", checkCronEndpoints),
   ]);
 
   // 全体ステータスを判定
