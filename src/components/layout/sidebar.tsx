@@ -49,6 +49,8 @@ import {
   Target,
   MessageSquare,
   ClipboardCheck,
+  GraduationCap,
+  AlertTriangle,
 } from "lucide-react";
 import { canView } from "@/lib/auth/permissions";
 import type { SessionUser } from "@/types/auth";
@@ -135,6 +137,7 @@ function removeMasterDataItems(items: NavItem[]): NavItem[] {
 const navigation: NavItem[] = [
   { name: "通知", href: "/notifications", icon: Bell },
   { name: "セットアップ状況", href: "/admin/setup-status", icon: ListChecks, adminOnly: true },
+  { name: "自動化エラー", href: "/admin/automation-errors", icon: AlertTriangle, adminOnly: true },
   {
     name: "Stella",
     icon: Building2,
@@ -215,6 +218,42 @@ const navigation: NavItem[] = [
               { name: "メールテンプレート", href: "/settings/email-templates?project=stp", icon: FileText },
               { name: "費目マスタ", href: "/stp/settings/expense-categories", icon: Tag },
               { name: "請求ルール設定", href: "/stp/settings/billing-rules", icon: FileText },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: "SLP",
+    icon: GraduationCap,
+    requiredProject: "slp",
+    key: "slp",
+    collapsible: true,
+    children: [
+      { name: "ダッシュボード", href: "/slp/dashboard", icon: Home },
+      {
+        name: "基本情報",
+        icon: BookOpen,
+        sectionLabel: true,
+        children: [
+          { name: "組合員名簿", href: "/slp/members", icon: Users },
+          { name: "公式LINE友達情報", href: "/slp/line-friends", icon: MessageSquare },
+        ],
+      },
+      {
+        name: "管理",
+        icon: Settings,
+        sectionLabel: true,
+        children: [
+          { name: "スタッフ管理", href: "/staff", icon: Users },
+          {
+            name: "固有設定",
+            icon: Settings,
+            collapsible: true,
+            children: [
+              { name: "プロジェクト設定", href: "/slp/settings/project", icon: Building2 },
+              { name: "パイプライン", href: "/slp/settings/stages", icon: Layers },
             ],
           },
         ],

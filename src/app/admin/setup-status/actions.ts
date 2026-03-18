@@ -209,6 +209,38 @@ const checkDefinitions: CheckDefinition[] = [
   },
 
   // ========================================
+  // SLP
+  // ========================================
+  {
+    id: "slp-stages",
+    category: "SLP",
+    name: "パイプライン",
+    description: "案件進捗パイプラインのステージ定義（リード〜入金完了等）",
+    required: 1,
+    href: "/slp/settings/stages",
+    countFn: () =>
+      prisma.slpStage.count({ where: { isActive: true } }),
+  },
+  {
+    id: "slp-members",
+    category: "SLP",
+    name: "組合員",
+    description: "組合員が登録されていません",
+    required: 0,
+    href: "/slp/members",
+    countFn: () => prisma.slpMember.count({ where: { deletedAt: null } }),
+  },
+  {
+    id: "slp-line-friends",
+    category: "SLP",
+    name: "公式LINE友達",
+    description: "公式LINE友達情報が登録されていません",
+    required: 0,
+    href: "/slp/line-friends",
+    countFn: () => prisma.slpLineFriend.count({ where: { deletedAt: null } }),
+  },
+
+  // ========================================
   // 経理
   // ========================================
   {

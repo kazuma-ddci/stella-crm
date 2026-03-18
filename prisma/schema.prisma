@@ -488,6 +488,7 @@ model ContractType {
   // Relations
   project MasterProject @relation(fields: [projectId], references: [id])
   cloudsignTemplates    CloudSignTemplateContractType[]
+  slpMemberProjects     MasterProject[] @relation("SlpMemberContractType")
 
   @@unique([projectId, name])
   @@index([projectId], map: "idx_contract_types_project_id")
@@ -894,20 +895,22 @@ model StpBillingRule {
 
 model MasterProject {
   id                  Int      @id @default(autoincrement())
-  code                String   @unique @db.VarChar(50)   // 権限管理用コード（例: stp, srd, slo）
+  code                String   @unique @db.VarChar(50)   // 権限管理用コード（例: stp, srd, slp）
   name                String   @db.VarChar(100)
   description         String?
   isActive            Boolean  @default(true) @map("is_active")
   displayOrder        Int      @default(0) @map("display_order")
   operatingCompanyId  Int?     @map("operating_company_id")
-  defaultCostCenterId Int?    @map("default_cost_center_id")
+  defaultCostCenterId        Int?    @map("default_cost_center_id")
+  slpMemberContractTypeId    Int?    @map("slp_member_contract_type_id")  // SLP入会フォーム用の契約種別
 
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   operatingCompany   OperatingCompany? @relation(fields: [operatingCompanyId], references: [id])
-  defaultCostCenter  CostCenter?       @relation("ProjectDefaultCostCenter", fields: [defaultCostCenterId], references: [id])
-  contracts          MasterContract[]
+  defaultCostCenter       CostCenter?       @relation("ProjectDefaultCostCenter", fields: [defaultCostCenterId], references: [id])
+  slpMemberContractType   ContractType?     @relation("SlpMemberContractType", fields: [slpMemberContractTypeId], references: [id])
+  contracts               MasterContract[]
   staffAssignments   StaffProjectAssignment[]
   staffPermissions   StaffPermission[]
   displayViews       DisplayView[]
@@ -3623,4 +3626,126 @@ model UsdtDailyRate {
   createdAt DateTime @default(now())
 
   @@map("usdt_daily_rates")
+}
+
+// ============================================
+// SLP 組合員 (SLP Members)
+// 公的制度教育推進協会の組合員情報を管理
+// ============================================
+
+model SlpMember {
+  id                 Int       @id @default(autoincrement())
+  name               String    @db.VarChar(100)
+  email              String?   @db.VarChar(255)
+  status             String?   @db.VarChar(50)    // 契約書未送付/契約書送付済/組合員契約書締結/契約破棄
+  contractSentDate   DateTime?
+  contractSignedDate DateTime?
+  position           String?   @db.VarChar(100)
+  company            String?   @db.VarChar(200)
+  memberCategory     String?   @db.VarChar(50)    // 個人（法人代表・役員・従業員）/法人担当者/代理店
+  lineName           String?   @db.VarChar(100)
+  uid                String    @unique @db.VarChar(100)
+  phone              String?   @db.VarChar(50)
+  address            String?
+  referrerUid        String?   @db.VarChar(100)
+  note               String?
+  memo               String?
+  documentId         String?   @db.VarChar(255)
+  cloudsignUrl       String?
+  reminderCount      Int       @default(0)
+  formSubmittedAt    DateTime?                   // フォーム送信日時
+  lastReminderSentAt DateTime?                   // 直近リマインド送付日時
+  emailChangeCount   Int       @default(0)       // メールアドレス変更回数（フォーム経由、上限2回）
+  resubmitted        Boolean   @default(false)   // 未締結再フォーム送信フラグ（管理者通知用）
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  referrer  SlpMember?  @relation("MemberReferral", fields: [referrerUid], references: [uid])
+  referrals SlpMember[] @relation("MemberReferral")
+
+  @@index([referrerUid])
+  @@map("slp_members")
+}
+
+// ============================================
+// SLP 公式LINE友達情報 (SLP LINE Friends)
+// プロライン連携のLINE友達情報を管理
+// ============================================
+
+model SlpLineFriend {
+  id               Int       @id @default(autoincrement())
+  snsname          String?   @db.VarChar(200)    // アカウント名
+  password         String?   @db.VarChar(100)    // プロラインパスワード
+  emailLine        String?   @db.VarChar(255)    // LINE送信専用メルアド
+  emailRenkei      String?   @db.VarChar(255)    // 連携用メールアドレス
+  emailLine2       String?   @db.VarChar(255)    // LINE送信専用メルアド２
+  email            String?   @db.VarChar(255)    // メールアドレス（ユーザー入力）
+  uid              String    @unique @db.VarChar(100) // ユーザーID
+  friendAddedDate  DateTime?                     // 友だち追加日
+  activeStatus     String?   @db.VarChar(50)     // 稼働状態（稼働中/ブロック等）
+  lastActivityDate String?   @db.VarChar(50)     // 最終活動日
+  sei              String?   @db.VarChar(100)    // 姓
+  mei              String?   @db.VarChar(100)    // 名
+  nickname         String?   @db.VarChar(100)    // ニックネーム
+  phone            String?   @db.VarChar(50)     // 電話番号
+  postcode         String?   @db.VarChar(20)     // 郵便番号
+  address1         String?   @db.VarChar(255)    // 住所１
+  address2         String?   @db.VarChar(255)    // 住所２
+  address3         String?   @db.VarChar(255)    // 住所３
+  nenrei           String?   @db.VarChar(20)     // 年齢
+  nendai           String?   @db.VarChar(20)     // 年代
+  seibetu          String?   @db.VarChar(20)     // 性別
+  free1            String?                       // フリー項目１
+  free2            String?                       // フリー項目２
+  free3            String?                       // フリー項目３
+  free4            String?                       // フリー項目４
+  free5            String?                       // フリー項目５
+  free6            String?                       // フリー項目６
+  scenarioPos1     String?                       // シナリオ位置1
+  scenarioPos2     String?                       // 現在の場所2
+  scenarioPos3     String?                       // 現在の場所3
+  scenarioPos4     String?                       // 現在の場所4
+  scenarioPos5     String?                       // 現在の場所5
+  sortOrder        Int       @default(0) @map("sort_order") // 廃止予定（レガシー: ProLine同期時の連番）。idで代替
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  @@map("slp_line_friends")
+}
+
+// ============================================
+// SLP パイプライン (SLP Pipeline Stages)
+// 公的プロジェクトの案件進捗ステージを管理
+// ============================================
+
+model SlpStage {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(50)         // ステージ名
+  stageNumber  Int                               // ステージ番号（順番）
+  phase        String?  @db.Text                 // フェーズ説明
+  winRate      Int?                               // 受注確度（%）
+  autoAction   String?  @db.Text                 // 自動アクション説明
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("slp_stages")
+}
+
+// ============================================
+// 自動化エラーログ (Automation Errors)
+// Webhook・Cron等の自動化処理で発生したエラーを記録
+// ============================================
+
+model AutomationError {
+  id        Int      @id @default(autoincrement())
+  source    String   @db.VarChar(100)    // エラー発生元（例: "cloudsign-webhook", "cron/remind-slp-members"）
+  message   String   @db.VarChar(2000)   // エラーメッセージ
+  detail    String?  @db.Text            // 追加詳細（JSON文字列）
+  resolved  Boolean  @default(false)     // 解決済みフラグ
+  createdAt DateTime @default(now())
+
+  @@map("automation_errors")
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { cloudsignClient } from "@/lib/cloudsign";
 import { syncContractStatus } from "@/lib/cloudsign-sync";
+import { logAutomationError } from "@/lib/automation-error";
 
 /**
  * CloudSign APIステータスマッピング
@@ -114,6 +115,11 @@ export async function GET(request: Request) {
           `[Cron] Token取得失敗 (projectId=${projectId}):`,
           err
         );
+        await logAutomationError({
+          source: "cron/sync-cloudsign-status",
+          message: `CloudSign Token取得失敗 (projectId=${projectId})`,
+          detail: { projectId, error: String(err) },
+        });
       }
     }
 
@@ -218,6 +224,11 @@ export async function GET(request: Request) {
           `[Cron] 同期失敗 (contract #${contract.id}):`,
           err
         );
+        await logAutomationError({
+          source: "cron/sync-cloudsign-status",
+          message: `契約書同期失敗 (contract #${contract.id})`,
+          detail: { contractId: contract.id, documentId: contract.cloudsignDocumentId, error: errorMsg },
+        });
         results.push({
           contractId: contract.id,
           previousStatus: contract.cloudsignStatus,
@@ -238,6 +249,11 @@ export async function GET(request: Request) {
     });
   } catch (err) {
     console.error("[Cron] sync-cloudsign-status failed:", err);
+    await logAutomationError({
+      source: "cron/sync-cloudsign-status",
+      message: err instanceof Error ? err.message : "不明なエラー",
+      detail: { error: String(err) },
+    });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

@@ -5,6 +5,7 @@ import {
   type ImapConfig,
 } from "@/lib/email/imap-client";
 import { matchInboundInvoice } from "@/lib/email/inbound-invoice-matcher";
+import { logAutomationError } from "@/lib/automation-error";
 import fs from "fs/promises";
 import path from "path";
 
@@ -146,6 +147,11 @@ export async function GET(request: Request) {
                 `[Cron] Error processing attachment ${attachment.filename} from ${email.messageId}:`,
                 err
               );
+              await logAutomationError({
+                source: "cron/check-inbound-invoices",
+                message: `添付ファイル処理失敗: ${attachment.filename}`,
+                detail: { messageId: email.messageId, filename: attachment.filename, error: errMsg },
+              });
             }
           }
         }
@@ -164,6 +170,11 @@ export async function GET(request: Request) {
           `[Cron] Failed to process email account ${emailAccount.email}:`,
           err
         );
+        await logAutomationError({
+          source: "cron/check-inbound-invoices",
+          message: `メールアカウント接続失敗: ${emailAccount.email}`,
+          detail: { emailAddress: emailAccount.email, error: errMsg },
+        });
       }
 
       results.push(accountResult);
@@ -176,6 +187,11 @@ export async function GET(request: Request) {
     });
   } catch (err) {
     console.error("[Cron] check-inbound-invoices failed:", err);
+    await logAutomationError({
+      source: "cron/check-inbound-invoices",
+      message: err instanceof Error ? err.message : "不明なエラー",
+      detail: { error: String(err) },
+    });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

@@ -1,0 +1,5 @@
+PROLINE_EMAIL=metatrust717@gmail.com
+PROLINE_PASSWORD=meta2025
+PROLINE_LOGIN_UID=bwufzy
+CRON_SECRET=（.envと同じ値）
+APP_URL=http://localhost:4001

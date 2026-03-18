@@ -25,6 +25,7 @@ const STAFF_ONLY_PATHS = [
   "/staff",
   "/settings",
   "/stp",
+  "/slp",
   "/accounting",
   "/admin",
 ];
@@ -85,6 +86,9 @@ function isProjectMasterDataPath(pathname: string): boolean {
 function getRequiredProject(pathname: string): ProjectCode | null {
   if (pathname.startsWith("/stp")) {
     return "stp";
+  }
+  if (pathname.startsWith("/slp")) {
+    return "slp";
   }
   if (pathname.startsWith("/accounting")) {
     return "accounting";

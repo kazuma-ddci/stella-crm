@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { syncContractStatus } from "@/lib/cloudsign-sync";
+import { logAutomationError } from "@/lib/automation-error";
 
 /**
  * POST /api/cloudsign/webhook
@@ -67,6 +68,12 @@ export async function POST(request: NextRequest) {
     });
 
     if (!contract) {
+      // MasterContractに見つからない場合、SLPメンバーを検索
+      const slpHandled = await handleSlpMemberWebhook(documentID, status);
+      if (slpHandled) {
+        return NextResponse.json({ ok: true, message: "slp member status updated" });
+      }
+
       console.log(`[CloudSign Webhook] Contract not found for documentID=${documentID}`);
       return NextResponse.json({ ok: true, message: "contract not found, skipped" });
     }
@@ -144,9 +151,80 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, message: "status updated" });
   } catch (error) {
     console.error("[CloudSign Webhook] Error:", error);
+    await logAutomationError({
+      source: "cloudsign-webhook",
+      message: error instanceof Error ? error.message : "不明なエラー",
+      detail: { error: String(error) },
+    });
     // CloudSign側にリトライさせないため200を返す（内部エラーはログで追跡）
     return NextResponse.json({ ok: false, message: "internal error" });
   }
+}
+
+/**
+ * SLPメンバーの契約書ステータスをWebhookで自動更新
+ */
+async function handleSlpMemberWebhook(
+  documentID: string,
+  status: number
+): Promise<boolean> {
+  const member = await prisma.slpMember.findFirst({
+    where: { documentId: documentID, deletedAt: null },
+  });
+
+  if (!member) return false;
+
+  const now = new Date();
+
+  if (status === CS_STATUS_COMPLETED) {
+    // 締結完了
+    await prisma.slpMember.update({
+      where: { id: member.id },
+      data: {
+        status: "組合員契約書締結",
+        contractSignedDate: now,
+      },
+    });
+    console.log(
+      `[CloudSign Webhook] SLP member #${member.id} (${member.name}) → 組合員契約書締結`
+    );
+
+    // プロラインのビーコンURLを呼び出し（友だち追加カウント等の外部連携）
+    try {
+      const beaconUrl = `https://autosns.jp/api/call-beacon/xZugEszbhx/${member.uid}`;
+      const res = await fetch(beaconUrl);
+      console.log(
+        `[CloudSign Webhook] ProLine beacon called for uid=${member.uid}, status=${res.status}`
+      );
+    } catch (beaconErr) {
+      // ビーコン呼び出し失敗は契約締結処理をブロックしない
+      console.error(
+        `[CloudSign Webhook] ProLine beacon failed for uid=${member.uid}:`,
+        beaconErr
+      );
+      await logAutomationError({
+        source: "cloudsign-webhook",
+        message: `ProLineビーコン呼び出し失敗 (uid=${member.uid})`,
+        detail: { uid: member.uid, memberId: member.id, error: String(beaconErr) },
+      });
+    }
+
+    return true;
+  }
+
+  if (status === CS_STATUS_CANCELED) {
+    // 破棄
+    await prisma.slpMember.update({
+      where: { id: member.id },
+      data: { status: "契約破棄" },
+    });
+    console.log(
+      `[CloudSign Webhook] SLP member #${member.id} (${member.name}) → 契約破棄`
+    );
+    return true;
+  }
+
+  return false;
 }
 
 // GET: ヘルスチェック（Webhook URL疎通確認用）

@@ -1,5 +1,5 @@
 -- 既存プロジェクトの display_order を +1 して common の挿入スペースを作る
-UPDATE "master_projects" SET "display_order" = "display_order" + 1 WHERE code IN ('stp', 'srd', 'slo');
+UPDATE "master_projects" SET "display_order" = "display_order" + 1 WHERE code IN ('stp', 'srd', 'slp');
 
 -- common プロジェクトを追加
 INSERT INTO "master_projects" (code, name, description, "display_order", "is_active", "created_at", "updated_at")

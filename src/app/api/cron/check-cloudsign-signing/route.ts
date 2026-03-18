@@ -4,6 +4,7 @@ import {
   fetchCloudSignSigningEmails,
   type ImapConfig,
 } from "@/lib/email/imap-client";
+import { logAutomationError } from "@/lib/automation-error";
 
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
@@ -138,6 +139,11 @@ export async function GET(request: Request) {
           `[Cron/CloudSign] Failed to process email account ${emailAccount.email}:`,
           err
         );
+        await logAutomationError({
+          source: "cron/check-cloudsign-signing",
+          message: `メールアカウント処理失敗: ${emailAccount.email}`,
+          detail: { emailAddress: emailAccount.email, error: errMsg },
+        });
       }
 
       results.push(accountResult);
@@ -150,6 +156,11 @@ export async function GET(request: Request) {
     });
   } catch (err) {
     console.error("[Cron/CloudSign] check-cloudsign-signing failed:", err);
+    await logAutomationError({
+      source: "cron/check-cloudsign-signing",
+      message: err instanceof Error ? err.message : "不明なエラー",
+      detail: { error: String(err) },
+    });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

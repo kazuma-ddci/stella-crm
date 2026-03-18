@@ -91,6 +91,7 @@ async function resetSequences() {
     'CostCenter', 'ExpenseCategory', 'Counterparty',
     'kpi_monthly_targets',
     'field_change_logs',
+    'slp_stages',
   ];
   for (const table of tables) {
     try {
@@ -131,6 +132,27 @@ async function main() {
   });
   console.log('✓ Stages (11)');
 
+  // SLPパイプラインステージ
+  await prisma.slpStage.createMany({
+    data: [
+      { id: 1, name: 'リード', stageNumber: 1 },
+      { id: 2, name: '概要説明予約', stageNumber: 2 },
+      { id: 3, name: '概要説明完了', stageNumber: 3 },
+      { id: 4, name: '契約送付', stageNumber: 4 },
+      { id: 5, name: '契約締結', stageNumber: 5 },
+      { id: 6, name: '書類回収中', stageNumber: 6 },
+      { id: 7, name: '書類回収完了', stageNumber: 7 },
+      { id: 8, name: 'AI計算中', stageNumber: 8 },
+      { id: 9, name: '申請準備', stageNumber: 9 },
+      { id: 10, name: '申請済', stageNumber: 10 },
+      { id: 11, name: '還付待ち', stageNumber: 11 },
+      { id: 12, name: '還付完了', stageNumber: 12 },
+      { id: 13, name: '入金待ち', stageNumber: 13 },
+      { id: 14, name: '入金完了', stageNumber: 14 },
+    ],
+  });
+  console.log('✓ SLP Stages (14)');
+
   // 接触方法
   await prisma.contactMethod.createMany({
     data: [
@@ -148,7 +170,7 @@ async function main() {
     data: [
       { id: 1, code: 'stp', name: 'STP', description: '採用支援サービスの商談・契約管理', displayOrder: 2 },
       { id: 2, code: 'srd', name: 'SRD', description: 'システム受託開発プロジェクト管理', displayOrder: 3 },
-      { id: 3, code: 'slp', name: 'SLP', description: '公的財団関連プロジェクト管理', displayOrder: 4 },
+      { id: 3, code: 'slp', name: '公的制度教育推進協会', description: '公的制度教育推進協会', displayOrder: 4 },
       { id: 4, code: 'stella', name: 'Stella', description: '全顧客マスタ管理', displayOrder: 0 },
       { id: 5, code: 'common', name: '共通', description: '企業マスタ・スタッフ管理等の共通機能', displayOrder: 1, isActive: false },
       { id: 6, code: 'accounting', name: '経理', description: '経理・会計管理', displayOrder: 5 },

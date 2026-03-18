@@ -18,6 +18,8 @@ services:
     volumes:
       - ./credentials:/app/credentials:ro
       - prod_uploads:/app/public/uploads
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db-prod:
         condition: service_healthy

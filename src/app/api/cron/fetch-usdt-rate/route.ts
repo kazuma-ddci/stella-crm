@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { logAutomationError } from "@/lib/automation-error";
 
 // CoinGecko market_chart APIから直近180日の日次平均データを取得し、
 // DB未登録の日付をバックフィルする。
@@ -106,6 +107,11 @@ export async function GET(request: Request) {
     });
   } catch (err) {
     console.error("[Cron] fetch-usdt-rate failed:", err);
+    await logAutomationError({
+      source: "cron/fetch-usdt-rate",
+      message: err instanceof Error ? err.message : "不明なエラー",
+      detail: { error: String(err) },
+    });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
