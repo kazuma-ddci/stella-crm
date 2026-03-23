@@ -21,6 +21,7 @@ export async function getSlpMemberContracts(memberId: number) {
     },
     include: {
       currentStatus: true,
+      contractFiles: true,
     },
     orderBy: { createdAt: "desc" },
   });
@@ -39,10 +40,17 @@ export async function getSlpMemberContracts(memberId: number) {
     cloudsignStatus: c.cloudsignStatus,
     cloudsignUrl: c.cloudsignUrl,
     cloudsignAutoSync: c.cloudsignAutoSync,
+    cloudsignTitle: c.cloudsignTitle,
     cloudsignSentAt: c.cloudsignSentAt?.toISOString() ?? null,
+    cloudsignCompletedAt: c.cloudsignCompletedAt?.toISOString() ?? null,
     cloudsignLastRemindedAt: c.cloudsignLastRemindedAt?.toISOString() ?? null,
     filePath: c.filePath,
     fileName: c.fileName,
+    contractFiles: c.contractFiles.map((cf) => ({
+      id: cf.id,
+      filePath: cf.filePath,
+      fileName: cf.fileName,
+    })),
     note: c.note,
     createdAt: c.createdAt.toISOString(),
   }));

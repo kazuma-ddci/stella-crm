@@ -85,6 +85,7 @@ export default async function SlpProjectSettingsPage() {
           templateNames: ct.cloudsignTemplates.map((t) => t.template.name),
         }))}
         currentMemberContractTypeId={slpProject.slpMemberContractTypeId}
+        autoSendContract={slpProject.autoSendContract}
         emails={slpProject.projectEmails.map((pe) => ({
           email: pe.email.email,
           label: pe.email.label,

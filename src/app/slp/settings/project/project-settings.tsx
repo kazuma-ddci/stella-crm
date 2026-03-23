@@ -21,7 +21,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2, Mail, Landmark, Star, FileText } from "lucide-react";
-import { updateProjectBasicInfo, updateOperatingCompanyInfo, updateMemberContractType } from "./actions";
+import { Switch } from "@/components/ui/switch";
+import { updateProjectBasicInfo, updateOperatingCompanyInfo, updateMemberContractType, updateAutoSendContract } from "./actions";
 import { ProjectEmailsModal } from "@/app/settings/projects/project-emails-modal";
 import { ProjectBankAccountsModal } from "@/app/settings/projects/project-bank-accounts-modal";
 
@@ -68,11 +69,12 @@ type Props = {
   isSystemAdmin: boolean;
   contractTypes: ContractTypeOption[];
   currentMemberContractTypeId: number | null;
+  autoSendContract: boolean;
   emails: EmailItem[];
   bankAccounts: BankAccountItem[];
 };
 
-export function ProjectSettings({ project, operatingCompany, isSystemAdmin, contractTypes, currentMemberContractTypeId, emails, bankAccounts }: Props) {
+export function ProjectSettings({ project, operatingCompany, isSystemAdmin, contractTypes, currentMemberContractTypeId, autoSendContract, emails, bankAccounts }: Props) {
   const [projectName, setProjectName] = useState(project.name);
   const [projectDescription, setProjectDescription] = useState(
     project.description ?? ""
@@ -103,6 +105,9 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, cont
   );
   const [contractTypeSaving, setContractTypeSaving] = useState(false);
   const [contractTypeSuccess, setContractTypeSuccess] = useState(false);
+
+  const [autoSend, setAutoSend] = useState(autoSendContract);
+  const [autoSendSaving, setAutoSendSaving] = useState(false);
 
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [bankModalOpen, setBankModalOpen] = useState(false);
@@ -264,6 +269,47 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, cont
               <span className="text-sm text-green-600">保存しました</span>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>契約書自動送付</CardTitle>
+          <CardDescription>
+            入会フォーム回答時に契約書を自動送付するかを設定します。
+            OFFにすると、フォーム回答時はメンバー登録のみ行い、契約書は送付されません。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-3">
+            <Switch
+              id="auto-send"
+              checked={autoSend}
+              disabled={autoSendSaving}
+              onCheckedChange={async (checked) => {
+                setAutoSendSaving(true);
+                try {
+                  await updateAutoSendContract(project.id, checked);
+                  setAutoSend(checked);
+                } finally {
+                  setAutoSendSaving(false);
+                }
+              }}
+            />
+            <Label htmlFor="auto-send" className="flex items-center gap-2">
+              {autoSend ? (
+                <span className="text-green-600 font-medium">ON（自動送付する）</span>
+              ) : (
+                <span className="text-orange-600 font-medium">OFF（自動送付しない）</span>
+              )}
+              {autoSendSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+            </Label>
+          </div>
+          {!autoSend && (
+            <p className="text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded-md p-3">
+              現在、契約書の自動送付は停止中です。フォームから登録されたメンバーには、組合員名簿から手動で契約書を送付してください。
+            </p>
+          )}
         </CardContent>
       </Card>
 

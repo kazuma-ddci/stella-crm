@@ -923,6 +923,7 @@ model MasterProject {
   defaultCostCenterId        Int?    @map("default_cost_center_id")
   slpMemberContractTypeId    Int?    @map("slp_member_contract_type_id")  // SLP入会フォーム用の契約種別
   reminderDays               Int     @default(7) @map("reminder_days")    // 契約書送付から何日後にリマインドするか
+  autoSendContract           Boolean @default(true) @map("auto_send_contract")  // フォーム回答時の契約書自動送付ON/OFF
 
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")

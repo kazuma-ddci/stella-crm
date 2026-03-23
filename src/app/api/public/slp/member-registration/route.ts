@@ -250,6 +250,13 @@ export async function POST(request: NextRequest) {
     // =============================================
     const now = new Date();
 
+    // 自動送付設定を確認
+    const slpProjectSettings = await prisma.masterProject.findFirst({
+      where: { code: "slp" },
+      select: { autoSendContract: true },
+    });
+    const autoSendEnabled = slpProjectSettings?.autoSendContract ?? true;
+
     // CloudSign で契約書を送付（slpMemberIdは既存メンバーの場合のみ）
     let documentId: string | null = null;
     let cloudsignUrl: string | null = null;
@@ -259,33 +266,36 @@ export async function POST(request: NextRequest) {
 
     const existingMemberId = existingMember && !existingMember.deletedAt ? existingMember.id : null;
 
-    try {
-      const result = await sendSlpContract({
-        email: data.email,
-        name: data.name,
-        slpMemberId: existingMemberId ?? undefined,
-      });
-      documentId = result.documentId;
-      cloudsignUrl = result.cloudsignUrl;
-      contractId = result.contractId;
-      newStatus = "契約書送付済";
-      contractSentDate = now;
-    } catch (error) {
-      console.error("CloudSign send error:", error);
-      await logAutomationError({
-        source: "public/slp/member-registration",
-        message: `契約書送付失敗: ${data.name}`,
-        detail: {
-          retryAction: "cloudsign-send",
-          uid: data.uid,
-          name: data.name,
+    if (autoSendEnabled) {
+      try {
+        const result = await sendSlpContract({
           email: data.email,
-          error: String(error),
-        },
-      });
-      // 送付失敗しても登録は行う。ステータスを「送付エラー」にしてOS側で検知可能に
-      newStatus = "送付エラー";
+          name: data.name,
+          slpMemberId: existingMemberId ?? undefined,
+        });
+        documentId = result.documentId;
+        cloudsignUrl = result.cloudsignUrl;
+        contractId = result.contractId;
+        newStatus = "契約書送付済";
+        contractSentDate = now;
+      } catch (error) {
+        console.error("CloudSign send error:", error);
+        await logAutomationError({
+          source: "public/slp/member-registration",
+          message: `契約書送付失敗: ${data.name}`,
+          detail: {
+            retryAction: "cloudsign-send",
+            uid: data.uid,
+            name: data.name,
+            email: data.email,
+            error: String(error),
+          },
+        });
+        // 送付失敗しても登録は行う。ステータスを「送付エラー」にしてOS側で検知可能に
+        newStatus = "送付エラー";
+      }
     }
+    // autoSend OFF: newStatus = "契約書未送付" のまま
 
     if (existingMemberId) {
       // 既存メンバー更新（未送付/破棄からの再登録）

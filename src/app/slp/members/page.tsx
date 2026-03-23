@@ -14,7 +14,7 @@ function formatDateTimeMinute(date: Date | null): string | null {
 export default async function SlpMembersPage() {
   const slpProject = await prisma.masterProject.findFirst({
     where: { code: "slp" },
-    select: { id: true },
+    select: { id: true, autoSendContract: true },
   });
 
   const [members, contractStatuses, contractTypes] = await Promise.all([
@@ -95,6 +95,8 @@ export default async function SlpMembersPage() {
     label: t.name,
   }));
 
+  const autoSendContract = slpProject?.autoSendContract ?? true;
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">組合員名簿</h1>
@@ -103,6 +105,7 @@ export default async function SlpMembersPage() {
         memberOptions={memberOptions}
         contractStatusOptions={contractStatusOptions}
         contractTypeOptions={contractTypeOptions}
+        autoSendContract={autoSendContract}
       />
     </div>
   );

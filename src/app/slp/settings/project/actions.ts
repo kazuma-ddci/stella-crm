@@ -67,6 +67,22 @@ export async function updateOperatingCompanyInfo(
   revalidatePath("/slp/settings/project");
 }
 
+// 契約書自動送付ON/OFF更新
+export async function updateAutoSendContract(
+  projectId: number,
+  enabled: boolean
+) {
+  await requireProjectMasterDataEditPermission("slp");
+
+  await prisma.masterProject.update({
+    where: { id: projectId },
+    data: { autoSendContract: enabled },
+  });
+
+  revalidatePath("/slp/settings/project");
+  revalidatePath("/slp/members");
+}
+
 // 入会フォーム用契約種別の更新
 export async function updateMemberContractType(
   projectId: number,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendSlpRemind, isRemindable } from "@/lib/slp-cloudsign";
+import { sendSlpRemindLegacy } from "@/lib/slp-cloudsign-legacy";
 
 /**
  * POST /api/public/slp/member-remind
@@ -52,8 +53,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // CloudSign リマインド送信
-    await sendSlpRemind(member.documentId);
+    // CloudSign リマインド送信（MasterContract経由 or レガシー）
+    const contract = await prisma.masterContract.findFirst({
+      where: {
+        slpMemberId: member.id,
+        cloudsignStatus: "sent",
+        cloudsignDocumentId: { not: null },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (contract) {
+      await sendSlpRemind(contract.id);
+    } else {
+      await sendSlpRemindLegacy(member.documentId);
+    }
 
     // DB更新
     await prisma.slpMember.update({

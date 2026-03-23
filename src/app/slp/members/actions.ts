@@ -200,3 +200,64 @@ export async function clearResubmitted(id: number) {
 
   revalidatePath("/slp/members");
 }
+
+/**
+ * 選択されたメンバーに一括で契約書を送付
+ */
+export async function bulkSendContracts(memberIds: number[]): Promise<{
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: { id: number; name: string; success: boolean; error?: string }[];
+}> {
+  const members = await prisma.slpMember.findMany({
+    where: {
+      id: { in: memberIds },
+      deletedAt: null,
+    },
+  });
+
+  const results: { id: number; name: string; success: boolean; error?: string }[] = [];
+
+  for (const member of members) {
+    if (!member.email) {
+      results.push({ id: member.id, name: member.name, success: false, error: "メールアドレスなし" });
+      continue;
+    }
+    if (member.status === "組合員契約書締結") {
+      results.push({ id: member.id, name: member.name, success: false, error: "契約締結済み" });
+      continue;
+    }
+
+    try {
+      const result = await sendSlpContract({
+        email: member.email,
+        name: member.name,
+        slpMemberId: member.id,
+      });
+
+      await prisma.slpMember.update({
+        where: { id: member.id },
+        data: {
+          documentId: result.documentId,
+          cloudsignUrl: result.cloudsignUrl,
+          contractSentDate: new Date(),
+          status: "契約書送付済",
+          reminderCount: 0,
+          lastReminderSentAt: null,
+        },
+      });
+
+      results.push({ id: member.id, name: member.name, success: true });
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "不明なエラー";
+      results.push({ id: member.id, name: member.name, success: false, error: errorMsg });
+    }
+  }
+
+  revalidatePath("/slp/members");
+  revalidatePath("/slp/contracts");
+
+  const succeeded = results.filter((r) => r.success).length;
+  return { total: results.length, succeeded, failed: results.length - succeeded, results };
+}
