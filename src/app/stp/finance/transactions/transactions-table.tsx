@@ -526,27 +526,52 @@ export function TransactionsTable({ data, deletedData, counterpartyOptions }: Pr
                           )}
                         </Link>
                         {row.status === "unconfirmed" && activeTab !== "deleted" && (
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50 hover:text-blue-700 w-[5.5rem]" disabled={isPending}>
-                                確定
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>取引を確定しますか？</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  取引 #{row.id} を「取引確定」に変更します。確定後は編集できなくなります。
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>キャンセル</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => handleConfirm(row.id)}>
-                                  取引確定
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
+                          <>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50 hover:text-blue-700 w-[5.5rem]" disabled={isPending}>
+                                  確定
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>取引を確定しますか？</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    取引 #{row.id} を「取引確定」に変更します。確定後は編集できなくなります。
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => handleConfirm(row.id)}>
+                                    取引確定
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                            {!row.invoiceGroupId && !row.paymentGroupId && (
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="outline" size="sm" className="text-orange-600 border-orange-200 hover:bg-orange-50 hover:text-orange-700 w-[5.5rem]" disabled={isPending}>
+                                    取引化取消
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>取引化を取り消しますか？</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      取引 #{row.id} を削除し、未取引化の状態に戻します。売上ライフサイクル画面から再度取引化できます。
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                                    <AlertDialogAction variant="destructive" onClick={() => handleDelete(row.id)}>
+                                      取引化を取り消す
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            )}
+                          </>
                         )}
                         {row.status === "confirmed" && !row.invoiceGroupId && !row.paymentGroupId && activeTab !== "deleted" && (
                           <AlertDialog>

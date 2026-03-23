@@ -27,7 +27,19 @@ import {
   Banknote,
   Clock,
   Inbox,
+  Undo2,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   getBillingLifecycleData,
   createTransactionFromBilling,
@@ -36,6 +48,7 @@ import {
   createTransactionFromExpense,
   bulkCreateTransactionsFromExpenses,
 } from "./actions";
+import { deleteTransaction } from "@/app/accounting/transactions/actions";
 import type {
   BillingLifecycleData,
   BillingLifecycleItem,
@@ -266,11 +279,15 @@ function RevenueItemRow({
   item,
   status,
   onCreateTransaction,
+  onCancelTransaction,
+  isCancelling,
   isCreating,
 }: {
   item: BillingLifecycleItem;
   status: LifecycleStatus;
   onCreateTransaction?: (item: BillingLifecycleItem) => void;
+  onCancelTransaction?: (transactionId: number) => void;
+  isCancelling?: boolean;
   isCreating?: boolean;
 }) {
   const router = useRouter();
@@ -345,6 +362,29 @@ function RevenueItemRow({
               {isCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : "取引化する"}
             </Button>
           )}
+          {status === "unconfirmed" && item.transactionId && onCancelTransaction && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-50 hover:text-orange-700" onClick={(e) => e.stopPropagation()} disabled={isCancelling}>
+                  {isCancelling ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Undo2 className="h-3 w-3 mr-1" />取引化取消</>}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>取引化を取り消しますか？</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    この取引を削除し、未取引化の状態に戻します。再度「取引化する」ボタンで取引を作り直せます。
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                  <AlertDialogAction variant="destructive" onClick={() => onCancelTransaction(item.transactionId!)}>
+                    取引化を取り消す
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
           {isNavigable && (
             <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={(e) => { e.stopPropagation(); handleNavigate(); }}>
               <ExternalLink className="h-3 w-3 text-gray-400" />
@@ -384,11 +424,15 @@ function ExpenseItemRow({
   item,
   status,
   onCreateTransaction,
+  onCancelTransaction,
+  isCancelling,
   isCreating,
 }: {
   item: ExpenseLifecycleItem;
   status: ExpenseLifecycleStatus;
   onCreateTransaction?: (item: ExpenseLifecycleItem) => void;
+  onCancelTransaction?: (transactionId: number) => void;
+  isCancelling?: boolean;
   isCreating?: boolean;
 }) {
   const router = useRouter();
@@ -456,6 +500,29 @@ function ExpenseItemRow({
             <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); onCreateTransaction(item); }} disabled={isCreating}>
               {isCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : "取引化する"}
             </Button>
+          )}
+          {status === "unconfirmed" && item.transactionId && onCancelTransaction && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-50 hover:text-orange-700" onClick={(e) => e.stopPropagation()} disabled={isCancelling}>
+                  {isCancelling ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Undo2 className="h-3 w-3 mr-1" />取引化取消</>}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>取引化を取り消しますか？</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    この取引を削除し、未取引化の状態に戻します。再度「取引化する」ボタンで取引を作り直せます。
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                  <AlertDialogAction variant="destructive" onClick={() => onCancelTransaction(item.transactionId!)}>
+                    取引化を取り消す
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
           {isNavigable && (
             <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={(e) => { e.stopPropagation(); handleNavigate(); }}>
@@ -670,6 +737,35 @@ export function BillingLifecycleView({
     }
   };
 
+  // 取引化取消
+  const [isCancelling, setIsCancelling] = useState(false);
+
+  const handleCancelRevenueTransaction = async (transactionId: number) => {
+    setIsCancelling(true);
+    try {
+      await deleteTransaction(transactionId);
+      toast.success("取引化を取り消しました");
+      await loadRevenueData(selectedMonth);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "取引化取消に失敗しました");
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  const handleCancelExpenseTransaction = async (transactionId: number) => {
+    setIsCancelling(true);
+    try {
+      await deleteTransaction(transactionId);
+      toast.success("取引化を取り消しました");
+      await loadExpenseData(selectedMonth);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "取引化取消に失敗しました");
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
   const formatMonthLabel = (month: string): string => {
     const [y, m] = month.split("-");
     return `${y}年${parseInt(m, 10)}月`;
@@ -808,6 +904,8 @@ export function BillingLifecycleView({
                             item={item}
                             status={status}
                             onCreateTransaction={status === "not_created" ? handleCreateRevenueTransaction : undefined}
+                            onCancelTransaction={status === "unconfirmed" ? handleCancelRevenueTransaction : undefined}
+                            isCancelling={isCancelling}
                             isCreating={isCreating}
                           />
                         ))
@@ -896,6 +994,8 @@ export function BillingLifecycleView({
                             item={item}
                             status={status}
                             onCreateTransaction={status === "not_created" ? handleCreateExpenseTransaction : undefined}
+                            onCancelTransaction={status === "unconfirmed" ? handleCancelExpenseTransaction : undefined}
+                            isCancelling={isCancelling}
                             isCreating={isCreating}
                           />
                         ))
