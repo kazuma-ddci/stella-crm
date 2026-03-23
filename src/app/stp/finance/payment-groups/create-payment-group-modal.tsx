@@ -92,7 +92,7 @@ export function CreatePaymentGroupModal({
   const otherCounterparties = useMemo(() => {
     return counterpartyOptions
       .filter((o) => !o.isStellaCustomer)
-      .sort((a, b) => Number(a.value) - Number(b.value));
+      .sort((a, b) => extractDisplayNum(b.label) - extractDisplayNum(a.label));
   }, [counterpartyOptions]);
 
   const filteredCounterparties = useMemo(() => {

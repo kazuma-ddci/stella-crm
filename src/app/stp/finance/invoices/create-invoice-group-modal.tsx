@@ -85,6 +85,8 @@ export function CreateInvoiceGroupModal({
   // 請求書の宛先（デフォルトはStep1で選んだ取引先）
   const [billingCounterpartyId, setBillingCounterpartyId] = useState<string>("");
   const [isEditingBilling, setIsEditingBilling] = useState(false);
+  const [billingTab, setBillingTab] = useState<"stella" | "other">("stella");
+  const [billingSearch, setBillingSearch] = useState("");
   const isBillingRedirected = billingCounterpartyId !== "" && billingCounterpartyId !== counterpartyId;
   const effectiveCounterpartyId = billingCounterpartyId || counterpartyId;
 
@@ -113,7 +115,7 @@ export function CreateInvoiceGroupModal({
   const otherCounterparties = useMemo(() => {
     return counterpartyOptions
       .filter((o) => !o.isStellaCustomer)
-      .sort((a, b) => Number(a.value) - Number(b.value));
+      .sort((a, b) => extractDisplayNum(b.label) - extractDisplayNum(a.label));
   }, [counterpartyOptions]);
 
   const filteredCounterparties = useMemo(() => {
@@ -122,6 +124,14 @@ export function CreateInvoiceGroupModal({
     const q = counterpartySearch.toLowerCase();
     return source.filter((o) => o.label.toLowerCase().includes(q));
   }, [counterpartyTab, stellaCounterparties, otherCounterparties, counterpartySearch]);
+
+  // 宛先変更用タブ分けオプション
+  const filteredBillingOptions = useMemo(() => {
+    const source = billingTab === "stella" ? stellaCounterparties : otherCounterparties;
+    if (!billingSearch) return source;
+    const q = billingSearch.toLowerCase();
+    return source.filter((o) => o.label.toLowerCase().includes(q));
+  }, [billingTab, stellaCounterparties, otherCounterparties, billingSearch]);
 
   const handleCounterpartyTabChange = (tab: "stella" | "other") => {
     setCounterpartyTab(tab);
@@ -499,25 +509,52 @@ export function CreateInvoiceGroupModal({
                   ) : null}
                 </div>
                 {isEditingBilling ? (
-                  <select
-                    id="billingCounterpartyId"
-                    value={effectiveCounterpartyId}
-                    onChange={(e) => {
-                      setBillingCounterpartyId(e.target.value);
-                      setPaymentDueDate("");
-                    }}
-                    className={`mt-1 w-full h-10 rounded-md border px-3 text-sm ${
-                      isBillingRedirected
-                        ? "border-amber-400 bg-amber-50 text-amber-900"
-                        : "border-input bg-background"
-                    }`}
-                  >
-                    {counterpartyOptions.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className={`mt-1 rounded-md border ${isBillingRedirected ? "border-amber-400 bg-amber-50" : "border-input"}`}>
+                    <div className="flex border-b">
+                      <button
+                        type="button"
+                        className={`flex-1 px-3 py-1.5 text-xs font-medium ${billingTab === "stella" ? "bg-white border-b-2 border-blue-500 text-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+                        onClick={() => { setBillingTab("stella"); setBillingSearch(""); }}
+                      >
+                        Stella顧客 ({stellaCounterparties.length})
+                      </button>
+                      <button
+                        type="button"
+                        className={`flex-1 px-3 py-1.5 text-xs font-medium ${billingTab === "other" ? "bg-white border-b-2 border-blue-500 text-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+                        onClick={() => { setBillingTab("other"); setBillingSearch(""); }}
+                      >
+                        その他 ({otherCounterparties.length})
+                      </button>
+                    </div>
+                    <div className="p-2">
+                      <Input
+                        placeholder="検索..."
+                        value={billingSearch}
+                        onChange={(e) => setBillingSearch(e.target.value)}
+                        className="h-8 text-sm mb-2"
+                      />
+                      <div className="max-h-40 overflow-y-auto space-y-0.5">
+                        {filteredBillingOptions.map((o) => (
+                          <button
+                            key={o.value}
+                            type="button"
+                            className={`w-full text-left px-2 py-1.5 rounded text-sm hover:bg-blue-50 ${
+                              effectiveCounterpartyId === o.value ? "bg-blue-100 font-medium" : ""
+                            }`}
+                            onClick={() => {
+                              setBillingCounterpartyId(o.value);
+                              setPaymentDueDate("");
+                            }}
+                          >
+                            {o.label}
+                          </button>
+                        ))}
+                        {filteredBillingOptions.length === 0 && (
+                          <p className="text-xs text-muted-foreground py-2 text-center">該当なし</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 ) : (
                   <Input
                     value={counterpartyOptions.find((o) => o.value === effectiveCounterpartyId)?.label ?? ""}

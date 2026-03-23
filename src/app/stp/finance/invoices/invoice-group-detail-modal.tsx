@@ -81,7 +81,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   group: InvoiceGroupListItem;
-  counterpartyOptions: { value: string; label: string }[];
+  counterpartyOptions: { value: string; label: string; isStellaCustomer?: boolean }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
   expenseCategories: { id: number; name: string; type: string }[];
@@ -124,6 +124,31 @@ export function InvoiceGroupDetailModal({
   );
   const [isEditingBilling, setIsEditingBilling] = useState(false);
   const isBillingChanged = String(group.counterpartyId) !== counterpartyId;
+  const [billingTab, setBillingTab] = useState<"stella" | "other">("stella");
+  const [billingSearch, setBillingSearch] = useState("");
+
+  // 宛先選択肢のタブ分け＋ソート
+  const extractDisplayNum = (label: string): number => {
+    const match = label.match(/^(?:SC|TP)-(\d+)/);
+    return match ? Number(match[1]) : 0;
+  };
+  const stellaBillingOptions = useMemo(() => {
+    return counterpartyOptions
+      .filter((o) => o.isStellaCustomer)
+      .sort((a, b) => extractDisplayNum(b.label) - extractDisplayNum(a.label));
+  }, [counterpartyOptions]);
+  const otherBillingOptions = useMemo(() => {
+    return counterpartyOptions
+      .filter((o) => !o.isStellaCustomer)
+      .sort((a, b) => extractDisplayNum(b.label) - extractDisplayNum(a.label));
+  }, [counterpartyOptions]);
+  const filteredBillingOptions = useMemo(() => {
+    const source = billingTab === "stella" ? stellaBillingOptions : otherBillingOptions;
+    if (!billingSearch) return source;
+    const q = billingSearch.toLowerCase();
+    return source.filter((o) => o.label.toLowerCase().includes(q));
+  }, [billingTab, stellaBillingOptions, otherBillingOptions, billingSearch]);
+
   const [bankAccountId, setBankAccountId] = useState<string>(
     group.bankAccountId ? String(group.bankAccountId) : ""
   );
@@ -1036,21 +1061,49 @@ export function InvoiceGroupDetailModal({
                     )}
                   </div>
                   {isEditable && isEditingBilling ? (
-                    <select
-                      value={String(counterpartyId)}
-                      onChange={(e) => setCounterpartyId(e.target.value)}
-                      className={`mt-1 w-full h-10 rounded-md border px-3 text-sm ${
-                        isBillingChanged
-                          ? "border-amber-400 bg-amber-50 text-amber-900"
-                          : "border-input bg-background"
-                      }`}
-                    >
-                      {counterpartyOptions.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
+                    <div className={`mt-1 rounded-md border ${isBillingChanged ? "border-amber-400 bg-amber-50" : "border-input"}`}>
+                      <div className="flex border-b">
+                        <button
+                          type="button"
+                          className={`flex-1 px-3 py-1.5 text-xs font-medium ${billingTab === "stella" ? "bg-white border-b-2 border-blue-500 text-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+                          onClick={() => { setBillingTab("stella"); setBillingSearch(""); }}
+                        >
+                          Stella顧客 ({stellaBillingOptions.length})
+                        </button>
+                        <button
+                          type="button"
+                          className={`flex-1 px-3 py-1.5 text-xs font-medium ${billingTab === "other" ? "bg-white border-b-2 border-blue-500 text-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+                          onClick={() => { setBillingTab("other"); setBillingSearch(""); }}
+                        >
+                          その他 ({otherBillingOptions.length})
+                        </button>
+                      </div>
+                      <div className="p-2">
+                        <Input
+                          placeholder="検索..."
+                          value={billingSearch}
+                          onChange={(e) => setBillingSearch(e.target.value)}
+                          className="h-8 text-sm mb-2"
+                        />
+                        <div className="max-h-40 overflow-y-auto space-y-0.5">
+                          {filteredBillingOptions.map((o) => (
+                            <button
+                              key={o.value}
+                              type="button"
+                              className={`w-full text-left px-2 py-1.5 rounded text-sm hover:bg-blue-50 ${
+                                counterpartyId === o.value ? "bg-blue-100 font-medium" : ""
+                              }`}
+                              onClick={() => setCounterpartyId(o.value)}
+                            >
+                              {o.label}
+                            </button>
+                          ))}
+                          {filteredBillingOptions.length === 0 && (
+                            <p className="text-xs text-muted-foreground py-2 text-center">該当なし</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   ) : (
                     <Input
                       value={
