@@ -357,7 +357,14 @@ export function InvoiceGroupsTable({
                       </span>
                     )}
                   </TableCell>
-                  <TableCell>{row.counterpartyName}</TableCell>
+                  <TableCell>
+                    {row.counterpartyName}
+                    {row.originalCounterpartyName && (
+                      <span className="ml-1 text-xs text-amber-600" title={`取引先: ${row.originalCounterpartyName}`}>
+                        (宛先変更)
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {row.operatingCompanyName}
                   </TableCell>

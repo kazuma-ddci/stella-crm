@@ -2,6 +2,7 @@ export type InvoiceGroupListItem = {
   id: number;
   counterpartyId: number;
   counterpartyName: string;
+  originalCounterpartyName: string | null; // 宛先変更時の元の取引先名（null=変更なし）
   operatingCompanyId: number;
   operatingCompanyName: string;
   bankAccountId: number | null;

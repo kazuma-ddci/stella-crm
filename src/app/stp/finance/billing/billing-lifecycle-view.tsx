@@ -151,23 +151,14 @@ const REVENUE_STATUS_ORDER: LifecycleStatus[] = [
 // ============================================
 
 const EXPENSE_STATUS_CONFIGS: Record<ExpenseLifecycleStatus, StatusConfig<ExpenseLifecycleStatus>> = {
-  pending: {
-    label: "未承認",
-    color: "text-gray-700",
-    bgColor: "bg-gray-50",
-    borderColor: "border-gray-200",
-    badgeClassName: "bg-gray-100 text-gray-800 border-gray-200",
-    icon: Clock,
-    summaryKey: "pending",
-  },
-  approved: {
-    label: "承認済み・未取引化",
+  not_created: {
+    label: "未取引化",
     color: "text-red-700",
     bgColor: "bg-red-50",
     borderColor: "border-red-200",
     badgeClassName: "bg-red-100 text-red-800 border-red-200",
     icon: AlertCircle,
-    summaryKey: "approved",
+    summaryKey: "notCreated",
   },
   unconfirmed: {
     label: "取引化済み・未確定",
@@ -226,8 +217,7 @@ const EXPENSE_STATUS_CONFIGS: Record<ExpenseLifecycleStatus, StatusConfig<Expens
 };
 
 const EXPENSE_STATUS_ORDER: ExpenseLifecycleStatus[] = [
-  "pending",
-  "approved",
+  "not_created",
   "unconfirmed",
   "confirmed",
   "in_payment_group",
@@ -320,6 +310,9 @@ function RevenueItemRow({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className="font-medium text-sm truncate">{item.companyName}</span>
+            {item.billingCounterpartyName && (
+              <span className="text-xs text-red-600 font-medium shrink-0">({item.billingCounterpartyName})</span>
+            )}
             <Badge variant="outline" className="text-xs shrink-0">
               {FEE_TYPE_LABELS[item.feeType] || item.feeType}
             </Badge>
@@ -363,6 +356,9 @@ function RevenueItemRow({
         <div className="border-t px-4 py-3 bg-gray-50/50 rounded-b-lg">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2 text-sm">
             <div><span className="text-gray-500">企業名:</span> <span className="font-medium">{item.companyName}</span></div>
+            {item.billingCounterpartyName && (
+              <div><span className="text-gray-500">実際の請求先:</span> <span className="font-medium text-red-600">{item.billingCounterpartyName}</span></div>
+            )}
             <div><span className="text-gray-500">費目:</span> <span className="font-medium">{FEE_TYPE_LABELS[item.feeType] || item.feeType}</span></div>
             <div><span className="text-gray-500">金額:</span> <span className="font-medium">{formatAmount(item.amount)}</span></div>
             <div><span className="text-gray-500">対象期間:</span> <span className="font-medium">{formatDateDisplay(item.periodFrom)} - {formatDateDisplay(item.periodTo)}</span></div>
@@ -400,7 +396,7 @@ function ExpenseItemRow({
   const [now] = useState(() => Date.now());
 
   const handleNavigate = () => {
-    if (status === "pending" || status === "approved") return;
+    if (status === "not_created") return;
     if (item.transactionId) {
       if (status === "unconfirmed") {
         router.push(`/stp/finance/transactions/${item.transactionId}/edit`);
@@ -412,7 +408,7 @@ function ExpenseItemRow({
     }
   };
 
-  const isNavigable = status !== "pending" && status !== "approved" && item.transactionId;
+  const isNavigable = status !== "not_created" && item.transactionId;
   const overdueDays =
     status === "overdue" && item.paymentDueDate
       ? Math.floor((now - new Date(item.paymentDueDate).getTime()) / (1000 * 60 * 60 * 24))
@@ -456,7 +452,7 @@ function ExpenseItemRow({
           {overdueDays != null && overdueDays > 0 && (
             <Badge className="bg-red-600 text-white text-xs">{overdueDays}日超過</Badge>
           )}
-          {status === "approved" && onCreateTransaction && (
+          {status === "not_created" && onCreateTransaction && (
             <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); onCreateTransaction(item); }} disabled={isCreating}>
               {isCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : "取引化する"}
             </Button>
@@ -523,7 +519,7 @@ export function BillingLifecycleView({
   // 経費
   const [expenseData, setExpenseData] = useState<ExpenseLifecycleData | null>(null);
   const [isExpenseLoading, setIsExpenseLoading] = useState(false);
-  const [activeExpenseStatus, setActiveExpenseStatus] = useState<ExpenseLifecycleStatus>("approved");
+  const [activeExpenseStatus, setActiveExpenseStatus] = useState<ExpenseLifecycleStatus>("not_created");
 
   const [isCreating, setIsCreating] = useState(false);
 
@@ -622,7 +618,17 @@ export function BillingLifecycleView({
     setIsCreating(true);
     try {
       const result = await createTransactionFromExpense({
-        expenseRecordId: item.expenseRecordId,
+        expenseType: item.expenseType,
+        agentId: item.agentId,
+        agentContractHistoryId: item.agentContractHistoryId,
+        contractHistoryId: item.contractHistoryId,
+        stpCompanyId: item.stpCompanyId,
+        candidateId: item.candidateId,
+        amount: item.amount,
+        periodFrom: item.periodFrom,
+        periodTo: item.periodTo,
+        agentName: item.agentName,
+        companyName: item.companyName,
       });
       toast.success(`経費取引を作成しました（ID: ${result.transactionId}）`);
       await loadExpenseData(selectedMonth);
@@ -635,14 +641,24 @@ export function BillingLifecycleView({
 
   const handleBulkCreateExpense = async () => {
     if (!expenseData) return;
-    const approvedItems = expenseData.items.filter((i) => i.status === "approved");
-    if (approvedItems.length === 0) return;
-    if (!window.confirm(`${approvedItems.length}件の経費取引を一括作成します。よろしいですか？`)) return;
+    const notCreatedItems = expenseData.items.filter((i) => i.status === "not_created");
+    if (notCreatedItems.length === 0) return;
+    if (!window.confirm(`${notCreatedItems.length}件の経費取引を一括作成します。よろしいですか？`)) return;
 
     setIsCreating(true);
     try {
-      const inputs = approvedItems.map((item) => ({
-        expenseRecordId: item.expenseRecordId,
+      const inputs = notCreatedItems.map((item) => ({
+        expenseType: item.expenseType,
+        agentId: item.agentId,
+        agentContractHistoryId: item.agentContractHistoryId,
+        contractHistoryId: item.contractHistoryId,
+        stpCompanyId: item.stpCompanyId,
+        candidateId: item.candidateId,
+        amount: item.amount,
+        periodFrom: item.periodFrom,
+        periodTo: item.periodTo,
+        agentName: item.agentName,
+        companyName: item.companyName,
       }));
       const result = await bulkCreateTransactionsFromExpenses(inputs);
       toast.success(`${result.created}件の経費取引を作成しました`);
@@ -819,7 +835,7 @@ export function BillingLifecycleView({
               <Card className="p-3">
                 <div className="text-xs text-gray-500">未取引化</div>
                 <div className="text-xl font-bold text-red-600">
-                  {expenseData.summary.pending + expenseData.summary.approved}件
+                  {expenseData.summary.notCreated}件
                 </div>
               </Card>
               <Card className="p-3">
@@ -862,7 +878,7 @@ export function BillingLifecycleView({
                 const count = (expenseData.summary as Record<string, number>)[config.summaryKey] ?? 0;
                 return (
                   <TabsContent key={status} value={status} className="mt-4">
-                    {status === "approved" && count > 0 && (
+                    {status === "not_created" && count > 0 && (
                       <div className="flex justify-end mb-3">
                         <Button size="sm" onClick={handleBulkCreateExpense} disabled={isCreating}>
                           {isCreating && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
@@ -879,7 +895,7 @@ export function BillingLifecycleView({
                             key={item.id}
                             item={item}
                             status={status}
-                            onCreateTransaction={status === "approved" ? handleCreateExpenseTransaction : undefined}
+                            onCreateTransaction={status === "not_created" ? handleCreateExpenseTransaction : undefined}
                             isCreating={isCreating}
                           />
                         ))

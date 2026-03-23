@@ -119,6 +119,9 @@ export function InvoiceGroupDetailModal({
   const [returnRequestBody, setReturnRequestBody] = useState("");
 
   // 編集可能な情報
+  const [counterpartyId, setCounterpartyId] = useState<string>(
+    String(group.counterpartyId)
+  );
   const [bankAccountId, setBankAccountId] = useState<string>(
     group.bankAccountId ? String(group.bankAccountId) : ""
   );
@@ -327,6 +330,7 @@ export function InvoiceGroupDetailModal({
     setLoading(true);
     try {
       await updateInvoiceGroup(group.id, {
+        counterpartyId: Number(counterpartyId),
         bankAccountId: bankAccountId ? Number(bankAccountId) : null,
         invoiceDate: invoiceDate || null,
         paymentDueDate: paymentDueDate || null,
@@ -979,15 +983,42 @@ export function InvoiceGroupDetailModal({
                 </div>
               )}
 
+              {/* 宛先変更の警告 */}
+              {group.originalCounterpartyName && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-sm text-amber-800">
+                    <p className="font-medium">宛先が変更されています</p>
+                    <p className="text-amber-700 mt-0.5">
+                      取引先「{group.originalCounterpartyName}」の取引を、「{group.counterpartyName}」宛の請求書として発行します。
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* 基本情報フォーム */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <Label>取引先</Label>
-                  <Input
-                    value={group.counterpartyName}
-                    disabled
-                    className="mt-1 disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-900"
-                  />
+                  <Label>請求書の宛先</Label>
+                  {isEditable ? (
+                    <select
+                      value={String(counterpartyId)}
+                      onChange={(e) => setCounterpartyId(e.target.value)}
+                      className="mt-1 w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {counterpartyOptions.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      value={group.counterpartyName}
+                      disabled
+                      className="mt-1 disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-900"
+                    />
+                  )}
                 </div>
                 <div>
                   <Label>請求元法人</Label>

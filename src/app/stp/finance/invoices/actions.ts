@@ -65,18 +65,41 @@ export async function getInvoiceGroups(
       operatingCompany: true,
       bankAccount: true,
       originalInvoiceGroup: { select: { invoiceNumber: true } },
-      transactions: { where: { deletedAt: null }, select: { id: true } },
+      transactions: { where: { deletedAt: null }, select: { id: true, counterpartyId: true }, take: 1 },
       allocationItems: { select: { id: true } },
       creator: true,
-      _count: { select: { memoLines: true } },
+      _count: { select: { memoLines: true, transactions: { where: { deletedAt: null } } } },
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
 
-  return records.map((r) => ({
+  // 宛先変更されている請求書の元取引先名を一括取得
+  const redirectedCounterpartyIds = new Set<number>();
+  for (const r of records) {
+    const txCpId = r.transactions[0]?.counterpartyId;
+    if (txCpId && txCpId !== r.counterpartyId) {
+      redirectedCounterpartyIds.add(txCpId);
+    }
+  }
+  const originalCpMap = new Map<number, string>();
+  if (redirectedCounterpartyIds.size > 0) {
+    const cps = await prisma.counterparty.findMany({
+      where: { id: { in: [...redirectedCounterpartyIds] } },
+      select: { id: true, name: true },
+    });
+    for (const cp of cps) {
+      originalCpMap.set(cp.id, cp.name);
+    }
+  }
+
+  return records.map((r) => {
+    const txCpId = r.transactions[0]?.counterpartyId ?? null;
+    const isRedirected = txCpId !== null && txCpId !== r.counterpartyId;
+    return {
     id: r.id,
     counterpartyId: r.counterpartyId,
     counterpartyName: r.counterparty.name,
+    originalCounterpartyName: isRedirected ? (originalCpMap.get(txCpId) ?? null) : null,
     operatingCompanyId: r.operatingCompanyId,
     operatingCompanyName: r.operatingCompany.companyName,
     bankAccountId: r.bankAccountId,
@@ -100,11 +123,12 @@ export async function getInvoiceGroups(
     remarks: r.remarks,
     lineOrder: r.lineOrder as string[] | null,
     memoLineCount: r._count.memoLines,
-    transactionCount: r.transactions.length,
+    transactionCount: r._count.transactions,
     allocationItemCount: r.allocationItems.length,
     createdByName: r.creator.name,
     createdAt: toLocalDateString(r.createdAt),
-  }));
+  };
+  });
 }
 
 // 単一の請求グループを取得
@@ -118,17 +142,31 @@ export async function getInvoiceGroupById(
       operatingCompany: true,
       bankAccount: true,
       originalInvoiceGroup: { select: { invoiceNumber: true } },
-      transactions: { where: { deletedAt: null }, select: { id: true } },
+      transactions: { where: { deletedAt: null }, select: { id: true, counterpartyId: true } },
       allocationItems: { select: { id: true } },
       creator: true,
       _count: { select: { memoLines: true } },
     },
   });
   if (!r) return null;
+
+  // 宛先変更の判定
+  const txCpId = r.transactions[0]?.counterpartyId ?? null;
+  const isRedirected = txCpId !== null && txCpId !== r.counterpartyId;
+  let origCpName: string | null = null;
+  if (isRedirected) {
+    const origCp = await prisma.counterparty.findUnique({
+      where: { id: txCpId },
+      select: { name: true },
+    });
+    origCpName = origCp?.name ?? null;
+  }
+
   return {
     id: r.id,
     counterpartyId: r.counterpartyId,
     counterpartyName: r.counterparty.name,
+    originalCounterpartyName: origCpName,
     operatingCompanyId: r.operatingCompanyId,
     operatingCompanyName: r.operatingCompany.companyName,
     bankAccountId: r.bankAccountId,
@@ -374,9 +412,7 @@ export async function createInvoiceGroup(data: {
     if (counterpartyIds.size > 1) {
       throw new Error("異なる取引先の取引は同じ請求に入れられません");
     }
-    if (!counterpartyIds.has(data.counterpartyId)) {
-      throw new Error("取引先が一致しません");
-    }
+    // 請求書の宛先は取引の取引先と異なってもOK（グループ会社への請求先変更等）
 
     // 金額計算（取引の税額を単純合計）
     const { subtotal, taxAmount, totalAmount } = calcGroupTotals(transactions);
@@ -472,6 +508,7 @@ export async function createInvoiceGroup(data: {
 export async function updateInvoiceGroup(
   id: number,
   data: {
+    counterpartyId?: number;
     bankAccountId?: number | null;
     invoiceDate?: string | null;
     paymentDueDate?: string | null;
@@ -517,6 +554,8 @@ export async function updateInvoiceGroup(
     updatedBy: user.id,
   };
 
+  if ("counterpartyId" in data)
+    updateData.counterpartyId = data.counterpartyId;
   if ("bankAccountId" in data)
     updateData.bankAccountId = data.bankAccountId ?? null;
   if ("invoiceDate" in data)
@@ -632,17 +671,26 @@ export async function addTransactionToGroup(
     throw new Error("按分取引は直接請求に所属できません。按分明細として追加してください。");
   }
 
+  // 既存取引の取引先を取得（請求書の宛先と異なる場合があるため、取引ベースでチェック）
+  const existingCounterpartyIds = new Set(
+    group.transactions.map((t) => t.counterpartyId)
+  );
+
   // 追加する取引を検証（projectIdでスコープ）
+  const txWhere: Record<string, unknown> = {
+    id: { in: transactionIds },
+    deletedAt: null,
+    status: "confirmed",
+    invoiceGroupId: null,
+    type: "revenue",
+    projectId: stpProjectId,
+  };
+  // 既存取引がある場合は同一取引先のみ追加可能
+  if (existingCounterpartyIds.size === 1) {
+    txWhere.counterpartyId = [...existingCounterpartyIds][0];
+  }
   const transactions = await prisma.transaction.findMany({
-    where: {
-      id: { in: transactionIds },
-      deletedAt: null,
-      status: "confirmed",
-      invoiceGroupId: null,
-      type: "revenue",
-      counterpartyId: group.counterpartyId,
-      projectId: stpProjectId,
-    },
+    where: txWhere,
   });
 
   if (transactions.length === 0) {
@@ -1403,10 +1451,28 @@ export async function getInvoiceGroupDetail(groupId: number) {
   }));
   const taxSummary = calcInvoiceTaxSummary(lineItemsForTax);
 
+  // 取引元の取引先を取得（宛先変更の判別用）
+  const transactionCounterpartyIds = new Set(
+    group.transactions.map((t) => t.counterpartyId)
+  );
+  const originalCounterpartyId = transactionCounterpartyIds.size === 1
+    ? [...transactionCounterpartyIds][0]
+    : null;
+  let originalCounterpartyName: string | null = null;
+  if (originalCounterpartyId && originalCounterpartyId !== group.counterpartyId) {
+    const originalCp = await prisma.counterparty.findUnique({
+      where: { id: originalCounterpartyId },
+      select: { name: true },
+    });
+    originalCounterpartyName = originalCp?.name ?? null;
+  }
+
   return {
     id: group.id,
     counterpartyId: group.counterpartyId,
     counterpartyName: group.counterparty.name,
+    originalCounterpartyId,
+    originalCounterpartyName,
     operatingCompanyId: group.operatingCompanyId,
     operatingCompanyName: group.operatingCompany.companyName,
     operatingCompany: {

@@ -82,6 +82,11 @@ export function CreateInvoiceGroupModal({
   );
 
   // Step 3: 請求情報
+  // 請求書の宛先（デフォルトはStep1で選んだ取引先）
+  const [billingCounterpartyId, setBillingCounterpartyId] = useState<string>("");
+  const isBillingRedirected = billingCounterpartyId !== "" && billingCounterpartyId !== counterpartyId;
+  const effectiveCounterpartyId = billingCounterpartyId || counterpartyId;
+
   const [operatingCompanyId, setOperatingCompanyId] = useState<string>(
     operatingCompanyOptions[0]?.value ?? ""
   );
@@ -150,7 +155,7 @@ export function CreateInvoiceGroupModal({
     if (paymentDueDate) return; // 既に設定済みならスキップ
     let cancelled = false;
     setLoadingDueDate(true);
-    calculatePaymentDueDate(Number(counterpartyId), Number(operatingCompanyId))
+    calculatePaymentDueDate(Number(effectiveCounterpartyId), Number(operatingCompanyId))
       .then((date) => {
         if (!cancelled && date) {
           setPaymentDueDate(date);
@@ -160,7 +165,7 @@ export function CreateInvoiceGroupModal({
         if (!cancelled) setLoadingDueDate(false);
       });
     return () => { cancelled = true; };
-  }, [step, counterpartyId, operatingCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, effectiveCounterpartyId, operatingCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 選択中の取引の合計
   const selectedSummary = useMemo(() => {
@@ -214,7 +219,7 @@ export function CreateInvoiceGroupModal({
     setLoading(true);
     try {
       const result = await createInvoiceGroup({
-        counterpartyId: Number(counterpartyId),
+        counterpartyId: Number(effectiveCounterpartyId),
         operatingCompanyId: Number(operatingCompanyId),
         bankAccountId: bankAccountId ? Number(bankAccountId) : null,
         paymentDueDate: paymentDueDate || null,
@@ -459,6 +464,39 @@ export function CreateInvoiceGroupModal({
                   合計: ¥{selectedSummary.total.toLocaleString()}
                 </div>
               </div>
+
+              {/* 請求書の宛先変更 */}
+              <div>
+                <Label htmlFor="billingCounterpartyId">請求書の宛先</Label>
+                <select
+                  id="billingCounterpartyId"
+                  value={effectiveCounterpartyId}
+                  onChange={(e) => {
+                    setBillingCounterpartyId(e.target.value);
+                    setPaymentDueDate("");
+                  }}
+                  className="mt-1 w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {counterpartyOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {isBillingRedirected && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-sm text-amber-800">
+                    <p className="font-medium">宛先が取引先と異なります</p>
+                    <p className="text-amber-700 mt-0.5">
+                      取引先「{counterpartyOptions.find((o) => o.value === counterpartyId)?.label}」の取引を、
+                      「{counterpartyOptions.find((o) => o.value === billingCounterpartyId)?.label}」宛の請求書として発行します。
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>

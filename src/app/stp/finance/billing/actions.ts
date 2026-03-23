@@ -9,6 +9,17 @@ import {
   calculateProratedFee,
   getDaysInMonth,
 } from "@/lib/business-days";
+import {
+  calcByType,
+  buildCommissionConfig,
+  toNumber,
+  type CommissionConfig,
+  type ContractPlan,
+} from "@/lib/finance/auto-generate";
+import {
+  calcWithholdingTax,
+  isWithholdingTarget,
+} from "@/lib/finance/withholding-tax";
 
 // ============================================
 // 型定義
@@ -48,6 +59,7 @@ export type BillingLifecycleItem = {
 
   candidateId: number | null;
   candidateName: string | null;
+  billingCounterpartyName: string | null; // 請求書の宛先が取引先と異なる場合の実際の請求先名
 };
 
 export type BillingLifecycleData = {
@@ -235,6 +247,7 @@ export async function getBillingLifecycleData(
       isOverdue: false,
       candidateId: null,
       candidateName: null,
+      billingCounterpartyName: null,
     });
   }
 
@@ -323,6 +336,7 @@ export async function getBillingLifecycleData(
       isOverdue: false,
       candidateId: null,
       candidateName: null,
+      billingCounterpartyName: null,
     });
   }
 
@@ -415,6 +429,7 @@ export async function getBillingLifecycleData(
       isOverdue: false,
       candidateId: candidate.id,
       candidateName,
+      billingCounterpartyName: null,
     });
   }
 
@@ -432,7 +447,9 @@ export async function getBillingLifecycleData(
         periodFrom: { gte: monthStart, lte: monthEnd },
       },
       include: {
-        invoiceGroup: true,
+        invoiceGroup: {
+          include: { counterparty: { select: { name: true } } },
+        },
       },
     });
 
@@ -469,6 +486,11 @@ export async function getBillingLifecycleData(
         const ig = matchingTx.invoiceGroup;
         item.invoiceGroupId = ig.id;
         item.invoiceGroupStatus = ig.status;
+
+        // 請求書の宛先が取引の取引先と異なる場合
+        if (ig.counterpartyId !== matchingTx.counterpartyId) {
+          item.billingCounterpartyName = ig.counterparty?.name ?? null;
+        }
 
         switch (ig.status) {
           case "draft":
@@ -687,8 +709,7 @@ export async function bulkCreateTransactionsFromBilling(
 // ============================================
 
 export type ExpenseLifecycleStatus =
-  | "pending"
-  | "approved"
+  | "not_created"
   | "unconfirmed"
   | "confirmed"
   | "in_payment_group"
@@ -698,10 +719,10 @@ export type ExpenseLifecycleStatus =
 
 export type ExpenseLifecycleItem = {
   id: string;
-  expenseRecordId: number;
   expenseType: string;
   agentName: string;
   agentId: number;
+  agentContractHistoryId: number;
   companyName: string | null;
   stpCompanyId: number | null;
   contractHistoryId: number | null;
@@ -709,7 +730,8 @@ export type ExpenseLifecycleItem = {
   amount: number;
   netPaymentAmount: number | null;
   withholdingTaxAmount: number | null;
-  targetMonth: string;
+  periodFrom: string;
+  periodTo: string;
   description: string;
 
   appliedCommissionRate: number | null;
@@ -723,6 +745,7 @@ export type ExpenseLifecycleItem = {
   paymentDueDate: string | null;
   isOverdue: boolean;
 
+  candidateId: number | null;
   candidateName: string | null;
 };
 
@@ -730,8 +753,7 @@ export type ExpenseLifecycleData = {
   targetMonth: string;
   items: ExpenseLifecycleItem[];
   summary: {
-    pending: number;
-    approved: number;
+    notCreated: number;
     unconfirmed: number;
     confirmed: number;
     inPaymentGroup: number;
@@ -742,7 +764,7 @@ export type ExpenseLifecycleData = {
 };
 
 // ============================================
-// 経費ライフサイクルデータ取得
+// 経費ライフサイクルデータ取得（契約データから動的計算）
 // ============================================
 
 export async function getExpenseLifecycleData(
@@ -755,86 +777,432 @@ export async function getExpenseLifecycleData(
   const month = parseInt(monthStr, 10);
   const monthStart = startOfMonth(year, month);
   const monthEnd = endOfMonth(year, month);
+  const periodFromStr = formatDate(monthStart);
+  const periodToStr = formatDate(monthEnd);
 
-  // 対象月のStpExpenseRecordを取得
-  const expenseRecords = await prisma.stpExpenseRecord.findMany({
+  const items: ExpenseLifecycleItem[] = [];
+
+  // ============================================
+  // 1. 紹介報酬（企業契約 × 代理店）
+  // ============================================
+  const activeContracts = await prisma.stpContractHistory.findMany({
     where: {
-      targetMonth: monthStart,
+      status: "active",
       deletedAt: null,
+      contractStartDate: { lte: monthEnd },
+      OR: [
+        { contractEndDate: null },
+        { contractEndDate: { gte: monthStart } },
+      ],
     },
     include: {
-      agentContractHistory: {
+      company: {
         include: {
-          agent: {
+          stpCompanies: {
+            take: 1,
             include: {
-              company: true,
+              agent: { include: { company: true } },
             },
           },
-        },
-      },
-      stpCompany: {
-        include: {
-          company: true,
-        },
-      },
-      contractHistory: true,
-      revenueRecord: {
-        include: {
-          candidate: true,
         },
       },
     },
   });
 
-  const items: ExpenseLifecycleItem[] = [];
+  // 代理店付き企業をフィルタ
+  const contractsWithAgent = activeContracts.filter(
+    (c) => c.company.stpCompanies[0]?.agentId != null
+  );
 
-  for (const record of expenseRecords) {
-    const agentName = record.agentContractHistory?.agent?.company?.name ?? `代理店#${record.agentId}`;
-    const companyName = record.stpCompany?.company?.name ?? null;
-    const candidateName = record.revenueRecord?.candidate
-      ? `${record.revenueRecord.candidate.lastName}${record.revenueRecord.candidate.firstName}`
-      : null;
+  if (contractsWithAgent.length > 0) {
+    // 代理店IDを収集
+    const agentIds = [
+      ...new Set(contractsWithAgent.map((c) => c.company.stpCompanies[0].agentId!)),
+    ];
 
-    const expenseTypeLabels: Record<string, string> = {
-      agent_initial: "代理店初期費用",
-      agent_monthly: "代理店月額",
-      commission_initial: "初期費用紹介報酬",
-      commission_monthly: "月額紹介報酬",
-      commission_performance: "成果報酬紹介報酬",
-    };
-    const description = `${expenseTypeLabels[record.expenseType] || record.expenseType}${companyName ? ` (${companyName})` : ""}`;
+    // 代理店契約を一括取得
+    const agentContractHistories = await prisma.stpAgentContractHistory.findMany({
+      where: {
+        agentId: { in: agentIds },
+        deletedAt: null,
+      },
+      orderBy: { contractStartDate: "desc" },
+      include: { agent: true },
+    });
+
+    // CommissionOverrideを一括取得
+    const stpCompanyIds = contractsWithAgent.map((c) => c.company.stpCompanies[0].id);
+    const agentContractHistoryIds = agentContractHistories.map((h) => h.id);
+    const allOverrides =
+      agentContractHistoryIds.length > 0 && stpCompanyIds.length > 0
+        ? await prisma.stpAgentCommissionOverride.findMany({
+            where: {
+              agentContractHistoryId: { in: agentContractHistoryIds },
+              stpCompanyId: { in: stpCompanyIds },
+            },
+          })
+        : [];
+    const overrideMap = new Map(
+      allOverrides.map((o) => [`${o.agentContractHistoryId}-${o.stpCompanyId}`, o])
+    );
+
+    for (const contract of contractsWithAgent) {
+      const stpCompany = contract.company.stpCompanies[0];
+      const agentId = stpCompany.agentId!;
+      const companyName = contract.company.name;
+
+      // 企業契約開始時点で有効な代理店契約を検索
+      const agentContractHistory = agentContractHistories.find(
+        (h) =>
+          h.agentId === agentId &&
+          h.contractStartDate <= contract.contractStartDate &&
+          (h.contractEndDate == null || h.contractEndDate >= contract.contractStartDate)
+      );
+      if (!agentContractHistory) continue;
+
+      const agent = agentContractHistory.agent;
+      const agentName = stpCompany.agent?.company?.name ?? `代理店#${agentId}`;
+      const needsWithholding = agent && isWithholdingTarget(agent);
+
+      const buildWH = (amount: number) => {
+        if (!needsWithholding || amount <= 0) return { netPaymentAmount: null as number | null, withholdingTaxAmount: null as number | null };
+        const whTax = calcWithholdingTax(amount);
+        return { withholdingTaxAmount: whTax, netPaymentAmount: amount - whTax };
+      };
+
+      const override = overrideMap.get(`${agentContractHistory.id}-${stpCompany.id}`) ?? null;
+      const commissionConfig = buildCommissionConfig(
+        contract.contractPlan as ContractPlan,
+        agentContractHistory,
+        override
+      );
+
+      const contractStartMonth = new Date(
+        Date.UTC(contract.contractStartDate.getUTCFullYear(), contract.contractStartDate.getUTCMonth(), 1)
+      );
+      const isStartMonth = contractStartMonth.getTime() === monthStart.getTime();
+
+      // 初期費用紹介報酬
+      if (isStartMonth && contract.initialFee > 0) {
+        const commAmount = calcByType(
+          contract.initialFee,
+          commissionConfig.initialType,
+          commissionConfig.initialRate,
+          commissionConfig.initialFixed
+        );
+        if (commAmount > 0) {
+          const wh = buildWH(commAmount);
+          items.push({
+            id: `commission_initial-${contract.id}-${agentId}`,
+            expenseType: "commission_initial",
+            agentName,
+            agentId,
+            agentContractHistoryId: agentContractHistory.id,
+            companyName,
+            stpCompanyId: stpCompany.id,
+            contractHistoryId: contract.id,
+            amount: commAmount,
+            ...wh,
+            periodFrom: periodFromStr,
+            periodTo: periodToStr,
+            description: `初期費用紹介報酬 (${companyName})`,
+            appliedCommissionRate: commissionConfig.initialType === "rate" ? (commissionConfig.initialRate ?? null) : null,
+            appliedCommissionType: commissionConfig.initialType ?? null,
+            status: "not_created",
+            transactionId: null,
+            paymentGroupId: null,
+            paymentGroupStatus: null,
+            paymentDueDate: null,
+            isOverdue: false,
+            candidateId: null,
+            candidateName: null,
+          });
+        }
+      }
+
+      // 月額紹介報酬（成果報酬プランでは生成しない）
+      if (contract.monthlyFee > 0 && contract.contractPlan !== "performance") {
+        const duration = commissionConfig.monthlyDuration ?? 12;
+        // 経過月数チェック
+        const monthsDiff =
+          (monthStart.getUTCFullYear() - contractStartMonth.getUTCFullYear()) * 12 +
+          (monthStart.getUTCMonth() - contractStartMonth.getUTCMonth());
+
+        if (monthsDiff >= 0 && monthsDiff < duration) {
+          const commAmount = calcByType(
+            contract.monthlyFee,
+            commissionConfig.monthlyType,
+            commissionConfig.monthlyRate,
+            commissionConfig.monthlyFixed
+          );
+          if (commAmount > 0) {
+            const wh = buildWH(commAmount);
+            items.push({
+              id: `commission_monthly-${contract.id}-${agentId}-${targetMonth}`,
+              expenseType: "commission_monthly",
+              agentName,
+              agentId,
+              agentContractHistoryId: agentContractHistory.id,
+              companyName,
+              stpCompanyId: stpCompany.id,
+              contractHistoryId: contract.id,
+              amount: commAmount,
+              ...wh,
+              periodFrom: periodFromStr,
+              periodTo: periodToStr,
+              description: `月額紹介報酬 (${companyName})`,
+              appliedCommissionRate: commissionConfig.monthlyType === "rate" ? (commissionConfig.monthlyRate ?? null) : null,
+              appliedCommissionType: commissionConfig.monthlyType ?? null,
+              status: "not_created",
+              transactionId: null,
+              paymentGroupId: null,
+              paymentGroupStatus: null,
+              paymentDueDate: null,
+              isOverdue: false,
+              candidateId: null,
+              candidateName: null,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // ============================================
+  // 2. 成果報酬紹介報酬（求職者の入社月）
+  // ============================================
+  const candidatesWithJoin = await prisma.stpCandidate.findMany({
+    where: {
+      deletedAt: null,
+      joinDate: { gte: monthStart, lte: monthEnd },
+    },
+    include: {
+      stpCompany: {
+        include: {
+          company: true,
+          agent: { include: { company: true } },
+        },
+      },
+    },
+  });
+
+  for (const candidate of candidatesWithJoin) {
+    const stpCompany = candidate.stpCompany;
+    if (!stpCompany.agentId) continue;
+
+    // 入社日時点でアクティブな契約を検索
+    const matchingContracts = await prisma.stpContractHistory.findMany({
+      where: {
+        companyId: stpCompany.companyId,
+        status: "active",
+        deletedAt: null,
+        performanceFee: { gt: 0 },
+        contractStartDate: { lte: candidate.joinDate! },
+        OR: [
+          { contractEndDate: null },
+          { contractEndDate: { gte: candidate.joinDate! } },
+        ],
+      },
+    });
+
+    if (matchingContracts.length !== 1) continue;
+    const contractHistory = matchingContracts[0];
+
+    // 代理店契約
+    const agentContractHistory = await prisma.stpAgentContractHistory.findFirst({
+      where: {
+        agentId: stpCompany.agentId,
+        contractStartDate: { lte: contractHistory.contractStartDate },
+        OR: [
+          { contractEndDate: null },
+          { contractEndDate: { gte: contractHistory.contractStartDate } },
+        ],
+        deletedAt: null,
+      },
+      orderBy: { contractStartDate: "desc" },
+      include: { agent: true },
+    });
+    if (!agentContractHistory) continue;
+
+    const override = await prisma.stpAgentCommissionOverride.findFirst({
+      where: {
+        agentContractHistoryId: agentContractHistory.id,
+        stpCompanyId: stpCompany.id,
+      },
+    });
+
+    const commissionConfig = buildCommissionConfig(
+      contractHistory.contractPlan as ContractPlan,
+      agentContractHistory,
+      override
+    );
+
+    const commAmount = calcByType(
+      contractHistory.performanceFee,
+      commissionConfig.perfType,
+      commissionConfig.perfRate,
+      commissionConfig.perfFixed
+    );
+    if (commAmount <= 0) continue;
+
+    const agent = agentContractHistory.agent;
+    const agentName = stpCompany.agent?.company?.name ?? `代理店#${stpCompany.agentId}`;
+    const needsWithholding = agent && isWithholdingTarget(agent);
+    const wh = needsWithholding
+      ? { withholdingTaxAmount: calcWithholdingTax(commAmount), netPaymentAmount: commAmount - calcWithholdingTax(commAmount) }
+      : { withholdingTaxAmount: null as number | null, netPaymentAmount: null as number | null };
+
+    const candidateName = `${candidate.lastName}${candidate.firstName}`;
 
     items.push({
-      id: `expense-${record.id}`,
-      expenseRecordId: record.id,
-      expenseType: record.expenseType,
+      id: `commission_performance-${contractHistory.id}-${candidate.id}-${stpCompany.agentId}`,
+      expenseType: "commission_performance",
       agentName,
-      agentId: record.agentId,
-      companyName,
-      stpCompanyId: record.stpCompanyId,
-      contractHistoryId: record.contractHistoryId,
-      amount: record.expectedAmount,
-      netPaymentAmount: record.netPaymentAmount,
-      withholdingTaxAmount: record.withholdingTaxAmount,
-      targetMonth: formatDate(monthStart),
-      description,
-      appliedCommissionRate: record.appliedCommissionRate ? Number(record.appliedCommissionRate) : null,
-      appliedCommissionType: record.appliedCommissionType,
-      status: record.status === "pending" ? "pending" : "approved",
+      agentId: stpCompany.agentId,
+      agentContractHistoryId: agentContractHistory.id,
+      companyName: stpCompany.company.name,
+      stpCompanyId: stpCompany.id,
+      contractHistoryId: contractHistory.id,
+      amount: commAmount,
+      ...wh,
+      periodFrom: periodFromStr,
+      periodTo: periodToStr,
+      description: `成果報酬紹介報酬 ${candidateName} (${stpCompany.company.name})`,
+      appliedCommissionRate: commissionConfig.perfType === "rate" ? (commissionConfig.perfRate ?? null) : null,
+      appliedCommissionType: commissionConfig.perfType ?? null,
+      status: "not_created",
       transactionId: null,
       paymentGroupId: null,
       paymentGroupStatus: null,
       paymentDueDate: null,
       isOverdue: false,
+      candidateId: candidate.id,
       candidateName,
     });
   }
 
-  // Transactionとのマッチング（経費側）
-  // stpExpenseType + stpAgentId + periodFrom で照合
+  // ============================================
+  // 3. 代理店直接費用（agent_initial, agent_monthly）
+  // ============================================
+  const activeAgentContracts = await prisma.stpAgentContractHistory.findMany({
+    where: {
+      deletedAt: null,
+      contractStartDate: { lte: monthEnd },
+      OR: [
+        { contractEndDate: null },
+        { contractEndDate: { gte: monthStart } },
+      ],
+    },
+    include: {
+      agent: { include: { company: true } },
+    },
+  });
+
+  for (const agentContract of activeAgentContracts) {
+    const agent = agentContract.agent;
+    const agentName = agent.company?.name ?? `代理店#${agent.id}`;
+    const needsWithholding = isWithholdingTarget(agent);
+
+    const buildWH = (amount: number) => {
+      if (!needsWithholding || amount <= 0) return { netPaymentAmount: null as number | null, withholdingTaxAmount: null as number | null };
+      const whTax = calcWithholdingTax(amount);
+      return { withholdingTaxAmount: whTax, netPaymentAmount: amount - whTax };
+    };
+
+    const contractStartMonth = new Date(
+      Date.UTC(agentContract.contractStartDate.getUTCFullYear(), agentContract.contractStartDate.getUTCMonth(), 1)
+    );
+    const isStartMonth = contractStartMonth.getTime() === monthStart.getTime();
+
+    // 初期費用の発生日: contractDate があればそちら
+    const initialFeeDate = agentContract.contractDate ?? agentContract.contractStartDate;
+    const initialFeeMonth = new Date(
+      Date.UTC(initialFeeDate.getUTCFullYear(), initialFeeDate.getUTCMonth(), 1)
+    );
+    const isInitialFeeMonth = initialFeeMonth.getTime() === monthStart.getTime();
+
+    // 代理店初期費用
+    if (isInitialFeeMonth && (agentContract.initialFee ?? 0) > 0) {
+      const amt = agentContract.initialFee!;
+      const wh = buildWH(amt);
+      items.push({
+        id: `agent_initial-${agentContract.id}`,
+        expenseType: "agent_initial",
+        agentName,
+        agentId: agent.id,
+        agentContractHistoryId: agentContract.id,
+        companyName: null,
+        stpCompanyId: null,
+        contractHistoryId: null,
+        amount: amt,
+        ...wh,
+        periodFrom: periodFromStr,
+        periodTo: periodToStr,
+        description: `代理店初期費用 (${agentName})`,
+        appliedCommissionRate: null,
+        appliedCommissionType: null,
+        status: "not_created",
+        transactionId: null,
+        paymentGroupId: null,
+        paymentGroupStatus: null,
+        paymentDueDate: null,
+        isOverdue: false,
+        candidateId: null,
+        candidateName: null,
+      });
+    }
+
+    // 代理店月額費用
+    if ((agentContract.monthlyFee ?? 0) > 0) {
+      let amt = agentContract.monthlyFee!;
+
+      // 初月日割り
+      if (isStartMonth && agentContract.contractStartDate.getUTCDate() > 1) {
+        const totalDays = getDaysInMonth(year, month);
+        amt = calculateProratedFee(
+          agentContract.monthlyFee!,
+          agentContract.contractStartDate.getUTCDate(),
+          totalDays
+        );
+      }
+
+      const wh = buildWH(amt);
+      items.push({
+        id: `agent_monthly-${agentContract.id}-${targetMonth}`,
+        expenseType: "agent_monthly",
+        agentName,
+        agentId: agent.id,
+        agentContractHistoryId: agentContract.id,
+        companyName: null,
+        stpCompanyId: null,
+        contractHistoryId: null,
+        amount: amt,
+        ...wh,
+        periodFrom: periodFromStr,
+        periodTo: periodToStr,
+        description: `代理店月額 (${agentName})${isStartMonth && agentContract.contractStartDate.getUTCDate() > 1 ? "（日割り）" : ""}`,
+        appliedCommissionRate: null,
+        appliedCommissionType: null,
+        status: "not_created",
+        transactionId: null,
+        paymentGroupId: null,
+        paymentGroupStatus: null,
+        paymentDueDate: null,
+        isOverdue: false,
+        candidateId: null,
+        candidateName: null,
+      });
+    }
+  }
+
+  // ============================================
+  // 4. 既存Transactionとのマッチング
+  // ============================================
   if (items.length > 0) {
-    const agentIds = [...new Set(items.map((i) => i.agentId))];
-    const contractHistoryIds = [...new Set(items.filter((i) => i.contractHistoryId).map((i) => i.contractHistoryId!))];
+    const allAgentIds = [...new Set(items.map((i) => i.agentId))];
+    const allContractHistoryIds = [
+      ...new Set(items.filter((i) => i.contractHistoryId).map((i) => i.contractHistoryId!)),
+    ];
 
     const existingTransactions = await prisma.transaction.findMany({
       where: {
@@ -843,8 +1211,10 @@ export async function getExpenseLifecycleData(
         stpExpenseType: { not: null },
         periodFrom: { gte: monthStart, lte: monthEnd },
         OR: [
-          ...(agentIds.length > 0 ? [{ stpAgentId: { in: agentIds } }] : []),
-          ...(contractHistoryIds.length > 0 ? [{ stpContractHistoryId: { in: contractHistoryIds } }] : []),
+          ...(allAgentIds.length > 0 ? [{ stpAgentId: { in: allAgentIds } }] : []),
+          ...(allContractHistoryIds.length > 0
+            ? [{ stpContractHistoryId: { in: allContractHistoryIds } }]
+            : []),
         ],
       },
       include: {
@@ -855,28 +1225,21 @@ export async function getExpenseLifecycleData(
     const now = new Date();
 
     for (const item of items) {
-      // マッチング: expenseType + agentId + (contractHistoryId or companyId)
       const matchingTx = existingTransactions.find((tx) => {
         if (tx.stpExpenseType !== item.expenseType) return false;
         if (tx.stpAgentId !== item.agentId) return false;
         if (item.contractHistoryId && tx.stpContractHistoryId !== item.contractHistoryId) return false;
+        if (item.candidateId && tx.stpCandidateId !== item.candidateId) return false;
         return true;
       });
 
-      if (!matchingTx) {
-        // Transactionなし → StpExpenseRecordのstatus次第
-        if (item.status !== "pending") {
-          item.status = "approved";
-        }
-        continue;
-      }
+      if (!matchingTx) continue;
 
       item.transactionId = matchingTx.id;
       item.paymentDueDate = matchingTx.paymentDueDate
         ? formatDate(matchingTx.paymentDueDate)
         : null;
 
-      // ステータス判定
       if (matchingTx.status === "unconfirmed") {
         item.status = "unconfirmed";
       } else if (
@@ -926,10 +1289,11 @@ export async function getExpenseLifecycleData(
     }
   }
 
-  // サマリー計算
+  // ============================================
+  // 5. サマリー計算
+  // ============================================
   const summary = {
-    pending: 0,
-    approved: 0,
+    notCreated: 0,
     unconfirmed: 0,
     confirmed: 0,
     inPaymentGroup: 0,
@@ -940,8 +1304,7 @@ export async function getExpenseLifecycleData(
 
   for (const item of items) {
     switch (item.status) {
-      case "pending": summary.pending++; break;
-      case "approved": summary.approved++; break;
+      case "not_created": summary.notCreated++; break;
       case "unconfirmed": summary.unconfirmed++; break;
       case "confirmed": summary.confirmed++; break;
       case "in_payment_group": summary.inPaymentGroup++; break;
@@ -963,7 +1326,17 @@ export async function getExpenseLifecycleData(
 // ============================================
 
 export type ExpenseItemInput = {
-  expenseRecordId: number;
+  expenseType: string;
+  agentId: number;
+  agentContractHistoryId: number;
+  contractHistoryId?: number | null;
+  stpCompanyId?: number | null;
+  candidateId?: number | null;
+  amount: number;
+  periodFrom: string;
+  periodTo: string;
+  agentName: string;
+  companyName?: string | null;
   paymentDueDate?: string;
 };
 
@@ -976,47 +1349,48 @@ export async function createTransactionFromExpense(
   const stpCtx = await getSystemProjectContext("stp");
   const stpProjectId = stpCtx?.projectId ?? null;
 
-  const expenseRecord = await prisma.stpExpenseRecord.findUnique({
-    where: { id: input.expenseRecordId },
-    include: {
-      agentContractHistory: {
-        include: {
-          agent: {
-            include: { company: true },
-          },
-        },
-      },
-      stpCompany: {
-        include: { company: true },
-      },
-      contractHistory: true,
-    },
+  // 代理店を取引先として検索（companyId経由）
+  const agent = await prisma.stpAgent.findUnique({
+    where: { id: input.agentId },
+    include: { company: true },
   });
-
-  if (!expenseRecord) {
-    throw new Error("経費レコードが見つかりません");
-  }
-
-  // 代理店を取引先として検索
-  const agent = expenseRecord.agentContractHistory?.agent;
   if (!agent) {
     throw new Error("代理店情報が見つかりません");
   }
-  const agentName = agent.company?.name ?? `代理店#${agent.id}`;
 
   const counterparty = await prisma.counterparty.findFirst({
     where: {
-      name: agentName,
+      companyId: agent.companyId,
       deletedAt: null,
     },
   });
 
   if (!counterparty) {
-    throw new Error(
-      `取引先が見つかりません（代理店: ${agentName}）。先に取引先マスタに登録してください。`
-    );
+    // companyId経由で見つからない場合は名前で検索（後方互換）
+    const nameMatch = await prisma.counterparty.findFirst({
+      where: {
+        name: input.agentName,
+        deletedAt: null,
+      },
+    });
+    if (!nameMatch) {
+      throw new Error(
+        `取引先が見つかりません（代理店: ${input.agentName}）。先に取引先マスタに登録してください。`
+      );
+    }
+    // 名前マッチを使用
+    return createExpenseTransaction(input, nameMatch.id, stpProjectId, staffId);
   }
 
+  return createExpenseTransaction(input, counterparty.id, stpProjectId, staffId);
+}
+
+async function createExpenseTransaction(
+  input: ExpenseItemInput,
+  counterpartyId: number,
+  stpProjectId: number | null,
+  staffId: number
+): Promise<{ transactionId: number }> {
   // 費目取得
   const expenseCategories = await prisma.expenseCategory.findMany({
     where: {
@@ -1034,44 +1408,43 @@ export async function createTransactionFromExpense(
     commission_monthly: "月額紹介報酬",
     commission_performance: "成果報酬紹介報酬",
   };
-  const typeLabel = expenseTypeLabels[expenseRecord.expenseType] || expenseRecord.expenseType;
+  const typeLabel = expenseTypeLabels[input.expenseType] || input.expenseType;
 
-  // 費目のマッチング
   let expenseCategory = null;
-  if (expenseRecord.expenseType.includes("commission")) {
+  if (input.expenseType.includes("commission")) {
     expenseCategory = expenseCategories.find((c) => c.name.includes("紹介") || c.name.includes("報酬"));
-  } else if (expenseRecord.expenseType.includes("agent")) {
+  } else if (input.expenseType.includes("agent")) {
     expenseCategory = expenseCategories.find((c) => c.name.includes("代理店") || c.name.includes("外注"));
   }
   if (!expenseCategory && expenseCategories.length > 0) {
     expenseCategory = expenseCategories[0];
   }
 
-  const companyName = expenseRecord.stpCompany?.company?.name;
-  const note = `${agentName} ${typeLabel}${companyName ? ` (${companyName})` : ""}`;
+  const note = `${input.agentName} ${typeLabel}${input.companyName ? ` (${input.companyName})` : ""}`;
 
-  const taxRate = expenseRecord.taxRate;
-  const taxAmount = expenseRecord.taxAmount;
+  const taxRate = 10;
+  const taxAmount = Math.floor((input.amount * taxRate) / (100 + taxRate));
 
   const transaction = await prisma.transaction.create({
     data: {
       type: "expense",
-      counterpartyId: counterparty.id,
+      counterpartyId,
       projectId: stpProjectId,
       expenseCategoryId: expenseCategory?.id ?? null,
-      amount: expenseRecord.expectedAmount,
+      amount: input.amount,
       taxAmount,
       taxRate,
-      taxType: expenseRecord.taxType as "tax_included" | "tax_excluded",
-      periodFrom: expenseRecord.targetMonth,
-      periodTo: expenseRecord.targetMonth,
+      taxType: "tax_included",
+      periodFrom: new Date(input.periodFrom),
+      periodTo: new Date(input.periodTo),
       paymentDueDate: input.paymentDueDate ? new Date(input.paymentDueDate) : null,
       status: "unconfirmed",
       isAutoGenerated: true,
       sourceType: "crm",
-      stpContractHistoryId: expenseRecord.contractHistoryId,
-      stpExpenseType: expenseRecord.expenseType,
-      stpAgentId: expenseRecord.agentId,
+      stpContractHistoryId: input.contractHistoryId ?? null,
+      stpExpenseType: input.expenseType,
+      stpAgentId: input.agentId,
+      stpCandidateId: input.candidateId ?? null,
       note,
       createdBy: staffId,
     },
@@ -1092,7 +1465,7 @@ export async function bulkCreateTransactionsFromExpenses(
       await createTransactionFromExpense(input);
       created++;
     } catch (error) {
-      console.error(`経費取引化失敗: expenseRecordId=${input.expenseRecordId}`);
+      console.error(`経費取引化失敗: expenseType=${input.expenseType}, agentId=${input.agentId}`);
     }
   }
 
