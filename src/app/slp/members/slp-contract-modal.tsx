@@ -37,7 +37,6 @@ import {
   RefreshCw,
   MoreVertical,
   Pause,
-  Zap,
   RotateCcw,
   Link2,
   Copy,
@@ -46,8 +45,10 @@ import {
   FileText,
 } from "lucide-react";
 import { toast } from "sonner";
+import { MultiFileUpload, type FileInfo } from "@/components/multi-file-upload";
 import {
   getSlpMemberContracts,
+  getSlpNextContractNumber,
   addSlpMemberContract,
   updateSlpMemberContract,
   deleteSlpMemberContract,
@@ -79,26 +80,43 @@ function getCsStatusConfig(status: string | null) {
   return null;
 }
 
+type FormData = {
+  contractType: string;
+  title: string;
+  currentStatusId: string;
+  signedDate: string;
+  signingMethod: string;
+  note: string;
+  cloudsignDocumentId: string;
+  files: FileInfo[];
+};
+
+const EMPTY_FORM: FormData = {
+  contractType: "",
+  title: "",
+  currentStatusId: "",
+  signedDate: "",
+  signingMethod: "cloudsign",
+  note: "",
+  cloudsignDocumentId: "",
+  files: [],
+};
+
 // --- 契約書カード ---
 function ContractCard({
   contract,
   contractStatusOptions,
+  onEdit,
   onReload,
 }: {
   contract: Contract;
   contractStatusOptions: { value: string; label: string }[];
+  onEdit: (contract: Contract) => void;
   onReload: () => void;
 }) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
-  const [editing, setEditing] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-
-  // 編集フォーム
-  const [editTitle, setEditTitle] = useState(contract.title);
-  const [editStatusId, setEditStatusId] = useState(contract.currentStatusId ? String(contract.currentStatusId) : "");
-  const [editSignedDate, setEditSignedDate] = useState(contract.signedDate ?? "");
-  const [editNote, setEditNote] = useState(contract.note ?? "");
 
   const csStatusConfig = contract.cloudsignDocumentId ? getCsStatusConfig(contract.cloudsignStatus) : null;
   const hasFiles = !!contract.filePath || contract.contractFiles.length > 0;
@@ -116,40 +134,19 @@ function ContractCard({
     }
   };
 
-  const handleSaveEdit = async () => {
-    setActionLoading("save");
-    try {
-      await updateSlpMemberContract(contract.id, {
-        title: editTitle,
-        currentStatusId: editStatusId ? parseInt(editStatusId) : null,
-        signedDate: editSignedDate || null,
-        note: editNote || null,
-      });
-      toast.success("更新しました");
-      setEditing(false);
-      onReload();
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "更新に失敗しました");
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
   const handleDelete = async () => {
-    if (!confirm("この契約書を削除しますか？関連する履歴も削除されます。")) return;
+    if (!confirm("この契約書を削除してもよろしいですか？")) return;
     await handleAction("delete", () => deleteSlpMemberContract(contract.id));
   };
 
-  const handleRemind = async () => {
-    await handleAction("remind", async () => {
+  const handleRemind = () =>
+    handleAction("remind", async () => {
       await remindCloudsignDocument(contract.id);
       toast.success("催促メールを送付しました");
     });
-  };
 
-  const handleSync = async () => {
-    await handleAction("sync", async () => {
+  const handleSync = () =>
+    handleAction("sync", async () => {
       const result = await syncContractCloudsignStatus(contract.id);
       if (result.previousStatus === result.newStatus) {
         toast.info("ステータスに変更はありません");
@@ -157,22 +154,21 @@ function ContractCard({
         toast.success(`同期しました: ${result.previousStatus} → ${result.newStatus}`);
       }
     });
-  };
 
-  const handleToggleAutoSync = async () => {
+  const handleToggleAutoSync = () => {
     const newState = !contract.cloudsignAutoSync;
     if (!newState && !confirm("CloudSign側のステータス変更がCRMに反映されなくなります。よろしいですか？")) return;
-    await handleAction("autoSync", async () => {
+    handleAction("autoSync", async () => {
       await toggleCloudsignAutoSync(contract.id, newState);
       toast.success(newState ? "自動同期をONにしました" : "自動同期をOFFにしました");
     });
   };
 
-  const handleLinkCloudsign = async () => {
+  const handleLinkCloudsign = () => {
     const docId = prompt("CloudSignのドキュメントIDを入力してください");
     if (!docId?.trim()) return;
-    if (!confirm(`ドキュメントID「${docId.trim()}」で紐付けしますか？`)) return;
-    await handleAction("link", async () => {
+    if (!confirm(`ドキュメントID「${docId.trim()}」で同期しますか？`)) return;
+    handleAction("link", async () => {
       await linkCloudsignDocument(contract.id, docId.trim());
       toast.success("CloudSignと紐付けました");
     });
@@ -180,7 +176,7 @@ function ContractCard({
 
   return (
     <div className="border rounded-lg">
-      {/* ヘッダー行（常に表示） */}
+      {/* ヘッダー行 */}
       <div
         className="px-3 py-2.5 flex items-center gap-2 bg-gray-50/50 cursor-pointer hover:bg-gray-100/50 transition-colors"
         onClick={() => setExpanded(!expanded)}
@@ -213,7 +209,7 @@ function ContractCard({
               催促
             </button>
           )}
-          <Button variant="ghost" size="sm" onClick={() => { setEditing(true); setExpanded(true); }} title="編集">
+          <Button variant="ghost" size="sm" onClick={() => onEdit(contract)} title="編集">
             <Pencil className="h-3.5 w-3.5" />
           </Button>
           <Button variant="ghost" size="sm" onClick={handleDelete} disabled={actionLoading === "delete"} title="削除">
@@ -226,7 +222,7 @@ function ContractCard({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              {contract.cloudsignDocumentId && (
+              {contract.cloudsignDocumentId ? (
                 <>
                   <DropdownMenuItem
                     onClick={() => window.open(contract.cloudsignUrl || `https://www.cloudsign.jp/documents/${contract.cloudsignDocumentId}`, "_blank")}
@@ -235,18 +231,12 @@ function ContractCard({
                     CloudSignで開く
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    disabled={actionLoading === "sync"}
-                    onClick={handleSync}
-                  >
+                  <DropdownMenuItem disabled={actionLoading === "sync"} onClick={handleSync}>
                     <RefreshCw className="h-3.5 w-3.5 mr-2" />
                     {actionLoading === "sync" ? "同期中..." : "手動で同期"}
                   </DropdownMenuItem>
                   {contract.cloudsignStatus !== "completed" && !contract.cloudsignStatus?.startsWith("canceled") && (
-                    <DropdownMenuItem
-                      disabled={actionLoading === "autoSync"}
-                      onClick={handleToggleAutoSync}
-                    >
+                    <DropdownMenuItem disabled={actionLoading === "autoSync"} onClick={handleToggleAutoSync}>
                       <Pause className="h-3.5 w-3.5 mr-2" />
                       {contract.cloudsignAutoSync ? "自動同期を停止" : "自動同期を再開"}
                     </DropdownMenuItem>
@@ -262,12 +252,8 @@ function ContractCard({
                     <span className="truncate">ID: {contract.cloudsignDocumentId?.slice(0, 12)}...</span>
                   </DropdownMenuItem>
                 </>
-              )}
-              {!contract.cloudsignDocumentId && (
-                <DropdownMenuItem
-                  disabled={actionLoading === "link"}
-                  onClick={handleLinkCloudsign}
-                >
+              ) : (
+                <DropdownMenuItem disabled={actionLoading === "link"} onClick={handleLinkCloudsign}>
                   <Link2 className="h-3.5 w-3.5 mr-2" />
                   {actionLoading === "link" ? "紐付け中..." : "CloudSignと紐付け"}
                 </DropdownMenuItem>
@@ -281,7 +267,7 @@ function ContractCard({
       {expanded && (
         <div className="border-t">
           {/* 詳細情報行 */}
-          {(contract.cloudsignTitle || contract.signingMethod || hasFiles ||
+          {(contract.cloudsignTitle || hasFiles ||
             (contract.cloudsignDocumentId && !contract.cloudsignAutoSync)) && (
             <div className="px-4 py-2 bg-gray-50/30 flex items-center gap-3 text-xs text-gray-500 flex-wrap">
               {contract.cloudsignTitle && (
@@ -289,9 +275,6 @@ function ContractCard({
                   <Cloud className="h-3 w-3" />
                   {contract.cloudsignTitle}
                 </span>
-              )}
-              {contract.signingMethod && (
-                <span>方法: クラウドサイン</span>
               )}
               {contract.cloudsignDocumentId && !contract.cloudsignAutoSync && (
                 <span className="inline-flex items-center rounded-full bg-orange-50 px-1.5 py-0.5 text-[10px] font-medium text-orange-600 border border-orange-200">
@@ -316,12 +299,13 @@ function ContractCard({
                   title={cf.fileName}
                 >
                   <FileText className="h-3 w-3" />
+                  {cf.fileName}
                 </button>
               ))}
             </div>
           )}
 
-          {/* 日付・備考情報 */}
+          {/* 日付・備考 */}
           <div className="px-4 py-2 text-xs text-gray-500 space-y-1">
             <div className="flex gap-4 flex-wrap">
               {contract.cloudsignSentAt && <span>送付日: {new Date(contract.cloudsignSentAt).toLocaleDateString("ja-JP")}</span>}
@@ -332,44 +316,6 @@ function ContractCard({
             </div>
             {contract.note && <p className="text-gray-400">{contract.note}</p>}
           </div>
-
-          {/* 編集フォーム */}
-          {editing && (
-            <div className="border-t px-4 py-3 space-y-3 bg-muted/20">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">タイトル</Label>
-                  <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="h-8 text-sm" />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">ステータス</Label>
-                  <Select value={editStatusId} onValueChange={setEditStatusId}>
-                    <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="選択" /></SelectTrigger>
-                    <SelectContent>
-                      {contractStatusOptions.map((o) => (
-                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">署名日</Label>
-                  <Input type="date" value={editSignedDate} onChange={(e) => setEditSignedDate(e.target.value)} className="h-8 text-sm" />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">メモ</Label>
-                <Textarea value={editNote} onChange={(e) => setEditNote(e.target.value)} rows={2} className="text-sm" />
-              </div>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={handleSaveEdit} disabled={actionLoading === "save" || !editTitle}>
-                  {actionLoading === "save" && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-                  保存
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setEditing(false)}>キャンセル</Button>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -388,14 +334,11 @@ export function SlpContractModal({
   const router = useRouter();
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [addLoading, setAddLoading] = useState(false);
-
-  // 新規作成フォーム
-  const [newContractType, setNewContractType] = useState("");
-  const [newTitle, setNewTitle] = useState("");
-  const [newStatusId, setNewStatusId] = useState("");
-  const [newNote, setNewNote] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [formData, setFormData] = useState<FormData>(EMPTY_FORM);
+  const [nextContractNumber, setNextContractNumber] = useState("");
 
   const loadContracts = useCallback(async () => {
     setLoading(true);
@@ -412,133 +355,302 @@ export function SlpContractModal({
   useEffect(() => {
     if (open) {
       loadContracts();
-      setShowAddForm(false);
+      resetForm();
     }
   }, [open, loadContracts]);
 
+  const resetForm = () => {
+    setFormData(EMPTY_FORM);
+    setEditingId(null);
+    setFormOpen(false);
+    setNextContractNumber("");
+  };
+
   const handleAdd = async () => {
-    if (!newContractType || !newTitle) return;
-    setAddLoading(true);
+    resetForm();
+    setFormData({
+      ...EMPTY_FORM,
+      contractType: contractTypeOptions[0]?.value ?? "",
+    });
+    setFormOpen(true);
     try {
-      await addSlpMemberContract({
-        memberId,
-        contractType: newContractType,
-        title: newTitle,
-        currentStatusId: newStatusId ? parseInt(newStatusId) : null,
-        signingMethod: "cloudsign",
-        note: newNote || null,
-      });
-      toast.success("契約書を作成しました");
-      setShowAddForm(false);
-      setNewContractType("");
-      setNewTitle("");
-      setNewStatusId("");
-      setNewNote("");
-      await loadContracts();
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "作成に失敗しました");
-    } finally {
-      setAddLoading(false);
+      const number = await getSlpNextContractNumber();
+      setNextContractNumber(number);
+    } catch {
+      // ignore
     }
   };
 
+  const handleEdit = (contract: Contract) => {
+    setFormData({
+      contractType: contract.contractType,
+      title: contract.title,
+      currentStatusId: contract.currentStatusId ? String(contract.currentStatusId) : "",
+      signedDate: contract.signedDate ?? "",
+      signingMethod: contract.signingMethod ?? "cloudsign",
+      note: contract.note ?? "",
+      cloudsignDocumentId: contract.cloudsignDocumentId ?? "",
+      files: contract.contractFiles.map((cf) => ({
+        id: cf.id,
+        filePath: cf.filePath,
+        fileName: cf.fileName,
+        fileSize: 0,
+        mimeType: "",
+      })),
+    });
+    setEditingId(contract.id);
+    setFormOpen(true);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.contractType || !formData.title) {
+      toast.error("契約種別とタイトルは必須です");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const data = {
+        contractType: formData.contractType,
+        title: formData.title,
+        currentStatusId: formData.currentStatusId ? Number(formData.currentStatusId) : null,
+        signedDate: formData.signedDate || null,
+        signingMethod: formData.signingMethod || "cloudsign",
+        note: formData.note || null,
+        files: formData.files,
+      };
+
+      let savedId: number | null = editingId;
+
+      if (editingId) {
+        await updateSlpMemberContract(editingId, data);
+        toast.success("契約書を更新しました");
+      } else {
+        const result = await addSlpMemberContract({
+          memberId,
+          ...data,
+        });
+        savedId = result.contractId;
+        toast.success(`契約書番号「${result.contractNumber}」で保存しました`);
+      }
+
+      // CloudSign書類IDが新たに入力された場合、紐付け＆同期
+      const docId = formData.cloudsignDocumentId.trim();
+      if (docId && savedId) {
+        const existingContract = contracts.find((c) => c.id === savedId);
+        if (!existingContract?.cloudsignDocumentId) {
+          if (confirm(`CloudSignドキュメントID「${docId}」で同期しますか？\nCloudSign側のステータスがCRMに反映されます。`)) {
+            try {
+              await linkCloudsignDocument(savedId, docId);
+              toast.success("CloudSignと紐付けました");
+            } catch {
+              toast.error("CloudSign紐付けに失敗しました。ドキュメントIDを確認してください。");
+            }
+          }
+        }
+      }
+
+      resetForm();
+      await loadContracts();
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存に失敗しました");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // CloudSign同期中かどうか判定
+  const editingContract = editingId ? contracts.find((c) => c.id === editingId) : null;
+  const isCloudSignSynced = !!(editingContract?.cloudsignDocumentId && editingContract?.cloudsignAutoSync);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="max-w-3xl p-0 overflow-hidden flex flex-col max-h-[85vh]">
+        <DialogHeader className="px-6 py-4 border-b shrink-0">
           <DialogTitle>契約管理 — {memberName}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-3">
-          {/* 新規追加ボタン */}
-          {!showAddForm && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setNewContractType(contractTypeOptions[0]?.value ?? "");
-                setShowAddForm(true);
-              }}
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              新規契約書
-            </Button>
+        <div className="px-6 py-4 flex flex-col gap-4 flex-1 min-h-0">
+          {/* ボタン行 */}
+          {!formOpen && (
+            <div className="flex justify-end shrink-0">
+              <Button size="sm" onClick={handleAdd}>
+                <Plus className="h-4 w-4 mr-1" />
+                契約書を作成
+              </Button>
+            </div>
           )}
 
-          {/* 新規作成フォーム */}
-          {showAddForm && (
-            <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
-              <div className="flex justify-between items-center">
-                <h3 className="text-sm font-medium">新規契約書を作成</h3>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowAddForm(false)}>
+          {/* 契約書フォーム */}
+          {formOpen && (
+            <div className="border rounded-lg p-4 bg-gray-50 shrink-0 max-h-[50vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-medium">
+                  {editingId ? "契約書を編集" : "新規契約書を追加"}
+                </h3>
+                <Button variant="ghost" size="sm" onClick={resetForm}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">契約種別</Label>
-                  <Select value={newContractType} onValueChange={setNewContractType}>
-                    <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="選択" /></SelectTrigger>
-                    <SelectContent>
-                      {contractTypeOptions.map((o) => (
-                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+
+              {!editingId && nextContractNumber && (
+                <div className="bg-gray-50 border border-gray-200 rounded-md p-3 mb-4">
+                  <p className="text-sm text-gray-700">
+                    この契約書データを作成すると契約書番号「<span className="font-mono font-bold">{nextContractNumber}</span>」で保存されます。
+                  </p>
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">タイトル</Label>
-                  <Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="契約書名" className="h-8 text-sm" />
+              )}
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  {/* 契約種別 */}
+                  <div>
+                    <Label>契約種別 <span className="text-red-500">*</span></Label>
+                    <Select
+                      value={formData.contractType}
+                      onValueChange={(v) => setFormData({ ...formData, contractType: v })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="選択してください" /></SelectTrigger>
+                      <SelectContent>
+                        {contractTypeOptions.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* タイトル */}
+                  <div>
+                    <Label>タイトル <span className="text-red-500">*</span></Label>
+                    <Input
+                      value={formData.title}
+                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                      placeholder="契約書タイトル"
+                    />
+                    {editingContract?.cloudsignTitle && (
+                      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                        <Cloud className="h-3 w-3 shrink-0" />
+                        CloudSign上のタイトル: {editingContract.cloudsignTitle}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* ステータス */}
+                  <div>
+                    <Label>ステータス</Label>
+                    <Select
+                      value={formData.currentStatusId}
+                      onValueChange={(v) => setFormData({ ...formData, currentStatusId: v })}
+                      disabled={isCloudSignSynced}
+                    >
+                      <SelectTrigger><SelectValue placeholder="選択してください" /></SelectTrigger>
+                      <SelectContent>
+                        {contractStatusOptions.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {isCloudSignSynced && (
+                      <p className="text-xs text-blue-600 mt-1">
+                        CloudSign同期中のため自動更新されます。手動で変更するには同期をOFFにしてください。
+                      </p>
+                    )}
+                  </div>
+
+                  {/* 締結日 */}
+                  <div>
+                    <Label>締結日</Label>
+                    <Input
+                      type="date"
+                      value={formData.signedDate}
+                      onChange={(e) => setFormData({ ...formData, signedDate: e.target.value })}
+                      disabled={isCloudSignSynced}
+                    />
+                    {isCloudSignSynced && (
+                      <p className="text-xs text-blue-600 mt-1">
+                        CloudSign同期中のため自動更新されます。
+                      </p>
+                    )}
+                  </div>
+
+                  {/* 契約書ファイル */}
+                  <div className="col-span-2">
+                    <Label>契約書ファイル</Label>
+                    <MultiFileUpload
+                      value={formData.files}
+                      onChange={(files) => setFormData({ ...formData, files })}
+                      uploadUrl="/api/contracts/upload"
+                      entityIdKey="contractId"
+                      entityId={editingId || undefined}
+                    />
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">ステータス</Label>
-                  <Select value={newStatusId} onValueChange={setNewStatusId}>
-                    <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="選択" /></SelectTrigger>
-                    <SelectContent>
-                      {contractStatusOptions.map((o) => (
-                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+
+                {/* 備考 */}
+                <div>
+                  <Label>備考</Label>
+                  <Textarea
+                    value={formData.note}
+                    onChange={(e) => setFormData({ ...formData, note: e.target.value })}
+                    placeholder="備考"
+                    rows={2}
+                  />
                 </div>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">メモ</Label>
-                <Textarea value={newNote} onChange={(e) => setNewNote(e.target.value)} rows={2} placeholder="備考" className="text-sm" />
-              </div>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={handleAdd} disabled={addLoading || !newContractType || !newTitle}>
-                  {addLoading && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-                  作成
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setShowAddForm(false)}>キャンセル</Button>
-              </div>
+
+                {/* CloudSign ドキュメントID */}
+                {!(editingId && editingContract?.cloudsignDocumentId) && (
+                  <div>
+                    <Label>CloudSign ドキュメントID（任意）</Label>
+                    <Input
+                      value={formData.cloudsignDocumentId}
+                      onChange={(e) => setFormData({ ...formData, cloudsignDocumentId: e.target.value })}
+                      placeholder="例: abcdef12-3456-7890-abcd-ef1234567890"
+                    />
+                    {formData.cloudsignDocumentId.trim() && (
+                      <p className="text-xs text-blue-600 mt-1">
+                        保存後にCloudSignと同期するか確認されます。同期するとCloudSign側のステータスがCRMに反映されます。
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={resetForm}>
+                    キャンセル
+                  </Button>
+                  <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? "保存中..." : "保存"}
+                  </Button>
+                </div>
+              </form>
             </div>
           )}
 
           {/* 契約書一覧 */}
-          {loading ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
-              読み込み中...
-            </div>
-          ) : contracts.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              契約書はまだありません
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {contracts.map((c) => (
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
+            {loading ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
+                読み込み中...
+              </div>
+            ) : contracts.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                契約書はまだありません
+              </div>
+            ) : (
+              contracts.map((c) => (
                 <ContractCard
                   key={c.id}
                   contract={c}
                   contractStatusOptions={contractStatusOptions}
+                  onEdit={handleEdit}
                   onReload={loadContracts}
                 />
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>

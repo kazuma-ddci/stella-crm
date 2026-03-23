@@ -3,6 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { recordStatusChangeIfNeeded } from "@/lib/contract-status/record-status-change";
+import {
+  generateContractNumber,
+  getNextContractNumber as getNextNumber,
+} from "@/lib/contracts/generate-number";
 
 /**
  * SLPメンバーの契約書一覧を取得
@@ -56,17 +60,35 @@ export async function getSlpMemberContracts(memberId: number) {
   }));
 }
 
+/**
+ * 次の契約番号をプレビュー取得
+ */
+export async function getSlpNextContractNumber(): Promise<string> {
+  return getNextNumber();
+}
+
+type ContractFileInput = {
+  id?: number;
+  filePath: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+};
+
 type AddContractInput = {
   memberId: number;
   contractType: string;
   title: string;
   currentStatusId?: number | null;
   signingMethod?: string | null;
+  signedDate?: string | null;
   note?: string | null;
+  cloudsignDocumentId?: string | null;
+  files?: ContractFileInput[];
 };
 
 /**
- * SLPメンバーに新規契約書を追加
+ * SLPメンバーに新規契約書を追加（契約番号自動生成）
  */
 export async function addSlpMemberContract(input: AddContractInput) {
   const slpProject = await prisma.masterProject.findFirst({
@@ -75,15 +97,31 @@ export async function addSlpMemberContract(input: AddContractInput) {
   });
   if (!slpProject) throw new Error("SLPプロジェクトが見つかりません");
 
+  const contractNumber = await generateContractNumber();
+
   const contract = await prisma.masterContract.create({
     data: {
       projectId: slpProject.id,
       slpMemberId: input.memberId,
+      contractNumber,
       contractType: input.contractType,
       title: input.title,
       currentStatusId: input.currentStatusId ?? null,
-      signingMethod: input.signingMethod ?? null,
+      signingMethod: input.signingMethod ?? "cloudsign",
+      signedDate: input.signedDate ? new Date(input.signedDate) : null,
       note: input.note ?? null,
+      cloudsignDocumentId: input.cloudsignDocumentId ?? null,
+      contractFiles: input.files && input.files.length > 0
+        ? {
+            create: input.files.filter((f) => !f.id).map((f) => ({
+              filePath: f.filePath,
+              fileName: f.fileName,
+              fileSize: f.fileSize,
+              mimeType: f.mimeType,
+              category: "contract",
+            })),
+          }
+        : undefined,
     },
   });
 
@@ -99,7 +137,7 @@ export async function addSlpMemberContract(input: AddContractInput) {
 
   revalidatePath("/slp/members");
   revalidatePath("/slp/contracts");
-  return contract.id;
+  return { contractId: contract.id, contractNumber };
 }
 
 type UpdateContractInput = {
@@ -109,6 +147,7 @@ type UpdateContractInput = {
   signingMethod?: string | null;
   note?: string | null;
   cloudsignDocumentId?: string | null;
+  files?: ContractFileInput[];
 };
 
 /**
@@ -154,6 +193,37 @@ export async function updateSlpMemberContract(contractId: number, input: UpdateC
 
   if (Object.keys(data).length > 0) {
     await prisma.masterContract.update({ where: { id: contractId }, data });
+  }
+
+  // ファイル更新（既存のID以外を新規作成、不要なものを削除）
+  if (input.files !== undefined) {
+    const existingFiles = await prisma.contractFile.findMany({
+      where: { contractId },
+      select: { id: true },
+    });
+    const existingIds = existingFiles.map((f) => f.id);
+    const inputIds = input.files.filter((f) => f.id).map((f) => f.id!);
+    // 削除されたファイル
+    const toDelete = existingIds.filter((id) => !inputIds.includes(id));
+    if (toDelete.length > 0) {
+      await prisma.contractFile.deleteMany({
+        where: { id: { in: toDelete } },
+      });
+    }
+    // 新規ファイル
+    const toCreate = input.files.filter((f) => !f.id);
+    if (toCreate.length > 0) {
+      await prisma.contractFile.createMany({
+        data: toCreate.map((f) => ({
+          contractId,
+          filePath: f.filePath,
+          fileName: f.fileName,
+          fileSize: f.fileSize,
+          mimeType: f.mimeType,
+          category: "contract",
+        })),
+      });
+    }
   }
 
   revalidatePath("/slp/members");
