@@ -1480,7 +1480,7 @@ async function getUnsignedContracts(): Promise<InsightResult> {
   const rows = contracts.map((c) => ({
     契約番号: c.contractNumber ?? "-",
     タイトル: c.title ?? "-",
-    企業名: c.company.name,
+    企業名: c.company?.name ?? "-",
     ステータス: c.currentStatus?.name ?? "-",
     作成日: c.createdAt.toISOString().split("T")[0],
   }));
@@ -1516,7 +1516,7 @@ async function getCloudsignPending(): Promise<InsightResult> {
   const rows = contracts.map((c) => ({
     契約番号: c.contractNumber ?? "-",
     タイトル: c.title ?? "-",
-    企業名: c.company.name,
+    企業名: c.company?.name ?? "-",
     CloudSignステータス: c.cloudsignStatus ?? "-",
     送付日: c.cloudsignSentAt?.toISOString().split("T")[0] ?? "-",
   }));
@@ -1591,7 +1591,7 @@ async function getSignedThisMonth(yearMonth: string): Promise<InsightResult> {
   const rows = contracts.map((c) => ({
     契約番号: c.contractNumber ?? "-",
     タイトル: c.title ?? "-",
-    企業名: c.company.name,
+    企業名: c.company?.name ?? "-",
     締結日: c.signedDate!.toISOString().split("T")[0],
   }));
 

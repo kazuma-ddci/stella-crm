@@ -150,7 +150,7 @@ export async function getDeptKpiData(yearMonth: string): Promise<DeptTabData[]> 
   // companyId(masterCompanyId)ごとの最初のsignedDateを計算
   const firstContractByMasterCompany = new Map<number, Date>();
   for (const c of allContracts) {
-    if (!c.signedDate) continue;
+    if (!c.signedDate || c.companyId == null) continue;
     const existing = firstContractByMasterCompany.get(c.companyId);
     if (!existing || c.signedDate < existing) {
       firstContractByMasterCompany.set(c.companyId, c.signedDate);

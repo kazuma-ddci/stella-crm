@@ -141,7 +141,7 @@ export type ContractTabType = 'in_progress' | 'signed' | 'discarded';
 // 契約書一覧の行データ（進捗表示用拡張）
 export interface ContractRowWithProgress {
   id: number;
-  companyId: number;
+  companyId: number | null;
   companyName: string;
   contractType: string;
   title: string;

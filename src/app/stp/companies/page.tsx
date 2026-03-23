@@ -145,6 +145,7 @@ export default async function StpCompaniesPage() {
   // companyIdでMasterContractをグループ化
   const masterContractsByCompanyId: Record<number, typeof masterContracts> = {};
   masterContracts.forEach((contract) => {
+    if (contract.companyId == null) return;
     if (!masterContractsByCompanyId[contract.companyId]) {
       masterContractsByCompanyId[contract.companyId] = [];
     }

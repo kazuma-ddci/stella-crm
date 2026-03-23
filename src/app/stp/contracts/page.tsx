@@ -82,8 +82,8 @@ export default async function StpContractsPage() {
     return {
       id: c.id,
       companyId: c.companyId,
-      companyCode: c.company.companyCode,
-      companyName: c.company.name,
+      companyCode: c.company?.companyCode ?? "",
+      companyName: c.company?.name ?? "",
       contractType: c.contractType,
       title: c.title,
       contractNumber: c.contractNumber,

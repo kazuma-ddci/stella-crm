@@ -109,7 +109,7 @@ export async function getContractStatusManagementData(
   return {
     contractId: contract.id,
     contractTitle: contract.title,
-    companyName: contract.company.name,
+    companyName: contract.company?.name ?? "",
     assignedTo: contract.assignedTo,
     currentStatusId: contract.currentStatusId,
     currentStatus,
