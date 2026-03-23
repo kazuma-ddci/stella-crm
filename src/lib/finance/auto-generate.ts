@@ -7,9 +7,9 @@ import { calculateProratedFee, getDaysInMonth } from "@/lib/business-days";
 
 const AUTO_GENERATE_MONTHS = 3;
 
-type ContractPlan = "monthly" | "performance" | string;
+export type ContractPlan = "monthly" | "performance" | string;
 
-type CommissionConfig = {
+export type CommissionConfig = {
   initialType?: string | null;
   initialRate?: number | null;
   initialFixed?: number | null;
@@ -96,14 +96,14 @@ const enumerateMonths = (start: Date, end: Date | null) => {
   return months;
 };
 
-const toNumber = (value: unknown): number | null => {
+export const toNumber = (value: unknown): number | null => {
   if (value == null) return null;
   if (typeof value === "number") return value;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-const calcByType = (
+export const calcByType = (
   baseAmount: number,
   type: string | null | undefined,
   rate: number | null | undefined,
@@ -1027,7 +1027,7 @@ export async function autoGeneratePerformanceFeeForCandidate(
 // CommissionConfig構築
 // ============================================
 
-function buildCommissionConfig(
+export function buildCommissionConfig(
   contractPlan: ContractPlan,
   agentContractHistory: {
     defaultMpInitialType: string | null;

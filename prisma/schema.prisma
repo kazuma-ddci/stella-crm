@@ -21,6 +21,7 @@ model MasterStellaCompany {
   websiteUrl      String?  @db.VarChar(500)         // 企業HP
   industry        String?  @db.VarChar(100)         // 業界（自由入力）
   revenueScale    String?  @db.VarChar(100)         // 売上規模（自由入力）
+  employeeCount   Int?                              // 従業員数
   staffId         Int?                              // 担当者（AS）
   leadSource      String?  @db.VarChar(50)          // 流入経路（紹介/Web問い合わせ/テレアポ/展示会/セミナー/代理店）
   note            String?                           // メモ
@@ -59,6 +60,8 @@ model MasterStellaCompany {
   externalUsers        ExternalUser[]
   registrationTokens   RegistrationToken[]
   counterparties       Counterparty[]            // 経理システム追加
+  slpCompanies         SlpCompany[]
+  slpAgentCompanies    SlpCompany[]              @relation("SlpAgentCompany")
 
   @@map("master_stella_companies")
 }
@@ -736,6 +739,8 @@ model MasterStaff {
   candidateDecisions          TransactionCandidateDecision[] @relation("CandidateDecisionDecider")
   transactionExpenseOwners    TransactionExpenseOwner[]
   processedInboundInvoices    InboundInvoice[]               @relation("InboundInvoiceProcessor")
+  slpConsultantCompanies      SlpCompany[]                   @relation("SlpConsultantStaffCompanies")
+  slpCsCompanies              SlpCompany[]                   @relation("SlpCsStaffCompanies")
 
   @@map("master_staff")
 }
@@ -3742,6 +3747,42 @@ model SlpLineFriend {
   deletedAt        DateTime?
 
   @@map("slp_line_friends")
+}
+
+// ============================================
+// SLP 案件管理 (SLP Companies)
+// 公的プロジェクトの案件企業を管理
+// ============================================
+
+model SlpCompany {
+  id                    Int       @id @default(autoincrement())
+  companyId             Int                                    // 全顧客マスタへの外部キー
+
+  // SLP固有フィールド
+  annualLaborCost       Int?                                   // 年間人件費
+  targetEmployeeCount   Int?                                   // 対象従業員数
+  targetEstimateRate    Decimal?  @db.Decimal(5,2)             // 対象推定割合（%）
+
+  // 担当者
+  consultantStaffId     Int?                                   // 担当コンサル
+  csStaffId             Int?                                   // 担当CS
+
+  // 代理店（全顧客マスタから選択）
+  agentCompanyId        Int?                                   // 代理店企業ID
+
+  // その他
+  note                  String?                                // メモ
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // Relations
+  company             MasterStellaCompany  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  consultantStaff     MasterStaff?         @relation("SlpConsultantStaffCompanies", fields: [consultantStaffId], references: [id])
+  csStaff             MasterStaff?         @relation("SlpCsStaffCompanies", fields: [csStaffId], references: [id])
+  agentCompany        MasterStellaCompany? @relation("SlpAgentCompany", fields: [agentCompanyId], references: [id])
+
+  @@map("slp_companies")
 }
 
 // ============================================

@@ -54,6 +54,7 @@ export async function addCompany(data: Record<string, unknown>) {
       websiteUrl: (data.websiteUrl as string) || null,
       industry: (data.industry as string) || null,
       revenueScale: (data.revenueScale as string) || null,
+      employeeCount: data.employeeCount != null ? Number(data.employeeCount) : null,
       staffId,
       leadSource: (data.leadSource as string) || null,
       note: (data.note as string) || null,
@@ -106,6 +107,7 @@ export async function updateCompany(id: number, data: Record<string, unknown>) {
   if ("websiteUrl" in data) updateData.websiteUrl = (data.websiteUrl as string) || null;
   if ("industry" in data) updateData.industry = (data.industry as string) || null;
   if ("revenueScale" in data) updateData.revenueScale = (data.revenueScale as string) || null;
+  if ("employeeCount" in data) updateData.employeeCount = data.employeeCount != null ? Number(data.employeeCount) : null;
   if ("staffId" in data) updateData.staffId = staffId;
   if ("leadSource" in data) updateData.leadSource = (data.leadSource as string) || null;
   if ("note" in data) updateData.note = (data.note as string) || null;

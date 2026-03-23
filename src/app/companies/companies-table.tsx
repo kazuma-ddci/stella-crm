@@ -76,6 +76,7 @@ const createColumns = (staffOptions: StaffOption[]): ColumnDef[] => [
   { key: "leadSource", header: "流入経路", type: "select", options: leadSourceOptions },
   { key: "industry", header: "業界", type: "text" },
   { key: "revenueScale", header: "売上規模", type: "text" },
+  { key: "employeeCount", header: "従業員数", type: "number" },
   { key: "websiteUrl", header: "企業HP", type: "text" },
   // インボイス制度
   {

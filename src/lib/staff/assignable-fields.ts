@@ -10,7 +10,9 @@ export type AssignableFieldCode =
   | "STP_AGENT_ADMIN"
   | "PROPOSAL_STAFF"
   | "CONTRACT_ASSIGNED_TO"
-  | "CONTACT_HISTORY_STAFF";
+  | "CONTACT_HISTORY_STAFF"
+  | "SLP_COMPANY_CONSULTANT"
+  | "SLP_COMPANY_CS";
 
 // 後方互換: ハードコード定義（UIのフォールバック用）
 export const ASSIGNABLE_FIELDS: Record<AssignableFieldCode, { label: string }> = {
@@ -24,4 +26,6 @@ export const ASSIGNABLE_FIELDS: Record<AssignableFieldCode, { label: string }> =
   PROPOSAL_STAFF: { label: "提案書 担当者" },
   CONTRACT_ASSIGNED_TO: { label: "契約書 担当者" },
   CONTACT_HISTORY_STAFF: { label: "接触履歴 担当者" },
+  SLP_COMPANY_CONSULTANT: { label: "SLP案件 担当コンサル" },
+  SLP_COMPANY_CS: { label: "SLP案件 担当CS" },
 };

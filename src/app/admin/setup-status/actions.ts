@@ -222,6 +222,15 @@ const checkDefinitions: CheckDefinition[] = [
   // SLP
   // ========================================
   {
+    id: "slp-companies",
+    category: "SLP",
+    name: "SLP案件",
+    description: "SLPプロジェクトの案件データ",
+    required: 0,
+    href: "/slp/companies",
+    countFn: () => prisma.slpCompany.count(),
+  },
+  {
     id: "slp-stages",
     category: "SLP",
     name: "パイプライン",

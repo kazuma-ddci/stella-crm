@@ -240,6 +240,8 @@ const navigation: NavItem[] = [
         icon: BookOpen,
         sectionLabel: true,
         children: [
+          { name: "全顧客マスタ", href: "/companies", icon: BookOpen },
+          { name: "案件管理", href: "/slp/companies", icon: Building2 },
           { name: "組合員名簿", href: "/slp/members", icon: Users },
           { name: "契約書", href: "/slp/contracts", icon: FileText },
           { name: "公式LINE友達情報", href: "/slp/line-friends", icon: MessageSquare },
