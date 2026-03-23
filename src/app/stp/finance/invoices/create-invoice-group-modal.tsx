@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Loader2, ChevronRight, ChevronLeft, Plus, AlertTriangle } from "lucide-react";
+import { Loader2, ChevronRight, ChevronLeft, Plus, AlertTriangle, Pencil, Undo2 } from "lucide-react";
 import {
   createInvoiceGroup,
   getUngroupedTransactions,
@@ -84,6 +84,7 @@ export function CreateInvoiceGroupModal({
   // Step 3: 請求情報
   // 請求書の宛先（デフォルトはStep1で選んだ取引先）
   const [billingCounterpartyId, setBillingCounterpartyId] = useState<string>("");
+  const [isEditingBilling, setIsEditingBilling] = useState(false);
   const isBillingRedirected = billingCounterpartyId !== "" && billingCounterpartyId !== counterpartyId;
   const effectiveCounterpartyId = billingCounterpartyId || counterpartyId;
 
@@ -467,22 +468,63 @@ export function CreateInvoiceGroupModal({
 
               {/* 請求書の宛先変更 */}
               <div>
-                <Label htmlFor="billingCounterpartyId">請求書の宛先</Label>
-                <select
-                  id="billingCounterpartyId"
-                  value={effectiveCounterpartyId}
-                  onChange={(e) => {
-                    setBillingCounterpartyId(e.target.value);
-                    setPaymentDueDate("");
-                  }}
-                  className="mt-1 w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  {counterpartyOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="billingCounterpartyId">請求書の宛先</Label>
+                  {!isEditingBilling ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-muted-foreground"
+                      onClick={() => setIsEditingBilling(true)}
+                    >
+                      <Pencil className="h-3 w-3 mr-1" />
+                      宛先変更
+                    </Button>
+                  ) : isBillingRedirected ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-muted-foreground"
+                      onClick={() => {
+                        setBillingCounterpartyId("");
+                        setPaymentDueDate("");
+                        setIsEditingBilling(false);
+                      }}
+                    >
+                      <Undo2 className="h-3 w-3 mr-1" />
+                      元に戻す
+                    </Button>
+                  ) : null}
+                </div>
+                {isEditingBilling ? (
+                  <select
+                    id="billingCounterpartyId"
+                    value={effectiveCounterpartyId}
+                    onChange={(e) => {
+                      setBillingCounterpartyId(e.target.value);
+                      setPaymentDueDate("");
+                    }}
+                    className={`mt-1 w-full h-10 rounded-md border px-3 text-sm ${
+                      isBillingRedirected
+                        ? "border-amber-400 bg-amber-50 text-amber-900"
+                        : "border-input bg-background"
+                    }`}
+                  >
+                    {counterpartyOptions.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input
+                    value={counterpartyOptions.find((o) => o.value === effectiveCounterpartyId)?.label ?? ""}
+                    disabled
+                    className="mt-1 disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-900"
+                  />
+                )}
               </div>
 
               {isBillingRedirected && (

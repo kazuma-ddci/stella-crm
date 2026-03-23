@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw, Mail, MessageSquare, ArrowRight, Link2, Upload, Paperclip, PenTool, Send, CheckCircle2, Pencil, History, Check, X, Clock } from "lucide-react";
+import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw, Mail, MessageSquare, ArrowRight, Link2, Upload, Paperclip, PenTool, Send, CheckCircle2, Pencil, History, Check, X, Clock, Undo2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
@@ -122,6 +122,8 @@ export function InvoiceGroupDetailModal({
   const [counterpartyId, setCounterpartyId] = useState<string>(
     String(group.counterpartyId)
   );
+  const [isEditingBilling, setIsEditingBilling] = useState(false);
+  const isBillingChanged = String(group.counterpartyId) !== counterpartyId;
   const [bankAccountId, setBankAccountId] = useState<string>(
     group.bankAccountId ? String(group.bankAccountId) : ""
   );
@@ -984,13 +986,16 @@ export function InvoiceGroupDetailModal({
               )}
 
               {/* 宛先変更の警告 */}
-              {group.originalCounterpartyName && (
+              {(group.originalCounterpartyName || isBillingChanged) && (
                 <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
                   <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
                   <div className="text-sm text-amber-800">
                     <p className="font-medium">宛先が変更されています</p>
                     <p className="text-amber-700 mt-0.5">
-                      取引先「{group.originalCounterpartyName}」の取引を、「{group.counterpartyName}」宛の請求書として発行します。
+                      {isBillingChanged
+                        ? `宛先を「${counterpartyOptions.find((o) => o.value === counterpartyId)?.label}」に変更しました。`
+                        : `取引先「${group.originalCounterpartyName}」の取引を、「${group.counterpartyName}」宛の請求書として発行します。`
+                      }
                     </p>
                   </div>
                 </div>
@@ -999,12 +1004,46 @@ export function InvoiceGroupDetailModal({
               {/* 基本情報フォーム */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <Label>請求書の宛先</Label>
-                  {isEditable ? (
+                  <div className="flex items-center justify-between">
+                    <Label>請求書の宛先</Label>
+                    {isEditable && (
+                      !isEditingBilling ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-muted-foreground"
+                          onClick={() => setIsEditingBilling(true)}
+                        >
+                          <Pencil className="h-3 w-3 mr-1" />
+                          宛先変更
+                        </Button>
+                      ) : isBillingChanged ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-muted-foreground"
+                          onClick={() => {
+                            setCounterpartyId(String(group.counterpartyId));
+                            setIsEditingBilling(false);
+                          }}
+                        >
+                          <Undo2 className="h-3 w-3 mr-1" />
+                          元に戻す
+                        </Button>
+                      ) : null
+                    )}
+                  </div>
+                  {isEditable && isEditingBilling ? (
                     <select
                       value={String(counterpartyId)}
                       onChange={(e) => setCounterpartyId(e.target.value)}
-                      className="mt-1 w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      className={`mt-1 w-full h-10 rounded-md border px-3 text-sm ${
+                        isBillingChanged
+                          ? "border-amber-400 bg-amber-50 text-amber-900"
+                          : "border-input bg-background"
+                      }`}
                     >
                       {counterpartyOptions.map((o) => (
                         <option key={o.value} value={o.value}>
@@ -1014,7 +1053,11 @@ export function InvoiceGroupDetailModal({
                     </select>
                   ) : (
                     <Input
-                      value={group.counterpartyName}
+                      value={
+                        isEditable
+                          ? (counterpartyOptions.find((o) => o.value === counterpartyId)?.label ?? group.counterpartyName)
+                          : group.counterpartyName
+                      }
                       disabled
                       className="mt-1 disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-900"
                     />
