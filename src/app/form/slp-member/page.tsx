@@ -106,10 +106,11 @@ export default function SlpMemberRegistrationPage() {
   const [apiResponse, setApiResponse] = useState<ApiResponse | null>(null);
   const [remindSent, setRemindSent] = useState(false);
   const [remindLoading, setRemindLoading] = useState(false);
+  const [lineNameEditable, setLineNameEditable] = useState(false);
+  const [showLineNameConfirm, setShowLineNameConfirm] = useState(false);
 
   const lineNameParam = searchParams.get("lineName") || "";
   const uidParam = searchParams.get("uid") || "";
-  const free1Param = searchParams.get("free1") || "";
 
   const [formData, setFormData] = useState<FormData>({
     memberCategory: "",
@@ -187,7 +188,7 @@ export default function SlpMemberRegistrationPage() {
             address: formData.address,
             note: formData.note || null,
             uid: uidParam,
-            free1: free1Param,
+
             confirmEmailChange,
           }),
         });
@@ -218,7 +219,7 @@ export default function SlpMemberRegistrationPage() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [formData, uidParam, free1Param]
+    [formData, uidParam]
   );
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -598,8 +599,7 @@ export default function SlpMemberRegistrationPage() {
           <div className="px-8 pt-8 pb-4">
             <p className="text-gray-700 text-sm leading-relaxed">
               本フォームは、組合員として入会いただくための申込フォームです。<br />
-              原則として個人での入会を前提としていますが、<br />
-              法人代表者・法人担当者・代理店の方もご入力いただけます。
+              原則として個人での入会を前提としていますが、法人代表者・法人担当者・代理店の方もご入力いただけます。
             </p>
             <p className="text-red-500 text-xs mt-3">* 必須の質問です</p>
           </div>
@@ -630,18 +630,75 @@ export default function SlpMemberRegistrationPage() {
             {/* LINE名 */}
             <div className="space-y-2">
               <Label htmlFor="lineName" className="text-sm font-semibold text-gray-800">
-                LINE名（必須） <span className="text-red-500">*</span>
+                LINE名 <span className="text-red-500">*</span>
               </Label>
-              <p className="text-xs text-gray-500">
-                本名ではなく、LINEで登録しているお名前をご記載ください。
-              </p>
-              <Input
-                id="lineName"
-                value={formData.lineName}
-                onChange={(e) => handleInputChange("lineName", e.target.value)}
-                className="border-gray-300 focus:border-sky-500 focus:ring-sky-500"
-                placeholder="回答を入力"
-              />
+              {lineNameParam ? (
+                <>
+                  <p className="text-xs text-gray-500">
+                    LINEで登録しているお名前が自動で表示されています。もしご自身のLINE名が表示されていない場合は、ご自身の公式LINEのリンクから再度アクセスしてご回答ください。
+                  </p>
+                  <Input
+                    id="lineName"
+                    value={formData.lineName}
+                    onChange={(e) => handleInputChange("lineName", e.target.value)}
+                    readOnly={!lineNameEditable}
+                    className={
+                      lineNameEditable
+                        ? "border-gray-300 focus:border-sky-500 focus:ring-sky-500"
+                        : "border-gray-300 bg-gray-100 text-gray-700 cursor-not-allowed"
+                    }
+                    placeholder="回答を入力"
+                  />
+                  {!lineNameEditable && (
+                    <button
+                      type="button"
+                      onClick={() => setShowLineNameConfirm(true)}
+                      className="text-xs text-sky-600 hover:text-sky-800 underline"
+                    >
+                      LINE名を修正する
+                    </button>
+                  )}
+                  {showLineNameConfirm && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+                      <p className="text-xs text-amber-800">
+                        LINE名はシステムで自動取得しています。通常は正しい名前が表示されていますが、修正しますか？
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLineNameEditable(true);
+                            setShowLineNameConfirm(false);
+                          }}
+                          className="text-xs px-3 py-1 bg-sky-600 text-white rounded hover:bg-sky-700"
+                        >
+                          はい、修正します
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowLineNameConfirm(false)}
+                          className="text-xs px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                        >
+                          いいえ
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-500">
+                    本名ではなく、LINEで登録しているお名前をご記載ください。
+                  </p>
+                  <Input
+                    id="lineName"
+                    value={formData.lineName}
+                    onChange={(e) => handleInputChange("lineName", e.target.value)}
+                    className="border-gray-300 focus:border-sky-500 focus:ring-sky-500"
+                    placeholder="回答を入力"
+                  />
+                </>
+              )}
             </div>
 
             {/* お名前 */}

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
+import { submitForm4FriendNotification } from "@/lib/proline-form";
 
 /**
  * ProLineからの友だち追加Webhook（GET形式）
@@ -66,6 +67,25 @@ export async function GET(request: Request) {
       },
       update: data,
     });
+
+    // Form4: 紹介者に友だち追加通知を送信（fire-and-forget）
+    if (free1) {
+      try {
+        await submitForm4FriendNotification(free1, snsname || "");
+        await prisma.slpLineFriend.update({
+          where: { uid },
+          data: { form4NotifyCount: { increment: 1 } },
+        });
+        console.log(`[Webhook] Form4 notification sent for uid=${uid}, referrer=${free1}`);
+      } catch (form4Err) {
+        console.error(`[Webhook] Form4 notification failed for uid=${uid}:`, form4Err);
+        await logAutomationError({
+          source: "webhook/line-friend/form4",
+          message: `Form4友だち追加通知失敗 (uid=${uid}, referrer=${free1})`,
+          detail: { uid, referrerUid: free1, error: String(form4Err) },
+        });
+      }
+    }
 
     return NextResponse.json({ success: true });
   } catch (err) {

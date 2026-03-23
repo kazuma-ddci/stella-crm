@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendSlpContract, isRemindable, isRemindExpired } from "@/lib/slp-cloudsign";
 import { logAutomationError } from "@/lib/automation-error";
+import { submitProlineForm } from "@/lib/proline-form";
+import { generateWatermarkCode } from "@/lib/watermark";
 
 interface RegistrationData {
   memberCategory: string;
@@ -14,7 +16,6 @@ interface RegistrationData {
   address: string;
   note: string | null;
   uid: string;
-  free1: string;
   // メールアドレス変更確認時
   confirmEmailChange?: boolean;
 }
@@ -79,17 +80,12 @@ export async function POST(request: NextRequest) {
       where: { uid: data.uid },
     });
 
-    // SlpLineFriendのfree1を更新
-    if (data.free1) {
-      await prisma.slpLineFriend
-        .updateMany({
-          where: { uid: data.uid },
-          data: { free1: data.free1 },
-        })
-        .catch(() => {
-          // LINE友達が見つからない場合は無視
-        });
-    }
+    // SlpLineFriendからfree1（紹介者UID）を取得
+    const lineFriend = await prisma.slpLineFriend.findUnique({
+      where: { uid: data.uid },
+      select: { free1: true },
+    });
+    const referrerUid = lineFriend?.free1 || null;
 
     // =============================================
     // 既存メンバーの場合
@@ -143,6 +139,7 @@ export async function POST(request: NextRequest) {
             const result = await sendSlpContract({
               email: data.email,
               name: data.name,
+              slpMemberId: existingMember.id,
             });
 
             await prisma.slpMember.update({
@@ -160,6 +157,36 @@ export async function POST(request: NextRequest) {
               },
             });
 
+            // ProLineフォーム送信（fire-and-forget）
+            submitProlineForm(data.uid, {
+              memberCategory: data.memberCategory,
+              name: data.name,
+              position: data.position,
+              email: data.email,
+              phone: data.phone,
+              company: data.company,
+              address: data.address,
+              note: data.note,
+            }).catch(async (err) => {
+              console.error("ProLine form submit error:", err);
+              await logAutomationError({
+                source: "proline-form-submit",
+                message: `ProLineフォーム送信失敗: ${data.name}`,
+                detail: {
+                  retryAction: "proline-form-submit",
+                  uid: data.uid,
+                  memberCategory: data.memberCategory,
+                  name: data.name,
+                  position: data.position,
+                  email: data.email,
+                  phone: data.phone,
+                  company: data.company,
+                  address: data.address,
+                  note: data.note,
+                },
+              });
+            });
+
             return NextResponse.json({
               success: true,
               type: "email_changed",
@@ -171,7 +198,13 @@ export async function POST(request: NextRequest) {
             await logAutomationError({
               source: "public/slp/member-registration",
               message: `契約書再送付失敗（メール変更）: ${data.name}`,
-              detail: { uid: data.uid, name: data.name, email: data.email, error: String(error) },
+              detail: {
+                retryAction: "cloudsign-send",
+                uid: data.uid,
+                name: data.name,
+                email: data.email,
+                error: String(error),
+              },
             });
             return NextResponse.json({
               success: false,
@@ -217,19 +250,24 @@ export async function POST(request: NextRequest) {
     // =============================================
     const now = new Date();
 
-    // CloudSign で契約書を送付
+    // CloudSign で契約書を送付（slpMemberIdは既存メンバーの場合のみ）
     let documentId: string | null = null;
     let cloudsignUrl: string | null = null;
+    let contractId: number | null = null;
     let newStatus = "契約書未送付";
     let contractSentDate: Date | null = null;
+
+    const existingMemberId = existingMember && !existingMember.deletedAt ? existingMember.id : null;
 
     try {
       const result = await sendSlpContract({
         email: data.email,
         name: data.name,
+        slpMemberId: existingMemberId ?? undefined,
       });
       documentId = result.documentId;
       cloudsignUrl = result.cloudsignUrl;
+      contractId = result.contractId;
       newStatus = "契約書送付済";
       contractSentDate = now;
     } catch (error) {
@@ -237,16 +275,22 @@ export async function POST(request: NextRequest) {
       await logAutomationError({
         source: "public/slp/member-registration",
         message: `契約書送付失敗: ${data.name}`,
-        detail: { uid: data.uid, name: data.name, email: data.email, error: String(error) },
+        detail: {
+          retryAction: "cloudsign-send",
+          uid: data.uid,
+          name: data.name,
+          email: data.email,
+          error: String(error),
+        },
       });
       // 送付失敗しても登録は行う。ステータスを「送付エラー」にしてOS側で検知可能に
       newStatus = "送付エラー";
     }
 
-    if (existingMember && !existingMember.deletedAt) {
+    if (existingMemberId) {
       // 既存メンバー更新（未送付/破棄からの再登録）
       await prisma.slpMember.update({
-        where: { id: existingMember.id },
+        where: { id: existingMemberId },
         data: {
           name: data.name,
           email: data.email,
@@ -257,7 +301,7 @@ export async function POST(request: NextRequest) {
           company: data.company,
           address: data.address,
           memo: data.note || null,
-          referrerUid: data.free1 || null,
+          referrerUid,
           status: newStatus,
           contractSentDate,
           documentId,
@@ -270,7 +314,8 @@ export async function POST(request: NextRequest) {
       });
     } else {
       // 新規作成
-      await prisma.slpMember.create({
+      const watermarkCode = await generateWatermarkCode();
+      const newMember = await prisma.slpMember.create({
         data: {
           name: data.name,
           email: data.email,
@@ -283,14 +328,53 @@ export async function POST(request: NextRequest) {
           company: data.company,
           address: data.address,
           memo: data.note || null,
-          referrerUid: data.free1 || null,
+          referrerUid,
           documentId,
           cloudsignUrl,
           contractSentDate,
           formSubmittedAt: now,
+          watermarkCode,
         },
       });
+
+      // 新規作成時: MasterContractにslpMemberIdを紐付け
+      if (contractId) {
+        await prisma.masterContract.update({
+          where: { id: contractId },
+          data: { slpMemberId: newMember.id },
+        });
+      }
     }
+
+    // ProLineフォーム送信（fire-and-forget、CloudSign成否に関わらず送信）
+    submitProlineForm(data.uid, {
+      memberCategory: data.memberCategory,
+      name: data.name,
+      position: data.position,
+      email: data.email,
+      phone: data.phone,
+      company: data.company,
+      address: data.address,
+      note: data.note,
+    }).catch(async (err) => {
+      console.error("ProLine form submit error:", err);
+      await logAutomationError({
+        source: "proline-form-submit",
+        message: `ProLineフォーム送信失敗: ${data.name}`,
+        detail: {
+          retryAction: "proline-form-submit",
+          uid: data.uid,
+          memberCategory: data.memberCategory,
+          name: data.name,
+          position: data.position,
+          email: data.email,
+          phone: data.phone,
+          company: data.company,
+          address: data.address,
+          note: data.note,
+        },
+      });
+    });
 
     if (newStatus === "契約書送付済") {
       return NextResponse.json({

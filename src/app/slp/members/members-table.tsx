@@ -1,14 +1,28 @@
 "use client";
 
+import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { CrudTable, ColumnDef, CustomRenderers, CustomAction } from "@/components/crud-table";
-import { addMember, updateMember, deleteMember, remindMember, sendContractToMember, clearResubmitted } from "./actions";
-import { Bell, Send } from "lucide-react";
+import { addMember, updateMember, deleteMember, remindMember, sendContractToMember, clearResubmitted, sendForm5Notification } from "./actions";
+import { Bell, Send, ScrollText } from "lucide-react";
 import { toast } from "sonner";
+import { SlpContractModal } from "./slp-contract-modal";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type Props = {
   data: Record<string, unknown>[];
   memberOptions: { value: string; label: string }[];
+  contractStatusOptions: { value: string; label: string }[];
+  contractTypeOptions: { value: string; label: string }[];
 };
 
 const statusOptions = [
@@ -25,12 +39,17 @@ const memberCategoryOptions = [
   { value: "代理店", label: "代理店" },
 ];
 
-export function MembersTable({ data, memberOptions }: Props) {
+export function MembersTable({ data, memberOptions, contractStatusOptions, contractTypeOptions }: Props) {
   const router = useRouter();
+  const [form5DialogOpen, setForm5DialogOpen] = useState(false);
+  const [form5NotifyCount, setForm5NotifyCount] = useState(0);
+  const pendingUpdateRef = useRef<{ id: number; formData: Record<string, unknown> } | null>(null);
+  const [contractModalOpen, setContractModalOpen] = useState(false);
+  const [selectedMember, setSelectedMember] = useState<{ id: number; name: string } | null>(null);
 
   const columns: ColumnDef[] = [
     { key: "id", header: "No.", editable: false },
-    { key: "lineNo", header: "LINE No.", editable: false },
+    { key: "lineNo", header: "LINE番号", editable: false },
     { key: "name", header: "氏名", type: "text", required: true, filterable: true },
     { key: "email", header: "メールアドレス", type: "text", filterable: true },
     { key: "status", header: "ステータス", type: "select", options: statusOptions, filterable: true },
@@ -53,6 +72,7 @@ export function MembersTable({ data, memberOptions }: Props) {
     { key: "reminderCount", header: "リマインド回数", type: "number", defaultValue: 0 },
     { key: "lastReminderSentAt", header: "直近リマインド日時", type: "text", editable: false },
     { key: "emailChangeCount", header: "メアド変更回数", type: "number", editable: false },
+    { key: "watermarkCode", header: "透かしコード", type: "text", editable: false },
   ];
 
   const customRenderers: CustomRenderers = {
@@ -98,6 +118,14 @@ export function MembersTable({ data, memberOptions }: Props) {
   };
 
   const customActions: CustomAction[] = [
+    {
+      label: "契約管理",
+      icon: <ScrollText className="h-4 w-4" />,
+      onClick: async (row) => {
+        setSelectedMember({ id: row.id as number, name: row.name as string });
+        setContractModalOpen(true);
+      },
+    },
     {
       label: "新規契約書送付",
       icon: <Send className="h-4 w-4" />,
@@ -153,9 +181,48 @@ export function MembersTable({ data, memberOptions }: Props) {
   };
 
   const handleUpdate = async (id: number, formData: Record<string, unknown>) => {
+    // ステータスが「組合員契約書締結」に変更された場合、通知確認ダイアログを表示
+    const currentRow = data.find((d) => d.id === id);
+    const newStatus = formData.status as string | undefined;
+    const oldStatus = currentRow?.status as string | undefined;
+
+    if (
+      newStatus === "組合員契約書締結" &&
+      oldStatus !== "組合員契約書締結"
+    ) {
+      pendingUpdateRef.current = { id, formData };
+      setForm5NotifyCount((currentRow?.form5NotifyCount as number) ?? 0);
+      setForm5DialogOpen(true);
+      return;
+    }
+
     await updateMember(id, formData);
     router.refresh();
   };
+
+  const handleForm5Confirm = useCallback(async (sendNotification: boolean) => {
+    setForm5DialogOpen(false);
+    const pending = pendingUpdateRef.current;
+    if (!pending) return;
+    pendingUpdateRef.current = null;
+
+    try {
+      await updateMember(pending.id, pending.formData);
+      if (sendNotification) {
+        try {
+          await sendForm5Notification(pending.id);
+          toast.success("紹介者に契約締結通知を送信しました");
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "通知送信に失敗しました";
+          toast.error(msg);
+        }
+      }
+      router.refresh();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "更新に失敗しました";
+      toast.error(msg);
+    }
+  }, [router]);
 
   const handleDelete = async (id: number) => {
     await deleteMember(id);
@@ -163,16 +230,50 @@ export function MembersTable({ data, memberOptions }: Props) {
   };
 
   return (
-    <CrudTable
-      data={data}
-      columns={columns}
-      title="組合員"
-      onAdd={handleAdd}
-      onUpdate={handleUpdate}
-      onDelete={handleDelete}
-      customRenderers={customRenderers}
-      customActions={customActions}
-      emptyMessage="組合員が登録されていません"
-    />
+    <>
+      <CrudTable
+        data={data}
+        columns={columns}
+        title="組合員"
+        onAdd={handleAdd}
+        onUpdate={handleUpdate}
+        onDelete={handleDelete}
+        customRenderers={customRenderers}
+        customActions={customActions}
+        emptyMessage="組合員が登録されていません"
+      />
+
+      {selectedMember && (
+        <SlpContractModal
+          open={contractModalOpen}
+          onOpenChange={setContractModalOpen}
+          memberId={selectedMember.id}
+          memberName={selectedMember.name}
+          contractStatusOptions={contractStatusOptions}
+          contractTypeOptions={contractTypeOptions}
+        />
+      )}
+
+      <AlertDialog open={form5DialogOpen} onOpenChange={setForm5DialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>紹介者への契約締結通知</AlertDialogTitle>
+            <AlertDialogDescription>
+              {form5NotifyCount === 0
+                ? "紹介者に契約書締結を通知しますか？"
+                : `すでに通知を${form5NotifyCount}回送信していますが、再度通知しますか？`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => handleForm5Confirm(false)}>
+              いいえ（通知なし）
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={() => handleForm5Confirm(true)}>
+              はい（通知する）
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

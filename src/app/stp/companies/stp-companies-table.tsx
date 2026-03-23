@@ -54,6 +54,7 @@ type Props = {
   billingAddressByCompany: Record<string, { value: string; label: string }[]>;
   billingContactByCompany: Record<string, { value: string; label: string }[]>;
   contactMethodOptions: { value: string; label: string }[];
+  productOptions: { value: string; label: string }[];
   pendingStageId?: number;
   lostStageId?: number;
   masterContractStatusOptions: { value: string; label: string }[];
@@ -75,6 +76,7 @@ export function StpCompaniesTable({
   billingAddressByCompany,
   billingContactByCompany,
   contactMethodOptions,
+  productOptions,
   pendingStageId,
   lostStageId,
   masterContractStatusOptions,
@@ -192,6 +194,10 @@ export function StpCompaniesTable({
     { key: "companyId", header: "企業ID", type: "select", options: companyOptions, required: true, searchable: true, simpleMode: true, editableOnCreate: true, editableOnUpdate: false, hidden: true },
     // 企業名
     { key: "companyName", header: "企業名", editable: false },
+    // 案件有無
+    { key: "hasDeal", header: "案件有無", type: "select", options: [{ value: "有り", label: "有り" }, { value: "無し", label: "無し" }], inlineEditable: true },
+    // 提案中の商材（複数選択）
+    { key: "proposedProductIds", header: "提案中の商材", type: "multiselect", options: productOptions, inlineEditable: true },
     // 企業メモ - TextPreviewCell形式で編集
     { key: "note", header: "企業メモ", type: "textarea", simpleMode: true },
     // 代理店ID（非表示）
@@ -715,6 +721,8 @@ export function StpCompaniesTable({
       "plannedHires",      // 採用予定人数
       "billingAddress",      // 請求先住所
       "billingContactIds",   // 請求先担当者
+      "hasDeal",             // 案件有無
+      "proposedProductIds",  // 提案中の商材
     ],
     // 表示用カラムから編集用カラムへのマッピング
     displayToEditMapping: {
@@ -754,6 +762,12 @@ export function StpCompaniesTable({
       if (columnKey === "billingContactIds") {
         const companyId = row.companyId as number;
         return billingContactByCompany[String(companyId)] || [];
+      }
+      if (columnKey === "hasDeal") {
+        return [{ value: "有り", label: "有り" }, { value: "無し", label: "無し" }];
+      }
+      if (columnKey === "proposedProductIds") {
+        return productOptions;
       }
       return [];
     },

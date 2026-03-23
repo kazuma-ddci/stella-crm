@@ -8,7 +8,7 @@ import { getStaffOptionsByField, getStaffOptionsByFields } from "@/lib/staff/get
 export default async function StpCompaniesPage() {
   const STP_PROJECT_ID = 1; // 採用ブースト
 
-  const [companies, masterCompanies, stages, agents, staff, contractTypes, leadSources, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, contractHistoriesData, editorProposalsRaw, contactCategories] = await Promise.all([
+  const [companies, masterCompanies, stages, agents, staff, contractTypes, leadSources, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, contractHistoriesData, editorProposalsRaw, stpProducts, contactCategories] = await Promise.all([
     prisma.stpCompany.findMany({
       include: {
         company: {
@@ -126,6 +126,11 @@ export default async function StpCompaniesPage() {
         proposalContent: true,
       },
     }),
+    // 商材マスタを取得
+    prisma.stpProduct.findMany({
+      where: { isActive: true },
+      orderBy: { displayOrder: "asc" },
+    }),
     // 接触種別を取得
     prisma.contactCategory.findMany({
       where: { isActive: true },
@@ -239,6 +244,9 @@ export default async function StpCompaniesPage() {
         .filter((info): info is string => !!info);
       return contactInfoList.length > 0 ? contactInfoList : null;
     })(),
+    // 案件・商材
+    hasDeal: c.hasDeal,
+    proposedProductIds: c.proposedProductIds,
     // 検討理由・失注理由
     pendingReason: c.pendingReason,
     lostReason: c.lostReason,
@@ -360,6 +368,11 @@ export default async function StpCompaniesPage() {
     label: m.name,
   }));
 
+  const productOptions = stpProducts.map((p) => ({
+    value: String(p.id),
+    label: p.name,
+  }));
+
   // 請求先住所の選択肢（企業ごと）- キーは文字列
   const billingAddressByCompany: Record<string, { value: string; label: string }[]> = {};
   masterCompanies.forEach((mc) => {
@@ -405,6 +418,7 @@ export default async function StpCompaniesPage() {
             billingAddressByCompany={billingAddressByCompany}
             billingContactByCompany={billingContactByCompany}
             contactMethodOptions={contactMethodOptions}
+            productOptions={productOptions}
             pendingStageId={pendingStageId}
             lostStageId={lostStageId}
             masterContractStatusOptions={masterContractStatusOptions}

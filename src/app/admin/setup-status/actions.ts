@@ -199,6 +199,16 @@ const checkDefinitions: CheckDefinition[] = [
       }),
   },
   {
+    id: "stp-products",
+    category: "STP",
+    name: "商材",
+    description: "提案可能な商材の種類が登録されているか",
+    required: 1,
+    href: "/stp/settings/products",
+    countFn: () =>
+      prisma.stpProduct.count({ where: { isActive: true } }),
+  },
+  {
     id: "stp-billing-rules",
     category: "STP",
     name: "請求ルール設定",

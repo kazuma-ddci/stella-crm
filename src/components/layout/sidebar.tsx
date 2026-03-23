@@ -51,6 +51,7 @@ import {
   ClipboardCheck,
   GraduationCap,
   AlertTriangle,
+  Package,
 } from "lucide-react";
 import { canView } from "@/lib/auth/permissions";
 import type { SessionUser } from "@/types/auth";
@@ -137,7 +138,6 @@ function removeMasterDataItems(items: NavItem[]): NavItem[] {
 const navigation: NavItem[] = [
   { name: "通知", href: "/notifications", icon: Bell },
   { name: "セットアップ状況", href: "/admin/setup-status", icon: ListChecks, adminOnly: true },
-  { name: "自動化エラー", href: "/admin/automation-errors", icon: AlertTriangle, adminOnly: true },
   {
     name: "Stella",
     icon: Building2,
@@ -216,6 +216,7 @@ const navigation: NavItem[] = [
               { name: "スタッフ役割種別", href: "/staff/role-types?project=stp", icon: Tags },
               { name: "担当者フィールド制約", href: "/staff/field-restrictions?project=stp", icon: Shield },
               { name: "メールテンプレート", href: "/settings/email-templates?project=stp", icon: FileText },
+              { name: "商材", href: "/stp/settings/products", icon: Package },
               { name: "費目マスタ", href: "/stp/settings/expense-categories", icon: Tag },
               { name: "請求ルール設定", href: "/stp/settings/billing-rules", icon: FileText },
             ],
@@ -232,12 +233,15 @@ const navigation: NavItem[] = [
     collapsible: true,
     children: [
       { name: "ダッシュボード", href: "/slp/dashboard", icon: Home },
+      { name: "自動化エラー", href: "/slp/automation-errors", icon: AlertTriangle },
+      { name: "契約書リマインド", href: "/slp/reminders", icon: Bell },
       {
         name: "基本情報",
         icon: BookOpen,
         sectionLabel: true,
         children: [
           { name: "組合員名簿", href: "/slp/members", icon: Users },
+          { name: "契約書", href: "/slp/contracts", icon: FileText },
           { name: "公式LINE友達情報", href: "/slp/line-friends", icon: MessageSquare },
         ],
       },

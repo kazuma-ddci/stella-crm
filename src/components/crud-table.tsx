@@ -803,6 +803,8 @@ export function CrudTable({
     columns.forEach((col) => {
       if (col.defaultValue !== undefined) {
         defaults[col.key] = col.defaultValue;
+      } else if (col.type === "boolean") {
+        defaults[col.key] = true;
       }
     });
     setFormData(defaults);

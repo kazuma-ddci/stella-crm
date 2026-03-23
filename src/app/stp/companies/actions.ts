@@ -111,6 +111,9 @@ export async function addStpCompany(data: Record<string, unknown>) {
         billingAddress: toCommaSeparatedString(data.billingAddress),
         // billingContactIds（担当者ID）をbillingRepresentativeに保存
         billingRepresentative: billingContactIds,
+        // 案件・商材
+        hasDeal: (data.hasDeal as string) || null,
+        proposedProductIds: toCommaSeparatedString(data.proposedProductIds),
         // その他
         note: (data.note as string) || null,
         pendingReason: (data.pendingReason as string) || null,
@@ -219,6 +222,16 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
   if ("billingContactIds" in data) {
     const billingContactIds = toCommaSeparatedString(data.billingContactIds);
     updateData.billingRepresentative = billingContactIds;
+  }
+
+  // 案件有無
+  if ("hasDeal" in data) {
+    updateData.hasDeal = (data.hasDeal as string) || null;
+  }
+
+  // 提案中の商材
+  if ("proposedProductIds" in data) {
+    updateData.proposedProductIds = toCommaSeparatedString(data.proposedProductIds);
   }
 
   // 企業メモ

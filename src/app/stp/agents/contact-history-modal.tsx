@@ -160,6 +160,11 @@ export function ContactHistoryModal({
   const [staffPopoverOpen, setStaffPopoverOpen] = useState(false);
   const [requiredWarning, setRequiredWarning] = useState(false);
 
+  // 別の代理店が選択された場合に履歴データを更新
+  useEffect(() => {
+    setHistories(initialHistories as unknown as ContactHistory[]);
+  }, [initialHistories]);
+
   type CachedState = {
     formData: Partial<ContactHistory>;
     isAddMode: boolean;

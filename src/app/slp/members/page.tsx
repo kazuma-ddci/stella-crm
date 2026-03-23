@@ -12,19 +12,39 @@ function formatDateTimeMinute(date: Date | null): string | null {
 }
 
 export default async function SlpMembersPage() {
-  const members = await prisma.slpMember.findMany({
-    where: { deletedAt: null },
-    include: { referrer: { select: { id: true, name: true } } },
-    orderBy: { id: "asc" },
+  const slpProject = await prisma.masterProject.findFirst({
+    where: { code: "slp" },
+    select: { id: true },
   });
 
-  // UID一覧からLINE友達のNo.（id）をまとめて取得
+  const [members, contractStatuses, contractTypes] = await Promise.all([
+    prisma.slpMember.findMany({
+      where: { deletedAt: null },
+      orderBy: { id: "asc" },
+    }),
+    prisma.masterContractStatus.findMany({
+      where: { isActive: true },
+      orderBy: { displayOrder: "asc" },
+    }),
+    slpProject
+      ? prisma.contractType.findMany({
+          where: { projectId: slpProject.id, isActive: true },
+          orderBy: { displayOrder: "asc" },
+        })
+      : [],
+  ]);
+
+  // UID一覧からLINE友達のNo.（id）とfree1（紹介者UID）をまとめて取得
   const uids = members.map((m) => m.uid);
   const lineFriends = await prisma.slpLineFriend.findMany({
     where: { uid: { in: uids }, deletedAt: null },
-    select: { uid: true, id: true },
+    select: { uid: true, id: true, free1: true },
   });
   const lineFriendIdMap = new Map(lineFriends.map((lf) => [lf.uid, lf.id]));
+  const lineFriendFree1Map = new Map(lineFriends.map((lf) => [lf.uid, lf.free1]));
+
+  // free1（紹介者UID）からメンバー情報を引くためのマップ
+  const memberByUidMap = new Map(members.map((m) => [m.uid, m]));
 
   const data = members.map((m) => ({
     id: m.id,
@@ -41,8 +61,12 @@ export default async function SlpMembersPage() {
     uid: m.uid,
     phone: m.phone,
     address: m.address,
-    referrerUid: m.referrerUid,
-    referrerDisplay: m.referrer ? `${m.referrer.id} ${m.referrer.name}` : null,
+    referrerUid: lineFriendFree1Map.get(m.uid) || m.referrerUid || null,
+    referrerDisplay: (() => {
+      const free1Uid = lineFriendFree1Map.get(m.uid);
+      const referrer = free1Uid ? memberByUidMap.get(free1Uid) : null;
+      return referrer ? `${referrer.id} ${referrer.name}` : null;
+    })(),
     note: m.note,
     memo: m.memo,
     documentId: m.documentId,
@@ -52,6 +76,8 @@ export default async function SlpMembersPage() {
     lastReminderSentAt: formatDateTimeMinute(m.lastReminderSentAt),
     emailChangeCount: m.emailChangeCount,
     resubmitted: m.resubmitted,
+    watermarkCode: m.watermarkCode,
+    form5NotifyCount: m.form5NotifyCount,
   }));
 
   const memberOptions = members.map((m) => ({
@@ -59,10 +85,25 @@ export default async function SlpMembersPage() {
     label: `${m.id} ${m.name}`,
   }));
 
+  const contractStatusOptions = contractStatuses.map((s) => ({
+    value: String(s.id),
+    label: s.name,
+  }));
+
+  const contractTypeOptions = contractTypes.map((t) => ({
+    value: t.name,
+    label: t.name,
+  }));
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">組合員名簿</h1>
-      <MembersTable data={data} memberOptions={memberOptions} />
+      <MembersTable
+        data={data}
+        memberOptions={memberOptions}
+        contractStatusOptions={contractStatusOptions}
+        contractTypeOptions={contractTypeOptions}
+      />
     </div>
   );
 }

@@ -12,6 +12,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { cloudsignClient } from "@/lib/cloudsign";
+import { recordStatusChangeIfNeeded } from "@/lib/contract-status/record-status-change";
 
 // フォールバック: 環境変数 or GASと同じデフォルト値
 const FALLBACK_TEMPLATE_ID =
@@ -22,11 +23,12 @@ const DOCUMENT_TITLE =
   "一般社団法人 公的制度教育推進協会(組合員契約書及び組合規定)";
 
 /**
- * SLPプロジェクト情報を一括取得（ClientID + テンプレートID）
+ * SLPプロジェクト情報を一括取得（ClientID + テンプレートID + ProjectID）
  */
 async function getSlpCloudsignConfig(): Promise<{
   clientId: string;
   templateId: string;
+  projectId: number;
 }> {
   const project = await prisma.masterProject.findUnique({
     where: { code: "slp" },
@@ -48,8 +50,12 @@ async function getSlpCloudsignConfig(): Promise<{
     },
   });
 
+  if (!project) {
+    throw new Error("SLPプロジェクトが見つかりません");
+  }
+
   // ClientID
-  const clientId = project?.operatingCompany?.cloudsignClientId;
+  const clientId = project.operatingCompany?.cloudsignClientId;
   if (!clientId) {
     throw new Error(
       "SLPプロジェクトの運営法人にCloudSign APIキーが設定されていません"
@@ -59,7 +65,7 @@ async function getSlpCloudsignConfig(): Promise<{
   // テンプレートID: 契約種別設定 → 環境変数 → フォールバック
   let templateId = FALLBACK_TEMPLATE_ID;
 
-  const contractType = project?.slpMemberContractType;
+  const contractType = project.slpMemberContractType;
   if (contractType) {
     const activeTemplate = contractType.cloudsignTemplates.find(
       (link) => link.template.isActive
@@ -69,19 +75,20 @@ async function getSlpCloudsignConfig(): Promise<{
     }
   }
 
-  return { clientId, templateId };
+  return { clientId, templateId, projectId: project.id };
 }
 
 /**
- * CloudSignで契約書を送付する
+ * CloudSignで契約書を送付し、MasterContractレコードを作成する
  *
- * @returns { documentId, cloudsignUrl } 送付成功時
+ * @returns { documentId, cloudsignUrl, contractId } 送付成功時
  */
 export async function sendSlpContract(input: {
   email: string;
   name: string;
-}): Promise<{ documentId: string; cloudsignUrl: string }> {
-  const { clientId, templateId } = await getSlpCloudsignConfig();
+  slpMemberId?: number;
+}): Promise<{ documentId: string; cloudsignUrl: string; contractId: number }> {
+  const { clientId, templateId, projectId } = await getSlpCloudsignConfig();
   const token = await cloudsignClient.getToken(clientId);
 
   // 1. テンプレートから書類を作成
@@ -114,17 +121,64 @@ export async function sendSlpContract(input: {
 
   const cloudsignUrl = `https://www.cloudsign.jp/documents/${documentId}`;
 
-  return { documentId, cloudsignUrl };
+  // 4. 送付済みステータスを取得
+  const sentStatus = await prisma.masterContractStatus.findFirst({
+    where: { isActive: true, cloudsignStatusMapping: "sent" },
+    select: { id: true },
+  });
+
+  // 5. MasterContractレコードを作成
+  const contract = await prisma.masterContract.create({
+    data: {
+      projectId,
+      slpMemberId: input.slpMemberId ?? null,
+      contractType: "組合員契約書",
+      title: `組合員契約書（${input.name}）`,
+      signingMethod: "cloudsign",
+      cloudsignDocumentId: documentId,
+      cloudsignUrl,
+      cloudsignStatus: "sent",
+      cloudsignAutoSync: true,
+      cloudsignSentAt: new Date(),
+      currentStatusId: sentStatus?.id ?? null,
+    },
+  });
+
+  // 6. ステータス履歴を記録
+  if (sentStatus) {
+    await recordStatusChangeIfNeeded(
+      prisma,
+      contract.id,
+      null,
+      sentStatus.id,
+      "自動送付（入会フォーム）"
+    );
+  }
+
+  return { documentId, cloudsignUrl, contractId: contract.id };
 }
 
 /**
- * CloudSignでリマインドを送付する
+ * CloudSignでリマインドを送付する（MasterContract経由）
  */
-export async function sendSlpRemind(documentId: string): Promise<void> {
+export async function sendSlpRemind(contractId: number): Promise<void> {
+  const contract = await prisma.masterContract.findUnique({
+    where: { id: contractId },
+    select: { cloudsignDocumentId: true },
+  });
+  if (!contract?.cloudsignDocumentId) {
+    throw new Error("契約書にCloudSign書類IDがありません");
+  }
+
   const { clientId } = await getSlpCloudsignConfig();
   const token = await cloudsignClient.getToken(clientId);
 
-  await cloudsignClient.remindDocument(token, documentId);
+  await cloudsignClient.remindDocument(token, contract.cloudsignDocumentId);
+
+  await prisma.masterContract.update({
+    where: { id: contractId },
+    data: { cloudsignLastRemindedAt: new Date() },
+  });
 }
 
 /**

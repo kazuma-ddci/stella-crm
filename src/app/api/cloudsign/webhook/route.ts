@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { syncContractStatus } from "@/lib/cloudsign-sync";
 import { logAutomationError } from "@/lib/automation-error";
+import { submitForm5ContractNotification } from "@/lib/proline-form";
 
 /**
  * POST /api/cloudsign/webhook
@@ -64,14 +65,15 @@ export async function POST(request: NextRequest) {
         cloudsignDocumentId: true,
         cloudsignAutoSync: true,
         projectId: true,
+        slpMemberId: true,
       },
     });
 
     if (!contract) {
-      // MasterContractに見つからない場合、SLPメンバーを検索
-      const slpHandled = await handleSlpMemberWebhook(documentID, status);
+      // MasterContractに見つからない場合、レガシーSLPメンバーを検索（移行前データ対応）
+      const slpHandled = await handleSlpMemberWebhookLegacy(documentID, status);
       if (slpHandled) {
-        return NextResponse.json({ ok: true, message: "slp member status updated" });
+        return NextResponse.json({ ok: true, message: "slp member status updated (legacy)" });
       }
 
       console.log(`[CloudSign Webhook] Contract not found for documentID=${documentID}`);
@@ -148,6 +150,11 @@ export async function POST(request: NextRequest) {
       `[CloudSign Webhook] Updated contract #${contract.id}: ${contract.cloudsignStatus} → ${newCloudsignStatus}`
     );
 
+    // SLPメンバーに紐づく契約書の場合、SlpMemberの旧カラムも同期 + SLP固有処理
+    if (contract.slpMemberId) {
+      await syncSlpMemberFromContract(contract.slpMemberId, newCloudsignStatus);
+    }
+
     return NextResponse.json({ ok: true, message: "status updated" });
   } catch (error) {
     console.error("[CloudSign Webhook] Error:", error);
@@ -162,9 +169,99 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * SLPメンバーの契約書ステータスをWebhookで自動更新
+ * MasterContract更新後、紐づくSlpMemberの旧カラムを同期し、SLP固有処理を実行
  */
-async function handleSlpMemberWebhook(
+async function syncSlpMemberFromContract(
+  slpMemberId: number,
+  newCloudsignStatus: string
+): Promise<void> {
+  const member = await prisma.slpMember.findUnique({
+    where: { id: slpMemberId },
+  });
+  if (!member || member.deletedAt) return;
+
+  if (newCloudsignStatus === "completed") {
+    // 後方互換: SlpMemberのステータスも更新
+    await prisma.slpMember.update({
+      where: { id: member.id },
+      data: {
+        status: "組合員契約書締結",
+        contractSignedDate: new Date(),
+      },
+    });
+    console.log(
+      `[CloudSign Webhook] SLP member #${member.id} (${member.name}) → 組合員契約書締結`
+    );
+
+    // Form5: 紹介者に契約締結通知を送信
+    try {
+      const lineFriend = await prisma.slpLineFriend.findUnique({
+        where: { uid: member.uid },
+        select: { free1: true },
+      });
+      const referrerUid = lineFriend?.free1;
+
+      if (referrerUid && member.form5NotifyCount < 1) {
+        await submitForm5ContractNotification(
+          referrerUid,
+          member.lineName || "",
+          member.name
+        );
+        await prisma.slpMember.update({
+          where: { id: member.id },
+          data: { form5NotifyCount: { increment: 1 } },
+        });
+        console.log(
+          `[CloudSign Webhook] Form5 notification sent for member #${member.id}, referrer=${referrerUid}`
+        );
+      }
+    } catch (form5Err) {
+      console.error(
+        `[CloudSign Webhook] Form5 notification failed for member #${member.id}:`,
+        form5Err
+      );
+      await logAutomationError({
+        source: "cloudsign-webhook/form5",
+        message: `Form5契約締結通知失敗 (memberId=${member.id})`,
+        detail: { memberId: member.id, uid: member.uid, error: String(form5Err) },
+      });
+    }
+
+    // プロラインのビーコンURLを呼び出し
+    try {
+      const beaconUrl = `https://autosns.jp/api/call-beacon/xZugEszbhx/${member.uid}`;
+      const res = await fetch(beaconUrl);
+      console.log(
+        `[CloudSign Webhook] ProLine beacon called for uid=${member.uid}, status=${res.status}`
+      );
+    } catch (beaconErr) {
+      console.error(
+        `[CloudSign Webhook] ProLine beacon failed for uid=${member.uid}:`,
+        beaconErr
+      );
+      await logAutomationError({
+        source: "cloudsign-webhook",
+        message: `ProLineビーコン呼び出し失敗 (uid=${member.uid})`,
+        detail: { uid: member.uid, memberId: member.id, error: String(beaconErr) },
+      });
+    }
+  } else if (newCloudsignStatus === "canceled_by_sender" || newCloudsignStatus === "canceled_by_recipient") {
+    // 後方互換: 破棄
+    await prisma.slpMember.update({
+      where: { id: member.id },
+      data: { status: "契約破棄" },
+    });
+    console.log(
+      `[CloudSign Webhook] SLP member #${member.id} (${member.name}) → 契約破棄`
+    );
+  }
+}
+
+/**
+ * レガシー: MasterContractに移行前のSlpMemberデータ用フォールバック
+ * SlpMember.documentIdで直接検索して更新
+ */
+async function handleSlpMemberWebhookLegacy(
   documentID: string,
   status: number
 ): Promise<boolean> {
@@ -177,7 +274,6 @@ async function handleSlpMemberWebhook(
   const now = new Date();
 
   if (status === CS_STATUS_COMPLETED) {
-    // 締結完了
     await prisma.slpMember.update({
       where: { id: member.id },
       data: {
@@ -186,22 +282,39 @@ async function handleSlpMemberWebhook(
       },
     });
     console.log(
-      `[CloudSign Webhook] SLP member #${member.id} (${member.name}) → 組合員契約書締結`
+      `[CloudSign Webhook] SLP member #${member.id} (${member.name}) → 組合員契約書締結 (legacy)`
     );
 
-    // プロラインのビーコンURLを呼び出し（友だち追加カウント等の外部連携）
+    // Form5・ビーコン処理
     try {
-      const beaconUrl = `https://autosns.jp/api/call-beacon/xZugEszbhx/${member.uid}`;
-      const res = await fetch(beaconUrl);
-      console.log(
-        `[CloudSign Webhook] ProLine beacon called for uid=${member.uid}, status=${res.status}`
-      );
+      const lineFriend = await prisma.slpLineFriend.findUnique({
+        where: { uid: member.uid },
+        select: { free1: true },
+      });
+      const referrerUid = lineFriend?.free1;
+
+      if (referrerUid && member.form5NotifyCount < 1) {
+        await submitForm5ContractNotification(
+          referrerUid,
+          member.lineName || "",
+          member.name
+        );
+        await prisma.slpMember.update({
+          where: { id: member.id },
+          data: { form5NotifyCount: { increment: 1 } },
+        });
+      }
+    } catch (form5Err) {
+      await logAutomationError({
+        source: "cloudsign-webhook/form5",
+        message: `Form5契約締結通知失敗 (memberId=${member.id})`,
+        detail: { memberId: member.id, uid: member.uid, error: String(form5Err) },
+      });
+    }
+
+    try {
+      await fetch(`https://autosns.jp/api/call-beacon/xZugEszbhx/${member.uid}`);
     } catch (beaconErr) {
-      // ビーコン呼び出し失敗は契約締結処理をブロックしない
-      console.error(
-        `[CloudSign Webhook] ProLine beacon failed for uid=${member.uid}:`,
-        beaconErr
-      );
       await logAutomationError({
         source: "cloudsign-webhook",
         message: `ProLineビーコン呼び出し失敗 (uid=${member.uid})`,
@@ -213,13 +326,12 @@ async function handleSlpMemberWebhook(
   }
 
   if (status === CS_STATUS_CANCELED) {
-    // 破棄
     await prisma.slpMember.update({
       where: { id: member.id },
       data: { status: "契約破棄" },
     });
     console.log(
-      `[CloudSign Webhook] SLP member #${member.id} (${member.name}) → 契約破棄`
+      `[CloudSign Webhook] SLP member #${member.id} (${member.name}) → 契約破棄 (legacy)`
     );
     return true;
   }

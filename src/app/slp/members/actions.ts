@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { sendSlpContract, sendSlpRemind } from "@/lib/slp-cloudsign";
+import { submitForm5ContractNotification } from "@/lib/proline-form";
 
 export async function addMember(data: Record<string, unknown>) {
   const uid = String(data.uid ?? "").trim();
@@ -87,6 +88,7 @@ export async function deleteMember(id: number) {
 
 /**
  * CloudSignで新規契約書を送付（組合員名簿から手動送付）
+ * MasterContractを作成し、SlpMemberの旧カラムも後方互換で更新
  */
 export async function sendContractToMember(id: number) {
   const member = await prisma.slpMember.findUnique({ where: { id } });
@@ -97,8 +99,10 @@ export async function sendContractToMember(id: number) {
   const result = await sendSlpContract({
     email: member.email,
     name: member.name,
+    slpMemberId: id,
   });
 
+  // 後方互換: SlpMemberの旧カラムも更新
   await prisma.slpMember.update({
     where: { id },
     data: {
@@ -112,25 +116,74 @@ export async function sendContractToMember(id: number) {
   });
 
   revalidatePath("/slp/members");
+  revalidatePath("/slp/contracts");
 }
 
 /**
  * CloudSignリマインドを送付（組合員名簿の再送付ボタンから）
+ * MasterContract経由でリマインドし、旧カラムも更新
  */
 export async function remindMember(id: number) {
   const member = await prisma.slpMember.findUnique({ where: { id } });
   if (!member) throw new Error("メンバーが見つかりません");
-  if (!member.documentId) throw new Error("契約書のドキュメントIDがありません");
   if (member.status !== "契約書送付済") throw new Error("リマインド対象のステータスではありません");
 
-  await sendSlpRemind(member.documentId);
+  // MasterContractから最新の送付済み契約を取得
+  const contract = await prisma.masterContract.findFirst({
+    where: {
+      slpMemberId: id,
+      cloudsignStatus: "sent",
+      cloudsignDocumentId: { not: null },
+    },
+    orderBy: { createdAt: "desc" },
+  });
 
+  if (contract) {
+    await sendSlpRemind(contract.id);
+  } else if (member.documentId) {
+    // フォールバック: 旧カラムのdocumentIdを使用（移行前データ対応）
+    const { sendSlpRemindLegacy } = await import("@/lib/slp-cloudsign-legacy");
+    await sendSlpRemindLegacy(member.documentId);
+  } else {
+    throw new Error("契約書のドキュメントIDがありません");
+  }
+
+  // 後方互換: SlpMemberの旧カラムも更新
   await prisma.slpMember.update({
     where: { id },
     data: {
       reminderCount: member.reminderCount + 1,
       lastReminderSentAt: new Date(),
     },
+  });
+
+  revalidatePath("/slp/members");
+  revalidatePath("/slp/contracts");
+}
+
+/**
+ * Form5: 紹介者に契約締結通知を手動送信
+ */
+export async function sendForm5Notification(id: number) {
+  const member = await prisma.slpMember.findUnique({ where: { id } });
+  if (!member) throw new Error("メンバーが見つかりません");
+
+  const lineFriend = await prisma.slpLineFriend.findUnique({
+    where: { uid: member.uid },
+    select: { free1: true },
+  });
+  const referrerUid = lineFriend?.free1;
+  if (!referrerUid) throw new Error("紹介者UIDが見つかりません");
+
+  await submitForm5ContractNotification(
+    referrerUid,
+    member.lineName || "",
+    member.name
+  );
+
+  await prisma.slpMember.update({
+    where: { id },
+    data: { form5NotifyCount: { increment: 1 } },
   });
 
   revalidatePath("/slp/members");

@@ -23,8 +23,8 @@ export function LineFriendsTable({ data, lastSyncAt }: Props) {
   const [isSyncing, setIsSyncing] = useState(false);
 
   const columns: ColumnDef[] = [
-    { key: "displayNo", header: "No.", editable: false },
-    { key: "snsname", header: "アカウント名", type: "text", filterable: true },
+    { key: "displayNo", header: "番号", editable: false },
+    { key: "snsname", header: "LINE名", type: "text", filterable: true },
     { key: "password", header: "パスワード", type: "text" },
     { key: "emailLine", header: "LINE送信専用メルアド", type: "text" },
     { key: "emailRenkei", header: "連携用メールアドレス", type: "text" },

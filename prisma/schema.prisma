@@ -242,6 +242,21 @@ model StpStage {
 }
 
 // ============================================
+// 商材マスタ (STP Products)
+// ============================================
+
+model StpProduct {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(100)
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("stp_products")
+}
+
+// ============================================
 // 接触方法マスタ (Contact Methods) - 全プロジェクト共通
 // ============================================
 
@@ -360,6 +375,10 @@ model StpCompany {
   billingAddress         String?                           // 請求先住所（選択時にコピー）
   billingRepresentative  String?  @db.VarChar(100)         // 請求先担当者ID（カンマ区切りで複数保存）
   paymentTerms           String?  @db.VarChar(100)         // 支払いサイト（自由テキスト・後方互換）
+
+  // 案件・商材
+  hasDeal              String?   @db.VarChar(10) @map("has_deal")              // 案件有無（"有り" | "無し" | null）
+  proposedProductIds   String?   @db.VarChar(500) @map("proposed_product_ids") // 提案中の商材（カンマ区切りID）
 
   // その他
   note              String?                                // 企業メモ
@@ -903,6 +922,7 @@ model MasterProject {
   operatingCompanyId  Int?     @map("operating_company_id")
   defaultCostCenterId        Int?    @map("default_cost_center_id")
   slpMemberContractTypeId    Int?    @map("slp_member_contract_type_id")  // SLP入会フォーム用の契約種別
+  reminderDays               Int     @default(7) @map("reminder_days")    // 契約書送付から何日後にリマインドするか
 
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
@@ -1044,8 +1064,9 @@ model MasterContractStatus {
 
 model MasterContract {
   id                    Int       @id @default(autoincrement())
-  companyId             Int       @map("company_id")
+  companyId             Int?      @map("company_id")
   projectId             Int       @map("project_id")
+  slpMemberId           Int?      @map("slp_member_id")
   contractNumber        String?   @db.VarChar(50) @map("contract_number")
   parentContractId      Int?      @map("parent_contract_id")
   contractType          String    @db.VarChar(50) @map("contract_type")
@@ -1075,8 +1096,9 @@ model MasterContract {
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
-  company               MasterStellaCompany       @relation(fields: [companyId], references: [id])
+  company               MasterStellaCompany?      @relation(fields: [companyId], references: [id])
   project               MasterProject             @relation(fields: [projectId], references: [id])
+  slpMember             SlpMember?                @relation(fields: [slpMemberId], references: [id])
   currentStatus         MasterContractStatus?     @relation("CurrentStatus", fields: [currentStatusId], references: [id])
   parentContract        MasterContract?           @relation("ContractHierarchy", fields: [parentContractId], references: [id])
   childContracts        MasterContract[]          @relation("ContractHierarchy")
@@ -1094,6 +1116,7 @@ model MasterContract {
   @@index([currentStatusId], map: "idx_master_contracts_current_status_id")
   @@index([isActive], map: "idx_master_contracts_is_active")
   @@index([cloudsignDocumentId], map: "idx_master_contracts_cloudsign_document_id")
+  @@index([slpMemberId], map: "idx_master_contracts_slp_member_id")
   @@map("master_contracts")
 }
 
@@ -3657,12 +3680,16 @@ model SlpMember {
   lastReminderSentAt DateTime?                   // 直近リマインド送付日時
   emailChangeCount   Int       @default(0)       // メールアドレス変更回数（フォーム経由、上限2回）
   resubmitted        Boolean   @default(false)   // 未締結再フォーム送信フラグ（管理者通知用）
+  watermarkCode      String?   @unique @db.VarChar(9)  // ウォーターマーク用固定コード（XXXX-XXXX形式、変更不可）
+  form5NotifyCount   Int       @default(0)             // Form5（契約締結通知）送信回数
+  reminderExcluded   Boolean   @default(false)         // 自動リマインド除外フラグ
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   deletedAt          DateTime?
 
   referrer  SlpMember?  @relation("MemberReferral", fields: [referrerUid], references: [uid])
   referrals SlpMember[] @relation("MemberReferral")
+  contracts MasterContract[]
 
   @@index([referrerUid])
   @@map("slp_members")
@@ -3708,6 +3735,7 @@ model SlpLineFriend {
   scenarioPos4     String?                       // 現在の場所4
   scenarioPos5     String?                       // 現在の場所5
   sortOrder        Int       @default(0) @map("sort_order") // 廃止予定（レガシー: ProLine同期時の連番）。idで代替
+  form4NotifyCount Int       @default(0)       // Form4（友だち追加通知）送信回数
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?

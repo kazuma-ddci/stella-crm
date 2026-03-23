@@ -7,13 +7,6 @@ import type { UserPermission } from "@/types/auth";
 import { canView } from "@/lib/auth/permissions";
 import type { ProjectCode } from "@/types/auth";
 
-// サイドバーに表示可能なプロジェクトキーと名前の対応
-const SIDEBAR_PROJECTS = [
-  { key: "stella", name: "Stella", projectCode: null as ProjectCode | null },
-  { key: "stp", name: "STP(採用ブースト)", projectCode: "stp" as ProjectCode },
-  { key: "accounting", name: "経理", projectCode: "accounting" as ProjectCode },
-] as const;
-
 export default async function ProfilePage() {
   const session = await auth();
   if (!session?.user) {
@@ -28,22 +21,29 @@ export default async function ProfilePage() {
   const isFounder = organizationRole === "founder";
   const isAdminUser = user.loginId === "admin";
 
-  // サイドバー設定を取得
-  const pref = await prisma.staffSidebarPreference.findUnique({
-    where: { staffId: userId },
-    select: { hiddenItems: true },
-  });
+  // サイドバー設定とプロジェクト一覧を並列取得
+  const [pref, dbProjects] = await Promise.all([
+    prisma.staffSidebarPreference.findUnique({
+      where: { staffId: userId },
+      select: { hiddenItems: true },
+    }),
+    prisma.masterProject.findMany({
+      where: { isActive: true },
+      select: { code: true, name: true },
+      orderBy: { displayOrder: "asc" },
+    }),
+  ]);
   const hiddenItems = pref?.hiddenItems ?? [];
 
+  // DBから取得したプロジェクト一覧をサイドバー設定に変換
   // 権限のあるプロジェクトのみ選択肢に表示
-  const availableProjects = SIDEBAR_PROJECTS.filter((p) => {
+  const availableProjects = dbProjects.filter((p) => {
     if (isAdminUser || isFounder) return true;
-    if (!p.projectCode) return true; // Stellaは常に表示
-    return canView(permissions, p.projectCode);
+    return canView(permissions, p.code as ProjectCode);
   }).map((p) => ({
-    key: p.key,
+    key: p.code,
     name: p.name,
-    hidden: hiddenItems.includes(p.key),
+    hidden: hiddenItems.includes(p.code),
   }));
 
   return (
