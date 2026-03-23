@@ -467,7 +467,10 @@ export function SlpContractModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl p-0 overflow-hidden flex flex-col max-h-[85vh]">
+      <DialogContent
+        size="mixed"
+        className="p-0 overflow-hidden flex flex-col"
+      >
         <DialogHeader className="px-6 py-4 border-b shrink-0">
           <DialogTitle>契約管理 — {memberName}</DialogTitle>
         </DialogHeader>
