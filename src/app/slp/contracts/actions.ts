@@ -180,8 +180,7 @@ export async function updateContractStatus(contractId: number, newStatusId: numb
       contractId,
       contract.currentStatusId,
       newStatusId,
-      "手動変更",
-      note
+      note ? `手動変更: ${note}` : "手動変更"
     );
   });
 
