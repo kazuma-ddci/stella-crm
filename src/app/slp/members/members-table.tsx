@@ -5,11 +5,27 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CrudTable, ColumnDef, CustomRenderers, CustomAction } from "@/components/crud-table";
 import { addMember, updateMember, deleteMember, remindMember, sendContractToMember, clearResubmitted, sendForm5Notification, bulkSendContracts } from "./actions";
-import { Bell, Send, ScrollText, AlertTriangle, Loader2, Settings } from "lucide-react";
+import { Bell, Send, ScrollText, AlertTriangle, Loader2, Settings, Users } from "lucide-react";
 import { toast } from "sonner";
 import { SlpContractModal } from "./slp-contract-modal";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -51,14 +67,23 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
   const [contractModalOpen, setContractModalOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState<{ id: number; name: string } | null>(null);
 
-  // 一括送付
+  // 一括送付モーダル
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkSending, setBulkSending] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{ succeeded: number; failed: number; results: { id: number; name: string; success: boolean; error?: string }[] } | null>(null);
 
   // 未送付・送付エラーのメンバー
   const unsendableMembers = data.filter(
     (d) => (d.status === "契約書未送付" || d.status === "送付エラー") && d.email
   );
+
+  const openBulkModal = () => {
+    // デフォルト全員チェック
+    setSelectedIds(new Set(unsendableMembers.map((d) => d.id as number)));
+    setBulkResult(null);
+    setBulkModalOpen(true);
+  };
 
   const toggleSelected = (id: number) => {
     setSelectedIds((prev) => {
@@ -79,16 +104,15 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
 
   const handleBulkSend = async () => {
     if (selectedIds.size === 0) return;
-    if (!confirm(`${selectedIds.size}名に契約書を一括送付しますか？`)) return;
     setBulkSending(true);
     try {
       const result = await bulkSendContracts(Array.from(selectedIds));
+      setBulkResult(result);
       if (result.failed > 0) {
         toast.warning(`${result.succeeded}名に送付成功、${result.failed}名が失敗`);
       } else {
         toast.success(`${result.succeeded}名に契約書を送付しました`);
       }
-      setSelectedIds(new Set());
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "一括送付に失敗しました");
@@ -302,58 +326,12 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
         </div>
       )}
 
-      {/* 一括送付バー */}
+      {/* 一括送付ボタン */}
       {unsendableMembers.length > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-4 py-2">
-          <Checkbox
-            checked={selectedIds.size === unsendableMembers.length && unsendableMembers.length > 0}
-            onCheckedChange={toggleSelectAll}
-          />
-          <span className="text-sm text-muted-foreground">
-            未送付メンバー: {unsendableMembers.length}名
-            {selectedIds.size > 0 && `（${selectedIds.size}名選択中）`}
-          </span>
-          {unsendableMembers.length > 0 && (
-            <div className="flex items-center gap-1 ml-2">
-              {unsendableMembers.map((m) => {
-                const id = m.id as number;
-                const name = m.name as string;
-                const isError = m.status === "送付エラー";
-                return (
-                  <label
-                    key={id}
-                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs cursor-pointer border transition-colors ${
-                      selectedIds.has(id)
-                        ? "bg-blue-100 border-blue-300 text-blue-800"
-                        : isError
-                          ? "bg-red-50 border-red-200 text-red-700 hover:bg-red-100"
-                          : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100"
-                    }`}
-                  >
-                    <Checkbox
-                      checked={selectedIds.has(id)}
-                      onCheckedChange={() => toggleSelected(id)}
-                      className="h-3 w-3"
-                    />
-                    {name}
-                    {isError && <span className="text-[10px]">(エラー)</span>}
-                  </label>
-                );
-              })}
-            </div>
-          )}
-          <Button
-            size="sm"
-            className="ml-auto"
-            disabled={selectedIds.size === 0 || bulkSending}
-            onClick={handleBulkSend}
-          >
-            {bulkSending ? (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4 mr-1" />
-            )}
-            一括送付 ({selectedIds.size})
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" onClick={openBulkModal}>
+            <Users className="h-4 w-4 mr-1" />
+            未送付メンバーに一括送付（{unsendableMembers.length}名）
           </Button>
         </div>
       )}
@@ -380,6 +358,125 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
           contractTypeOptions={contractTypeOptions}
         />
       )}
+
+      {/* 一括送付モーダル */}
+      <Dialog open={bulkModalOpen} onOpenChange={setBulkModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>契約書の一括送付</DialogTitle>
+          </DialogHeader>
+
+          {bulkResult ? (
+            // 送付結果
+            <div className="space-y-3">
+              <div className="flex gap-3">
+                <Badge variant="default">{bulkResult.succeeded}名 成功</Badge>
+                {bulkResult.failed > 0 && <Badge variant="destructive">{bulkResult.failed}名 失敗</Badge>}
+              </div>
+              <div className="border rounded-lg overflow-auto max-h-[300px]">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>名前</TableHead>
+                      <TableHead>結果</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bulkResult.results.map((r) => (
+                      <TableRow key={r.id}>
+                        <TableCell className="text-sm">{r.name}</TableCell>
+                        <TableCell>
+                          {r.success ? (
+                            <Badge variant="default" className="text-xs">成功</Badge>
+                          ) : (
+                            <span className="text-xs text-red-600">{r.error}</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <DialogFooter>
+                <Button onClick={() => setBulkModalOpen(false)}>閉じる</Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            // 送付対象選択
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                送付対象のメンバーを選択してください。チェックを外すと送付から除外されます。
+              </p>
+              <div className="flex items-center gap-2 pb-2 border-b">
+                <Checkbox
+                  checked={selectedIds.size === unsendableMembers.length}
+                  onCheckedChange={toggleSelectAll}
+                />
+                <span className="text-sm font-medium">
+                  全選択（{selectedIds.size}/{unsendableMembers.length}名）
+                </span>
+              </div>
+              <div className="border rounded-lg overflow-auto max-h-[300px]">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[40px]"></TableHead>
+                      <TableHead>名前</TableHead>
+                      <TableHead>メール</TableHead>
+                      <TableHead>ステータス</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {unsendableMembers.map((m) => {
+                      const id = m.id as number;
+                      const checked = selectedIds.has(id);
+                      return (
+                        <TableRow
+                          key={id}
+                          className={`cursor-pointer ${!checked ? "opacity-50" : ""}`}
+                          onClick={() => toggleSelected(id)}
+                        >
+                          <TableCell>
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={() => toggleSelected(id)}
+                            />
+                          </TableCell>
+                          <TableCell className="text-sm font-medium">{m.name as string}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{m.email as string}</TableCell>
+                          <TableCell>
+                            {m.status === "送付エラー" ? (
+                              <Badge variant="destructive" className="text-xs">送付エラー</Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-xs">未送付</Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setBulkModalOpen(false)}>
+                  キャンセル
+                </Button>
+                <Button
+                  onClick={handleBulkSend}
+                  disabled={selectedIds.size === 0 || bulkSending}
+                >
+                  {bulkSending ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4 mr-1" />
+                  )}
+                  {bulkSending ? "送付中..." : `${selectedIds.size}名に送付`}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={form5DialogOpen} onOpenChange={setForm5DialogOpen}>
         <AlertDialogContent>
