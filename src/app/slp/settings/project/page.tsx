@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
-import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
+import { canEditProjectMasterDataSync, canViewProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import { redirect } from "next/navigation";
 import { ProjectSettings } from "./project-settings";
 
@@ -8,9 +8,11 @@ export default async function SlpProjectSettingsPage() {
   const session = await auth();
   const user = session?.user;
 
-  if (!canEditProjectMasterDataSync(user, "slp")) {
+  if (!canViewProjectMasterDataSync(user, "slp")) {
     redirect("/slp/dashboard");
   }
+
+  const canEdit = canEditProjectMasterDataSync(user, "slp");
 
   const slpProject = await prisma.masterProject.findFirst({
     where: { code: "slp" },
@@ -79,6 +81,7 @@ export default async function SlpProjectSettingsPage() {
         project={projectData}
         operatingCompany={operatingCompanyData}
         isSystemAdmin={isSystemAdmin}
+        canEdit={canEdit}
         contractTypes={contractTypes.map((ct) => ({
           id: ct.id,
           name: ct.name,

@@ -6,7 +6,7 @@ import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission"
 
 export default async function SlpStagesPage() {
   const session = await auth();
-  const canEditMasterData = canEditProjectMasterDataSync(session?.user);
+  const canEditMasterData = canEditProjectMasterDataSync(session?.user, "slp");
   const stages = await prisma.slpStage.findMany({
     orderBy: { stageNumber: "asc" },
   });

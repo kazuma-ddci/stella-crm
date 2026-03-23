@@ -6,7 +6,7 @@ import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission"
 
 export default async function ProductsPage() {
   const session = await auth();
-  const canEditMasterData = canEditProjectMasterDataSync(session?.user);
+  const canEditMasterData = canEditProjectMasterDataSync(session?.user, "stp");
 
   const products = await prisma.stpProduct.findMany({
     orderBy: { displayOrder: "asc" },

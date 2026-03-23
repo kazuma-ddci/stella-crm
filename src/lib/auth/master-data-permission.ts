@@ -13,7 +13,7 @@ export function canEditCommonMasterDataSync(user: any): boolean {
 
 /**
  * PJ固有固定データの編集権限チェック（同期版 - ページコンポーネント用）
- * admin + stella001 + founder + 該当PJのmanager
+ * admin + stella001 + founder + 該当PJのedit以上
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function canEditProjectMasterDataSync(user: any, projectCode?: string): boolean {
@@ -22,16 +22,39 @@ export function canEditProjectMasterDataSync(user: any, projectCode?: string): b
   if (canEditCommonMasterDataSync(user)) return true;
   // founder
   if (user.organizationRole === "founder") return true;
-  // manager
+  // edit以上（edit, manager）
+  const permissions = user?.permissions ?? [];
+  const editLevels = new Set(["edit", "manager"]);
+  if (projectCode) {
+    return permissions.some(
+      (p: { projectCode: string; permissionLevel: string }) =>
+        p.projectCode === projectCode && editLevels.has(p.permissionLevel)
+    );
+  }
+  return permissions.some(
+    (p: { permissionLevel: string }) => editLevels.has(p.permissionLevel)
+  );
+}
+
+/**
+ * PJ固有固定データの閲覧権限チェック（同期版 - ページコンポーネント用）
+ * admin + stella001 + founder + 該当PJのview以上
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function canViewProjectMasterDataSync(user: any, projectCode?: string): boolean {
+  if (!user) return false;
+  // 編集権限があれば閲覧も可
+  if (canEditProjectMasterDataSync(user, projectCode)) return true;
+  // view以上
   const permissions = user?.permissions ?? [];
   if (projectCode) {
     return permissions.some(
       (p: { projectCode: string; permissionLevel: string }) =>
-        p.projectCode === projectCode && p.permissionLevel === "manager"
+        p.projectCode === projectCode && p.permissionLevel !== "none"
     );
   }
   return permissions.some(
-    (p: { permissionLevel: string }) => p.permissionLevel === "manager"
+    (p: { permissionLevel: string }) => p.permissionLevel !== "none"
   );
 }
 

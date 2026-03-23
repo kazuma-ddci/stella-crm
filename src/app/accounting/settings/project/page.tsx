@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
-import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
+import { canEditProjectMasterDataSync, canViewProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import { redirect } from "next/navigation";
 import { ProjectSettings } from "./project-settings";
 
@@ -8,9 +8,11 @@ export default async function AccountingProjectSettingsPage() {
   const session = await auth();
   const user = session?.user;
 
-  if (!canEditProjectMasterDataSync(user, "accounting")) {
+  if (!canViewProjectMasterDataSync(user, "accounting")) {
     redirect("/accounting/dashboard");
   }
+
+  const canEdit = canEditProjectMasterDataSync(user, "accounting");
 
   const accountingProject = await prisma.masterProject.findFirst({
     where: { code: "accounting" },
@@ -66,6 +68,7 @@ export default async function AccountingProjectSettingsPage() {
         project={projectData}
         operatingCompany={operatingCompanyData}
         isSystemAdmin={isSystemAdmin}
+        canEdit={canEdit}
         emails={accountingProject.projectEmails.map((pe) => ({
           email: pe.email.email,
           label: pe.email.label,

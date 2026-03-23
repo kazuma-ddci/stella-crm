@@ -55,9 +55,10 @@ type Props = {
   isSystemAdmin: boolean;
   emails: EmailItem[];
   bankAccounts: BankAccountItem[];
+  canEdit: boolean;
 };
 
-export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emails, bankAccounts }: Props) {
+export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emails, bankAccounts, canEdit }: Props) {
   // プロジェクト基本情報
   const [projectName, setProjectName] = useState(project.name);
   const [projectDescription, setProjectDescription] = useState(
@@ -141,6 +142,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
               placeholder="プロジェクト名"
+              disabled={!canEdit}
             />
           </div>
           <div className="space-y-2">
@@ -151,12 +153,13 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
               onChange={(e) => setProjectDescription(e.target.value)}
               placeholder="プロジェクトの説明"
               rows={3}
+              disabled={!canEdit}
             />
           </div>
           <div className="flex items-center gap-3">
             <Button
               onClick={handleSaveProject}
-              disabled={projectSaving || !projectName.trim()}
+              disabled={projectSaving || !projectName.trim() || !canEdit}
             >
               {projectSaving ? (
                 <>
@@ -193,6 +196,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
                     value={companyName}
                     onChange={(e) => setCompanyName(e.target.value)}
                     placeholder="法人名"
+                    disabled={!canEdit}
                   />
                 </div>
                 <div className="space-y-2">
@@ -204,6 +208,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
                     value={registrationNumber}
                     onChange={(e) => setRegistrationNumber(e.target.value)}
                     placeholder="T1234567890123"
+                    disabled={!canEdit}
                   />
                 </div>
                 <div className="space-y-2">
@@ -213,6 +218,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
                     value={postalCode}
                     onChange={(e) => setPostalCode(e.target.value)}
                     placeholder="123-4567"
+                    disabled={!canEdit}
                   />
                 </div>
                 <div className="space-y-2">
@@ -222,6 +228,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     placeholder="03-1234-5678"
+                    disabled={!canEdit}
                   />
                 </div>
               </div>
@@ -232,6 +239,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   placeholder="住所1"
+                  disabled={!canEdit}
                 />
               </div>
               <div className="space-y-2">
@@ -241,6 +249,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
                   value={address2}
                   onChange={(e) => setAddress2(e.target.value)}
                   placeholder="住所2（建物名・階数など）"
+                  disabled={!canEdit}
                 />
               </div>
               <div className="space-y-2">
@@ -250,12 +259,13 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
                   value={representativeName}
                   onChange={(e) => setRepresentativeName(e.target.value)}
                   placeholder="代表者名"
+                  disabled={!canEdit}
                 />
               </div>
               <div className="flex items-center gap-3">
                 <Button
                   onClick={handleSaveCompany}
-                  disabled={companySaving || !companyName.trim()}
+                  disabled={companySaving || !companyName.trim() || !canEdit}
                 >
                   {companySaving ? (
                     <>
@@ -316,7 +326,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
               メールアドレスが登録されていません
             </p>
           )}
-          <Button variant="outline" onClick={() => setEmailModalOpen(true)}>
+          <Button variant="outline" onClick={() => setEmailModalOpen(true)} disabled={!canEdit}>
             <Mail className="h-4 w-4 mr-2" />
             メールアドレスを管理
           </Button>
@@ -357,7 +367,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
               銀行口座が登録されていません
             </p>
           )}
-          <Button variant="outline" onClick={() => setBankModalOpen(true)}>
+          <Button variant="outline" onClick={() => setBankModalOpen(true)} disabled={!canEdit}>
             <Landmark className="h-4 w-4 mr-2" />
             銀行口座を管理
           </Button>

@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 
 export async function addSlpStage(data: Record<string, unknown>) {
-  await requireProjectMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission("slp");
   await prisma.slpStage.create({
     data: {
       name: data.name as string,
@@ -20,7 +20,7 @@ export async function addSlpStage(data: Record<string, unknown>) {
 }
 
 export async function updateSlpStage(id: number, data: Record<string, unknown>) {
-  await requireProjectMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission("slp");
   const updateData: Record<string, unknown> = {};
   if ("name" in data) updateData.name = data.name as string;
   if ("stageNumber" in data) updateData.stageNumber = Number(data.stageNumber);
@@ -39,7 +39,7 @@ export async function updateSlpStage(id: number, data: Record<string, unknown>) 
 }
 
 export async function deleteSlpStage(id: number) {
-  await requireProjectMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission("slp");
   await prisma.slpStage.delete({
     where: { id },
   });

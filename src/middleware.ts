@@ -41,13 +41,14 @@ const COMMON_MASTER_DATA_PATHS = [
   "/settings/operating-companies",
 ];
 
-// PJ固有固定データパス（admin + stella001 + founder + manager）
+// PJ固有固定データパス（admin + stella001 + founder + いずれかのPJでview以上）
+// 注: /stp/settings/*, /slp/settings/* 等のPJ固有パスはここに含めない
+//     → 一般のPJ権限チェック（getRequiredProject）で該当PJの権限を確認する
 const PROJECT_MASTER_DATA_PATHS = [
   "/settings/customer-types",
   "/settings/contact-categories",
   "/settings/display-views",
   "/settings/lead-sources",
-  "/stp/settings/stages",
   "/staff/role-types",
   "/staff/field-restrictions",
   "/settings/email-templates",

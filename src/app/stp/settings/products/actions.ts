@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 
 export async function addStpProduct(data: Record<string, unknown>) {
-  await requireProjectMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission("stp");
 
   const maxOrder = await prisma.stpProduct.aggregate({
     _max: { displayOrder: true },
@@ -23,7 +23,7 @@ export async function addStpProduct(data: Record<string, unknown>) {
 }
 
 export async function updateStpProduct(id: number, data: Record<string, unknown>) {
-  await requireProjectMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission("stp");
   const updateData: Record<string, unknown> = {};
   if ("name" in data) updateData.name = data.name as string;
   if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
@@ -38,7 +38,7 @@ export async function updateStpProduct(id: number, data: Record<string, unknown>
 }
 
 export async function deleteStpProduct(id: number) {
-  await requireProjectMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission("stp");
   await prisma.stpProduct.delete({
     where: { id },
   });
@@ -46,7 +46,7 @@ export async function deleteStpProduct(id: number) {
 }
 
 export async function reorderStpProducts(orderedIds: number[]) {
-  await requireProjectMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission("stp");
   await prisma.$transaction(
     orderedIds.map((id, index) =>
       prisma.stpProduct.update({
