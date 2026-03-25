@@ -137,6 +137,22 @@
   height: auto !important;
 }
 
+/* アラートからの行ハイライトアニメーション */
+@keyframes highlight-row-bg {
+  0%, 100% { background-color: transparent; }
+  25% { background-color: rgb(254 243 199); }
+  50% { background-color: transparent; }
+  75% { background-color: rgb(254 243 199); }
+}
+
+.animate-highlight-row {
+  animation: highlight-row-bg 2s ease-in-out 2 !important;
+}
+
+.animate-highlight-row td {
+  animation: highlight-row-bg 2s ease-in-out 2 !important;
+}
+
 /* Content-area-aware modal width (datagrid-cw) */
 @media (min-width: 640px) {
   [data-slot="dialog-content"][data-size="datagrid-cw"] {

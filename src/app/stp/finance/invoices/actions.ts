@@ -632,6 +632,11 @@ export async function updateInvoiceGroup(
         tx
       );
     }
+
+    // 経理→STP入金日連携: actualPaymentDate変更時にStpRevenueRecordのpaidDateも更新
+    if ("actualPaymentDate" in data) {
+      await syncPaymentDateToRevenueRecords(tx, id, data.actualPaymentDate ? new Date(data.actualPaymentDate) : null);
+    }
   });
 
   revalidatePath("/stp/finance/invoices");
@@ -1067,6 +1072,16 @@ export async function updateInvoiceGroupStatus(
       user.id,
       tx
     );
+
+    // 経理→STP入金日連携: paid遷移時にStpRevenueRecordのpaidDateも更新
+    if (newStatus === "paid") {
+      const paymentDate = additionalData.actualPaymentDate
+        ? (additionalData.actualPaymentDate as Date)
+        : group.actualPaymentDate;
+      if (paymentDate) {
+        await syncPaymentDateToRevenueRecords(tx, id, paymentDate);
+      }
+    }
   });
 
   revalidatePath("/stp/finance/invoices");
@@ -1781,4 +1796,62 @@ export async function requestReturnInvoiceGroup(
   }
 
   revalidatePath("/stp/finance/invoices");
+}
+
+// ============================================
+// 経理→STP入金日連携ヘルパー
+// InvoiceGroupのactualPaymentDate変更時に
+// 紐づくStpRevenueRecordのpaidDateを同期する
+// ============================================
+
+type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+async function syncPaymentDateToRevenueRecords(
+  tx: TxClient,
+  invoiceGroupId: number,
+  paymentDate: Date | null
+): Promise<void> {
+  // InvoiceGroupに紐づくTransactionを取得
+  const transactions = await tx.transaction.findMany({
+    where: {
+      invoiceGroupId,
+      type: "revenue",
+      deletedAt: null,
+      stpContractHistoryId: { not: null },
+    },
+    select: {
+      stpContractHistoryId: true,
+      stpRevenueType: true,
+      periodFrom: true,
+    },
+  });
+
+  if (transactions.length === 0) return;
+
+  // 各Transactionに対応するStpRevenueRecordを特定して更新
+  for (const txn of transactions) {
+    if (!txn.stpContractHistoryId || !txn.stpRevenueType) continue;
+
+    // targetMonthはperiodFromの月初日で統一されている
+    const targetMonth = new Date(
+      txn.periodFrom.getFullYear(),
+      txn.periodFrom.getMonth(),
+      1
+    );
+
+    await tx.stpRevenueRecord.updateMany({
+      where: {
+        contractHistoryId: txn.stpContractHistoryId,
+        revenueType: txn.stpRevenueType,
+        targetMonth,
+        deletedAt: null,
+      },
+      data: {
+        paidDate: paymentDate,
+        ...(paymentDate
+          ? { status: "paid" }
+          : { status: "invoiced" }),
+      },
+    });
+  }
 }

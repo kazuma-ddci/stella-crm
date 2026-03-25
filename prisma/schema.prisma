@@ -741,6 +741,7 @@ model MasterStaff {
   processedInboundInvoices    InboundInvoice[]               @relation("InboundInvoiceProcessor")
   slpConsultantCompanies      SlpCompany[]                   @relation("SlpConsultantStaffCompanies")
   slpCsCompanies              SlpCompany[]                   @relation("SlpCsStaffCompanies")
+  alertAcknowledgments        AlertAcknowledgment[]
 
   @@map("master_staff")
 }
@@ -3818,4 +3819,39 @@ model AutomationError {
   createdAt DateTime @default(now())
 
   @@map("automation_errors")
+}
+
+// ============================================
+// 月次スナップショット (Monthly Snapshots)
+// 月末時点の集計値を保存（代理店数など前月比計算用）
+// ============================================
+
+model MonthlySnapshot {
+  id          Int      @id @default(autoincrement())
+  yearMonth   String   @map("year_month") @db.VarChar(7)     // "2026-03"
+  snapshotKey String   @map("snapshot_key") @db.VarChar(50)  // "active_agent_count" etc.
+  value       Int                                             // スナップショット値
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([yearMonth, snapshotKey])
+  @@map("monthly_snapshots")
+}
+
+// ============================================
+// アラート対応記録 (Alert Acknowledgments)
+// アラートの「対応済み」状態を永続化する
+// ============================================
+
+model AlertAcknowledgment {
+  id        Int      @id @default(autoincrement())
+  alertType String   @db.VarChar(50)   @map("alert_type")  // "unpaid_invoice", "unsigned_contract", "kpi_behind"
+  alertKey  String   @db.VarChar(200)  @map("alert_key")   // "invoice_group:42", "contract:15" 等
+  staffId   Int?     @map("staff_id")
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  staff     MasterStaff? @relation(fields: [staffId], references: [id])
+
+  @@unique([alertType, alertKey])
+  @@map("alert_acknowledgments")
 }

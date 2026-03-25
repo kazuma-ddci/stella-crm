@@ -27,8 +27,14 @@ import {
   saveDeptKpiTargets,
   saveFiscalYearStart,
   copyFromPreviousMonth,
+  copyDeptFromPreviousMonth,
+  copyLeadSourceFromPreviousMonth,
+  saveLeadSourceTargets,
+  getLeadSourceTargets,
   type KpiTargets,
   type DeptKpiTargets,
+  type LeadSourceItem,
+  type LeadSourceTargets,
 } from "./actions";
 
 type KpiTargetsClientProps = {
@@ -37,6 +43,8 @@ type KpiTargetsClientProps = {
   initialTargets: KpiTargets;
   initialDeptTargets: DeptKpiTargets;
   initialFiscalYearStart: number;
+  leadSources: LeadSourceItem[];
+  initialLeadSourceTargets: LeadSourceTargets;
 };
 
 /** "2026-03" → "2026年3月" */
@@ -104,6 +112,8 @@ export function KpiTargetsClient({
   initialTargets,
   initialDeptTargets,
   initialFiscalYearStart,
+  leadSources,
+  initialLeadSourceTargets,
 }: KpiTargetsClientProps) {
   const [selectedMonth, setSelectedMonth] = useState(initialMonth);
   const [targets, setTargets] = useState<KpiTargets>(initialTargets);
@@ -127,6 +137,16 @@ export function KpiTargetsClient({
     }
     return values as Record<DeptKpiKey, string>;
   });
+  const [leadSourceInputs, setLeadSourceInputs] = useState<Record<string, string>>(() => {
+    const values: Record<string, string> = {};
+    for (const s of leadSources) {
+      const key = `lead_source_target_${s.id}`;
+      values[key] = initialLeadSourceTargets[key] !== null && initialLeadSourceTargets[key] !== undefined
+        ? String(initialLeadSourceTargets[key])
+        : "";
+    }
+    return values;
+  });
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<{
     type: "success" | "error";
@@ -136,11 +156,16 @@ export function KpiTargetsClient({
     type: "success" | "error";
     text: string;
   } | null>(null);
+  const [leadSourceMessage, setLeadSourceMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
 
   const handleMonthChange = async (month: string) => {
     setSelectedMonth(month);
     setMessage(null);
     setDeptMessage(null);
+    setLeadSourceMessage(null);
     // 新しい月の目標をサーバーから取得
     startTransition(async () => {
       const res = await fetch(
@@ -163,6 +188,19 @@ export function KpiTargetsClient({
         }
         setDeptInputValues(deptValues as Record<DeptKpiKey, string>);
       }
+      // 流入経路別目標
+      const lsTargets = await getLeadSourceTargets(
+        month,
+        leadSources.map((s) => s.id)
+      );
+      const lsValues: Record<string, string> = {};
+      for (const s of leadSources) {
+        const key = `lead_source_target_${s.id}`;
+        lsValues[key] = lsTargets[key] !== null && lsTargets[key] !== undefined
+          ? String(lsTargets[key])
+          : "";
+      }
+      setLeadSourceInputs(lsValues);
     });
   };
 
@@ -343,16 +381,43 @@ export function KpiTargetsClient({
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">
-            {formatMonth(selectedMonth)}の部門別KPI目標
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">
+              {formatMonth(selectedMonth)}の部門別KPI目標
+            </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setDeptMessage(null);
+                startTransition(async () => {
+                  try {
+                    const prev = await copyDeptFromPreviousMonth(selectedMonth);
+                    setDeptTargets(prev);
+                    const deptValues: Record<string, string> = {};
+                    for (const key of ALL_DEPT_KPI_KEYS) {
+                      deptValues[key] = prev[key] !== null ? String(prev[key]) : "";
+                    }
+                    setDeptInputValues(deptValues as Record<DeptKpiKey, string>);
+                    setDeptMessage({ type: "success", text: "前月の部門KPI目標をコピーしました" });
+                  } catch {
+                    setDeptMessage({ type: "error", text: "コピーに失敗しました" });
+                  }
+                });
+              }}
+              disabled={isPending}
+            >
+              <Copy className="mr-2 h-4 w-4" />
+              前月からコピー
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-6">
             {DEPT_GROUPS.map((group) => (
               <div key={group.tabKey}>
                 <h3 className="text-sm font-semibold text-gray-700 mb-3 pb-1 border-b">
-                  {group.departmentName}（{group.managerName}）
+                  {group.departmentName}
                 </h3>
                 <div className="space-y-3">
                   {group.keys.map((key) => (
@@ -428,6 +493,120 @@ export function KpiTargetsClient({
           </div>
         </CardContent>
       </Card>
+
+      {leadSources.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">
+                {formatMonth(selectedMonth)}の流入経路別目標（契約数）
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setLeadSourceMessage(null);
+                  startTransition(async () => {
+                    try {
+                      const prev = await copyLeadSourceFromPreviousMonth(
+                        selectedMonth,
+                        leadSources.map((s) => s.id)
+                      );
+                      const lsValues: Record<string, string> = {};
+                      for (const s of leadSources) {
+                        const key = `lead_source_target_${s.id}`;
+                        lsValues[key] = prev[key] !== null && prev[key] !== undefined
+                          ? String(prev[key])
+                          : "";
+                      }
+                      setLeadSourceInputs(lsValues);
+                      setLeadSourceMessage({ type: "success", text: "前月の流入経路別目標をコピーしました" });
+                    } catch {
+                      setLeadSourceMessage({ type: "error", text: "コピーに失敗しました" });
+                    }
+                  });
+                }}
+                disabled={isPending}
+              >
+                <Copy className="mr-2 h-4 w-4" />
+                前月からコピー
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {leadSources.map((source) => {
+                const key = `lead_source_target_${source.id}`;
+                return (
+                  <div key={source.id} className="grid grid-cols-[180px_1fr_40px] items-center gap-3">
+                    <Label className="text-sm font-medium text-gray-700">
+                      {source.name}
+                    </Label>
+                    <Input
+                      type="text"
+                      value={leadSourceInputs[key] ?? ""}
+                      onChange={(e) => {
+                        const cleaned = e.target.value.replace(/[^0-9]/g, "");
+                        setLeadSourceInputs((prev) => ({ ...prev, [key]: cleaned }));
+                      }}
+                      placeholder="例: 5"
+                      disabled={isPending}
+                    />
+                    <span className="text-sm text-gray-500">社</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {leadSourceMessage && (
+              <div
+                className={`mt-4 rounded-md px-3 py-2 text-sm ${
+                  leadSourceMessage.type === "success"
+                    ? "bg-green-50 text-green-700"
+                    : "bg-red-50 text-red-700"
+                }`}
+              >
+                {leadSourceMessage.text}
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-end">
+              <Button
+                onClick={() => {
+                  setLeadSourceMessage(null);
+                  const parsed: LeadSourceTargets = {};
+                  for (const source of leadSources) {
+                    const key = `lead_source_target_${source.id}`;
+                    const cleaned = (leadSourceInputs[key] ?? "").trim();
+                    if (cleaned === "") {
+                      parsed[key] = null;
+                    } else {
+                      const num = parseInt(cleaned, 10);
+                      parsed[key] = isNaN(num) ? null : num;
+                    }
+                  }
+                  startTransition(async () => {
+                    try {
+                      await saveLeadSourceTargets(selectedMonth, parsed);
+                      setLeadSourceMessage({ type: "success", text: "流入経路別目標を保存しました" });
+                    } catch {
+                      setLeadSourceMessage({ type: "error", text: "保存に失敗しました" });
+                    }
+                  });
+                }}
+                disabled={isPending}
+              >
+                {isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                流入経路別目標を保存
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

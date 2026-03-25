@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   CrudTable,
   type ColumnDef,
@@ -60,6 +60,35 @@ export function ContractsTable({
   progressStatusCount,
 }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // ハイライト対象の契約ID
+  const [highlightId, setHighlightId] = useState<number | null>(null);
+
+  // URLパラメータからハイライトIDを取得し、一定時間後にクリア
+  useEffect(() => {
+    const hId = searchParams.get("highlight");
+    if (hId) {
+      const id = Number(hId);
+      if (!isNaN(id)) {
+        setHighlightId(id);
+        // 5秒後にハイライト解除
+        const timer = setTimeout(() => setHighlightId(null), 5000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [searchParams]);
+
+  // 行のハイライトクラスを返す
+  const getRowClassName = useCallback(
+    (item: Record<string, unknown>) => {
+      if (highlightId && item.id === highlightId) {
+        return "animate-highlight-row";
+      }
+      return undefined;
+    },
+    [highlightId]
+  );
+
   // ステータス管理モーダルの状態
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [selectedContractId, setSelectedContractId] = useState<number | null>(
@@ -572,6 +601,7 @@ export function ContractsTable({
         data={filteredData as unknown as Record<string, unknown>[]}
         columns={columns}
         customRenderers={customRenderers}
+        rowClassName={getRowClassName}
       />
 
       {/* ステータス管理モーダル */}

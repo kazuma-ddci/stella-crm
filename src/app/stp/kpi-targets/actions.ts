@@ -56,14 +56,29 @@ export async function saveKpiTargets(
   revalidatePath("/stp/kpi-targets");
 }
 
+function getPrevYearMonth(yearMonth: string): string {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const prevDate = new Date(y, m - 2, 1);
+  return `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export async function copyFromPreviousMonth(
   yearMonth: string
 ): Promise<KpiTargets> {
-  const [y, m] = yearMonth.split("-").map(Number);
-  const prevDate = new Date(y, m - 2, 1);
-  const prevYearMonth = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`;
+  return getKpiTargets(getPrevYearMonth(yearMonth));
+}
 
-  return getKpiTargets(prevYearMonth);
+export async function copyDeptFromPreviousMonth(
+  yearMonth: string
+): Promise<DeptKpiTargets> {
+  return getDeptKpiTargets(getPrevYearMonth(yearMonth));
+}
+
+export async function copyLeadSourceFromPreviousMonth(
+  yearMonth: string,
+  sourceIds: number[]
+): Promise<LeadSourceTargets> {
+  return getLeadSourceTargets(getPrevYearMonth(yearMonth), sourceIds);
 }
 
 /** 決算期首月を取得（デフォルト: 4月） */
@@ -147,6 +162,66 @@ export async function saveDeptKpiTargets(
   await prisma.$transaction(
     entries
       .filter(([, value]) => value !== null)
+      .map(([kpiKey, targetValue]) =>
+        prisma.kpiMonthlyTarget.upsert({
+          where: { yearMonth_kpiKey: { yearMonth, kpiKey } },
+          update: { targetValue: targetValue! },
+          create: { yearMonth, kpiKey, targetValue: targetValue! },
+        })
+      )
+  );
+
+  revalidatePath("/stp/dashboard");
+  revalidatePath("/stp/kpi-targets");
+}
+
+// ============================================
+// 流入経路別目標
+// ============================================
+
+export type LeadSourceItem = {
+  id: number;
+  name: string;
+};
+
+export type LeadSourceTargets = Record<string, number | null>;
+
+export async function getLeadSources(): Promise<LeadSourceItem[]> {
+  const sources = await prisma.stpLeadSource.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true },
+    orderBy: { displayOrder: "asc" },
+  });
+  return sources;
+}
+
+export async function getLeadSourceTargets(
+  yearMonth: string,
+  sourceIds: number[]
+): Promise<LeadSourceTargets> {
+  const keys = sourceIds.map((id) => `lead_source_target_${id}`);
+  const targets = await prisma.kpiMonthlyTarget.findMany({
+    where: { yearMonth, kpiKey: { in: keys } },
+  });
+  const map = new Map(targets.map((t) => [t.kpiKey, t.targetValue]));
+
+  const result: LeadSourceTargets = {};
+  for (const id of sourceIds) {
+    const key = `lead_source_target_${id}`;
+    result[key] = map.get(key) ?? null;
+  }
+  return result;
+}
+
+export async function saveLeadSourceTargets(
+  yearMonth: string,
+  targets: LeadSourceTargets
+): Promise<void> {
+  const entries = Object.entries(targets);
+
+  await prisma.$transaction(
+    entries
+      .filter(([, value]) => value !== null && value !== undefined)
       .map(([kpiKey, targetValue]) =>
         prisma.kpiMonthlyTarget.upsert({
           where: { yearMonth_kpiKey: { yearMonth, kpiKey } },

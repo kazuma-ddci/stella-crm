@@ -1439,7 +1439,7 @@ async function main() {
     // バックオフィス部
     bo_operation_start_lt: 30,
     bo_collection_delay_rate: 5,
-    bo_payment_lt: 45,
+    bo_meeting_to_contract_lt: 45,
   };
 
   for (const month of kpiMonths) {

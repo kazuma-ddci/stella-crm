@@ -166,6 +166,8 @@ type CrudTableProps = {
   isDeleteDisabled?: (item: Record<string, unknown>) => boolean;
   // 左側から固定する列数（可視列のみカウント）
   stickyLeftCount?: number;
+  // 行ごとのカスタムクラス名
+  rowClassName?: (item: Record<string, unknown>) => string | undefined;
 };
 
 function formatValue(value: unknown, type?: string, options?: { value: string; label: string }[]): string {
@@ -258,6 +260,7 @@ export function CrudTable({
   onDeletePrepare,
   isDeleteDisabled,
   stickyLeftCount = 0,
+  rowClassName,
 }: CrudTableProps) {
   const router = useRouter();
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -1351,7 +1354,7 @@ export function CrudTable({
               </TableRow>
             ) : (
               filteredData.map((item, index) => (
-                <TableRow key={(item.id as number) || index}>
+                <TableRow key={(item.id as number) || index} className={rowClassName?.(item)}>
                   {visibleColumns.map((col, colIdx) => {
                     // 表示用カラムから編集用カラムへのマッピングを取得
                     const editColumnKey = inlineEditConfig?.displayToEditMapping?.[col.key] || col.key;

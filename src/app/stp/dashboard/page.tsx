@@ -1,9 +1,11 @@
 import {
-  getDashboardData,
+  getDashboardKgiData,
   getAvailableMonths,
   getFunnelData,
   getLeadAcquisitionData,
-  getRevenueTrendData,
+  getRevenueTrendWithProfitData,
+  getAgentRoiData,
+  getLeadSourceForecastData,
 } from "./actions";
 import { getDeptKpiData } from "./dept-kpi-actions";
 import { DashboardClient } from "./dashboard-client";
@@ -19,25 +21,37 @@ export default async function StpDashboardPage({ searchParams }: Props) {
     params.month ??
     `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-  const [data, months, funnelData, leadData, revenueTrendData, deptKpiData] =
-    await Promise.all([
-      getDashboardData(currentYearMonth),
-      getAvailableMonths(),
-      getFunnelData(),
-      getLeadAcquisitionData(currentYearMonth),
-      getRevenueTrendData(currentYearMonth),
-      getDeptKpiData(currentYearMonth),
-    ]);
+  const [
+    kgiData,
+    months,
+    funnelData,
+    leadData,
+    revenueTrendData,
+    deptKpiData,
+    agentRoiData,
+    leadSourceForecastData,
+  ] = await Promise.all([
+    getDashboardKgiData(currentYearMonth),
+    getAvailableMonths(),
+    getFunnelData(),
+    getLeadAcquisitionData(currentYearMonth),
+    getRevenueTrendWithProfitData(currentYearMonth),
+    getDeptKpiData(currentYearMonth),
+    getAgentRoiData(currentYearMonth),
+    getLeadSourceForecastData(currentYearMonth),
+  ]);
 
   return (
     <DashboardClient
-      data={data}
+      kgiData={kgiData}
       months={months}
       currentMonth={currentYearMonth}
       funnelData={funnelData}
       leadData={leadData}
       revenueTrendData={revenueTrendData}
       deptKpiData={deptKpiData}
+      agentRoiData={agentRoiData}
+      leadSourceForecastData={leadSourceForecastData}
     />
   );
 }
