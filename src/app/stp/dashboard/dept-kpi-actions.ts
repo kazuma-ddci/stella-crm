@@ -172,8 +172,21 @@ export async function getDeptKpiData(
       ? Math.round((sqlizedCount / validLeadCount) * 1000) / 10
       : null;
 
-  // 商談数: SQL化と同じ母集団（有効リードで商談化した数）
-  const meetingCount = sqlizedCount;
+  // 商談数: 接触履歴で接触種別「商談」の当月ユニーク企業数
+  let meetingCount = 0;
+  if (meetingCategory) {
+    const meetingContacts = await prisma.contactHistory.findMany({
+      where: {
+        companyId: { in: allMasterCompanyIds },
+        contactCategoryId: meetingCategory.id,
+        contactDate: { gte: monthStart, lte: monthEnd },
+        deletedAt: null,
+      },
+      select: { companyId: true },
+      distinct: ["companyId"],
+    });
+    meetingCount = meetingContacts.length;
+  }
 
   // 代理店経由のSQL化率
   const agentLeads = validLeads.filter(

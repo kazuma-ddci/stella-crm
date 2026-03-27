@@ -7,11 +7,13 @@ import { requireEdit } from "@/lib/auth";
 import { generateContractNumber } from "@/lib/contracts/generate-number";
 import { recordContractCreation } from "./status-management/actions";
 import { recordStatusChangeIfNeeded } from "@/lib/contract-status/record-status-change";
+import { logActivity } from "@/lib/activity-log/log";
+import { calcChanges } from "@/lib/activity-log/utils";
 
 const STP_PROJECT_ID = 1;
 
 export async function addContract(data: Record<string, unknown>) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
   // 契約番号を自動生成
   const contractNumber = await generateContractNumber();
 
@@ -42,11 +44,15 @@ export async function addContract(data: Record<string, unknown>) {
     );
   }
 
+  await logActivity({ model: "MasterContract", recordId: contract.id, action: "create", summary: `契約書「${(data.title as string) || ""}」を作成`, userId: user.id });
   revalidatePath("/stp/contracts");
 }
 
 export async function updateContract(id: number, data: Record<string, unknown>) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
+
+  // 変更前データを取得（差分記録用）
+  const oldRecord = await prisma.masterContract.findUnique({ where: { id } });
 
   // 差分更新用データの構築（渡されたフィールドのみ）
   const updateData: Record<string, unknown> = {};
@@ -103,11 +109,21 @@ export async function updateContract(id: number, data: Record<string, unknown>) 
     });
   }
 
+  const fieldLabels: Record<string, string> = {
+    companyId: "取引先", contractType: "契約種別", title: "契約書名",
+    contractNumber: "契約番号", startDate: "開始日", endDate: "終了日",
+    currentStatusId: "ステータス", signedDate: "締結日", signingMethod: "締結方法",
+    assignedTo: "担当者", note: "備考",
+  };
+  const changes = oldRecord ? calcChanges(oldRecord as unknown as Record<string, unknown>, updateData, fieldLabels) : null;
+  await logActivity({ model: "MasterContract", recordId: id, action: "update", summary: `契約書「${oldRecord?.title || ""}」を更新`, changes, userId: user.id });
   revalidatePath("/stp/contracts");
 }
 
 export async function deleteContract(id: number) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
+  const contract = await prisma.masterContract.findUnique({ where: { id }, select: { title: true } });
+  await logActivity({ model: "MasterContract", recordId: id, action: "delete", summary: `契約書「${contract?.title || ""}」を削除`, userId: user.id });
   await prisma.masterContract.delete({
     where: { id },
   });

@@ -4,15 +4,17 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireEdit } from "@/lib/auth";
 import { isInvalidJobMedia } from "@/lib/stp/job-media";
+import { logActivity } from "@/lib/activity-log/log";
+import { calcChanges } from "@/lib/activity-log/utils";
 
 export async function addCandidate(data: Record<string, unknown>) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
 
   if (!data.stpCompanyId) {
     throw new Error("企業は必須です");
   }
 
-  await prisma.stpCandidate.create({
+  const result = await prisma.stpCandidate.create({
     data: {
       lastName: (data.lastName as string) || "",
       firstName: (data.firstName as string) || "",
@@ -37,14 +39,44 @@ export async function addCandidate(data: Record<string, unknown>) {
     },
   });
 
+  await logActivity({
+    model: "StpCandidate",
+    recordId: result.id,
+    action: "create",
+    summary: `求職者「${data.lastName as string} ${data.firstName as string}」を作成`,
+    changes: {
+      姓: { old: null, new: data.lastName ?? "" },
+      名: { old: null, new: data.firstName ?? "" },
+      選考ステータス: { old: null, new: data.selectionStatus ?? null },
+      業種: { old: null, new: data.industryType ?? null },
+      求人媒体: { old: null, new: data.jobMedia ?? null },
+    },
+    userId: user.id,
+  });
   revalidatePath("/stp/candidates");
 }
+
+// updateCandidate用のフィールドラベルマッピング
+const UPDATE_CANDIDATE_FIELD_LABELS: Record<string, string> = {
+  lastName: "姓",
+  firstName: "名",
+  interviewDate: "面接日",
+  interviewAttendance: "面接出席",
+  selectionStatus: "選考ステータス",
+  offerDate: "内定日",
+  joinDate: "入社日",
+  sendDate: "送客日",
+  industryType: "業種",
+  jobMedia: "求人媒体",
+  note: "メモ",
+  stpCompanyId: "企業",
+};
 
 export async function updateCandidate(
   id: number,
   data: Record<string, unknown>
 ) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
   const updateData: Record<string, unknown> = {};
 
   if ("lastName" in data) {
@@ -99,21 +131,47 @@ export async function updateCandidate(
       : undefined;
   }
 
-  if (Object.keys(updateData).length > 0) {
+  // calcChanges用: 更新前のデータを取得
+  const updateKeys = Object.keys(updateData);
+  const selectForBefore: Record<string, boolean> = { lastName: true, firstName: true };
+  for (const k of updateKeys) selectForBefore[k] = true;
+  const beforeRecord = await prisma.stpCandidate.findUnique({ where: { id }, select: selectForBefore });
+  const beforeUpdateData: Record<string, unknown> = beforeRecord ?? {};
+
+  if (updateKeys.length > 0) {
     await prisma.stpCandidate.update({
       where: { id },
       data: updateData,
     });
   }
 
+  const candidateName = `${beforeRecord?.lastName ?? ""}${beforeRecord?.firstName ?? ""}`.trim() || String(id);
+  const changes = calcChanges(beforeUpdateData, updateData, UPDATE_CANDIDATE_FIELD_LABELS);
+  await logActivity({
+    model: "StpCandidate",
+    recordId: id,
+    action: "update",
+    summary: `求職者「${candidateName}」を更新`,
+    changes,
+    userId: user.id,
+  });
   revalidatePath("/stp/candidates");
 }
 
 export async function deleteCandidate(id: number) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
+  const candidateForLog = await prisma.stpCandidate.findUnique({ where: { id }, select: { lastName: true, firstName: true } });
+  const candidateName = `${candidateForLog?.lastName ?? ""}${candidateForLog?.firstName ?? ""}`.trim() || String(id);
   await prisma.stpCandidate.update({
     where: { id },
     data: { deletedAt: new Date() },
+  });
+  await logActivity({
+    model: "StpCandidate",
+    recordId: id,
+    action: "delete",
+    summary: `求職者「${candidateName}」を削除`,
+    userId: user.id,
   });
   revalidatePath("/stp/candidates");
 }

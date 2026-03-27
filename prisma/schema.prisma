@@ -742,6 +742,7 @@ model MasterStaff {
   slpConsultantCompanies      SlpCompany[]                   @relation("SlpConsultantStaffCompanies")
   slpCsCompanies              SlpCompany[]                   @relation("SlpCsStaffCompanies")
   alertAcknowledgments        AlertAcknowledgment[]
+  activityLogs                ActivityLog[]               @relation("ActivityLogStaff")
 
   @@map("master_staff")
 }
@@ -3854,4 +3855,26 @@ model AlertAcknowledgment {
 
   @@unique([alertType, alertKey])
   @@map("alert_acknowledgments")
+}
+
+// ============================================
+// アクティビティログ (Activity Logs)
+// CRM内の全操作を自動記録する
+// ============================================
+
+model ActivityLog {
+  id         Int      @id @default(autoincrement())
+  tableName  String   @map("table_name") @db.VarChar(100)  // "stp_companies", "master_contracts" 等
+  recordId   Int      @map("record_id")                     // 対象レコードのID
+  action     String   @db.VarChar(10)                       // "create", "update", "delete"
+  changes    Json?                                           // 変更差分（update時: {field: {old, new}}）
+  userId     Int?     @map("user_id")                       // 操作者のスタッフID
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  staff      MasterStaff? @relation("ActivityLogStaff", fields: [userId], references: [id])
+
+  @@index([tableName, recordId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("activity_logs")
 }

@@ -3,12 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireEdit } from "@/lib/auth";
+import { logActivity } from "@/lib/activity-log/log";
 
 // 定数: 顧客種別「代理店」のID
 const CUSTOMER_TYPE_AGENT_ID = 2;
 
 export async function addAgentContact(data: Record<string, unknown>) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
   // agentIdからcompanyIdを取得
   const agentId = data.agentId ? Number(data.agentId) : null;
 
@@ -46,7 +47,7 @@ export async function addAgentContact(data: Record<string, unknown>) {
     }
   }
 
-  await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     // 接触履歴を作成
     const history = await tx.contactHistory.create({
       data: {
@@ -69,8 +70,11 @@ export async function addAgentContact(data: Record<string, unknown>) {
         customerTypeId,
       })),
     });
+
+    return history;
   });
 
+  await logActivity({ model: "ContactHistory", recordId: result.id, action: "create", summary: `代理店接触履歴を作成（${data.contactDate as string}）`, userId: user.id });
   revalidatePath("/stp/records/agent-contacts");
   revalidatePath("/stp/agents");
   revalidatePath(`/companies/${agent.companyId}`);
@@ -80,7 +84,7 @@ export async function updateAgentContact(
   id: number,
   data: Record<string, unknown>
 ) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
   // 顧客種別IDが指定されている場合（文字列配列を数値配列に変換）
   let customerTypeIds: number[] | undefined;
   if (data.customerTypeIds) {
@@ -135,12 +139,13 @@ export async function updateAgentContact(
     revalidatePath(`/companies/${history.companyId}`);
   });
 
+  await logActivity({ model: "ContactHistory", recordId: id, action: "update", summary: `代理店接触履歴を更新（${data.contactDate as string}）`, userId: user.id });
   revalidatePath("/stp/records/agent-contacts");
   revalidatePath("/stp/agents");
 }
 
 export async function deleteAgentContact(id: number) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
   // 論理削除
   const history = await prisma.contactHistory.update({
     where: { id },
@@ -148,6 +153,7 @@ export async function deleteAgentContact(id: number) {
       deletedAt: new Date(),
     },
   });
+  await logActivity({ model: "ContactHistory", recordId: id, action: "delete", summary: "代理店接触履歴を削除", userId: user.id });
   revalidatePath("/stp/records/agent-contacts");
   revalidatePath("/stp/agents");
   revalidatePath(`/companies/${history.companyId}`);

@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { hasPermission } from "@/lib/auth";
-import type { UserPermission } from "@/types/auth";
+import { hasPermission, isFounder, isSystemAdmin } from "@/lib/auth";
+import type { UserPermission, SessionUser } from "@/types/auth";
 import { autoConfirmCreatorAllocations, checkAndTransitionToAwaitingAccounting, sendAllocationNotifications } from "./allocation-actions";
 import type { AllocationNotificationInfo } from "./allocation-actions";
 import { createNotification } from "@/lib/notifications/create-notification";
@@ -631,9 +631,10 @@ const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
 // 機密フィルタヘルパー
 // ============================================
 
-function buildConfidentialFilter(userId: number, permissions: UserPermission[]) {
-  if (hasPermission(permissions, "accounting", "edit")) return {};
-  return { OR: [{ isConfidential: false }, { isConfidential: true, createdBy: userId }] };
+function buildConfidentialFilter(user: SessionUser) {
+  if (isSystemAdmin(user) || isFounder(user)) return {};
+  if (hasPermission(user.permissions, "accounting", "edit")) return {};
+  return { OR: [{ isConfidential: false }, { isConfidential: true, createdBy: user.id }] };
 }
 
 // ============================================
@@ -1155,7 +1156,7 @@ export async function getTransactions(filters?: {
   counterpartyId?: number;
 }) {
   const session = await getSession();
-  const txConfidentialFilter = buildConfidentialFilter(session.id, session.permissions);
+  const txConfidentialFilter = buildConfidentialFilter(session);
 
   const where: Record<string, unknown> = {
     deletedAt: null,
@@ -1209,7 +1210,7 @@ const ACCOUNTING_VISIBLE_STATUSES = [
 
 export async function getAccountingTransactions() {
   const session = await getSession();
-  const txConfidentialFilter = buildConfidentialFilter(session.id, session.permissions);
+  const txConfidentialFilter = buildConfidentialFilter(session);
 
   const transactions = await prisma.transaction.findMany({
     where: {

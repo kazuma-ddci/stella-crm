@@ -158,6 +158,7 @@ const navigation: NavItem[] = [
       { name: "経営インサイト", href: "/stp/insights", icon: MessageSquare },
       { name: "KPI目標管理", href: "/stp/kpi-targets", icon: Target },
       { name: "アラート検知", href: "/stp/alerts", icon: AlertTriangle },
+      { name: "アクティビティログ", href: "/stp/activity-log", icon: ClipboardList },
       {
         name: "営業管理",
         icon: Briefcase,

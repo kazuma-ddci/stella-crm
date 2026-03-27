@@ -6,6 +6,8 @@ import { requireEdit } from "@/lib/auth";
 import { validateStaffForField } from "@/lib/staff/get-staff-by-field";
 import { createFieldChangeLogEntries, FieldChange } from "@/lib/field-change-log.server";
 import { isStaffSetEqual, formatStaffEntries } from "@/lib/field-change-log.shared";
+import { logActivity } from "@/lib/activity-log/log";
+import { calcChanges } from "@/lib/activity-log/utils";
 import crypto from "crypto";
 
 // ユニークなトークンを生成
@@ -14,7 +16,7 @@ function generateToken(): string {
 }
 
 export async function addAgent(data: Record<string, unknown>) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
   // staffAssignmentsを分離
   const staffAssignmentsRaw = data.staffAssignments as string | string[] | null;
   const staffIds = parseStaffIds(staffAssignmentsRaw);
@@ -25,7 +27,7 @@ export async function addAgent(data: Record<string, unknown>) {
     if (!isValid) throw new Error("選択された担当事務はこのフィールドに割り当てできません");
   }
 
-  await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     // companyIdの重複チェック（DB UNIQUE制約の代替）
     const existing = await tx.stpAgent.findFirst({
       where: { companyId: Number(data.companyId) },
@@ -59,13 +61,42 @@ export async function addAgent(data: Record<string, unknown>) {
         status: "active",
       },
     });
+
+    return agent;
   });
 
+  const agentCompany = await prisma.masterStellaCompany.findUnique({ where: { id: Number(data.companyId) }, select: { name: true } });
+  await logActivity({
+    model: "StpAgent",
+    recordId: result.id,
+    action: "create",
+    summary: `代理店「${agentCompany?.name ?? String(data.companyId)}」を作成`,
+    changes: {
+      企業ID: { old: null, new: Number(data.companyId) },
+      ステータス: { old: null, new: data.status ?? "アクティブ" },
+      カテゴリ: { old: null, new: data.category1 ?? "代理店" },
+      メモ: { old: null, new: data.note ?? null },
+    },
+    userId: user.id,
+  });
   revalidatePath("/stp/agents");
 }
 
+// updateAgent用のフィールドラベルマッピング
+const UPDATE_AGENT_FIELD_LABELS: Record<string, string> = {
+  status: "ステータス",
+  category1: "カテゴリ",
+  referrerCompanyId: "紹介元企業",
+  note: "メモ",
+  minimumCases: "最低案件数",
+  monthlyFee: "月額費用",
+  isIndividualBusiness: "個人事業主",
+  withholdingTaxRate: "源泉徴収税率",
+  adminStaffId: "担当事務",
+};
+
 export async function updateAgent(id: number, data: Record<string, unknown>) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
 
   // __changeNotesを取り出す（変更履歴用メモ）
   const changeNotes = (data.__changeNotes as Record<string, string>) || {};
@@ -114,6 +145,14 @@ export async function updateAgent(id: number, data: Record<string, unknown>) {
     }
     updateData.adminStaffId = staffId;
   }
+
+  // calcChanges用: 更新前のデータを取得
+  const updateKeys = Object.keys(updateData);
+  const selectForBefore: Record<string, boolean> = {};
+  for (const k of updateKeys) selectForBefore[k] = true;
+  const beforeUpdateData: Record<string, unknown> = updateKeys.length > 0
+    ? (await prisma.stpAgent.findUnique({ where: { id }, select: selectForBefore })) ?? {}
+    : {};
 
   // staffAssignmentsが渡された場合は担当者も更新
   const hasStaffAssignments = "staffAssignments" in data;
@@ -213,11 +252,29 @@ export async function updateAgent(id: number, data: Record<string, unknown>) {
     }
   });
 
+  const agentForLog = await prisma.stpAgent.findUnique({ where: { id }, select: { company: { select: { name: true } } } });
+  const changes = calcChanges(beforeUpdateData, updateData, UPDATE_AGENT_FIELD_LABELS);
+  await logActivity({
+    model: "StpAgent",
+    recordId: id,
+    action: "update",
+    summary: `代理店「${agentForLog?.company?.name ?? String(id)}」を更新`,
+    changes,
+    userId: user.id,
+  });
   revalidatePath("/stp/agents");
 }
 
 export async function deleteAgent(id: number) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
+  const agentForLog = await prisma.stpAgent.findUnique({ where: { id }, select: { company: { select: { name: true } } } });
+  await logActivity({
+    model: "StpAgent",
+    recordId: id,
+    action: "delete",
+    summary: `代理店「${agentForLog?.company?.name ?? String(id)}」を削除`,
+    userId: user.id,
+  });
   await prisma.stpAgent.delete({
     where: { id },
   });

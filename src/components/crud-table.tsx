@@ -41,7 +41,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
-import { Plus, Pencil, Trash2, ChevronsUpDown, X, Check, ArrowUpDown, ChevronDown, Loader2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Plus, Pencil, Trash2, ChevronsUpDown, X, Check, ArrowUpDown, ChevronDown, Loader2, Filter } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -290,6 +291,11 @@ export function CrudTable({
     window.addEventListener('resize', calc);
     return () => window.removeEventListener('resize', calc);
   }, []);
+
+  // フィルタ適用時のカラム幅固定（フィルタによるレイアウトずれ防止）
+  const allHeaderRefs = useRef<(HTMLTableCellElement | null)[]>([]);
+  const [lockedColumnWidths, setLockedColumnWidths] = useState<number[] | null>(null);
+  const prevActiveFilterCount = useRef(0);
 
   // 左側固定列のオフセット計算
   const stickyHeaderRefs = useRef<(HTMLTableCellElement | null)[]>([]);
@@ -816,61 +822,225 @@ export function CrudTable({
 
   const [openPopovers, setOpenPopovers] = useState<Record<string, boolean>>({});
 
-  // 検索用の状態
+  // 検索用の状態（従来の全体検索）
   const [selectedFilterColumn, setSelectedFilterColumn] = useState<string>("");
   const [filterValue, setFilterValue] = useState<string>("");
 
+  // 列ごとのフィルタ状態（スプレッドシート風）
+  type ColumnFilter = {
+    checkedValues: Set<string>;  // チェックされた値のSet（チェックボックス方式）
+    allValues: Set<string>;      // その列の全ユニーク値（全チェック＝フィルタ無効と判定用）
+    dateFrom: string;            // 日付範囲: 開始（日付列のみ）
+    dateTo: string;              // 日付範囲: 終了（日付列のみ）
+    textSearch: string;          // テキスト含む検索（textarea列のみ）
+  };
+  const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilter>>({});
+  const [openFilterColumn, setOpenFilterColumn] = useState<string | null>(null);
+  const [filterSearchTerms, setFilterSearchTerms] = useState<Record<string, string>>({});
+  // Popover内の一時編集用state（OKボタンで確定）
+  const [draftFilter, setDraftFilter] = useState<{
+    checkedValues: Set<string>;
+    dateFrom: string;
+    dateTo: string;
+    textSearch: string;
+  } | null>(null);
+  const activeFilterCount = Object.entries(columnFilters).filter(([, f]) => {
+    // textarea列: textSearchがあればアクティブ
+    if (f.textSearch) return true;
+    // 日付期間が設定されていればアクティブ
+    if (f.dateFrom || f.dateTo) return true;
+    // チェックが全選択と異なればアクティブ
+    if (f.checkedValues.size !== f.allValues.size) return true;
+    return false;
+  }).length;
+
+  // フィルタ適用時のカラム幅固定effect
+  useEffect(() => {
+    if (activeFilterCount > 0 && prevActiveFilterCount.current === 0) {
+      const widths = allHeaderRefs.current.map((el) => el?.offsetWidth ?? 0);
+      setLockedColumnWidths(widths);
+    }
+    if (activeFilterCount === 0 && prevActiveFilterCount.current > 0) {
+      setLockedColumnWidths(null);
+    }
+    prevActiveFilterCount.current = activeFilterCount;
+  }, [activeFilterCount]);
+
   // テーブル表示用のカラム（hidden除外）
   const visibleColumns = columns.filter((col) => col.hidden !== true);
+
+  // 列のユニーク値を実データから抽出
+  const columnUniqueValues = useMemo(() => {
+    const result: Record<string, { value: string; label: string }[]> = {};
+    for (const col of visibleColumns) {
+      if (col.filterable === false || col.key === "id") continue;
+      const colType = col.type || "text";
+      if (colType === "textarea") continue; // textareaはチェックボックス不要
+
+      const valuesMap = new Map<string, string>(); // value -> label
+      let hasEmpty = false;
+
+      for (const item of data) {
+        const raw = item[col.key];
+        if (raw === null || raw === undefined || raw === "") {
+          hasEmpty = true;
+          continue;
+        }
+        const strVal = String(raw);
+        if (!valuesMap.has(strVal)) {
+          // labelを決定
+          if (col.options) {
+            const opt = col.options.find((o) => o.value === strVal);
+            valuesMap.set(strVal, opt?.label || strVal);
+          } else if (colType === "boolean") {
+            valuesMap.set(strVal, raw === true ? "有効" : "無効");
+          } else if (colType === "date" || colType === "datetime" || colType === "month") {
+            // 日付はYYYY/MM/DD形式で表示
+            const d = new Date(strVal);
+            if (!isNaN(d.getTime())) {
+              valuesMap.set(strVal, d.toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }));
+            } else {
+              valuesMap.set(strVal, strVal);
+            }
+          } else {
+            valuesMap.set(strVal, strVal);
+          }
+        }
+      }
+
+      const entries: { value: string; label: string }[] = [];
+      if (hasEmpty) {
+        entries.push({ value: "__empty__", label: "（空白）" });
+      }
+      // ソート: 日付はvalue(ISO)順、その他はlabel順
+      const sorted = Array.from(valuesMap.entries());
+      if (colType === "date" || colType === "datetime" || colType === "month") {
+        sorted.sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+      } else {
+        sorted.sort((a, b) => a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0);
+      }
+      for (const [v, l] of sorted) {
+        entries.push({ value: v, label: l });
+      }
+      result[col.key] = entries;
+    }
+    return result;
+  }, [data, visibleColumns]);
 
   // フィルタリング可能なカラム
   const filterableColumns = visibleColumns.filter((col) => {
     if (col.filterable === false) return false;
     if (col.key === "id") return false;
-    const filterableTypes = ["text", "number", "select", "boolean", "textarea", "multiselect"];
+    const filterableTypes = ["text", "number", "select", "boolean", "textarea", "multiselect", "date", "datetime", "month"];
     return !col.type || filterableTypes.includes(col.type);
   });
 
-  // フィルタリングされたデータ
-  const filteredData = useMemo(() => {
-    if (!filterValue) return data;
-    const searchTerm = filterValue.toLowerCase();
+  // マッチング関数（全体検索用）
+  const matchValue = useCallback((value: unknown, col: ColumnDef | undefined, searchTerm: string): boolean => {
+    if (value === null || value === undefined) return false;
 
-    // マッチング関数
-    const matchValue = (value: unknown, col?: ColumnDef): boolean => {
+    // selectタイプ: optionsのlabelでも検索
+    if (col?.type === "select" && col.options) {
+      const stringValue = String(value);
+      if (searchTerm === stringValue.toLowerCase()) return true;
+      const option = col.options.find((opt) => opt.value === stringValue);
+      return option?.label.toLowerCase().includes(searchTerm) ?? false;
+    }
+
+    // booleanタイプ
+    if (col?.type === "boolean") {
+      if (searchTerm === "true" || searchTerm === "有効") return value === true;
+      if (searchTerm === "false" || searchTerm === "無効") return value === false;
+      return false;
+    }
+
+    // 文字列として部分一致検索
+    return String(value).toLowerCase().includes(searchTerm);
+  }, []);
+
+  // 列フィルタのマッチング関数
+  const matchColumnFilter = useCallback((value: unknown, col: ColumnDef, filter: ColumnFilter): boolean => {
+    const colType = col.type || "text";
+
+    // textarea列: テキスト含む検索
+    if (colType === "textarea") {
+      if (!filter.textSearch) return true;
       if (value === null || value === undefined) return false;
+      return String(value).toLowerCase().includes(filter.textSearch.toLowerCase());
+    }
 
-      // selectタイプ: optionsのlabelでも検索
-      if (col?.type === "select" && col.options) {
-        const stringValue = String(value);
-        if (searchTerm === stringValue.toLowerCase()) return true;
-        const option = col.options.find((opt) => opt.value === stringValue);
-        return option?.label.toLowerCase().includes(searchTerm) ?? false;
+    // チェックボックスフィルタが全選択と異なる場合に適用
+    const isCheckboxFiltered = filter.checkedValues.size !== filter.allValues.size;
+
+    // 日付タイプ: チェックボックス AND/OR 期間フィルタ
+    if (colType === "date" || colType === "datetime" || colType === "month") {
+      const hasDateRange = !!(filter.dateFrom || filter.dateTo);
+
+      if (!isCheckboxFiltered && !hasDateRange) return true;
+
+      const isEmpty = value === null || value === undefined || value === "";
+      const strVal = isEmpty ? "__empty__" : String(value);
+
+      // チェックだけの場合
+      if (isCheckboxFiltered && !hasDateRange) {
+        return filter.checkedValues.has(strVal);
       }
 
-      // booleanタイプ
-      if (col?.type === "boolean") {
-        if (searchTerm === "true" || searchTerm === "有効") return value === true;
-        if (searchTerm === "false" || searchTerm === "無効") return value === false;
-        return false;
+      // 期間だけの場合
+      if (!isCheckboxFiltered && hasDateRange) {
+        if (isEmpty) return false;
+        const dateValue = strVal.slice(0, 10);
+        if (filter.dateFrom && dateValue < filter.dateFrom) return false;
+        if (filter.dateTo && dateValue > filter.dateTo) return false;
+        return true;
       }
 
-      // 文字列として部分一致検索
-      return String(value).toLowerCase().includes(searchTerm);
-    };
+      // 両方ある場合: 期間フィルタをメインとし、チェックも考慮（AND条件）
+      if (isEmpty) return filter.checkedValues.has("__empty__");
+      const dateValue = strVal.slice(0, 10);
+      const inRange = (!filter.dateFrom || dateValue >= filter.dateFrom) && (!filter.dateTo || dateValue <= filter.dateTo);
+      return inRange && filter.checkedValues.has(strVal);
+    }
 
-    return data.filter((item) => {
-      if (selectedFilterColumn) {
-        const col = columns.find((c) => c.key === selectedFilterColumn);
-        const value = item[selectedFilterColumn];
-        return matchValue(value, col);
-      }
-      // カラム未選択時は全カラム検索
-      return filterableColumns.some((col) => {
-        return matchValue(item[col.key], col);
+    // チェックボックスフィルタ（select/text/number/boolean共通）
+    if (!isCheckboxFiltered) return true;
+    const isEmpty = value === null || value === undefined || value === "";
+    const strVal = isEmpty ? "__empty__" : String(value);
+    return filter.checkedValues.has(strVal);
+  }, []);
+
+  // フィルタリングされたデータ（全体検索 + 列フィルタの両方を適用）
+  const filteredData = useMemo(() => {
+    let result = data;
+
+    // 列ごとのフィルタを適用
+    const filterEntries = Object.entries(columnFilters);
+    if (filterEntries.length > 0) {
+      result = result.filter((item) => {
+        return filterEntries.every(([colKey, filter]) => {
+          const col = columns.find((c) => c.key === colKey);
+          if (!col) return true;
+          return matchColumnFilter(item[colKey], col, filter);
+        });
       });
-    });
-  }, [data, filterValue, selectedFilterColumn, filterableColumns, columns]);
+    }
+
+    // 全体検索フィルタを適用
+    if (filterValue) {
+      const searchTerm = filterValue.toLowerCase();
+      result = result.filter((item) => {
+        if (selectedFilterColumn) {
+          const col = columns.find((c) => c.key === selectedFilterColumn);
+          return matchValue(item[selectedFilterColumn], col, searchTerm);
+        }
+        return filterableColumns.some((col) => {
+          return matchValue(item[col.key], col, searchTerm);
+        });
+      });
+    }
+
+    return result;
+  }, [data, filterValue, selectedFilterColumn, filterableColumns, columns, columnFilters, matchValue, matchColumnFilter]);
 
   // 検索入力UIのレンダリング
   const renderFilterInput = () => {
@@ -1298,6 +1468,19 @@ export function CrudTable({
           </Button>
         )}
 
+        {activeFilterCount > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs gap-1"
+            onClick={() => setColumnFilters({})}
+          >
+            <Filter className="h-3.5 w-3.5" />
+            列フィルタ解除（{activeFilterCount}件）
+            <X className="h-3 w-3" />
+          </Button>
+        )}
+
         <div className="w-full sm:w-auto sm:ml-auto flex gap-2">
           {sortableItems && onReorder && (
             <Button variant="outline" onClick={() => setIsSortModalOpen(true)}>
@@ -1322,18 +1505,259 @@ export function CrudTable({
               {visibleColumns.map((col, colIdx) => {
                 const isSticky = colIdx < stickyLeftCount;
                 const isLastSticky = colIdx === stickyLeftCount - 1;
+                const colType = col.type || "text";
+                const isFilterable = col.filterable !== false && col.key !== "id" &&
+                  (["text", "number", "select", "boolean", "textarea", "multiselect", "date", "datetime", "month"].includes(colType));
+                const isDateType = colType === "date" || colType === "datetime" || colType === "month";
+                const isTextarea = colType === "textarea";
+                const currentFilter = columnFilters[col.key];
+                const hasActiveFilter = !!currentFilter && (
+                  currentFilter.textSearch ||
+                  currentFilter.dateFrom ||
+                  currentFilter.dateTo ||
+                  currentFilter.checkedValues.size !== currentFilter.allValues.size
+                );
+
+                // このPopoverで使うユニーク値リスト
+                const uniqueValues = columnUniqueValues[col.key] || [];
+                const allValueKeys = new Set(uniqueValues.map((u) => u.value));
+
+                // フィルタ内の検索で絞り込まれたリスト
+                const searchTerm = filterSearchTerms[col.key] || "";
+                const filteredUniqueValues = searchTerm
+                  ? uniqueValues.filter((u) => u.label.toLowerCase().includes(searchTerm.toLowerCase()))
+                  : uniqueValues;
+
+                // 現在のcheckedValues（フィルタ未設定 = 全選択）
+                const checkedValues = currentFilter?.checkedValues || allValueKeys;
+
                 return (
                   <TableHead
                     key={col.key}
-                    ref={isSticky ? (el) => { stickyHeaderRefs.current[colIdx] = el; } : undefined}
+                    ref={(el) => {
+                      allHeaderRefs.current[colIdx] = el;
+                      if (isSticky) stickyHeaderRefs.current[colIdx] = el;
+                    }}
                     className={cn(
                       "whitespace-nowrap",
                       isSticky && "sticky z-30 bg-white",
                       isLastSticky && "shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]"
                     )}
-                    style={isSticky ? { left: stickyLeftOffsets[colIdx] ?? 0 } : undefined}
+                    style={{
+                      ...(isSticky ? { left: stickyLeftOffsets[colIdx] ?? 0 } : {}),
+                      ...(lockedColumnWidths?.[colIdx] ? { minWidth: lockedColumnWidths[colIdx] } : {}),
+                    }}
                   >
-                    {col.header}
+                    <div className="flex items-center gap-1">
+                      {col.header}
+                      {isFilterable && (
+                        <Popover
+                          open={openFilterColumn === col.key}
+                          onOpenChange={(open) => {
+                            if (open) {
+                              // Popover開: 現在のフィルタからdraft初期化
+                              setDraftFilter({
+                                checkedValues: new Set(currentFilter?.checkedValues || allValueKeys),
+                                dateFrom: currentFilter?.dateFrom || "",
+                                dateTo: currentFilter?.dateTo || "",
+                                textSearch: currentFilter?.textSearch || "",
+                              });
+                            } else {
+                              // Popover閉: draftクリア
+                              setDraftFilter(null);
+                              setFilterSearchTerms((prev) => {
+                                const next = { ...prev };
+                                delete next[col.key];
+                                return next;
+                              });
+                            }
+                            setOpenFilterColumn(open ? col.key : null);
+                          }}
+                        >
+                          <PopoverTrigger asChild>
+                            <button
+                              className={cn(
+                                "inline-flex items-center justify-center rounded p-0.5 hover:bg-muted transition-colors",
+                                hasActiveFilter && "text-primary bg-primary/10"
+                              )}
+                            >
+                              <Filter className={cn("h-3.5 w-3.5", hasActiveFilter && "fill-primary/20")} />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-72 p-3" align="start" onClick={(e) => e.stopPropagation()}>
+                            {openFilterColumn === col.key && draftFilter && (() => {
+                              // draft用のcheckedValues
+                              const draftChecked = draftFilter.checkedValues;
+
+                              // OKボタン: draftをcolumnFiltersに確定
+                              const handleOk = () => {
+                                const isAllChecked = draftChecked.size === allValueKeys.size;
+                                const hasDateRange = !!(draftFilter.dateFrom || draftFilter.dateTo);
+                                const hasTextSearch = !!draftFilter.textSearch;
+
+                                if (isAllChecked && !hasDateRange && !hasTextSearch) {
+                                  // フィルタなし状態 → 削除
+                                  setColumnFilters((prev) => {
+                                    const next = { ...prev };
+                                    delete next[col.key];
+                                    return next;
+                                  });
+                                } else {
+                                  setColumnFilters((prev) => ({
+                                    ...prev,
+                                    [col.key]: {
+                                      checkedValues: new Set(draftChecked),
+                                      allValues: allValueKeys,
+                                      dateFrom: draftFilter.dateFrom,
+                                      dateTo: draftFilter.dateTo,
+                                      textSearch: draftFilter.textSearch,
+                                    },
+                                  }));
+                                }
+                                setOpenFilterColumn(null);
+                                setDraftFilter(null);
+                              };
+
+                              // キャンセル: draftを破棄
+                              const handleCancel = () => {
+                                setOpenFilterColumn(null);
+                                setDraftFilter(null);
+                              };
+
+                              return (
+                                <div className="space-y-2">
+                                  <p className="text-sm font-medium">{col.header} でフィルタ</p>
+
+                                  {/* textarea列: テキスト含む検索 */}
+                                  {isTextarea && (
+                                    <Input
+                                      placeholder="テキストを含む..."
+                                      className="h-8 text-sm"
+                                      value={draftFilter.textSearch}
+                                      onChange={(e) => setDraftFilter({ ...draftFilter, textSearch: e.target.value })}
+                                    />
+                                  )}
+
+                                  {/* チェックボックス方式（textarea以外） */}
+                                  {!isTextarea && (
+                                    <>
+                                      {/* 日付列: 期間指定 */}
+                                      {isDateType && (
+                                        <div className="space-y-1.5 pb-2 border-b">
+                                          <p className="text-xs text-muted-foreground font-medium">期間指定</p>
+                                          <div className="flex items-center gap-2">
+                                            <Input
+                                              type="date"
+                                              className="h-7 text-xs flex-1"
+                                              value={draftFilter.dateFrom}
+                                              onChange={(e) => setDraftFilter({ ...draftFilter, dateFrom: e.target.value })}
+                                            />
+                                            <span className="text-xs text-muted-foreground">〜</span>
+                                            <Input
+                                              type="date"
+                                              className="h-7 text-xs flex-1"
+                                              value={draftFilter.dateTo}
+                                              onChange={(e) => setDraftFilter({ ...draftFilter, dateTo: e.target.value })}
+                                            />
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* すべて選択 / クリア */}
+                                      <div className="flex items-center gap-2 text-xs">
+                                        <button
+                                          className="text-primary hover:underline"
+                                          onClick={() => setDraftFilter({ ...draftFilter, checkedValues: new Set(allValueKeys) })}
+                                        >
+                                          すべて選択
+                                        </button>
+                                        <span className="text-muted-foreground">-</span>
+                                        <button
+                                          className="text-primary hover:underline"
+                                          onClick={() => setDraftFilter({ ...draftFilter, checkedValues: new Set<string>() })}
+                                        >
+                                          クリア
+                                        </button>
+                                        <span className="ml-auto text-muted-foreground">
+                                          {draftChecked.size} / {allValueKeys.size} 件
+                                        </span>
+                                      </div>
+
+                                      {/* 検索ボックス（値が多い場合のみ） */}
+                                      {uniqueValues.length > 8 && (
+                                        <Input
+                                          placeholder="検索..."
+                                          className="h-7 text-xs"
+                                          value={searchTerm}
+                                          onChange={(e) => setFilterSearchTerms((prev) => ({ ...prev, [col.key]: e.target.value }))}
+                                        />
+                                      )}
+
+                                      {/* チェックボックスリスト */}
+                                      <div className="max-h-48 overflow-y-auto space-y-0.5">
+                                        {filteredUniqueValues.map((item) => (
+                                          <label
+                                            key={item.value}
+                                            className="flex items-center gap-2 px-1 py-1 rounded hover:bg-muted cursor-pointer text-sm"
+                                          >
+                                            <Checkbox
+                                              checked={draftChecked.has(item.value)}
+                                              onCheckedChange={(checked) => {
+                                                const newChecked = new Set(draftChecked);
+                                                if (checked) {
+                                                  newChecked.add(item.value);
+                                                } else {
+                                                  newChecked.delete(item.value);
+                                                }
+                                                setDraftFilter({ ...draftFilter, checkedValues: newChecked });
+                                              }}
+                                              className="h-3.5 w-3.5"
+                                            />
+                                            <span className="truncate">{item.label}</span>
+                                          </label>
+                                        ))}
+                                        {filteredUniqueValues.length === 0 && (
+                                          <p className="text-xs text-muted-foreground text-center py-2">該当なし</p>
+                                        )}
+                                      </div>
+                                    </>
+                                  )}
+
+                                  {/* OK / キャンセル / フィルタ解除 */}
+                                  <div className="flex items-center gap-2 pt-1 border-t">
+                                    {hasActiveFilter && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-xs text-muted-foreground px-2"
+                                        onClick={() => {
+                                          setColumnFilters((prev) => {
+                                            const next = { ...prev };
+                                            delete next[col.key];
+                                            return next;
+                                          });
+                                          setOpenFilterColumn(null);
+                                          setDraftFilter(null);
+                                        }}
+                                      >
+                                        解除
+                                      </Button>
+                                    )}
+                                    <div className="flex-1" />
+                                    <Button variant="outline" size="sm" className="text-xs px-3" onClick={handleCancel}>
+                                      キャンセル
+                                    </Button>
+                                    <Button size="sm" className="text-xs px-4" onClick={handleOk}>
+                                      OK
+                                    </Button>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                    </div>
                   </TableHead>
                 );
               })}

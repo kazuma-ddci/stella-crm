@@ -8,6 +8,8 @@ import { validateInitialStage } from "@/lib/stage-transition/alert-validator";
 import { StageInfo, StageType } from "@/lib/stage-transition/types";
 import { validateStaffForField } from "@/lib/staff/get-staff-by-field";
 import { createFieldChangeLogEntries, FieldChange } from "@/lib/field-change-log.server";
+import { logActivity } from "@/lib/activity-log/log";
+import { calcChanges } from "@/lib/activity-log/utils";
 
 // 配列またはカンマ区切り文字列を文字列に変換するヘルパー関数
 function toCommaSeparatedString(value: unknown): string | null {
@@ -27,7 +29,7 @@ const TRACKED_FIELDS: Record<string, { displayName: string; fieldCode?: string }
 };
 
 export async function addStpCompany(data: Record<string, unknown>) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
   const currentStageId = data.currentStageId ? Number(data.currentStageId) : null;
   const nextTargetStageId = data.nextTargetStageId ? Number(data.nextTargetStageId) : null;
   const nextTargetDate = data.nextTargetDate ? new Date(data.nextTargetDate as string) : null;
@@ -88,7 +90,7 @@ export async function addStpCompany(data: Record<string, unknown>) {
   }
 
   // トランザクションで企業作成と履歴作成を実行
-  await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     // 請求先担当者ID
     const billingContactIds = toCommaSeparatedString(data.billingContactIds);
 
@@ -137,13 +139,52 @@ export async function addStpCompany(data: Record<string, unknown>) {
         },
       });
     }
+
+    return company;
   });
 
+  const companyForLog = await prisma.masterStellaCompany.findUnique({ where: { id: companyId }, select: { name: true } });
+  await logActivity({
+    model: "StpCompany",
+    recordId: result.id,
+    action: "create",
+    summary: `企業「${companyForLog?.name ?? String(companyId)}」を作成`,
+    changes: {
+      企業ID: { old: null, new: companyId },
+      ヨミ: { old: null, new: data.forecast ?? null },
+      メモ: { old: null, new: data.note ?? null },
+    },
+    userId: user.id,
+  });
   revalidatePath("/stp/companies");
 }
 
+// updateStpCompany用のフィールドラベルマッピング
+const UPDATE_FIELD_LABELS: Record<string, string> = {
+  companyId: "企業ID",
+  agentId: "代理店",
+  leadAcquiredDate: "リード獲得日",
+  leadValidity: "有効性",
+  forecast: "ヨミ",
+  plannedHires: "採用予定人数",
+  leadSourceId: "流入経路",
+  salesStaffId: "担当営業",
+  adminStaffId: "担当事務",
+  billingAddress: "請求先住所",
+  billingLocationId: "請求先拠点",
+  billingRepresentative: "請求先担当者",
+  hasDeal: "案件有無",
+  proposedProductIds: "提案中の商材",
+  note: "メモ",
+  pendingReason: "検討理由",
+  lostReason: "失注理由",
+  progressDetail: "進捗詳細",
+  meetingDate: "商談日",
+  industryType: "業種",
+};
+
 export async function updateStpCompany(id: number, data: Record<string, unknown>) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
 
   // __changeNotesを取り出す（変更履歴用メモ）
   const changeNotes = (data.__changeNotes as Record<string, string>) || {};
@@ -238,6 +279,14 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
   if ("note" in data) {
     updateData.note = (data.note as string) || null;
   }
+
+  // calcChanges用: 更新前のデータを取得（updateDataのキーだけ取得すれば十分）
+  const updateKeys = Object.keys(updateData);
+  const selectForBefore: Record<string, boolean> = {};
+  for (const k of updateKeys) selectForBefore[k] = true;
+  const beforeUpdateData: Record<string, unknown> = updateKeys.length > 0
+    ? (await prisma.stpCompany.findUnique({ where: { id }, select: selectForBefore })) ?? {}
+    : {};
 
   // 変更履歴管理対象フィールドがあるかチェック
   const trackedFieldKeys = Object.keys(TRACKED_FIELDS).filter((key) => key in data);
@@ -376,11 +425,30 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
     });
   }
 
+  // 更新後のデータを取得して変更差分を計算
+  const afterData = await prisma.stpCompany.findUnique({ where: { id }, select: { company: { select: { name: true } } } });
+  const changes = calcChanges(beforeUpdateData, updateData, UPDATE_FIELD_LABELS);
+  await logActivity({
+    model: "StpCompany",
+    recordId: id,
+    action: "update",
+    summary: `企業「${afterData?.company?.name ?? String(id)}」を更新`,
+    changes,
+    userId: user.id,
+  });
   revalidatePath("/stp/companies");
 }
 
 export async function deleteStpCompany(id: number) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
+  const companyForLog = await prisma.stpCompany.findUnique({ where: { id }, select: { company: { select: { name: true } } } });
+  await logActivity({
+    model: "StpCompany",
+    recordId: id,
+    action: "delete",
+    summary: `企業「${companyForLog?.company?.name ?? String(id)}」を削除`,
+    userId: user.id,
+  });
   await prisma.stpCompany.delete({
     where: { id },
   });

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireEdit, getSession } from "@/lib/auth";
+import { logActivity } from "@/lib/activity-log/log";
 import { createCounterpartyForCompany } from "@/lib/counterparty-sync";
 import {
   getOrCreateCompanyFolder,
@@ -60,7 +61,7 @@ export async function processAsNewCompany(
     websiteUrl?: string;
   }
 ) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
   const submission = await prisma.stpLeadFormSubmission.findUnique({
     where: { id: submissionId },
     include: {
@@ -180,6 +181,9 @@ export async function processAsNewCompany(
     return { masterCompany, stpCompany };
   });
 
+  // 活動ログ
+  await logActivity({ model: "StpCompany", recordId: result.stpCompany.id, action: "create", summary: "リード回答から企業を作成", userId: user.id });
+
   // スライドを企業フォルダへ移動（非同期・エラー無視）
   await moveSlidesToCompanyFolder(
     submissionId,
@@ -211,7 +215,7 @@ export async function processWithExistingCompany(
     websiteUrl?: string;
   }
 ) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
   const submission = await prisma.stpLeadFormSubmission.findUnique({
     where: { id: submissionId },
     include: {
@@ -360,6 +364,15 @@ export async function processWithExistingCompany(
     return { stpCompanyId, isExisting: !!existingStpCompany };
   });
 
+  // 活動ログ
+  await logActivity({
+    model: "StpCompany",
+    recordId: result.stpCompanyId,
+    action: result.isExisting ? "update" : "create",
+    summary: "リード回答を処理",
+    userId: user.id,
+  });
+
   // スライドを企業フォルダへ移動（非同期・エラー無視）
   try {
     const masterCompany = await prisma.masterStellaCompany.findUnique({
@@ -483,7 +496,7 @@ export async function rejectSubmission(
   submissionId: number,
   processingNote?: string
 ) {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
   const submission = await prisma.stpLeadFormSubmission.findUnique({
     where: { id: submissionId },
   });
@@ -504,6 +517,8 @@ export async function rejectSubmission(
       processingNote,
     },
   });
+
+  await logActivity({ model: "StpLeadFormSubmission", recordId: submissionId, action: "update", summary: "リード回答を却下", userId: user.id });
 
   revalidatePath("/stp/lead-submissions");
 }

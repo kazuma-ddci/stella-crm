@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireEdit } from "@/lib/auth";
+import { logActivity } from "@/lib/activity-log/log";
 import {
   StageManagementData,
   StageStatistics,
@@ -122,7 +123,7 @@ export async function updateStageWithHistory(
   error?: string;
   events?: DetectedEvent[];
 }> {
-  await requireEdit("stp");
+  const user = await requireEdit("stp");
   const {
     stpCompanyId,
     newStageId,
@@ -283,6 +284,9 @@ export async function updateStageWithHistory(
       });
     });
 
+    const oldStageName = stageInfos.find(s => s.id === company.currentStageId)?.name ?? String(company.currentStageId);
+    const newStageName = stageInfos.find(s => s.id === newStageId)?.name ?? String(newStageId);
+    await logActivity({ model: "StpCompany", recordId: stpCompanyId, action: "update", summary: "ステージを変更", changes: { ステージ: { old: oldStageName, new: newStageName } }, userId: user.id });
     revalidatePath("/stp/companies");
     return { success: true, events };
   } catch (error) {

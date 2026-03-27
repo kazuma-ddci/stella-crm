@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { getSession, canEdit } from "@/lib/auth";
+import { getSession, canEdit, isFounder, isSystemAdmin } from "@/lib/auth";
 import { PaymentGroupsPageClient } from "./payment-groups-page-client";
 import {
   getPaymentGroups,
@@ -18,7 +18,7 @@ export default async function PaymentGroupsPage() {
   if (!ctx) throw new Error("STPプロジェクトのコンテキストが取得できません");
   const projectId = ctx.projectId;
   const session = await getSession();
-  const canEditAccounting = canEdit(session.permissions, "accounting");
+  const canEditAccounting = isSystemAdmin(session) || isFounder(session) || canEdit(session.permissions, "accounting");
   const [data, ungroupedTransactions, ungroupedAllocationItems, counterparties, operatingCompanies, expenseCategories, pendingInboundInvoices, matchablePaymentGroups] =
     await Promise.all([
       getPaymentGroups(projectId),

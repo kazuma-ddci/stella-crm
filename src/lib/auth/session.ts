@@ -29,6 +29,10 @@ export async function requireEdit(projectCode: ProjectCode): Promise<SessionUser
     throw new Error("認証が必要です");
   }
   const user = session.user;
+  // ファウンダー・システム管理者は全プロジェクト編集可
+  if (isSystemAdmin(user) || isFounder(user)) {
+    return user;
+  }
   if (!canEdit(user.permissions, projectCode)) {
     throw new Error("この操作を行う権限がありません");
   }

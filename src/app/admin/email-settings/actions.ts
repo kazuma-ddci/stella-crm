@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import { getSession, isAdmin } from "@/lib/auth";
+import { getSession, isAdmin, isFounder, isSystemAdmin } from "@/lib/auth";
 
 // ============================================
 // 管理者権限チェック
@@ -10,6 +10,7 @@ import { getSession, isAdmin } from "@/lib/auth";
 
 async function requireAdminUser() {
   const user = await getSession();
+  if (isSystemAdmin(user) || isFounder(user)) return user;
   const hasAdmin = isAdmin(user.permissions, "stella") ||
     isAdmin(user.permissions, "stp");
   if (!hasAdmin) {

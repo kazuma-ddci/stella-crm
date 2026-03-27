@@ -3,12 +3,12 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { requireEdit, getSession } from "@/lib/auth";
-import { hasPermission, canApprove as checkCanApprove } from "@/lib/auth";
+import { hasPermission, canApprove as checkCanApprove, isFounder, isSystemAdmin } from "@/lib/auth";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
 import { requireStpProjectId } from "@/lib/project-context";
 import { toLocalDateString } from "@/lib/utils";
 import { createNotificationBulk } from "@/lib/notifications/create-notification";
-import type { UserPermission } from "@/types/auth";
+import type { UserPermission, SessionUser } from "@/types/auth";
 
 // ============================================
 // ステータス遷移マップ
@@ -30,9 +30,10 @@ const INVOICE_TRANSITIONS: Record<string, string[]> = {
 // 機密フィルタヘルパー
 // ============================================
 
-function buildConfidentialFilter(userId: number, permissions: UserPermission[]) {
-  if (hasPermission(permissions, "accounting", "edit")) return {};
-  return { OR: [{ isConfidential: false }, { isConfidential: true, createdBy: userId }] };
+function buildConfidentialFilter(user: SessionUser) {
+  if (isSystemAdmin(user) || isFounder(user)) return {};
+  if (hasPermission(user.permissions, "accounting", "edit")) return {};
+  return { OR: [{ isConfidential: false }, { isConfidential: true, createdBy: user.id }] };
 }
 
 // ============================================
@@ -61,7 +62,7 @@ export async function getPaymentGroups(
   projectId?: number
 ): Promise<PaymentGroupListItem[]> {
   const session = await getSession();
-  const confidentialFilter = buildConfidentialFilter(session.id, session.permissions);
+  const confidentialFilter = buildConfidentialFilter(session);
 
   const records = await prisma.paymentGroup.findMany({
     where: { deletedAt: null, ...(projectId ? { projectId } : {}), ...confidentialFilter },
@@ -117,7 +118,7 @@ export async function getUngroupedExpenseTransactions(
   projectId?: number
 ): Promise<UngroupedExpenseTransaction[]> {
   const session = await getSession();
-  const txConfidentialFilter = buildConfidentialFilter(session.id, session.permissions);
+  const txConfidentialFilter = buildConfidentialFilter(session);
 
   const where: Record<string, unknown> = {
     deletedAt: null,
@@ -463,10 +464,10 @@ export async function updatePaymentGroup(
   const user = await requireEdit("stp");
   const stpProjectId = await requireStpProjectId();
 
-  // actualPaymentDate の更新は経理権限が必要
+  // actualPaymentDate の更新は経理権限が必要（ファウンダー/管理者はOK）
   if ("actualPaymentDate" in data) {
     const session = await getSession();
-    if (!hasPermission(session.permissions, "accounting", "edit")) {
+    if (!isSystemAdmin(session) && !isFounder(session) && !hasPermission(session.permissions, "accounting", "edit")) {
       throw new Error("実際の支払日の変更は経理権限が必要です");
     }
   }
