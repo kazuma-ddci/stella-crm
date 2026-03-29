@@ -36,7 +36,7 @@ export async function addOperatingCompanyBankAccount(
     });
   }
 
-  revalidatePath("/settings/operating-companies");
+  revalidatePath("/settings/projects");
   return {
     id: bankAccount.id,
     operatingCompanyId: bankAccount.operatingCompanyId,
@@ -90,7 +90,7 @@ export async function updateOperatingCompanyBankAccount(
     });
   }
 
-  revalidatePath("/settings/operating-companies");
+  revalidatePath("/settings/projects");
   return {
     id: bankAccount.id,
     operatingCompanyId: bankAccount.operatingCompanyId,
@@ -113,5 +113,5 @@ export async function deleteOperatingCompanyBankAccount(id: number) {
     where: { id },
     data: { deletedAt: new Date() },
   });
-  revalidatePath("/settings/operating-companies");
+  revalidatePath("/settings/projects");
 }

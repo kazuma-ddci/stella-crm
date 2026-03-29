@@ -174,21 +174,27 @@ export function ProjectBankAccountsModal({
     setAddSaving(true);
     setError(null);
 
-    const result = await addProjectBankAccount({
-      projectId,
-      bankAccountId: selectedBankAccountId,
-      memo: selectMemo.trim() || null,
-    });
+    try {
+      const result = await addProjectBankAccount({
+        projectId,
+        bankAccountId: selectedBankAccountId,
+        memo: selectMemo.trim() || null,
+      });
 
-    setAddSaving(false);
-    if (!result.success) {
-      setError(result.error ?? "追加に失敗しました");
+      if (!result.success) {
+        setError(result.error ?? "追加に失敗しました");
+        clearError();
+        return;
+      }
+
+      setAddMode(null);
+      await loadData();
+    } catch {
+      setError("追加に失敗しました");
       clearError();
-      return;
+    } finally {
+      setAddSaving(false);
     }
-
-    setAddMode(null);
-    await loadData();
   };
 
   const handleAddNew = async () => {
@@ -196,26 +202,32 @@ export function ProjectBankAccountsModal({
     setAddSaving(true);
     setError(null);
 
-    const result = await createAndAddProjectBankAccount({
-      projectId,
-      bankName: addForm.bankName.trim(),
-      bankCode: addForm.bankCode.trim(),
-      branchName: addForm.branchName.trim(),
-      branchCode: addForm.branchCode.trim(),
-      accountNumber: addForm.accountNumber.trim(),
-      accountHolderName: addForm.accountHolderName.trim(),
-      memo: addForm.memo.trim() || null,
-    });
+    try {
+      const result = await createAndAddProjectBankAccount({
+        projectId,
+        bankName: addForm.bankName.trim(),
+        bankCode: addForm.bankCode.trim(),
+        branchName: addForm.branchName.trim(),
+        branchCode: addForm.branchCode.trim(),
+        accountNumber: addForm.accountNumber.trim(),
+        accountHolderName: addForm.accountHolderName.trim(),
+        memo: addForm.memo.trim() || null,
+      });
 
-    setAddSaving(false);
-    if (!result.success) {
-      setError(result.error ?? "追加に失敗しました");
+      if (!result.success) {
+        setError(result.error ?? "追加に失敗しました");
+        clearError();
+        return;
+      }
+
+      setAddMode(null);
+      await loadData();
+    } catch {
+      setError("追加に失敗しました");
       clearError();
-      return;
+    } finally {
+      setAddSaving(false);
     }
-
-    setAddMode(null);
-    await loadData();
   };
 
   // ============================================
