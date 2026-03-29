@@ -186,21 +186,27 @@ export function ProjectEmailsModal({
     setAddSaving(true);
     setError(null);
 
-    const result = await linkExistingEmail({
-      projectId,
-      emailId: selectedEmailId,
-      memo: selectMemo.trim() || null,
-    });
+    try {
+      const result = await linkExistingEmail({
+        projectId,
+        emailId: selectedEmailId,
+        memo: selectMemo.trim() || null,
+      });
 
-    setAddSaving(false);
-    if (!result.success) {
-      setError(result.error ?? "追加に失敗しました");
+      if (!result.success) {
+        setError(result.error ?? "追加に失敗しました");
+        clearError();
+        return;
+      }
+
+      setAddMode(null);
+      await loadEmails();
+    } catch {
+      setError("追加に失敗しました");
       clearError();
-      return;
+    } finally {
+      setAddSaving(false);
     }
-
-    setAddMode(null);
-    await loadEmails();
   };
 
   const handleAddNew = async () => {
@@ -208,27 +214,33 @@ export function ProjectEmailsModal({
     setAddSaving(true);
     setError(null);
 
-    const result = await addProjectEmail({
-      projectId,
-      email: addForm.email.trim(),
-      memo: addForm.memo.trim() || null,
-      smtpHost: isSystemAdmin ? (addForm.smtpHost.trim() || "smtp.gmail.com") : "smtp.gmail.com",
-      smtpPort: isSystemAdmin ? (addForm.smtpPort ? parseInt(addForm.smtpPort) : 587) : 587,
-      smtpPass: isSystemAdmin ? (addForm.smtpPass.trim() || null) : null,
-      imapHost: isSystemAdmin ? (addForm.imapHost.trim() || "imap.gmail.com") : "imap.gmail.com",
-      imapPort: isSystemAdmin ? (addForm.imapPort ? parseInt(addForm.imapPort) : 993) : 993,
-      enableInbound: isSystemAdmin ? addForm.enableInbound : false,
-    });
+    try {
+      const result = await addProjectEmail({
+        projectId,
+        email: addForm.email.trim(),
+        memo: addForm.memo.trim() || null,
+        smtpHost: isSystemAdmin ? (addForm.smtpHost.trim() || "smtp.gmail.com") : "smtp.gmail.com",
+        smtpPort: isSystemAdmin ? (addForm.smtpPort ? parseInt(addForm.smtpPort) : 587) : 587,
+        smtpPass: isSystemAdmin ? (addForm.smtpPass.trim() || null) : null,
+        imapHost: isSystemAdmin ? (addForm.imapHost.trim() || "imap.gmail.com") : "imap.gmail.com",
+        imapPort: isSystemAdmin ? (addForm.imapPort ? parseInt(addForm.imapPort) : 993) : 993,
+        enableInbound: isSystemAdmin ? addForm.enableInbound : false,
+      });
 
-    setAddSaving(false);
-    if (!result.success) {
-      setError(result.error ?? "追加に失敗しました");
+      if (!result.success) {
+        setError(result.error ?? "追加に失敗しました");
+        clearError();
+        return;
+      }
+
+      setAddMode(null);
+      await loadEmails();
+    } catch {
+      setError("追加に失敗しました");
       clearError();
-      return;
+    } finally {
+      setAddSaving(false);
     }
-
-    setAddMode(null);
-    await loadEmails();
   };
 
   // ============================================

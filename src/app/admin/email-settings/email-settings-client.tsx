@@ -176,28 +176,33 @@ export function EmailSettingsClient({
     setAddSaving(true);
     setError(null);
 
-    const emailAddr = addForm.email.trim();
-    const result = await addProjectEmail({
-      projectId: selectedProjectId,
-      email: emailAddr,
-      memo: addForm.memo.trim() || null,
-      smtpHost: addForm.smtpHost.trim() || "smtp.gmail.com",
-      smtpPort: addForm.smtpPort ? parseInt(addForm.smtpPort) : 587,
-      smtpUser: emailAddr, // ユーザー名 = メールアドレス
-      smtpPass: addForm.smtpPass.trim() || null,
-      isDefault: false,
-    });
+    try {
+      const emailAddr = addForm.email.trim();
+      const result = await addProjectEmail({
+        projectId: selectedProjectId,
+        email: emailAddr,
+        memo: addForm.memo.trim() || null,
+        smtpHost: addForm.smtpHost.trim() || "smtp.gmail.com",
+        smtpPort: addForm.smtpPort ? parseInt(addForm.smtpPort) : 587,
+        smtpUser: emailAddr, // ユーザー名 = メールアドレス
+        smtpPass: addForm.smtpPass.trim() || null,
+        isDefault: false,
+      });
 
-    setAddSaving(false);
-    if (!result.success) {
-      setError(result.error ?? "追加に失敗しました");
-      return;
+      if (!result.success) {
+        setError(result.error ?? "追加に失敗しました");
+        return;
+      }
+
+      setSuccess("メールアドレスを追加しました");
+      setIsAddDialogOpen(false);
+      clearMessages();
+      refreshData();
+    } catch {
+      setError("追加に失敗しました");
+    } finally {
+      setAddSaving(false);
     }
-
-    setSuccess("メールアドレスを追加しました");
-    setIsAddDialogOpen(false);
-    clearMessages();
-    refreshData();
   };
 
   // ============================================
