@@ -260,6 +260,30 @@ const checkDefinitions: CheckDefinition[] = [
   },
 
   // ========================================
+  // 補助金
+  // ========================================
+  {
+    id: "hojo-vendors",
+    category: "補助金",
+    name: "ベンダー",
+    description: "補助金申請で連携するベンダーの登録",
+    required: 0,
+    href: "/hojo/settings/vendors",
+    countFn: () =>
+      prisma.hojoVendor.count({ where: { isActive: true } }),
+  },
+  {
+    id: "hojo-statuses",
+    category: "補助金",
+    name: "申請ステータス",
+    description: "申請管理の進捗ステータスの登録",
+    required: 0,
+    href: "/hojo/settings/statuses",
+    countFn: () =>
+      prisma.hojoApplicationStatus.count({ where: { isActive: true } }),
+  },
+
+  // ========================================
   // 経理
   // ========================================
   {

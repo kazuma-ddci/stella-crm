@@ -269,6 +269,53 @@ const navigation: NavItem[] = [
     ],
   },
   {
+    name: "補助金",
+    icon: Briefcase,
+    requiredProject: "hojo",
+    key: "hojo",
+    collapsible: true,
+    children: [
+      {
+        name: "公式LINE友達情報",
+        icon: MessageSquare,
+        sectionLabel: true,
+        children: [
+          { name: "申請サポートセンター", href: "/hojo/line-friends/shinsei-support", icon: MessageSquare },
+          { name: "助成金申請サポート", href: "/hojo/line-friends/josei-support", icon: MessageSquare },
+          { name: "ALKES", href: "/hojo/line-friends/alkes", icon: MessageSquare },
+          { name: "セキュリティクラウド", href: "/hojo/line-friends/security-cloud", icon: MessageSquare },
+        ],
+      },
+      {
+        name: "申請サポートセンター",
+        icon: ClipboardList,
+        sectionLabel: true,
+        children: [
+          { name: "フォーム回答一覧", href: "/hojo/form-submissions", icon: ClipboardList },
+          { name: "マスタ管理", href: "/hojo/application-support", icon: ClipboardList },
+        ],
+      },
+      {
+        name: "セキュリティクラウド卸管理",
+        icon: Shield,
+        sectionLabel: true,
+        children: [
+          { name: "顧客リスト", href: "/hojo/security-cloud/customers", icon: Users },
+          { name: "アカウント管理", href: "/hojo/security-cloud/accounts", icon: Key },
+        ],
+      },
+      {
+        name: "設定",
+        icon: Settings,
+        collapsible: true,
+        children: [
+          { name: "ベンダー", href: "/hojo/settings/vendors", icon: Building2 },
+          { name: "ステータス", href: "/hojo/settings/statuses", icon: Layers },
+        ],
+      },
+    ],
+  },
+  {
     name: "経理",
     icon: Calculator,
     requiredProject: "accounting",

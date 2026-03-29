@@ -3752,6 +3752,280 @@ model SlpLineFriend {
 }
 
 // ============================================
+// 補助金プロジェクト フォーム回答
+// ============================================
+
+model HojoFormSubmission {
+  id              Int       @id @default(autoincrement())
+  formType        String    @db.VarChar(100)  // フォーム種別（例: "digital-promotion"）
+  companyName     String?   @db.VarChar(255)  // 会社名／屋号
+  representName   String?   @db.VarChar(255)  // 代表者氏名
+  email           String?   @db.VarChar(255)  // メールアドレス
+  phone           String?   @db.VarChar(50)   // 電話番号
+  answers         Json                        // 全回答データ（JSON）
+  fileUrls        Json?                       // アップロードファイルURL群（JSON配列）
+  submittedAt     DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  @@map("hojo_form_submissions")
+}
+
+// ============================================
+// 補助金プロジェクト LINE友達情報
+// 4アカウント分の公式LINE友達データを管理
+// ============================================
+
+// 申請サポートセンター
+model HojoLineFriendShinseiSupport {
+  id               Int       @id @default(autoincrement())
+  snsname          String?   @db.VarChar(200)
+  password         String?   @db.VarChar(100)
+  emailLine        String?   @db.VarChar(255)
+  emailRenkei      String?   @db.VarChar(255)
+  emailLine2       String?   @db.VarChar(255)
+  email            String?   @db.VarChar(255)
+  uid              String    @unique @db.VarChar(100)
+  friendAddedDate  DateTime?
+  activeStatus     String?   @db.VarChar(50)
+  lastActivityDate String?   @db.VarChar(50)
+  sei              String?   @db.VarChar(100)
+  mei              String?   @db.VarChar(100)
+  nickname         String?   @db.VarChar(100)
+  phone            String?   @db.VarChar(50)
+  postcode         String?   @db.VarChar(20)
+  address1         String?   @db.VarChar(255)
+  address2         String?   @db.VarChar(255)
+  address3         String?   @db.VarChar(255)
+  nenrei           String?   @db.VarChar(20)
+  nendai           String?   @db.VarChar(20)
+  seibetu          String?   @db.VarChar(20)
+  free1            String?
+  free2            String?
+  free3            String?
+  free4            String?
+  free5            String?
+  free6            String?
+  scenarioPos1     String?
+  scenarioPos2     String?
+  scenarioPos3     String?
+  scenarioPos4     String?
+  scenarioPos5     String?
+  sortOrder        Int       @default(0) @map("sort_order")
+  form4NotifyCount Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  applicationSupports HojoApplicationSupport[]
+
+  @@map("hojo_line_friends_shinsei_support")
+}
+
+// 一般社団法人助成金申請サポート
+model HojoLineFriendJoseiSupport {
+  id               Int       @id @default(autoincrement())
+  snsname          String?   @db.VarChar(200)
+  password         String?   @db.VarChar(100)
+  emailLine        String?   @db.VarChar(255)
+  emailRenkei      String?   @db.VarChar(255)
+  emailLine2       String?   @db.VarChar(255)
+  email            String?   @db.VarChar(255)
+  uid              String    @unique @db.VarChar(100)
+  friendAddedDate  DateTime?
+  activeStatus     String?   @db.VarChar(50)
+  lastActivityDate String?   @db.VarChar(50)
+  sei              String?   @db.VarChar(100)
+  mei              String?   @db.VarChar(100)
+  nickname         String?   @db.VarChar(100)
+  phone            String?   @db.VarChar(50)
+  postcode         String?   @db.VarChar(20)
+  address1         String?   @db.VarChar(255)
+  address2         String?   @db.VarChar(255)
+  address3         String?   @db.VarChar(255)
+  nenrei           String?   @db.VarChar(20)
+  nendai           String?   @db.VarChar(20)
+  seibetu          String?   @db.VarChar(20)
+  free1            String?
+  free2            String?
+  free3            String?
+  free4            String?
+  free5            String?
+  free6            String?
+  scenarioPos1     String?
+  scenarioPos2     String?
+  scenarioPos3     String?
+  scenarioPos4     String?
+  scenarioPos5     String?
+  sortOrder        Int       @default(0) @map("sort_order")
+  form4NotifyCount Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  @@map("hojo_line_friends_josei_support")
+}
+
+// ALKES
+model HojoLineFriendAlkes {
+  id               Int       @id @default(autoincrement())
+  snsname          String?   @db.VarChar(200)
+  password         String?   @db.VarChar(100)
+  emailLine        String?   @db.VarChar(255)
+  emailRenkei      String?   @db.VarChar(255)
+  emailLine2       String?   @db.VarChar(255)
+  email            String?   @db.VarChar(255)
+  uid              String    @unique @db.VarChar(100)
+  friendAddedDate  DateTime?
+  activeStatus     String?   @db.VarChar(50)
+  lastActivityDate String?   @db.VarChar(50)
+  sei              String?   @db.VarChar(100)
+  mei              String?   @db.VarChar(100)
+  nickname         String?   @db.VarChar(100)
+  phone            String?   @db.VarChar(50)
+  postcode         String?   @db.VarChar(20)
+  address1         String?   @db.VarChar(255)
+  address2         String?   @db.VarChar(255)
+  address3         String?   @db.VarChar(255)
+  nenrei           String?   @db.VarChar(20)
+  nendai           String?   @db.VarChar(20)
+  seibetu          String?   @db.VarChar(20)
+  free1            String?
+  free2            String?
+  free3            String?
+  free4            String?
+  free5            String?
+  free6            String?
+  scenarioPos1     String?
+  scenarioPos2     String?
+  scenarioPos3     String?
+  scenarioPos4     String?
+  scenarioPos5     String?
+  sortOrder        Int       @default(0) @map("sort_order")
+  form4NotifyCount Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  @@map("hojo_line_friends_alkes")
+}
+
+// セキュリティクラウドサポート
+model HojoLineFriendSecurityCloud {
+  id               Int       @id @default(autoincrement())
+  snsname          String?   @db.VarChar(200)
+  password         String?   @db.VarChar(100)
+  emailLine        String?   @db.VarChar(255)
+  emailRenkei      String?   @db.VarChar(255)
+  emailLine2       String?   @db.VarChar(255)
+  email            String?   @db.VarChar(255)
+  uid              String    @unique @db.VarChar(100)
+  friendAddedDate  DateTime?
+  activeStatus     String?   @db.VarChar(50)
+  lastActivityDate String?   @db.VarChar(50)
+  sei              String?   @db.VarChar(100)
+  mei              String?   @db.VarChar(100)
+  nickname         String?   @db.VarChar(100)
+  phone            String?   @db.VarChar(50)
+  postcode         String?   @db.VarChar(20)
+  address1         String?   @db.VarChar(255)
+  address2         String?   @db.VarChar(255)
+  address3         String?   @db.VarChar(255)
+  nenrei           String?   @db.VarChar(20)
+  nendai           String?   @db.VarChar(20)
+  seibetu          String?   @db.VarChar(20)
+  free1            String?
+  free2            String?
+  free3            String?
+  free4            String?
+  free5            String?
+  free6            String?
+  scenarioPos1     String?
+  scenarioPos2     String?
+  scenarioPos3     String?
+  scenarioPos4     String?
+  scenarioPos5     String?
+  sortOrder        Int       @default(0) @map("sort_order")
+  form4NotifyCount Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  @@map("hojo_line_friends_security_cloud")
+}
+
+// ============================================
+// 補助金 ベンダー (Hojo Vendors)
+// 補助金申請で連携するベンダーのマスタ
+// ============================================
+
+model HojoVendor {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(200)
+  accessToken  String   @unique @map("access_token") @db.VarChar(64)  // ベンダー専用ページ用トークン
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  applicationSupports HojoApplicationSupport[]
+
+  @@map("hojo_vendors")
+}
+
+// ============================================
+// 補助金 申請ステータス (Hojo Application Statuses)
+// 申請管理の進捗ステータスマスタ
+// ============================================
+
+model HojoApplicationStatus {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(200)
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  applicationSupports HojoApplicationSupport[]
+
+  @@map("hojo_application_statuses")
+}
+
+// ============================================
+// 補助金 申請サポートセンター用管理 (Hojo Application Supports)
+// 申請サポートセンターの申請管理データ
+// ============================================
+
+model HojoApplicationSupport {
+  id                    Int       @id @default(autoincrement())
+  lineFriendId          Int                                      // LINE友達（申請サポートセンター）のID
+  vendorId              Int?                                     // ベンダー
+  statusId              Int?                                     // ステータス
+  applicantName         String?   @db.VarChar(200)               // 申請者名
+  detailMemo            String?   @db.Text                       // 詳細メモ
+  formAnswerDate        DateTime?                                // フォーム回答日
+  formTranscriptDate    DateTime?                                // フォーム転記日
+  applicationFormDate   DateTime?                                // 申請フォーム入力日
+  documentStorageUrl    String?   @db.VarChar(2000)              // 資料保管URL
+  paymentReceivedDate   DateTime?                                // 着金日
+  paymentReceivedAmount Int?                                     // 着金額
+  bbsTransferAmount     Int?                                     // BBSへの振込額
+  bbsTransferDate       DateTime?                                // BBSへの振込日
+  subsidyReceivedDate   DateTime?                                // 助成金着金日
+  vendorMemo            String?   @db.Text @map("vendor_memo")   // ベンダー側メモ（ベンダー専用ページから編集）
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  lineFriend            HojoLineFriendShinseiSupport @relation(fields: [lineFriendId], references: [id], onDelete: Cascade)
+  vendor                HojoVendor?                  @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  status                HojoApplicationStatus?       @relation(fields: [statusId], references: [id], onDelete: SetNull)
+
+  @@map("hojo_application_supports")
+}
+
+// ============================================
 // SLP 案件管理 (SLP Companies)
 // 公的プロジェクトの案件企業を管理
 // ============================================

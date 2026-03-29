@@ -47,6 +47,7 @@ export const PROJECT_CODES = {
   SRD: "srd",
   SLP: "slp",
   ACCOUNTING: "accounting",
+  HOJO: "hojo",
 } as const;
 
 export type ProjectCode = (typeof PROJECT_CODES)[keyof typeof PROJECT_CODES];
