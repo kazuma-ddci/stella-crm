@@ -22,8 +22,6 @@ const depsPath = path.resolve(__dirname, "..", "..", "proline-deps", "node_modul
 const puppeteer = require(path.join(depsPath, "puppeteer"));
 const XLSX = require(path.join(depsPath, "xlsx"));
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 // 環境変数読み込み（.env.syncファイルがあれば読む）
 const envPath = path.join(__dirname, ".env.sync");
 if (fs.existsSync(envPath)) {
