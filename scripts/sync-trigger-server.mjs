@@ -133,6 +133,8 @@ const server = http.createServer((req, res) => {
   res.end(JSON.stringify({ error: "Not found" }));
 });
 
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`[trigger] ProLine同期トリガーサーバー起動: http://127.0.0.1:${PORT}`);
+// Dockerコンテナからのアクセスを受け付けるため 0.0.0.0 でリッスン
+// 外部公開はファイアウォールで制御（ポート3100は外部非公開）
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`[trigger] プロライン同期トリガーサーバー起動: http://0.0.0.0:${PORT}`);
 });
