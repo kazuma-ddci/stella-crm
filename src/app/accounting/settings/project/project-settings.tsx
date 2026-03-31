@@ -44,6 +44,7 @@ type EmailItem = {
 type BankAccountItem = {
   bankName: string;
   branchName: string;
+  accountType: string;
   accountNumber: string;
   accountHolderName: string;
   isDefault: boolean;
@@ -351,7 +352,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
                 >
                   <Landmark className="h-4 w-4 text-muted-foreground shrink-0" />
                   <span className={item.isDefault ? "font-semibold" : ""}>
-                    {item.bankName} {item.branchName} {item.accountNumber} ({item.accountHolderName})
+                    {item.bankName} {item.branchName} {item.accountType} {item.accountNumber} ({item.accountHolderName})
                   </span>
                   {item.isDefault && (
                     <Badge variant="secondary" className="ml-auto shrink-0">

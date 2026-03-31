@@ -1026,6 +1026,7 @@ model OperatingCompanyBankAccount {
   bankCode          String    @db.VarChar(10)              // 銀行コード
   branchName        String    @db.VarChar(100)             // 支店名
   branchCode        String    @db.VarChar(10)              // 支店コード
+  accountType       String    @default("普通") @map("account_type") @db.VarChar(20) // 口座種別（普通/当座/貯蓄/その他）
   accountNumber     String    @db.VarChar(20)              // 口座番号
   accountHolderName String    @db.VarChar(200)             // 口座名義人
   note              String?                                // メモ
@@ -3952,6 +3953,8 @@ model HojoLineFriendSecurityCloud {
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
+  vendors           HojoVendor[]
+
   @@map("hojo_line_friends_security_cloud")
 }
 
@@ -3961,14 +3964,16 @@ model HojoLineFriendSecurityCloud {
 // ============================================
 
 model HojoVendor {
-  id           Int      @id @default(autoincrement())
-  name         String   @db.VarChar(200)
-  accessToken  String   @unique @map("access_token") @db.VarChar(64)  // ベンダー専用ページ用トークン
-  displayOrder Int      @default(0) @map("display_order")
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             Int      @id @default(autoincrement())
+  name           String   @db.VarChar(200)
+  lineFriendId   Int?     @map("line_friend_id")                       // セキュリティクラウドLINE友達のID
+  accessToken    String   @unique @map("access_token") @db.VarChar(64) // ベンダー専用ページ用トークン
+  displayOrder   Int      @default(0) @map("display_order")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
+  lineFriend          HojoLineFriendSecurityCloud? @relation(fields: [lineFriendId], references: [id], onDelete: SetNull)
   applicationSupports HojoApplicationSupport[]
 
   @@map("hojo_vendors")

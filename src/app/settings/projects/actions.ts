@@ -403,6 +403,7 @@ export async function getProjectBankAccounts(projectId: number) {
           operatingCompanyId: true,
           bankName: true,
           branchName: true,
+          accountType: true,
           accountNumber: true,
           accountHolderName: true,
           note: true,
@@ -417,6 +418,7 @@ export async function getProjectBankAccounts(projectId: number) {
     bankAccountId: r.bankAccountId,
     bankName: r.bankAccount.bankName,
     branchName: r.bankAccount.branchName,
+    accountType: r.bankAccount.accountType,
     accountNumber: r.bankAccount.accountNumber,
     accountHolderName: r.bankAccount.accountHolderName,
     memo: r.memo,
@@ -553,6 +555,7 @@ export async function createAndAddProjectBankAccount(data: {
   bankCode: string;
   branchName: string;
   branchCode: string;
+  accountType?: string;
   accountNumber: string;
   accountHolderName: string;
   memo?: string | null;
@@ -577,6 +580,7 @@ export async function createAndAddProjectBankAccount(data: {
         bankCode: data.bankCode.trim(),
         branchName: data.branchName.trim(),
         branchCode: data.branchCode.trim(),
+        accountType: data.accountType || "普通",
         accountNumber: data.accountNumber.trim(),
         accountHolderName: data.accountHolderName.trim(),
         note: data.memo?.trim() || null,
@@ -625,6 +629,7 @@ export async function getAvailableBankAccounts(projectId: number) {
       id: true,
       bankName: true,
       branchName: true,
+      accountType: true,
       accountNumber: true,
       accountHolderName: true,
     },

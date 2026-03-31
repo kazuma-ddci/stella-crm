@@ -19,6 +19,7 @@ type BankAccount = {
   bankCode: string;
   branchName: string;
   branchCode: string;
+  accountType: string;
   accountNumber: string;
   accountHolderName: string;
   note: string | null;

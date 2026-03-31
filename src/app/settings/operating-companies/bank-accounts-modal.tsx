@@ -36,11 +36,14 @@ type BankAccount = {
   bankCode: string;
   branchName: string;
   branchCode: string;
+  accountType: string;
   accountNumber: string;
   accountHolderName: string;
   note: string | null;
   isDefault: boolean;
 };
+
+const ACCOUNT_TYPE_OPTIONS = ["普通", "当座", "貯蓄", "その他"];
 
 type Props = {
   open: boolean;
@@ -80,6 +83,7 @@ export function BankAccountsModal({
       bankCode: "",
       branchName: "",
       branchCode: "",
+      accountType: "普通",
       accountNumber: "",
       accountHolderName: "",
       note: null,
@@ -219,7 +223,21 @@ export function BankAccountsModal({
           />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
+        <div className="space-y-2">
+          <Label>口座種別</Label>
+          <select
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            value={formData.accountType || "普通"}
+            onChange={(e) =>
+              setFormData({ ...formData, accountType: e.target.value })
+            }
+          >
+            {ACCOUNT_TYPE_OPTIONS.map((opt) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        </div>
         <div className="space-y-2">
           <Label>
             口座番号 <span className="text-destructive">*</span>
@@ -322,6 +340,7 @@ export function BankAccountsModal({
                     <TableHead>銀行コード</TableHead>
                     <TableHead>支店名</TableHead>
                     <TableHead>支店コード</TableHead>
+                    <TableHead>口座種別</TableHead>
                     <TableHead>口座番号</TableHead>
                     <TableHead>口座名義人</TableHead>
                     <TableHead>メモ</TableHead>
@@ -340,6 +359,7 @@ export function BankAccountsModal({
                       <TableCell className="font-mono">{bankAccount.bankCode}</TableCell>
                       <TableCell>{bankAccount.branchName}</TableCell>
                       <TableCell className="font-mono">{bankAccount.branchCode}</TableCell>
+                      <TableCell>{bankAccount.accountType}</TableCell>
                       <TableCell className="font-mono">{bankAccount.accountNumber}</TableCell>
                       <TableCell>{bankAccount.accountHolderName}</TableCell>
                       <TableCell className="max-w-[150px] truncate">

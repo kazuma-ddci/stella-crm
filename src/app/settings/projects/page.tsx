@@ -19,7 +19,7 @@ export default async function ProjectsPage() {
           orderBy: [{ isDefault: "desc" }, { id: "asc" }],
         },
         projectBankAccounts: {
-          include: { bankAccount: { select: { bankName: true, branchName: true, accountNumber: true } } },
+          include: { bankAccount: { select: { bankName: true, branchName: true, accountType: true, accountNumber: true } } },
           orderBy: [{ isDefault: "desc" }, { id: "asc" }],
         },
       },
@@ -54,7 +54,7 @@ export default async function ProjectsPage() {
       isDefault: pe.isDefault,
     })),
     bankAccounts: p.projectBankAccounts.map((pba) => ({
-      label: `${pba.bankAccount.bankName} ${pba.bankAccount.branchName} ${pba.bankAccount.accountNumber}`,
+      label: `${pba.bankAccount.bankName} ${pba.bankAccount.branchName} ${pba.bankAccount.accountType} ${pba.bankAccount.accountNumber}`,
       isDefault: pba.isDefault,
     })),
   }));
@@ -87,6 +87,7 @@ export default async function ProjectsPage() {
       bankCode: b.bankCode,
       branchName: b.branchName,
       branchCode: b.branchCode,
+      accountType: b.accountType,
       accountNumber: b.accountNumber,
       accountHolderName: b.accountHolderName,
       note: b.note,

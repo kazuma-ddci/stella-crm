@@ -77,6 +77,7 @@ export default async function AccountingProjectSettingsPage() {
         bankAccounts={accountingProject.projectBankAccounts.map((pba) => ({
           bankName: pba.bankAccount.bankName,
           branchName: pba.bankAccount.branchName,
+          accountType: pba.bankAccount.accountType,
           accountNumber: pba.bankAccount.accountNumber,
           accountHolderName: pba.bankAccount.accountHolderName,
           isDefault: pba.isDefault,

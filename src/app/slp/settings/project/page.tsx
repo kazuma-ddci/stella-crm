@@ -97,6 +97,7 @@ export default async function SlpProjectSettingsPage() {
         bankAccounts={slpProject.projectBankAccounts.map((pba) => ({
           bankName: pba.bankAccount.bankName,
           branchName: pba.bankAccount.branchName,
+          accountType: pba.bankAccount.accountType,
           accountNumber: pba.bankAccount.accountNumber,
           accountHolderName: pba.bankAccount.accountHolderName,
           isDefault: pba.isDefault,

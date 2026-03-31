@@ -47,6 +47,7 @@ type ProjectBankAccount = {
   bankAccountId: number;
   bankName: string;
   branchName: string;
+  accountType: string;
   accountNumber: string;
   accountHolderName: string;
   memo: string | null;
@@ -57,9 +58,12 @@ type AvailableBankAccount = {
   id: number;
   bankName: string;
   branchName: string;
+  accountType: string;
   accountNumber: string;
   accountHolderName: string;
 };
+
+const ACCOUNT_TYPE_OPTIONS = ["普通", "当座", "貯蓄", "その他"];
 
 type Props = {
   open: boolean;
@@ -92,6 +96,7 @@ export function ProjectBankAccountsModal({
     bankCode: "",
     branchName: "",
     branchCode: "",
+    accountType: "普通",
     accountNumber: "",
     accountHolderName: "",
     memo: "",
@@ -162,6 +167,7 @@ export function ProjectBankAccountsModal({
       bankCode: "",
       branchName: "",
       branchCode: "",
+      accountType: "普通",
       accountNumber: "",
       accountHolderName: "",
       memo: "",
@@ -209,6 +215,7 @@ export function ProjectBankAccountsModal({
         bankCode: addForm.bankCode.trim(),
         branchName: addForm.branchName.trim(),
         branchCode: addForm.branchCode.trim(),
+        accountType: addForm.accountType,
         accountNumber: addForm.accountNumber.trim(),
         accountHolderName: addForm.accountHolderName.trim(),
         memo: addForm.memo.trim() || null,
@@ -290,6 +297,7 @@ export function ProjectBankAccountsModal({
           id: pba.bankAccountId,
           bankName: pba.bankName,
           branchName: pba.branchName,
+          accountType: pba.accountType,
           accountNumber: pba.accountNumber,
           accountHolderName: pba.accountHolderName,
         },
@@ -353,7 +361,10 @@ export function ProjectBankAccountsModal({
                     <span className="text-sm">
                       {ba.bankName} {ba.branchName}
                     </span>
-                    <span className="ml-2 font-mono text-xs text-muted-foreground">
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {ba.accountType}
+                    </span>
+                    <span className="ml-1 font-mono text-xs text-muted-foreground">
                       {ba.accountNumber}
                     </span>
                     <span className="ml-2 text-xs text-muted-foreground">
@@ -450,6 +461,18 @@ export function ProjectBankAccountsModal({
                 />
               </div>
               <div className="space-y-1">
+                <Label className="text-xs">口座種別</Label>
+                <select
+                  className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                  value={addForm.accountType}
+                  onChange={(e) => setAddForm({ ...addForm, accountType: e.target.value })}
+                >
+                  {ACCOUNT_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
                 <Label className="text-xs">口座番号 *</Label>
                 <Input
                   value={addForm.accountNumber}
@@ -518,6 +541,7 @@ export function ProjectBankAccountsModal({
                   <TableHead className="w-[40px] text-center">既定</TableHead>
                   <TableHead>銀行名</TableHead>
                   <TableHead>支店名</TableHead>
+                  <TableHead>口座種別</TableHead>
                   <TableHead>口座番号</TableHead>
                   <TableHead>口座名義人</TableHead>
                   <TableHead>メモ</TableHead>
@@ -548,6 +572,7 @@ export function ProjectBankAccountsModal({
                     </TableCell>
                     <TableCell className="text-sm">{pba.bankName}</TableCell>
                     <TableCell className="text-sm">{pba.branchName}</TableCell>
+                    <TableCell className="text-sm">{pba.accountType}</TableCell>
                     <TableCell className="font-mono text-sm">{pba.accountNumber}</TableCell>
                     <TableCell className="text-sm">{pba.accountHolderName}</TableCell>
                     <TableCell>
