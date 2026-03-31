@@ -1,19 +1,22 @@
 #!/usr/bin/env node
 /**
- * ProLine友達データ同期スクリプト
+ * ProLine友達データ同期スクリプト（SLPプロジェクト用）
  * VPSホスト上で実行（crontab or トリガーサーバー経由）
  *
- * 依存: puppeteer, xlsx（VPSホストに別途インストール）
- * 環境変数: PROLINE_EMAIL, PROLINE_PASSWORD, PROLINE_LOGIN_UID, CRON_SECRET, APP_URL
+ * 依存: puppeteer, xlsx（~/proline-deps/に別途インストール）
+ * 環境変数: PROLINE_EMAIL, PROLINE_PASSWORD, CRON_SECRET, APP_URL
  */
 
-import puppeteer from "puppeteer";
-import * as XLSX from "xlsx";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
 
+const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const depsPath = path.resolve(__dirname, "..", "..", "proline-deps", "node_modules");
+const puppeteer = require(path.join(depsPath, "puppeteer"));
+const XLSX = require(path.join(depsPath, "xlsx"));
 
 // 環境変数読み込み（.env.syncファイルがあれば読む）
 const envPath = path.join(__dirname, ".env.sync");
@@ -34,12 +37,11 @@ if (fs.existsSync(envPath)) {
 
 const PROLINE_EMAIL = process.env.PROLINE_EMAIL;
 const PROLINE_PASSWORD = process.env.PROLINE_PASSWORD;
-const PROLINE_LOGIN_UID = process.env.PROLINE_LOGIN_UID;
 const CRON_SECRET = process.env.CRON_SECRET;
 const APP_URL = process.env.APP_URL || "http://localhost:4001";
 
-if (!PROLINE_EMAIL || !PROLINE_PASSWORD || !PROLINE_LOGIN_UID || !CRON_SECRET) {
-  console.error("必要な環境変数が設定されていません: PROLINE_EMAIL, PROLINE_PASSWORD, PROLINE_LOGIN_UID, CRON_SECRET");
+if (!PROLINE_EMAIL || !PROLINE_PASSWORD || !CRON_SECRET) {
+  console.error("必要な環境変数が設定されていません: PROLINE_EMAIL, PROLINE_PASSWORD, CRON_SECRET");
   process.exit(1);
 }
 
@@ -90,12 +92,10 @@ function cellValue(row, idx) {
 
 function parseExcelDate(val) {
   if (!val) return null;
-  // Excelのシリアル値の場合
   if (typeof val === "number") {
     const date = new Date((val - 25569) * 86400 * 1000);
     return date.toISOString();
   }
-  // 文字列の場合
   const str = String(val).trim();
   if (!str) return null;
   const date = new Date(str);
@@ -103,7 +103,6 @@ function parseExcelDate(val) {
 }
 
 async function downloadExcel() {
-  // ダウンロードディレクトリ準備
   if (fs.existsSync(DOWNLOAD_DIR)) {
     fs.rmSync(DOWNLOAD_DIR, { recursive: true });
   }
@@ -118,38 +117,40 @@ async function downloadExcel() {
   try {
     const page = await browser.newPage();
 
-    // ダウンロード先を設定
     const client = await page.createCDPSession();
     await client.send("Page.setDownloadBehavior", {
       behavior: "allow",
       downloadPath: DOWNLOAD_DIR,
     });
 
-    // ProLineログインページ
-    console.log("[sync-proline] ProLineにログイン中...");
+    console.log("[sync-proline] プロラインにログイン中...");
     await page.goto(
-      `https://line.and-motions.com/login?uid=${PROLINE_LOGIN_UID}`,
+      `https://autosns.jp/login`,
       { waitUntil: "networkidle2", timeout: 30000 }
     );
 
-    // ログインフォーム入力
-    await page.type('input[name="email"], input[type="email"]', PROLINE_EMAIL);
-    await page.type('input[name="password"], input[type="password"]', PROLINE_PASSWORD);
-    await page.click('button[type="submit"], input[type="submit"]');
-    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 });
+    // Step 1: メールアドレス入力 → 次へ
+    await page.type('input#email', PROLINE_EMAIL);
+    await page.click('button[name="send"]');
+    await page.waitForSelector('input#password', { timeout: 30000 });
+
+    // Step 2: パスワード入力 → ログイン
+    await page.type('input#password', PROLINE_PASSWORD);
+    await Promise.all([
+      page.click('button#btnSubmit'),
+      page.waitForNavigation({ waitUntil: "load", timeout: 60000 }).catch(() => {}),
+    ]);
+    await new Promise((r) => setTimeout(r, 3000));
 
     console.log("[sync-proline] ユーザー管理ページに移動...");
-    // ユーザー管理ページへ
     await page.goto(
-      `https://line.and-motions.com/manager/user?uid=${PROLINE_LOGIN_UID}`,
-      { waitUntil: "networkidle2", timeout: 30000 }
+      `https://autosns.jp/select-user`,
+      { waitUntil: "load", timeout: 60000 }
     );
 
-    // Excelダウンロードリンクをクリック
     console.log("[sync-proline] Excelダウンロード中...");
     await page.click("#link-download-xls");
 
-    // ダウンロード完了を待機（最大30秒）
     let xlsFile = null;
     for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, 500));
@@ -180,15 +181,14 @@ function parseExcel(filePath) {
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
 
-  // Row5=ヘッダー（index 4）, Row6+=データ（index 5+）
   const friends = [];
   for (let i = 5; i < rawData.length; i++) {
     const row = rawData[i];
-    if (!row || !row[7]) continue; // H列(uid)がなければスキップ
+    if (!row || !row[7]) continue;
 
     const friend = {};
     for (const [colIdx, fieldName] of Object.entries(COLUMN_MAP)) {
-      if (fieldName === "number") continue; // 番号列は使わない
+      if (fieldName === "number") continue;
       const idx = parseInt(colIdx);
       if (fieldName === "friendAddedDate") {
         friend[fieldName] = parseExcelDate(row[idx]);
@@ -199,7 +199,6 @@ function parseExcel(filePath) {
     friends.push(friend);
   }
 
-  // 友だち追加日昇順ソート
   friends.sort((a, b) => {
     const da = a.friendAddedDate ? new Date(a.friendAddedDate).getTime() : 0;
     const db = b.friendAddedDate ? new Date(b.friendAddedDate).getTime() : 0;
@@ -235,16 +234,10 @@ async function main() {
   console.log(`[sync-proline] 同期開始: ${new Date().toISOString()}`);
 
   try {
-    // 1. Excelダウンロード
     const xlsFile = await downloadExcel();
-
-    // 2. パース
     const friends = parseExcel(xlsFile);
-
-    // 3. APIに送信
     const result = await syncToApp(friends);
 
-    // 4. クリーンアップ
     if (fs.existsSync(DOWNLOAD_DIR)) {
       fs.rmSync(DOWNLOAD_DIR, { recursive: true });
     }
@@ -257,7 +250,6 @@ async function main() {
     return result;
   } catch (err) {
     console.error("[sync-proline] エラー:", err.message);
-    // クリーンアップ
     if (fs.existsSync(DOWNLOAD_DIR)) {
       fs.rmSync(DOWNLOAD_DIR, { recursive: true });
     }
