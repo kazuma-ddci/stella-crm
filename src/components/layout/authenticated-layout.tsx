@@ -16,6 +16,7 @@ interface AuthenticatedLayoutProps {
   children: React.ReactNode;
   hiddenItems?: string[];
   projectNames?: Record<string, string>;
+  bbsPendingCount?: number;
 }
 
 /**
@@ -29,6 +30,7 @@ export function AuthenticatedLayout({
   children,
   hiddenItems,
   projectNames,
+  bbsPendingCount,
 }: AuthenticatedLayoutProps) {
   const { status } = useSession();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -76,8 +78,8 @@ export function AuthenticatedLayout({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userType = (serverUser as any)?.userType;
 
-  // 外部ユーザーはサイドバー/ヘッダーなしのシンプルレイアウト
-  if (userType === "external") {
+  // 外部ユーザー・BBS・ベンダーはサイドバー/ヘッダーなしのシンプルレイアウト
+  if (userType === "external" || userType === "bbs" || userType === "vendor") {
     return <>{children}</>;
   }
 
@@ -97,6 +99,7 @@ export function AuthenticatedLayout({
           onToggleCollapse={toggleSidebar}
           hiddenItems={hiddenItems}
           projectNames={projectNames}
+          bbsPendingCount={bbsPendingCount}
         />
 
         {/* モバイル: ドロワーサイドバー */}
@@ -113,6 +116,7 @@ export function AuthenticatedLayout({
               onNavigate={() => setMobileMenuOpen(false)}
               hiddenItems={hiddenItems}
               projectNames={projectNames}
+              bbsPendingCount={bbsPendingCount}
             />
           </SheetContent>
         </Sheet>

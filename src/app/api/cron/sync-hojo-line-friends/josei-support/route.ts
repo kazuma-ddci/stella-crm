@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
+import { syncVendorIdFromFree1 } from "@/lib/hojo/sync-vendor-id";
 
 interface FriendData {
   snsname?: string | null;
@@ -122,7 +123,9 @@ export async function POST(request: Request) {
     const webhookOnlyCount = existingRecords.filter((r) => !processedUids.has(r.uid)).length;
     const total = friends.length + webhookOnlyCount;
 
-    console.log(`[Cron] sync-hojo-josei-support: created=${created}, updated=${updated}, total=${total}`);
+    // free1が変更された可能性があるので、vendorIdを全件同期
+    const vendorIdSynced = await syncVendorIdFromFree1();
+    console.log(`[Cron] sync-hojo-josei-support: created=${created}, updated=${updated}, total=${total}, vendorIdSynced=${vendorIdSynced}`);
     return NextResponse.json({ success: true, created, updated, total });
   } catch (err) {
     console.error("[Cron] sync-hojo-josei-support failed:", err);

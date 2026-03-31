@@ -174,9 +174,10 @@ async function main() {
       { id: 4, code: 'stella', name: 'Stella', description: '全顧客マスタ管理', displayOrder: 0 },
       { id: 5, code: 'common', name: '共通', description: '企業マスタ・スタッフ管理等の共通機能', displayOrder: 1, isActive: false },
       { id: 6, code: 'accounting', name: '経理', description: '経理・会計管理', displayOrder: 5 },
+      { id: 7, code: 'hojo', name: '補助金', description: '補助金申請・LINE友達管理・セキュリティクラウド', displayOrder: 6 },
     ],
   });
-  console.log('✓ Projects (6)');
+  console.log('✓ Projects (7)');
 
   // 経費部門
   await prisma.costCenter.createMany({
@@ -313,21 +314,24 @@ async function main() {
       { staffId: 10, projectId: 2, permissionLevel: 'manager' },
       { staffId: 10, projectId: 3, permissionLevel: 'manager' },
       { staffId: 10, projectId: 6, permissionLevel: 'manager' },
+      { staffId: 10, projectId: 7, permissionLevel: 'manager' },
       // システム管理者（admin）
       { staffId: 11, projectId: 4, permissionLevel: 'manager' },
       { staffId: 11, projectId: 1, permissionLevel: 'manager' },
       { staffId: 11, projectId: 2, permissionLevel: 'manager' },
       { staffId: 11, projectId: 3, permissionLevel: 'manager' },
       { staffId: 11, projectId: 6, permissionLevel: 'manager' },
+      { staffId: 11, projectId: 7, permissionLevel: 'manager' },
       // テストユーザー（founder）
       { staffId: 12, projectId: 4, permissionLevel: 'manager' },
       { staffId: 12, projectId: 1, permissionLevel: 'manager' },
       { staffId: 12, projectId: 2, permissionLevel: 'manager' },
       { staffId: 12, projectId: 3, permissionLevel: 'manager' },
       { staffId: 12, projectId: 6, permissionLevel: 'manager' },
+      { staffId: 12, projectId: 7, permissionLevel: 'manager' },
     ],
   });
-  console.log('✓ Staff permissions (30)');
+  console.log('✓ Staff permissions (33)');
 
   // スタッフプロジェクト割当
   const staffProjectData: { staffId: number; projectId: number }[] = [];
@@ -1512,6 +1516,44 @@ async function main() {
   // ============================================
 
   console.log('\n=== Seed Summary (2026-01~) ===');
+  // ============================================
+  // 補助金: LINE友達テストデータ（4アカウント × 10人）
+  // ============================================
+
+  const lineFriendNames = [
+    '田中太郎', '佐藤花子', '鈴木一郎', '高橋美咲', '伊藤健太',
+    '渡辺由美', '山本大輔', '中村あかり', '小林誠', '加藤さくら',
+  ];
+
+  const lineFriendBase = (i: number, prefix: string) => ({
+    uid: `U${prefix}${String(i + 1).padStart(3, '0')}`,
+    snsname: lineFriendNames[i],
+    activeStatus: i < 8 ? '稼働中' : 'ブロック',
+    friendAddedDate: new Date(2026, 0, i + 1),
+    sei: lineFriendNames[i].slice(0, 2),
+    mei: lineFriendNames[i].slice(2),
+  });
+
+  await prisma.hojoLineFriendShinseiSupport.createMany({
+    data: Array.from({ length: 10 }, (_, i) => lineFriendBase(i, 'shinsei')),
+  });
+  console.log('✓ Hojo LINE Friends: 申請サポートセンター (10)');
+
+  await prisma.hojoLineFriendJoseiSupport.createMany({
+    data: Array.from({ length: 10 }, (_, i) => lineFriendBase(i, 'josei')),
+  });
+  console.log('✓ Hojo LINE Friends: 助成金申請サポート (10)');
+
+  await prisma.hojoLineFriendAlkes.createMany({
+    data: Array.from({ length: 10 }, (_, i) => lineFriendBase(i, 'alkes')),
+  });
+  console.log('✓ Hojo LINE Friends: ALKES (10)');
+
+  await prisma.hojoLineFriendSecurityCloud.createMany({
+    data: Array.from({ length: 10 }, (_, i) => lineFriendBase(i, 'seccloud')),
+  });
+  console.log('✓ Hojo LINE Friends: セキュリティクラウド (10)');
+
   console.log('Projects: 6 (Stella, Common, STP, SRD, SLP, Accounting)');
   console.log('Staff: 13 members (10 test + 3 system admin)');
   console.log('Companies: 100 (1-80: STP clients, 81-100: agents)');

@@ -17,6 +17,8 @@ const PUBLIC_PATHS = [
   "/s",
   "/staff/setup",
   "/api/staff/setup",
+  "/hojo/bbs",
+  "/hojo/vendor",
 ];
 
 // 社内スタッフ専用パス
@@ -93,6 +95,9 @@ function getRequiredProject(pathname: string): ProjectCode | null {
   }
   if (pathname.startsWith("/accounting")) {
     return "accounting";
+  }
+  if (pathname.startsWith("/hojo")) {
+    return "hojo";
   }
   if (pathname.startsWith("/settings")) {
     return "stella";
@@ -246,6 +251,32 @@ export default auth((request) => {
       return NextResponse.next();
     }
     return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  // BBSユーザーは /hojo/bbs/* のみアクセス可
+  if (userType === "bbs") {
+    if (!pathname.startsWith("/hojo/bbs")) {
+      return NextResponse.redirect(new URL("/hojo/bbs", request.url));
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mustChangePassword = !!(session.user as any).mustChangePassword;
+    if (mustChangePassword && !pathname.startsWith("/hojo/bbs/change-password")) {
+      return NextResponse.redirect(new URL("/hojo/bbs/change-password", request.url));
+    }
+    return NextResponse.next();
+  }
+
+  // ベンダーユーザーは /hojo/vendor/* のみアクセス可
+  if (userType === "vendor") {
+    if (!pathname.startsWith("/hojo/vendor")) {
+      return NextResponse.redirect(new URL("/hojo/vendor", request.url));
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mustChangePassword = !!(session.user as any).mustChangePassword;
+    if (mustChangePassword && !pathname.startsWith("/hojo/vendor/change-password")) {
+      return NextResponse.redirect(new URL("/hojo/vendor/change-password", request.url));
+    }
+    return NextResponse.next();
   }
 
   // ユーザータイプに応じたリダイレクト

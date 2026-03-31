@@ -26,6 +26,13 @@ declare module "next-auth" {
       companyId?: number;
       companyName?: string;
       displayViews?: DisplayViewPermission[];
+      // BBSユーザー用
+      bbsAccountId?: number;
+      mustChangePassword?: boolean;
+      // ベンダーユーザー用
+      vendorAccountId?: number;
+      vendorId?: number;
+      vendorName?: string;
     };
   }
 
@@ -42,6 +49,13 @@ declare module "next-auth" {
     companyId?: number;
     companyName?: string;
     displayViews?: DisplayViewPermission[];
+    // BBSユーザー用
+    bbsAccountId?: number;
+    mustChangePassword?: boolean;
+    // ベンダーユーザー用
+    vendorAccountId?: number;
+    vendorId?: number;
+    vendorName?: string;
   }
 }
 
@@ -61,6 +75,13 @@ declare module "@auth/core/jwt" {
     companyId?: number;
     companyName?: string;
     displayViews?: DisplayViewPermission[];
+    // BBSユーザー用
+    bbsAccountId?: number;
+    mustChangePassword?: boolean;
+    // ベンダーユーザー用
+    vendorAccountId?: number;
+    vendorId?: number;
+    vendorName?: string;
   }
 }
 
@@ -148,6 +169,85 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           };
         }
 
+        // 3. BBSアカウントで認証を試みる（メールアドレスの場合のみ）
+        if (isEmail) {
+          const bbsAccount = await prisma.hojoBbsAccount.findUnique({
+            where: { email: identifier },
+          });
+          if (bbsAccount) {
+            if (bbsAccount.status === "pending_approval") {
+              const err = new CredentialsSignin();
+              err.code = "pending_approval";
+              throw err;
+            }
+            if (bbsAccount.status === "suspended") {
+              const err = new CredentialsSignin();
+              err.code = "suspended";
+              throw err;
+            }
+            const isValid = await bcrypt.compare(password, bbsAccount.passwordHash);
+            if (isValid) {
+              await prisma.hojoBbsAccount.update({
+                where: { id: bbsAccount.id },
+                data: { lastLoginAt: new Date() },
+              });
+              return {
+                id: String(bbsAccount.id),
+                loginId: null,
+                name: bbsAccount.name,
+                email: bbsAccount.email,
+                userType: "bbs" as UserType,
+                permissions: [],
+                canEditMasterData: false,
+                organizationRole: "member" as OrganizationRole,
+                bbsAccountId: bbsAccount.id,
+                mustChangePassword: bbsAccount.mustChangePassword,
+              };
+            }
+          }
+        }
+
+        // 4. ベンダーアカウントで認証を試みる（メールアドレスの場合のみ）
+        if (isEmail) {
+          const vendorAccount = await prisma.hojoVendorAccount.findUnique({
+            where: { email: identifier },
+            include: { vendor: { select: { id: true, name: true } } },
+          });
+          if (vendorAccount) {
+            if (vendorAccount.status === "pending_approval") {
+              const err = new CredentialsSignin();
+              err.code = "pending_approval";
+              throw err;
+            }
+            if (vendorAccount.status === "suspended") {
+              const err = new CredentialsSignin();
+              err.code = "suspended";
+              throw err;
+            }
+            const isValid = await bcrypt.compare(password, vendorAccount.passwordHash);
+            if (isValid) {
+              await prisma.hojoVendorAccount.update({
+                where: { id: vendorAccount.id },
+                data: { lastLoginAt: new Date() },
+              });
+              return {
+                id: String(vendorAccount.id),
+                loginId: null,
+                name: vendorAccount.name,
+                email: vendorAccount.email,
+                userType: "vendor" as UserType,
+                permissions: [],
+                canEditMasterData: false,
+                organizationRole: "member" as OrganizationRole,
+                vendorAccountId: vendorAccount.id,
+                vendorId: vendorAccount.vendor.id,
+                vendorName: vendorAccount.vendor.name,
+                mustChangePassword: vendorAccount.mustChangePassword,
+              };
+            }
+          }
+        }
+
         return null;
       },
     }),
@@ -171,6 +271,20 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.companyId = user.companyId;
           token.companyName = user.companyName;
           token.displayViews = user.displayViews ?? [];
+        }
+
+        // BBSユーザー用
+        if (user.userType === "bbs") {
+          token.bbsAccountId = user.bbsAccountId;
+          token.mustChangePassword = user.mustChangePassword;
+        }
+
+        // ベンダーユーザー用
+        if (user.userType === "vendor") {
+          token.vendorAccountId = user.vendorAccountId;
+          token.vendorId = user.vendorId;
+          token.vendorName = user.vendorName;
+          token.mustChangePassword = user.mustChangePassword;
         }
       } else if (token.userType === "staff" && token.id && !token.permissionsExpired) {
         // Edge runtime（middleware）ではPrismaが使えないのでスキップ
@@ -244,6 +358,26 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         (session.user as any).companyName = token.companyName;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (session.user as any).displayViews = token.displayViews ?? [];
+      }
+
+      // BBSユーザー用
+      if (token.userType === "bbs") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session.user as any).bbsAccountId = token.bbsAccountId;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session.user as any).mustChangePassword = token.mustChangePassword;
+      }
+
+      // ベンダーユーザー用
+      if (token.userType === "vendor") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session.user as any).vendorAccountId = token.vendorAccountId;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session.user as any).vendorId = token.vendorId;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session.user as any).vendorName = token.vendorName;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session.user as any).mustChangePassword = token.mustChangePassword;
       }
 
       return session;

@@ -85,6 +85,8 @@ export type ColumnDef = {
   defaultValue?: unknown; // 新規追加時のデフォルト値
   visibleWhen?: { field: string; value: unknown }; // フォームでの条件付き表示（指定フィールドが指定値の時のみ表示）
   hiddenWhen?: { field: string; value: unknown }; // フォームでの条件付き非表示（指定フィールドが指定値の時に非表示）
+  width?: number; // 列幅の指定（px）— TableHead/TableCellにstyleで適用（1を指定すると内容に合わせた最小幅）
+  cellClassName?: string; // セルに追加するクラス名
 };
 
 // カスタムアクションの定義
@@ -154,6 +156,7 @@ type CrudTableProps = {
   customAddButton?: React.ReactNode; // カスタム追加ボタン（onAddの代わりにカスタムの追加処理を行う場合）
   // インライン編集機能
   enableInlineEdit?: boolean; // インライン編集を有効にする
+  skipInlineConfirm?: boolean; // インライン編集時の確認ダイアログをスキップする
   inlineEditConfig?: InlineEditConfig; // インライン編集の設定
   // フォームフィールド変更時のコールバック（企業選択→日付自動計算など）
   onFieldChange?: (fieldKey: string, newValue: unknown, formData: Record<string, unknown>, setFormData: (data: Record<string, unknown>) => void) => void;
@@ -169,6 +172,8 @@ type CrudTableProps = {
   stickyLeftCount?: number;
   // 行ごとのカスタムクラス名
   rowClassName?: (item: Record<string, unknown>) => string | undefined;
+  // カスタムヘッダーレンダラー（ヘッダーセルの中身をカスタマイズ）
+  customHeaderRenderers?: Record<string, () => React.ReactNode>;
 };
 
 function formatValue(value: unknown, type?: string, options?: { value: string; label: string }[]): string {
@@ -254,6 +259,7 @@ export function CrudTable({
   sortableGrouped = false,
   customAddButton,
   enableInlineEdit = false,
+  skipInlineConfirm = false,
   inlineEditConfig,
   onFieldChange,
   updateWarningMessage,
@@ -262,6 +268,7 @@ export function CrudTable({
   isDeleteDisabled,
   stickyLeftCount = 0,
   rowClassName,
+  customHeaderRenderers,
 }: CrudTableProps) {
   const router = useRouter();
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -518,9 +525,15 @@ export function CrudTable({
     [editingCell, inlineEditConfig, isColumnInlineEditable]
   );
 
+  // フィールドキーが変更履歴管理対象かチェック（handleInlineSaveより先に宣言）
+  const isTrackedFieldForInline = useCallback(
+    (key: string) => changeTrackedFields.some((f) => f.key === key),
+    [changeTrackedFields]
+  );
+
   // インライン編集の保存処理
   const handleInlineSave = useCallback(
-    (row: Record<string, unknown>, columnKey: string, newValue: unknown, displayFieldName?: string) => {
+    async (row: Record<string, unknown>, columnKey: string, newValue: unknown, displayFieldName?: string) => {
       const col = columns.find((c) => c.key === columnKey);
       if (!col) return;
 
@@ -545,6 +558,22 @@ export function CrudTable({
         }
       }
 
+      // skipInlineConfirm時は確認ダイアログなしで即保存（changeTrackedFieldsは引き続き確認）
+      if (skipInlineConfirm && !isTrackedFieldForInline(columnKey)) {
+        setInlineLoading(true);
+        try {
+          await onUpdate!(row.id as number, { [columnKey]: newValue });
+          toast.success("更新しました");
+          setEditingCell(null);
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "更新に失敗しました";
+          toast.error(msg);
+        } finally {
+          setInlineLoading(false);
+        }
+        return;
+      }
+
       // 確認ダイアログを表示（表示用カラムのヘッダー名を優先使用）
       setPendingChange({
         rowId: row.id as number,
@@ -555,7 +584,7 @@ export function CrudTable({
       });
       setConfirmDialogOpen(true);
     },
-    [columns]
+    [columns, skipInlineConfirm, isTrackedFieldForInline, onUpdate]
   );
 
   // 確認ダイアログでの保存実行
@@ -1541,15 +1570,17 @@ export function CrudTable({
                     className={cn(
                       "whitespace-nowrap",
                       isSticky && "sticky z-30 bg-white",
-                      isLastSticky && "shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]"
+                      isLastSticky && "shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]",
+                      col.cellClassName
                     )}
                     style={{
                       ...(isSticky ? { left: stickyLeftOffsets[colIdx] ?? 0 } : {}),
                       ...(lockedColumnWidths?.[colIdx] ? { minWidth: lockedColumnWidths[colIdx] } : {}),
+                      ...(col.width ? { width: col.width } : {}),
                     }}
                   >
                     <div className="flex items-center gap-1">
-                      {col.header}
+                      {customHeaderRenderers?.[col.key]?.() ?? col.header}
                       {isFilterable && (
                         <Popover
                           open={openFilterColumn === col.key}
@@ -1803,9 +1834,13 @@ export function CrudTable({
                           isInlineEditable && !isEditing && "cursor-pointer hover:bg-muted/50 transition-colors",
                           col.type === "password" && "select-none",
                           isStickyLeft && "sticky z-10 bg-white group-hover/row:bg-gray-50",
-                          isLastStickyLeft && "shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]"
+                          isLastStickyLeft && "shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]",
+                          col.cellClassName
                         )}
-                        style={isStickyLeft ? { left: stickyLeftOffsets[colIdx] ?? 0 } : undefined}
+                        style={{
+                          ...(isStickyLeft ? { left: stickyLeftOffsets[colIdx] ?? 0 } : {}),
+                          ...(col.width ? { width: col.width } : {}),
+                        }}
                         onClick={
                           isInlineEditable && !isEditing
                             ? () => handleCellClick(item, col.key)

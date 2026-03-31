@@ -35,13 +35,14 @@ export default async function RootLayout({
   // サイドバー設定をDBから取得
   let hiddenItems: string[] = [];
   let projectNames: Record<string, string> = {};
+  let bbsPendingCount = 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userId = (user as any)?.id as number | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userType = (user as any)?.userType;
   if (userId && userType === "staff") {
     try {
-      const [pref, projects] = await Promise.all([
+      const [pref, projects, bbsPending, vendorPending] = await Promise.all([
         prisma.staffSidebarPreference.findUnique({
           where: { staffId: userId },
           select: { hiddenItems: true },
@@ -50,8 +51,15 @@ export default async function RootLayout({
           where: { isActive: true },
           select: { code: true, name: true },
         }),
+        prisma.hojoBbsAccount.count({
+          where: { status: "pending_approval" },
+        }),
+        prisma.hojoVendorAccount.count({
+          where: { status: "pending_approval" },
+        }),
       ]);
       hiddenItems = pref?.hiddenItems ?? [];
+      bbsPendingCount = bbsPending + vendorPending;
       projectNames = Object.fromEntries(projects.map((p) => [p.code, p.name]));
     } catch {
       // DBエラー時は空のまま
@@ -67,7 +75,7 @@ export default async function RootLayout({
           <BuildVersionChecker />
           <PermissionGuard />
           {user ? (
-            <AuthenticatedLayout serverUser={user} hiddenItems={hiddenItems} projectNames={projectNames}>
+            <AuthenticatedLayout serverUser={user} hiddenItems={hiddenItems} projectNames={projectNames} bbsPendingCount={bbsPendingCount}>
               {children}
             </AuthenticatedLayout>
           ) : (

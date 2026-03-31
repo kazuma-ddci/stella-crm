@@ -20,7 +20,6 @@ type RecordData = {
   id: number;
   lineFriendId: number;
   lineName: string;
-  referrer: string;
   vendorName: string;
   applicantName: string;
   statusName: string;
@@ -29,7 +28,7 @@ type RecordData = {
   paymentReceivedDate: string | null;
   paymentReceivedAmount: number | null;
   subsidyReceivedDate: string | null;
-  vendorMemo: string;
+  alkesMemo: string;
 };
 
 type Props = {
@@ -50,7 +49,7 @@ export function VendorPageClient({ data, vendorToken }: Props) {
 
   const startEdit = (record: RecordData) => {
     setEditingId(record.id);
-    setEditMemo(record.vendorMemo);
+    setEditMemo(record.alkesMemo);
   };
 
   const cancelEdit = () => {
@@ -64,7 +63,7 @@ export function VendorPageClient({ data, vendorToken }: Props) {
       const res = await fetch("/api/public/hojo/vendor-memo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, vendorMemo: editMemo, token: vendorToken }),
+        body: JSON.stringify({ id, alkesMemo: editMemo, token: vendorToken }),
       });
 
       if (!res.ok) {
@@ -99,7 +98,6 @@ export function VendorPageClient({ data, vendorToken }: Props) {
           <TableRow>
             <TableHead className="whitespace-nowrap">LINE番号</TableHead>
             <TableHead className="whitespace-nowrap">LINE名</TableHead>
-            <TableHead className="whitespace-nowrap">紹介者</TableHead>
             <TableHead className="whitespace-nowrap">ベンダー名</TableHead>
             <TableHead className="whitespace-nowrap">申請者名</TableHead>
             <TableHead className="whitespace-nowrap">ステータス</TableHead>
@@ -116,7 +114,6 @@ export function VendorPageClient({ data, vendorToken }: Props) {
             <TableRow key={row.id}>
               <TableCell>{row.lineFriendId}</TableCell>
               <TableCell>{row.lineName}</TableCell>
-              <TableCell>{row.referrer}</TableCell>
               <TableCell>{row.vendorName}</TableCell>
               <TableCell>{row.applicantName}</TableCell>
               <TableCell>{row.statusName}</TableCell>
@@ -162,7 +159,7 @@ export function VendorPageClient({ data, vendorToken }: Props) {
                 ) : (
                   <div className="flex items-start gap-1">
                     <span className="whitespace-pre-wrap text-sm">
-                      {row.vendorMemo || "-"}
+                      {row.alkesMemo || "-"}
                     </span>
                     <button
                       onClick={() => startEdit(row)}

@@ -743,6 +743,8 @@ model MasterStaff {
   slpCsCompanies              SlpCompany[]                   @relation("SlpCsStaffCompanies")
   alertAcknowledgments        AlertAcknowledgment[]
   activityLogs                ActivityLog[]               @relation("ActivityLogStaff")
+  bbsAccountApprovals         HojoBbsAccount[]
+  vendorAccountApprovals      HojoVendorAccount[]
 
   @@map("master_staff")
 }
@@ -3819,8 +3821,6 @@ model HojoLineFriendShinseiSupport {
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
-  applicationSupports HojoApplicationSupport[]
-
   @@map("hojo_line_friends_shinsei_support")
 }
 
@@ -3859,11 +3859,15 @@ model HojoLineFriendJoseiSupport {
   scenarioPos3     String?
   scenarioPos4     String?
   scenarioPos5     String?
+  userType         String    @default("顧客") @map("user_type") @db.VarChar(20)
   sortOrder        Int       @default(0) @map("sort_order")
   form4NotifyCount Int       @default(0)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
+
+  vendors              HojoVendor[]
+  applicationSupports  HojoApplicationSupport[]
 
   @@map("hojo_line_friends_josei_support")
 }
@@ -3947,6 +3951,7 @@ model HojoLineFriendSecurityCloud {
   scenarioPos3     String?
   scenarioPos4     String?
   scenarioPos5     String?
+  userType         String    @default("顧客") @map("user_type") @db.VarChar(20)
   sortOrder        Int       @default(0) @map("sort_order")
   form4NotifyCount Int       @default(0)
   createdAt        DateTime  @default(now())
@@ -3966,15 +3971,20 @@ model HojoLineFriendSecurityCloud {
 model HojoVendor {
   id             Int      @id @default(autoincrement())
   name           String   @db.VarChar(200)
-  lineFriendId   Int?     @map("line_friend_id")                       // セキュリティクラウドLINE友達のID
-  accessToken    String   @unique @map("access_token") @db.VarChar(64) // ベンダー専用ページ用トークン
+  lineFriendId       Int?     @map("line_friend_id")                           // セキュリティクラウドLINE友達のID
+  joseiLineFriendId  Int?     @map("josei_line_friend_id")                     // 助成金申請サポートLINE友達のID
+  accessToken        String   @unique @map("access_token") @db.VarChar(64)     // ベンダー専用ページ用トークン
+  memo           String?  @db.Text
   displayOrder   Int      @default(0) @map("display_order")
   isActive       Boolean  @default(true) @map("is_active")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   lineFriend          HojoLineFriendSecurityCloud? @relation(fields: [lineFriendId], references: [id], onDelete: SetNull)
-  applicationSupports HojoApplicationSupport[]
+  joseiLineFriend     HojoLineFriendJoseiSupport?  @relation(fields: [joseiLineFriendId], references: [id], onDelete: SetNull)
+  applicationSupports  HojoApplicationSupport[]
+  vendorAccounts       HojoVendorAccount[]
+  wholesaleAccounts    HojoWholesaleAccount[]
 
   @@map("hojo_vendors")
 }
@@ -3997,6 +4007,19 @@ model HojoApplicationStatus {
   @@map("hojo_application_statuses")
 }
 
+model HojoBbsStatus {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(200)
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  applicationSupports HojoApplicationSupport[]
+
+  @@map("hojo_bbs_statuses")
+}
+
 // ============================================
 // 補助金 申請サポートセンター用管理 (Hojo Application Supports)
 // 申請サポートセンターの申請管理データ
@@ -4004,30 +4027,130 @@ model HojoApplicationStatus {
 
 model HojoApplicationSupport {
   id                    Int       @id @default(autoincrement())
-  lineFriendId          Int                                      // LINE友達（申請サポートセンター）のID
+  lineFriendId          Int       @unique                        // LINE友達（助成金申請サポート）のID
   vendorId              Int?                                     // ベンダー
-  statusId              Int?                                     // ステータス
+  statusId              Int?                                     // 自社ステータス
   applicantName         String?   @db.VarChar(200)               // 申請者名
   detailMemo            String?   @db.Text                       // 詳細メモ
   formAnswerDate        DateTime?                                // フォーム回答日
   formTranscriptDate    DateTime?                                // フォーム転記日
   applicationFormDate   DateTime?                                // 申請フォーム入力日
   documentStorageUrl    String?   @db.VarChar(2000)              // 資料保管URL
-  paymentReceivedDate   DateTime?                                // 着金日
-  paymentReceivedAmount Int?                                     // 着金額
+  subsidyDesiredDate    DateTime? @map("subsidy_desired_date")     // 助成金着金希望日
+  subsidyAmount         Int?      @map("subsidy_amount")          // 助成金額
+  paymentReceivedDate   DateTime?                                // 原資着金日
+  paymentReceivedAmount Int?                                     // 原資金額
   bbsTransferAmount     Int?                                     // BBSへの振込額
   bbsTransferDate       DateTime?                                // BBSへの振込日
   subsidyReceivedDate   DateTime?                                // 助成金着金日
-  vendorMemo            String?   @db.Text @map("vendor_memo")   // ベンダー側メモ（ベンダー専用ページから編集）
+  alkesMemo             String?   @db.Text @map("alkes_memo")    // ALKES備考
+  bbsMemo               String?   @db.Text @map("bbs_memo")      // BBS備考
+  bbsStatus             String?   @db.VarChar(50) @map("bbs_status") // BBSステータス（旧・文字列）
+  bbsStatusId           Int?      @map("bbs_status_id")              // BBSステータス（新・FK）
+  vendorMemo            String?   @db.Text @map("vendor_memo")   // ベンダー備考
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
   deletedAt             DateTime?
 
-  lineFriend            HojoLineFriendShinseiSupport @relation(fields: [lineFriendId], references: [id], onDelete: Cascade)
+  lineFriend            HojoLineFriendJoseiSupport   @relation(fields: [lineFriendId], references: [id], onDelete: Cascade)
   vendor                HojoVendor?                  @relation(fields: [vendorId], references: [id], onDelete: SetNull)
   status                HojoApplicationStatus?       @relation(fields: [statusId], references: [id], onDelete: SetNull)
+  bbsStatusRef          HojoBbsStatus?               @relation(fields: [bbsStatusId], references: [id], onDelete: SetNull)
 
   @@map("hojo_application_supports")
+}
+
+// ============================================
+// BBS社アカウント管理
+// ============================================
+
+model HojoBbsAccount {
+  id                       Int       @id @default(autoincrement())
+  name                     String    @db.VarChar(200)               // 氏名
+  email                    String    @unique @db.VarChar(255)       // メールアドレス
+  passwordHash             String    @map("password_hash") @db.VarChar(255) // パスワード（ハッシュ化）
+  status                   String    @default("pending_approval") @db.VarChar(30) // pending_approval, active, suspended
+  mustChangePassword       Boolean   @default(false) @map("must_change_password") // 初期パスワード変更必須フラグ
+  passwordResetRequestedAt DateTime? @map("password_reset_requested_at") // パスワードリセット要求日時
+  approvedAt               DateTime? @map("approved_at")            // 認証日時
+  approvedBy               Int?      @map("approved_by")            // 認証したスタッフID
+  lastLoginAt              DateTime? @map("last_login_at")          // 最終ログイン日時
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  approver                 MasterStaff? @relation(fields: [approvedBy], references: [id], onDelete: SetNull)
+
+  @@map("hojo_bbs_accounts")
+}
+
+// ============================================
+// ベンダーアカウント管理
+// ============================================
+
+model HojoVendorAccount {
+  id                       Int       @id @default(autoincrement())
+  vendorId                 Int       @map("vendor_id")              // ベンダーID
+  name                     String    @db.VarChar(200)               // 氏名
+  email                    String    @unique @db.VarChar(255)       // メールアドレス
+  passwordHash             String    @map("password_hash") @db.VarChar(255)
+  status                   String    @default("pending_approval") @db.VarChar(30)
+  mustChangePassword       Boolean   @default(false) @map("must_change_password")
+  passwordResetRequestedAt DateTime? @map("password_reset_requested_at")
+  approvedAt               DateTime? @map("approved_at")
+  approvedBy               Int?      @map("approved_by")
+  lastLoginAt              DateTime? @map("last_login_at")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  vendor                   HojoVendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  approver                 MasterStaff? @relation(fields: [approvedBy], references: [id], onDelete: SetNull)
+
+  @@map("hojo_vendor_accounts")
+}
+
+// ============================================
+// 卸アカウント管理
+// ============================================
+
+model HojoWholesaleAccount {
+  id                    Int       @id @default(autoincrement())
+  vendorId              Int       @map("vendor_id")
+  supportProviderName   String?   @db.VarChar(200) @map("support_provider_name")   // 支援事業者名
+  companyName           String?   @db.VarChar(200) @map("company_name")             // 会社名(補助事業社、納品先）
+  email                 String?   @db.VarChar(255)                                  // メールアドレス(アカウント)
+  recruitmentRound      Int?      @map("recruitment_round")                         // 募集回
+  adoptionDate          DateTime? @map("adoption_date")                             // 採択日
+  issueRequestDate      DateTime? @map("issue_request_date")                        // 発行依頼日
+  accountApprovalDate   DateTime? @map("account_approval_date")                     // アカウント承認日（弊社側のみ編集）
+  grantDate             DateTime? @map("grant_date")                                // 交付日
+  toolCost              Int?      @map("tool_cost")                                 // ツール代(税別)万円（弊社側のみ編集）
+  invoiceStatus         String?   @db.VarChar(50) @map("invoice_status")            // 請求入金状況（弊社側のみ編集）
+  deletedByVendor       Boolean   @default(false) @map("deleted_by_vendor")         // ベンダー側削除フラグ
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  deletedAt             DateTime? @map("deleted_at")                                // 正式削除（弊社側）
+
+  vendor                HojoVendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@map("hojo_wholesale_accounts")
+}
+
+// ============================================
+// 補助金 プロラインアカウント (Hojo ProLine Accounts)
+// 各公式LINEのプロラインログイン情報
+// ============================================
+
+model HojoProlineAccount {
+  id        Int      @id @default(autoincrement())
+  lineType  String   @unique @map("line_type") @db.VarChar(30) // "josei-support", "shinsei-support", "alkes", "security-cloud"
+  label     String   @db.VarChar(100)                           // 表示名（例: "助成金申請サポート"）
+  email     String   @default("") @db.VarChar(255)              // プロラインログインメール
+  password  String   @default("") @db.VarChar(255)              // プロラインログインパスワード
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("hojo_proline_accounts")
 }
 
 // ============================================

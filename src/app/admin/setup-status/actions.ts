@@ -273,12 +273,22 @@ const checkDefinitions: CheckDefinition[] = [
       prisma.hojoVendor.count({ where: { isActive: true } }),
   },
   {
+    id: "hojo-proline-accounts",
+    category: "補助金",
+    name: "プロラインアカウント",
+    description: "各公式LINEのプロラインログイン情報（自動同期に必要）",
+    required: 1,
+    href: "/hojo/settings/proline",
+    countFn: () =>
+      prisma.hojoProlineAccount.count({ where: { isActive: true } }),
+  },
+  {
     id: "hojo-statuses",
     category: "補助金",
     name: "申請ステータス",
     description: "申請管理の進捗ステータスの登録",
     required: 0,
-    href: "/hojo/settings/statuses",
+    href: "/hojo/application-support",
     countFn: () =>
       prisma.hojoApplicationStatus.count({ where: { isActive: true } }),
   },

@@ -52,6 +52,7 @@ import {
   GraduationCap,
   AlertTriangle,
   Package,
+  UserCog,
 } from "lucide-react";
 import { canView } from "@/lib/auth/permissions";
 import type { SessionUser } from "@/types/auth";
@@ -70,6 +71,7 @@ type NavItem = {
   key?: string; // サイドバーカスタマイズ用のキー
   sectionLabel?: boolean; // true: 開閉なしのセクションラベル（子はフラット表示）
   collapsible?: boolean; // true: 開閉式（chevron表示）。sectionLabelと排他
+  badgeCount?: number; // バッジ表示用カウント
 };
 
 // 固定データ設定のパス一覧（stella001の固定データ設定 + 各PJ固有設定に表示）
@@ -275,33 +277,47 @@ const navigation: NavItem[] = [
     key: "hojo",
     collapsible: true,
     children: [
-      {
-        name: "公式LINE友達情報",
-        icon: MessageSquare,
-        sectionLabel: true,
-        children: [
-          { name: "申請サポートセンター", href: "/hojo/line-friends/shinsei-support", icon: MessageSquare },
-          { name: "助成金申請サポート", href: "/hojo/line-friends/josei-support", icon: MessageSquare },
-          { name: "ALKES", href: "/hojo/line-friends/alkes", icon: MessageSquare },
-          { name: "セキュリティクラウド", href: "/hojo/line-friends/security-cloud", icon: MessageSquare },
-        ],
-      },
-      {
-        name: "申請サポートセンター",
-        icon: ClipboardList,
-        sectionLabel: true,
-        children: [
-          { name: "フォーム回答一覧", href: "/hojo/form-submissions", icon: ClipboardList },
-          { name: "マスタ管理", href: "/hojo/application-support", icon: ClipboardList },
-        ],
-      },
+      { name: "ベンダー管理", href: "/hojo/settings/vendors", icon: Building2 },
       {
         name: "セキュリティクラウド卸管理",
         icon: Shield,
         sectionLabel: true,
         children: [
-          { name: "顧客リスト", href: "/hojo/security-cloud/customers", icon: Users },
-          { name: "アカウント管理", href: "/hojo/security-cloud/accounts", icon: Key },
+          { name: "卸アカウント管理", href: "/hojo/security-cloud/accounts", icon: Key },
+        ],
+      },
+      {
+        name: "助成金申請",
+        icon: FileText,
+        sectionLabel: true,
+        children: [
+          { name: "申請者管理", href: "/hojo/application-support", icon: ClipboardList },
+        ],
+      },
+      {
+        name: "公式LINE友達情報",
+        icon: MessageSquare,
+        sectionLabel: true,
+        children: [
+          { name: "顧客情報", href: "/hojo/user-info", icon: UserSearch },
+          { name: "申請者情報", href: "/hojo/applicant-info", icon: UserSearch },
+        ],
+      },
+      {
+        name: "申請サポートセンター(仮)",
+        icon: ClipboardList,
+        sectionLabel: true,
+        children: [
+          { name: "フォーム回答一覧(仮)", href: "/hojo/form-submissions", icon: ClipboardList },
+        ],
+      },
+      {
+        name: "管理",
+        icon: Settings,
+        sectionLabel: true,
+        children: [
+          { name: "プロジェクト設定", href: "/hojo/settings/project", icon: Building2 },
+          { name: "スタッフ管理", href: "/staff", icon: Users },
         ],
       },
       {
@@ -309,8 +325,8 @@ const navigation: NavItem[] = [
         icon: Settings,
         collapsible: true,
         children: [
-          { name: "ベンダー", href: "/hojo/settings/vendors", icon: Building2 },
-          { name: "ステータス", href: "/hojo/settings/statuses", icon: Layers },
+          { name: "他社アカウント管理", href: "/hojo/settings/partner-accounts", icon: UserCog },
+          { name: "プロライン情報", href: "/hojo/settings/proline", icon: UserCog },
         ],
       },
     ],
@@ -573,6 +589,11 @@ function NavItemComponent({
         )}
       />
       {item.name}
+      {item.badgeCount != null && item.badgeCount > 0 && (
+        <span className="ml-auto inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full bg-red-500 text-white text-xs font-bold">
+          {item.badgeCount}
+        </span>
+      )}
     </Link>
   );
 }
@@ -723,7 +744,7 @@ function applyProjectNames(items: NavItem[], projectNames: Record<string, string
 }
 
 /** ナビゲーション項目のフィルタリング共通ロジック */
-function getFilteredNavigation(user?: SessionUser, hiddenItems?: string[], projectNames?: Record<string, string>): NavItem[] {
+function getFilteredNavigation(user?: SessionUser, hiddenItems?: string[], projectNames?: Record<string, string>, bbsPendingCount?: number): NavItem[] {
   if (user?.canEditMasterData && user.loginId !== "admin") {
     return masterDataNavigation;
   }
@@ -757,7 +778,24 @@ function getFilteredNavigation(user?: SessionUser, hiddenItems?: string[], proje
     result = applyProjectNames(result, projectNames);
   }
 
+  // BBSアカウント管理にバッジカウントを適用
+  if (bbsPendingCount && bbsPendingCount > 0) {
+    result = applyBadgeCount(result, "/hojo/settings/partner-accounts", bbsPendingCount);
+  }
+
   return result;
+}
+
+function applyBadgeCount(items: NavItem[], href: string, count: number): NavItem[] {
+  return items.map((item) => {
+    if (item.href === href) {
+      return { ...item, badgeCount: count };
+    }
+    if (item.children) {
+      return { ...item, children: applyBadgeCount(item.children, href, count) };
+    }
+    return item;
+  });
 }
 
 interface SidebarContentProps {
@@ -767,6 +805,7 @@ interface SidebarContentProps {
   onToggleCollapse?: () => void;
   hiddenItems?: string[];
   projectNames?: Record<string, string>;
+  bbsPendingCount?: number;
 }
 
 export function SidebarContent({
@@ -776,9 +815,10 @@ export function SidebarContent({
   onToggleCollapse,
   hiddenItems,
   projectNames,
+  bbsPendingCount,
 }: SidebarContentProps) {
   const appTitle = process.env.NEXT_PUBLIC_APP_TITLE || "Stella 基幹OS";
-  const navItems = getFilteredNavigation(user, hiddenItems, projectNames);
+  const navItems = getFilteredNavigation(user, hiddenItems, projectNames, bbsPendingCount);
   const userId = user?.loginId ?? undefined;
 
   // 折りたたみモード: アイコンのみ表示
@@ -844,9 +884,10 @@ interface SidebarProps {
   onToggleCollapse?: () => void;
   hiddenItems?: string[];
   projectNames?: Record<string, string>;
+  bbsPendingCount?: number;
 }
 
-export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems, projectNames }: SidebarProps) {
+export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems, projectNames, bbsPendingCount }: SidebarProps) {
   return (
     <div
       className={cn(
@@ -860,6 +901,7 @@ export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems, projec
         onToggleCollapse={onToggleCollapse}
         hiddenItems={hiddenItems}
         projectNames={projectNames}
+        bbsPendingCount={bbsPendingCount}
       />
     </div>
   );

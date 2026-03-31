@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { syncVendorIdFromFree1 } from "@/lib/hojo/sync-vendor-id";
 
 const REVALIDATE_PATH = "/hojo/line-friends/josei-support";
 
@@ -85,9 +86,15 @@ export async function updateLineFriend(id: number, data: Record<string, unknown>
 
   if (Object.keys(updateData).length > 0) {
     await prisma.hojoLineFriendJoseiSupport.update({ where: { id }, data: updateData });
+
+    // free1が変更された場合、申請管理のvendorIdを同期
+    if (updateData.free1 !== undefined) {
+      await syncVendorIdFromFree1(id);
+    }
   }
 
   revalidatePath(REVALIDATE_PATH);
+  revalidatePath("/hojo/application-support");
 }
 
 export async function deleteLineFriend(id: number) {

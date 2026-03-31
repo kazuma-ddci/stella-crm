@@ -28,10 +28,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "レコードが見つかりません" }, { status: 404 });
     }
 
-    // vendorMemoのみ更新
+    // alkesMemoとして更新（vendorMemoは廃止）
     await prisma.hojoApplicationSupport.update({
       where: { id: Number(id) },
-      data: { vendorMemo: vendorMemo ? String(vendorMemo).trim() : null },
+      data: { alkesMemo: vendorMemo ? String(vendorMemo).trim() : null },
     });
 
     return NextResponse.json({ success: true });
