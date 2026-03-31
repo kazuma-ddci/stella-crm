@@ -160,15 +160,19 @@ async function downloadExcel(account) {
     // パスワード入力欄が表示されるまで待機
     await page.waitForSelector('input#password', { timeout: 30000 });
 
-    // Step 2: パスワード入力 → ログイン
+    // Step 2: パスワード入力 → ログイン → ユーザー管理ページに直接遷移
     await page.type('input#password', account.password);
-    await page.click('button#btnSubmit');
-    await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 60000 });
+    await Promise.all([
+      page.click('button#btnSubmit'),
+      page.waitForNavigation({ waitUntil: "load", timeout: 60000 }).catch(() => {}),
+    ]);
+    // ログイン完了後に少し待機
+    await new Promise((r) => setTimeout(r, 3000));
 
     console.log(`[sync-hojo] [${account.label}] ユーザー管理ページに移動...`);
     await page.goto(
       `https://autosns.jp/select-user`,
-      { waitUntil: "networkidle0", timeout: 60000 }
+      { waitUntil: "load", timeout: 60000 }
     );
 
     console.log(`[sync-hojo] [${account.label}] Excelダウンロード中...`);
