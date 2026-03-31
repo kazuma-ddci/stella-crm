@@ -18,6 +18,8 @@ services:
     volumes:
       - ./credentials:/app/credentials:ro
       - stg_uploads:/app/public/uploads
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db-stg:
         condition: service_healthy
