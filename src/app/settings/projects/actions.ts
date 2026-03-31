@@ -2,11 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 import { getSession, isAdmin } from "@/lib/auth";
 
 export async function updateProject(id: number, data: Record<string, unknown>) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   // code は変更不可（コード側でロジック分岐に使用するため）
   const updateData: Record<string, unknown> = {};
   if ("name" in data) updateData.name = data.name as string;
@@ -25,7 +25,7 @@ export async function updateProject(id: number, data: Record<string, unknown>) {
 }
 
 export async function reorderProjects(orderedIds: number[]) {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   // トランザクションで一括更新
   await prisma.$transaction(
     orderedIds.map((id, index) =>
@@ -134,7 +134,7 @@ export async function linkExistingEmail(data: {
   emailId: number;
   memo?: string | null;
 }): Promise<{ success: boolean; error?: string }> {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
 
   // 重複チェック
   const existing = await prisma.projectEmail.findUnique({
@@ -180,7 +180,7 @@ export async function addProjectEmail(data: {
   imapPort?: number | null;
   enableInbound?: boolean;
 }): Promise<{ success: boolean; error?: string }> {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
 
   // プロジェクトの運営法人ID（あれば使う、なくてもOK）
   const project = await prisma.masterProject.findUnique({
@@ -265,7 +265,7 @@ export async function updateProjectEmailMemo(
   projectEmailId: number,
   memo: string | null
 ): Promise<void> {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   await prisma.projectEmail.update({
     where: { id: projectEmailId },
     data: { memo },
@@ -342,7 +342,7 @@ export async function setProjectDefaultEmail(
   projectId: number,
   projectEmailId: number | null
 ): Promise<{ success: boolean; error?: string }> {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
 
   if (projectEmailId === null) {
     await prisma.projectEmail.updateMany({
@@ -384,7 +384,7 @@ export async function setProjectDefaultEmail(
 // ============================================
 
 export async function deleteProjectEmail(id: number): Promise<void> {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   await prisma.projectEmail.delete({ where: { id } });
   revalidatePath("/settings/projects");
 }
@@ -433,7 +433,7 @@ export async function addProjectBankAccount(data: {
   bankAccountId: number;
   memo?: string | null;
 }): Promise<{ success: boolean; error?: string }> {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
 
   // プロジェクトの運営法人を確認
   const project = await prisma.masterProject.findUnique({
@@ -485,7 +485,7 @@ export async function setProjectDefaultBankAccount(
   projectId: number,
   projectBankAccountId: number | null
 ): Promise<{ success: boolean; error?: string }> {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
 
   if (projectBankAccountId === null) {
     await prisma.projectBankAccount.updateMany({
@@ -525,7 +525,7 @@ export async function updateProjectBankAccountMemo(
   projectBankAccountId: number,
   memo: string | null
 ): Promise<void> {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   await prisma.projectBankAccount.update({
     where: { id: projectBankAccountId },
     data: { memo },
@@ -538,7 +538,7 @@ export async function updateProjectBankAccountMemo(
 // ============================================
 
 export async function deleteProjectBankAccount(id: number): Promise<void> {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
   await prisma.projectBankAccount.delete({ where: { id } });
   revalidatePath("/settings/projects");
 }
@@ -557,7 +557,7 @@ export async function createAndAddProjectBankAccount(data: {
   accountHolderName: string;
   memo?: string | null;
 }): Promise<{ success: boolean; error?: string }> {
-  await requireMasterDataEditPermission();
+  await requireProjectMasterDataEditPermission();
 
   // プロジェクトの運営法人を確認
   const project = await prisma.masterProject.findUnique({
