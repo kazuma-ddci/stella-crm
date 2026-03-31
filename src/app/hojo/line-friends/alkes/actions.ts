@@ -115,7 +115,7 @@ export async function triggerProLineSync(): Promise<{
   }
 
   try {
-    const res = await fetch(`${triggerUrl}/trigger?secret=${cronSecret}&account=alkes`, {
+    const res = await fetch(`${triggerUrl}/trigger?secret=${encodeURIComponent(cronSecret)}&account=alkes`, {
       signal: AbortSignal.timeout(120000),
     });
 
