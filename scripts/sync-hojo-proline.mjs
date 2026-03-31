@@ -157,17 +157,18 @@ async function downloadExcel(account) {
     // Step 1: メールアドレス入力 → 次へ
     await page.type('input#email', account.email);
     await page.click('button[name="send"]');
-    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 });
+    // パスワード入力欄が表示されるまで待機
+    await page.waitForSelector('input#password', { timeout: 30000 });
 
     // Step 2: パスワード入力 → ログイン
     await page.type('input#password', account.password);
     await page.click('button#btnSubmit');
-    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 });
+    await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 60000 });
 
     console.log(`[sync-hojo] [${account.label}] ユーザー管理ページに移動...`);
     await page.goto(
       `https://autosns.jp/select-user`,
-      { waitUntil: "networkidle2", timeout: 30000 }
+      { waitUntil: "networkidle0", timeout: 60000 }
     );
 
     console.log(`[sync-hojo] [${account.label}] Excelダウンロード中...`);
