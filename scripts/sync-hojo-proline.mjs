@@ -16,18 +16,10 @@ import { fileURLToPath } from "url";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
-// ESMでNODE_PATHが効かない場合があるため、明示的にproline-depsから読み込み
 const homedir = process.env.HOME || "/root";
 const depsPath = path.join(homedir, "proline-deps", "node_modules");
-let puppeteer, XLSX;
-try {
-  puppeteer = (await import("puppeteer")).default;
-  XLSX = await import("xlsx");
-} catch {
-  // NODE_PATHが効かない場合、直接パス指定で読み込み
-  puppeteer = require(path.join(depsPath, "puppeteer"));
-  XLSX = require(path.join(depsPath, "xlsx"));
-}
+const puppeteer = require(path.join(depsPath, "puppeteer"));
+const XLSX = require(path.join(depsPath, "xlsx"));
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
