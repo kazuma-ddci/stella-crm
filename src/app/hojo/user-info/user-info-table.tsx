@@ -70,6 +70,7 @@ function getCustomerColumns(shinseiLabel: string, alkesLabel: string): ColumnDef
     { key: "userType", header: "ユーザー種別", editable: false, filterable: true },
     { key: "hasShinseiSupport", header: shinseiLabel, editable: false, filterable: true },
     { key: "hasAlkes", header: alkesLabel, editable: false, filterable: true },
+    { key: "referrer", header: "紹介者", editable: false, filterable: true },
   ];
 }
 

@@ -119,6 +119,9 @@ export default async function CustomerInfoPage() {
   const alkesUidSet = new Set(alkesFree1.map((f) => f.free1).filter(Boolean));
   const vendorByScId = new Map(vendors.map((v) => [v.lineFriendId!, v.name]));
 
+  // 紹介者解決: セキュリティクラウドのuid → {id, snsname} マップ
+  const scUidToInfo = new Map(scFriends.map((f) => [f.uid, { id: f.id, snsname: f.snsname }]));
+
   // free1がセキュリティクラウドのUIDに存在しないIDを特定
   const shinseiInvalidIds: number[] = [];
   for (const f of shinseiFriends) {
@@ -135,6 +138,8 @@ export default async function CustomerInfoPage() {
 
   const customerData = scFriends.map((f) => {
     const isVendor = vendorByScId.has(f.id);
+    // 紹介者: free1がセキュリティクラウドのuidと一致する人
+    const referrerInfo = f.free1 ? scUidToInfo.get(f.free1) : null;
     return {
       id: f.id,
       snsname: f.snsname,
@@ -143,6 +148,7 @@ export default async function CustomerInfoPage() {
       isVendor,
       hasShinseiSupport: shinseiUidSet.has(f.uid),
       hasAlkes: alkesUidSet.has(f.uid),
+      referrer: referrerInfo ? `${referrerInfo.id} ${referrerInfo.snsname ?? ""}` : null,
     };
   });
 
