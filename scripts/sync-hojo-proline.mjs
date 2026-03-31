@@ -154,20 +154,34 @@ async function downloadExcel(account) {
 
     console.log(`[sync-hojo] [${account.label}] プロラインにログイン中...`);
 
-    if (account.loginUrl) {
-      // ログインURLが設定されている場合 → パスワード入力画面に直接遷移
+    // ログイン方式1: ログインURL（パスワード入力画面に直接遷移）
+    async function loginWithUrl(p) {
       console.log(`[sync-hojo] [${account.label}] ログインURL使用: ${account.loginUrl}`);
-      await page.goto(account.loginUrl, { waitUntil: "networkidle2", timeout: 30000 });
-      await page.waitForSelector('input#password', { timeout: 30000 });
-    } else {
-      // 通常の2段階ログイン
-      await page.goto(
-        `https://autosns.jp/login`,
-        { waitUntil: "networkidle2", timeout: 30000 }
-      );
-      await page.type('input#email', account.email);
-      await page.click('button[name="send"]');
-      await page.waitForSelector('input#password', { timeout: 30000 });
+      await p.goto(account.loginUrl, { waitUntil: "networkidle2", timeout: 30000 });
+      await p.waitForSelector('input#password', { timeout: 15000 });
+    }
+
+    // ログイン方式2: 2段階ログイン（メール→次へ→パスワード）
+    async function loginWithEmail(p) {
+      console.log(`[sync-hojo] [${account.label}] メールアドレスで2段階ログイン`);
+      await p.goto('https://autosns.jp/login', { waitUntil: "networkidle2", timeout: 30000 });
+      await p.type('input#email', account.email);
+      await p.click('button[name="send"]');
+      await p.waitForSelector('input#password', { timeout: 15000 });
+    }
+
+    // 優先方式を試し、失敗したらもう一方で再試行
+    const primary = account.loginUrl ? loginWithUrl : loginWithEmail;
+    const fallback = account.loginUrl ? loginWithEmail : loginWithUrl;
+
+    try {
+      await primary(page);
+    } catch (err) {
+      // loginUrlがない場合はfallbackも同じなのでスキップ
+      if (!account.loginUrl || !account.email) throw err;
+      console.log(`[sync-hojo] [${account.label}] 第1方式失敗（${err.message}）、第2方式で再試行...`);
+      await page.goto('about:blank');
+      await fallback(page);
     }
 
     // パスワード入力 → ログイン
