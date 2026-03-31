@@ -16,8 +16,9 @@ import { fileURLToPath } from "url";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
-const homedir = process.env.HOME || "/root";
-const depsPath = path.join(homedir, "proline-deps", "node_modules");
+// スクリプトは ~/stella-crm/scripts/ にあるので、../../proline-deps で ~/proline-deps に到達
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const depsPath = path.resolve(__dirname, "..", "..", "proline-deps", "node_modules");
 const puppeteer = require(path.join(depsPath, "puppeteer"));
 const XLSX = require(path.join(depsPath, "xlsx"));
 
