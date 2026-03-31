@@ -148,20 +148,25 @@ async function downloadExcel(account) {
       downloadPath: downloadDir,
     });
 
-    console.log(`[sync-hojo] [${account.label}] ProLineにログイン中...`);
+    console.log(`[sync-hojo] [${account.label}] プロラインにログイン中...`);
     await page.goto(
-      `https://line.and-motions.com/login`,
+      `https://autosns.jp/login`,
       { waitUntil: "networkidle2", timeout: 30000 }
     );
 
-    await page.type('input[name="email"], input[type="email"]', account.email);
-    await page.type('input[name="password"], input[type="password"]', account.password);
-    await page.click('button[type="submit"], input[type="submit"]');
+    // Step 1: メールアドレス入力 → 次へ
+    await page.type('input#email', account.email);
+    await page.click('button[name="send"]');
+    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 });
+
+    // Step 2: パスワード入力 → ログイン
+    await page.type('input#password', account.password);
+    await page.click('button#btnSubmit');
     await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 });
 
     console.log(`[sync-hojo] [${account.label}] ユーザー管理ページに移動...`);
     await page.goto(
-      `https://line.and-motions.com/manager/user`,
+      `https://autosns.jp/select-user`,
       { waitUntil: "networkidle2", timeout: 30000 }
     );
 
