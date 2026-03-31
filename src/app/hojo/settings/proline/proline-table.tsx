@@ -15,6 +15,7 @@ export function ProlineTable({ data, canEdit }: Props) {
     { key: "label", header: "公式LINE名", type: "text", required: true },
     { key: "email", header: "メールアドレス", type: "text" },
     { key: "password", header: "パスワード", type: "password" },
+    { key: "loginUrl", header: "ログインURL", type: "text" },
   ];
 
   return (

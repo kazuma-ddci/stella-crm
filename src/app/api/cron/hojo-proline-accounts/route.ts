@@ -22,6 +22,7 @@ export async function GET(request: Request) {
       label: a.label,
       email: a.email,
       password: a.password,
+      loginUrl: a.loginUrl,
     })),
   });
 }

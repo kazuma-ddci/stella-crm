@@ -11,6 +11,7 @@ export async function updateProlineAccount(id: number, data: Record<string, unkn
   if ("label" in data) updateData.label = String(data.label).trim();
   if ("email" in data) updateData.email = String(data.email).trim();
   if ("password" in data) updateData.password = String(data.password).trim();
+  if ("loginUrl" in data) updateData.loginUrl = data.loginUrl ? String(data.loginUrl).trim() : null;
 
   if (Object.keys(updateData).length > 0) {
     await prisma.hojoProlineAccount.update({

@@ -18,6 +18,7 @@ export default async function ProlinePage() {
     label: a.label,
     email: a.email,
     password: a.password,
+    loginUrl: a.loginUrl ?? "",
   }));
 
   return (

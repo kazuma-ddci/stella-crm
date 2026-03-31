@@ -153,24 +153,29 @@ async function downloadExcel(account) {
     });
 
     console.log(`[sync-hojo] [${account.label}] プロラインにログイン中...`);
-    await page.goto(
-      `https://autosns.jp/login`,
-      { waitUntil: "networkidle2", timeout: 30000 }
-    );
 
-    // Step 1: メールアドレス入力 → 次へ
-    await page.type('input#email', account.email);
-    await page.click('button[name="send"]');
-    // パスワード入力欄が表示されるまで待機
-    await page.waitForSelector('input#password', { timeout: 30000 });
+    if (account.loginUrl) {
+      // ログインURLが設定されている場合 → パスワード入力画面に直接遷移
+      console.log(`[sync-hojo] [${account.label}] ログインURL使用: ${account.loginUrl}`);
+      await page.goto(account.loginUrl, { waitUntil: "networkidle2", timeout: 30000 });
+      await page.waitForSelector('input#password', { timeout: 30000 });
+    } else {
+      // 通常の2段階ログイン
+      await page.goto(
+        `https://autosns.jp/login`,
+        { waitUntil: "networkidle2", timeout: 30000 }
+      );
+      await page.type('input#email', account.email);
+      await page.click('button[name="send"]');
+      await page.waitForSelector('input#password', { timeout: 30000 });
+    }
 
-    // Step 2: パスワード入力 → ログイン → ユーザー管理ページに直接遷移
+    // パスワード入力 → ログイン
     await page.type('input#password', account.password);
     await Promise.all([
       page.click('button#btnSubmit'),
       page.waitForNavigation({ waitUntil: "load", timeout: 60000 }).catch(() => {}),
     ]);
-    // ログイン完了後に少し待機
     await new Promise((r) => setTimeout(r, 3000));
 
     console.log(`[sync-hojo] [${account.label}] ユーザー管理ページに移動...`);
