@@ -94,7 +94,14 @@ const server = http.createServer((req, res) => {
     runningLabel = label;
     console.log(`[trigger] 同期開始 (${label}): ${new Date().toISOString()}`);
 
-    execFile("node", scriptArgs, { timeout: 180000 }, (error, stdout, stderr) => {
+    const execEnv = { ...process.env };
+    // NODE_PATH が未設定の場合、~/proline-deps/node_modules をフォールバック
+    if (!execEnv.NODE_PATH) {
+      const homedir = process.env.HOME || "/root";
+      execEnv.NODE_PATH = `${homedir}/proline-deps/node_modules`;
+    }
+
+    execFile("node", scriptArgs, { timeout: 180000, env: execEnv }, (error, stdout, stderr) => {
       isRunning = false;
       runningLabel = "";
 
