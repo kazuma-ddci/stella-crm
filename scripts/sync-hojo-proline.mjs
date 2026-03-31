@@ -279,13 +279,28 @@ async function syncOneAccount(account) {
   }
 }
 
+// --account オプション: 指定されたアカウントのみ同期（トリガーサーバーから呼ばれる場合）
+const accountArg = (() => {
+  const idx = process.argv.indexOf("--account");
+  return idx !== -1 && process.argv[idx + 1] ? process.argv[idx + 1] : null;
+})();
+
 async function main() {
   const startTime = Date.now();
-  console.log(`[sync-hojo] 補助金プロライン同期開始: ${new Date().toISOString()}`);
+  const modeLabel = accountArg ? `単体同期: ${accountArg}` : "全アカウント同期";
+  console.log(`[sync-hojo] 補助金プロライン同期開始 (${modeLabel}): ${new Date().toISOString()}`);
 
   try {
     // 1. CRMからプロラインアカウント情報を取得
-    const accounts = await fetchProlineAccounts();
+    let accounts = await fetchProlineAccounts();
+
+    // --account指定時は対象アカウントのみに絞る
+    if (accountArg) {
+      accounts = accounts.filter((a) => a.lineType === accountArg);
+      if (accounts.length === 0) {
+        throw new Error(`アカウント "${accountArg}" が見つかりません`);
+      }
+    }
 
     // 2. 各アカウントを順番に同期（Puppeteerの並列実行を避ける）
     const results = [];

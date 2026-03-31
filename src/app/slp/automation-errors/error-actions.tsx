@@ -6,7 +6,7 @@ import { retryAutomationError, resolveError } from "./actions";
 import { RefreshCw, CheckCircle } from "lucide-react";
 
 const retryLabels: Record<string, string> = {
-  "proline-form-submit": "ProLine送信をもう一度実行",
+  "proline-form-submit": "プロライン送信をもう一度実行",
   "cloudsign-send": "契約書送付をもう一度実行",
 };
 

@@ -142,7 +142,7 @@ export function ApplicantPageClient({
       const result = await triggerProLineSync();
       if (result.success) {
         toast.success(
-          `ProLine同期完了: 新規${result.created}件、更新${result.updated}件（合計${result.total}件）`
+          `プロライン同期完了: 新規${result.created}件、更新${result.updated}件（合計${result.total}件）`
         );
         router.refresh();
       } else {
@@ -226,7 +226,7 @@ export function ApplicantPageClient({
             </div>
             <Button variant="outline" size="sm" onClick={handleSync} disabled={isSyncing}>
               <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? "animate-spin" : ""}`} />
-              {isSyncing ? "同期中..." : "ProLine同期"}
+              {isSyncing ? "同期中..." : "プロライン同期"}
             </Button>
           </div>
           <CrudTable

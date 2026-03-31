@@ -42,6 +42,10 @@ if (!CRON_SECRET) {
 }
 
 let isRunning = false;
+let runningLabel = "";
+
+// 補助金プロジェクトの有効なアカウント種別
+const HOJO_ACCOUNTS = ["josei-support", "shinsei-support", "alkes", "security-cloud"];
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
@@ -49,7 +53,7 @@ const server = http.createServer((req, res) => {
   // ヘルスチェック
   if (url.pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", isRunning }));
+    res.end(JSON.stringify({ status: "ok", isRunning, runningLabel }));
     return;
   }
 
@@ -64,19 +68,38 @@ const server = http.createServer((req, res) => {
 
     if (isRunning) {
       res.writeHead(409, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "同期処理が既に実行中です" }));
+      res.end(JSON.stringify({ error: `同期処理が既に実行中です（${runningLabel}）` }));
       return;
     }
 
-    isRunning = true;
-    console.log(`[trigger] 同期開始: ${new Date().toISOString()}`);
+    // accountパラメータで分岐
+    const account = url.searchParams.get("account");
+    let scriptPath;
+    let scriptArgs;
+    let label;
 
-    const scriptPath = path.join(__dirname, "sync-proline.mjs");
-    execFile("node", [scriptPath], { timeout: 180000 }, (error, stdout, stderr) => {
+    if (account && HOJO_ACCOUNTS.includes(account)) {
+      // 補助金プロジェクト: 指定アカウントのみ同期
+      scriptPath = path.join(__dirname, "sync-hojo-proline.mjs");
+      scriptArgs = [scriptPath, "--account", account];
+      label = `hojo:${account}`;
+    } else {
+      // SLP（デフォルト）
+      scriptPath = path.join(__dirname, "sync-proline.mjs");
+      scriptArgs = [scriptPath];
+      label = "slp";
+    }
+
+    isRunning = true;
+    runningLabel = label;
+    console.log(`[trigger] 同期開始 (${label}): ${new Date().toISOString()}`);
+
+    execFile("node", scriptArgs, { timeout: 180000 }, (error, stdout, stderr) => {
       isRunning = false;
+      runningLabel = "";
 
       if (error) {
-        console.error(`[trigger] 同期エラー:`, error.message);
+        console.error(`[trigger] 同期エラー (${label}):`, error.message);
         if (stderr) console.error(stderr);
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "同期に失敗しました", details: error.message }));
@@ -84,7 +107,7 @@ const server = http.createServer((req, res) => {
       }
 
       if (stdout) console.log(stdout);
-      console.log(`[trigger] 同期完了: ${new Date().toISOString()}`);
+      console.log(`[trigger] 同期完了 (${label}): ${new Date().toISOString()}`);
 
       // stdoutから結果をパース
       const match = stdout.match(/created=(\d+), updated=(\d+), total=(\d+)/);

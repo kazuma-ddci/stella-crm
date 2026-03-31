@@ -22,7 +22,7 @@ function sourceLabel(source: string): string {
     "cron/check-inbound-invoices": "受領請求書チェック",
     "public/slp/member-registration": "組合員フォーム登録",
     "webhook/line-friend": "LINE友だちWebhook",
-    "proline-form-submit": "ProLineフォーム送信",
+    "proline-form-submit": "プロラインフォーム送信",
   };
   return map[source] || source;
 }

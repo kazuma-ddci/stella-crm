@@ -62,7 +62,7 @@ async function retryProlineFormSubmit(
       where: { id: errorId },
       data: { resolved: true },
     });
-    return { success: true, message: "ProLineフォーム送信に成功しました" };
+    return { success: true, message: "プロラインフォーム送信に成功しました" };
   } catch (err) {
     return {
       success: false,

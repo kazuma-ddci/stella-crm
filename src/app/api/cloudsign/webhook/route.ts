@@ -241,7 +241,7 @@ async function syncSlpMemberFromContract(
       );
       await logAutomationError({
         source: "cloudsign-webhook",
-        message: `ProLineビーコン呼び出し失敗 (uid=${member.uid})`,
+        message: `プロラインビーコン呼び出し失敗 (uid=${member.uid})`,
         detail: { uid: member.uid, memberId: member.id, error: String(beaconErr) },
       });
     }
@@ -317,7 +317,7 @@ async function handleSlpMemberWebhookLegacy(
     } catch (beaconErr) {
       await logAutomationError({
         source: "cloudsign-webhook",
-        message: `ProLineビーコン呼び出し失敗 (uid=${member.uid})`,
+        message: `プロラインビーコン呼び出し失敗 (uid=${member.uid})`,
         detail: { uid: member.uid, memberId: member.id, error: String(beaconErr) },
       });
     }

@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
               console.error("ProLine form submit error:", err);
               await logAutomationError({
                 source: "proline-form-submit",
-                message: `ProLineフォーム送信失敗: ${data.name}`,
+                message: `プロラインフォーム送信失敗: ${data.name}`,
                 detail: {
                   retryAction: "proline-form-submit",
                   uid: data.uid,
@@ -370,7 +370,7 @@ export async function POST(request: NextRequest) {
       console.error("ProLine form submit error:", err);
       await logAutomationError({
         source: "proline-form-submit",
-        message: `ProLineフォーム送信失敗: ${data.name}`,
+        message: `プロラインフォーム送信失敗: ${data.name}`,
         detail: {
           retryAction: "proline-form-submit",
           uid: data.uid,
