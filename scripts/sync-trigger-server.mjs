@@ -41,8 +41,8 @@ if (!CRON_SECRET) {
   process.exit(1);
 }
 
-let isRunning = false;
-let runningLabel = "";
+/** ラベル別の実行管理（異なるラベルは並列実行可能、同一ラベルは排他） */
+const runningSet = new Set();
 
 // 補助金プロジェクトの有効なアカウント種別
 const HOJO_ACCOUNTS = ["josei-support", "shinsei-support", "alkes", "security-cloud"];
@@ -53,7 +53,7 @@ const server = http.createServer((req, res) => {
   // ヘルスチェック
   if (url.pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", isRunning, runningLabel }));
+    res.end(JSON.stringify({ status: "ok", running: [...runningSet] }));
     return;
   }
 
@@ -63,12 +63,6 @@ const server = http.createServer((req, res) => {
     if (secret !== CRON_SECRET) {
       res.writeHead(401, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
-
-    if (isRunning) {
-      res.writeHead(409, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: `同期処理が既に実行中です（${runningLabel}）` }));
       return;
     }
 
@@ -90,8 +84,14 @@ const server = http.createServer((req, res) => {
       label = "slp";
     }
 
-    isRunning = true;
-    runningLabel = label;
+    // 同一ラベルの同期が実行中なら拒否（異なるラベルは並列OK）
+    if (runningSet.has(label)) {
+      res.writeHead(409, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: `同期処理が既に実行中です（${label}）` }));
+      return;
+    }
+
+    runningSet.add(label);
     console.log(`[trigger] 同期開始 (${label}): ${new Date().toISOString()}`);
 
     const execEnv = { ...process.env };
@@ -102,8 +102,7 @@ const server = http.createServer((req, res) => {
     }
 
     execFile("node", scriptArgs, { timeout: 180000, env: execEnv }, (error, stdout, stderr) => {
-      isRunning = false;
-      runningLabel = "";
+      runningSet.delete(label);
 
       if (error) {
         console.error(`[trigger] 同期エラー (${label}):`, error.message);
