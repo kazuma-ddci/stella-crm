@@ -264,6 +264,7 @@ const navigation: NavItem[] = [
             children: [
               { name: "プロジェクト設定", href: "/slp/settings/project", icon: Building2 },
               { name: "パイプライン", href: "/slp/settings/stages", icon: Layers },
+              { name: "プロライン情報", href: "/slp/settings/proline", icon: UserCog },
             ],
           },
         ],

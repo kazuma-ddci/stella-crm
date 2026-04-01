@@ -4154,6 +4154,19 @@ model HojoProlineAccount {
   @@map("hojo_proline_accounts")
 }
 
+model SlpProlineAccount {
+  id        Int      @id @default(autoincrement())
+  label     String   @db.VarChar(100)                           // 公式LINE名（例: "公的制度教育推進協会"）
+  email     String   @default("") @db.VarChar(255)              // プロラインログインメール
+  password  String   @default("") @db.VarChar(255)              // プロラインログインパスワード
+  loginUrl  String?  @map("login_url") @db.VarChar(500)         // ログインURL（設定するとパスワード入力から開始）
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("slp_proline_accounts")
+}
+
 // ============================================
 // SLP 案件管理 (SLP Companies)
 // 公的プロジェクトの案件企業を管理

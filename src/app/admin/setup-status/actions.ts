@@ -283,6 +283,16 @@ const checkDefinitions: CheckDefinition[] = [
       prisma.hojoProlineAccount.count({ where: { isActive: true } }),
   },
   {
+    id: "slp-proline-accounts",
+    category: "SLP",
+    name: "プロラインアカウント",
+    description: "公式LINEのプロラインログイン情報（自動同期に必要）",
+    required: 1,
+    href: "/slp/settings/proline",
+    countFn: () =>
+      prisma.slpProlineAccount.count({ where: { isActive: true } }),
+  },
+  {
     id: "hojo-statuses",
     category: "補助金",
     name: "申請ステータス",

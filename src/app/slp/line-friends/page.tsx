@@ -2,10 +2,18 @@ import { prisma } from "@/lib/prisma";
 import { LineFriendsTable } from "./line-friends-table";
 
 export default async function SlpLineFriendsPage() {
-  const friends = await prisma.slpLineFriend.findMany({
-    where: { deletedAt: null },
-    orderBy: [{ id: "asc" }],
-  });
+  const [friends, prolineAccount] = await Promise.all([
+    prisma.slpLineFriend.findMany({
+      where: { deletedAt: null },
+      orderBy: [{ id: "asc" }],
+    }),
+    prisma.slpProlineAccount.findFirst({
+      where: { isActive: true },
+      select: { label: true },
+    }),
+  ]);
+
+  const lineLabel = prolineAccount?.label || "公式LINE";
 
   // 最終同期日時（同期済みレコードの最新updatedAt）
   const lastSyncAt = friends.length > 0
@@ -51,7 +59,7 @@ export default async function SlpLineFriendsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">公式LINE友達情報</h1>
+      <h1 className="text-2xl font-bold">{lineLabel} 友達情報</h1>
       <LineFriendsTable data={data} lastSyncAt={lastSyncAt?.toISOString() ?? null} />
     </div>
   );

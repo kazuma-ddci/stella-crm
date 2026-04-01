@@ -35,13 +35,49 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-const PROLINE_EMAIL = process.env.PROLINE_EMAIL;
-const PROLINE_PASSWORD = process.env.PROLINE_PASSWORD;
 const CRON_SECRET = process.env.CRON_SECRET;
 const APP_URL = process.env.APP_URL || "http://localhost:4001";
 
-if (!PROLINE_EMAIL || !PROLINE_PASSWORD || !CRON_SECRET) {
-  console.error("必要な環境変数が設定されていません: PROLINE_EMAIL, PROLINE_PASSWORD, CRON_SECRET");
+// レガシー: 環境変数からのフォールバック（CRM設定が優先）
+const PROLINE_EMAIL = process.env.PROLINE_EMAIL;
+const PROLINE_PASSWORD = process.env.PROLINE_PASSWORD;
+
+if (!CRON_SECRET) {
+  console.error("必要な環境変数が設定されていません: CRON_SECRET");
+  process.exit(1);
+}
+
+/**
+ * CRM設定画面に登録されたプロラインアカウント情報を取得
+ */
+async function fetchProlineAccount() {
+  console.log("[sync-proline] CRMからプロラインアカウント情報を取得中...");
+  try {
+    const res = await fetch(`${APP_URL}/api/cron/slp-proline-accounts`, {
+      headers: { Authorization: `Bearer ${CRON_SECRET}` },
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.accounts && data.accounts.length > 0) {
+        const account = data.accounts[0];
+        if (account.email && account.password) {
+          console.log(`[sync-proline] CRM設定を使用: ${account.label}`);
+          return account;
+        }
+      }
+    }
+  } catch (err) {
+    console.log(`[sync-proline] CRM設定取得失敗（${err.message}）、環境変数にフォールバック`);
+  }
+
+  // フォールバック: 環境変数
+  if (PROLINE_EMAIL && PROLINE_PASSWORD) {
+    console.log("[sync-proline] 環境変数を使用（レガシーモード）");
+    return { email: PROLINE_EMAIL, password: PROLINE_PASSWORD, loginUrl: null, label: "SLP" };
+  }
+
+  console.error("プロラインアカウント情報が見つかりません。CRM設定画面または環境変数で設定してください。");
   process.exit(1);
 }
 
@@ -102,7 +138,7 @@ function parseExcelDate(val) {
   return isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-async function downloadExcel() {
+async function downloadExcel(account) {
   if (fs.existsSync(DOWNLOAD_DIR)) {
     fs.rmSync(DOWNLOAD_DIR, { recursive: true });
   }
@@ -124,18 +160,38 @@ async function downloadExcel() {
     });
 
     console.log("[sync-proline] プロラインにログイン中...");
-    await page.goto(
-      `https://autosns.jp/login`,
-      { waitUntil: "networkidle2", timeout: 30000 }
-    );
 
-    // Step 1: メールアドレス入力 → 次へ
-    await page.type('input#email', PROLINE_EMAIL);
-    await page.click('button[name="send"]');
-    await page.waitForSelector('input#password', { timeout: 30000 });
+    // ログイン方式1: ログインURL（パスワード入力画面に直接遷移）
+    async function loginWithUrl(p) {
+      console.log(`[sync-proline] ログインURL使用: ${account.loginUrl}`);
+      await p.goto(account.loginUrl, { waitUntil: "networkidle2", timeout: 30000 });
+      await p.waitForSelector('input#password', { timeout: 15000 });
+    }
 
-    // Step 2: パスワード入力 → ログイン
-    await page.type('input#password', PROLINE_PASSWORD);
+    // ログイン方式2: 2段階ログイン（メール→次へ→パスワード）
+    async function loginWithEmail(p) {
+      console.log("[sync-proline] メールアドレスで2段階ログイン");
+      await p.goto('https://autosns.jp/login', { waitUntil: "networkidle2", timeout: 30000 });
+      await p.type('input#email', account.email);
+      await p.click('button[name="send"]');
+      await p.waitForSelector('input#password', { timeout: 15000 });
+    }
+
+    // 優先方式を試し、失敗したらもう一方で再試行
+    const primary = account.loginUrl ? loginWithUrl : loginWithEmail;
+    const fallback = account.loginUrl ? loginWithEmail : loginWithUrl;
+
+    try {
+      await primary(page);
+    } catch (err) {
+      if (!account.loginUrl || !account.email) throw err;
+      console.log(`[sync-proline] 第1方式失敗（${err.message}）、第2方式で再試行...`);
+      await page.goto('about:blank');
+      await fallback(page);
+    }
+
+    // パスワード入力 → ログイン
+    await page.type('input#password', account.password);
     await Promise.all([
       page.click('button#btnSubmit'),
       page.waitForNavigation({ waitUntil: "load", timeout: 60000 }).catch(() => {}),
@@ -234,7 +290,8 @@ async function main() {
   console.log(`[sync-proline] 同期開始: ${new Date().toISOString()}`);
 
   try {
-    const xlsFile = await downloadExcel();
+    const account = await fetchProlineAccount();
+    const xlsFile = await downloadExcel(account);
     const friends = parseExcel(xlsFile);
     const result = await syncToApp(friends);
 
