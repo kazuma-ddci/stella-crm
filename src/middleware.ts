@@ -174,8 +174,38 @@ function hasAnyStpViewAccess(displayViews: DisplayViewPermission[]): boolean {
   return displayViews.some((view) => view.projectCode === "stp");
 }
 
+// 外部ドメイン（BBS・ベンダー用）で許可するパス
+const EXTERNAL_DOMAIN_ALLOWED_PATHS = [
+  "/hojo/bbs",
+  "/hojo/vendor",
+  "/login",
+  "/api/auth",
+  "/register",
+  "/api/public",
+  "/form",
+];
+
+function isExternalDomainAllowedPath(pathname: string): boolean {
+  return EXTERNAL_DOMAIN_ALLOWED_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(path + "/")
+  );
+}
+
+// 外部ドメインかどうか判定
+function isExternalDomain(host: string): boolean {
+  return host.endsWith(".alkes.jp");
+}
+
 export default auth((request) => {
   const { pathname } = request.nextUrl;
+  const host = request.headers.get("host") || "";
+
+  // 外部ドメイン（*.alkes.jp）からのアクセス制限
+  if (isExternalDomain(host)) {
+    if (!isExternalDomainAllowedPath(pathname) && !pathname.startsWith("/_next/") && !pathname.startsWith("/api/auth")) {
+      return new NextResponse(null, { status: 404 });
+    }
+  }
 
   // /uploads/* → /api/uploads/* にリライト（standaloneモードではpublic/が配信されないため）
   if (pathname.startsWith("/uploads/")) {

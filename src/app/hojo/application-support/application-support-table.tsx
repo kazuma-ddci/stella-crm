@@ -19,9 +19,7 @@ type Props = {
 
 function BbsUrlButton() {
   const [copied, setCopied] = useState(false);
-  const bbsUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/hojo/bbs`
-    : "/hojo/bbs";
+  const bbsUrl = "https://bbs.alkes.jp/hojo/bbs";
 
   const handleCopy = () => {
     navigator.clipboard.writeText(bbsUrl);

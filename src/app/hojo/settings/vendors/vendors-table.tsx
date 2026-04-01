@@ -51,15 +51,15 @@ export function VendorsTable({ data, canEdit, lineFriendOptions, joseiLineFriend
     accessToken: (value) => {
       if (!value) return "-";
       const path = `/hojo/vendor/${value}`;
+      const fullUrl = `https://vendor.alkes.jp${path}`;
       const handleCopy = (e: React.MouseEvent) => {
         e.stopPropagation();
-        const fullUrl = `${window.location.origin}${path}`;
         navigator.clipboard.writeText(fullUrl);
         toast.success("URLをコピーしました");
       };
       return (
         <div className="flex items-center gap-1">
-          <span className="text-xs text-muted-foreground truncate max-w-[200px]">{path}</span>
+          <span className="text-xs text-muted-foreground truncate max-w-[200px]">{fullUrl}</span>
           <button onClick={handleCopy} className="text-gray-400 hover:text-blue-600 shrink-0">
             <Copy className="h-3.5 w-3.5" />
           </button>
