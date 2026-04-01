@@ -69,6 +69,57 @@ export default async function ProfilePage() {
 
       <Card>
         <CardHeader>
+          <CardTitle>権限情報</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isFounder ? (
+            <p className="text-sm">
+              組織ロール: <span className="font-medium">ファウンダー</span>（全プロジェクト全権限）
+            </p>
+          ) : isAdminUser ? (
+            <p className="text-sm">
+              組織ロール: <span className="font-medium">管理者</span>（全プロジェクト全権限）
+            </p>
+          ) : permissions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">権限が設定されていません</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 font-medium text-muted-foreground">プロジェクト名</th>
+                    <th className="text-left py-2 font-medium text-muted-foreground">権限レベル</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {permissions.map((perm) => {
+                    const project = dbProjects.find((p) => p.code === perm.projectCode);
+                    const levelLabel = {
+                      none: "なし",
+                      view: "閲覧",
+                      edit: "編集",
+                      manager: "マネージャー",
+                    }[perm.permissionLevel] ?? perm.permissionLevel;
+                    const approveLabel = perm.canApprove ? "（承認権限あり）" : "";
+                    return (
+                      <tr key={perm.projectCode} className="border-b last:border-b-0">
+                        <td className="py-2">{project?.name ?? perm.projectCode}</td>
+                        <td className="py-2">
+                          {levelLabel}
+                          {approveLabel}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>サイドバー表示設定</CardTitle>
         </CardHeader>
         <CardContent>

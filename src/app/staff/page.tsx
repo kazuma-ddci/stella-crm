@@ -15,6 +15,8 @@ export default async function StaffPage() {
   const hasManagerPermission = permissions.some((p) => p.permissionLevel === "manager");
   const hasEditPermission = permissions.some((p) => p.permissionLevel === "edit" || p.permissionLevel === "manager");
 
+  const currentUserId = currentUser?.id as number;
+
   const [staffList, roleTypes, projects, editableProjects] = await Promise.all([
     prisma.masterStaff.findMany({
       where: { isSystemUser: false },
@@ -44,6 +46,19 @@ export default async function StaffPage() {
     }),
     getEditableProjects(),
   ]);
+
+  // 自分自身編集用のeditableProjects（managerはmaxLevel="manager"でダウングレード可能）
+  const selfEditableProjects = editableProjects.map((p) => ({
+    ...p,
+    maxLevel: permissions.find((perm) => perm.projectCode === p.code && perm.permissionLevel === "manager")
+      ? "manager"
+      : p.maxLevel,
+  }));
+
+  // 現在のユーザーが権限を持つプロジェクトコード一覧（自分の権限カラム表示用）
+  const currentUserPermissionCodes = permissions
+    .filter((p) => p.permissionLevel !== "none")
+    .map((p) => p.projectCode);
 
   // プロジェクト権限のカラム情報を構築
   const permissionProjects = projects.map((p) => ({
@@ -192,10 +207,14 @@ export default async function StaffPage() {
             projectOptions={projectOptions}
             permissionProjects={permissionProjects}
             editableProjects={editableProjects}
+            selfEditableProjects={selfEditableProjects}
             canEditOrganizationRole={isAdminUser || isFounder}
             canSetFounder={isAdminUser || isFounder}
             canEditRoleTypes={isAdminUser || isFounder || hasEditPermission}
             canManageStaff={isAdminUser || isFounder || hasManagerPermission}
+            canViewOtherPermissions={isAdminUser || isFounder || hasManagerPermission}
+            currentUserId={currentUserId}
+            currentUserPermissionCodes={currentUserPermissionCodes}
             dynamicOptions={dynamicOptions}
           />
         </CardContent>

@@ -143,6 +143,7 @@ const navigation: NavItem[] = [
   {
     name: "Stella",
     icon: Building2,
+    requiredProject: "stella",
     key: "stella",
     collapsible: true,
     children: [

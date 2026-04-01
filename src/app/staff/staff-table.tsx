@@ -14,10 +14,14 @@ type Props = {
   projectOptions: { value: string; label: string }[];
   permissionProjects: { code: string; name: string }[];
   editableProjects: { code: string; maxLevel: string }[];
+  selfEditableProjects: { code: string; maxLevel: string }[];
   canEditOrganizationRole: boolean;
   canSetFounder: boolean;
   canEditRoleTypes: boolean;
   canManageStaff: boolean;
+  canViewOtherPermissions: boolean;
+  currentUserId: number;
+  currentUserPermissionCodes: string[];
   dynamicOptions?: Record<string, Record<string, { value: string; label: string }[]>>;
 };
 
@@ -36,6 +40,8 @@ const PERMISSION_LEVELS = [
   { value: "edit", label: "編集" },
   { value: "manager", label: "マネージャー" },
 ];
+
+const PERM_LEVEL_ORDER: Record<string, number> = { none: 0, view: 1, edit: 2, manager: 3 };
 
 const ORGANIZATION_ROLES = [
   { value: "member", label: "メンバー" },
@@ -129,44 +135,67 @@ function InviteButton({ row }: { row: Record<string, unknown> }) {
 
 /** 天井レベルに基づいて選択可能な権限レベルを返す */
 function getPermissionLevelsForMaxLevel(maxLevel: string): { value: string; label: string }[] {
-  const levelOrder: Record<string, number> = { none: 0, view: 1, edit: 2, manager: 3 };
-  const max = levelOrder[maxLevel] ?? 0;
-  return PERMISSION_LEVELS.filter((l) => (levelOrder[l.value] ?? 0) <= max);
+  const max = PERM_LEVEL_ORDER[maxLevel] ?? 0;
+  return PERMISSION_LEVELS.filter((l) => (PERM_LEVEL_ORDER[l.value] ?? 0) <= max);
 }
 
-export function StaffTable({ data, roleTypeOptions, projectOptions, permissionProjects, editableProjects, canEditOrganizationRole, canSetFounder, canEditRoleTypes, canManageStaff, dynamicOptions }: Props) {
-  // 権限カラム（編集可能なプロジェクトがある場合のみ表示）
+/** 権限レベルのラベルを取得 */
+function getPermissionLabel(value: unknown): string {
+  const level = PERMISSION_LEVELS.find((l) => l.value === value);
+  return level?.label ?? String(value ?? "なし");
+}
+
+export function StaffTable({ data, roleTypeOptions, projectOptions, permissionProjects, editableProjects, selfEditableProjects, canEditOrganizationRole, canSetFounder, canEditRoleTypes, canManageStaff, canViewOtherPermissions, currentUserId, currentUserPermissionCodes, dynamicOptions }: Props) {
+  // 編集可能なプロジェクトのマップ（他人編集用）
   const editableMap = new Map(editableProjects.map((p) => [p.code, p.maxLevel]));
-  const permissionColumns: ColumnDef[] = editableProjects.length > 0
-    ? [
-        // 各プロジェクト権限（天井に基づく選択肢制限、ファウンダー時は非表示）
-        ...permissionProjects
-          .filter((p) => editableMap.has(p.code))
-          .flatMap((p) => [
-            {
-              key: `perm_${p.code}`,
-              header: `${p.name}権限`,
-              type: "select" as const,
-              options: getPermissionLevelsForMaxLevel(editableMap.get(p.code)!),
-              simpleMode: true,
-              hiddenWhen: { field: "organizationRole", value: "founder" },
-            },
-            // approve_xxx はデータ保持用の非表示カラム（perm_xxx のカスタムフォームから制御）
-            {
-              key: `approve_${p.code}`,
-              header: `${p.name}承認`,
-              type: "boolean" as const,
-              hidden: true,
-              simpleMode: true,
-            },
-          ]),
-      ]
-    : [];
+  // 自分自身編集用のマップ（managerプロジェクトはmaxLevel="manager"）
+  const selfEditableMap = new Map(selfEditableProjects.map((p) => [p.code, p.maxLevel]));
+
+  // 表示する権限カラムのフィルタ:
+  // - admin/founder: 誰かしらに「なし」以外の権限があるプロジェクト
+  // - マネージャー以下: 自分が権限を持つプロジェクト + 編集可能プロジェクト
+  const currentUserPermSet = new Set(currentUserPermissionCodes);
+  const activePermissionProjects = permissionProjects.filter((p) => {
+    if (canSetFounder) {
+      // admin/founder: データに権限が存在するプロジェクトのみ
+      return data.some((row) => {
+        const val = row[`perm_${p.code}`];
+        return val && val !== "none";
+      });
+    }
+    // マネージャー以下: 自分が権限を持つプロジェクト or 編集可能プロジェクト
+    return currentUserPermSet.has(p.code) || selfEditableMap.has(p.code);
+  });
+
+  const permissionColumns: ColumnDef[] = activePermissionProjects.flatMap((p) => {
+    const isEditable = editableMap.has(p.code);
+    return [
+      {
+        key: `perm_${p.code}`,
+        header: `${p.name}権限`,
+        type: "select" as const,
+        options: isEditable
+          ? getPermissionLevelsForMaxLevel(editableMap.get(p.code)!)
+          : PERMISSION_LEVELS,
+        editable: isEditable,
+        simpleMode: true,
+        hiddenWhen: { field: "organizationRole", value: "founder" },
+      },
+      // approve_xxx はデータ保持用の非表示カラム（perm_xxx のカスタムフォームから制御）
+      {
+        key: `approve_${p.code}`,
+        header: `${p.name}承認`,
+        type: "boolean" as const,
+        hidden: true,
+        editable: false,
+        defaultValue: false,
+        simpleMode: true,
+      },
+    ];
+  });
 
   // 権限カラムのキー一覧（customRenderers用）
-  const permissionColumnKeys = permissionProjects
-    .filter((p) => editableMap.has(p.code))
-    .map((p) => `perm_${p.code}`);
+  const permissionColumnKeys = permissionProjects.map((p) => `perm_${p.code}`);
 
   // 組織ロールカラム（admin/founderのみ編集可能）
   const organizationRoleColumn: ColumnDef[] = canEditOrganizationRole
@@ -211,22 +240,30 @@ export function StaffTable({ data, roleTypeOptions, projectOptions, permissionPr
     { key: "inviteStatus", header: "アカウント", editable: false },
   ];
 
-  // 権限カラムの表示カスタマイズ（ファウンダー表示 + 承認権限の2行表示）
+  // 権限カラムの表示カスタマイズ
   const permRenderers: CustomRenderers = {};
-  for (const project of permissionProjects.filter((p) => editableMap.has(p.code))) {
+  for (const project of activePermissionProjects) {
     const permKey = `perm_${project.code}`;
     const approveKey = `approve_${project.code}`;
     permRenderers[permKey] = (_value, row) => {
+      // ファウンダー表示
       if (row.organizationRole === "founder") {
         return (
           <span className="text-xs text-muted-foreground">(全権限)</span>
         );
       }
-      const level = PERMISSION_LEVELS.find((l) => l.value === _value);
+
+      const isSelf = row.id === currentUserId;
+
+      // 他人の権限で、閲覧権限がない場合は***
+      if (!isSelf && !canViewOtherPermissions) {
+        return <span className="text-muted-foreground">***</span>;
+      }
+
       const hasApprove = row[approveKey] === true;
       return (
         <div>
-          <span>{level?.label ?? String(_value ?? "なし")}</span>
+          <span>{getPermissionLabel(_value)}</span>
           {hasApprove && (
             <div className="text-xs text-blue-600 font-medium">承認権限あり</div>
           )}
@@ -235,52 +272,118 @@ export function StaffTable({ data, roleTypeOptions, projectOptions, permissionPr
     };
   }
 
-  // perm_xxx のカスタムフォームフィールド（セレクト + 承認チェックボックス）
+  // perm_xxx のカスタムフォームフィールド（セレクト + 承認チェックボックス + ダウングレード確認）
   const permFormFields: CustomFormFields = {};
-  if (canSetFounder) {
-    // admin/founder のみ承認権限の編集が可能
-    for (const project of permissionProjects.filter((p) => editableMap.has(p.code))) {
-      const permKey = `perm_${project.code}`;
-      const approveKey = `approve_${project.code}`;
-      const options = getPermissionLevelsForMaxLevel(editableMap.get(project.code)!);
-      permFormFields[permKey] = {
-        render: (_value, onChange, formData, setFormData) => {
-          const permValue = (formData[permKey] as string) ?? "none";
-          const approveValue = formData[approveKey] === true || formData[approveKey] === "true";
-          const hasPermission = permValue !== "none";
+  for (const project of permissionProjects) {
+    const permKey = `perm_${project.code}`;
+    const approveKey = `approve_${project.code}`;
+
+    permFormFields[permKey] = {
+      render: (_value, onChange, formData, setFormData) => {
+        const permValue = (formData[permKey] as string) ?? "none";
+        const approveValue = formData[approveKey] === true || formData[approveKey] === "true";
+        const hasPermission = permValue !== "none";
+        const editingStaffId = formData.id as number | undefined;
+        const isSelfEdit = editingStaffId === currentUserId;
+
+        // 自分自身か他人かで使うマップを切り替え
+        const effectiveMap = isSelfEdit ? selfEditableMap : editableMap;
+        const isEditable = effectiveMap.has(project.code);
+        const maxLevel = effectiveMap.get(project.code) ?? "none";
+
+        // 編集不可の場合: グレーアウト表示
+        if (!isEditable) {
           return (
             <div className="space-y-2">
               <select
                 value={permValue}
-                onChange={(e) => {
-                  onChange(e.target.value);
-                  // 権限がnoneになったら承認も外す
-                  if (e.target.value === "none") {
-                    setFormData({ ...formData, [permKey]: e.target.value, [approveKey]: false });
-                  }
-                }}
-                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                disabled
+                className="w-full h-10 rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground cursor-not-allowed"
               >
-                {options.map((o) => (
+                {PERMISSION_LEVELS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
-              {hasPermission && (
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={approveValue}
-                    onChange={(e) => setFormData({ ...formData, [approveKey]: e.target.checked })}
-                    className="rounded"
-                  />
-                  承認権限
-                </label>
+              {hasPermission && approveValue && (
+                <div className="text-xs text-blue-600 font-medium">承認権限あり</div>
               )}
             </div>
           );
-        },
-      };
-    }
+        }
+
+        // 自分自身の編集: 自分の現在の権限レベルまでのオプションを表示
+        // 他人の編集: maxLevel までのオプション（+ DB値が超えていたらグレーアウト）
+        let options: { value: string; label: string }[];
+        let isDisabledBecauseAboveMax = false;
+
+        if (isSelfEdit) {
+          // 自分自身: 現在の権限レベルまでの全オプション
+          options = getPermissionLevelsForMaxLevel(maxLevel);
+        } else {
+          // 他人: maxLevelまでのオプション
+          const currentLevel = PERM_LEVEL_ORDER[permValue] ?? 0;
+          const maxLevelOrder = PERM_LEVEL_ORDER[maxLevel] ?? 0;
+
+          if (currentLevel > maxLevelOrder) {
+            // DB値がmaxLevelを超えている場合（例: 他人のmanager権限をedit権限のマネージャーが見ている）
+            isDisabledBecauseAboveMax = true;
+            options = PERMISSION_LEVELS;
+          } else {
+            options = getPermissionLevelsForMaxLevel(maxLevel);
+          }
+        }
+
+        const handlePermChange = (newValue: string) => {
+          const oldLevel = PERM_LEVEL_ORDER[permValue] ?? 0;
+          const newLevel = PERM_LEVEL_ORDER[newValue] ?? 0;
+
+          // 自分自身のダウングレード確認
+          if (isSelfEdit && newLevel < oldLevel && oldLevel >= PERM_LEVEL_ORDER["manager"]) {
+            const confirmed = window.confirm(
+              `${project.name}のマネージャー権限を失うと、スタッフの追加・権限管理ができなくなりますがよろしいですか？`
+            );
+            if (!confirmed) return;
+          }
+
+          onChange(newValue);
+          // 権限がnoneになったら承認も外す
+          if (newValue === "none") {
+            setFormData({ ...formData, [permKey]: newValue, [approveKey]: false });
+          }
+        };
+
+        return (
+          <div className="space-y-2">
+            <select
+              value={permValue}
+              disabled={isDisabledBecauseAboveMax}
+              onChange={(e) => handlePermChange(e.target.value)}
+              className={`w-full h-10 rounded-md border border-input px-3 text-sm ${
+                isDisabledBecauseAboveMax
+                  ? "bg-muted text-muted-foreground cursor-not-allowed"
+                  : "bg-background"
+              }`}
+            >
+              {options.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            {hasPermission && canSetFounder && (
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={approveValue}
+                  disabled={isDisabledBecauseAboveMax}
+                  onChange={(e) => setFormData({ ...formData, [approveKey]: e.target.checked })}
+                  className="rounded"
+                />
+                承認権限
+              </label>
+            )}
+          </div>
+        );
+      },
+    };
   }
 
   const customRenderers: CustomRenderers = {

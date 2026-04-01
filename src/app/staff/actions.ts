@@ -23,15 +23,19 @@ const PERM_LEVEL_ORDER: Record<string, number> = {
  * 現在のユーザーが権限変更可能なプロジェクトと天井レベルのリストを返す
  * - admin/founder → 全PJ、maxLevel="manager"
  * - manager → 自PJのみ、maxLevel="edit"（managerは付与不可）
+ *   - ただし自分自身を編集する場合は maxLevel="manager"（ダウングレード可能）
  * - edit以下 → 空配列（スタッフ管理不可）
+ *
+ * @param targetStaffId 編集対象のスタッフID（自分自身のダウングレード判定用）
  */
-export async function getEditableProjects(): Promise<{ code: string; maxLevel: string }[]> {
+export async function getEditableProjects(targetStaffId?: number): Promise<{ code: string; maxLevel: string }[]> {
   const session = await auth();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const user = session?.user as any;
   const permissions = (user?.permissions ?? []) as UserPermission[];
   const loginId = user?.loginId as string | null;
   const organizationRole = (user?.organizationRole ?? "member") as string;
+  const currentUserId = user?.id as number | undefined;
 
   const isAdminUser = loginId === "admin";
   const isFounder = organizationRole === "founder";
@@ -45,11 +49,15 @@ export async function getEditableProjects(): Promise<{ code: string; maxLevel: s
     return allProjects.map((p) => ({ code: p.code, maxLevel: "manager" }));
   }
 
-  // manager → 自PJのみ、maxLevel="edit"（managerは付与不可）
+  const isSelf = targetStaffId != null && currentUserId === targetStaffId;
+
+  // manager → 自PJのみ
+  //   - 他人の編集: maxLevel="edit"（managerは付与不可）
+  //   - 自分自身の編集: maxLevel="manager"（ダウングレード可能）
   // edit以下 → 空配列
   return permissions
     .filter((p) => p.permissionLevel === "manager")
-    .map((p) => ({ code: p.projectCode, maxLevel: "edit" }));
+    .map((p) => ({ code: p.projectCode, maxLevel: isSelf ? "manager" : "edit" }));
 }
 
 /** getEditableProjects からコードのみ抽出（後方互換ヘルパー） */
@@ -196,7 +204,7 @@ export async function addStaff(data: Record<string, unknown>) {
 }
 
 export async function updateStaff(id: number, data: Record<string, unknown>) {
-  const editableProjectsList = await getEditableProjects();
+  const editableProjectsList = await getEditableProjects(id);
   const editableCodes = editableProjectsList.map((p) => p.code);
 
   // 基本フィールドの更新（渡されたフィールドのみ）
