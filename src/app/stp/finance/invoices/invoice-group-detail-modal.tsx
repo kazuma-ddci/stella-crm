@@ -42,6 +42,7 @@ import {
   addInvoiceGroupAttachments,
   deleteInvoiceGroupAttachment,
   requestReturnInvoiceGroup,
+  cancelInvoiceGroupHandover,
 } from "./actions";
 import {
   getGroupAllocationWarnings,
@@ -896,6 +897,28 @@ export function InvoiceGroupDetailModal({
                     >
                       <ArrowRight className="mr-1 h-4 w-4" />
                       経理へ引渡
+                    </Button>
+                  )}
+                  {group.status === "awaiting_accounting" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        if (!confirm("経理引渡を取り消して「送付済み」に戻しますか？\n※経理側で仕訳処理が開始されている場合は取り消せません。")) return;
+                        setLoading(true);
+                        try {
+                          await cancelInvoiceGroupHandover(group.id);
+                          onClose();
+                        } catch (e) {
+                          alert(e instanceof Error ? e.message : "エラーが発生しました");
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                      disabled={loading}
+                    >
+                      <Undo2 className="mr-1 h-4 w-4" />
+                      引渡取消
                     </Button>
                   )}
                   {["awaiting_accounting", "partially_paid", "paid"].includes(group.status) && (

@@ -3867,6 +3867,7 @@ model HojoLineFriendJoseiSupport {
   deletedAt        DateTime?
 
   vendors              HojoVendor[]
+  vendorContacts       HojoVendorContact[]
   applicationSupports  HojoApplicationSupport[]
 
   @@map("hojo_line_friends_josei_support")
@@ -3959,6 +3960,7 @@ model HojoLineFriendSecurityCloud {
   deletedAt        DateTime?
 
   vendors           HojoVendor[]
+  vendorContacts    HojoVendorContact[]
 
   @@map("hojo_line_friends_security_cloud")
 }
@@ -3982,11 +3984,31 @@ model HojoVendor {
 
   lineFriend          HojoLineFriendSecurityCloud? @relation(fields: [lineFriendId], references: [id], onDelete: SetNull)
   joseiLineFriend     HojoLineFriendJoseiSupport?  @relation(fields: [joseiLineFriendId], references: [id], onDelete: SetNull)
+  contacts             HojoVendorContact[]
   applicationSupports  HojoApplicationSupport[]
   vendorAccounts       HojoVendorAccount[]
   wholesaleAccounts    HojoWholesaleAccount[]
 
   @@map("hojo_vendors")
+}
+
+// ============================================
+// ベンダー担当者（1ベンダーに複数のLINEユーザーを紐付け）
+// ============================================
+
+model HojoVendorContact {
+  id                 Int      @id @default(autoincrement())
+  vendorId           Int      @map("vendor_id")
+  lineFriendId       Int?     @map("line_friend_id")                      // セキュリティクラウドLINE友達のID
+  joseiLineFriendId  Int?     @map("josei_line_friend_id")                // 助成金申請サポートLINE友達のID
+  isPrimary          Boolean  @default(false) @map("is_primary")          // 主担当（通知送信先等に使用）
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  vendor             HojoVendor                   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  lineFriend         HojoLineFriendSecurityCloud?  @relation(fields: [lineFriendId], references: [id], onDelete: SetNull)
+  joseiLineFriend    HojoLineFriendJoseiSupport?   @relation(fields: [joseiLineFriendId], references: [id], onDelete: SetNull)
+
+  @@map("hojo_vendor_contacts")
 }
 
 // ============================================
@@ -4027,8 +4049,9 @@ model HojoBbsStatus {
 
 model HojoApplicationSupport {
   id                    Int       @id @default(autoincrement())
-  lineFriendId          Int       @unique                        // LINE友達（助成金申請サポート）のID
-  vendorId              Int?                                     // ベンダー
+  lineFriendId          Int                                      // LINE友達（助成金申請サポート）のID（同一LINEユーザーで複数レコード可）
+  vendorId              Int?                                     // 紹介元ベンダー
+  vendorIdManual        Boolean   @default(false) @map("vendor_id_manual") // true=手動設定、false=free1から自動設定
   statusId              Int?                                     // 自社ステータス
   applicantName         String?   @db.VarChar(200)               // 申請者名
   detailMemo            String?   @db.Text                       // 詳細メモ
@@ -4118,6 +4141,7 @@ model HojoWholesaleAccount {
   supportProviderName   String?   @db.VarChar(200) @map("support_provider_name")   // 支援事業者名
   companyName           String?   @db.VarChar(200) @map("company_name")             // 会社名(補助事業社、納品先）
   email                 String?   @db.VarChar(255)                                  // メールアドレス(アカウント)
+  softwareSalesContractUrl String? @db.VarChar(500) @map("software_sales_contract_url") // ソフトウェア販売契約書URL
   recruitmentRound      Int?      @map("recruitment_round")                         // 募集回
   adoptionDate          DateTime? @map("adoption_date")                             // 採択日
   issueRequestDate      DateTime? @map("issue_request_date")                        // 発行依頼日

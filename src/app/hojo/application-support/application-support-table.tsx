@@ -2,11 +2,46 @@
 
 import { useRouter } from "next/navigation";
 import { CrudTable, ColumnDef, CustomRenderers, InlineEditConfig } from "@/components/crud-table";
-import { updateApplicationSupport } from "./actions";
+import {
+  updateApplicationSupport,
+  addApplicationSupportRecord,
+  deleteApplicationSupportRecord,
+  acceptResolvedVendor,
+  resolveVendorMismatch,
+} from "./actions";
 import { StatusManagementModal } from "./status-management-modal";
-import { ExternalLink, Copy, Check, Settings } from "lucide-react";
+import { ExternalLink, Copy, Check, Settings, Plus, Trash2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { toast } from "sonner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+type DataRow = Record<string, unknown> & {
+  id: number;
+  lineFriendId: number;
+  lineName: string;
+  vendorName: string;
+  vendorId: string;
+  vendorIdManual: boolean;
+  groupSize: number;
+  groupIndex: number;
+  hasMismatch: boolean;
+  mismatchResolvedVendorName: string | null;
+  mismatchResolvedVendorId: number | null;
+};
 
 type Props = {
   data: Record<string, unknown>[];
@@ -19,7 +54,8 @@ type Props = {
 
 function BbsUrlButton() {
   const [copied, setCopied] = useState(false);
-  const bbsUrl = "https://bbs.alkes.jp/hojo/bbs";
+  const bbsDomain = process.env.NEXT_PUBLIC_BBS_DOMAIN || "https://bbs.alkes.jp";
+  const bbsUrl = `${bbsDomain}/hojo/bbs`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(bbsUrl);
@@ -46,14 +82,30 @@ export function ApplicationSupportTable({
   const router = useRouter();
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [bbsStatusModalOpen, setBbsStatusModalOpen] = useState(false);
+  const [mismatchDialog, setMismatchDialog] = useState<DataRow | null>(null);
 
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
+    { key: "groupSize", header: "", editable: false, hidden: true },
+    { key: "groupIndex", header: "", editable: false, hidden: true },
+    { key: "vendorIdManual", header: "", editable: false, hidden: true },
+    { key: "hasMismatch", header: "", editable: false, hidden: true },
+    { key: "mismatchResolvedVendorName", header: "", editable: false, hidden: true },
+    { key: "mismatchResolvedVendorId", header: "", editable: false, hidden: true },
+    {
+      key: "rowNo",
+      header: "No.",
+      editable: false,
+      width: 1,
+      cellClassName: "text-center",
+    },
     {
       key: "lineFriendId",
       header: "申請者番号",
       editable: false,
       filterable: true,
+      width: 1,
+      cellClassName: "text-center",
     },
     {
       key: "lineName",
@@ -63,13 +115,14 @@ export function ApplicationSupportTable({
     },
     {
       key: "vendorName",
-      header: "ベンダー",
+      header: "紹介元ベンダー",
       editable: false,
       filterable: true,
+      inlineEditable: true,
     },
     {
       key: "vendorId",
-      header: "ベンダー（編集用）",
+      header: "紹介元ベンダー（編集用）",
       type: "select",
       options: vendorOptions,
       searchable: true,
@@ -190,9 +243,55 @@ export function ApplicationSupportTable({
       header: "ベンダー備考",
       editable: false,
     },
+    {
+      key: "_actions",
+      header: "操作",
+      editable: false,
+      width: 1,
+    },
   ];
 
+  const inlineEditConfig: InlineEditConfig = {
+    displayToEditMapping: {
+      vendorName: "vendorId",
+    },
+  };
+
   const customRenderers: CustomRenderers = {
+    rowNo: (value) => {
+      return <span className="text-gray-500 text-xs">{String(value)}</span>;
+    },
+    vendorName: (_value, row) => {
+      const r = row as unknown as DataRow;
+      const name = r.vendorName || "-";
+
+      return (
+        <div className="flex items-center gap-1">
+          <span>{name}</span>
+          {r.vendorIdManual && (
+            <span className="text-xs text-blue-600 bg-blue-50 px-1 rounded">手動</span>
+          )}
+          {r.hasMismatch && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setMismatchDialog(r); }}
+                    className="text-amber-600 hover:text-amber-800"
+                  >
+                    <AlertTriangle className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>free1の紹介元ベンダーと異なります: {r.mismatchResolvedVendorName || "なし"}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
+      );
+    },
     vendorId: (value) => {
       if (!value) return "-";
       const option = vendorOptions.find((opt) => opt.value === String(value));
@@ -202,7 +301,6 @@ export function ApplicationSupportTable({
       if (!value) return "-";
       const activeOption = statusOptions.find((opt) => opt.value === String(value));
       if (activeOption) return activeOption.label;
-      // 非アクティブ or 削除済みステータス → 赤色表示
       const allOption = allStatusOptions.find((opt) => opt.value === String(value));
       return (
         <span className="text-red-600 bg-red-50 px-1.5 py-0.5 rounded text-xs font-medium">
@@ -245,11 +343,96 @@ export function ApplicationSupportTable({
         </a>
       );
     },
+    _actions: (_value, row) => {
+      const r = row as unknown as DataRow;
+      return (
+        <div className="flex items-center gap-1">
+          {r.groupIndex === 0 && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        await addApplicationSupportRecord(r.lineFriendId);
+                        toast.success("レコードを追加しました");
+                        router.refresh();
+                      } catch {
+                        toast.error("追加に失敗しました");
+                      }
+                    }}
+                    className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-blue-600"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>同じLINEアカウントでレコード追加</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {r.groupSize > 1 && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (!confirm("このレコードを削除しますか？")) return;
+                      try {
+                        await deleteApplicationSupportRecord(r.id);
+                        toast.success("レコードを削除しました");
+                        router.refresh();
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : "削除に失敗しました");
+                      }
+                    }}
+                    className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-red-600"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>このレコードを削除</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
+      );
+    },
   };
 
   const handleUpdate = async (id: number, formData: Record<string, unknown>) => {
     await updateApplicationSupport(id, formData);
     router.refresh();
+  };
+
+  const handleAcceptMismatch = async () => {
+    if (!mismatchDialog) return;
+    try {
+      await acceptResolvedVendor(
+        mismatchDialog.id,
+        mismatchDialog.mismatchResolvedVendorId
+      );
+      toast.success("紹介元ベンダーを更新しました");
+      setMismatchDialog(null);
+      router.refresh();
+    } catch {
+      toast.error("更新に失敗しました");
+    }
+  };
+
+  const handleKeepMismatch = async () => {
+    if (!mismatchDialog) return;
+    try {
+      await resolveVendorMismatch(mismatchDialog.id, "keep");
+      toast.success("現在のベンダーを維持します");
+      setMismatchDialog(null);
+      router.refresh();
+    } catch {
+      toast.error("更新に失敗しました");
+    }
   };
 
   return (
@@ -264,6 +447,20 @@ export function ApplicationSupportTable({
         customAddButton={<BbsUrlButton />}
         enableInlineEdit
         skipInlineConfirm
+        inlineEditConfig={inlineEditConfig}
+        groupByKey="lineFriendId"
+        groupedColumns={["lineFriendId", "lineName"]}
+        rowClassName={(item) => {
+          const r = item as unknown as DataRow;
+          const classes: string[] = [];
+          if (r.groupSize > 1) {
+            classes.push("bg-blue-50/30");
+          }
+          if (r.hasMismatch) {
+            classes.push("!bg-amber-50");
+          }
+          return classes.length > 0 ? classes.join(" ") : undefined;
+        }}
         customHeaderRenderers={{
           statusId: () => (
             <button
@@ -287,6 +484,49 @@ export function ApplicationSupportTable({
           ),
         }}
       />
+
+      {/* 紹介元ベンダー不一致ダイアログ */}
+      <Dialog open={!!mismatchDialog} onOpenChange={() => setMismatchDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-600" />
+              紹介元ベンダーの不一致
+            </DialogTitle>
+            <DialogDescription>
+              free1（LINE紹介元データ）から判定されるベンダーと、現在設定されているベンダーが異なります。
+            </DialogDescription>
+          </DialogHeader>
+          {mismatchDialog && (
+            <div className="space-y-3 py-2">
+              <div className="flex items-center gap-4 text-sm">
+                <div className="flex-1">
+                  <div className="text-gray-500">現在のベンダー</div>
+                  <div className="font-medium">{mismatchDialog.vendorName || "なし"}</div>
+                  {mismatchDialog.vendorIdManual && (
+                    <span className="text-xs text-blue-600 bg-blue-50 px-1 rounded">手動設定</span>
+                  )}
+                </div>
+                <div className="text-gray-400">→</div>
+                <div className="flex-1">
+                  <div className="text-gray-500">free1からの判定</div>
+                  <div className="font-medium">{mismatchDialog.mismatchResolvedVendorName || "なし"}</div>
+                  <span className="text-xs text-gray-500 bg-gray-100 px-1 rounded">自動判定</span>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={handleKeepMismatch}>
+              現在のベンダーを維持
+            </Button>
+            <Button onClick={handleAcceptMismatch}>
+              free1のベンダーに変更
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <StatusManagementModal
         open={statusModalOpen}
         onOpenChange={setStatusModalOpen}

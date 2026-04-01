@@ -76,45 +76,81 @@ function formatLineFriend(f: {
 }
 
 export default async function ApplicantInfoPage() {
-  const [joseiFriendsAll, vendors, joseiProline] = await Promise.all([
+  const [joseiFriendsAll, vendors, joseiProline, applicationSupports] = await Promise.all([
     prisma.hojoLineFriendJoseiSupport.findMany({
       where: { deletedAt: null },
       orderBy: [{ id: "asc" }],
     }),
     prisma.hojoVendor.findMany({
-      where: { joseiLineFriendId: { not: null } },
-      select: { joseiLineFriendId: true, name: true },
+      where: { isActive: true },
+      select: {
+        id: true, name: true, joseiLineFriendId: true,
+        contacts: { select: { joseiLineFriendId: true } },
+      },
     }),
     prisma.hojoProlineAccount.findFirst({
       where: { lineType: "josei-support" },
       select: { label: true },
     }),
+    // 申請者管理の全レコードを取得（紹介元ベンダー表示用）
+    prisma.hojoApplicationSupport.findMany({
+      where: { deletedAt: null },
+      select: { lineFriendId: true, vendorId: true, vendor: { select: { name: true } } },
+    }),
   ]);
 
-  // joseiLineFriendId → ベンダー名 のマップ
-  const vendorByJoseiId = new Map(
-    vendors.map((v) => [v.joseiLineFriendId!, v.name])
-  );
+  // joseiLineFriendId → ベンダー名リスト のマップ（旧フィールド + contacts両方から構築）
+  const vendorNamesByJoseiId = new Map<number, string[]>();
+  function addVendorJosei(joseiId: number, name: string) {
+    const names = vendorNamesByJoseiId.get(joseiId) || [];
+    if (!names.includes(name)) names.push(name);
+    vendorNamesByJoseiId.set(joseiId, names);
+  }
+  for (const v of vendors) {
+    if (v.joseiLineFriendId) addVendorJosei(v.joseiLineFriendId, v.name);
+    for (const c of v.contacts) {
+      if (c.joseiLineFriendId) addVendorJosei(c.joseiLineFriendId, v.name);
+    }
+  }
 
   // uid → joseiId のマップ（free1からの逆引き用）
   const joseiByUid = new Map(
     joseiFriendsAll.map((f) => [f.uid, f.id])
   );
 
+  // lineFriendId → 紹介元ベンダー名リスト（重複なし）
+  const vendorNamesByLineFriendId = new Map<number, string[]>();
+  for (const as of applicationSupports) {
+    if (as.vendor?.name) {
+      const names = vendorNamesByLineFriendId.get(as.lineFriendId) || [];
+      if (!names.includes(as.vendor.name)) {
+        names.push(as.vendor.name);
+      }
+      vendorNamesByLineFriendId.set(as.lineFriendId, names);
+    }
+  }
+
   // 申請者情報タブ用データ
   const applicantData = joseiFriendsAll.map((f) => {
-    const isVendor = vendorByJoseiId.has(f.id);
-    const displayUserType = isVendor ? "ベンダー" : f.userType;
+    const belongsToVendors = vendorNamesByJoseiId.get(f.id) || [];
+    const isVendor = belongsToVendors.length > 0;
+    const displayUserType = isVendor
+      ? `ベンダー(${belongsToVendors.join(",")})`
+      : f.userType;
 
-    let vendorName: string | null = null;
+    // 紹介元ベンダー: 申請者管理のレコードから取得（複数ベンダー対応）
+    const vendorNamesFromRecords = vendorNamesByLineFriendId.get(f.id) || [];
+
+    // free1からのベンダー判定（エラー検出用）
+    let vendorNameFromFree1: string | null = null;
     let hasError = false;
 
     if (f.free1) {
       const referredId = joseiByUid.get(f.free1);
       if (referredId !== undefined) {
-        const vName = vendorByJoseiId.get(referredId);
-        if (vName) {
-          vendorName = vName;
+        const vNames = vendorNamesByJoseiId.get(referredId);
+        if (vNames && vNames.length > 0) {
+          vendorNameFromFree1 = vNames[0];
         } else {
           if (displayUserType === "顧客") {
             hasError = true;
@@ -123,13 +159,20 @@ export default async function ApplicantInfoPage() {
       }
     }
 
+    // 表示用ベンダー名: 申請者管理のレコードがあればそちらを優先、なければfree1から
+    const vendorNames = vendorNamesFromRecords.length > 0
+      ? vendorNamesFromRecords
+      : vendorNameFromFree1
+        ? [vendorNameFromFree1]
+        : [];
+
     return {
       id: f.id,
       snsname: f.snsname,
       uid: f.uid,
       userType: displayUserType,
       isVendor,
-      vendorName,
+      vendorName: vendorNames.length > 0 ? vendorNames.join(", ") : null,
       hasError,
     };
   });
@@ -142,7 +185,6 @@ export default async function ApplicantInfoPage() {
         .toISOString()
     : null;
 
-  // 申請者情報タブでエラーになっているユーザーのID一覧（助成金申請サポートタブでも強調用）
   const joseiInvalidIds = applicantData
     .filter((a) => a.hasError)
     .map((a) => a.id);

@@ -123,8 +123,8 @@ export async function POST(request: Request) {
     const webhookOnlyCount = existingRecords.filter((r) => !processedUids.has(r.uid)).length;
     const total = friends.length + webhookOnlyCount;
 
-    // free1が変更された可能性があるので、vendorIdを全件同期
-    const vendorIdSynced = await syncVendorIdFromFree1();
+    // free1が変更された可能性があるので、vendorIdを全件同期（初回のみ自動設定）
+    const { updatedCount: vendorIdSynced } = await syncVendorIdFromFree1();
     console.log(`[Cron] sync-hojo-josei-support: created=${created}, updated=${updated}, total=${total}, vendorIdSynced=${vendorIdSynced}`);
     return NextResponse.json({ success: true, created, updated, total });
   } catch (err) {

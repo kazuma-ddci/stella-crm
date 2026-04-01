@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { ApplicationSupportTable } from "./application-support-table";
-import { syncVendorIdFromFree1 } from "@/lib/hojo/sync-vendor-id";
+import { syncVendorIdFromFree1, VendorMismatch } from "@/lib/hojo/sync-vendor-id";
 
 export default async function ApplicationSupportPage() {
   // 助成金申請サポートのLINE友達を全件取得
@@ -23,13 +23,11 @@ export default async function ApplicationSupportPage() {
     where: { deletedAt: null },
     include: { vendor: true, status: true, bbsStatusRef: true },
   });
-  const recordByLineFriendId = new Map(
-    existingRecords.map((r) => [r.lineFriendId, r])
-  );
+  const existingLineFriendIds = new Set(existingRecords.map((r) => r.lineFriendId));
 
-  // 顧客のLINE友達に対応するレコードがなければ自動作成
+  // 顧客のLINE友達に対応するレコードがなければ自動作成（初回1レコード）
   const missingFriends = joseiLineFriends.filter(
-    (f) => !recordByLineFriendId.has(f.id)
+    (f) => !existingLineFriendIds.has(f.id)
   );
   if (missingFriends.length > 0) {
     await prisma.hojoApplicationSupport.createMany({
@@ -38,17 +36,23 @@ export default async function ApplicationSupportPage() {
     });
   }
 
-  // free1→vendorIdを全件同期（新規作成分 + free1変更分を一括処理）
-  await syncVendorIdFromFree1();
+  // free1→vendorIdを同期（初回自動設定のみ）+ 不一致情報取得
+  const { mismatches } = await syncVendorIdFromFree1();
 
   // 同期後のデータを再取得
   existingRecords = await prisma.hojoApplicationSupport.findMany({
     where: { deletedAt: null },
     include: { vendor: true, status: true, bbsStatusRef: true },
+    orderBy: [{ lineFriendId: "asc" }, { id: "asc" }],
   });
-  const finalRecordMap = new Map(
-    existingRecords.map((r) => [r.lineFriendId, r])
-  );
+
+  // lineFriendId → レコード群のマップ
+  const recordsByLineFriendId = new Map<number, typeof existingRecords>();
+  for (const r of existingRecords) {
+    const arr = recordsByLineFriendId.get(r.lineFriendId) || [];
+    arr.push(r);
+    recordsByLineFriendId.set(r.lineFriendId, arr);
+  }
 
   // ベンダーの選択肢（編集フォーム用）
   const activeVendors = await prisma.hojoVendor.findMany({
@@ -66,7 +70,7 @@ export default async function ApplicationSupportPage() {
     label: s.name,
   }));
 
-  // 全ステータス（非アクティブ含む、赤色表示用）
+  // 全ステータス（非アクティブ含む）
   const allStatuses = await prisma.hojoApplicationStatus.findMany({
     orderBy: { displayOrder: "asc" },
   });
@@ -75,7 +79,7 @@ export default async function ApplicationSupportPage() {
     label: s.name,
   }));
 
-  // BBSステータス一覧
+  // BBSステータス
   const bbsStatuses = await prisma.hojoBbsStatus.findMany({
     where: { isActive: true },
     orderBy: { displayOrder: "asc" },
@@ -84,8 +88,6 @@ export default async function ApplicationSupportPage() {
     value: String(s.id),
     label: s.name,
   }));
-
-  // 全BBSステータス（非アクティブ含む、赤色表示用）
   const allBbsStatuses = await prisma.hojoBbsStatus.findMany({
     orderBy: { displayOrder: "asc" },
   });
@@ -94,7 +96,7 @@ export default async function ApplicationSupportPage() {
     label: s.name,
   }));
 
-  // BBS No.を計算（BBS側と同じ条件: formAnswerDateあり、formAnswerDate昇順）
+  // BBS No.を計算
   const bbsRecords = existingRecords
     .filter((r) => r.formAnswerDate !== null)
     .sort((a, b) => a.formAnswerDate!.getTime() - b.formAnswerDate!.getTime());
@@ -103,36 +105,56 @@ export default async function ApplicationSupportPage() {
     bbsNoMap.set(r.id, i + 1);
   });
 
-  // テーブルデータの整形
-  const data = joseiLineFriends.map((f) => {
-    const record = finalRecordMap.get(f.id);
+  // 不一致マップ（applicationSupportId → mismatch）
+  const mismatchMap = new Map<number, VendorMismatch>(
+    mismatches.map((m) => [m.applicationSupportId, m])
+  );
 
-    return {
-      id: record?.id ?? 0,
-      lineFriendId: f.id,
-      lineName: f.snsname || "-",
-      vendorName: record?.vendor?.name || "-",
-      vendorId: record?.vendorId ? String(record.vendorId) : "",
-      statusId: record?.statusId ? String(record.statusId) : "",
-      applicantName: record?.applicantName ?? "",
-      detailMemo: record?.detailMemo ?? "",
-      formAnswerDate: record?.formAnswerDate?.toISOString().slice(0, 10) ?? null,
-      formTranscriptDate: record?.formTranscriptDate?.toISOString().slice(0, 10) ?? null,
-      applicationFormDate: record?.applicationFormDate?.toISOString().slice(0, 10) ?? null,
-      documentStorageUrl: record?.documentStorageUrl ?? "",
-      subsidyDesiredDate: record?.subsidyDesiredDate?.toISOString().slice(0, 10) ?? null,
-      subsidyAmount: record?.subsidyAmount ?? null,
-      paymentReceivedDate: record?.paymentReceivedDate?.toISOString().slice(0, 10) ?? null,
-      paymentReceivedAmount: record?.paymentReceivedAmount ?? null,
-      bbsTransferAmount: record?.bbsTransferAmount ?? null,
-      bbsTransferDate: record?.bbsTransferDate?.toISOString().slice(0, 10) ?? null,
-      subsidyReceivedDate: record?.subsidyReceivedDate?.toISOString().slice(0, 10) ?? null,
-      alkesMemo: record?.alkesMemo ?? "",
-      bbsMemo: record?.bbsMemo ?? "",
-      bbsNo: record ? (bbsNoMap.get(record.id) ?? null) : null,
-      bbsStatusId: record?.bbsStatusId ? String(record.bbsStatusId) : "",
-      vendorMemo: record?.vendorMemo ?? "",
-    };
+  // テーブルデータの整形（グループ化対応）
+  let rowCounter = 0;
+  const data = joseiLineFriends.flatMap((f) => {
+    const records = recordsByLineFriendId.get(f.id) || [];
+    if (records.length === 0) return [];
+
+    return records.map((record, idx) => {
+      rowCounter++;
+      const mismatch = mismatchMap.get(record.id);
+      return {
+        id: record.id,
+        rowNo: rowCounter,
+        lineFriendId: f.id,
+        lineName: f.snsname || "-",
+        vendorName: record.vendor?.name || "-",
+        vendorId: record.vendorId ? String(record.vendorId) : "",
+        vendorIdManual: record.vendorIdManual,
+        statusId: record.statusId ? String(record.statusId) : "",
+        applicantName: record.applicantName ?? "",
+        detailMemo: record.detailMemo ?? "",
+        formAnswerDate: record.formAnswerDate?.toISOString().slice(0, 10) ?? null,
+        formTranscriptDate: record.formTranscriptDate?.toISOString().slice(0, 10) ?? null,
+        applicationFormDate: record.applicationFormDate?.toISOString().slice(0, 10) ?? null,
+        documentStorageUrl: record.documentStorageUrl ?? "",
+        subsidyDesiredDate: record.subsidyDesiredDate?.toISOString().slice(0, 10) ?? null,
+        subsidyAmount: record.subsidyAmount ?? null,
+        paymentReceivedDate: record.paymentReceivedDate?.toISOString().slice(0, 10) ?? null,
+        paymentReceivedAmount: record.paymentReceivedAmount ?? null,
+        bbsTransferAmount: record.bbsTransferAmount ?? null,
+        bbsTransferDate: record.bbsTransferDate?.toISOString().slice(0, 10) ?? null,
+        subsidyReceivedDate: record.subsidyReceivedDate?.toISOString().slice(0, 10) ?? null,
+        alkesMemo: record.alkesMemo ?? "",
+        bbsMemo: record.bbsMemo ?? "",
+        bbsNo: bbsNoMap.get(record.id) ?? null,
+        bbsStatusId: record.bbsStatusId ? String(record.bbsStatusId) : "",
+        vendorMemo: record.vendorMemo ?? "",
+        // グループ化用
+        groupSize: records.length,
+        groupIndex: idx,
+        // 不一致警告用
+        hasMismatch: !!mismatch,
+        mismatchResolvedVendorName: mismatch?.resolvedVendorName ?? null,
+        mismatchResolvedVendorId: mismatch?.resolvedVendorId ?? null,
+      };
+    });
   });
 
   return (

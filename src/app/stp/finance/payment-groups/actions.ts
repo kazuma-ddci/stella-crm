@@ -1271,3 +1271,71 @@ export async function requestReturnPaymentGroup(
   revalidatePath("/stp/finance/payment-groups");
 }
 
+// ============================================
+// 経理引渡の取消（経理側で仕訳未処理の場合のみ）
+// ============================================
+
+export async function cancelPaymentGroupHandover(
+  id: number
+): Promise<void> {
+  const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
+
+  const group = await prisma.paymentGroup.findUnique({
+    where: { id, deletedAt: null, projectId: stpProjectId },
+    include: {
+      transactions: {
+        where: { deletedAt: null },
+        select: { id: true, journalCompleted: true },
+      },
+    },
+  });
+  if (!group) throw new Error("支払が見つかりません");
+
+  if (group.status !== "awaiting_accounting") {
+    throw new Error("「経理引渡済み」ステータスの支払のみ引渡を取り消せます");
+  }
+
+  // 仕訳処理が開始されていないかチェック
+  const txIds = group.transactions.map((t) => t.id);
+
+  if (group.transactions.some((t) => t.journalCompleted)) {
+    throw new Error("経理側で仕訳処理が開始されているため、引渡を取り消せません");
+  }
+
+  if (txIds.length > 0) {
+    const journalCount = await prisma.journalEntry.count({
+      where: {
+        deletedAt: null,
+        OR: [
+          { paymentGroupId: id },
+          { transactionId: { in: txIds } },
+        ],
+      },
+    });
+    if (journalCount > 0) {
+      throw new Error("経理側で仕訳処理が開始されているため、引渡を取り消せません");
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.paymentGroup.update({
+      where: { id },
+      data: { status: "confirmed", updatedBy: user.id },
+    });
+
+    await recordChangeLog(
+      {
+        tableName: "PaymentGroup",
+        recordId: id,
+        changeType: "update",
+        oldData: { status: "awaiting_accounting" },
+        newData: { status: "confirmed" },
+      },
+      user.id,
+      tx
+    );
+  });
+
+  revalidatePath("/stp/finance/payment-groups");
+}

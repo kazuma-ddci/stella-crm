@@ -106,8 +106,11 @@ export default async function CustomerInfoPage() {
         select: { free1: true },
       }),
       prisma.hojoVendor.findMany({
-        where: { lineFriendId: { not: null } },
-        select: { lineFriendId: true, name: true },
+        where: { isActive: true },
+        select: {
+          lineFriendId: true, name: true,
+          contacts: { select: { lineFriendId: true } },
+        },
       }),
       prisma.hojoProlineAccount.findMany({
         select: { lineType: true, label: true },
@@ -117,7 +120,18 @@ export default async function CustomerInfoPage() {
   const scUidSet = new Set(scFriends.map((f) => f.uid));
   const shinseiUidSet = new Set(shinseiFree1.map((f) => f.free1).filter(Boolean));
   const alkesUidSet = new Set(alkesFree1.map((f) => f.free1).filter(Boolean));
-  const vendorByScId = new Map(vendors.map((v) => [v.lineFriendId!, v.name]));
+  const vendorNamesByScId = new Map<number, string[]>();
+  function addVendorSc(scId: number, name: string) {
+    const names = vendorNamesByScId.get(scId) || [];
+    if (!names.includes(name)) names.push(name);
+    vendorNamesByScId.set(scId, names);
+  }
+  for (const v of vendors) {
+    if (v.lineFriendId) addVendorSc(v.lineFriendId, v.name);
+    for (const c of v.contacts) {
+      if (c.lineFriendId) addVendorSc(c.lineFriendId, v.name);
+    }
+  }
 
   // 紹介者解決: セキュリティクラウドのuid → {id, snsname} マップ
   const scUidToInfo = new Map(scFriends.map((f) => [f.uid, { id: f.id, snsname: f.snsname }]));
@@ -137,14 +151,15 @@ export default async function CustomerInfoPage() {
   }
 
   const customerData = scFriends.map((f) => {
-    const isVendor = vendorByScId.has(f.id);
+    const belongsToVendors = vendorNamesByScId.get(f.id) || [];
+    const isVendor = belongsToVendors.length > 0;
     // 紹介者: free1がセキュリティクラウドのuidと一致する人
     const referrerInfo = f.free1 ? scUidToInfo.get(f.free1) : null;
     return {
       id: f.id,
       snsname: f.snsname,
       uid: f.uid,
-      userType: isVendor ? "ベンダー" : f.userType,
+      userType: isVendor ? `ベンダー(${belongsToVendors.join(",")})` : f.userType,
       isVendor,
       hasShinseiSupport: shinseiUidSet.has(f.uid),
       hasAlkes: alkesUidSet.has(f.uid),

@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
 const INVOICE_STATUS_OPTIONS = [
-  { value: "", label: "未設定" },
   { value: "請求書送付済み", label: "請求書送付済み" },
   { value: "着金確認中", label: "着金確認中" },
   { value: "着金確認済み", label: "着金確認済み" },
@@ -22,11 +21,12 @@ export function AccountsTable({ data }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
     { key: "rowNo", header: "No.", editable: false, width: 1, cellClassName: "text-center" },
-    { key: "vendorName", header: "ベンダー", editable: false, filterable: true },
+    { key: "vendorName", header: "紹介元ベンダー", editable: false, filterable: true },
     { key: "vendorNo", header: "ベンダーNo.", editable: false, width: 1 },
     { key: "supportProviderName", header: "支援事業者名", editable: false, filterable: true },
     { key: "companyName", header: "会社名(補助事業社、納品先）", editable: false, filterable: true },
     { key: "email", header: "メールアドレス(アカウント)", editable: false, filterable: true },
+    { key: "softwareSalesContractUrl", header: "ソフトウェア販売契約書", editable: false },
     { key: "recruitmentRound", header: "募集回", editable: false },
     { key: "adoptionDate", header: "採択日", editable: false },
     { key: "issueRequestDate", header: "発行依頼日", editable: false },
@@ -37,6 +37,14 @@ export function AccountsTable({ data }: Props) {
   ];
 
   const customRenderers: CustomRenderers = {
+    softwareSalesContractUrl: (value) => {
+      if (!value) return "-";
+      return (
+        <a href={String(value)} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+          リンク
+        </a>
+      );
+    },
     toolCost: (value) => {
       if (value == null || value === "") return "-";
       return `${value}万円`;

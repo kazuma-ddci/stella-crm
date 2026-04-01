@@ -110,6 +110,7 @@ export async function addWholesaleAccount(vendorId: number, data: Record<string,
       supportProviderName: data.supportProviderName ? String(data.supportProviderName).trim() : null,
       companyName: data.companyName ? String(data.companyName).trim() : null,
       email: data.email ? String(data.email).trim() : null,
+      softwareSalesContractUrl: data.softwareSalesContractUrl ? String(data.softwareSalesContractUrl).trim() : null,
       recruitmentRound: data.recruitmentRound ? Number(data.recruitmentRound) : null,
       adoptionDate: data.adoptionDate ? new Date(String(data.adoptionDate)) : null,
       issueRequestDate: data.issueRequestDate ? new Date(String(data.issueRequestDate)) : null,
@@ -134,6 +135,7 @@ export async function updateWholesaleAccountByVendor(
   if (data.supportProviderName !== undefined) updateData.supportProviderName = data.supportProviderName ? String(data.supportProviderName).trim() : null;
   if (data.companyName !== undefined) updateData.companyName = data.companyName ? String(data.companyName).trim() : null;
   if (data.email !== undefined) updateData.email = data.email ? String(data.email).trim() : null;
+  if (data.softwareSalesContractUrl !== undefined) updateData.softwareSalesContractUrl = data.softwareSalesContractUrl ? String(data.softwareSalesContractUrl).trim() : null;
   if (data.recruitmentRound !== undefined) updateData.recruitmentRound = data.recruitmentRound ? Number(data.recruitmentRound) : null;
   const dateFields = ["adoptionDate", "issueRequestDate", "grantDate"];
   for (const field of dateFields) {

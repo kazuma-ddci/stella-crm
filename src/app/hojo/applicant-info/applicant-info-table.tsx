@@ -49,7 +49,7 @@ const applicantColumns: ColumnDef[] = [
   { key: "snsname", header: "LINE名", type: "text", editable: false, filterable: true },
   { key: "uid", header: "UID", type: "text", editable: false, filterable: true },
   { key: "userType", header: "ユーザー種別", editable: false, filterable: true },
-  { key: "vendorName", header: "ベンダー", editable: false, filterable: true },
+  { key: "vendorName", header: "紹介元ベンダー", editable: false, filterable: true },
 ];
 
 // --- 助成金申請サポートタブ用 ---
@@ -177,7 +177,7 @@ export function ApplicantPageClient({
               if (r.isVendor) {
                 return (
                   <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
-                    ベンダー
+                    {String(value)}
                   </span>
                 );
               }

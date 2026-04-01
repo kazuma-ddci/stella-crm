@@ -1799,6 +1799,75 @@ export async function requestReturnInvoiceGroup(
 }
 
 // ============================================
+// 経理引渡の取消（経理側で仕訳未処理の場合のみ）
+// ============================================
+
+export async function cancelInvoiceGroupHandover(
+  id: number
+): Promise<void> {
+  const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
+
+  const group = await prisma.invoiceGroup.findUnique({
+    where: { id, deletedAt: null, projectId: stpProjectId },
+    include: {
+      transactions: {
+        where: { deletedAt: null },
+        select: { id: true, journalCompleted: true },
+      },
+    },
+  });
+  if (!group) throw new Error("請求グループが見つかりません");
+
+  if (group.status !== "awaiting_accounting") {
+    throw new Error("「経理処理待ち」ステータスの請求のみ引渡を取り消せます");
+  }
+
+  // 仕訳処理が開始されていないかチェック
+  const txIds = group.transactions.map((t) => t.id);
+
+  if (group.transactions.some((t) => t.journalCompleted)) {
+    throw new Error("経理側で仕訳処理が開始されているため、引渡を取り消せません");
+  }
+
+  if (txIds.length > 0) {
+    const journalCount = await prisma.journalEntry.count({
+      where: {
+        deletedAt: null,
+        OR: [
+          { invoiceGroupId: id },
+          { transactionId: { in: txIds } },
+        ],
+      },
+    });
+    if (journalCount > 0) {
+      throw new Error("経理側で仕訳処理が開始されているため、引渡を取り消せません");
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.invoiceGroup.update({
+      where: { id },
+      data: { status: "sent", updatedBy: user.id },
+    });
+
+    await recordChangeLog(
+      {
+        tableName: "InvoiceGroup",
+        recordId: id,
+        changeType: "update",
+        oldData: { status: "awaiting_accounting" },
+        newData: { status: "sent" },
+      },
+      user.id,
+      tx
+    );
+  });
+
+  revalidatePath("/stp/finance/invoices");
+}
+
+// ============================================
 // 経理→STP入金日連携ヘルパー
 // InvoiceGroupのactualPaymentDate変更時に
 // 紐づくStpRevenueRecordのpaidDateを同期する

@@ -24,11 +24,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, Plus, Check, Clock, AlertCircle, Lock, ChevronDown, ChevronRight, Pencil, Trash2 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { ArrowLeft, Plus, Check, Clock, AlertCircle, Lock, ChevronDown, ChevronRight, Pencil, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { JournalEntryModal } from "../../journal/journal-entry-modal";
 import { realizeJournalEntry, confirmJournalEntry, deleteJournalEntry } from "../../journal/actions";
 import { setTransactionJournalCompleted } from "../actions";
+import { returnGroupToStp } from "../../batch-complete/actions";
 import type { WorkflowGroupDetail, WorkflowTransaction } from "../actions";
 import type { JournalFormData } from "../../journal/actions";
 /** 税込合計を返す（tax_included の場合 amount がすでに税込） */
@@ -166,6 +168,26 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
     }
   };
 
+  const [showReturnDialog, setShowReturnDialog] = useState(false);
+  const [returnReason, setReturnReason] = useState("");
+  const [returning, setReturning] = useState(false);
+
+  const handleReturnToStp = async () => {
+    setReturning(true);
+    try {
+      await returnGroupToStp(detail.id, detail.groupType, returnReason.trim() || undefined);
+      toast.success("プロジェクト側に差し戻しました");
+      setShowReturnDialog(false);
+      setReturnReason("");
+      router.push("/accounting/workflow");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "エラーが発生しました");
+    } finally {
+      setReturning(false);
+    }
+  };
+
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
   const handleDeleteJournal = async () => {
@@ -206,6 +228,17 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
           {groupTypeLabel}グループ: {detail.label}
         </h1>
         <CategoryBadge category={detail.category} />
+        {!isReadOnly && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto text-amber-600 border-amber-300 hover:bg-amber-50"
+            onClick={() => setShowReturnDialog(true)}
+          >
+            <Undo2 className="h-4 w-4 mr-1" />
+            プロジェクトへ差し戻し
+          </Button>
+        )}
       </div>
 
       {/* グループ概要 + 条件ステータス */}
@@ -641,6 +674,34 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
             <AlertDialogCancel>キャンセル</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteJournal} className="bg-red-600 hover:bg-red-700">
               削除する
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 差し戻し確認ダイアログ */}
+      <AlertDialog open={showReturnDialog} onOpenChange={setShowReturnDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>プロジェクト側に差し戻しますか？</AlertDialogTitle>
+            <AlertDialogDescription>
+              この{groupTypeLabel}グループをプロジェクト側に差し戻します。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            value={returnReason}
+            onChange={(e) => setReturnReason(e.target.value)}
+            placeholder="差し戻し理由（任意）"
+            rows={3}
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setReturnReason("")}>キャンセル</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleReturnToStp}
+              disabled={returning}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              差し戻す
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

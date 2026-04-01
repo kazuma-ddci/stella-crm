@@ -8,62 +8,85 @@ export default async function VendorsPage() {
   const session = await auth();
   const canEdit = canEditProjectMasterDataSync(session?.user);
 
-  const vendors = await prisma.hojoVendor.findMany({
-    orderBy: { displayOrder: "asc" },
-    include: { lineFriend: true, joseiLineFriend: true },
-  });
+  const [vendors, lineFriends, joseiLineFriends, prolineAccounts] = await Promise.all([
+    prisma.hojoVendor.findMany({
+      orderBy: { displayOrder: "asc" },
+      include: {
+        lineFriend: true,
+        joseiLineFriend: true,
+        contacts: {
+          include: {
+            lineFriend: { select: { id: true, snsname: true } },
+            joseiLineFriend: { select: { id: true, snsname: true } },
+          },
+          orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
+        },
+      },
+    }),
+    prisma.hojoLineFriendSecurityCloud.findMany({
+      where: { deletedAt: null },
+      orderBy: { id: "asc" },
+    }),
+    prisma.hojoLineFriendJoseiSupport.findMany({
+      where: { deletedAt: null },
+      orderBy: { id: "asc" },
+    }),
+    prisma.hojoProlineAccount.findMany({
+      select: { lineType: true, label: true },
+    }),
+  ]);
 
-  // セキュリティクラウドLINE友達の選択肢
-  const lineFriends = await prisma.hojoLineFriendSecurityCloud.findMany({
-    where: { deletedAt: null },
-    orderBy: { id: "asc" },
-  });
+  // プロラインアカウントのラベル
+  const labelMap: Record<string, string> = {};
+  for (const a of prolineAccounts) {
+    labelMap[a.lineType] = a.label;
+  }
+  const scLabel = labelMap["security-cloud"] || "セキュリティクラウド";
+  const joseiLabel = labelMap["josei-support"] || "助成金申請サポート";
 
   const lineFriendOptions = lineFriends.map((f) => ({
     value: String(f.id),
     label: `${f.id} ${f.snsname || "（名前なし）"}`,
   }));
 
-  // 助成金申請サポートLINE友達の選択肢
-  const joseiLineFriends = await prisma.hojoLineFriendJoseiSupport.findMany({
-    where: { deletedAt: null },
-    orderBy: { id: "asc" },
-  });
-
   const joseiLineFriendOptions = joseiLineFriends.map((f) => ({
     value: String(f.id),
     label: `${f.id} ${f.snsname || "（名前なし）"}`,
   }));
 
-  // uid→LINE友達マップ（紹介者の解決用）
-  const uidToFriend = new Map(
-    lineFriends.map((f) => [f.uid, { id: f.id, snsname: f.snsname }])
-  );
+  const data = vendors.map((v) => {
+    // メイン担当者（isPrimary=trueの最初のcontact）
+    const primaryContact = v.contacts.find((c) => c.isPrimary);
 
-  // lineFriendId→紹介者表示名マップ
-  const referrerMap: Record<string, string> = {};
-  for (const f of lineFriends) {
-    if (f.free1) {
-      const referrer = uidToFriend.get(f.free1);
-      if (referrer) {
-        referrerMap[String(f.id)] = `${referrer.id} ${referrer.snsname || "（名前なし）"}`;
-      }
-    }
-  }
-
-  const data = vendors.map((v) => ({
-    id: v.id,
-    lineFriendId: v.lineFriendId ? String(v.lineFriendId) : "",
-    lineNo: v.lineFriendId ?? null,
-    lineName: v.lineFriend?.snsname || "",
-    referrer: v.lineFriendId ? (referrerMap[String(v.lineFriendId)] || "-") : "-",
-    name: v.name,
-    accessToken: v.accessToken,
-    joseiLineFriendId: v.joseiLineFriendId ? String(v.joseiLineFriendId) : "",
-    memo: v.memo ?? "",
-    displayOrder: v.displayOrder,
-    isActive: v.isActive,
-  }));
+    return {
+      id: v.id,
+      name: v.name,
+      accessToken: v.accessToken,
+      memo: v.memo ?? "",
+      displayOrder: v.displayOrder,
+      isActive: v.isActive,
+      // メイン担当者表示用
+      primaryContactDisplay: primaryContact
+        ? [
+            primaryContact.lineFriendId ? String(primaryContact.lineFriendId) : null,
+            primaryContact.lineFriend?.snsname || null,
+            primaryContact.joseiLineFriendId ? String(primaryContact.joseiLineFriendId) : null,
+          ].filter(Boolean).join(" ")
+        : "-",
+      // 担当者一覧
+      contacts: v.contacts.map((c) => ({
+        id: c.id,
+        lineFriendId: c.lineFriendId,
+        lineFriendName: c.lineFriend?.snsname || null,
+        joseiLineFriendId: c.joseiLineFriendId,
+        joseiLineFriendName: c.joseiLineFriend?.snsname || null,
+        isPrimary: c.isPrimary,
+      })),
+      // 旧フィールド（編集ダイアログ用に残す）
+      lineFriendId: v.lineFriendId ? String(v.lineFriendId) : "",
+      joseiLineFriendId: v.joseiLineFriendId ? String(v.joseiLineFriendId) : "",
+    };
+  });
 
   return (
     <div className="space-y-6">
@@ -78,7 +101,8 @@ export default async function VendorsPage() {
             canEdit={canEdit}
             lineFriendOptions={lineFriendOptions}
             joseiLineFriendOptions={joseiLineFriendOptions}
-            referrerMap={referrerMap}
+            scLabel={scLabel}
+            joseiLabel={joseiLabel}
           />
         </CardContent>
       </Card>

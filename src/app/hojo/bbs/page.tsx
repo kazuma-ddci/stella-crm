@@ -24,7 +24,7 @@ export default async function BbsPage() {
   }
 
   const records = await prisma.hojoApplicationSupport.findMany({
-    where: { deletedAt: null, formAnswerDate: { not: null } },
+    where: { deletedAt: null, formAnswerDate: { not: null }, lineFriend: { userType: "顧客" } },
     include: {
       lineFriend: true,
     },

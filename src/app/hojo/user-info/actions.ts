@@ -10,11 +10,14 @@ export async function updateCustomerUserType(id: number, userType: string) {
     throw new Error(`無効なユーザー種別です: ${userType}`);
   }
 
-  // ベンダーとして登録されているかチェック
+  // ベンダーとして登録されているかチェック（旧フィールド + contacts両方）
   const vendor = await prisma.hojoVendor.findFirst({
     where: { lineFriendId: id },
   });
-  if (vendor) {
+  const vendorContact = await prisma.hojoVendorContact.findFirst({
+    where: { lineFriendId: id },
+  });
+  if (vendor || vendorContact) {
     throw new Error("このユーザーはベンダーとして登録されているため、ユーザー種別を変更できません");
   }
 

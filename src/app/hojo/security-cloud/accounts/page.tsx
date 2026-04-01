@@ -24,6 +24,7 @@ export default async function SecurityCloudAccountsPage() {
       supportProviderName: r.supportProviderName || "",
       companyName: r.companyName || "",
       email: r.email || "",
+      softwareSalesContractUrl: r.softwareSalesContractUrl || "",
       recruitmentRound: r.recruitmentRound,
       adoptionDate: r.adoptionDate?.toISOString().slice(0, 10) ?? null,
       issueRequestDate: r.issueRequestDate?.toISOString().slice(0, 10) ?? null,

@@ -174,6 +174,10 @@ type CrudTableProps = {
   rowClassName?: (item: Record<string, unknown>) => string | undefined;
   // カスタムヘッダーレンダラー（ヘッダーセルの中身をカスタマイズ）
   customHeaderRenderers?: Record<string, () => React.ReactNode>;
+  // 行グループ化（rowSpan）: 同じgroupByKeyの値を持つ連続行をグループ化し、
+  // groupedColumnsで指定した列をrowSpanで結合する
+  groupByKey?: string;
+  groupedColumns?: string[];
 };
 
 function formatValue(value: unknown, type?: string, options?: { value: string; label: string }[]): string {
@@ -269,6 +273,8 @@ export function CrudTable({
   stickyLeftCount = 0,
   rowClassName,
   customHeaderRenderers,
+  groupByKey,
+  groupedColumns = [],
 }: CrudTableProps) {
   const router = useRouter();
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -1808,9 +1814,50 @@ export function CrudTable({
                 </TableCell>
               </TableRow>
             ) : (
-              filteredData.map((item, index) => (
-                <TableRow key={(item.id as number) || index} className={rowClassName?.(item)}>
+              filteredData.map((item, index) => {
+                // グループ化: rowSpan情報を計算
+                const groupKey = groupByKey ? item[groupByKey] : undefined;
+                let isGroupFirstRow = true;
+                let groupSpan = 1;
+                const groupedColSet = new Set(groupedColumns);
+
+                if (groupByKey && groupKey !== undefined) {
+                  // このアイテムのグループ内での位置を計算
+                  let groupStartIdx = index;
+                  while (groupStartIdx > 0 && filteredData[groupStartIdx - 1][groupByKey] === groupKey) {
+                    groupStartIdx--;
+                  }
+                  isGroupFirstRow = groupStartIdx === index;
+                  if (isGroupFirstRow) {
+                    // グループサイズを計算
+                    groupSpan = 1;
+                    let nextIdx = index + 1;
+                    while (nextIdx < filteredData.length && filteredData[nextIdx][groupByKey] === groupKey) {
+                      groupSpan++;
+                      nextIdx++;
+                    }
+                  }
+                }
+
+                const isGroupedRow = groupByKey && groupKey !== undefined && groupSpan > 1;
+                const isGroupMiddleOrLastRow = groupByKey && groupKey !== undefined && !isGroupFirstRow;
+
+                return (
+                <TableRow
+                  key={(item.id as number) || index}
+                  className={cn(
+                    rowClassName?.(item),
+                    // グループ内の中間行は上ボーダーを消す
+                    isGroupMiddleOrLastRow && "!border-t-0"
+                  )}
+                >
                   {visibleColumns.map((col, colIdx) => {
+                    // グループ化対象カラム: 先頭行以外はスキップ（rowSpanで結合されるため）
+                    const isGroupedCol = groupedColSet.has(col.key);
+                    if (isGroupedCol && isGroupMiddleOrLastRow) {
+                      return null;
+                    }
+
                     // 表示用カラムから編集用カラムへのマッピングを取得
                     const editColumnKey = inlineEditConfig?.displayToEditMapping?.[col.key] || col.key;
                     // 編集中かどうか（マッピングを考慮）
@@ -1829,12 +1876,15 @@ export function CrudTable({
                     return (
                       <TableCell
                         key={col.key}
+                        rowSpan={isGroupedCol && isGroupFirstRow && groupSpan > 1 ? groupSpan : undefined}
                         className={cn(
                           col.type === "textarea" ? "" : "whitespace-nowrap max-w-xs overflow-auto",
                           isInlineEditable && !isEditing && "cursor-pointer hover:bg-muted/50 transition-colors",
                           col.type === "password" && "select-none",
                           isStickyLeft && "sticky z-10 bg-white group-hover/row:bg-gray-50",
                           isLastStickyLeft && "shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]",
+                          // rowSpanセルは縦中央揃え
+                          isGroupedCol && isGroupFirstRow && groupSpan > 1 && "align-middle",
                           col.cellClassName
                         )}
                         style={{
@@ -1933,7 +1983,8 @@ export function CrudTable({
                     </TableCell>
                   )}
                 </TableRow>
-              ))
+                );
+              })
             )}
           </TableBody>
         </Table>

@@ -27,6 +27,7 @@ type ApplicantRecord = {
 
 type WholesaleRecord = {
   id: number; supportProviderName: string; companyName: string; email: string;
+  softwareSalesContractUrl: string;
   recruitmentRound: number | null; adoptionDate: string; issueRequestDate: string;
   accountApprovalDate: string; grantDate: string; toolCost: number | null; invoiceStatus: string;
 };
@@ -180,6 +181,7 @@ function WholesaleTab({ data, isVendor, vendorId }: { data: WholesaleRecord[]; i
     setEditRecord(r);
     setEditData({
       supportProviderName: r.supportProviderName, companyName: r.companyName, email: r.email,
+      softwareSalesContractUrl: r.softwareSalesContractUrl,
       recruitmentRound: r.recruitmentRound != null ? String(r.recruitmentRound) : "",
       adoptionDate: r.adoptionDate, issueRequestDate: r.issueRequestDate, grantDate: r.grantDate,
     });
@@ -220,6 +222,7 @@ function WholesaleTab({ data, isVendor, vendorId }: { data: WholesaleRecord[]; i
     { key: "supportProviderName", label: "支援事業者名", type: "text" as const },
     { key: "companyName", label: "会社名(補助事業社、納品先）", type: "text" as const },
     { key: "email", label: "メールアドレス(アカウント)", type: "text" as const },
+    { key: "softwareSalesContractUrl", label: "ソフトウェア販売契約書", type: "url" as const, placeholder: "https://..." },
     { key: "recruitmentRound", label: "募集回", type: "number" as const },
     { key: "adoptionDate", label: "採択日", type: "date" as const },
     { key: "issueRequestDate", label: "発行依頼日", type: "date" as const },
@@ -239,18 +242,19 @@ function WholesaleTab({ data, isVendor, vendorId }: { data: WholesaleRecord[]; i
             <TableHeader><TableRow>
               <TableHead className="w-12">No.</TableHead>
               <TableHead>支援事業者名</TableHead><TableHead>会社名(補助事業社、納品先）</TableHead><TableHead>メールアドレス(アカウント)</TableHead>
-              <TableHead>募集回</TableHead><TableHead>採択日</TableHead><TableHead>発行依頼日</TableHead><TableHead>アカウント承認日</TableHead>
+              <TableHead>ソフトウェア販売契約書</TableHead><TableHead>募集回</TableHead><TableHead>採択日</TableHead><TableHead>発行依頼日</TableHead><TableHead>アカウント承認日</TableHead>
               <TableHead>交付日</TableHead><TableHead>ツール代(税別)万円</TableHead><TableHead>請求入金状況</TableHead>
               {isVendor && <TableHead className="w-[80px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
             </TableRow></TableHeader>
             <TableBody>
-              {data.length === 0 ? <TableRow><TableCell colSpan={isVendor ? 12 : 11} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
+              {data.length === 0 ? <TableRow><TableCell colSpan={isVendor ? 13 : 12} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
               : data.map((r, idx) => (
                 <TableRow key={r.id} className="group/row">
                   <TableCell className="text-gray-500">{idx + 1}</TableCell>
                   <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.supportProviderName} onSave={(v) => inlineSave(r.id, "supportProviderName", v)}>{r.supportProviderName || "-"}</InlineCell> : r.supportProviderName || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.companyName} onSave={(v) => inlineSave(r.id, "companyName", v)}>{r.companyName || "-"}</InlineCell> : r.companyName || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.email} onSave={(v) => inlineSave(r.id, "email", v)}>{r.email || "-"}</InlineCell> : r.email || "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.softwareSalesContractUrl} onSave={(v) => inlineSave(r.id, "softwareSalesContractUrl", v)}>{r.softwareSalesContractUrl ? <a href={r.softwareSalesContractUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">リンク</a> : "-"}</InlineCell> : r.softwareSalesContractUrl ? <a href={r.softwareSalesContractUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">リンク</a> : "-"}</TableCell>
                   <TableCell>{isVendor ? <InlineCell value={r.recruitmentRound != null ? String(r.recruitmentRound) : ""} onSave={(v) => inlineSave(r.id, "recruitmentRound", v)} type="number">{r.recruitmentRound ?? "-"}</InlineCell> : r.recruitmentRound ?? "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.adoptionDate} onSave={(v) => inlineSave(r.id, "adoptionDate", v)} type="date">{r.adoptionDate || "-"}</InlineCell> : r.adoptionDate || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.issueRequestDate} onSave={(v) => inlineSave(r.id, "issueRequestDate", v)} type="date">{r.issueRequestDate || "-"}</InlineCell> : r.issueRequestDate || "-"}</TableCell>
@@ -281,7 +285,7 @@ function WholesaleTab({ data, isVendor, vendorId }: { data: WholesaleRecord[]; i
               <div key={f.key} className="space-y-1">
                 <Label>{f.label}</Label>
                 {f.type === "date" ? <DatePicker value={newData[f.key] || ""} onChange={(v) => setNewData({ ...newData, [f.key]: v })} />
-                : <Input type={f.type} value={newData[f.key] || ""} onChange={(e) => setNewData({ ...newData, [f.key]: e.target.value })} min={f.type === "number" ? "1" : undefined} />}
+                : <Input type={f.type} value={newData[f.key] || ""} onChange={(e) => setNewData({ ...newData, [f.key]: e.target.value })} min={f.type === "number" ? "1" : undefined} placeholder={"placeholder" in f ? f.placeholder : undefined} />}
               </div>
             ))}
           </div>
