@@ -1,9 +1,8 @@
 /**
  * プロラインWebhookのパラメータをDBフィールドにマッピングする共通ユーティリティ
  *
- * プロラインから送られるクエリパラメータ名 → DBカラム名の対応表。
- * WebhookのURLに含めるパラメータを増減しても、コード変更なしで対応できる。
- * DBに対応するカラムがないパラメータは自動で無視される。
+ * DBに存在するフィールドのうち、プロラインの変数で取得できるもののみ対応。
+ * WebhookのURLに含めるパラメータを増減してもコード変更不要。
  */
 
 function toNullIfEmpty(val: string | null): string | null {
@@ -13,17 +12,21 @@ function toNullIfEmpty(val: string | null): string | null {
 
 /**
  * プロラインのクエリパラメータ名 → DBフィールド名のマッピング
- * 左: URLクエリパラメータ名（プロラインの変数名）
- * 右: HojoLineFriend系モデルのフィールド名
+ *
+ * DBにあってプロライン変数で取得できるもの:
+ *   snsname, password, email, sei, mei, nickname, phone,
+ *   postcode, address1〜3, nenrei, nendai, seibetu, free1〜6
+ *
+ * DBにあるがプロライン変数では取得できないもの（Excel同期でのみ取得）:
+ *   emailLine, emailRenkei, emailLine2, activeStatus, lastActivityDate, scenarioPos1〜5
  */
 const PARAM_TO_FIELD: Record<string, string> = {
-  // ユーザー基本情報
   snsname: "snsname",
+  password: "password",
+  email: "email",
   sei: "sei",
   mei: "mei",
   nickname: "nickname",
-  email: "email",
-  e: "email",         // 短縮形も対応
   phone: "phone",
   postcode: "postcode",
   address1: "address1",
@@ -32,10 +35,6 @@ const PARAM_TO_FIELD: Record<string, string> = {
   nenrei: "nenrei",
   nendai: "nendai",
   seibetu: "seibetu",
-  // 認証情報
-  passcode: "password",  // プロラインのパスコード → DBのpasswordフィールド
-  password: "password",  // プロラインのパスワード → DBのpasswordフィールド
-  // フリー項目
   free1: "free1",
   free2: "free2",
   free3: "free3",
@@ -47,7 +46,7 @@ const PARAM_TO_FIELD: Record<string, string> = {
 /**
  * URLSearchParams からDBに保存するデータオブジェクトを生成
  * 送られてきたパラメータのうち、DBフィールドに対応するものだけを抽出する。
- * 対応しないパラメータ（uid, secret, snsnamasan, linenamasan 等）は自動で無視。
+ * 対応しないパラメータ（uid, secret, followed 等）は個別処理またはスキップ。
  */
 export function extractWebhookData(searchParams: URLSearchParams): {
   data: Record<string, string | null>;
@@ -58,11 +57,7 @@ export function extractWebhookData(searchParams: URLSearchParams): {
   for (const [param, field] of Object.entries(PARAM_TO_FIELD)) {
     const value = searchParams.get(param);
     if (value !== null) {
-      // 同じフィールドに複数パラメータがマッピングされている場合（e と email）、
-      // 値があるもの優先（既に値が入っていたら上書きしない）
-      if (!(field in data) || data[field] === null) {
-        data[field] = toNullIfEmpty(value);
-      }
+      data[field] = toNullIfEmpty(value);
     }
   }
 
