@@ -127,9 +127,15 @@ export function CreateInvoiceGroupModal({
   };
 
   // 取引先選択後に未グループ化取引を取得（既にロード済みの場合はスキップ）
+  const isNewCounterparty = counterpartyId.startsWith("new-");
   useEffect(() => {
     if (step !== "transactions" || !counterpartyId) return;
     if (loadedCounterpartyId === counterpartyId) return;
+    if (isNewCounterparty) {
+      setUngroupedTransactions([]);
+      setLoadedCounterpartyId(counterpartyId);
+      return;
+    }
     let cancelled = false;
     setLoadingTransactions(true);
     getUngroupedTransactions(Number(counterpartyId), projectId)
@@ -154,7 +160,9 @@ export function CreateInvoiceGroupModal({
     if (paymentDueDate) return; // 既に設定済みならスキップ
     let cancelled = false;
     setLoadingDueDate(true);
-    calculatePaymentDueDate(Number(effectiveCounterpartyId), Number(operatingCompanyId))
+    const effId = effectiveCounterpartyId.startsWith("new-") ? undefined : Number(effectiveCounterpartyId);
+    if (!effId) { setLoadingDueDate(false); return; }
+    calculatePaymentDueDate(effId, Number(operatingCompanyId))
       .then((date) => {
         if (!cancelled && date) {
           setPaymentDueDate(date);
@@ -361,14 +369,18 @@ export function CreateInvoiceGroupModal({
                     onCreated={() => {
                       setShowInlineForm(false);
                       setLoadingTransactions(true);
-                      getUngroupedTransactions(Number(counterpartyId), projectId)
-                        .then((txs) => {
-                          setUngroupedTransactions(txs);
-                          setLoadingTransactions(false);
-                        })
-                        .catch(() => setLoadingTransactions(false));
+                      if (!isNewCounterparty) {
+                        getUngroupedTransactions(Number(counterpartyId), projectId)
+                          .then((txs) => {
+                            setUngroupedTransactions(txs);
+                            setLoadingTransactions(false);
+                          })
+                          .catch(() => setLoadingTransactions(false));
+                      } else {
+                        setLoadingTransactions(false);
+                      }
                     }}
-                    counterpartyId={Number(counterpartyId)}
+                    counterpartyId={isNewCounterparty ? 0 : Number(counterpartyId)}
                     projectId={projectId}
                     expenseCategories={expenseCategories}
                   />
