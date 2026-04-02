@@ -218,7 +218,7 @@ export function CreateInvoiceGroupModal({
     setLoading(true);
     try {
       const result = await createInvoiceGroup({
-        counterpartyId: Number(effectiveCounterpartyId),
+        counterpartyId: effectiveCounterpartyId.startsWith("new-") ? effectiveCounterpartyId : Number(effectiveCounterpartyId),
         operatingCompanyId: Number(operatingCompanyId),
         bankAccountId: bankAccountId ? Number(bankAccountId) : null,
         paymentDueDate: paymentDueDate || null,

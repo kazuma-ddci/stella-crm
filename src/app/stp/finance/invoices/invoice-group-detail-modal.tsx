@@ -348,7 +348,7 @@ export function InvoiceGroupDetailModal({
     setLoading(true);
     try {
       await updateInvoiceGroup(group.id, {
-        counterpartyId: Number(counterpartyId),
+        counterpartyId: counterpartyId.startsWith("new-") ? counterpartyId : Number(counterpartyId),
         bankAccountId: bankAccountId ? Number(bankAccountId) : null,
         invoiceDate: invoiceDate || null,
         paymentDueDate: paymentDueDate || null,

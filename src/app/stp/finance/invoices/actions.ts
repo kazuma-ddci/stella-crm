@@ -12,6 +12,7 @@ import { formatTimestamp } from "@/lib/attachments/constants";
 import { toLocalDateString } from "@/lib/utils";
 import { calcDueDate } from "@/lib/finance/due-date";
 import { createNotificationBulk } from "@/lib/notifications/create-notification";
+import { createCounterpartyForCompany } from "@/lib/counterparty-sync";
 
 // ============================================
 // 税額計算ヘルパー（グループレベル一括計算）
@@ -359,7 +360,7 @@ export async function getUngroupedAllocationItems(
 // ============================================
 
 export async function createInvoiceGroup(data: {
-  counterpartyId: number;
+  counterpartyId: number | string;
   operatingCompanyId: number;
   bankAccountId?: number | null;
   invoiceDate?: string | null;
@@ -370,6 +371,9 @@ export async function createInvoiceGroup(data: {
 }): Promise<{ id: number; invoiceNumber: string | null }> {
   const user = await requireEdit("stp");
   const stpProjectId = await requireStpProjectId();
+
+  // new-XX 形式の場合は先に Counterparty を作成
+  const resolvedCounterpartyId = await resolveCounterpartyId(data.counterpartyId, user.id);
 
   const result = await prisma.$transaction(async (tx) => {
     // P1-1: 按分取引は direct FK ルートでは追加不可
@@ -426,7 +430,7 @@ export async function createInvoiceGroup(data: {
 
     if (!autoPaymentDueDate) {
       const counterparty = await tx.counterparty.findUnique({
-        where: { id: data.counterpartyId },
+        where: { id: resolvedCounterpartyId },
         include: { company: true },
       });
       if (counterparty?.company) {
@@ -459,7 +463,7 @@ export async function createInvoiceGroup(data: {
     // InvoiceGroup作成（サーバー側で取得したprojectIdを使用）
     const group = await tx.invoiceGroup.create({
       data: {
-        counterpartyId: data.counterpartyId,
+        counterpartyId: resolvedCounterpartyId,
         operatingCompanyId: data.operatingCompanyId,
         bankAccountId: data.bankAccountId ?? null,
         invoiceDate: autoInvoiceDate,
@@ -487,7 +491,7 @@ export async function createInvoiceGroup(data: {
         tableName: "InvoiceGroup",
         recordId: group.id,
         changeType: "create",
-        newData: { status: "draft", counterpartyId: data.counterpartyId, operatingCompanyId: data.operatingCompanyId },
+        newData: { status: "draft", counterpartyId: resolvedCounterpartyId, operatingCompanyId: data.operatingCompanyId },
       },
       user.id,
       tx
@@ -505,10 +509,37 @@ export async function createInvoiceGroup(data: {
 // 更新
 // ============================================
 
+/**
+ * counterpartyIdが "new-{companyId}" 形式の場合、Counterpartyを自動作成して実IDを返す。
+ * 既に数値の場合はそのまま返す。
+ */
+async function resolveCounterpartyId(
+  counterpartyIdOrNew: number | string,
+  staffId: number
+): Promise<number> {
+  const str = String(counterpartyIdOrNew);
+  if (str.startsWith("new-")) {
+    const companyId = Number(str.replace("new-", ""));
+    const company = await prisma.masterStellaCompany.findUnique({
+      where: { id: companyId },
+      select: { id: true, name: true },
+    });
+    if (!company) throw new Error("企業が見つかりません");
+    await createCounterpartyForCompany(company.id, company.name, staffId);
+    const cp = await prisma.counterparty.findFirst({
+      where: { companyId: company.id, deletedAt: null, mergedIntoId: null },
+      select: { id: true },
+    });
+    if (!cp) throw new Error("取引先の作成に失敗しました");
+    return cp.id;
+  }
+  return Number(counterpartyIdOrNew);
+}
+
 export async function updateInvoiceGroup(
   id: number,
   data: {
-    counterpartyId?: number;
+    counterpartyId?: number | string;
     bankAccountId?: number | null;
     invoiceDate?: string | null;
     paymentDueDate?: string | null;
@@ -551,11 +582,11 @@ export async function updateInvoiceGroup(
   }
 
   const updateData: Record<string, unknown> = {
-    updatedBy: user.id,
+    updater: { connect: { id: user.id } },
   };
 
-  if ("counterpartyId" in data)
-    updateData.counterpartyId = data.counterpartyId;
+  if ("counterpartyId" in data && data.counterpartyId != null)
+    updateData.counterpartyId = await resolveCounterpartyId(data.counterpartyId, user.id);
   if ("bankAccountId" in data)
     updateData.bankAccountId = data.bankAccountId ?? null;
   if ("invoiceDate" in data)
