@@ -11,12 +11,13 @@ export async function GET(request: Request) {
   }
 
   try {
-    // ルール取得
     const rule = await prisma.hojoTelegramNotificationRule.findUnique({
       where: { uuid: ruleUuid },
       include: {
         bot: true,
-        topicMappings: true,
+        group: true,
+        fixedTopic: { include: { group: true } },
+        topicMappings: { include: { topic: { include: { group: true } } } },
       },
     });
 
@@ -30,26 +31,20 @@ export async function GET(request: Request) {
       if (key !== "rule") params[key] = value;
     });
 
-    // 重複チェック用ハッシュ生成
+    // 重複チェック用ハッシュ
     const hashSource = Object.entries(params).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join("&");
     const requestHash = crypto.createHash("md5").update(hashSource).digest("hex");
 
-    // 重複チェック
     const lockCutoff = new Date(Date.now() - rule.duplicateLockSeconds * 1000);
     const existingLog = await prisma.hojoTelegramNotificationLog.findFirst({
-      where: {
-        ruleId: rule.id,
-        requestHash,
-        status: "sent",
-        createdAt: { gte: lockCutoff },
-      },
+      where: { ruleId: rule.id, requestHash, status: "sent", createdAt: { gte: lockCutoff } },
     });
 
     if (existingLog) {
       return NextResponse.json({ status: "duplicate_prevented", message: "同じリクエストが既に処理中です" });
     }
 
-    // CRM友達情報からデータ取得
+    // CRM友達情報
     const uid = params["uid"] || "";
     let lineNumber = "データなし";
     let introducer = "データなし";
@@ -60,7 +55,6 @@ export async function GET(request: Request) {
           const friend = await prisma.hojoLineFriendSecurityCloud.findUnique({ where: { uid } });
           if (friend) {
             lineNumber = friend.snsname || "データなし";
-            // セキュリティクラウドの紹介者はfree1等のフィールドから取得
             introducer = friend.free1 || "データなし";
           }
         } else if (rule.lineAccountType === "josei-support") {
@@ -70,70 +64,56 @@ export async function GET(request: Request) {
           });
           if (friend) {
             lineNumber = friend.snsname || "データなし";
-            // 助成金申請サポートの紹介者 = 紹介元ベンダー名
             introducer = friend.vendors[0]?.name || friend.free1 || "データなし";
           }
         }
       } catch {
-        // 友達情報取得失敗時はフォールバック
+        // フォールバック
       }
     }
 
-    // スタッフ名からトピックIDとメンションを解決
+    // スタッフ名の解決
     const prefix = rule.bookingPrefix || "";
     const staffKey = prefix ? `${prefix}-booking-staff` : "";
     const staffName = staffKey ? (params[staffKey] || "") : "";
 
-    let topicId: string | null = null;
-    let mentionStr = "";
+    // 送信先の解決
+    type SendTarget = { chatId: string; topicId: string | null; mention: string };
+    const targets: SendTarget[] = [];
 
-    if (rule.topicStrategy === "staff_mapped" && staffName) {
-      const mapping = rule.topicMappings.find((m) => m.staffName === staffName) ||
-        rule.topicMappings.find((m) => m.isDefault);
-      if (mapping) {
-        topicId = mapping.topicId;
-        mentionStr = mapping.telegramMention
-          ? `${staffName}(${mapping.telegramMention})`
-          : staffName;
-      }
-    } else if (rule.topicStrategy === "fixed") {
-      topicId = rule.fixedTopicId;
-    }
-    // group_direct: topicId = null → グループ直接投稿
+    if (rule.topicStrategy === "group_direct" && rule.group) {
+      targets.push({ chatId: rule.group.chatId, topicId: null, mention: "" });
+    } else if (rule.topicStrategy === "fixed" && rule.fixedTopic?.group) {
+      targets.push({
+        chatId: rule.fixedTopic.group.chatId,
+        topicId: rule.fixedTopic.topicId,
+        mention: "",
+      });
+    } else if (rule.topicStrategy === "staff_mapped") {
+      const mapping = (staffName
+        ? rule.topicMappings.find((m) => m.staffName === staffName)
+        : null) || rule.topicMappings.find((m) => m.isDefault);
 
-    // 複数トピック送信の準備（staff_mappedで全トピックに送る場合もある）
-    // 基本は1つのトピックに送信、担当者マッピングに従う
-    const targetTopics: { topicId: string | null; mention: string }[] = [];
-
-    if (rule.topicStrategy === "staff_mapped") {
-      if (staffName) {
-        const mapping = rule.topicMappings.find((m) => m.staffName === staffName) ||
-          rule.topicMappings.find((m) => m.isDefault);
-        if (mapping) {
-          targetTopics.push({
-            topicId: mapping.topicId,
-            mention: mapping.telegramMention ? `${staffName}(${mapping.telegramMention})` : staffName,
-          });
-        }
+      if (mapping?.topic?.group) {
+        const mention = mapping.telegramMention
+          ? `${staffName || mapping.staffName}(${mapping.telegramMention})`
+          : staffName || mapping.staffName;
+        targets.push({
+          chatId: mapping.topic.group.chatId,
+          topicId: mapping.topic.topicId,
+          mention,
+        });
       }
-      // デフォルトが設定されていてスタッフ名がない場合
-      if (targetTopics.length === 0) {
-        const defaultMapping = rule.topicMappings.find((m) => m.isDefault);
-        if (defaultMapping) {
-          targetTopics.push({
-            topicId: defaultMapping.topicId,
-            mention: "",
-          });
-        }
-      }
-    } else if (rule.topicStrategy === "fixed") {
-      targetTopics.push({ topicId: rule.fixedTopicId, mention: mentionStr });
-    } else {
-      // group_direct
-      targetTopics.push({ topicId: null, mention: mentionStr });
     }
 
-    // メッセージテンプレートのプレースホルダー置換
+    if (targets.length === 0 && rule.group) {
+      targets.push({ chatId: rule.group.chatId, topicId: null, mention: "" });
+    }
+
+    // メンション文字列（最初のターゲットから）
+    const mentionStr = targets[0]?.mention || "";
+
+    // プレースホルダー置換
     const bookingDatetimeKey = prefix ? `${prefix}-booking-start` : "";
     const replacements: Record<string, string> = {
       "{{linename}}": params["linename"] || "",
@@ -146,40 +126,29 @@ export async function GET(request: Request) {
       "{{followed}}": params["followed"] || "",
     };
 
-    // 予約関連の追加プレースホルダー
     if (prefix) {
-      replacements[`{{booking_id}}`] = params[`${prefix}-booking-id`] || "";
-      replacements[`{{booking_create}}`] = params[`${prefix}-booking-create`] || "";
-      replacements[`{{booking_start}}`] = params[`${prefix}-booking-start`] || "";
-      replacements[`{{booking_start_date}}`] = params[`${prefix}-booking-start-date`] || "";
-      replacements[`{{booking_start_time}}`] = params[`${prefix}-booking-start-time`] || "";
-      replacements[`{{booking_end}}`] = params[`${prefix}-booking-end`] || "";
-      replacements[`{{booking_end_date}}`] = params[`${prefix}-booking-end-date`] || "";
-      replacements[`{{booking_end_time}}`] = params[`${prefix}-booking-end-time`] || "";
-      replacements[`{{booking_duration}}`] = params[`${prefix}-booking-duration`] || "";
-      replacements[`{{booking_menu}}`] = params[`${prefix}-booking-menu`] || "";
-      replacements[`{{booking_staff}}`] = params[`${prefix}-booking-staff`] || "";
-      replacements[`{{booking_num}}`] = params[`${prefix}-booking-num`] || "";
-      replacements[`{{booking_active_num}}`] = params[`${prefix}-booking-active-num`] || "";
-      replacements[`{{booking_finish_num}}`] = params[`${prefix}-booking-finish-num`] || "";
-      replacements[`{{booking_reschedule_num}}`] = params[`${prefix}-booking-reschedule-num`] || "";
-      replacements[`{{booking_cancel_num}}`] = params[`${prefix}-booking-cancel-num`] || "";
+      const bookingFields = [
+        "booking-id", "booking-create", "booking-start", "booking-start-date",
+        "booking-start-time", "booking-end", "booking-end-date", "booking-end-time",
+        "booking-duration", "booking-menu", "booking-staff", "booking-num",
+        "booking-active-num", "booking-finish-num", "booking-reschedule-num", "booking-cancel-num",
+      ];
+      for (const field of bookingFields) {
+        const key = field.replace(/-/g, "_");
+        replacements[`{{${key}}}`] = params[`${prefix}-${field}`] || "";
+      }
     }
 
-    // 共通変数
     replacements["{{booking_history_url}}"] = params["booking"] || "";
     replacements["{{booking_before}}"] = params["booking-before"] || "";
     replacements["{{all_booking_active_num}}"] = params["booking-active-num"] || "";
     replacements["{{all_booking_finish_num}}"] = params["booking-finish-num"] || "";
 
-    // フォームフィールド
     const formFields = (rule.includeFormFields as string[] | null) || [];
     for (const field of formFields) {
-      const value = params[field] || "";
-      replacements[`{{form:${field}}}`] = value;
+      replacements[`{{form:${field}}}`] = params[field] || "";
     }
 
-    // カスタムパラメータ
     const customParamsDef = (rule.customParams as Array<{ key: string; label: string }> | null) || [];
     for (const cp of customParamsDef) {
       replacements[`{{custom:${cp.key}}}`] = params[cp.key] || "";
@@ -190,16 +159,15 @@ export async function GET(request: Request) {
       messageText = messageText.replaceAll(placeholder, value);
     }
 
-    // 4096文字制限対応
     if (messageText.length > 4000) {
       messageText = messageText.substring(0, 4000) + "\n...メッセージが長すぎるため省略されました";
     }
 
     // Telegram送信
     let allSent = true;
-    for (const target of targetTopics) {
+    for (const target of targets) {
       const payload: Record<string, string> = {
-        chat_id: rule.bot.chatId,
+        chat_id: target.chatId,
         text: messageText,
       };
       if (target.topicId) {
@@ -207,8 +175,7 @@ export async function GET(request: Request) {
       }
 
       try {
-        const telegramUrl = `https://api.telegram.org/bot${rule.bot.token}/sendMessage`;
-        const res = await fetch(telegramUrl, {
+        const res = await fetch(`https://api.telegram.org/bot${rule.bot.token}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -224,13 +191,12 @@ export async function GET(request: Request) {
       }
     }
 
-    // ログ記録
     await prisma.hojoTelegramNotificationLog.create({
       data: {
         ruleId: rule.id,
         requestHash,
         status: allSent ? "sent" : "error",
-        params: params,
+        params,
         errorMessage: allSent ? null : "一部または全ての送信に失敗",
       },
     });

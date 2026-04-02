@@ -7,17 +7,18 @@ services:
       - "3000:3000"
     volumes:
       - .:/app
-      - /app/node_modules
-      - /app/.next
+      - app_node_modules:/app/node_modules
+      - app_next:/app/.next
     env_file:
       - .env
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/crm_db
       - TZ=Asia/Tokyo
+      - WATCHPACK_POLLING=true
     depends_on:
       db:
         condition: service_healthy
-    command: npm run dev
+    command: sh -c "npm install && npx prisma generate && npm run dev"
     restart: unless-stopped
 
   db:
@@ -44,7 +45,7 @@ services:
       - "5555:5555"
     volumes:
       - .:/app
-      - /app/node_modules
+      - studio_node_modules:/app/node_modules
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/crm_db
       - TZ=Asia/Tokyo
@@ -56,3 +57,6 @@ services:
 
 volumes:
   postgres_data:
+  app_node_modules:
+  app_next:
+  studio_node_modules:

@@ -100,7 +100,8 @@ type SortConfig = {
 
 type Props = {
   data: InvoiceGroupListItem[];
-  counterpartyOptions: { value: string; label: string; isStellaCustomer: boolean }[];
+  stellaCustomerOptions: { value: string; label: string; companyId: number }[];
+  counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
   defaultBankAccountByCompany: Record<string, string>;
@@ -110,6 +111,7 @@ type Props = {
 
 export function InvoiceGroupsTable({
   data,
+  stellaCustomerOptions,
   counterpartyOptions,
   operatingCompanyOptions,
   bankAccountsByCompany,
@@ -228,6 +230,11 @@ export function InvoiceGroupsTable({
               className="h-8 rounded-md border border-input bg-background px-3 text-sm"
             >
               <option value="all">すべて</option>
+              {stellaCustomerOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
               {counterpartyOptions.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
@@ -448,6 +455,7 @@ export function InvoiceGroupsTable({
         <CreateInvoiceGroupModal
           open={showCreateModal}
           onClose={() => setShowCreateModal(false)}
+          stellaCustomerOptions={stellaCustomerOptions}
           counterpartyOptions={counterpartyOptions}
           operatingCompanyOptions={operatingCompanyOptions}
           bankAccountsByCompany={bankAccountsByCompany}
@@ -464,6 +472,7 @@ export function InvoiceGroupsTable({
           open={!!selectedGroup}
           onClose={() => setSelectedGroup(null)}
           group={selectedGroup}
+          stellaCustomerOptions={stellaCustomerOptions}
           counterpartyOptions={counterpartyOptions}
           operatingCompanyOptions={operatingCompanyOptions}
           bankAccountsByCompany={bankAccountsByCompany}

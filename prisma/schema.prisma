@@ -4328,7 +4328,6 @@ model HojoTelegramBot {
   id        Int      @id @default(autoincrement())
   name      String   @db.VarChar(100)       // 表示名（例: "メイン通知Bot"）
   token     String   @db.VarChar(255)       // Bot API トークン
-  chatId    String   @map("chat_id") @db.VarChar(50) // 送信先チャットID
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -4336,6 +4335,44 @@ model HojoTelegramBot {
   rules HojoTelegramNotificationRule[]
 
   @@map("hojo_telegram_bots")
+}
+
+// ============================================
+// 補助金 Telegramグループ (送信先グループのマスタ)
+// ============================================
+
+model HojoTelegramGroup {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(100) // 表示名（例: "補助金メイングループ"）
+  chatId    String   @map("chat_id") @db.VarChar(50) // TelegramグループのチャットID
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  topics HojoTelegramTopic[]
+  rules  HojoTelegramNotificationRule[]
+
+  @@map("hojo_telegram_groups")
+}
+
+// ============================================
+// 補助金 Telegramトピック (グループ内トピックのマスタ)
+// ============================================
+
+model HojoTelegramTopic {
+  id        Int      @id @default(autoincrement())
+  groupId   Int      @map("group_id")
+  name      String   @db.VarChar(100) // 表示名（例: "塩澤チーム", "概要案内未予約"）
+  topicId   String   @map("topic_id") @db.VarChar(50) // Telegramトピック（スレッド）ID
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  group         HojoTelegramGroup              @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  fixedRules    HojoTelegramNotificationRule[] @relation("FixedTopic")
+  staffMappings HojoTelegramTopicMapping[]
+
+  @@map("hojo_telegram_topics")
 }
 
 // ============================================
@@ -4348,20 +4385,23 @@ model HojoTelegramNotificationRule {
   uuid                 String   @unique @default(uuid()) @db.VarChar(36) // URLに使うUUID
   name                 String   @db.VarChar(200)       // ルール名（例: "申請予約通知"）
   botId                Int      @map("bot_id")
+  groupId              Int?     @map("group_id")       // 送信先グループ（group_direct / fixed時）
   eventType            String   @map("event_type") @db.VarChar(30) // "booking_new" | "booking_change" | "booking_cancel" | "custom"
   bookingPrefix        String?  @map("booking_prefix") @db.VarChar(10) // "cl1", "cl2" 等。customの場合null
   topicStrategy        String   @map("topic_strategy") @db.VarChar(20) // "staff_mapped" | "fixed" | "group_direct"
-  fixedTopicId         String?  @map("fixed_topic_id") @db.VarChar(50) // fixed時のトピックID
+  fixedTopicId         Int?     @map("fixed_topic_id") // fixed時のHojoTelegramTopicのID
   messageTemplate      String   @map("message_template") @db.Text      // プレースホルダー付きテンプレート
   customParams         Json?    @map("custom_params")                   // カスタムイベント時の追加パラメータ定義
   includeFormFields    Json?    @map("include_form_fields")             // フォームフィールド名の配列
   duplicateLockSeconds Int      @default(180) @map("duplicate_lock_seconds")
-  lineAccountType      String?  @map("line_account_type") @db.VarChar(30) // "shinsei-support" | "security-cloud"
+  lineAccountType      String?  @map("line_account_type") @db.VarChar(30) // "josei-support" | "security-cloud"
   isActive             Boolean  @default(true) @map("is_active")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
   bot           HojoTelegramBot              @relation(fields: [botId], references: [id], onDelete: Cascade)
+  group         HojoTelegramGroup?           @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  fixedTopic    HojoTelegramTopic?           @relation("FixedTopic", fields: [fixedTopicId], references: [id], onDelete: SetNull)
   topicMappings HojoTelegramTopicMapping[]
   logs          HojoTelegramNotificationLog[]
 
@@ -4370,19 +4410,20 @@ model HojoTelegramNotificationRule {
 
 // ============================================
 // 補助金 Telegramトピックマッピング
-// スタッフ名 → トピックID/メンション の対応表
+// スタッフ名 → トピック/メンション の対応表
 // ============================================
 
 model HojoTelegramTopicMapping {
   id               Int      @id @default(autoincrement())
   ruleId           Int      @map("rule_id")
   staffName        String   @map("staff_name") @db.VarChar(50)   // プロラインから来るスタッフ名
-  topicId          String   @map("topic_id") @db.VarChar(50)     // Telegramトピック（スレッド）ID
+  telegramTopicId  Int?     @map("telegram_topic_id")            // FK → HojoTelegramTopic
   telegramMention  String?  @map("telegram_mention") @db.VarChar(100) // "@username"
   isDefault        Boolean  @default(false) @map("is_default")   // マッチしない場合のデフォルト
   createdAt        DateTime @default(now()) @map("created_at")
 
-  rule HojoTelegramNotificationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  rule  HojoTelegramNotificationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  topic HojoTelegramTopic?           @relation(fields: [telegramTopicId], references: [id], onDelete: SetNull)
 
   @@map("hojo_telegram_topic_mappings")
 }

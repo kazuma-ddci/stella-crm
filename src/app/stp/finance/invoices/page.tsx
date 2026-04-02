@@ -8,14 +8,28 @@ export default async function InvoiceGroupsPage() {
   const ctx = await getSystemProjectContext("stp");
   if (!ctx) throw new Error("STPプロジェクトのコンテキストが取得できません");
   const projectId = ctx.projectId;
-  const [data, ungroupedTransactions, ungroupedAllocationItems, counterparties, operatingCompanies, expenseCategories, unconfirmedTransactions] =
+  const [data, ungroupedTransactions, ungroupedAllocationItems, counterparties, stellaCompanies, operatingCompanies, expenseCategories, unconfirmedTransactions] =
     await Promise.all([
       getInvoiceGroups(projectId),
       getUngroupedTransactions(undefined, projectId),
       getUngroupedAllocationItems(projectId),
       prisma.counterparty.findMany({
-        where: { deletedAt: null, isActive: true },
+        where: { deletedAt: null, isActive: true, companyId: null },
         orderBy: { name: "asc" },
+      }),
+      prisma.masterStellaCompany.findMany({
+        where: { deletedAt: null, mergedAt: null },
+        select: {
+          id: true,
+          companyCode: true,
+          name: true,
+          counterparties: {
+            where: { deletedAt: null, isActive: true },
+            select: { id: true },
+            take: 1,
+          },
+        },
+        orderBy: { id: "desc" },
       }),
       prisma.operatingCompany.findMany({
         where: { isActive: true },
@@ -26,10 +40,17 @@ export default async function InvoiceGroupsPage() {
       getUnconfirmedTransactions(projectId),
     ]);
 
+  // Stella顧客: 全顧客マスタから取得、紐付いている取引先IDをvalueに使う
+  const stellaCustomerOptions = stellaCompanies.map((c) => ({
+    value: c.counterparties[0] ? String(c.counterparties[0].id) : `new-${c.id}`,
+    label: `${c.companyCode} ${c.name}`,
+    companyId: c.id,
+  }));
+
+  // その他取引先（全顧客マスタに紐付かないもの）
   const counterpartyOptions = counterparties.map((c) => ({
     value: String(c.id),
     label: c.displayId ? `${c.displayId} ${c.name}` : c.name,
-    isStellaCustomer: c.companyId !== null,
   }));
 
   const operatingCompanyOptions = operatingCompanies.map((c) => ({
@@ -75,6 +96,7 @@ export default async function InvoiceGroupsPage() {
       data={data}
       ungroupedTransactions={ungroupedTransactions}
       ungroupedAllocationItems={ungroupedAllocationItems}
+      stellaCustomerOptions={stellaCustomerOptions}
       counterpartyOptions={counterpartyOptions}
       operatingCompanyOptions={operatingCompanyOptions}
       bankAccountsByCompany={bankAccountsByCompany}

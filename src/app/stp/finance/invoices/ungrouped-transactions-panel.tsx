@@ -30,7 +30,8 @@ type Props = {
   ungroupedTransactions: UngroupedTransaction[];
   ungroupedAllocationItems: UngroupedAllocationItem[];
   draftInvoiceGroups: InvoiceGroupListItem[];
-  counterpartyOptions: { value: string; label: string; isStellaCustomer: boolean }[];
+  stellaCustomerOptions: { value: string; label: string; companyId: number }[];
+  counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
   defaultBankAccountByCompany: Record<string, string>;
@@ -50,6 +51,7 @@ export function UngroupedTransactionsPanel({
   ungroupedTransactions,
   ungroupedAllocationItems,
   draftInvoiceGroups,
+  stellaCustomerOptions,
   counterpartyOptions,
   operatingCompanyOptions,
   bankAccountsByCompany,
@@ -337,6 +339,7 @@ export function UngroupedTransactionsPanel({
             setShowCreateModal(false);
             setPreSelectedCounterpartyId(null);
           }}
+          stellaCustomerOptions={stellaCustomerOptions}
           counterpartyOptions={counterpartyOptions}
           operatingCompanyOptions={operatingCompanyOptions}
           bankAccountsByCompany={bankAccountsByCompany}

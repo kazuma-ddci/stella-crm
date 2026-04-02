@@ -325,7 +325,7 @@ export async function getStellaCompaniesForAccounting() {
         take: 1,
       },
     },
-    orderBy: [{ companyCode: "asc" }],
+    orderBy: [{ id: "asc" }],
   });
 }
 

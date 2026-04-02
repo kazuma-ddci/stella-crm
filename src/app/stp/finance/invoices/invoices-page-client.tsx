@@ -12,7 +12,8 @@ type Props = {
   data: InvoiceGroupListItem[];
   ungroupedTransactions: UngroupedTransaction[];
   ungroupedAllocationItems: UngroupedAllocationItem[];
-  counterpartyOptions: { value: string; label: string; isStellaCustomer: boolean }[];
+  stellaCustomerOptions: { value: string; label: string; companyId: number }[];
+  counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
   defaultBankAccountByCompany: Record<string, string>;
@@ -25,6 +26,7 @@ export function InvoicesPageClient({
   data,
   ungroupedTransactions,
   ungroupedAllocationItems,
+  stellaCustomerOptions,
   counterpartyOptions,
   operatingCompanyOptions,
   bankAccountsByCompany,
@@ -84,6 +86,7 @@ export function InvoicesPageClient({
             ungroupedTransactions={ungroupedTransactions}
             ungroupedAllocationItems={ungroupedAllocationItems}
             draftInvoiceGroups={draftInvoiceGroups}
+            stellaCustomerOptions={stellaCustomerOptions}
             counterpartyOptions={counterpartyOptions}
             operatingCompanyOptions={operatingCompanyOptions}
             bankAccountsByCompany={bankAccountsByCompany}
@@ -131,6 +134,7 @@ export function InvoicesPageClient({
 
             <InvoiceGroupsTable
               data={data}
+              stellaCustomerOptions={stellaCustomerOptions}
               counterpartyOptions={counterpartyOptions}
               operatingCompanyOptions={operatingCompanyOptions}
               bankAccountsByCompany={bankAccountsByCompany}

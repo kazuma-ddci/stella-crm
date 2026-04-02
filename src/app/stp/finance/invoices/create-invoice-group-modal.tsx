@@ -26,7 +26,8 @@ type Step = "counterparty" | "transactions" | "info";
 type Props = {
   open: boolean;
   onClose: () => void;
-  counterpartyOptions: { value: string; label: string; isStellaCustomer: boolean }[];
+  stellaCustomerOptions: { value: string; label: string; companyId: number }[];
+  counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
   bankAccountsByCompany: Record<string, { value: string; label: string }[]>;
   defaultBankAccountByCompany: Record<string, string>;
@@ -40,6 +41,7 @@ type Props = {
 export function CreateInvoiceGroupModal({
   open,
   onClose,
+  stellaCustomerOptions,
   counterpartyOptions,
   operatingCompanyOptions,
   bankAccountsByCompany,
@@ -64,8 +66,8 @@ export function CreateInvoiceGroupModal({
   const [counterpartyTab, setCounterpartyTab] = useState<"stella" | "other">(
     () => {
       if (!defaultCounterpartyId) return "stella";
-      const found = counterpartyOptions.find((o) => o.value === defaultCounterpartyId);
-      return found?.isStellaCustomer === false ? "other" : "stella";
+      const isStellaCustomer = stellaCustomerOptions.some((o) => o.value === defaultCounterpartyId);
+      return isStellaCustomer ? "stella" : "other";
     }
   );
 
@@ -100,38 +102,24 @@ export function CreateInvoiceGroupModal({
   const [loadingDueDate, setLoadingDueDate] = useState(false);
   const [showInlineForm, setShowInlineForm] = useState(false);
 
-  // 取引先タブ分けとフィルタ
-  const extractDisplayNum = (label: string): number => {
-    const match = label.match(/^(?:SC|TP)-(\d+)/);
-    return match ? Number(match[1]) : 0;
-  };
-
-  const stellaCounterparties = useMemo(() => {
-    return counterpartyOptions
-      .filter((o) => o.isStellaCustomer)
-      .sort((a, b) => extractDisplayNum(b.label) - extractDisplayNum(a.label));
-  }, [counterpartyOptions]);
-
-  const otherCounterparties = useMemo(() => {
-    return counterpartyOptions
-      .filter((o) => !o.isStellaCustomer)
-      .sort((a, b) => extractDisplayNum(b.label) - extractDisplayNum(a.label));
-  }, [counterpartyOptions]);
-
+  // 取引先タブ分けとフィルタ（Stella顧客はpage.tsxで降順ソート済み）
   const filteredCounterparties = useMemo(() => {
-    const source = counterpartyTab === "stella" ? stellaCounterparties : otherCounterparties;
+    const source = counterpartyTab === "stella" ? stellaCustomerOptions : counterpartyOptions;
     if (!counterpartySearch) return source;
     const q = counterpartySearch.toLowerCase();
     return source.filter((o) => o.label.toLowerCase().includes(q));
-  }, [counterpartyTab, stellaCounterparties, otherCounterparties, counterpartySearch]);
+  }, [counterpartyTab, stellaCustomerOptions, counterpartyOptions, counterpartySearch]);
 
   // 宛先変更用タブ分けオプション
   const filteredBillingOptions = useMemo(() => {
-    const source = billingTab === "stella" ? stellaCounterparties : otherCounterparties;
+    const source = billingTab === "stella" ? stellaCustomerOptions : counterpartyOptions;
     if (!billingSearch) return source;
     const q = billingSearch.toLowerCase();
     return source.filter((o) => o.label.toLowerCase().includes(q));
-  }, [billingTab, stellaCounterparties, otherCounterparties, billingSearch]);
+  }, [billingTab, stellaCustomerOptions, counterpartyOptions, billingSearch]);
+
+  // 全選択肢を結合（ラベル検索用）
+  const allOptions = useMemo(() => [...stellaCustomerOptions, ...counterpartyOptions], [stellaCustomerOptions, counterpartyOptions]);
 
   const handleCounterpartyTabChange = (tab: "stella" | "other") => {
     setCounterpartyTab(tab);
@@ -290,7 +278,7 @@ export function CreateInvoiceGroupModal({
                       : "text-gray-500 hover:text-gray-700"
                   }`}
                 >
-                  Stella全顧客マスタ ({stellaCounterparties.length})
+                  Stella全顧客マスタ ({stellaCustomerOptions.length})
                 </button>
                 <button
                   onClick={() => handleCounterpartyTabChange("other")}
@@ -300,7 +288,7 @@ export function CreateInvoiceGroupModal({
                       : "text-gray-500 hover:text-gray-700"
                   }`}
                 >
-                  その他の取引先 ({otherCounterparties.length})
+                  その他の取引先 ({counterpartyOptions.length})
                 </button>
               </div>
               <div className="border rounded-lg max-h-[400px] overflow-y-auto">
@@ -335,7 +323,7 @@ export function CreateInvoiceGroupModal({
                   取引先:{" "}
                   <span className="font-medium text-foreground">
                     {
-                      counterpartyOptions.find(
+                      allOptions.find(
                         (o) => o.value === counterpartyId
                       )?.label
                     }
@@ -464,7 +452,7 @@ export function CreateInvoiceGroupModal({
                   <span>
                     取引先:{" "}
                     {
-                      counterpartyOptions.find(
+                      allOptions.find(
                         (o) => o.value === counterpartyId
                       )?.label
                     }
@@ -516,14 +504,14 @@ export function CreateInvoiceGroupModal({
                         className={`flex-1 px-3 py-1.5 text-xs font-medium ${billingTab === "stella" ? "bg-white border-b-2 border-blue-500 text-blue-600" : "text-gray-500 hover:text-gray-700"}`}
                         onClick={() => { setBillingTab("stella"); setBillingSearch(""); }}
                       >
-                        Stella顧客 ({stellaCounterparties.length})
+                        Stella顧客 ({stellaCustomerOptions.length})
                       </button>
                       <button
                         type="button"
                         className={`flex-1 px-3 py-1.5 text-xs font-medium ${billingTab === "other" ? "bg-white border-b-2 border-blue-500 text-blue-600" : "text-gray-500 hover:text-gray-700"}`}
                         onClick={() => { setBillingTab("other"); setBillingSearch(""); }}
                       >
-                        その他 ({otherCounterparties.length})
+                        その他 ({counterpartyOptions.length})
                       </button>
                     </div>
                     <div className="p-2">
@@ -557,7 +545,7 @@ export function CreateInvoiceGroupModal({
                   </div>
                 ) : (
                   <Input
-                    value={counterpartyOptions.find((o) => o.value === effectiveCounterpartyId)?.label ?? ""}
+                    value={allOptions.find((o) => o.value === effectiveCounterpartyId)?.label ?? ""}
                     disabled
                     className="mt-1 disabled:opacity-100 disabled:bg-gray-100 disabled:text-gray-900"
                   />
@@ -570,8 +558,8 @@ export function CreateInvoiceGroupModal({
                   <div className="text-sm text-amber-800">
                     <p className="font-medium">宛先が取引先と異なります</p>
                     <p className="text-amber-700 mt-0.5">
-                      取引先「{counterpartyOptions.find((o) => o.value === counterpartyId)?.label}」の取引を、
-                      「{counterpartyOptions.find((o) => o.value === billingCounterpartyId)?.label}」宛の請求書として発行します。
+                      取引先「{allOptions.find((o) => o.value === counterpartyId)?.label}」の取引を、
+                      「{allOptions.find((o) => o.value === billingCounterpartyId)?.label}」宛の請求書として発行します。
                     </p>
                   </div>
                 </div>
