@@ -355,6 +355,7 @@ export function InvoiceGroupDetailModal({
         expectedPaymentDate: expectedPaymentDate || null,
       });
       setSaved(true);
+      setIsEditingBilling(false);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -1106,7 +1107,7 @@ export function InvoiceGroupDetailModal({
                               className={`w-full text-left px-2 py-1.5 rounded text-sm hover:bg-blue-50 ${
                                 counterpartyId === o.value ? "bg-blue-100 font-medium" : ""
                               }`}
-                              onClick={() => setCounterpartyId(o.value)}
+                              onClick={() => { setCounterpartyId(o.value); setIsEditingBilling(false); }}
                             >
                               {o.label}
                             </button>
