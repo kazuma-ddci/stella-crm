@@ -157,6 +157,7 @@ export interface ContractRowWithProgress {
   signingMethod: string | null;
   filePath: string | null;
   fileName: string | null;
+  contractFiles: { id: number; filePath: string; fileName: string; fileSize: number | null; mimeType: string | null }[];
   assignedTo: string | null;
   assignedToName: string | null;
   note: string | null;

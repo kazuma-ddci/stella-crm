@@ -84,6 +84,26 @@ export async function updateVendor(id: number, data: Record<string, unknown>) {
     });
   }
 
+  // メイン担当者（primaryContact）のLINE情報も連動更新
+  const primaryContact = await prisma.hojoVendorContact.findFirst({
+    where: { vendorId: id, isPrimary: true },
+  });
+  if (primaryContact) {
+    const contactUpdate: Record<string, unknown> = {};
+    if ("lineFriendId" in data) {
+      contactUpdate.lineFriendId = data.lineFriendId ? Number(data.lineFriendId) : null;
+    }
+    if ("joseiLineFriendId" in data) {
+      contactUpdate.joseiLineFriendId = data.joseiLineFriendId ? Number(data.joseiLineFriendId) : null;
+    }
+    if (Object.keys(contactUpdate).length > 0) {
+      await prisma.hojoVendorContact.update({
+        where: { id: primaryContact.id },
+        data: contactUpdate,
+      });
+    }
+  }
+
   // joseiLineFriendIdが変更された場合、userTypeを連動更新
   if ("joseiLineFriendId" in data && currentVendor) {
     const oldId = currentVendor.joseiLineFriendId;

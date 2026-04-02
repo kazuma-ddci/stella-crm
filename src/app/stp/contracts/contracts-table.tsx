@@ -382,20 +382,42 @@ export function ContractsTable({
       );
     },
     fileUpload: (_value, row) => {
-      const filePath = row.filePath as string | null;
-      const fileName = row.fileName as string | null;
-      if (!filePath || !fileName) return "-";
+      const contractRow = row as unknown as ContractRowWithProgress;
+      const files = contractRow.contractFiles;
+      if (!files || files.length === 0) {
+        // フォールバック: レガシーの単一ファイルフィールド
+        const filePath = row.filePath as string | null;
+        const fileName = row.fileName as string | null;
+        if (!filePath || !fileName) return "-";
+        return (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => window.open(filePath, "_blank")}
+            className="flex items-center gap-1"
+          >
+            <FileText className="h-4 w-4 text-blue-600" />
+            <span className="max-w-[120px] truncate">{fileName}</span>
+            <ExternalLink className="h-3 w-3" />
+          </Button>
+        );
+      }
       return (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => window.open(filePath, "_blank")}
-          className="flex items-center gap-1"
-        >
-          <FileText className="h-4 w-4 text-blue-600" />
-          <span className="max-w-[120px] truncate">{fileName}</span>
-          <ExternalLink className="h-3 w-3" />
-        </Button>
+        <div className="space-y-1">
+          {files.map((f) => (
+            <Button
+              key={f.id}
+              variant="ghost"
+              size="sm"
+              onClick={() => window.open(f.filePath, "_blank")}
+              className="flex items-center gap-1 h-auto py-1"
+            >
+              <FileText className="h-4 w-4 text-blue-600 shrink-0" />
+              <span className="max-w-[120px] truncate">{f.fileName}</span>
+              <ExternalLink className="h-3 w-3 shrink-0" />
+            </Button>
+          ))}
+        </div>
       );
     },
     progress: (_value, row) => {

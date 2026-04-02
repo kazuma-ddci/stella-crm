@@ -757,6 +757,7 @@ export function CrudTable({
       setEditItem(null);
       setFormData({});
       setEditItemOriginal({});
+      router.refresh();
     } catch (error) {
       const msg = error instanceof Error ? error.message : "更新に失敗しました";
       toast.error(msg);
@@ -790,6 +791,7 @@ export function CrudTable({
       setEditItemOriginal({});
       setEditChangedData({});
       setEditChangeItems([]);
+      router.refresh();
     } catch (error) {
       const msg = error instanceof Error ? error.message : "更新に失敗しました";
       toast.error(msg);

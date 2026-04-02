@@ -73,6 +73,7 @@ export function EditableCell({
   const [popoverOpen, setPopoverOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const actionTakenRef = useRef(false);
 
   // Currency formatting helpers & state (always declared to satisfy rules of hooks)
   const formatCurrency = (val: unknown): string => {
@@ -312,7 +313,12 @@ export function EditableCell({
     if (searchable) {
       const selectedOption = options.find((opt) => opt.value === String(editValue));
       return (
-        <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+        <Popover open={popoverOpen} onOpenChange={(open) => {
+          setPopoverOpen(open);
+          if (!open && !actionTakenRef.current) {
+            onCancel();
+          }
+        }}>
           <PopoverTrigger asChild>
             <Button
               variant="outline"
@@ -332,6 +338,7 @@ export function EditableCell({
                   <CommandItem
                     value="__empty__"
                     onSelect={() => {
+                      actionTakenRef.current = true;
                       if (value !== null) {
                         onSave(null);
                       } else {
@@ -347,6 +354,7 @@ export function EditableCell({
                       key={opt.value}
                       value={opt.label}
                       onSelect={() => {
+                        actionTakenRef.current = true;
                         if (opt.value !== String(value)) {
                           onSave(opt.value);
                         } else {

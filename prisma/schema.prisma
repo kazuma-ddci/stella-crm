@@ -4318,3 +4318,90 @@ model ActivityLog {
   @@index([createdAt])
   @@map("activity_logs")
 }
+
+// ============================================
+// 補助金 Telegram通知ボット (Hojo Telegram Bots)
+// Telegram Bot の接続情報を管理
+// ============================================
+
+model HojoTelegramBot {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(100)       // 表示名（例: "メイン通知Bot"）
+  token     String   @db.VarChar(255)       // Bot API トークン
+  chatId    String   @map("chat_id") @db.VarChar(50) // 送信先チャットID
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  rules HojoTelegramNotificationRule[]
+
+  @@map("hojo_telegram_bots")
+}
+
+// ============================================
+// 補助金 Telegram通知ルール (Hojo Telegram Notification Rules)
+// 1ルール = 1つのPHPファイルに相当。プロラインからの通知設定を管理
+// ============================================
+
+model HojoTelegramNotificationRule {
+  id                   Int      @id @default(autoincrement())
+  uuid                 String   @unique @default(uuid()) @db.VarChar(36) // URLに使うUUID
+  name                 String   @db.VarChar(200)       // ルール名（例: "申請予約通知"）
+  botId                Int      @map("bot_id")
+  eventType            String   @map("event_type") @db.VarChar(30) // "booking_new" | "booking_change" | "booking_cancel" | "custom"
+  bookingPrefix        String?  @map("booking_prefix") @db.VarChar(10) // "cl1", "cl2" 等。customの場合null
+  topicStrategy        String   @map("topic_strategy") @db.VarChar(20) // "staff_mapped" | "fixed" | "group_direct"
+  fixedTopicId         String?  @map("fixed_topic_id") @db.VarChar(50) // fixed時のトピックID
+  messageTemplate      String   @map("message_template") @db.Text      // プレースホルダー付きテンプレート
+  customParams         Json?    @map("custom_params")                   // カスタムイベント時の追加パラメータ定義
+  includeFormFields    Json?    @map("include_form_fields")             // フォームフィールド名の配列
+  duplicateLockSeconds Int      @default(180) @map("duplicate_lock_seconds")
+  lineAccountType      String?  @map("line_account_type") @db.VarChar(30) // "shinsei-support" | "security-cloud"
+  isActive             Boolean  @default(true) @map("is_active")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  bot           HojoTelegramBot              @relation(fields: [botId], references: [id], onDelete: Cascade)
+  topicMappings HojoTelegramTopicMapping[]
+  logs          HojoTelegramNotificationLog[]
+
+  @@map("hojo_telegram_notification_rules")
+}
+
+// ============================================
+// 補助金 Telegramトピックマッピング
+// スタッフ名 → トピックID/メンション の対応表
+// ============================================
+
+model HojoTelegramTopicMapping {
+  id               Int      @id @default(autoincrement())
+  ruleId           Int      @map("rule_id")
+  staffName        String   @map("staff_name") @db.VarChar(50)   // プロラインから来るスタッフ名
+  topicId          String   @map("topic_id") @db.VarChar(50)     // Telegramトピック（スレッド）ID
+  telegramMention  String?  @map("telegram_mention") @db.VarChar(100) // "@username"
+  isDefault        Boolean  @default(false) @map("is_default")   // マッチしない場合のデフォルト
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  rule HojoTelegramNotificationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@map("hojo_telegram_topic_mappings")
+}
+
+// ============================================
+// 補助金 Telegram通知ログ（重複防止 + 送信履歴）
+// ============================================
+
+model HojoTelegramNotificationLog {
+  id           Int      @id @default(autoincrement())
+  ruleId       Int      @map("rule_id")
+  requestHash  String   @map("request_hash") @db.VarChar(64) // パラメータのMD5ハッシュ
+  status       String   @db.VarChar(20) // "sent" | "duplicate" | "error"
+  params       Json?                    // 受信したパラメータ（デバッグ用）
+  errorMessage String?  @map("error_message") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  rule HojoTelegramNotificationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId, requestHash, createdAt])
+  @@map("hojo_telegram_notification_logs")
+}

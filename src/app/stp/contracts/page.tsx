@@ -15,6 +15,10 @@ export default async function StpContractsPage() {
       include: {
         company: true,
         currentStatus: true,
+        contractFiles: {
+          where: { isVisible: true },
+          orderBy: { createdAt: "asc" },
+        },
       },
       orderBy: { createdAt: "desc" },
     }),
@@ -98,6 +102,13 @@ export default async function StpContractsPage() {
       signingMethod: c.signingMethod,
       filePath: c.filePath,
       fileName: c.fileName,
+      contractFiles: c.contractFiles.map((cf) => ({
+        id: cf.id,
+        filePath: cf.filePath,
+        fileName: cf.fileName,
+        fileSize: cf.fileSize,
+        mimeType: cf.mimeType,
+      })),
       assignedTo: c.assignedTo,
       assignedToName: c.assignedTo
         ? c.assignedTo

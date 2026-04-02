@@ -3,7 +3,6 @@
 import * as React from "react";
 import { Check, ChevronsUpDown, X } from "lucide-react";
 import { cn, matchesWithWordBoundary } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -66,11 +65,11 @@ export function MultiSelectCombobox({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          variant="outline"
+        <div
           role="combobox"
           aria-expanded={open}
-          className="w-full justify-between font-normal h-auto min-h-10"
+          tabIndex={0}
+          className="flex w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 cursor-pointer h-auto min-h-10"
         >
           <div className="flex flex-wrap gap-1 flex-1">
             {selectedLabels.length > 0 ? (
@@ -95,7 +94,7 @@ export function MultiSelectCombobox({
             )}
           </div>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
+        </div>
       </PopoverTrigger>
       <PopoverContent
         className="w-[var(--radix-popover-trigger-width)] p-0"

@@ -329,6 +329,7 @@ const navigation: NavItem[] = [
         children: [
           { name: "他社アカウント管理", href: "/hojo/settings/partner-accounts", icon: UserCog },
           { name: "プロライン情報", href: "/hojo/settings/proline", icon: UserCog },
+          { name: "Telegram通知設定", href: "/hojo/settings/telegram-notifications", icon: Bell },
         ],
       },
     ],
