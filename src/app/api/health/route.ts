@@ -37,6 +37,7 @@ const CRON_ENDPOINTS = [
   "/api/cron/check-inbound-invoices",
   "/api/cron/sync-cloudsign-status",
   "/api/cron/fetch-usdt-rate",
+  "/api/cron/sync-counterparties",
 ];
 
 async function runCheck(

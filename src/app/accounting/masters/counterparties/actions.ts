@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
-import { generateOtherCounterpartyDisplayId } from "@/lib/counterparty-sync";
+import { generateOtherCounterpartyDisplayId, createCounterpartyForCompany, updateCounterpartyForCompany } from "@/lib/counterparty-sync";
 
 const VALID_TYPES = ["customer", "vendor", "service", "project", "other"] as const;
 
@@ -180,17 +180,21 @@ export async function updateCounterparty(
 }
 
 // MasterStellaCompanyとの同期処理（設計書8.6）
+// UIからの手動実行用
 export async function syncCounterparties() {
   const session = await getSession();
-  const staffId = session.id;
+  const result = await syncCounterpartiesCore(session.id);
+  revalidatePath("/accounting/masters/counterparties");
+  return result;
+}
 
-  // 全MasterStellaCompany（論理削除されていないもの）を取得
+// Cron/内部呼び出し用（セッション不要）
+export async function syncCounterpartiesCore(staffId: number) {
   const companies = await prisma.masterStellaCompany.findMany({
     where: { deletedAt: null, mergedIntoId: null },
     select: { id: true, name: true },
   });
 
-  // 既にcompanyIdが設定されているCounterpartyを取得
   const existingLinks = await prisma.counterparty.findMany({
     where: { companyId: { not: null }, deletedAt: null },
     select: { id: true, companyId: true, name: true },
@@ -205,33 +209,16 @@ export async function syncCounterparties() {
 
   for (const company of companies) {
     if (linkedCompanyIds.has(company.id)) {
-      // 既存リンクがある → 名称を同期更新
-      const existing = existingLinks.find(
-        (link) => link.companyId === company.id
-      );
+      const existing = existingLinks.find((link) => link.companyId === company.id);
       if (existing && existing.name !== company.name) {
-        await prisma.counterparty.update({
-          where: { id: existing.id },
-          data: { name: company.name, updatedBy: staffId },
-        });
+        await updateCounterpartyForCompany(company.id, company.name, staffId);
         updated++;
       }
     } else {
-      // 新規作成（companyId紐づき）
-      await prisma.counterparty.create({
-        data: {
-          name: company.name,
-          companyId: company.id,
-          counterpartyType: "customer",
-          isActive: true,
-          createdBy: staffId,
-        },
-      });
+      await createCounterpartyForCompany(company.id, company.name, staffId);
       created++;
     }
   }
-
-  revalidatePath("/accounting/masters/counterparties");
 
   return { created, updated, total: companies.length };
 }
