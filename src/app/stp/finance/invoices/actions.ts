@@ -614,10 +614,15 @@ export async function updateInvoiceGroup(
     updater: { connect: { id: user.id } },
   };
 
-  if ("counterpartyId" in data && data.counterpartyId != null)
-    updateData.counterpartyId = await resolveCounterpartyId(data.counterpartyId, user.id);
-  if ("bankAccountId" in data)
-    updateData.bankAccountId = data.bankAccountId ?? null;
+  if ("counterpartyId" in data && data.counterpartyId != null) {
+    const cpId = await resolveCounterpartyId(data.counterpartyId, user.id);
+    updateData.counterparty = { connect: { id: cpId } };
+  }
+  if ("bankAccountId" in data) {
+    updateData.bankAccount = data.bankAccountId
+      ? { connect: { id: data.bankAccountId } }
+      : { disconnect: true };
+  }
   if ("invoiceDate" in data)
     updateData.invoiceDate = data.invoiceDate
       ? new Date(data.invoiceDate)
