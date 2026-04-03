@@ -520,20 +520,49 @@ async function resolveCounterpartyId(
   const str = String(counterpartyIdOrNew);
   if (str.startsWith("new-")) {
     const companyId = Number(str.replace("new-", ""));
-    const company = await prisma.masterStellaCompany.findUnique({
-      where: { id: companyId },
-      select: { id: true, name: true },
-    });
-    if (!company) throw new Error("企業が見つかりません");
-    await createCounterpartyForCompany(company.id, company.name, staffId);
-    const cp = await prisma.counterparty.findFirst({
-      where: { companyId: company.id, deletedAt: null, mergedIntoId: null },
-      select: { id: true },
-    });
-    if (!cp) throw new Error("取引先の作成に失敗しました");
-    return cp.id;
+    if (!Number.isInteger(companyId) || companyId <= 0) {
+      throw new Error("無効な企業IDです");
+    }
+    const cpId = await ensureCounterpartyForCompany(companyId, staffId);
+    return cpId;
   }
-  return Number(counterpartyIdOrNew);
+  const id = Number(counterpartyIdOrNew);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("無効な取引先IDです");
+  }
+  return id;
+}
+
+/**
+ * MasterStellaCompanyに対応するCounterpartyを確保して返す。
+ * 既存があればそのID、なければ作成してIDを返す。
+ */
+async function ensureCounterpartyForCompany(
+  companyId: number,
+  staffId: number
+): Promise<number> {
+  // 既存チェック
+  const existing = await prisma.counterparty.findFirst({
+    where: { companyId, deletedAt: null, mergedIntoId: null },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+
+  // 作成（displayId重複時のリトライはcreateCounterpartyForCompany内で処理）
+  const company = await prisma.masterStellaCompany.findUnique({
+    where: { id: companyId },
+    select: { id: true, name: true },
+  });
+  if (!company) throw new Error("企業が見つかりません");
+
+  await createCounterpartyForCompany(company.id, company.name, staffId);
+
+  const cp = await prisma.counterparty.findFirst({
+    where: { companyId: company.id, deletedAt: null, mergedIntoId: null },
+    select: { id: true },
+  });
+  if (!cp) throw new Error("取引先の作成に失敗しました");
+  return cp.id;
 }
 
 export async function updateInvoiceGroup(

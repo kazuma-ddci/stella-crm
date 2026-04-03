@@ -37,6 +37,7 @@ export async function generateOtherCounterpartyDisplayId(
 /**
  * MasterStellaCompany作成時にCounterpartyを自動作成する。
  * 既に同じcompanyIdのCounterpartyが存在する場合はスキップ。
+ * displayId重複（P2002）時は最大3回リトライする。
  */
 export async function createCounterpartyForCompany(
   companyId: number,
@@ -51,17 +52,26 @@ export async function createCounterpartyForCompany(
   });
   if (existing) return;
 
-  const displayId = await generateDisplayId("SC", db);
-  await db.counterparty.create({
-    data: {
-      displayId,
-      name: companyName,
-      companyId,
-      counterpartyType: "customer",
-      isActive: true,
-      createdBy: staffId,
-    },
-  });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const displayId = await generateDisplayId("SC", db);
+    try {
+      await db.counterparty.create({
+        data: {
+          displayId,
+          name: companyName,
+          companyId,
+          counterpartyType: "customer",
+          isActive: true,
+          createdBy: staffId,
+        },
+      });
+      return;
+    } catch (e: unknown) {
+      const isPrismaUniqueError = e instanceof Error && "code" in e && (e as { code: string }).code === "P2002";
+      if (isPrismaUniqueError && attempt < 2) continue;
+      throw e;
+    }
+  }
 }
 
 /**
