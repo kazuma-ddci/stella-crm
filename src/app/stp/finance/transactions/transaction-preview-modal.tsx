@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DatePicker } from "@/components/ui/date-picker";
+import { calcTax } from "@/lib/finance/tax-calc";
 import { Loader2, ExternalLink, Pencil } from "lucide-react";
 import {
   getTransactionById,
@@ -54,16 +55,6 @@ function toDateInputValue(d: Date | string | null): string {
   if (!d) return "";
   const date = typeof d === "string" ? new Date(d) : d;
   return toLocalDateString(date);
-}
-
-function calcTax(amt: string, rate: string, type: string): string {
-  const a = Number(amt);
-  const r = Number(rate);
-  if (!a || !r) return "0";
-  if (type === "tax_excluded") {
-    return String(Math.floor((a * r) / 100));
-  }
-  return String(Math.floor((a * r) / (100 + r)));
 }
 
 export function TransactionPreviewModal({
