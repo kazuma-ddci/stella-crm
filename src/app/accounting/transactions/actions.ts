@@ -8,6 +8,7 @@ import type { SessionUser } from "@/types/auth";
 import { autoConfirmCreatorAllocations, checkAndTransitionToAwaitingAccounting, sendAllocationNotifications } from "./allocation-actions";
 import type { AllocationNotificationInfo } from "./allocation-actions";
 import { createNotification } from "@/lib/notifications/create-notification";
+import { toBoolean } from "@/lib/utils";
 import { recordChangeLog, extractChanges, pickRecordData } from "@/app/accounting/changelog/actions";
 import { TRANSACTION_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
@@ -212,8 +213,7 @@ export async function createTransaction(data: Record<string, unknown>): Promise<
   const note = data.note ? (data.note as string).trim() || null : null;
 
   // 源泉徴収
-  const isWithholdingTarget =
-    data.isWithholdingTarget === true || data.isWithholdingTarget === "true";
+  const isWithholdingTarget = toBoolean(data.isWithholdingTarget);
   const withholdingTaxRate = data.withholdingTaxRate
     ? Number(data.withholdingTaxRate)
     : null;
@@ -225,12 +225,10 @@ export async function createTransaction(data: Record<string, unknown>): Promise<
     : null;
 
   // 機密フラグ
-  const isConfidential =
-    data.isConfidential === true || data.isConfidential === "true";
+  const isConfidential = toBoolean(data.isConfidential);
 
   // 経費負担者
-  const hasExpenseOwner =
-    data.hasExpenseOwner === true || data.hasExpenseOwner === "true";
+  const hasExpenseOwner = toBoolean(data.hasExpenseOwner);
   const expenseOwners = (data.expenseOwners as Array<{
     staffId?: number | null;
     customName?: string | null;
@@ -392,8 +390,7 @@ export async function updateTransaction(
   const note = data.note ? (data.note as string).trim() || null : null;
 
   // 源泉徴収
-  const isWithholdingTarget =
-    data.isWithholdingTarget === true || data.isWithholdingTarget === "true";
+  const isWithholdingTarget = toBoolean(data.isWithholdingTarget);
   const withholdingTaxRate = data.withholdingTaxRate
     ? Number(data.withholdingTaxRate)
     : null;
@@ -405,12 +402,10 @@ export async function updateTransaction(
     : null;
 
   // 機密フラグ
-  const isConfidential =
-    data.isConfidential === true || data.isConfidential === "true";
+  const isConfidential = toBoolean(data.isConfidential);
 
   // 経費負担者
-  const hasExpenseOwner =
-    data.hasExpenseOwner === true || data.hasExpenseOwner === "true";
+  const hasExpenseOwner = toBoolean(data.hasExpenseOwner);
   const expenseOwners = (data.expenseOwners as Array<{
     staffId?: number | null;
     customName?: string | null;
@@ -1260,8 +1255,7 @@ export async function createAccountingTransaction(data: Record<string, unknown>)
   const note = data.note ? (data.note as string).trim() || null : null;
 
   // 源泉徴収
-  const isWithholdingTarget =
-    data.isWithholdingTarget === true || data.isWithholdingTarget === "true";
+  const isWithholdingTarget = toBoolean(data.isWithholdingTarget);
   const withholdingTaxRate = data.withholdingTaxRate
     ? Number(data.withholdingTaxRate)
     : null;
@@ -1273,8 +1267,7 @@ export async function createAccountingTransaction(data: Record<string, unknown>)
     : null;
 
   // 機密フラグ
-  const isConfidential =
-    data.isConfidential === true || data.isConfidential === "true";
+  const isConfidential = toBoolean(data.isConfidential);
 
   // グループ紐づけ
   const invoiceGroupId = data.invoiceGroupId ? Number(data.invoiceGroupId) : null;

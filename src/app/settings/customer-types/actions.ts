@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { toBoolean } from "@/lib/utils";
 
 export async function addCustomerType(data: Record<string, unknown>) {
   await requireProjectMasterDataEditPermission();
@@ -20,7 +21,7 @@ export async function addCustomerType(data: Record<string, unknown>) {
       projectId,
       name: data.name as string,
       displayOrder,
-      isActive: data.isActive === true || data.isActive === "true",
+      isActive: toBoolean(data.isActive),
     },
   });
   revalidatePath("/settings/customer-types");
@@ -31,7 +32,7 @@ export async function updateCustomerType(id: number, data: Record<string, unknow
   const updateData: Record<string, unknown> = {};
   if ("projectId" in data) updateData.projectId = Number(data.projectId);
   if ("name" in data) updateData.name = data.name as string;
-  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+  if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
   if (Object.keys(updateData).length > 0) {
     await prisma.customerType.update({

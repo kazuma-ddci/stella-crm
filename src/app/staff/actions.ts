@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { sendStaffInviteEmail } from "@/lib/email";
 import { auth } from "@/auth";
 import { requireEdit } from "@/lib/auth";
+import { toBoolean } from "@/lib/utils";
 import type { UserPermission } from "@/types/auth";
 
 const PERM_PREFIX = "perm_";
@@ -102,7 +103,7 @@ async function buildPermissions(
     for (const [key, value] of Object.entries(data)) {
       if (key.startsWith(APPROVE_PREFIX)) {
         const projectCode = key.slice(APPROVE_PREFIX.length);
-        approveMap.set(projectCode, value === true || value === "true");
+        approveMap.set(projectCode, toBoolean(value));
       }
     }
   }
@@ -208,7 +209,7 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
   if ("email" in data) updateData.email = (data.email as string) || null;
   if ("phone" in data) updateData.phone = (data.phone as string) || null;
   if ("contractType" in data) updateData.contractType = (data.contractType as string) || null;
-  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+  if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
   // organizationRole の更新
   if ("organizationRole" in data) {

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { toBoolean } from "@/lib/utils";
 
 export async function addStage(data: Record<string, unknown>) {
   await requireProjectMasterDataEditPermission("stp");
@@ -11,7 +12,7 @@ export async function addStage(data: Record<string, unknown>) {
       name: data.name as string,
       stageType: (data.stageType as string) || 'progress',
       displayOrder: data.displayOrder != null && data.displayOrder !== "" ? Number(data.displayOrder) : null,
-      isActive: data.isActive === true || data.isActive === "true",
+      isActive: toBoolean(data.isActive),
     },
   });
   revalidatePath("/stp/settings/stages");
@@ -23,7 +24,7 @@ export async function updateStage(id: number, data: Record<string, unknown>) {
   if ("name" in data) updateData.name = data.name as string;
   if ("stageType" in data) updateData.stageType = data.stageType as string;
   if ("displayOrder" in data) updateData.displayOrder = data.displayOrder != null && data.displayOrder !== "" ? Number(data.displayOrder) : null;
-  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+  if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
   if (Object.keys(updateData).length > 0) {
     await prisma.stpStage.update({

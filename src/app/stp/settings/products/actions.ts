@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { toBoolean } from "@/lib/utils";
 
 export async function addStpProduct(data: Record<string, unknown>) {
   await requireProjectMasterDataEditPermission("stp");
@@ -16,7 +17,7 @@ export async function addStpProduct(data: Record<string, unknown>) {
     data: {
       name: data.name as string,
       displayOrder,
-      isActive: data.isActive === true || data.isActive === "true",
+      isActive: toBoolean(data.isActive),
     },
   });
   revalidatePath("/stp/settings/products");
@@ -26,7 +27,7 @@ export async function updateStpProduct(id: number, data: Record<string, unknown>
   await requireProjectMasterDataEditPermission("stp");
   const updateData: Record<string, unknown> = {};
   if ("name" in data) updateData.name = data.name as string;
-  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+  if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
   if (Object.keys(updateData).length > 0) {
     await prisma.stpProduct.update({

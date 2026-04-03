@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { toBoolean } from "@/lib/utils";
 
 export async function createCostCenter(data: Record<string, unknown>) {
   const session = await getSession();
@@ -87,7 +88,7 @@ export async function updateCostCenter(
   }
 
   if ("isActive" in data) {
-    updateData.isActive = data.isActive === true || data.isActive === "true";
+    updateData.isActive = toBoolean(data.isActive);
   }
 
   updateData.updatedBy = staffId;

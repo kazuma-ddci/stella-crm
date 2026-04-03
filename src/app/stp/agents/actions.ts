@@ -8,6 +8,7 @@ import { createFieldChangeLogEntries, FieldChange } from "@/lib/field-change-log
 import { isStaffSetEqual, formatStaffEntries } from "@/lib/field-change-log.shared";
 import { logActivity } from "@/lib/activity-log/log";
 import { calcChanges } from "@/lib/activity-log/utils";
+import { toBoolean } from "@/lib/utils";
 import crypto from "crypto";
 
 // ユニークなトークンを生成
@@ -128,7 +129,7 @@ export async function updateAgent(id: number, data: Record<string, unknown>) {
       : null;
   }
   if ("isIndividualBusiness" in data) {
-    updateData.isIndividualBusiness = data.isIndividualBusiness === true || data.isIndividualBusiness === "true";
+    updateData.isIndividualBusiness = toBoolean(data.isIndividualBusiness);
   }
   if ("withholdingTaxRate" in data) {
     updateData.withholdingTaxRate = data.withholdingTaxRate !== null && data.withholdingTaxRate !== undefined

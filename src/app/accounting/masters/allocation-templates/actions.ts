@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { Prisma } from "@prisma/client";
 import { recordChangeLogs } from "@/app/accounting/changelog/actions";
-import { toLocalDateString } from "@/lib/utils";
+import { toLocalDateString, toBoolean } from "@/lib/utils";
 
 const REVALIDATE_PATH = "/accounting/masters/allocation-templates";
 
@@ -129,7 +129,7 @@ export async function updateAllocationTemplate(
   }
 
   if ("isActive" in data) {
-    updateData.isActive = data.isActive === true || data.isActive === "true";
+    updateData.isActive = toBoolean(data.isActive);
   }
 
   if ("ownerCostCenterId" in data) {

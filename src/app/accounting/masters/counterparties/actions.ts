@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
 import { generateOtherCounterpartyDisplayId, createCounterpartyForCompany, updateCounterpartyForCompany } from "@/lib/counterparty-sync";
+import { toBoolean } from "@/lib/utils";
 
 const VALID_TYPES = ["customer", "vendor", "service", "project", "other"] as const;
 
@@ -91,7 +92,7 @@ export async function createCounterparty(data: Record<string, unknown>) {
   // TP-X displayId 自動採番
   const displayId = await generateOtherCounterpartyDisplayId();
 
-  const isInvoiceRegistered = data.isInvoiceRegistered === true || data.isInvoiceRegistered === "true";
+  const isInvoiceRegistered = toBoolean(data.isInvoiceRegistered);
   const invoiceRegistrationNumber = data.invoiceRegistrationNumber
     ? (data.invoiceRegistrationNumber as string).trim() || null
     : null;
@@ -150,11 +151,11 @@ export async function updateCounterparty(
   }
 
   if ("isActive" in data) {
-    updateData.isActive = data.isActive === true || data.isActive === "true";
+    updateData.isActive = toBoolean(data.isActive);
   }
 
   if ("isInvoiceRegistered" in data) {
-    updateData.isInvoiceRegistered = data.isInvoiceRegistered === true || data.isInvoiceRegistered === "true";
+    updateData.isInvoiceRegistered = toBoolean(data.isInvoiceRegistered);
   }
 
   if ("invoiceRegistrationNumber" in data) {

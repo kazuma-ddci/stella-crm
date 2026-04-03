@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { toBoolean } from "@/lib/utils";
 
 export async function addContractType(data: Record<string, unknown>) {
   await requireProjectMasterDataEditPermission();
@@ -21,7 +22,7 @@ export async function addContractType(data: Record<string, unknown>) {
       name: data.name as string,
       description: (data.description as string) || null,
       displayOrder,
-      isActive: data.isActive === true || data.isActive === "true",
+      isActive: toBoolean(data.isActive),
     },
   });
   revalidatePath("/settings/contract-types");
@@ -33,7 +34,7 @@ export async function updateContractType(id: number, data: Record<string, unknow
   if ("projectId" in data) updateData.projectId = Number(data.projectId);
   if ("name" in data) updateData.name = data.name as string;
   if ("description" in data) updateData.description = (data.description as string) || null;
-  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+  if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
   if (Object.keys(updateData).length > 0) {
     await prisma.contractType.update({

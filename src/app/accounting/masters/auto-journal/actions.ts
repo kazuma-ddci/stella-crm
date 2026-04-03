@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { toBoolean } from "@/lib/utils";
 
 const VALID_TRANSACTION_TYPES = ["revenue", "expense"] as const;
 
@@ -210,7 +211,7 @@ export async function updateAutoJournalRule(
   }
 
   if ("isActive" in data) {
-    updateData.isActive = data.isActive === true || data.isActive === "true";
+    updateData.isActive = toBoolean(data.isActive);
   }
 
   updateData.updatedBy = staffId;

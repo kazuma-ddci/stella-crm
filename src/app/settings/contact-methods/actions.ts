@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { toBoolean } from "@/lib/utils";
 
 export async function addContactMethod(data: Record<string, unknown>) {
   await requireMasterDataEditPermission();
@@ -15,7 +16,7 @@ export async function addContactMethod(data: Record<string, unknown>) {
     data: {
       name: data.name as string,
       displayOrder,
-      isActive: data.isActive === true || data.isActive === "true",
+      isActive: toBoolean(data.isActive),
     },
   });
   revalidatePath("/settings/contact-methods");
@@ -25,7 +26,7 @@ export async function updateContactMethod(id: number, data: Record<string, unkno
   await requireMasterDataEditPermission();
   const updateData: Record<string, unknown> = {};
   if ("name" in data) updateData.name = data.name as string;
-  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+  if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
   if (Object.keys(updateData).length > 0) {
     await prisma.contactMethod.update({

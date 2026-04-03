@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { toBoolean } from "@/lib/utils";
 
 const REVALIDATE_PATH = "/accounting/masters/recurring-transactions";
 
@@ -358,7 +359,7 @@ export async function updateRecurringTransaction(
   }
 
   if ("isActive" in data) {
-    updateData.isActive = data.isActive === true || data.isActive === "true";
+    updateData.isActive = toBoolean(data.isActive);
   }
 
   if ("note" in data) {

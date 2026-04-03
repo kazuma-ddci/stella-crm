@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 import { getSession } from "@/lib/auth";
+import { toBoolean } from "@/lib/utils";
 
 export async function updateProject(id: number, data: Record<string, unknown>) {
   await requireProjectMasterDataEditPermission();
@@ -11,7 +12,7 @@ export async function updateProject(id: number, data: Record<string, unknown>) {
   const updateData: Record<string, unknown> = {};
   if ("name" in data) updateData.name = data.name as string;
   if ("description" in data) updateData.description = (data.description as string) || null;
-  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+  if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
   if ("operatingCompanyId" in data) updateData.operatingCompanyId = data.operatingCompanyId ? Number(data.operatingCompanyId) : null;
 
   if (Object.keys(updateData).length > 0) {

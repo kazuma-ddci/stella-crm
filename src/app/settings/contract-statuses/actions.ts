@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { toBoolean } from "@/lib/utils";
 
 export async function addContractStatus(data: Record<string, unknown>) {
   await requireMasterDataEditPermission();
@@ -20,7 +21,7 @@ export async function addContractStatus(data: Record<string, unknown>) {
       displayOrder,
       statusType,
       isTerminal,
-      isActive: data.isActive === true || data.isActive === "true",
+      isActive: toBoolean(data.isActive),
     },
   });
   revalidatePath("/settings/contract-statuses");
@@ -36,7 +37,7 @@ export async function updateContractStatus(id: number, data: Record<string, unkn
     // isTerminalをstatusTypeから自動計算
     updateData.isTerminal = statusType !== "progress" && statusType !== "pending";
   }
-  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+  if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
   if (Object.keys(updateData).length > 0) {
     await prisma.masterContractStatus.update({

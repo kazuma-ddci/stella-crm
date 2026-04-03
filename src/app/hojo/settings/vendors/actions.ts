@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { toBoolean } from "@/lib/utils";
 
 function generateToken(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -32,7 +33,7 @@ export async function addVendor(data: Record<string, unknown>) {
       accessToken: generateToken(),
       memo: data.memo ? String(data.memo).trim() : null,
       displayOrder,
-      isActive: data.isActive === true || data.isActive === "true",
+      isActive: toBoolean(data.isActive),
     },
   });
 
@@ -75,7 +76,7 @@ export async function updateVendor(id: number, data: Record<string, unknown>) {
   if ("lineFriendId" in data) updateData.lineFriendId = data.lineFriendId ? Number(data.lineFriendId) : null;
   if ("joseiLineFriendId" in data) updateData.joseiLineFriendId = data.joseiLineFriendId ? Number(data.joseiLineFriendId) : null;
   if ("memo" in data) updateData.memo = data.memo ? String(data.memo).trim() : null;
-  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+  if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
   if (Object.keys(updateData).length > 0) {
     await prisma.hojoVendor.update({

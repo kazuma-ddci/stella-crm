@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 import { getSession } from "@/lib/auth/session";
+import { toBoolean } from "@/lib/utils";
 
 export async function addOperatingCompanyEmail(
   operatingCompanyId: number,
@@ -43,8 +44,8 @@ export async function addOperatingCompanyEmail(
       imapPort: data.imapPort ? Number(data.imapPort) : null,
       imapUser: emailAddr,
       imapPass: appPass,
-      enableInbound: data.enableInbound === true || data.enableInbound === "true",
-      isDefault: data.isDefault === true || data.isDefault === "true",
+      enableInbound: toBoolean(data.enableInbound),
+      isDefault: toBoolean(data.isDefault),
       createdBy: staffId,
     },
   });
@@ -104,7 +105,7 @@ export async function updateOperatingCompanyEmail(
     }
   }
 
-  const isDefault = data.isDefault === true || data.isDefault === "true";
+  const isDefault = toBoolean(data.isDefault);
 
   // smtpUser/imapUser はメールアドレスと同じ値を自動設定
   const updateData: Record<string, unknown> = {
@@ -116,7 +117,7 @@ export async function updateOperatingCompanyEmail(
     imapHost: (data.imapHost as string) || null,
     imapPort: data.imapPort ? Number(data.imapPort) : null,
     imapUser: newEmailAddr,
-    enableInbound: data.enableInbound === true || data.enableInbound === "true",
+    enableInbound: toBoolean(data.enableInbound),
     isDefault,
     updatedBy: staffId,
   };

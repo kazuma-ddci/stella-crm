@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { toBoolean } from "@/lib/utils";
 
 const VALID_CATEGORIES = [
   "asset", "liability", "equity", "revenue", "cost_of_sales",
@@ -97,7 +98,7 @@ export async function updateAccount(id: number, data: Record<string, unknown>) {
   }
 
   if ("isActive" in data) {
-    updateData.isActive = data.isActive === true || data.isActive === "true";
+    updateData.isActive = toBoolean(data.isActive);
   }
 
   updateData.updatedBy = staffId;

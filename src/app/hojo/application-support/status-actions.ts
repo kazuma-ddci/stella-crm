@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { toBoolean } from "@/lib/utils";
 
 export async function getAllStatuses() {
   const statuses = await prisma.hojoApplicationStatus.findMany({
@@ -34,7 +35,7 @@ export async function addStatus(data: Record<string, unknown>) {
     data: {
       name: String(data.name).trim(),
       displayOrder,
-      isActive: data.isActive === true || data.isActive === "true",
+      isActive: toBoolean(data.isActive),
     },
   });
   revalidatePath("/hojo/application-support");
@@ -44,7 +45,7 @@ export async function updateStatus(id: number, data: Record<string, unknown>) {
   await requireProjectMasterDataEditPermission();
   const updateData: Record<string, unknown> = {};
   if ("name" in data) updateData.name = String(data.name).trim();
-  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+  if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
   if (Object.keys(updateData).length > 0) {
     await prisma.hojoApplicationStatus.update({
@@ -112,7 +113,7 @@ export async function addBbsStatus(data: Record<string, unknown>) {
     data: {
       name: String(data.name).trim(),
       displayOrder,
-      isActive: data.isActive === true || data.isActive === "true",
+      isActive: toBoolean(data.isActive),
     },
   });
   revalidatePath("/hojo/application-support");
@@ -123,7 +124,7 @@ export async function updateBbsStatus(id: number, data: Record<string, unknown>)
   await requireProjectMasterDataEditPermission();
   const updateData: Record<string, unknown> = {};
   if ("name" in data) updateData.name = String(data.name).trim();
-  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+  if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
   if (Object.keys(updateData).length > 0) {
     await prisma.hojoBbsStatus.update({

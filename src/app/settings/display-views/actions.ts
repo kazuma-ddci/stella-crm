@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { toBoolean } from "@/lib/utils";
 
 export async function updateDisplayView(id: number, data: Record<string, unknown>) {
   await requireProjectMasterDataEditPermission();
@@ -11,7 +12,7 @@ export async function updateDisplayView(id: number, data: Record<string, unknown
   if ("viewName" in data) updateData.viewName = data.viewName as string;
   if ("projectId" in data) updateData.projectId = Number(data.projectId);
   if ("description" in data) updateData.description = (data.description as string) || null;
-  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+  if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
   if (Object.keys(updateData).length > 0) {
     await prisma.displayView.update({

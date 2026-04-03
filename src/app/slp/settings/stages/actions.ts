@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { toBoolean } from "@/lib/utils";
 
 export async function addSlpStage(data: Record<string, unknown>) {
   await requireProjectMasterDataEditPermission("slp");
@@ -13,7 +14,7 @@ export async function addSlpStage(data: Record<string, unknown>) {
       phase: (data.phase as string) || null,
       winRate: data.winRate != null && data.winRate !== "" ? Number(data.winRate) : null,
       autoAction: (data.autoAction as string) || null,
-      isActive: data.isActive === true || data.isActive === "true",
+      isActive: toBoolean(data.isActive),
     },
   });
   revalidatePath("/slp/settings/stages");
@@ -27,7 +28,7 @@ export async function updateSlpStage(id: number, data: Record<string, unknown>) 
   if ("phase" in data) updateData.phase = (data.phase as string) || null;
   if ("winRate" in data) updateData.winRate = data.winRate != null && data.winRate !== "" ? Number(data.winRate) : null;
   if ("autoAction" in data) updateData.autoAction = (data.autoAction as string) || null;
-  if ("isActive" in data) updateData.isActive = data.isActive === true || data.isActive === "true";
+  if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
   if (Object.keys(updateData).length > 0) {
     await prisma.slpStage.update({

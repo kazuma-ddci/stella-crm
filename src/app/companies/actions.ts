@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { normalizeCompanyName, normalizeCorporateNumber, validateCorporateNumber } from "@/lib/utils";
+import { normalizeCompanyName, normalizeCorporateNumber, validateCorporateNumber, toBoolean } from "@/lib/utils";
 import { getRelatedDataCounts } from "@/lib/company/get-related-data-counts";
 import type { CompanyRelatedData } from "@/types/company-merge";
 import { getSession } from "@/lib/auth";
@@ -61,7 +61,7 @@ export async function addCompany(data: Record<string, unknown>) {
       closingDay: data.closingDay != null ? Number(data.closingDay) : null,
       paymentMonthOffset: data.paymentMonthOffset != null ? Number(data.paymentMonthOffset) : null,
       paymentDay: data.paymentDay != null ? Number(data.paymentDay) : null,
-      isInvoiceRegistered: data.isInvoiceRegistered === true || data.isInvoiceRegistered === "true",
+      isInvoiceRegistered: toBoolean(data.isInvoiceRegistered),
       invoiceRegistrationNumber: (data.invoiceRegistrationNumber as string)?.trim() || null,
     },
   });
@@ -114,7 +114,7 @@ export async function updateCompany(id: number, data: Record<string, unknown>) {
   if ("closingDay" in data) updateData.closingDay = data.closingDay != null ? Number(data.closingDay) : null;
   if ("paymentMonthOffset" in data) updateData.paymentMonthOffset = data.paymentMonthOffset != null ? Number(data.paymentMonthOffset) : null;
   if ("paymentDay" in data) updateData.paymentDay = data.paymentDay != null ? Number(data.paymentDay) : null;
-  if ("isInvoiceRegistered" in data) updateData.isInvoiceRegistered = data.isInvoiceRegistered === true || data.isInvoiceRegistered === "true";
+  if ("isInvoiceRegistered" in data) updateData.isInvoiceRegistered = toBoolean(data.isInvoiceRegistered);
   if ("invoiceRegistrationNumber" in data) updateData.invoiceRegistrationNumber = (data.invoiceRegistrationNumber as string)?.trim() || null;
 
   await prisma.masterStellaCompany.update({
@@ -141,7 +141,7 @@ export async function updateCompany(id: number, data: Record<string, unknown>) {
       if (counterparty) {
         const cpUpdate: Record<string, unknown> = {};
         if ("isInvoiceRegistered" in data) {
-          cpUpdate.isInvoiceRegistered = data.isInvoiceRegistered === true || data.isInvoiceRegistered === "true";
+          cpUpdate.isInvoiceRegistered = toBoolean(data.isInvoiceRegistered);
         }
         if ("invoiceRegistrationNumber" in data) {
           cpUpdate.invoiceRegistrationNumber = (data.invoiceRegistrationNumber as string)?.trim() || null;

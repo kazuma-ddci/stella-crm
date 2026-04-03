@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { toBoolean } from "@/lib/utils";
 
 const VALID_TEMPLATE_TYPES = ["sending", "request"] as const;
 
@@ -16,7 +17,7 @@ export async function createInvoiceTemplate(data: Record<string, unknown>) {
   const projectId = data.projectId ? Number(data.projectId) : null;
   const emailSubjectTemplate = ((data.emailSubjectTemplate as string) ?? "").trim();
   const emailBodyTemplate = ((data.emailBodyTemplate as string) ?? "").trim();
-  const isDefault = data.isDefault === true || data.isDefault === "true";
+  const isDefault = toBoolean(data.isDefault);
 
   if (!name || !templateType || !operatingCompanyId || !emailSubjectTemplate || !emailBodyTemplate) {
     throw new Error("テンプレート名、種別、運営法人、メール件名、メール本文は必須です");
@@ -202,7 +203,7 @@ export async function updateInvoiceTemplate(id: number, data: Record<string, unk
   }
 
   if ("isDefault" in data) {
-    const isDefault = data.isDefault === true || data.isDefault === "true";
+    const isDefault = toBoolean(data.isDefault);
     updateData.isDefault = isDefault;
   }
 

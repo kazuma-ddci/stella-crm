@@ -142,6 +142,15 @@ export function validateCorporateNumber(input: string | null | undefined): {
  * 例: "SC-1" → "SC-1 株式会社テスト" ✅ / "SC-10 株式会社ABC" ❌
  * 日本語名や非コード検索は従来通り部分一致でマッチ。
  */
+/**
+ * フォームデータの値をbooleanに変換する。
+ * CrudTableやserver actionsで `data.isActive === true || data.isActive === "true"` の
+ * パターンが59箇所で使われていたため共通化。
+ */
+export function toBoolean(value: unknown): boolean {
+  return value === true || value === "true";
+}
+
 export function matchesWithWordBoundary(text: string, search: string): boolean {
   const s = search.toLowerCase().trim();
   if (!s) return true;
