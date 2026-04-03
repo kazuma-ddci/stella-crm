@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { signIn, signOut } from "next-auth/react";
+import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,14 +9,14 @@ import { Label } from "@/components/ui/label";
 import { InlineCell } from "@/components/inline-cell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { DatePicker } from "@/components/ui/date-picker";
 import { recordVendorPasswordResetRequest, updateVendorFields, addWholesaleAccount, updateWholesaleAccountByVendor, deleteWholesaleAccountByVendor } from "./actions";
-import { Trash2, Plus, Pencil } from "lucide-react";
+import { Trash2, Plus, Pencil, FileText, ClipboardList, Banknote } from "lucide-react";
 import Link from "next/link";
+import { VendorPortalLayout } from "./vendor-portal-layout";
+import type { VendorSection } from "./vendor-portal-layout";
 
 type ApplicantRecord = {
   id: number; lineName: string; applicantName: string; statusName: string;
@@ -313,46 +313,51 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
   );
 }
 
+// ========== プレースホルダーセクション ==========
+function PlaceholderSection({ icon: Icon, message }: { icon: React.ElementType; message: string }) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col items-center justify-center py-16 text-gray-400">
+        <Icon className="h-12 w-12 mb-4" />
+        <p className="text-lg">{message}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ========== メインコンポーネント ==========
 function VendorDataPage({ applicantData, wholesaleData, isVendor, canEdit = false, vendorId, vendorName, allVendors, vendorToken, userName }: Omit<Props, "authenticated">) {
-  const router = useRouter();
-  const hasApplicantData = applicantData.length > 0;
-  const handleVendorChange = (token: string) => { router.push(`/hojo/vendor/${token}`); };
+  const [activeSection, setActiveSection] = useState<VendorSection>("wholesale");
+
+  const renderSection = () => {
+    switch (activeSection) {
+      case "wholesale":
+        return <WholesaleTab data={wholesaleData} canEdit={canEdit} vendorId={vendorId} />;
+      case "grant":
+        return <ApplicantTab data={applicantData} canEdit={canEdit} vendorId={vendorId} />;
+      case "consulting-contract":
+        return <PlaceholderSection icon={FileText} message="契約情報はまだ登録されていません" />;
+      case "consulting-activity":
+        return <PlaceholderSection icon={ClipboardList} message="活動記録はまだありません" />;
+      case "loan":
+        return <PlaceholderSection icon={Banknote} message="貸付情報はまだありません" />;
+    }
+  };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{vendorName}様 専用ページ</h1>
-        <div className="flex items-center gap-3">
-          {isVendor && userName && (
-            <>
-              <span className="text-sm text-gray-600">{userName}さん</span>
-              <Button variant="outline" size="sm" onClick={() => signOut({ callbackUrl: `/hojo/vendor/${vendorToken}` })}>
-                ログアウト
-              </Button>
-            </>
-          )}
-        {allVendors.length > 0 && (
-          <Select value={vendorToken} onValueChange={handleVendorChange}>
-            <SelectTrigger className="w-[200px]"><SelectValue /></SelectTrigger>
-            <SelectContent>{allVendors.map((v) => <SelectItem key={v.token} value={v.token}>{v.name}</SelectItem>)}</SelectContent>
-          </Select>
-        )}
-        </div>
-      </div>
-      {hasApplicantData ? (
-        <Tabs defaultValue="wholesale">
-          <TabsList>
-            <TabsTrigger value="wholesale">卸アカウント管理</TabsTrigger>
-            <TabsTrigger value="applicant">助成金申請者管理</TabsTrigger>
-          </TabsList>
-          <TabsContent value="wholesale" className="mt-4"><WholesaleTab data={wholesaleData} canEdit={canEdit} vendorId={vendorId} /></TabsContent>
-          <TabsContent value="applicant" className="mt-4"><ApplicantTab data={applicantData} canEdit={canEdit} vendorId={vendorId} /></TabsContent>
-        </Tabs>
-      ) : (
-        <WholesaleTab data={wholesaleData} canEdit={canEdit} vendorId={vendorId} />
-      )}
-    </div>
+    <VendorPortalLayout
+      authenticated={true}
+      isVendor={isVendor}
+      canEdit={canEdit}
+      vendorName={vendorName}
+      vendorToken={vendorToken}
+      allVendors={allVendors}
+      userName={userName}
+      activeSection={activeSection}
+      onSectionChange={setActiveSection}
+    >
+      {renderSection()}
+    </VendorPortalLayout>
   );
 }
 

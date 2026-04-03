@@ -294,6 +294,8 @@ const navigation: NavItem[] = [
         sectionLabel: true,
         children: [
           { name: "申請者管理", href: "/hojo/application-support", icon: ClipboardList },
+          { name: "概要案内フェーズ", href: "/hojo/grant-customers/pre-application", icon: ClipboardList },
+          { name: "交付申請フェーズ", href: "/hojo/grant-customers/post-application", icon: FileCheck },
         ],
       },
       {
@@ -312,6 +314,21 @@ const navigation: NavItem[] = [
         children: [
           { name: "フォーム回答一覧(仮)", href: "/hojo/form-submissions", icon: ClipboardList },
         ],
+      },
+      {
+        name: "コンサル/BPO管理",
+        icon: Briefcase,
+        sectionLabel: true,
+        children: [
+          { name: "契約管理", href: "/hojo/consulting/contracts", icon: FileText },
+          { name: "活動記録", href: "/hojo/consulting/activities", icon: History },
+        ],
+      },
+      {
+        name: "貸金管理",
+        icon: Wallet,
+        sectionLabel: true,
+        children: [],
       },
       {
         name: "管理",

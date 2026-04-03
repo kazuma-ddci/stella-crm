@@ -3959,8 +3959,10 @@ model HojoLineFriendSecurityCloud {
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
-  vendors           HojoVendor[]
-  vendorContacts    HojoVendorContact[]
+  vendors                HojoVendor[]           @relation("vendorLineFriend")
+  vendorRepresentatives  HojoVendor[]           @relation("vendorRepresentative")
+  vendorContactPersons   HojoVendor[]           @relation("vendorContactPerson")
+  vendorContacts         HojoVendorContact[]
 
   @@map("hojo_line_friends_security_cloud")
 }
@@ -3982,12 +3984,57 @@ model HojoVendor {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  lineFriend          HojoLineFriendSecurityCloud? @relation(fields: [lineFriendId], references: [id], onDelete: SetNull)
-  joseiLineFriend     HojoLineFriendJoseiSupport?  @relation(fields: [joseiLineFriendId], references: [id], onDelete: SetNull)
-  contacts             HojoVendorContact[]
-  applicationSupports  HojoApplicationSupport[]
-  vendorAccounts       HojoVendorAccount[]
-  wholesaleAccounts    HojoWholesaleAccount[]
+  // --- ベンダー基本情報（ベンダー顧客リストより） ---
+  representativeName         String?  @map("representative_name") @db.VarChar(200)
+  representativeLineFriendId Int?     @map("representative_line_friend_id")
+  contactPersonName          String?  @map("contact_person_name") @db.VarChar(200)
+  contactPersonLineFriendId  Int?     @map("contact_person_line_friend_id")
+  email                      String?  @db.VarChar(255)
+  phone                      String?  @db.VarChar(50)
+
+  // セキュリティクラウド卸
+  scWholesaleStatusId        Int?     @map("sc_wholesale_status_id")
+  scWholesaleKickoffMtg      String?  @map("sc_wholesale_kickoff_mtg") @db.Text
+  scWholesaleContractUrl     String?  @map("sc_wholesale_contract_url") @db.VarChar(500)
+
+  // コンサルティングプラン
+  consultingPlanStatusId     Int?     @map("consulting_plan_status_id")
+  consultingPlanKickoffMtg   String?  @map("consulting_plan_kickoff_mtg") @db.Text
+  consultingPlanContractUrl  String?  @map("consulting_plan_contract_url") @db.VarChar(500)
+
+  // 交付申請BPO
+  grantApplicationBpo            Boolean  @default(false) @map("grant_application_bpo")
+  grantApplicationBpoKickoffMtg  String?  @map("grant_application_bpo_kickoff_mtg") @db.Text
+  grantApplicationBpoContractUrl String?  @map("grant_application_bpo_contract_url") @db.VarChar(500)
+
+  // 助成金コンサルティング
+  subsidyConsulting            Boolean  @default(false) @map("subsidy_consulting")
+  subsidyConsultingKickoffMtg  String?  @map("subsidy_consulting_kickoff_mtg") @db.Text
+
+  // 貸金利用
+  loanUsage            Boolean  @default(false) @map("loan_usage")
+  loanUsageKickoffMtg  String?  @map("loan_usage_kickoff_mtg") @db.Text
+  loanUsageContractUrl String?  @map("loan_usage_contract_url") @db.VarChar(500)
+
+  // ベンダー登録の有無
+  vendorRegistrationStatusId Int?  @map("vendor_registration_status_id")
+
+  // --- リレーション ---
+  lineFriend                   HojoLineFriendSecurityCloud? @relation("vendorLineFriend", fields: [lineFriendId], references: [id], onDelete: SetNull)
+  representativeLineFriend     HojoLineFriendSecurityCloud? @relation("vendorRepresentative", fields: [representativeLineFriendId], references: [id], onDelete: SetNull)
+  contactPersonLineFriend      HojoLineFriendSecurityCloud? @relation("vendorContactPerson", fields: [contactPersonLineFriendId], references: [id], onDelete: SetNull)
+  joseiLineFriend              HojoLineFriendJoseiSupport?  @relation(fields: [joseiLineFriendId], references: [id], onDelete: SetNull)
+  scWholesaleStatus            HojoVendorScWholesaleStatus?       @relation(fields: [scWholesaleStatusId], references: [id], onDelete: SetNull)
+  consultingPlanStatus         HojoVendorConsultingPlanStatus?    @relation(fields: [consultingPlanStatusId], references: [id], onDelete: SetNull)
+  vendorRegistrationStatus     HojoVendorRegistrationStatus?      @relation(fields: [vendorRegistrationStatusId], references: [id], onDelete: SetNull)
+  contacts                     HojoVendorContact[]
+  applicationSupports          HojoApplicationSupport[]
+  vendorAccounts               HojoVendorAccount[]
+  wholesaleAccounts            HojoWholesaleAccount[]
+  consultingContracts          HojoConsultingContract[]
+  consultingActivities         HojoConsultingActivity[]
+  grantCustomerPreApps         HojoGrantCustomerPreApplication[]
+  grantCustomerPostApps        HojoGrantCustomerPostApplication[]
 
   @@map("hojo_vendors")
 }
@@ -4079,6 +4126,7 @@ model HojoApplicationSupport {
   vendor                HojoVendor?                  @relation(fields: [vendorId], references: [id], onDelete: SetNull)
   status                HojoApplicationStatus?       @relation(fields: [statusId], references: [id], onDelete: SetNull)
   bbsStatusRef          HojoBbsStatus?               @relation(fields: [bbsStatusId], references: [id], onDelete: SetNull)
+  grantCustomerPreApps  HojoGrantCustomerPreApplication[]
 
   @@map("hojo_application_supports")
 }
@@ -4445,4 +4493,424 @@ model HojoTelegramNotificationLog {
 
   @@index([ruleId, requestHash, createdAt])
   @@map("hojo_telegram_notification_logs")
+}
+
+// ============================================
+// ベンダー管理 ステータスマスタ
+// ============================================
+
+model HojoVendorScWholesaleStatus {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(200)
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  vendors HojoVendor[]
+
+  @@map("hojo_vendor_sc_wholesale_statuses")
+}
+
+model HojoVendorConsultingPlanStatus {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(200)
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  vendors HojoVendor[]
+
+  @@map("hojo_vendor_consulting_plan_statuses")
+}
+
+model HojoVendorRegistrationStatus {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(200)
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  vendors HojoVendor[]
+
+  @@map("hojo_vendor_registration_statuses")
+}
+
+// ============================================
+// コンサル/BPO 契約管理
+// ============================================
+
+model HojoConsultingContract {
+  id                    Int       @id @default(autoincrement())
+  vendorId              Int       @map("vendor_id")
+  lineNumber            String?   @map("line_number") @db.VarChar(100)
+  lineName              String?   @map("line_name") @db.VarChar(200)
+  referralUrl           String?   @map("referral_url") @db.VarChar(500)
+  assignedAs            String?   @map("assigned_as") @db.VarChar(200)
+  consultingStaff       String?   @map("consulting_staff") @db.VarChar(200)
+  companyName           String    @map("company_name") @db.VarChar(200)
+  representativeName    String?   @map("representative_name") @db.VarChar(200)
+  mainContactName       String?   @map("main_contact_name") @db.VarChar(200)
+  customerEmail         String?   @map("customer_email") @db.VarChar(255)
+  customerPhone         String?   @map("customer_phone") @db.VarChar(50)
+  contractDate          DateTime? @map("contract_date")
+  contractPlan          String?   @map("contract_plan") @db.VarChar(200)
+  contractAmount        Decimal?  @map("contract_amount") @db.Decimal(12, 0)
+  serviceType           String?   @map("service_type") @db.VarChar(200)
+  caseStatus            String?   @map("case_status") @db.VarChar(100)
+  hasScSales            Boolean   @default(false) @map("has_sc_sales")
+  hasSubsidyConsulting  Boolean   @default(false) @map("has_subsidy_consulting")
+  hasBpoSupport         Boolean   @default(false) @map("has_bpo_support")
+  consultingPlan        String?   @map("consulting_plan") @db.VarChar(200)
+  successFee            Decimal?  @map("success_fee") @db.Decimal(12, 0)
+  startDate             DateTime? @map("start_date")
+  endDate               DateTime? @map("end_date")
+  billingStatus         String?   @map("billing_status") @db.VarChar(100)
+  paymentStatus         String?   @map("payment_status") @db.VarChar(100)
+  revenueRecordingDate  DateTime? @map("revenue_recording_date")
+  grossProfit           Decimal?  @map("gross_profit") @db.Decimal(12, 0)
+  notes                 String?   @db.Text
+  deletedAt             DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  vendor     HojoVendor               @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  activities HojoConsultingActivity[]
+
+  @@index([vendorId])
+  @@map("hojo_consulting_contracts")
+}
+
+// ============================================
+// コンサル/BPO 活動記録
+// ============================================
+
+model HojoConsultingActivity {
+  id                    Int       @id @default(autoincrement())
+  vendorId              Int       @map("vendor_id")
+  contractId            Int?      @map("contract_id")
+  activityDate          DateTime  @map("activity_date")
+  contactMethod         String?   @map("contact_method") @db.VarChar(100)
+
+  // ベンダー側が記入可能
+  vendorIssue           String?   @map("vendor_issue") @db.Text
+
+  // スタッフのみ（ベンダー非表示）
+  hearingContent        String?   @map("hearing_content") @db.Text
+  responseContent       String?   @map("response_content") @db.Text
+  proposalContent       String?   @map("proposal_content") @db.Text
+
+  // ベンダー次回アクション
+  vendorNextAction      String?   @map("vendor_next_action") @db.Text
+  nextDeadline          DateTime? @map("next_deadline")
+
+  // ベンダータスク
+  vendorTask            String?   @map("vendor_task") @db.VarChar(500)
+  vendorTaskDeadline    DateTime? @map("vendor_task_deadline")
+  vendorTaskPriority    String?   @map("vendor_task_priority") @db.VarChar(20)
+  vendorTaskCompleted   Boolean   @default(false) @map("vendor_task_completed")
+
+  // 申請サポートタスク（ベンダー非表示）
+  supportTask           String?   @map("support_task") @db.VarChar(500)
+  supportTaskDeadline   DateTime? @map("support_task_deadline")
+  supportTaskPriority   String?   @map("support_task_priority") @db.VarChar(20)
+  supportTaskCompleted  Boolean   @default(false) @map("support_task_completed")
+
+  // 添付
+  attachmentUrl         String?   @map("attachment_url") @db.VarChar(500)
+  recordingUrl          String?   @map("recording_url") @db.VarChar(500)
+  screenshotUrl         String?   @map("screenshot_url") @db.VarChar(500)
+
+  // ベンダー側のみ記入可能
+  notes                 String?   @db.Text
+
+  deletedAt             DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  vendor   HojoVendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  contract HojoConsultingContract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
+  @@index([vendorId])
+  @@index([contractId])
+  @@map("hojo_consulting_activities")
+}
+
+// ============================================
+// 助成金 顧客情報（概要案内フェーズ ～概要案内）
+// ============================================
+
+model HojoGrantCustomerPreApplication {
+  id                    Int       @id @default(autoincrement())
+  vendorId              Int       @map("vendor_id")
+  applicationSupportId  Int?      @map("application_support_id")
+
+  // 基本情報
+  isBpo                 Boolean   @default(false) @map("is_bpo")
+  applicantName         String?   @map("applicant_name") @db.VarChar(200)
+  referrer              String?   @db.VarChar(200)
+  salesStaff            String?   @map("sales_staff") @db.VarChar(200)
+  category              String?   @db.VarChar(100)
+  status                String?   @db.VarChar(100)
+  prospectLevel         String?   @map("prospect_level") @db.VarChar(100)
+  detailMemo            String?   @map("detail_memo") @db.Text
+  nextAction            String?   @map("next_action") @db.Text
+  nextContactDate       DateTime? @map("next_contact_date")
+
+  // 概要案内
+  overviewBriefingDate  DateTime? @map("overview_briefing_date")
+  mtgRecordingUrl       String?   @map("mtg_recording_url") @db.VarChar(500)
+  briefingStaff         String?   @map("briefing_staff") @db.VarChar(200)
+  phone                 String?   @db.VarChar(50)
+
+  // 事業情報
+  businessEntity        String?   @map("business_entity") @db.VarChar(100)
+  industry              String?   @db.VarChar(200)
+  systemType            String?   @map("system_type") @db.VarChar(200)
+  hasLoan               String?   @map("has_loan") @db.VarChar(20)
+  revenueRange          String?   @map("revenue_range") @db.VarChar(100)
+  importantTags         String?   @map("important_tags") @db.Text
+  loanPattern           String?   @map("loan_pattern") @db.VarChar(100)
+
+  // 報酬
+  referrerRewardPct     Decimal?  @map("referrer_reward_pct") @db.Decimal(5, 3)
+  agent1Number          String?   @map("agent1_number") @db.VarChar(100)
+  agent1RewardPct       Decimal?  @map("agent1_reward_pct") @db.Decimal(5, 3)
+  totalReward           Decimal?  @map("total_reward") @db.Decimal(12, 0)
+  doubleChecker         String?   @map("double_checker") @db.VarChar(200)
+
+  // 判定
+  repeatJudgment        String?   @map("repeat_judgment") @db.VarChar(100)
+  wageRaiseEligible     String?   @map("wage_raise_eligible") @db.VarChar(100)
+  pastProduct           String?   @map("past_product") @db.VarChar(200)
+  lostDate              DateTime? @map("lost_date")
+
+  // 書類
+  agentContractUrl      String?   @map("agent_contract_url") @db.VarChar(500)
+  docCollectionStart    DateTime? @map("doc_collection_start")
+  docSubmissionDate     DateTime? @map("doc_submission_date")
+  businessName          String?   @map("business_name") @db.VarChar(200)
+  doc1                  String?   @db.VarChar(500)
+  doc2                  String?   @db.VarChar(500)
+  doc3                  String?   @db.VarChar(500)
+  doc4                  String?   @db.VarChar(500)
+  doc5                  String?   @db.VarChar(500)
+  itStrategyNaviPdf     String?   @map("it_strategy_navi_pdf") @db.VarChar(500)
+  hasEmployees          String?   @map("has_employees") @db.VarChar(50)
+
+  // gBizID
+  gbizidScreenshot      String?   @map("gbizid_screenshot") @db.VarChar(500)
+  gbizidAddress         String?   @map("gbizid_address") @db.VarChar(255)
+  selfDeclarationId     String?   @map("self_declaration_id") @db.VarChar(20)
+  antiSocialCheck       String?   @map("anti_social_check") @db.VarChar(100)
+
+  // 企業財務
+  establishmentDate     DateTime? @map("establishment_date")
+  capital               String?   @db.VarChar(100)
+  fiscalMonth           String?   @map("fiscal_month") @db.VarChar(20)
+  revenue               Decimal?  @db.Decimal(14, 0)
+  grossProfit           Decimal?  @map("gross_profit") @db.Decimal(14, 0)
+  operatingProfit       Decimal?  @map("operating_profit") @db.Decimal(14, 0)
+  ordinaryProfit        Decimal?  @map("ordinary_profit") @db.Decimal(14, 0)
+  depreciation          Decimal?  @db.Decimal(14, 0)
+  laborCost             Decimal?  @map("labor_cost") @db.Decimal(14, 0)
+  capitalOrReserve      String?   @map("capital_or_reserve") @db.VarChar(200)
+  executiveCompensation Decimal?  @map("executive_compensation") @db.Decimal(14, 0)
+  totalSalaryPrevYear   Decimal?  @map("total_salary_prev_year") @db.Decimal(14, 0)
+  planYear1             String?   @map("plan_year1") @db.VarChar(200)
+  planYear2             String?   @map("plan_year2") @db.VarChar(200)
+  planYear3             String?   @map("plan_year3") @db.VarChar(200)
+
+  // 加点
+  bonus1Target          String?   @map("bonus1_target") @db.VarChar(200)
+  bonus1Doc             String?   @map("bonus1_doc") @db.VarChar(500)
+  bonus2Target          String?   @map("bonus2_target") @db.VarChar(200)
+  bonus2Doc             String?   @map("bonus2_doc") @db.VarChar(500)
+  minWage               String?   @map("min_wage") @db.VarChar(100)
+
+  // 申請文書
+  applicationSystem         String?  @map("application_system") @db.VarChar(200)
+  businessDescriptionDraft  String?  @map("business_description_draft") @db.Text
+  businessProcessNote       String?  @map("business_process_note") @db.Text
+  homepageUrl               String?  @map("homepage_url") @db.VarChar(500)
+  businessDescription       String?  @map("business_description") @db.Text
+  challengeTitle            String?  @map("challenge_title") @db.VarChar(500)
+  challengeGoal             String?  @map("challenge_goal") @db.Text
+  growthMatchingDescription String?  @map("growth_matching_description") @db.Text
+  dataEntryStaff            String?  @map("data_entry_staff") @db.VarChar(200)
+  dataEntryConfirmed        String?  @map("data_entry_confirmed") @db.VarChar(100)
+  businessDescriptionFinal  String?  @map("business_description_final") @db.Text
+
+  // 従業員・事業所
+  industryCode              String?  @map("industry_code") @db.VarChar(20)
+  officeCount               Int?     @map("office_count")
+  empRegular                Int?     @map("emp_regular")
+  empContract               Int?     @map("emp_contract")
+  empPartTime               Int?     @map("emp_part_time")
+  empDispatch               Int?     @map("emp_dispatch")
+  empOther                  Int?     @map("emp_other")
+
+  // 賃金テーブル
+  wageTable1                String?  @map("wage_table_1") @db.VarChar(200)
+  wageTable2                String?  @map("wage_table_2") @db.VarChar(200)
+  wageTable3                String?  @map("wage_table_3") @db.VarChar(200)
+  wageTable4                String?  @map("wage_table_4") @db.VarChar(200)
+  wageTable5                String?  @map("wage_table_5") @db.VarChar(200)
+  wageTable6                String?  @map("wage_table_6") @db.VarChar(200)
+  wageTable7                String?  @map("wage_table_7") @db.VarChar(200)
+  wageTable8                String?  @map("wage_table_8") @db.VarChar(200)
+  wageTable9                String?  @map("wage_table_9") @db.VarChar(200)
+  wageTable10               String?  @map("wage_table_10") @db.VarChar(200)
+
+  deletedAt                 DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  vendor             HojoVendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  applicationSupport HojoApplicationSupport? @relation(fields: [applicationSupportId], references: [id], onDelete: SetNull)
+  postApplications   HojoGrantCustomerPostApplication[]
+
+  @@index([vendorId])
+  @@index([applicationSupportId])
+  @@map("hojo_grant_customer_pre_applications")
+}
+
+// ============================================
+// 助成金 顧客情報（交付申請フェーズ 交付申請～）+ 貸付管理
+// ============================================
+
+model HojoGrantCustomerPostApplication {
+  id                    Int       @id @default(autoincrement())
+  vendorId              Int       @map("vendor_id")
+  preApplicationId      Int?      @map("pre_application_id")
+
+  // 基本情報
+  isBpo                     Boolean   @default(false) @map("is_bpo")
+  applicantName             String?   @map("applicant_name") @db.VarChar(200)
+  memo                      String?   @db.Text
+  referrer                  String?   @db.VarChar(200)
+  salesStaff                String?   @map("sales_staff") @db.VarChar(200)
+  applicationCompletedDate  DateTime? @map("application_completed_date")
+  applicationStaff          String?   @map("application_staff") @db.VarChar(200)
+  grantApplicationNumber    String?   @map("grant_application_number") @db.VarChar(100)
+  nextAction                String?   @map("next_action") @db.Text
+  nextContactDate           DateTime? @map("next_contact_date")
+  documentStorageUrl        String?   @map("document_storage_url") @db.VarChar(500)
+  existingDocuments         String?   @map("existing_documents") @db.Text
+  staffEmail                String?   @map("staff_email") @db.VarChar(255)
+
+  // 申請状況チェック
+  growthMatchingUrl         String?   @map("growth_matching_url") @db.VarChar(500)
+  growthMatchingStatus      String?   @map("growth_matching_status") @db.VarChar(100)
+  wageRaise                 String?   @map("wage_raise") @db.VarChar(100)
+  laborSavingNavi           String?   @map("labor_saving_navi") @db.VarChar(100)
+  invoiceRegistration       String?   @map("invoice_registration") @db.VarChar(100)
+  repeatJudgment            String?   @map("repeat_judgment") @db.VarChar(100)
+
+  // IT導入補助金データ
+  subsidyApplicantName      String?   @map("subsidy_applicant_name") @db.VarChar(200)
+  prefecture                String?   @db.VarChar(50)
+  recruitmentRound          String?   @map("recruitment_round") @db.VarChar(50)
+  applicationType           String?   @map("application_type") @db.VarChar(100)
+  subsidyStatus             String?   @map("subsidy_status") @db.VarChar(100)
+  subsidyStatusUpdated      DateTime? @map("subsidy_status_updated")
+  subsidyVendorName         String?   @map("subsidy_vendor_name") @db.VarChar(200)
+  itToolName                String?   @map("it_tool_name") @db.VarChar(200)
+  subsidyTargetAmount       Int?      @map("subsidy_target_amount")
+  subsidyAppliedAmount      Int?      @map("subsidy_applied_amount")
+  grantDecisionDate         DateTime? @map("grant_decision_date")
+  grantDecisionAmount       Int?      @map("grant_decision_amount")
+  confirmationApprovalDate  DateTime? @map("confirmation_approval_date")
+  subsidyConfirmedAmount    Int?      @map("subsidy_confirmed_amount")
+
+  // プロセス管理
+  deliveryDate                DateTime? @map("delivery_date")
+  deliveryCompleted           String?   @map("delivery_completed") @db.VarChar(20)
+  employeeListUrl             String?   @map("employee_list_url") @db.VarChar(500)
+  employeeListFormUrl         String?   @map("employee_list_form_url") @db.VarChar(500)
+  employeeListCreated         String?   @map("employee_list_created") @db.VarChar(100)
+  performanceReportDate       DateTime? @map("performance_report_date")
+  performanceReportCompleted  String?   @map("performance_report_completed") @db.VarChar(20)
+  confirmationDate            DateTime? @map("confirmation_date")
+  confirmationCompleted       String?   @map("confirmation_completed") @db.VarChar(20)
+  grantDate                   DateTime? @map("grant_date")
+  grantCompleted              String?   @map("grant_completed") @db.VarChar(20)
+  refundDate                  DateTime? @map("refund_date")
+  refundCompleted             String?   @map("refund_completed") @db.VarChar(20)
+  subsidyPaymentDate          DateTime? @map("subsidy_payment_date")
+  subsidyPaymentCompleted     String?   @map("subsidy_payment_completed") @db.VarChar(20)
+  completedDate               DateTime? @map("completed_date")
+
+  // 貸付管理
+  loanSurveyResponse    String?   @map("loan_survey_response") @db.VarChar(200)
+  hasLoan               Boolean   @default(false) @map("has_loan")
+  loanMtgDate           DateTime? @map("loan_mtg_date")
+  loanMtgCompleted      String?   @map("loan_mtg_completed") @db.VarChar(20)
+  loanMtgStaff          String?   @map("loan_mtg_staff") @db.VarChar(200)
+  loanLocation          String?   @map("loan_location") @db.VarChar(200)
+  loanAmount            Decimal?  @map("loan_amount") @db.Decimal(12, 0)
+  loanCash              String?   @map("loan_cash") @db.VarChar(100)
+  loanDoubleChecker     String?   @map("loan_double_checker") @db.VarChar(200)
+  loanPaymentDate       DateTime? @map("loan_payment_date")
+  loanTime              String?   @map("loan_time") @db.VarChar(50)
+  loanPaymentCompleted  String?   @map("loan_payment_completed") @db.VarChar(20)
+
+  // 報酬管理 - 紹介者
+  referrerNumber            String?   @map("referrer_number") @db.VarChar(100)
+  referrerLineName          String?   @map("referrer_line_name") @db.VarChar(200)
+  referrerPct               Decimal?  @map("referrer_pct") @db.Decimal(5, 3)
+  referrerAmount            Decimal?  @map("referrer_amount") @db.Decimal(12, 0)
+  referrerPaymentDate       DateTime? @map("referrer_payment_date")
+  referrerPaymentCompleted  String?   @map("referrer_payment_completed") @db.VarChar(20)
+
+  // 報酬管理 - 代理店①
+  agent1Number              String?   @map("agent1_number") @db.VarChar(100)
+  agent1LineName            String?   @map("agent1_line_name") @db.VarChar(200)
+  agent1Pct                 Decimal?  @map("agent1_pct") @db.Decimal(5, 3)
+  agent1Amount              Decimal?  @map("agent1_amount") @db.Decimal(12, 0)
+  agent1PaymentDate         DateTime? @map("agent1_payment_date")
+  agent1PaymentCompleted    String?   @map("agent1_payment_completed") @db.VarChar(20)
+
+  // 報酬管理 - 代理店②
+  agent2Number              String?   @map("agent2_number") @db.VarChar(100)
+  agent2LineName            String?   @map("agent2_line_name") @db.VarChar(200)
+  agent2Pct                 Decimal?  @map("agent2_pct") @db.Decimal(5, 3)
+  agent2Amount              Decimal?  @map("agent2_amount") @db.Decimal(12, 0)
+  agent2PaymentDate         DateTime? @map("agent2_payment_date")
+  agent2PaymentCompleted    String?   @map("agent2_payment_completed") @db.VarChar(20)
+
+  // 報酬管理 - 代理店③
+  agent3Number              String?   @map("agent3_number") @db.VarChar(100)
+  agent3LineName            String?   @map("agent3_line_name") @db.VarChar(200)
+  agent3Pct                 Decimal?  @map("agent3_pct") @db.Decimal(5, 3)
+  agent3Amount              Decimal?  @map("agent3_amount") @db.Decimal(12, 0)
+  agent3PaymentDate         DateTime? @map("agent3_payment_date")
+  agent3PaymentCompleted    String?   @map("agent3_payment_completed") @db.VarChar(20)
+
+  // その他
+  vendorPattern             String?   @map("vendor_pattern") @db.VarChar(200)
+  toolPattern               String?   @map("tool_pattern") @db.VarChar(200)
+  wageTable1                String?   @map("wage_table_1") @db.VarChar(200)
+  wageTable2                String?   @map("wage_table_2") @db.VarChar(200)
+  wageTable3                String?   @map("wage_table_3") @db.VarChar(200)
+  wageTable4                String?   @map("wage_table_4") @db.VarChar(200)
+  wageTable5                String?   @map("wage_table_5") @db.VarChar(200)
+  wageTable6                String?   @map("wage_table_6") @db.VarChar(200)
+  wageTable7                String?   @map("wage_table_7") @db.VarChar(200)
+  wageTable8                String?   @map("wage_table_8") @db.VarChar(200)
+  wageTable9                String?   @map("wage_table_9") @db.VarChar(200)
+  wageTable10               String?   @map("wage_table_10") @db.VarChar(200)
+
+  deletedAt                 DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  vendor          HojoVendor                       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  preApplication  HojoGrantCustomerPreApplication? @relation(fields: [preApplicationId], references: [id], onDelete: SetNull)
+
+  @@index([vendorId])
+  @@index([preApplicationId])
+  @@map("hojo_grant_customer_post_applications")
 }

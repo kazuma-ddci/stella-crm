@@ -69,6 +69,20 @@ export function VendorsTable({ data, canEdit, lineFriendOptions, joseiLineFriend
   ];
 
   const customRenderers: CustomRenderers = {
+    name: (value, row) => {
+      const id = row.id as number;
+      return (
+        <a
+          href={`/hojo/settings/vendors/${id}`}
+          className="text-blue-600 hover:underline font-medium"
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
+        >
+          {String(value)}
+        </a>
+      );
+    },
     accessToken: (value) => {
       if (!value) return "-";
       const path = `/hojo/vendor/${value}`;
