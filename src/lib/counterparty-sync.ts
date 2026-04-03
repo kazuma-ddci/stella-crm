@@ -11,15 +11,18 @@ async function generateDisplayId(
   prefix: "SC" | "TP",
   db: TxClient | typeof prisma
 ): Promise<string> {
-  const last = await db.counterparty.findFirst({
+  const all = await db.counterparty.findMany({
     where: { displayId: { startsWith: `${prefix}-` } },
-    orderBy: { displayId: "desc" },
     select: { displayId: true },
   });
-  const lastNum = last?.displayId
-    ? Number(last.displayId.replace(`${prefix}-`, ""))
-    : 0;
-  return `${prefix}-${lastNum + 1}`;
+  let maxNum = 0;
+  for (const row of all) {
+    if (row.displayId) {
+      const num = Number(row.displayId.replace(`${prefix}-`, ""));
+      if (num > maxNum) maxNum = num;
+    }
+  }
+  return `${prefix}-${maxNum + 1}`;
 }
 
 /**
