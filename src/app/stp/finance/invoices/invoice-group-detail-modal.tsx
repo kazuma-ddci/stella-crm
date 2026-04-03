@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw, Mail, MessageSquare, ArrowRight, Link2, Upload, Paperclip, PenTool, Send, CheckCircle2, Pencil, History, Check, X, Clock, Undo2 } from "lucide-react";
+import { Loader2, Plus, Trash2, FileText, AlertTriangle, Eye, Download, RefreshCw, ArrowRight, Link2, Upload, Send, CheckCircle2, Pencil, History, Check, X, Clock, Undo2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
@@ -108,7 +108,6 @@ export function InvoiceGroupDetailModal({
   group,
   stellaCustomerOptions,
   counterpartyOptions,
-  operatingCompanyOptions,
   bankAccountsByCompany,
   expenseCategories,
   projectId,
@@ -213,7 +212,7 @@ export function InvoiceGroupDetailModal({
   const [editingAttachmentId, setEditingAttachmentId] = useState<number | null>(null);
   const [editingDisplayName, setEditingDisplayName] = useState("");
   // 変更履歴ポップオーバー
-  const [historyAttachmentId, setHistoryAttachmentId] = useState<number | null>(null);
+  const [, setHistoryAttachmentId] = useState<number | null>(null);
   const [historyData, setHistoryData] = useState<{
     id: number;
     changedAt: string;
@@ -448,19 +447,6 @@ export function InvoiceGroupDetailModal({
   // 保存済みPDFを開く
   const handleOpenPdf = () => {
     window.open(`/api/finance/invoice-groups/${group.id}/pdf${projectId ? `?projectId=${projectId}` : ""}`, "_blank");
-  };
-
-  // PDF作成して送付へ（ショートカット）
-  const handleGenerateAndSend = async () => {
-    setLoading(true);
-    try {
-      await generateInvoicePdf(group.id);
-      setShowMailModal(true);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "PDF生成に失敗しました");
-    } finally {
-      setLoading(false);
-    }
   };
 
   // PDFプレビューを閉じる

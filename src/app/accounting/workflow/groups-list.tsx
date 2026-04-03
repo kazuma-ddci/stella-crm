@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { FileText, CreditCard, ChevronRight, Check, Clock, AlertCircle, Ban } from "lucide-react";
-import type { WorkflowGroup, WorkflowCategory } from "./actions";
+import type { WorkflowGroup } from "./actions";
 
 type Props = {
   groups: WorkflowGroup[];

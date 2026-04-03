@@ -9,7 +9,6 @@ import {
   calculateSimulation,
   type ProposalContent,
   type SimulationInput,
-  type SlideVersion,
 } from "@/lib/proposals/simulation";
 import {
   toggleSlidePermission,

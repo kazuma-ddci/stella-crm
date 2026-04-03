@@ -23,8 +23,7 @@ import {
  */
 export function validateContractStatusChange(
   input: ContractStatusChangeInput,
-  statuses: ContractStatusInfo[],
-  lastHistory?: ContractStatusHistoryRecord | null
+  statuses: ContractStatusInfo[]
 ): ContractStatusValidationResult {
   const alerts: ContractStatusAlert[] = [];
 

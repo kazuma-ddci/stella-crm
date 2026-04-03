@@ -1,14 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -83,7 +82,6 @@ interface KpiSheet {
 
 export default function KpiSheetPage() {
   const params = useParams();
-  const router = useRouter();
   const stpCompanyId = Number(params.id);
 
   const [sheets, setSheets] = useState<KpiSheet[]>([]);

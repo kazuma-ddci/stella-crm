@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { sendStaffInviteEmail } from "@/lib/email";
 import { auth } from "@/auth";
 import { requireEdit } from "@/lib/auth";
-import type { UserPermission, OrganizationRole } from "@/types/auth";
+import type { UserPermission } from "@/types/auth";
 
 const PERM_PREFIX = "perm_";
 const APPROVE_PREFIX = "approve_";
@@ -58,12 +58,6 @@ export async function getEditableProjects(targetStaffId?: number): Promise<{ cod
   return permissions
     .filter((p) => p.permissionLevel === "manager")
     .map((p) => ({ code: p.projectCode, maxLevel: isSelf ? "manager" : "edit" }));
-}
-
-/** getEditableProjects からコードのみ抽出（後方互換ヘルパー） */
-async function getEditableProjectCodes(): Promise<string[]> {
-  const projects = await getEditableProjects();
-  return projects.map((p) => p.code);
 }
 
 /** 天井バリデーション: 指定されたpermissionLevelがmaxLevel以下であることを検証 */

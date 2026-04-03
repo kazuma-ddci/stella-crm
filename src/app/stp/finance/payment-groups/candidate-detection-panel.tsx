@@ -63,7 +63,7 @@ function getSubTypeLabel(candidate: TransactionCandidate): string | null {
   return null;
 }
 
-export function CandidateDetectionPanel({ expenseCategories, onClose }: Props) {
+export function CandidateDetectionPanel({ onClose }: Props) {
   const router = useRouter();
   const now = new Date();
   const [targetMonth, setTargetMonth] = useState(

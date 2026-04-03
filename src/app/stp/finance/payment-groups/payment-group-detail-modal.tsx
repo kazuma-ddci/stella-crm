@@ -20,11 +20,9 @@ import {
   CheckCircle2,
   XCircle,
   FileText,
-  MessageSquare,
   Send,
   AlertTriangle,
   Upload,
-  Paperclip,
   Pencil,
   History,
   Check,
@@ -130,10 +128,7 @@ export function PaymentGroupDetailModal({
   open,
   onClose,
   group,
-  counterpartyOptions,
-  operatingCompanyOptions,
   expenseCategories,
-  canEditAccounting,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<
@@ -204,7 +199,7 @@ export function PaymentGroupDetailModal({
   const [editingAttachmentId, setEditingAttachmentId] = useState<number | null>(null);
   const [editingDisplayName, setEditingDisplayName] = useState("");
   // 変更履歴ポップオーバー
-  const [historyAttachmentId, setHistoryAttachmentId] = useState<number | null>(null);
+  const [, setHistoryAttachmentId] = useState<number | null>(null);
   const [historyData, setHistoryData] = useState<{
     id: number;
     changedAt: string;

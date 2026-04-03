@@ -14,7 +14,7 @@ import { TextPreviewCell } from "@/components/text-preview-cell";
 import { addStpCompany, updateStpCompany, deleteStpCompany, checkDuplicateCompanyId } from "./actions";
 import { CompanyCodeLabel } from "@/components/company-code-label";
 import { isInvalidJobMedia } from "@/lib/stp/job-media";
-import { BarChart3, MessageSquare, FileText, ScrollText, ChevronsUpDown, AlertTriangle, FileEdit, LineChart, DollarSign, History } from "lucide-react";
+import { BarChart3, MessageSquare, ScrollText, ChevronsUpDown, AlertTriangle, FileEdit, LineChart, DollarSign, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -698,7 +698,7 @@ export function StpCompaniesTable({
     {
       icon: <DollarSign className="h-4 w-4" />,
       label: "収支サマリー",
-      onClick: (item) => router.push(`/stp/finance/overview`),
+      onClick: () => router.push(`/stp/finance/overview`),
     },
     {
       icon: <History className="h-4 w-4" />,

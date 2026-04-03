@@ -309,6 +309,7 @@ export function JournalEntryModal({
       grouped[acc.category].push(acc);
     }
     return { grouped, categoryLabels };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.accounts]);
 
   const taxClassificationOptions = useMemo(

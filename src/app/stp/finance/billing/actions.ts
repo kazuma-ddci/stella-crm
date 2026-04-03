@@ -12,8 +12,6 @@ import {
 import {
   calcByType,
   buildCommissionConfig,
-  toNumber,
-  type CommissionConfig,
   type ContractPlan,
 } from "@/lib/finance/auto-generate";
 import {
@@ -1464,7 +1462,7 @@ export async function bulkCreateTransactionsFromExpenses(
     try {
       await createTransactionFromExpense(input);
       created++;
-    } catch (error) {
+    } catch {
       console.error(`経費取引化失敗: expenseType=${input.expenseType}, agentId=${input.agentId}`);
     }
   }

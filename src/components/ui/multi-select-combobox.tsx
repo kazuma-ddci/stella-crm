@@ -68,6 +68,7 @@ export function MultiSelectCombobox({
         <div
           role="combobox"
           aria-expanded={open}
+          aria-controls="multi-select-listbox"
           tabIndex={0}
           className="flex w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 cursor-pointer h-auto min-h-10"
         >

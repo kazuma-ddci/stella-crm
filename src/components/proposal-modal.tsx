@@ -147,7 +147,7 @@ export function ProposalModal({
     editingId: number | null;
     formOpen: boolean;
   };
-  const { restore, save, clear } = useTimedFormCache<CachedState>(
+  const { restore, save } = useTimedFormCache<CachedState>(
     `proposal-${stpCompanyId}`
   );
   const formStateRef = useRef<CachedState>({

@@ -2,9 +2,23 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
+import { canEdit as canEditProject } from "@/lib/auth/permissions";
+import type { UserPermission } from "@/types/auth";
 import bcrypt from "bcryptjs";
 
 const REVALIDATE_PATH = "/hojo/bbs";
+
+async function requireBbsEditPermission(): Promise<void> {
+  const session = await auth();
+  const userType = session?.user?.userType;
+  if (userType === "bbs") return; // BBSユーザーは編集可
+  if (userType === "staff") {
+    const permissions = (session?.user?.permissions ?? []) as UserPermission[];
+    if (canEditProject(permissions, "hojo")) return; // スタッフのhojo edit以上も編集可
+  }
+  throw new Error("権限がありません");
+}
 
 export async function registerBbsAccount(data: {
   name: string;
@@ -45,7 +59,8 @@ export async function registerBbsAccount(data: {
   });
 }
 
-export async function loginBbsAccount(email: string, password: string) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function loginBbsAccount(email: string, _password: string) {
   const account = await prisma.hojoBbsAccount.findUnique({
     where: { email },
   });
@@ -81,6 +96,7 @@ export async function updateBbsFields(
   applicationSupportId: number,
   data: { bbsStatusId?: number | null; bbsMemo?: string }
 ) {
+  await requireBbsEditPermission();
   const updateData: Record<string, unknown> = {};
 
   if (data.bbsStatusId !== undefined) {

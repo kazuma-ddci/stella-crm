@@ -45,7 +45,7 @@ export function VendorTab({ data, vendorList, staffId }: Props) {
   const toggleVendor = (vendorId: number) => {
     setExpandedVendors((prev) => {
       const next = new Set(prev);
-      next.has(vendorId) ? next.delete(vendorId) : next.add(vendorId);
+      if (next.has(vendorId)) { next.delete(vendorId); } else { next.add(vendorId); }
       return next;
     });
   };

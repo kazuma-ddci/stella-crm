@@ -1,10 +1,9 @@
 // 契約書ステータス変更の履歴記録ヘルパー
 // 全体編集時にステータス変更を検出し、履歴を自動記録するための共通関数
 
-import { Prisma, PrismaClient } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import {
   ContractStatusInfo,
-  DetectedContractStatusEvent,
 } from "./types";
 import { detectContractStatusEvent, createInitialEvent } from "./event-detector";
 

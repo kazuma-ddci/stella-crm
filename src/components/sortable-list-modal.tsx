@@ -188,7 +188,6 @@ export function SortableListModal({
     setItems((items) => {
       // 同じグループ内のアイテムのみを対象に並び替え
       const groupItems = items.filter((item) => item.groupKey === groupKey);
-      const otherItems = items.filter((item) => item.groupKey !== groupKey);
 
       const oldIndex = groupItems.findIndex((item) => item.id === activeId);
       const newIndex = groupItems.findIndex((item) => item.id === overId);

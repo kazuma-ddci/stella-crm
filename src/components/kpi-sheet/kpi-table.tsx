@@ -50,12 +50,6 @@ interface KpiTableProps {
   onUpdateStartDate?: (weeklyDataId: number, startDate: string) => Promise<void>;
 }
 
-// 日付フォーマット（月/日）
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  return `${date.getMonth() + 1}/${date.getDate()}`;
-}
-
 // 日付フォーマット（月日形式）
 function formatDateFull(dateStr: string): string {
   const date = new Date(dateStr);

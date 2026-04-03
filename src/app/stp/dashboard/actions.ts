@@ -67,11 +67,6 @@ function calcTotalWithTax(tx: {
     : tx.amount + tx.taxAmount;
 }
 
-/** yearMonthが当月かどうか判定 */
-function isCurrentMonth(yearMonth: string): boolean {
-  return yearMonth === toYearMonth(new Date());
-}
-
 /** yearMonthが過去月かどうか判定 */
 function isPastMonth(yearMonth: string): boolean {
   return yearMonth < toYearMonth(new Date());
@@ -827,7 +822,7 @@ export type AgentRoiData = {
 export async function getAgentRoiData(
   yearMonth: string
 ): Promise<AgentRoiData> {
-  const { monthStart, monthEnd } = parseMonth(yearMonth);
+  const { monthStart } = parseMonth(yearMonth);
   const past = isPastMonth(yearMonth);
 
   // 代理店付きのSTP企業を取得

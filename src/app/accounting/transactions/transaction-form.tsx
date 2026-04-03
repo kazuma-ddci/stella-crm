@@ -204,7 +204,7 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
   const [isConfidential, setIsConfidential] = useState(
     transaction?.isConfidential ?? false
   );
-  const [attachments, setAttachments] = useState<AttachmentInput[]>(
+  const [attachments] = useState<AttachmentInput[]>(
     transaction?.attachments || []
   );
   // グループ紐づけ（経理モード用）
@@ -258,15 +258,6 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
         label: t.name,
       })),
     [formData.allocationTemplates]
-  );
-
-  const paymentMethodOptions = useMemo(
-    () =>
-      formData.paymentMethods.map((p) => ({
-        value: String(p.id),
-        label: p.name,
-      })),
-    [formData.paymentMethods]
   );
 
   // 経理モード用: グループ選択肢

@@ -253,7 +253,7 @@ export function ContractHistoryModal({
     isManualMonthlyFee: boolean;
     isManualPerformanceFee: boolean;
   };
-  const { restore, save, clear } = useTimedFormCache<CachedState>(
+  const { restore, save } = useTimedFormCache<CachedState>(
     `company-contract-history-${companyId}`
   );
   const formStateRef = useRef<CachedState>({

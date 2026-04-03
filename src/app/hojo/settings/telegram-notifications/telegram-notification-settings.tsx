@@ -33,14 +33,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, Copy, Check, Send, Eye, EyeOff, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Copy, Check, Send, Eye, EyeOff, X, HelpCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import {
   createBot, updateBot, deleteBot, testBot,
   createGroup, updateGroup, deleteGroup,
   createTopic, updateTopic, deleteTopic,
   createRule, updateRule, deleteRule, toggleRule,
-  type TopicMappingInput, type RuleInput,
+  type RuleInput,
 } from "./actions";
 
 // ============================================
@@ -95,40 +95,40 @@ const LINE_ACCOUNT_TYPES = [
 ];
 
 const BASE_PLACEHOLDERS = [
-  { key: "{{linename}}", label: "LINE名" },
-  { key: "{{uid}}", label: "UID" },
-  { key: "{{line_number}}", label: "LINE番号（CRM友達情報）" },
-  { key: "{{introducer}}", label: "紹介者（CRM友達情報）" },
-  { key: "{{as_member_mention}}", label: "AS担当者（メンション付き）" },
-  { key: "{{followed}}", label: "LINE追加日時" },
+  { key: "{{linename}}", label: "LINE名", desc: "プロラインに登録されているLINE表示名" },
+  { key: "{{uid}}", label: "UID", desc: "プロラインのユーザー固有ID" },
+  { key: "{{line_number}}", label: "LINE番号（CRM友達情報）", desc: "CRMの友達情報テーブルから取得するLINE番号（snsname）" },
+  { key: "{{introducer}}", label: "紹介者（CRM友達情報）", desc: "セキュリティクラウド: 紹介者フィールド / 助成金申請サポート: 紹介元ベンダー名" },
+  { key: "{{as_member_mention}}", label: "AS担当者（メンション付き）", desc: "担当者名とTelegramメンション。例: 尾崎(@asdf0414)" },
+  { key: "{{followed}}", label: "LINE追加日時", desc: "LINE友達追加された日時。例: 2025年03月17日(月) 17:08" },
 ];
 
 const BOOKING_PLACEHOLDERS = [
-  { key: "{{booking_datetime}}", label: "予約開始日時" },
-  { key: "{{staff_name}}", label: "予約担当者名" },
-  { key: "{{booking_id}}", label: "予約ID" },
-  { key: "{{booking_create}}", label: "予約作成日時" },
-  { key: "{{booking_start}}", label: "予約開始日時" },
-  { key: "{{booking_start_date}}", label: "予約開始日" },
-  { key: "{{booking_start_time}}", label: "予約開始時間" },
-  { key: "{{booking_end}}", label: "予約終了日時" },
-  { key: "{{booking_end_date}}", label: "予約終了日" },
-  { key: "{{booking_end_time}}", label: "予約終了時間" },
-  { key: "{{booking_duration}}", label: "予約枠の長さ" },
-  { key: "{{booking_menu}}", label: "予約メニュー名" },
-  { key: "{{booking_staff}}", label: "予約担当者名" },
-  { key: "{{booking_num}}", label: "予約した回数" },
-  { key: "{{booking_active_num}}", label: "予約中の数" },
-  { key: "{{booking_finish_num}}", label: "終了した回数" },
-  { key: "{{booking_reschedule_num}}", label: "予約変更回数" },
-  { key: "{{booking_cancel_num}}", label: "キャンセル回数" },
+  { key: "{{booking_datetime}}", label: "予約開始日時", desc: "予約の開始日時。例: 2025年1月23日 (月) 09:00（booking_startと同じ）" },
+  { key: "{{staff_name}}", label: "予約担当者名", desc: "予約した担当者。例: 山田（booking_staffと同じ）" },
+  { key: "{{booking_id}}", label: "予約ID", desc: "予約ごとに発行される固有ID。例: kCBebvaOCem" },
+  { key: "{{booking_create}}", label: "予約作成日時", desc: "予約操作を行った日時。例: 2024年12月1日 (日) 21:00" },
+  { key: "{{booking_start}}", label: "予約開始日時", desc: "予約の開始日時。例: 2025年1月23日 (月) 09:00" },
+  { key: "{{booking_start_date}}", label: "予約開始日", desc: "予約の開始日。例: 2025年1月23日 (木)" },
+  { key: "{{booking_start_time}}", label: "予約開始時間", desc: "予約の開始時間。例: 09:00" },
+  { key: "{{booking_end}}", label: "予約終了日時", desc: "予約の終了日時。例: 2025年1月23日 (木) 10:30" },
+  { key: "{{booking_end_date}}", label: "予約終了日", desc: "予約の終了日。例: 2025年1月23日 (木)" },
+  { key: "{{booking_end_time}}", label: "予約終了時間", desc: "予約の終了時間。例: 10:30" },
+  { key: "{{booking_duration}}", label: "予約枠の長さ", desc: "予約枠の長さ。例: 1時間30分" },
+  { key: "{{booking_menu}}", label: "予約メニュー名", desc: "予約したメニュー名。例: コースA（未設定なら空欄）" },
+  { key: "{{booking_staff}}", label: "予約担当者名", desc: "予約した担当者名。例: 山田（指名なしでも担当者名が入る）" },
+  { key: "{{booking_num}}", label: "予約した回数", desc: "このカレンダーで予約した累積回数。例: 10" },
+  { key: "{{booking_active_num}}", label: "予約中の数", desc: "このカレンダーでまだ開始時間を迎えていない予約数。例: 1" },
+  { key: "{{booking_finish_num}}", label: "終了した回数", desc: "このカレンダーで終了時間を過ぎた累積回数。例: 8" },
+  { key: "{{booking_reschedule_num}}", label: "予約変更回数", desc: "この予約IDに対しての変更回数。例: 1" },
+  { key: "{{booking_cancel_num}}", label: "キャンセル回数", desc: "このカレンダーでキャンセルした累積回数。例: 3" },
 ];
 
 const COMMON_PLACEHOLDERS = [
-  { key: "{{booking_history_url}}", label: "予約履歴ページURL" },
-  { key: "{{booking_before}}", label: "予約時間までの時間" },
-  { key: "{{all_booking_active_num}}", label: "全カレンダー予約中の数" },
-  { key: "{{all_booking_finish_num}}", label: "全カレンダー終了した回数" },
+  { key: "{{booking_history_url}}", label: "予約履歴ページURL", desc: "ユーザーの予約履歴ページURL（変更・キャンセル可能）" },
+  { key: "{{booking_before}}", label: "予約時間までの時間", desc: "予約時間までの残り時間。例: 3日前、2時間前、当日（リマインダー用）" },
+  { key: "{{all_booking_active_num}}", label: "全カレンダー予約中の数", desc: "全ての予約カレンダーで予約中の数。例: 1" },
+  { key: "{{all_booking_finish_num}}", label: "全カレンダー終了した回数", desc: "全ての予約カレンダーで終了した累積回数。例: 8" },
 ];
 
 const DOMAIN = "https://portal.stella-international.co.jp";
@@ -721,8 +721,6 @@ function RuleEditor({ rule, bots, groups, onClose }: { rule: RuleData | null; bo
 
   const isBookingEvent = eventType !== "custom";
   const selectedGroup = groups.find((g) => g.id.toString() === groupId);
-  const allTopics = groups.flatMap((g) => g.topics.map((t) => ({ ...t, groupName: g.name, groupId: g.id })));
-
   const handleSave = async () => {
     if (!name.trim()) { toast.error("ルール名を入力してください"); return; }
     if (!messageTemplate.trim()) { toast.error("通知メッセージを入力してください"); return; }
@@ -778,7 +776,7 @@ function RuleEditor({ rule, bots, groups, onClose }: { rule: RuleData | null; bo
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader><DialogTitle>{rule ? "ルール編集" : "ルール作成"}</DialogTitle></DialogHeader>
 
         <div className="space-y-6">
@@ -919,17 +917,7 @@ function RuleEditor({ rule, bots, groups, onClose }: { rule: RuleData | null; bo
               placeholder={"例:\n【申請予約がされました】\n{{booking_datetime}}\n{{staff_name}}\n\nLINE名: {{linename}}\nuid: {{uid}}"}
               className="font-mono text-sm"
             />
-            <div className="mt-2">
-              <p className="text-xs text-muted-foreground mb-1">使用可能なプレースホルダー（クリックで挿入）:</p>
-              <div className="flex flex-wrap gap-1">
-                {availablePlaceholders.map((p) => (
-                  <button key={p.key} type="button" onClick={() => insertPlaceholder(p.key)}
-                    className="text-xs bg-muted hover:bg-muted/80 px-2 py-0.5 rounded border cursor-pointer" title={p.label}>
-                    {p.key}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <PlaceholderHelper placeholders={availablePlaceholders} onInsert={insertPlaceholder} />
           </div>
 
           {/* 重複防止 */}
@@ -945,5 +933,76 @@ function RuleEditor({ rule, bots, groups, onClose }: { rule: RuleData | null; bo
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ============================================
+// Placeholder Helper
+// ============================================
+
+function PlaceholderHelper({
+  placeholders,
+  onInsert,
+}: {
+  placeholders: Array<{ key: string; label: string; desc?: string }>;
+  onInsert: (key: string) => void;
+}) {
+  const [showDesc, setShowDesc] = useState(false);
+
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="flex flex-wrap gap-1">
+        {placeholders.map((p) => (
+          <button
+            key={p.key}
+            type="button"
+            onClick={() => onInsert(p.key)}
+            className="text-xs bg-muted hover:bg-muted/80 px-2 py-0.5 rounded border cursor-pointer"
+            title={p.label}
+          >
+            {p.key}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={() => setShowDesc(!showDesc)}
+        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <HelpCircle className="h-3 w-3" />
+        <span>プレースホルダーの説明を{showDesc ? "閉じる" : "見る"}</span>
+        {showDesc ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+      </button>
+      {showDesc && (
+        <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0">
+              <tr className="bg-muted">
+                <th className="text-left px-3 py-1.5 font-medium">プレースホルダー</th>
+                <th className="text-left px-3 py-1.5 font-medium">名称</th>
+                <th className="text-left px-3 py-1.5 font-medium">説明・例</th>
+              </tr>
+            </thead>
+            <tbody>
+              {placeholders.map((p, i) => (
+                <tr key={p.key} className={i % 2 === 0 ? "bg-white" : "bg-muted/30"}>
+                  <td className="px-3 py-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onInsert(p.key)}
+                      className="font-mono text-blue-600 hover:underline cursor-pointer"
+                    >
+                      {p.key}
+                    </button>
+                  </td>
+                  <td className="px-3 py-1.5 whitespace-nowrap">{p.label}</td>
+                  <td className="px-3 py-1.5 text-muted-foreground">{p.desc || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }

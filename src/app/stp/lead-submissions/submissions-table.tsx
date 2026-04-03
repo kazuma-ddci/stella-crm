@@ -523,12 +523,6 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
     await executeProcess();
   };
 
-  // 選択した企業のStella情報を取得
-  const getSelectedCompanyInfo = () => {
-    if (!selectedCompanyId) return null;
-    return companyOptions.find((c) => c.value === selectedCompanyId) || null;
-  };
-
   // 既存企業選択時にStellaの情報をフォームにプリフィル
   const handleCompanySelect = (value: string) => {
     setSelectedCompanyId(value);

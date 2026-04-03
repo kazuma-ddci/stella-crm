@@ -1,6 +1,8 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { BbsClientPage } from "./bbs-client-page";
+import { canEdit as canEditProject } from "@/lib/auth/permissions";
+import type { UserPermission } from "@/types/auth";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -9,17 +11,19 @@ export const metadata: Metadata = {
 
 export default async function BbsPage() {
   const session = await auth();
-  const userType = (session?.user as any)?.userType;
+  const userType = session?.user?.userType;
   const isStaff = userType === "staff";
   const isBbs = userType === "bbs";
   const isAuthenticated = isStaff || isBbs;
+  const userPermissions = (session?.user?.permissions ?? []) as UserPermission[];
+  const staffCanEdit = isStaff && canEditProject(userPermissions, "hojo");
 
   if (!isAuthenticated) {
     return <BbsClientPage authenticated={false} isBbs={false} data={[]} />;
   }
 
   // BBSユーザーでmustChangePasswordの場合はリダイレクト（middlewareで制御されるがフォールバック）
-  if (isBbs && (session?.user as any)?.mustChangePassword) {
+  if (isBbs && session?.user?.mustChangePassword) {
     return <BbsClientPage authenticated={false} isBbs={false} data={[]} />;
   }
 
@@ -53,7 +57,7 @@ export default async function BbsPage() {
     label: s.name,
   }));
 
-  const userName = (session?.user as any)?.name || "";
+  const userName = session?.user?.name || "";
 
-  return <BbsClientPage authenticated={true} isBbs={isBbs} data={data} userName={userName} bbsStatusOptions={bbsStatusOptions} />;
+  return <BbsClientPage authenticated={true} isBbs={isBbs} canEdit={isBbs || staffCanEdit} data={data} userName={userName} bbsStatusOptions={bbsStatusOptions} />;
 }

@@ -128,15 +128,6 @@ function hasAnyEditPermission(
   return permissions.some((p) => editLevels.has(p.permissionLevel));
 }
 
-/**
- * いずれかのプロジェクトでmanager権限があるかチェック
- */
-function hasAnyManagerPermission(
-  permissions: Array<{ projectCode: string; permissionLevel: string }>
-): boolean {
-  return permissions.some((p) => p.permissionLevel === "manager");
-}
-
 function hasPermission(
   permissions: Array<{ projectCode: string; permissionLevel: string }>,
   projectCode: ProjectCode

@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { CrudTable, ColumnDef } from "@/components/crud-table";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
 import {
   createCounterparty,
   updateCounterparty,

@@ -6,9 +6,6 @@ import { requireEdit } from "@/lib/auth";
 import { validateCorporateNumber } from "@/lib/utils";
 import { validateStaffForField } from "@/lib/staff/get-staff-by-field";
 
-// 全顧客マスタと同期するフィールド
-const SYNC_FIELDS = ["corporateNumber", "industry", "employeeCount", "revenueScale"] as const;
-
 export async function addSlpCompany(data: Record<string, unknown>) {
   await requireEdit("slp");
 

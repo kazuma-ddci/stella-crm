@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireEdit, getSession } from "@/lib/auth";
 import { hasPermission, isFounder, isSystemAdmin } from "@/lib/auth";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
-import type { UserPermission, SessionUser } from "@/types/auth";
+import type { SessionUser } from "@/types/auth";
 import { revalidatePath } from "next/cache";
 import { toLocalDateString } from "@/lib/utils";
 import type {

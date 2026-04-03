@@ -111,8 +111,6 @@ export async function getProjectDashboard(): Promise<ProjectDashboardData> {
   for (let i = 5; i >= 0; i--) {
     monthStarts.push(new Date(now.getFullYear(), now.getMonth() - i, 1));
   }
-  const sixMonthsAgo = monthStarts[0];
-
   const [transactions, invoiceGroups, paymentGroups, recentTransactions, recentInvoiceGroups, recentPaymentGroups] =
     await Promise.all([
       // 全取引（削除除く）

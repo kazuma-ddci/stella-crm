@@ -66,15 +66,6 @@ function prevYearMonth(yearMonth: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-/** 税込金額計算 */
-function calcTotalWithTax(tx: {
-  amount: number;
-  taxAmount: number;
-  taxType: string;
-}): number {
-  return tx.taxType === "tax_included" ? tx.amount : tx.amount + tx.taxAmount;
-}
-
 // ============================================
 // 部門KPIデータ取得
 // ============================================
@@ -109,9 +100,6 @@ export async function getDeptKpiData(
   });
   const stpToMasterMap = new Map(
     stpCompanies.map((c) => [c.id, c.companyId])
-  );
-  const masterToStpMap = new Map(
-    stpCompanies.map((c) => [c.companyId, c.id])
   );
   const allMasterCompanyIds = stpCompanies.map((c) => c.companyId);
 

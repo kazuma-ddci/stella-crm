@@ -44,30 +44,33 @@ export default function SlpDocumentPage() {
 
   // 認証チェック
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const uid = params.get("uid");
+    const checkAuth = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const uid = params.get("uid");
 
-    if (!uid) {
-      setErrorReason("no_uid");
-      setLoading(false);
-      return;
-    }
+      if (!uid) {
+        setErrorReason("no_uid");
+        setLoading(false);
+        return;
+      }
 
-    fetch(`/api/public/slp/document-access?uid=${encodeURIComponent(uid)}`)
-      .then((res) => res.json())
-      .then((data) => {
+      try {
+        const res = await fetch(`/api/public/slp/document-access?uid=${encodeURIComponent(uid)}`);
+        const data = await res.json();
         if (data.authorized) {
           setAuthorized(true);
           setViewerData(data);
-          setPdfUrl(`/api/public/slp/document-access?uid=${encodeURIComponent(uid!)}&type=pdf`);
+          setPdfUrl(`/api/public/slp/document-access?uid=${encodeURIComponent(uid)}&type=pdf`);
         } else {
           setErrorReason(data.reason || "not_authorized");
         }
-      })
-      .catch(() => {
+      } catch {
         setErrorReason("error");
-      })
-      .finally(() => setLoading(false));
+      } finally {
+        setLoading(false);
+      }
+    };
+    checkAuth();
   }, []);
 
   // コンテナ幅監視

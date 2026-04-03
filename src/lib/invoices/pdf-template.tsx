@@ -451,6 +451,7 @@ export function InvoicePdfTemplate({ data }: Props) {
     <Document>
       <Page size="A4" style={styles.page}>
         {/* ウェーブ装飾 */}
+        {/* eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image does not support alt prop */}
         <Image src={WAVE_PATH} style={styles.waveContainer} />
 
         {/* メインコンテンツ */}
@@ -472,6 +473,7 @@ export function InvoicePdfTemplate({ data }: Props) {
               </View>
             </View>
             <View style={styles.logoContainer}>
+              {/* eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image does not support alt prop */}
               <Image src={STP_LOGO_PATH} style={styles.logo} />
             </View>
           </View>

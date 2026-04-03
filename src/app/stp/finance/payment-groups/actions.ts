@@ -8,7 +8,7 @@ import { recordChangeLog } from "@/app/accounting/changelog/actions";
 import { requireStpProjectId } from "@/lib/project-context";
 import { toLocalDateString } from "@/lib/utils";
 import { createNotificationBulk } from "@/lib/notifications/create-notification";
-import type { UserPermission, SessionUser } from "@/types/auth";
+import type { SessionUser } from "@/types/auth";
 
 // ============================================
 // ステータス遷移マップ

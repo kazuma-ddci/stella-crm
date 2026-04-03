@@ -148,7 +148,8 @@ export function UngroupedTransactionsPanel({
   };
 
   // 新しい請求を作成（モーダル経由）
-  const handleCreateInvoice = (counterpartyId: string, transactions: UngroupedTransaction[]) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const handleCreateInvoice = (counterpartyId: string, _transactions?: UngroupedTransaction[]) => {
     setPreSelectedCounterpartyId(counterpartyId);
     setShowCreateModal(true);
   };

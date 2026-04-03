@@ -233,6 +233,7 @@ export default function RegistrationTokensPage() {
 
   const handleCompanyChange = (
     companyId: number | null,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _company: Company | null
   ) => {
     setFormData({ ...formData, companyId });

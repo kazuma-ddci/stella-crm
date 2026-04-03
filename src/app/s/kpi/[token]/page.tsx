@@ -1,4 +1,3 @@
-import { notFound } from "next/navigation";
 import { getKpiSheetByToken } from "@/app/stp/companies/[id]/kpi/actions";
 import { KpiTable } from "@/components/kpi-sheet";
 import { KpiWeeklyData } from "@/components/kpi-sheet/types";

@@ -1620,7 +1620,7 @@ export async function addMemoLine(
   description: string,
   sortOrder?: number
 ): Promise<{ id: number }> {
-  const user = await requireEdit("stp");
+  await requireEdit("stp");
   const stpProjectId = await requireStpProjectId();
 
   const group = await prisma.invoiceGroup.findUnique({

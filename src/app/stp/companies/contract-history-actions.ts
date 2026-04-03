@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { toLocalDateString } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
-import { autoGenerateFinanceForContractHistory, markFinanceRecordsForContractChange } from "@/lib/finance/auto-generate";
+import { markFinanceRecordsForContractChange } from "@/lib/finance/auto-generate";
 import { isInvalidJobMedia } from "@/lib/stp/job-media";
 import { createFieldChangeLogEntries } from "@/lib/field-change-log.server";
 
@@ -76,7 +76,7 @@ export async function addContractHistory(companyId: number, data: ContractHistor
       return { success: false, error: "無効な求人媒体が指定されています" };
     }
 
-    const created = await prisma.stpContractHistory.create({
+    await prisma.stpContractHistory.create({
       data: {
         companyId,
         industryType: data.industryType,

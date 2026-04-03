@@ -236,7 +236,7 @@ function SortableOrderItem({
 // コンポーネント
 // ============================================
 
-export function InvoiceBuilderTab({ groupId, projectId, onInvoiceCreated, onPdfGenerated, isEditable = true, invoiceDate: invoiceDateProp, paymentDueDate: paymentDueDateProp, onInvoiceDateChange, onPaymentDueDateChange }: InvoiceBuilderTabProps) {
+export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, isEditable = true, invoiceDate: invoiceDateProp, paymentDueDate: paymentDueDateProp, onInvoiceDateChange, onPaymentDueDateChange }: InvoiceBuilderTabProps) {
   // データロード状態
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -256,10 +256,10 @@ export function InvoiceBuilderTab({ groupId, projectId, onInvoiceCreated, onPdfG
   const paymentDueDate = paymentDueDateProp ?? localPaymentDueDate;
 
   const setInvoiceDate = (val: string) => {
-    onInvoiceDateChange ? onInvoiceDateChange(val) : setLocalInvoiceDate(val);
+    if (onInvoiceDateChange) { onInvoiceDateChange(val); } else { setLocalInvoiceDate(val); }
   };
   const setPaymentDueDate = (val: string) => {
-    onPaymentDueDateChange ? onPaymentDueDateChange(val) : setLocalPaymentDueDate(val);
+    if (onPaymentDueDateChange) { onPaymentDueDateChange(val); } else { setLocalPaymentDueDate(val); }
   };
   const [memoLines, setMemoLines] = useState<LocalMemoLine[]>([]);
   const [lineOrder, setLineOrderState] = useState<string[]>([]);

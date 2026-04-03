@@ -152,7 +152,7 @@ export function CreateInvoiceGroupModal({
     return () => {
       cancelled = true;
     };
-  }, [step, counterpartyId, projectId, loadedCounterpartyId]);
+  }, [step, counterpartyId, projectId, loadedCounterpartyId, isNewCounterparty]);
 
   // Step 3 に遷移時、入金期限を自動計算
   useEffect(() => {

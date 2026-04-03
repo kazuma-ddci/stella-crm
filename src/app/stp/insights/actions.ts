@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { KPI_KEYS, KPI_LABELS, DEFAULT_FIXED_COST } from "@/lib/kpi/constants";
+import { KPI_KEYS, DEFAULT_FIXED_COST } from "@/lib/kpi/constants";
 import type { InsightResult } from "./types";
 
 // ============================================
@@ -1362,9 +1362,9 @@ async function getAgentWonRanking(): Promise<InsightResult> {
 }
 
 async function getAgentPaymentTotal(yearMonth: string): Promise<InsightResult> {
-  const { monthStart, monthEnd } = parseMonth(yearMonth);
+  const { monthStart } = parseMonth(yearMonth);
   const prev = prevYearMonth(yearMonth);
-  const { monthStart: prevStart, monthEnd: prevEnd } = parseMonth(prev);
+  const { monthStart: prevStart } = parseMonth(prev);
 
   const targetMonthDate = monthStart; // 月初日
 
@@ -1740,7 +1740,7 @@ async function getContactCount(yearMonth: string): Promise<InsightResult> {
   const prev = prevYearMonth(yearMonth);
   const { monthStart: prevStart, monthEnd: prevEnd } = parseMonth(prev);
 
-  const [contacts, prevContacts, methods] = await Promise.all([
+  const [contacts, prevContacts] = await Promise.all([
     prisma.contactHistory.findMany({
       where: {
         deletedAt: null,

@@ -16,7 +16,7 @@ export default function BbsChangePasswordPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const bbsAccountId = (session?.user as any)?.bbsAccountId;
+  const bbsAccountId = session?.user?.bbsAccountId;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,6 +33,7 @@ export default function BbsChangePasswordPage() {
 
     setLoading(true);
     try {
+      if (!bbsAccountId) throw new Error("セッションが無効です");
       await changeBbsPassword(bbsAccountId, newPassword);
       // パスワード変更後、再ログインさせる（mustChangePasswordフラグをセッションに反映するため）
       await signOut({ callbackUrl: "/hojo/bbs" });

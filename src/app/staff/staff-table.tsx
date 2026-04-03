@@ -145,7 +145,7 @@ function getPermissionLabel(value: unknown): string {
   return level?.label ?? String(value ?? "なし");
 }
 
-export function StaffTable({ data, roleTypeOptions, projectOptions, permissionProjects, editableProjects, selfEditableProjects, canEditOrganizationRole, canSetFounder, canEditRoleTypes, canManageStaff, canViewOtherPermissions, currentUserId, currentUserPermissionCodes, dynamicOptions }: Props) {
+export function StaffTable({ data, projectOptions, permissionProjects, editableProjects, selfEditableProjects, canEditOrganizationRole, canSetFounder, canEditRoleTypes, canManageStaff, canViewOtherPermissions, currentUserId, currentUserPermissionCodes, dynamicOptions }: Props) {
   // 編集可能なプロジェクトのマップ（他人編集用）
   const editableMap = new Map(editableProjects.map((p) => [p.code, p.maxLevel]));
   // 自分自身編集用のマップ（managerプロジェクトはmaxLevel="manager"）
@@ -193,9 +193,6 @@ export function StaffTable({ data, roleTypeOptions, projectOptions, permissionPr
       },
     ];
   });
-
-  // 権限カラムのキー一覧（customRenderers用）
-  const permissionColumnKeys = permissionProjects.map((p) => `perm_${p.code}`);
 
   // 組織ロールカラム（admin/founderのみ編集可能）
   const organizationRoleColumn: ColumnDef[] = canEditOrganizationRole

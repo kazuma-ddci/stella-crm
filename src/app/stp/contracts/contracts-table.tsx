@@ -39,7 +39,7 @@ import {
 import { ContractStatusModal } from "@/components/contract-status-management/contract-status-modal";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ContractRowWithProgress, ContractTabType } from "@/lib/contract-status/types";
-import { getProgressStatusCount } from "@/lib/contract-status/constants";
+
 import { cn } from "@/lib/utils";
 import { remindCloudsignDocument, syncContractCloudsignStatus, toggleCloudsignAutoSync, linkCloudsignDocument } from "@/app/stp/cloudsign-actions";
 import { toast } from "sonner";

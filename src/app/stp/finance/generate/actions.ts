@@ -120,7 +120,6 @@ import {
   recordChangeLog,
   extractChanges,
   pickRecordData,
-  type ChangeLogEntry,
 } from "@/app/accounting/changelog/actions";
 import { CANDIDATE_DECISION_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
 import { getSystemProjectContext } from "@/lib/project-context";
@@ -977,7 +976,6 @@ async function detectCrmCandidates(
 
         const agentCpId = agentCounterparty?.id ?? null;
         const agentCpName = agentCounterparty?.name ?? agent.company?.name ?? "不明な代理店";
-        const agentExpCategory = expenseCategoryAgent ?? defaultExpenseCategory ?? null;
         const commissionExpCategory = expenseCategoryCommission ?? defaultExpenseCategory ?? null;
 
         {

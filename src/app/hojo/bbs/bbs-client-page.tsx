@@ -33,6 +33,7 @@ type StatusOption = { value: string; label: string };
 type Props = {
   authenticated: boolean;
   isBbs: boolean;
+  canEdit?: boolean;
   data: BbsRecord[];
   userName?: string;
   bbsStatusOptions?: StatusOption[];
@@ -145,7 +146,7 @@ function LoginForm() {
   );
 }
 
-function BbsDataTable({ data, isBbs, bbsStatusOptions = [] }: { data: BbsRecord[]; isBbs: boolean; bbsStatusOptions: StatusOption[] }) {
+function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecord[]; canEdit: boolean; bbsStatusOptions: StatusOption[] }) {
   const [editRecord, setEditRecord] = useState<BbsRecord | null>(null);
   const [editData, setEditData] = useState({ bbsStatusId: "" as string, bbsMemo: "" });
   const [saving, setSaving] = useState(false);
@@ -227,13 +228,13 @@ function BbsDataTable({ data, isBbs, bbsStatusOptions = [] }: { data: BbsRecord[
                 <TableHead>お客様着金希望日</TableHead>
                 <TableHead>ALKES備考</TableHead>
                 <TableHead>BBS備考</TableHead>
-                {isBbs && <TableHead className="w-[60px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
+                {canEdit && <TableHead className="w-[60px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={isBbs ? 10 : 9} className="text-center text-gray-500 py-8">
+                  <TableCell colSpan={canEdit ? 10 : 9} className="text-center text-gray-500 py-8">
                     データがありません
                   </TableCell>
                 </TableRow>
@@ -244,7 +245,7 @@ function BbsDataTable({ data, isBbs, bbsStatusOptions = [] }: { data: BbsRecord[
                     <TableCell className="whitespace-nowrap">{record.applicantName}</TableCell>
                     <TableCell className="whitespace-nowrap">{record.formAnswerDate}</TableCell>
                     <TableCell>
-                      {isBbs ? (
+                      {canEdit ? (
                         <InlineCell
                           value={record.bbsStatusId ? String(record.bbsStatusId) : "__empty"}
                           onSave={(v) => inlineSave(record.id, "bbsStatusId", v)}
@@ -262,7 +263,7 @@ function BbsDataTable({ data, isBbs, bbsStatusOptions = [] }: { data: BbsRecord[
                     <TableCell className="whitespace-nowrap">{record.subsidyReceivedDate}</TableCell>
                     <TableCell className="max-w-[200px] truncate">{record.alkesMemo || "-"}</TableCell>
                     <TableCell className="max-w-[200px]">
-                      {isBbs ? (
+                      {canEdit ? (
                         <InlineCell
                           value={record.bbsMemo}
                           onSave={(v) => inlineSave(record.id, "bbsMemo", v)}
@@ -274,7 +275,7 @@ function BbsDataTable({ data, isBbs, bbsStatusOptions = [] }: { data: BbsRecord[
                         <span className="truncate block">{record.bbsMemo || "-"}</span>
                       )}
                     </TableCell>
-                    {isBbs && (
+                    {canEdit && (
                       <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                         <Button size="sm" variant="ghost" onClick={() => openEdit(record)}>
                           <Pencil className="h-4 w-4" />
@@ -319,7 +320,7 @@ function BbsDataTable({ data, isBbs, bbsStatusOptions = [] }: { data: BbsRecord[
   );
 }
 
-export function BbsClientPage({ authenticated, isBbs, data, userName, bbsStatusOptions = [] }: Props) {
+export function BbsClientPage({ authenticated, isBbs, canEdit = false, data, userName, bbsStatusOptions = [] }: Props) {
   if (!authenticated) {
     return <LoginForm />;
   }
@@ -334,7 +335,7 @@ export function BbsClientPage({ authenticated, isBbs, data, userName, bbsStatusO
           </Button>
         </div>
       )}
-      <BbsDataTable data={data} isBbs={isBbs} bbsStatusOptions={bbsStatusOptions} />
+      <BbsDataTable data={data} canEdit={canEdit} bbsStatusOptions={bbsStatusOptions} />
     </div>
   );
 }

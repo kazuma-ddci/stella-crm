@@ -5,7 +5,6 @@ import {
   StageInfo,
   DetectedEvent,
   EventDetectionResult,
-  StageEventType,
   RecommitSubType,
 } from './types';
 

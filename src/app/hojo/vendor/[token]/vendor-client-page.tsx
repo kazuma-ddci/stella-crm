@@ -33,7 +33,7 @@ type WholesaleRecord = {
 };
 
 type Props = {
-  authenticated: boolean; isVendor: boolean;
+  authenticated: boolean; isVendor: boolean; canEdit?: boolean;
   applicantData: ApplicantRecord[]; wholesaleData: WholesaleRecord[];
   vendorName: string; vendorToken: string; vendorId?: number;
   allVendors: { id: number; name: string; token: string }[];
@@ -96,7 +96,7 @@ function LoginForm({ vendorName, vendorToken }: { vendorName: string; vendorToke
 }
 
 // ========== 助成金申請者管理タブ ==========
-function ApplicantTab({ data, isVendor, vendorId }: { data: ApplicantRecord[]; isVendor: boolean; vendorId?: number }) {
+function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; canEdit: boolean; vendorId?: number }) {
   const [editRecord, setEditRecord] = useState<ApplicantRecord | null>(null);
   const [editData, setEditData] = useState({ subsidyDesiredDate: "", subsidyAmount: "", vendorMemo: "" });
   const [saving, setSaving] = useState(false);
@@ -135,18 +135,18 @@ function ApplicantTab({ data, isVendor, vendorId }: { data: ApplicantRecord[]; i
             <TableHead>LINE名</TableHead><TableHead>申請者名</TableHead><TableHead>ステータス</TableHead><TableHead>フォーム回答日</TableHead>
             <TableHead>助成金着金希望日</TableHead><TableHead>助成金額</TableHead><TableHead>原資金額</TableHead><TableHead>原資着金日</TableHead>
             <TableHead>助成金着金日</TableHead><TableHead>備考</TableHead>
-            {isVendor && <TableHead className="w-[60px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
+            {canEdit && <TableHead className="w-[60px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
           </TableRow></TableHeader>
           <TableBody>
-            {data.length === 0 ? <TableRow><TableCell colSpan={isVendor ? 11 : 10} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
+            {data.length === 0 ? <TableRow><TableCell colSpan={canEdit ? 11 : 10} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
             : data.map((r) => (
               <TableRow key={r.id} className="group/row">
                 <TableCell className="whitespace-nowrap">{r.lineName}</TableCell><TableCell className="whitespace-nowrap">{r.applicantName}</TableCell><TableCell className="whitespace-nowrap">{r.statusName}</TableCell><TableCell className="whitespace-nowrap">{r.formAnswerDate}</TableCell>
-                <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.subsidyDesiredDate} onSave={(v) => inlineSave(r.id, "subsidyDesiredDate", v)} type="date">{r.subsidyDesiredDate || "-"}</InlineCell> : r.subsidyDesiredDate || "-"}</TableCell>
-                <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.subsidyAmount != null ? String(r.subsidyAmount) : ""} onSave={(v) => inlineSave(r.id, "subsidyAmount", v)} type="number">{fmt(r.subsidyAmount)}</InlineCell> : fmt(r.subsidyAmount)}</TableCell>
+                <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.subsidyDesiredDate} onSave={(v) => inlineSave(r.id, "subsidyDesiredDate", v)} type="date">{r.subsidyDesiredDate || "-"}</InlineCell> : r.subsidyDesiredDate || "-"}</TableCell>
+                <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.subsidyAmount != null ? String(r.subsidyAmount) : ""} onSave={(v) => inlineSave(r.id, "subsidyAmount", v)} type="number">{fmt(r.subsidyAmount)}</InlineCell> : fmt(r.subsidyAmount)}</TableCell>
                 <TableCell className="whitespace-nowrap">{fmt(r.paymentReceivedAmount)}</TableCell><TableCell className="whitespace-nowrap">{r.paymentReceivedDate}</TableCell><TableCell className="whitespace-nowrap">{r.subsidyReceivedDate}</TableCell>
-                <TableCell className="max-w-[200px]">{isVendor ? <InlineCell value={r.vendorMemo} onSave={(v) => inlineSave(r.id, "vendorMemo", v)} type="textarea">{r.vendorMemo || "-"}</InlineCell> : r.vendorMemo || "-"}</TableCell>
-                {isVendor && <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]"><Button size="sm" variant="ghost" onClick={() => openEdit(r)}><Pencil className="h-4 w-4" /></Button></TableCell>}
+                <TableCell className="max-w-[200px]">{canEdit ? <InlineCell value={r.vendorMemo} onSave={(v) => inlineSave(r.id, "vendorMemo", v)} type="textarea">{r.vendorMemo || "-"}</InlineCell> : r.vendorMemo || "-"}</TableCell>
+                {canEdit && <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]"><Button size="sm" variant="ghost" onClick={() => openEdit(r)}><Pencil className="h-4 w-4" /></Button></TableCell>}
               </TableRow>
             ))}
           </TableBody>
@@ -169,7 +169,7 @@ function ApplicantTab({ data, isVendor, vendorId }: { data: ApplicantRecord[]; i
 }
 
 // ========== 卸アカウント管理タブ ==========
-function WholesaleTab({ data, isVendor, vendorId }: { data: WholesaleRecord[]; isVendor: boolean; vendorId?: number }) {
+function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; canEdit: boolean; vendorId?: number }) {
   const [editRecord, setEditRecord] = useState<WholesaleRecord | null>(null);
   const [editData, setEditData] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -232,7 +232,7 @@ function WholesaleTab({ data, isVendor, vendorId }: { data: WholesaleRecord[]; i
   return (
     <>
       <div className="space-y-4">
-        {isVendor && (
+        {canEdit && (
           <div className="flex justify-end">
             <Button onClick={() => { setAdding(true); setNewData({}); }} className="gap-2"><Plus className="h-4 w-4" />新規追加</Button>
           </div>
@@ -244,24 +244,24 @@ function WholesaleTab({ data, isVendor, vendorId }: { data: WholesaleRecord[]; i
               <TableHead>支援事業者名</TableHead><TableHead>会社名(補助事業社、納品先）</TableHead><TableHead>メールアドレス(アカウント)</TableHead>
               <TableHead>ソフトウェア販売契約書</TableHead><TableHead>募集回</TableHead><TableHead>採択日</TableHead><TableHead>発行依頼日</TableHead><TableHead>アカウント承認日</TableHead>
               <TableHead>交付日</TableHead><TableHead>ツール代(税別)万円</TableHead><TableHead>請求入金状況</TableHead>
-              {isVendor && <TableHead className="w-[80px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
+              {canEdit && <TableHead className="w-[80px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
             </TableRow></TableHeader>
             <TableBody>
-              {data.length === 0 ? <TableRow><TableCell colSpan={isVendor ? 13 : 12} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
+              {data.length === 0 ? <TableRow><TableCell colSpan={canEdit ? 13 : 12} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
               : data.map((r, idx) => (
                 <TableRow key={r.id} className="group/row">
                   <TableCell className="text-gray-500">{idx + 1}</TableCell>
-                  <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.supportProviderName} onSave={(v) => inlineSave(r.id, "supportProviderName", v)}>{r.supportProviderName || "-"}</InlineCell> : r.supportProviderName || "-"}</TableCell>
-                  <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.companyName} onSave={(v) => inlineSave(r.id, "companyName", v)}>{r.companyName || "-"}</InlineCell> : r.companyName || "-"}</TableCell>
-                  <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.email} onSave={(v) => inlineSave(r.id, "email", v)}>{r.email || "-"}</InlineCell> : r.email || "-"}</TableCell>
-                  <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.softwareSalesContractUrl} onSave={(v) => inlineSave(r.id, "softwareSalesContractUrl", v)}>{r.softwareSalesContractUrl ? <a href={r.softwareSalesContractUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">リンク</a> : "-"}</InlineCell> : r.softwareSalesContractUrl ? <a href={r.softwareSalesContractUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">リンク</a> : "-"}</TableCell>
-                  <TableCell>{isVendor ? <InlineCell value={r.recruitmentRound != null ? String(r.recruitmentRound) : ""} onSave={(v) => inlineSave(r.id, "recruitmentRound", v)} type="number">{r.recruitmentRound ?? "-"}</InlineCell> : r.recruitmentRound ?? "-"}</TableCell>
-                  <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.adoptionDate} onSave={(v) => inlineSave(r.id, "adoptionDate", v)} type="date">{r.adoptionDate || "-"}</InlineCell> : r.adoptionDate || "-"}</TableCell>
-                  <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.issueRequestDate} onSave={(v) => inlineSave(r.id, "issueRequestDate", v)} type="date">{r.issueRequestDate || "-"}</InlineCell> : r.issueRequestDate || "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.supportProviderName} onSave={(v) => inlineSave(r.id, "supportProviderName", v)}>{r.supportProviderName || "-"}</InlineCell> : r.supportProviderName || "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.companyName} onSave={(v) => inlineSave(r.id, "companyName", v)}>{r.companyName || "-"}</InlineCell> : r.companyName || "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.email} onSave={(v) => inlineSave(r.id, "email", v)}>{r.email || "-"}</InlineCell> : r.email || "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.softwareSalesContractUrl} onSave={(v) => inlineSave(r.id, "softwareSalesContractUrl", v)}>{r.softwareSalesContractUrl ? <a href={r.softwareSalesContractUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">リンク</a> : "-"}</InlineCell> : r.softwareSalesContractUrl ? <a href={r.softwareSalesContractUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">リンク</a> : "-"}</TableCell>
+                  <TableCell>{canEdit ? <InlineCell value={r.recruitmentRound != null ? String(r.recruitmentRound) : ""} onSave={(v) => inlineSave(r.id, "recruitmentRound", v)} type="number">{r.recruitmentRound ?? "-"}</InlineCell> : r.recruitmentRound ?? "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.adoptionDate} onSave={(v) => inlineSave(r.id, "adoptionDate", v)} type="date">{r.adoptionDate || "-"}</InlineCell> : r.adoptionDate || "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.issueRequestDate} onSave={(v) => inlineSave(r.id, "issueRequestDate", v)} type="date">{r.issueRequestDate || "-"}</InlineCell> : r.issueRequestDate || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{r.accountApprovalDate}</TableCell>
-                  <TableCell className="whitespace-nowrap">{isVendor ? <InlineCell value={r.grantDate} onSave={(v) => inlineSave(r.id, "grantDate", v)} type="date">{r.grantDate || "-"}</InlineCell> : r.grantDate || "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.grantDate} onSave={(v) => inlineSave(r.id, "grantDate", v)} type="date">{r.grantDate || "-"}</InlineCell> : r.grantDate || "-"}</TableCell>
                   <TableCell>{fmtCost(r.toolCost)}</TableCell><TableCell className="whitespace-nowrap">{r.invoiceStatus}</TableCell>
-                  {isVendor && (
+                  {canEdit && (
                     <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                       <div className="flex gap-1">
                         <Button size="sm" variant="ghost" onClick={() => openEdit(r)}><Pencil className="h-4 w-4" /></Button>
@@ -314,7 +314,7 @@ function WholesaleTab({ data, isVendor, vendorId }: { data: WholesaleRecord[]; i
 }
 
 // ========== メインコンポーネント ==========
-function VendorDataPage({ applicantData, wholesaleData, isVendor, vendorId, vendorName, allVendors, vendorToken, userName }: Omit<Props, "authenticated">) {
+function VendorDataPage({ applicantData, wholesaleData, isVendor, canEdit = false, vendorId, vendorName, allVendors, vendorToken, userName }: Omit<Props, "authenticated">) {
   const router = useRouter();
   const hasApplicantData = applicantData.length > 0;
   const handleVendorChange = (token: string) => { router.push(`/hojo/vendor/${token}`); };
@@ -346,21 +346,21 @@ function VendorDataPage({ applicantData, wholesaleData, isVendor, vendorId, vend
             <TabsTrigger value="wholesale">卸アカウント管理</TabsTrigger>
             <TabsTrigger value="applicant">助成金申請者管理</TabsTrigger>
           </TabsList>
-          <TabsContent value="wholesale" className="mt-4"><WholesaleTab data={wholesaleData} isVendor={isVendor} vendorId={vendorId} /></TabsContent>
-          <TabsContent value="applicant" className="mt-4"><ApplicantTab data={applicantData} isVendor={isVendor} vendorId={vendorId} /></TabsContent>
+          <TabsContent value="wholesale" className="mt-4"><WholesaleTab data={wholesaleData} canEdit={canEdit} vendorId={vendorId} /></TabsContent>
+          <TabsContent value="applicant" className="mt-4"><ApplicantTab data={applicantData} canEdit={canEdit} vendorId={vendorId} /></TabsContent>
         </Tabs>
       ) : (
-        <WholesaleTab data={wholesaleData} isVendor={isVendor} vendorId={vendorId} />
+        <WholesaleTab data={wholesaleData} canEdit={canEdit} vendorId={vendorId} />
       )}
     </div>
   );
 }
 
-export function VendorClientPage({ authenticated, isVendor, applicantData, wholesaleData, vendorName, vendorToken, vendorId, allVendors, userName }: Props) {
+export function VendorClientPage({ authenticated, isVendor, canEdit = false, applicantData, wholesaleData, vendorName, vendorToken, vendorId, allVendors, userName }: Props) {
   if (!authenticated) return <LoginForm vendorName={vendorName} vendorToken={vendorToken} />;
   return (
     <div className={isVendor ? "min-h-screen bg-gray-50 p-6" : ""}>
-      <VendorDataPage applicantData={applicantData} wholesaleData={wholesaleData} isVendor={isVendor} vendorId={vendorId} vendorName={vendorName} allVendors={allVendors} vendorToken={vendorToken} userName={userName} />
+      <VendorDataPage applicantData={applicantData} wholesaleData={wholesaleData} isVendor={isVendor} canEdit={canEdit} vendorId={vendorId} vendorName={vendorName} allVendors={allVendors} vendorToken={vendorToken} userName={userName} />
     </div>
   );
 }

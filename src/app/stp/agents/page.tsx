@@ -39,7 +39,7 @@ export default async function StpAgentsPage() {
   // 既存代理店にトークンがなければ自動生成
   await ensureLeadFormTokensExist();
 
-  const [agents, masterCompanies, staff, contractTypes, _unused, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, stpCompanies, contactCategories] = await Promise.all([
+  const [agents, masterCompanies, staff, contractTypes, , contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, , contactCategories] = await Promise.all([
     prisma.stpAgent.findMany({
       include: {
         company: {

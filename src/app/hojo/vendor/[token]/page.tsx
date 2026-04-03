@@ -2,6 +2,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import { VendorClientPage } from "./vendor-client-page";
+import { canEdit as canEditProject } from "@/lib/auth/permissions";
+import type { UserPermission } from "@/types/auth";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -23,11 +25,13 @@ export default async function VendorPage({
   }
 
   const session = await auth();
-  const userType = (session?.user as any)?.userType;
+  const userType = session?.user?.userType;
   const isStaff = userType === "staff";
   const isVendor = userType === "vendor";
-  const sessionVendorId = (session?.user as any)?.vendorId;
+  const sessionVendorId = session?.user?.vendorId;
   const isAuthenticated = isStaff || (isVendor && sessionVendorId === vendor.id);
+  const userPermissions = (session?.user?.permissions ?? []) as UserPermission[];
+  const staffCanEdit = isStaff && canEditProject(userPermissions, "hojo");
 
   if (!isAuthenticated) {
     return (
@@ -95,12 +99,13 @@ export default async function VendorPage({
     invoiceStatus: r.invoiceStatus || "-",
   }));
 
-  const userName = (session?.user as any)?.name || "";
+  const userName = session?.user?.name || "";
 
   return (
     <VendorClientPage
       authenticated={true}
       isVendor={isVendor}
+      canEdit={isVendor || staffCanEdit}
       applicantData={applicantData}
       wholesaleData={wholesaleData}
       vendorName={vendor.name}

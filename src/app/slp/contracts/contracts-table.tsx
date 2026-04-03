@@ -102,7 +102,6 @@ function statusBadge(statusName: string, statusType: string) {
 
 export function ContractsTable({ rows, statusOptions }: Props) {
   const [loadingId, setLoadingId] = useState<number | null>(null);
-  const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [statusDialogContractId, setStatusDialogContractId] = useState<number | null>(null);
   const [selectedStatusId, setSelectedStatusId] = useState<string>("");
@@ -113,16 +112,14 @@ export function ContractsTable({ rows, statusOptions }: Props) {
   const signedRows = rows.filter((r) => r.statusType === "signed");
   const discardedRows = rows.filter((r) => r.statusType === "discarded");
 
-  const handleAction = async (id: number, action: string, fn: () => Promise<void>) => {
+  const handleAction = async (id: number, _action: string, fn: () => Promise<void>) => {
     setLoadingId(id);
-    setLoadingAction(action);
     try {
       await fn();
     } catch (err) {
       alert(err instanceof Error ? err.message : "エラーが発生しました");
     } finally {
       setLoadingId(null);
-      setLoadingAction(null);
     }
   };
 

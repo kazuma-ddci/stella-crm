@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,7 +25,6 @@ import {
   FileText,
   Send,
   Banknote,
-  Clock,
   Inbox,
   Undo2,
 } from "lucide-react";
@@ -63,7 +62,7 @@ import type {
 // 売上ステータス設定
 // ============================================
 
-type StatusConfig<S extends string> = {
+type StatusConfig = {
   label: string;
   color: string;
   bgColor: string;
@@ -73,7 +72,7 @@ type StatusConfig<S extends string> = {
   summaryKey: string;
 };
 
-const REVENUE_STATUS_CONFIGS: Record<LifecycleStatus, StatusConfig<LifecycleStatus>> = {
+const REVENUE_STATUS_CONFIGS: Record<LifecycleStatus, StatusConfig> = {
   not_created: {
     label: "未取引化",
     color: "text-red-700",
@@ -163,7 +162,7 @@ const REVENUE_STATUS_ORDER: LifecycleStatus[] = [
 // 経費ステータス設定
 // ============================================
 
-const EXPENSE_STATUS_CONFIGS: Record<ExpenseLifecycleStatus, StatusConfig<ExpenseLifecycleStatus>> = {
+const EXPENSE_STATUS_CONFIGS: Record<ExpenseLifecycleStatus, StatusConfig> = {
   not_created: {
     label: "未取引化",
     color: "text-red-700",

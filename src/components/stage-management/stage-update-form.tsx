@@ -127,7 +127,7 @@ export function StageUpdateForm({
   }, [currentStageId, effectiveNewStageId, currentTargetStageId, stages]);
 
   // イベント検出とバリデーション
-  const { events, hasDetectedChanges, validation } = useMemo(() => {
+  const { hasDetectedChanges, validation } = useMemo(() => {
     const combinedNote = isChangingToLost ? lostReason : isChangingToPending ? pendingReason : note;
 
     const detectionResult = detectEvents(

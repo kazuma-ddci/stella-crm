@@ -476,7 +476,7 @@ export function ReconciliationModal({
               </div>
 
               <div className="space-y-2">
-                {differenceLines.map((line, idx) => (
+                {differenceLines.map((line) => (
                   <div key={line.key} className="flex gap-2 items-end">
                     <div className="w-20">
                       <Select

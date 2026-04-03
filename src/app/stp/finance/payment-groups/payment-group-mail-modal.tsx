@@ -163,6 +163,7 @@ export function PaymentGroupMailModal({
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- applyTemplate depends on data which loadData sets, adding it would cause infinite loop
   }, [paymentGroupId]);
 
   useEffect(() => {

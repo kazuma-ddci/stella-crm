@@ -320,7 +320,7 @@ export function AgentContractHistoryModal({
     overrideEditTarget: CommissionOverride | null;
     overrideFormData: Partial<CommissionOverrideData>;
   };
-  const { restore, save, clear } = useTimedFormCache<CachedState>(
+  const { restore, save } = useTimedFormCache<CachedState>(
     `agent-contract-history-${agentId}`
   );
   const formStateRef = useRef<CachedState>({

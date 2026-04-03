@@ -380,15 +380,6 @@ export function CrudTable({
     ? editableColumnsForUpdate.filter((col) => col.simpleMode === true)
     : editableColumnsForUpdate;
 
-  // インライン編集可能なカラムを取得
-  const getInlineEditableColumns = useCallback(() => {
-    if (!enableInlineEdit) return [];
-    if (inlineEditConfig?.columns) {
-      return columns.filter((col) => inlineEditConfig.columns!.includes(col.key));
-    }
-    return columns.filter((col) => col.inlineEditable === true);
-  }, [enableInlineEdit, inlineEditConfig?.columns, columns]);
-
   // カラムがインライン編集可能かチェック
   const isColumnInlineEditable = useCallback(
     (columnKey: string, row: Record<string, unknown>) => {
@@ -1565,9 +1556,6 @@ export function CrudTable({
                   ? uniqueValues.filter((u) => u.label.toLowerCase().includes(searchTerm.toLowerCase()))
                   : uniqueValues;
 
-                // 現在のcheckedValues（フィルタ未設定 = 全選択）
-                const checkedValues = currentFilter?.checkedValues || allValueKeys;
-
                 return (
                   <TableHead
                     key={col.key}
@@ -1841,7 +1829,6 @@ export function CrudTable({
                   }
                 }
 
-                const isGroupedRow = groupByKey && groupKey !== undefined && groupSpan > 1;
                 const isGroupMiddleOrLastRow = groupByKey && groupKey !== undefined && !isGroupFirstRow;
 
                 return (

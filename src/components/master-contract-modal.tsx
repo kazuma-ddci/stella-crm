@@ -57,7 +57,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
-import { TextPreviewCell } from "@/components/text-preview-cell";
 import { MultiFileUpload, type FileInfo } from "@/components/multi-file-upload";
 import { toLocalDateString } from "@/lib/utils";
 import DatePicker, { registerLocale } from "react-datepicker";
@@ -739,7 +738,6 @@ function AgentContractHistoryCard({
 // --- ContractCard ---
 function ContractCard({
   contract,
-  contracts,
   onEdit,
   onDelete,
   onEditHistory,
@@ -749,14 +747,10 @@ function ContractCard({
   onEditAgentHistory,
   onDeleteAgentHistory,
   onAddAgentHistoryForContract,
-  formatDate,
   // CloudSign related
   cloudsignData,
   setCloudsignData,
-  loadingCloudsign,
   setLoadingCloudsign,
-  loadingDrafts,
-  setLoadingDrafts,
   syncingContractId,
   setSyncingContractId,
   togglingAutoSyncId,
@@ -773,12 +767,9 @@ function ContractCard({
   companyId,
   setResumeDraft,
   setSendModalOpen,
-  setDrafts,
-  setDraftSelectOpen,
   router,
 }: {
   contract: Contract;
-  contracts: Contract[];
   onEdit: () => void;
   onDelete: () => void;
   onEditHistory: (history: ContractHistory) => void;
@@ -788,7 +779,6 @@ function ContractCard({
   onEditAgentHistory?: (history: AgentContractHistory) => void;
   onDeleteAgentHistory?: (historyId: number) => void;
   onAddAgentHistoryForContract?: (contractId: number) => void;
-  formatDate: (dateStr: string | null | undefined) => string;
   cloudsignData: {
     contractTypes: { id: number; name: string; templates: { id: number; cloudsignTemplateId: string; name: string; description: string | null }[] }[];
     contacts: { id: number; name: string; email: string | null; position: string | null }[];
@@ -801,10 +791,7 @@ function ContractCard({
     operatingCompany: { id: number; companyName: string; cloudsignClientId: string | null } | null;
     projectId: number;
   } | null) => void;
-  loadingCloudsign: boolean;
   setLoadingCloudsign: (v: boolean) => void;
-  loadingDrafts: boolean;
-  setLoadingDrafts: (v: boolean) => void;
   syncingContractId: number | null;
   setSyncingContractId: (v: number | null) => void;
   togglingAutoSyncId: number | null;
@@ -830,18 +817,6 @@ function ContractCard({
     note?: string | null;
   } | undefined) => void;
   setSendModalOpen: (v: boolean) => void;
-  setDrafts: (v: {
-    id: number;
-    contractNumber: string;
-    title: string;
-    contractType: string;
-    cloudsignDocumentId: string | null;
-    cloudsignTitle: string | null;
-    assignedTo: string | null;
-    note: string | null;
-    createdAt: string;
-  }[]) => void;
-  setDraftSelectOpen: (v: boolean) => void;
   router: ReturnType<typeof useRouter>;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -1350,7 +1325,7 @@ export function MasterContractModal({
     formOpen: boolean;
     nextContractNumber: string;
   };
-  const { restore, save, clear } = useTimedFormCache<CachedState>(
+  const { restore, save } = useTimedFormCache<CachedState>(
     `master-contract-${companyId}`
   );
   const formStateRef = useRef<CachedState>({
@@ -1566,11 +1541,6 @@ export function MasterContractModal({
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const formatDate = (dateStr: string | null | undefined) => {
-    if (!dateStr) return "-";
-    return new Date(dateStr).toLocaleDateString("ja-JP");
   };
 
   const datePickerClassName = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
@@ -2892,7 +2862,6 @@ export function MasterContractModal({
                     <ContractCard
                       key={contract.id}
                       contract={contract}
-                      contracts={localContracts}
                       onEdit={() => handleEdit(contract)}
                       onDelete={() => handleDelete(contract.id)}
                       onEditHistory={(history) => handleEditHistory(history)}
@@ -2902,13 +2871,9 @@ export function MasterContractModal({
                       onEditAgentHistory={(history) => handleEditAgentHistory(history)}
                       onDeleteAgentHistory={(historyId) => handleDeleteAgentHistory(historyId)}
                       onAddAgentHistoryForContract={(contractId) => handleAddAgentHistory(contractId)}
-                      formatDate={formatDate}
                       cloudsignData={cloudsignData}
                       setCloudsignData={setCloudsignData}
-                      loadingCloudsign={loadingCloudsign}
                       setLoadingCloudsign={setLoadingCloudsign}
-                      loadingDrafts={loadingDrafts}
-                      setLoadingDrafts={setLoadingDrafts}
                       syncingContractId={syncingContractId}
                       setSyncingContractId={setSyncingContractId}
                       togglingAutoSyncId={togglingAutoSyncId}
@@ -2925,8 +2890,6 @@ export function MasterContractModal({
                       companyId={companyId}
                       setResumeDraft={setResumeDraft}
                       setSendModalOpen={setSendModalOpen}
-                      setDrafts={setDrafts}
-                      setDraftSelectOpen={setDraftSelectOpen}
                       router={router}
                     />
                   ))}

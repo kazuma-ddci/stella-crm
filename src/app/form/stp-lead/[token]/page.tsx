@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, use } from "react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -102,7 +103,7 @@ export default function LeadFormPage({
   const { token } = use(params);
   const [status, setStatus] = useState<PageStatus>("loading");
   const [currentPage, setCurrentPage] = useState(1);
-  const [agentName, setAgentName] = useState("");
+  const [, setAgentName] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [formData, setFormData] = useState<FormData>({
     companyName: "",
@@ -272,9 +273,11 @@ export default function LeadFormPage({
         <div className="max-w-2xl mx-auto">
           {/* ヘッダー画像エリア */}
           <div className="bg-gradient-to-r from-purple-100 to-blue-100 rounded-t-lg p-8 text-center">
-            <img
+            <Image
               src="/images/20260205-211053.png"
               alt="採用ブースト"
+              width={400}
+              height={200}
               className="mx-auto max-w-[400px] w-full h-auto"
             />
             <p className="text-sm text-gray-500 mt-2">【ヒアリングシート】</p>
@@ -334,9 +337,11 @@ export default function LeadFormPage({
         <div className="max-w-2xl mx-auto">
           {/* ヘッダー画像エリア */}
           <div className="bg-gradient-to-r from-purple-100 to-blue-100 rounded-t-lg p-8 text-center">
-            <img
+            <Image
               src="/images/20260205-211053.png"
               alt="採用ブースト"
+              width={400}
+              height={200}
               className="mx-auto max-w-[400px] w-full h-auto"
             />
             <p className="text-sm text-gray-500 mt-2">【ヒアリングシート】</p>
@@ -380,9 +385,11 @@ export default function LeadFormPage({
       <div className="max-w-2xl mx-auto">
         {/* ヘッダー画像エリア */}
         <div className="bg-gradient-to-r from-purple-100 to-blue-100 rounded-t-lg p-8 text-center">
-          <img
+          <Image
               src="/images/20260205-211053.png"
               alt="採用ブースト"
+              width={400}
+              height={200}
               className="mx-auto max-w-[400px] w-full h-auto"
             />
           <p className="text-sm text-gray-500 mt-2">【ヒアリングシート】</p>

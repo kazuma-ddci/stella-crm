@@ -15,7 +15,7 @@ export default function VendorChangePasswordPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const vendorAccountId = (session?.user as any)?.vendorAccountId;
+  const vendorAccountId = session?.user?.vendorAccountId;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,6 +25,7 @@ export default function VendorChangePasswordPage() {
 
     setLoading(true);
     try {
+      if (!vendorAccountId) throw new Error("セッションが無効です");
       await changeVendorPassword(vendorAccountId, newPassword);
       await signOut({ callbackUrl: "/hojo/vendor" });
     } catch (err) {

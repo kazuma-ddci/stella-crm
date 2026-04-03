@@ -61,19 +61,6 @@ export type AggregateStatus =
   | "partially_paid"     // 一部入金/支払済
   | "completed";         // 全完了
 
-// ステータスの優先度（低い方が全体の集約ステータスになる）
-const STATUS_PRIORITY: Record<string, number> = {
-  unconfirmed: 0,
-  confirmed: 1,
-  awaiting_accounting: 2,
-  returned: 2,
-  resubmitted: 2,
-  journalized: 3,
-  partially_paid: 4,
-  paid: 5,
-  hidden: 5,
-};
-
 function deriveAggregateStatus(transactions: ContractTransaction[]): AggregateStatus {
   if (transactions.length === 0) return "no_transactions";
 

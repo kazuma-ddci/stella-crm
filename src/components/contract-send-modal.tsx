@@ -217,7 +217,7 @@ export function ContractSendModal({
 
   // 自社署名ダイアログの状態
   const [signingDialogOpen, setSigningDialogOpen] = useState(false);
-  const [signingDialogContractId, setSigningDialogContractId] = useState<number | null>(null);
+  const [, setSigningDialogContractId] = useState<number | null>(null);
   const [signingDialogContractNumber, setSigningDialogContractNumber] = useState<string>("");
   const [signingUrl, setSigningUrl] = useState<string | null>(null);
   const [signingUrlLoading, setSigningUrlLoading] = useState(false);
@@ -251,7 +251,7 @@ export function ContractSendModal({
 
   // 下書きDB管理
   const [draftContractId, setDraftContractId] = useState<number | null>(null);
-  const [draftContractNumber, setDraftContractNumber] = useState<string>("");
+  const [, setDraftContractNumber] = useState<string>("");
 
   // Widget refs for scroll
   const widgetRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -570,7 +570,7 @@ export function ContractSendModal({
     } finally {
       setLoadingDraft(false);
     }
-  }, [selectedTemplate, operatingCompany?.id, title, useCustomCloudsignTitle, cloudsignTitle]);
+  }, [selectedTemplate, operatingCompany?.id, title, useCustomCloudsignTitle, cloudsignTitle, assignedTo, companyId, note, projectId, selectedContractType?.name]);
 
   // Participant 編集
   const updateParticipantField = (

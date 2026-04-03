@@ -2,7 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
+import { canEdit as canEditProject } from "@/lib/auth/permissions";
+import type { UserPermission } from "@/types/auth";
 import bcrypt from "bcryptjs";
+
+async function isStaffWithHojoEdit(): Promise<boolean> {
+  const session = await auth();
+  const userType = session?.user?.userType;
+  if (userType !== "staff") return false;
+  const permissions = (session?.user?.permissions ?? []) as UserPermission[];
+  return canEditProject(permissions, "hojo");
+}
 
 export async function registerVendorAccount(data: {
   name: string;
@@ -62,11 +73,15 @@ export async function updateVendorFields(
   vendorId: number,
   data: { subsidyDesiredDate?: string | null; subsidyAmount?: number | null; vendorMemo?: string | null }
 ) {
-  // レコードがこのベンダーのものか確認（vendorIdは申請者管理ページでfree1から自動同期済み）
+  const staffEdit = await isStaffWithHojoEdit();
   const record = await prisma.hojoApplicationSupport.findUnique({
     where: { id: applicationSupportId },
   });
-  if (!record || record.vendorId !== vendorId || record.deletedAt) {
+  if (!record || record.deletedAt) {
+    throw new Error("レコードが見つかりません");
+  }
+  // スタッフはvendorId制約なし、ベンダーは自分のレコードのみ
+  if (!staffEdit && record.vendorId !== vendorId) {
     throw new Error("レコードが見つかりません");
   }
 
@@ -104,6 +119,13 @@ export async function changeVendorPassword(accountId: number, newPassword: strin
 // ========== 卸アカウント管理 ==========
 
 export async function addWholesaleAccount(vendorId: number, data: Record<string, unknown>) {
+  const staffEdit = await isStaffWithHojoEdit();
+  const session = await auth();
+  const userType = session?.user?.userType;
+  const sessionVendorId = session?.user?.vendorId;
+  if (!staffEdit && (userType !== "vendor" || sessionVendorId !== vendorId)) {
+    throw new Error("権限がありません");
+  }
   await prisma.hojoWholesaleAccount.create({
     data: {
       vendorId,
@@ -126,8 +148,12 @@ export async function updateWholesaleAccountByVendor(
   vendorId: number,
   data: Record<string, unknown>
 ) {
+  const staffEdit = await isStaffWithHojoEdit();
   const record = await prisma.hojoWholesaleAccount.findUnique({ where: { id } });
-  if (!record || record.vendorId !== vendorId || record.deletedAt) {
+  if (!record || record.deletedAt) {
+    throw new Error("レコードが見つかりません");
+  }
+  if (!staffEdit && record.vendorId !== vendorId) {
     throw new Error("レコードが見つかりません");
   }
 
@@ -150,8 +176,10 @@ export async function updateWholesaleAccountByVendor(
 }
 
 export async function deleteWholesaleAccountByVendor(id: number, vendorId: number) {
+  const staffEdit = await isStaffWithHojoEdit();
   const record = await prisma.hojoWholesaleAccount.findUnique({ where: { id } });
-  if (!record || record.vendorId !== vendorId) throw new Error("レコードが見つかりません");
+  if (!record) throw new Error("レコードが見つかりません");
+  if (!staffEdit && record.vendorId !== vendorId) throw new Error("レコードが見つかりません");
   await prisma.hojoWholesaleAccount.update({
     where: { id },
     data: { deletedByVendor: true },

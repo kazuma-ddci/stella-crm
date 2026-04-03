@@ -85,7 +85,7 @@ export function ProjectEmailsModal({
   isSystemAdmin,
 }: Props) {
   const [emails, setEmails] = useState<ProjectEmail[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const [, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // 追加モード: "select" = 既存から選択, "new" = 新規追加, null = 非表示

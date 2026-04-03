@@ -50,7 +50,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Pencil, Trash2, ChevronsUpDown, Check, AlertCircle, FileText, ExternalLink, Eye } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronsUpDown, Check, AlertCircle, Eye } from "lucide-react";
 import { toast } from "sonner";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";

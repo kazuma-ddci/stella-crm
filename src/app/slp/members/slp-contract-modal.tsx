@@ -105,12 +105,10 @@ const EMPTY_FORM: FormData = {
 // --- 契約書カード ---
 function ContractCard({
   contract,
-  contractStatusOptions,
   onEdit,
   onReload,
 }: {
   contract: Contract;
-  contractStatusOptions: { value: string; label: string }[];
   onEdit: (contract: Contract) => void;
   onReload: () => void;
 }) {
@@ -647,7 +645,6 @@ export function SlpContractModal({
                 <ContractCard
                   key={c.id}
                   contract={c}
-                  contractStatusOptions={contractStatusOptions}
                   onEdit={handleEdit}
                   onReload={loadContracts}
                 />
