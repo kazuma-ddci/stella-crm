@@ -46,13 +46,14 @@ export async function createCounterpartyForCompany(
   tx?: TxClient
 ) {
   const db = tx ?? prisma;
-  const existing = await db.counterparty.findFirst({
-    where: { companyId, deletedAt: null, mergedIntoId: null },
-    select: { id: true },
-  });
-  if (existing) return;
-
   for (let attempt = 0; attempt < 3; attempt++) {
+    // 毎回既存チェック（別リクエストが先に作成した場合に重複を防ぐ）
+    const existing = await db.counterparty.findFirst({
+      where: { companyId, deletedAt: null, mergedIntoId: null },
+      select: { id: true },
+    });
+    if (existing) return;
+
     const displayId = await generateDisplayId("SC", db);
     try {
       await db.counterparty.create({
