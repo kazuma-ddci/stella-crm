@@ -196,6 +196,7 @@ const navigation: NavItem[] = [
           { name: "売上・支払トラッカー", href: "/stp/finance/billing", icon: ClipboardCheck },
           { name: "請求管理（売上）", href: "/stp/finance/invoices", icon: Receipt },
           { name: "支払管理（経費）", href: "/stp/finance/payment-groups", icon: Wallet },
+          { name: "経費申請", href: "/stp/expenses/new", icon: Plus },
           { name: "売掛金年齢表", href: "/stp/finance/aging", icon: Clock },
           { name: "契約別ステータス", href: "/stp/finance/contract-status", icon: CheckCircle2 },
           { name: "代理店別サマリー", href: "/stp/finance/agent-summary", icon: Users },
@@ -253,6 +254,7 @@ const navigation: NavItem[] = [
           { name: "公式LINE友達情報", href: "/slp/line-friends", icon: MessageSquare },
         ],
       },
+      { name: "経費申請", href: "/slp/expenses/new", icon: Plus },
       {
         name: "管理",
         icon: Settings,
@@ -334,6 +336,7 @@ const navigation: NavItem[] = [
           { name: "フォーム回答一覧(仮)", href: "/hojo/form-submissions", icon: ClipboardList },
         ],
       },
+      { name: "経費申請", href: "/hojo/expenses/new", icon: Plus },
       {
         name: "管理",
         icon: Settings,

@@ -8,24 +8,25 @@ import { getSession } from "@/lib/auth";
 // 型定義
 // ============================================
 
-export type ManualExpenseFormData = {
+export type ExpenseFormData = {
   counterparties: { id: number; name: string; displayId: string | null }[];
   expenseCategories: { id: number; name: string; type: string; projectId: number }[];
-  projects: {
-    id: number;
-    code: string;
-    name: string;
-    defaultApproverStaffId: number | null;
-  }[];
+  project: { id: number; code: string; name: string; defaultApproverStaffId: number | null } | null;
+  allProjects: { id: number; code: string; name: string; defaultApproverStaffId: number | null }[];
   paymentMethods: { id: number; name: string; methodType: string }[];
   operatingCompanies: { id: number; companyName: string }[];
-  staffOptions: { id: number; name: string }[]; // 担当者用
-  // プロジェクトIDごとの承認者候補（canApprove=true）
+  staffOptions: { id: number; name: string }[];
   approversByProject: Record<number, { id: number; name: string }[]>;
   currentUserId: number;
 };
 
-export async function getManualExpenseFormData(): Promise<ManualExpenseFormData> {
+/**
+ * 経費申請フォームのデータ取得
+ * @param projectCode プロジェクトコード（null = 経理モード、プロジェクト選択を表示）
+ */
+export async function getExpenseFormData(
+  projectCode: string | null
+): Promise<ExpenseFormData> {
   const session = await getSession();
 
   const [
@@ -76,7 +77,6 @@ export async function getManualExpenseFormData(): Promise<ManualExpenseFormData>
     }),
   ]);
 
-  // プロジェクトごとの承認者候補構築
   const approversByProject: Record<number, { id: number; name: string }[]> = {};
   for (const p of permissions) {
     if (!p.staff.isActive || p.staff.isSystemUser) continue;
@@ -84,10 +84,15 @@ export async function getManualExpenseFormData(): Promise<ManualExpenseFormData>
     approversByProject[p.projectId].push({ id: p.staff.id, name: p.staff.name });
   }
 
+  const project = projectCode
+    ? projects.find((p) => p.code === projectCode) ?? null
+    : null;
+
   return {
     counterparties,
     expenseCategories,
-    projects,
+    project,
+    allProjects: projects,
     paymentMethods,
     operatingCompanies,
     staffOptions,
@@ -97,45 +102,220 @@ export async function getManualExpenseFormData(): Promise<ManualExpenseFormData>
 }
 
 // ============================================
-// createManualExpense
-// 手動経費を作成（PaymentGroup + Transaction の1:1作成、status='pending_approval'）
+// submitExpenseRequest
 // ============================================
 
 type ExpenseOwnerInput = { staffId?: number | null; customName?: string | null };
 
-type CreateManualExpenseInput = {
+export type SubmitExpenseInput = {
+  // 経理モードかプロジェクト申請モードか
+  mode: "accounting" | "project";
+
   projectId: number;
   counterpartyId: number;
   operatingCompanyId: number;
   expenseCategoryId: number;
   paymentMethodId?: number | null;
-  approverStaffId: number;
-  amount: number; // 税込
+
+  // 承認者（プロジェクトモードでは必須、経理モードでは任意）
+  approverStaffId?: number | null;
+
+  // 金額
+  amountType: "fixed" | "variable";
+  amount?: number | null;  // 固定の場合
   taxRate: number;
-  taxAmount: number;
-  periodFrom: string; // YYYY-MM-DD
-  periodTo: string;
+  taxAmount?: number | null;
+
+  // 支払いサイクル
+  frequency: "once" | "monthly" | "yearly" | "weekly";
+  intervalCount?: number;    // monthly/yearly の場合の繰り返し間隔
+  executionDay?: number | null;
+  executeOnLastDay?: boolean;
+  startDate?: string | null; // 定期の場合の開始日
+  endDate?: string | null;   // 定期の場合の終了日（空=無期限）
+
+  // 一度限りの場合の発生期間
+  periodFrom?: string | null;
+  periodTo?: string | null;
   paymentDueDate?: string | null;
+
   note?: string | null;
   expenseOwners: ExpenseOwnerInput[];
+
+  // 定期取引の名称（定期の場合必須）
+  recurringName?: string | null;
 };
 
-export async function createManualExpense(
-  input: CreateManualExpenseInput
-): Promise<{ id: number } | { error: string }> {
+export async function submitExpenseRequest(
+  input: SubmitExpenseInput
+): Promise<{ id: number; type: "transaction" | "recurring" } | { error: string }> {
   try {
     const session = await getSession();
     const staffId = session.id;
 
-    // バリデーション
+    // === 共通バリデーション ===
     if (!input.projectId) throw new Error("プロジェクトは必須です");
     if (!input.counterpartyId) throw new Error("取引先は必須です");
     if (!input.operatingCompanyId) throw new Error("支払元法人は必須です");
     if (!input.expenseCategoryId) throw new Error("勘定科目（費目）は必須です");
-    if (!input.approverStaffId) throw new Error("承認者は必須です");
-    if (input.amount == null || input.amount < 0 || !Number.isInteger(input.amount)) {
-      throw new Error("金額は0以上の整数で入力してください");
+
+    if (input.mode === "project" && !input.approverStaffId) {
+      throw new Error("承認者は必須です");
     }
+
+    if (input.amountType === "fixed") {
+      if (input.amount == null || input.amount < 0 || !Number.isInteger(input.amount)) {
+        throw new Error("金額は0以上の整数で入力してください");
+      }
+    }
+
+    // CostCenter取得
+    const project = await prisma.masterProject.findUnique({
+      where: { id: input.projectId },
+      select: { defaultCostCenterId: true },
+    });
+
+    // 承認者チェック（指定されている場合のみ）
+    if (input.approverStaffId) {
+      const approverPermission = await prisma.staffPermission.findFirst({
+        where: {
+          staffId: input.approverStaffId,
+          projectId: input.projectId,
+          canApprove: true,
+        },
+        select: { id: true },
+      });
+      if (!approverPermission) {
+        throw new Error("選択された承認者はこのプロジェクトの承認権限を持っていません");
+      }
+    }
+
+    const isAccounting = input.mode === "accounting";
+    const initialStatus = isAccounting ? "awaiting_accounting" : "pending_approval";
+    const pgStatus = isAccounting ? "awaiting_accounting" : "pending_approval";
+
+    // === 定期取引の場合 ===
+    if (input.frequency !== "once") {
+      if (!input.recurringName?.trim()) {
+        throw new Error("定期取引の名称は必須です");
+      }
+      if (!input.startDate) {
+        throw new Error("支払い開始日は必須です");
+      }
+
+      const intervalCount = Math.max(1, input.intervalCount || 1);
+
+      const result = await prisma.$transaction(async (tx) => {
+        // 1. RecurringTransaction 作成
+        const recurring = await tx.recurringTransaction.create({
+          data: {
+            type: "expense",
+            name: input.recurringName!.trim(),
+            counterpartyId: input.counterpartyId,
+            expenseCategoryId: input.expenseCategoryId,
+            costCenterId: project?.defaultCostCenterId ?? null,
+            paymentMethodId: input.paymentMethodId ?? null,
+            projectId: input.projectId,
+            approverStaffId: input.approverStaffId ?? null,
+            amount: input.amountType === "fixed" ? input.amount! : null,
+            taxAmount: input.amountType === "fixed" ? (input.taxAmount ?? 0) : null,
+            taxRate: input.taxRate,
+            amountType: input.amountType,
+            frequency: input.frequency,
+            intervalCount,
+            executionDay: input.executeOnLastDay ? null : (input.executionDay ?? null),
+            executeOnLastDay: input.executeOnLastDay ?? false,
+            startDate: new Date(input.startDate!),
+            endDate: input.endDate ? new Date(input.endDate) : null,
+            isActive: true,
+            note: input.note?.trim() || null,
+            createdBy: staffId,
+          },
+        });
+
+        // 2. 担当者（RecurringTransactionExpenseOwner）
+        const validOwners = input.expenseOwners.filter((o) => o.staffId || o.customName);
+        if (validOwners.length > 0) {
+          await tx.recurringTransactionExpenseOwner.createMany({
+            data: validOwners.map((o) => ({
+              recurringTransactionId: recurring.id,
+              staffId: o.staffId ?? null,
+              customName: o.customName ?? null,
+            })),
+          });
+        }
+
+        // 3. 初回分のPaymentGroup + Transaction を作成（固定金額の場合のみ）
+        let transactionId: number | null = null;
+        if (input.amountType === "fixed" && input.amount != null) {
+          const startDate = new Date(input.startDate!);
+          const periodFrom = startDate;
+          const periodTo = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
+
+          const pg = await tx.paymentGroup.create({
+            data: {
+              counterpartyId: input.counterpartyId,
+              operatingCompanyId: input.operatingCompanyId,
+              projectId: input.projectId,
+              paymentType: "direct",
+              status: pgStatus,
+              approverStaffId: input.approverStaffId ?? null,
+              totalAmount: input.amount,
+              taxAmount: input.taxAmount ?? 0,
+              createdBy: staffId,
+            },
+          });
+          await tx.paymentGroup.update({
+            where: { id: pg.id },
+            data: { referenceCode: `PG-${pg.id.toString().padStart(4, "0")}` },
+          });
+
+          const hasOwner = validOwners.length > 0;
+          const txn = await tx.transaction.create({
+            data: {
+              paymentGroupId: pg.id,
+              recurringTransactionId: recurring.id,
+              counterpartyId: input.counterpartyId,
+              expenseCategoryId: input.expenseCategoryId,
+              costCenterId: project?.defaultCostCenterId ?? null,
+              projectId: input.projectId,
+              paymentMethodId: input.paymentMethodId ?? null,
+              type: "expense",
+              amount: input.amount!,
+              taxAmount: input.taxAmount ?? 0,
+              taxRate: input.taxRate,
+              taxType: "tax_included",
+              periodFrom,
+              periodTo,
+              status: initialStatus,
+              note: input.recurringName!.trim() + (input.note ? ` - ${input.note.trim()}` : ""),
+              sourceType: "recurring",
+              hasExpenseOwner: hasOwner,
+              createdBy: staffId,
+            },
+          });
+          transactionId = txn.id;
+
+          if (hasOwner) {
+            await tx.transactionExpenseOwner.createMany({
+              data: validOwners.map((o) => ({
+                transactionId: txn.id,
+                staffId: o.staffId ?? null,
+                customName: o.customName ?? null,
+              })),
+            });
+          }
+        }
+
+        return { recurringId: recurring.id, transactionId };
+      });
+
+      revalidatePath("/accounting/workflow");
+      revalidatePath("/accounting/masters/recurring-transactions");
+      return { id: result.recurringId, type: "recurring" as const };
+    }
+
+    // === 一度限りの場合 ===
     if (!input.periodFrom || !input.periodTo) throw new Error("発生期間は必須です");
 
     const periodFrom = new Date(input.periodFrom);
@@ -144,94 +324,70 @@ export async function createManualExpense(
       throw new Error("発生期間の開始日は終了日以前にしてください");
     }
 
-    // CostCenter（按分なしの場合のプロジェクト紐付け用）を取得
-    const project = await prisma.masterProject.findUnique({
-      where: { id: input.projectId },
-      select: { defaultCostCenterId: true },
-    });
-
-    // 承認者の権限チェック（指定されたプロジェクトで canApprove=true であること）
-    const approverPermission = await prisma.staffPermission.findFirst({
-      where: {
-        staffId: input.approverStaffId,
-        projectId: input.projectId,
-        canApprove: true,
-      },
-      select: { id: true },
-    });
-    if (!approverPermission) {
-      throw new Error("選択された承認者はこのプロジェクトの承認権限を持っていません");
+    if (input.amountType === "fixed" && (input.amount == null || input.amount < 0)) {
+      throw new Error("金額を正しく入力してください");
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      // 1. PaymentGroup 作成（1:1）— status='pending_approval'
-      const paymentGroup = await tx.paymentGroup.create({
+      const pg = await tx.paymentGroup.create({
         data: {
           counterpartyId: input.counterpartyId,
           operatingCompanyId: input.operatingCompanyId,
           projectId: input.projectId,
           paymentType: "direct",
-          status: "pending_approval",
-          approverStaffId: input.approverStaffId,
-          totalAmount: input.amount,
-          taxAmount: input.taxAmount,
+          status: pgStatus,
+          approverStaffId: input.approverStaffId ?? null,
+          totalAmount: input.amountType === "fixed" ? input.amount! : null,
+          taxAmount: input.amountType === "fixed" ? (input.taxAmount ?? 0) : null,
           createdBy: staffId,
         },
       });
-
-      // referenceCode 自動採番
-      const refCode = `PG-${paymentGroup.id.toString().padStart(4, "0")}`;
       await tx.paymentGroup.update({
-        where: { id: paymentGroup.id },
-        data: { referenceCode: refCode },
+        where: { id: pg.id },
+        data: { referenceCode: `PG-${pg.id.toString().padStart(4, "0")}` },
       });
 
-      // 2. Transaction 作成（pending_approval）
-      const hasExpenseOwner = input.expenseOwners.length > 0;
-      const transaction = await tx.transaction.create({
+      const validOwners = input.expenseOwners.filter((o) => o.staffId || o.customName);
+      const hasOwner = validOwners.length > 0;
+      const txn = await tx.transaction.create({
         data: {
-          paymentGroupId: paymentGroup.id,
+          paymentGroupId: pg.id,
           counterpartyId: input.counterpartyId,
           expenseCategoryId: input.expenseCategoryId,
           costCenterId: project?.defaultCostCenterId ?? null,
           projectId: input.projectId,
           paymentMethodId: input.paymentMethodId ?? null,
           type: "expense",
-          amount: input.amount,
-          taxAmount: input.taxAmount,
+          amount: input.amountType === "fixed" ? input.amount! : 0,
+          taxAmount: input.amountType === "fixed" ? (input.taxAmount ?? 0) : 0,
           taxRate: input.taxRate,
           taxType: "tax_included",
           periodFrom,
           periodTo,
           paymentDueDate: input.paymentDueDate ? new Date(input.paymentDueDate) : null,
-          status: "pending_approval",
-          note: input.note || null,
+          status: initialStatus,
+          note: input.note?.trim() || null,
           sourceType: "manual",
-          hasExpenseOwner,
+          hasExpenseOwner: hasOwner,
           createdBy: staffId,
         },
       });
 
-      // 3. 担当者（複数）
-      if (hasExpenseOwner) {
+      if (hasOwner) {
         await tx.transactionExpenseOwner.createMany({
-          data: input.expenseOwners
-            .filter((o) => o.staffId || o.customName)
-            .map((o) => ({
-              transactionId: transaction.id,
-              staffId: o.staffId ?? null,
-              customName: o.customName ?? null,
-            })),
+          data: validOwners.map((o) => ({
+            transactionId: txn.id,
+            staffId: o.staffId ?? null,
+            customName: o.customName ?? null,
+          })),
         });
       }
 
-      return { transaction, paymentGroup };
+      return { transactionId: txn.id };
     });
 
     revalidatePath("/accounting/workflow");
-    revalidatePath("/accounting/expenses/new");
-
-    return { id: result.transaction.id };
+    return { id: result.transactionId, type: "transaction" as const };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "経費の作成に失敗しました" };
   }
