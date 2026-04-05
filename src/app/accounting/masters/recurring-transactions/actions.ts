@@ -9,7 +9,7 @@ const REVALIDATE_PATH = "/accounting/masters/recurring-transactions";
 
 const VALID_TYPES = ["revenue", "expense"] as const;
 const VALID_AMOUNT_TYPES = ["fixed", "variable"] as const;
-const VALID_FREQUENCIES = ["monthly", "yearly", "weekly"] as const;
+const VALID_FREQUENCIES = ["once", "monthly", "yearly", "weekly"] as const;
 
 // ===== 定期取引作成 =====
 export async function createRecurringTransaction(
@@ -40,6 +40,9 @@ export async function createRecurringTransaction(
   const amountType = (data.amountType as string) || "fixed";
   const frequency = data.frequency as string;
   const executionDay = data.executionDay ? Number(data.executionDay) : null;
+  const intervalCount = data.intervalCount ? Number(data.intervalCount) : 1;
+  const executeOnLastDay = toBoolean(data.executeOnLastDay);
+  const approverStaffId = data.approverStaffId ? Number(data.approverStaffId) : null;
   const startDate = data.startDate
     ? new Date(data.startDate as string)
     : null;
@@ -78,6 +81,10 @@ export async function createRecurringTransaction(
 
   if (!startDate) {
     throw new Error("開始日は必須です");
+  }
+
+  if (intervalCount < 1 || !Number.isInteger(intervalCount)) {
+    throw new Error("繰り返し間隔は1以上の整数で指定してください");
   }
 
   // 固定金額の場合、金額は必須
@@ -162,11 +169,14 @@ export async function createRecurringTransaction(
       allocationTemplateId: allocationTemplateId || null,
       paymentMethodId: paymentMethodId || null,
       projectId: projectId || null,
+      approverStaffId: approverStaffId || null,
       amount: amountType === "fixed" ? amount : null,
       taxAmount: amountType === "fixed" ? taxAmount : null,
       taxRate,
       amountType,
       frequency,
+      intervalCount,
+      executeOnLastDay,
       executionDay,
       startDate,
       endDate: endDate || null,
@@ -356,6 +366,30 @@ export async function updateRecurringTransaction(
       if (!pj) throw new Error("指定したプロジェクトが見つかりません");
     }
     updateData.projectId = projectId;
+  }
+
+  if ("intervalCount" in data) {
+    const intervalCount = data.intervalCount ? Number(data.intervalCount) : 1;
+    if (intervalCount < 1 || !Number.isInteger(intervalCount)) {
+      throw new Error("繰り返し間隔は1以上の整数で指定してください");
+    }
+    updateData.intervalCount = intervalCount;
+  }
+
+  if ("executeOnLastDay" in data) {
+    updateData.executeOnLastDay = toBoolean(data.executeOnLastDay);
+  }
+
+  if ("approverStaffId" in data) {
+    const approverStaffId = data.approverStaffId ? Number(data.approverStaffId) : null;
+    if (approverStaffId) {
+      const s = await prisma.masterStaff.findFirst({
+        where: { id: approverStaffId, isActive: true },
+        select: { id: true },
+      });
+      if (!s) throw new Error("指定した承認者が見つかりません");
+    }
+    updateData.approverStaffId = approverStaffId;
   }
 
   if ("isActive" in data) {

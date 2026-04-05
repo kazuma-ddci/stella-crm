@@ -57,6 +57,23 @@ export default async function RecurringTransactionsPage() {
     }),
   ]);
 
+  // 承認権限（canApprove=true）を持つスタッフを集約
+  const approverPermissions = await prisma.staffPermission.findMany({
+    where: { canApprove: true },
+    select: {
+      staff: { select: { id: true, name: true, isActive: true, isSystemUser: true } },
+    },
+  });
+  const approverStaffMap = new Map<number, string>();
+  for (const p of approverPermissions) {
+    if (!p.staff.isActive || p.staff.isSystemUser) continue;
+    approverStaffMap.set(p.staff.id, p.staff.name);
+  }
+  const approverOptions = Array.from(approverStaffMap.entries()).map(([id, name]) => ({
+    value: String(id),
+    label: name,
+  }));
+
   const data = recurringTransactions.map((rt) => ({
     id: rt.id,
     type: rt.type,
@@ -71,6 +88,8 @@ export default async function RecurringTransactionsPage() {
     taxAmount: rt.taxAmount,
     taxRate: rt.taxRate,
     frequency: rt.frequency,
+    intervalCount: rt.intervalCount,
+    executeOnLastDay: rt.executeOnLastDay,
     executionDay: rt.executionDay,
     startDate: toLocalDateString(rt.startDate),
     endDate: rt.endDate ? toLocalDateString(rt.endDate) : "",
@@ -84,6 +103,8 @@ export default async function RecurringTransactionsPage() {
     paymentMethodName: rt.paymentMethod?.name ?? "",
     projectId: rt.projectId ? String(rt.projectId) : "",
     projectName: rt.project?.name ?? "",
+    approverStaffId: rt.approverStaffId ? String(rt.approverStaffId) : "",
+    approverStaffName: rt.approverStaffId ? approverStaffMap.get(rt.approverStaffId) ?? "" : "",
     note: rt.note ?? "",
     isActive: rt.isActive,
     transactionCount: rt._count.transactions,
@@ -155,6 +176,7 @@ export default async function RecurringTransactionsPage() {
             allocationTemplateOptions={allocationTemplateOptions}
             paymentMethodOptions={paymentMethodOptions}
             projectOptions={projectOptions}
+            approverOptions={approverOptions}
           />
         </CardContent>
       </Card>

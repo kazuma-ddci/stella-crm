@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useTransition } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -14,8 +14,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { FileText, CreditCard, ChevronRight, Check, Clock, AlertCircle, Ban } from "lucide-react";
+import { FileText, CreditCard, ChevronRight, Check, Clock, AlertCircle, Ban, UserCheck } from "lucide-react";
 import type { WorkflowGroup } from "./actions";
+import { approvePaymentGroup, rejectPaymentGroup } from "./actions";
 
 type Props = {
   groups: WorkflowGroup[];
@@ -24,6 +25,15 @@ type Props = {
 
 // 各条件のバッジ表示
 function ConditionBadges({ group }: { group: WorkflowGroup }) {
+  if (group.category === "pending_approval") {
+    return (
+      <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 text-xs">
+        <UserCheck className="h-3 w-3 mr-0.5" />
+        経理承認待ち
+      </Badge>
+    );
+  }
+
   if (group.category === "needs_journal") {
     return (
       <div className="flex gap-1 flex-wrap">
@@ -81,7 +91,61 @@ function ConditionBadges({ group }: { group: WorkflowGroup }) {
   );
 }
 
-function GroupTable({ groups }: { groups: WorkflowGroup[] }) {
+function ApprovalActions({ group }: { group: WorkflowGroup }) {
+  const [isPending, startTransition] = useTransition();
+
+  if (group.groupType !== "payment" || group.category !== "pending_approval") {
+    return null;
+  }
+
+  const handleApprove = () => {
+    if (!confirm(`${group.label} を承認しますか？`)) return;
+    startTransition(async () => {
+      try {
+        await approvePaymentGroup(group.id);
+      } catch (e) {
+        alert(e instanceof Error ? e.message : "承認に失敗しました");
+      }
+    });
+  };
+
+  const handleReject = () => {
+    const reason = prompt("差し戻し理由を入力してください");
+    if (reason === null) return;
+    startTransition(async () => {
+      try {
+        await rejectPaymentGroup(group.id, reason);
+      } catch (e) {
+        alert(e instanceof Error ? e.message : "差し戻しに失敗しました");
+      }
+    });
+  };
+
+  return (
+    <div className="flex gap-1">
+      <Button
+        size="sm"
+        variant="default"
+        className="h-7 text-xs bg-green-600 hover:bg-green-700"
+        disabled={isPending}
+        onClick={handleApprove}
+      >
+        承認
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 text-xs"
+        disabled={isPending}
+        onClick={handleReject}
+      >
+        差し戻し
+      </Button>
+    </div>
+  );
+}
+
+function GroupTable({ groups, showApprovalActions = false }: { groups: WorkflowGroup[]; showApprovalActions?: boolean }) {
   if (groups.length === 0) {
     return (
       <p className="text-muted-foreground text-center py-12">
@@ -100,6 +164,7 @@ function GroupTable({ groups }: { groups: WorkflowGroup[] }) {
             <TableHead>取引先</TableHead>
             <TableHead className="text-right">金額</TableHead>
             <TableHead>進捗</TableHead>
+            {showApprovalActions && <TableHead className="w-[160px]">承認アクション</TableHead>}
             <TableHead className="w-[60px]">詳細</TableHead>
           </TableRow>
         </TableHeader>
@@ -133,6 +198,11 @@ function GroupTable({ groups }: { groups: WorkflowGroup[] }) {
               <TableCell>
                 <ConditionBadges group={g} />
               </TableCell>
+              {showApprovalActions && (
+                <TableCell>
+                  <ApprovalActions group={g} />
+                </TableCell>
+              )}
               <TableCell>
                 {g.category !== "returned" ? (
                   <Button variant="ghost" size="sm" className="h-8 w-8 p-0" asChild>
@@ -183,6 +253,10 @@ export function GroupsList({ groups, projects }: Props) {
     return filtered;
   }, [search, selectedProjectIds]);
 
+  const pendingApproval = useMemo(
+    () => applyFilters(groups.filter((g) => g.category === "pending_approval")),
+    [applyFilters, groups]
+  );
   const needsJournal = useMemo(
     () => applyFilters(groups.filter((g) => g.category === "needs_journal")),
     [applyFilters, groups]
@@ -237,8 +311,17 @@ export function GroupsList({ groups, projects }: Props) {
         )}
       </div>
 
-      <Tabs defaultValue="needs_journal">
+      <Tabs defaultValue={pendingApproval.length > 0 ? "pending_approval" : "needs_journal"}>
         <TabsList>
+          <TabsTrigger value="pending_approval" className="gap-1">
+            <UserCheck className="h-3.5 w-3.5" />
+            経理承認待ち
+            {pendingApproval.length > 0 && (
+              <Badge variant="default" className="ml-1 h-5 px-1.5 text-xs bg-purple-600">
+                {pendingApproval.length}
+              </Badge>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="needs_journal" className="gap-1">
             <AlertCircle className="h-3.5 w-3.5" />
             仕訳待ち
@@ -274,6 +357,10 @@ export function GroupsList({ groups, projects }: Props) {
             </TabsTrigger>
           )}
         </TabsList>
+
+        <TabsContent value="pending_approval" className="mt-4">
+          <GroupTable groups={pendingApproval} showApprovalActions />
+        </TabsContent>
 
         <TabsContent value="needs_journal" className="mt-4">
           <GroupTable groups={needsJournal} />

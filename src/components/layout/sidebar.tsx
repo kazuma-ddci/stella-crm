@@ -53,6 +53,7 @@ import {
   AlertTriangle,
   Package,
   UserCog,
+  Plus,
 } from "lucide-react";
 import { canView } from "@/lib/auth/permissions";
 import type { SessionUser } from "@/types/auth";
@@ -364,6 +365,7 @@ const navigation: NavItem[] = [
       { name: "ダッシュボード", href: "/accounting/dashboard", icon: Home },
       { name: "スタッフ管理", href: "/staff", icon: Users },
       { name: "ワークフロー", href: "/accounting/workflow", icon: ClipboardList },
+      { name: "手動経費追加", href: "/accounting/expenses/new", icon: Plus },
       { name: "税区分チェック", href: "/accounting/invoice-check", icon: FileCheck },
       { name: "会計取引", href: "/accounting/transactions", icon: Landmark },
       { name: "入出金管理", href: "/accounting/bank-transactions", icon: Receipt },

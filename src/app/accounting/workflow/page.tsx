@@ -13,6 +13,7 @@ export default async function AccountingWorkflowPage() {
     }),
   ]);
 
+  const pendingApproval = groups.filter((g) => g.category === "pending_approval").length;
   const needsJournal = groups.filter((g) => g.category === "needs_journal").length;
   const inProgress = groups.filter((g) => g.category === "in_progress").length;
   const completed = groups.filter((g) => g.category === "completed").length;
@@ -23,7 +24,13 @@ export default async function AccountingWorkflowPage() {
       <h1 className="text-2xl font-bold">経理ワークフロー</h1>
 
       {/* サマリー */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold text-purple-600">{pendingApproval}</div>
+            <p className="text-sm text-muted-foreground">経理承認待ち</p>
+          </CardContent>
+        </Card>
         <Card>
           <CardContent className="pt-6">
             <div className="text-2xl font-bold text-red-600">{needsJournal}</div>

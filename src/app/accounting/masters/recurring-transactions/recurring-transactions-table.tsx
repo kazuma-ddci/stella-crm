@@ -23,8 +23,9 @@ const AMOUNT_TYPE_OPTIONS = [
 ];
 
 const FREQUENCY_OPTIONS = [
-  { value: "monthly", label: "毎月" },
-  { value: "yearly", label: "毎年" },
+  { value: "once", label: "一度限り" },
+  { value: "monthly", label: "毎月／Nヶ月ごと" },
+  { value: "yearly", label: "毎年／N年ごと" },
   { value: "weekly", label: "毎週" },
 ];
 
@@ -54,6 +55,7 @@ type Props = {
   allocationTemplateOptions: SelectOption[];
   paymentMethodOptions: SelectOption[];
   projectOptions: SelectOption[];
+  approverOptions: SelectOption[];
 };
 
 function formatExecutionDay(
@@ -78,6 +80,7 @@ export function RecurringTransactionsTable({
   allocationTemplateOptions,
   paymentMethodOptions,
   projectOptions,
+  approverOptions,
 }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
@@ -148,11 +151,25 @@ export function RecurringTransactionsTable({
     },
     {
       key: "frequency",
-      header: "頻度",
+      header: "支払いサイクル",
       type: "select",
       options: FREQUENCY_OPTIONS,
       required: true,
       filterable: true,
+    },
+    {
+      key: "intervalCount",
+      header: "間隔（Nヶ月ごと／N年ごと）",
+      type: "number",
+      defaultValue: 1,
+      hidden: true,
+    },
+    {
+      key: "executeOnLastDay",
+      header: "毎月末日に実行",
+      type: "boolean",
+      defaultValue: false,
+      hidden: true,
     },
     {
       key: "executionDay",
@@ -203,6 +220,13 @@ export function RecurringTransactionsTable({
       hidden: true,
     },
     {
+      key: "approverStaffId",
+      header: "承認者",
+      type: "select",
+      options: [{ value: "", label: "（なし）" }, ...approverOptions],
+      hidden: true,
+    },
+    {
       key: "note",
       header: "摘要・メモ",
       type: "textarea",
@@ -232,12 +256,20 @@ export function RecurringTransactionsTable({
       const option = AMOUNT_TYPE_OPTIONS.find((o) => o.value === value);
       return option ? option.label : String(value);
     },
-    frequency: (value) => {
+    frequency: (value, item) => {
       const option = FREQUENCY_OPTIONS.find((o) => o.value === value);
-      return option ? option.label : String(value);
+      const base = option ? option.label : String(value);
+      const interval = Number(item?.intervalCount ?? 1);
+      if (value === "monthly" && interval > 1) return `${interval}ヶ月ごと`;
+      if (value === "yearly" && interval > 1) return `${interval}年ごと`;
+      return base;
     },
     executionDay: (value, item) => {
+      if (item?.executeOnLastDay) return "月末日";
       return formatExecutionDay(value, item ?? {});
+    },
+    approverStaffId: (_value, item) => {
+      return (item?.approverStaffName as string) || "（なし）";
     },
     costCenterId: (_value, item) => {
       return (item?.costCenterName as string) || "（なし）";
