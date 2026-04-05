@@ -45,7 +45,6 @@ export default async function PreApplicationDetailPage({ params }: Props) {
     id: record.id,
     vendorId: String(record.vendorId),
     vendorName: record.vendor.name,
-    isBpo: record.isBpo,
     applicantName: toStr(record.applicantName),
     referrer: toStr(record.referrer),
     salesStaff: toStr(record.salesStaff),

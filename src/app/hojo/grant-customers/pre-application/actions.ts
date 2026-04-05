@@ -131,9 +131,6 @@ export async function updatePreApplicationDetail(
     if (f in data) updateData[f] = toStr(data[f]);
   }
 
-  // Boolean fields
-  if ("isBpo" in data) updateData.isBpo = data.isBpo === true || data.isBpo === "true";
-
   // Date fields
   const dateFields = [
     "nextContactDate", "overviewBriefingDate", "lostDate",

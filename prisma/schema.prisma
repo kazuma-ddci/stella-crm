@@ -744,7 +744,9 @@ model MasterStaff {
   alertAcknowledgments        AlertAcknowledgment[]
   activityLogs                ActivityLog[]               @relation("ActivityLogStaff")
   bbsAccountApprovals         HojoBbsAccount[]
+  lenderAccountApprovals      HojoLenderAccount[]
   vendorAccountApprovals      HojoVendorAccount[]
+  hojoVendorConsultingStaff   HojoVendorConsultingStaff[]
 
   @@map("master_staff")
 }
@@ -3765,12 +3767,19 @@ model HojoFormSubmission {
   representName   String?   @db.VarChar(255)  // 代表者氏名
   email           String?   @db.VarChar(255)  // メールアドレス
   phone           String?   @db.VarChar(50)   // 電話番号
-  answers         Json                        // 全回答データ（JSON）
+  answers         Json                        // 元の回答データ（JSON・不変）
+  modifiedAnswers Json?                       // 変更後の回答データ（JSON・編集時のみ）
+  changeHistory   Json?                       // 変更履歴（JSON配列: [{changedAt, changedBy, changes: [{field, oldValue, newValue}]}]）
   fileUrls        Json?                       // アップロードファイルURL群（JSON配列）
+  vendorMemo      String?   @map("vendor_memo") @db.Text  // ベンダー備考
+  lenderMemo      String?   @map("lender_memo") @db.Text  // 貸金業社備考
+  staffMemo       String?   @map("staff_memo") @db.Text   // 弊社備考
   submittedAt     DateTime  @default(now())
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
+
+  loanProgress    HojoLoanProgress?
 
   @@map("hojo_form_submissions")
 }
@@ -3962,6 +3971,7 @@ model HojoLineFriendSecurityCloud {
   vendors                HojoVendor[]           @relation("vendorLineFriend")
   vendorRepresentatives  HojoVendor[]           @relation("vendorRepresentative")
   vendorContactPersons   HojoVendor[]           @relation("vendorContactPerson")
+  vendorAssignedAs       HojoVendor[]           @relation("vendorAssignedAs")
   vendorContacts         HojoVendorContact[]
 
   @@map("hojo_line_friends_security_cloud")
@@ -4019,6 +4029,23 @@ model HojoVendor {
   // ベンダー登録の有無
   vendorRegistrationStatusId Int?  @map("vendor_registration_status_id")
 
+  // ツール登録の有無
+  toolRegistrationStatusId Int?  @map("tool_registration_status_id")
+
+  // コンサルティングプラン追加フィールド
+  consultingContractAmount  Decimal?  @map("consulting_contract_amount") @db.Decimal(12, 0)
+  successFee                Decimal?  @map("success_fee") @db.Decimal(12, 0)
+  consultingStartDate       DateTime? @map("consulting_start_date")
+  consultingEndDate         DateTime? @map("consulting_end_date")
+  vendorSharedMemo          String?   @map("vendor_shared_memo") @db.Text
+
+  // サービス契約状況 全体
+  contractDate              DateTime? @map("contract_date")
+  caseStatusId              Int?      @map("case_status_id")
+
+  // 担当AS（セキュリティクラウドLINEユーザーから選択 or 自動検出）
+  assignedAsLineFriendId    Int?      @map("assigned_as_line_friend_id")
+
   // --- リレーション ---
   lineFriend                   HojoLineFriendSecurityCloud? @relation("vendorLineFriend", fields: [lineFriendId], references: [id], onDelete: SetNull)
   representativeLineFriend     HojoLineFriendSecurityCloud? @relation("vendorRepresentative", fields: [representativeLineFriendId], references: [id], onDelete: SetNull)
@@ -4027,6 +4054,10 @@ model HojoVendor {
   scWholesaleStatus            HojoVendorScWholesaleStatus?       @relation(fields: [scWholesaleStatusId], references: [id], onDelete: SetNull)
   consultingPlanStatus         HojoVendorConsultingPlanStatus?    @relation(fields: [consultingPlanStatusId], references: [id], onDelete: SetNull)
   vendorRegistrationStatus     HojoVendorRegistrationStatus?      @relation(fields: [vendorRegistrationStatusId], references: [id], onDelete: SetNull)
+  toolRegistrationStatus       HojoVendorToolRegistrationStatus?  @relation(fields: [toolRegistrationStatusId], references: [id], onDelete: SetNull)
+  caseStatus                   HojoVendorCaseStatus?              @relation(fields: [caseStatusId], references: [id], onDelete: SetNull)
+  assignedAsLineFriend         HojoLineFriendSecurityCloud?        @relation("vendorAssignedAs", fields: [assignedAsLineFriendId], references: [id], onDelete: SetNull)
+  consultingStaff              HojoVendorConsultingStaff[]
   contacts                     HojoVendorContact[]
   applicationSupports          HojoApplicationSupport[]
   vendorAccounts               HojoVendorAccount[]
@@ -4035,6 +4066,7 @@ model HojoVendor {
   consultingActivities         HojoConsultingActivity[]
   grantCustomerPreApps         HojoGrantCustomerPreApplication[]
   grantCustomerPostApps        HojoGrantCustomerPostApplication[]
+  loanProgresses               HojoLoanProgress[]
 
   @@map("hojo_vendors")
 }
@@ -4049,6 +4081,10 @@ model HojoVendorContact {
   lineFriendId       Int?     @map("line_friend_id")                      // セキュリティクラウドLINE友達のID
   joseiLineFriendId  Int?     @map("josei_line_friend_id")                // 助成金申請サポートLINE友達のID
   isPrimary          Boolean  @default(false) @map("is_primary")          // 主担当（通知送信先等に使用）
+  name               String?  @db.VarChar(200)                            // 表示名（LINE未連携時はフリーテキスト）
+  role               String?  @db.VarChar(50)                             // 役割: "representative"(代表者) | "contact_person"(主担当者) | null(その他)
+  email              String?  @db.VarChar(255)                            // 連絡先メール
+  phone              String?  @db.VarChar(50)                             // 連絡先電話番号
   createdAt          DateTime @default(now()) @map("created_at")
 
   vendor             HojoVendor                   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
@@ -4152,6 +4188,29 @@ model HojoBbsAccount {
   approver                 MasterStaff? @relation(fields: [approvedBy], references: [id], onDelete: SetNull)
 
   @@map("hojo_bbs_accounts")
+}
+
+// ============================================
+// 貸金業社アカウント管理
+// ============================================
+
+model HojoLenderAccount {
+  id                       Int       @id @default(autoincrement())
+  name                     String    @db.VarChar(200)               // 氏名
+  email                    String    @unique @db.VarChar(255)       // メールアドレス
+  passwordHash             String    @map("password_hash") @db.VarChar(255) // パスワード（ハッシュ化）
+  status                   String    @default("pending_approval") @db.VarChar(30) // pending_approval, active, suspended
+  mustChangePassword       Boolean   @default(false) @map("must_change_password") // 初期パスワード変更必須フラグ
+  passwordResetRequestedAt DateTime? @map("password_reset_requested_at") // パスワードリセット要求日時
+  approvedAt               DateTime? @map("approved_at")            // 認証日時
+  approvedBy               Int?      @map("approved_by")            // 認証したスタッフID
+  lastLoginAt              DateTime? @map("last_login_at")          // 最終ログイン日時
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  approver                 MasterStaff? @relation(fields: [approvedBy], references: [id], onDelete: SetNull)
+
+  @@map("hojo_lender_accounts")
 }
 
 // ============================================
@@ -4538,6 +4597,53 @@ model HojoVendorRegistrationStatus {
   @@map("hojo_vendor_registration_statuses")
 }
 
+model HojoVendorToolRegistrationStatus {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(200)
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  vendors HojoVendor[]
+
+  @@map("hojo_vendor_tool_registration_statuses")
+}
+
+// ============================================
+// ベンダー 案件ステータスマスタ
+// ============================================
+
+model HojoVendorCaseStatus {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(200)
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  vendors HojoVendor[]
+
+  @@map("hojo_vendor_case_statuses")
+}
+
+// ============================================
+// ベンダー コンサル担当者（多対多）
+// ============================================
+
+model HojoVendorConsultingStaff {
+  id        Int      @id @default(autoincrement())
+  vendorId  Int      @map("vendor_id")
+  staffId   Int      @map("staff_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  vendor HojoVendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  staff  MasterStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([vendorId, staffId])
+  @@map("hojo_vendor_consulting_staff")
+}
+
 // ============================================
 // コンサル/BPO 契約管理
 // ============================================
@@ -4618,10 +4724,10 @@ model HojoConsultingActivity {
   supportTaskPriority   String?   @map("support_task_priority") @db.VarChar(20)
   supportTaskCompleted  Boolean   @default(false) @map("support_task_completed")
 
-  // 添付
-  attachmentUrl         String?   @map("attachment_url") @db.VarChar(500)
-  recordingUrl          String?   @map("recording_url") @db.VarChar(500)
-  screenshotUrl         String?   @map("screenshot_url") @db.VarChar(500)
+  // 添付（複数URL対応・JSON配列）
+  attachmentUrls        Json?     @map("attachment_urls") // string[]
+  recordingUrls         Json?     @map("recording_urls")  // string[]
+  screenshotUrls        Json?     @map("screenshot_urls") // string[]
 
   // ベンダー側のみ記入可能
   notes                 String?   @db.Text
@@ -4632,10 +4738,34 @@ model HojoConsultingActivity {
 
   vendor   HojoVendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   contract HojoConsultingContract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  tasks    HojoConsultingActivityTask[]
 
   @@index([vendorId])
   @@index([contractId])
   @@map("hojo_consulting_activities")
+}
+
+// ============================================
+// コンサル履歴 タスク（ベンダー様/コンサルチーム共通）
+// 1つのactivityに複数のタスクを紐付けられる
+// ============================================
+
+model HojoConsultingActivityTask {
+  id           Int      @id @default(autoincrement())
+  activityId   Int      @map("activity_id")
+  taskType     String   @map("task_type") @db.VarChar(20) // "vendor" | "consulting_team"
+  content      String?  @db.Text
+  deadline     DateTime?
+  priority     String?  @db.VarChar(20) // 高/中/低
+  completed    Boolean  @default(false)
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  activity     HojoConsultingActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([activityId])
+  @@map("hojo_consulting_activity_tasks")
 }
 
 // ============================================
@@ -4648,7 +4778,6 @@ model HojoGrantCustomerPreApplication {
   applicationSupportId  Int?      @map("application_support_id")
 
   // 基本情報
-  isBpo                 Boolean   @default(false) @map("is_bpo")
   applicantName         String?   @map("applicant_name") @db.VarChar(200)
   referrer              String?   @db.VarChar(200)
   salesStaff            String?   @map("sales_staff") @db.VarChar(200)
@@ -4692,11 +4821,11 @@ model HojoGrantCustomerPreApplication {
   docCollectionStart    DateTime? @map("doc_collection_start")
   docSubmissionDate     DateTime? @map("doc_submission_date")
   businessName          String?   @map("business_name") @db.VarChar(200)
-  doc1                  String?   @db.VarChar(500)
-  doc2                  String?   @db.VarChar(500)
-  doc3                  String?   @db.VarChar(500)
-  doc4                  String?   @db.VarChar(500)
-  doc5                  String?   @db.VarChar(500)
+  doc1                  String?   @map("doc_1") @db.VarChar(500)
+  doc2                  String?   @map("doc_2") @db.VarChar(500)
+  doc3                  String?   @map("doc_3") @db.VarChar(500)
+  doc4                  String?   @map("doc_4") @db.VarChar(500)
+  doc5                  String?   @map("doc_5") @db.VarChar(500)
   itStrategyNaviPdf     String?   @map("it_strategy_navi_pdf") @db.VarChar(500)
   hasEmployees          String?   @map("has_employees") @db.VarChar(50)
 
@@ -4913,4 +5042,73 @@ model HojoGrantCustomerPostApplication {
   @@index([vendorId])
   @@index([preApplicationId])
   @@map("hojo_grant_customer_post_applications")
+}
+
+// ============================================
+// 貸金 顧客進捗管理 ステータスマスタ
+// ============================================
+
+model HojoLoanProgressStatus {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(100)
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  progresses   HojoLoanProgress[]
+
+  @@map("hojo_loan_progress_statuses")
+}
+
+// ============================================
+// 貸金 顧客進捗管理
+// ============================================
+
+model HojoLoanProgress {
+  id                  Int       @id @default(autoincrement())
+  formSubmissionId    Int       @unique
+  vendorId            Int
+
+  // フォームから自動取得
+  companyName         String?   @db.VarChar(255)  // 社名（屋号名）
+  representName       String?   @db.VarChar(255)  // 代表者(契約者)氏名
+  loanAmount          Decimal?  @db.Decimal(14, 0) // 貸付金額（フォームの借入希望金額）
+  applicantType       String?   @db.VarChar(20)   // "法人" or "個人事業主"
+
+  // ベンダー入力
+  requestDate         DateTime? // 依頼日
+  toolPurchasePrice   Decimal?  @db.Decimal(14, 0) // ツール購入代金
+  fundTransferDate    DateTime? // 資金移動日
+  loanExecutionDate   DateTime? // 貸付実行日（時刻含む）
+
+  // 貸金業社入力
+  statusId            Int?
+  memo                String?   @db.Text          // 備考
+  memorandum          String?   @db.Text          // 覚書
+  funds               String?   @db.Text          // 資金
+  repaymentDate       DateTime?                   // 返金日(着金日)
+  repaymentAmount     Decimal?  @db.Decimal(14, 0) // 返金額(着金額)
+  principalAmount     Decimal?  @db.Decimal(14, 0) // 元金分
+  interestAmount      Decimal?  @db.Decimal(14, 0) // 利息分
+  overshortAmount     Decimal?  @db.Decimal(14, 0) // 過不足
+  operationFee        Decimal?  @db.Decimal(14, 0) // 運用フィー
+  redemptionAmount    Decimal?  @db.Decimal(14, 0) // 償還額
+  redemptionDate      DateTime?                   // 償還日
+  endMemo             String?   @db.Text          // 返済備考
+
+  // 弊社スタッフ専用
+  staffMemo           String?   @db.Text          // 弊社備考
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
+
+  // Relations
+  formSubmission      HojoFormSubmission     @relation(fields: [formSubmissionId], references: [id])
+  vendor              HojoVendor             @relation(fields: [vendorId], references: [id])
+  status              HojoLoanProgressStatus? @relation(fields: [statusId], references: [id])
+
+  @@index([vendorId])
+  @@map("hojo_loan_progresses")
 }

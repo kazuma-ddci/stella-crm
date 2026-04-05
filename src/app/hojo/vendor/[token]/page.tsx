@@ -19,10 +19,54 @@ export default async function VendorPage({
 
   const vendor = await prisma.hojoVendor.findUnique({
     where: { accessToken: token },
+    include: {
+      assignedAsLineFriend: { select: { snsname: true } },
+      consultingStaff: { include: { staff: { select: { name: true } } } },
+      caseStatus: { select: { name: true } },
+      consultingPlanStatus: { select: { name: true } },
+      scWholesaleStatus: { select: { name: true } },
+      contacts: {
+        select: { id: true, name: true, role: true, email: true, phone: true, isPrimary: true },
+        orderBy: { id: "asc" },
+      },
+    },
   });
   if (!vendor || !vendor.isActive) {
     notFound();
   }
+
+  // ProLineアカウントラベル取得
+  const prolineAccounts = await prisma.hojoProlineAccount.findMany({
+    select: { lineType: true, label: true },
+  });
+  const labelMap: Record<string, string> = {};
+  for (const a of prolineAccounts) labelMap[a.lineType] = a.label;
+  const scLabel = labelMap["security-cloud"] || "セキュリティクラウド";
+
+  // ベンダー基本情報（契約概要セクション用）
+  const vendorInfo = {
+    scLabel,
+    assignedAs: vendor.assignedAsLineFriend?.snsname ?? null,
+    consultingStaffNames: vendor.consultingStaff.map((cs) => cs.staff.name),
+    companyName: vendor.name,
+    contacts: vendor.contacts.map((c) => ({
+      id: c.id,
+      name: c.name ?? "",
+      role: c.role ?? "",
+      email: c.email ?? "",
+      phone: c.phone ?? "",
+      isPrimary: c.isPrimary,
+    })),
+    contractDate: vendor.contractDate?.toISOString().split("T")[0] ?? null,
+    consultingPlan: vendor.consultingPlanStatus?.name ?? null,
+    caseStatus: vendor.caseStatus?.name ?? null,
+    scWholesalePlan: vendor.scWholesaleStatus?.name ?? null,
+    subsidyConsulting: vendor.subsidyConsulting,
+    grantApplicationBpo: vendor.grantApplicationBpo,
+    consultingStartDate: vendor.consultingStartDate?.toISOString().split("T")[0] ?? null,
+    consultingEndDate: vendor.consultingEndDate?.toISOString().split("T")[0] ?? null,
+    vendorSharedMemo: vendor.vendorSharedMemo ?? null,
+  };
 
   const session = await auth();
   const userType = session?.user?.userType;
@@ -40,9 +84,17 @@ export default async function VendorPage({
         isVendor={false}
         applicantData={[]}
         wholesaleData={[]}
+        contractsData={[]}
+        activitiesData={[]}
+        preApplicationData={[]}
+        postApplicationData={[]}
+        loanCorporateData={[]}
+        loanIndividualData={[]}
+        loanProgressData={[]}
         vendorName={vendor.name}
         vendorToken={token}
         allVendors={[]}
+        vendorInfo={vendorInfo}
       />
     );
   }
@@ -99,6 +151,197 @@ export default async function VendorPage({
     invoiceStatus: r.invoiceStatus || "-",
   }));
 
+  // コンサル契約データ
+  const contracts = await prisma.hojoConsultingContract.findMany({
+    where: { vendorId: vendor.id, deletedAt: null },
+    orderBy: { id: "asc" },
+  });
+
+  const contractsData = contracts.map((c) => ({
+    id: c.id,
+    lineNumber: c.lineNumber ?? "",
+    lineName: c.lineName ?? "",
+    referralUrl: c.referralUrl ?? "",
+    assignedAs: c.assignedAs ?? "",
+    consultingStaff: c.consultingStaff ?? "",
+    companyName: c.companyName,
+    representativeName: c.representativeName ?? "",
+    mainContactName: c.mainContactName ?? "",
+    customerEmail: c.customerEmail ?? "",
+    customerPhone: c.customerPhone ?? "",
+    contractDate: c.contractDate?.toISOString().split("T")[0] ?? "",
+    contractPlan: c.contractPlan ?? "",
+    contractAmount: c.contractAmount ? Number(c.contractAmount) : "",
+    serviceType: c.serviceType ?? "",
+    caseStatus: c.caseStatus ?? "",
+    hasScSales: c.hasScSales,
+    hasSubsidyConsulting: c.hasSubsidyConsulting,
+    hasBpoSupport: c.hasBpoSupport,
+    consultingPlan: c.consultingPlan ?? "",
+    successFee: c.successFee ? Number(c.successFee) : "",
+    startDate: c.startDate?.toISOString().split("T")[0] ?? "",
+    endDate: c.endDate?.toISOString().split("T")[0] ?? "",
+    billingStatus: c.billingStatus ?? "",
+    paymentStatus: c.paymentStatus ?? "",
+    revenueRecordingDate: c.revenueRecordingDate?.toISOString().split("T")[0] ?? "",
+    grossProfit: c.grossProfit ? Number(c.grossProfit) : "",
+    notes: c.notes ?? "",
+  }));
+
+  // コンサル活動データ（スタッフ専用フィールドを除外）
+  const activities = await prisma.hojoConsultingActivity.findMany({
+    where: { vendorId: vendor.id, deletedAt: null },
+    include: {
+      tasks: { orderBy: [{ taskType: "asc" }, { displayOrder: "asc" }] },
+    },
+    orderBy: { activityDate: "desc" },
+  });
+
+  const activitiesData = activities.map((a) => ({
+    id: a.id,
+    activityDate: a.activityDate.toISOString().split("T")[0],
+    contactMethod: a.contactMethod ?? "",
+    vendorIssue: a.vendorIssue ?? "",
+    vendorNextAction: a.vendorNextAction ?? "",
+    nextDeadline: a.nextDeadline?.toISOString().split("T")[0] ?? "",
+    tasks: a.tasks.map((t) => ({
+      id: t.id,
+      taskType: t.taskType as "vendor" | "consulting_team",
+      content: t.content ?? "",
+      deadline: t.deadline?.toISOString().split("T")[0] ?? "",
+      priority: t.priority ?? "",
+      completed: t.completed,
+    })),
+    attachmentUrls: (a.attachmentUrls as string[] | null) ?? [],
+    recordingUrls: (a.recordingUrls as string[] | null) ?? [],
+    screenshotUrls: (a.screenshotUrls as string[] | null) ?? [],
+    notes: a.notes ?? "",
+  }));
+
+  // 助成金顧客 〜概要案内データ
+  const preApps = await prisma.hojoGrantCustomerPreApplication.findMany({
+    where: { vendorId: vendor.id, deletedAt: null },
+    orderBy: { id: "asc" },
+  });
+
+  const preApplicationData = preApps.map((r) => ({
+    id: r.id,
+    applicantName: r.applicantName ?? "",
+    referrer: r.referrer ?? "",
+    salesStaff: r.salesStaff ?? "",
+    category: r.category ?? "",
+    status: r.status ?? "",
+    prospectLevel: r.prospectLevel ?? "",
+    nextContactDate: r.nextContactDate?.toISOString().split("T")[0] ?? "",
+    overviewBriefingDate: r.overviewBriefingDate?.toISOString().split("T")[0] ?? "",
+    briefingStaff: r.briefingStaff ?? "",
+    phone: r.phone ?? "",
+    businessEntity: r.businessEntity ?? "",
+    industry: r.industry ?? "",
+    systemType: r.systemType ?? "",
+    hasLoan: r.hasLoan ?? "",
+    revenueRange: r.revenueRange ?? "",
+    businessName: r.businessName ?? "",
+  }));
+
+  // 助成金顧客 交付申請〜データ
+  const postApps = await prisma.hojoGrantCustomerPostApplication.findMany({
+    where: { vendorId: vendor.id, deletedAt: null },
+    orderBy: { id: "asc" },
+  });
+
+  const postApplicationData = postApps.map((r) => ({
+    id: r.id,
+    isBpo: r.isBpo,
+    applicantName: r.applicantName ?? "",
+    memo: r.memo ?? "",
+    referrer: r.referrer ?? "",
+    salesStaff: r.salesStaff ?? "",
+    applicationCompletedDate: r.applicationCompletedDate?.toISOString().split("T")[0] ?? "",
+    applicationStaff: r.applicationStaff ?? "",
+    grantApplicationNumber: r.grantApplicationNumber ?? "",
+    nextAction: r.nextAction ?? "",
+    nextContactDate: r.nextContactDate?.toISOString().split("T")[0] ?? "",
+    subsidyStatus: r.subsidyStatus ?? "",
+    subsidyApplicantName: r.subsidyApplicantName ?? "",
+    prefecture: r.prefecture ?? "",
+    recruitmentRound: r.recruitmentRound ?? "",
+    applicationType: r.applicationType ?? "",
+    itToolName: r.itToolName ?? "",
+    hasLoan: r.hasLoan,
+    completedDate: r.completedDate?.toISOString().split("T")[0] ?? "",
+  }));
+
+  // 借入申込フォーム回答データ（このベンダーのもの）
+  const loanSubmissions = await prisma.hojoFormSubmission.findMany({
+    where: {
+      deletedAt: null,
+      formType: { in: ["loan-corporate", "loan-individual"] },
+      answers: { path: ["_vendorId"], equals: vendor.id },
+    },
+    include: {
+      loanProgress: { select: { deletedAt: true } },
+    },
+    orderBy: { submittedAt: "desc" },
+  });
+
+  const mapLoanRow = (s: typeof loanSubmissions[number]) => ({
+    id: s.id,
+    formType: s.formType,
+    companyName: s.companyName || "（未入力）",
+    representName: s.representName || "（未入力）",
+    email: s.email || "",
+    phone: s.phone || "",
+    submittedAt: s.submittedAt.toISOString(),
+    answers: s.answers as Record<string, string>,
+    modifiedAnswers: (s.modifiedAnswers as Record<string, string> | null) ?? null,
+    changeHistory: (s.changeHistory as { changedAt: string; changedBy: string; changes: { field: string; fieldLabel: string; oldValue: string; newValue: string }[] }[] | null) ?? null,
+    vendorMemo: s.vendorMemo || "",
+    progressExcluded: s.loanProgress?.deletedAt != null,
+  });
+
+  const loanCorporateData = loanSubmissions
+    .filter((s) => s.formType === "loan-corporate")
+    .map(mapLoanRow);
+  const loanIndividualData = loanSubmissions
+    .filter((s) => s.formType === "loan-individual")
+    .map(mapLoanRow);
+
+  // 貸金 顧客進捗管理データ
+  const loanProgressRecords = await prisma.hojoLoanProgress.findMany({
+    where: { vendorId: vendor.id, deletedAt: null },
+    include: { status: { select: { name: true } } },
+    orderBy: { id: "asc" },
+  });
+
+  const loanProgressData = loanProgressRecords.map((r) => ({
+    id: r.id,
+    requestDate: r.requestDate?.toISOString().split("T")[0] ?? "",
+    companyName: r.companyName ?? "",
+    representName: r.representName ?? "",
+    statusName: r.status?.name ?? "",
+    applicantType: r.applicantType ?? "",
+    updatedAt: r.updatedAt.toISOString().split("T")[0],
+    memo: r.memo ?? "",
+    memorandum: r.memorandum ?? "",
+    funds: r.funds ?? "",
+    toolPurchasePrice: r.toolPurchasePrice ? Number(r.toolPurchasePrice).toLocaleString() : "",
+    loanAmount: r.loanAmount ? Number(r.loanAmount).toLocaleString() : "",
+    fundTransferDate: r.fundTransferDate?.toISOString().split("T")[0] ?? "",
+    loanExecutionDate: r.loanExecutionDate?.toISOString().split("T")[0] ?? "",
+    loanExecutionTime: r.loanExecutionDate
+      ? r.loanExecutionDate.toISOString().split("T")[1]?.substring(0, 5) ?? ""
+      : "",
+    repaymentDate: r.repaymentDate?.toISOString().split("T")[0] ?? "",
+    repaymentAmount: r.repaymentAmount ? Number(r.repaymentAmount).toLocaleString() : "",
+    principalAmount: r.principalAmount ? Number(r.principalAmount).toLocaleString() : "",
+    interestAmount: r.interestAmount ? Number(r.interestAmount).toLocaleString() : "",
+    overshortAmount: r.overshortAmount ? Number(r.overshortAmount).toLocaleString() : "",
+    redemptionAmount: r.redemptionAmount ? Number(r.redemptionAmount).toLocaleString() : "",
+    redemptionDate: r.redemptionDate?.toISOString().split("T")[0] ?? "",
+    endMemo: r.endMemo ?? "",
+  }));
+
   const userName = session?.user?.name || "";
 
   return (
@@ -108,11 +351,19 @@ export default async function VendorPage({
       canEdit={isVendor || staffCanEdit}
       applicantData={applicantData}
       wholesaleData={wholesaleData}
+      contractsData={contractsData}
+      activitiesData={activitiesData}
+      preApplicationData={preApplicationData}
+      postApplicationData={postApplicationData}
+      loanCorporateData={loanCorporateData}
+      loanIndividualData={loanIndividualData}
+      loanProgressData={loanProgressData}
       vendorName={vendor.name}
       vendorToken={token}
       vendorId={vendor.id}
       allVendors={allVendors}
       userName={userName}
+      vendorInfo={vendorInfo}
     />
   );
 }

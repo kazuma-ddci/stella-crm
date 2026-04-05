@@ -279,7 +279,16 @@ const navigation: NavItem[] = [
     key: "hojo",
     collapsible: true,
     children: [
-      { name: "ベンダー管理", href: "/hojo/settings/vendors", icon: Building2 },
+      {
+        name: "ベンダー管理",
+        icon: Building2,
+        sectionLabel: true,
+        children: [
+          { name: "ベンダー情報", href: "/hojo/settings/vendors", icon: Building2 },
+          { name: "契約状況一覧", href: "/hojo/consulting/contracts", icon: FileText },
+          { name: "コンサル履歴一覧", href: "/hojo/consulting/activities", icon: History },
+        ],
+      },
       {
         name: "セキュリティクラウド卸管理",
         icon: Shield,
@@ -299,6 +308,15 @@ const navigation: NavItem[] = [
         ],
       },
       {
+        name: "貸金管理",
+        icon: Wallet,
+        sectionLabel: true,
+        children: [
+          { name: "借入申込フォーム回答", href: "/hojo/loan-submissions", icon: ClipboardList },
+          { name: "顧客進捗状況", href: "/hojo/loan-progress", icon: ListChecks },
+        ],
+      },
+      {
         name: "公式LINE友達情報",
         icon: MessageSquare,
         sectionLabel: true,
@@ -314,21 +332,6 @@ const navigation: NavItem[] = [
         children: [
           { name: "フォーム回答一覧(仮)", href: "/hojo/form-submissions", icon: ClipboardList },
         ],
-      },
-      {
-        name: "コンサル/BPO管理",
-        icon: Briefcase,
-        sectionLabel: true,
-        children: [
-          { name: "契約管理", href: "/hojo/consulting/contracts", icon: FileText },
-          { name: "活動記録", href: "/hojo/consulting/activities", icon: History },
-        ],
-      },
-      {
-        name: "貸金管理",
-        icon: Wallet,
-        sectionLabel: true,
-        children: [],
       },
       {
         name: "管理",

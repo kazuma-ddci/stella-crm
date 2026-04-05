@@ -78,8 +78,8 @@ export function AuthenticatedLayout({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userType = (serverUser as any)?.userType;
 
-  // 外部ユーザー・BBS・ベンダーはサイドバー/ヘッダーなしのシンプルレイアウト
-  if (userType === "external" || userType === "bbs" || userType === "vendor") {
+  // 外部ユーザー・BBS・ベンダー・貸金業社はサイドバー/ヘッダーなしのシンプルレイアウト
+  if (userType === "external" || userType === "bbs" || userType === "vendor" || userType === "lender") {
     return <>{children}</>;
   }
 

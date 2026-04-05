@@ -9,9 +9,12 @@ type Props = {
   data: Record<string, unknown>[];
   canEdit: boolean;
   vendorOptions: { value: string; label: string }[];
+  onAddOverride?: (data: Record<string, unknown>) => Promise<void>;
+  onUpdateOverride?: (id: number, data: Record<string, unknown>) => Promise<void>;
+  onDeleteOverride?: (id: number) => Promise<void>;
 };
 
-export function PreApplicationTable({ data, canEdit, vendorOptions }: Props) {
+export function PreApplicationTable({ data, canEdit, vendorOptions, onAddOverride, onUpdateOverride, onDeleteOverride }: Props) {
   const router = useRouter();
 
   const columns: ColumnDef[] = [
@@ -32,9 +35,9 @@ export function PreApplicationTable({ data, canEdit, vendorOptions }: Props) {
       data={data}
       columns={columns}
       title="概要案内"
-      onAdd={canEdit ? addPreApplication : undefined}
-      onUpdate={canEdit ? updatePreApplication : undefined}
-      onDelete={canEdit ? deletePreApplication : undefined}
+      onAdd={canEdit ? (onAddOverride ?? addPreApplication) : undefined}
+      onUpdate={canEdit ? (onUpdateOverride ?? updatePreApplication) : undefined}
+      onDelete={canEdit ? (onDeleteOverride ?? deletePreApplication) : undefined}
       emptyMessage="概要案内データが登録されていません"
       customActions={[
         {

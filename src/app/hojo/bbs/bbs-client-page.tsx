@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +14,13 @@ import { InlineCell } from "@/components/inline-cell";
 import { Pencil } from "lucide-react";
 import { recordPasswordResetRequest, updateBbsFields } from "./actions";
 import Link from "next/link";
+import {
+  PortalHeader,
+  PortalUserMenu,
+  PortalSimpleLayout,
+  PortalLoginWrapper,
+  PortalCard,
+} from "@/components/alkes-portal";
 
 type BbsRecord = {
   id: number;
@@ -51,98 +57,50 @@ function LoginForm() {
     e.preventDefault();
     setError("");
     setLoading(true);
-
     try {
-      const result = await signIn("credentials", {
-        identifier: email,
-        password,
-        redirect: false,
-      });
-
+      const result = await signIn("credentials", { identifier: email, password, redirect: false });
       if (result?.error) {
-        if (result.code === "pending_approval") {
-          setError("アカウントは認証待ち中です。しばらくお待ちください。");
-        } else if (result.code === "suspended") {
-          setError("アカウントが停止されています。");
-        } else {
-          setError("メールアドレスまたはパスワードが正しくありません");
-        }
-      } else {
-        router.refresh();
-      }
-    } catch {
-      setError("ログインに失敗しました");
-    } finally {
-      setLoading(false);
-    }
+        if (result.code === "pending_approval") setError("アカウントは認証待ち中です。しばらくお待ちください。");
+        else if (result.code === "suspended") setError("アカウントが停止されています。");
+        else setError("メールアドレスまたはパスワードが正しくありません");
+      } else router.refresh();
+    } catch { setError("ログインに失敗しました"); }
+    finally { setLoading(false); }
   };
 
   const handleForgotPassword = async () => {
-    if (email.trim()) {
-      await recordPasswordResetRequest(email.trim());
-    }
+    if (email.trim()) await recordPasswordResetRequest(email.trim());
     setShowForgotPassword(true);
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-center text-2xl">BBS社様専用_支援金管理ページ</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {showForgotPassword ? (
-            <div className="text-center space-y-4">
-              <p className="text-gray-600">
-                お手数ですが、ALKESスタッフへご連絡ください。
-              </p>
-              <Button variant="outline" onClick={() => setShowForgotPassword(false)}>
-                ログインに戻る
-              </Button>
-            </div>
-          ) : (
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">メールアドレス</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">パスワード</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-              </div>
-              {error && <p className="text-sm text-red-600">{error}</p>}
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "ログイン中..." : "ログイン"}
-              </Button>
-              <div className="flex justify-between text-sm">
-                <button
-                  type="button"
-                  onClick={handleForgotPassword}
-                  className="text-blue-600 hover:underline"
-                >
-                  パスワードを忘れた方
-                </button>
-                <Link href="/hojo/bbs/register" className="text-blue-600 hover:underline">
-                  アカウント登録
-                </Link>
-              </div>
-            </form>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+    <PortalLoginWrapper title="BBS社様専用ページ" subtitle="支援金管理ポータルにログイン">
+      {showForgotPassword ? (
+        <div className="text-center space-y-4">
+          <p className="text-gray-600">お手数ですが、ALKESスタッフへご連絡ください。</p>
+          <Button variant="outline" onClick={() => setShowForgotPassword(false)}>ログインに戻る</Button>
+        </div>
+      ) : (
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="email">メールアドレス</Label>
+            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">パスワード</Label>
+            <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <Button type="submit" className="w-full bg-gradient-to-r from-[#3b9d9d] to-[#6fb789] hover:opacity-90 text-white" disabled={loading}>
+            {loading ? "ログイン中..." : "ログイン"}
+          </Button>
+          <div className="flex justify-between text-sm">
+            <button type="button" onClick={handleForgotPassword} className="text-[#3b9d9d] hover:underline">パスワードを忘れた方</button>
+            <Link href="/hojo/bbs/register" className="text-[#3b9d9d] hover:underline">アカウント登録</Link>
+          </div>
+        </form>
+      )}
+    </PortalLoginWrapper>
   );
 }
 
@@ -173,36 +131,22 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
       });
       setEditRecord(null);
       router.refresh();
-    } catch {
-      alert("保存に失敗しました");
-    } finally {
-      setSaving(false);
-    }
+    } catch { alert("保存に失敗しました"); }
+    finally { setSaving(false); }
   };
 
   const inlineSave = async (id: number, field: string, value: string) => {
     if (field === "bbsStatusId") {
       const bbsStatusId = value === "__empty" ? null : Number(value);
-      try {
-        await updateBbsFields(id, { bbsStatusId });
-        router.refresh();
-      } catch {
-        alert("保存に失敗しました");
-      }
+      try { await updateBbsFields(id, { bbsStatusId }); router.refresh(); }
+      catch { alert("保存に失敗しました"); }
     } else if (field === "bbsMemo") {
-      try {
-        await updateBbsFields(id, { bbsMemo: value });
-        router.refresh();
-      } catch {
-        alert("保存に失敗しました");
-      }
+      try { await updateBbsFields(id, { bbsMemo: value }); router.refresh(); }
+      catch { alert("保存に失敗しました"); }
     }
   };
 
-  const formatCurrency = (amount: number | null) => {
-    if (amount == null) return "-";
-    return `¥${amount.toLocaleString()}`;
-  };
+  const formatCurrency = (amount: number | null) => amount == null ? "-" : `\u00a5${amount.toLocaleString()}`;
 
   const statusOptions = [
     { value: "__empty", label: "未設定" },
@@ -211,10 +155,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
 
   return (
     <>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">BBS社様専用_支援金管理ページ</h1>
-        </div>
+      <PortalCard>
         <div className="overflow-auto">
           <Table>
             <TableHeader>
@@ -246,12 +187,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
                     <TableCell className="whitespace-nowrap">{record.formAnswerDate}</TableCell>
                     <TableCell>
                       {canEdit ? (
-                        <InlineCell
-                          value={record.bbsStatusId ? String(record.bbsStatusId) : "__empty"}
-                          onSave={(v) => inlineSave(record.id, "bbsStatusId", v)}
-                          type="select"
-                          options={statusOptions}
-                        >
+                        <InlineCell value={record.bbsStatusId ? String(record.bbsStatusId) : "__empty"} onSave={(v) => inlineSave(record.id, "bbsStatusId", v)} type="select" options={statusOptions}>
                           <span className="whitespace-nowrap">{getStatusLabel(record.bbsStatusId)}</span>
                         </InlineCell>
                       ) : (
@@ -264,11 +200,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
                     <TableCell className="max-w-[200px] truncate">{record.alkesMemo || "-"}</TableCell>
                     <TableCell className="max-w-[200px]">
                       {canEdit ? (
-                        <InlineCell
-                          value={record.bbsMemo}
-                          onSave={(v) => inlineSave(record.id, "bbsMemo", v)}
-                          type="textarea"
-                        >
+                        <InlineCell value={record.bbsMemo} onSave={(v) => inlineSave(record.id, "bbsMemo", v)} type="textarea">
                           <span className="truncate block">{record.bbsMemo || "-"}</span>
                         </InlineCell>
                       ) : (
@@ -288,7 +220,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
             </TableBody>
           </Table>
         </div>
-      </div>
+      </PortalCard>
 
       <Dialog open={!!editRecord} onOpenChange={(open) => !open && setEditRecord(null)}>
         <DialogContent className="sm:max-w-md">
@@ -312,7 +244,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditRecord(null)}>キャンセル</Button>
-            <Button onClick={saveModal} disabled={saving}>{saving ? "保存中..." : "保存"}</Button>
+            <Button onClick={saveModal} disabled={saving} className="bg-gradient-to-r from-[#3b9d9d] to-[#6fb789] hover:opacity-90 text-white">{saving ? "保存中..." : "保存"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -321,21 +253,25 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
 }
 
 export function BbsClientPage({ authenticated, isBbs, canEdit = false, data, userName, bbsStatusOptions = [] }: Props) {
-  if (!authenticated) {
-    return <LoginForm />;
-  }
+  if (!authenticated) return <LoginForm />;
+
+  const header = (
+    <PortalHeader
+      title="BBS社様専用_支援金管理ページ"
+      rightContent={
+        isBbs && userName ? (
+          <PortalUserMenu
+            userName={userName}
+            onLogout={() => signOut({ callbackUrl: "/hojo/bbs" })}
+          />
+        ) : undefined
+      }
+    />
+  );
 
   return (
-    <div className={isBbs ? "min-h-screen bg-gray-50 p-6" : ""}>
-      {isBbs && userName && (
-        <div className="flex items-center justify-end gap-3 mb-4">
-          <span className="text-sm text-gray-600">{userName}さん</span>
-          <Button variant="outline" size="sm" onClick={() => signOut({ callbackUrl: "/hojo/bbs" })}>
-            ログアウト
-          </Button>
-        </div>
-      )}
+    <PortalSimpleLayout header={header}>
       <BbsDataTable data={data} canEdit={canEdit} bbsStatusOptions={bbsStatusOptions} />
-    </div>
+    </PortalSimpleLayout>
   );
 }

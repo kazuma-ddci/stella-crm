@@ -42,7 +42,7 @@ export default async function RootLayout({
   const userType = (user as any)?.userType;
   if (userId && userType === "staff") {
     try {
-      const [pref, projects, bbsPending, vendorPending] = await Promise.all([
+      const [pref, projects, bbsPending, vendorPending, lenderPending] = await Promise.all([
         prisma.staffSidebarPreference.findUnique({
           where: { staffId: userId },
           select: { hiddenItems: true },
@@ -57,9 +57,12 @@ export default async function RootLayout({
         prisma.hojoVendorAccount.count({
           where: { status: "pending_approval" },
         }),
+        prisma.hojoLenderAccount.count({
+          where: { status: "pending_approval" },
+        }),
       ]);
       hiddenItems = pref?.hiddenItems ?? [];
-      bbsPendingCount = bbsPending + vendorPending;
+      bbsPendingCount = bbsPending + vendorPending + lenderPending;
       projectNames = Object.fromEntries(projects.map((p) => [p.code, p.name]));
     } catch {
       // DBエラー時は空のまま

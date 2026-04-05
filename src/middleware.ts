@@ -19,6 +19,7 @@ const PUBLIC_PATHS = [
   "/api/staff/setup",
   "/hojo/bbs",
   "/hojo/vendor",
+  "/hojo/lender",
 ];
 
 // 社内スタッフ専用パス
@@ -165,10 +166,11 @@ function hasAnyStpViewAccess(displayViews: DisplayViewPermission[]): boolean {
   return displayViews.some((view) => view.projectCode === "stp");
 }
 
-// 外部ドメイン（BBS・ベンダー用）で許可するパス
+// 外部ドメイン（BBS・ベンダー・貸金業社用）で許可するパス
 const EXTERNAL_DOMAIN_ALLOWED_PATHS = [
   "/hojo/bbs",
   "/hojo/vendor",
+  "/hojo/lender",
   "/login",
   "/api/auth",
   "/register",
@@ -219,7 +221,12 @@ export default auth((request) => {
       if (session?.user && !permissionsExpired) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const userType = (session.user as any).userType ?? "staff";
-        const redirectUrl = userType === "external" ? "/portal" : "/";
+        const redirectUrl =
+          userType === "external" ? "/portal" :
+          userType === "bbs" ? "/hojo/bbs" :
+          userType === "vendor" ? "/hojo/vendor" :
+          userType === "lender" ? "/hojo/lender" :
+          "/";
         return NextResponse.redirect(new URL(redirectUrl, request.url));
       }
     }
@@ -296,6 +303,19 @@ export default auth((request) => {
     const mustChangePassword = !!(session.user as any).mustChangePassword;
     if (mustChangePassword && !pathname.startsWith("/hojo/vendor/change-password")) {
       return NextResponse.redirect(new URL("/hojo/vendor/change-password", request.url));
+    }
+    return NextResponse.next();
+  }
+
+  // 貸金業社ユーザーは /hojo/lender/* のみアクセス可
+  if (userType === "lender") {
+    if (!pathname.startsWith("/hojo/lender")) {
+      return NextResponse.redirect(new URL("/hojo/lender", request.url));
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mustChangePassword = !!(session.user as any).mustChangePassword;
+    if (mustChangePassword && !pathname.startsWith("/hojo/lender/change-password")) {
+      return NextResponse.redirect(new URL("/hojo/lender/change-password", request.url));
     }
     return NextResponse.next();
   }

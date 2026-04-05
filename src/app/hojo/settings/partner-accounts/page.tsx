@@ -5,7 +5,7 @@ import { PartnerAccountsTabs } from "./partner-accounts-tabs";
 export default async function PartnerAccountsPage() {
   const user = await getSession();
 
-  const [bbsAccounts, vendorAccounts, vendors] = await Promise.all([
+  const [bbsAccounts, vendorAccounts, lenderAccounts, vendors] = await Promise.all([
     prisma.hojoBbsAccount.findMany({
       include: { approver: { select: { name: true } } },
       orderBy: { createdAt: "desc" },
@@ -15,6 +15,10 @@ export default async function PartnerAccountsPage() {
         vendor: { select: { id: true, name: true, accessToken: true } },
         approver: { select: { name: true } },
       },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.hojoLenderAccount.findMany({
+      include: { approver: { select: { name: true } } },
       orderBy: { createdAt: "desc" },
     }),
     prisma.hojoVendor.findMany({
@@ -52,6 +56,19 @@ export default async function PartnerAccountsPage() {
     createdAt: a.createdAt.toISOString().slice(0, 10),
   }));
 
+  const lenderData = lenderAccounts.map((a) => ({
+    id: a.id,
+    name: a.name,
+    email: a.email,
+    status: a.status,
+    mustChangePassword: a.mustChangePassword,
+    passwordResetRequestedAt: a.passwordResetRequestedAt?.toISOString() ?? null,
+    approvedAt: a.approvedAt?.toISOString().slice(0, 10) ?? null,
+    approverName: a.approver?.name ?? null,
+    lastLoginAt: a.lastLoginAt?.toISOString().slice(0, 16).replace("T", " ") ?? null,
+    createdAt: a.createdAt.toISOString().slice(0, 10),
+  }));
+
   const vendorList = vendors.map((v) => ({
     id: v.id,
     name: v.name,
@@ -60,6 +77,7 @@ export default async function PartnerAccountsPage() {
 
   const bbsPendingCount = bbsAccounts.filter((a) => a.status === "pending_approval").length;
   const vendorPendingCount = vendorAccounts.filter((a) => a.status === "pending_approval").length;
+  const lenderPendingCount = lenderAccounts.filter((a) => a.status === "pending_approval").length;
 
   return (
     <div className="space-y-6">
@@ -67,10 +85,12 @@ export default async function PartnerAccountsPage() {
       <PartnerAccountsTabs
         bbsData={bbsData}
         vendorData={vendorData}
+        lenderData={lenderData}
         vendorList={vendorList}
         staffId={user.id}
         bbsPendingCount={bbsPendingCount}
         vendorPendingCount={vendorPendingCount}
+        lenderPendingCount={lenderPendingCount}
       />
     </div>
   );

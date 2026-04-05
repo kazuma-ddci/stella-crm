@@ -33,6 +33,8 @@ declare module "next-auth" {
       vendorAccountId?: number;
       vendorId?: number;
       vendorName?: string;
+      // 貸金業社ユーザー用
+      lenderAccountId?: number;
     };
   }
 
@@ -56,6 +58,8 @@ declare module "next-auth" {
     vendorAccountId?: number;
     vendorId?: number;
     vendorName?: string;
+    // 貸金業社ユーザー用
+    lenderAccountId?: number;
   }
 }
 
@@ -82,6 +86,8 @@ declare module "@auth/core/jwt" {
     vendorAccountId?: number;
     vendorId?: number;
     vendorName?: string;
+    // 貸金業社ユーザー用
+    lenderAccountId?: number;
   }
 }
 
@@ -248,6 +254,44 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           }
         }
 
+        // 5. 貸金業社アカウントで認証を試みる（メールアドレスの場合のみ）
+        if (isEmail) {
+          const lenderAccount = await prisma.hojoLenderAccount.findUnique({
+            where: { email: identifier },
+          });
+          if (lenderAccount) {
+            if (lenderAccount.status === "pending_approval") {
+              const err = new CredentialsSignin();
+              err.code = "pending_approval";
+              throw err;
+            }
+            if (lenderAccount.status === "suspended") {
+              const err = new CredentialsSignin();
+              err.code = "suspended";
+              throw err;
+            }
+            const isValid = await bcrypt.compare(password, lenderAccount.passwordHash);
+            if (isValid) {
+              await prisma.hojoLenderAccount.update({
+                where: { id: lenderAccount.id },
+                data: { lastLoginAt: new Date() },
+              });
+              return {
+                id: String(lenderAccount.id),
+                loginId: null,
+                name: lenderAccount.name,
+                email: lenderAccount.email,
+                userType: "lender" as UserType,
+                permissions: [],
+                canEditMasterData: false,
+                organizationRole: "member" as OrganizationRole,
+                lenderAccountId: lenderAccount.id,
+                mustChangePassword: lenderAccount.mustChangePassword,
+              };
+            }
+          }
+        }
+
         return null;
       },
     }),
@@ -284,6 +328,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.vendorAccountId = user.vendorAccountId;
           token.vendorId = user.vendorId;
           token.vendorName = user.vendorName;
+          token.mustChangePassword = user.mustChangePassword;
+        }
+
+        // 貸金業社ユーザー用
+        if (user.userType === "lender") {
+          token.lenderAccountId = user.lenderAccountId;
           token.mustChangePassword = user.mustChangePassword;
         }
       } else if (token.userType === "staff" && token.id && !token.permissionsExpired) {
@@ -376,6 +426,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         (session.user as any).vendorId = token.vendorId;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (session.user as any).vendorName = token.vendorName;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session.user as any).mustChangePassword = token.mustChangePassword;
+      }
+
+      // 貸金業社ユーザー用
+      if (token.userType === "lender") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session.user as any).lenderAccountId = token.lenderAccountId;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (session.user as any).mustChangePassword = token.mustChangePassword;
       }

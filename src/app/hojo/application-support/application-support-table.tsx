@@ -64,10 +64,18 @@ function BbsUrlButton() {
   };
 
   return (
-    <Button variant="outline" size="sm" onClick={handleCopy} className="gap-2">
-      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-      {copied ? "コピー済み" : "BBS社様専用URL"}
-    </Button>
+    <div className="flex items-center gap-2">
+      <Button variant="outline" size="sm" onClick={handleCopy} className="gap-2">
+        {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+        {copied ? "コピー済み" : "BBS共有用URL"}
+      </Button>
+      <Button variant="outline" size="sm" asChild className="gap-2">
+        <a href="/hojo/bbs">
+          <ExternalLink className="h-4 w-4" />
+          BBS社内用
+        </a>
+      </Button>
+    </div>
   );
 }
 

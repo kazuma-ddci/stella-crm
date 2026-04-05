@@ -20,6 +20,18 @@ type Props = {
   vendorOptions: { value: string; label: string }[];
 };
 
+// BPOレコードの場合のみスタッフが編集可能なフィールド（Excelの「ここ」マーク12項目）
+const BPO_FIELDS = new Set([
+  "memo", "applicationCompletedDate", "applicationStaff",
+  "grantApplicationNumber", "nextAction", "nextContactDate",
+  "staffEmail", "growthMatchingUrl", "growthMatchingStatus",
+  "wageRaise", "laborSavingNavi", "invoiceRegistration",
+]);
+
+const BpoTag = () => (
+  <span className="ml-1 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">BPO</span>
+);
+
 export function PostApplicationDetail({ data, canEdit, vendorOptions }: Props) {
   const [form, setForm] = useState<Record<string, unknown>>(data);
   const [saving, setSaving] = useState(false);
@@ -40,51 +52,56 @@ export function PostApplicationDetail({ data, canEdit, vendorOptions }: Props) {
     }
   };
 
-  const renderInput = (key: string, label: string) => (
+  // BPOフィールドはisBpo=trueの場合のみ編集可能
+  const isFieldEditable = (key: string) =>
+    canEdit && (!BPO_FIELDS.has(key) || form.isBpo === true);
+
+  const renderInput = (key: string, label: string, placeholder?: string) => (
     <div>
-      <Label htmlFor={key}>{label}</Label>
+      <Label htmlFor={key}>{label}{BPO_FIELDS.has(key) && <BpoTag />}</Label>
       <Input
         id={key}
         value={String(form[key] ?? "")}
         onChange={(e) => set(key, e.target.value)}
-        disabled={!canEdit}
+        disabled={!isFieldEditable(key)}
+        placeholder={placeholder}
       />
     </div>
   );
 
   const renderTextarea = (key: string, label: string, rows = 3) => (
     <div className="col-span-full">
-      <Label htmlFor={key}>{label}</Label>
+      <Label htmlFor={key}>{label}{BPO_FIELDS.has(key) && <BpoTag />}</Label>
       <Textarea
         id={key}
         rows={rows}
         value={String(form[key] ?? "")}
         onChange={(e) => set(key, e.target.value)}
-        disabled={!canEdit}
+        disabled={!isFieldEditable(key)}
       />
     </div>
   );
 
   const renderDate = (key: string, label: string) => (
     <div>
-      <Label>{label}</Label>
+      <Label>{label}{BPO_FIELDS.has(key) && <BpoTag />}</Label>
       <DatePicker
         value={String(form[key] ?? "")}
         onChange={(v) => set(key, v)}
-        disabled={!canEdit}
+        disabled={!isFieldEditable(key)}
       />
     </div>
   );
 
   const renderNumber = (key: string, label: string) => (
     <div>
-      <Label htmlFor={key}>{label}</Label>
+      <Label htmlFor={key}>{label}{BPO_FIELDS.has(key) && <BpoTag />}</Label>
       <Input
         id={key}
         type="number"
         value={String(form[key] ?? "")}
         onChange={(e) => set(key, e.target.value)}
-        disabled={!canEdit}
+        disabled={!isFieldEditable(key)}
       />
     </div>
   );
@@ -177,15 +194,15 @@ export function PostApplicationDetail({ data, canEdit, vendorOptions }: Props) {
               </SelectContent>
             </Select>
           </div>
-          {renderInput("applicantName", "申請者名")}
-          {renderInput("referrer", "紹介者")}
-          {renderInput("salesStaff", "営業担当")}
+          {renderInput("applicantName", "申請者名", "例: 山田太郎")}
+          {renderInput("referrer", "紹介者", "例: 鈴木一郎")}
+          {renderInput("salesStaff", "営業担当", "例: 佐藤花子")}
           {renderDate("applicationCompletedDate", "申請完了日")}
           {renderInput("applicationStaff", "申請担当")}
-          {renderInput("grantApplicationNumber", "交付申請番号")}
+          {renderInput("grantApplicationNumber", "交付申請番号", "例: KSN01-0000001")}
           {renderDate("nextContactDate", "次回連絡日")}
           {renderInput("documentStorageUrl", "書類保管URL")}
-          {renderInput("staffEmail", "担当メール")}
+          {renderInput("staffEmail", "担当メール", "例: staff@example.com")}
           <div className="flex items-center gap-2">
             <Checkbox
               id="isBpo"
@@ -218,14 +235,14 @@ export function PostApplicationDetail({ data, canEdit, vendorOptions }: Props) {
       <Card>
         <CardHeader><CardTitle>IT導入補助金データ</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {renderInput("subsidyApplicantName", "補助金申請者名")}
-          {renderInput("prefecture", "都道府県")}
-          {renderInput("recruitmentRound", "募集回")}
-          {renderInput("applicationType", "申請種別")}
+          {renderInput("subsidyApplicantName", "補助金申請者名", "例: 株式会社サンプル")}
+          {renderInput("prefecture", "都道府県", "例: 東京都")}
+          {renderInput("recruitmentRound", "募集回", "例: 第1回")}
+          {renderInput("applicationType", "申請種別", "例: インボイス枠")}
           {renderInput("subsidyStatus", "補助金ステータス")}
           {renderDate("subsidyStatusUpdated", "ステータス更新日")}
           {renderInput("subsidyVendorName", "補助金ベンダー名")}
-          {renderInput("itToolName", "ITツール名")}
+          {renderInput("itToolName", "ITツール名", "例: セキュリティクラウド")}
           {renderNumber("subsidyTargetAmount", "補助金対象額")}
           {renderNumber("subsidyAppliedAmount", "補助金申請額")}
           {renderDate("grantDecisionDate", "交付決定日")}
@@ -298,8 +315,8 @@ export function PostApplicationDetail({ data, canEdit, vendorOptions }: Props) {
       <Card>
         <CardHeader><CardTitle>その他</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {renderInput("vendorPattern", "ベンダーパターン")}
-          {renderInput("toolPattern", "ツールパターン")}
+          {renderInput("vendorPattern", "ベンダーパターン", "例: パターンA")}
+          {renderInput("toolPattern", "ツールパターン", "例: パターンB")}
           {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
             <div key={`wageTable${n}`}>
               <Label htmlFor={`wageTable${n}`}>賃金テーブル{n}</Label>

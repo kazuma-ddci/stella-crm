@@ -27,12 +27,12 @@ echo ""
 
 # --- Step 3: ビルド＆起動（ビルドを先に実行してダウンタイム最小化） ---
 echo "[3/4] prod ビルド中..."
-docker compose -f docker-compose.prod.yml build app
+docker compose --env-file .env.prod -f docker-compose.prod.yml build app
 echo "✅ ビルド完了"
 echo ""
 
 echo "  コンテナ入れ替え中..."
-docker compose -f docker-compose.prod.yml up -d app
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d app
 echo "✅ prod 起動完了"
 echo ""
 
@@ -47,7 +47,7 @@ for i in $(seq 1 12); do
   fi
   if [ "$i" -eq 12 ]; then
     echo "❌ サーバーが60秒以内に起動しませんでした"
-    echo "   docker compose -f docker-compose.prod.yml logs app --tail 30"
+    echo "   docker compose --env-file .env.prod -f docker-compose.prod.yml logs app --tail 30"
     exit 1
   fi
   sleep 5

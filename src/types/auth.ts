@@ -1,5 +1,5 @@
 // ユーザータイプ
-export type UserType = "staff" | "external" | "bbs" | "vendor";
+export type UserType = "staff" | "external" | "bbs" | "vendor" | "lender";
 
 // 組織ロール
 export type OrganizationRole = "member" | "founder";

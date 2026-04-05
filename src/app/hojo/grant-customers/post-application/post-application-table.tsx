@@ -9,9 +9,12 @@ type Props = {
   data: Record<string, unknown>[];
   canEdit: boolean;
   vendorOptions: { value: string; label: string }[];
+  onAddOverride?: (data: Record<string, unknown>) => Promise<void>;
+  onUpdateOverride?: (id: number, data: Record<string, unknown>) => Promise<void>;
+  onDeleteOverride?: (id: number) => Promise<void>;
 };
 
-export function PostApplicationTable({ data, canEdit, vendorOptions }: Props) {
+export function PostApplicationTable({ data, canEdit, vendorOptions, onAddOverride, onUpdateOverride, onDeleteOverride }: Props) {
   const router = useRouter();
 
   const columns: ColumnDef[] = [
@@ -31,9 +34,9 @@ export function PostApplicationTable({ data, canEdit, vendorOptions }: Props) {
       data={data}
       columns={columns}
       title="交付申請"
-      onAdd={canEdit ? addPostApplication : undefined}
-      onUpdate={canEdit ? updatePostApplication : undefined}
-      onDelete={canEdit ? deletePostApplication : undefined}
+      onAdd={canEdit ? (onAddOverride ?? addPostApplication) : undefined}
+      onUpdate={canEdit ? (onUpdateOverride ?? updatePostApplication) : undefined}
+      onDelete={canEdit ? (onDeleteOverride ?? deletePostApplication) : undefined}
       emptyMessage="交付申請データが登録されていません"
       customActions={[
         {

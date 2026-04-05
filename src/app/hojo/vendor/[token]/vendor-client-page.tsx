@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,15 @@ import { recordVendorPasswordResetRequest, updateVendorFields, addWholesaleAccou
 import { Trash2, Plus, Pencil, FileText, ClipboardList, Banknote } from "lucide-react";
 import Link from "next/link";
 import { VendorPortalLayout } from "./vendor-portal-layout";
+import { PortalLoginWrapper } from "@/components/alkes-portal";
 import type { VendorSection } from "./vendor-portal-layout";
+import { VendorContractsSection } from "./vendor-contracts-section";
+import { VendorActivitiesSection } from "./vendor-activities-section";
+import { VendorCustomersSection } from "./vendor-customers-section";
+import { VendorLoanSection } from "./vendor-loan-section";
+import type { LoanSubmissionRow } from "./vendor-loan-section";
+import { VendorProgressSection } from "./vendor-progress-section";
+import type { ProgressRow } from "./vendor-progress-section";
 
 type ApplicantRecord = {
   id: number; lineName: string; applicantName: string; statusName: string;
@@ -32,12 +40,83 @@ type WholesaleRecord = {
   accountApprovalDate: string; grantDate: string; toolCost: number | null; invoiceStatus: string;
 };
 
+type ContractRecord = {
+  id: number; lineNumber: string; lineName: string; referralUrl: string;
+  assignedAs: string; consultingStaff: string; companyName: string;
+  representativeName: string; mainContactName: string; customerEmail: string;
+  customerPhone: string; contractDate: string; contractPlan: string;
+  contractAmount: number | string; serviceType: string; caseStatus: string;
+  hasScSales: boolean; hasSubsidyConsulting: boolean; hasBpoSupport: boolean;
+  consultingPlan: string; successFee: number | string; startDate: string;
+  endDate: string; billingStatus: string; paymentStatus: string;
+  revenueRecordingDate: string; grossProfit: number | string; notes: string;
+};
+
+type ConsultingTask = {
+  id: number;
+  taskType: "vendor" | "consulting_team";
+  content: string;
+  deadline: string;
+  priority: string;
+  completed: boolean;
+};
+
+type ActivityRecord = {
+  id: number; activityDate: string; contactMethod: string; vendorIssue: string;
+  vendorNextAction: string; nextDeadline: string;
+  tasks: ConsultingTask[];
+  attachmentUrls: string[]; recordingUrls: string[]; screenshotUrls: string[]; notes: string;
+};
+
+type PreAppRecord = {
+  id: number; applicantName: string; referrer: string; salesStaff: string;
+  category: string; status: string; prospectLevel: string; nextContactDate: string;
+  overviewBriefingDate: string; briefingStaff: string; phone: string;
+  businessEntity: string; industry: string; systemType: string; hasLoan: string;
+  revenueRange: string; businessName: string;
+};
+
+type PostAppRecord = {
+  id: number; isBpo: boolean; applicantName: string; memo: string;
+  referrer: string; salesStaff: string; applicationCompletedDate: string;
+  applicationStaff: string; grantApplicationNumber: string; nextAction: string;
+  nextContactDate: string; subsidyStatus: string; subsidyApplicantName: string;
+  prefecture: string; recruitmentRound: string; applicationType: string;
+  itToolName: string; hasLoan: boolean; completedDate: string;
+};
+
+type VendorContactInfo = {
+  id: number; name: string; role: string; email: string; phone: string; isPrimary: boolean;
+};
+
+type VendorInfo = {
+  scLabel: string;
+  assignedAs: string | null;
+  consultingStaffNames: string[];
+  companyName: string;
+  contacts: VendorContactInfo[];
+  contractDate: string | null;
+  consultingPlan: string | null;
+  caseStatus: string | null;
+  scWholesalePlan: string | null;
+  subsidyConsulting: boolean;
+  grantApplicationBpo: boolean;
+  consultingStartDate: string | null;
+  consultingEndDate: string | null;
+  vendorSharedMemo: string | null;
+};
+
 type Props = {
   authenticated: boolean; isVendor: boolean; canEdit?: boolean;
   applicantData: ApplicantRecord[]; wholesaleData: WholesaleRecord[];
+  contractsData: ContractRecord[]; activitiesData: ActivityRecord[];
+  preApplicationData: PreAppRecord[]; postApplicationData: PostAppRecord[];
+  loanCorporateData: LoanSubmissionRow[]; loanIndividualData: LoanSubmissionRow[];
+  loanProgressData: ProgressRow[];
   vendorName: string; vendorToken: string; vendorId?: number;
   allVendors: { id: number; name: string; token: string }[];
   userName?: string;
+  vendorInfo: VendorInfo;
 };
 
 // ========== ログインフォーム ==========
@@ -68,10 +147,7 @@ function LoginForm({ vendorName, vendorToken }: { vendorName: string; vendorToke
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader><CardTitle className="text-center text-2xl">{vendorName}様 専用ページ</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
+    <PortalLoginWrapper title={vendorName} subtitle="パートナーポータルにログイン">
           {showForgotPassword ? (
             <div className="text-center space-y-4">
               <p className="text-gray-600">お手数ですが、担当スタッフへご連絡ください。</p>
@@ -82,16 +158,14 @@ function LoginForm({ vendorName, vendorToken }: { vendorName: string; vendorToke
               <div className="space-y-2"><Label htmlFor="email">メールアドレス</Label><Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
               <div className="space-y-2"><Label htmlFor="password">パスワード</Label><Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
               {error && <p className="text-sm text-red-600">{error}</p>}
-              <Button type="submit" className="w-full" disabled={loading}>{loading ? "ログイン中..." : "ログイン"}</Button>
+              <Button type="submit" className="w-full bg-gradient-to-r from-[#3b9d9d] to-[#6fb789] hover:opacity-90 text-white" disabled={loading}>{loading ? "ログイン中..." : "ログイン"}</Button>
               <div className="flex justify-between text-sm">
                 <button type="button" onClick={handleForgotPassword} className="text-blue-600 hover:underline">パスワードを忘れた方</button>
                 <Link href={`/hojo/vendor/${vendorToken}/register`} className="text-blue-600 hover:underline">アカウント登録</Link>
               </div>
             </form>
           )}
-        </CardContent>
-      </Card>
-    </div>
+    </PortalLoginWrapper>
   );
 }
 
@@ -326,8 +400,23 @@ function PlaceholderSection({ icon: Icon, message }: { icon: React.ElementType; 
 }
 
 // ========== メインコンポーネント ==========
-function VendorDataPage({ applicantData, wholesaleData, isVendor, canEdit = false, vendorId, vendorName, allVendors, vendorToken, userName }: Omit<Props, "authenticated">) {
-  const [activeSection, setActiveSection] = useState<VendorSection>("wholesale");
+const VALID_SECTIONS: VendorSection[] = ["consulting-contract", "consulting-activity", "consulting-customer", "wholesale", "grant", "loan", "loan-progress"];
+
+function VendorDataPage({ applicantData, wholesaleData, contractsData, activitiesData, preApplicationData, postApplicationData, loanCorporateData, loanIndividualData, loanProgressData, isVendor, canEdit = false, vendorId, vendorName, allVendors, vendorToken, userName, vendorInfo }: Omit<Props, "authenticated">) {
+  // SSRと一致する初期値を使い、マウント後にハッシュから復元
+  const [activeSection, setActiveSection] = useState<VendorSection>("consulting-contract");
+
+  useEffect(() => {
+    const hash = window.location.hash.replace("#", "");
+    if (VALID_SECTIONS.includes(hash as VendorSection)) {
+      setActiveSection(hash as VendorSection);
+    }
+  }, []);
+
+  const handleSectionChange = useCallback((section: VendorSection) => {
+    setActiveSection(section);
+    window.history.replaceState(null, "", `#${section}`);
+  }, []);
 
   const renderSection = () => {
     switch (activeSection) {
@@ -336,11 +425,15 @@ function VendorDataPage({ applicantData, wholesaleData, isVendor, canEdit = fals
       case "grant":
         return <ApplicantTab data={applicantData} canEdit={canEdit} vendorId={vendorId} />;
       case "consulting-contract":
-        return <PlaceholderSection icon={FileText} message="契約情報はまだ登録されていません" />;
+        return <VendorContractsSection data={contractsData} vendorInfo={vendorInfo} />;
       case "consulting-activity":
-        return <PlaceholderSection icon={ClipboardList} message="活動記録はまだありません" />;
+        return <VendorActivitiesSection data={activitiesData} vendorId={vendorId!} canEdit={canEdit} />;
+      case "consulting-customer":
+        return <VendorCustomersSection preApplicationData={preApplicationData} postApplicationData={postApplicationData} vendorId={vendorId} canEdit={canEdit} />;
       case "loan":
-        return <PlaceholderSection icon={Banknote} message="貸付情報はまだありません" />;
+        return <VendorLoanSection vendorToken={vendorToken} vendorId={vendorId!} canEdit={canEdit} corporateSubmissions={loanCorporateData} individualSubmissions={loanIndividualData} />;
+      case "loan-progress":
+        return <VendorProgressSection data={loanProgressData} vendorId={vendorId!} canEdit={canEdit} />;
     }
   };
 
@@ -354,18 +447,18 @@ function VendorDataPage({ applicantData, wholesaleData, isVendor, canEdit = fals
       allVendors={allVendors}
       userName={userName}
       activeSection={activeSection}
-      onSectionChange={setActiveSection}
+      onSectionChange={handleSectionChange}
     >
       {renderSection()}
     </VendorPortalLayout>
   );
 }
 
-export function VendorClientPage({ authenticated, isVendor, canEdit = false, applicantData, wholesaleData, vendorName, vendorToken, vendorId, allVendors, userName }: Props) {
+export function VendorClientPage({ authenticated, isVendor, canEdit = false, applicantData, wholesaleData, contractsData, activitiesData, preApplicationData, postApplicationData, loanCorporateData, loanIndividualData, loanProgressData, vendorName, vendorToken, vendorId, allVendors, userName, vendorInfo }: Props) {
   if (!authenticated) return <LoginForm vendorName={vendorName} vendorToken={vendorToken} />;
   return (
-    <div className={isVendor ? "min-h-screen bg-gray-50 p-6" : ""}>
-      <VendorDataPage applicantData={applicantData} wholesaleData={wholesaleData} isVendor={isVendor} canEdit={canEdit} vendorId={vendorId} vendorName={vendorName} allVendors={allVendors} vendorToken={vendorToken} userName={userName} />
+    <div className={isVendor ? "min-h-screen" : ""}>
+      <VendorDataPage applicantData={applicantData} wholesaleData={wholesaleData} contractsData={contractsData} activitiesData={activitiesData} preApplicationData={preApplicationData} postApplicationData={postApplicationData} loanCorporateData={loanCorporateData} loanIndividualData={loanIndividualData} loanProgressData={loanProgressData} isVendor={isVendor} canEdit={canEdit} vendorId={vendorId} vendorName={vendorName} allVendors={allVendors} vendorToken={vendorToken} userName={userName} vendorInfo={vendorInfo} />
     </div>
   );
 }

@@ -10,7 +10,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { updatePreApplicationDetail } from "../actions";
 
@@ -40,7 +39,7 @@ export function PreApplicationDetail({ data, canEdit, vendorOptions }: Props) {
     }
   };
 
-  const renderInput = (key: string, label: string, opts?: { type?: string; className?: string }) => (
+  const renderInput = (key: string, label: string, opts?: { type?: string; className?: string; placeholder?: string }) => (
     <div className={opts?.className}>
       <Label htmlFor={key}>{label}</Label>
       <Input
@@ -49,6 +48,7 @@ export function PreApplicationDetail({ data, canEdit, vendorOptions }: Props) {
         value={String(form[key] ?? "")}
         onChange={(e) => set(key, e.target.value)}
         disabled={!canEdit}
+        placeholder={opts?.placeholder}
       />
     </div>
   );
@@ -125,24 +125,15 @@ export function PreApplicationDetail({ data, canEdit, vendorOptions }: Props) {
               </SelectContent>
             </Select>
           </div>
-          {renderInput("applicantName", "申請者名")}
-          {renderInput("referrer", "紹介者")}
-          {renderInput("salesStaff", "営業担当")}
-          {renderInput("category", "カテゴリ")}
-          {renderInput("status", "ステータス")}
-          {renderInput("prospectLevel", "見込度")}
-          {renderInput("phone", "電話番号")}
-          {renderInput("businessEntity", "事業形態")}
-          {renderInput("industry", "業種")}
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="isBpo"
-              checked={form.isBpo === true}
-              onCheckedChange={(v) => set("isBpo", v === true)}
-              disabled={!canEdit}
-            />
-            <Label htmlFor="isBpo">BPO</Label>
-          </div>
+          {renderInput("applicantName", "申請者名", { placeholder: "例: 山田太郎" })}
+          {renderInput("referrer", "紹介者", { placeholder: "例: 鈴木一郎" })}
+          {renderInput("salesStaff", "営業担当", { placeholder: "例: 佐藤花子" })}
+          {renderInput("category", "カテゴリ", { placeholder: "例: クライアント" })}
+          {renderInput("status", "ステータス", { placeholder: "例: 申請完了" })}
+          {renderInput("prospectLevel", "見込度", { placeholder: "例: A（高）" })}
+          {renderInput("phone", "電話番号", { placeholder: "例: 03-1234-5678" })}
+          {renderInput("businessEntity", "事業形態", { placeholder: "例: 法人" })}
+          {renderInput("industry", "業種", { placeholder: "例: IT・情報サービス" })}
         </CardContent>
       </Card>
 
@@ -163,11 +154,11 @@ export function PreApplicationDetail({ data, canEdit, vendorOptions }: Props) {
       <Card>
         <CardHeader><CardTitle>契約・報酬</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {renderInput("systemType", "システム種別")}
-          {renderInput("hasLoan", "貸付有無")}
-          {renderInput("revenueRange", "売上規模")}
+          {renderInput("systemType", "システム種別", { placeholder: "例: セキュリティクラウド" })}
+          {renderInput("hasLoan", "貸付有無", { placeholder: "例: あり" })}
+          {renderInput("revenueRange", "売上規模", { placeholder: "例: 2000万〜2499万" })}
           {renderInput("importantTags", "重要タグ")}
-          {renderInput("loanPattern", "貸付パターン")}
+          {renderInput("loanPattern", "貸付パターン", { placeholder: "例: パターンA" })}
           {renderNumber("referrerRewardPct", "紹介者報酬率(%)")}
           {renderInput("agent1Number", "代理店①番号")}
           {renderNumber("agent1RewardPct", "代理店①報酬率(%)")}
@@ -187,7 +178,7 @@ export function PreApplicationDetail({ data, canEdit, vendorOptions }: Props) {
           {renderInput("agentContractUrl", "代理店契約URL")}
           {renderDate("docCollectionStart", "書類収集開始日")}
           {renderDate("docSubmissionDate", "書類提出日")}
-          {renderInput("businessName", "事業名")}
+          {renderInput("businessName", "事業名", { placeholder: "例: 株式会社サンプル" })}
           {renderInput("doc1", "書類1")}
           {renderInput("doc2", "書類2")}
           {renderInput("doc3", "書類3")}
@@ -197,7 +188,7 @@ export function PreApplicationDetail({ data, canEdit, vendorOptions }: Props) {
           {renderInput("hasEmployees", "従業員有無")}
           {renderInput("gbizidScreenshot", "gBizIDスクショ")}
           {renderInput("gbizidAddress", "gBizID住所")}
-          {renderInput("selfDeclarationId", "自己宣言ID")}
+          {renderInput("selfDeclarationId", "自己宣言ID", { placeholder: "例: 12345678901" })}
           {renderInput("antiSocialCheck", "反社チェック")}
         </CardContent>
       </Card>
@@ -207,8 +198,8 @@ export function PreApplicationDetail({ data, canEdit, vendorOptions }: Props) {
         <CardHeader><CardTitle>企業財務</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {renderDate("establishmentDate", "設立日")}
-          {renderInput("capital", "資本金")}
-          {renderInput("fiscalMonth", "決算月")}
+          {renderInput("capital", "資本金", { placeholder: "例: 1000万円" })}
+          {renderInput("fiscalMonth", "決算月", { placeholder: "例: 3月" })}
           {renderNumber("revenue", "売上")}
           {renderNumber("grossProfit", "粗利")}
           {renderNumber("operatingProfit", "営業利益")}
@@ -233,7 +224,7 @@ export function PreApplicationDetail({ data, canEdit, vendorOptions }: Props) {
       <Card>
         <CardHeader><CardTitle>申請文書</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {renderInput("applicationSystem", "申請システム")}
+          {renderInput("applicationSystem", "申請システム", { placeholder: "例: セキュリティクラウド" })}
           {renderTextarea("businessDescriptionDraft", "事業概要（下書き）", 4)}
           {renderTextarea("businessProcessNote", "業務プロセスメモ", 4)}
           {renderInput("homepageUrl", "ホームページURL")}
@@ -251,7 +242,7 @@ export function PreApplicationDetail({ data, canEdit, vendorOptions }: Props) {
       <Card>
         <CardHeader><CardTitle>従業員・事業所</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {renderInput("industryCode", "業種コード")}
+          {renderInput("industryCode", "業種コード", { placeholder: "例: 3911" })}
           {renderNumber("officeCount", "事業所数")}
           {renderNumber("empRegular", "正社員数")}
           {renderNumber("empContract", "契約社員数")}

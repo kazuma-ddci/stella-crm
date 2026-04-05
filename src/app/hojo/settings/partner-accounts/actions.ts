@@ -90,3 +90,45 @@ export async function deleteVendorAccount(id: number) {
   await prisma.hojoVendorAccount.delete({ where: { id } });
   revalidatePath(REVALIDATE_PATH);
 }
+
+// ========== 貸金業社 アカウント ==========
+
+export async function approveLenderAccount(id: number, staffId: number) {
+  await prisma.hojoLenderAccount.update({
+    where: { id },
+    data: { status: "active", approvedAt: new Date(), approvedBy: staffId },
+  });
+  revalidatePath(REVALIDATE_PATH);
+}
+
+export async function suspendLenderAccount(id: number) {
+  await prisma.hojoLenderAccount.update({
+    where: { id },
+    data: { status: "suspended" },
+  });
+  revalidatePath(REVALIDATE_PATH);
+}
+
+export async function reactivateLenderAccount(id: number) {
+  await prisma.hojoLenderAccount.update({
+    where: { id },
+    data: { status: "active" },
+  });
+  revalidatePath(REVALIDATE_PATH);
+}
+
+export async function resetLenderPassword(id: number): Promise<string> {
+  const initialPassword = crypto.randomBytes(4).toString("hex");
+  const passwordHash = await bcrypt.hash(initialPassword, 12);
+  await prisma.hojoLenderAccount.update({
+    where: { id },
+    data: { passwordHash, mustChangePassword: true, passwordResetRequestedAt: null },
+  });
+  revalidatePath(REVALIDATE_PATH);
+  return initialPassword;
+}
+
+export async function deleteLenderAccount(id: number) {
+  await prisma.hojoLenderAccount.delete({ where: { id } });
+  revalidatePath(REVALIDATE_PATH);
+}

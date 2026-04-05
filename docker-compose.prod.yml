@@ -6,7 +6,10 @@ services:
       context: .
       dockerfile: Dockerfile.prod
       args:
-        NEXT_PUBLIC_APP_TITLE: "Stella 基幹OS"
+        NEXT_PUBLIC_APP_TITLE: ${NEXT_PUBLIC_APP_TITLE}
+        NEXT_PUBLIC_BBS_DOMAIN: ${NEXT_PUBLIC_BBS_DOMAIN}
+        NEXT_PUBLIC_VENDOR_DOMAIN: ${NEXT_PUBLIC_VENDOR_DOMAIN}
+        NEXT_PUBLIC_LENDER_DOMAIN: ${NEXT_PUBLIC_LENDER_DOMAIN}
     container_name: stella-prod-app
     ports:
       - "4001:3000"

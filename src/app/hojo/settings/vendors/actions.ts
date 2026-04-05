@@ -14,6 +14,17 @@ function generateToken(): string {
   return token;
 }
 
+/** カンマ区切り文字列からスタッフIDの配列を取得 */
+function parseStaffIds(value: unknown): number[] {
+  if (!value) return [];
+  const str = String(value).trim();
+  if (!str) return [];
+  return str
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => !isNaN(n) && n > 0);
+}
+
 export async function addVendor(data: Record<string, unknown>) {
   await requireProjectMasterDataEditPermission();
 
@@ -24,18 +35,31 @@ export async function addVendor(data: Record<string, unknown>) {
 
   const lineFriendId = data.lineFriendId ? Number(data.lineFriendId) : null;
   const joseiLineFriendId = data.joseiLineFriendId ? Number(data.joseiLineFriendId) : null;
+  const assignedAsLineFriendId = data.assignedAsLineFriendId ? Number(data.assignedAsLineFriendId) : null;
 
   const vendor = await prisma.hojoVendor.create({
     data: {
       name: String(data.name).trim(),
       lineFriendId,
       joseiLineFriendId,
+      assignedAsLineFriendId,
       accessToken: generateToken(),
       memo: data.memo ? String(data.memo).trim() : null,
       displayOrder,
       isActive: toBoolean(data.isActive),
     },
   });
+
+  // コンサル担当者の登録
+  const staffIds = parseStaffIds(data.consultingStaffIds);
+  if (staffIds.length > 0) {
+    await prisma.hojoVendorConsultingStaff.createMany({
+      data: staffIds.map((staffId) => ({
+        vendorId: vendor.id,
+        staffId,
+      })),
+    });
+  }
 
   // 中間テーブルにも登録（初回担当者 = isPrimary）
   if (lineFriendId || joseiLineFriendId) {
@@ -75,6 +99,7 @@ export async function updateVendor(id: number, data: Record<string, unknown>) {
   if ("name" in data) updateData.name = String(data.name).trim();
   if ("lineFriendId" in data) updateData.lineFriendId = data.lineFriendId ? Number(data.lineFriendId) : null;
   if ("joseiLineFriendId" in data) updateData.joseiLineFriendId = data.joseiLineFriendId ? Number(data.joseiLineFriendId) : null;
+  if ("assignedAsLineFriendId" in data) updateData.assignedAsLineFriendId = data.assignedAsLineFriendId ? Number(data.assignedAsLineFriendId) : null;
   if ("memo" in data) updateData.memo = data.memo ? String(data.memo).trim() : null;
   if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
@@ -83,6 +108,22 @@ export async function updateVendor(id: number, data: Record<string, unknown>) {
       where: { id },
       data: updateData,
     });
+  }
+
+  // コンサル担当者の同期（delete + create）
+  if ("consultingStaffIds" in data) {
+    const newStaffIds = parseStaffIds(data.consultingStaffIds);
+    await prisma.hojoVendorConsultingStaff.deleteMany({
+      where: { vendorId: id },
+    });
+    if (newStaffIds.length > 0) {
+      await prisma.hojoVendorConsultingStaff.createMany({
+        data: newStaffIds.map((staffId) => ({
+          vendorId: id,
+          staffId,
+        })),
+      });
+    }
   }
 
   // メイン担当者（primaryContact）のLINE情報も連動更新
@@ -180,7 +221,7 @@ export async function deleteVendor(id: number) {
     include: { contacts: true },
   });
 
-  // 中間テーブルのcontactsは onDelete: Cascade で自動削除される
+  // 中間テーブルのcontacts, consultingStaff は onDelete: Cascade で自動削除される
   await prisma.hojoVendor.delete({
     where: { id },
   });
@@ -252,7 +293,8 @@ export async function reorderVendors(orderedIds: number[]) {
 export async function addVendorContact(
   vendorId: number,
   lineFriendId: number | null,
-  joseiLineFriendId: number | null
+  joseiLineFriendId: number | null,
+  extra?: { name?: string; role?: string; email?: string; phone?: string }
 ) {
   await requireProjectMasterDataEditPermission();
 
@@ -267,6 +309,10 @@ export async function addVendorContact(
       lineFriendId,
       joseiLineFriendId,
       isPrimary: existingCount === 0,
+      name: extra?.name?.trim() || null,
+      role: extra?.role || null,
+      email: extra?.email?.trim() || null,
+      phone: extra?.phone?.trim() || null,
     },
   });
 
@@ -290,7 +336,8 @@ export async function addVendorContact(
 export async function updateVendorContact(
   contactId: number,
   lineFriendId: number | null,
-  joseiLineFriendId: number | null
+  joseiLineFriendId: number | null,
+  extra?: { name?: string; role?: string; email?: string; phone?: string }
 ) {
   await requireProjectMasterDataEditPermission();
 
@@ -331,7 +378,14 @@ export async function updateVendorContact(
 
   await prisma.hojoVendorContact.update({
     where: { id: contactId },
-    data: { lineFriendId, joseiLineFriendId },
+    data: {
+      lineFriendId,
+      joseiLineFriendId,
+      ...(extra?.name !== undefined && { name: extra.name.trim() || null }),
+      ...(extra?.role !== undefined && { role: extra.role || null }),
+      ...(extra?.email !== undefined && { email: extra.email.trim() || null }),
+      ...(extra?.phone !== undefined && { phone: extra.phone.trim() || null }),
+    },
   });
 
   // 新紐づけのuserTypeをベンダーに

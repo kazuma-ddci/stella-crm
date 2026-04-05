@@ -2,47 +2,60 @@
 
 import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { ChevronDown } from "lucide-react";
-import { cn } from "@/lib/utils";
+  PortalHeader,
+  PortalUserMenu,
+  PortalLayout,
+  PortalSidebar,
+} from "@/components/alkes-portal";
 
 export type VendorSection =
   | "wholesale"
   | "grant"
   | "consulting-contract"
   | "consulting-activity"
-  | "loan";
+  | "consulting-customer"
+  | "loan"
+  | "loan-progress";
 
-type NavItem = {
-  key: VendorSection;
-  label: string;
-} | {
-  label: string;
-  children: { key: VendorSection; label: string }[];
-};
-
-const navItems: NavItem[] = [
-  { key: "wholesale", label: "セキュリティクラウド卸" },
-  { key: "grant", label: "助成金申請" },
+const menuSections = [
   {
     label: "コンサル/BPO",
-    children: [
-      { key: "consulting-contract", label: "契約概要" },
-      { key: "consulting-activity", label: "活動記録" },
+    items: [
+      { key: "consulting-contract", label: "契約情報" },
+      { key: "consulting-activity", label: "コンサル履歴" },
+      { key: "consulting-customer", label: "顧客管理" },
     ],
   },
-  { key: "loan", label: "貸金" },
+  {
+    label: "セキュリティクラウド卸",
+    items: [{ key: "wholesale", label: "卸アカウント管理" }],
+  },
+  {
+    label: "助成金申請",
+    items: [{ key: "grant", label: "助成金申請管理" }],
+  },
+  {
+    label: "貸金業社",
+    items: [
+      { key: "loan", label: "借入申込管理" },
+      { key: "loan-progress", label: "顧客進捗管理" },
+    ],
+  },
 ];
 
-function isParentOfSection(item: NavItem, section: VendorSection): boolean {
-  return "children" in item && item.children.some((c) => c.key === section);
+function getSectionTitle(section: VendorSection): string {
+  const map: Record<VendorSection, string> = {
+    wholesale: "卸アカウント管理",
+    grant: "助成金申請管理",
+    "consulting-contract": "契約情報",
+    "consulting-activity": "コンサル履歴",
+    "consulting-customer": "顧客管理",
+    loan: "借入申込管理",
+    "loan-progress": "顧客進捗管理",
+  };
+  return map[section];
 }
 
 type Props = {
@@ -74,109 +87,50 @@ export function VendorPortalLayout({
     router.push(`/hojo/vendor/${token}`);
   };
 
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{vendorName}様 専用ページ</h1>
-        <div className="flex items-center gap-3">
-          {isVendor && userName && (
-            <>
-              <span className="text-sm text-gray-600">{userName}さん</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  signOut({ callbackUrl: `/hojo/vendor/${vendorToken}` })
-                }
-              >
-                ログアウト
-              </Button>
-            </>
-          )}
-          {allVendors.length > 0 && (
-            <Select value={vendorToken} onValueChange={handleVendorChange}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {allVendors.map((v) => (
-                  <SelectItem key={v.token} value={v.token}>
-                    {v.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
-      </div>
-
-      {/* Navigation */}
-      <nav className="border-b">
-        <div className="flex gap-0">
-          {navItems.map((item, idx) => {
-            if ("key" in item) {
-              const isActive = activeSection === item.key;
-              return (
-                <button
-                  key={item.key}
-                  onClick={() => onSectionChange(item.key)}
-                  className={cn(
-                    "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
-                    isActive
-                      ? "border-blue-600 text-blue-600"
-                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                  )}
-                >
-                  {item.label}
-                </button>
-              );
-            }
-
-            // Dropdown item
-            const isActive = isParentOfSection(item, activeSection);
-            const activeChild = item.children.find(
-              (c) => c.key === activeSection
-            );
-            return (
-              <DropdownMenu key={idx}>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className={cn(
-                      "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-1",
-                      isActive
-                        ? "border-blue-600 text-blue-600"
-                        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                    )}
-                  >
-                    {item.label}
-                    {activeChild && (
-                      <span className="text-xs">({activeChild.label})</span>
-                    )}
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {item.children.map((child) => (
-                    <DropdownMenuItem
-                      key={child.key}
-                      onClick={() => onSectionChange(child.key)}
-                      className={cn(
-                        activeSection === child.key && "bg-blue-50 text-blue-600"
-                      )}
-                    >
-                      {child.label}
-                    </DropdownMenuItem>
+  const header = (
+    <PortalHeader
+      title={`${vendorName}様 専用ページ`}
+      rightContent={
+        <PortalUserMenu
+          userName={isVendor ? userName : undefined}
+          onLogout={() => signOut({ callbackUrl: `/hojo/vendor/${vendorToken}` })}
+          extra={
+            allVendors.length > 0 ? (
+              <Select value={vendorToken} onValueChange={handleVendorChange}>
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {allVendors.map((v) => (
+                    <SelectItem key={v.token} value={v.token}>
+                      {v.name}
+                    </SelectItem>
                   ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            );
-          })}
-        </div>
-      </nav>
+                </SelectContent>
+              </Select>
+            ) : undefined
+          }
+        />
+      }
+    />
+  );
 
-      {/* Content */}
-      <div>{children}</div>
-    </div>
+  const sidebar = (
+    <PortalSidebar
+      vendorName={vendorName}
+      sections={menuSections}
+      activeKey={activeSection}
+      onSelect={(key) => onSectionChange(key as VendorSection)}
+    />
+  );
+
+  return (
+    <PortalLayout
+      header={header}
+      sidebar={sidebar}
+      pageTitle={getSectionTitle(activeSection)}
+    >
+      {children}
+    </PortalLayout>
   );
 }

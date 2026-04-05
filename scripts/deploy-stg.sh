@@ -23,16 +23,16 @@ echo ""
 echo "[2/5] 本番DBをstg DBにコピー中..."
 BACKUP_FILE="/tmp/prod-for-stg-$(date +%Y%m%d%H%M%S).sql.gz"
 
-docker compose -f docker-compose.prod.yml exec -T db-prod \
+docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T db-prod \
   pg_dump -U stella_user crm_prod | gzip > "$BACKUP_FILE"
 echo "  本番バックアップ取得完了 ($(du -h "$BACKUP_FILE" | cut -f1))"
 
-docker compose -f docker-compose.stg.yml exec -T db-stg \
+docker compose --env-file .env.stg -f docker-compose.stg.yml exec -T db-stg \
   psql -U stella_user crm_stg -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" 2>/dev/null
 echo "  stg DB クリア完了"
 
 gunzip -c "$BACKUP_FILE" | \
-  docker compose -f docker-compose.stg.yml exec -T db-stg \
+  docker compose --env-file .env.stg -f docker-compose.stg.yml exec -T db-stg \
   psql -U stella_user crm_stg > /dev/null 2>&1
 echo "  本番データのリストア完了"
 
@@ -42,13 +42,13 @@ echo ""
 
 # --- Step 3: ビルド（旧コンテナ稼働中にビルドしてダウンタイム最小化） ---
 echo "[3/5] stg ビルド中..."
-docker compose -f docker-compose.stg.yml build app
+docker compose --env-file .env.stg -f docker-compose.stg.yml build app
 echo "✅ ビルド完了"
 echo ""
 
 # --- Step 4: コンテナ入れ替え＆起動 ---
 echo "[4/5] stg コンテナ入れ替え中..."
-docker compose -f docker-compose.stg.yml up -d app
+docker compose --env-file .env.stg -f docker-compose.stg.yml up -d app
 echo "✅ stg 起動完了"
 echo ""
 
@@ -63,7 +63,7 @@ for i in $(seq 1 12); do
   fi
   if [ "$i" -eq 12 ]; then
     echo "❌ サーバーが60秒以内に起動しませんでした"
-    echo "   docker compose -f docker-compose.stg.yml logs app --tail 30"
+    echo "   docker compose --env-file .env.stg -f docker-compose.stg.yml logs app --tail 30"
     exit 1
   fi
   sleep 5

@@ -8,16 +8,38 @@ export default async function VendorsPage() {
   const session = await auth();
   const canEdit = canEditProjectMasterDataSync(session?.user);
 
-  const [vendors, lineFriends, joseiLineFriends, prolineAccounts] = await Promise.all([
+  // hojoプロジェクトのedit/manager権限を持つスタッフを取得
+  const hojoProject = await prisma.masterProject.findFirst({ where: { code: "hojo" } });
+  const staffWithHojoPermission = hojoProject
+    ? await prisma.masterStaff.findMany({
+        where: {
+          isActive: true,
+          isSystemUser: false,
+          permissions: { some: { projectId: hojoProject.id, permissionLevel: { in: ["edit", "manager"] } } },
+        },
+        orderBy: { displayOrder: "asc" },
+        select: { id: true, name: true },
+      })
+    : [];
+
+  const staffOptions = staffWithHojoPermission.map((s) => ({
+    value: String(s.id),
+    label: s.name,
+  }));
+
+  const [vendors, scLineFriends] = await Promise.all([
     prisma.hojoVendor.findMany({
       orderBy: { displayOrder: "asc" },
       include: {
-        lineFriend: true,
-        joseiLineFriend: true,
+        consultingStaff: {
+          include: { staff: { select: { id: true, name: true } } },
+        },
+        assignedAsLineFriend: {
+          select: { id: true, sei: true, mei: true, snsname: true },
+        },
         contacts: {
           include: {
-            lineFriend: { select: { id: true, snsname: true } },
-            joseiLineFriend: { select: { id: true, snsname: true } },
+            lineFriend: { select: { id: true, uid: true, free1: true, snsname: true } },
           },
           orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
         },
@@ -26,65 +48,54 @@ export default async function VendorsPage() {
     prisma.hojoLineFriendSecurityCloud.findMany({
       where: { deletedAt: null },
       orderBy: { id: "asc" },
-    }),
-    prisma.hojoLineFriendJoseiSupport.findMany({
-      where: { deletedAt: null },
-      orderBy: { id: "asc" },
-    }),
-    prisma.hojoProlineAccount.findMany({
-      select: { lineType: true, label: true },
+      select: { id: true, uid: true, sei: true, mei: true, snsname: true, userType: true, free1: true },
     }),
   ]);
 
-  // プロラインアカウントのラベル
-  const labelMap: Record<string, string> = {};
-  for (const a of prolineAccounts) {
-    labelMap[a.lineType] = a.label;
-  }
-  const scLabel = labelMap["security-cloud"] || "セキュリティクラウド";
-  const joseiLabel = labelMap["josei-support"] || "助成金申請サポート";
+  // セキュリティクラウドLINEからASユーザーを検出するためのマップ
+  const scByUid = new Map(scLineFriends.map((f) => [f.uid, f]));
 
-  const lineFriendOptions = lineFriends.map((f) => ({
+  // 担当AS selectオプション（ASタイプのLINE友達）
+  const asLineFriends = scLineFriends.filter((f) => f.userType === "AS");
+  const scLineFriendOptions = asLineFriends.map((f) => ({
     value: String(f.id),
-    label: `${f.id} ${f.snsname || "（名前なし）"}`,
-  }));
-
-  const joseiLineFriendOptions = joseiLineFriends.map((f) => ({
-    value: String(f.id),
-    label: `${f.id} ${f.snsname || "（名前なし）"}`,
+    label: `${f.id} ${f.snsname || ""}(${f.sei || ""} ${f.mei || ""})`.trim(),
   }));
 
   const data = vendors.map((v) => {
-    // メイン担当者（isPrimary=trueの最初のcontact）
-    const primaryContact = v.contacts.find((c) => c.isPrimary);
+    // コンサル担当者
+    const consultingStaffNames = v.consultingStaff.map((cs) => cs.staff.name);
+    const consultingStaffIds = v.consultingStaff.map((cs) => String(cs.staff.id));
+
+    // 担当AS: 手動設定 or 自動検出
+    let assignedAsDisplay = "-";
+    if (v.assignedAsLineFriendId && v.assignedAsLineFriend) {
+      const as = v.assignedAsLineFriend;
+      assignedAsDisplay = `${as.id} ${as.snsname || ""}(${as.sei || ""} ${as.mei || ""})`.trim();
+    } else {
+      // 自動検出: vendorのcontactのlineFriend.free1 → セキュリティクラウドLINEのuid → userType=AS
+      for (const c of v.contacts) {
+        if (c.lineFriend?.free1) {
+          const asFriend = scByUid.get(c.lineFriend.free1);
+          if (asFriend && asFriend.userType === "AS") {
+            assignedAsDisplay = `${asFriend.id} ${asFriend.snsname || ""}(${asFriend.sei || ""} ${asFriend.mei || ""})`.trim();
+            break;
+          }
+        }
+      }
+    }
 
     return {
       id: v.id,
       name: v.name,
       accessToken: v.accessToken,
+      consultingStaffDisplay: consultingStaffNames.join(", ") || "-",
+      consultingStaffIds: consultingStaffIds.join(","),
+      assignedAsDisplay,
+      assignedAsLineFriendId: v.assignedAsLineFriendId ? String(v.assignedAsLineFriendId) : "",
       memo: v.memo ?? "",
       displayOrder: v.displayOrder,
       isActive: v.isActive,
-      // メイン担当者表示用
-      primaryContactDisplay: primaryContact
-        ? [
-            primaryContact.lineFriendId ? String(primaryContact.lineFriendId) : null,
-            primaryContact.lineFriend?.snsname || null,
-            primaryContact.joseiLineFriendId ? String(primaryContact.joseiLineFriendId) : null,
-          ].filter(Boolean).join(" ")
-        : "-",
-      // 担当者一覧
-      contacts: v.contacts.map((c) => ({
-        id: c.id,
-        lineFriendId: c.lineFriendId,
-        lineFriendName: c.lineFriend?.snsname || null,
-        joseiLineFriendId: c.joseiLineFriendId,
-        joseiLineFriendName: c.joseiLineFriend?.snsname || null,
-        isPrimary: c.isPrimary,
-      })),
-      // 旧フィールド（編集ダイアログ用に残す）
-      lineFriendId: v.lineFriendId ? String(v.lineFriendId) : "",
-      joseiLineFriendId: v.joseiLineFriendId ? String(v.joseiLineFriendId) : "",
     };
   });
 
@@ -99,10 +110,8 @@ export default async function VendorsPage() {
           <VendorsTable
             data={data}
             canEdit={canEdit}
-            lineFriendOptions={lineFriendOptions}
-            joseiLineFriendOptions={joseiLineFriendOptions}
-            scLabel={scLabel}
-            joseiLabel={joseiLabel}
+            staffOptions={staffOptions}
+            scLineFriendOptions={scLineFriendOptions}
           />
         </CardContent>
       </Card>
