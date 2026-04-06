@@ -13,7 +13,7 @@ export default async function AccountingWorkflowPage() {
     }),
   ]);
 
-  const pendingApproval = groups.filter((g) => g.category === "pending_approval").length;
+  const pendingApproval = groups.filter((g) => g.category === "pending_accounting_approval").length;
   const needsJournal = groups.filter((g) => g.category === "needs_journal").length;
   const inProgress = groups.filter((g) => g.category === "in_progress").length;
   const completed = groups.filter((g) => g.category === "completed").length;

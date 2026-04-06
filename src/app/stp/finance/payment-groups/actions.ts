@@ -65,7 +65,13 @@ export async function getPaymentGroups(
   const confidentialFilter = buildConfidentialFilter(session);
 
   const records = await prisma.paymentGroup.findMany({
-    where: { deletedAt: null, ...(projectId ? { projectId } : {}), ...confidentialFilter },
+    where: {
+      deletedAt: null,
+      ...(projectId ? { projectId } : {}),
+      ...confidentialFilter,
+      // 手動経費申請はここに表示しない（経費申請ページで管理）
+      status: { notIn: ["pending_project_approval", "pending_accounting_approval"] },
+    },
     include: {
       counterparty: true,
       operatingCompany: true,

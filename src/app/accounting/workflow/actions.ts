@@ -9,7 +9,7 @@ import { getSession } from "@/lib/auth";
 // ============================================
 
 export type WorkflowCategory =
-  | "pending_approval" // 経理承認待ち（手動追加の経費で経理がまだ承認していない）
+  | "pending_accounting_approval" // 経理承認待ち（プロジェクト承認済み、経理未承認）
   | "needs_journal"    // 仕訳待ち
   | "in_progress"      // 処理中（実現待ち and/or 入出金確認待ち）
   | "completed"        // 完了
@@ -104,8 +104,8 @@ function determineCategory(
   allRealizedCount: number,
   hasActualPaymentDate: boolean
 ): WorkflowCategory {
-  // 経理承認待ち（手動追加された経費）
-  if (status === "pending_approval") return "pending_approval";
+  // 経理承認待ち（プロジェクト承認済み）
+  if (status === "pending_accounting_approval") return "pending_accounting_approval";
 
   // 差し戻し中
   if (status === "returned") return "returned";
@@ -167,7 +167,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
     prisma.paymentGroup.findMany({
       where: {
         deletedAt: null,
-        status: { in: ["pending_approval", "awaiting_accounting", "paid", "returned"] },
+        status: { in: ["pending_accounting_approval", "awaiting_accounting", "paid", "returned"] },
       },
       select: {
         id: true,
@@ -577,7 +577,7 @@ export async function checkAndCompleteTransaction(transactionId: number) {
 }
 
 // ============================================
-// 5. approvePaymentGroup（経理承認：pending_approval → awaiting_accounting）
+// 5. approvePaymentGroup（経理承認：pending_accounting_approval → awaiting_accounting）
 // ============================================
 
 export async function approvePaymentGroup(groupId: number) {
@@ -589,7 +589,7 @@ export async function approvePaymentGroup(groupId: number) {
     select: { id: true, status: true },
   });
   if (!group) throw new Error("支払グループが見つかりません");
-  if (group.status !== "pending_approval") {
+  if (group.status !== "pending_accounting_approval") {
     throw new Error("このグループは経理承認待ちではありません");
   }
 
@@ -603,9 +603,9 @@ export async function approvePaymentGroup(groupId: number) {
     },
   });
 
-  // 子の Transaction も pending_approval → awaiting_accounting
+  // 子の Transaction も pending_accounting_approval → awaiting_accounting
   await prisma.transaction.updateMany({
-    where: { paymentGroupId: groupId, deletedAt: null, status: "pending_approval" },
+    where: { paymentGroupId: groupId, deletedAt: null, status: "pending_accounting_approval" },
     data: { status: "awaiting_accounting" },
   });
 
@@ -613,7 +613,7 @@ export async function approvePaymentGroup(groupId: number) {
 }
 
 // ============================================
-// 6. rejectPaymentGroup（経理が差し戻し：pending_approval → returned）
+// 6. rejectPaymentGroup（経理が差し戻し：pending_accounting_approval → returned）
 // ============================================
 
 export async function rejectPaymentGroup(groupId: number, reason?: string) {
@@ -625,7 +625,7 @@ export async function rejectPaymentGroup(groupId: number, reason?: string) {
     select: { id: true, status: true },
   });
   if (!group) throw new Error("支払グループが見つかりません");
-  if (group.status !== "pending_approval") {
+  if (group.status !== "pending_accounting_approval") {
     throw new Error("このグループは経理承認待ちではありません");
   }
 
@@ -853,7 +853,7 @@ export async function updateAndApprovePaymentGroup(
     },
   });
   if (!group) throw new Error("支払グループが見つかりません");
-  if (group.status !== "pending_approval") {
+  if (group.status !== "pending_accounting_approval") {
     throw new Error("このグループは経理承認待ちではありません");
   }
 

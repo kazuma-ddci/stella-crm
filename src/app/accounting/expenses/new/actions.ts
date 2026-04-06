@@ -196,7 +196,7 @@ export async function submitExpenseRequest(
     }
 
     const isAccounting = input.mode === "accounting";
-    const initialStatus = isAccounting ? "awaiting_accounting" : "pending_approval";
+    const initialStatus = isAccounting ? "awaiting_accounting" : "pending_project_approval";
 
     // === 定期取引 ===
     if (input.frequency !== "once") {
@@ -419,18 +419,23 @@ export type ExpenseStatusItem = {
   approverName: string | null;
   createdAt: Date;
   createdByName: string;
+  // プレビュー用
+  note: string | null;
+  expenseCategoryName: string | null;
+  paymentMethodName: string | null;
+  periodFrom: Date | null;
+  periodTo: Date | null;
+  expenseOwners: string[];
 };
 
-/** 申請状況タブ: 自分が作成した経費一覧 */
+/** 申請状況タブ: プロジェクト内の手動経費一覧 */
 export async function getMyExpenses(projectId: number): Promise<ExpenseStatusItem[]> {
-  const session = await getSession();
-
   const pgs = await prisma.paymentGroup.findMany({
     where: {
       deletedAt: null,
       projectId,
       paymentType: "direct",
-      createdBy: session.id,
+      status: { in: ["pending_project_approval", "pending_accounting_approval", "awaiting_accounting", "returned", "paid"] },
     },
     select: {
       id: true,
@@ -442,23 +447,44 @@ export async function getMyExpenses(projectId: number): Promise<ExpenseStatusIte
       counterparty: { select: { name: true } },
       approver: { select: { name: true } },
       creator: { select: { name: true } },
+      transactions: {
+        where: { deletedAt: null },
+        take: 1,
+        select: {
+          note: true,
+          periodFrom: true,
+          periodTo: true,
+          expenseCategory: { select: { name: true } },
+          paymentMethod: { select: { name: true } },
+          expenseOwners: { select: { staff: { select: { name: true } }, customName: true } },
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
     take: 200,
   });
 
-  return pgs.map((pg) => ({
-    id: pg.id,
-    groupType: "payment" as const,
-    referenceCode: pg.referenceCode,
-    counterpartyName: pg.counterparty?.name ?? "（未設定）",
-    customCounterpartyName: pg.customCounterpartyName,
-    totalAmount: pg.totalAmount,
-    status: pg.status,
-    approverName: pg.approver?.name ?? null,
-    createdAt: pg.createdAt,
-    createdByName: pg.creator.name,
-  }));
+  return pgs.map((pg) => {
+    const tx = pg.transactions[0];
+    return {
+      id: pg.id,
+      groupType: "payment" as const,
+      referenceCode: pg.referenceCode,
+      counterpartyName: pg.counterparty?.name ?? pg.customCounterpartyName ?? "（未設定）",
+      customCounterpartyName: pg.customCounterpartyName,
+      totalAmount: pg.totalAmount,
+      status: pg.status,
+      approverName: pg.approver?.name ?? null,
+      createdAt: pg.createdAt,
+      createdByName: pg.creator.name,
+      note: tx?.note ?? null,
+      expenseCategoryName: tx?.expenseCategory?.name ?? null,
+      paymentMethodName: tx?.paymentMethod?.name ?? null,
+      periodFrom: tx?.periodFrom ?? null,
+      periodTo: tx?.periodTo ?? null,
+      expenseOwners: tx?.expenseOwners.map((o) => o.staff?.name || o.customName || "-") ?? [],
+    };
+  });
 }
 
 /** 承認待ちタブ: 自分が承認者になっている経費 */
@@ -469,7 +495,7 @@ export async function getPendingApprovals(projectId: number): Promise<ExpenseSta
     where: {
       deletedAt: null,
       projectId,
-      status: "pending_approval",
+      status: "pending_project_approval",
       approverStaffId: session.id,
     },
     select: {
@@ -482,22 +508,43 @@ export async function getPendingApprovals(projectId: number): Promise<ExpenseSta
       counterparty: { select: { name: true } },
       approver: { select: { name: true } },
       creator: { select: { name: true } },
+      transactions: {
+        where: { deletedAt: null },
+        take: 1,
+        select: {
+          note: true,
+          periodFrom: true,
+          periodTo: true,
+          expenseCategory: { select: { name: true } },
+          paymentMethod: { select: { name: true } },
+          expenseOwners: { select: { staff: { select: { name: true } }, customName: true } },
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  return pgs.map((pg) => ({
+  return pgs.map((pg) => {
+    const tx = pg.transactions[0];
+    return {
     id: pg.id,
     groupType: "payment" as const,
     referenceCode: pg.referenceCode,
-    counterpartyName: pg.counterparty?.name ?? "（未設定）",
+    counterpartyName: pg.counterparty?.name ?? pg.customCounterpartyName ?? "（未設定）",
     customCounterpartyName: pg.customCounterpartyName,
     totalAmount: pg.totalAmount,
     status: pg.status,
     approverName: pg.approver?.name ?? null,
     createdAt: pg.createdAt,
     createdByName: pg.creator.name,
-  }));
+    note: tx?.note ?? null,
+    expenseCategoryName: tx?.expenseCategory?.name ?? null,
+    paymentMethodName: tx?.paymentMethod?.name ?? null,
+    periodFrom: tx?.periodFrom ?? null,
+    periodTo: tx?.periodTo ?? null,
+    expenseOwners: tx?.expenseOwners.map((o) => o.staff?.name || o.customName || "-") ?? [],
+    };
+  });
 }
 
 export type RecurringItem = {
@@ -606,4 +653,80 @@ export async function getMonthlyExpenseSummary(projectId: number): Promise<Month
   }
 
   return Array.from(byMonth.values()).sort((a, b) => b.month.localeCompare(a.month));
+}
+
+// ============================================
+// プロジェクト承認アクション（1段階目）
+// pending_project_approval → pending_accounting_approval
+// ============================================
+
+export async function approveByProjectApprover(groupId: number) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const group = await prisma.paymentGroup.findFirst({
+    where: { id: groupId, deletedAt: null },
+    select: { id: true, status: true, approverStaffId: true },
+  });
+  if (!group) throw new Error("支払グループが見つかりません");
+  if (group.status !== "pending_project_approval") {
+    throw new Error("このグループはプロジェクト承認待ちではありません");
+  }
+  if (group.approverStaffId !== staffId) {
+    throw new Error("あなたはこのグループの承認者ではありません");
+  }
+
+  await prisma.paymentGroup.update({
+    where: { id: groupId },
+    data: {
+      status: "pending_accounting_approval",
+      approvedAt: new Date(),
+      updater: { connect: { id: staffId } },
+    },
+  });
+
+  // 子のTransactionも遷移（存在する場合）
+  await prisma.transaction.updateMany({
+    where: { paymentGroupId: groupId, deletedAt: null, status: "pending_project_approval" },
+    data: { status: "pending_accounting_approval" },
+  });
+
+  revalidatePath("/accounting/workflow");
+  revalidatePath("/stp/expenses/new");
+  revalidatePath("/slp/expenses/new");
+  revalidatePath("/hojo/expenses/new");
+}
+
+export async function rejectByProjectApprover(groupId: number, reason?: string) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const group = await prisma.paymentGroup.findFirst({
+    where: { id: groupId, deletedAt: null },
+    select: { id: true, status: true, approverStaffId: true },
+  });
+  if (!group) throw new Error("支払グループが見つかりません");
+  if (group.status !== "pending_project_approval") {
+    throw new Error("このグループはプロジェクト承認待ちではありません");
+  }
+
+  await prisma.paymentGroup.update({
+    where: { id: groupId },
+    data: { status: "returned", updatedBy: staffId },
+  });
+
+  if (reason) {
+    await prisma.transactionComment.create({
+      data: {
+        paymentGroupId: groupId,
+        body: reason,
+        commentType: "return",
+        createdBy: staffId,
+      },
+    });
+  }
+
+  revalidatePath("/stp/expenses/new");
+  revalidatePath("/slp/expenses/new");
+  revalidatePath("/hojo/expenses/new");
 }

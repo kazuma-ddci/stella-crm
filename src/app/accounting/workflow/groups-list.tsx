@@ -26,7 +26,7 @@ type Props = {
 
 // 各条件のバッジ表示
 function ConditionBadges({ group }: { group: WorkflowGroup }) {
-  if (group.category === "pending_approval") {
+  if (group.category === "pending_accounting_approval") {
     return (
       <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 text-xs">
         <UserCheck className="h-3 w-3 mr-0.5" />
@@ -99,7 +99,7 @@ function ApprovalActions({
   group: WorkflowGroup;
   onOpenDetail: (id: number) => void;
 }) {
-  if (group.groupType !== "payment" || group.category !== "pending_approval") {
+  if (group.groupType !== "payment" || group.category !== "pending_accounting_approval") {
     return null;
   }
 
@@ -233,7 +233,7 @@ export function GroupsList({ groups, projects }: Props) {
   }, [search, selectedProjectIds]);
 
   const pendingApproval = useMemo(
-    () => applyFilters(groups.filter((g) => g.category === "pending_approval")),
+    () => applyFilters(groups.filter((g) => g.category === "pending_accounting_approval")),
     [applyFilters, groups]
   );
   const needsJournal = useMemo(
@@ -290,9 +290,9 @@ export function GroupsList({ groups, projects }: Props) {
         )}
       </div>
 
-      <Tabs defaultValue={pendingApproval.length > 0 ? "pending_approval" : "needs_journal"}>
+      <Tabs defaultValue={pendingApproval.length > 0 ? "pending_accounting_approval" : "needs_journal"}>
         <TabsList>
-          <TabsTrigger value="pending_approval" className="gap-1">
+          <TabsTrigger value="pending_accounting_approval" className="gap-1">
             <UserCheck className="h-3.5 w-3.5" />
             経理承認待ち
             {pendingApproval.length > 0 && (
@@ -337,7 +337,7 @@ export function GroupsList({ groups, projects }: Props) {
           )}
         </TabsList>
 
-        <TabsContent value="pending_approval" className="mt-4">
+        <TabsContent value="pending_accounting_approval" className="mt-4">
           <GroupTable
             groups={pendingApproval}
             showApprovalActions
