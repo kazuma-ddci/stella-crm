@@ -19,11 +19,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AlertTriangle, Search } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AlertTriangle, Search, Plus } from "lucide-react";
 import {
   getPendingApprovalDetail,
   updateAndApprovePaymentGroup,
   rejectPaymentGroup,
+  createCounterpartyFromApproval,
   type PendingApprovalDetail,
 } from "./actions";
 
@@ -83,17 +85,48 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
     return Math.floor(amt - amt / (1 + taxRate / 100));
   }, [amount, taxRate]);
 
-  const filteredCounterparties = useMemo(() => {
-    if (!detail) return [];
+  const [counterpartyTab, setCounterpartyTab] = useState("stella");
+  const [newCounterpartyName, setNewCounterpartyName] = useState("");
+  const [isCreatingCounterparty, setIsCreatingCounterparty] = useState(false);
+
+  const matchCounterpartySearch = (c: PendingApprovalDetail["counterparties"][0]) => {
+    if (!counterpartySearch.trim()) return true;
     const q = counterpartySearch.toLowerCase();
-    if (!q) return detail.counterparties;
-    return detail.counterparties.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        (c.displayId && c.displayId.toLowerCase().includes(q)) ||
-        (c.companyCode && c.companyCode.toLowerCase().includes(q))
+    return (
+      c.name.toLowerCase().includes(q) ||
+      (c.displayId && c.displayId.toLowerCase().includes(q)) ||
+      (c.companyCode && c.companyCode.toLowerCase().includes(q))
     );
-  }, [detail, counterpartySearch]);
+  };
+
+  const stellaCounterparties = useMemo(
+    () => (detail?.counterparties ?? []).filter((c) => c.companyCode !== null).filter(matchCounterpartySearch),
+    [detail, counterpartySearch]
+  );
+  const otherCounterparties = useMemo(
+    () => (detail?.counterparties ?? []).filter((c) => c.companyCode === null).filter(matchCounterpartySearch),
+    [detail, counterpartySearch]
+  );
+
+  const handleCreateCounterparty = async () => {
+    if (!newCounterpartyName.trim()) return;
+    setIsCreatingCounterparty(true);
+    try {
+      const result = await createCounterpartyFromApproval(newCounterpartyName.trim());
+      setCounterpartyId(result.id);
+      setNewCounterpartyName("");
+      setCounterpartyTab("other");
+      // detailを再取得して選択肢を更新
+      if (groupId) {
+        const updated = await getPendingApprovalDetail(groupId);
+        if (updated) setDetail(updated);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "取引先の作成に失敗しました");
+    } finally {
+      setIsCreatingCounterparty(false);
+    }
+  };
 
   const handleApprove = () => {
     if (!detail) return;
@@ -218,33 +251,105 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
                     <Badge variant="outline" className="ml-2 text-xs bg-amber-50 text-amber-700 border-amber-200">要確認</Badge>
                   )}
                 </Label>
-                <div className="border rounded-lg p-2 space-y-2">
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                    <Input
-                      placeholder="取引先検索..."
-                      value={counterpartySearch}
-                      onChange={(e) => setCounterpartySearch(e.target.value)}
-                      className="pl-8 h-8 text-sm"
-                    />
+                {counterpartyId && (
+                  <div className="text-sm bg-blue-50 border border-blue-200 rounded px-3 py-1.5">
+                    選択中: {(() => {
+                      const c = detail.counterparties.find((c) => c.id === counterpartyId);
+                      return c ? `${c.companyCode || c.displayId || "---"} ${c.name}` : `ID:${counterpartyId}`;
+                    })()}
                   </div>
-                  <div className="max-h-32 overflow-y-auto space-y-0.5">
-                    {filteredCounterparties.slice(0, 50).map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className={`w-full text-left px-2 py-1 text-sm rounded hover:bg-blue-50 ${
-                          counterpartyId === c.id ? "bg-blue-50 border-l-2 border-l-blue-500 font-medium" : ""
-                        }`}
-                        onClick={() => setCounterpartyId(c.id)}
-                      >
-                        <span className="text-muted-foreground font-mono text-xs mr-1.5">
-                          {c.companyCode || c.displayId || "---"}
-                        </span>
-                        {c.name}
-                      </button>
-                    ))}
+                )}
+                <div className="border rounded-lg">
+                  <div className="p-2 border-b">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        placeholder="取引先検索..."
+                        value={counterpartySearch}
+                        onChange={(e) => setCounterpartySearch(e.target.value)}
+                        className="pl-8 h-8 text-sm"
+                      />
+                    </div>
                   </div>
+                  <Tabs value={counterpartyTab} onValueChange={setCounterpartyTab}>
+                    <TabsList className="w-full rounded-none border-b h-8">
+                      <TabsTrigger value="stella" className="text-xs flex-1 h-7">
+                        Stella顧客 ({stellaCounterparties.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="other" className="text-xs flex-1 h-7">
+                        その他 ({otherCounterparties.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="new" className="text-xs flex-1 h-7">
+                        <Plus className="h-3 w-3 mr-0.5" />
+                        新規追加
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="stella" className="p-1 mt-0">
+                      <div className="max-h-32 overflow-y-auto space-y-0.5">
+                        {stellaCounterparties.length === 0 ? (
+                          <p className="text-sm text-muted-foreground py-3 text-center">該当なし</p>
+                        ) : stellaCounterparties.slice(0, 50).map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className={`w-full text-left px-2 py-1 text-sm rounded hover:bg-blue-50 ${
+                              counterpartyId === c.id ? "bg-blue-50 border-l-2 border-l-blue-500 font-medium" : ""
+                            }`}
+                            onClick={() => setCounterpartyId(c.id)}
+                          >
+                            <span className="text-muted-foreground font-mono text-xs mr-1.5">
+                              {c.companyCode || "---"}
+                            </span>
+                            {c.name}
+                          </button>
+                        ))}
+                      </div>
+                    </TabsContent>
+                    <TabsContent value="other" className="p-1 mt-0">
+                      <div className="max-h-32 overflow-y-auto space-y-0.5">
+                        {otherCounterparties.length === 0 ? (
+                          <p className="text-sm text-muted-foreground py-3 text-center">該当なし</p>
+                        ) : otherCounterparties.slice(0, 50).map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className={`w-full text-left px-2 py-1 text-sm rounded hover:bg-blue-50 ${
+                              counterpartyId === c.id ? "bg-blue-50 border-l-2 border-l-blue-500 font-medium" : ""
+                            }`}
+                            onClick={() => setCounterpartyId(c.id)}
+                          >
+                            <span className="text-muted-foreground font-mono text-xs mr-1.5">
+                              {c.displayId || "---"}
+                            </span>
+                            {c.name}
+                          </button>
+                        ))}
+                      </div>
+                    </TabsContent>
+                    <TabsContent value="new" className="p-2 mt-0">
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          その他の取引先に新規登録します
+                        </p>
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="取引先名を入力"
+                            value={newCounterpartyName}
+                            onChange={(e) => setNewCounterpartyName(e.target.value)}
+                            className="flex-1"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={!newCounterpartyName.trim() || isCreatingCounterparty}
+                            onClick={handleCreateCounterparty}
+                          >
+                            {isCreatingCounterparty ? "登録中..." : "登録"}
+                          </Button>
+                        </div>
+                      </div>
+                    </TabsContent>
+                  </Tabs>
                 </div>
               </div>
 

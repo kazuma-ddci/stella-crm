@@ -896,3 +896,34 @@ export async function updateAndApprovePaymentGroup(
 
   revalidatePath("/accounting/workflow");
 }
+
+// ============================================
+// 9. createCounterpartyFromApproval（承認モーダルから取引先を新規追加）
+// ============================================
+
+export async function createCounterpartyFromApproval(
+  name: string
+): Promise<{ id: number; displayId: string }> {
+  const session = await getSession();
+  const staffId = session.id;
+
+  if (!name.trim()) throw new Error("取引先名は必須です");
+
+  const counterparty = await prisma.counterparty.create({
+    data: {
+      name: name.trim(),
+      counterpartyType: "other",
+      isActive: true,
+      createdBy: staffId,
+    },
+  });
+
+  const displayId = `TP-${counterparty.id}`;
+  await prisma.counterparty.update({
+    where: { id: counterparty.id },
+    data: { displayId },
+  });
+
+  revalidatePath("/accounting/workflow");
+  return { id: counterparty.id, displayId };
+}
