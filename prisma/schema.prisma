@@ -2612,8 +2612,9 @@ model PaymentGroup {
   // 受信請求書マッチング
   expectedInboundEmailId Int? // 返信を待つ受信メールアドレス
 
-  paymentType    String  @default("invoice") // "invoice" | "direct"
-  isConfidential Boolean @default(false)
+  paymentType              String  @default("invoice") // "invoice" | "direct"
+  isConfidential           Boolean @default(false)
+  customCounterpartyName   String? // 手入力された取引先名（経理がマスタ紐付けするまでの仮値）
 
   status String @default("before_request")
   // invoice: "before_request" | "requested" | "invoice_received" |

@@ -1,8 +1,27 @@
-import { getExpenseFormData } from "@/app/accounting/expenses/new/actions";
-import { ManualExpenseForm } from "@/app/accounting/expenses/new/manual-expense-form";
+import {
+  getExpenseFormData,
+  getMyExpenses,
+  getProjectRecurringTransactions,
+  getMonthlyExpenseSummary,
+  getPendingApprovals,
+} from "@/app/accounting/expenses/new/actions";
+import { ExpensePageClient } from "@/app/accounting/expenses/new/expense-page-client";
+import { prisma } from "@/lib/prisma";
 
 export default async function HojoExpenseNewPage() {
-  const formData = await getExpenseFormData("hojo");
+  const project = await prisma.masterProject.findFirst({
+    where: { code: "hojo" },
+    select: { id: true },
+  });
+  const projectId = project?.id ?? 0;
+
+  const [formData, myExpenses, recurring, monthly, approvals] = await Promise.all([
+    getExpenseFormData("hojo"),
+    getMyExpenses(projectId),
+    getProjectRecurringTransactions(projectId),
+    getMonthlyExpenseSummary(projectId),
+    getPendingApprovals(projectId),
+  ]);
 
   return (
     <div className="p-6 space-y-6">
@@ -12,10 +31,14 @@ export default async function HojoExpenseNewPage() {
           経費を申請します。登録後は経理の承認を経て仕訳フローに進みます。
         </p>
       </div>
-      <ManualExpenseForm
+      <ExpensePageClient
         formData={formData}
         mode="project"
         backUrl="/hojo"
+        myExpenses={myExpenses}
+        recurringTransactions={recurring}
+        monthlySummary={monthly}
+        pendingApprovals={approvals}
       />
     </div>
   );
