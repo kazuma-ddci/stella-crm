@@ -754,6 +754,7 @@ model MasterStaff {
   recurringApproved       RecurringTransaction[]             @relation("RecurringApprover")
   recurringExpenseOwners  RecurringTransactionExpenseOwner[]
   bankTxGroupLinkCreated  BankTransactionGroupLink[]         @relation("BankTxGroupLinkCreator")
+  moneyForwardConnections MoneyForwardConnection[]           @relation("MFConnectionCreator")
 
   @@map("master_staff")
 }
@@ -1024,6 +1025,8 @@ model OperatingCompany {
   invoiceMails           InvoiceMail[]
   invoiceNumberSequences StpInvoiceNumberSequence[]
   cloudsignTemplates     CloudSignTemplate[]
+  accountingTransactions AccountingTransaction[]
+  moneyForwardConnections MoneyForwardConnection[]
 
   @@map("operating_companies")
 }
@@ -2153,6 +2156,11 @@ model AccountingTransaction {
   sourceDealId        String? @db.VarChar(100) // freeeの取引(deal)ID
   importBatchId       Int? // 取込バッチID
 
+  // 入出金履歴用フィールド
+  balance            Int? // 残高（銀行明細の残高欄）
+  operatingCompanyId Int? // 法人ID（FK → OperatingCompany）
+  deduplicationHash  String? @db.VarChar(64) // 重複検知用SHA-256ハッシュ
+
   // 消込ステータス
   reconciliationStatus String @default("unmatched") @db.VarChar(20) // unmatched/partial/matched/excluded
 
@@ -2163,10 +2171,11 @@ model AccountingTransaction {
   updatedAt DateTime @updatedAt
 
   // Relations
-  importBatch     AccountingImportBatch?     @relation(fields: [importBatchId], references: [id])
-  project         MasterProject?             @relation(fields: [projectId], references: [id])
-  reconciliations AccountingReconciliation[]
-  verifications   AccountingVerification[]
+  importBatch      AccountingImportBatch?     @relation(fields: [importBatchId], references: [id])
+  project          MasterProject?             @relation(fields: [projectId], references: [id])
+  operatingCompany OperatingCompany?          @relation(fields: [operatingCompanyId], references: [id])
+  reconciliations  AccountingReconciliation[]
+  verifications    AccountingVerification[]
 
   @@index([direction])
   @@index([transactionDate])
@@ -2175,6 +2184,8 @@ model AccountingTransaction {
   @@index([projectId])
   @@index([source])
   @@index([sourceTransactionId])
+  @@index([operatingCompanyId])
+  @@index([deduplicationHash])
   @@map("accounting_transactions")
 }
 
@@ -5179,4 +5190,31 @@ model HojoLoanProgress {
 
   @@index([vendorId])
   @@map("hojo_loan_progresses")
+}
+
+// ============================================
+// マネーフォワード連携 (MoneyForward Connections)
+// 法人ごとのMF API接続情報を管理
+// ============================================
+
+model MoneyForwardConnection {
+  id                 Int       @id @default(autoincrement())
+  operatingCompanyId Int // どの法人の接続か
+  accessToken        String    @db.Text // 暗号化して保存
+  refreshToken       String    @db.Text // 暗号化して保存
+  tokenExpiresAt     DateTime
+  mfAccountId        String?   @db.VarChar(100) // MF側のアカウントID
+  lastSyncedAt       DateTime? // 最終同期日時
+  syncFromDate       DateTime? @db.Date // 同期開始日（初回設定時）
+  isActive           Boolean   @default(true)
+  createdBy          Int // 作成者（MasterStaffへの外部キー）
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  operatingCompany OperatingCompany @relation(fields: [operatingCompanyId], references: [id])
+  creator          MasterStaff      @relation("MFConnectionCreator", fields: [createdBy], references: [id])
+
+  @@index([operatingCompanyId])
+  @@map("money_forward_connections")
 }
