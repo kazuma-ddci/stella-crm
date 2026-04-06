@@ -220,6 +220,9 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
     return formData.allocationTemplates.find((t) => t.id === allocationTemplateId) ?? null;
   }, [allocationTemplateId, formData.allocationTemplates]);
 
+  // 機密
+  const [isConfidential, setIsConfidential] = useState(false);
+
   // 証憑ファイル
   type PendingFile = { file: File; key: string };
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
@@ -329,6 +332,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
         useAllocation,
         allocationTemplateId: useAllocation ? allocationTemplateId : undefined,
         costCenterId: !useAllocation ? costCenterId : undefined,
+        isConfidential,
       });
 
       if ("error" in result) return setError(result.error);
@@ -688,6 +692,15 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
         <CardHeader><CardTitle className="text-base">摘要・メモ</CardTitle></CardHeader>
         <CardContent>
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="例: 4/1 クライアントとの会食（〇〇レストラン）" rows={3} />
+          <label className="flex items-center gap-2 mt-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isConfidential}
+              onChange={(e) => setIsConfidential(e.target.checked)}
+              className="rounded"
+            />
+            <span className="text-sm">機密（作成者・承認者・経理担当のみ閲覧可能）</span>
+          </label>
         </CardContent>
       </Card>
 

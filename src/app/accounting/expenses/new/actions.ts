@@ -3,6 +3,21 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import type { SessionUser } from "@/types/auth";
+import { isSystemAdmin, isFounder, hasPermission } from "@/lib/auth/permissions";
+
+// 機密フィルタ: 作成者・承認者・経理権限者のみ閲覧可能
+// システム管理者・Founderであっても機密経費は見えない
+function buildExpenseConfidentialFilter(user: SessionUser) {
+  if (hasPermission(user.permissions, "accounting", "edit")) return {};
+  return {
+    OR: [
+      { isConfidential: false },
+      { isConfidential: true, createdBy: user.id },
+      { isConfidential: true, approverStaffId: user.id },
+    ],
+  };
+}
 
 // ============================================
 // 型定義
@@ -199,6 +214,7 @@ export type SubmitExpenseInput = {
   useAllocation?: boolean;
   allocationTemplateId?: number | null;
   costCenterId?: number | null;
+  isConfidential?: boolean;
 };
 
 export async function submitExpenseRequest(
@@ -312,6 +328,7 @@ export async function submitExpenseRequest(
               totalAmount: input.amount,
               taxAmount: input.taxAmount ?? 0,
               expectedPaymentDate: startDate,
+              isConfidential: input.isConfidential ?? false,
               createdBy: staffId,
             },
           });
@@ -340,6 +357,7 @@ export async function submitExpenseRequest(
               status: initialStatus,
               note: input.recurringName!.trim() + (input.note ? ` - ${input.note.trim()}` : ""),
               sourceType: "recurring",
+              isConfidential: input.isConfidential ?? false,
               hasExpenseOwner: validOwners.length > 0,
               createdBy: staffId,
             },
@@ -388,6 +406,7 @@ export async function submitExpenseRequest(
           totalAmount: input.amountType === "fixed" ? input.amount! : null,
           taxAmount: input.amountType === "fixed" ? (input.taxAmount ?? 0) : null,
           expectedPaymentDate: scheduledPaymentDate,
+          isConfidential: input.isConfidential ?? false,
           createdBy: staffId,
         },
       });
@@ -420,6 +439,7 @@ export async function submitExpenseRequest(
             status: initialStatus,
             note: input.note?.trim() || null,
             sourceType: "manual",
+            isConfidential: input.isConfidential ?? false,
             hasExpenseOwner: validOwners.length > 0,
             createdBy: staffId,
           },
@@ -484,12 +504,15 @@ export type ExpenseStatusItem = {
 
 /** 申請状況タブ: プロジェクト内の手動経費一覧 */
 export async function getMyExpenses(projectId: number): Promise<ExpenseStatusItem[]> {
+  const session = await getSession();
+  const confidentialFilter = buildExpenseConfidentialFilter(session);
   const pgs = await prisma.paymentGroup.findMany({
     where: {
       deletedAt: null,
       projectId,
       paymentType: "direct",
       status: { in: ["pending_project_approval", "pending_accounting_approval", "awaiting_accounting", "returned", "paid"] },
+      ...confidentialFilter,
     },
     select: {
       id: true,
