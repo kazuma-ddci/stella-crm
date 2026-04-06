@@ -3,64 +3,113 @@ import { notFound } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { ArrowLeft, Download } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const SECTIONS = [
+const SECTION_GROUPS = [
   {
     title: "基本情報",
-    fields: [
-      "会社名／屋号", "設立年月日", "代表者氏名", "代表者氏名（カナ)", "役職",
-      "本社所在地", "支店・営業所がある場合は所在地", "連絡先（電話番号）",
-      "連絡先（メールアドレス）", "資本金", "従業員数", "ホームページURL",
-    ],
+    keys: ["tradeName", "industry", "mainPhone", "contactPerson", "contactPerson2", "businessDescription", "maxMonthlySales", "industryCode", "constructionLicense", "employeeCount"],
   },
   {
-    title: "事業概要",
-    fields: [
-      "事業の種類・業種・業態", "主力商品・サービスの内容",
-      "事業の特徴や強み（差別化ポイント）", "主要取引先・顧客層",
-      "事業開始の経緯や背景", "現状の事業規模（売上高・利益・店舗数など)",
-    ],
+    title: "振込先（ゆうちょ銀行）",
+    keys: ["bankType", "yuchoAccountType", "yuchoHighValue", "yuchoSymbol", "yuchoBranchNumber", "yuchoNumber", "yuchoHolderName", "yuchoHolderNameKana"],
   },
   {
-    title: "市場・競合情報",
-    fields: [
-      "市場規模・成長性（統計やデータがあれば）",
-      "ターゲット顧客層（年齢・性別・地域・嗜好など）",
-      "競合企業や競合サービス", "自社の優位性・課題",
-    ],
+    title: "振込先（その他の銀行）",
+    keys: ["bankCode", "bankName", "branchCode", "branchName", "deliveryCode", "depositType", "accountNumber", "accountHolderName", "accountHolderNameKana"],
   },
   {
-    title: "支援制度申請関連",
-    fields: [
-      "支援制度の目的", "支援制度を活用して実現したいこと",
-      "支援制度による投資・設備導入・採用など具体的計画",
-      "期待される成果（売上増、雇用創出、効率化など）",
-    ],
+    title: "口座確認書類",
+    keys: ["accountDocType", "accountDocCreditCard"],
   },
   {
-    title: "組織・人材",
-    fields: [
-      "経営陣・主要スタッフの略歴", "担当者ごとの役割・責任",
-      "必要な人材・採用予定",
-    ],
+    title: "事業情報",
+    keys: ["orderDate", "businessContent", "serviceName", "businessOverview", "developmentTimeline", "previousYearOverview"],
   },
   {
-    title: "事業計画・戦略",
-    fields: [
-      "短期（1年以内）の目標", "中期（3年）の目標", "長期（5年）の目標",
-      "売上・利益計画", "販売戦略・マーケティング戦略",
-    ],
+    title: "ITツール情報",
+    keys: ["itBudget", "itCategory", "itToolName", "itToolCategory", "accountingSoftware", "futureBusinessPlan"],
   },
   {
-    title: "財務情報",
-    fields: [
-      "過去3年程度の財務諸表（売上・経費・利益）",
-      "今後の投資計画と資金調達計画", "借入状況・担保・保証情報",
-    ],
+    title: "事業実績・財務",
+    keys: ["mainClientInfo", "businessEnvironment", "supplierInfo", "expenseInfo", "overseasInfo"],
+  },
+  {
+    title: "事業概要情報",
+    keys: ["businessCategory", "publicDisclosure", "systemInfo", "futureManagement"],
+  },
+  {
+    title: "賃金等",
+    keys: ["minWage", "wageIncreasePlan", "salary", "salaryOther", "annualIncome", "salaryAdditional"],
+  },
+  {
+    title: "メールアドレス・その他",
+    keys: ["businessEmail", "recentBusinessPlan", "personalNotes"],
   },
 ];
+
+const FIELD_LABELS: Record<string, string> = {
+  tradeName: "屋号",
+  industry: "業種",
+  mainPhone: "電話番号（メイン）",
+  contactPerson: "先方",
+  contactPerson2: "先方2",
+  businessDescription: "事業の内容",
+  maxMonthlySales: "最大月商",
+  industryCode: "業種コード・類似業種",
+  constructionLicense: "建設業の許可",
+  employeeCount: "従業員数",
+  bankType: "振込先の口座",
+  yuchoAccountType: "口座種別（ゆうちょ）",
+  yuchoHighValue: "高額手数に係る金融機関",
+  yuchoSymbol: "記号",
+  yuchoBranchNumber: "本店番号",
+  yuchoNumber: "番号",
+  yuchoHolderName: "口座名義人",
+  yuchoHolderNameKana: "口座名義人（カタカナ）",
+  bankCode: "金融機関コード",
+  bankName: "金融機関名",
+  branchCode: "支店コード",
+  branchName: "支店名",
+  deliveryCode: "配送コード",
+  depositType: "預金種別",
+  accountNumber: "口座番号",
+  accountHolderName: "口座名義人",
+  accountHolderNameKana: "口座名義人（カタカナ）",
+  accountDocType: "口座確認書類",
+  accountDocCreditCard: "口座情報（クレジット）",
+  orderDate: "発注情報",
+  businessContent: "事業内容",
+  serviceName: "名称・サービス名",
+  businessOverview: "事業計画実績",
+  developmentTimeline: "開発の見通し",
+  previousYearOverview: "前年の事業概要",
+  itBudget: "予算・金額情報",
+  itCategory: "カテゴリ（ソフトウェア分類）",
+  itToolName: "ツール名称・サービス名",
+  itToolCategory: "導入するITツール枠",
+  accountingSoftware: "会計ソフト等",
+  futureBusinessPlan: "今後の事業計画・課題",
+  mainClientInfo: "主な顧客先",
+  businessEnvironment: "主な経営環境の変化",
+  supplierInfo: "主な取引先情報",
+  expenseInfo: "経費類・為替情報",
+  overseasInfo: "海外取引",
+  businessCategory: "事業種別",
+  publicDisclosure: "公表情報",
+  systemInfo: "システム情報",
+  futureManagement: "今後の管理計画",
+  minWage: "事業場内最低賃金",
+  wageIncreasePlan: "賃上げの計画",
+  salary: "報酬（月額）",
+  salaryOther: "報酬（その他手当）",
+  annualIncome: "年初金",
+  salaryAdditional: "賃金（件末年次確認）",
+  businessEmail: "事業用メールアドレス",
+  recentBusinessPlan: "近々の事業計画",
+  personalNotes: "その他備考",
+};
 
 export default async function HojoFormSubmissionDetailPage({
   params,
@@ -77,7 +126,6 @@ export default async function HojoFormSubmissionDetailPage({
   }
 
   const answers = submission.answers as Record<string, string>;
-  const fileUrls = (submission.fileUrls as Record<string, string>) || {};
 
   return (
     <div className="space-y-6">
@@ -94,33 +142,14 @@ export default async function HojoFormSubmissionDetailPage({
         </Badge>
       </div>
 
-      {Object.keys(fileUrls).length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">添付ファイル</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {Object.entries(fileUrls).map(([key, url]) => {
-              const label = key.replace("file_", "");
-              return (
-                <a
-                  key={key}
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-blue-600 hover:underline"
-                >
-                  <Download className="h-4 w-4" />
-                  {label}
-                </a>
-              );
-            })}
-          </CardContent>
-        </Card>
+      {answers._uid && (
+        <div className="rounded-lg border bg-blue-50 p-3">
+          <span className="text-sm font-medium text-blue-800">UID: {answers._uid}</span>
+        </div>
       )}
 
-      {SECTIONS.map((section) => {
-        const hasAnyValue = section.fields.some((f) => answers[f]);
+      {SECTION_GROUPS.map((section) => {
+        const hasAnyValue = section.keys.some((k) => answers[k]);
         if (!hasAnyValue) return null;
         return (
           <Card key={section.title}>
@@ -129,13 +158,13 @@ export default async function HojoFormSubmissionDetailPage({
             </CardHeader>
             <CardContent>
               <dl className="space-y-4">
-                {section.fields.map((field) => {
-                  const value = answers[field];
+                {section.keys.map((key) => {
+                  const value = answers[key];
                   if (!value) return null;
                   return (
-                    <div key={field}>
+                    <div key={key}>
                       <dt className="text-sm font-medium text-muted-foreground mb-1">
-                        {field}
+                        {FIELD_LABELS[key] || key}
                       </dt>
                       <dd className="text-sm whitespace-pre-wrap bg-gray-50 rounded p-3">
                         {value}

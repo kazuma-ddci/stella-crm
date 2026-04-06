@@ -486,3 +486,134 @@ export async function setPrimaryContact(contactId: number) {
 
   revalidatePath("/hojo/settings/vendors");
 }
+
+// ============================
+// フォーム回答からベンダー作成
+// ============================
+
+/** ステータス名から既存IDを取得。存在しなければ自動作成して返す */
+async function findOrCreateStatus(
+  model: "scWholesale" | "consultingPlan" | "vendorRegistration",
+  name: string
+): Promise<number | null> {
+  if (!name || name === "なし") return null;
+
+  if (model === "scWholesale") {
+    const existing = await prisma.hojoVendorScWholesaleStatus.findFirst({ where: { name } });
+    if (existing) return existing.id;
+    const maxOrder = await prisma.hojoVendorScWholesaleStatus.aggregate({ _max: { displayOrder: true } });
+    const created = await prisma.hojoVendorScWholesaleStatus.create({
+      data: { name, displayOrder: (maxOrder._max.displayOrder ?? 0) + 1 },
+    });
+    return created.id;
+  }
+
+  if (model === "consultingPlan") {
+    const existing = await prisma.hojoVendorConsultingPlanStatus.findFirst({ where: { name } });
+    if (existing) return existing.id;
+    const maxOrder = await prisma.hojoVendorConsultingPlanStatus.aggregate({ _max: { displayOrder: true } });
+    const created = await prisma.hojoVendorConsultingPlanStatus.create({
+      data: { name, displayOrder: (maxOrder._max.displayOrder ?? 0) + 1 },
+    });
+    return created.id;
+  }
+
+  if (model === "vendorRegistration") {
+    const existing = await prisma.hojoVendorRegistrationStatus.findFirst({ where: { name } });
+    if (existing) return existing.id;
+    const maxOrder = await prisma.hojoVendorRegistrationStatus.aggregate({ _max: { displayOrder: true } });
+    const created = await prisma.hojoVendorRegistrationStatus.create({
+      data: { name, displayOrder: (maxOrder._max.displayOrder ?? 0) + 1 },
+    });
+    return created.id;
+  }
+
+  return null;
+}
+
+export async function createVendorFromFormSubmission(submissionId: number) {
+  await requireProjectMasterDataEditPermission();
+
+  const submission = await prisma.hojoFormSubmission.findUnique({
+    where: { id: submissionId },
+  });
+  if (!submission || submission.formType !== "contract-confirmation") {
+    throw new Error("フォーム回答が見つかりません");
+  }
+
+  const answers = submission.answers as Record<string, string>;
+
+  // ステータスの解決（選択肢になければ自動追加）
+  const scWholesaleStatusId = await findOrCreateStatus("scWholesale", answers.scWholesale);
+  const consultingPlanStatusId = await findOrCreateStatus("consultingPlan", answers.consultingPlan);
+  const vendorRegistrationStatusId = await findOrCreateStatus("vendorRegistration", answers.vendorRegistration);
+
+  const grantApplicationBpo = answers.grantApplicationBpo === "あり";
+  const subsidyConsulting = answers.subsidyConsulting === "あり";
+  const loanUsage = answers.loanUsage === "あり";
+
+  // メモにLINE名情報を記録（スタッフがLINE選択時の参考にする）
+  const memoLines: string[] = [];
+  if (answers.representativeLineName) memoLines.push(`代表者LINE名: ${answers.representativeLineName}`);
+  if (answers.contactLineName) memoLines.push(`主担当者LINE名: ${answers.contactLineName}`);
+  const vendorMemo = memoLines.length > 0 ? `【フォーム回答より】\n${memoLines.join("\n")}` : null;
+
+  // ベンダー作成
+  const maxOrder = await prisma.hojoVendor.aggregate({ _max: { displayOrder: true } });
+  const vendor = await prisma.hojoVendor.create({
+    data: {
+      name: answers.companyName?.trim() || "（法人名未入力）",
+      accessToken: generateToken(),
+      displayOrder: (maxOrder._max.displayOrder ?? 0) + 1,
+      isActive: true,
+      scWholesaleStatusId,
+      consultingPlanStatusId,
+      vendorRegistrationStatusId,
+      grantApplicationBpo,
+      subsidyConsulting,
+      loanUsage,
+      memo: vendorMemo,
+    },
+  });
+
+  // 代表者の担当者レコード作成
+  if (answers.representativeName?.trim()) {
+    await prisma.hojoVendorContact.create({
+      data: {
+        vendorId: vendor.id,
+        name: answers.representativeName.trim(),
+        role: "representative",
+        phone: answers.representativePhone?.trim() || null,
+        email: answers.representativeEmail?.trim() || null,
+        isPrimary: true,
+      },
+    });
+  }
+
+  // 主担当者の担当者レコード作成
+  if (answers.contactName?.trim()) {
+    await prisma.hojoVendorContact.create({
+      data: {
+        vendorId: vendor.id,
+        name: answers.contactName.trim(),
+        role: "contact_person",
+        phone: answers.contactPhone?.trim() || null,
+        email: answers.contactEmail?.trim() || null,
+        isPrimary: !answers.representativeName?.trim(),
+      },
+    });
+  }
+
+  // フォーム回答にベンダーIDを記録
+  const submissionMemo = [`ベンダー作成済み: ID=${vendor.id}, 名前=${vendor.name}`];
+  if (answers.representativeLineName) submissionMemo.push(`代表者LINE名: ${answers.representativeLineName}`);
+  if (answers.contactLineName) submissionMemo.push(`主担当者LINE名: ${answers.contactLineName}`);
+
+  await prisma.hojoFormSubmission.update({
+    where: { id: submissionId },
+    data: { staffMemo: submissionMemo.join("\n") },
+  });
+
+  revalidatePath("/hojo/settings/vendors");
+  return { vendorId: vendor.id, vendorName: vendor.name };
+}

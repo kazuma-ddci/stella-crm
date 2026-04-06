@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -577,11 +577,11 @@ export function VendorLoanSection({
   individualSubmissions: LoanSubmissionRow[];
 }) {
   const [copied, setCopied] = useState(false);
+  const [formUrl, setFormUrl] = useState(`/form/hojo-loan-application?v=${vendorToken}`);
 
-  const formUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/form/hojo-loan-application?v=${vendorToken}`
-      : `/form/hojo-loan-application?v=${vendorToken}`;
+  useEffect(() => {
+    setFormUrl(`${window.location.origin}/form/hojo-loan-application?v=${vendorToken}`);
+  }, [vendorToken]);
 
   const handleCopy = async () => {
     try {

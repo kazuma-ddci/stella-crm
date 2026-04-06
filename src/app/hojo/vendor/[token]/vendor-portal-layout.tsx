@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -82,6 +83,9 @@ export function VendorPortalLayout({
   children,
 }: Props) {
   const router = useRouter();
+  // SSR/クライアント間のRadix useId()不一致を防ぐため、Selectはマウント後にのみ描画
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   const handleVendorChange = (token: string) => {
     router.push(`/hojo/vendor/${token}`);
@@ -95,7 +99,7 @@ export function VendorPortalLayout({
           userName={isVendor ? userName : undefined}
           onLogout={() => signOut({ callbackUrl: `/hojo/vendor/${vendorToken}` })}
           extra={
-            allVendors.length > 0 ? (
+            mounted && allVendors.length > 0 ? (
               <Select value={vendorToken} onValueChange={handleVendorChange}>
                 <SelectTrigger className="w-[200px]">
                   <SelectValue />

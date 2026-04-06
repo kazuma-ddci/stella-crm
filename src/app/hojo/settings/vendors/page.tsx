@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VendorsTable } from "./vendors-table";
+import { FormResponsesTable } from "./form-responses-table";
 import { auth } from "@/auth";
 import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 
@@ -99,22 +101,66 @@ export default async function VendorsPage() {
     };
   });
 
+  // フォーム回答データ取得
+  const formResponses = await prisma.hojoFormSubmission.findMany({
+    where: { formType: "contract-confirmation", deletedAt: null },
+    orderBy: { submittedAt: "desc" },
+  });
+
+  const formResponseData = formResponses.map((r) => ({
+    id: r.id,
+    companyName: r.companyName,
+    representName: r.representName,
+    email: r.email,
+    phone: r.phone,
+    submittedAt: r.submittedAt.toISOString(),
+    answers: (r.answers as Record<string, string>) ?? {},
+    staffMemo: r.staffMemo,
+  }));
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">ベンダー</h1>
-      <Card>
-        <CardHeader>
-          <CardTitle>ベンダー一覧</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <VendorsTable
-            data={data}
-            canEdit={canEdit}
-            staffOptions={staffOptions}
-            scLineFriendOptions={scLineFriendOptions}
-          />
-        </CardContent>
-      </Card>
+      <Tabs defaultValue="vendors">
+        <TabsList>
+          <TabsTrigger value="vendors">ベンダー一覧</TabsTrigger>
+          <TabsTrigger value="form-responses">
+            フォーム回答
+            {formResponseData.length > 0 && (
+              <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-700">
+                {formResponseData.length}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="vendors">
+          <Card>
+            <CardHeader>
+              <CardTitle>ベンダー一覧</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <VendorsTable
+                data={data}
+                canEdit={canEdit}
+                staffOptions={staffOptions}
+                scLineFriendOptions={scLineFriendOptions}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="form-responses">
+          <Card>
+            <CardHeader>
+              <CardTitle>契約内容確認フォーム回答</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <FormResponsesTable data={formResponseData} canEdit={canEdit} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

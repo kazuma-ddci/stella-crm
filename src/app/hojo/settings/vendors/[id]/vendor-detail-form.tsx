@@ -49,6 +49,16 @@ import {
 } from "../actions";
 import type { StatusType } from "../vendor-status-management-modal";
 
+/** ベンダーメモからフォーム回答のLINE名を抽出する */
+function extractFormLineNames(memo: string): { representative: string | null; contact: string | null } {
+  const repMatch = memo.match(/代表者LINE名:\s*(.+)/);
+  const contMatch = memo.match(/主担当者LINE名:\s*(.+)/);
+  return {
+    representative: repMatch?.[1]?.trim() || null,
+    contact: contMatch?.[1]?.trim() || null,
+  };
+}
+
 type ContactData = {
   id: number;
   name: string | null;
@@ -146,6 +156,9 @@ export function VendorDetailForm({
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+
+  // フォーム回答由来のLINE名ヒント
+  const formLineNames = useMemo(() => extractFormLineNames(vendor.memo || ""), [vendor.memo]);
 
   // サービス契約状況
   const [scWholesaleStatusId, setScWholesaleStatusId] = useState<string>(
@@ -653,6 +666,14 @@ export function VendorDetailForm({
                 onChange={(e) => setFormPhone(e.target.value)}
                 placeholder="03-xxxx-xxxx"
               />
+              {(() => {
+                const hint = formRoleSelect === "representative" ? formLineNames.representative
+                  : formRoleSelect === "contact_person" ? formLineNames.contact
+                  : null;
+                return hint ? (
+                  <p className="text-xs text-blue-600 font-medium">LINE名: {hint}</p>
+                ) : null;
+              })()}
             </div>
             <div className="space-y-2">
               <Label>{scLabel}LINE</Label>
