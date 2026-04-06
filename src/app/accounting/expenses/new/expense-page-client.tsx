@@ -32,6 +32,7 @@ type Props = {
   recurringTransactions: RecurringItem[];
   monthlySummary: MonthlySummary[];
   pendingApprovals: ExpenseStatusItem[];
+  showProject?: boolean; // 定期取引でプロジェクト名を表示するか
 };
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
@@ -301,7 +302,7 @@ function PendingApprovalsTab({ items }: { items: ExpenseStatusItem[] }) {
 // ============================================
 // 定期取引タブ
 // ============================================
-function RecurringTab({ items }: { items: RecurringItem[] }) {
+function RecurringTab({ items, showProject = false }: { items: RecurringItem[]; showProject?: boolean }) {
   if (items.length === 0) {
     return <p className="text-muted-foreground text-center py-12">定期取引は登録されていません</p>;
   }
@@ -310,6 +311,7 @@ function RecurringTab({ items }: { items: RecurringItem[] }) {
       <Table>
         <TableHeader>
           <TableRow>
+            {showProject && <TableHead>プロジェクト</TableHead>}
             <TableHead>名称</TableHead>
             <TableHead>取引先</TableHead>
             <TableHead className="text-right">金額</TableHead>
@@ -322,6 +324,11 @@ function RecurringTab({ items }: { items: RecurringItem[] }) {
         <TableBody>
           {items.map((item) => (
             <TableRow key={item.id}>
+              {showProject && (
+                <TableCell>
+                  <Badge variant="outline" className="text-xs">{item.projectName ?? "-"}</Badge>
+                </TableCell>
+              )}
               <TableCell className="font-medium">{item.name}</TableCell>
               <TableCell>{item.counterpartyName}</TableCell>
               <TableCell className="text-right">
@@ -398,6 +405,7 @@ function MonthlySummaryTab({ items }: { items: MonthlySummary[] }) {
 export function ExpensePageClient({
   formData, mode, backUrl,
   myExpenses, recurringTransactions, monthlySummary, pendingApprovals,
+  showProject = false,
 }: Props) {
   const returnedCount = myExpenses.filter((e) => e.status === "returned").length;
 
@@ -447,7 +455,7 @@ export function ExpensePageClient({
       </TabsContent>
 
       <TabsContent value="recurring" className="mt-6">
-        <RecurringTab items={recurringTransactions} />
+        <RecurringTab items={recurringTransactions} showProject={showProject} />
       </TabsContent>
 
       <TabsContent value="monthly" className="mt-6">
