@@ -202,7 +202,7 @@ export async function getPaymentGroupSummary(
 
   return {
     id: group.id,
-    counterpartyName: group.counterparty.name,
+    counterpartyName: group.counterparty?.name ?? "（未設定）",
     operatingCompanyName: group.operatingCompany.companyName,
     totalAmount: group.totalAmount,
     taxAmount: group.taxAmount,

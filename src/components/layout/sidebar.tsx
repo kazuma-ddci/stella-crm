@@ -53,6 +53,7 @@ import {
   AlertTriangle,
   Package,
   UserCog,
+  Plus,
 } from "lucide-react";
 import { canView } from "@/lib/auth/permissions";
 import type { SessionUser } from "@/types/auth";
@@ -195,6 +196,7 @@ const navigation: NavItem[] = [
           { name: "売上・支払トラッカー", href: "/stp/finance/billing", icon: ClipboardCheck },
           { name: "請求管理（売上）", href: "/stp/finance/invoices", icon: Receipt },
           { name: "支払管理（経費）", href: "/stp/finance/payment-groups", icon: Wallet },
+          { name: "経費申請", href: "/stp/expenses/new", icon: Plus },
           { name: "売掛金年齢表", href: "/stp/finance/aging", icon: Clock },
           { name: "契約別ステータス", href: "/stp/finance/contract-status", icon: CheckCircle2 },
           { name: "代理店別サマリー", href: "/stp/finance/agent-summary", icon: Users },
@@ -252,6 +254,7 @@ const navigation: NavItem[] = [
           { name: "公式LINE友達情報", href: "/slp/line-friends", icon: MessageSquare },
         ],
       },
+      { name: "経費申請", href: "/slp/expenses/new", icon: Plus },
       {
         name: "管理",
         icon: Settings,
@@ -333,6 +336,7 @@ const navigation: NavItem[] = [
           { name: "フォーム回答一覧(仮)", href: "/hojo/form-submissions", icon: ClipboardList },
         ],
       },
+      { name: "経費申請", href: "/hojo/expenses/new", icon: Plus },
       {
         name: "管理",
         icon: Settings,
@@ -364,9 +368,11 @@ const navigation: NavItem[] = [
       { name: "ダッシュボード", href: "/accounting/dashboard", icon: Home },
       { name: "スタッフ管理", href: "/staff", icon: Users },
       { name: "ワークフロー", href: "/accounting/workflow", icon: ClipboardList },
+      { name: "手動経費追加", href: "/accounting/expenses/new", icon: Plus },
       { name: "税区分チェック", href: "/accounting/invoice-check", icon: FileCheck },
       { name: "会計取引", href: "/accounting/transactions", icon: Landmark },
       { name: "入出金管理", href: "/accounting/bank-transactions", icon: Receipt },
+      { name: "入出金履歴", href: "/accounting/bank-transactions/history", icon: History },
       { name: "消込管理", href: "/accounting/reconciliation", icon: ArrowLeftRight },
       { name: "確認管理", href: "/accounting/verification", icon: CheckSquare },
       { name: "予実管理", href: "/accounting/budget", icon: TrendingUp },
@@ -385,6 +391,7 @@ const navigation: NavItem[] = [
           { name: "決済手段", href: "/accounting/masters/payment-methods", icon: Wallet },
           { name: "定期取引", href: "/accounting/masters/recurring-transactions", icon: Repeat },
           { name: "経理用プロジェクト管理", href: "/accounting/masters/cost-centers", icon: Tag },
+          { name: "按分テンプレート", href: "/accounting/masters/allocation-templates", icon: Layers },
           { name: "費目マスタ", href: "/accounting/masters/expense-categories", icon: Tag },
         ],
       },
@@ -396,6 +403,7 @@ const navigation: NavItem[] = [
           { name: "プロジェクト設定", href: "/accounting/settings/project", icon: Building2 },
           { name: "スタッフ役割種別", href: "/staff/role-types?project=accounting", icon: Tags },
           { name: "担当者フィールド制約", href: "/staff/field-restrictions?project=accounting", icon: Shield },
+          { name: "マネーフォワード連携", href: "/accounting/settings/moneyforward", icon: Landmark },
         ],
       },
     ],
@@ -829,6 +837,7 @@ interface SidebarContentProps {
   hiddenItems?: string[];
   projectNames?: Record<string, string>;
   bbsPendingCount?: number;
+  expenseApprovalCounts?: Record<string, number>;
 }
 
 export function SidebarContent({
@@ -839,9 +848,25 @@ export function SidebarContent({
   hiddenItems,
   projectNames,
   bbsPendingCount,
+  expenseApprovalCounts,
 }: SidebarContentProps) {
   const appTitle = process.env.NEXT_PUBLIC_APP_TITLE || "Stella 基幹OS";
-  const navItems = getFilteredNavigation(user, hiddenItems, projectNames, bbsPendingCount);
+  let navItems = getFilteredNavigation(user, hiddenItems, projectNames, bbsPendingCount);
+
+  // 経費承認待ちバッジを各プロジェクトの経費申請メニューに適用
+  if (expenseApprovalCounts) {
+    const projectHrefMap: Record<string, string> = {
+      stp: "/stp/expenses/new",
+      slp: "/slp/expenses/new",
+      hojo: "/hojo/expenses/new",
+    };
+    for (const [code, count] of Object.entries(expenseApprovalCounts)) {
+      const href = projectHrefMap[code];
+      if (href && count > 0) {
+        navItems = applyBadgeCount(navItems, href, count);
+      }
+    }
+  }
   const userId = user?.loginId ?? undefined;
 
   // 折りたたみモード: アイコンのみ表示
@@ -908,9 +933,10 @@ interface SidebarProps {
   hiddenItems?: string[];
   projectNames?: Record<string, string>;
   bbsPendingCount?: number;
+  expenseApprovalCounts?: Record<string, number>;
 }
 
-export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems, projectNames, bbsPendingCount }: SidebarProps) {
+export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems, projectNames, bbsPendingCount, expenseApprovalCounts }: SidebarProps) {
   return (
     <div
       className={cn(
@@ -925,6 +951,7 @@ export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems, projec
         hiddenItems={hiddenItems}
         projectNames={projectNames}
         bbsPendingCount={bbsPendingCount}
+        expenseApprovalCounts={expenseApprovalCounts}
       />
     </div>
   );

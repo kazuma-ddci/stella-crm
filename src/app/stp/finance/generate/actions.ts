@@ -1781,20 +1781,50 @@ async function detectRecurringCandidates(
 
 /**
  * 定期取引が対象月にアクティブかどうかをチェック
+ * intervalCount = 1 (default) ならば毎月/毎年、2以上で N ヶ月ごと/N 年ごと
  */
 function isRecurringActiveForMonth(
-  rt: { frequency: string; executionDay: number | null; startDate: Date; endDate: Date | null },
+  rt: {
+    frequency: string;
+    executionDay: number | null;
+    intervalCount: number;
+    startDate: Date;
+    endDate: Date | null;
+  },
   monthStart: Date
 ): boolean {
-  if (rt.frequency === "monthly") return true;
+  // 終了日超過チェック（where句でも見ているが二重安全網）
+  if (rt.endDate && rt.endDate < monthStart) return false;
+
+  const startYear = rt.startDate.getUTCFullYear();
+  const startMonth = rt.startDate.getUTCMonth();
+  const targetYear = monthStart.getUTCFullYear();
+  const targetMonth = monthStart.getUTCMonth();
+  const interval = Math.max(1, rt.intervalCount || 1);
+
+  if (rt.frequency === "once") {
+    // 一度限り: startDate の月のみアクティブ
+    return startYear === targetYear && startMonth === targetMonth;
+  }
+
+  if (rt.frequency === "monthly") {
+    // startDate 以前はスキップ
+    if (targetYear < startYear || (targetYear === startYear && targetMonth < startMonth)) {
+      return false;
+    }
+    // startDate からの月数差が interval の倍数か
+    const monthDiff = (targetYear - startYear) * 12 + (targetMonth - startMonth);
+    return monthDiff >= 0 && monthDiff % interval === 0;
+  }
 
   if (rt.frequency === "yearly") {
-    // startDate の月と対象月が一致するかチェック
-    return rt.startDate.getUTCMonth() === monthStart.getUTCMonth();
+    // 月が一致し、年差が interval の倍数
+    if (startMonth !== targetMonth) return false;
+    const yearDiff = targetYear - startYear;
+    return yearDiff >= 0 && yearDiff % interval === 0;
   }
 
   if (rt.frequency === "weekly") {
-    // 週次: 対象月に少なくとも1回は実行日がある
     return true;
   }
 

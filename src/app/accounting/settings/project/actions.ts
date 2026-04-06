@@ -7,7 +7,7 @@ import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-p
 // プロジェクト基本情報更新
 export async function updateProjectBasicInfo(
   projectId: number,
-  data: { name?: string; description?: string }
+  data: { name?: string; description?: string; defaultApproverStaffId?: number | null }
 ) {
   await requireProjectMasterDataEditPermission("accounting");
 
@@ -15,6 +15,13 @@ export async function updateProjectBasicInfo(
   if (data.name !== undefined) updateData.name = data.name.trim();
   if (data.description !== undefined)
     updateData.description = data.description.trim() || null;
+  if (data.defaultApproverStaffId !== undefined) {
+    if (data.defaultApproverStaffId) {
+      updateData.defaultApprover = { connect: { id: data.defaultApproverStaffId } };
+    } else {
+      updateData.defaultApprover = { disconnect: true };
+    }
+  }
 
   if (Object.keys(updateData).length > 0) {
     await prisma.masterProject.update({

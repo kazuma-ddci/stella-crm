@@ -36,13 +36,14 @@ export default async function RootLayout({
   let hiddenItems: string[] = [];
   let projectNames: Record<string, string> = {};
   let bbsPendingCount = 0;
+  let expenseApprovalCounts: Record<string, number> = {};
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userId = (user as any)?.id as number | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userType = (user as any)?.userType;
   if (userId && userType === "staff") {
     try {
-      const [pref, projects, bbsPending, vendorPending, lenderPending] = await Promise.all([
+      const [pref, projects, bbsPending, vendorPending, lenderPending, expenseApprovals] = await Promise.all([
         prisma.staffSidebarPreference.findUnique({
           where: { staffId: userId },
           select: { hiddenItems: true },
@@ -60,10 +61,40 @@ export default async function RootLayout({
         prisma.hojoLenderAccount.count({
           where: { status: "pending_approval" },
         }),
+        // 経費申請の承認待ち（自分が承認者のもの）をプロジェクト別にカウント
+        prisma.paymentGroup.groupBy({
+          by: ["projectId"],
+          where: {
+            deletedAt: null,
+            status: "pending_project_approval",
+            approverStaffId: userId,
+          },
+          _count: true,
+        }),
       ]);
       hiddenItems = pref?.hiddenItems ?? [];
       bbsPendingCount = bbsPending + vendorPending + lenderPending;
       projectNames = Object.fromEntries(projects.map((p) => [p.code, p.name]));
+
+      // プロジェクトID→コードのマッピング
+      const idToCode = Object.fromEntries(
+        projects.map((p) => {
+          const proj = projects.find((pp) => pp.code === p.code);
+          return [proj?.code, p.code];
+        })
+      );
+      // projectId → code 変換用にDB再取得
+      const projectIdMap = await prisma.masterProject.findMany({
+        where: { isActive: true },
+        select: { id: true, code: true },
+      });
+      const pidToCode = Object.fromEntries(projectIdMap.map((p) => [p.id, p.code]));
+      for (const g of expenseApprovals) {
+        if (g.projectId) {
+          const code = pidToCode[g.projectId];
+          if (code) expenseApprovalCounts[code] = g._count;
+        }
+      }
     } catch {
       // DBエラー時は空のまま
     }
@@ -78,7 +109,7 @@ export default async function RootLayout({
           <BuildVersionChecker />
           <PermissionGuard />
           {user ? (
-            <AuthenticatedLayout serverUser={user} hiddenItems={hiddenItems} projectNames={projectNames} bbsPendingCount={bbsPendingCount}>
+            <AuthenticatedLayout serverUser={user} hiddenItems={hiddenItems} projectNames={projectNames} bbsPendingCount={bbsPendingCount} expenseApprovalCounts={expenseApprovalCounts}>
               {children}
             </AuthenticatedLayout>
           ) : (

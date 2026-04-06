@@ -42,10 +42,19 @@ export default async function AccountingProjectSettingsPage() {
 
   const isSystemAdmin = user?.loginId === "admin";
 
+  const approverPermissions = await prisma.staffPermission.findMany({
+    where: { projectId: accountingProject.id, canApprove: true },
+    select: { staff: { select: { id: true, name: true, isActive: true, isSystemUser: true } } },
+  });
+  const approverOptions = approverPermissions
+    .filter((p) => p.staff.isActive && !p.staff.isSystemUser)
+    .map((p) => ({ id: p.staff.id, name: p.staff.name }));
+
   const projectData = {
     id: accountingProject.id,
     name: accountingProject.name,
     description: accountingProject.description,
+    defaultApproverStaffId: accountingProject.defaultApproverStaffId as number | null,
   };
 
   const operatingCompanyData = accountingProject.operatingCompany
@@ -69,6 +78,7 @@ export default async function AccountingProjectSettingsPage() {
         operatingCompany={operatingCompanyData}
         isSystemAdmin={isSystemAdmin}
         canEdit={canEdit}
+        approverOptions={approverOptions}
         emails={accountingProject.projectEmails.map((pe) => ({
           email: pe.email.email,
           label: pe.email.label,

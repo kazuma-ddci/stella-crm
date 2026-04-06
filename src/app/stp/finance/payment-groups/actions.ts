@@ -65,7 +65,13 @@ export async function getPaymentGroups(
   const confidentialFilter = buildConfidentialFilter(session);
 
   const records = await prisma.paymentGroup.findMany({
-    where: { deletedAt: null, ...(projectId ? { projectId } : {}), ...confidentialFilter },
+    where: {
+      deletedAt: null,
+      ...(projectId ? { projectId } : {}),
+      ...confidentialFilter,
+      // 手動経費申請はここに表示しない（経費申請ページで管理）
+      status: { notIn: ["pending_project_approval", "pending_accounting_approval"] },
+    },
     include: {
       counterparty: true,
       operatingCompany: true,
@@ -82,7 +88,7 @@ export async function getPaymentGroups(
     id: r.id,
     referenceCode: r.referenceCode,
     counterpartyId: r.counterpartyId,
-    counterpartyName: r.counterparty.name,
+    counterpartyName: r.counterparty?.name ?? "（未設定）",
     operatingCompanyId: r.operatingCompanyId,
     operatingCompanyName: r.operatingCompany.companyName,
     targetMonth: r.targetMonth ? toLocalDateString(r.targetMonth).slice(0, 7) : null,
@@ -363,7 +369,10 @@ export async function createPaymentGroup(data: {
       }
     }
 
-    const initialStatus = creatorCanApprove ? "before_request" : "pending_approval";
+    // CRM自動生成取引のみで構成されるグループは承認不要
+    const allCrmGenerated = transactions.every((t) => t.sourceType === "crm");
+    const skipApproval = creatorCanApprove || allCrmGenerated;
+    const initialStatus = skipApproval ? "before_request" : "pending_approval";
 
     const group = await tx.paymentGroup.create({
       data: {
@@ -407,11 +416,11 @@ export async function createPaymentGroup(data: {
       newData: { status: initialStatus, paymentType: "invoice", counterpartyId: data.counterpartyId, operatingCompanyId: data.operatingCompanyId },
     }, user.id, tx);
 
-    return { id: group.id, counterpartyName: "" };
+    return { id: group.id, counterpartyName: "", allCrmGenerated };
   });
 
   // 承認が必要な場合のみ、承認者に通知を送信
-  if (!creatorCanApprove) {
+  if (!creatorCanApprove && !result.allCrmGenerated) {
     const stpProject = await prisma.masterProject.findFirst({
       where: { code: "stp" },
     });
@@ -879,7 +888,7 @@ export async function addTransactionToPaymentGroup(
       status: "confirmed",
       paymentGroupId: null,
       type: "expense",
-      counterpartyId: group.counterpartyId,
+      ...(group.counterpartyId ? { counterpartyId: group.counterpartyId } : {}),
       projectId: stpProjectId,
     },
   });

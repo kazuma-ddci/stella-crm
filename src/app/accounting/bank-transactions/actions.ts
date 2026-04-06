@@ -76,7 +76,7 @@ export type BankTransactionRow = {
   paymentGroup: {
     id: number;
     referenceCode: string | null;
-    counterparty: { name: string };
+    counterparty: { name: string } | null;
     totalAmount: number | null;
   } | null;
   reconciliations: {
@@ -240,13 +240,13 @@ export async function getBankTransactionFormData(): Promise<BankTransactionFormD
     invoiceGroups: invoiceGroups.map((ig) => ({
       id: ig.id,
       invoiceNumber: ig.invoiceNumber,
-      counterpartyName: ig.counterparty.name,
+      counterpartyName: ig.counterparty?.name ?? "",
       totalAmount: ig.totalAmount,
     })),
     paymentGroups: paymentGroups.map((pg) => ({
       id: pg.id,
       referenceCode: pg.referenceCode,
-      counterpartyName: pg.counterparty.name,
+      counterpartyName: pg.counterparty?.name ?? "",
       totalAmount: pg.totalAmount,
     })),
   };

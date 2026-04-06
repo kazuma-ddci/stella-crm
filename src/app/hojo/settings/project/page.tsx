@@ -42,10 +42,19 @@ export default async function HojoProjectSettingsPage() {
 
   const isSystemAdmin = user?.loginId === "admin";
 
+  const approverPermissions = await prisma.staffPermission.findMany({
+    where: { projectId: hojoProject.id, canApprove: true },
+    select: { staff: { select: { id: true, name: true, isActive: true, isSystemUser: true } } },
+  });
+  const approverOptions = approverPermissions
+    .filter((p) => p.staff.isActive && !p.staff.isSystemUser)
+    .map((p) => ({ id: p.staff.id, name: p.staff.name }));
+
   const projectData = {
     id: hojoProject.id,
     name: hojoProject.name,
     description: hojoProject.description,
+    defaultApproverStaffId: hojoProject.defaultApproverStaffId as number | null,
   };
 
   const operatingCompanyData = hojoProject.operatingCompany
@@ -69,6 +78,7 @@ export default async function HojoProjectSettingsPage() {
         operatingCompany={operatingCompanyData}
         isSystemAdmin={isSystemAdmin}
         canEdit={canEdit}
+        approverOptions={approverOptions}
         emails={hojoProject.projectEmails.map((pe) => ({
           email: pe.email.email,
           label: pe.email.label,

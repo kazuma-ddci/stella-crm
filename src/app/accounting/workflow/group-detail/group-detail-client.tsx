@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -25,14 +25,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Plus, Check, Clock, AlertCircle, Lock, ChevronDown, ChevronRight, Pencil, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, Plus, Check, Clock, AlertCircle, Lock, ChevronDown, ChevronRight, Pencil, Trash2, Undo2, Upload, FileText, X } from "lucide-react";
 import { toast } from "sonner";
 import { JournalEntryModal } from "../../journal/journal-entry-modal";
 import { realizeJournalEntry, confirmJournalEntry, deleteJournalEntry } from "../../journal/actions";
-import { setTransactionJournalCompleted } from "../actions";
+import { setTransactionJournalCompleted, getGroupAttachments, addGroupAttachments, deleteGroupAttachment } from "../actions";
 import { returnGroupToStp } from "../../batch-complete/actions";
 import type { WorkflowGroupDetail, WorkflowTransaction } from "../actions";
 import type { JournalFormData } from "../../journal/actions";
+import { ATTACHMENT_TYPE_OPTIONS, ATTACHMENT_TYPE_LABELS } from "@/lib/attachments/constants";
 /** 税込合計を返す（tax_included の場合 amount がすでに税込） */
 function getTaxIncludedTotal(tx: WorkflowTransaction): number {
   return tx.taxType === "tax_included" ? tx.amount : tx.amount + tx.taxAmount;
@@ -97,6 +98,57 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
   const [expandedJournalIds, setExpandedJournalIds] = useState<Set<number>>(new Set());
   const [editJournalEntry, setEditJournalEntry] = useState<WorkflowTransaction["journalEntries"][number] | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
+
+  // 証憑管理
+  type AttachmentRow = { id: number; fileName: string; filePath: string; fileSize: number | null; mimeType: string | null; attachmentType: string; displayName: string | null; generatedName: string | null; createdAt: string };
+  const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    getGroupAttachments(detail.id, detail.groupType).then(setAttachments);
+  }, [detail.id, detail.groupType]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploadingAttachment(true);
+    try {
+      const uploadEndpoint = detail.groupType === "invoice"
+        ? "/api/finance/invoice-groups/upload"
+        : "/api/finance/payment-groups/upload";
+      const formData = new FormData();
+      formData.append("groupId", detail.id.toString());
+      for (const file of Array.from(files)) {
+        formData.append("files", file);
+      }
+      const res = await fetch(uploadEndpoint, { method: "POST", body: formData });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "アップロードに失敗しました");
+      }
+      const { files: uploadedFiles } = await res.json();
+      await addGroupAttachments(detail.id, detail.groupType, uploadedFiles);
+      const updated = await getGroupAttachments(detail.id, detail.groupType);
+      setAttachments(updated);
+      toast.success(`${files.length}件の証憑をアップロードしました`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "アップロードに失敗しました");
+    } finally {
+      setUploadingAttachment(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleDeleteAttachment = async (attachmentId: number) => {
+    try {
+      await deleteGroupAttachment(attachmentId);
+      setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+      toast.success("証憑を削除しました");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "削除に失敗しました");
+    }
+  };
 
   const isCompleted = detail.category === "completed";
   const isReturned = detail.category === "returned";
@@ -632,6 +684,80 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
         </Card>
       ))}
 
+      {/* 証憑セクション */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              証憑 ({attachments.length}件)
+            </CardTitle>
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp,.txt,.csv"
+                onChange={handleFileUpload}
+                className="hidden"
+                disabled={uploadingAttachment}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingAttachment}
+              >
+                <Upload className="h-3 w-3 mr-1" />
+                {uploadingAttachment ? "アップロード中..." : "証憑を追加"}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {attachments.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              証憑がまだ添付されていません
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {attachments.map((att) => (
+                <div key={att.id} className="flex items-center gap-3 p-2 border rounded text-sm hover:bg-muted/50">
+                  <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <a
+                      href={att.filePath}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline truncate block"
+                    >
+                      {att.displayName || att.generatedName || att.fileName}
+                    </a>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Badge variant="outline" className="text-[10px] px-1 py-0">
+                        {ATTACHMENT_TYPE_LABELS[att.attachmentType] || att.attachmentType}
+                      </Badge>
+                      {att.fileSize && (
+                        <span>{(att.fileSize / 1024).toFixed(0)} KB</span>
+                      )}
+                      <span>{new Date(att.createdAt).toLocaleDateString("ja-JP")}</span>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
+                    onClick={() => handleDeleteAttachment(att.id)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* 仕訳作成モーダル */}
       <JournalEntryModal
         open={journalModalOpen}
@@ -640,7 +766,7 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
         onSuccess={handleJournalSuccess}
         defaultTransactionId={selectedTransactionId ?? undefined}
         defaultProjectId={selectedProjectId ?? undefined}
-        defaultCounterpartyId={detail.counterpartyId}
+        defaultCounterpartyId={detail.counterpartyId ?? undefined}
       />
 
       {/* 仕訳完了確認ダイアログ */}

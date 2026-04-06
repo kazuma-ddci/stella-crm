@@ -2,12 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
 
 // ============================================
 // 型定義
 // ============================================
 
 export type WorkflowCategory =
+  | "pending_project_overdue" // プロジェクト未承認（決済予定日5日以内）— 警告
+  | "pending_accounting_approval" // 経理承認待ち（プロジェクト承認済み、経理未承認）
   | "needs_journal"    // 仕訳待ち
   | "in_progress"      // 処理中（実現待ち and/or 入出金確認待ち）
   | "completed"        // 完了
@@ -31,6 +34,10 @@ export type WorkflowGroup = {
   isAllJournalized: boolean;      // 全取引に仕訳あり
   isAllRealized: boolean;         // 全仕訳が実現済み
   hasActualPaymentDate: boolean;  // 入金日/支払日が記録済み
+  // 警告用（プロジェクト未承認）
+  expectedPaymentDate: Date | null;
+  approverName: string | null;
+  daysUntilPayment: number | null;
   // TODO: 消込は将来的に追加
 };
 
@@ -80,7 +87,7 @@ export type WorkflowGroupDetail = {
   groupType: "invoice" | "payment";
   label: string;
   counterpartyName: string;
-  counterpartyId: number;
+  counterpartyId: number | null;
   totalAmount: number | null;
   status: string;
   actualPaymentDate: Date | null;
@@ -102,6 +109,9 @@ function determineCategory(
   allRealizedCount: number,
   hasActualPaymentDate: boolean
 ): WorkflowCategory {
+  // 経理承認待ち（プロジェクト承認済み）
+  if (status === "pending_accounting_approval") return "pending_accounting_approval";
+
   // 差し戻し中
   if (status === "returned") return "returned";
 
@@ -162,7 +172,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
     prisma.paymentGroup.findMany({
       where: {
         deletedAt: null,
-        status: { in: ["awaiting_accounting", "paid", "returned"] },
+        status: { in: ["pending_project_approval", "pending_accounting_approval", "awaiting_accounting", "paid", "returned"] },
       },
       select: {
         id: true,
@@ -171,14 +181,18 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         status: true,
         createdAt: true,
         actualPaymentDate: true,
+        expectedPaymentDate: true,
         projectId: true,
+        customCounterpartyName: true,
         counterparty: { select: { name: true } },
+        approver: { select: { name: true } },
         transactions: {
           where: { deletedAt: null },
           select: {
             id: true,
             status: true,
             journalCompleted: true,
+            sourceType: true,
             journalEntries: {
               where: { deletedAt: null, status: "confirmed" },
               select: { id: true, realizationStatus: true },
@@ -226,9 +240,13 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       isAllJournalized,
       isAllRealized,
       hasActualPaymentDate,
+      expectedPaymentDate: null,
+      approverName: null,
+      daysUntilPayment: null,
     });
   }
 
+  const now = new Date();
   for (const pg of paymentGroups) {
     const txCount = pg.transactions.length;
     const journalizedCount = pg.transactions.filter(
@@ -243,6 +261,40 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
     const isAllJournalized = txCount > 0 && journalizedCount === txCount;
     const isAllRealized = txCount > 0 && allRealizedCount === txCount;
 
+    // 決済予定日までの日数
+    const daysUntilPayment = pg.expectedPaymentDate
+      ? Math.ceil((pg.expectedPaymentDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+
+    // pending_project_approval は経理側には「5日以内の警告」のみ表示
+    if (pg.status === "pending_project_approval") {
+      // 定期取引由来かつ決済予定日5日以内のもののみ表示
+      const isRecurring = pg.transactions.some((t) => t.sourceType === "recurring");
+      if (!isRecurring || daysUntilPayment === null || daysUntilPayment > 5) continue;
+
+      groups.push({
+        id: pg.id,
+        groupType: "payment",
+        label: pg.referenceCode ?? `PG-${pg.id}`,
+        counterpartyName: pg.counterparty?.name ?? pg.customCounterpartyName ?? "（未設定）",
+        totalAmount: pg.totalAmount,
+        status: pg.status,
+        createdAt: pg.createdAt,
+        category: "pending_project_overdue",
+        projectId: pg.projectId ?? null,
+        transactionCount: txCount,
+        journalizedCount,
+        allRealizedCount,
+        isAllJournalized,
+        isAllRealized,
+        hasActualPaymentDate,
+        expectedPaymentDate: pg.expectedPaymentDate,
+        approverName: pg.approver?.name ?? null,
+        daysUntilPayment,
+      });
+      continue;
+    }
+
     const category = determineCategory(
       pg.status, txCount, journalizedCount, allRealizedCount, hasActualPaymentDate
     );
@@ -251,7 +303,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       id: pg.id,
       groupType: "payment",
       label: pg.referenceCode ?? `PG-${pg.id}`,
-      counterpartyName: pg.counterparty.name,
+      counterpartyName: pg.counterparty?.name ?? pg.customCounterpartyName ?? "（未設定）",
       totalAmount: pg.totalAmount,
       status: pg.status,
       createdAt: pg.createdAt,
@@ -263,6 +315,9 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       isAllJournalized,
       isAllRealized,
       hasActualPaymentDate,
+      expectedPaymentDate: pg.expectedPaymentDate ?? null,
+      approverName: pg.approver?.name ?? null,
+      daysUntilPayment,
     });
   }
 
@@ -474,8 +529,8 @@ export async function getWorkflowGroupDetail(
     id: group.id,
     groupType: "payment",
     label: group.referenceCode ?? `PG-${group.id}`,
-    counterpartyName: group.counterparty.name,
-    counterpartyId: group.counterparty.id,
+    counterpartyName: group.counterparty?.name ?? "（未設定）",
+    counterpartyId: group.counterparty?.id ?? 0,
     totalAmount: group.totalAmount,
     status: group.status,
     actualPaymentDate: group.actualPaymentDate,
@@ -567,5 +622,482 @@ export async function checkAndCompleteTransaction(transactionId: number) {
     });
   }
 
+  revalidatePath("/accounting/workflow");
+}
+
+// ============================================
+// 5. approvePaymentGroup（経理承認：pending_accounting_approval → awaiting_accounting）
+// ============================================
+
+export async function approvePaymentGroup(groupId: number) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const group = await prisma.paymentGroup.findFirst({
+    where: { id: groupId, deletedAt: null },
+    select: { id: true, status: true },
+  });
+  if (!group) throw new Error("支払グループが見つかりません");
+  if (group.status !== "pending_accounting_approval") {
+    throw new Error("このグループは経理承認待ちではありません");
+  }
+
+  await prisma.paymentGroup.update({
+    where: { id: groupId },
+    data: {
+      status: "awaiting_accounting",
+      approver: { connect: { id: staffId } },
+      approvedAt: new Date(),
+      updater: { connect: { id: staffId } },
+    },
+  });
+
+  // 子の Transaction も pending_accounting_approval → awaiting_accounting
+  await prisma.transaction.updateMany({
+    where: { paymentGroupId: groupId, deletedAt: null, status: "pending_accounting_approval" },
+    data: { status: "awaiting_accounting" },
+  });
+
+  revalidatePath("/accounting/workflow");
+}
+
+// ============================================
+// 6. rejectPaymentGroup（経理が差し戻し：pending_accounting_approval → returned）
+// ============================================
+
+export async function rejectPaymentGroup(groupId: number, reason?: string) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const group = await prisma.paymentGroup.findFirst({
+    where: { id: groupId, deletedAt: null },
+    select: { id: true, status: true },
+  });
+  if (!group) throw new Error("支払グループが見つかりません");
+  if (group.status !== "pending_accounting_approval") {
+    throw new Error("このグループは経理承認待ちではありません");
+  }
+
+  await prisma.paymentGroup.update({
+    where: { id: groupId },
+    data: {
+      status: "returned",
+      updatedBy: staffId,
+    },
+  });
+
+  if (reason) {
+    await prisma.transactionComment.create({
+      data: {
+        paymentGroupId: groupId,
+        body: reason,
+        commentType: "return",
+        createdBy: staffId,
+      },
+    });
+  }
+
+  revalidatePath("/accounting/workflow");
+}
+
+// ============================================
+// 7. getPendingApprovalDetail（承認待ち詳細）
+// ============================================
+
+export type PendingApprovalDetail = {
+  id: number;
+  referenceCode: string | null;
+  counterpartyId: number | null;
+  counterpartyName: string;
+  customCounterpartyName: string | null;
+  operatingCompanyName: string;
+  projectId: number | null;
+  projectName: string | null;
+  totalAmount: number | null;
+  taxAmount: number | null;
+  approverName: string | null;
+  createdByName: string;
+  createdAt: Date;
+  transaction: {
+    id: number;
+    expenseCategoryId: number | null;
+    expenseCategoryName: string | null;
+    paymentMethodId: number | null;
+    paymentMethodName: string | null;
+    amount: number;
+    taxAmount: number;
+    taxRate: number;
+    periodFrom: Date;
+    periodTo: Date;
+    paymentDueDate: Date | null;
+    note: string | null;
+    sourceType: string | null;
+    expenseOwners: { staffName: string | null; customName: string | null }[];
+  } | null;
+  counterparties: { id: number; name: string; displayId: string | null; companyCode: string | null }[];
+  expenseCategories: { id: number; name: string }[];
+  paymentMethods: { id: number; name: string }[];
+};
+
+export async function getPendingApprovalDetail(groupId: number): Promise<PendingApprovalDetail | null> {
+  const pg = await prisma.paymentGroup.findFirst({
+    where: { id: groupId, deletedAt: null },
+    select: {
+      id: true,
+      referenceCode: true,
+      counterpartyId: true,
+      customCounterpartyName: true,
+      operatingCompanyId: true,
+      projectId: true,
+      totalAmount: true,
+      taxAmount: true,
+      createdAt: true,
+      counterparty: { select: { name: true } },
+      operatingCompany: { select: { companyName: true } },
+      project: { select: { name: true } },
+      approver: { select: { name: true } },
+      creator: { select: { name: true } },
+      transactions: {
+        where: { deletedAt: null },
+        take: 1,
+        select: {
+          id: true,
+          expenseCategoryId: true,
+          paymentMethodId: true,
+          amount: true,
+          taxAmount: true,
+          taxRate: true,
+          periodFrom: true,
+          periodTo: true,
+          paymentDueDate: true,
+          note: true,
+          sourceType: true,
+          expenseCategory: { select: { name: true } },
+          paymentMethod: { select: { name: true } },
+          expenseOwners: {
+            select: { staff: { select: { name: true } }, customName: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!pg) return null;
+
+  const projectId = pg.projectId;
+  const [counterparties, expenseCategories, paymentMethods] = await Promise.all([
+    prisma.counterparty.findMany({
+      where: { deletedAt: null, mergedIntoId: null, isActive: true },
+      select: { id: true, name: true, displayId: true, company: { select: { companyCode: true } } },
+      orderBy: { id: "desc" },
+    }),
+    prisma.expenseCategory.findMany({
+      where: { deletedAt: null, isActive: true, type: { in: ["expense", "both"] } },
+      select: { id: true, name: true },
+      orderBy: { displayOrder: "asc" },
+    }),
+    prisma.paymentMethod.findMany({
+      where: { deletedAt: null, isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+
+  const tx = pg.transactions[0] ?? null;
+
+  return {
+    id: pg.id,
+    referenceCode: pg.referenceCode,
+    counterpartyId: pg.counterpartyId,
+    counterpartyName: pg.counterparty?.name ?? "（未設定）",
+    customCounterpartyName: pg.customCounterpartyName,
+    operatingCompanyName: pg.operatingCompany.companyName,
+    projectId: pg.projectId,
+    projectName: pg.project?.name ?? null,
+    totalAmount: pg.totalAmount,
+    taxAmount: pg.taxAmount,
+    approverName: pg.approver?.name ?? null,
+    createdByName: pg.creator.name,
+    createdAt: pg.createdAt,
+    transaction: tx
+      ? {
+          id: tx.id,
+          expenseCategoryId: tx.expenseCategoryId,
+          expenseCategoryName: tx.expenseCategory?.name ?? null,
+          paymentMethodId: tx.paymentMethodId,
+          paymentMethodName: tx.paymentMethod?.name ?? null,
+          amount: tx.amount,
+          taxAmount: tx.taxAmount,
+          taxRate: tx.taxRate,
+          periodFrom: tx.periodFrom,
+          periodTo: tx.periodTo,
+          paymentDueDate: tx.paymentDueDate,
+          note: tx.note,
+          sourceType: tx.sourceType,
+          expenseOwners: tx.expenseOwners.map((o) => ({
+            staffName: o.staff?.name ?? null,
+            customName: o.customName,
+          })),
+        }
+      : null,
+    counterparties: counterparties.map((c) => ({
+      id: c.id,
+      name: c.name,
+      displayId: c.displayId,
+      companyCode: c.company?.companyCode ?? null,
+    })),
+    expenseCategories,
+    paymentMethods,
+  };
+}
+
+// ============================================
+// 8. updateAndApprovePaymentGroup（経理が編集して承認）
+// ============================================
+
+export async function updateAndApprovePaymentGroup(
+  groupId: number,
+  updates: {
+    counterpartyId?: number;
+    expenseCategoryId?: number | null;
+    paymentMethodId?: number | null;
+    amount?: number;
+    taxAmount?: number;
+    taxRate?: number;
+    note?: string | null;
+    actualPaymentDate?: string | null;
+  }
+) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const group = await prisma.paymentGroup.findFirst({
+    where: { id: groupId, deletedAt: null },
+    select: {
+      id: true,
+      status: true,
+      counterpartyId: true,
+      operatingCompanyId: true,
+      projectId: true,
+      totalAmount: true,
+      taxAmount: true,
+      customCounterpartyName: true,
+      createdBy: true,
+      transactions: {
+        where: { deletedAt: null },
+        take: 1,
+        select: {
+          id: true,
+          expenseCategoryId: true,
+          paymentMethodId: true,
+          amount: true,
+          taxAmount: true,
+          taxRate: true,
+          periodFrom: true,
+          periodTo: true,
+          paymentDueDate: true,
+          note: true,
+          costCenterId: true,
+        },
+      },
+    },
+  });
+  if (!group) throw new Error("支払グループが見つかりません");
+  if (group.status !== "pending_accounting_approval") {
+    throw new Error("このグループは経理承認待ちではありません");
+  }
+
+  // 取引先の確定チェック
+  const finalCounterpartyId = updates.counterpartyId ?? group.counterpartyId;
+  if (!finalCounterpartyId) {
+    throw new Error("取引先を選択してください。手入力のままでは承認できません。");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // PaymentGroup更新
+    const pgUpdate: Record<string, unknown> = {
+      status: "awaiting_accounting",
+      approver: { connect: { id: staffId } },
+      approvedAt: new Date(),
+      updater: { connect: { id: staffId } },
+      customCounterpartyName: null,
+      counterparty: { connect: { id: finalCounterpartyId } },
+    };
+    if (updates.amount !== undefined) {
+      pgUpdate.totalAmount = updates.amount;
+      pgUpdate.taxAmount = updates.taxAmount ?? 0;
+    }
+    if (updates.actualPaymentDate !== undefined) {
+      pgUpdate.actualPaymentDate = updates.actualPaymentDate
+        ? new Date(updates.actualPaymentDate)
+        : null;
+    }
+
+    await tx.paymentGroup.update({
+      where: { id: groupId },
+      data: pgUpdate,
+    });
+
+    const existingTx = group.transactions[0];
+    if (existingTx) {
+      // Transaction が既に存在する場合は更新
+      const txUpdate: Record<string, unknown> = {
+        status: "awaiting_accounting",
+        counterparty: { connect: { id: finalCounterpartyId } },
+      };
+      if (updates.expenseCategoryId !== undefined) {
+        if (updates.expenseCategoryId) {
+          txUpdate.expenseCategory = { connect: { id: updates.expenseCategoryId } };
+        } else {
+          txUpdate.expenseCategory = { disconnect: true };
+        }
+      }
+      if (updates.paymentMethodId !== undefined) {
+        if (updates.paymentMethodId) {
+          txUpdate.paymentMethod = { connect: { id: updates.paymentMethodId } };
+        } else {
+          txUpdate.paymentMethod = { disconnect: true };
+        }
+      }
+      if (updates.amount !== undefined) {
+        txUpdate.amount = updates.amount;
+        txUpdate.taxAmount = updates.taxAmount ?? 0;
+        txUpdate.taxRate = updates.taxRate ?? 10;
+      }
+      if (updates.note !== undefined) {
+        txUpdate.note = updates.note;
+      }
+
+      await tx.transaction.update({
+        where: { id: existingTx.id },
+        data: txUpdate,
+      });
+    } else {
+      // Transaction が未作成の場合（手入力取引先で承認時に初めて作成）
+      const amt = updates.amount ?? group.totalAmount ?? 0;
+      const taxAmt = updates.taxAmount ?? group.taxAmount ?? 0;
+      const taxRate = updates.taxRate ?? 10;
+      const now = new Date();
+
+      await tx.transaction.create({
+        data: {
+          paymentGroupId: groupId,
+          counterpartyId: finalCounterpartyId,
+          expenseCategoryId: updates.expenseCategoryId ?? null,
+          costCenterId: group.transactions[0]?.costCenterId ?? null,
+          projectId: group.projectId,
+          paymentMethodId: updates.paymentMethodId ?? null,
+          type: "expense",
+          amount: amt,
+          taxAmount: taxAmt,
+          taxRate,
+          taxType: "tax_included",
+          periodFrom: now,
+          periodTo: now,
+          status: "awaiting_accounting",
+          note: updates.note ?? null,
+          sourceType: "manual",
+          hasExpenseOwner: false,
+          createdBy: staffId,
+        },
+      });
+    }
+  });
+
+  revalidatePath("/accounting/workflow");
+}
+
+// ============================================
+// 9. createCounterpartyFromApproval（承認モーダルから取引先を新規追加）
+// ============================================
+
+export async function createCounterpartyFromApproval(
+  name: string
+): Promise<{ id: number; displayId: string }> {
+  const session = await getSession();
+  const staffId = session.id;
+
+  if (!name.trim()) throw new Error("取引先名は必須です");
+
+  const counterparty = await prisma.counterparty.create({
+    data: {
+      name: name.trim(),
+      counterpartyType: "other",
+      isActive: true,
+      createdBy: staffId,
+    },
+  });
+
+  const displayId = `TP-${counterparty.id}`;
+  await prisma.counterparty.update({
+    where: { id: counterparty.id },
+    data: { displayId },
+  });
+
+  revalidatePath("/accounting/workflow");
+  return { id: counterparty.id, displayId };
+}
+
+// ============================================
+// 証憑管理（経理側）
+// ============================================
+
+export async function getGroupAttachments(groupId: number, groupType: "invoice" | "payment") {
+  const attachments = await prisma.attachment.findMany({
+    where: {
+      ...(groupType === "invoice" ? { invoiceGroupId: groupId } : { paymentGroupId: groupId }),
+      deletedAt: null,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  return attachments.map((a) => ({
+    id: a.id,
+    fileName: a.fileName,
+    filePath: a.filePath,
+    fileSize: a.fileSize,
+    mimeType: a.mimeType,
+    attachmentType: a.attachmentType,
+    displayName: a.displayName,
+    generatedName: a.generatedName,
+    createdAt: a.createdAt.toISOString(),
+  }));
+}
+
+export async function addGroupAttachments(
+  groupId: number,
+  groupType: "invoice" | "payment",
+  files: {
+    filePath: string;
+    fileName: string;
+    fileSize: number;
+    mimeType: string;
+    attachmentType?: string;
+    displayName?: string;
+    generatedName?: string;
+  }[]
+) {
+  const session = await getSession();
+  await prisma.attachment.createMany({
+    data: files.map((f) => ({
+      ...(groupType === "invoice" ? { invoiceGroupId: groupId } : { paymentGroupId: groupId }),
+      filePath: f.filePath,
+      fileName: f.generatedName ?? f.fileName,
+      fileSize: f.fileSize,
+      mimeType: f.mimeType,
+      attachmentType: f.attachmentType ?? "voucher",
+      displayName: f.displayName ?? null,
+      generatedName: f.generatedName ?? null,
+      uploadedBy: session.id,
+    })),
+  });
+  revalidatePath("/accounting/workflow");
+}
+
+export async function deleteGroupAttachment(attachmentId: number) {
+  await getSession();
+  await prisma.attachment.update({
+    where: { id: attachmentId },
+    data: { deletedAt: new Date() },
+  });
   revalidatePath("/accounting/workflow");
 }

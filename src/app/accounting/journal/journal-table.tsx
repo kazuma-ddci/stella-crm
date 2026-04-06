@@ -61,12 +61,12 @@ type JournalEntryRow = {
   invoiceGroup: {
     id: number;
     invoiceNumber: string | null;
-    counterparty: { id: number; name: string };
+    counterparty: { id: number; name: string } | null;
   } | null;
   paymentGroup: {
     id: number;
     targetMonth: Date | null;
-    counterparty: { id: number; name: string };
+    counterparty: { id: number; name: string } | null;
   } | null;
   transaction: {
     id: number;
@@ -196,7 +196,7 @@ export function JournalTable({ entries, formData }: Props) {
   const getSourceLabel = (entry: JournalEntryRow): string => {
     if (entry.invoiceGroup) {
       const num = entry.invoiceGroup.invoiceNumber ?? `#${entry.invoiceGroup.id}`;
-      return `請求: ${num} (${entry.invoiceGroup.counterparty.name})`;
+      return `請求: ${num} (${entry.invoiceGroup.counterparty?.name ?? ""})`;
     }
     if (entry.paymentGroup) {
       const month = entry.paymentGroup.targetMonth
@@ -205,7 +205,7 @@ export function JournalTable({ entries, formData }: Props) {
             month: "short",
           })
         : "対象月未設定";
-      return `支払: ${month} (${entry.paymentGroup.counterparty.name})`;
+      return `支払: ${month} (${entry.paymentGroup.counterparty?.name ?? ""})`;
     }
     if (entry.transaction) {
       const type = entry.transaction.type === "revenue" ? "売上" : "経費";

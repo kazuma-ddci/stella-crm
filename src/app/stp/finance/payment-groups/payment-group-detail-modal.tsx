@@ -243,7 +243,7 @@ export function PaymentGroupDetailModal({
     if (activeTab !== "add") return;
     let cancelled = false;
     setLoadingUngrouped(true);
-    getUngroupedExpenseTransactions(group.counterpartyId)
+    getUngroupedExpenseTransactions(group.counterpartyId ?? undefined)
       .then((txs) => {
         if (!cancelled) {
           setUngroupedTransactions(txs);
@@ -1643,14 +1643,14 @@ export function PaymentGroupDetailModal({
             onClose={() => setShowInlineForm(false)}
             onCreated={() => {
               setLoadingUngrouped(true);
-              getUngroupedExpenseTransactions(group.counterpartyId)
+              getUngroupedExpenseTransactions(group.counterpartyId ?? undefined)
                 .then((txs) => {
                   setUngroupedTransactions(txs);
                   setLoadingUngrouped(false);
                 })
                 .catch(() => setLoadingUngrouped(false));
             }}
-            counterpartyId={group.counterpartyId}
+            counterpartyId={group.counterpartyId!}
             expenseCategories={expenseCategories}
           />
         )}

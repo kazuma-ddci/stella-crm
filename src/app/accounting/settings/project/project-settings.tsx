@@ -13,6 +13,13 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Loader2, Mail, Landmark, Star } from "lucide-react";
 import { updateProjectBasicInfo, updateOperatingCompanyInfo } from "./actions";
 import { ProjectEmailsModal } from "@/app/settings/projects/project-emails-modal";
@@ -22,6 +29,7 @@ type ProjectData = {
   id: number;
   name: string;
   description: string | null;
+  defaultApproverStaffId: number | null;
 };
 
 type OperatingCompanyData = {
@@ -50,6 +58,8 @@ type BankAccountItem = {
   isDefault: boolean;
 };
 
+type ApproverOption = { id: number; name: string };
+
 type Props = {
   project: ProjectData;
   operatingCompany: OperatingCompanyData;
@@ -57,13 +67,17 @@ type Props = {
   emails: EmailItem[];
   bankAccounts: BankAccountItem[];
   canEdit: boolean;
+  approverOptions: ApproverOption[];
 };
 
-export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emails, bankAccounts, canEdit }: Props) {
+export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emails, bankAccounts, canEdit, approverOptions }: Props) {
   // プロジェクト基本情報
   const [projectName, setProjectName] = useState(project.name);
   const [projectDescription, setProjectDescription] = useState(
     project.description ?? ""
+  );
+  const [defaultApproverStaffId, setDefaultApproverStaffId] = useState<number | null>(
+    project.defaultApproverStaffId
   );
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectSuccess, setProjectSuccess] = useState(false);
@@ -98,6 +112,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
       await updateProjectBasicInfo(project.id, {
         name: projectName,
         description: projectDescription,
+        defaultApproverStaffId,
       });
       setProjectSuccess(true);
       setTimeout(() => setProjectSuccess(false), 3000);
@@ -156,6 +171,29 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
               rows={3}
               disabled={!canEdit}
             />
+          </div>
+          <div className="space-y-2">
+            <Label>デフォルト承認者</Label>
+            <Select
+              value={defaultApproverStaffId?.toString() ?? "__none__"}
+              onValueChange={(v) => setDefaultApproverStaffId(v === "__none__" ? null : Number(v))}
+              disabled={!canEdit}
+            >
+              <SelectTrigger className="w-64">
+                <SelectValue placeholder="（未設定）" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">（未設定）</SelectItem>
+                {approverOptions.map((s) => (
+                  <SelectItem key={s.id} value={s.id.toString()}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              経費申請時に承認者の初期値として自動セットされます。承認権限を持つスタッフのみ選択可能です。
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <Button

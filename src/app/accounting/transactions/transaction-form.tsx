@@ -274,7 +274,7 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
     () =>
       (formData.paymentGroups ?? []).map((g) => ({
         value: String(g.id),
-        label: `${g.referenceCode ?? `ID:${g.id}`} - ${g.counterparty.name}${g.totalAmount != null ? ` (¥${g.totalAmount.toLocaleString()})` : ""}`,
+        label: `${g.referenceCode ?? `ID:${g.id}`} - ${g.counterparty?.name ?? "（未設定）"}${g.totalAmount != null ? ` (¥${g.totalAmount.toLocaleString()})` : ""}`,
       })),
     [formData.paymentGroups]
   );

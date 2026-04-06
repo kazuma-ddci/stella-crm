@@ -294,7 +294,7 @@ export async function getProjectDashboard(): Promise<ProjectDashboardData> {
       id: activities.length,
       entityType: "payment_group",
       entityId: pg.id,
-      description: `支払: ${pg.counterparty.name} (${monthLabel})`,
+      description: `支払: ${pg.counterparty?.name ?? "（未設定）"} (${monthLabel})`,
       status: PAYMENT_GROUP_STATUS_LABELS[pg.status] ?? pg.status,
       amount: pg.totalAmount,
       createdAt: pg.createdAt.toISOString(),

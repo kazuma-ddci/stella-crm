@@ -13,7 +13,7 @@ import { toLocalDateString } from "@/lib/utils";
 export type PaymentGroupMailFormData = {
   paymentGroup: {
     id: number;
-    counterpartyId: number;
+    counterpartyId: number | null;
     counterpartyName: string;
     stellaCompanyId: number | null;
     operatingCompanyId: number;
@@ -80,10 +80,10 @@ export async function getPaymentGroupMailData(
   // Counterparty.companyId → MasterStellaCompany.id
   // StellaCompanyContact.companyId → MasterStellaCompany.id
   let contacts: PaymentGroupMailFormData["contacts"] = [];
-  if (group.counterparty.companyId) {
+  if (group.counterparty?.companyId) {
     const companyContacts = await prisma.stellaCompanyContact.findMany({
       where: {
-        companyId: group.counterparty.companyId,
+        companyId: group.counterparty!.companyId,
         deletedAt: null,
       },
       orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
@@ -172,8 +172,8 @@ export async function getPaymentGroupMailData(
     paymentGroup: {
       id: group.id,
       counterpartyId: group.counterpartyId,
-      counterpartyName: group.counterparty.name,
-      stellaCompanyId: group.counterparty.companyId,
+      counterpartyName: group.counterparty?.name ?? "（未設定）",
+      stellaCompanyId: group.counterparty?.companyId ?? null,
       operatingCompanyId: group.operatingCompanyId,
       operatingCompanyName: group.operatingCompany.companyName,
       targetMonth: group.targetMonth ? toLocalDateString(group.targetMonth).slice(0, 7) : null, // YYYY-MM
