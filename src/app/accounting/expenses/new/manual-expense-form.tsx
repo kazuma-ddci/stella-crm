@@ -188,7 +188,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
   const [counterpartyId, setCounterpartyId] = useState<number | null>(null);
   const [customCounterpartyName, setCustomCounterpartyName] = useState("");
   const [operatingCompanyId, setOperatingCompanyId] = useState<number | null>(
-    formData.operatingCompanies[0]?.id ?? null
+    formData.project?.operatingCompanyId ?? formData.operatingCompanies[0]?.id ?? null
   );
   const [expenseCategoryId, setExpenseCategoryId] = useState<number | null>(null);
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
@@ -218,13 +218,14 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
 
   const isRecurring = frequency !== "once";
 
-  const filteredCategories = useMemo(
-    () =>
-      projectId
-        ? formData.expenseCategories.filter((c) => c.projectId === projectId)
-        : formData.expenseCategories,
-    [projectId, formData.expenseCategories]
-  );
+  const filteredCategories = useMemo(() => {
+    const expenseTypes = formData.expenseCategories.filter(
+      (c) => c.type === "expense" || c.type === "both"
+    );
+    return projectId
+      ? expenseTypes.filter((c) => c.projectId === projectId)
+      : expenseTypes;
+  }, [projectId, formData.expenseCategories]);
   const approverCandidates = useMemo(
     () => (projectId ? formData.approversByProject[projectId] ?? [] : []),
     [projectId, formData.approversByProject]
@@ -234,6 +235,11 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
     setProjectId(newId);
     setExpenseCategoryId(null);
     const proj = formData.allProjects.find((p) => p.id === newId);
+    // 運営法人をプロジェクトのデフォルトにセット
+    if (proj?.operatingCompanyId) {
+      setOperatingCompanyId(proj.operatingCompanyId);
+    }
+    // 承認者をデフォルトにセット
     if (proj?.defaultApproverStaffId) {
       const exists = (formData.approversByProject[newId] ?? []).find(
         (s) => s.id === proj.defaultApproverStaffId
@@ -367,20 +373,26 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
               <Label>
                 勘定科目（費目）{mode === "accounting" && <span className="text-red-500"> *</span>}
               </Label>
-              <Select
-                value={expenseCategoryId?.toString() ?? ""}
-                onValueChange={(v) => setExpenseCategoryId(v ? Number(v) : null)}
-                disabled={!projectId && !formData.project}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={projectId || formData.project ? "選択..." : "先にプロジェクトを選択"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {filteredCategories.map((c) => (
-                    <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {filteredCategories.length > 0 ? (
+                <Select
+                  value={expenseCategoryId?.toString() ?? ""}
+                  onValueChange={(v) => setExpenseCategoryId(v ? Number(v) : null)}
+                  disabled={!projectId && !formData.project}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={projectId || formData.project ? "選択..." : "先にプロジェクトを選択"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredCategories.map((c) => (
+                      <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="text-sm text-muted-foreground border rounded px-3 py-2">
+                  このプロジェクトに費目が登録されていません
+                </p>
+              )}
               {mode === "project" && (
                 <p className="text-xs text-muted-foreground mt-1">任意。経理が後から設定できます</p>
               )}

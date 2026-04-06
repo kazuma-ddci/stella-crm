@@ -34,7 +34,7 @@ export default async function SlpExpenseNewPage() {
       <ExpensePageClient
         formData={formData}
         mode="project"
-        backUrl="/slp"
+        backUrl="/slp/expenses/new"
         myExpenses={myExpenses}
         recurringTransactions={recurring}
         monthlySummary={monthly}

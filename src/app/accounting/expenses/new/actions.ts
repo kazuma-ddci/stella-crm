@@ -19,8 +19,8 @@ export type CounterpartyOption = {
 export type ExpenseFormData = {
   counterparties: CounterpartyOption[];
   expenseCategories: { id: number; name: string; type: string; projectId: number }[];
-  project: { id: number; code: string; name: string; defaultApproverStaffId: number | null } | null;
-  allProjects: { id: number; code: string; name: string; defaultApproverStaffId: number | null }[];
+  project: { id: number; code: string; name: string; defaultApproverStaffId: number | null; operatingCompanyId: number | null } | null;
+  allProjects: { id: number; code: string; name: string; defaultApproverStaffId: number | null; operatingCompanyId: number | null }[];
   paymentMethods: { id: number; name: string; methodType: string }[];
   operatingCompanies: { id: number; companyName: string }[];
   staffOptions: { id: number; name: string }[];
@@ -62,13 +62,13 @@ export async function getExpenseFormData(
       }))
     ),
     prisma.expenseCategory.findMany({
-      where: { deletedAt: null, isActive: true, type: { in: ["expense", "both"] } },
+      where: { deletedAt: null, isActive: true },
       select: { id: true, name: true, type: true, projectId: true },
       orderBy: { displayOrder: "asc" },
     }),
     prisma.masterProject.findMany({
       where: { isActive: true },
-      select: { id: true, code: true, name: true, defaultApproverStaffId: true },
+      select: { id: true, code: true, name: true, defaultApproverStaffId: true, operatingCompanyId: true },
       orderBy: { displayOrder: "asc" },
     }),
     prisma.paymentMethod.findMany({

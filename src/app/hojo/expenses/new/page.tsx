@@ -34,7 +34,7 @@ export default async function HojoExpenseNewPage() {
       <ExpensePageClient
         formData={formData}
         mode="project"
-        backUrl="/hojo"
+        backUrl="/hojo/expenses/new"
         myExpenses={myExpenses}
         recurringTransactions={recurring}
         monthlySummary={monthly}
