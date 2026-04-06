@@ -816,6 +816,7 @@ export async function updateAndApprovePaymentGroup(
     taxAmount?: number;
     taxRate?: number;
     note?: string | null;
+    actualPaymentDate?: string | null;
   }
 ) {
   const session = await getSession();
@@ -876,6 +877,11 @@ export async function updateAndApprovePaymentGroup(
     if (updates.amount !== undefined) {
       pgUpdate.totalAmount = updates.amount;
       pgUpdate.taxAmount = updates.taxAmount ?? 0;
+    }
+    if (updates.actualPaymentDate !== undefined) {
+      pgUpdate.actualPaymentDate = updates.actualPaymentDate
+        ? new Date(updates.actualPaymentDate)
+        : null;
     }
 
     await tx.paymentGroup.update({

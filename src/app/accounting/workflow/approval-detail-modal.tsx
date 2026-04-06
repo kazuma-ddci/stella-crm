@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DatePicker } from "@/components/ui/date-picker";
 import { AlertTriangle, Search, Plus } from "lucide-react";
 import {
   getPendingApprovalDetail,
@@ -54,6 +55,7 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
   const [amount, setAmount] = useState("");
   const [taxRate, setTaxRate] = useState(10);
   const [note, setNote] = useState("");
+  const [actualPaymentDate, setActualPaymentDate] = useState("");
   const [rejectReason, setRejectReason] = useState("");
 
   // データロード
@@ -141,6 +143,7 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
           taxAmount: amount ? computedTaxAmount : undefined,
           taxRate,
           note: note.trim() || null,
+          actualPaymentDate: actualPaymentDate || null,
         });
         onClose();
       } catch (e) {
@@ -416,6 +419,19 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
                   <Label>消費税額</Label>
                   <Input value={computedTaxAmount} readOnly className="bg-muted" />
                 </div>
+              </div>
+
+              {/* 支払日 */}
+              <div>
+                <Label>支払日</Label>
+                <DatePicker
+                  value={actualPaymentDate}
+                  onChange={setActualPaymentDate}
+                  placeholder="空欄 = 未支払"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  支払済みの場合は日付を入力。空欄のままでも承認可能です。
+                </p>
               </div>
 
               {/* 摘要 */}
