@@ -649,3 +649,250 @@ export async function rejectPaymentGroup(groupId: number, reason?: string) {
 
   revalidatePath("/accounting/workflow");
 }
+
+// ============================================
+// 7. getPendingApprovalDetail（承認待ち詳細）
+// ============================================
+
+export type PendingApprovalDetail = {
+  id: number;
+  referenceCode: string | null;
+  counterpartyId: number;
+  counterpartyName: string;
+  customCounterpartyName: string | null;
+  operatingCompanyName: string;
+  projectId: number | null;
+  projectName: string | null;
+  totalAmount: number | null;
+  taxAmount: number | null;
+  approverName: string | null;
+  createdByName: string;
+  createdAt: Date;
+  transaction: {
+    id: number;
+    expenseCategoryId: number | null;
+    expenseCategoryName: string | null;
+    paymentMethodId: number | null;
+    paymentMethodName: string | null;
+    amount: number;
+    taxAmount: number;
+    taxRate: number;
+    periodFrom: Date;
+    periodTo: Date;
+    paymentDueDate: Date | null;
+    note: string | null;
+    sourceType: string | null;
+    expenseOwners: { staffName: string | null; customName: string | null }[];
+  } | null;
+  counterparties: { id: number; name: string; displayId: string | null; companyCode: string | null }[];
+  expenseCategories: { id: number; name: string }[];
+  paymentMethods: { id: number; name: string }[];
+};
+
+export async function getPendingApprovalDetail(groupId: number): Promise<PendingApprovalDetail | null> {
+  const pg = await prisma.paymentGroup.findFirst({
+    where: { id: groupId, deletedAt: null },
+    select: {
+      id: true,
+      referenceCode: true,
+      counterpartyId: true,
+      customCounterpartyName: true,
+      operatingCompanyId: true,
+      projectId: true,
+      totalAmount: true,
+      taxAmount: true,
+      createdAt: true,
+      counterparty: { select: { name: true } },
+      operatingCompany: { select: { companyName: true } },
+      project: { select: { name: true } },
+      approver: { select: { name: true } },
+      creator: { select: { name: true } },
+      transactions: {
+        where: { deletedAt: null },
+        take: 1,
+        select: {
+          id: true,
+          expenseCategoryId: true,
+          paymentMethodId: true,
+          amount: true,
+          taxAmount: true,
+          taxRate: true,
+          periodFrom: true,
+          periodTo: true,
+          paymentDueDate: true,
+          note: true,
+          sourceType: true,
+          expenseCategory: { select: { name: true } },
+          paymentMethod: { select: { name: true } },
+          expenseOwners: {
+            select: { staff: { select: { name: true } }, customName: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!pg) return null;
+
+  const projectId = pg.projectId;
+  const [counterparties, expenseCategories, paymentMethods] = await Promise.all([
+    prisma.counterparty.findMany({
+      where: { deletedAt: null, mergedIntoId: null, isActive: true },
+      select: { id: true, name: true, displayId: true, company: { select: { companyCode: true } } },
+      orderBy: { id: "desc" },
+    }),
+    projectId
+      ? prisma.expenseCategory.findMany({
+          where: { deletedAt: null, isActive: true, projectId, type: { in: ["expense", "both"] } },
+          select: { id: true, name: true },
+          orderBy: { displayOrder: "asc" },
+        })
+      : Promise.resolve([]),
+    prisma.paymentMethod.findMany({
+      where: { deletedAt: null, isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+
+  const tx = pg.transactions[0] ?? null;
+
+  return {
+    id: pg.id,
+    referenceCode: pg.referenceCode,
+    counterpartyId: pg.counterpartyId,
+    counterpartyName: pg.counterparty.name,
+    customCounterpartyName: pg.customCounterpartyName,
+    operatingCompanyName: pg.operatingCompany.companyName,
+    projectId: pg.projectId,
+    projectName: pg.project?.name ?? null,
+    totalAmount: pg.totalAmount,
+    taxAmount: pg.taxAmount,
+    approverName: pg.approver?.name ?? null,
+    createdByName: pg.creator.name,
+    createdAt: pg.createdAt,
+    transaction: tx
+      ? {
+          id: tx.id,
+          expenseCategoryId: tx.expenseCategoryId,
+          expenseCategoryName: tx.expenseCategory?.name ?? null,
+          paymentMethodId: tx.paymentMethodId,
+          paymentMethodName: tx.paymentMethod?.name ?? null,
+          amount: tx.amount,
+          taxAmount: tx.taxAmount,
+          taxRate: tx.taxRate,
+          periodFrom: tx.periodFrom,
+          periodTo: tx.periodTo,
+          paymentDueDate: tx.paymentDueDate,
+          note: tx.note,
+          sourceType: tx.sourceType,
+          expenseOwners: tx.expenseOwners.map((o) => ({
+            staffName: o.staff?.name ?? null,
+            customName: o.customName,
+          })),
+        }
+      : null,
+    counterparties: counterparties.map((c) => ({
+      id: c.id,
+      name: c.name,
+      displayId: c.displayId,
+      companyCode: c.company?.companyCode ?? null,
+    })),
+    expenseCategories,
+    paymentMethods,
+  };
+}
+
+// ============================================
+// 8. updateAndApprovePaymentGroup（経理が編集して承認）
+// ============================================
+
+export async function updateAndApprovePaymentGroup(
+  groupId: number,
+  updates: {
+    counterpartyId?: number;
+    expenseCategoryId?: number | null;
+    paymentMethodId?: number | null;
+    amount?: number;
+    taxAmount?: number;
+    taxRate?: number;
+    note?: string | null;
+  }
+) {
+  const session = await getSession();
+  const staffId = session.id;
+
+  const group = await prisma.paymentGroup.findFirst({
+    where: { id: groupId, deletedAt: null },
+    select: {
+      id: true,
+      status: true,
+      transactions: { where: { deletedAt: null }, select: { id: true }, take: 1 },
+    },
+  });
+  if (!group) throw new Error("支払グループが見つかりません");
+  if (group.status !== "pending_approval") {
+    throw new Error("このグループは経理承認待ちではありません");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const pgUpdate: Record<string, unknown> = {
+      status: "awaiting_accounting",
+      approverStaffId: staffId,
+      approvedAt: new Date(),
+      updatedBy: staffId,
+      customCounterpartyName: null,
+    };
+    if (updates.counterpartyId) {
+      pgUpdate.counterparty = { connect: { id: updates.counterpartyId } };
+    }
+    if (updates.amount !== undefined) {
+      pgUpdate.totalAmount = updates.amount;
+      pgUpdate.taxAmount = updates.taxAmount ?? 0;
+    }
+
+    await tx.paymentGroup.update({
+      where: { id: groupId },
+      data: pgUpdate,
+    });
+
+    const txId = group.transactions[0]?.id;
+    if (txId) {
+      const txUpdate: Record<string, unknown> = {
+        status: "awaiting_accounting",
+      };
+      if (updates.counterpartyId) {
+        txUpdate.counterparty = { connect: { id: updates.counterpartyId } };
+      }
+      if (updates.expenseCategoryId !== undefined) {
+        if (updates.expenseCategoryId) {
+          txUpdate.expenseCategory = { connect: { id: updates.expenseCategoryId } };
+        } else {
+          txUpdate.expenseCategoryId = null;
+        }
+      }
+      if (updates.paymentMethodId !== undefined) {
+        if (updates.paymentMethodId) {
+          txUpdate.paymentMethod = { connect: { id: updates.paymentMethodId } };
+        } else {
+          txUpdate.paymentMethodId = null;
+        }
+      }
+      if (updates.amount !== undefined) {
+        txUpdate.amount = updates.amount;
+        txUpdate.taxAmount = updates.taxAmount ?? 0;
+        txUpdate.taxRate = updates.taxRate ?? 10;
+      }
+      if (updates.note !== undefined) {
+        txUpdate.note = updates.note;
+      }
+
+      await tx.transaction.update({
+        where: { id: txId },
+        data: txUpdate,
+      });
+    }
+  });
+
+  revalidatePath("/accounting/workflow");
+}

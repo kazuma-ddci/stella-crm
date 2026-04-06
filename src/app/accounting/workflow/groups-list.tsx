@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { FileText, CreditCard, ChevronRight, Check, Clock, AlertCircle, Ban, UserCheck } from "lucide-react";
 import type { WorkflowGroup } from "./actions";
 import { approvePaymentGroup, rejectPaymentGroup } from "./actions";
+import { ApprovalDetailModal } from "./approval-detail-modal";
 
 type Props = {
   groups: WorkflowGroup[];
@@ -91,61 +92,38 @@ function ConditionBadges({ group }: { group: WorkflowGroup }) {
   );
 }
 
-function ApprovalActions({ group }: { group: WorkflowGroup }) {
-  const [isPending, startTransition] = useTransition();
-
+function ApprovalActions({
+  group,
+  onOpenDetail,
+}: {
+  group: WorkflowGroup;
+  onOpenDetail: (id: number) => void;
+}) {
   if (group.groupType !== "payment" || group.category !== "pending_approval") {
     return null;
   }
 
-  const handleApprove = () => {
-    if (!confirm(`${group.label} を承認しますか？`)) return;
-    startTransition(async () => {
-      try {
-        await approvePaymentGroup(group.id);
-      } catch (e) {
-        alert(e instanceof Error ? e.message : "承認に失敗しました");
-      }
-    });
-  };
-
-  const handleReject = () => {
-    const reason = prompt("差し戻し理由を入力してください");
-    if (reason === null) return;
-    startTransition(async () => {
-      try {
-        await rejectPaymentGroup(group.id, reason);
-      } catch (e) {
-        alert(e instanceof Error ? e.message : "差し戻しに失敗しました");
-      }
-    });
-  };
-
   return (
-    <div className="flex gap-1">
-      <Button
-        size="sm"
-        variant="default"
-        className="h-7 text-xs bg-green-600 hover:bg-green-700"
-        disabled={isPending}
-        onClick={handleApprove}
-      >
-        承認
-      </Button>
-      <Button
-        size="sm"
-        variant="outline"
-        className="h-7 text-xs"
-        disabled={isPending}
-        onClick={handleReject}
-      >
-        差し戻し
-      </Button>
-    </div>
+    <Button
+      size="sm"
+      variant="default"
+      className="h-7 text-xs bg-green-600 hover:bg-green-700"
+      onClick={() => onOpenDetail(group.id)}
+    >
+      確認・承認
+    </Button>
   );
 }
 
-function GroupTable({ groups, showApprovalActions = false }: { groups: WorkflowGroup[]; showApprovalActions?: boolean }) {
+function GroupTable({
+  groups,
+  showApprovalActions = false,
+  onOpenDetail,
+}: {
+  groups: WorkflowGroup[];
+  showApprovalActions?: boolean;
+  onOpenDetail?: (id: number) => void;
+}) {
   if (groups.length === 0) {
     return (
       <p className="text-muted-foreground text-center py-12">
@@ -200,7 +178,7 @@ function GroupTable({ groups, showApprovalActions = false }: { groups: WorkflowG
               </TableCell>
               {showApprovalActions && (
                 <TableCell>
-                  <ApprovalActions group={g} />
+                  <ApprovalActions group={g} onOpenDetail={onOpenDetail ?? (() => {})} />
                 </TableCell>
               )}
               <TableCell>
@@ -224,6 +202,7 @@ function GroupTable({ groups, showApprovalActions = false }: { groups: WorkflowG
 
 export function GroupsList({ groups, projects }: Props) {
   const [search, setSearch] = useState("");
+  const [approvalModalGroupId, setApprovalModalGroupId] = useState<number | null>(null);
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<number>>(new Set());
 
   const toggleProject = (projectId: number) => {
@@ -359,7 +338,11 @@ export function GroupsList({ groups, projects }: Props) {
         </TabsList>
 
         <TabsContent value="pending_approval" className="mt-4">
-          <GroupTable groups={pendingApproval} showApprovalActions />
+          <GroupTable
+            groups={pendingApproval}
+            showApprovalActions
+            onOpenDetail={setApprovalModalGroupId}
+          />
         </TabsContent>
 
         <TabsContent value="needs_journal" className="mt-4">
@@ -378,6 +361,12 @@ export function GroupsList({ groups, projects }: Props) {
           <GroupTable groups={returned} />
         </TabsContent>
       </Tabs>
+
+      <ApprovalDetailModal
+        groupId={approvalModalGroupId}
+        open={approvalModalGroupId !== null}
+        onClose={() => setApprovalModalGroupId(null)}
+      />
     </div>
   );
 }
