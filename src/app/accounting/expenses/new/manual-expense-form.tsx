@@ -222,10 +222,13 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
     const expenseTypes = formData.expenseCategories.filter(
       (c) => c.type === "expense" || c.type === "both"
     );
+    // 経理モード: 全プロジェクトの費目を表示
+    // プロジェクトモード: そのプロジェクトの費目のみ
+    if (mode === "accounting") return expenseTypes;
     return projectId
       ? expenseTypes.filter((c) => c.projectId === projectId)
       : expenseTypes;
-  }, [projectId, formData.expenseCategories]);
+  }, [projectId, formData.expenseCategories, mode]);
   const approverCandidates = useMemo(
     () => (projectId ? formData.approversByProject[projectId] ?? [] : []),
     [projectId, formData.approversByProject]

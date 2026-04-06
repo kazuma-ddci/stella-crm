@@ -742,13 +742,11 @@ export async function getPendingApprovalDetail(groupId: number): Promise<Pending
       select: { id: true, name: true, displayId: true, company: { select: { companyCode: true } } },
       orderBy: { id: "desc" },
     }),
-    projectId
-      ? prisma.expenseCategory.findMany({
-          where: { deletedAt: null, isActive: true, projectId, type: { in: ["expense", "both"] } },
-          select: { id: true, name: true },
-          orderBy: { displayOrder: "asc" },
-        })
-      : Promise.resolve([]),
+    prisma.expenseCategory.findMany({
+      where: { deletedAt: null, isActive: true, type: { in: ["expense", "both"] } },
+      select: { id: true, name: true },
+      orderBy: { displayOrder: "asc" },
+    }),
     prisma.paymentMethod.findMany({
       where: { deletedAt: null, isActive: true },
       select: { id: true, name: true },
