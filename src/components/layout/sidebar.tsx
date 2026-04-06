@@ -836,6 +836,7 @@ interface SidebarContentProps {
   hiddenItems?: string[];
   projectNames?: Record<string, string>;
   bbsPendingCount?: number;
+  expenseApprovalCounts?: Record<string, number>;
 }
 
 export function SidebarContent({
@@ -846,9 +847,25 @@ export function SidebarContent({
   hiddenItems,
   projectNames,
   bbsPendingCount,
+  expenseApprovalCounts,
 }: SidebarContentProps) {
   const appTitle = process.env.NEXT_PUBLIC_APP_TITLE || "Stella 基幹OS";
-  const navItems = getFilteredNavigation(user, hiddenItems, projectNames, bbsPendingCount);
+  let navItems = getFilteredNavigation(user, hiddenItems, projectNames, bbsPendingCount);
+
+  // 経費承認待ちバッジを各プロジェクトの経費申請メニューに適用
+  if (expenseApprovalCounts) {
+    const projectHrefMap: Record<string, string> = {
+      stp: "/stp/expenses/new",
+      slp: "/slp/expenses/new",
+      hojo: "/hojo/expenses/new",
+    };
+    for (const [code, count] of Object.entries(expenseApprovalCounts)) {
+      const href = projectHrefMap[code];
+      if (href && count > 0) {
+        navItems = applyBadgeCount(navItems, href, count);
+      }
+    }
+  }
   const userId = user?.loginId ?? undefined;
 
   // 折りたたみモード: アイコンのみ表示
@@ -915,9 +932,10 @@ interface SidebarProps {
   hiddenItems?: string[];
   projectNames?: Record<string, string>;
   bbsPendingCount?: number;
+  expenseApprovalCounts?: Record<string, number>;
 }
 
-export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems, projectNames, bbsPendingCount }: SidebarProps) {
+export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems, projectNames, bbsPendingCount, expenseApprovalCounts }: SidebarProps) {
   return (
     <div
       className={cn(
@@ -932,6 +950,7 @@ export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems, projec
         hiddenItems={hiddenItems}
         projectNames={projectNames}
         bbsPendingCount={bbsPendingCount}
+        expenseApprovalCounts={expenseApprovalCounts}
       />
     </div>
   );
