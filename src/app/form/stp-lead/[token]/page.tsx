@@ -280,7 +280,7 @@ export default function LeadFormPage({
               height={200}
               className="mx-auto max-w-[400px] w-full h-auto"
             />
-            <p className="text-sm text-gray-500 mt-2">【ヒアリングシート】</p>
+            <p className="text-sm text-gray-500 mt-2">【事前アンケート】</p>
           </div>
 
           {/* 青いアクセントライン */}
@@ -344,7 +344,7 @@ export default function LeadFormPage({
               height={200}
               className="mx-auto max-w-[400px] w-full h-auto"
             />
-            <p className="text-sm text-gray-500 mt-2">【ヒアリングシート】</p>
+            <p className="text-sm text-gray-500 mt-2">【事前アンケート】</p>
           </div>
 
           {/* 青いアクセントライン */}
@@ -354,7 +354,7 @@ export default function LeadFormPage({
             <CardHeader>
               <div className="flex items-center gap-3 mb-4">
                 <CheckCircle className="h-8 w-8 text-green-500 flex-shrink-0" />
-                <CardTitle className="text-2xl">採用ブースト【ヒアリングシート】</CardTitle>
+                <CardTitle className="text-2xl">採用ブースト【事前アンケート】</CardTitle>
               </div>
               <CardDescription className="text-base text-gray-700 space-y-4">
                 <p>ご回答いただきありがとうございます。</p>
@@ -392,7 +392,7 @@ export default function LeadFormPage({
               height={200}
               className="mx-auto max-w-[400px] w-full h-auto"
             />
-          <p className="text-sm text-gray-500 mt-2">【ヒアリングシート】</p>
+          <p className="text-sm text-gray-500 mt-2">【事前アンケート】</p>
         </div>
 
         {/* 青いアクセントライン */}
@@ -401,7 +401,7 @@ export default function LeadFormPage({
         <Card className="rounded-t-none border-t-0">
           <CardHeader>
             <CardTitle className="text-2xl">
-              {currentPage === 1 ? "採用ブースト【ヒアリングシート】" : "今後の採用予定"}
+              {currentPage === 1 ? "採用ブースト【事前アンケート】" : "今後の採用予定"}
             </CardTitle>
             <CardDescription className="text-base text-gray-700 mt-4 space-y-4">
               {currentPage === 1 ? (
