@@ -36,10 +36,12 @@ type Props = {
   alkesData: Record<string, unknown>[];
   alkesLastSync: string | null;
   alkesInvalidIds: number[];
+  alkesDuplicateIds: number[];
   alkesLabel: string;
   shinseiData: Record<string, unknown>[];
   shinseiLastSync: string | null;
   shinseiInvalidIds: number[];
+  shinseiDuplicateIds: number[];
   shinseiLabel: string;
 };
 
@@ -130,6 +132,7 @@ function LineFriendTab({
   data,
   lastSyncAt,
   invalidIds = [],
+  duplicateIds = [],
   onAdd,
   onUpdate,
   onDelete,
@@ -138,12 +141,14 @@ function LineFriendTab({
   data: Record<string, unknown>[];
   lastSyncAt: string | null;
   invalidIds?: number[];
+  duplicateIds?: number[];
   onAdd: (formData: Record<string, unknown>) => Promise<void>;
   onUpdate: (id: number, formData: Record<string, unknown>) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onSync: () => Promise<{ success: boolean; created?: number; updated?: number; total?: number; error?: string }>;
 }) {
   const invalidIdSet = new Set(invalidIds);
+  const duplicateIdSet = new Set(duplicateIds);
   const router = useRouter();
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -192,6 +197,15 @@ function LineFriendTab({
           </p>
         </div>
       )}
+      {duplicateIds.length > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 p-3 mb-4">
+          <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
+          <p className="text-sm text-red-700">
+            フリー項目１に重複データが<strong>{duplicateIds.length}件</strong>あります（赤枠の行）。
+            同じフリー項目１の値を持つレコードが複数存在します。
+          </p>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-4">
         <div className="text-sm text-muted-foreground">
           {lastSyncAt && (
@@ -213,15 +227,27 @@ function LineFriendTab({
         onUpdate={handleUpdate}
         onDelete={handleDelete}
         emptyMessage="LINE友達情報が登録されていません"
-        rowClassName={(item) =>
-          invalidIdSet.has(item.id as number) ? "!bg-red-100 hover:!bg-red-200" : undefined
-        }
+        rowClassName={(item) => {
+          const id = item.id as number;
+          if (invalidIdSet.has(id)) return "!bg-red-100 hover:!bg-red-200";
+          if (duplicateIdSet.has(id)) return "!bg-red-50 hover:!bg-red-100 !border-l-4 !border-l-red-500";
+          return undefined;
+        }}
         customRenderers={{
           free1: (value, row) => {
-            const isInvalid = invalidIdSet.has(row.id as number);
+            const id = row.id as number;
+            const isInvalid = invalidIdSet.has(id);
+            const isDuplicate = duplicateIdSet.has(id);
             if (isInvalid) {
               return (
                 <span className="inline-block bg-red-300 text-red-900 px-2 py-0.5 rounded font-bold">
+                  {String(value ?? "")}
+                </span>
+              );
+            }
+            if (isDuplicate) {
+              return (
+                <span className="inline-block bg-red-200 text-red-800 px-2 py-0.5 rounded font-bold" title="重複データ">
                   {String(value ?? "")}
                 </span>
               );
@@ -244,10 +270,12 @@ export function CustomerPageClient({
   alkesData,
   alkesLastSync,
   alkesInvalidIds,
+  alkesDuplicateIds,
   alkesLabel,
   shinseiData,
   shinseiLastSync,
   shinseiInvalidIds,
+  shinseiDuplicateIds,
   shinseiLabel,
 }: Props) {
   const router = useRouter();
@@ -321,6 +349,7 @@ export function CustomerPageClient({
           data={alkesData}
           lastSyncAt={alkesLastSync}
           invalidIds={alkesInvalidIds}
+          duplicateIds={alkesDuplicateIds}
           onAdd={addAlkes}
           onUpdate={updateAlkes}
           onDelete={deleteAlkes}
@@ -333,6 +362,7 @@ export function CustomerPageClient({
           data={shinseiData}
           lastSyncAt={shinseiLastSync}
           invalidIds={shinseiInvalidIds}
+          duplicateIds={shinseiDuplicateIds}
           onAdd={addShinsei}
           onUpdate={updateShinsei}
           onDelete={deleteShinsei}

@@ -152,16 +152,13 @@ export function StaffTable({ data, projectOptions, permissionProjects, editableP
   const selfEditableMap = new Map(selfEditableProjects.map((p) => [p.code, p.maxLevel]));
 
   // 表示する権限カラムのフィルタ:
-  // - admin/founder: 誰かしらに「なし」以外の権限があるプロジェクト
+  // - admin/founder: 全アクティブプロジェクト（新規追加分も含む）
   // - マネージャー以下: 自分が権限を持つプロジェクト + 編集可能プロジェクト
   const currentUserPermSet = new Set(currentUserPermissionCodes);
   const activePermissionProjects = permissionProjects.filter((p) => {
     if (canSetFounder) {
-      // admin/founder: データに権限が存在するプロジェクトのみ
-      return data.some((row) => {
-        const val = row[`perm_${p.code}`];
-        return val && val !== "none";
-      });
+      // admin/founder: 全アクティブプロジェクトを表示（新規プロジェクトも含む）
+      return true;
     }
     // マネージャー以下: 自分が権限を持つプロジェクト or 編集可能プロジェクト
     return currentUserPermSet.has(p.code) || selfEditableMap.has(p.code);
@@ -408,6 +405,7 @@ export function StaffTable({ data, projectOptions, permissionProjects, editableP
       sortableItems={sortableItems}
       onReorder={reorderStaff}
       dynamicOptions={dynamicOptions}
+      stickyLeftCount={1}
     />
   );
 }

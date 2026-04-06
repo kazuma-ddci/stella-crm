@@ -1,11 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { ArrowLeft, Copy, Check } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { VendorDetailForm } from "./vendor-detail-form";
+
+const VendorDetailForm = dynamic(() => import("./vendor-detail-form").then((mod) => mod.VendorDetailForm), {
+  ssr: false,
+  loading: () => <div className="p-8 text-center text-muted-foreground">読み込み中...</div>,
+});
 import { ActivitiesCrudTable } from "@/app/hojo/consulting/activities/activities-crud-table";
 import { PreApplicationTable } from "@/app/hojo/grant-customers/pre-application/pre-application-table";
 import { PostApplicationTable } from "@/app/hojo/grant-customers/post-application/post-application-table";
@@ -117,9 +122,11 @@ export function VendorDetailTabs({
   ];
 
   const [copied, setCopied] = useState(false);
-  const loanFormUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/form/hojo-loan-application?v=${accessToken}`
-    : `/form/hojo-loan-application?v=${accessToken}`;
+  const [loanFormUrl, setLoanFormUrl] = useState(`/form/hojo-loan-application?v=${accessToken}`);
+
+  useEffect(() => {
+    setLoanFormUrl(`${window.location.origin}/form/hojo-loan-application?v=${accessToken}`);
+  }, [accessToken]);
 
   const handleCopyUrl = async () => {
     try {

@@ -21,6 +21,9 @@ type VendorInfo = {
   grantApplicationBpo: boolean;
   consultingStartDate: string | null;
   consultingEndDate: string | null;
+  loanUsage: boolean;
+  loanUsageKickoffMtg: string | null;
+  loanUsageContractUrl: string | null;
   vendorSharedMemo: string | null;
 };
 
@@ -149,6 +152,12 @@ function VendorOverviewSection({ vendorInfo }: { vendorInfo: VendorInfo }) {
               <span className="text-xs text-gray-400">BPO申請支援</span>
               <span>
                 <BoolBadge value={vendorInfo.grantApplicationBpo} />
+              </span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-gray-400">貸金利用</span>
+              <span>
+                <BoolBadge value={vendorInfo.loanUsage} />
               </span>
             </div>
             <InfoField label="開始日" value={vendorInfo.consultingStartDate} />

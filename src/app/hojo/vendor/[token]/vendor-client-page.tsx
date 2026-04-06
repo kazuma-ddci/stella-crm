@@ -103,6 +103,9 @@ type VendorInfo = {
   grantApplicationBpo: boolean;
   consultingStartDate: string | null;
   consultingEndDate: string | null;
+  loanUsage: boolean;
+  loanUsageKickoffMtg: string | null;
+  loanUsageContractUrl: string | null;
   vendorSharedMemo: string | null;
 };
 

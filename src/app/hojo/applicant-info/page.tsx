@@ -189,6 +189,20 @@ export default async function ApplicantInfoPage() {
     .filter((a) => a.hasError)
     .map((a) => a.id);
 
+  // 申請サポートLINE内のfree1重複を検出
+  const joseiFree1Count = new Map<string, number[]>();
+  for (const f of joseiFriendsAll) {
+    if (f.free1) {
+      const ids = joseiFree1Count.get(f.free1) || [];
+      ids.push(f.id);
+      joseiFree1Count.set(f.free1, ids);
+    }
+  }
+  const joseiDuplicateIds: number[] = [];
+  for (const ids of joseiFree1Count.values()) {
+    if (ids.length > 1) joseiDuplicateIds.push(...ids);
+  }
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">申請者情報</h1>
@@ -197,7 +211,8 @@ export default async function ApplicantInfoPage() {
         joseiData={joseiData}
         joseiLastSync={joseiLastSync}
         joseiInvalidIds={joseiInvalidIds}
-        joseiLabel={joseiProline?.label || "助成金申請サポート"}
+        joseiDuplicateIds={joseiDuplicateIds}
+        joseiLabel={joseiProline?.label || "\u52A9\u6210\u91D1\u7533\u8ACB\u30B5\u30DD\u30FC\u30C8"}
       />
     </div>
   );

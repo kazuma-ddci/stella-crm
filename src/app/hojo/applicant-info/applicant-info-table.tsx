@@ -32,6 +32,7 @@ type Props = {
   joseiData: Record<string, unknown>[];
   joseiLastSync: string | null;
   joseiInvalidIds: number[];
+  joseiDuplicateIds: number[];
   joseiLabel: string;
 };
 
@@ -102,9 +103,11 @@ export function ApplicantPageClient({
   joseiData,
   joseiLastSync,
   joseiInvalidIds,
+  joseiDuplicateIds,
   joseiLabel,
 }: Props) {
   const joseiInvalidIdSet = new Set(joseiInvalidIds);
+  const joseiDuplicateIdSet = new Set(joseiDuplicateIds);
   const router = useRouter();
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -216,6 +219,15 @@ export function ApplicantPageClient({
               </p>
             </div>
           )}
+          {joseiDuplicateIds.length > 0 && (
+            <div className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 p-3 mb-4">
+              <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
+              <p className="text-sm text-red-700">
+                フリー項目１に重複データが<strong>{joseiDuplicateIds.length}件</strong>あります（赤枠の行）。
+                同じフリー項目１の値を持つレコードが複数存在します。
+              </p>
+            </div>
+          )}
           <div className="flex items-center justify-between mb-4">
             <div className="text-sm text-muted-foreground">
               {joseiLastSync && (
@@ -237,15 +249,27 @@ export function ApplicantPageClient({
             onUpdate={handleUpdate}
             onDelete={handleDelete}
             emptyMessage="LINE友達情報が登録されていません"
-            rowClassName={(item) =>
-              joseiInvalidIdSet.has(item.id as number) ? "!bg-red-100 hover:!bg-red-200" : undefined
-            }
+            rowClassName={(item) => {
+              const id = item.id as number;
+              if (joseiInvalidIdSet.has(id)) return "!bg-red-100 hover:!bg-red-200";
+              if (joseiDuplicateIdSet.has(id)) return "!bg-red-50 hover:!bg-red-100 !border-l-4 !border-l-red-500";
+              return undefined;
+            }}
             customRenderers={{
               free1: (value, row) => {
-                const isInvalid = joseiInvalidIdSet.has(row.id as number);
+                const id = row.id as number;
+                const isInvalid = joseiInvalidIdSet.has(id);
+                const isDuplicate = joseiDuplicateIdSet.has(id);
                 if (isInvalid) {
                   return (
                     <span className="inline-block bg-red-300 text-red-900 px-2 py-0.5 rounded font-bold">
+                      {String(value ?? "")}
+                    </span>
+                  );
+                }
+                if (isDuplicate) {
+                  return (
+                    <span className="inline-block bg-red-200 text-red-800 px-2 py-0.5 rounded font-bold" title="重複データ">
                       {String(value ?? "")}
                     </span>
                   );

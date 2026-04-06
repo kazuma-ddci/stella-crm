@@ -65,6 +65,9 @@ export default async function VendorPage({
     grantApplicationBpo: vendor.grantApplicationBpo,
     consultingStartDate: vendor.consultingStartDate?.toISOString().split("T")[0] ?? null,
     consultingEndDate: vendor.consultingEndDate?.toISOString().split("T")[0] ?? null,
+    loanUsage: vendor.loanUsage,
+    loanUsageKickoffMtg: vendor.loanUsageKickoffMtg ?? null,
+    loanUsageContractUrl: vendor.loanUsageContractUrl ?? null,
     vendorSharedMemo: vendor.vendorSharedMemo ?? null,
   };
 

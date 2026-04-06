@@ -150,6 +150,34 @@ export default async function CustomerInfoPage() {
     }
   }
 
+  // ALKES内のfree1重複を検出
+  const alkesFree1Count = new Map<string, number[]>();
+  for (const f of alkesFriends) {
+    if (f.free1) {
+      const ids = alkesFree1Count.get(f.free1) || [];
+      ids.push(f.id);
+      alkesFree1Count.set(f.free1, ids);
+    }
+  }
+  const alkesDuplicateIds: number[] = [];
+  for (const ids of alkesFree1Count.values()) {
+    if (ids.length > 1) alkesDuplicateIds.push(...ids);
+  }
+
+  // 申請サポート内のfree1重複を検出
+  const shinseiFree1Count = new Map<string, number[]>();
+  for (const f of shinseiFriends) {
+    if (f.free1) {
+      const ids = shinseiFree1Count.get(f.free1) || [];
+      ids.push(f.id);
+      shinseiFree1Count.set(f.free1, ids);
+    }
+  }
+  const shinseiDuplicateIds: number[] = [];
+  for (const ids of shinseiFree1Count.values()) {
+    if (ids.length > 1) shinseiDuplicateIds.push(...ids);
+  }
+
   const customerData = scFriends.map((f) => {
     const belongsToVendors = vendorNamesByScId.get(f.id) || [];
     const isVendor = belongsToVendors.length > 0;
@@ -184,10 +212,12 @@ export default async function CustomerInfoPage() {
         alkesData={alkesFriends.map(formatLineFriend)}
         alkesLastSync={calcLastSyncAt(alkesFriends)}
         alkesInvalidIds={alkesInvalidIds}
+        alkesDuplicateIds={alkesDuplicateIds}
         alkesLabel={labelMap["alkes"] || "ALKES"}
         shinseiData={shinseiFriends.map(formatLineFriend)}
         shinseiLastSync={calcLastSyncAt(shinseiFriends)}
         shinseiInvalidIds={shinseiInvalidIds}
+        shinseiDuplicateIds={shinseiDuplicateIds}
         shinseiLabel={labelMap["shinsei-support"] || "申請サポートセンター"}
       />
     </div>
