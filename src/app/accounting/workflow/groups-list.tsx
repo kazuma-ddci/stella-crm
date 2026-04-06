@@ -14,7 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { FileText, CreditCard, ChevronRight, Check, Clock, AlertCircle, Ban, UserCheck } from "lucide-react";
+import { FileText, CreditCard, ChevronRight, Check, Clock, AlertCircle, AlertTriangle, Ban, UserCheck } from "lucide-react";
 import type { WorkflowGroup } from "./actions";
 import { approvePaymentGroup, rejectPaymentGroup } from "./actions";
 import { ApprovalDetailModal } from "./approval-detail-modal";
@@ -26,6 +26,29 @@ type Props = {
 
 // 各条件のバッジ表示
 function ConditionBadges({ group }: { group: WorkflowGroup }) {
+  if (group.category === "pending_project_overdue") {
+    const days = group.daysUntilPayment;
+    const label = days != null && days <= 0
+      ? "期限超過"
+      : `あと${days}日`;
+    return (
+      <div className="flex gap-1 flex-wrap items-center">
+        <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 text-xs">
+          <AlertTriangle className="h-3 w-3 mr-0.5" />
+          プロジェクト未承認
+        </Badge>
+        <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
+          {label}
+        </Badge>
+        {group.approverName && (
+          <span className="text-xs text-muted-foreground">
+            承認者: {group.approverName}
+          </span>
+        )}
+      </div>
+    );
+  }
+
   if (group.category === "pending_accounting_approval") {
     return (
       <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 text-xs">
@@ -200,6 +223,47 @@ function GroupTable({
   );
 }
 
+function OverdueGroupTable({ groups }: { groups: WorkflowGroup[] }) {
+  if (groups.length === 0) return null;
+
+  return (
+    <div className="overflow-x-auto border border-red-200 rounded-lg">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>番号</TableHead>
+            <TableHead>取引先</TableHead>
+            <TableHead className="text-right">金額</TableHead>
+            <TableHead>決済予定日</TableHead>
+            <TableHead>承認者</TableHead>
+            <TableHead>状況</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {groups.map((g) => (
+            <TableRow key={`overdue-${g.id}`} className="group/row bg-red-50/30">
+              <TableCell className="font-mono text-sm">{g.label}</TableCell>
+              <TableCell className="max-w-[200px] truncate">{g.counterpartyName}</TableCell>
+              <TableCell className="text-right whitespace-nowrap">
+                {g.totalAmount != null ? `¥${g.totalAmount.toLocaleString()}` : "-"}
+              </TableCell>
+              <TableCell className="whitespace-nowrap">
+                {g.expectedPaymentDate
+                  ? new Date(g.expectedPaymentDate).toLocaleDateString("ja-JP")
+                  : "-"}
+              </TableCell>
+              <TableCell>{g.approverName ?? "-"}</TableCell>
+              <TableCell>
+                <ConditionBadges group={g} />
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
 export function GroupsList({ groups, projects }: Props) {
   const [search, setSearch] = useState("");
   const [approvalModalGroupId, setApprovalModalGroupId] = useState<number | null>(null);
@@ -232,6 +296,10 @@ export function GroupsList({ groups, projects }: Props) {
     return filtered;
   }, [search, selectedProjectIds]);
 
+  const projectOverdue = useMemo(
+    () => applyFilters(groups.filter((g) => g.category === "pending_project_overdue")),
+    [applyFilters, groups]
+  );
   const pendingApproval = useMemo(
     () => applyFilters(groups.filter((g) => g.category === "pending_accounting_approval")),
     [applyFilters, groups]
@@ -290,8 +358,17 @@ export function GroupsList({ groups, projects }: Props) {
         )}
       </div>
 
-      <Tabs defaultValue={pendingApproval.length > 0 ? "pending_accounting_approval" : "needs_journal"}>
+      <Tabs defaultValue={projectOverdue.length > 0 ? "pending_project_overdue" : pendingApproval.length > 0 ? "pending_accounting_approval" : "needs_journal"}>
         <TabsList>
+          {projectOverdue.length > 0 && (
+            <TabsTrigger value="pending_project_overdue" className="gap-1">
+              <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
+              未承認警告
+              <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">
+                {projectOverdue.length}
+              </Badge>
+            </TabsTrigger>
+          )}
           <TabsTrigger value="pending_accounting_approval" className="gap-1">
             <UserCheck className="h-3.5 w-3.5" />
             経理承認待ち
@@ -336,6 +413,18 @@ export function GroupsList({ groups, projects }: Props) {
             </TabsTrigger>
           )}
         </TabsList>
+
+        {projectOverdue.length > 0 && (
+          <TabsContent value="pending_project_overdue" className="mt-4 space-y-3">
+            <div className="rounded border border-red-200 bg-red-50 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-red-800 font-medium">
+                <AlertTriangle className="h-4 w-4" />
+                決済予定日が5日以内にも関わらず、プロジェクト側の承認が完了していない定期経費があります。承認者に確認してください。
+              </div>
+            </div>
+            <OverdueGroupTable groups={projectOverdue} />
+          </TabsContent>
+        )}
 
         <TabsContent value="pending_accounting_approval" className="mt-4">
           <GroupTable

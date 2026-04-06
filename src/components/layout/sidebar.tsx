@@ -391,6 +391,7 @@ const navigation: NavItem[] = [
           { name: "決済手段", href: "/accounting/masters/payment-methods", icon: Wallet },
           { name: "定期取引", href: "/accounting/masters/recurring-transactions", icon: Repeat },
           { name: "経理用プロジェクト管理", href: "/accounting/masters/cost-centers", icon: Tag },
+          { name: "按分テンプレート", href: "/accounting/masters/allocation-templates", icon: Layers },
           { name: "費目マスタ", href: "/accounting/masters/expense-categories", icon: Tag },
         ],
       },

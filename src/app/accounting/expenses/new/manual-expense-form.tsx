@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useTransition } from "react";
+import { useState, useMemo, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { X, Plus, Search } from "lucide-react";
+import { X, Plus, Search, Upload, FileText, Trash2 } from "lucide-react";
 import { submitExpenseRequest, type ExpenseFormData } from "./actions";
 
 type Owner = { staffId: number | null; customName: string | null; key: string };
@@ -196,11 +196,11 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
     formData.project?.defaultApproverStaffId ?? null
   );
 
+  const [frequency, setFrequency] = useState<string>("once");
   const [amountType, setAmountType] = useState<"fixed" | "variable">("fixed");
   const [amount, setAmount] = useState("");
   const [taxRate, setTaxRate] = useState(10);
 
-  const [frequency, setFrequency] = useState<string>("once");
   const [intervalCount, setIntervalCount] = useState(1);
   const [executionDay, setExecutionDay] = useState("");
   const [executeOnLastDay, setExecuteOnLastDay] = useState(false);
@@ -208,10 +208,31 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
   const [endDate, setEndDate] = useState("");
   const [recurringName, setRecurringName] = useState("");
 
-  const today = new Date().toISOString().slice(0, 10);
-  const [periodFrom, setPeriodFrom] = useState(today);
-  const [periodTo, setPeriodTo] = useState(today);
-  const [paymentDueDate, setPaymentDueDate] = useState("");
+  const [scheduledPaymentDate, setScheduledPaymentDate] = useState("");
+
+  // 按分
+  const [useAllocation, setUseAllocation] = useState(false);
+  const [allocationTemplateId, setAllocationTemplateId] = useState<number | null>(null);
+  const [costCenterId, setCostCenterId] = useState<number | null>(null);
+
+  const selectedTemplate = useMemo(() => {
+    if (!allocationTemplateId) return null;
+    return formData.allocationTemplates.find((t) => t.id === allocationTemplateId) ?? null;
+  }, [allocationTemplateId, formData.allocationTemplates]);
+
+  // 証憑ファイル
+  type PendingFile = { file: File; key: string };
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const addFiles = (files: FileList) => {
+    const newFiles = Array.from(files).map((f) => ({
+      file: f,
+      key: `f-${Date.now()}-${Math.random()}`,
+    }));
+    setPendingFiles((prev) => [...prev, ...newFiles]);
+  };
+  const removeFile = (key: string) => setPendingFiles((prev) => prev.filter((f) => f.key !== key));
 
   const [note, setNote] = useState("");
   const [owners, setOwners] = useState<Owner[]>([]);
@@ -274,10 +295,10 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
     if (!operatingCompanyId) return setError("支払元法人は必須です");
     if (mode === "accounting" && !expenseCategoryId) return setError("勘定科目（費目）は必須です");
     if (mode === "project" && !approverStaffId) return setError("承認者は必須です");
-    if (amountType === "fixed" && (!amount || Number(amount) < 0)) return setError("金額を正しく入力してください");
+    if ((isRecurring ? amountType : "fixed") === "fixed" && (!amount || Number(amount) < 0)) return setError("金額を正しく入力してください");
     if (isRecurring && !recurringName.trim()) return setError("定期取引の名称は必須です");
     if (isRecurring && !startDate) return setError("支払い開始日は必須です");
-    if (!isRecurring && (!periodFrom || !periodTo)) return setError("発生期間は必須です");
+    if (!isRecurring && !scheduledPaymentDate) return setError("支払予定日は必須です");
 
     startTransition(async () => {
       const result = await submitExpenseRequest({
@@ -289,32 +310,57 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
         expenseCategoryId: expenseCategoryId ?? undefined,
         paymentMethodId,
         approverStaffId: approverStaffId ?? undefined,
-        amountType,
-        amount: amountType === "fixed" ? Number(amount) : undefined,
+        amountType: isRecurring ? amountType : "fixed",
+        amount: (isRecurring ? amountType : "fixed") === "fixed" ? Number(amount) : undefined,
         taxRate,
-        taxAmount: amountType === "fixed" ? computedTaxAmount : undefined,
+        taxAmount: (isRecurring ? amountType : "fixed") === "fixed" ? computedTaxAmount : undefined,
         frequency: frequency as "once" | "monthly" | "yearly" | "weekly",
         intervalCount: isRecurring ? intervalCount : undefined,
         executionDay: isRecurring && !executeOnLastDay ? (executionDay ? Number(executionDay) : undefined) : undefined,
         executeOnLastDay: isRecurring ? executeOnLastDay : undefined,
         startDate: isRecurring ? startDate : undefined,
         endDate: isRecurring && endDate ? endDate : undefined,
-        periodFrom: !isRecurring ? periodFrom : undefined,
-        periodTo: !isRecurring ? periodTo : undefined,
-        paymentDueDate: !isRecurring && paymentDueDate ? paymentDueDate : undefined,
+        scheduledPaymentDate: !isRecurring ? scheduledPaymentDate : undefined,
         note: note.trim() || undefined,
         recurringName: isRecurring ? recurringName.trim() : undefined,
         expenseOwners: owners
           .filter((o) => o.staffId || (o.customName && o.customName.trim()))
           .map((o) => ({ staffId: o.staffId, customName: o.customName })),
+        useAllocation,
+        allocationTemplateId: useAllocation ? allocationTemplateId : undefined,
+        costCenterId: !useAllocation ? costCenterId : undefined,
       });
 
       if ("error" in result) return setError(result.error);
 
+      // 証憑ファイルがあればアップロード
+      if (pendingFiles.length > 0 && result.id) {
+        try {
+          const uploadData = new FormData();
+          for (const pf of pendingFiles) {
+            uploadData.append("files", pf.file);
+          }
+          const uploadRes = await fetch("/api/finance/payment-groups/upload", {
+            method: "POST",
+            body: uploadData,
+          });
+          if (uploadRes.ok) {
+            const { files: uploaded } = await uploadRes.json();
+            const { addGroupAttachments } = await import("@/app/accounting/workflow/actions");
+            await addGroupAttachments(result.id, "payment", uploaded.map((f: { filePath: string; fileName: string; fileSize: number; mimeType: string }) => ({
+              ...f,
+              attachmentType: "voucher",
+            })));
+          }
+        } catch {
+          // アップロード失敗しても経費自体は登録済みなので続行
+        }
+      }
+
       if (result.type === "recurring") {
         alert("定期取引として登録しました。");
       } else {
-        alert(mode === "accounting" ? "経費を仕訳待ちとして登録しました。" : "経費を経理承認待ちとして申請しました。");
+        alert(mode === "accounting" ? "経費を仕訳待ちとして登録しました。" : "経費を申請しました。");
       }
       router.push(backUrl);
       router.refresh();
@@ -435,20 +481,13 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
       <Card>
         <CardHeader><CardTitle className="text-base">金額・支払いサイクル</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>金額タイプ <span className="text-red-500">*</span></Label>
-              <Select value={amountType} onValueChange={(v) => setAmountType(v as "fixed" | "variable")}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="fixed">固定</SelectItem>
-                  <SelectItem value="variable">変動（毎回異なる）</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div className={`grid ${isRecurring ? "grid-cols-2" : "grid-cols-1"} gap-4`}>
             <div>
               <Label>支払いサイクル <span className="text-red-500">*</span></Label>
-              <Select value={frequency} onValueChange={setFrequency}>
+              <Select value={frequency} onValueChange={(v) => {
+                setFrequency(v);
+                if (v === "once") setAmountType("fixed");
+              }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {FREQUENCY_OPTIONS.map((o) => (
@@ -457,9 +496,21 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
                 </SelectContent>
               </Select>
             </div>
+            {isRecurring && (
+              <div>
+                <Label>金額タイプ <span className="text-red-500">*</span></Label>
+                <Select value={amountType} onValueChange={(v) => setAmountType(v as "fixed" | "variable")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fixed">固定</SelectItem>
+                    <SelectItem value="variable">変動（毎回異なる）</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
-          {amountType === "fixed" && (
+          {(isRecurring ? amountType : "fixed") === "fixed" && (
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <Label>金額（税込） <span className="text-red-500">*</span></Label>
@@ -495,11 +546,11 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <Label>支払い開始日 <span className="text-red-500">*</span></Label>
+                  <Label>開始日 <span className="text-red-500">*</span></Label>
                   <DatePicker value={startDate} onChange={setStartDate} />
                 </div>
                 <div>
-                  <Label>支払い終了日</Label>
+                  <Label>終了日</Label>
                   <DatePicker value={endDate} onChange={setEndDate} placeholder="空欄 = 無期限" />
                 </div>
                 {frequency === "monthly" && (
@@ -521,19 +572,9 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
           )}
 
           {!isRecurring && (
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <Label>発生期間（開始） <span className="text-red-500">*</span></Label>
-                <DatePicker value={periodFrom} onChange={setPeriodFrom} />
-              </div>
-              <div>
-                <Label>発生期間（終了） <span className="text-red-500">*</span></Label>
-                <DatePicker value={periodTo} onChange={setPeriodTo} />
-              </div>
-              <div>
-                <Label>支払期限</Label>
-                <DatePicker value={paymentDueDate} onChange={setPaymentDueDate} />
-              </div>
+            <div>
+              <Label>支払予定日 <span className="text-red-500">*</span></Label>
+              <DatePicker value={scheduledPaymentDate} onChange={setScheduledPaymentDate} />
             </div>
           )}
         </CardContent>
@@ -574,15 +615,129 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
       </Card>
 
       <Card>
+        <CardHeader><CardTitle className="text-base">按分設定</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="allocation"
+                checked={!useAllocation}
+                onChange={() => { setUseAllocation(false); setAllocationTemplateId(null); }}
+                className="rounded"
+              />
+              <span className="text-sm">按分なし</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="allocation"
+                checked={useAllocation}
+                onChange={() => setUseAllocation(true)}
+                className="rounded"
+              />
+              <span className="text-sm">按分あり</span>
+            </label>
+          </div>
+
+          {useAllocation && (
+            <div className="space-y-3">
+              {formData.allocationTemplates.length > 0 ? (
+                <>
+                  <div>
+                    <Label>按分テンプレート <span className="text-red-500">*</span></Label>
+                    <Select value={allocationTemplateId?.toString() ?? ""} onValueChange={(v) => setAllocationTemplateId(v ? Number(v) : null)}>
+                      <SelectTrigger><SelectValue placeholder="テンプレートを選択..." /></SelectTrigger>
+                      <SelectContent>
+                        {formData.allocationTemplates.map((t) => (
+                          <SelectItem key={t.id} value={t.id.toString()}>
+                            {t.name}（{t.lines.length}先）
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {selectedTemplate && (
+                    <div className="border rounded-lg p-3 bg-muted/30">
+                      <p className="text-xs font-medium text-muted-foreground mb-2">按分内訳</p>
+                      <div className="space-y-1">
+                        {selectedTemplate.lines.map((line, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-sm">
+                            <span>{line.costCenterName ?? line.label ?? "未確定"}</span>
+                            <span className="font-mono text-muted-foreground">{line.allocationRate}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground border rounded px-3 py-2">
+                  按分テンプレートが未登録です。
+                  <a href="/accounting/masters/allocation-templates" className="text-blue-600 hover:underline ml-1">按分テンプレート管理</a>
+                  から先に登録してください。
+                </p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader><CardTitle className="text-base">摘要・メモ</CardTitle></CardHeader>
         <CardContent>
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="例: 4/1 クライアントとの会食（〇〇レストラン）" rows={3} />
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center justify-between">
+            <span className="flex items-center gap-2"><FileText className="h-4 w-4" />証憑</span>
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp,.txt,.csv"
+                onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }}
+                className="hidden"
+              />
+              <Button type="button" size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}>
+                <Upload className="h-3 w-3 mr-1" />ファイルを追加
+              </Button>
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {pendingFiles.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              請求書・領収書などのファイルを添付できます
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {pendingFiles.map((pf) => (
+                <div key={pf.key} className="flex items-center gap-3 p-2 border rounded text-sm">
+                  <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate">{pf.file.name}</p>
+                    <p className="text-xs text-muted-foreground">{(pf.file.size / 1024).toFixed(0)} KB</p>
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600" onClick={() => removeFile(pf.key)}>
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground">{pendingFiles.length}件のファイルが申請時にアップロードされます</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="flex gap-2">
         <Button type="submit" disabled={isPending}>
-          {isPending ? "登録中..." : mode === "accounting" ? "仕訳待ちとして登録" : "経理承認待ちとして申請"}
+          {isPending ? "登録中..." : mode === "accounting" ? "仕訳待ちとして登録" : "申請"}
         </Button>
         <Button type="button" variant="outline" onClick={() => router.push(backUrl)}>キャンセル</Button>
       </div>

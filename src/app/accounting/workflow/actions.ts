@@ -9,6 +9,7 @@ import { getSession } from "@/lib/auth";
 // ============================================
 
 export type WorkflowCategory =
+  | "pending_project_overdue" // プロジェクト未承認（決済予定日5日以内）— 警告
   | "pending_accounting_approval" // 経理承認待ち（プロジェクト承認済み、経理未承認）
   | "needs_journal"    // 仕訳待ち
   | "in_progress"      // 処理中（実現待ち and/or 入出金確認待ち）
@@ -33,6 +34,10 @@ export type WorkflowGroup = {
   isAllJournalized: boolean;      // 全取引に仕訳あり
   isAllRealized: boolean;         // 全仕訳が実現済み
   hasActualPaymentDate: boolean;  // 入金日/支払日が記録済み
+  // 警告用（プロジェクト未承認）
+  expectedPaymentDate: Date | null;
+  approverName: string | null;
+  daysUntilPayment: number | null;
   // TODO: 消込は将来的に追加
 };
 
@@ -167,7 +172,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
     prisma.paymentGroup.findMany({
       where: {
         deletedAt: null,
-        status: { in: ["pending_accounting_approval", "awaiting_accounting", "paid", "returned"] },
+        status: { in: ["pending_project_approval", "pending_accounting_approval", "awaiting_accounting", "paid", "returned"] },
       },
       select: {
         id: true,
@@ -176,15 +181,18 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         status: true,
         createdAt: true,
         actualPaymentDate: true,
+        expectedPaymentDate: true,
         projectId: true,
         customCounterpartyName: true,
         counterparty: { select: { name: true } },
+        approver: { select: { name: true } },
         transactions: {
           where: { deletedAt: null },
           select: {
             id: true,
             status: true,
             journalCompleted: true,
+            sourceType: true,
             journalEntries: {
               where: { deletedAt: null, status: "confirmed" },
               select: { id: true, realizationStatus: true },
@@ -232,9 +240,13 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       isAllJournalized,
       isAllRealized,
       hasActualPaymentDate,
+      expectedPaymentDate: null,
+      approverName: null,
+      daysUntilPayment: null,
     });
   }
 
+  const now = new Date();
   for (const pg of paymentGroups) {
     const txCount = pg.transactions.length;
     const journalizedCount = pg.transactions.filter(
@@ -248,6 +260,40 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
     const hasActualPaymentDate = !!pg.actualPaymentDate;
     const isAllJournalized = txCount > 0 && journalizedCount === txCount;
     const isAllRealized = txCount > 0 && allRealizedCount === txCount;
+
+    // 決済予定日までの日数
+    const daysUntilPayment = pg.expectedPaymentDate
+      ? Math.ceil((pg.expectedPaymentDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+
+    // pending_project_approval は経理側には「5日以内の警告」のみ表示
+    if (pg.status === "pending_project_approval") {
+      // 定期取引由来かつ決済予定日5日以内のもののみ表示
+      const isRecurring = pg.transactions.some((t) => t.sourceType === "recurring");
+      if (!isRecurring || daysUntilPayment === null || daysUntilPayment > 5) continue;
+
+      groups.push({
+        id: pg.id,
+        groupType: "payment",
+        label: pg.referenceCode ?? `PG-${pg.id}`,
+        counterpartyName: pg.counterparty?.name ?? pg.customCounterpartyName ?? "（未設定）",
+        totalAmount: pg.totalAmount,
+        status: pg.status,
+        createdAt: pg.createdAt,
+        category: "pending_project_overdue",
+        projectId: pg.projectId ?? null,
+        transactionCount: txCount,
+        journalizedCount,
+        allRealizedCount,
+        isAllJournalized,
+        isAllRealized,
+        hasActualPaymentDate,
+        expectedPaymentDate: pg.expectedPaymentDate,
+        approverName: pg.approver?.name ?? null,
+        daysUntilPayment,
+      });
+      continue;
+    }
 
     const category = determineCategory(
       pg.status, txCount, journalizedCount, allRealizedCount, hasActualPaymentDate
@@ -269,6 +315,9 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       isAllJournalized,
       isAllRealized,
       hasActualPaymentDate,
+      expectedPaymentDate: pg.expectedPaymentDate ?? null,
+      approverName: pg.approver?.name ?? null,
+      daysUntilPayment,
     });
   }
 
@@ -987,4 +1036,68 @@ export async function createCounterpartyFromApproval(
 
   revalidatePath("/accounting/workflow");
   return { id: counterparty.id, displayId };
+}
+
+// ============================================
+// 証憑管理（経理側）
+// ============================================
+
+export async function getGroupAttachments(groupId: number, groupType: "invoice" | "payment") {
+  const attachments = await prisma.attachment.findMany({
+    where: {
+      ...(groupType === "invoice" ? { invoiceGroupId: groupId } : { paymentGroupId: groupId }),
+      deletedAt: null,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  return attachments.map((a) => ({
+    id: a.id,
+    fileName: a.fileName,
+    filePath: a.filePath,
+    fileSize: a.fileSize,
+    mimeType: a.mimeType,
+    attachmentType: a.attachmentType,
+    displayName: a.displayName,
+    generatedName: a.generatedName,
+    createdAt: a.createdAt.toISOString(),
+  }));
+}
+
+export async function addGroupAttachments(
+  groupId: number,
+  groupType: "invoice" | "payment",
+  files: {
+    filePath: string;
+    fileName: string;
+    fileSize: number;
+    mimeType: string;
+    attachmentType?: string;
+    displayName?: string;
+    generatedName?: string;
+  }[]
+) {
+  const session = await getSession();
+  await prisma.attachment.createMany({
+    data: files.map((f) => ({
+      ...(groupType === "invoice" ? { invoiceGroupId: groupId } : { paymentGroupId: groupId }),
+      filePath: f.filePath,
+      fileName: f.generatedName ?? f.fileName,
+      fileSize: f.fileSize,
+      mimeType: f.mimeType,
+      attachmentType: f.attachmentType ?? "voucher",
+      displayName: f.displayName ?? null,
+      generatedName: f.generatedName ?? null,
+      uploadedBy: session.id,
+    })),
+  });
+  revalidatePath("/accounting/workflow");
+}
+
+export async function deleteGroupAttachment(attachmentId: number) {
+  await getSession();
+  await prisma.attachment.update({
+    where: { id: attachmentId },
+    data: { deletedAt: new Date() },
+  });
+  revalidatePath("/accounting/workflow");
 }

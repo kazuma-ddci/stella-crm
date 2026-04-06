@@ -217,7 +217,7 @@ export function RecurringTransactionsTable({
       header: "プロジェクト",
       type: "select",
       options: [{ value: "", label: "（なし）" }, ...projectOptions],
-      hidden: true,
+      filterable: true,
     },
     {
       key: "approverStaffId",

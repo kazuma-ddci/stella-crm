@@ -369,7 +369,10 @@ export async function createPaymentGroup(data: {
       }
     }
 
-    const initialStatus = creatorCanApprove ? "before_request" : "pending_approval";
+    // CRM自動生成取引のみで構成されるグループは承認不要
+    const allCrmGenerated = transactions.every((t) => t.sourceType === "crm");
+    const skipApproval = creatorCanApprove || allCrmGenerated;
+    const initialStatus = skipApproval ? "before_request" : "pending_approval";
 
     const group = await tx.paymentGroup.create({
       data: {
@@ -413,11 +416,11 @@ export async function createPaymentGroup(data: {
       newData: { status: initialStatus, paymentType: "invoice", counterpartyId: data.counterpartyId, operatingCompanyId: data.operatingCompanyId },
     }, user.id, tx);
 
-    return { id: group.id, counterpartyName: "" };
+    return { id: group.id, counterpartyName: "", allCrmGenerated };
   });
 
   // 承認が必要な場合のみ、承認者に通知を送信
-  if (!creatorCanApprove) {
+  if (!creatorCanApprove && !result.allCrmGenerated) {
     const stpProject = await prisma.masterProject.findFirst({
       where: { code: "stp" },
     });

@@ -128,8 +128,7 @@ function LinesEditor({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm font-medium">按分明細</Label>
+      <div className="flex items-center justify-end">
         <Button type="button" variant="outline" size="sm" onClick={addLine}>
           <Plus className="h-4 w-4 mr-1" />
           行追加
@@ -311,15 +310,16 @@ export function AllocationTemplatesTable({
       header: "有効",
       type: "boolean",
       defaultValue: true,
-    },
-    {
-      key: "ownerCostCenterId",
-      header: "代表プロジェクト",
-      hidden: true,
+      editableOnCreate: false,
     },
     {
       key: "lines",
       header: "按分明細",
+      hidden: true,
+    },
+    {
+      key: "ownerCostCenterId",
+      header: "代表プロジェクト",
       hidden: true,
     },
   ];
@@ -360,7 +360,6 @@ export function AllocationTemplatesTable({
         );
         return (
           <div className="space-y-1">
-            <Label className="text-sm font-medium">代表プロジェクト</Label>
             <Select
               value={(value as string) || "_none"}
               onValueChange={(v) => onChange(v === "_none" ? "" : v)}

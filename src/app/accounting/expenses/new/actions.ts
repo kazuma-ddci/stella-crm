@@ -16,6 +16,23 @@ export type CounterpartyOption = {
   companyCode: string | null; // MasterStellaCompany.companyCode（SC-XXX形式）
 };
 
+export type AllocationTemplateOption = {
+  id: number;
+  name: string;
+  lines: {
+    costCenterId: number | null;
+    allocationRate: number;
+    label: string | null;
+    costCenterName: string | null;
+  }[];
+};
+
+export type CostCenterOption = {
+  id: number;
+  name: string;
+  projectId: number | null;
+};
+
 export type ExpenseFormData = {
   counterparties: CounterpartyOption[];
   expenseCategories: { id: number; name: string; type: string; projectId: number }[];
@@ -25,6 +42,8 @@ export type ExpenseFormData = {
   operatingCompanies: { id: number; companyName: string }[];
   staffOptions: { id: number; name: string }[];
   approversByProject: Record<number, { id: number; name: string }[]>;
+  allocationTemplates: AllocationTemplateOption[];
+  costCenters: CostCenterOption[];
   currentUserId: number;
 };
 
@@ -41,6 +60,8 @@ export async function getExpenseFormData(
     operatingCompanies,
     staffOptions,
     permissions,
+    allocationTemplatesRaw,
+    costCenters,
   ] = await Promise.all([
     prisma.counterparty.findMany({
       where: { deletedAt: null, mergedIntoId: null, isActive: true },
@@ -93,6 +114,20 @@ export async function getExpenseFormData(
         staff: { select: { id: true, name: true, isActive: true, isSystemUser: true } },
       },
     }),
+    prisma.allocationTemplate.findMany({
+      where: { deletedAt: null, isActive: true },
+      include: {
+        lines: {
+          include: { costCenter: { select: { id: true, name: true } } },
+        },
+      },
+      orderBy: { name: "asc" },
+    }),
+    prisma.costCenter.findMany({
+      where: { deletedAt: null, isActive: true },
+      select: { id: true, name: true, projectId: true },
+      orderBy: { name: "asc" },
+    }),
   ]);
 
   const approversByProject: Record<number, { id: number; name: string }[]> = {};
@@ -115,6 +150,17 @@ export async function getExpenseFormData(
     operatingCompanies,
     staffOptions,
     approversByProject,
+    allocationTemplates: allocationTemplatesRaw.map((t) => ({
+      id: t.id,
+      name: t.name,
+      lines: t.lines.map((l) => ({
+        costCenterId: l.costCenterId,
+        allocationRate: Number(l.allocationRate),
+        label: l.label,
+        costCenterName: l.costCenter?.name ?? null,
+      })),
+    })),
+    costCenters,
     currentUserId: session.id,
   };
 }
@@ -145,12 +191,14 @@ export type SubmitExpenseInput = {
   executeOnLastDay?: boolean;
   startDate?: string | null;
   endDate?: string | null;
-  periodFrom?: string | null;
-  periodTo?: string | null;
-  paymentDueDate?: string | null;
+  scheduledPaymentDate?: string | null;
   note?: string | null;
   expenseOwners: ExpenseOwnerInput[];
   recurringName?: string | null;
+  // 按分
+  useAllocation?: boolean;
+  allocationTemplateId?: number | null;
+  costCenterId?: number | null;
 };
 
 export async function submitExpenseRequest(
@@ -213,7 +261,8 @@ export async function submitExpenseRequest(
             expenseCategoryId: input.expenseCategoryId ||
               // 費目なしの場合はプロジェクトのデフォルト費目を探す（なければ必須エラー回避のため例外）
               (await getOrThrowDefaultExpenseCategory(input.projectId)),
-            costCenterId: project?.defaultCostCenterId ?? null,
+            allocationTemplateId: input.useAllocation ? (input.allocationTemplateId ?? null) : null,
+            costCenterId: input.useAllocation ? null : (input.costCenterId ?? project?.defaultCostCenterId ?? null),
             paymentMethodId: input.paymentMethodId ?? null,
             projectId: input.projectId,
             approverStaffId: input.approverStaffId ?? null,
@@ -262,6 +311,7 @@ export async function submitExpenseRequest(
               customCounterpartyName,
               totalAmount: input.amount,
               taxAmount: input.taxAmount ?? 0,
+              expectedPaymentDate: startDate,
               createdBy: staffId,
             },
           });
@@ -276,7 +326,8 @@ export async function submitExpenseRequest(
               recurringTransactionId: recurring.id,
               counterpartyId,
               expenseCategoryId: input.expenseCategoryId || null,
-              costCenterId: project?.defaultCostCenterId ?? null,
+              allocationTemplateId: input.useAllocation ? (input.allocationTemplateId ?? null) : null,
+              costCenterId: input.useAllocation ? null : (input.costCenterId ?? project?.defaultCostCenterId ?? null),
               projectId: input.projectId,
               paymentMethodId: input.paymentMethodId ?? null,
               type: "expense",
@@ -314,10 +365,11 @@ export async function submitExpenseRequest(
     }
 
     // === 一度限り ===
-    if (!input.periodFrom || !input.periodTo) throw new Error("発生期間は必須です");
-    const periodFrom = new Date(input.periodFrom);
-    const periodTo = new Date(input.periodTo);
-    if (periodFrom > periodTo) throw new Error("発生期間の開始日は終了日以前にして���ださい");
+    if (!input.scheduledPaymentDate) throw new Error("支払予定日は必須です");
+    const scheduledPaymentDate = new Date(input.scheduledPaymentDate);
+    // 一度限りの場合: periodFrom/periodTo は支払予定日と同じにする
+    const periodFrom = scheduledPaymentDate;
+    const periodTo = scheduledPaymentDate;
 
     const isCustom = !counterpartyId;
     const validOwners = input.expenseOwners.filter((o) => o.staffId || o.customName);
@@ -335,6 +387,7 @@ export async function submitExpenseRequest(
           customCounterpartyName,
           totalAmount: input.amountType === "fixed" ? input.amount! : null,
           taxAmount: input.amountType === "fixed" ? (input.taxAmount ?? 0) : null,
+          expectedPaymentDate: scheduledPaymentDate,
           createdBy: staffId,
         },
       });
@@ -352,7 +405,8 @@ export async function submitExpenseRequest(
             paymentGroupId: pg.id,
             counterpartyId: counterpartyId!,
             expenseCategoryId: input.expenseCategoryId || null,
-            costCenterId: project?.defaultCostCenterId ?? null,
+            allocationTemplateId: input.useAllocation ? (input.allocationTemplateId ?? null) : null,
+            costCenterId: input.useAllocation ? null : (input.costCenterId ?? project?.defaultCostCenterId ?? null),
             projectId: input.projectId,
             paymentMethodId: input.paymentMethodId ?? null,
             type: "expense",
@@ -362,7 +416,7 @@ export async function submitExpenseRequest(
             taxType: "tax_included",
             periodFrom,
             periodTo,
-            paymentDueDate: input.paymentDueDate ? new Date(input.paymentDueDate) : null,
+            scheduledPaymentDate,
             status: initialStatus,
             note: input.note?.trim() || null,
             sourceType: "manual",
