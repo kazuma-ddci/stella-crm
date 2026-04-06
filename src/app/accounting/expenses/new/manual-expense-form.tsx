@@ -51,33 +51,32 @@ function CounterpartySelector({
   const [search, setSearch] = useState("");
   const [counterpartyTab, setCounterpartyTab] = useState("stella");
 
+  const matchSearch = (c: ExpenseFormData["counterparties"][0], q: string) =>
+    c.name.toLowerCase().includes(q) ||
+    (c.displayId && c.displayId.toLowerCase().includes(q)) ||
+    (c.companyCode && c.companyCode.toLowerCase().includes(q));
+
   const stellaList = useMemo(() => {
     const list = counterparties.filter((c) => c.companyId !== null);
     if (!search.trim()) return list;
     const q = search.toLowerCase();
-    return list.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        (c.displayId && c.displayId.toLowerCase().includes(q))
-    );
+    return list.filter((c) => matchSearch(c, q));
   }, [counterparties, search]);
 
   const otherList = useMemo(() => {
     const list = counterparties.filter((c) => c.companyId === null);
     if (!search.trim()) return list;
     const q = search.toLowerCase();
-    return list.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        (c.displayId && c.displayId.toLowerCase().includes(q))
-    );
+    return list.filter((c) => matchSearch(c, q));
   }, [counterparties, search]);
 
   const selectedName = useMemo(() => {
     if (customName) return `手入力: ${customName}`;
     if (!selectedId) return null;
     const c = counterparties.find((c) => c.id === selectedId);
-    return c ? `${c.displayId ?? ""} ${c.name}`.trim() : null;
+    if (!c) return null;
+    const code = c.companyCode || c.displayId || "";
+    return code ? `${code} ${c.name}` : c.name;
   }, [selectedId, customName, counterparties]);
 
   const renderList = (list: ExpenseFormData["counterparties"]) => (
@@ -102,7 +101,7 @@ function CounterpartySelector({
             }}
           >
             <span className="text-muted-foreground font-mono text-xs mr-2">
-              {c.displayId ?? "---"}
+              {c.companyCode || c.displayId || "---"}
             </span>
             {c.name}
           </button>

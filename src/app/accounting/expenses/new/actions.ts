@@ -13,6 +13,7 @@ export type CounterpartyOption = {
   name: string;
   displayId: string | null;
   companyId: number | null; // null = その他、non-null = Stella顧客
+  companyCode: string | null; // MasterStellaCompany.companyCode（SC-XXX形式）
 };
 
 export type ExpenseFormData = {
@@ -43,9 +44,23 @@ export async function getExpenseFormData(
   ] = await Promise.all([
     prisma.counterparty.findMany({
       where: { deletedAt: null, mergedIntoId: null, isActive: true },
-      select: { id: true, name: true, displayId: true, companyId: true },
-      orderBy: { displayId: "desc" },
-    }),
+      select: {
+        id: true,
+        name: true,
+        displayId: true,
+        companyId: true,
+        company: { select: { companyCode: true } },
+      },
+      orderBy: { id: "desc" },
+    }).then((list) =>
+      list.map((c) => ({
+        id: c.id,
+        name: c.name,
+        displayId: c.displayId,
+        companyId: c.companyId,
+        companyCode: c.company?.companyCode ?? null,
+      }))
+    ),
     prisma.expenseCategory.findMany({
       where: { deletedAt: null, isActive: true, type: { in: ["expense", "both"] } },
       select: { id: true, name: true, type: true, projectId: true },
