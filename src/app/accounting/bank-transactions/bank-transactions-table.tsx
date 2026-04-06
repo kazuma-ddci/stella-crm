@@ -209,7 +209,7 @@ export function BankTransactionsTable({ transactions, formData }: Props) {
                         </span>
                       ) : tx.paymentGroup ? (
                         <span className="inline-flex items-center gap-1 text-purple-700 bg-purple-50 px-2 py-0.5 rounded text-xs font-medium">
-                          支払: {tx.paymentGroup.referenceCode || `#${tx.paymentGroup.id}`} / {tx.paymentGroup.counterparty.name}
+                          支払: {tx.paymentGroup.referenceCode || `#${tx.paymentGroup.id}`} / {tx.paymentGroup.counterparty?.name ?? "（未設定）"}
                         </span>
                       ) : tx.counterparty?.name ? (
                         <span className="text-muted-foreground text-xs">{tx.counterparty.name}</span>

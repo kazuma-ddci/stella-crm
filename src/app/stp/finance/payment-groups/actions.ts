@@ -82,7 +82,7 @@ export async function getPaymentGroups(
     id: r.id,
     referenceCode: r.referenceCode,
     counterpartyId: r.counterpartyId,
-    counterpartyName: r.counterparty.name,
+    counterpartyName: r.counterparty?.name ?? "（未設定）",
     operatingCompanyId: r.operatingCompanyId,
     operatingCompanyName: r.operatingCompany.companyName,
     targetMonth: r.targetMonth ? toLocalDateString(r.targetMonth).slice(0, 7) : null,
@@ -879,7 +879,7 @@ export async function addTransactionToPaymentGroup(
       status: "confirmed",
       paymentGroupId: null,
       type: "expense",
-      counterpartyId: group.counterpartyId,
+      ...(group.counterpartyId ? { counterpartyId: group.counterpartyId } : {}),
       projectId: stpProjectId,
     },
   });

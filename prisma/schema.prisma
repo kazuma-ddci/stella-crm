@@ -2594,7 +2594,7 @@ model InvoiceGroupMemoLine {
 
 model PaymentGroup {
   id                 Int       @id @default(autoincrement())
-  counterpartyId     Int // FK → Counterparty（支払先）
+  counterpartyId     Int? // FK → Counterparty（支払先。手入力の場合はnull、経理がマスタ紐付け後にセット）
   operatingCompanyId Int // FK → OperatingCompany（支払元法人）
   targetMonth        DateTime? // 対象月（YYYY-MM-01）※廃止予定
 
@@ -2638,7 +2638,7 @@ model PaymentGroup {
   deletedAt DateTime?
 
   // Relations
-  counterparty         Counterparty               @relation(fields: [counterpartyId], references: [id])
+  counterparty         Counterparty?              @relation(fields: [counterpartyId], references: [id])
   operatingCompany     OperatingCompany           @relation(fields: [operatingCompanyId], references: [id])
   transactions         Transaction[]
   allocationItems      AllocationGroupItem[]

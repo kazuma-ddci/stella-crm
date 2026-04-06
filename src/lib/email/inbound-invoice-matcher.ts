@@ -86,7 +86,7 @@ export async function matchInboundInvoice(params: {
     pg: (typeof baseCandidates)[number]
   ): string[] {
     return (
-      pg.counterparty.company?.contacts
+      pg.counterparty?.company?.contacts
         .map((c: { email: string | null }) => c.email)
         .filter((e): e is string => e !== null) || []
     );

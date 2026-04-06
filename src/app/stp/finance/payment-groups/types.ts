@@ -1,7 +1,7 @@
 export type PaymentGroupListItem = {
   id: number;
   referenceCode: string | null;
-  counterpartyId: number;
+  counterpartyId: number | null;
   counterpartyName: string;
   operatingCompanyId: number;
   operatingCompanyName: string;

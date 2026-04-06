@@ -63,7 +63,7 @@ export type TransactionFormData = {
   paymentGroups?: {
     id: number;
     referenceCode: string | null;
-    counterparty: { id: number; name: string };
+    counterparty: { id: number; name: string } | null;
     totalAmount: number | null;
     status: string;
   }[];

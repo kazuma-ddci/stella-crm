@@ -640,7 +640,7 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
         onSuccess={handleJournalSuccess}
         defaultTransactionId={selectedTransactionId ?? undefined}
         defaultProjectId={selectedProjectId ?? undefined}
-        defaultCounterpartyId={detail.counterpartyId}
+        defaultCounterpartyId={detail.counterpartyId ?? undefined}
       />
 
       {/* 仕訳完了確認ダイアログ */}

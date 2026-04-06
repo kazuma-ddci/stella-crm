@@ -82,7 +82,7 @@ export type WorkflowGroupDetail = {
   groupType: "invoice" | "payment";
   label: string;
   counterpartyName: string;
-  counterpartyId: number;
+  counterpartyId: number | null;
   totalAmount: number | null;
   status: string;
   actualPaymentDate: Date | null;
@@ -177,6 +177,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         createdAt: true,
         actualPaymentDate: true,
         projectId: true,
+        customCounterpartyName: true,
         counterparty: { select: { name: true } },
         transactions: {
           where: { deletedAt: null },
@@ -256,7 +257,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       id: pg.id,
       groupType: "payment",
       label: pg.referenceCode ?? `PG-${pg.id}`,
-      counterpartyName: pg.counterparty.name,
+      counterpartyName: pg.counterparty?.name ?? pg.customCounterpartyName ?? "（未設定）",
       totalAmount: pg.totalAmount,
       status: pg.status,
       createdAt: pg.createdAt,
@@ -479,8 +480,8 @@ export async function getWorkflowGroupDetail(
     id: group.id,
     groupType: "payment",
     label: group.referenceCode ?? `PG-${group.id}`,
-    counterpartyName: group.counterparty.name,
-    counterpartyId: group.counterparty.id,
+    counterpartyName: group.counterparty?.name ?? "（未設定）",
+    counterpartyId: group.counterparty?.id ?? 0,
     totalAmount: group.totalAmount,
     status: group.status,
     actualPaymentDate: group.actualPaymentDate,
@@ -657,7 +658,7 @@ export async function rejectPaymentGroup(groupId: number, reason?: string) {
 export type PendingApprovalDetail = {
   id: number;
   referenceCode: string | null;
-  counterpartyId: number;
+  counterpartyId: number | null;
   counterpartyName: string;
   customCounterpartyName: string | null;
   operatingCompanyName: string;
@@ -761,7 +762,7 @@ export async function getPendingApprovalDetail(groupId: number): Promise<Pending
     id: pg.id,
     referenceCode: pg.referenceCode,
     counterpartyId: pg.counterpartyId,
-    counterpartyName: pg.counterparty.name,
+    counterpartyName: pg.counterparty?.name ?? "（未設定）",
     customCounterpartyName: pg.customCounterpartyName,
     operatingCompanyName: pg.operatingCompany.companyName,
     projectId: pg.projectId,
@@ -827,7 +828,30 @@ export async function updateAndApprovePaymentGroup(
     select: {
       id: true,
       status: true,
-      transactions: { where: { deletedAt: null }, select: { id: true }, take: 1 },
+      counterpartyId: true,
+      operatingCompanyId: true,
+      projectId: true,
+      totalAmount: true,
+      taxAmount: true,
+      customCounterpartyName: true,
+      createdBy: true,
+      transactions: {
+        where: { deletedAt: null },
+        take: 1,
+        select: {
+          id: true,
+          expenseCategoryId: true,
+          paymentMethodId: true,
+          amount: true,
+          taxAmount: true,
+          taxRate: true,
+          periodFrom: true,
+          periodTo: true,
+          paymentDueDate: true,
+          note: true,
+          costCenterId: true,
+        },
+      },
     },
   });
   if (!group) throw new Error("支払グループが見つかりません");
@@ -835,17 +859,22 @@ export async function updateAndApprovePaymentGroup(
     throw new Error("このグループは経理承認待ちではありません");
   }
 
+  // 取引先の確定チェック
+  const finalCounterpartyId = updates.counterpartyId ?? group.counterpartyId;
+  if (!finalCounterpartyId) {
+    throw new Error("取引先を選択してください。手入力のままでは承認できません。");
+  }
+
   await prisma.$transaction(async (tx) => {
+    // PaymentGroup更新
     const pgUpdate: Record<string, unknown> = {
       status: "awaiting_accounting",
       approver: { connect: { id: staffId } },
       approvedAt: new Date(),
       updater: { connect: { id: staffId } },
       customCounterpartyName: null,
+      counterparty: { connect: { id: finalCounterpartyId } },
     };
-    if (updates.counterpartyId) {
-      pgUpdate.counterparty = { connect: { id: updates.counterpartyId } };
-    }
     if (updates.amount !== undefined) {
       pgUpdate.totalAmount = updates.amount;
       pgUpdate.taxAmount = updates.taxAmount ?? 0;
@@ -856,14 +885,13 @@ export async function updateAndApprovePaymentGroup(
       data: pgUpdate,
     });
 
-    const txId = group.transactions[0]?.id;
-    if (txId) {
+    const existingTx = group.transactions[0];
+    if (existingTx) {
+      // Transaction が既に存在する場合は更新
       const txUpdate: Record<string, unknown> = {
         status: "awaiting_accounting",
+        counterparty: { connect: { id: finalCounterpartyId } },
       };
-      if (updates.counterpartyId) {
-        txUpdate.counterparty = { connect: { id: updates.counterpartyId } };
-      }
       if (updates.expenseCategoryId !== undefined) {
         if (updates.expenseCategoryId) {
           txUpdate.expenseCategory = { connect: { id: updates.expenseCategoryId } };
@@ -888,8 +916,37 @@ export async function updateAndApprovePaymentGroup(
       }
 
       await tx.transaction.update({
-        where: { id: txId },
+        where: { id: existingTx.id },
         data: txUpdate,
+      });
+    } else {
+      // Transaction が未作成の場合（手入力取引先で承認時に初めて作成）
+      const amt = updates.amount ?? group.totalAmount ?? 0;
+      const taxAmt = updates.taxAmount ?? group.taxAmount ?? 0;
+      const taxRate = updates.taxRate ?? 10;
+      const now = new Date();
+
+      await tx.transaction.create({
+        data: {
+          paymentGroupId: groupId,
+          counterpartyId: finalCounterpartyId,
+          expenseCategoryId: updates.expenseCategoryId ?? null,
+          costCenterId: group.transactions[0]?.costCenterId ?? null,
+          projectId: group.projectId,
+          paymentMethodId: updates.paymentMethodId ?? null,
+          type: "expense",
+          amount: amt,
+          taxAmount: taxAmt,
+          taxRate,
+          taxType: "tax_included",
+          periodFrom: now,
+          periodTo: now,
+          status: "awaiting_accounting",
+          note: updates.note ?? null,
+          sourceType: "manual",
+          hasExpenseOwner: false,
+          createdBy: staffId,
+        },
       });
     }
   });

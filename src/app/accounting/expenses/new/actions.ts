@@ -177,29 +177,10 @@ export async function submitExpenseRequest(
       }
     }
 
-    // 手入力取引先の場合: 自動でCounterpartyマスタに仮登録
-    let counterpartyId = input.counterpartyId ?? null;
-    const isCustomCounterparty = !counterpartyId && !!input.customCounterpartyName?.trim();
-
-    if (isCustomCounterparty) {
-      const newCounterparty = await prisma.counterparty.create({
-        data: {
-          name: input.customCounterpartyName!.trim(),
-          counterpartyType: "other",
-          isActive: true,
-          createdBy: staffId,
-        },
-      });
-      // displayId 自動採番 (TP-XXX)
-      const tpId = `TP-${newCounterparty.id}`;
-      await prisma.counterparty.update({
-        where: { id: newCounterparty.id },
-        data: { displayId: tpId },
-      });
-      counterpartyId = newCounterparty.id;
-    }
-
-    if (!counterpartyId) throw new Error("取引先の解決に失敗しました");
+    // 手入力取引先の場合: counterpartyId=null、customCounterpartyNameのみ保持
+    // 経理が承認時にマスタ紐付けまたは新規追加する
+    const counterpartyId = input.counterpartyId ?? null;
+    const customCounterpartyName = (!counterpartyId && input.customCounterpartyName?.trim()) || null;
 
     const project = await prisma.masterProject.findUnique({
       where: { id: input.projectId },
@@ -219,6 +200,7 @@ export async function submitExpenseRequest(
 
     // === 定期取引 ===
     if (input.frequency !== "once") {
+      if (!counterpartyId) throw new Error("定期取引の場合は取引先をマスタから選択してください（手入力不可）");
       if (!input.recurringName?.trim()) throw new Error("定期取引の名称���必須です");
       if (!input.startDate) throw new Error("支払い開始日は必須です");
 
@@ -277,7 +259,7 @@ export async function submitExpenseRequest(
               paymentType: "direct",
               status: initialStatus,
               approverStaffId: input.approverStaffId ?? null,
-              customCounterpartyName: isCustomCounterparty ? input.customCounterpartyName!.trim() : null,
+              customCounterpartyName,
               totalAmount: input.amount,
               taxAmount: input.taxAmount ?? 0,
               createdBy: staffId,
@@ -337,7 +319,11 @@ export async function submitExpenseRequest(
     const periodTo = new Date(input.periodTo);
     if (periodFrom > periodTo) throw new Error("発生期間の開始日は終了日以前にして���ださい");
 
+    const isCustom = !counterpartyId;
+    const validOwners = input.expenseOwners.filter((o) => o.staffId || o.customName);
+
     const result = await prisma.$transaction(async (tx) => {
+      // PaymentGroup作成（手入力の場合 counterpartyId=null）
       const pg = await tx.paymentGroup.create({
         data: {
           counterpartyId,
@@ -346,7 +332,7 @@ export async function submitExpenseRequest(
           paymentType: "direct",
           status: initialStatus,
           approverStaffId: input.approverStaffId ?? null,
-          customCounterpartyName: isCustomCounterparty ? input.customCounterpartyName!.trim() : null,
+          customCounterpartyName,
           totalAmount: input.amountType === "fixed" ? input.amount! : null,
           taxAmount: input.amountType === "fixed" ? (input.taxAmount ?? 0) : null,
           createdBy: staffId,
@@ -357,46 +343,51 @@ export async function submitExpenseRequest(
         data: { referenceCode: `PG-${pg.id.toString().padStart(4, "0")}` },
       });
 
-      const validOwners = input.expenseOwners.filter((o) => o.staffId || o.customName);
-      const txn = await tx.transaction.create({
-        data: {
-          paymentGroupId: pg.id,
-          counterpartyId,
-          expenseCategoryId: input.expenseCategoryId || null,
-          costCenterId: project?.defaultCostCenterId ?? null,
-          projectId: input.projectId,
-          paymentMethodId: input.paymentMethodId ?? null,
-          type: "expense",
-          amount: input.amountType === "fixed" ? input.amount! : 0,
-          taxAmount: input.amountType === "fixed" ? (input.taxAmount ?? 0) : 0,
-          taxRate: input.taxRate,
-          taxType: "tax_included",
-          periodFrom,
-          periodTo,
-          paymentDueDate: input.paymentDueDate ? new Date(input.paymentDueDate) : null,
-          status: initialStatus,
-          note: input.note?.trim() || null,
-          sourceType: "manual",
-          hasExpenseOwner: validOwners.length > 0,
-          createdBy: staffId,
-        },
-      });
-
-      if (validOwners.length > 0) {
-        await tx.transactionExpenseOwner.createMany({
-          data: validOwners.map((o) => ({
-            transactionId: txn.id,
-            staffId: o.staffId ?? null,
-            customName: o.customName ?? null,
-          })),
+      // Transaction は取引先が確定している場合のみ作成
+      // 手入力の場合は経理が承認時に取引先を確定してからTransaction作成
+      let transactionId: number | null = null;
+      if (!isCustom) {
+        const txn = await tx.transaction.create({
+          data: {
+            paymentGroupId: pg.id,
+            counterpartyId: counterpartyId!,
+            expenseCategoryId: input.expenseCategoryId || null,
+            costCenterId: project?.defaultCostCenterId ?? null,
+            projectId: input.projectId,
+            paymentMethodId: input.paymentMethodId ?? null,
+            type: "expense",
+            amount: input.amountType === "fixed" ? input.amount! : 0,
+            taxAmount: input.amountType === "fixed" ? (input.taxAmount ?? 0) : 0,
+            taxRate: input.taxRate,
+            taxType: "tax_included",
+            periodFrom,
+            periodTo,
+            paymentDueDate: input.paymentDueDate ? new Date(input.paymentDueDate) : null,
+            status: initialStatus,
+            note: input.note?.trim() || null,
+            sourceType: "manual",
+            hasExpenseOwner: validOwners.length > 0,
+            createdBy: staffId,
+          },
         });
+        transactionId = txn.id;
+
+        if (validOwners.length > 0) {
+          await tx.transactionExpenseOwner.createMany({
+            data: validOwners.map((o) => ({
+              transactionId: txn.id,
+              staffId: o.staffId ?? null,
+              customName: o.customName ?? null,
+            })),
+          });
+        }
       }
 
-      return { transactionId: txn.id };
+      return { paymentGroupId: pg.id, transactionId };
     });
 
     revalidatePath("/accounting/workflow");
-    return { id: result.transactionId, type: "transaction" as const };
+    return { id: result.paymentGroupId, type: "transaction" as const };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "経費の作成に失敗しました" };
   }
@@ -460,7 +451,7 @@ export async function getMyExpenses(projectId: number): Promise<ExpenseStatusIte
     id: pg.id,
     groupType: "payment" as const,
     referenceCode: pg.referenceCode,
-    counterpartyName: pg.counterparty.name,
+    counterpartyName: pg.counterparty?.name ?? "（未設定）",
     customCounterpartyName: pg.customCounterpartyName,
     totalAmount: pg.totalAmount,
     status: pg.status,
@@ -499,7 +490,7 @@ export async function getPendingApprovals(projectId: number): Promise<ExpenseSta
     id: pg.id,
     groupType: "payment" as const,
     referenceCode: pg.referenceCode,
-    counterpartyName: pg.counterparty.name,
+    counterpartyName: pg.counterparty?.name ?? "（未設定）",
     customCounterpartyName: pg.customCounterpartyName,
     totalAmount: pg.totalAmount,
     status: pg.status,

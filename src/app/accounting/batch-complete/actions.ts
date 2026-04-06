@@ -163,7 +163,7 @@ export async function getAwaitingAccountingGroups(): Promise<AwaitingGroupItem[]
     results.push({
       id: g.id,
       groupType: "payment",
-      counterpartyName: g.counterparty.name,
+      counterpartyName: g.counterparty?.name ?? "（未設定）",
       operatingCompanyName: g.operatingCompany.companyName,
       projectName: g.project?.name ?? null,
       totalAmount: g.totalAmount,
