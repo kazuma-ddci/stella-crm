@@ -596,9 +596,9 @@ export async function approvePaymentGroup(groupId: number) {
     where: { id: groupId },
     data: {
       status: "awaiting_accounting",
-      approverStaffId: staffId,
+      approver: { connect: { id: staffId } },
       approvedAt: new Date(),
-      updatedBy: staffId,
+      updater: { connect: { id: staffId } },
     },
   });
 
@@ -838,9 +838,9 @@ export async function updateAndApprovePaymentGroup(
   await prisma.$transaction(async (tx) => {
     const pgUpdate: Record<string, unknown> = {
       status: "awaiting_accounting",
-      approverStaffId: staffId,
+      approver: { connect: { id: staffId } },
       approvedAt: new Date(),
-      updatedBy: staffId,
+      updater: { connect: { id: staffId } },
       customCounterpartyName: null,
     };
     if (updates.counterpartyId) {
