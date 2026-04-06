@@ -896,14 +896,14 @@ export async function updateAndApprovePaymentGroup(
         if (updates.expenseCategoryId) {
           txUpdate.expenseCategory = { connect: { id: updates.expenseCategoryId } };
         } else {
-          txUpdate.expenseCategoryId = null;
+          txUpdate.expenseCategory = { disconnect: true };
         }
       }
       if (updates.paymentMethodId !== undefined) {
         if (updates.paymentMethodId) {
           txUpdate.paymentMethod = { connect: { id: updates.paymentMethodId } };
         } else {
-          txUpdate.paymentMethodId = null;
+          txUpdate.paymentMethod = { disconnect: true };
         }
       }
       if (updates.amount !== undefined) {
