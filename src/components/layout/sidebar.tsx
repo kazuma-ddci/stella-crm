@@ -248,13 +248,21 @@ const navigation: NavItem[] = [
         sectionLabel: true,
         children: [
           { name: "全顧客マスタ", href: "/companies", icon: BookOpen },
-          { name: "案件管理", href: "/slp/companies", icon: Building2 },
+          { name: "企業名簿", href: "/slp/companies", icon: Building2 },
           { name: "組合員名簿", href: "/slp/members", icon: Users },
           { name: "契約書", href: "/slp/contracts", icon: FileText },
           { name: "公式LINE友達情報", href: "/slp/line-friends", icon: MessageSquare },
         ],
       },
       { name: "経費申請", href: "/slp/expenses/new", icon: Plus },
+      {
+        name: "代理店",
+        icon: Handshake,
+        sectionLabel: true,
+        children: [
+          { name: "代理店管理", href: "/slp/agencies", icon: Handshake },
+        ],
+      },
       {
         name: "管理",
         icon: Settings,
@@ -267,7 +275,8 @@ const navigation: NavItem[] = [
             collapsible: true,
             children: [
               { name: "プロジェクト設定", href: "/slp/settings/project", icon: Building2 },
-              { name: "パイプライン", href: "/slp/settings/stages", icon: Layers },
+              { name: "資料管理", href: "/slp/settings/documents", icon: FileText },
+              { name: "概要案内担当者", href: "/slp/settings/briefing-staff", icon: Users },
               { name: "プロライン情報", href: "/slp/settings/proline", icon: UserCog },
             ],
           },
@@ -288,7 +297,6 @@ const navigation: NavItem[] = [
         sectionLabel: true,
         children: [
           { name: "ベンダー情報", href: "/hojo/settings/vendors", icon: Building2 },
-          { name: "契約状況一覧", href: "/hojo/consulting/contracts", icon: FileText },
           { name: "コンサル履歴一覧", href: "/hojo/consulting/activities", icon: History },
         ],
       },

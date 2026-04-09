@@ -92,6 +92,37 @@ function cellValue(row, idx) {
   return String(val).trim() || null;
 }
 
+/**
+ * プロライン Excel エクスポートの「姓」列に「姓 名」が結合された値が
+ * 入ってくるため、姓と名を分離する正規化処理。
+ *
+ * プロラインの実際の出力パターン:
+ *   1. 姓="田中", 名="太郎"  → sei="田中 太郎", mei="太郎"
+ *   2. 姓="田中", 名=""      → sei="田中",      mei=""
+ *   3. 姓="",     名="太郎"  → sei="",          mei="太郎"
+ *
+ * sei が " " + mei または "　" + mei で終わっている場合は末尾を除去する。
+ */
+function normalizeSeiMei(sei, mei) {
+  const seiVal = sei && sei.trim() !== "" ? sei.trim() : null;
+  const meiVal = mei && mei.trim() !== "" ? mei.trim() : null;
+
+  if (!seiVal) return { sei: null, mei: meiVal };
+  if (!meiVal) return { sei: seiVal, mei: null };
+
+  for (const sep of [" ", "　"]) {
+    const suffix = sep + meiVal;
+    if (seiVal.endsWith(suffix)) {
+      const cleanSei = seiVal.slice(0, seiVal.length - suffix.length).trim();
+      return { sei: cleanSei !== "" ? cleanSei : null, mei: meiVal };
+    }
+  }
+
+  if (seiVal === meiVal) return { sei: null, mei: meiVal };
+
+  return { sei: seiVal, mei: meiVal };
+}
+
 function parseExcelDate(val) {
   if (!val) return null;
   if (typeof val === "number") {
@@ -249,6 +280,11 @@ function parseExcel(filePath, label) {
         friend[fieldName] = cellValue(row, idx);
       }
     }
+    // 姓名の正規化（プロライン側で「姓」に「姓 名」が結合された値が
+    // 入ってくるケースに対応）
+    const normalized = normalizeSeiMei(friend.sei, friend.mei);
+    friend.sei = normalized.sei;
+    friend.mei = normalized.mei;
     friends.push(friend);
   }
 

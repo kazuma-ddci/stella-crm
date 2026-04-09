@@ -98,6 +98,63 @@ export async function deleteLineFriend(id: number) {
   revalidatePath("/slp/line-friends");
 }
 
+// === AS管理 ===
+
+export async function addSlpAs(data: {
+  name: string;
+  lineFriendId: number | null;
+  staffId: number | null;
+}) {
+  if (!data.name.trim()) {
+    throw new Error("名前は必須です");
+  }
+
+  await prisma.slpAs.create({
+    data: {
+      name: data.name.trim(),
+      lineFriend: data.lineFriendId
+        ? { connect: { id: data.lineFriendId } }
+        : undefined,
+      staff: data.staffId ? { connect: { id: data.staffId } } : undefined,
+    },
+  });
+
+  revalidatePath("/slp/line-friends");
+}
+
+export async function updateSlpAs(
+  id: number,
+  data: {
+    name: string;
+    lineFriendId: number | null;
+    staffId: number | null;
+  }
+) {
+  if (!data.name.trim()) {
+    throw new Error("名前は必須です");
+  }
+
+  await prisma.slpAs.update({
+    where: { id },
+    data: {
+      name: data.name.trim(),
+      lineFriend: data.lineFriendId
+        ? { connect: { id: data.lineFriendId } }
+        : { disconnect: true },
+      staff: data.staffId
+        ? { connect: { id: data.staffId } }
+        : { disconnect: true },
+    },
+  });
+
+  revalidatePath("/slp/line-friends");
+}
+
+export async function deleteSlpAs(id: number) {
+  await prisma.slpAs.delete({ where: { id } });
+  revalidatePath("/slp/line-friends");
+}
+
 export async function triggerProLineSync(): Promise<{
   success: boolean;
   created?: number;

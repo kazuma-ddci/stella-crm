@@ -6,110 +6,121 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const SECTION_GROUPS = [
+const GROUPS = [
   {
     title: "基本情報",
-    keys: ["tradeName", "industry", "mainPhone", "contactPerson", "contactPerson2", "businessDescription", "maxMonthlySales", "industryCode", "constructionLicense", "employeeCount"],
+    keys: [
+      ["tradeName", "屋号"],
+      ["industry", "業種"],
+      ["mainPhone", "電話番号（メイン）"],
+      ["contactPerson", "先方"],
+      ["contactPerson2", "先方2"],
+      ["businessDescription", "事業の内容"],
+      ["maxMonthlySales", "最大月商"],
+      ["industryCode", "業種コード・類似業種"],
+      ["constructionLicense", "建設業"],
+      ["employeeCount", "従業員数"],
+    ],
   },
   {
     title: "振込先（ゆうちょ銀行）",
-    keys: ["bankType", "yuchoAccountType", "yuchoHighValue", "yuchoSymbol", "yuchoBranchNumber", "yuchoNumber", "yuchoHolderName", "yuchoHolderNameKana"],
+    keys: [
+      ["bankType", "振込先の口座"],
+      ["yuchoAccountType", "口座種別"],
+      ["yuchoHighValue", "高額手数に係る金融機関"],
+      ["yuchoBank", "ゆうちょ銀行"],
+      ["yuchoSymbol", "記号"],
+      ["yuchoBranchNumber", "本店番号"],
+      ["yuchoNumber", "番号"],
+      ["yuchoHolderName", "口座名義人"],
+      ["yuchoHolderNameKana", "口座名義人（カタカナ）"],
+    ],
   },
   {
     title: "振込先（その他の銀行）",
-    keys: ["bankCode", "bankName", "branchCode", "branchName", "deliveryCode", "depositType", "accountNumber", "accountHolderName", "accountHolderNameKana"],
+    keys: [
+      ["otherBankCode", "金融機関コード"],
+      ["otherBankName", "金融機関名"],
+      ["otherBranchCode", "支店機関コード"],
+      ["otherBranchName", "支店名"],
+      ["otherDeliveryCode", "配送コード"],
+      ["otherDepositType", "預金種別"],
+      ["otherAccountNumber", "口座番号"],
+      ["otherHolderName", "口座名義人"],
+      ["otherHolderNameKana", "口座名義人（カタカナ）"],
+    ],
   },
   {
     title: "口座確認書類",
-    keys: ["accountDocType", "accountDocCreditCard"],
+    keys: [
+      ["accountDocDate", "口座情報（日付）"],
+      ["accountDocDesc", "口座確認書類備考"],
+      ["accountDocCredit", "口座情報（クレジット）"],
+    ],
   },
   {
     title: "事業情報",
-    keys: ["orderDate", "businessContent", "serviceName", "businessOverview", "developmentTimeline", "previousYearOverview"],
+    keys: [
+      ["orderInfo", "発注情報"],
+      ["businessContent", "事業内容"],
+      ["serviceName", "名称・サービス名"],
+      ["developmentTimeline", "開発の見通し"],
+      ["previousYearOverview", "前年の事業概要"],
+    ],
   },
   {
     title: "ITツール情報",
-    keys: ["itBudget", "itCategory", "itToolName", "itToolCategory", "accountingSoftware", "futureBusinessPlan"],
+    keys: [
+      ["itBudget", "予算・金額情報"],
+      ["itCategory", "カテゴリ（ソフトウェア分類）"],
+      ["itToolTarget", "ツール又は通信名"],
+      ["itToolType", "ターゲット又はカテゴリ"],
+      ["accountingSoftware", "会計ソフト等"],
+      ["futureBusinessPlan", "今後の事業計画・課題"],
+    ],
   },
   {
     title: "事業実績・財務",
-    keys: ["mainClientInfo", "businessEnvironment", "supplierInfo", "expenseInfo", "overseasInfo"],
+    keys: [
+      ["financeDate", "顧客先情報（日付）"],
+      ["businessEnvironment", "主な経営環境の変化"],
+      ["supplierInfo", "主な取引先情報"],
+      ["expenseInfo", "経費類・為替情報"],
+      ["overseasInfo", "海外取引"],
+    ],
   },
   {
     title: "事業概要情報",
-    keys: ["businessCategory", "publicDisclosure", "systemInfo", "futureManagement"],
+    keys: [
+      ["bizOverviewDate", "事業種別（日付）"],
+      ["publicDisclosure", "公表情報"],
+      ["systemInfo", "システム情報"],
+      ["futureManagement", "今後の管理計画"],
+    ],
   },
   {
     title: "賃金等",
-    keys: ["minWage", "wageIncreasePlan", "salary", "salaryOther", "annualIncome", "salaryAdditional"],
+    keys: [
+      ["wageDate", "選択（日付）"],
+      ["wage", "賃金"],
+      ["procedureOther", "手順（以外）"],
+      ["wageAdditional", "賃金（以外）追加"],
+      ["annualIncome", "年初金"],
+      ["wageOtherAdditional", "手順（以外の）追加"],
+      ["wageYearEnd", "賃金（件末年次の確認）"],
+      ["dataSubmissionNote", "通知備考"],
+    ],
   },
   {
     title: "メールアドレス・その他",
-    keys: ["businessEmail", "recentBusinessPlan", "personalNotes"],
+    keys: [
+      ["businessEmail", "事業用メールアドレス"],
+      ["recentBusinessPlan", "近々の事業計画"],
+      ["futurePlan", "今後の事業について"],
+      ["personalAnnual", "個人の計・年初・実績"],
+    ],
   },
 ];
-
-const FIELD_LABELS: Record<string, string> = {
-  tradeName: "屋号",
-  industry: "業種",
-  mainPhone: "電話番号（メイン）",
-  contactPerson: "先方",
-  contactPerson2: "先方2",
-  businessDescription: "事業の内容",
-  maxMonthlySales: "最大月商",
-  industryCode: "業種コード・類似業種",
-  constructionLicense: "建設業の許可",
-  employeeCount: "従業員数",
-  bankType: "振込先の口座",
-  yuchoAccountType: "口座種別（ゆうちょ）",
-  yuchoHighValue: "高額手数に係る金融機関",
-  yuchoSymbol: "記号",
-  yuchoBranchNumber: "本店番号",
-  yuchoNumber: "番号",
-  yuchoHolderName: "口座名義人",
-  yuchoHolderNameKana: "口座名義人（カタカナ）",
-  bankCode: "金融機関コード",
-  bankName: "金融機関名",
-  branchCode: "支店コード",
-  branchName: "支店名",
-  deliveryCode: "配送コード",
-  depositType: "預金種別",
-  accountNumber: "口座番号",
-  accountHolderName: "口座名義人",
-  accountHolderNameKana: "口座名義人（カタカナ）",
-  accountDocType: "口座確認書類",
-  accountDocCreditCard: "口座情報（クレジット）",
-  orderDate: "発注情報",
-  businessContent: "事業内容",
-  serviceName: "名称・サービス名",
-  businessOverview: "事業計画実績",
-  developmentTimeline: "開発の見通し",
-  previousYearOverview: "前年の事業概要",
-  itBudget: "予算・金額情報",
-  itCategory: "カテゴリ（ソフトウェア分類）",
-  itToolName: "ツール名称・サービス名",
-  itToolCategory: "導入するITツール枠",
-  accountingSoftware: "会計ソフト等",
-  futureBusinessPlan: "今後の事業計画・課題",
-  mainClientInfo: "主な顧客先",
-  businessEnvironment: "主な経営環境の変化",
-  supplierInfo: "主な取引先情報",
-  expenseInfo: "経費類・為替情報",
-  overseasInfo: "海外取引",
-  businessCategory: "事業種別",
-  publicDisclosure: "公表情報",
-  systemInfo: "システム情報",
-  futureManagement: "今後の管理計画",
-  minWage: "事業場内最低賃金",
-  wageIncreasePlan: "賃上げの計画",
-  salary: "報酬（月額）",
-  salaryOther: "報酬（その他手当）",
-  annualIncome: "年初金",
-  salaryAdditional: "賃金（件末年次確認）",
-  businessEmail: "事業用メールアドレス",
-  recentBusinessPlan: "近々の事業計画",
-  personalNotes: "その他備考",
-};
 
 export default async function HojoFormSubmissionDetailPage({
   params,
@@ -121,9 +132,7 @@ export default async function HojoFormSubmissionDetailPage({
     where: { id: parseInt(id) },
   });
 
-  if (!submission || submission.deletedAt) {
-    notFound();
-  }
+  if (!submission || submission.deletedAt) notFound();
 
   const answers = submission.answers as Record<string, string>;
 
@@ -131,10 +140,7 @@ export default async function HojoFormSubmissionDetailPage({
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Link href="/hojo/form-submissions">
-          <Button variant="ghost" size="sm">
-            <ArrowLeft className="h-4 w-4 mr-1" />
-            一覧に戻る
-          </Button>
+          <Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4 mr-1" />一覧に戻る</Button>
         </Link>
         <h1 className="text-2xl font-bold">フォーム回答詳細</h1>
         <Badge variant="outline">
@@ -148,27 +154,21 @@ export default async function HojoFormSubmissionDetailPage({
         </div>
       )}
 
-      {SECTION_GROUPS.map((section) => {
-        const hasAnyValue = section.keys.some((k) => answers[k]);
-        if (!hasAnyValue) return null;
+      {GROUPS.map((g) => {
+        const hasValue = g.keys.some(([k]) => answers[k]);
+        if (!hasValue) return null;
         return (
-          <Card key={section.title}>
-            <CardHeader>
-              <CardTitle className="text-lg">{section.title}</CardTitle>
-            </CardHeader>
+          <Card key={g.title}>
+            <CardHeader><CardTitle className="text-lg">{g.title}</CardTitle></CardHeader>
             <CardContent>
-              <dl className="space-y-4">
-                {section.keys.map((key) => {
-                  const value = answers[key];
-                  if (!value) return null;
+              <dl className="space-y-3">
+                {g.keys.map(([key, label]) => {
+                  const v = answers[key];
+                  if (!v) return null;
                   return (
                     <div key={key}>
-                      <dt className="text-sm font-medium text-muted-foreground mb-1">
-                        {FIELD_LABELS[key] || key}
-                      </dt>
-                      <dd className="text-sm whitespace-pre-wrap bg-gray-50 rounded p-3">
-                        {value}
-                      </dd>
+                      <dt className="text-sm font-medium text-muted-foreground mb-1">{label}</dt>
+                      <dd className="text-sm whitespace-pre-wrap bg-gray-50 rounded p-3">{v}</dd>
                     </div>
                   );
                 })}

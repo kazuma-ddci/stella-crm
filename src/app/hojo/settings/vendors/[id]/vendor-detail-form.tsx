@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect, useCallback, useMemo } from "react";
+import { useState, useTransition, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { DatePicker } from "@/components/ui/date-picker";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { VendorStatusManagementModal } from "../vendor-status-management-modal";
 import {
   Settings,
@@ -38,9 +39,14 @@ import {
   Phone,
   X,
   UserCheck,
+  FileText,
+  ExternalLink,
+  Link as LinkIcon,
+  Upload,
+  Building2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { updateVendorDetail, updateVendorConsultingStaff, updateVendorAssignedAs } from "./actions";
+import { updateVendorDetail, updateVendorConsultingStaff, updateVendorAssignedAs, updateVendorContractDocuments } from "./actions";
 import {
   addVendorContact,
   updateVendorContact,
@@ -48,6 +54,7 @@ import {
   setPrimaryContact,
 } from "../actions";
 import type { StatusType } from "../vendor-status-management-modal";
+import type { ContractDocumentItem } from "./vendor-detail-tabs";
 
 /** ベンダーメモからフォーム回答のLINE名を抽出する */
 function extractFormLineNames(memo: string): { representative: string | null; contact: string | null } {
@@ -76,24 +83,27 @@ type Props = {
   vendor: {
     id: number;
     name: string;
-    contractDate: string;
-    caseStatusId: number | null;
-    consultingStartDate: string;
-    consultingEndDate: string;
+    email: string;
+    phone: string;
+    kickoffMtg: string;
     scWholesaleStatusId: number | null;
+    scWholesaleContractStatusId: number | null;
     scWholesaleKickoffMtg: string;
-    scWholesaleContractUrl: string;
+    scWholesaleContractDate: string;
+    scWholesaleEndDate: string;
     consultingPlanStatusId: number | null;
+    consultingPlanContractStatusId: number | null;
     consultingPlanKickoffMtg: string;
-    consultingPlanContractUrl: string;
+    consultingPlanContractDate: string;
+    consultingPlanEndDate: string;
     grantApplicationBpo: boolean;
+    grantApplicationBpoContractStatusId: number | null;
     grantApplicationBpoKickoffMtg: string;
-    grantApplicationBpoContractUrl: string;
+    grantApplicationBpoContractDate: string;
     subsidyConsulting: boolean;
     subsidyConsultingKickoffMtg: string;
     loanUsage: boolean;
     loanUsageKickoffMtg: string;
-    loanUsageContractUrl: string;
     vendorRegistrationStatusId: number | null;
     toolRegistrationStatusId: number | null;
     memo: string;
@@ -105,9 +115,10 @@ type Props = {
   joseiLineFriendSelectOptions: { value: string; label: string }[];
   scWholesaleOptions: { value: string; label: string }[];
   consultingPlanOptions: { value: string; label: string }[];
-  caseStatusOptions: { value: string; label: string }[];
+  contractStatusOptions: { value: string; label: string }[];
   vendorRegistrationOptions: { value: string; label: string }[];
   toolRegistrationOptions: { value: string; label: string }[];
+  contractDocsByService: Record<string, ContractDocumentItem[]>;
   scLabel: string;
   joseiLabel: string;
   staffOptions: { value: string; label: string }[];
@@ -142,9 +153,10 @@ export function VendorDetailForm({
   joseiLineFriendSelectOptions,
   scWholesaleOptions,
   consultingPlanOptions,
-  caseStatusOptions,
+  contractStatusOptions,
   vendorRegistrationOptions,
   toolRegistrationOptions,
+  contractDocsByService,
   scLabel,
   joseiLabel,
   staffOptions,
@@ -160,43 +172,65 @@ export function VendorDetailForm({
   // フォーム回答由来のLINE名ヒント
   const formLineNames = useMemo(() => extractFormLineNames(vendor.memo || ""), [vendor.memo]);
 
-  // サービス契約状況
+  // ベンダー基本情報
+  const [vendorEmail, setVendorEmail] = useState(vendor.email);
+  const [vendorPhone, setVendorPhone] = useState(vendor.phone);
+
+  // 全体の初回MTG
+  const [kickoffMtg, setKickoffMtg] = useState(vendor.kickoffMtg);
+
+  // セキュリティクラウド卸
   const [scWholesaleStatusId, setScWholesaleStatusId] = useState<string>(
     vendor.scWholesaleStatusId ? String(vendor.scWholesaleStatusId) : ""
   );
+  const [scWholesaleContractStatusId, setScWholesaleContractStatusId] = useState<string>(
+    vendor.scWholesaleContractStatusId ? String(vendor.scWholesaleContractStatusId) : ""
+  );
   const [scWholesaleKickoffMtg, setScWholesaleKickoffMtg] = useState(vendor.scWholesaleKickoffMtg);
-  const [scWholesaleContractUrl, setScWholesaleContractUrl] = useState(vendor.scWholesaleContractUrl);
+  const [scWholesaleContractDate, setScWholesaleContractDate] = useState(vendor.scWholesaleContractDate);
+  const [scWholesaleEndDate, setScWholesaleEndDate] = useState(vendor.scWholesaleEndDate);
+  const [scWholesaleDocs, setScWholesaleDocs] = useState<ContractDocumentItem[]>(
+    contractDocsByService.scWholesale || []
+  );
 
+  // コンサルティングプラン
   const [consultingPlanStatusId, setConsultingPlanStatusId] = useState<string>(
     vendor.consultingPlanStatusId ? String(vendor.consultingPlanStatusId) : ""
   );
-  const [consultingPlanKickoffMtg, setConsultingPlanKickoffMtg] = useState(vendor.consultingPlanKickoffMtg);
-  const [consultingPlanContractUrl, setConsultingPlanContractUrl] = useState(vendor.consultingPlanContractUrl);
-
-  // 契約日・案件ステータス・開始日・終了予定日
-  const [contractDate, setContractDate] = useState(vendor.contractDate);
-  const [caseStatusId, setCaseStatusId] = useState<string>(
-    vendor.caseStatusId ? String(vendor.caseStatusId) : ""
+  const [consultingPlanContractStatusId, setConsultingPlanContractStatusId] = useState<string>(
+    vendor.consultingPlanContractStatusId ? String(vendor.consultingPlanContractStatusId) : ""
   );
-  const [consultingStartDate, setConsultingStartDate] = useState(vendor.consultingStartDate);
-  const [consultingEndDate, setConsultingEndDate] = useState(vendor.consultingEndDate);
+  const [consultingPlanKickoffMtg, setConsultingPlanKickoffMtg] = useState(vendor.consultingPlanKickoffMtg);
+  const [consultingPlanContractDate, setConsultingPlanContractDate] = useState(vendor.consultingPlanContractDate);
+  const [consultingPlanEndDate, setConsultingPlanEndDate] = useState(vendor.consultingPlanEndDate);
+  const [consultingPlanDocs, setConsultingPlanDocs] = useState<ContractDocumentItem[]>(
+    contractDocsByService.consultingPlan || []
+  );
 
+  // 交付申請BPO
   const [grantApplicationBpo, setGrantApplicationBpo] = useState(vendor.grantApplicationBpo);
+  const [grantApplicationBpoContractStatusId, setGrantApplicationBpoContractStatusId] = useState<string>(
+    vendor.grantApplicationBpoContractStatusId ? String(vendor.grantApplicationBpoContractStatusId) : ""
+  );
   const [grantApplicationBpoKickoffMtg, setGrantApplicationBpoKickoffMtg] = useState(
     vendor.grantApplicationBpoKickoffMtg
   );
-  const [grantApplicationBpoContractUrl, setGrantApplicationBpoContractUrl] = useState(
-    vendor.grantApplicationBpoContractUrl
+  const [grantApplicationBpoContractDate, setGrantApplicationBpoContractDate] = useState(
+    vendor.grantApplicationBpoContractDate
+  );
+  const [grantApplicationBpoDocs, setGrantApplicationBpoDocs] = useState<ContractDocumentItem[]>(
+    contractDocsByService.grantApplicationBpo || []
   );
 
+  // 助成金コンサルティング
   const [subsidyConsulting, setSubsidyConsulting] = useState(vendor.subsidyConsulting);
   const [subsidyConsultingKickoffMtg, setSubsidyConsultingKickoffMtg] = useState(
     vendor.subsidyConsultingKickoffMtg
   );
 
+  // 貸金業者
   const [loanUsage, setLoanUsage] = useState(vendor.loanUsage);
   const [loanUsageKickoffMtg, setLoanUsageKickoffMtg] = useState(vendor.loanUsageKickoffMtg);
-  const [loanUsageContractUrl, setLoanUsageContractUrl] = useState(vendor.loanUsageContractUrl);
 
   const [vendorRegistrationStatusId, setVendorRegistrationStatusId] = useState<string>(
     vendor.vendorRegistrationStatusId ? String(vendor.vendorRegistrationStatusId) : ""
@@ -229,22 +263,22 @@ export function VendorDetailForm({
 
   // 未保存変更の検出
   const currentValues = useMemo(() => JSON.stringify({
-    scWholesaleStatusId, scWholesaleKickoffMtg, scWholesaleContractUrl,
-    consultingPlanStatusId, consultingPlanKickoffMtg, consultingPlanContractUrl,
-    contractDate, caseStatusId, consultingStartDate, consultingEndDate,
-    grantApplicationBpo, grantApplicationBpoKickoffMtg, grantApplicationBpoContractUrl,
+    vendorEmail, vendorPhone, kickoffMtg,
+    scWholesaleStatusId, scWholesaleContractStatusId, scWholesaleKickoffMtg, scWholesaleContractDate, scWholesaleEndDate, scWholesaleDocs,
+    consultingPlanStatusId, consultingPlanContractStatusId, consultingPlanKickoffMtg, consultingPlanContractDate, consultingPlanEndDate, consultingPlanDocs,
+    grantApplicationBpo, grantApplicationBpoContractStatusId, grantApplicationBpoKickoffMtg, grantApplicationBpoContractDate, grantApplicationBpoDocs,
     subsidyConsulting, subsidyConsultingKickoffMtg,
-    loanUsage, loanUsageKickoffMtg, loanUsageContractUrl,
+    loanUsage, loanUsageKickoffMtg,
     vendorRegistrationStatusId, toolRegistrationStatusId, memo, vendorSharedMemo,
     consultingStaffIds: [...consultingStaffIds].sort(),
     asLineFriendId,
   }), [
-    scWholesaleStatusId, scWholesaleKickoffMtg, scWholesaleContractUrl,
-    consultingPlanStatusId, consultingPlanKickoffMtg, consultingPlanContractUrl,
-    contractDate, caseStatusId, consultingStartDate, consultingEndDate,
-    grantApplicationBpo, grantApplicationBpoKickoffMtg, grantApplicationBpoContractUrl,
+    vendorEmail, vendorPhone, kickoffMtg,
+    scWholesaleStatusId, scWholesaleContractStatusId, scWholesaleKickoffMtg, scWholesaleContractDate, scWholesaleEndDate, scWholesaleDocs,
+    consultingPlanStatusId, consultingPlanContractStatusId, consultingPlanKickoffMtg, consultingPlanContractDate, consultingPlanEndDate, consultingPlanDocs,
+    grantApplicationBpo, grantApplicationBpoContractStatusId, grantApplicationBpoKickoffMtg, grantApplicationBpoContractDate, grantApplicationBpoDocs,
     subsidyConsulting, subsidyConsultingKickoffMtg,
-    loanUsage, loanUsageKickoffMtg, loanUsageContractUrl,
+    loanUsage, loanUsageKickoffMtg,
     vendorRegistrationStatusId, toolRegistrationStatusId, memo, vendorSharedMemo,
     consultingStaffIds, asLineFriendId,
   ]);
@@ -453,24 +487,29 @@ export function VendorDetailForm({
     startTransition(async () => {
       try {
         await updateVendorDetail(vendor.id, {
-          contractDate: contractDate || null,
-          caseStatusId: caseStatusId ? Number(caseStatusId) : null,
+          email: vendorEmail,
+          phone: vendorPhone,
+          kickoffMtg: kickoffMtg || null,
           scWholesaleStatusId: scWholesaleStatusId ? Number(scWholesaleStatusId) : null,
-          scWholesaleKickoffMtg,
-          scWholesaleContractUrl,
+          scWholesaleContractStatusId: scWholesaleContractStatusId ? Number(scWholesaleContractStatusId) : null,
+          scWholesaleKickoffMtg: scWholesaleKickoffMtg || null,
+          scWholesaleContractDate: scWholesaleContractDate || null,
+          scWholesaleEndDate: scWholesaleEndDate || null,
           consultingPlanStatusId: consultingPlanStatusId ? Number(consultingPlanStatusId) : null,
-          consultingPlanKickoffMtg,
-          consultingPlanContractUrl,
-          consultingStartDate: consultingStartDate || null,
-          consultingEndDate: consultingEndDate || null,
+          consultingPlanContractStatusId: consultingPlanContractStatusId ? Number(consultingPlanContractStatusId) : null,
+          consultingPlanKickoffMtg: consultingPlanKickoffMtg || null,
+          consultingPlanContractDate: consultingPlanContractDate || null,
+          consultingPlanEndDate: consultingPlanEndDate || null,
           grantApplicationBpo,
-          grantApplicationBpoKickoffMtg,
-          grantApplicationBpoContractUrl,
+          grantApplicationBpoContractStatusId: grantApplicationBpoContractStatusId
+            ? Number(grantApplicationBpoContractStatusId)
+            : null,
+          grantApplicationBpoKickoffMtg: grantApplicationBpoKickoffMtg || null,
+          grantApplicationBpoContractDate: grantApplicationBpoContractDate || null,
           subsidyConsulting,
-          subsidyConsultingKickoffMtg,
+          subsidyConsultingKickoffMtg: subsidyConsultingKickoffMtg || null,
           loanUsage,
-          loanUsageKickoffMtg,
-          loanUsageContractUrl,
+          loanUsageKickoffMtg: loanUsageKickoffMtg || null,
           vendorRegistrationStatusId: vendorRegistrationStatusId
             ? Number(vendorRegistrationStatusId)
             : null,
@@ -480,6 +519,12 @@ export function VendorDetailForm({
           memo,
           vendorSharedMemo,
         });
+        // 契約書ドキュメントも更新
+        await Promise.all([
+          updateVendorContractDocuments(vendor.id, "scWholesale", scWholesaleDocs),
+          updateVendorContractDocuments(vendor.id, "consultingPlan", consultingPlanDocs),
+          updateVendorContractDocuments(vendor.id, "grantApplicationBpo", grantApplicationBpoDocs),
+        ]);
         setSavedValues(currentValues);
         toast.success("保存しました");
         router.refresh();
@@ -840,60 +885,53 @@ export function VendorDetailForm({
         </CardContent>
       </Card>
 
+      {/* ベンダー基本情報 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Building2 className="h-5 w-5" />
+            ベンダー基本情報
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 lg:grid-cols-3 md:grid-cols-2">
+            <FieldBlock label="メールアドレス">
+              <Input
+                type="email"
+                value={vendorEmail}
+                onChange={(e) => setVendorEmail(e.target.value)}
+                placeholder="vendor@example.com"
+              />
+            </FieldBlock>
+            <FieldBlock label="電話番号">
+              <Input
+                type="tel"
+                value={vendorPhone}
+                onChange={(e) => setVendorPhone(e.target.value)}
+                placeholder="03-xxxx-xxxx"
+              />
+            </FieldBlock>
+            <FieldBlock label="初回MTG">
+              <DateTimePicker value={kickoffMtg} onChange={setKickoffMtg} placeholder="初回MTGの日時" />
+            </FieldBlock>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* サービス契約状況 */}
       <Card>
         <CardHeader>
           <CardTitle>サービス契約状況</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* 契約日・案件ステータス・開始日・終了予定日 */}
-          <div className="grid gap-4 sm:grid-cols-4">
-            <div className="space-y-2">
-              <Label>契約日</Label>
-              <DatePicker value={contractDate} onChange={setContractDate} placeholder="契約日を選択" />
-            </div>
-            <div className="space-y-2">
-              <Label>案件ステータス <button type="button" className="inline-flex align-middle hover:text-blue-600 transition-colors" onClick={() => openStatusModal("caseStatus")}><Settings className="h-3.5 w-3.5" /></button></Label>
-              <Select
-                value={caseStatusId || UNSET_VALUE}
-                onValueChange={(v) => setCaseStatusId(v === UNSET_VALUE ? "" : v)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="未選択" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={UNSET_VALUE}>未選択</SelectItem>
-                  {caseStatusOptions.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>開始日</Label>
-              <DatePicker value={consultingStartDate} onChange={setConsultingStartDate} placeholder="開始日を選択" />
-            </div>
-            <div className="space-y-2">
-              <Label>終了予定日</Label>
-              <DatePicker value={consultingEndDate} onChange={setConsultingEndDate} placeholder="終了予定日を選択" />
-            </div>
-          </div>
-
-          <hr />
 
           {/* セキュリティクラウド卸 */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold">セキュリティクラウド卸</h3>
-              <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => openStatusModal("scWholesale")}>
-                <Settings className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label>プラン</Label>
+          <ServiceSection
+            title="セキュリティクラウド卸"
+            onPlanSettingsClick={() => openStatusModal("scWholesale")}
+          >
+            <div className="grid gap-3 lg:grid-cols-5 md:grid-cols-2">
+              <FieldBlock label="プラン">
                 <Select
                   value={scWholesaleStatusId || UNSET_VALUE}
                   onValueChange={(v) => setScWholesaleStatusId(v === UNSET_VALUE ? "" : v)}
@@ -910,39 +948,52 @@ export function VendorDetailForm({
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>キックオフMTG</Label>
-                <Input
-                  value={scWholesaleKickoffMtg}
-                  onChange={(e) => setScWholesaleKickoffMtg(e.target.value)}
-                  placeholder="日時やメモ"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>契約書URL</Label>
-                <Input
-                  value={scWholesaleContractUrl}
-                  onChange={(e) => setScWholesaleContractUrl(e.target.value)}
-                  placeholder="https://..."
-                />
-              </div>
+              </FieldBlock>
+              <FieldBlock
+                label="契約状況"
+                onSettingsClick={() => openStatusModal("contractStatus")}
+              >
+                <Select
+                  value={scWholesaleContractStatusId || UNSET_VALUE}
+                  onValueChange={(v) => setScWholesaleContractStatusId(v === UNSET_VALUE ? "" : v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="未選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={UNSET_VALUE}>未選択</SelectItem>
+                    {contractStatusOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FieldBlock>
+              <FieldBlock label="契約日">
+                <DatePicker value={scWholesaleContractDate} onChange={setScWholesaleContractDate} placeholder="契約日" />
+              </FieldBlock>
+              <FieldBlock label="終了予定日">
+                <DatePicker value={scWholesaleEndDate} onChange={setScWholesaleEndDate} placeholder="終了予定日" />
+              </FieldBlock>
+              <FieldBlock label="初回MTG">
+                <DateTimePicker value={scWholesaleKickoffMtg} onChange={setScWholesaleKickoffMtg} placeholder="初回MTG" />
+              </FieldBlock>
             </div>
-          </div>
+            <FieldBlock label="契約書">
+              <ContractDocumentEditor value={scWholesaleDocs} onChange={setScWholesaleDocs} vendorId={vendor.id} />
+            </FieldBlock>
+          </ServiceSection>
 
           <hr />
 
           {/* コンサルティングプラン */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold">コンサルティングプラン</h3>
-              <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => openStatusModal("consultingPlan")}>
-                <Settings className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label>プラン</Label>
+          <ServiceSection
+            title="コンサルティングプラン"
+            onPlanSettingsClick={() => openStatusModal("consultingPlan")}
+          >
+            <div className="grid gap-3 lg:grid-cols-5 md:grid-cols-2">
+              <FieldBlock label="プラン">
                 <Select
                   value={consultingPlanStatusId || UNSET_VALUE}
                   onValueChange={(v) => setConsultingPlanStatusId(v === UNSET_VALUE ? "" : v)}
@@ -959,179 +1010,173 @@ export function VendorDetailForm({
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>キックオフMTG</Label>
-                <Input
-                  value={consultingPlanKickoffMtg}
-                  onChange={(e) => setConsultingPlanKickoffMtg(e.target.value)}
-                  placeholder="日時やメモ"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>契約書URL</Label>
-                <Input
-                  value={consultingPlanContractUrl}
-                  onChange={(e) => setConsultingPlanContractUrl(e.target.value)}
-                  placeholder="https://..."
-                />
-              </div>
+              </FieldBlock>
+              <FieldBlock
+                label="契約状況"
+                onSettingsClick={() => openStatusModal("contractStatus")}
+              >
+                <Select
+                  value={consultingPlanContractStatusId || UNSET_VALUE}
+                  onValueChange={(v) => setConsultingPlanContractStatusId(v === UNSET_VALUE ? "" : v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="未選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={UNSET_VALUE}>未選択</SelectItem>
+                    {contractStatusOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FieldBlock>
+              <FieldBlock label="契約日">
+                <DatePicker value={consultingPlanContractDate} onChange={setConsultingPlanContractDate} placeholder="契約日" />
+              </FieldBlock>
+              <FieldBlock label="終了予定日">
+                <DatePicker value={consultingPlanEndDate} onChange={setConsultingPlanEndDate} placeholder="終了予定日" />
+              </FieldBlock>
+              <FieldBlock label="初回MTG">
+                <DateTimePicker value={consultingPlanKickoffMtg} onChange={setConsultingPlanKickoffMtg} placeholder="初回MTG" />
+              </FieldBlock>
             </div>
-          </div>
+            <FieldBlock label="契約書">
+              <ContractDocumentEditor value={consultingPlanDocs} onChange={setConsultingPlanDocs} vendorId={vendor.id} />
+            </FieldBlock>
+          </ServiceSection>
 
           <hr />
 
           {/* 交付申請BPO */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold">交付申請BPO</h3>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="flex items-center gap-3 pt-6">
-                <Switch
-                  checked={grantApplicationBpo}
-                  onCheckedChange={setGrantApplicationBpo}
-                />
-                <Label>利用</Label>
-              </div>
-              <div className="space-y-2">
-                <Label>キックオフMTG</Label>
-                <Input
-                  value={grantApplicationBpoKickoffMtg}
-                  onChange={(e) => setGrantApplicationBpoKickoffMtg(e.target.value)}
-                  placeholder="日時やメモ"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>契約書URL</Label>
-                <Input
-                  value={grantApplicationBpoContractUrl}
-                  onChange={(e) => setGrantApplicationBpoContractUrl(e.target.value)}
-                  placeholder="https://..."
-                />
-              </div>
+          <ServiceSection title="交付申請BPO">
+            <div className="grid gap-3 lg:grid-cols-4 md:grid-cols-2">
+              <FieldBlock label="利用">
+                <div className="flex items-center h-9">
+                  <Switch checked={grantApplicationBpo} onCheckedChange={setGrantApplicationBpo} />
+                </div>
+              </FieldBlock>
+              <FieldBlock
+                label="契約状況"
+                onSettingsClick={() => openStatusModal("contractStatus")}
+              >
+                <Select
+                  value={grantApplicationBpoContractStatusId || UNSET_VALUE}
+                  onValueChange={(v) => setGrantApplicationBpoContractStatusId(v === UNSET_VALUE ? "" : v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="未選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={UNSET_VALUE}>未選択</SelectItem>
+                    {contractStatusOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FieldBlock>
+              <FieldBlock label="契約日">
+                <DatePicker value={grantApplicationBpoContractDate} onChange={setGrantApplicationBpoContractDate} placeholder="契約日" />
+              </FieldBlock>
+              <FieldBlock label="初回MTG">
+                <DateTimePicker value={grantApplicationBpoKickoffMtg} onChange={setGrantApplicationBpoKickoffMtg} placeholder="初回MTG" />
+              </FieldBlock>
             </div>
-          </div>
+            <FieldBlock label="契約書">
+              <ContractDocumentEditor value={grantApplicationBpoDocs} onChange={setGrantApplicationBpoDocs} vendorId={vendor.id} />
+            </FieldBlock>
+          </ServiceSection>
 
           <hr />
 
           {/* 助成金コンサルティング */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold">助成金コンサルティング</h3>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="flex items-center gap-3 pt-6">
-                <Switch
-                  checked={subsidyConsulting}
-                  onCheckedChange={setSubsidyConsulting}
-                />
-                <Label>利用</Label>
-              </div>
-              <div className="space-y-2">
-                <Label>キックオフMTG</Label>
-                <Input
-                  value={subsidyConsultingKickoffMtg}
-                  onChange={(e) => setSubsidyConsultingKickoffMtg(e.target.value)}
-                  placeholder="日時やメモ"
-                />
-              </div>
-              <div>{/* 助成金コンサルティングには契約書URLなし */}</div>
+          <ServiceSection title="助成金コンサルティング">
+            <div className="grid gap-3 lg:grid-cols-4 md:grid-cols-2">
+              <FieldBlock label="利用">
+                <div className="flex items-center h-9">
+                  <Switch checked={subsidyConsulting} onCheckedChange={setSubsidyConsulting} />
+                </div>
+              </FieldBlock>
+              <FieldBlock label="初回MTG">
+                <DateTimePicker value={subsidyConsultingKickoffMtg} onChange={setSubsidyConsultingKickoffMtg} placeholder="初回MTG" />
+              </FieldBlock>
             </div>
-          </div>
+          </ServiceSection>
 
           <hr />
 
-          {/* 貸金利用の有無 */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold">貸金利用の有無</h3>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="flex items-center gap-3 pt-6">
-                <Switch
-                  checked={loanUsage}
-                  onCheckedChange={setLoanUsage}
-                />
-                <Label>利用</Label>
-              </div>
-              <div className="space-y-2">
-                <Label>キックオフMTG</Label>
-                <Input
-                  value={loanUsageKickoffMtg}
-                  onChange={(e) => setLoanUsageKickoffMtg(e.target.value)}
-                  placeholder="日時やメモ"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>契約書URL</Label>
-                <Input
-                  value={loanUsageContractUrl}
-                  onChange={(e) => setLoanUsageContractUrl(e.target.value)}
-                  placeholder="https://..."
-                />
-              </div>
+          {/* 貸金業者 */}
+          <ServiceSection title="貸金業者">
+            <div className="grid gap-3 lg:grid-cols-4 md:grid-cols-2">
+              <FieldBlock label="利用">
+                <div className="flex items-center h-9">
+                  <Switch checked={loanUsage} onCheckedChange={setLoanUsage} />
+                </div>
+              </FieldBlock>
+              <FieldBlock label="初回MTG">
+                <DateTimePicker value={loanUsageKickoffMtg} onChange={setLoanUsageKickoffMtg} placeholder="初回MTG" />
+              </FieldBlock>
             </div>
-          </div>
+          </ServiceSection>
 
           <hr />
 
-          {/* ベンダー登録の有無 */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold">ベンダー登録の有無</h3>
-              <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => openStatusModal("vendorRegistration")}>
-                <Settings className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <div className="max-w-xs space-y-2">
-              <Label>ステータス</Label>
-              <Select
-                value={vendorRegistrationStatusId || UNSET_VALUE}
-                onValueChange={(v) =>
-                  setVendorRegistrationStatusId(v === UNSET_VALUE ? "" : v)
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="未選択" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={UNSET_VALUE}>未選択</SelectItem>
-                  {vendorRegistrationOptions.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          {/* ベンダー登録 / ツール登録 */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ServiceSection
+              title="ベンダー登録の有無"
+              onPlanSettingsClick={() => openStatusModal("vendorRegistration")}
+            >
+              <FieldBlock label="ステータス">
+                <Select
+                  value={vendorRegistrationStatusId || UNSET_VALUE}
+                  onValueChange={(v) =>
+                    setVendorRegistrationStatusId(v === UNSET_VALUE ? "" : v)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="未選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={UNSET_VALUE}>未選択</SelectItem>
+                    {vendorRegistrationOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FieldBlock>
+            </ServiceSection>
 
-          <hr />
-
-          {/* ツール登録の有無 */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold">ツール登録の有無</h3>
-              <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => openStatusModal("toolRegistration")}>
-                <Settings className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <div className="max-w-xs space-y-2">
-              <Label>ステータス</Label>
-              <Select
-                value={toolRegistrationStatusId || UNSET_VALUE}
-                onValueChange={(v) =>
-                  setToolRegistrationStatusId(v === UNSET_VALUE ? "" : v)
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="未選択" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={UNSET_VALUE}>未選択</SelectItem>
-                  {toolRegistrationOptions.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <ServiceSection
+              title="ツール登録の有無"
+              onPlanSettingsClick={() => openStatusModal("toolRegistration")}
+            >
+              <FieldBlock label="ステータス">
+                <Select
+                  value={toolRegistrationStatusId || UNSET_VALUE}
+                  onValueChange={(v) =>
+                    setToolRegistrationStatusId(v === UNSET_VALUE ? "" : v)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="未選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={UNSET_VALUE}>未選択</SelectItem>
+                    {toolRegistrationOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FieldBlock>
+            </ServiceSection>
           </div>
         </CardContent>
       </Card>
@@ -1183,6 +1228,257 @@ export function VendorDetailForm({
         onOpenChange={setStatusModalOpen}
         type={statusModalType}
       />
+    </div>
+  );
+}
+
+// ============================
+// サービスセクション・フィールドブロック（共通レイアウト）
+// ============================
+
+function ServiceSection({
+  title,
+  onPlanSettingsClick,
+  children,
+}: {
+  title: string;
+  onPlanSettingsClick?: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-1.5">
+        <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
+        {onPlanSettingsClick && (
+          <button
+            type="button"
+            onClick={onPlanSettingsClick}
+            className="text-gray-400 hover:text-blue-600 transition-colors"
+            title="プランを管理"
+          >
+            <Settings className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function FieldBlock({
+  label,
+  onSettingsClick,
+  children,
+}: {
+  label: string;
+  onSettingsClick?: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1">
+        <Label className="text-xs text-gray-600 font-medium">{label}</Label>
+        {onSettingsClick && (
+          <button
+            type="button"
+            onClick={onSettingsClick}
+            className="text-gray-400 hover:text-blue-600 transition-colors"
+            title="マスタを管理"
+          >
+            <Settings className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ============================
+// 契約書エディター（URL+ファイル複数）
+// ============================
+
+function ContractDocumentEditor({
+  value,
+  onChange,
+  vendorId,
+}: {
+  value: ContractDocumentItem[];
+  onChange: (docs: ContractDocumentItem[]) => void;
+  vendorId: number;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAddUrl = () => {
+    onChange([
+      ...value,
+      {
+        id: 0,
+        type: "url",
+        url: "",
+        filePath: null,
+        fileName: null,
+        fileSize: null,
+        mimeType: null,
+      },
+    ]);
+  };
+
+  const handleUrlChange = (index: number, url: string) => {
+    const next = [...value];
+    next[index] = { ...next[index], url };
+    onChange(next);
+  };
+
+  const handleRemove = (index: number) => {
+    const next = [...value];
+    next.splice(index, 1);
+    onChange(next);
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploading(true);
+    const newDocs: ContractDocumentItem[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("vendorId", String(vendorId));
+        const response = await fetch("/api/hojo/vendor-contracts/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "アップロードに失敗しました");
+        }
+        newDocs.push({
+          id: 0,
+          type: "file",
+          url: null,
+          filePath: result.filePath,
+          fileName: result.fileName,
+          fileSize: result.fileSize,
+          mimeType: result.mimeType,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "アップロードに失敗しました";
+        toast.error(`${file.name}: ${message}`);
+      }
+    }
+    if (newDocs.length > 0) {
+      onChange([...value, ...newDocs]);
+    }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const formatFileSize = (bytes: number | null): string => {
+    if (!bytes) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  return (
+    <div className="space-y-2">
+      {value.length > 0 && (
+        <div className="space-y-1.5">
+          {value.map((doc, index) => (
+            <div
+              key={index}
+              className="flex items-center gap-2 px-2.5 py-1.5 border border-gray-200 rounded-md bg-white hover:bg-gray-50 transition-colors"
+            >
+              {doc.type === "url" ? (
+                <>
+                  <LinkIcon className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
+                  <Input
+                    type="url"
+                    value={doc.url || ""}
+                    onChange={(e) => handleUrlChange(index, e.target.value)}
+                    placeholder="https://..."
+                    className="h-7 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-1 focus-visible:ring-blue-200 px-1"
+                  />
+                  {doc.url && (
+                    <a
+                      href={doc.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-gray-400 hover:text-blue-600 flex-shrink-0"
+                      title="リンクを開く"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                </>
+              ) : (
+                <>
+                  <FileText className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
+                  <span className="flex-1 text-sm truncate text-gray-700" title={doc.fileName || ""}>
+                    {doc.fileName}
+                  </span>
+                  <span className="text-xs text-gray-400 flex-shrink-0">
+                    {formatFileSize(doc.fileSize)}
+                  </span>
+                  {doc.filePath && (
+                    <a
+                      href={doc.filePath}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-gray-400 hover:text-blue-600 flex-shrink-0"
+                      title="ファイルを開く"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => handleRemove(index)}
+                className="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0"
+                title="削除"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <Button type="button" variant="outline" size="sm" className="h-8" onClick={handleAddUrl}>
+          <LinkIcon className="h-3.5 w-3.5 mr-1" />
+          URLを追加
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp,.txt,.csv"
+          onChange={handleFileSelect}
+          disabled={uploading}
+          className="hidden"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8"
+          disabled={uploading}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {uploading ? (
+            <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />アップロード中...</>
+          ) : (
+            <><Upload className="h-3.5 w-3.5 mr-1" />ファイルを追加</>
+          )}
+        </Button>
+      </div>
     </div>
   );
 }

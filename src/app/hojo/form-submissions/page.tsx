@@ -11,10 +11,10 @@ export default async function HojoFormSubmissionsPage() {
     const answers = (s.answers as Record<string, string>) ?? {};
     return {
       id: s.id,
-      companyName: answers.contactPerson || s.companyName || "（未入力）",
-      businessType: answers.businessType || "",
+      tradeName: answers.tradeName || "（未入力）",
+      contactPerson: answers.contactPerson || "",
       industry: answers.industry || "",
-      phone: answers.mainPhone || s.phone || "",
+      phone: answers.mainPhone || "",
       bankType: answers.bankType || "",
       uid: answers._uid || "",
       submittedAt: s.submittedAt.toISOString(),

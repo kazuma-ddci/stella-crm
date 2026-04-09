@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
 import { syncVendorIdFromFree1 } from "@/lib/hojo/sync-vendor-id";
+import { normalizeSeiMei } from "@/lib/hojo/normalize-sei-mei";
 
 interface FriendData {
   snsname?: string | null;
@@ -76,6 +77,10 @@ export async function POST(request: Request) {
 
       processedUids.add(f.uid);
 
+      const { sei: normalizedSei, mei: normalizedMei } = normalizeSeiMei(
+        toStringOrNull(f.sei),
+        toStringOrNull(f.mei),
+      );
       const data = {
         snsname: toStringOrNull(f.snsname),
         password: toStringOrNull(f.password),
@@ -86,8 +91,8 @@ export async function POST(request: Request) {
         friendAddedDate: f.friendAddedDate ? new Date(f.friendAddedDate) : null,
         activeStatus: toStringOrNull(f.activeStatus),
         lastActivityDate: toStringOrNull(f.lastActivityDate),
-        sei: toStringOrNull(f.sei),
-        mei: toStringOrNull(f.mei),
+        sei: normalizedSei,
+        mei: normalizedMei,
         nickname: toStringOrNull(f.nickname),
         phone: toStringOrNull(f.phone),
         postcode: toStringOrNull(f.postcode),

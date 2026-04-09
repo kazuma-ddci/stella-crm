@@ -40,28 +40,41 @@ type ContactData = {
   isPrimary: boolean;
 };
 
+export type ContractDocumentItem = {
+  id: number;
+  type: "url" | "file";
+  url: string | null;
+  filePath: string | null;
+  fileName: string | null;
+  fileSize: number | null;
+  mimeType: string | null;
+};
+
 type Props = {
   vendor: {
     id: number;
     name: string;
-    contractDate: string;
-    caseStatusId: number | null;
-    consultingStartDate: string;
-    consultingEndDate: string;
+    email: string;
+    phone: string;
+    kickoffMtg: string;
     scWholesaleStatusId: number | null;
+    scWholesaleContractStatusId: number | null;
     scWholesaleKickoffMtg: string;
-    scWholesaleContractUrl: string;
+    scWholesaleContractDate: string;
+    scWholesaleEndDate: string;
     consultingPlanStatusId: number | null;
+    consultingPlanContractStatusId: number | null;
     consultingPlanKickoffMtg: string;
-    consultingPlanContractUrl: string;
+    consultingPlanContractDate: string;
+    consultingPlanEndDate: string;
     grantApplicationBpo: boolean;
+    grantApplicationBpoContractStatusId: number | null;
     grantApplicationBpoKickoffMtg: string;
-    grantApplicationBpoContractUrl: string;
+    grantApplicationBpoContractDate: string;
     subsidyConsulting: boolean;
     subsidyConsultingKickoffMtg: string;
     loanUsage: boolean;
     loanUsageKickoffMtg: string;
-    loanUsageContractUrl: string;
     vendorRegistrationStatusId: number | null;
     toolRegistrationStatusId: number | null;
     memo: string;
@@ -73,9 +86,10 @@ type Props = {
   joseiLineFriendSelectOptions: { value: string; label: string }[];
   scWholesaleOptions: { value: string; label: string }[];
   consultingPlanOptions: { value: string; label: string }[];
-  caseStatusOptions: { value: string; label: string }[];
+  contractStatusOptions: { value: string; label: string }[];
   vendorRegistrationOptions: { value: string; label: string }[];
   toolRegistrationOptions: { value: string; label: string }[];
+  contractDocsByService: Record<string, ContractDocumentItem[]>;
   activitiesData: Record<string, unknown>[];
   preApplicationData: Record<string, unknown>[];
   postApplicationData: Record<string, unknown>[];
@@ -99,9 +113,10 @@ export function VendorDetailTabs({
   joseiLineFriendSelectOptions,
   scWholesaleOptions,
   consultingPlanOptions,
-  caseStatusOptions,
+  contractStatusOptions,
   vendorRegistrationOptions,
   toolRegistrationOptions,
+  contractDocsByService,
   activitiesData,
   preApplicationData,
   postApplicationData,
@@ -164,9 +179,10 @@ export function VendorDetailTabs({
           joseiLineFriendSelectOptions={joseiLineFriendSelectOptions}
           scWholesaleOptions={scWholesaleOptions}
           consultingPlanOptions={consultingPlanOptions}
-          caseStatusOptions={caseStatusOptions}
+          contractStatusOptions={contractStatusOptions}
           vendorRegistrationOptions={vendorRegistrationOptions}
           toolRegistrationOptions={toolRegistrationOptions}
+          contractDocsByService={contractDocsByService}
           scLabel={scLabel}
           joseiLabel={joseiLabel}
           staffOptions={staffOptions}

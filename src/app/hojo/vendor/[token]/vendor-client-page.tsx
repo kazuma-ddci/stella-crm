@@ -95,17 +95,21 @@ type VendorInfo = {
   consultingStaffNames: string[];
   companyName: string;
   contacts: VendorContactInfo[];
-  contractDate: string | null;
+  kickoffMtg: string | null;
   consultingPlan: string | null;
-  caseStatus: string | null;
+  consultingPlanContractStatus: string | null;
+  consultingPlanContractDate: string | null;
+  consultingPlanEndDate: string | null;
   scWholesalePlan: string | null;
+  scWholesaleContractStatus: string | null;
+  scWholesaleContractDate: string | null;
+  scWholesaleEndDate: string | null;
+  grantApplicationBpoContractStatus: string | null;
+  grantApplicationBpoContractDate: string | null;
   subsidyConsulting: boolean;
   grantApplicationBpo: boolean;
-  consultingStartDate: string | null;
-  consultingEndDate: string | null;
   loanUsage: boolean;
   loanUsageKickoffMtg: string | null;
-  loanUsageContractUrl: string | null;
   vendorSharedMemo: string | null;
 };
 

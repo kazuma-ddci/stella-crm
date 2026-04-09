@@ -1,8 +1,13 @@
 import { prisma } from "@/lib/prisma";
-import { LineFriendsTable } from "./line-friends-table";
+import { LineFriendsPageTabs } from "./line-friends-page-tabs";
 
 export default async function SlpLineFriendsPage() {
-  const [friends, prolineAccount] = await Promise.all([
+  const slpProject = await prisma.masterProject.findFirst({
+    where: { code: "slp" },
+    select: { id: true },
+  });
+
+  const [friends, prolineAccount, slpMembers, slpAsRecords, slpStaffPermissions] = await Promise.all([
     prisma.slpLineFriend.findMany({
       where: { deletedAt: null },
       orderBy: [{ id: "asc" }],
@@ -11,6 +16,37 @@ export default async function SlpLineFriendsPage() {
       where: { isActive: true },
       select: { label: true },
     }),
+    prisma.slpMember.findMany({
+      where: { deletedAt: null },
+      select: {
+        uid: true,
+        contracts: {
+          select: { cloudsignStatus: true },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+      },
+    }),
+    prisma.slpAs.findMany({
+      orderBy: { id: "asc" },
+      include: {
+        lineFriend: { select: { id: true, snsname: true } },
+        staff: { select: { id: true, name: true } },
+      },
+    }),
+    slpProject
+      ? prisma.staffPermission.findMany({
+          where: {
+            projectId: slpProject.id,
+            permissionLevel: { in: ["view", "edit", "manager"] },
+          },
+          select: {
+            staff: {
+              select: { id: true, name: true, isActive: true, isSystemUser: true },
+            },
+          },
+        })
+      : Promise.resolve([]),
   ]);
 
   const lineLabel = prolineAccount?.label || "公式LINE";
@@ -57,10 +93,83 @@ export default async function SlpLineFriendsPage() {
     scenarioPos5: f.scenarioPos5,
   }));
 
+  // ユーザー情報タブ用データ
+  // uid → SlpMember の契約ステータスをマップ
+  const memberStatusMap = new Map<string, string>();
+  for (const m of slpMembers) {
+    const contract = m.contracts[0];
+    if (!contract) {
+      // フォーム回答済みだが契約レコードなし → 契約書送付待ち
+      memberStatusMap.set(m.uid, "契約書送付待ち");
+    } else if (contract.cloudsignStatus === "completed") {
+      memberStatusMap.set(m.uid, "組合員登録済み");
+    } else if (contract.cloudsignStatus === "sent") {
+      memberStatusMap.set(m.uid, "締結待ち");
+    } else {
+      // draft, canceled等
+      memberStatusMap.set(m.uid, "契約書送付待ち");
+    }
+  }
+
+  // uid → {displayNo, snsname} のマップ（紹介者解決用）
+  const friendByUidMap = new Map<string, { displayNo: number; snsname: string | null }>();
+  for (const f of friends) {
+    friendByUidMap.set(f.uid, { displayNo: f.id, snsname: f.snsname });
+  }
+
+  const userData = friends.map((f) => {
+    // 紹介者: free1にuidが入っている → そのuidのLINE友達を検索
+    let referrerDisplay = "";
+    if (f.free1) {
+      const referrer = friendByUidMap.get(f.free1);
+      if (referrer) {
+        referrerDisplay = `${referrer.displayNo} ${referrer.snsname ?? ""}`.trim();
+      }
+    }
+
+    return {
+      id: f.id,
+      displayNo: f.id,
+      snsname: f.snsname,
+      referrer: referrerDisplay,
+      memberStatus: memberStatusMap.get(f.uid) ?? "",
+    };
+  });
+
+  // AS管理タブ用データ
+  const asData = slpAsRecords.map((a) => ({
+    id: a.id,
+    name: a.name,
+    lineFriendId: a.lineFriendId,
+    lineFriendLabel: a.lineFriend
+      ? `${a.lineFriend.id} ${a.lineFriend.snsname ?? ""}`.trim()
+      : null,
+    staffId: a.staffId,
+    staffName: a.staff?.name ?? null,
+  }));
+
+  // AS管理タブ用 LINE友達選択肢
+  const lineFriendOptions = friends.map((f) => ({
+    id: f.id,
+    label: `${f.id} ${f.snsname ?? ""}`.trim(),
+  }));
+
+  // AS管理タブ用 スタッフ選択肢
+  const staffOptions = slpStaffPermissions
+    .filter((p) => p.staff.isActive && !p.staff.isSystemUser)
+    .map((p) => ({ id: p.staff.id, name: p.staff.name }));
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">{lineLabel} 友達情報</h1>
-      <LineFriendsTable data={data} lastSyncAt={lastSyncAt?.toISOString() ?? null} />
+      <LineFriendsPageTabs
+        data={data}
+        userData={userData}
+        lastSyncAt={lastSyncAt?.toISOString() ?? null}
+        asData={asData}
+        lineFriendOptions={lineFriendOptions}
+        staffOptions={staffOptions}
+      />
     </div>
   );
 }

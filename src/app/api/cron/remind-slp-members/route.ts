@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendSlpRemind } from "@/lib/slp-cloudsign";
 import { logAutomationError } from "@/lib/automation-error";
+import { submitForm12ContractReminder } from "@/lib/proline-form";
+
+/** 日付を「2026年4月1日」形式でフォーマット */
+function formatJpDate(date: Date | null | undefined): string {
+  if (!date) return "";
+  const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  const y = jst.getUTCFullYear();
+  const m = jst.getUTCMonth() + 1;
+  const d = jst.getUTCDate();
+  return `${y}年${m}月${d}日`;
+}
 
 /**
  * GET /api/cron/remind-slp-members
@@ -58,7 +69,14 @@ export async function GET(request: NextRequest) {
       },
       include: {
         slpMember: {
-          select: { id: true, name: true, reminderCount: true },
+          select: {
+            id: true,
+            name: true,
+            uid: true,
+            email: true,
+            contractSentDate: true,
+            reminderCount: true,
+          },
         },
       },
     });
@@ -78,6 +96,32 @@ export async function GET(request: NextRequest) {
               reminderCount: (contract.slpMember.reminderCount ?? 0) + 1,
               lastReminderSentAt: now,
             },
+          });
+        }
+
+        // Form12: 公式LINEで契約書リマインドメッセージを送信（fire-and-forget）
+        const memberInfo = contract.slpMember;
+        if (memberInfo?.uid && memberInfo?.email) {
+          const sentDate = formatJpDate(
+            memberInfo.contractSentDate ?? contract.cloudsignSentAt
+          );
+          submitForm12ContractReminder(
+            memberInfo.uid,
+            sentDate,
+            memberInfo.email
+          ).catch(async (err) => {
+            await logAutomationError({
+              source: "cron/remind-slp-members/form12",
+              message: `Form12契約書リマインドLINE送信失敗: ${memberName} (uid=${memberInfo.uid})`,
+              detail: {
+                memberId: memberInfo.id,
+                uid: memberInfo.uid,
+                sentDate,
+                email: memberInfo.email,
+                error: err instanceof Error ? err.message : String(err),
+                retryAction: "form12-contract-reminder",
+              },
+            });
           });
         }
 

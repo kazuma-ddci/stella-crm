@@ -90,6 +90,21 @@ export async function updateAutoSendContract(
   revalidatePath("/slp/members");
 }
 
+// LINE後紐付け時のForm5自動送信ON/OFF更新
+export async function updateSlpForm5AutoSendOnLink(
+  projectId: number,
+  enabled: boolean
+) {
+  await requireProjectMasterDataEditPermission("slp");
+
+  await prisma.masterProject.update({
+    where: { id: projectId },
+    data: { slpForm5AutoSendOnLink: enabled },
+  });
+
+  revalidatePath("/slp/settings/project");
+}
+
 // 入会フォーム用契約種別の更新
 export async function updateMemberContractType(
   projectId: number,

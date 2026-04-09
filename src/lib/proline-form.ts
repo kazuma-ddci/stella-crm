@@ -52,6 +52,15 @@ export async function submitProlineForm(
 
 const FORM4_BASE_URL = "https://zcr5z7pk.autosns.app/fm/HnUSeKL5O9";
 const FORM5_BASE_URL = "https://zcr5z7pk.autosns.app/fm/UrXFSkd82v";
+const FORM6_BASE_URL = "https://zcr5z7pk.autosns.app/fm/R1eZuaU0hb"; // 概要案内予約
+const FORM7_BASE_URL = "https://zcr5z7pk.autosns.app/fm/B6EuRmzFs9"; // 概要案内予約変更
+const FORM9_BASE_URL = "https://zcr5z7pk.autosns.app/fm/MmAiXC8uOh"; // 概要案内キャンセル
+const FORM10_BASE_URL = "https://zcr5z7pk.autosns.app/fm/IAsRa82wNF"; // 概要案内完了
+const FORM11_BASE_URL = "https://zcr5z7pk.autosns.app/fm/YjNCxOyln8"; // 概要案内完了メッセ
+const FORM12_BASE_URL = "https://zcr5z7pk.autosns.app/fm/WCBa6uIxM2"; // 契約書リマインド
+
+const TAG_BRIEFING_COMPLETE_ADD_URL = "https://autosns.jp/api/call-beacon/pWp2FUaCif"; // 概要案内完了タグ付与
+const TAG_BRIEFING_COMPLETE_REMOVE_URL = "https://autosns.jp/api/call-beacon/R0I3t5ARZq"; // 概要案内完了タグ削除
 
 /**
  * Form4: 友だち追加通知（紹介者に「○○様がLINEに追加されました」と通知）
@@ -105,5 +114,221 @@ export async function submitForm5ContractNotification(
   const result = await response.json();
   if (result.status !== "200" && result.status !== 200) {
     throw new Error(`ProLine Form5 API returned error: ${JSON.stringify(result)}`);
+  }
+}
+
+/**
+ * Form6: 概要案内予約通知（紹介者に「○○様が概要案内を予約しました」と通知）
+ */
+export async function submitForm6BriefingReservation(
+  referrerUid: string,
+  snsname: string,
+  briefingDate: string
+): Promise<void> {
+  const url = `${FORM6_BASE_URL}?uid=${encodeURIComponent(referrerUid)}`;
+  const body = { dataType: "json", "form6-1": snsname, "form6-2": briefingDate };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`ProLine Form6 API error: ${response.status} ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  if (result.status !== "200" && result.status !== 200) {
+    throw new Error(`ProLine Form6 API returned error: ${JSON.stringify(result)}`);
+  }
+}
+
+/**
+ * Form7: 概要案内予約変更通知（紹介者に「○○様が概要案内を変更しました」と通知）
+ */
+export async function submitForm7BriefingChange(
+  referrerUid: string,
+  snsname: string,
+  newBriefingDate: string
+): Promise<void> {
+  const url = `${FORM7_BASE_URL}?uid=${encodeURIComponent(referrerUid)}`;
+  const body = { dataType: "json", "form7-1": snsname, "form7-2": newBriefingDate };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`ProLine Form7 API error: ${response.status} ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  if (result.status !== "200" && result.status !== 200) {
+    throw new Error(`ProLine Form7 API returned error: ${JSON.stringify(result)}`);
+  }
+}
+
+/**
+ * Form9: 概要案内キャンセル通知（紹介者に「○○様が概要案内をキャンセルしました」と通知）
+ */
+export async function submitForm9BriefingCancel(
+  referrerUid: string,
+  snsname: string
+): Promise<void> {
+  const url = `${FORM9_BASE_URL}?uid=${encodeURIComponent(referrerUid)}`;
+  const body = { dataType: "json", "form9-1": snsname };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`ProLine Form9 API error: ${response.status} ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  if (result.status !== "200" && result.status !== 200) {
+    throw new Error(`ProLine Form9 API returned error: ${JSON.stringify(result)}`);
+  }
+}
+
+/**
+ * Form10: 概要案内完了通知（紹介者に「○○様が概要案内を完了しました」と通知）
+ * snsnameは複数の場合カンマ区切り（例: "snsnameA, snsnameB"）
+ */
+export async function submitForm10BriefingComplete(
+  referrerUid: string,
+  snsname: string
+): Promise<void> {
+  const url = `${FORM10_BASE_URL}?uid=${encodeURIComponent(referrerUid)}`;
+  const body = { dataType: "json", "form10-1": snsname };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`ProLine Form10 API error: ${response.status} ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  if (result.status !== "200" && result.status !== 200) {
+    throw new Error(`ProLine Form10 API returned error: ${JSON.stringify(result)}`);
+  }
+}
+
+/**
+ * 概要案内完了タグを付与する（プロライン側のタグ）
+ * 成功判定: レスポンスJSONの status === 0
+ */
+export async function addBriefingCompleteTag(uid: string): Promise<void> {
+  const url = `${TAG_BRIEFING_COMPLETE_ADD_URL}/${encodeURIComponent(uid)}`;
+  const response = await fetch(url, {
+    method: "GET",
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`タグ付与API HTTP error: ${response.status} ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  if (result.status !== 0) {
+    throw new Error(`タグ付与APIエラー: ${JSON.stringify(result)}`);
+  }
+}
+
+/**
+ * 概要案内完了タグを削除する
+ * 成功判定: レスポンスJSONの status === 0
+ */
+export async function removeBriefingCompleteTag(uid: string): Promise<void> {
+  const url = `${TAG_BRIEFING_COMPLETE_REMOVE_URL}/${encodeURIComponent(uid)}`;
+  const response = await fetch(url, {
+    method: "GET",
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`タグ削除API HTTP error: ${response.status} ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  if (result.status !== 0) {
+    throw new Error(`タグ削除APIエラー: ${JSON.stringify(result)}`);
+  }
+}
+
+/**
+ * Form12: 契約書リマインド通知（組合員本人に契約書未締結のお知らせを送信）
+ *
+ * @param memberUid 組合員のLINE UID
+ * @param sentDate 送付日（例: "2026年4月1日"）
+ * @param email クラウドサインを送付したメールアドレス
+ */
+export async function submitForm12ContractReminder(
+  memberUid: string,
+  sentDate: string,
+  email: string
+): Promise<void> {
+  const url = `${FORM12_BASE_URL}?uid=${encodeURIComponent(memberUid)}`;
+  const body = {
+    dataType: "json",
+    "form12-1": sentDate,
+    "form12-2": email,
+  };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`ProLine Form12 API error: ${response.status} ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  if (result.status !== "200" && result.status !== 200) {
+    throw new Error(`ProLine Form12 API returned error: ${JSON.stringify(result)}`);
+  }
+}
+
+/**
+ * Form11: 概要案内完了お礼メッセージ（受講者本人にフリーテキストメッセージを送信）
+ */
+export async function submitForm11BriefingThankYou(
+  attendeeUid: string,
+  freeText: string
+): Promise<void> {
+  const url = `${FORM11_BASE_URL}?uid=${encodeURIComponent(attendeeUid)}`;
+  const body = { dataType: "json", "form11-1": freeText };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`ProLine Form11 API error: ${response.status} ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  if (result.status !== "200" && result.status !== 200) {
+    throw new Error(`ProLine Form11 API returned error: ${JSON.stringify(result)}`);
   }
 }

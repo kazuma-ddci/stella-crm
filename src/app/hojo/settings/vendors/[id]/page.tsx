@@ -14,7 +14,7 @@ export default async function VendorDetailPage({
   const id = Number(idParam);
   if (isNaN(id)) notFound();
 
-  const [vendor, lineFriends, joseiLineFriends, scWholesaleStatuses, consultingPlanStatuses, vendorRegistrationStatuses, toolRegistrationStatuses, prolineAccounts, caseStatuses] =
+  const [vendor, lineFriends, joseiLineFriends, scWholesaleStatuses, consultingPlanStatuses, vendorRegistrationStatuses, toolRegistrationStatuses, prolineAccounts, contractStatuses, contractDocuments] =
     await Promise.all([
       prisma.hojoVendor.findUnique({
         where: { id },
@@ -63,9 +63,13 @@ export default async function VendorDetailPage({
       prisma.hojoProlineAccount.findMany({
         select: { lineType: true, label: true },
       }),
-      prisma.hojoVendorCaseStatus.findMany({
+      prisma.hojoVendorContractStatus.findMany({
         where: { isActive: true },
         orderBy: { displayOrder: "asc" },
+      }),
+      prisma.hojoVendorContractDocument.findMany({
+        where: { vendorId: id },
+        orderBy: [{ serviceType: "asc" }, { displayOrder: "asc" }],
       }),
     ]);
 
@@ -205,10 +209,40 @@ export default async function VendorDetailPage({
     label: s.name,
   }));
 
-  const caseStatusOptions = caseStatuses.map((s) => ({
+  const contractStatusOptions = contractStatuses.map((s) => ({
     value: String(s.id),
     label: s.name,
   }));
+
+  // 契約書ドキュメントをサービス別に分類
+  type ContractDocumentItem = {
+    id: number;
+    type: "url" | "file";
+    url: string | null;
+    filePath: string | null;
+    fileName: string | null;
+    fileSize: number | null;
+    mimeType: string | null;
+  };
+  const contractDocsByService: Record<string, ContractDocumentItem[]> = {
+    scWholesale: [],
+    consultingPlan: [],
+    grantApplicationBpo: [],
+  };
+  for (const doc of contractDocuments) {
+    const list = contractDocsByService[doc.serviceType];
+    if (list) {
+      list.push({
+        id: doc.id,
+        type: doc.type as "url" | "file",
+        url: doc.url,
+        filePath: doc.filePath,
+        fileName: doc.fileName,
+        fileSize: doc.fileSize,
+        mimeType: doc.mimeType,
+      });
+    }
+  }
 
   const contacts = vendor.contacts.map((c) => ({
     id: c.id,
@@ -274,35 +308,46 @@ export default async function VendorDetailPage({
       label: `${f.id} ${f.snsname || ""}(${(f.sei || "") + " " + (f.mei || "")})`,
     }));
 
+  // DateTime → ISO string for client (DateTime form input expects "YYYY-MM-DDTHH:mm")
+  const toDateTimeString = (d: Date | null): string => {
+    if (!d) return "";
+    // ローカルタイムゾーンに合わせる
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    return new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
+  };
+  // DateTime → Date string for client ("YYYY-MM-DD")
+  const toDateString = (d: Date | null): string => {
+    if (!d) return "";
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    return new Date(d.getTime() - tzOffset).toISOString().slice(0, 10);
+  };
+
   return (
     <VendorDetailTabs
       vendor={{
         id: vendor.id,
         name: vendor.name,
-        contractDate: vendor.contractDate
-          ? vendor.contractDate.toISOString().split("T")[0]
-          : "",
-        caseStatusId: vendor.caseStatusId,
+        email: vendor.email ?? "",
+        phone: vendor.phone ?? "",
+        kickoffMtg: toDateTimeString(vendor.kickoffMtg),
         scWholesaleStatusId: vendor.scWholesaleStatusId,
-        scWholesaleKickoffMtg: vendor.scWholesaleKickoffMtg ?? "",
-        scWholesaleContractUrl: vendor.scWholesaleContractUrl ?? "",
+        scWholesaleContractStatusId: vendor.scWholesaleContractStatusId,
+        scWholesaleKickoffMtg: toDateTimeString(vendor.scWholesaleKickoffMtg),
+        scWholesaleContractDate: toDateString(vendor.scWholesaleContractDate),
+        scWholesaleEndDate: toDateString(vendor.scWholesaleEndDate),
         consultingPlanStatusId: vendor.consultingPlanStatusId,
-        consultingPlanKickoffMtg: vendor.consultingPlanKickoffMtg ?? "",
-        consultingPlanContractUrl: vendor.consultingPlanContractUrl ?? "",
-        consultingStartDate: vendor.consultingStartDate
-          ? vendor.consultingStartDate.toISOString().split("T")[0]
-          : "",
-        consultingEndDate: vendor.consultingEndDate
-          ? vendor.consultingEndDate.toISOString().split("T")[0]
-          : "",
+        consultingPlanContractStatusId: vendor.consultingPlanContractStatusId,
+        consultingPlanKickoffMtg: toDateTimeString(vendor.consultingPlanKickoffMtg),
+        consultingPlanContractDate: toDateString(vendor.consultingPlanContractDate),
+        consultingPlanEndDate: toDateString(vendor.consultingPlanEndDate),
         grantApplicationBpo: vendor.grantApplicationBpo,
-        grantApplicationBpoKickoffMtg: vendor.grantApplicationBpoKickoffMtg ?? "",
-        grantApplicationBpoContractUrl: vendor.grantApplicationBpoContractUrl ?? "",
+        grantApplicationBpoContractStatusId: vendor.grantApplicationBpoContractStatusId,
+        grantApplicationBpoKickoffMtg: toDateTimeString(vendor.grantApplicationBpoKickoffMtg),
+        grantApplicationBpoContractDate: toDateString(vendor.grantApplicationBpoContractDate),
         subsidyConsulting: vendor.subsidyConsulting,
-        subsidyConsultingKickoffMtg: vendor.subsidyConsultingKickoffMtg ?? "",
+        subsidyConsultingKickoffMtg: toDateTimeString(vendor.subsidyConsultingKickoffMtg),
         loanUsage: vendor.loanUsage,
-        loanUsageKickoffMtg: vendor.loanUsageKickoffMtg ?? "",
-        loanUsageContractUrl: vendor.loanUsageContractUrl ?? "",
+        loanUsageKickoffMtg: toDateTimeString(vendor.loanUsageKickoffMtg),
         vendorRegistrationStatusId: vendor.vendorRegistrationStatusId,
         toolRegistrationStatusId: vendor.toolRegistrationStatusId,
         memo: vendor.memo ?? "",
@@ -314,9 +359,10 @@ export default async function VendorDetailPage({
       joseiLineFriendSelectOptions={joseiLineFriendSelectOptions}
       scWholesaleOptions={scWholesaleOptions}
       consultingPlanOptions={consultingPlanOptions}
-      caseStatusOptions={caseStatusOptions}
+      contractStatusOptions={contractStatusOptions}
       vendorRegistrationOptions={vendorRegistrationOptions}
       toolRegistrationOptions={toolRegistrationOptions}
+      contractDocsByService={contractDocsByService}
       activitiesData={activitiesData}
       preApplicationData={preApplicationData}
       postApplicationData={postApplicationData}

@@ -3,60 +3,44 @@ import { prisma } from "@/lib/prisma";
 import { readFile } from "fs/promises";
 import path from "path";
 
-async function verifyMember(uid: string) {
-  const member = await prisma.slpMember.findUnique({
-    where: { uid },
-    select: {
-      id: true,
-      uid: true,
-      name: true,
-      email: true,
-      status: true,
-      watermarkCode: true,
-      deletedAt: true,
-    },
-  });
-
-  if (!member || member.deletedAt) {
-    return { authorized: false as const, reason: "not_found" };
+// IPアドレスを取得（プロキシ・CDN経由対応）
+function getClientIp(request: NextRequest): string | null {
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    // x-forwarded-for は "client, proxy1, proxy2" 形式。先頭が実クライアント
+    return forwardedFor.split(",")[0]?.trim() || null;
   }
-
-  if (member.status !== "組合員契約書締結") {
-    return { authorized: false as const, reason: "not_authorized", status: member.status };
-  }
-
-  return { authorized: true as const, member };
+  const realIp = request.headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
+  return null;
 }
 
 export async function GET(request: NextRequest) {
-  const uid = request.nextUrl.searchParams.get("uid");
+  const uid = request.nextUrl.searchParams.get("uid")?.trim();
+  const snsname = request.nextUrl.searchParams.get("snsname")?.trim();
   const type = request.nextUrl.searchParams.get("type"); // "pdf" でPDFファイル返却
 
-  if (!uid) {
+  // uid と snsname の両方が必須
+  if (!uid || !snsname) {
     return NextResponse.json(
-      { error: "UIDが必要です" },
+      { authorized: false, reason: "missing_params" },
       { status: 400 }
     );
   }
 
-  const result = await verifyMember(uid);
-
-  if (!result.authorized) {
-    return NextResponse.json(
-      { authorized: false, reason: result.reason },
-      { status: 403 }
-    );
-  }
-
-  const { member } = result;
-
-  console.log(
-    `[DOCUMENT_VIEW] uid=${member.uid}, name=${member.name}, email=${member.email}, code=${member.watermarkCode}, type=${type || "info"}, at=${new Date().toISOString()}`
-  );
-
-  // PDFファイル配信
+  // PDFファイル配信（type=pdf）はログを取らない（info要求時に既に記録済み）
   if (type === "pdf") {
-    const pdfPath = path.join(process.cwd(), "public", "uploads", "documents", "slp-document.pdf");
+    const activeDoc = await prisma.slpDocument.findFirst({
+      where: { isActive: true, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // DB登録あり → そのファイルを配信
+    // DB登録なし → レガシーの固定ファイルにフォールバック
+    const pdfPath = activeDoc
+      ? path.join(process.cwd(), "public", activeDoc.filePath)
+      : path.join(process.cwd(), "public", "uploads", "documents", "slp-document.pdf");
+
     try {
       const pdfBuffer = await readFile(pdfPath);
       return new NextResponse(pdfBuffer, {
@@ -73,11 +57,31 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 認証情報返却
+  // 認証情報リクエスト（ページ初回ロード時）→ アクセスログを記録
+  const ipAddress = getClientIp(request);
+  const userAgent = request.headers.get("user-agent");
+
+  try {
+    await prisma.slpDocumentAccessLog.create({
+      data: {
+        uid,
+        snsname,
+        ipAddress,
+        userAgent: userAgent || null,
+      },
+    });
+  } catch (err) {
+    // ログ書き込み失敗はユーザー体験に影響させない
+    console.error("[SLP_DOC_ACCESS_LOG_ERROR]", err);
+  }
+
+  console.log(
+    `[SLP_DOC_ACCESS] uid=${uid}, snsname=${snsname}, ip=${ipAddress || "unknown"}, at=${new Date().toISOString()}`
+  );
+
   return NextResponse.json({
     authorized: true,
-    name: member.name,
-    email: member.email,
-    watermarkCode: member.watermarkCode,
+    uid,
+    snsname,
   });
 }

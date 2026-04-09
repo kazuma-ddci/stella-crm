@@ -122,6 +122,7 @@ export async function sendContractToMember(id: number) {
 /**
  * CloudSignリマインドを送付（組合員名簿の再送付ボタンから）
  * MasterContract経由でリマインドし、旧カラムも更新
+ * 同時に Form12 で公式LINEメッセージも送信する（fire-and-forget）
  */
 export async function remindMember(id: number) {
   const member = await prisma.slpMember.findUnique({ where: { id } });
@@ -157,12 +158,43 @@ export async function remindMember(id: number) {
     },
   });
 
+  // Form12: 公式LINEで契約書リマインドメッセージを送信（fire-and-forget）
+  if (member.uid && member.email) {
+    const sentDateSrc = member.contractSentDate ?? contract?.cloudsignSentAt ?? null;
+    const sentDate = sentDateSrc
+      ? (() => {
+          const jst = new Date(sentDateSrc.getTime() + 9 * 60 * 60 * 1000);
+          return `${jst.getUTCFullYear()}年${jst.getUTCMonth() + 1}月${jst.getUTCDate()}日`;
+        })()
+      : "";
+    const { submitForm12ContractReminder } = await import("@/lib/proline-form");
+    const { logAutomationError } = await import("@/lib/automation-error");
+    submitForm12ContractReminder(member.uid, sentDate, member.email).catch(
+      async (err) => {
+        await logAutomationError({
+          source: "members/remind/form12",
+          message: `Form12契約書リマインドLINE送信失敗: ${member.name} (uid=${member.uid})`,
+          detail: {
+            memberId: member.id,
+            uid: member.uid,
+            sentDate,
+            email: member.email,
+            error: err instanceof Error ? err.message : String(err),
+            retryAction: "form12-contract-reminder",
+          },
+        });
+      }
+    );
+  }
+
   revalidatePath("/slp/members");
   revalidatePath("/slp/contracts");
 }
 
 /**
  * Form5: 紹介者に契約締結通知を手動送信
+ * 送信成功時に form5NotifiedReferrerUid に現在のfree1を保存し、
+ * 「現在の紹介者に通知済み」状態にする
  */
 export async function sendForm5Notification(id: number) {
   const member = await prisma.slpMember.findUnique({ where: { id } });
@@ -183,7 +215,10 @@ export async function sendForm5Notification(id: number) {
 
   await prisma.slpMember.update({
     where: { id },
-    data: { form5NotifyCount: { increment: 1 } },
+    data: {
+      form5NotifyCount: { increment: 1 },
+      form5NotifiedReferrerUid: referrerUid,
+    },
   });
 
   revalidatePath("/slp/members");

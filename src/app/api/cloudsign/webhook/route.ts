@@ -194,6 +194,10 @@ async function syncSlpMemberFromContract(
     );
 
     // Form5: 紹介者に契約締結通知を送信
+    // 判定: 現在のfree1（紹介者UID）が form5NotifiedReferrerUid と異なる場合のみ送信
+    // - 初回: form5NotifiedReferrerUid が null → 送信
+    // - free1 が後から変わった: 別の紹介者 → 送信
+    // - free1 が null（LINE未紐付け）: 送信しない（手動ボタンで対応）
     try {
       const lineFriend = await prisma.slpLineFriend.findUnique({
         where: { uid: member.uid },
@@ -201,7 +205,7 @@ async function syncSlpMemberFromContract(
       });
       const referrerUid = lineFriend?.free1;
 
-      if (referrerUid && member.form5NotifyCount < 1) {
+      if (referrerUid && member.form5NotifiedReferrerUid !== referrerUid) {
         await submitForm5ContractNotification(
           referrerUid,
           member.lineName || "",
@@ -209,7 +213,10 @@ async function syncSlpMemberFromContract(
         );
         await prisma.slpMember.update({
           where: { id: member.id },
-          data: { form5NotifyCount: { increment: 1 } },
+          data: {
+            form5NotifyCount: { increment: 1 },
+            form5NotifiedReferrerUid: referrerUid,
+          },
         });
         console.log(
           `[CloudSign Webhook] Form5 notification sent for member #${member.id}, referrer=${referrerUid}`
@@ -227,13 +234,31 @@ async function syncSlpMemberFromContract(
       });
     }
 
-    // プロラインのビーコンURLを呼び出し
+    // プロラインのビーコンURLを呼び出し（リッチメニュー切り替え）
+    // 成功時に richmenuBeaconCalled=true を立てる
+    // LINE未紐付けで失敗した場合は line-friend-webhook で後紐付け時に再実行される
     try {
-      const beaconUrl = `https://autosns.jp/api/call-beacon/xZugEszbhx/${member.uid}`;
-      const res = await fetch(beaconUrl);
-      console.log(
-        `[CloudSign Webhook] ProLine beacon called for uid=${member.uid}, status=${res.status}`
-      );
+      const lineFriendExists = await prisma.slpLineFriend.findUnique({
+        where: { uid: member.uid },
+        select: { id: true },
+      });
+      if (lineFriendExists) {
+        const beaconUrl = `https://autosns.jp/api/call-beacon/xZugEszbhx/${member.uid}`;
+        const res = await fetch(beaconUrl);
+        console.log(
+          `[CloudSign Webhook] ProLine beacon called for uid=${member.uid}, status=${res.status}`
+        );
+        if (res.ok) {
+          await prisma.slpMember.update({
+            where: { id: member.id },
+            data: { richmenuBeaconCalled: true },
+          });
+        }
+      } else {
+        console.log(
+          `[CloudSign Webhook] LINE friend not found for uid=${member.uid}, beacon will be called on line-friend-webhook`
+        );
+      }
     } catch (beaconErr) {
       console.error(
         `[CloudSign Webhook] ProLine beacon failed for uid=${member.uid}:`,
@@ -242,7 +267,12 @@ async function syncSlpMemberFromContract(
       await logAutomationError({
         source: "cloudsign-webhook",
         message: `プロラインビーコン呼び出し失敗 (uid=${member.uid})`,
-        detail: { uid: member.uid, memberId: member.id, error: String(beaconErr) },
+        detail: {
+          uid: member.uid,
+          memberId: member.id,
+          error: String(beaconErr),
+          retryAction: "slp-richmenu-beacon",
+        },
       });
     }
   } else if (newCloudsignStatus === "canceled_by_sender" || newCloudsignStatus === "canceled_by_recipient") {
@@ -293,7 +323,7 @@ async function handleSlpMemberWebhookLegacy(
       });
       const referrerUid = lineFriend?.free1;
 
-      if (referrerUid && member.form5NotifyCount < 1) {
+      if (referrerUid && member.form5NotifiedReferrerUid !== referrerUid) {
         await submitForm5ContractNotification(
           referrerUid,
           member.lineName || "",
@@ -301,7 +331,10 @@ async function handleSlpMemberWebhookLegacy(
         );
         await prisma.slpMember.update({
           where: { id: member.id },
-          data: { form5NotifyCount: { increment: 1 } },
+          data: {
+            form5NotifyCount: { increment: 1 },
+            form5NotifiedReferrerUid: referrerUid,
+          },
         });
       }
     } catch (form5Err) {
@@ -313,12 +346,29 @@ async function handleSlpMemberWebhookLegacy(
     }
 
     try {
-      await fetch(`https://autosns.jp/api/call-beacon/xZugEszbhx/${member.uid}`);
+      const lineFriendExists = await prisma.slpLineFriend.findUnique({
+        where: { uid: member.uid },
+        select: { id: true },
+      });
+      if (lineFriendExists) {
+        const res = await fetch(`https://autosns.jp/api/call-beacon/xZugEszbhx/${member.uid}`);
+        if (res.ok) {
+          await prisma.slpMember.update({
+            where: { id: member.id },
+            data: { richmenuBeaconCalled: true },
+          });
+        }
+      }
     } catch (beaconErr) {
       await logAutomationError({
         source: "cloudsign-webhook",
         message: `プロラインビーコン呼び出し失敗 (uid=${member.uid})`,
-        detail: { uid: member.uid, memberId: member.id, error: String(beaconErr) },
+        detail: {
+          uid: member.uid,
+          memberId: member.id,
+          error: String(beaconErr),
+          retryAction: "slp-richmenu-beacon",
+        },
       });
     }
 

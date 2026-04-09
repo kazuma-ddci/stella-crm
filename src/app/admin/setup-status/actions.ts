@@ -222,23 +222,13 @@ const checkDefinitions: CheckDefinition[] = [
   // SLP
   // ========================================
   {
-    id: "slp-companies",
+    id: "slp-company-records",
     category: "SLP",
-    name: "SLP案件",
-    description: "SLPプロジェクトの案件データ",
+    name: "企業名簿",
+    description: "SLPプロジェクトの企業名簿データ",
     required: 0,
     href: "/slp/companies",
-    countFn: () => prisma.slpCompany.count(),
-  },
-  {
-    id: "slp-stages",
-    category: "SLP",
-    name: "パイプライン",
-    description: "案件進捗パイプラインのステージ定義（リード〜入金完了等）",
-    required: 1,
-    href: "/slp/settings/stages",
-    countFn: () =>
-      prisma.slpStage.count({ where: { isActive: true } }),
+    countFn: () => prisma.slpCompanyRecord.count({ where: { deletedAt: null } }),
   },
   {
     id: "slp-members",
@@ -257,6 +247,25 @@ const checkDefinitions: CheckDefinition[] = [
     required: 0,
     href: "/slp/line-friends",
     countFn: () => prisma.slpLineFriend.count({ where: { deletedAt: null } }),
+  },
+  {
+    id: "slp-agencies",
+    category: "SLP",
+    name: "代理店",
+    description: "SLPプロジェクトの代理店データ",
+    required: 0,
+    href: "/slp/agencies",
+    countFn: () => prisma.slpAgency.count({ where: { deletedAt: null } }),
+  },
+  {
+    id: "slp-agency-contract-statuses",
+    category: "SLP",
+    name: "代理店契約ステータス",
+    description: "代理店の契約ステータス選択肢",
+    required: 0,
+    href: "/slp/agencies",
+    countFn: () =>
+      prisma.slpAgencyContractStatus.count({ where: { isActive: true } }),
   },
 
   // ========================================

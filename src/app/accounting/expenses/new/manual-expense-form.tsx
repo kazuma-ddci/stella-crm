@@ -748,7 +748,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
         </CardContent>
       </Card>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 pb-4">
         <Button type="submit" disabled={isPending}>
           {isPending ? "登録中..." : mode === "accounting" ? "仕訳待ちとして登録" : "申請"}
         </Button>

@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2, Mail, Landmark, Star, FileText } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import { updateProjectBasicInfo, updateOperatingCompanyInfo, updateMemberContractType, updateAutoSendContract } from "./actions";
+import { updateProjectBasicInfo, updateOperatingCompanyInfo, updateMemberContractType, updateAutoSendContract, updateSlpForm5AutoSendOnLink } from "./actions";
 import { ProjectEmailsModal } from "@/app/settings/projects/project-emails-modal";
 import { ProjectBankAccountsModal } from "@/app/settings/projects/project-bank-accounts-modal";
 
@@ -74,13 +74,14 @@ type Props = {
   contractTypes: ContractTypeOption[];
   currentMemberContractTypeId: number | null;
   autoSendContract: boolean;
+  slpForm5AutoSendOnLink: boolean;
   emails: EmailItem[];
   bankAccounts: BankAccountItem[];
   canEdit: boolean;
   approverOptions: ApproverOption[];
 };
 
-export function ProjectSettings({ project, operatingCompany, isSystemAdmin, contractTypes, currentMemberContractTypeId, autoSendContract, emails, bankAccounts, canEdit, approverOptions }: Props) {
+export function ProjectSettings({ project, operatingCompany, isSystemAdmin, contractTypes, currentMemberContractTypeId, autoSendContract, slpForm5AutoSendOnLink, emails, bankAccounts, canEdit, approverOptions }: Props) {
   const [projectName, setProjectName] = useState(project.name);
   const [projectDescription, setProjectDescription] = useState(
     project.description ?? ""
@@ -117,6 +118,9 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, cont
 
   const [autoSend, setAutoSend] = useState(autoSendContract);
   const [autoSendSaving, setAutoSendSaving] = useState(false);
+
+  const [form5AutoSend, setForm5AutoSend] = useState(slpForm5AutoSendOnLink);
+  const [form5AutoSendSaving, setForm5AutoSendSaving] = useState(false);
 
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [bankModalOpen, setBankModalOpen] = useState(false);
@@ -346,6 +350,45 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, cont
               現在、契約書の自動送付は停止中です。フォームから登録されたメンバーには、組合員名簿から手動で契約書を送付してください。
             </p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>LINE後紐付け時の紹介者通知（Form5）</CardTitle>
+          <CardDescription>
+            契約書締結時にLINE友達がまだ未紐付けだった場合、その後ユーザーがLINEを追加したタイミングで紹介者に通知を自動送信するかを設定します。
+            OFFの場合は組合員名簿から手動送信できます。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-3">
+            <Switch
+              id="form5-auto-send"
+              checked={form5AutoSend}
+              disabled={form5AutoSendSaving || !canEdit}
+              onCheckedChange={async (checked) => {
+                setForm5AutoSendSaving(true);
+                try {
+                  await updateSlpForm5AutoSendOnLink(project.id, checked);
+                  setForm5AutoSend(checked);
+                } finally {
+                  setForm5AutoSendSaving(false);
+                }
+              }}
+            />
+            <Label htmlFor="form5-auto-send" className="flex items-center gap-2">
+              {form5AutoSend ? (
+                <span className="text-green-600 font-medium">ON（自動送信する）</span>
+              ) : (
+                <span className="text-orange-600 font-medium">OFF（手動で送信する）</span>
+              )}
+              {form5AutoSendSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+            </Label>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            ※ リッチメニュー切り替えは設定に関わらず必ず自動実行されます（このスイッチはForm5紹介者通知のみを制御します）
+          </p>
         </CardContent>
       </Card>
 

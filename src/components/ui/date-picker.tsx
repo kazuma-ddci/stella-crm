@@ -58,11 +58,13 @@ function DatePicker({
             className
           )}
         >
-          <CalendarIcon className="mr-2 size-4 shrink-0" />
-          {selectedDate
-            ? format(selectedDate, "yyyy/MM/dd", { locale: ja })
-            : <span>{placeholder}</span>
-          }
+          <CalendarIcon className="mr-1.5 size-3.5 shrink-0" />
+          <span className="truncate text-sm">
+            {selectedDate
+              ? format(selectedDate, "yyyy/MM/dd", { locale: ja })
+              : placeholder
+            }
+          </span>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">

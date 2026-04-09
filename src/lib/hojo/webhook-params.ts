@@ -5,6 +5,8 @@
  * WebhookのURLに含めるパラメータを増減してもコード変更不要。
  */
 
+import { normalizeSeiMei } from "@/lib/hojo/normalize-sei-mei";
+
 function toNullIfEmpty(val: string | null): string | null {
   if (!val || val.trim() === "") return null;
   return val.trim();
@@ -59,6 +61,14 @@ export function extractWebhookData(searchParams: URLSearchParams): {
     if (value !== null) {
       data[field] = toNullIfEmpty(value);
     }
+  }
+
+  // 姓名の正規化（プロライン側で「姓」に「姓 名」が結合された値が
+  // 入ってくるケースに対応）
+  if ("sei" in data || "mei" in data) {
+    const { sei, mei } = normalizeSeiMei(data.sei ?? null, data.mei ?? null);
+    if ("sei" in data) data.sei = sei;
+    if ("mei" in data) data.mei = mei;
   }
 
   // followed（友だち追加日）は日付として処理

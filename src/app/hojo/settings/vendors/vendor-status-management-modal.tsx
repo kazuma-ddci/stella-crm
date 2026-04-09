@@ -44,11 +44,11 @@ import {
   updateToolRegistrationStatus,
   deleteToolRegistrationStatus,
   reorderToolRegistrationStatuses,
-  getAllCaseStatuses,
-  addCaseStatus,
-  updateCaseStatus,
-  deleteCaseStatus,
-  reorderCaseStatuses,
+  getAllContractStatuses,
+  addContractStatus,
+  updateContractStatus,
+  deleteContractStatus,
+  reorderContractStatuses,
 } from "./vendor-status-actions";
 import {
   DndContext,
@@ -81,7 +81,7 @@ type RenameContext = {
   newName: string;
 };
 
-export type StatusType = "scWholesale" | "consultingPlan" | "vendorRegistration" | "toolRegistration" | "caseStatus";
+export type StatusType = "scWholesale" | "consultingPlan" | "vendorRegistration" | "toolRegistration" | "contractStatus";
 
 type Props = {
   open: boolean;
@@ -122,13 +122,13 @@ const CONFIG = {
     remove: deleteToolRegistrationStatus,
     reorder: reorderToolRegistrationStatuses,
   },
-  caseStatus: {
-    title: "案件ステータス管理",
-    getAll: getAllCaseStatuses,
-    add: addCaseStatus,
-    update: updateCaseStatus,
-    remove: deleteCaseStatus,
-    reorder: reorderCaseStatuses,
+  contractStatus: {
+    title: "契約状況管理（共通）",
+    getAll: getAllContractStatuses,
+    add: addContractStatus,
+    update: updateContractStatus,
+    remove: deleteContractStatus,
+    reorder: reorderContractStatuses,
   },
 } as const;
 

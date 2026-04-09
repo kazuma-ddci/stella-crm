@@ -23,10 +23,8 @@ const ReactPdfPage = dynamic(
 
 type ViewerData = {
   authorized: true;
-  name: string;
-  email: string;
-  watermarkCode: string;
-  viewedAt: string;
+  uid: string;
+  snsname: string;
 };
 
 export default function SlpDocumentPage() {
@@ -47,20 +45,27 @@ export default function SlpDocumentPage() {
     const checkAuth = async () => {
       const params = new URLSearchParams(window.location.search);
       const uid = params.get("uid");
+      const snsname = params.get("snsname");
 
-      if (!uid) {
-        setErrorReason("no_uid");
+      if (!uid || !snsname) {
+        setErrorReason("missing_params");
         setLoading(false);
         return;
       }
 
       try {
-        const res = await fetch(`/api/public/slp/document-access?uid=${encodeURIComponent(uid)}`);
+        const res = await fetch(
+          `/api/public/slp/document-access?uid=${encodeURIComponent(uid)}&snsname=${encodeURIComponent(snsname)}`
+        );
         const data = await res.json();
         if (data.authorized) {
           setAuthorized(true);
-          setViewerData(data);
-          setPdfUrl(`/api/public/slp/document-access?uid=${encodeURIComponent(uid)}&type=pdf`);
+          setViewerData({ authorized: true, uid: data.uid, snsname: data.snsname });
+          setPdfUrl(
+            `/api/public/slp/document-access?uid=${encodeURIComponent(uid)}&snsname=${encodeURIComponent(snsname)}&type=pdf`
+          );
+          // URL欄からパラメータを削除（履歴を残さず置換）
+          window.history.replaceState({}, "", "/form/slp-document");
         } else {
           setErrorReason(data.reason || "not_authorized");
         }
@@ -119,9 +124,9 @@ export default function SlpDocumentPage() {
             閲覧権限がありません
           </h1>
           <p className="text-gray-600 mb-6">
-            {errorReason === "no_uid"
+            {errorReason === "missing_params"
               ? "アクセスURLが正しくありません。"
-              : "この資料を閲覧するには組合員契約の締結が必要です。"}
+              : "この資料を閲覧する権限がありません。"}
           </p>
           <div className="bg-green-50 border border-green-200 rounded-lg p-4">
             <p className="text-sm text-green-800 font-medium mb-1">
@@ -136,8 +141,8 @@ export default function SlpDocumentPage() {
     );
   }
 
-  // ウォーターマークテキスト生成
-  const watermarkMainText = `スクリーンショット禁止 ${viewerData.name} ${viewerData.email || ""}`;
+  // ウォーターマークテキスト生成（uid + snsname を埋め込む）
+  const watermarkMainText = `スクリーンショット禁止 ${viewerData.snsname} ${viewerData.uid}`;
 
   return (
     <div ref={containerRef} className="min-h-screen flex flex-col bg-gray-100 select-none">
@@ -237,7 +242,7 @@ export default function SlpDocumentPage() {
                   </div>
                 </div>
 
-                {/* ウォーターマーク: ハッシュID（右下固定） */}
+                {/* ウォーターマーク: 識別ID（右下固定） */}
                 <div
                   className="absolute bottom-2 right-2 pointer-events-none"
                   style={{ zIndex: 11 }}
@@ -251,7 +256,7 @@ export default function SlpDocumentPage() {
                       WebkitUserSelect: "none",
                     }}
                   >
-                    {viewerData.watermarkCode}
+                    {viewerData.uid}
                   </span>
                 </div>
               </div>

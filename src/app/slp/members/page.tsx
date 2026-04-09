@@ -42,43 +42,65 @@ export default async function SlpMembersPage() {
   });
   const lineFriendIdMap = new Map(lineFriends.map((lf) => [lf.uid, lf.id]));
   const lineFriendFree1Map = new Map(lineFriends.map((lf) => [lf.uid, lf.free1]));
+  // LINE紐付け済みかどうかの判定用（SlpLineFriendが存在するかどうか）
+  const lineFriendExistSet = new Set(lineFriends.map((lf) => lf.uid));
 
   // free1（紹介者UID）からメンバー情報を引くためのマップ
   const memberByUidMap = new Map(members.map((m) => [m.uid, m]));
 
-  const data = members.map((m) => ({
-    id: m.id,
-    lineNo: lineFriendIdMap.get(m.uid) ?? null,
-    name: m.name,
-    email: m.email,
-    status: m.status,
-    contractSentDate: formatDateTimeMinute(m.contractSentDate),
-    contractSignedDate: formatDateTimeMinute(m.contractSignedDate),
-    position: m.position,
-    company: m.company,
-    memberCategory: m.memberCategory,
-    lineName: m.lineName,
-    uid: m.uid,
-    phone: m.phone,
-    address: m.address,
-    referrerUid: lineFriendFree1Map.get(m.uid) || m.referrerUid || null,
-    referrerDisplay: (() => {
-      const free1Uid = lineFriendFree1Map.get(m.uid);
-      const referrer = free1Uid ? memberByUidMap.get(free1Uid) : null;
-      return referrer ? `${referrer.id} ${referrer.name}` : null;
-    })(),
-    note: m.note,
-    memo: m.memo,
-    documentId: m.documentId,
-    cloudsignUrl: m.cloudsignUrl,
-    reminderCount: m.reminderCount,
-    formSubmittedAt: formatDateTimeMinute(m.formSubmittedAt),
-    lastReminderSentAt: formatDateTimeMinute(m.lastReminderSentAt),
-    emailChangeCount: m.emailChangeCount,
-    resubmitted: m.resubmitted,
-    watermarkCode: m.watermarkCode,
-    form5NotifyCount: m.form5NotifyCount,
-  }));
+  const data = members.map((m) => {
+    const lineLinked = lineFriendExistSet.has(m.uid);
+    const currentFree1 = lineFriendFree1Map.get(m.uid) ?? null;
+    // 紹介者未通知判定:
+    //   - LINE紐付き済み
+    //   - free1（紹介者UID）が存在する
+    //   - 現在のfree1 と form5NotifiedReferrerUid が一致しない
+    //   - 締結済み（締結前は通知不要）
+    const referrerUnnotified =
+      lineLinked &&
+      !!currentFree1 &&
+      m.form5NotifiedReferrerUid !== currentFree1 &&
+      m.status === "組合員契約書締結";
+
+    return {
+      id: m.id,
+      lineNo: lineFriendIdMap.get(m.uid) ?? null,
+      name: m.name,
+      email: m.email,
+      status: m.status,
+      contractSentDate: formatDateTimeMinute(m.contractSentDate),
+      contractSignedDate: formatDateTimeMinute(m.contractSignedDate),
+      position: m.position,
+      company: m.company,
+      memberCategory: m.memberCategory,
+      lineName: m.lineName,
+      uid: m.uid,
+      phone: m.phone,
+      address: m.address,
+      referrerUid: currentFree1 || m.referrerUid || null,
+      referrerDisplay: (() => {
+        const referrer = currentFree1 ? memberByUidMap.get(currentFree1) : null;
+        return referrer ? `${referrer.id} ${referrer.name}` : null;
+      })(),
+      note: m.note,
+      memo: m.memo,
+      documentId: m.documentId,
+      cloudsignUrl: m.cloudsignUrl,
+      reminderCount: m.reminderCount,
+      formSubmittedAt: formatDateTimeMinute(m.formSubmittedAt),
+      lastReminderSentAt: formatDateTimeMinute(m.lastReminderSentAt),
+      emailChangeCount: m.emailChangeCount,
+      resubmitted: m.resubmitted,
+      watermarkCode: m.watermarkCode,
+      form5NotifyCount: m.form5NotifyCount,
+      form5NotifiedReferrerUid: m.form5NotifiedReferrerUid,
+      lineLinked,
+      referrerUnnotified,
+      cloudsignBounced: m.cloudsignBounced,
+      cloudsignBouncedAt: formatDateTimeMinute(m.cloudsignBouncedAt),
+      cloudsignBouncedEmail: m.cloudsignBouncedEmail,
+    };
+  });
 
   const memberOptions = members.map((m) => ({
     value: m.uid,

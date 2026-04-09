@@ -302,11 +302,11 @@ export async function reorderToolRegistrationStatuses(orderedIds: number[]) {
 }
 
 // ============================================
-// 案件ステータス管理
+// 契約状況マスタ管理（共通: セキュリティクラウド卸/コンサル/BPOで共通利用）
 // ============================================
 
-export async function getAllCaseStatuses() {
-  const statuses = await prisma.hojoVendorCaseStatus.findMany({
+export async function getAllContractStatuses() {
+  const statuses = await prisma.hojoVendorContractStatus.findMany({
     orderBy: { displayOrder: "asc" },
   });
   return statuses.map((s) => ({
@@ -317,15 +317,15 @@ export async function getAllCaseStatuses() {
   }));
 }
 
-export async function addCaseStatus(data: Record<string, unknown>) {
+export async function addContractStatus(data: Record<string, unknown>) {
   await requireProjectMasterDataEditPermission();
 
-  const maxOrder = await prisma.hojoVendorCaseStatus.aggregate({
+  const maxOrder = await prisma.hojoVendorContractStatus.aggregate({
     _max: { displayOrder: true },
   });
   const displayOrder = (maxOrder._max.displayOrder ?? 0) + 1;
 
-  await prisma.hojoVendorCaseStatus.create({
+  await prisma.hojoVendorContractStatus.create({
     data: {
       name: String(data.name).trim(),
       displayOrder,
@@ -335,14 +335,14 @@ export async function addCaseStatus(data: Record<string, unknown>) {
   revalidatePath("/hojo/settings/vendors");
 }
 
-export async function updateCaseStatus(id: number, data: Record<string, unknown>) {
+export async function updateContractStatus(id: number, data: Record<string, unknown>) {
   await requireProjectMasterDataEditPermission();
   const updateData: Record<string, unknown> = {};
   if ("name" in data) updateData.name = String(data.name).trim();
   if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
   if (Object.keys(updateData).length > 0) {
-    await prisma.hojoVendorCaseStatus.update({
+    await prisma.hojoVendorContractStatus.update({
       where: { id },
       data: updateData,
     });
@@ -350,27 +350,33 @@ export async function updateCaseStatus(id: number, data: Record<string, unknown>
   revalidatePath("/hojo/settings/vendors");
 }
 
-export async function deleteCaseStatus(id: number) {
+export async function deleteContractStatus(id: number) {
   await requireProjectMasterDataEditPermission();
 
   const usageCount = await prisma.hojoVendor.count({
-    where: { caseStatusId: id },
+    where: {
+      OR: [
+        { scWholesaleContractStatusId: id },
+        { consultingPlanContractStatusId: id },
+        { grantApplicationBpoContractStatusId: id },
+      ],
+    },
   });
   if (usageCount > 0) {
     throw new Error(`このステータスは${usageCount}件のベンダーで使用中のため削除できません`);
   }
 
-  await prisma.hojoVendorCaseStatus.delete({
+  await prisma.hojoVendorContractStatus.delete({
     where: { id },
   });
   revalidatePath("/hojo/settings/vendors");
 }
 
-export async function reorderCaseStatuses(orderedIds: number[]) {
+export async function reorderContractStatuses(orderedIds: number[]) {
   await requireProjectMasterDataEditPermission();
   await prisma.$transaction(
     orderedIds.map((id, index) =>
-      prisma.hojoVendorCaseStatus.update({
+      prisma.hojoVendorContractStatus.update({
         where: { id },
         data: { displayOrder: index + 1 },
       })

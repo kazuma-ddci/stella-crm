@@ -23,6 +23,22 @@ function sourceLabel(source: string): string {
     "public/slp/member-registration": "組合員フォーム登録",
     "webhook/line-friend": "LINE友だちWebhook",
     "proline-form-submit": "プロラインフォーム送信",
+    // 概要案内Webhook
+    "slp-briefing-reservation": "概要案内予約 Webhook",
+    "slp-briefing-change": "概要案内変更 Webhook",
+    "slp-briefing-cancel": "概要案内キャンセル Webhook",
+    // 概要案内 紹介者通知
+    "slp-briefing-reservation-form6": "概要案内予約通知（form6）",
+    "slp-briefing-change-form7": "概要案内変更通知（form7）",
+    "slp-briefing-cancel-form9": "概要案内キャンセル通知（form9）",
+    "slp-briefing-complete-form10": "概要案内完了 紹介者通知（form10）",
+    "slp-briefing-complete-form11": "概要案内完了 お礼メッセージ（form11）",
+    // 概要案内タグ
+    "slp-tag-briefing-complete-add": "概要案内完了タグ付与",
+    "slp-tag-briefing-complete-remove": "概要案内完了タグ削除",
+    // 契約書リマインド
+    "cron/remind-slp-members/form12": "契約書リマインドLINE（form12）",
+    "members/remind/form12": "契約書リマインドLINE 手動（form12）",
   };
   return map[source] || source;
 }
@@ -44,6 +60,13 @@ const detailKeyLabels: Record<string, string> = {
   note: "備考",
   error: "エラー内容",
   documentId: "書類ID",
+  contactId: "担当者ID",
+  referrerUid: "紹介者UID",
+  snsname: "LINE名",
+  briefingDate: "概要案内日",
+  freeText: "送信内容",
+  sentDate: "送付日",
+  memberId: "組合員ID",
 };
 
 /** 表示から除外するキー */
@@ -81,13 +104,29 @@ function parseDetail(detail: string | null): {
   }
 }
 
-export default async function AutomationErrorsPage() {
-  const errors = await prisma.automationError.findMany({
+type SearchParams = {
+  filter?: string;
+};
+
+export default async function AutomationErrorsPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
+  const params = await searchParams;
+  const filter = params.filter === "resolved" ? "resolved" : "unresolved";
+
+  const allErrors = await prisma.automationError.findMany({
     orderBy: { createdAt: "desc" },
-    take: 200,
+    take: 500,
   });
 
-  const unresolvedCount = errors.filter((e) => !e.resolved).length;
+  const unresolvedCount = allErrors.filter((e) => !e.resolved).length;
+  const resolvedCount = allErrors.filter((e) => e.resolved).length;
+
+  const errors = allErrors.filter((e) =>
+    filter === "unresolved" ? !e.resolved : e.resolved
+  );
 
   return (
     <div className="container mx-auto py-8 space-y-6">
@@ -99,11 +138,35 @@ export default async function AutomationErrorsPage() {
         )}
       </div>
 
+      {/* フィルタタブ */}
+      <div className="flex gap-2 border-b">
+        <a
+          href="?filter=unresolved"
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            filter === "unresolved"
+              ? "border-primary text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          未解決 ({unresolvedCount})
+        </a>
+        <a
+          href="?filter=resolved"
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            filter === "resolved"
+              ? "border-primary text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          解決済み ({resolvedCount})
+        </a>
+      </div>
+
       {errors.length === 0 ? (
         <Card>
           <CardContent className="pt-6">
             <p className="text-muted-foreground text-center py-8">
-              エラーは記録されていません
+              {filter === "unresolved" ? "未解決のエラーはありません" : "解決済みのエラーはありません"}
             </p>
           </CardContent>
         </Card>
@@ -112,7 +175,7 @@ export default async function AutomationErrorsPage() {
           <CardHeader>
             <CardTitle>エラー一覧</CardTitle>
             <CardDescription>
-              直近200件を表示しています。Webhook・Cron・フォーム等の自動化処理で発生したエラーが記録されます。
+              直近500件のうち {filter === "unresolved" ? "未解決" : "解決済み"} を表示しています。Webhook・Cron・フォーム等の自動化処理で発生したエラーが記録されます。
             </CardDescription>
           </CardHeader>
           <CardContent>

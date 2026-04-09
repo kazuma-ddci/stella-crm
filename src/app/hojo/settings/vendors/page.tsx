@@ -29,7 +29,15 @@ export default async function VendorsPage() {
     label: s.name,
   }));
 
-  const [vendors, scLineFriends] = await Promise.all([
+  const [
+    vendors,
+    scLineFriends,
+    scWholesaleStatuses,
+    consultingPlanStatuses,
+    contractStatuses,
+    vendorRegistrationStatuses,
+    toolRegistrationStatuses,
+  ] = await Promise.all([
     prisma.hojoVendor.findMany({
       orderBy: { displayOrder: "asc" },
       include: {
@@ -39,6 +47,13 @@ export default async function VendorsPage() {
         assignedAsLineFriend: {
           select: { id: true, sei: true, mei: true, snsname: true },
         },
+        scWholesaleStatus: { select: { id: true, name: true } },
+        scWholesaleContractStatus: { select: { id: true, name: true } },
+        consultingPlanStatus: { select: { id: true, name: true } },
+        consultingPlanContractStatus: { select: { id: true, name: true } },
+        grantApplicationBpoContractStatus: { select: { id: true, name: true } },
+        vendorRegistrationStatus: { select: { id: true, name: true } },
+        toolRegistrationStatus: { select: { id: true, name: true } },
         contacts: {
           include: {
             lineFriend: { select: { id: true, uid: true, free1: true, snsname: true } },
@@ -52,16 +67,52 @@ export default async function VendorsPage() {
       orderBy: { id: "asc" },
       select: { id: true, uid: true, sei: true, mei: true, snsname: true, userType: true, free1: true },
     }),
+    prisma.hojoVendorScWholesaleStatus.findMany({
+      where: { isActive: true },
+      orderBy: { displayOrder: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.hojoVendorConsultingPlanStatus.findMany({
+      where: { isActive: true },
+      orderBy: { displayOrder: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.hojoVendorContractStatus.findMany({
+      where: { isActive: true },
+      orderBy: { displayOrder: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.hojoVendorRegistrationStatus.findMany({
+      where: { isActive: true },
+      orderBy: { displayOrder: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.hojoVendorToolRegistrationStatus.findMany({
+      where: { isActive: true },
+      orderBy: { displayOrder: "asc" },
+      select: { id: true, name: true },
+    }),
   ]);
 
   // セキュリティクラウドLINEからASユーザーを検出するためのマップ
   const scByUid = new Map(scLineFriends.map((f) => [f.uid, f]));
 
+  // 担当AS表示用ラベル整形（姓名が空の場合は括弧自体を省略）
+  const formatAsLabel = (f: { id: number | bigint; snsname: string | null; sei: string | null; mei: string | null }) => {
+    const sei = f.sei?.trim() ?? "";
+    const mei = f.mei?.trim() ?? "";
+    let namePart = "";
+    if (sei && mei) namePart = `(${sei} ${mei})`;
+    else if (sei) namePart = `(${sei})`;
+    else if (mei) namePart = `(${mei})`;
+    return `${f.id} ${f.snsname || ""}${namePart}`.trim();
+  };
+
   // 担当AS selectオプション（ASタイプのLINE友達）
   const asLineFriends = scLineFriends.filter((f) => f.userType === "AS");
   const scLineFriendOptions = asLineFriends.map((f) => ({
     value: String(f.id),
-    label: `${f.id} ${f.snsname || ""}(${f.sei || ""} ${f.mei || ""})`.trim(),
+    label: formatAsLabel(f),
   }));
 
   const data = vendors.map((v) => {
@@ -72,15 +123,14 @@ export default async function VendorsPage() {
     // 担当AS: 手動設定 or 自動検出
     let assignedAsDisplay = "-";
     if (v.assignedAsLineFriendId && v.assignedAsLineFriend) {
-      const as = v.assignedAsLineFriend;
-      assignedAsDisplay = `${as.id} ${as.snsname || ""}(${as.sei || ""} ${as.mei || ""})`.trim();
+      assignedAsDisplay = formatAsLabel(v.assignedAsLineFriend);
     } else {
       // 自動検出: vendorのcontactのlineFriend.free1 → セキュリティクラウドLINEのuid → userType=AS
       for (const c of v.contacts) {
         if (c.lineFriend?.free1) {
           const asFriend = scByUid.get(c.lineFriend.free1);
           if (asFriend && asFriend.userType === "AS") {
-            assignedAsDisplay = `${asFriend.id} ${asFriend.snsname || ""}(${asFriend.sei || ""} ${asFriend.mei || ""})`.trim();
+            assignedAsDisplay = formatAsLabel(asFriend);
             break;
           }
         }
@@ -95,11 +145,43 @@ export default async function VendorsPage() {
       consultingStaffIds: consultingStaffIds.join(","),
       assignedAsDisplay,
       assignedAsLineFriendId: v.assignedAsLineFriendId ? String(v.assignedAsLineFriendId) : "",
+      // 絞り込み用フィールド
+      scWholesaleStatusName: v.scWholesaleStatus?.name ?? "",
+      scWholesaleContractStatusName: v.scWholesaleContractStatus?.name ?? "",
+      consultingPlanStatusName: v.consultingPlanStatus?.name ?? "",
+      consultingPlanContractStatusName: v.consultingPlanContractStatus?.name ?? "",
+      grantApplicationBpo: v.grantApplicationBpo,
+      grantApplicationBpoContractStatusName: v.grantApplicationBpoContractStatus?.name ?? "",
+      loanUsage: v.loanUsage,
+      subsidyConsulting: v.subsidyConsulting,
+      vendorRegistrationStatusName: v.vendorRegistrationStatus?.name ?? "",
+      toolRegistrationStatusName: v.toolRegistrationStatus?.name ?? "",
       memo: v.memo ?? "",
       displayOrder: v.displayOrder,
       isActive: v.isActive,
     };
   });
+
+  const scWholesaleStatusOptions = scWholesaleStatuses.map((s) => ({
+    value: s.name,
+    label: s.name,
+  }));
+  const consultingPlanStatusOptions = consultingPlanStatuses.map((s) => ({
+    value: s.name,
+    label: s.name,
+  }));
+  const contractStatusOptions = contractStatuses.map((s) => ({
+    value: s.name,
+    label: s.name,
+  }));
+  const vendorRegistrationStatusOptions = vendorRegistrationStatuses.map((s) => ({
+    value: s.name,
+    label: s.name,
+  }));
+  const toolRegistrationStatusOptions = toolRegistrationStatuses.map((s) => ({
+    value: s.name,
+    label: s.name,
+  }));
 
   // フォーム回答データ取得
   const formResponses = await prisma.hojoFormSubmission.findMany({
@@ -145,6 +227,11 @@ export default async function VendorsPage() {
                 canEdit={canEdit}
                 staffOptions={staffOptions}
                 scLineFriendOptions={scLineFriendOptions}
+                scWholesaleStatusOptions={scWholesaleStatusOptions}
+                consultingPlanStatusOptions={consultingPlanStatusOptions}
+                contractStatusOptions={contractStatusOptions}
+                vendorRegistrationStatusOptions={vendorRegistrationStatusOptions}
+                toolRegistrationStatusOptions={toolRegistrationStatusOptions}
               />
             </CardContent>
           </Card>

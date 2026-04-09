@@ -134,34 +134,6 @@ async function main() {
     console.log('✓ 契約ステータス 8件');
   }
 
-  // ============================================
-  // 4. SLPパイプラインステージ（14件）
-  // ============================================
-
-  const existingSlpStages = await prisma.slpStage.count();
-  if (existingSlpStages > 0) {
-    console.log('⚠ SLPパイプラインは既に存在します。スキップします。');
-  } else {
-    await prisma.slpStage.createMany({
-      data: [
-        { name: 'リード', stageNumber: 1 },
-        { name: '概要説明予約', stageNumber: 2 },
-        { name: '概要説明完了', stageNumber: 3 },
-        { name: '契約送付', stageNumber: 4 },
-        { name: '契約締結', stageNumber: 5 },
-        { name: '書類回収中', stageNumber: 6 },
-        { name: '書類回収完了', stageNumber: 7 },
-        { name: 'AI計算中', stageNumber: 8 },
-        { name: '申請準備', stageNumber: 9 },
-        { name: '申請済', stageNumber: 10 },
-        { name: '還付待ち', stageNumber: 11 },
-        { name: '還付完了', stageNumber: 12 },
-        { name: '入金待ち', stageNumber: 13 },
-        { name: '入金完了', stageNumber: 14 },
-      ],
-    });
-    console.log('✓ SLPパイプライン 14件');
-  }
 
   console.log('\n=== 本番初期データ投入完了 ===');
   console.log('');

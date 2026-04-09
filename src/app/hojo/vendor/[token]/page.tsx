@@ -22,9 +22,11 @@ export default async function VendorPage({
     include: {
       assignedAsLineFriend: { select: { snsname: true } },
       consultingStaff: { include: { staff: { select: { name: true } } } },
-      caseStatus: { select: { name: true } },
       consultingPlanStatus: { select: { name: true } },
+      consultingPlanContractStatus: { select: { name: true } },
       scWholesaleStatus: { select: { name: true } },
+      scWholesaleContractStatus: { select: { name: true } },
+      grantApplicationBpoContractStatus: { select: { name: true } },
       contacts: {
         select: { id: true, name: true, role: true, email: true, phone: true, isPrimary: true },
         orderBy: { id: "asc" },
@@ -43,6 +45,8 @@ export default async function VendorPage({
   for (const a of prolineAccounts) labelMap[a.lineType] = a.label;
   const scLabel = labelMap["security-cloud"] || "セキュリティクラウド";
 
+  const dateOnly = (d: Date | null): string | null => d ? d.toISOString().split("T")[0] : null;
+
   // ベンダー基本情報（契約概要セクション用）
   const vendorInfo = {
     scLabel,
@@ -57,17 +61,21 @@ export default async function VendorPage({
       phone: c.phone ?? "",
       isPrimary: c.isPrimary,
     })),
-    contractDate: vendor.contractDate?.toISOString().split("T")[0] ?? null,
+    kickoffMtg: vendor.kickoffMtg?.toISOString() ?? null,
     consultingPlan: vendor.consultingPlanStatus?.name ?? null,
-    caseStatus: vendor.caseStatus?.name ?? null,
+    consultingPlanContractStatus: vendor.consultingPlanContractStatus?.name ?? null,
+    consultingPlanContractDate: dateOnly(vendor.consultingPlanContractDate),
+    consultingPlanEndDate: dateOnly(vendor.consultingPlanEndDate),
     scWholesalePlan: vendor.scWholesaleStatus?.name ?? null,
+    scWholesaleContractStatus: vendor.scWholesaleContractStatus?.name ?? null,
+    scWholesaleContractDate: dateOnly(vendor.scWholesaleContractDate),
+    scWholesaleEndDate: dateOnly(vendor.scWholesaleEndDate),
+    grantApplicationBpoContractStatus: vendor.grantApplicationBpoContractStatus?.name ?? null,
+    grantApplicationBpoContractDate: dateOnly(vendor.grantApplicationBpoContractDate),
     subsidyConsulting: vendor.subsidyConsulting,
     grantApplicationBpo: vendor.grantApplicationBpo,
-    consultingStartDate: vendor.consultingStartDate?.toISOString().split("T")[0] ?? null,
-    consultingEndDate: vendor.consultingEndDate?.toISOString().split("T")[0] ?? null,
     loanUsage: vendor.loanUsage,
-    loanUsageKickoffMtg: vendor.loanUsageKickoffMtg ?? null,
-    loanUsageContractUrl: vendor.loanUsageContractUrl ?? null,
+    loanUsageKickoffMtg: vendor.loanUsageKickoffMtg?.toISOString() ?? null,
     vendorSharedMemo: vendor.vendorSharedMemo ?? null,
   };
 

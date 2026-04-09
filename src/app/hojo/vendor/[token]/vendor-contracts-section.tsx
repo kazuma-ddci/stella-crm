@@ -13,17 +13,21 @@ type VendorInfo = {
   consultingStaffNames: string[];
   companyName: string;
   contacts: VendorContactInfo[];
-  contractDate: string | null;
+  kickoffMtg: string | null;
   consultingPlan: string | null;
-  caseStatus: string | null;
+  consultingPlanContractStatus: string | null;
+  consultingPlanContractDate: string | null;
+  consultingPlanEndDate: string | null;
   scWholesalePlan: string | null;
+  scWholesaleContractStatus: string | null;
+  scWholesaleContractDate: string | null;
+  scWholesaleEndDate: string | null;
+  grantApplicationBpoContractStatus: string | null;
+  grantApplicationBpoContractDate: string | null;
   subsidyConsulting: boolean;
   grantApplicationBpo: boolean;
-  consultingStartDate: string | null;
-  consultingEndDate: string | null;
   loanUsage: boolean;
   loanUsageKickoffMtg: string | null;
-  loanUsageContractUrl: string | null;
   vendorSharedMemo: string | null;
 };
 
@@ -138,10 +142,17 @@ function VendorOverviewSection({ vendorInfo }: { vendorInfo: VendorInfo }) {
             契約状況
           </h4>
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-4">
-            <InfoField label="契約日" value={vendorInfo.contractDate} />
-            <InfoField label="案件ステータス" value={vendorInfo.caseStatus} />
-            <InfoField label="コンサルティングプラン" value={vendorInfo.consultingPlan} />
+            <InfoField label="初回MTG" value={vendorInfo.kickoffMtg ? new Date(vendorInfo.kickoffMtg).toLocaleString("ja-JP") : null} />
             <InfoField label={`${vendorInfo.scLabel}卸プラン`} value={vendorInfo.scWholesalePlan} />
+            <InfoField label={`${vendorInfo.scLabel}卸 契約状況`} value={vendorInfo.scWholesaleContractStatus} />
+            <InfoField label={`${vendorInfo.scLabel}卸 契約日`} value={vendorInfo.scWholesaleContractDate} />
+            <InfoField label={`${vendorInfo.scLabel}卸 終了予定日`} value={vendorInfo.scWholesaleEndDate} />
+            <InfoField label="コンサルティングプラン" value={vendorInfo.consultingPlan} />
+            <InfoField label="コンサル契約状況" value={vendorInfo.consultingPlanContractStatus} />
+            <InfoField label="コンサル契約日" value={vendorInfo.consultingPlanContractDate} />
+            <InfoField label="コンサル終了予定日" value={vendorInfo.consultingPlanEndDate} />
+            <InfoField label="BPO契約状況" value={vendorInfo.grantApplicationBpoContractStatus} />
+            <InfoField label="BPO契約日" value={vendorInfo.grantApplicationBpoContractDate} />
             <div className="flex flex-col gap-1">
               <span className="text-xs text-gray-400">助成金コンサル</span>
               <span>
@@ -155,13 +166,11 @@ function VendorOverviewSection({ vendorInfo }: { vendorInfo: VendorInfo }) {
               </span>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs text-gray-400">貸金利用</span>
+              <span className="text-xs text-gray-400">貸金業者</span>
               <span>
                 <BoolBadge value={vendorInfo.loanUsage} />
               </span>
             </div>
-            <InfoField label="開始日" value={vendorInfo.consultingStartDate} />
-            <InfoField label="終了予定日" value={vendorInfo.consultingEndDate} />
           </div>
         </div>
 

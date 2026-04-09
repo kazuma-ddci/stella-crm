@@ -99,6 +99,7 @@ export default async function SlpProjectSettingsPage() {
         }))}
         currentMemberContractTypeId={slpProject.slpMemberContractTypeId}
         autoSendContract={slpProject.autoSendContract}
+        slpForm5AutoSendOnLink={slpProject.slpForm5AutoSendOnLink}
         emails={slpProject.projectEmails.map((pe) => ({
           email: pe.email.email,
           label: pe.email.label,

@@ -4,67 +4,68 @@ import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 import { revalidatePath } from "next/cache";
 
+type ContractDocumentInput = {
+  id?: number;
+  type: "url" | "file";
+  url?: string | null;
+  filePath?: string | null;
+  fileName?: string | null;
+  fileSize?: number | null;
+  mimeType?: string | null;
+};
+
+const SERVICE_TYPES = ["scWholesale", "consultingPlan", "grantApplicationBpo"] as const;
+type ServiceType = (typeof SERVICE_TYPES)[number];
+
+function parseDateTime(value: unknown): Date | null {
+  if (!value) return null;
+  const str = String(value).trim();
+  if (!str) return null;
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 export async function updateVendorDetail(
   id: number,
   data: Record<string, unknown>
 ) {
   await requireProjectMasterDataEditPermission();
 
-  const representativeName = data.representativeName
-    ? String(data.representativeName).trim()
-    : null;
-  const representativeLineFriendId = data.representativeLineFriendId
-    ? Number(data.representativeLineFriendId)
-    : null;
-  const contactPersonName = data.contactPersonName
-    ? String(data.contactPersonName).trim()
-    : null;
-  const contactPersonLineFriendId = data.contactPersonLineFriendId
-    ? Number(data.contactPersonLineFriendId)
-    : null;
   const email = data.email ? String(data.email).trim() : null;
   const phone = data.phone ? String(data.phone).trim() : null;
 
-  const scWholesaleStatusId = data.scWholesaleStatusId
-    ? Number(data.scWholesaleStatusId)
-    : null;
-  const scWholesaleKickoffMtg = data.scWholesaleKickoffMtg
-    ? String(data.scWholesaleKickoffMtg).trim()
-    : null;
-  const scWholesaleContractUrl = data.scWholesaleContractUrl
-    ? String(data.scWholesaleContractUrl).trim()
-    : null;
+  // 全体の初回MTG
+  const kickoffMtg = parseDateTime(data.kickoffMtg);
 
-  const consultingPlanStatusId = data.consultingPlanStatusId
-    ? Number(data.consultingPlanStatusId)
-    : null;
-  const consultingPlanKickoffMtg = data.consultingPlanKickoffMtg
-    ? String(data.consultingPlanKickoffMtg).trim()
-    : null;
-  const consultingPlanContractUrl = data.consultingPlanContractUrl
-    ? String(data.consultingPlanContractUrl).trim()
-    : null;
+  // セキュリティクラウド卸
+  const scWholesaleStatusId = data.scWholesaleStatusId ? Number(data.scWholesaleStatusId) : null;
+  const scWholesaleContractStatusId = data.scWholesaleContractStatusId ? Number(data.scWholesaleContractStatusId) : null;
+  const scWholesaleKickoffMtg = parseDateTime(data.scWholesaleKickoffMtg);
+  const scWholesaleContractDate = parseDateTime(data.scWholesaleContractDate);
+  const scWholesaleEndDate = parseDateTime(data.scWholesaleEndDate);
 
+  // コンサルティングプラン
+  const consultingPlanStatusId = data.consultingPlanStatusId ? Number(data.consultingPlanStatusId) : null;
+  const consultingPlanContractStatusId = data.consultingPlanContractStatusId ? Number(data.consultingPlanContractStatusId) : null;
+  const consultingPlanKickoffMtg = parseDateTime(data.consultingPlanKickoffMtg);
+  const consultingPlanContractDate = parseDateTime(data.consultingPlanContractDate);
+  const consultingPlanEndDate = parseDateTime(data.consultingPlanEndDate);
+
+  // 交付申請BPO
   const grantApplicationBpo = data.grantApplicationBpo === true;
-  const grantApplicationBpoKickoffMtg = data.grantApplicationBpoKickoffMtg
-    ? String(data.grantApplicationBpoKickoffMtg).trim()
+  const grantApplicationBpoContractStatusId = data.grantApplicationBpoContractStatusId
+    ? Number(data.grantApplicationBpoContractStatusId)
     : null;
-  const grantApplicationBpoContractUrl = data.grantApplicationBpoContractUrl
-    ? String(data.grantApplicationBpoContractUrl).trim()
-    : null;
+  const grantApplicationBpoKickoffMtg = parseDateTime(data.grantApplicationBpoKickoffMtg);
+  const grantApplicationBpoContractDate = parseDateTime(data.grantApplicationBpoContractDate);
 
+  // 助成金コンサルティング
   const subsidyConsulting = data.subsidyConsulting === true;
-  const subsidyConsultingKickoffMtg = data.subsidyConsultingKickoffMtg
-    ? String(data.subsidyConsultingKickoffMtg).trim()
-    : null;
+  const subsidyConsultingKickoffMtg = parseDateTime(data.subsidyConsultingKickoffMtg);
 
+  // 貸金業者
   const loanUsage = data.loanUsage === true;
-  const loanUsageKickoffMtg = data.loanUsageKickoffMtg
-    ? String(data.loanUsageKickoffMtg).trim()
-    : null;
-  const loanUsageContractUrl = data.loanUsageContractUrl
-    ? String(data.loanUsageContractUrl).trim()
-    : null;
+  const loanUsageKickoffMtg = parseDateTime(data.loanUsageKickoffMtg);
 
   const vendorRegistrationStatusId = data.vendorRegistrationStatusId
     ? Number(data.vendorRegistrationStatusId)
@@ -79,57 +80,40 @@ export async function updateVendorDetail(
     ? String(data.vendorSharedMemo).trim()
     : null;
 
-  const contractDate = data.contractDate
-    ? new Date(String(data.contractDate))
-    : null;
-  const caseStatusId = data.caseStatusId
-    ? Number(data.caseStatusId)
-    : null;
-
-  const consultingStartDate = data.consultingStartDate
-    ? new Date(String(data.consultingStartDate))
-    : null;
-  const consultingEndDate = data.consultingEndDate
-    ? new Date(String(data.consultingEndDate))
-    : null;
-
   await prisma.hojoVendor.update({
     where: { id },
     data: {
-      representativeName,
-      representativeLineFriend: representativeLineFriendId
-        ? { connect: { id: representativeLineFriendId } }
-        : { disconnect: true },
-      contactPersonName,
-      contactPersonLineFriend: contactPersonLineFriendId
-        ? { connect: { id: contactPersonLineFriendId } }
-        : { disconnect: true },
       email,
       phone,
+      kickoffMtg,
       scWholesaleStatus: scWholesaleStatusId
         ? { connect: { id: scWholesaleStatusId } }
         : { disconnect: true },
+      scWholesaleContractStatus: scWholesaleContractStatusId
+        ? { connect: { id: scWholesaleContractStatusId } }
+        : { disconnect: true },
       scWholesaleKickoffMtg,
-      scWholesaleContractUrl,
+      scWholesaleContractDate,
+      scWholesaleEndDate,
       consultingPlanStatus: consultingPlanStatusId
         ? { connect: { id: consultingPlanStatusId } }
         : { disconnect: true },
-      consultingPlanKickoffMtg,
-      consultingPlanContractUrl,
-      contractDate,
-      caseStatus: caseStatusId
-        ? { connect: { id: caseStatusId } }
+      consultingPlanContractStatus: consultingPlanContractStatusId
+        ? { connect: { id: consultingPlanContractStatusId } }
         : { disconnect: true },
-      consultingStartDate,
-      consultingEndDate,
+      consultingPlanKickoffMtg,
+      consultingPlanContractDate,
+      consultingPlanEndDate,
       grantApplicationBpo,
+      grantApplicationBpoContractStatus: grantApplicationBpoContractStatusId
+        ? { connect: { id: grantApplicationBpoContractStatusId } }
+        : { disconnect: true },
       grantApplicationBpoKickoffMtg,
-      grantApplicationBpoContractUrl,
+      grantApplicationBpoContractDate,
       subsidyConsulting,
       subsidyConsultingKickoffMtg,
       loanUsage,
       loanUsageKickoffMtg,
-      loanUsageContractUrl,
       vendorRegistrationStatus: vendorRegistrationStatusId
         ? { connect: { id: vendorRegistrationStatusId } }
         : { disconnect: true },
@@ -142,6 +126,46 @@ export async function updateVendorDetail(
   });
 
   revalidatePath(`/hojo/settings/vendors/${id}`);
+  revalidatePath("/hojo/settings/vendors");
+}
+
+// ============================
+// ベンダー契約書（複数URL+ファイル）の管理
+// ============================
+
+export async function updateVendorContractDocuments(
+  vendorId: number,
+  serviceType: ServiceType,
+  documents: ContractDocumentInput[]
+) {
+  await requireProjectMasterDataEditPermission();
+
+  if (!SERVICE_TYPES.includes(serviceType)) {
+    throw new Error("無効なサービス種別です");
+  }
+
+  // 既存のドキュメントを削除して、入れ直す（シンプル）
+  await prisma.hojoVendorContractDocument.deleteMany({
+    where: { vendorId, serviceType },
+  });
+
+  if (documents.length > 0) {
+    await prisma.hojoVendorContractDocument.createMany({
+      data: documents.map((doc, index) => ({
+        vendorId,
+        serviceType,
+        type: doc.type,
+        url: doc.type === "url" ? doc.url?.trim() || null : null,
+        filePath: doc.type === "file" ? doc.filePath || null : null,
+        fileName: doc.type === "file" ? doc.fileName || null : null,
+        fileSize: doc.type === "file" ? doc.fileSize ?? null : null,
+        mimeType: doc.type === "file" ? doc.mimeType || null : null,
+        displayOrder: index,
+      })),
+    });
+  }
+
+  revalidatePath(`/hojo/settings/vendors/${vendorId}`);
   revalidatePath("/hojo/settings/vendors");
 }
 
