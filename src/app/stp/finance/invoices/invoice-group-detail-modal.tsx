@@ -24,6 +24,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { CommentSection } from "@/app/accounting/comments/comment-section";
+import { ReceiptsReadonly } from "@/components/finance/receipts-readonly";
 import { InvoiceMailModal } from "./invoice-mail-modal";
 import { getInvoiceGroupMailHistory, type MailHistoryItem } from "./mail-actions";
 import { InlineTransactionForm } from "./inline-transaction-form";
@@ -1182,7 +1183,19 @@ export function InvoiceGroupDetailModal({
                   <div>
                     <div className="text-xs text-muted-foreground">実際の入金日</div>
                     <div className="mt-0.5 text-sm font-medium">
-                      {actualPaymentDate || <span className="text-orange-600">未入金</span>}
+                      {actualPaymentDate ? (
+                        <>
+                          {actualPaymentDate}
+                          {group.receiptStatus === "partial" && (
+                            <span className="ml-1 text-red-600">(一部入金)</span>
+                          )}
+                          {group.receiptStatus === "over" && (
+                            <span className="ml-1 text-yellow-700">(過剰)</span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-orange-600">未入金</span>
+                      )}
                     </div>
                   </div>
                   <div>
@@ -1205,6 +1218,21 @@ export function InvoiceGroupDetailModal({
                   </div>
                 </div>
               </div>
+
+              {/* 入金記録（経理側で記録された分割入金を読み取り専用で表示） */}
+              <ReceiptsReadonly
+                mode="invoice"
+                totalAmount={group.totalAmount}
+                records={group.receipts.map((r) => ({
+                  id: r.id,
+                  date: r.receivedDate,
+                  amount: r.amount,
+                  comment: r.comment,
+                  createdByName: r.createdByName,
+                }))}
+                status={group.receiptStatus}
+                recordTotal={group.receiptTotal}
+              />
 
               {/* 金額 */}
               <div className="rounded-lg border p-4">

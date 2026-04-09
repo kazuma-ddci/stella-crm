@@ -45,6 +45,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { CommentSection } from "@/app/accounting/comments/comment-section";
+import { ReceiptsReadonly } from "@/components/finance/receipts-readonly";
 import { PaymentGroupMailModal } from "./payment-group-mail-modal";
 import { getPaymentGroupMailHistory, type MailHistoryItem } from "./mail-actions";
 import { InlineTransactionForm } from "./inline-transaction-form";
@@ -1068,7 +1069,19 @@ export function PaymentGroupDetailModal({
                   <div>
                     <div className="text-xs text-muted-foreground">実際の支払日</div>
                     <div className="mt-0.5 text-sm font-medium">
-                      {group.actualPaymentDate || <span className="text-orange-600">未支払</span>}
+                      {group.actualPaymentDate ? (
+                        <>
+                          {group.actualPaymentDate}
+                          {group.paymentStatus === "partial" && (
+                            <span className="ml-1 text-red-600">(一部支払)</span>
+                          )}
+                          {group.paymentStatus === "over" && (
+                            <span className="ml-1 text-yellow-700">(過剰)</span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-orange-600">未支払</span>
+                      )}
                     </div>
                   </div>
                   {group.receivedPdfFileName && (
@@ -1109,6 +1122,21 @@ export function PaymentGroupDetailModal({
                   )}
                 </div>
               </div>
+
+              {/* 支払記録（経理側で記録された分割支払を読み取り専用で表示） */}
+              <ReceiptsReadonly
+                mode="payment"
+                totalAmount={group.totalAmount}
+                records={group.payments.map((p) => ({
+                  id: p.id,
+                  date: p.paidDate,
+                  amount: p.amount,
+                  comment: p.comment,
+                  createdByName: p.createdByName,
+                }))}
+                status={group.paymentStatus}
+                recordTotal={group.paymentTotal}
+              />
 
               {/* 金額表示 */}
               <div className="rounded-lg border p-4">

@@ -1,3 +1,13 @@
+export type PaymentGroupPaymentItem = {
+  id: number;
+  paidDate: string;
+  amount: number;
+  comment: string | null;
+  createdByName: string;
+};
+
+export type PaymentStatus = "none" | "partial" | "complete" | "over";
+
 export type PaymentGroupListItem = {
   id: number;
   referenceCode: string | null;
@@ -23,6 +33,10 @@ export type PaymentGroupListItem = {
   expectedInboundEmail: { email: string } | null;
   createdByName: string;
   createdAt: string;
+  // 経理側で記録された支払履歴（複数行可）
+  payments: PaymentGroupPaymentItem[];
+  paymentStatus: PaymentStatus;
+  paymentTotal: number;
 };
 
 export type UngroupedAllocationItem = {

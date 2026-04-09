@@ -80,39 +80,64 @@ export async function getPaymentGroups(
       creator: true,
       confirmer: true,
       expectedInboundEmail: { select: { email: true } },
+      payments: {
+        orderBy: { paidDate: "asc" },
+        include: { creator: { select: { name: true } } },
+      },
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
 
-  return records.map((r) => ({
-    id: r.id,
-    referenceCode: r.referenceCode,
-    counterpartyId: r.counterpartyId,
-    counterpartyName: r.counterparty?.name ?? "（未設定）",
-    operatingCompanyId: r.operatingCompanyId,
-    operatingCompanyName: r.operatingCompany.companyName,
-    targetMonth: r.targetMonth ? toLocalDateString(r.targetMonth).slice(0, 7) : null,
-    expectedPaymentDate:
-      r.expectedPaymentDate ? toLocalDateString(r.expectedPaymentDate) : null,
-    paymentDueDate:
-      r.paymentDueDate ? toLocalDateString(r.paymentDueDate) : null,
-    actualPaymentDate:
-      r.actualPaymentDate ? toLocalDateString(r.actualPaymentDate) : null,
-    totalAmount: r.totalAmount,
-    taxAmount: r.taxAmount,
-    receivedPdfPath: r.receivedPdfPath,
-    receivedPdfFileName: r.receivedPdfFileName,
-    paymentType: r.paymentType as "invoice" | "direct",
-    isConfidential: r.isConfidential,
-    status: r.status,
-    confirmedByName: r.confirmer?.name ?? null,
-    confirmedAt: r.confirmedAt ? toLocalDateString(r.confirmedAt) : null,
-    expectedInboundEmail: r.expectedInboundEmail ? { email: r.expectedInboundEmail.email } : null,
-    transactionCount: r.transactions.length,
-    allocationItemCount: r.allocationItems.length,
-    createdByName: r.creator.name,
-    createdAt: toLocalDateString(r.createdAt),
-  }));
+  return records.map((r) => {
+    const paymentTotal = r.payments.reduce((sum, x) => sum + x.amount, 0);
+    const paymentStatus: "none" | "partial" | "complete" | "over" =
+      r.payments.length === 0
+        ? "none"
+        : paymentTotal === (r.totalAmount ?? 0)
+          ? "complete"
+          : paymentTotal < (r.totalAmount ?? 0)
+            ? "partial"
+            : "over";
+
+    return {
+      id: r.id,
+      referenceCode: r.referenceCode,
+      counterpartyId: r.counterpartyId,
+      counterpartyName: r.counterparty?.name ?? "（未設定）",
+      operatingCompanyId: r.operatingCompanyId,
+      operatingCompanyName: r.operatingCompany.companyName,
+      targetMonth: r.targetMonth ? toLocalDateString(r.targetMonth).slice(0, 7) : null,
+      expectedPaymentDate:
+        r.expectedPaymentDate ? toLocalDateString(r.expectedPaymentDate) : null,
+      paymentDueDate:
+        r.paymentDueDate ? toLocalDateString(r.paymentDueDate) : null,
+      actualPaymentDate:
+        r.actualPaymentDate ? toLocalDateString(r.actualPaymentDate) : null,
+      totalAmount: r.totalAmount,
+      taxAmount: r.taxAmount,
+      receivedPdfPath: r.receivedPdfPath,
+      receivedPdfFileName: r.receivedPdfFileName,
+      paymentType: r.paymentType as "invoice" | "direct",
+      isConfidential: r.isConfidential,
+      status: r.status,
+      confirmedByName: r.confirmer?.name ?? null,
+      confirmedAt: r.confirmedAt ? toLocalDateString(r.confirmedAt) : null,
+      expectedInboundEmail: r.expectedInboundEmail ? { email: r.expectedInboundEmail.email } : null,
+      transactionCount: r.transactions.length,
+      allocationItemCount: r.allocationItems.length,
+      createdByName: r.creator.name,
+      createdAt: toLocalDateString(r.createdAt),
+      payments: r.payments.map((x) => ({
+        id: x.id,
+        paidDate: toLocalDateString(x.paidDate),
+        amount: x.amount,
+        comment: x.comment,
+        createdByName: x.creator.name,
+      })),
+      paymentStatus,
+      paymentTotal,
+    };
+  });
 }
 
 // ============================================
@@ -295,8 +320,8 @@ export async function getUngroupedAllocationItems(
 export async function createPaymentGroup(data: {
   counterpartyId: number;
   operatingCompanyId: number;
-  expectedPaymentDate?: string | null;
-  paymentDueDate?: string | null;
+  expectedPaymentDate: string; // 必須
+  paymentDueDate: string; // 必須
   transactionIds: number[];
   projectId?: number;
   paymentType?: "invoice" | "direct";
@@ -304,6 +329,14 @@ export async function createPaymentGroup(data: {
 }): Promise<{ id: number }> {
   const user = await requireEdit("stp");
   const stpProjectId = await requireStpProjectId();
+
+  // 必須入力チェック
+  if (!data.paymentDueDate) {
+    throw new Error("支払期限は必須入力です");
+  }
+  if (!data.expectedPaymentDate) {
+    throw new Error("支払予定日は必須入力です");
+  }
 
   // 作成者が承認権限を持つ場合は承認ステップをスキップ
   const creatorCanApprove = checkCanApprove(user.permissions, "stp");
@@ -378,14 +411,8 @@ export async function createPaymentGroup(data: {
       data: {
         counterpartyId: data.counterpartyId,
         operatingCompanyId: data.operatingCompanyId,
-        expectedPaymentDate: data.expectedPaymentDate
-          ? new Date(data.expectedPaymentDate)
-          : null,
-        paymentDueDate: data.paymentDueDate
-          ? new Date(data.paymentDueDate)
-          : data.expectedPaymentDate
-          ? new Date(data.expectedPaymentDate)
-          : null,
+        expectedPaymentDate: new Date(data.expectedPaymentDate),
+        paymentDueDate: new Date(data.paymentDueDate),
         totalAmount: subtotal + taxTotal,
         taxAmount: taxTotal,
         projectId: stpProjectId,
@@ -511,18 +538,20 @@ export async function updatePaymentGroup(
   };
 
   if ("expectedPaymentDate" in data) {
+    if (!data.expectedPaymentDate) {
+      throw new Error("支払予定日は必須入力です");
+    }
     oldData.expectedPaymentDate = group.expectedPaymentDate ? toLocalDateString(group.expectedPaymentDate) : null;
-    newData.expectedPaymentDate = data.expectedPaymentDate ?? null;
-    updateData.expectedPaymentDate = data.expectedPaymentDate
-      ? new Date(data.expectedPaymentDate)
-      : null;
+    newData.expectedPaymentDate = data.expectedPaymentDate;
+    updateData.expectedPaymentDate = new Date(data.expectedPaymentDate);
   }
   if ("paymentDueDate" in data) {
+    if (!data.paymentDueDate) {
+      throw new Error("支払期限は必須入力です");
+    }
     oldData.paymentDueDate = group.paymentDueDate ? toLocalDateString(group.paymentDueDate) : null;
-    newData.paymentDueDate = data.paymentDueDate ?? null;
-    updateData.paymentDueDate = data.paymentDueDate
-      ? new Date(data.paymentDueDate)
-      : null;
+    newData.paymentDueDate = data.paymentDueDate;
+    updateData.paymentDueDate = new Date(data.paymentDueDate);
   }
   if ("actualPaymentDate" in data) {
     oldData.actualPaymentDate = group.actualPaymentDate ? toLocalDateString(group.actualPaymentDate) : null;

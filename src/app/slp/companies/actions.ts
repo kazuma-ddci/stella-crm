@@ -5,8 +5,11 @@ import { revalidatePath } from "next/cache";
 import {
   submitForm10BriefingComplete,
   submitForm11BriefingThankYou,
+  submitForm13ConsultationThankYou,
   addBriefingCompleteTag,
   removeBriefingCompleteTag,
+  addConsultationCompleteTag,
+  removeConsultationCompleteTag,
 } from "@/lib/proline-form";
 import { logAutomationError } from "@/lib/automation-error";
 import { auth } from "@/auth";
@@ -20,18 +23,51 @@ export type TagResult = {
   error?: string;
 };
 
+/** タグ種類: "briefing-complete"=概要案内完了, "consultation-complete"=導入希望商談完了 */
+export type TagType = "briefing-complete" | "consultation-complete";
+
+const TAG_LABELS: Record<TagType, string> = {
+  "briefing-complete": "概要案内完了",
+  "consultation-complete": "導入希望商談完了",
+};
+
+function getTagApi(tagType: TagType, action: "add" | "remove") {
+  if (tagType === "briefing-complete") {
+    return action === "add" ? addBriefingCompleteTag : removeBriefingCompleteTag;
+  }
+  return action === "add" ? addConsultationCompleteTag : removeConsultationCompleteTag;
+}
+
+function getTagSource(tagType: TagType, action: "add" | "remove") {
+  if (tagType === "briefing-complete") {
+    return action === "add" ? "slp-tag-briefing-complete-add" : "slp-tag-briefing-complete-remove";
+  }
+  return action === "add" ? "slp-tag-consultation-complete-add" : "slp-tag-consultation-complete-remove";
+}
+
+function getTagRetryAction(tagType: TagType, action: "add" | "remove") {
+  if (tagType === "briefing-complete") {
+    return action === "add" ? "tag-briefing-complete-add" : "tag-briefing-complete-remove";
+  }
+  return action === "add" ? "tag-consultation-complete-add" : "tag-consultation-complete-remove";
+}
+
 /**
  * 指定企業の全担当者（公式LINE紐付けあり）に対してタグ付与/削除を実行する。
  * 各担当者の結果を配列で返す。失敗時は automation_errors にも記録する。
  */
 async function applyTagToAllContacts(
   recordId: number,
-  action: "add" | "remove"
+  action: "add" | "remove",
+  tagType: TagType
 ): Promise<TagResult[]> {
   const contacts = await prisma.slpCompanyContact.findMany({
     where: { companyRecordId: recordId },
     include: { lineFriend: { select: { uid: true, snsname: true } } },
   });
+
+  const tagApi = getTagApi(tagType, action);
+  const tagLabel = TAG_LABELS[tagType];
 
   const results: TagResult[] = [];
   for (const c of contacts) {
@@ -39,24 +75,20 @@ async function applyTagToAllContacts(
     if (!uid) continue; // LINE未紐付けはスキップ
     const displayName = c.name ?? c.lineFriend?.snsname ?? "(名前なし)";
     try {
-      if (action === "add") {
-        await addBriefingCompleteTag(uid);
-      } else {
-        await removeBriefingCompleteTag(uid);
-      }
+      await tagApi(uid);
       results.push({ contactId: c.id, name: displayName, uid, success: true });
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
       results.push({ contactId: c.id, name: displayName, uid, success: false, error: errMsg });
       await logAutomationError({
-        source: action === "add" ? "slp-tag-briefing-complete-add" : "slp-tag-briefing-complete-remove",
-        message: `概要案内完了タグ${action === "add" ? "付与" : "削除"}失敗: ${displayName} (uid=${uid})`,
+        source: getTagSource(tagType, action),
+        message: `${tagLabel}タグ${action === "add" ? "付与" : "削除"}失敗: ${displayName} (uid=${uid})`,
         detail: {
           error: errMsg,
           uid,
           contactId: c.id,
           name: displayName,
-          retryAction: action === "add" ? "tag-briefing-complete-add" : "tag-briefing-complete-remove",
+          retryAction: getTagRetryAction(tagType, action),
         },
       });
     }
@@ -67,7 +99,8 @@ async function applyTagToAllContacts(
 /** 単一担当者に対してタグ操作を実行 */
 async function applyTagToContact(
   contactId: number,
-  action: "add" | "remove"
+  action: "add" | "remove",
+  tagType: TagType
 ): Promise<TagResult | null> {
   const contact = await prisma.slpCompanyContact.findUnique({
     where: { id: contactId },
@@ -77,24 +110,24 @@ async function applyTagToContact(
   const uid = contact.lineFriend?.uid;
   if (!uid) return null;
   const displayName = contact.name ?? contact.lineFriend?.snsname ?? "(名前なし)";
+
+  const tagApi = getTagApi(tagType, action);
+  const tagLabel = TAG_LABELS[tagType];
+
   try {
-    if (action === "add") {
-      await addBriefingCompleteTag(uid);
-    } else {
-      await removeBriefingCompleteTag(uid);
-    }
+    await tagApi(uid);
     return { contactId, name: displayName, uid, success: true };
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
     await logAutomationError({
-      source: action === "add" ? "slp-tag-briefing-complete-add" : "slp-tag-briefing-complete-remove",
-      message: `概要案内完了タグ${action === "add" ? "付与" : "削除"}失敗: ${displayName} (uid=${uid})`,
+      source: getTagSource(tagType, action),
+      message: `${tagLabel}タグ${action === "add" ? "付与" : "削除"}失敗: ${displayName} (uid=${uid})`,
       detail: {
         error: errMsg,
         uid,
         contactId,
         name: displayName,
-        retryAction: action === "add" ? "tag-briefing-complete-add" : "tag-briefing-complete-remove",
+        retryAction: getTagRetryAction(tagType, action),
       },
     });
     return { contactId, name: displayName, uid, success: false, error: errMsg };
@@ -123,7 +156,7 @@ export async function addCompanyRecord(): Promise<{ id: number }> {
 }
 
 /**
- * 企業名簿レコードの「概要案内」関連を部分更新する（既存）。
+ * 企業名簿レコードの「概要案内」「導入希望商談」関連を部分更新する。
  * undefined のフィールドは更新せずスキップする（既存値を保持）。
  * null を明示的に渡したフィールドはクリアされる。
  */
@@ -134,6 +167,10 @@ export async function updateCompanyRecord(
     briefingBookedAt?: string | null;
     briefingDate?: string | null;
     briefingStaffId?: number | null;
+    consultationStatus?: string | null;
+    consultationBookedAt?: string | null;
+    consultationDate?: string | null;
+    consultationStaffId?: number | null;
   }
 ) {
   const data: {
@@ -141,6 +178,10 @@ export async function updateCompanyRecord(
     briefingBookedAt?: Date | null;
     briefingDate?: Date | null;
     briefingStaffId?: number | null;
+    consultationStatus?: string | null;
+    consultationBookedAt?: Date | null;
+    consultationDate?: Date | null;
+    consultationStaffId?: number | null;
   } = {};
 
   if (patch.briefingStatus !== undefined) {
@@ -154,6 +195,18 @@ export async function updateCompanyRecord(
   }
   if (patch.briefingStaffId !== undefined) {
     data.briefingStaffId = patch.briefingStaffId;
+  }
+  if (patch.consultationStatus !== undefined) {
+    data.consultationStatus = patch.consultationStatus || null;
+  }
+  if (patch.consultationBookedAt !== undefined) {
+    data.consultationBookedAt = patch.consultationBookedAt ? new Date(patch.consultationBookedAt) : null;
+  }
+  if (patch.consultationDate !== undefined) {
+    data.consultationDate = patch.consultationDate ? new Date(patch.consultationDate) : null;
+  }
+  if (patch.consultationStaffId !== undefined) {
+    data.consultationStaffId = patch.consultationStaffId;
   }
 
   await prisma.slpCompanyRecord.update({
@@ -204,12 +257,12 @@ export type CompanyBasicInfoPatch = {
   pensionOfficerName?: string | null;
   industryId?: number | null;
   flowSourceId?: number | null;
-  referrerText?: string | null;
   salesStaffId?: number | null;
-  asStaffId?: number | null;
   status1Id?: number | null;
   status2Id?: number | null;
   lastContactDate?: string | null;
+  annualLaborCost?: string | null;
+  averageMonthlySalary?: string | null;
   // 金額・契約情報
   initialFee?: string | null;
   initialPeopleCount?: string | null;
@@ -249,7 +302,6 @@ export async function updateCompanyBasicInfo(
     "companyPhone",
     "pensionOffice",
     "pensionOfficerName",
-    "referrerText",
   ];
   for (const f of stringFields) {
     if (patch[f] !== undefined) {
@@ -266,6 +318,8 @@ export async function updateCompanyBasicInfo(
   if (patch.confirmedRefundPeople !== undefined) data.confirmedRefundPeople = toIntOrNull(patch.confirmedRefundPeople);
 
   // Decimal金額フィールド
+  if (patch.annualLaborCost !== undefined) data.annualLaborCost = toDecimalOrNull(patch.annualLaborCost);
+  if (patch.averageMonthlySalary !== undefined) data.averageMonthlySalary = toDecimalOrNull(patch.averageMonthlySalary);
   if (patch.initialFee !== undefined) data.initialFee = toDecimalOrNull(patch.initialFee);
   if (patch.monthlyFee !== undefined) data.monthlyFee = toDecimalOrNull(patch.monthlyFee);
   if (patch.estMaxRefundAmount !== undefined) data.estMaxRefundAmount = toDecimalOrNull(patch.estMaxRefundAmount);
@@ -292,9 +346,6 @@ export async function updateCompanyBasicInfo(
   }
   if (patch.salesStaffId !== undefined) {
     data.salesStaffId = patch.salesStaffId !== null ? patch.salesStaffId : null;
-  }
-  if (patch.asStaffId !== undefined) {
-    data.asStaffId = patch.asStaffId !== null ? patch.asStaffId : null;
   }
   if (patch.status1Id !== undefined) {
     data.status1Id = patch.status1Id !== null ? patch.status1Id : null;
@@ -574,7 +625,7 @@ export async function addContact(data: {
   email: string;
   phone: string;
   lineFriendId: number | null;
-}): Promise<{ tagResult: TagResult | null }> {
+}): Promise<{ tagResults: TagResult[] }> {
   // 既存担当者がなければ isPrimary=true
   const existingCount = await prisma.slpCompanyContact.count({
     where: { companyRecordId: data.companyRecordId },
@@ -593,19 +644,25 @@ export async function addContact(data: {
   });
 
   // 親企業のステータスが「完了」かつ LINE紐付けがあればタグ付与
-  let tagResult: TagResult | null = null;
+  // 概要案内・導入希望商談 それぞれ独立に判定する
+  const tagResults: TagResult[] = [];
   if (data.lineFriendId !== null) {
     const record = await prisma.slpCompanyRecord.findUnique({
       where: { id: data.companyRecordId },
-      select: { briefingStatus: true },
+      select: { briefingStatus: true, consultationStatus: true },
     });
     if (record?.briefingStatus === "完了") {
-      tagResult = await applyTagToContact(created.id, "add");
+      const r = await applyTagToContact(created.id, "add", "briefing-complete");
+      if (r) tagResults.push(r);
+    }
+    if (record?.consultationStatus === "完了") {
+      const r = await applyTagToContact(created.id, "add", "consultation-complete");
+      if (r) tagResults.push(r);
     }
   }
 
   revalidatePath("/slp/companies");
-  return { tagResult };
+  return { tagResults };
 }
 
 export async function updateContact(
@@ -617,13 +674,13 @@ export async function updateContact(
     phone: string;
     lineFriendId: number | null;
   }
-): Promise<{ tagResult: TagResult | null }> {
+): Promise<{ tagResults: TagResult[] }> {
   // 変更前の状態を取得
   const before = await prisma.slpCompanyContact.findUnique({
     where: { id },
     include: {
       lineFriend: { select: { uid: true } },
-      companyRecord: { select: { briefingStatus: true } },
+      companyRecord: { select: { briefingStatus: true, consultationStatus: true } },
     },
   });
 
@@ -639,63 +696,99 @@ export async function updateContact(
   });
 
   // タグ連動: 親企業が「完了」状態かつ lineFriendId が変わった場合
-  let tagResult: TagResult | null = null;
-  if (before?.companyRecord.briefingStatus === "完了") {
-    const oldUid = before.lineFriend?.uid ?? null;
-    const oldLineFriendId = before.lineFriendId;
+  // 概要案内・導入希望商談 それぞれ独立にタグ操作する
+  const tagResults: TagResult[] = [];
+  const oldUid = before?.lineFriend?.uid ?? null;
+  const oldLineFriendId = before?.lineFriendId ?? null;
+  const lineFriendChanged = oldLineFriendId !== data.lineFriendId;
 
-    // 旧LINE友達のタグを削除（紐付けがあった場合）
-    if (oldUid && oldLineFriendId !== data.lineFriendId) {
+  // 旧LINE友達からタグを削除（紐付けがあったが変更された場合）
+  if (oldUid && lineFriendChanged) {
+    if (before?.companyRecord.briefingStatus === "完了") {
       try {
         await removeBriefingCompleteTag(oldUid);
       } catch (e) {
         await logAutomationError({
           source: "slp-tag-briefing-complete-remove",
-          message: `旧担当者のタグ削除失敗: contactId=${id}, uid=${oldUid}`,
+          message: `旧担当者の概要案内完了タグ削除失敗: contactId=${id}, uid=${oldUid}`,
           detail: { error: e instanceof Error ? e.message : String(e) },
         });
       }
     }
+    if (before?.companyRecord.consultationStatus === "完了") {
+      try {
+        await removeConsultationCompleteTag(oldUid);
+      } catch (e) {
+        await logAutomationError({
+          source: "slp-tag-consultation-complete-remove",
+          message: `旧担当者の導入希望商談完了タグ削除失敗: contactId=${id}, uid=${oldUid}`,
+          detail: { error: e instanceof Error ? e.message : String(e) },
+        });
+      }
+    }
+  }
 
-    // 新LINE友達にタグ付与（新規紐付け or 別LINEへ変更）
-    if (data.lineFriendId !== null && data.lineFriendId !== oldLineFriendId) {
-      tagResult = await applyTagToContact(id, "add");
+  // 新LINE友達にタグ付与（新規紐付け or 別LINEへ変更）
+  if (data.lineFriendId !== null && lineFriendChanged) {
+    if (before?.companyRecord.briefingStatus === "完了") {
+      const r = await applyTagToContact(id, "add", "briefing-complete");
+      if (r) tagResults.push(r);
+    }
+    if (before?.companyRecord.consultationStatus === "完了") {
+      const r = await applyTagToContact(id, "add", "consultation-complete");
+      if (r) tagResults.push(r);
     }
   }
 
   revalidatePath("/slp/companies");
-  return { tagResult };
+  return { tagResults };
 }
 
-export async function deleteContact(id: number): Promise<{ tagResult: TagResult | null }> {
+export async function deleteContact(id: number): Promise<{ tagResults: TagResult[] }> {
   // 削除前の情報を取得
   const contact = await prisma.slpCompanyContact.findUnique({
     where: { id },
     include: {
       lineFriend: { select: { uid: true, snsname: true } },
-      companyRecord: { select: { briefingStatus: true } },
+      companyRecord: { select: { briefingStatus: true, consultationStatus: true } },
     },
   });
 
   // 完了状態の企業から LINE紐付け済の担当者を削除する場合はタグ削除
-  let tagResult: TagResult | null = null;
-  if (
-    contact?.companyRecord.briefingStatus === "完了" &&
-    contact.lineFriend?.uid
-  ) {
+  // 概要案内・導入希望商談 それぞれ独立にタグ操作する
+  const tagResults: TagResult[] = [];
+  if (contact?.lineFriend?.uid) {
     const uid = contact.lineFriend.uid;
     const displayName = contact.name ?? contact.lineFriend.snsname ?? "(名前なし)";
-    try {
-      await removeBriefingCompleteTag(uid);
-      tagResult = { contactId: id, name: displayName, uid, success: true };
-    } catch (e) {
-      const errMsg = e instanceof Error ? e.message : String(e);
-      tagResult = { contactId: id, name: displayName, uid, success: false, error: errMsg };
-      await logAutomationError({
-        source: "slp-tag-briefing-complete-remove",
-        message: `削除担当者のタグ削除失敗: contactId=${id}, uid=${uid}`,
-        detail: { error: errMsg },
-      });
+
+    if (contact.companyRecord.briefingStatus === "完了") {
+      try {
+        await removeBriefingCompleteTag(uid);
+        tagResults.push({ contactId: id, name: displayName, uid, success: true });
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        tagResults.push({ contactId: id, name: displayName, uid, success: false, error: errMsg });
+        await logAutomationError({
+          source: "slp-tag-briefing-complete-remove",
+          message: `削除担当者の概要案内完了タグ削除失敗: contactId=${id}, uid=${uid}`,
+          detail: { error: errMsg },
+        });
+      }
+    }
+
+    if (contact.companyRecord.consultationStatus === "完了") {
+      try {
+        await removeConsultationCompleteTag(uid);
+        tagResults.push({ contactId: id, name: displayName, uid, success: true });
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        tagResults.push({ contactId: id, name: displayName, uid, success: false, error: errMsg });
+        await logAutomationError({
+          source: "slp-tag-consultation-complete-remove",
+          message: `削除担当者の導入希望商談完了タグ削除失敗: contactId=${id}, uid=${uid}`,
+          detail: { error: errMsg },
+        });
+      }
     }
   }
 
@@ -715,7 +808,7 @@ export async function deleteContact(id: number): Promise<{ tagResult: TagResult 
     }
   }
   revalidatePath("/slp/companies");
-  return { tagResult };
+  return { tagResults };
 }
 
 export async function setPrimaryContact(id: number, companyRecordId: number) {
@@ -736,18 +829,21 @@ export async function setPrimaryContact(id: number, companyRecordId: number) {
 // ステータス変更（理由付き）
 // ========================================
 
+export type FlowKind = "briefing" | "consultation";
+
 /**
- * ステータスを変更し、変更履歴を記録する。
+ * 概要案内/導入希望商談 共通: ステータスを変更し、変更履歴を記録する。
  * 「予約中 → 完了」以外の変更時は理由が必須。
  *
  * タグ連動:
  *   - fromStatus !== "完了" && toStatus === "完了" → 全担当者にタグ付与
  *   - fromStatus === "完了" && toStatus !== "完了" → 全担当者からタグ削除
  */
-export async function changeStatusWithReason(
+async function _changeStatusWithReasonImpl(
   recordId: number,
   toStatus: string,
-  reason: string
+  reason: string,
+  flow: FlowKind
 ): Promise<{ tagResults: TagResult[] }> {
   if (!reason.trim()) {
     throw new Error("変更理由は必須です");
@@ -755,20 +851,25 @@ export async function changeStatusWithReason(
 
   const current = await prisma.slpCompanyRecord.findUnique({
     where: { id: recordId },
-    select: { briefingStatus: true },
+    select: { briefingStatus: true, consultationStatus: true },
   });
-  const fromStatus = current?.briefingStatus ?? null;
+  const fromStatus =
+    flow === "briefing" ? current?.briefingStatus ?? null : current?.consultationStatus ?? null;
 
   const staffId = await getCurrentStaffId();
+
+  const updateData =
+    flow === "briefing" ? { briefingStatus: toStatus } : { consultationStatus: toStatus };
 
   await prisma.$transaction([
     prisma.slpCompanyRecord.update({
       where: { id: recordId },
-      data: { briefingStatus: toStatus },
+      data: updateData,
     }),
     prisma.slpCompanyRecordStatusHistory.create({
       data: {
         recordId,
+        flow,
         fromStatus,
         toStatus,
         reason: reason.trim(),
@@ -778,15 +879,43 @@ export async function changeStatusWithReason(
   ]);
 
   // タグ連動
+  const tagType: TagType = flow === "briefing" ? "briefing-complete" : "consultation-complete";
   let tagResults: TagResult[] = [];
   if (fromStatus !== "完了" && toStatus === "完了") {
-    tagResults = await applyTagToAllContacts(recordId, "add");
+    tagResults = await applyTagToAllContacts(recordId, "add", tagType);
   } else if (fromStatus === "完了" && toStatus !== "完了") {
-    tagResults = await applyTagToAllContacts(recordId, "remove");
+    tagResults = await applyTagToAllContacts(recordId, "remove", tagType);
   }
 
   revalidatePath("/slp/companies");
   return { tagResults };
+}
+
+/** 概要案内のステータス変更（理由付き） */
+export async function changeBriefingStatusWithReason(
+  recordId: number,
+  toStatus: string,
+  reason: string
+): Promise<{ tagResults: TagResult[] }> {
+  return _changeStatusWithReasonImpl(recordId, toStatus, reason, "briefing");
+}
+
+/** 導入希望商談のステータス変更（理由付き） */
+export async function changeConsultationStatusWithReason(
+  recordId: number,
+  toStatus: string,
+  reason: string
+): Promise<{ tagResults: TagResult[] }> {
+  return _changeStatusWithReasonImpl(recordId, toStatus, reason, "consultation");
+}
+
+/** @deprecated changeBriefingStatusWithReason を使用してください */
+export async function changeStatusWithReason(
+  recordId: number,
+  toStatus: string,
+  reason: string
+): Promise<{ tagResults: TagResult[] }> {
+  return changeBriefingStatusWithReason(recordId, toStatus, reason);
 }
 
 // ========================================
@@ -838,6 +967,7 @@ export async function completeBriefingAndNotify(
     prisma.slpCompanyRecordStatusHistory.create({
       data: {
         recordId,
+        flow: "briefing",
         fromStatus: current?.briefingStatus ?? null,
         toStatus: "完了",
         reason: reason && reason.trim() ? reason.trim() : null,
@@ -854,7 +984,7 @@ export async function completeBriefingAndNotify(
 
   // 全担当者にタグ付与（fromStatusが「完了」でない場合のみ実行）
   if (current?.briefingStatus !== "完了") {
-    result.tagResults = await applyTagToAllContacts(recordId, "add");
+    result.tagResults = await applyTagToAllContacts(recordId, "add", "briefing-complete");
   }
 
   // 担当者が選択されていない場合はステータス更新のみ（タグは付与済み）
@@ -961,6 +1091,128 @@ export async function completeBriefingAndNotify(
 }
 
 // ========================================
+// 導入希望商談 完了処理（form13送信 + タグ付与、紹介者通知なし）
+// ========================================
+
+export type ConsultationCompletionResult = {
+  attendeeResults: {
+    contactId: number;
+    name: string;
+    success: boolean;
+    error?: string;
+  }[];
+  tagResults: TagResult[];
+};
+
+/**
+ * 企業名簿レコードの導入希望商談ステータスを「完了」に更新し、
+ * 選択された担当者にお礼メッセージ(form13)を送信し、
+ * 全担当者に導入希望商談完了タグを付与する。
+ *
+ * 紹介者通知（form10相当）は送信しない。
+ */
+export async function completeConsultationAndNotify(
+  recordId: number,
+  selectedContactIds: number[],
+  thankYouMessage: string,
+  reason: string | null = null
+): Promise<ConsultationCompletionResult> {
+  // 1. ステータスを「完了」に更新 + 履歴記録
+  const current = await prisma.slpCompanyRecord.findUnique({
+    where: { id: recordId },
+    select: { consultationStatus: true },
+  });
+  const staffId = await getCurrentStaffId();
+
+  await prisma.$transaction([
+    prisma.slpCompanyRecord.update({
+      where: { id: recordId },
+      data: { consultationStatus: "完了" },
+    }),
+    prisma.slpCompanyRecordStatusHistory.create({
+      data: {
+        recordId,
+        flow: "consultation",
+        fromStatus: current?.consultationStatus ?? null,
+        toStatus: "完了",
+        reason: reason && reason.trim() ? reason.trim() : null,
+        changedById: staffId,
+      },
+    }),
+  ]);
+
+  const result: ConsultationCompletionResult = {
+    attendeeResults: [],
+    tagResults: [],
+  };
+
+  // 全担当者にタグ付与（fromStatusが「完了」でない場合のみ実行）
+  if (current?.consultationStatus !== "完了") {
+    result.tagResults = await applyTagToAllContacts(recordId, "add", "consultation-complete");
+  }
+
+  // 担当者が選択されていない場合はステータス更新のみ（タグは付与済み）
+  if (selectedContactIds.length === 0) {
+    revalidatePath("/slp/companies");
+    return result;
+  }
+
+  // 2. 選択された担当者の情報を取得
+  const contacts = await prisma.slpCompanyContact.findMany({
+    where: { id: { in: selectedContactIds } },
+    include: {
+      lineFriend: { select: { uid: true, snsname: true } },
+    },
+  });
+
+  // 3. 各担当者にform13（導入希望商談お礼メッセージ）を同期送信
+  for (const contact of contacts) {
+    const displayName = contact.name ?? contact.lineFriend?.snsname ?? "(名前なし)";
+    const uid = contact.lineFriend?.uid;
+    if (!uid) {
+      result.attendeeResults.push({
+        contactId: contact.id,
+        name: displayName,
+        success: false,
+        error: "公式LINE未紐付け",
+      });
+      continue;
+    }
+    try {
+      await submitForm13ConsultationThankYou(uid, thankYouMessage);
+      result.attendeeResults.push({
+        contactId: contact.id,
+        name: displayName,
+        success: true,
+      });
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      result.attendeeResults.push({
+        contactId: contact.id,
+        name: displayName,
+        success: false,
+        error: errMsg,
+      });
+      await logAutomationError({
+        source: "slp-consultation-complete-form13",
+        message: `導入希望商談完了お礼メッセージ送信失敗: ${displayName} (uid=${uid})`,
+        detail: {
+          error: errMsg,
+          uid,
+          contactId: contact.id,
+          name: displayName,
+          freeText: thankYouMessage,
+          retryAction: "form13-consultation-thank-you",
+        },
+      });
+    }
+  }
+
+  revalidatePath("/slp/companies");
+  return result;
+}
+
+// ========================================
 // LINE友達リスト（担当者選択用）
 // ========================================
 
@@ -997,5 +1249,60 @@ export async function softDeleteCompanyDocument(documentId: number): Promise<voi
     where: { id: documentId },
     data: { deletedAt: new Date() },
   });
+  revalidatePath("/slp/companies");
+}
+
+// ============================================
+// AS担当の手動上書き（担当者ごと）
+// ============================================
+
+/**
+ * 担当者のAS担当を手動で上書き保存する。
+ * @param contactId 対象の SlpCompanyContact.id
+ * @param manualAsId 設定するSlpAs.id（null で解除）
+ * @param reason 変更理由（手動設定時は必須）
+ */
+export async function setManualContactAs(
+  contactId: number,
+  manualAsId: number | null,
+  reason: string
+) {
+  const staffId = await getCurrentStaffId();
+  if (staffId === null) throw new Error("認証が必要です");
+
+  if (manualAsId !== null && !reason.trim()) {
+    throw new Error("変更理由は必須です");
+  }
+
+  await prisma.slpCompanyContact.update({
+    where: { id: contactId },
+    data: {
+      manualAsId,
+      manualAsReason: manualAsId !== null ? reason.trim() : null,
+      manualAsChangedAt: manualAsId !== null ? new Date() : null,
+      manualAsChangedById: manualAsId !== null ? staffId : null,
+    },
+  });
+
+  revalidatePath("/slp/companies");
+}
+
+/**
+ * 手動上書きを解除して自動解決値に戻す。
+ */
+export async function clearManualContactAs(contactId: number) {
+  const staffId = await getCurrentStaffId();
+  if (staffId === null) throw new Error("認証が必要です");
+
+  await prisma.slpCompanyContact.update({
+    where: { id: contactId },
+    data: {
+      manualAsId: null,
+      manualAsReason: null,
+      manualAsChangedAt: null,
+      manualAsChangedById: null,
+    },
+  });
+
   revalidatePath("/slp/companies");
 }

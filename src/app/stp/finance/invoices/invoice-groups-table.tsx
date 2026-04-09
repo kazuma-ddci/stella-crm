@@ -32,7 +32,7 @@ type StatusTab =
   | "draft"
   | "pdf_created"
   | "sent"
-  | "awaiting_accounting"
+  | "awaiting_payment"
   | "paid"
   | "corrected";
 
@@ -63,6 +63,20 @@ const CORRECTION_LABELS: Record<string, string> = {
   additional: "追加請求",
 };
 
+// 「入金完了」判定:
+//   - 新方式: 入金記録の合計が請求金額と一致 (receiptStatus === "complete")
+//   - 旧データ: ステータスが既に paid になっているもの (移行済みデータを含む)
+function isPaidCompleted(r: InvoiceGroupListItem): boolean {
+  return r.receiptStatus === "complete" || r.status === "paid";
+}
+
+// 「入金待ち」判定:
+//   経理引渡し済み (awaiting_accounting / partially_paid) で、まだ入金記録が揃っていないもの
+function isAwaitingPayment(r: InvoiceGroupListItem): boolean {
+  const isHandedOver = r.status === "awaiting_accounting" || r.status === "partially_paid";
+  return isHandedOver && !isPaidCompleted(r);
+}
+
 const tabs: {
   key: StatusTab;
   label: string;
@@ -77,14 +91,14 @@ const tabs: {
   },
   { key: "sent", label: "送付済み", filter: (r) => r.status === "sent" },
   {
-    key: "awaiting_accounting",
-    label: "経理処理待ち",
-    filter: (r) => r.status === "awaiting_accounting",
+    key: "awaiting_payment",
+    label: "入金待ち",
+    filter: isAwaitingPayment,
   },
   {
     key: "paid",
     label: "入金完了",
-    filter: (r) => r.status === "paid" || r.status === "partially_paid",
+    filter: isPaidCompleted,
   },
   {
     key: "corrected",
@@ -158,7 +172,7 @@ export function InvoiceGroupsTable({
       draft: 0,
       pdf_created: 0,
       sent: 0,
-      awaiting_accounting: 0,
+      awaiting_payment: 0,
       paid: 0,
       corrected: 0,
     };
@@ -388,11 +402,21 @@ export function InvoiceGroupsTable({
                   </TableCell>
                   <TableCell>{row.expectedPaymentDate ?? "-"}</TableCell>
                   <TableCell>
-                    {row.actualPaymentDate
-                      ? row.actualPaymentDate
-                      : ["paid", "corrected"].includes(row.status)
-                      ? "—"
-                      : <span className="text-orange-600 font-medium">未入金</span>}
+                    {row.actualPaymentDate ? (
+                      <span className="whitespace-nowrap">
+                        {row.actualPaymentDate}
+                        {row.receiptStatus === "partial" && (
+                          <span className="ml-1 text-red-600 text-xs font-medium">(一部入金)</span>
+                        )}
+                        {row.receiptStatus === "over" && (
+                          <span className="ml-1 text-yellow-700 text-xs font-medium">(過剰)</span>
+                        )}
+                      </span>
+                    ) : ["paid", "corrected"].includes(row.status) ? (
+                      "—"
+                    ) : (
+                      <span className="text-orange-600 font-medium">未入金</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right font-medium">
                     {row.totalAmount != null

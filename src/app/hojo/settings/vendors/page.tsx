@@ -5,6 +5,7 @@ import { VendorsTable } from "./vendors-table";
 import { FormResponsesTable } from "./form-responses-table";
 import { auth } from "@/auth";
 import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
+import { formatLineFriendLabel } from "@/lib/hojo/format-line-friend-label";
 
 export default async function VendorsPage() {
   const session = await auth();
@@ -97,22 +98,11 @@ export default async function VendorsPage() {
   // セキュリティクラウドLINEからASユーザーを検出するためのマップ
   const scByUid = new Map(scLineFriends.map((f) => [f.uid, f]));
 
-  // 担当AS表示用ラベル整形（姓名が空の場合は括弧自体を省略）
-  const formatAsLabel = (f: { id: number | bigint; snsname: string | null; sei: string | null; mei: string | null }) => {
-    const sei = f.sei?.trim() ?? "";
-    const mei = f.mei?.trim() ?? "";
-    let namePart = "";
-    if (sei && mei) namePart = `(${sei} ${mei})`;
-    else if (sei) namePart = `(${sei})`;
-    else if (mei) namePart = `(${mei})`;
-    return `${f.id} ${f.snsname || ""}${namePart}`.trim();
-  };
-
   // 担当AS selectオプション（ASタイプのLINE友達）
   const asLineFriends = scLineFriends.filter((f) => f.userType === "AS");
   const scLineFriendOptions = asLineFriends.map((f) => ({
     value: String(f.id),
-    label: formatAsLabel(f),
+    label: formatLineFriendLabel(f),
   }));
 
   const data = vendors.map((v) => {
@@ -123,14 +113,14 @@ export default async function VendorsPage() {
     // 担当AS: 手動設定 or 自動検出
     let assignedAsDisplay = "-";
     if (v.assignedAsLineFriendId && v.assignedAsLineFriend) {
-      assignedAsDisplay = formatAsLabel(v.assignedAsLineFriend);
+      assignedAsDisplay = formatLineFriendLabel(v.assignedAsLineFriend);
     } else {
       // 自動検出: vendorのcontactのlineFriend.free1 → セキュリティクラウドLINEのuid → userType=AS
       for (const c of v.contacts) {
         if (c.lineFriend?.free1) {
           const asFriend = scByUid.get(c.lineFriend.free1);
           if (asFriend && asFriend.userType === "AS") {
-            assignedAsDisplay = formatAsLabel(asFriend);
+            assignedAsDisplay = formatLineFriendLabel(asFriend);
             break;
           }
         }

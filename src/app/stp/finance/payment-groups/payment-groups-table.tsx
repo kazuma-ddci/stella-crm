@@ -36,7 +36,7 @@ type StatusTab =
   | "invoice_received"
   | "rejected"
   | "confirmed"
-  | "awaiting_accounting"
+  | "awaiting_payment"
   | "paid";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -71,6 +71,20 @@ type TabDef = {
   filter: (row: PaymentGroupListItem) => boolean;
 };
 
+// 「支払完了」判定:
+//   - 新方式: 支払記録の合計が請求金額と一致 (paymentStatus === "complete")
+//   - 旧データ: ステータスが既に paid になっているもの (移行済みデータを含む)
+function isPaidCompleted(r: PaymentGroupListItem): boolean {
+  return r.paymentStatus === "complete" || r.status === "paid";
+}
+
+// 「支払待ち」判定:
+//   経理引渡し済み (awaiting_accounting) で、まだ支払記録が揃っていないもの
+function isAwaitingPayment(r: PaymentGroupListItem): boolean {
+  const isHandedOver = r.status === "awaiting_accounting";
+  return isHandedOver && !isPaidCompleted(r);
+}
+
 const TAB_DEFS: TabDef[] = [
   { key: "all", label: "すべて", filter: () => true },
   {
@@ -104,11 +118,11 @@ const TAB_DEFS: TabDef[] = [
     filter: (r) => r.status === "confirmed",
   },
   {
-    key: "awaiting_accounting",
-    label: "経理引渡済み",
-    filter: (r) => r.status === "awaiting_accounting",
+    key: "awaiting_payment",
+    label: "支払待ち",
+    filter: isAwaitingPayment,
   },
-  { key: "paid", label: "支払済み", filter: (r) => r.status === "paid" },
+  { key: "paid", label: "支払完了", filter: isPaidCompleted },
 ];
 
 type SortConfig = {
@@ -343,11 +357,21 @@ export function PaymentGroupsTable({
                   </TableCell>
                   <TableCell>{row.expectedPaymentDate ?? "-"}</TableCell>
                   <TableCell>
-                    {row.actualPaymentDate
-                      ? row.actualPaymentDate
-                      : row.status === "paid"
-                      ? "—"
-                      : <span className="text-orange-600 font-medium">未支払</span>}
+                    {row.actualPaymentDate ? (
+                      <span className="whitespace-nowrap">
+                        {row.actualPaymentDate}
+                        {row.paymentStatus === "partial" && (
+                          <span className="ml-1 text-red-600 text-xs font-medium">(一部支払)</span>
+                        )}
+                        {row.paymentStatus === "over" && (
+                          <span className="ml-1 text-yellow-700 text-xs font-medium">(過剰)</span>
+                        )}
+                      </span>
+                    ) : row.status === "paid" ? (
+                      "—"
+                    ) : (
+                      <span className="text-orange-600 font-medium">未支払</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right font-medium">
                     {row.totalAmount != null

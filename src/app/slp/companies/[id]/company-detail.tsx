@@ -60,7 +60,11 @@ import {
   deleteContact,
   setPrimaryContact,
   completeBriefingAndNotify,
-  changeStatusWithReason,
+  completeConsultationAndNotify,
+  changeBriefingStatusWithReason,
+  changeConsultationStatusWithReason,
+  setManualContactAs,
+  clearManualContactAs,
   type CompanyBasicInfoPatch,
   type MasterKind,
 } from "../actions";
@@ -93,6 +97,15 @@ const briefingStatusOptions = [
   { value: "完了", label: "完了" },
 ];
 
+const consultationStatusOptions = briefingStatusOptions;
+
+type FlowKind = "briefing" | "consultation";
+
+const FLOW_LABELS: Record<FlowKind, string> = {
+  briefing: "概要案内",
+  consultation: "導入希望商談",
+};
+
 // ----------------------------------------------------------------
 // 型
 // ----------------------------------------------------------------
@@ -109,6 +122,7 @@ type ContactData = {
 
 type StatusHistoryEntry = {
   id: number;
+  flow: string;
   fromStatus: string | null;
   toStatus: string | null;
   reason: string | null;
@@ -133,6 +147,19 @@ export type CompanyDetailRecord = {
   briefingStaffName: string | null;
   briefingChangedAt: string | null;
   briefingCanceledAt: string | null;
+  // 導入希望商談
+  consultationStatus: string | null;
+  consultationBookedAt: string | null;
+  consultationBookedDate: string | null;
+  consultationBookedTime: string | null;
+  consultationDate: string | null;
+  consultationDateOnly: string | null;
+  consultationTimeOnly: string | null;
+  consultationStaff: string | null;
+  consultationStaffId: number | null;
+  consultationStaffName: string | null;
+  consultationChangedAt: string | null;
+  consultationCanceledAt: string | null;
   // 基本情報
   companyName: string | null;
   representativeName: string | null;
@@ -146,16 +173,15 @@ export type CompanyDetailRecord = {
   industryName: string | null;
   flowSourceId: number | null;
   flowSourceName: string | null;
-  referrerText: string | null;
   salesStaffId: number | null;
   salesStaffName: string | null;
-  asStaffId: number | null;
-  asStaffName: string | null;
   status1Id: number | null;
   status1Name: string | null;
   status2Id: number | null;
   status2Name: string | null;
   lastContactDate: string | null;
+  annualLaborCost: string | null;
+  averageMonthlySalary: string | null;
   // 金額・契約情報
   initialFee: string | null;
   initialPeopleCount: number | null;
@@ -181,6 +207,36 @@ export type CompanyDetailRecord = {
 type LineFriendOption = { id: number; label: string };
 type StaffOption = { id: number; name: string };
 
+type AsResolutionEntry = {
+  contactId: number;
+  contactName: string;
+  contactDisplay: string;
+  autoAsId: number | null;
+  autoAsName: string | null;
+  manualAsId: number | null;
+  manualAsName: string | null;
+  manualAsReason: string | null;
+  manualAsChangedAt: string | null;
+  manualAsChangedByName: string | null;
+  effectiveAsId: number | null;
+  effectiveAsName: string | null;
+  isManual: boolean;
+};
+
+type ReferrerResolutionEntry = {
+  contactId: number;
+  contactName: string;
+  contactDisplay: string;
+  referrers: Array<{ lineFriendId: number; label: string }>;
+};
+
+type AgencyResolutionEntry = {
+  contactId: number;
+  contactName: string;
+  contactDisplay: string;
+  agencies: Array<{ agencyId: number; agencyName: string; label: string }>;
+};
+
 type Props = {
   record: CompanyDetailRecord;
   lineFriendOptions: LineFriendOption[];
@@ -189,6 +245,14 @@ type Props = {
   flowSourceOptions: MasterOption[];
   status1Options: MasterOption[];
   status2Options: MasterOption[];
+  asOptions: { id: number; name: string }[];
+  asResolutions: AsResolutionEntry[];
+  referrerResolutions: ReferrerResolutionEntry[];
+  agencyResolutions: AgencyResolutionEntry[];
+  multipleAgencyWarnings: Array<{
+    contactDisplay: string;
+    agencyLabels: string[];
+  }>;
 };
 
 // ----------------------------------------------------------------
@@ -202,6 +266,11 @@ export function CompanyDetail({
   flowSourceOptions,
   status1Options,
   status2Options,
+  asOptions,
+  asResolutions,
+  referrerResolutions,
+  agencyResolutions,
+  multipleAgencyWarnings,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -223,12 +292,12 @@ export function CompanyDetail({
   const [pensionOfficerName, setPensionOfficerName] = useState(record.pensionOfficerName ?? "");
   const [industryId, setIndustryId] = useState<number | null>(record.industryId);
   const [flowSourceId, setFlowSourceId] = useState<number | null>(record.flowSourceId);
-  const [referrerText, setReferrerText] = useState(record.referrerText ?? "");
   const [salesStaffId, setSalesStaffId] = useState<number | null>(record.salesStaffId);
-  const [asStaffId, setAsStaffId] = useState<number | null>(record.asStaffId);
   const [status1Id, setStatus1Id] = useState<number | null>(record.status1Id);
   const [status2Id, setStatus2Id] = useState<number | null>(record.status2Id);
   const [lastContactDate, setLastContactDate] = useState(record.lastContactDate ?? "");
+  const [annualLaborCost, setAnnualLaborCost] = useState(record.annualLaborCost ?? "");
+  const [averageMonthlySalary, setAverageMonthlySalary] = useState(record.averageMonthlySalary ?? "");
 
   // --- 金額・契約 ---
   const [initialFee, setInitialFee] = useState(record.initialFee ?? "");
@@ -266,6 +335,15 @@ export function CompanyDetail({
     record.briefingStaffId?.toString() ?? UNSET
   );
 
+  // --- 導入希望商談 日時・担当 ---
+  const [consultationBookedDate, setConsultationBookedDate] = useState(record.consultationBookedDate ?? "");
+  const [consultationBookedTime, setConsultationBookedTime] = useState(record.consultationBookedTime ?? "");
+  const [consultationDateOnly, setConsultationDateOnly] = useState(record.consultationDateOnly ?? "");
+  const [consultationTimeOnly, setConsultationTimeOnly] = useState(record.consultationTimeOnly ?? "");
+  const [consultationStaffIdState, setConsultationStaffIdState] = useState<string>(
+    record.consultationStaffId?.toString() ?? UNSET
+  );
+
   // ============================================
   // Dirty detection（未保存変更の検出）
   // ============================================
@@ -282,12 +360,12 @@ export function CompanyDetail({
         pensionOfficerName,
         industryId,
         flowSourceId,
-        referrerText,
         salesStaffId,
-        asStaffId,
         status1Id,
         status2Id,
         lastContactDate,
+        annualLaborCost,
+        averageMonthlySalary,
         initialFee,
         initialPeopleCount,
         monthlyFee,
@@ -310,17 +388,24 @@ export function CompanyDetail({
         briefingDateOnly,
         briefingTimeOnly,
         briefingStaffIdState,
+        consultationBookedDate,
+        consultationBookedTime,
+        consultationDateOnly,
+        consultationTimeOnly,
+        consultationStaffIdState,
       }),
     [
       companyName, representativeName, employeeCount, prefecture, address, companyPhone,
-      pensionOffice, pensionOfficerName, industryId, flowSourceId, referrerText,
-      salesStaffId, asStaffId, status1Id, status2Id, lastContactDate,
+      pensionOffice, pensionOfficerName, industryId, flowSourceId,
+      salesStaffId, status1Id, status2Id, lastContactDate,
+      annualLaborCost, averageMonthlySalary,
       initialFee, initialPeopleCount, monthlyFee, monthlyPeopleCount,
       contractDate, lastPaymentDate, invoiceSentDate, nextPaymentDate,
       estMaxRefundPeople, estMaxRefundAmount, estOurRevenue, estAgentPayment,
       confirmedRefundPeople, confirmedRefundAmount, confirmedOurRevenue, confirmedAgentPayment,
       paymentReceivedDate,
       briefingBookedDate, briefingBookedTime, briefingDateOnly, briefingTimeOnly, briefingStaffIdState,
+      consultationBookedDate, consultationBookedTime, consultationDateOnly, consultationTimeOnly, consultationStaffIdState,
     ]
   );
 
@@ -376,12 +461,12 @@ export function CompanyDetail({
           pensionOfficerName,
           industryId,
           flowSourceId,
-          referrerText,
           salesStaffId,
-          asStaffId,
           status1Id,
           status2Id,
           lastContactDate,
+          annualLaborCost,
+          averageMonthlySalary,
           initialFee,
           initialPeopleCount,
           monthlyFee,
@@ -402,13 +487,16 @@ export function CompanyDetail({
         };
         await updateCompanyBasicInfo(record.id, patch);
 
-        // 概要案内（日時・担当者）を保存
+        // 概要案内・導入希望商談（日時・担当者）を保存
         const combine = (d: string, t: string) =>
           d ? `${d}T${t || "00:00"}:00` : null;
         await updateCompanyRecord(record.id, {
           briefingBookedAt: combine(briefingBookedDate, briefingBookedTime),
           briefingDate: combine(briefingDateOnly, briefingTimeOnly),
           briefingStaffId: briefingStaffIdState !== UNSET ? parseInt(briefingStaffIdState) : null,
+          consultationBookedAt: combine(consultationBookedDate, consultationBookedTime),
+          consultationDate: combine(consultationDateOnly, consultationTimeOnly),
+          consultationStaffId: consultationStaffIdState !== UNSET ? parseInt(consultationStaffIdState) : null,
         });
 
         setSavedValues(currentValues);
@@ -437,6 +525,61 @@ export function CompanyDetail({
   const [formEmail, setFormEmail] = useState("");
   const [formPhone, setFormPhone] = useState("");
   const [formLineFriendId, setFormLineFriendId] = useState(UNSET);
+
+  // ============================================
+  // AS手動上書き用ダイアログ
+  // ============================================
+  const [asOverrideDialogOpen, setAsOverrideDialogOpen] = useState(false);
+  const [asOverrideTarget, setAsOverrideTarget] =
+    useState<AsResolutionEntry | null>(null);
+  const [asOverrideAsId, setAsOverrideAsId] = useState<string>(UNSET);
+  const [asOverrideReason, setAsOverrideReason] = useState("");
+  const [asOverridePending, setAsOverridePending] = useState(false);
+
+  const openAsOverrideDialog = (entry: AsResolutionEntry) => {
+    setAsOverrideTarget(entry);
+    setAsOverrideAsId(entry.manualAsId ? String(entry.manualAsId) : UNSET);
+    setAsOverrideReason(entry.manualAsReason ?? "");
+    setAsOverrideDialogOpen(true);
+  };
+
+  const handleSaveAsOverride = async () => {
+    if (!asOverrideTarget) return;
+    if (asOverrideAsId === UNSET) {
+      toast.error("AS担当を選択してください");
+      return;
+    }
+    if (!asOverrideReason.trim()) {
+      toast.error("変更理由は必須です");
+      return;
+    }
+    setAsOverridePending(true);
+    try {
+      await setManualContactAs(
+        asOverrideTarget.contactId,
+        parseInt(asOverrideAsId, 10),
+        asOverrideReason.trim()
+      );
+      toast.success("AS担当を手動上書きしました");
+      setAsOverrideDialogOpen(false);
+      router.refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "保存に失敗しました");
+    } finally {
+      setAsOverridePending(false);
+    }
+  };
+
+  const handleClearAsOverride = async (contactId: number) => {
+    if (!confirm("手動上書きを解除して自動解決値に戻しますか？")) return;
+    try {
+      await clearManualContactAs(contactId);
+      toast.success("手動上書きを解除しました");
+      router.refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "解除に失敗しました");
+    }
+  };
   const [contactPending, setContactPending] = useState(false);
 
   const openAddContact = () => {
@@ -479,7 +622,7 @@ export function CompanyDetail({
           : formRoleSelect;
 
     try {
-      let result: { tagResult: { success: boolean; error?: string } | null };
+      let result: { tagResults: Array<{ success: boolean; error?: string }> };
       if (editingContact) {
         result = await updateContact(editingContact.id, {
           name: formName,
@@ -500,17 +643,16 @@ export function CompanyDetail({
       }
 
       const baseMsg = editingContact ? "担当者を更新しました" : "担当者を追加しました";
-      if (result.tagResult) {
-        if (result.tagResult.success) {
-          toast.success(`${baseMsg}（概要案内完了タグを付与）`);
-        } else {
-          toast.error(`${baseMsg}が、タグ付与に失敗しました`, {
-            description: result.tagResult.error,
-            duration: 10000,
-          });
-        }
-      } else {
+      const tagFails = result.tagResults.filter((r) => !r.success);
+      if (result.tagResults.length === 0) {
         toast.success(baseMsg);
+      } else if (tagFails.length === 0) {
+        toast.success(`${baseMsg}（完了タグを付与: ${result.tagResults.length}件）`);
+      } else {
+        toast.error(`${baseMsg}が、タグ付与に失敗しました`, {
+          description: tagFails.map((f) => f.error).filter(Boolean).join(" / "),
+          duration: 10000,
+        });
       }
 
       setContactDialogOpen(false);
@@ -526,17 +668,16 @@ export function CompanyDetail({
     if (!confirm("この担当者を削除しますか？")) return;
     try {
       const result = await deleteContact(contactId);
-      if (result.tagResult) {
-        if (result.tagResult.success) {
-          toast.success("担当者を削除しました（概要案内完了タグを削除）");
-        } else {
-          toast.error("担当者を削除しましたが、タグ削除に失敗しました", {
-            description: result.tagResult.error,
-            duration: 10000,
-          });
-        }
-      } else {
+      const tagFails = result.tagResults.filter((r) => !r.success);
+      if (result.tagResults.length === 0) {
         toast.success("担当者を削除しました");
+      } else if (tagFails.length === 0) {
+        toast.success(`担当者を削除しました（完了タグを削除: ${result.tagResults.length}件）`);
+      } else {
+        toast.error("担当者を削除しましたが、タグ削除に失敗しました", {
+          description: tagFails.map((f) => f.error).filter(Boolean).join(" / "),
+          duration: 10000,
+        });
       }
       router.refresh();
     } catch {
@@ -555,13 +696,14 @@ export function CompanyDetail({
   };
 
   // ============================================
-  // 概要案内ステータス変更（理由・完了モーダル - 既存フロー）
+  // 商談（概要案内 / 導入希望商談）ステータス変更（理由・完了モーダル）
   // ============================================
   const [reasonDialogOpen, setReasonDialogOpen] = useState(false);
   const [reasonTargetStatus, setReasonTargetStatus] = useState<string>("");
   const [reasonText, setReasonText] = useState("");
   const [reasonPending, setReasonPending] = useState(false);
   const [reasonNextAction, setReasonNextAction] = useState<"status_only" | "completion">("status_only");
+  const [activeFlow, setActiveFlow] = useState<FlowKind>("briefing");
 
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
   const [completeMessage, setCompleteMessage] = useState("");
@@ -569,8 +711,10 @@ export function CompanyDetail({
   const [completePending, setCompletePending] = useState(false);
   const [pendingCompletionReason, setPendingCompletionReason] = useState<string | null>(null);
 
-  const handleStatusChange = (value: string) => {
-    const currentStatus = record.briefingStatus;
+  const makeStatusChangeHandler = (flow: FlowKind) => (value: string) => {
+    setActiveFlow(flow);
+    const currentStatus =
+      flow === "briefing" ? record.briefingStatus : record.consultationStatus;
 
     if (currentStatus === "予約中" && value === "完了") {
       setPendingCompletionReason(null);
@@ -611,11 +755,11 @@ export function CompanyDetail({
 
     setReasonPending(true);
     try {
-      const { tagResults } = await changeStatusWithReason(
-        record.id,
-        reasonTargetStatus,
-        reasonText
-      );
+      const changeFn =
+        activeFlow === "briefing"
+          ? changeBriefingStatusWithReason
+          : changeConsultationStatusWithReason;
+      const { tagResults } = await changeFn(record.id, reasonTargetStatus, reasonText);
 
       const tagFails = tagResults.filter((r) => !r.success);
       const tagSuccess = tagResults.filter((r) => r.success);
@@ -658,38 +802,71 @@ export function CompanyDetail({
   const handleCompleteSubmit = async () => {
     setCompletePending(true);
     try {
-      const result = await completeBriefingAndNotify(
-        record.id,
-        Array.from(completeSelectedContactIds),
-        completeMessage,
-        pendingCompletionReason
-      );
-
-      const attendeeFails = result.attendeeResults.filter((r) => !r.success);
-      const referrerFails = result.referrerResults.filter((r) => !r.success);
-      const tagFails = result.tagResults.filter((r) => !r.success);
-      const attendeeSuccess = result.attendeeResults.filter((r) => r.success);
-      const referrerSuccess = result.referrerResults.filter((r) => r.success);
-      const tagSuccess = result.tagResults.filter((r) => r.success);
-
-      const totalFailures = attendeeFails.length + referrerFails.length + tagFails.length;
-
-      if (totalFailures === 0) {
-        toast.success(
-          `完了処理しました（お礼: ${attendeeSuccess.length}件、紹介者通知: ${referrerSuccess.length}件、タグ付与: ${tagSuccess.length}件）`
+      if (activeFlow === "briefing") {
+        const result = await completeBriefingAndNotify(
+          record.id,
+          Array.from(completeSelectedContactIds),
+          completeMessage,
+          pendingCompletionReason
         );
+
+        const attendeeFails = result.attendeeResults.filter((r) => !r.success);
+        const referrerFails = result.referrerResults.filter((r) => !r.success);
+        const tagFails = result.tagResults.filter((r) => !r.success);
+        const attendeeSuccess = result.attendeeResults.filter((r) => r.success);
+        const referrerSuccess = result.referrerResults.filter((r) => r.success);
+        const tagSuccess = result.tagResults.filter((r) => r.success);
+
+        const totalFailures = attendeeFails.length + referrerFails.length + tagFails.length;
+
+        if (totalFailures === 0) {
+          toast.success(
+            `概要案内 完了処理しました（お礼: ${attendeeSuccess.length}件、紹介者通知: ${referrerSuccess.length}件、タグ付与: ${tagSuccess.length}件）`
+          );
+        } else {
+          toast.error(
+            `送信/タグエラーあり — お礼 ${attendeeSuccess.length}/${result.attendeeResults.length}、紹介者通知 ${referrerSuccess.length}/${result.referrerResults.length}、タグ付与 ${tagSuccess.length}/${result.tagResults.length}`,
+            {
+              description: [
+                ...attendeeFails.map((f) => `お礼[${f.name}]: ${f.error ?? "失敗"}`),
+                ...referrerFails.map((f) => `紹介者通知[${f.referrerUid}]: ${f.error ?? "失敗"}`),
+                ...tagFails.map((f) => `タグ[${f.name}]: ${f.error ?? "失敗"}`),
+              ].join(" / "),
+              duration: 15000,
+            }
+          );
+        }
       } else {
-        toast.error(
-          `送信/タグエラーあり — お礼 ${attendeeSuccess.length}/${result.attendeeResults.length}、紹介者通知 ${referrerSuccess.length}/${result.referrerResults.length}、タグ付与 ${tagSuccess.length}/${result.tagResults.length}`,
-          {
-            description: [
-              ...attendeeFails.map((f) => `お礼[${f.name}]: ${f.error ?? "失敗"}`),
-              ...referrerFails.map((f) => `紹介者通知[${f.referrerUid}]: ${f.error ?? "失敗"}`),
-              ...tagFails.map((f) => `タグ[${f.name}]: ${f.error ?? "失敗"}`),
-            ].join(" / "),
-            duration: 15000,
-          }
+        const result = await completeConsultationAndNotify(
+          record.id,
+          Array.from(completeSelectedContactIds),
+          completeMessage,
+          pendingCompletionReason
         );
+
+        const attendeeFails = result.attendeeResults.filter((r) => !r.success);
+        const tagFails = result.tagResults.filter((r) => !r.success);
+        const attendeeSuccess = result.attendeeResults.filter((r) => r.success);
+        const tagSuccess = result.tagResults.filter((r) => r.success);
+
+        const totalFailures = attendeeFails.length + tagFails.length;
+
+        if (totalFailures === 0) {
+          toast.success(
+            `導入希望商談 完了処理しました（お礼: ${attendeeSuccess.length}件、タグ付与: ${tagSuccess.length}件）`
+          );
+        } else {
+          toast.error(
+            `送信/タグエラーあり — お礼 ${attendeeSuccess.length}/${result.attendeeResults.length}、タグ付与 ${tagSuccess.length}/${result.tagResults.length}`,
+            {
+              description: [
+                ...attendeeFails.map((f) => `お礼[${f.name}]: ${f.error ?? "失敗"}`),
+                ...tagFails.map((f) => `タグ[${f.name}]: ${f.error ?? "失敗"}`),
+              ].join(" / "),
+              duration: 15000,
+            }
+          );
+        }
       }
 
       setCompleteDialogOpen(false);
@@ -785,7 +962,7 @@ export function CompanyDetail({
         <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="basic">基本情報</TabsTrigger>
           <TabsTrigger value="finance">金額・契約</TabsTrigger>
-          <TabsTrigger value="briefing">概要案内</TabsTrigger>
+          <TabsTrigger value="briefing">商談</TabsTrigger>
           <TabsTrigger value="contacts">担当者</TabsTrigger>
           <TabsTrigger value="documents">提出書類</TabsTrigger>
         </TabsList>
@@ -915,25 +1092,6 @@ export function CompanyDetail({
                   </Select>
                 </div>
                 <div>
-                  <Label>AS担当者</Label>
-                  <Select
-                    value={asStaffId !== null ? String(asStaffId) : UNSET}
-                    onValueChange={(v) => setAsStaffId(v === UNSET ? null : parseInt(v, 10))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="選択してください" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={UNSET}>未設定</SelectItem>
-                      {staffOptions.map((s) => (
-                        <SelectItem key={s.id} value={String(s.id)}>
-                          {s.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
                   <div className="flex items-center justify-between mb-1">
                     <Label>流入経路</Label>
                     <Button
@@ -952,14 +1110,6 @@ export function CompanyDetail({
                     options={flowSourceOptions}
                     value={flowSourceId}
                     onChange={setFlowSourceId}
-                  />
-                </div>
-                <div>
-                  <Label>紹介者（テキスト）</Label>
-                  <Input
-                    value={referrerText}
-                    onChange={(e) => setReferrerText(e.target.value)}
-                    placeholder="紹介者の名前など"
                   />
                 </div>
                 <div>
@@ -1009,6 +1159,24 @@ export function CompanyDetail({
                   <DatePicker
                     value={lastContactDate}
                     onChange={setLastContactDate}
+                  />
+                </div>
+                <div>
+                  <Label>年間人件費（円）</Label>
+                  <Input
+                    type="number"
+                    value={annualLaborCost}
+                    onChange={(e) => setAnnualLaborCost(e.target.value)}
+                    placeholder="例: 50000000"
+                  />
+                </div>
+                <div>
+                  <Label>平均月給（円）</Label>
+                  <Input
+                    type="number"
+                    value={averageMonthlySalary}
+                    onChange={(e) => setAverageMonthlySalary(e.target.value)}
+                    placeholder="例: 300000"
                   />
                 </div>
               </div>
@@ -1182,22 +1350,23 @@ export function CompanyDetail({
         </TabsContent>
 
         {/* ============================================
-            タブ3: 概要案内
+            タブ3: 商談（概要案内 + 導入希望商談）
             ============================================ */}
-        <TabsContent value="briefing">
+        <TabsContent value="briefing" className="space-y-4">
+          {/* ----- 概要案内セクション ----- */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">概要案内</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {/* ステータス（dropdownで変更、独自フロー） */}
+                {/* ステータス */}
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <Label>ステータス</Label>
                     {(record.briefingChangedAt ||
                       record.briefingCanceledAt ||
-                      record.statusHistories.length > 0) && (
+                      record.statusHistories.some((h) => h.flow === "briefing")) && (
                       <Popover>
                         <PopoverTrigger asChild>
                           <Button
@@ -1229,27 +1398,29 @@ export function CompanyDetail({
                               )}
                             </div>
                           )}
-                          {record.statusHistories.length > 0 && (
+                          {record.statusHistories.filter((h) => h.flow === "briefing").length > 0 && (
                             <div className="space-y-2 text-xs">
                               <div className="font-semibold text-muted-foreground border-b pb-1">
                                 手動ステータス変更履歴
                               </div>
-                              {record.statusHistories.map((h) => (
-                                <div key={h.id} className="border-l-2 border-muted pl-2">
-                                  <div className="font-medium">
-                                    {h.fromStatus ?? "未設定"} → {h.toStatus ?? "未設定"}
-                                  </div>
-                                  <div className="text-muted-foreground">
-                                    {h.createdAt}
-                                    {h.changedByName && ` / ${h.changedByName}`}
-                                  </div>
-                                  {h.reason && (
-                                    <div className="mt-0.5 whitespace-pre-wrap">
-                                      理由: {h.reason}
+                              {record.statusHistories
+                                .filter((h) => h.flow === "briefing")
+                                .map((h) => (
+                                  <div key={h.id} className="border-l-2 border-muted pl-2">
+                                    <div className="font-medium">
+                                      {h.fromStatus ?? "未設定"} → {h.toStatus ?? "未設定"}
                                     </div>
-                                  )}
-                                </div>
-                              ))}
+                                    <div className="text-muted-foreground">
+                                      {h.createdAt}
+                                      {h.changedByName && ` / ${h.changedByName}`}
+                                    </div>
+                                    {h.reason && (
+                                      <div className="mt-0.5 whitespace-pre-wrap">
+                                        理由: {h.reason}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
                             </div>
                           )}
                         </PopoverContent>
@@ -1258,7 +1429,7 @@ export function CompanyDetail({
                   </div>
                   <Select
                     value={record.briefingStatus ?? ""}
-                    onValueChange={handleStatusChange}
+                    onValueChange={makeStatusChangeHandler("briefing")}
                   >
                     <SelectTrigger className="w-[200px]">
                       <SelectValue placeholder="未設定" />
@@ -1314,6 +1485,159 @@ export function CompanyDetail({
                   <div className="md:col-span-2">
                     <Label>案内担当者</Label>
                     <Select value={briefingStaffIdState} onValueChange={setBriefingStaffIdState}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="選択してください" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={UNSET}>未選択</SelectItem>
+                        {staffOptions.map((opt) => (
+                          <SelectItem key={opt.id} value={opt.id.toString()}>
+                            {opt.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      公的(SLP)に閲覧以上の権限を持つスタッフのみ表示
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ----- 導入希望商談セクション ----- */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">導入希望商談</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {/* ステータス */}
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Label>ステータス</Label>
+                    {(record.consultationChangedAt ||
+                      record.consultationCanceledAt ||
+                      record.statusHistories.some((h) => h.flow === "consultation")) && (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-muted-foreground"
+                            title="変更履歴"
+                          >
+                            <History className="h-3.5 w-3.5" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[360px] p-3 max-h-[400px] overflow-auto" align="start">
+                          {(record.consultationChangedAt || record.consultationCanceledAt) && (
+                            <div className="space-y-1.5 text-xs mb-3">
+                              <div className="font-semibold text-muted-foreground border-b pb-1">
+                                プロラインからの自動更新
+                              </div>
+                              {record.consultationChangedAt && (
+                                <div>
+                                  <span className="text-muted-foreground">変更日時: </span>
+                                  <span className="font-medium">{record.consultationChangedAt}</span>
+                                </div>
+                              )}
+                              {record.consultationCanceledAt && (
+                                <div>
+                                  <span className="text-muted-foreground">キャンセル日時: </span>
+                                  <span className="font-medium">{record.consultationCanceledAt}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {record.statusHistories.filter((h) => h.flow === "consultation").length > 0 && (
+                            <div className="space-y-2 text-xs">
+                              <div className="font-semibold text-muted-foreground border-b pb-1">
+                                手動ステータス変更履歴
+                              </div>
+                              {record.statusHistories
+                                .filter((h) => h.flow === "consultation")
+                                .map((h) => (
+                                  <div key={h.id} className="border-l-2 border-muted pl-2">
+                                    <div className="font-medium">
+                                      {h.fromStatus ?? "未設定"} → {h.toStatus ?? "未設定"}
+                                    </div>
+                                    <div className="text-muted-foreground">
+                                      {h.createdAt}
+                                      {h.changedByName && ` / ${h.changedByName}`}
+                                    </div>
+                                    {h.reason && (
+                                      <div className="mt-0.5 whitespace-pre-wrap">
+                                        理由: {h.reason}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                            </div>
+                          )}
+                        </PopoverContent>
+                      </Popover>
+                    )}
+                  </div>
+                  <Select
+                    value={record.consultationStatus ?? ""}
+                    onValueChange={makeStatusChangeHandler("consultation")}
+                  >
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="未設定" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {consultationStatusOptions.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    ※ ステータス変更は即座に反映されます（保存ボタン不要）
+                  </p>
+                </div>
+
+                <hr />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label>予約日</Label>
+                    <div className="flex gap-2">
+                      <DatePicker
+                        value={consultationBookedDate}
+                        onChange={setConsultationBookedDate}
+                        className="flex-1"
+                      />
+                      <Input
+                        type="time"
+                        value={consultationBookedTime}
+                        onChange={(e) => setConsultationBookedTime(e.target.value)}
+                        className="w-[120px]"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>商談日</Label>
+                    <div className="flex gap-2">
+                      <DatePicker
+                        value={consultationDateOnly}
+                        onChange={setConsultationDateOnly}
+                        className="flex-1"
+                      />
+                      <Input
+                        type="time"
+                        value={consultationTimeOnly}
+                        onChange={(e) => setConsultationTimeOnly(e.target.value)}
+                        className="w-[120px]"
+                      />
+                    </div>
+                  </div>
+                  <div className="md:col-span-2">
+                    <Label>商談担当者</Label>
+                    <Select value={consultationStaffIdState} onValueChange={setConsultationStaffIdState}>
                       <SelectTrigger>
                         <SelectValue placeholder="選択してください" />
                       </SelectTrigger>
@@ -1422,6 +1746,171 @@ export function CompanyDetail({
               </p>
             </CardContent>
           </Card>
+
+          {/* AS担当・紹介者・代理店（担当者ごとの自動解決） */}
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="text-base">
+                AS担当・紹介者・代理店
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                担当者のLINEから紹介者チェーンを自動で辿って解決します。AS担当のみ手動上書き可能です。
+              </p>
+            </CardHeader>
+            <CardContent>
+              {asResolutions.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  担当者が登録されていません
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {asResolutions.map((asEntry) => {
+                    const refEntry = referrerResolutions.find(
+                      (r) => r.contactId === asEntry.contactId
+                    );
+                    const agEntry = agencyResolutions.find(
+                      (a) => a.contactId === asEntry.contactId
+                    );
+                    const hasAgencyWarning =
+                      (agEntry?.agencies.length ?? 0) > 1;
+                    return (
+                      <div
+                        key={asEntry.contactId}
+                        className="border rounded-lg p-3 space-y-2"
+                      >
+                        <div className="font-medium text-sm">
+                          {asEntry.contactDisplay}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                          {/* AS担当 */}
+                          <div>
+                            <Label className="text-xs text-muted-foreground">
+                              AS担当
+                            </Label>
+                            <div className="mt-1">
+                              {asEntry.effectiveAsName ? (
+                                <Badge
+                                  variant={
+                                    asEntry.isManual ? "default" : "secondary"
+                                  }
+                                >
+                                  {asEntry.effectiveAsName}
+                                  {asEntry.isManual && "(手動)"}
+                                </Badge>
+                              ) : (
+                                <span className="text-muted-foreground">
+                                  なし
+                                </span>
+                              )}
+                            </div>
+                            {asEntry.isManual && (
+                              <div className="text-xs text-amber-700 mt-1 space-y-0.5">
+                                <div>
+                                  元のAS: {asEntry.autoAsName ?? "なし"}
+                                </div>
+                                <div>理由: {asEntry.manualAsReason}</div>
+                                {asEntry.manualAsChangedByName && (
+                                  <div>
+                                    変更者: {asEntry.manualAsChangedByName}
+                                    {asEntry.manualAsChangedAt &&
+                                      ` (${new Date(asEntry.manualAsChangedAt).toLocaleString("ja-JP")})`}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            <div className="flex gap-1 mt-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs"
+                                onClick={() => openAsOverrideDialog(asEntry)}
+                              >
+                                {asEntry.isManual ? "上書き編集" : "手動上書き"}
+                              </Button>
+                              {asEntry.isManual && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 text-xs"
+                                  onClick={() =>
+                                    handleClearAsOverride(asEntry.contactId)
+                                  }
+                                >
+                                  解除
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* 紹介者 */}
+                          <div>
+                            <Label className="text-xs text-muted-foreground">
+                              紹介者
+                            </Label>
+                            <div className="mt-1">
+                              {!refEntry || refEntry.referrers.length === 0 ? (
+                                <span className="text-muted-foreground">
+                                  なし
+                                </span>
+                              ) : (
+                                <div className="space-y-0.5">
+                                  {refEntry.referrers.map((r) => (
+                                    <div key={r.lineFriendId}>{r.label}</div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* 代理店 */}
+                          <div>
+                            <Label className="text-xs text-muted-foreground">
+                              代理店（1次のみ）
+                            </Label>
+                            <div className="mt-1">
+                              {!agEntry || agEntry.agencies.length === 0 ? (
+                                <span className="text-muted-foreground">
+                                  なし
+                                </span>
+                              ) : (
+                                <div className="space-y-0.5">
+                                  {agEntry.agencies.map((a) => (
+                                    <div key={a.agencyId}>
+                                      <Link
+                                        href={`/slp/agencies/${a.agencyId}`}
+                                        className="text-blue-600 hover:underline"
+                                      >
+                                        {a.label}
+                                      </Link>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            {hasAgencyWarning && (
+                              <div className="text-xs text-amber-600 mt-1">
+                                ⚠ 1人の担当者から複数の1次代理店が見つかりました
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {multipleAgencyWarnings.length > 0 && (
+                <div className="mt-3 p-2 border border-amber-300 bg-amber-50 rounded text-xs text-amber-800">
+                  <div className="font-medium mb-1">⚠ 警告</div>
+                  {multipleAgencyWarnings.map((w, i) => (
+                    <div key={i}>
+                      {w.contactDisplay}: {w.agencyLabels.join(" / ")}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* ============================================
@@ -1452,6 +1941,74 @@ export function CompanyDetail({
           ============================================ */}
 
       {/* 担当者 追加/編集モーダル */}
+      {/* AS手動上書きダイアログ */}
+      <Dialog open={asOverrideDialogOpen} onOpenChange={setAsOverrideDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>AS担当を手動上書き</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="text-sm">
+              <span className="text-muted-foreground">担当者: </span>
+              <span className="font-medium">
+                {asOverrideTarget?.contactDisplay}
+              </span>
+            </div>
+            <div className="text-sm">
+              <span className="text-muted-foreground">自動解決値: </span>
+              <span>{asOverrideTarget?.autoAsName ?? "なし"}</span>
+            </div>
+            <div>
+              <Label>手動設定するAS担当 *</Label>
+              <Select
+                value={asOverrideAsId}
+                onValueChange={setAsOverrideAsId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="ASを選択してください" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={UNSET}>選択してください</SelectItem>
+                  {asOptions.map((s) => (
+                    <SelectItem key={s.id} value={String(s.id)}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>変更理由 *</Label>
+              <Textarea
+                value={asOverrideReason}
+                onChange={(e) => setAsOverrideReason(e.target.value)}
+                placeholder="例: 紹介者の登録ミスのため正しい担当ASに変更"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setAsOverrideDialogOpen(false)}
+              disabled={asOverridePending}
+            >
+              キャンセル
+            </Button>
+            <Button
+              onClick={handleSaveAsOverride}
+              disabled={
+                asOverridePending ||
+                asOverrideAsId === UNSET ||
+                !asOverrideReason.trim()
+              }
+            >
+              {asOverridePending ? "保存中..." : "保存"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={contactDialogOpen} onOpenChange={setContactDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -1528,7 +2085,7 @@ export function CompanyDetail({
         </DialogContent>
       </Dialog>
 
-      {/* 概要案内完了モーダル */}
+      {/* 完了モーダル（概要案内 / 導入希望商談 共通） */}
       <Dialog
         open={completeDialogOpen}
         onOpenChange={(open) => {
@@ -1538,7 +2095,7 @@ export function CompanyDetail({
       >
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>概要案内完了お礼メッセージを送信</DialogTitle>
+            <DialogTitle>{FLOW_LABELS[activeFlow]}完了お礼メッセージを送信</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -1547,7 +2104,11 @@ export function CompanyDetail({
                 value={completeMessage}
                 onChange={(e) => setCompleteMessage(e.target.value)}
                 rows={5}
-                placeholder="概要案内を受けてくださった方への感謝メッセージを入力してください"
+                placeholder={
+                  activeFlow === "briefing"
+                    ? "概要案内後に送信するお礼メッセージを入力してください"
+                    : "導入希望商談後に送信するお礼メッセージを入力してください"
+                }
               />
               <p className="text-xs text-muted-foreground mt-1">
                 チェックを入れた担当者にこのメッセージが送信されます。チェックなしで保存するとステータス変更のみ実行されます。
@@ -1605,7 +2166,7 @@ export function CompanyDetail({
       <Dialog open={reasonDialogOpen} onOpenChange={setReasonDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>ステータスを「{reasonTargetStatus}」に変更</DialogTitle>
+            <DialogTitle>{FLOW_LABELS[activeFlow]} ステータスを「{reasonTargetStatus}」に変更</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground">

@@ -32,6 +32,7 @@ import { realizeJournalEntry, confirmJournalEntry, deleteJournalEntry } from "..
 import { setTransactionJournalCompleted, getGroupAttachments, addGroupAttachments, deleteGroupAttachment } from "../actions";
 import { returnGroupToStp } from "../../batch-complete/actions";
 import type { WorkflowGroupDetail, WorkflowTransaction } from "../actions";
+import { ReceiptsSection } from "./receipts-section";
 import type { JournalFormData } from "../../journal/actions";
 import { ATTACHMENT_TYPE_OPTIONS, ATTACHMENT_TYPE_LABELS } from "@/lib/attachments/constants";
 /** 税込合計を返す（tax_included の場合 amount がすでに税込） */
@@ -375,6 +376,14 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
           </CardContent>
         </Card>
       )}
+
+      {/* 入金/支払の分割記録 — 仕訳と独立して経理が記録 */}
+      <ReceiptsSection
+        groupType={detail.groupType}
+        groupId={detail.id}
+        totalAmount={detail.totalAmount}
+        readOnly={isReturned}
+      />
 
       {/* 取引一覧 */}
       {detail.transactions.map((tx) => (

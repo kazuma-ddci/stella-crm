@@ -9,8 +9,11 @@ import {
   submitForm10BriefingComplete,
   submitForm11BriefingThankYou,
   submitForm12ContractReminder,
+  submitForm13ConsultationThankYou,
   addBriefingCompleteTag,
   removeBriefingCompleteTag,
+  addConsultationCompleteTag,
+  removeConsultationCompleteTag,
 } from "@/lib/proline-form";
 import { sendSlpContract } from "@/lib/slp-cloudsign";
 import type { ProlineFormData } from "@/lib/proline-form";
@@ -46,10 +49,16 @@ export async function retryAutomationError(
     return retryCloudsignSend(errorId, detail);
   }
   if (retryAction === "tag-briefing-complete-add") {
-    return retryTagOperation(errorId, detail, "add");
+    return retryTagOperation(errorId, detail, "add", "briefing");
   }
   if (retryAction === "tag-briefing-complete-remove") {
-    return retryTagOperation(errorId, detail, "remove");
+    return retryTagOperation(errorId, detail, "remove", "briefing");
+  }
+  if (retryAction === "tag-consultation-complete-add") {
+    return retryTagOperation(errorId, detail, "add", "consultation");
+  }
+  if (retryAction === "tag-consultation-complete-remove") {
+    return retryTagOperation(errorId, detail, "remove", "consultation");
   }
   if (retryAction === "form6-briefing-reservation") {
     return retryForm6(errorId, detail);
@@ -68,6 +77,9 @@ export async function retryAutomationError(
   }
   if (retryAction === "form12-contract-reminder") {
     return retryForm12(errorId, detail);
+  }
+  if (retryAction === "form13-consultation-thank-you") {
+    return retryForm13(errorId, detail);
   }
 
   return { success: false, message: "リトライ対象ではありません" };
@@ -90,23 +102,33 @@ function fail(prefix: string, err: unknown): { success: false; message: string }
 async function retryTagOperation(
   errorId: number,
   detail: Record<string, unknown>,
-  action: "add" | "remove"
+  action: "add" | "remove",
+  flow: "briefing" | "consultation"
 ): Promise<{ success: boolean; message: string }> {
   const uid = detail.uid as string | undefined;
   if (!uid) return { success: false, message: "uidが不足しています" };
+  const flowLabel = flow === "briefing" ? "概要案内" : "導入希望商談";
   try {
-    if (action === "add") {
-      await addBriefingCompleteTag(uid);
+    if (flow === "briefing") {
+      if (action === "add") {
+        await addBriefingCompleteTag(uid);
+      } else {
+        await removeBriefingCompleteTag(uid);
+      }
     } else {
-      await removeBriefingCompleteTag(uid);
+      if (action === "add") {
+        await addConsultationCompleteTag(uid);
+      } else {
+        await removeConsultationCompleteTag(uid);
+      }
     }
     await markResolved(errorId);
     return {
       success: true,
-      message: `タグ${action === "add" ? "付与" : "削除"}に成功しました`,
+      message: `${flowLabel}タグ${action === "add" ? "付与" : "削除"}に成功しました`,
     };
   } catch (e) {
-    return fail(`タグ${action === "add" ? "付与" : "削除"}に失敗しました`, e);
+    return fail(`${flowLabel}タグ${action === "add" ? "付与" : "削除"}に失敗しました`, e);
   }
 }
 
@@ -204,6 +226,22 @@ async function retryForm12(
     await submitForm12ContractReminder(uid, sentDate, email);
     await markResolved(errorId);
     return { success: true, message: "契約書リマインドLINEの再送に成功しました" };
+  } catch (e) {
+    return fail("再送に失敗しました", e);
+  }
+}
+
+async function retryForm13(
+  errorId: number,
+  detail: Record<string, unknown>
+): Promise<{ success: boolean; message: string }> {
+  const uid = detail.uid as string | undefined;
+  const freeText = detail.freeText as string | undefined;
+  if (!uid || !freeText) return { success: false, message: "必要情報が不足しています" };
+  try {
+    await submitForm13ConsultationThankYou(uid, freeText);
+    await markResolved(errorId);
+    return { success: true, message: "導入希望商談お礼メッセージの再送に成功しました" };
   } catch (e) {
     return fail("再送に失敗しました", e);
   }

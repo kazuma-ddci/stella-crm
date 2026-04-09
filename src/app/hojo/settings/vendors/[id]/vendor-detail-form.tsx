@@ -936,8 +936,8 @@ export function VendorDetailForm({
                 placeholder="03-xxxx-xxxx"
               />
             </FieldBlock>
-            <FieldBlock label="初回MTG">
-              <DateTimePicker value={kickoffMtg} onChange={setKickoffMtg} placeholder="初回MTGの日時" />
+            <FieldBlock label="キックオフMTG">
+              <DateTimePicker value={kickoffMtg} onChange={setKickoffMtg} placeholder="キックオフMTGの日時" />
             </FieldBlock>
           </div>
         </CardContent>

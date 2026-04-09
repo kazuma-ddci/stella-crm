@@ -13,6 +13,7 @@ import { toLocalDateString } from "@/lib/utils";
 import { calcDueDate } from "@/lib/finance/due-date";
 import { createNotificationBulk } from "@/lib/notifications/create-notification";
 import { createCounterpartyForCompany } from "@/lib/counterparty-sync";
+import { syncPaymentDateToRevenueRecords } from "@/lib/accounting/sync-payment-date";
 
 // ============================================
 // 税額計算ヘルパー（グループレベル一括計算）
@@ -69,6 +70,10 @@ export async function getInvoiceGroups(
       transactions: { where: { deletedAt: null }, select: { id: true, counterpartyId: true }, take: 1 },
       allocationItems: { select: { id: true } },
       creator: true,
+      receipts: {
+        orderBy: { receivedDate: "asc" },
+        include: { creator: { select: { name: true } } },
+      },
       _count: { select: { memoLines: true, transactions: { where: { deletedAt: null } } } },
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -96,6 +101,15 @@ export async function getInvoiceGroups(
   return records.map((r) => {
     const txCpId = r.transactions[0]?.counterpartyId ?? null;
     const isRedirected = txCpId !== null && txCpId !== r.counterpartyId;
+    const receiptTotal = r.receipts.reduce((sum, x) => sum + x.amount, 0);
+    const receiptStatus: "none" | "partial" | "complete" | "over" =
+      r.receipts.length === 0
+        ? "none"
+        : receiptTotal === (r.totalAmount ?? 0)
+          ? "complete"
+          : receiptTotal < (r.totalAmount ?? 0)
+            ? "partial"
+            : "over";
     return {
     id: r.id,
     counterpartyId: r.counterpartyId,
@@ -128,6 +142,15 @@ export async function getInvoiceGroups(
     allocationItemCount: r.allocationItems.length,
     createdByName: r.creator.name,
     createdAt: toLocalDateString(r.createdAt),
+    receipts: r.receipts.map((x) => ({
+      id: x.id,
+      receivedDate: toLocalDateString(x.receivedDate),
+      amount: x.amount,
+      comment: x.comment,
+      createdByName: x.creator.name,
+    })),
+    receiptStatus,
+    receiptTotal,
   };
   });
 }
@@ -146,6 +169,10 @@ export async function getInvoiceGroupById(
       transactions: { where: { deletedAt: null }, select: { id: true, counterpartyId: true } },
       allocationItems: { select: { id: true } },
       creator: true,
+      receipts: {
+        orderBy: { receivedDate: "asc" },
+        include: { creator: { select: { name: true } } },
+      },
       _count: { select: { memoLines: true } },
     },
   });
@@ -162,6 +189,16 @@ export async function getInvoiceGroupById(
     });
     origCpName = origCp?.name ?? null;
   }
+
+  const receiptTotal = r.receipts.reduce((sum, x) => sum + x.amount, 0);
+  const receiptStatus: "none" | "partial" | "complete" | "over" =
+    r.receipts.length === 0
+      ? "none"
+      : receiptTotal === (r.totalAmount ?? 0)
+        ? "complete"
+        : receiptTotal < (r.totalAmount ?? 0)
+          ? "partial"
+          : "over";
 
   return {
     id: r.id,
@@ -195,6 +232,15 @@ export async function getInvoiceGroupById(
     allocationItemCount: r.allocationItems.length,
     createdByName: r.creator.name,
     createdAt: toLocalDateString(r.createdAt),
+    receipts: r.receipts.map((x) => ({
+      id: x.id,
+      receivedDate: toLocalDateString(x.receivedDate),
+      amount: x.amount,
+      comment: x.comment,
+      createdByName: x.creator.name,
+    })),
+    receiptStatus,
+    receiptTotal,
   };
 }
 
@@ -364,13 +410,21 @@ export async function createInvoiceGroup(data: {
   operatingCompanyId: number;
   bankAccountId?: number | null;
   invoiceDate?: string | null;
-  paymentDueDate?: string | null;
-  expectedPaymentDate?: string | null;
+  paymentDueDate: string; // 必須
+  expectedPaymentDate: string; // 必須
   transactionIds: number[];
   projectId?: number;
 }): Promise<{ id: number; invoiceNumber: string | null }> {
   const user = await requireEdit("stp");
   const stpProjectId = await requireStpProjectId();
+
+  // 必須入力チェック
+  if (!data.paymentDueDate) {
+    throw new Error("入金期限は必須入力です");
+  }
+  if (!data.expectedPaymentDate) {
+    throw new Error("入金予定日は必須入力です");
+  }
 
   // new-XX 形式の場合は先に Counterparty を作成
   const resolvedCounterpartyId = await resolveCounterpartyId(data.counterpartyId, user.id);
@@ -421,56 +475,19 @@ export async function createInvoiceGroup(data: {
     // 金額計算（取引の税額を単純合計）
     const { subtotal, taxAmount, totalAmount } = calcGroupTotals(transactions);
 
-    // 日付自動計算: 請求日（未指定なら今日）、入金期限（取引先の支払条件から自動算出）
+    // 請求日（未指定なら今日）
     const autoInvoiceDate = data.invoiceDate ? new Date(data.invoiceDate) : new Date();
 
-    let autoPaymentDueDate: Date | null = data.paymentDueDate
-      ? new Date(data.paymentDueDate)
-      : null;
-
-    if (!autoPaymentDueDate) {
-      const counterparty = await tx.counterparty.findUnique({
-        where: { id: resolvedCounterpartyId },
-        include: { company: true },
-      });
-      if (counterparty?.company) {
-        const { closingDay, paymentMonthOffset, paymentDay } = counterparty.company;
-        autoPaymentDueDate = calcDueDate({
-          invoiceDate: autoInvoiceDate,
-          closingDay,
-          paymentMonthOffset,
-          paymentDay,
-        });
-      }
-    }
-
-    // フォールバック: 運営法人の支払条件
-    if (!autoPaymentDueDate) {
-      const opCo = await tx.operatingCompany.findUnique({
-        where: { id: data.operatingCompanyId },
-        select: { paymentMonthOffset: true, paymentDay: true },
-      });
-      if (opCo) {
-        autoPaymentDueDate = calcDueDate({
-          invoiceDate: autoInvoiceDate,
-          closingDay: null,
-          paymentMonthOffset: opCo.paymentMonthOffset,
-          paymentDay: opCo.paymentDay,
-        });
-      }
-    }
-
     // InvoiceGroup作成（サーバー側で取得したprojectIdを使用）
+    // paymentDueDate / expectedPaymentDate は上部で必須チェック済み
     const group = await tx.invoiceGroup.create({
       data: {
         counterpartyId: resolvedCounterpartyId,
         operatingCompanyId: data.operatingCompanyId,
         bankAccountId: data.bankAccountId ?? null,
         invoiceDate: autoInvoiceDate,
-        paymentDueDate: autoPaymentDueDate,
-        expectedPaymentDate: data.expectedPaymentDate
-          ? new Date(data.expectedPaymentDate)
-          : autoPaymentDueDate,
+        paymentDueDate: new Date(data.paymentDueDate),
+        expectedPaymentDate: new Date(data.expectedPaymentDate),
         subtotal,
         taxAmount,
         totalAmount,
@@ -627,14 +644,18 @@ export async function updateInvoiceGroup(
     updateData.invoiceDate = data.invoiceDate
       ? new Date(data.invoiceDate)
       : null;
-  if ("paymentDueDate" in data)
-    updateData.paymentDueDate = data.paymentDueDate
-      ? new Date(data.paymentDueDate)
-      : null;
-  if ("expectedPaymentDate" in data)
-    updateData.expectedPaymentDate = data.expectedPaymentDate
-      ? new Date(data.expectedPaymentDate)
-      : null;
+  if ("paymentDueDate" in data) {
+    if (!data.paymentDueDate) {
+      throw new Error("入金期限は必須入力です");
+    }
+    updateData.paymentDueDate = new Date(data.paymentDueDate);
+  }
+  if ("expectedPaymentDate" in data) {
+    if (!data.expectedPaymentDate) {
+      throw new Error("入金予定日は必須入力です");
+    }
+    updateData.expectedPaymentDate = new Date(data.expectedPaymentDate);
+  }
   if ("actualPaymentDate" in data)
     updateData.actualPaymentDate = data.actualPaymentDate
       ? new Date(data.actualPaymentDate)
@@ -1932,60 +1953,6 @@ export async function cancelInvoiceGroupHandover(
   revalidatePath("/stp/finance/invoices");
 }
 
-// ============================================
-// 経理→STP入金日連携ヘルパー
-// InvoiceGroupのactualPaymentDate変更時に
-// 紐づくStpRevenueRecordのpaidDateを同期する
-// ============================================
-
-type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
-
-async function syncPaymentDateToRevenueRecords(
-  tx: TxClient,
-  invoiceGroupId: number,
-  paymentDate: Date | null
-): Promise<void> {
-  // InvoiceGroupに紐づくTransactionを取得
-  const transactions = await tx.transaction.findMany({
-    where: {
-      invoiceGroupId,
-      type: "revenue",
-      deletedAt: null,
-      stpContractHistoryId: { not: null },
-    },
-    select: {
-      stpContractHistoryId: true,
-      stpRevenueType: true,
-      periodFrom: true,
-    },
-  });
-
-  if (transactions.length === 0) return;
-
-  // 各Transactionに対応するStpRevenueRecordを特定して更新
-  for (const txn of transactions) {
-    if (!txn.stpContractHistoryId || !txn.stpRevenueType) continue;
-
-    // targetMonthはperiodFromの月初日で統一されている
-    const targetMonth = new Date(
-      txn.periodFrom.getFullYear(),
-      txn.periodFrom.getMonth(),
-      1
-    );
-
-    await tx.stpRevenueRecord.updateMany({
-      where: {
-        contractHistoryId: txn.stpContractHistoryId,
-        revenueType: txn.stpRevenueType,
-        targetMonth,
-        deletedAt: null,
-      },
-      data: {
-        paidDate: paymentDate,
-        ...(paymentDate
-          ? { status: "paid" }
-          : { status: "invoiced" }),
-      },
-    });
-  }
-}
+// 経理→STP入金日連携ヘルパー (syncPaymentDateToRevenueRecords) は
+// src/lib/accounting/sync-payment-date.ts に共通ロジックとして切り出し済み
+// → 経理側 (workflow/actions.ts) と本ファイルの両方から利用

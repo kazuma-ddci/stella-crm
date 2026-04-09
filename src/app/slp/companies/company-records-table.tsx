@@ -21,21 +21,41 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Search } from "lucide-react";
+import { Plus, Trash2, Search, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { addCompanyRecord, deleteCompanyRecord } from "./actions";
 
 const ALL = "__all__";
 
+type ResolvedEntry = {
+  label: string;
+  contacts: string[];
+};
+type AsResolvedEntry = ResolvedEntry & {
+  isManual: boolean;
+  manualAsReason: string | null;
+  autoAsName: string | null;
+};
+
 type RecordRow = {
   id: number;
   companyNo: number;
   companyName: string | null;
+  primaryContactLineLabel: string | null;
   briefingStatus: string | null;
   briefingDate: string | null;
+  consultationStatus: string | null;
+  consultationDate: string | null;
   salesStaffName: string | null;
   status1Name: string | null;
   status2Name: string | null;
+  asEntries: AsResolvedEntry[];
+  referrerEntries: ResolvedEntry[];
+  agencyEntries: ResolvedEntry[];
+  multipleAgencyWarnings: Array<{
+    contactDisplay: string;
+    agencyLabels: string[];
+  }>;
 };
 
 type Props = {
@@ -50,6 +70,7 @@ export function CompanyRecordsTable({ data }: Props) {
   const [filterStatus1, setFilterStatus1] = useState(ALL);
   const [filterStatus2, setFilterStatus2] = useState(ALL);
   const [filterBriefing, setFilterBriefing] = useState(ALL);
+  const [filterConsultation, setFilterConsultation] = useState(ALL);
 
   // 絞り込み候補（表示中データから自動生成）
   const status1Options = Array.from(
@@ -61,6 +82,9 @@ export function CompanyRecordsTable({ data }: Props) {
   const briefingOptions = Array.from(
     new Set(data.map((r) => r.briefingStatus).filter((v): v is string => !!v))
   );
+  const consultationOptions = Array.from(
+    new Set(data.map((r) => r.consultationStatus).filter((v): v is string => !!v))
+  );
 
   const filteredData = data.filter((row) => {
     if (searchText.trim()) {
@@ -71,6 +95,7 @@ export function CompanyRecordsTable({ data }: Props) {
     if (filterStatus1 !== ALL && row.status1Name !== filterStatus1) return false;
     if (filterStatus2 !== ALL && row.status2Name !== filterStatus2) return false;
     if (filterBriefing !== ALL && row.briefingStatus !== filterBriefing) return false;
+    if (filterConsultation !== ALL && row.consultationStatus !== filterConsultation) return false;
     return true;
   });
 
@@ -148,6 +173,19 @@ export function CompanyRecordsTable({ data }: Props) {
             ))}
           </SelectContent>
         </Select>
+        <Select value={filterConsultation} onValueChange={setFilterConsultation}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="導入希望商談" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>すべて（導入希望商談）</SelectItem>
+            {consultationOptions.map((s) => (
+              <SelectItem key={s} value={s}>
+                {s}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <div className="ml-auto">
           <Button size="sm" onClick={handleAddRecord}>
             <Plus className="h-4 w-4 mr-2" />
@@ -156,7 +194,7 @@ export function CompanyRecordsTable({ data }: Props) {
         </div>
       </div>
 
-      {/* テーブル本体（8列構成、シンプル） */}
+      {/* テーブル本体（13列構成） */}
       <div className="border rounded-lg overflow-auto">
         <Table>
           <TableHeader>
@@ -168,13 +206,20 @@ export function CompanyRecordsTable({ data }: Props) {
               <TableHead className="w-[140px]">担当営業</TableHead>
               <TableHead className="w-[120px]">概要案内</TableHead>
               <TableHead className="w-[160px]">概要案内日</TableHead>
-              <TableHead className="w-[80px]">操作</TableHead>
+              <TableHead className="w-[120px]">導入希望商談</TableHead>
+              <TableHead className="w-[160px]">導入希望商談日</TableHead>
+              <TableHead className="min-w-[200px]">AS担当</TableHead>
+              <TableHead className="min-w-[220px]">紹介者</TableHead>
+              <TableHead className="min-w-[220px]">代理店</TableHead>
+              <TableHead className="w-[80px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
+                操作
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredData.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
                   {data.length === 0
                     ? "企業名簿にレコードがありません"
                     : "条件に一致する企業がありません"}
@@ -182,7 +227,7 @@ export function CompanyRecordsTable({ data }: Props) {
               </TableRow>
             ) : (
               filteredData.map((row) => (
-                <TableRow key={row.id} className="group/row">
+                <TableRow key={row.id} className="group/row align-top">
                   <TableCell>
                     <Link
                       href={`/slp/companies/${row.id}`}
@@ -198,6 +243,10 @@ export function CompanyRecordsTable({ data }: Props) {
                     >
                       {row.companyName ? (
                         <span>{row.companyName}</span>
+                      ) : row.primaryContactLineLabel ? (
+                        <span className="text-muted-foreground text-xs italic">
+                          {row.primaryContactLineLabel} から作成
+                        </span>
                       ) : (
                         <span className="text-muted-foreground text-xs italic">(未登録)</span>
                       )}
@@ -230,7 +279,86 @@ export function CompanyRecordsTable({ data }: Props) {
                   <TableCell className="text-sm whitespace-nowrap">
                     {row.briefingDate ?? <span className="text-muted-foreground">-</span>}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="text-sm">
+                    {row.consultationStatus ? (
+                      <Badge variant="outline">{row.consultationStatus}</Badge>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">
+                    {row.consultationDate ?? <span className="text-muted-foreground">-</span>}
+                  </TableCell>
+                  {/* AS担当 */}
+                  <TableCell className="text-sm">
+                    {row.asEntries.length === 0 ? (
+                      <span className="text-muted-foreground">-</span>
+                    ) : (
+                      <div className="space-y-1">
+                        {row.asEntries.map((entry, i) => (
+                          <div key={i}>
+                            <div className="font-medium">
+                              {entry.label}
+                              <span className="text-muted-foreground text-xs ml-1">
+                                ({entry.contacts.join(", ")})
+                              </span>
+                            </div>
+                            {entry.isManual && (
+                              <div
+                                className="text-xs text-amber-600 ml-1"
+                                title={entry.manualAsReason ?? ""}
+                              >
+                                ↳ 元: {entry.autoAsName ?? "なし"} / 理由: {entry.manualAsReason}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </TableCell>
+                  {/* 紹介者 */}
+                  <TableCell className="text-sm">
+                    {row.referrerEntries.length === 0 ? (
+                      <span className="text-muted-foreground">-</span>
+                    ) : (
+                      <div className="space-y-1">
+                        {row.referrerEntries.map((entry, i) => (
+                          <div key={i}>
+                            <span className="font-medium">{entry.label}</span>
+                            <span className="text-muted-foreground text-xs ml-1">
+                              ({entry.contacts.join(", ")})
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </TableCell>
+                  {/* 代理店 */}
+                  <TableCell className="text-sm">
+                    {row.agencyEntries.length === 0 ? (
+                      <span className="text-muted-foreground">-</span>
+                    ) : (
+                      <div className="space-y-1">
+                        {row.agencyEntries.map((entry, i) => (
+                          <div key={i}>
+                            <span className="font-medium">{entry.label}</span>
+                            <span className="text-muted-foreground text-xs ml-1">
+                              ({entry.contacts.join(", ")})
+                            </span>
+                          </div>
+                        ))}
+                        {row.multipleAgencyWarnings.length > 0 && (
+                          <div className="flex items-center gap-1 text-xs text-amber-600 mt-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            <span>
+                              1人の担当者から複数の1次代理店が見つかりました
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                     <Button
                       variant="ghost"
                       size="icon"

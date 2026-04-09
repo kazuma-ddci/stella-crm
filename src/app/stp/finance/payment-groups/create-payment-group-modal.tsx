@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Loader2, ChevronRight, ChevronLeft, Plus } from "lucide-react";
 import {
   createPaymentGroup,
@@ -74,6 +75,8 @@ export function CreatePaymentGroupModal({
   const [operatingCompanyId, setOperatingCompanyId] = useState<string>(
     operatingCompanyOptions[0]?.value ?? ""
   );
+  const [paymentDueDate, setPaymentDueDate] = useState<string>("");
+  const [expectedPaymentDate, setExpectedPaymentDate] = useState<string>("");
   const [showInlineForm, setShowInlineForm] = useState(false);
 
   // 取引先タブ分けとフィルタ
@@ -168,11 +171,21 @@ export function CreatePaymentGroupModal({
   };
 
   const handleCreate = async () => {
+    if (!paymentDueDate) {
+      alert("支払期限を入力してください");
+      return;
+    }
+    if (!expectedPaymentDate) {
+      alert("支払予定日を入力してください");
+      return;
+    }
     setLoading(true);
     try {
       const result = await createPaymentGroup({
         counterpartyId: Number(counterpartyId),
         operatingCompanyId: Number(operatingCompanyId),
+        paymentDueDate,
+        expectedPaymentDate,
         transactionIds: Array.from(selectedTransactionIds),
         projectId,
         isConfidential,
@@ -190,7 +203,11 @@ export function CreatePaymentGroupModal({
 
   const canGoToTransactions = !!counterpartyId;
   const canGoToInfo = selectedTransactionIds.size > 0;
-  const canSubmit = !!operatingCompanyId && selectedTransactionIds.size > 0;
+  const canSubmit =
+    !!operatingCompanyId &&
+    selectedTransactionIds.size > 0 &&
+    !!paymentDueDate &&
+    !!expectedPaymentDate;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -439,6 +456,30 @@ export function CreatePaymentGroupModal({
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div>
+                  <Label htmlFor="paymentDueDate">
+                    支払期限 <span className="text-red-600">*</span>
+                  </Label>
+                  <DatePicker
+                    id="paymentDueDate"
+                    value={paymentDueDate}
+                    onChange={setPaymentDueDate}
+                    className="mt-1"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="expectedPaymentDate">
+                    支払予定日 <span className="text-red-600">*</span>
+                  </Label>
+                  <DatePicker
+                    id="expectedPaymentDate"
+                    value={expectedPaymentDate}
+                    onChange={setExpectedPaymentDate}
+                    className="mt-1"
+                  />
                 </div>
               </div>
 

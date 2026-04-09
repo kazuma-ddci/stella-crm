@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 import { VendorDetailTabs } from "./vendor-detail-tabs";
 import { notFound } from "next/navigation";
+import { formatLineFriendLabel } from "@/lib/hojo/format-line-friend-label";
 
 export default async function VendorDetailPage({
   params,
@@ -260,7 +261,7 @@ export default async function VendorDetailPage({
   // LINE友達をSelect用に変換（{value, label}形式）
   const scLineFriendSelectOptions = lineFriends.map((f) => ({
     value: String(f.id),
-    label: `${f.id} ${f.snsname || ""}(${(f.sei || "") + " " + (f.mei || "")})`,
+    label: formatLineFriendLabel(f),
   }));
 
   const joseiLineFriendSelectOptions = joseiLineFriends.map((f) => ({
@@ -280,7 +281,7 @@ export default async function VendorDetailPage({
   // Assigned AS info
   const assignedAsLineFriendId = vendor.assignedAsLineFriendId;
   const assignedAsLineFriendLabel = vendor.assignedAsLineFriend
-    ? `${vendor.assignedAsLineFriend.id} ${vendor.assignedAsLineFriend.snsname || ""}(${(vendor.assignedAsLineFriend.sei || "") + " " + (vendor.assignedAsLineFriend.mei || "")})`
+    ? formatLineFriendLabel(vendor.assignedAsLineFriend)
     : null;
 
   // Auto-detect AS from contacts' free1 field (free1 contains uid of the AS person)
@@ -294,7 +295,7 @@ export default async function VendorDetailPage({
       );
       if (asFriend) {
         autoDetectedAsLineFriendId = asFriend.id;
-        autoDetectedAsLabel = `${asFriend.id} ${asFriend.snsname || ""}(${(asFriend.sei || "") + " " + (asFriend.mei || "")})`;
+        autoDetectedAsLabel = formatLineFriendLabel(asFriend);
         break;
       }
     }
@@ -305,7 +306,7 @@ export default async function VendorDetailPage({
     .filter((f) => f.userType === "AS")
     .map((f) => ({
       value: String(f.id),
-      label: `${f.id} ${f.snsname || ""}(${(f.sei || "") + " " + (f.mei || "")})`,
+      label: formatLineFriendLabel(f),
     }));
 
   // DateTime → ISO string for client (DateTime form input expects "YYYY-MM-DDTHH:mm")

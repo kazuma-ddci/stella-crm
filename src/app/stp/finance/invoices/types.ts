@@ -1,3 +1,13 @@
+export type InvoiceGroupReceiptItem = {
+  id: number;
+  receivedDate: string;
+  amount: number;
+  comment: string | null;
+  createdByName: string;
+};
+
+export type ReceiptStatus = "none" | "partial" | "complete" | "over";
+
 export type InvoiceGroupListItem = {
   id: number;
   counterpartyId: number;
@@ -28,6 +38,10 @@ export type InvoiceGroupListItem = {
   allocationItemCount: number;
   createdByName: string;
   createdAt: string;
+  // 経理側で記録された入金履歴（複数行可）
+  receipts: InvoiceGroupReceiptItem[];
+  receiptStatus: ReceiptStatus;
+  receiptTotal: number;
 };
 
 export type UngroupedAllocationItem = {

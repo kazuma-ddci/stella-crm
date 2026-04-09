@@ -681,9 +681,11 @@ model MasterStaff {
   transactionUpdated        Transaction[]                   @relation("TransactionUpdater")
   invoiceGroupCreated       InvoiceGroup[]                  @relation("InvoiceGroupCreator")
   invoiceGroupUpdated       InvoiceGroup[]                  @relation("InvoiceGroupUpdater")
+  invoiceGroupReceiptCreated InvoiceGroupReceipt[]          @relation("InvoiceGroupReceiptCreator")
   paymentGroupConfirmed     PaymentGroup[]                  @relation("PaymentGroupConfirmer")
   paymentGroupCreated       PaymentGroup[]                  @relation("PaymentGroupCreator")
   paymentGroupUpdated       PaymentGroup[]                  @relation("PaymentGroupUpdater")
+  paymentGroupPaymentCreated PaymentGroupPayment[]          @relation("PaymentGroupPaymentCreator")
   recurringCreated          RecurringTransaction[]          @relation("RecurringCreator")
   recurringUpdated          RecurringTransaction[]          @relation("RecurringUpdater")
   costCenterCreated         CostCenter[]                    @relation("CostCenterCreator")
@@ -742,11 +744,12 @@ model MasterStaff {
   bbsAccountApprovals       HojoBbsAccount[]
   lenderAccountApprovals    HojoLenderAccount[]
   vendorAccountApprovals    HojoVendorAccount[]
-  slpBriefingStaffMappings  SlpBriefingStaffMapping[]
-  slpBriefingCompanyRecords SlpCompanyRecord[]              @relation("SlpCompanyBriefingStaff")
-  slpSalesCompanyRecords    SlpCompanyRecord[]              @relation("SlpCompanySalesStaff")
-  slpAsCompanyRecords       SlpCompanyRecord[]              @relation("SlpCompanyAsStaff")
+  slpBriefingStaffMappings      SlpBriefingStaffMapping[]
+  slpBriefingCompanyRecords     SlpCompanyRecord[]              @relation("SlpCompanyBriefingStaff")
+  slpConsultationCompanyRecords SlpCompanyRecord[]              @relation("SlpCompanyConsultationStaff")
+  slpSalesCompanyRecords        SlpCompanyRecord[]              @relation("SlpCompanySalesStaff")
   slpStatusChanges          SlpCompanyRecordStatusHistory[] @relation("SlpCompanyRecordStatusChanger")
+  slpCompanyContactManualAsChanges SlpCompanyContact[]      @relation("SlpCompanyContactManualAsChangedBy")
   hojoVendorConsultingStaff HojoVendorConsultingStaff[]
 
   // 経理承認フロー関連
@@ -2581,6 +2584,7 @@ model InvoiceGroup {
   memoLines              InvoiceGroupMemoLine[]
   bankTransactions       BankTransaction[]
   bankTxGroupLinks       BankTransactionGroupLink[]
+  receipts               InvoiceGroupReceipt[]
   projectId              Int?
   project                MasterProject?               @relation("ProjectInvoiceGroups", fields: [projectId], references: [id])
   creator                MasterStaff                  @relation("InvoiceGroupCreator", fields: [createdBy], references: [id])
@@ -2672,6 +2676,55 @@ model PaymentGroup {
   inboundInvoices      InboundInvoice[]
   bankTransactions     BankTransaction[]
   bankTxGroupLinks     BankTransactionGroupLink[]
+  payments             PaymentGroupPayment[]
+}
+
+// ============================================
+// ③-b InvoiceGroupReceipt（請求グループ入金記録 — 経理側で複数回の入金を記録）
+// ============================================
+
+model InvoiceGroupReceipt {
+  id                    Int      @id @default(autoincrement())
+  invoiceGroupId        Int      @map("invoice_group_id")
+  receivedDate          DateTime @map("received_date") // 入金日
+  amount                Int // 入金額（税込）
+  comment               String?  @db.VarChar(500) // 任意コメント
+  createdById           Int      @map("created_by_id")
+  bankTransactionLinkId Int?     @unique @map("bank_transaction_link_id") // 銀行履歴から自動生成された場合のリンク
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  invoiceGroup        InvoiceGroup              @relation(fields: [invoiceGroupId], references: [id], onDelete: Cascade)
+  creator             MasterStaff               @relation("InvoiceGroupReceiptCreator", fields: [createdById], references: [id])
+  bankTransactionLink BankTransactionGroupLink? @relation(fields: [bankTransactionLinkId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceGroupId])
+  @@index([receivedDate])
+  @@map("invoice_group_receipts")
+}
+
+// ============================================
+// ③-c PaymentGroupPayment（支払グループ支払記録 — 経理側で複数回の支払を記録）
+// ============================================
+
+model PaymentGroupPayment {
+  id                    Int      @id @default(autoincrement())
+  paymentGroupId        Int      @map("payment_group_id")
+  paidDate              DateTime @map("paid_date") // 支払日
+  amount                Int // 支払額（税込）
+  comment               String?  @db.VarChar(500) // 任意コメント
+  createdById           Int      @map("created_by_id")
+  bankTransactionLinkId Int?     @unique @map("bank_transaction_link_id") // 銀行履歴から自動生成された場合のリンク
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  paymentGroup        PaymentGroup              @relation(fields: [paymentGroupId], references: [id], onDelete: Cascade)
+  creator             MasterStaff               @relation("PaymentGroupPaymentCreator", fields: [createdById], references: [id])
+  bankTransactionLink BankTransactionGroupLink? @relation(fields: [bankTransactionLinkId], references: [id], onDelete: SetNull)
+
+  @@index([paymentGroupId])
+  @@index([paidDate])
+  @@map("payment_group_payments")
 }
 
 // ============================================
@@ -3069,8 +3122,7 @@ model BankTransaction {
   amount          Int // 金額
   description     String? // 摘要
   source          String   @default("manual") // "manual" | "legacy" | "csv_import"（データ元識別）
-  invoiceGroupId  Int? // FK → InvoiceGroup（請求グループ紐付け）
-  paymentGroupId  Int? // FK → PaymentGroup（支払グループ紐付け）
+  linkCompleted   Boolean  @default(false) @map("link_completed") // 経理がグループへの紐付け完了を手動で押したか
 
   createdBy Int // FK → MasterStaff
   updatedBy Int? // FK → MasterStaff
@@ -3081,8 +3133,6 @@ model BankTransaction {
   // Relations
   paymentMethod   PaymentMethod              @relation(fields: [paymentMethodId], references: [id])
   counterparty    Counterparty?              @relation(fields: [counterpartyId], references: [id])
-  invoiceGroup    InvoiceGroup?              @relation(fields: [invoiceGroupId], references: [id], onDelete: SetNull)
-  paymentGroup    PaymentGroup?              @relation(fields: [paymentGroupId], references: [id], onDelete: SetNull)
   reconciliations Reconciliation[]
   journalEntries  JournalEntry[]             @relation("JournalBankTransaction")
   attachments     Attachment[]
@@ -3868,6 +3918,17 @@ model SlpCompanyRecord {
   briefingCanceledAt DateTime? @map("briefing_canceled_at") // 概要案内予約がキャンセルされた日時
 
   // ============================================
+  // 導入希望商談 (cl2) — 概要案内と並列で管理
+  // ============================================
+  consultationStatus     String?   @map("consultation_status") @db.VarChar(50) // 導入希望商談ステータス（予約中/キャンセル/完了）
+  consultationBookedAt   DateTime? @map("consultation_booked_at") // 導入希望商談予約日（予約が作成された日）
+  consultationDate       DateTime? @map("consultation_date") // 導入希望商談日（実際の商談日時）
+  consultationStaff      String?   @map("consultation_staff") @db.VarChar(100) // 導入希望商談担当者（生テキスト・マッピング未解決時のフォールバック）
+  consultationStaffId    Int?      @map("consultation_staff_id") // 導入希望商談担当者（SlpBriefingStaffMappingを共用して解決したスタッフID）
+  consultationChangedAt  DateTime? @map("consultation_changed_at") // 導入希望商談予約が変更された日時
+  consultationCanceledAt DateTime? @map("consultation_canceled_at") // 導入希望商談予約がキャンセルされた日時
+
+  // ============================================
   // 企業基本情報（Phase 1 で追加）
   // ============================================
   companyName        String?   @map("company_name") @db.VarChar(200) // 企業名
@@ -3880,12 +3941,12 @@ model SlpCompanyRecord {
   pensionOfficerName String?   @map("pension_officer_name") @db.VarChar(100) // 年金事務所担当者名
   industryId         Int?      @map("industry_id") // 業種マスタID
   flowSourceId       Int?      @map("flow_source_id") // 流入経路マスタID
-  referrerText       String?   @map("referrer_text") @db.VarChar(200) // 紹介者（テキスト入力）
   salesStaffId       Int?      @map("sales_staff_id") // 担当営業（スタッフID）
-  asStaffId          Int?      @map("as_staff_id") // AS担当者（スタッフID）
   status1Id          Int?      @map("status1_id") // 企業ステータス①マスタID
   status2Id          Int?      @map("status2_id") // 企業ステータス②マスタID
   lastContactDate    DateTime? @map("last_contact_date") @db.Date // 最終接触日
+  annualLaborCost     Decimal? @map("annual_labor_cost") @db.Decimal(15, 2) // 年間人件費（円）
+  averageMonthlySalary Decimal? @map("average_monthly_salary") @db.Decimal(15, 2) // 平均月給（円）
 
   // ============================================
   // 金額・契約情報（Phase 1 で追加）
@@ -3912,10 +3973,10 @@ model SlpCompanyRecord {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  contacts           SlpCompanyContact[]
-  briefingStaffUser  MasterStaff?                    @relation("SlpCompanyBriefingStaff", fields: [briefingStaffId], references: [id])
-  salesStaff         MasterStaff?                    @relation("SlpCompanySalesStaff", fields: [salesStaffId], references: [id])
-  asStaff            MasterStaff?                    @relation("SlpCompanyAsStaff", fields: [asStaffId], references: [id])
+  contacts             SlpCompanyContact[]
+  briefingStaffUser    MasterStaff?                    @relation("SlpCompanyBriefingStaff", fields: [briefingStaffId], references: [id])
+  consultationStaffUser MasterStaff?                   @relation("SlpCompanyConsultationStaff", fields: [consultationStaffId], references: [id])
+  salesStaff           MasterStaff?                    @relation("SlpCompanySalesStaff", fields: [salesStaffId], references: [id])
   industry           SlpIndustryMaster?              @relation(fields: [industryId], references: [id])
   flowSource         SlpFlowSourceMaster?            @relation(fields: [flowSourceId], references: [id])
   status1            SlpCompanyStatus1Master?        @relation(fields: [status1Id], references: [id])
@@ -3927,7 +3988,6 @@ model SlpCompanyRecord {
   @@index([industryId])
   @@index([flowSourceId])
   @@index([salesStaffId])
-  @@index([asStaffId])
   @@index([status1Id])
   @@index([status2Id])
   @@map("slp_company_records")
@@ -3976,6 +4036,7 @@ model SlpCompanyDocument {
 model SlpCompanyRecordStatusHistory {
   id          Int      @id @default(autoincrement())
   recordId    Int      @map("record_id")
+  flow        String   @default("briefing") @db.VarChar(20) // "briefing"=概要案内, "consultation"=導入希望商談
   fromStatus  String?  @map("from_status") @db.VarChar(50)
   toStatus    String?  @map("to_status") @db.VarChar(50)
   reason      String?  @db.Text
@@ -4005,8 +4066,16 @@ model SlpCompanyContact {
   isPrimary       Boolean  @default(false) @map("is_primary")
   createdAt       DateTime @default(now()) @map("created_at")
 
-  companyRecord SlpCompanyRecord @relation(fields: [companyRecordId], references: [id], onDelete: Cascade)
-  lineFriend    SlpLineFriend?   @relation(fields: [lineFriendId], references: [id])
+  // AS担当の手動上書き（自動解決値を上書きする場合のみ設定）
+  manualAsId          Int?      @map("manual_as_id") // 手動設定したAS（SlpAs.id）
+  manualAsReason      String?   @map("manual_as_reason") @db.Text // 変更理由（手動上書き時必須）
+  manualAsChangedAt   DateTime? @map("manual_as_changed_at") // 手動上書きした日時
+  manualAsChangedById Int?      @map("manual_as_changed_by_id") // 手動上書きしたスタッフID
+
+  companyRecord  SlpCompanyRecord @relation(fields: [companyRecordId], references: [id], onDelete: Cascade)
+  lineFriend     SlpLineFriend?   @relation(fields: [lineFriendId], references: [id])
+  manualAs       SlpAs?           @relation("SlpCompanyContactManualAs", fields: [manualAsId], references: [id])
+  manualAsChangedBy MasterStaff?  @relation("SlpCompanyContactManualAsChangedBy", fields: [manualAsChangedById], references: [id])
 
   @@map("slp_company_contacts")
 }
@@ -4670,6 +4739,8 @@ model SlpAs {
   staff        MasterStaff?   @relation("SlpAsStaff", fields: [staffId], references: [id])
   createdAt    DateTime       @default(now()) @map("created_at")
   updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  manualCompanyContacts SlpCompanyContact[] @relation("SlpCompanyContactManualAs")
 
   @@map("slp_as")
 }

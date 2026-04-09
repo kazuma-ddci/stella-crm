@@ -99,6 +99,7 @@ export function CreateInvoiceGroupModal({
     defaultBankAccountByCompany[operatingCompanyOptions[0]?.value ?? ""] ?? ""
   );
   const [paymentDueDate, setPaymentDueDate] = useState<string>("");
+  const [expectedPaymentDate, setExpectedPaymentDate] = useState<string>("");
   const [loadingDueDate, setLoadingDueDate] = useState(false);
   const [showInlineForm, setShowInlineForm] = useState(false);
 
@@ -166,6 +167,8 @@ export function CreateInvoiceGroupModal({
       .then((date) => {
         if (!cancelled && date) {
           setPaymentDueDate(date);
+          // 入金予定日のデフォルトも同じ値にセット（ユーザーが後から変更可能）
+          setExpectedPaymentDate((prev) => prev || date);
         }
       })
       .finally(() => {
@@ -223,13 +226,22 @@ export function CreateInvoiceGroupModal({
 
   const handleCreate = async () => {
     if (selectedTransactionIds.size === 0) return;
+    if (!paymentDueDate) {
+      alert("入金期限を入力してください");
+      return;
+    }
+    if (!expectedPaymentDate) {
+      alert("入金予定日を入力してください");
+      return;
+    }
     setLoading(true);
     try {
       const result = await createInvoiceGroup({
         counterpartyId: effectiveCounterpartyId.startsWith("new-") ? effectiveCounterpartyId : Number(effectiveCounterpartyId),
         operatingCompanyId: Number(operatingCompanyId),
         bankAccountId: bankAccountId ? Number(bankAccountId) : null,
-        paymentDueDate: paymentDueDate || null,
+        paymentDueDate,
+        expectedPaymentDate,
         transactionIds: Array.from(selectedTransactionIds),
         projectId,
       });
@@ -247,7 +259,10 @@ export function CreateInvoiceGroupModal({
   const canGoToStep2 = !!counterpartyId;
   const canGoToStep3 = selectedTransactionIds.size > 0;
   const canSubmit =
-    !!operatingCompanyId && selectedTransactionIds.size > 0;
+    !!operatingCompanyId &&
+    selectedTransactionIds.size > 0 &&
+    !!paymentDueDate &&
+    !!expectedPaymentDate;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -618,7 +633,9 @@ export function CreateInvoiceGroupModal({
                 </div>
 
                 <div>
-                  <Label htmlFor="paymentDueDate">入金期限</Label>
+                  <Label htmlFor="paymentDueDate">
+                    入金期限 <span className="text-red-600">*</span>
+                  </Label>
                   <DatePicker
                     id="paymentDueDate"
                     value={paymentDueDate}
@@ -629,6 +646,18 @@ export function CreateInvoiceGroupModal({
                   {loadingDueDate && (
                     <p className="text-xs text-muted-foreground mt-1">計算中...</p>
                   )}
+                </div>
+
+                <div>
+                  <Label htmlFor="expectedPaymentDate">
+                    入金予定日 <span className="text-red-600">*</span>
+                  </Label>
+                  <DatePicker
+                    id="expectedPaymentDate"
+                    value={expectedPaymentDate}
+                    onChange={setExpectedPaymentDate}
+                    className="mt-1"
+                  />
                 </div>
               </div>
 
