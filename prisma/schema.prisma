@@ -4358,6 +4358,7 @@ model HojoVendor {
   scWholesaleKickoffMtg       DateTime? @map("sc_wholesale_kickoff_mtg")
   scWholesaleContractDate     DateTime? @map("sc_wholesale_contract_date")
   scWholesaleEndDate          DateTime? @map("sc_wholesale_end_date")
+  scWholesaleMemo             String?   @map("sc_wholesale_memo") @db.Text
 
   // コンサルティングプラン
   consultingPlanStatusId         Int?      @map("consulting_plan_status_id")
@@ -4365,26 +4366,32 @@ model HojoVendor {
   consultingPlanKickoffMtg       DateTime? @map("consulting_plan_kickoff_mtg")
   consultingPlanContractDate     DateTime? @map("consulting_plan_contract_date")
   consultingPlanEndDate          DateTime? @map("consulting_plan_end_date")
+  consultingPlanMemo             String?   @map("consulting_plan_memo") @db.Text
 
   // 交付申請BPO
   grantApplicationBpo                 Boolean   @default(false) @map("grant_application_bpo")
   grantApplicationBpoContractStatusId Int?      @map("grant_application_bpo_contract_status_id")
   grantApplicationBpoKickoffMtg       DateTime? @map("grant_application_bpo_kickoff_mtg")
   grantApplicationBpoContractDate     DateTime? @map("grant_application_bpo_contract_date")
+  grantApplicationBpoMemo             String?   @map("grant_application_bpo_memo") @db.Text
 
   // 助成金コンサルティング
   subsidyConsulting           Boolean   @default(false) @map("subsidy_consulting")
   subsidyConsultingKickoffMtg DateTime? @map("subsidy_consulting_kickoff_mtg")
+  subsidyConsultingMemo       String?   @map("subsidy_consulting_memo") @db.Text
 
   // 貸金業者（旧: 貸金利用の有無）
   loanUsage           Boolean   @default(false) @map("loan_usage")
   loanUsageKickoffMtg DateTime? @map("loan_usage_kickoff_mtg")
+  loanUsageMemo       String?   @map("loan_usage_memo") @db.Text
 
   // ベンダー登録の有無
-  vendorRegistrationStatusId Int? @map("vendor_registration_status_id")
+  vendorRegistrationStatusId Int?    @map("vendor_registration_status_id")
+  vendorRegistrationMemo     String? @map("vendor_registration_memo") @db.Text
 
   // ツール登録の有無
-  toolRegistrationStatusId Int? @map("tool_registration_status_id")
+  toolRegistrationStatusId Int?    @map("tool_registration_status_id")
+  toolRegistrationMemo     String? @map("tool_registration_memo") @db.Text
 
   // コンサルティングプラン金額情報
   consultingContractAmount Decimal? @map("consulting_contract_amount") @db.Decimal(12, 0)

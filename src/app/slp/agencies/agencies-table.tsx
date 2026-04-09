@@ -22,6 +22,16 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { DatePicker } from "@/components/ui/date-picker";
+import {
   Plus,
   Settings,
   ChevronRight,
@@ -43,6 +53,7 @@ import { createAgency, deleteAgency } from "./actions";
 import { AgencyStatusModal } from "./agency-status-modal";
 
 const ALL = "__all__";
+const UNSET = "__unset__";
 
 type AgencyRow = {
   id: number;
@@ -119,7 +130,7 @@ export function AgenciesTable({
   contractStatusOptions,
 }: {
   data: AgencyRow[];
-  contractStatusOptions: { value: string; label: string }[];
+  contractStatusOptions: { id: number; name: string }[];
 }) {
   const router = useRouter();
   const [searchText, setSearchText] = useState("");
@@ -129,6 +140,18 @@ export function AgenciesTable({
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AgencyRow | null>(null);
   const [creating, setCreating] = useState(false);
+
+  // 新規代理店追加ダイアログ
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newCorporateName, setNewCorporateName] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [newAddress, setNewAddress] = useState("");
+  const [newContractStatusId, setNewContractStatusId] = useState<string>(UNSET);
+  const [newContractStartDate, setNewContractStartDate] = useState("");
+  const [newContractEndDate, setNewContractEndDate] = useState("");
+  const [newNotes, setNewNotes] = useState("");
 
   const tree = useMemo(() => buildTree(data), [data]);
 
@@ -191,10 +214,36 @@ export function AgenciesTable({
 
   const collapseAll = () => setExpanded(new Set());
 
+  const openCreateDialog = () => {
+    setNewName("");
+    setNewCorporateName("");
+    setNewEmail("");
+    setNewPhone("");
+    setNewAddress("");
+    setNewContractStatusId(UNSET);
+    setNewContractStartDate("");
+    setNewContractEndDate("");
+    setNewNotes("");
+    setCreateDialogOpen(true);
+  };
+
   const handleCreate = async () => {
+    if (!newName.trim()) return;
     setCreating(true);
     try {
-      const agency = await createAgency({ name: "新規代理店" });
+      const agency = await createAgency({
+        name: newName.trim(),
+        corporateName: newCorporateName.trim() || undefined,
+        email: newEmail.trim() || undefined,
+        phone: newPhone.trim() || undefined,
+        address: newAddress.trim() || undefined,
+        contractStatusId:
+          newContractStatusId === UNSET ? null : parseInt(newContractStatusId),
+        contractStartDate: newContractStartDate || null,
+        contractEndDate: newContractEndDate || null,
+        notes: newNotes.trim() || undefined,
+      });
+      setCreateDialogOpen(false);
       router.push(`/slp/agencies/${agency.id}`);
     } finally {
       setCreating(false);
@@ -283,7 +332,7 @@ export function AgenciesTable({
           <Settings className="h-4 w-4 mr-1" />
           ステータス管理
         </Button>
-        <Button size="sm" onClick={handleCreate} disabled={creating}>
+        <Button size="sm" onClick={openCreateDialog}>
           <Plus className="h-4 w-4 mr-1" />
           新規代理店
         </Button>
@@ -456,6 +505,124 @@ export function AgenciesTable({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 新規代理店追加ダイアログ */}
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>新規代理店を追加</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>代理店名 *</Label>
+              <Input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="代理店名"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>法人名</Label>
+                <Input
+                  value={newCorporateName}
+                  onChange={(e) => setNewCorporateName(e.target.value)}
+                  placeholder="法人名"
+                />
+              </div>
+              <div>
+                <Label>メールアドレス</Label>
+                <Input
+                  type="email"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  placeholder="example@example.com"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>電話番号</Label>
+                <Input
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
+                  placeholder="03-0000-0000"
+                />
+              </div>
+              <div>
+                <Label>所在地</Label>
+                <Input
+                  value={newAddress}
+                  onChange={(e) => setNewAddress(e.target.value)}
+                  placeholder="東京都..."
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label>契約ステータス</Label>
+                <Select
+                  value={newContractStatusId}
+                  onValueChange={setNewContractStatusId}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="未設定" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={UNSET}>未設定</SelectItem>
+                    {contractStatusOptions.map((s) => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>契約開始日</Label>
+                <DatePicker
+                  value={newContractStartDate}
+                  onChange={setNewContractStartDate}
+                />
+              </div>
+              <div>
+                <Label>契約終了日</Label>
+                <DatePicker
+                  value={newContractEndDate}
+                  onChange={setNewContractEndDate}
+                />
+              </div>
+            </div>
+            <div>
+              <Label>備考</Label>
+              <Textarea
+                value={newNotes}
+                onChange={(e) => setNewNotes(e.target.value)}
+                placeholder="備考"
+                rows={3}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              ※ 担当者は作成後の詳細画面から追加できます。
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCreateDialogOpen(false)}
+              disabled={creating}
+            >
+              キャンセル
+            </Button>
+            <Button
+              onClick={handleCreate}
+              disabled={creating || !newName.trim()}
+            >
+              {creating ? "保存中..." : "保存して詳細を編集"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

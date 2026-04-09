@@ -37,12 +37,20 @@ export async function updateVendorDetail(
   // 全体の初回MTG
   const kickoffMtg = parseDateTime(data.kickoffMtg);
 
+  // ヘルパー: 文字列フィールドを取り出してtrim、空文字はnullに
+  const trimOrNull = (v: unknown): string | null => {
+    if (v === null || v === undefined) return null;
+    const s = String(v).trim();
+    return s === "" ? null : s;
+  };
+
   // セキュリティクラウド卸
   const scWholesaleStatusId = data.scWholesaleStatusId ? Number(data.scWholesaleStatusId) : null;
   const scWholesaleContractStatusId = data.scWholesaleContractStatusId ? Number(data.scWholesaleContractStatusId) : null;
   const scWholesaleKickoffMtg = parseDateTime(data.scWholesaleKickoffMtg);
   const scWholesaleContractDate = parseDateTime(data.scWholesaleContractDate);
   const scWholesaleEndDate = parseDateTime(data.scWholesaleEndDate);
+  const scWholesaleMemo = trimOrNull(data.scWholesaleMemo);
 
   // コンサルティングプラン
   const consultingPlanStatusId = data.consultingPlanStatusId ? Number(data.consultingPlanStatusId) : null;
@@ -50,6 +58,7 @@ export async function updateVendorDetail(
   const consultingPlanKickoffMtg = parseDateTime(data.consultingPlanKickoffMtg);
   const consultingPlanContractDate = parseDateTime(data.consultingPlanContractDate);
   const consultingPlanEndDate = parseDateTime(data.consultingPlanEndDate);
+  const consultingPlanMemo = trimOrNull(data.consultingPlanMemo);
 
   // 交付申請BPO
   const grantApplicationBpo = data.grantApplicationBpo === true;
@@ -58,22 +67,27 @@ export async function updateVendorDetail(
     : null;
   const grantApplicationBpoKickoffMtg = parseDateTime(data.grantApplicationBpoKickoffMtg);
   const grantApplicationBpoContractDate = parseDateTime(data.grantApplicationBpoContractDate);
+  const grantApplicationBpoMemo = trimOrNull(data.grantApplicationBpoMemo);
 
   // 助成金コンサルティング
   const subsidyConsulting = data.subsidyConsulting === true;
   const subsidyConsultingKickoffMtg = parseDateTime(data.subsidyConsultingKickoffMtg);
+  const subsidyConsultingMemo = trimOrNull(data.subsidyConsultingMemo);
 
   // 貸金業者
   const loanUsage = data.loanUsage === true;
   const loanUsageKickoffMtg = parseDateTime(data.loanUsageKickoffMtg);
+  const loanUsageMemo = trimOrNull(data.loanUsageMemo);
 
   const vendorRegistrationStatusId = data.vendorRegistrationStatusId
     ? Number(data.vendorRegistrationStatusId)
     : null;
+  const vendorRegistrationMemo = trimOrNull(data.vendorRegistrationMemo);
 
   const toolRegistrationStatusId = data.toolRegistrationStatusId
     ? Number(data.toolRegistrationStatusId)
     : null;
+  const toolRegistrationMemo = trimOrNull(data.toolRegistrationMemo);
 
   const memo = data.memo ? String(data.memo).trim() : null;
   const vendorSharedMemo = data.vendorSharedMemo
@@ -95,6 +109,7 @@ export async function updateVendorDetail(
       scWholesaleKickoffMtg,
       scWholesaleContractDate,
       scWholesaleEndDate,
+      scWholesaleMemo,
       consultingPlanStatus: consultingPlanStatusId
         ? { connect: { id: consultingPlanStatusId } }
         : { disconnect: true },
@@ -104,22 +119,28 @@ export async function updateVendorDetail(
       consultingPlanKickoffMtg,
       consultingPlanContractDate,
       consultingPlanEndDate,
+      consultingPlanMemo,
       grantApplicationBpo,
       grantApplicationBpoContractStatus: grantApplicationBpoContractStatusId
         ? { connect: { id: grantApplicationBpoContractStatusId } }
         : { disconnect: true },
       grantApplicationBpoKickoffMtg,
       grantApplicationBpoContractDate,
+      grantApplicationBpoMemo,
       subsidyConsulting,
       subsidyConsultingKickoffMtg,
+      subsidyConsultingMemo,
       loanUsage,
       loanUsageKickoffMtg,
+      loanUsageMemo,
       vendorRegistrationStatus: vendorRegistrationStatusId
         ? { connect: { id: vendorRegistrationStatusId } }
         : { disconnect: true },
+      vendorRegistrationMemo,
       toolRegistrationStatus: toolRegistrationStatusId
         ? { connect: { id: toolRegistrationStatusId } }
         : { disconnect: true },
+      toolRegistrationMemo,
       memo,
       vendorSharedMemo,
     },

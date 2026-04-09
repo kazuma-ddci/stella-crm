@@ -71,8 +71,8 @@ export default async function SlpAgenciesPage() {
   }));
 
   const contractStatusOptions = contractStatuses.map((s) => ({
-    value: s.name,
-    label: s.name,
+    id: s.id,
+    name: s.name,
   }));
 
   return (

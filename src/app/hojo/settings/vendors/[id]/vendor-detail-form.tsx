@@ -91,21 +91,28 @@ type Props = {
     scWholesaleKickoffMtg: string;
     scWholesaleContractDate: string;
     scWholesaleEndDate: string;
+    scWholesaleMemo: string;
     consultingPlanStatusId: number | null;
     consultingPlanContractStatusId: number | null;
     consultingPlanKickoffMtg: string;
     consultingPlanContractDate: string;
     consultingPlanEndDate: string;
+    consultingPlanMemo: string;
     grantApplicationBpo: boolean;
     grantApplicationBpoContractStatusId: number | null;
     grantApplicationBpoKickoffMtg: string;
     grantApplicationBpoContractDate: string;
+    grantApplicationBpoMemo: string;
     subsidyConsulting: boolean;
     subsidyConsultingKickoffMtg: string;
+    subsidyConsultingMemo: string;
     loanUsage: boolean;
     loanUsageKickoffMtg: string;
+    loanUsageMemo: string;
     vendorRegistrationStatusId: number | null;
+    vendorRegistrationMemo: string;
     toolRegistrationStatusId: number | null;
+    toolRegistrationMemo: string;
     memo: string;
     vendorSharedMemo: string;
     assignedAsLineFriendId: number | null;
@@ -189,6 +196,7 @@ export function VendorDetailForm({
   const [scWholesaleKickoffMtg, setScWholesaleKickoffMtg] = useState(vendor.scWholesaleKickoffMtg);
   const [scWholesaleContractDate, setScWholesaleContractDate] = useState(vendor.scWholesaleContractDate);
   const [scWholesaleEndDate, setScWholesaleEndDate] = useState(vendor.scWholesaleEndDate);
+  const [scWholesaleMemo, setScWholesaleMemo] = useState(vendor.scWholesaleMemo);
   const [scWholesaleDocs, setScWholesaleDocs] = useState<ContractDocumentItem[]>(
     contractDocsByService.scWholesale || []
   );
@@ -203,6 +211,7 @@ export function VendorDetailForm({
   const [consultingPlanKickoffMtg, setConsultingPlanKickoffMtg] = useState(vendor.consultingPlanKickoffMtg);
   const [consultingPlanContractDate, setConsultingPlanContractDate] = useState(vendor.consultingPlanContractDate);
   const [consultingPlanEndDate, setConsultingPlanEndDate] = useState(vendor.consultingPlanEndDate);
+  const [consultingPlanMemo, setConsultingPlanMemo] = useState(vendor.consultingPlanMemo);
   const [consultingPlanDocs, setConsultingPlanDocs] = useState<ContractDocumentItem[]>(
     contractDocsByService.consultingPlan || []
   );
@@ -218,6 +227,7 @@ export function VendorDetailForm({
   const [grantApplicationBpoContractDate, setGrantApplicationBpoContractDate] = useState(
     vendor.grantApplicationBpoContractDate
   );
+  const [grantApplicationBpoMemo, setGrantApplicationBpoMemo] = useState(vendor.grantApplicationBpoMemo);
   const [grantApplicationBpoDocs, setGrantApplicationBpoDocs] = useState<ContractDocumentItem[]>(
     contractDocsByService.grantApplicationBpo || []
   );
@@ -227,18 +237,22 @@ export function VendorDetailForm({
   const [subsidyConsultingKickoffMtg, setSubsidyConsultingKickoffMtg] = useState(
     vendor.subsidyConsultingKickoffMtg
   );
+  const [subsidyConsultingMemo, setSubsidyConsultingMemo] = useState(vendor.subsidyConsultingMemo);
 
   // 貸金業者
   const [loanUsage, setLoanUsage] = useState(vendor.loanUsage);
   const [loanUsageKickoffMtg, setLoanUsageKickoffMtg] = useState(vendor.loanUsageKickoffMtg);
+  const [loanUsageMemo, setLoanUsageMemo] = useState(vendor.loanUsageMemo);
 
   const [vendorRegistrationStatusId, setVendorRegistrationStatusId] = useState<string>(
     vendor.vendorRegistrationStatusId ? String(vendor.vendorRegistrationStatusId) : ""
   );
+  const [vendorRegistrationMemo, setVendorRegistrationMemo] = useState(vendor.vendorRegistrationMemo);
 
   const [toolRegistrationStatusId, setToolRegistrationStatusId] = useState<string>(
     vendor.toolRegistrationStatusId ? String(vendor.toolRegistrationStatusId) : ""
   );
+  const [toolRegistrationMemo, setToolRegistrationMemo] = useState(vendor.toolRegistrationMemo);
 
   // ステータス管理モーダル
   const [statusModalOpen, setStatusModalOpen] = useState(false);
@@ -264,22 +278,26 @@ export function VendorDetailForm({
   // 未保存変更の検出
   const currentValues = useMemo(() => JSON.stringify({
     vendorEmail, vendorPhone, kickoffMtg,
-    scWholesaleStatusId, scWholesaleContractStatusId, scWholesaleKickoffMtg, scWholesaleContractDate, scWholesaleEndDate, scWholesaleDocs,
-    consultingPlanStatusId, consultingPlanContractStatusId, consultingPlanKickoffMtg, consultingPlanContractDate, consultingPlanEndDate, consultingPlanDocs,
-    grantApplicationBpo, grantApplicationBpoContractStatusId, grantApplicationBpoKickoffMtg, grantApplicationBpoContractDate, grantApplicationBpoDocs,
-    subsidyConsulting, subsidyConsultingKickoffMtg,
-    loanUsage, loanUsageKickoffMtg,
-    vendorRegistrationStatusId, toolRegistrationStatusId, memo, vendorSharedMemo,
+    scWholesaleStatusId, scWholesaleContractStatusId, scWholesaleKickoffMtg, scWholesaleContractDate, scWholesaleEndDate, scWholesaleMemo, scWholesaleDocs,
+    consultingPlanStatusId, consultingPlanContractStatusId, consultingPlanKickoffMtg, consultingPlanContractDate, consultingPlanEndDate, consultingPlanMemo, consultingPlanDocs,
+    grantApplicationBpo, grantApplicationBpoContractStatusId, grantApplicationBpoKickoffMtg, grantApplicationBpoContractDate, grantApplicationBpoMemo, grantApplicationBpoDocs,
+    subsidyConsulting, subsidyConsultingKickoffMtg, subsidyConsultingMemo,
+    loanUsage, loanUsageKickoffMtg, loanUsageMemo,
+    vendorRegistrationStatusId, vendorRegistrationMemo,
+    toolRegistrationStatusId, toolRegistrationMemo,
+    memo, vendorSharedMemo,
     consultingStaffIds: [...consultingStaffIds].sort(),
     asLineFriendId,
   }), [
     vendorEmail, vendorPhone, kickoffMtg,
-    scWholesaleStatusId, scWholesaleContractStatusId, scWholesaleKickoffMtg, scWholesaleContractDate, scWholesaleEndDate, scWholesaleDocs,
-    consultingPlanStatusId, consultingPlanContractStatusId, consultingPlanKickoffMtg, consultingPlanContractDate, consultingPlanEndDate, consultingPlanDocs,
-    grantApplicationBpo, grantApplicationBpoContractStatusId, grantApplicationBpoKickoffMtg, grantApplicationBpoContractDate, grantApplicationBpoDocs,
-    subsidyConsulting, subsidyConsultingKickoffMtg,
-    loanUsage, loanUsageKickoffMtg,
-    vendorRegistrationStatusId, toolRegistrationStatusId, memo, vendorSharedMemo,
+    scWholesaleStatusId, scWholesaleContractStatusId, scWholesaleKickoffMtg, scWholesaleContractDate, scWholesaleEndDate, scWholesaleMemo, scWholesaleDocs,
+    consultingPlanStatusId, consultingPlanContractStatusId, consultingPlanKickoffMtg, consultingPlanContractDate, consultingPlanEndDate, consultingPlanMemo, consultingPlanDocs,
+    grantApplicationBpo, grantApplicationBpoContractStatusId, grantApplicationBpoKickoffMtg, grantApplicationBpoContractDate, grantApplicationBpoMemo, grantApplicationBpoDocs,
+    subsidyConsulting, subsidyConsultingKickoffMtg, subsidyConsultingMemo,
+    loanUsage, loanUsageKickoffMtg, loanUsageMemo,
+    vendorRegistrationStatusId, vendorRegistrationMemo,
+    toolRegistrationStatusId, toolRegistrationMemo,
+    memo, vendorSharedMemo,
     consultingStaffIds, asLineFriendId,
   ]);
 
@@ -495,27 +513,34 @@ export function VendorDetailForm({
           scWholesaleKickoffMtg: scWholesaleKickoffMtg || null,
           scWholesaleContractDate: scWholesaleContractDate || null,
           scWholesaleEndDate: scWholesaleEndDate || null,
+          scWholesaleMemo,
           consultingPlanStatusId: consultingPlanStatusId ? Number(consultingPlanStatusId) : null,
           consultingPlanContractStatusId: consultingPlanContractStatusId ? Number(consultingPlanContractStatusId) : null,
           consultingPlanKickoffMtg: consultingPlanKickoffMtg || null,
           consultingPlanContractDate: consultingPlanContractDate || null,
           consultingPlanEndDate: consultingPlanEndDate || null,
+          consultingPlanMemo,
           grantApplicationBpo,
           grantApplicationBpoContractStatusId: grantApplicationBpoContractStatusId
             ? Number(grantApplicationBpoContractStatusId)
             : null,
           grantApplicationBpoKickoffMtg: grantApplicationBpoKickoffMtg || null,
           grantApplicationBpoContractDate: grantApplicationBpoContractDate || null,
+          grantApplicationBpoMemo,
           subsidyConsulting,
           subsidyConsultingKickoffMtg: subsidyConsultingKickoffMtg || null,
+          subsidyConsultingMemo,
           loanUsage,
           loanUsageKickoffMtg: loanUsageKickoffMtg || null,
+          loanUsageMemo,
           vendorRegistrationStatusId: vendorRegistrationStatusId
             ? Number(vendorRegistrationStatusId)
             : null,
+          vendorRegistrationMemo,
           toolRegistrationStatusId: toolRegistrationStatusId
             ? Number(toolRegistrationStatusId)
             : null,
+          toolRegistrationMemo,
           memo,
           vendorSharedMemo,
         });
@@ -983,6 +1008,14 @@ export function VendorDetailForm({
             <FieldBlock label="契約書">
               <ContractDocumentEditor value={scWholesaleDocs} onChange={setScWholesaleDocs} vendorId={vendor.id} />
             </FieldBlock>
+            <FieldBlock label="備考">
+              <Textarea
+                value={scWholesaleMemo}
+                onChange={(e) => setScWholesaleMemo(e.target.value)}
+                rows={2}
+                placeholder="セキュリティクラウド卸に関するメモ"
+              />
+            </FieldBlock>
           </ServiceSection>
 
           <hr />
@@ -1045,6 +1078,14 @@ export function VendorDetailForm({
             <FieldBlock label="契約書">
               <ContractDocumentEditor value={consultingPlanDocs} onChange={setConsultingPlanDocs} vendorId={vendor.id} />
             </FieldBlock>
+            <FieldBlock label="備考">
+              <Textarea
+                value={consultingPlanMemo}
+                onChange={(e) => setConsultingPlanMemo(e.target.value)}
+                rows={2}
+                placeholder="コンサルティングプランに関するメモ"
+              />
+            </FieldBlock>
           </ServiceSection>
 
           <hr />
@@ -1088,6 +1129,14 @@ export function VendorDetailForm({
             <FieldBlock label="契約書">
               <ContractDocumentEditor value={grantApplicationBpoDocs} onChange={setGrantApplicationBpoDocs} vendorId={vendor.id} />
             </FieldBlock>
+            <FieldBlock label="備考">
+              <Textarea
+                value={grantApplicationBpoMemo}
+                onChange={(e) => setGrantApplicationBpoMemo(e.target.value)}
+                rows={2}
+                placeholder="交付申請BPOに関するメモ"
+              />
+            </FieldBlock>
           </ServiceSection>
 
           <hr />
@@ -1104,6 +1153,14 @@ export function VendorDetailForm({
                 <DateTimePicker value={subsidyConsultingKickoffMtg} onChange={setSubsidyConsultingKickoffMtg} placeholder="初回MTG" />
               </FieldBlock>
             </div>
+            <FieldBlock label="備考">
+              <Textarea
+                value={subsidyConsultingMemo}
+                onChange={(e) => setSubsidyConsultingMemo(e.target.value)}
+                rows={2}
+                placeholder="助成金コンサルティングに関するメモ"
+              />
+            </FieldBlock>
           </ServiceSection>
 
           <hr />
@@ -1120,6 +1177,14 @@ export function VendorDetailForm({
                 <DateTimePicker value={loanUsageKickoffMtg} onChange={setLoanUsageKickoffMtg} placeholder="初回MTG" />
               </FieldBlock>
             </div>
+            <FieldBlock label="備考">
+              <Textarea
+                value={loanUsageMemo}
+                onChange={(e) => setLoanUsageMemo(e.target.value)}
+                rows={2}
+                placeholder="貸金業者に関するメモ"
+              />
+            </FieldBlock>
           </ServiceSection>
 
           <hr />
@@ -1150,6 +1215,14 @@ export function VendorDetailForm({
                   </SelectContent>
                 </Select>
               </FieldBlock>
+              <FieldBlock label="備考">
+                <Textarea
+                  value={vendorRegistrationMemo}
+                  onChange={(e) => setVendorRegistrationMemo(e.target.value)}
+                  rows={2}
+                  placeholder="ベンダー登録に関するメモ"
+                />
+              </FieldBlock>
             </ServiceSection>
 
             <ServiceSection
@@ -1175,6 +1248,14 @@ export function VendorDetailForm({
                     ))}
                   </SelectContent>
                 </Select>
+              </FieldBlock>
+              <FieldBlock label="備考">
+                <Textarea
+                  value={toolRegistrationMemo}
+                  onChange={(e) => setToolRegistrationMemo(e.target.value)}
+                  rows={2}
+                  placeholder="ツール登録に関するメモ"
+                />
               </FieldBlock>
             </ServiceSection>
           </div>

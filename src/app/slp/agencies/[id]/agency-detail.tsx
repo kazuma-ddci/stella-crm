@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -140,8 +140,70 @@ export function AgencyDetail({
   // 子代理店
   const [creatingChild, setCreatingChild] = useState(false);
   const [deletingChild, setDeletingChild] = useState<ChildAgency | null>(null);
+  const [childDialogOpen, setChildDialogOpen] = useState(false);
+  const [newChildName, setNewChildName] = useState("");
+  const [newChildNotes, setNewChildNotes] = useState("");
 
   const isChild = agency.parentId !== null;
+
+  // 未保存変更の検出
+  const currentValues = useMemo(
+    () =>
+      JSON.stringify({
+        name,
+        corporateName,
+        email,
+        phone,
+        address,
+        contractStatusId,
+        contractStartDate,
+        contractEndDate,
+        notes,
+      }),
+    [
+      name,
+      corporateName,
+      email,
+      phone,
+      address,
+      contractStatusId,
+      contractStartDate,
+      contractEndDate,
+      notes,
+    ]
+  );
+
+  const [savedValues, setSavedValues] = useState(currentValues);
+  const isDirty = currentValues !== savedValues;
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
+  const guardNavigation = useCallback(
+    (e: MouseEvent) => {
+      if (!isDirty) return;
+      const target = (e.target as HTMLElement).closest("a");
+      if (!target) return;
+      const href = target.getAttribute("href");
+      if (!href || href.startsWith("#") || href.startsWith("javascript")) return;
+      if (!confirm("編集したデータが保存されていませんがよろしいですか？")) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    [isDirty]
+  );
+
+  useEffect(() => {
+    document.addEventListener("click", guardNavigation, true);
+    return () => document.removeEventListener("click", guardNavigation, true);
+  }, [guardNavigation]);
 
   const handleSaveAgency = async () => {
     setSaving(true);
@@ -158,6 +220,7 @@ export function AgencyDetail({
         contractEndDate: contractEndDate || null,
         notes,
       });
+      setSavedValues(currentValues);
       router.refresh();
     } finally {
       setSaving(false);
@@ -205,13 +268,22 @@ export function AgencyDetail({
     router.refresh();
   };
 
+  const openChildDialog = () => {
+    setNewChildName("");
+    setNewChildNotes("");
+    setChildDialogOpen(true);
+  };
+
   const handleCreateChild = async () => {
+    if (!newChildName.trim()) return;
     setCreatingChild(true);
     try {
       const child = await createAgency({
-        name: "新規子代理店",
+        name: newChildName.trim(),
+        notes: newChildNotes.trim() || undefined,
         parentId: agency.id,
       });
+      setChildDialogOpen(false);
       router.push(`/slp/agencies/${child.id}`);
     } finally {
       setCreatingChild(false);
@@ -278,10 +350,15 @@ export function AgencyDetail({
             </h1>
           </div>
         </div>
-        <Button onClick={handleSaveAgency} disabled={saving}>
-          <Save className="h-4 w-4 mr-1" />
-          保存
-        </Button>
+        <div className="flex items-center gap-2">
+          {isDirty && (
+            <span className="text-xs text-amber-600">未保存の変更があります</span>
+          )}
+          <Button onClick={handleSaveAgency} disabled={saving || !isDirty}>
+            <Save className="h-4 w-4 mr-1" />
+            {saving ? "保存中..." : "保存"}
+          </Button>
+        </div>
       </div>
 
       {/* 基本情報 */}
@@ -479,7 +556,7 @@ export function AgencyDetail({
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>子代理店</CardTitle>
-          <Button size="sm" onClick={handleCreateChild} disabled={creatingChild}>
+          <Button size="sm" onClick={openChildDialog}>
             <Plus className="h-4 w-4 mr-1" />
             子代理店を追加
           </Button>
@@ -664,6 +741,52 @@ export function AgencyDetail({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 子代理店追加ダイアログ */}
+      <Dialog open={childDialogOpen} onOpenChange={setChildDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>子代理店を追加</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>代理店名 *</Label>
+              <Input
+                value={newChildName}
+                onChange={(e) => setNewChildName(e.target.value)}
+                placeholder="子代理店名"
+              />
+            </div>
+            <div>
+              <Label>備考</Label>
+              <Textarea
+                value={newChildNotes}
+                onChange={(e) => setNewChildNotes(e.target.value)}
+                placeholder="備考"
+                rows={3}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              ※ 担当者は作成後の詳細画面から追加できます。
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setChildDialogOpen(false)}
+              disabled={creatingChild}
+            >
+              キャンセル
+            </Button>
+            <Button
+              onClick={handleCreateChild}
+              disabled={creatingChild || !newChildName.trim()}
+            >
+              {creatingChild ? "保存中..." : "保存して詳細を編集"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
