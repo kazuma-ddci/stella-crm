@@ -28,7 +28,13 @@ import { Loader2, Upload, FileText, Trash2, CheckCircle2, Clock, Link2, Copy, Ch
 import { activateDocument, deleteDocument, activateVideo, deleteVideo } from "./actions";
 import { useRouter } from "next/navigation";
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+// 資料・動画ビューアは顧客向けドメイン (customer.koutekiseido-japan.com) 経由で配信する
+// stg: https://stg-customer.koutekiseido-japan.com
+// prod: https://customer.koutekiseido-japan.com
+const CUSTOMER_URL =
+  process.env.NEXT_PUBLIC_SLP_CUSTOMER_URL ||
+  process.env.NEXT_PUBLIC_APP_URL ||
+  "http://localhost:3000";
 
 type DocumentItem = {
   id: number;
@@ -85,7 +91,7 @@ function ViewerUrlCard({
   pathName: string;
 }) {
   const [copied, setCopied] = useState(false);
-  const viewerUrlTemplate = `${APP_URL}${pathName}?uid=[[uid]]&snsname=[[snsname]]`;
+  const viewerUrlTemplate = `${CUSTOMER_URL}${pathName}?uid=[[uid]]&snsname=[[snsname]]`;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(viewerUrlTemplate);
