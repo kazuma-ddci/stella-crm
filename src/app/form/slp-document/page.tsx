@@ -36,7 +36,11 @@ export default function SlpDocumentPage() {
   // PDF viewer state
   const [numPages, setNumPages] = useState(0);
   const [zoom, setZoom] = useState(1);
-  const [containerWidth, setContainerWidth] = useState(600);
+  // 初期値を window.innerWidth から取得して初回描画時に viewport 幅で表示
+  const [containerWidth, setContainerWidth] = useState(() => {
+    if (typeof window !== "undefined") return window.innerWidth;
+    return 390;
+  });
   const [pdfUrl, setPdfUrl] = useState<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -105,7 +109,8 @@ export default function SlpDocumentPage() {
     []
   );
 
-  const fitWidth = Math.max(containerWidth - 32, 300);
+  // 横幅いっぱいに表示（余白なし）
+  const fitWidth = Math.max(containerWidth, 300);
   const pageWidth = fitWidth * zoom;
 
   // ローディング
@@ -185,7 +190,7 @@ export default function SlpDocumentPage() {
 
       {/* PDFビューア（縦スクロール） */}
       <div className="flex-1 overflow-auto min-h-0">
-        <div className="flex flex-col items-center py-4 gap-4">
+        <div className="flex flex-col items-center gap-2">
           <ReactPdfDocument
             file={pdfUrl}
             onLoadSuccess={onDocumentLoadSuccess}
