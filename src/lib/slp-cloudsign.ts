@@ -23,11 +23,13 @@ const DOCUMENT_TITLE =
   "一般社団法人 公的制度教育推進協会(組合員契約書及び組合規定)";
 
 /**
- * SLPプロジェクト情報を一括取得（ClientID + テンプレートID + ProjectID）
+ * SLPプロジェクト情報を一括取得（ClientID + テンプレートID + テンプレート名 + 契約種別名 + ProjectID）
  */
 async function getSlpCloudsignConfig(): Promise<{
   clientId: string;
   templateId: string;
+  templateName: string | null;
+  contractTypeName: string | null;
   projectId: number;
 }> {
   const project = await prisma.masterProject.findUnique({
@@ -41,7 +43,7 @@ async function getSlpCloudsignConfig(): Promise<{
           cloudsignTemplates: {
             include: {
               template: {
-                select: { cloudsignTemplateId: true, isActive: true },
+                select: { cloudsignTemplateId: true, isActive: true, name: true },
               },
             },
           },
@@ -62,20 +64,30 @@ async function getSlpCloudsignConfig(): Promise<{
     );
   }
 
-  // テンプレートID: 契約種別設定 → 環境変数 → フォールバック
+  // テンプレートID/名・契約種別名: 契約種別設定 → 環境変数 → フォールバック
   let templateId = FALLBACK_TEMPLATE_ID;
+  let templateName: string | null = null;
+  let contractTypeName: string | null = null;
 
   const contractType = project.slpMemberContractType;
   if (contractType) {
+    contractTypeName = contractType.name;
     const activeTemplate = contractType.cloudsignTemplates.find(
       (link) => link.template.isActive
     );
     if (activeTemplate) {
       templateId = activeTemplate.template.cloudsignTemplateId;
+      templateName = activeTemplate.template.name;
     }
   }
 
-  return { clientId, templateId, projectId: project.id };
+  return {
+    clientId,
+    templateId,
+    templateName,
+    contractTypeName,
+    projectId: project.id,
+  };
 }
 
 /**
@@ -88,7 +100,8 @@ export async function sendSlpContract(input: {
   name: string;
   slpMemberId?: number;
 }): Promise<{ documentId: string; cloudsignUrl: string; contractId: number }> {
-  const { clientId, templateId, projectId } = await getSlpCloudsignConfig();
+  const { clientId, templateId, templateName, contractTypeName, projectId } =
+    await getSlpCloudsignConfig();
   const token = await cloudsignClient.getToken(clientId);
 
   // 1. テンプレートから書類を作成
@@ -128,12 +141,15 @@ export async function sendSlpContract(input: {
   });
 
   // 5. MasterContractレコードを作成
+  // 契約種別: SLPプロジェクト設定「入会フォーム用契約種別」の名前
+  // タイトル: 自動送付で使ったCloudSignテンプレートの名前
+  // いずれも未設定の場合は従来のフォールバック文字列を使う
   const contract = await prisma.masterContract.create({
     data: {
       projectId,
       slpMemberId: input.slpMemberId ?? null,
-      contractType: "組合員契約書",
-      title: `組合員契約書（${input.name}）`,
+      contractType: contractTypeName ?? "組合員契約書",
+      title: templateName ?? `組合員契約書（${input.name}）`,
       signingMethod: "cloudsign",
       cloudsignDocumentId: documentId,
       cloudsignUrl,
