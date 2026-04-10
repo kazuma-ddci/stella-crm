@@ -16,11 +16,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  SlpDocumentFormShell,
-  type SlpDocumentEntry,
-  type SlpDocumentFormChildrenProps,
-} from "@/components/slp/slp-document-form-shell";
-import {
   INITIAL_DOCUMENT_TYPES,
   FISCAL_PERIODS,
   type SlpInitialDocumentType,
@@ -32,6 +27,11 @@ import {
   KoutekiCardContent,
   KoutekiButton,
 } from "@/components/kouteki";
+import type {
+  SlpDocumentEntry,
+  SlpDocumentUploadFn,
+  SlpDocumentUrlFn,
+} from "./slp-document-form-types";
 
 const ACCEPT_ATTR = ALLOWED_DOCUMENT_MIME_TYPES.join(",");
 
@@ -60,6 +60,12 @@ function slotKey(type: SlpInitialDocumentType, period: number): SlotKey {
   return `${type}#${period}`;
 }
 
+export type SlpInitialDocumentsFormProps = {
+  documents: SlpDocumentEntry[];
+  uploadFile: SlpDocumentUploadFn;
+  previewUrl: SlpDocumentUrlFn;
+};
+
 /**
  * 初回提出書類フォーム本体
  *
@@ -69,9 +75,11 @@ function slotKey(type: SlpInitialDocumentType, period: number): SlotKey {
  * - 既存ファイルがあるスロットに pending を入れると「差し替え予定」表示
  * - フォーム末尾の「提出する」ボタンで pending を順次サーバーへ送信
  */
-function InitialDocumentsBody(props: SlpDocumentFormChildrenProps) {
-  const { documents, uploadFile, previewUrl } = props;
-
+export function SlpInitialDocumentsForm({
+  documents,
+  uploadFile,
+  previewUrl,
+}: SlpInitialDocumentsFormProps) {
   const [pendings, setPendings] = useState<Map<SlotKey, PendingSlot>>(
     new Map(),
   );
@@ -263,7 +271,7 @@ function DocumentTypeBlock({
   typeDef: (typeof INITIAL_DOCUMENT_TYPES)[number];
   grouped: Map<string, SlpDocumentEntry[]>;
   pendings: Map<SlotKey, PendingSlot>;
-  previewUrl: SlpDocumentFormChildrenProps["previewUrl"];
+  previewUrl: SlpDocumentUrlFn;
   onSelect: (
     type: SlpInitialDocumentType,
     period: number,
@@ -301,7 +309,9 @@ function DocumentTypeBlock({
             const entries = grouped.get(key) ?? [];
             const current = entries.find((e) => e.isCurrent) ?? entries[0];
             const history = entries.filter((e) => e !== current);
-            const pending = pendings.get(slotKey(typeDef.type as SlpInitialDocumentType, p.value));
+            const pending = pendings.get(
+              slotKey(typeDef.type as SlpInitialDocumentType, p.value),
+            );
             return (
               <FiscalPeriodSlot
                 key={p.value}
@@ -342,7 +352,7 @@ function FiscalPeriodSlot({
   current: SlpDocumentEntry | undefined;
   history: SlpDocumentEntry[];
   pending: PendingSlot | undefined;
-  previewUrl: SlpDocumentFormChildrenProps["previewUrl"];
+  previewUrl: SlpDocumentUrlFn;
   onSelect: (
     type: SlpInitialDocumentType,
     period: number,
@@ -525,23 +535,5 @@ function FiscalPeriodSlot({
         onChange={handleChange}
       />
     </div>
-  );
-}
-
-export default function SlpInitialDocumentsPage() {
-  return (
-    <SlpDocumentFormShell
-      category="initial"
-      title="初回提出書類"
-      subtitle={
-        <>
-          源泉徴収簿・算定基礎届・賃金台帳について、直近期から4期前まで5期分の書類を提出してください。
-          <br />
-          各期ごとに1ファイルにまとめてアップロードしてください。
-        </>
-      }
-    >
-      {(props) => <InitialDocumentsBody {...props} />}
-    </SlpDocumentFormShell>
   );
 }

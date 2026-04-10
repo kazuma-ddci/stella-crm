@@ -12,11 +12,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  SlpDocumentFormShell,
-  type SlpDocumentEntry,
-  type SlpDocumentFormChildrenProps,
-} from "@/components/slp/slp-document-form-shell";
-import {
   ADDITIONAL_DOCUMENT_TYPES,
   type SlpAdditionalDocumentType,
   ALLOWED_DOCUMENT_MIME_TYPES,
@@ -27,6 +22,11 @@ import {
   KoutekiCardContent,
   KoutekiButton,
 } from "@/components/kouteki";
+import type {
+  SlpDocumentEntry,
+  SlpDocumentUploadFn,
+  SlpDocumentUrlFn,
+} from "./slp-document-form-types";
 
 const ACCEPT_ATTR = ALLOWED_DOCUMENT_MIME_TYPES.join(",");
 
@@ -51,6 +51,12 @@ type PendingFile = {
   objectUrl: string;
 };
 
+export type SlpAdditionalDocumentsFormProps = {
+  documents: SlpDocumentEntry[];
+  uploadFile: SlpDocumentUploadFn;
+  previewUrl: SlpDocumentUrlFn;
+};
+
 /**
  * 追加提出書類フォーム本体
  *
@@ -59,9 +65,11 @@ type PendingFile = {
  * - 「ファイルを追加」ボタンで複数選択 → pending リストに追加（即送信しない）
  * - フォーム末尾の「提出する」ボタンで pending を順次サーバーへ送信
  */
-function AdditionalDocumentsBody(props: SlpDocumentFormChildrenProps) {
-  const { documents, uploadFile, previewUrl } = props;
-
+export function SlpAdditionalDocumentsForm({
+  documents,
+  uploadFile,
+  previewUrl,
+}: SlpAdditionalDocumentsFormProps) {
   const [pendings, setPendings] = useState<PendingFile[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -240,7 +248,7 @@ function DocumentTypeBlock({
   typeDef: (typeof ADDITIONAL_DOCUMENT_TYPES)[number];
   entries: SlpDocumentEntry[];
   pendings: PendingFile[];
-  previewUrl: SlpDocumentFormChildrenProps["previewUrl"];
+  previewUrl: SlpDocumentUrlFn;
   onAdd: (type: SlpAdditionalDocumentType, files: File[]) => void;
   onRemovePending: (key: string) => void;
   submitting: boolean;
@@ -401,23 +409,5 @@ function DocumentTypeBlock({
         onChange={handleChange}
       />
     </KoutekiCard>
-  );
-}
-
-export default function SlpAdditionalDocumentsPage() {
-  return (
-    <SlpDocumentFormShell
-      category="additional"
-      title="追加提出書類"
-      subtitle={
-        <>
-          被保険者資格取得届・月額変更届・賞与支払届・標準報酬決定通知書を提出してください。
-          <br />
-          それぞれ何件でもアップロードできます。
-        </>
-      }
-    >
-      {(props) => <AdditionalDocumentsBody {...props} />}
-    </SlpDocumentFormShell>
   );
 }

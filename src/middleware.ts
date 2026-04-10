@@ -190,9 +190,57 @@ function isExternalDomain(host: string): boolean {
   return host.endsWith(".alkes.jp");
 }
 
+// =====================================================================
+// お客様向けドメイン（公的制度教育推進協会 SLP）
+//   customer.koutekiseido-japan.com (本番)
+//   stg-customer.koutekiseido-japan.com (ステージング)
+//
+// 公開フォーム・予約中継ページなど「SLPの顧客が触る公開パス」のみ許可。
+// それ以外（CRM本体、ログイン画面、内部API など）は 404 を返す。
+// ログイン画面へのリダイレクトも絶対に発生させない。
+// =====================================================================
+const CUSTOMER_DOMAIN_ALLOWED_PATHS = [
+  // SLP公開フォーム
+  "/form/slp-member",         // 組合入会
+  "/form/slp-documents",      // 書類提出統合フォーム
+  "/form/slp-document",       // 資料PDF閲覧
+  "/form/slp-video",          // 資料動画閲覧
+  "/form/slp-hr-evaluation",  // 人事評価
+  // SLP公開ルート
+  "/slp/public",              // 予約中継ページ (/slp/public/reserve/*)
+  // SLP公開API（フォーム送信、書類アップロード、予約webhook等）
+  "/api/public/slp",
+  // 静的アセット等（Next.js 内部）
+  "/_next",
+];
+
+function isCustomerDomainAllowedPath(pathname: string): boolean {
+  return CUSTOMER_DOMAIN_ALLOWED_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(path + "/")
+  );
+}
+
+// お客様向けドメインかどうか判定
+// customer.koutekiseido-japan.com / stg-customer.koutekiseido-japan.com
+function isCustomerDomain(host: string): boolean {
+  return host.endsWith("koutekiseido-japan.com");
+}
+
 export default auth((request) => {
   const { pathname } = request.nextUrl;
   const host = request.headers.get("host") || "";
+
+  // =====================================================================
+  // お客様向けドメイン（koutekiseido-japan.com）からのアクセス制限
+  // 公開ページのみ許可、それ以外は 404（ログイン画面にも飛ばさない）
+  // =====================================================================
+  if (isCustomerDomain(host)) {
+    if (!isCustomerDomainAllowedPath(pathname)) {
+      return new NextResponse(null, { status: 404 });
+    }
+    // 許可パスは認証チェックをスキップして通過
+    return NextResponse.next();
+  }
 
   // 外部ドメイン（*.alkes.jp）からのアクセス制限
   if (isExternalDomain(host)) {

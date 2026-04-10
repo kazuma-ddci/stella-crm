@@ -22,6 +22,7 @@ import {
   Bell,
   Mail,
 } from "lucide-react";
+import { getPublicUid } from "@/lib/slp/public-uid";
 
 const MEMBER_CATEGORIES = [
   { value: "個人（法人代表・役員・従業員）", label: "個人（法人代表・役員・従業員）" },
@@ -110,7 +111,9 @@ export default function SlpMemberRegistrationPage() {
   const [showLineNameConfirm, setShowLineNameConfirm] = useState(false);
 
   const lineNameParam = searchParams.get("lineName") || "";
-  const uidParam = searchParams.get("uid") || "";
+  // uid は URL と sessionStorage の両方から取得（リロード時の復元に対応）
+  // 初期値は空で、useEffect 内で解決する
+  const [uidParam, setUidParam] = useState("");
 
   const [formData, setFormData] = useState<FormData>({
     memberCategory: "",
@@ -125,12 +128,23 @@ export default function SlpMemberRegistrationPage() {
     note: "",
   });
 
-  // UID がない場合はエラー
+  // UID を URL / sessionStorage から取得、ない場合はエラー
   useEffect(() => {
-    if (!uidParam) {
+    const resolved = getPublicUid();
+    if (!resolved) {
       setStatus("no_uid");
+      return;
     }
-  }, [uidParam]);
+    setUidParam(resolved);
+
+    // URL に uid が含まれていなければ付け直しておく（以降のリロードに備える）
+    const sp = new URLSearchParams(window.location.search);
+    if (!sp.get("uid")) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("uid", resolved);
+      window.history.replaceState(null, "", url.pathname + url.search);
+    }
+  }, []);
 
   useEffect(() => {
     if (lineNameParam) {
