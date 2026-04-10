@@ -36,9 +36,46 @@ if (fs.existsSync(envPath)) {
 const PORT = parseInt(process.env.TRIGGER_PORT || "3100");
 const CRON_SECRET = process.env.CRON_SECRET;
 
-if (!CRON_SECRET) {
-  console.error("CRON_SECRET 環境変数が設定されていません");
+// stg/prod で環境別の APP_URL/CRON_SECRET を切り替える用（.env.sync に追記する）
+// 後方互換: 設定が無ければ既存の APP_URL/CRON_SECRET をそのまま使う
+const APP_URL_STG = process.env.APP_URL_STG;
+const APP_URL_PROD = process.env.APP_URL_PROD;
+const CRON_SECRET_STG = process.env.CRON_SECRET_STG;
+const CRON_SECRET_PROD = process.env.CRON_SECRET_PROD;
+
+if (!CRON_SECRET && !CRON_SECRET_STG && !CRON_SECRET_PROD) {
+  console.error(
+    "CRON_SECRET（または CRON_SECRET_STG / CRON_SECRET_PROD）環境変数が設定されていません"
+  );
   process.exit(1);
+}
+
+/**
+ * env パラメータに応じて、その環境で使うべき APP_URL と CRON_SECRET を返す。
+ * env が "stg" or "prod" で、かつ該当環境の値が設定されていればそれを使う。
+ * それ以外（未指定/未設定）は既存の APP_URL/CRON_SECRET をフォールバックとして使う。
+ */
+function resolveEnvConfig(envParam) {
+  if (envParam === "stg" && (APP_URL_STG || CRON_SECRET_STG)) {
+    return {
+      appUrl: APP_URL_STG || process.env.APP_URL,
+      cronSecret: CRON_SECRET_STG || CRON_SECRET,
+      resolvedEnv: "stg",
+    };
+  }
+  if (envParam === "prod" && (APP_URL_PROD || CRON_SECRET_PROD)) {
+    return {
+      appUrl: APP_URL_PROD || process.env.APP_URL,
+      cronSecret: CRON_SECRET_PROD || CRON_SECRET,
+      resolvedEnv: "prod",
+    };
+  }
+  // フォールバック（既存互換）
+  return {
+    appUrl: process.env.APP_URL,
+    cronSecret: CRON_SECRET,
+    resolvedEnv: "default",
+  };
 }
 
 /** ラベル別の実行管理（異なるラベルは並列実行可能、同一ラベルは排他） */
@@ -60,7 +97,11 @@ const server = http.createServer((req, res) => {
   // トリガーエンドポイント
   if (url.pathname === "/trigger") {
     const secret = url.searchParams.get("secret");
-    if (secret !== CRON_SECRET) {
+    // envパラメータに応じて使うAPP_URL/CRON_SECRETを切り替える（stg/prod両対応）
+    const envParam = url.searchParams.get("env"); // "stg" | "prod" | null
+    const { appUrl, cronSecret: expectedSecret, resolvedEnv } = resolveEnvConfig(envParam);
+
+    if (!expectedSecret || secret !== expectedSecret) {
       res.writeHead(401, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Unauthorized" }));
       return;
@@ -76,12 +117,12 @@ const server = http.createServer((req, res) => {
       // 補助金プロジェクト: 指定アカウントのみ同期
       scriptPath = path.join(__dirname, "sync-hojo-proline.mjs");
       scriptArgs = [scriptPath, "--account", account];
-      label = `hojo:${account}`;
+      label = `${resolvedEnv}:hojo:${account}`;
     } else {
       // SLP（デフォルト）
       scriptPath = path.join(__dirname, "sync-proline.mjs");
       scriptArgs = [scriptPath];
-      label = "slp";
+      label = `${resolvedEnv}:slp`;
     }
 
     // 同一ラベルの同期が実行中なら拒否（異なるラベルは並列OK）
@@ -92,9 +133,12 @@ const server = http.createServer((req, res) => {
     }
 
     runningSet.add(label);
-    console.log(`[trigger] 同期開始 (${label}): ${new Date().toISOString()}`);
+    console.log(`[trigger] 同期開始 (${label}) → ${appUrl}: ${new Date().toISOString()}`);
 
     const execEnv = { ...process.env };
+    // stg/prod 向けに APP_URL と CRON_SECRET を上書き（子プロセスの sync-proline.mjs に渡る）
+    if (appUrl) execEnv.APP_URL = appUrl;
+    execEnv.CRON_SECRET = expectedSecret;
     // NODE_PATH が未設定の場合、~/proline-deps/node_modules をフォールバック
     if (!execEnv.NODE_PATH) {
       const homedir = process.env.HOME || "/root";

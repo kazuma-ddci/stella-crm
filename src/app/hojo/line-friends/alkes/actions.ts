@@ -109,15 +109,22 @@ export async function triggerProLineSync(): Promise<{
   const triggerUrl =
     process.env.PROLINE_SYNC_TRIGGER_URL || "http://host.docker.internal:3100";
   const cronSecret = process.env.CRON_SECRET;
+  // DEPLOY_ENV=stg|prod を .env.stg / .env.prod に設定しておくと、
+  // VPS 上の sync-trigger-server が環境別の APP_URL/CRON_SECRET に切り替える
+  const deployEnv = process.env.DEPLOY_ENV;
 
   if (!cronSecret) {
     return { success: false, error: "CRON_SECRET未設定" };
   }
 
   try {
-    const res = await fetch(`${triggerUrl}/trigger?secret=${encodeURIComponent(cronSecret)}&account=alkes`, {
-      signal: AbortSignal.timeout(120000),
-    });
+    const envQuery = deployEnv ? `&env=${encodeURIComponent(deployEnv)}` : "";
+    const res = await fetch(
+      `${triggerUrl}/trigger?secret=${encodeURIComponent(cronSecret)}&account=alkes${envQuery}`,
+      {
+        signal: AbortSignal.timeout(120000),
+      }
+    );
 
     const data = await res.json();
 
