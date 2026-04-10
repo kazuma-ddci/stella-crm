@@ -43,7 +43,8 @@ export async function GET(request: Request) {
     // 1. bookingId で予約ID一致のレコードを優先的にキャンセル
     // メインの reservationId だけでなく、マージで取り込まれた配列も検索対象に
     if (bookingId) {
-      const result = await prisma.slpCompanyRecord.updateMany({
+      // 履歴記録用に、クリア前の値を取得
+      const targets = await prisma.slpCompanyRecord.findMany({
         where: {
           OR: [
             { reservationId: bookingId },
@@ -51,20 +52,48 @@ export async function GET(request: Request) {
           ],
           deletedAt: null,
         },
-        data: {
-          briefingStatus: "キャンセル",
-          briefingCanceledAt: new Date(),
-          // 予約日時・案内日時・担当者・予約IDをクリア（履歴は別テーブルに残す）
-          briefingBookedAt: null,
-          briefingDate: null,
-          briefingStaff: null,
-          briefingStaffId: null,
-          reservationId: null,
+        select: {
+          id: true,
+          reservationId: true,
+          briefingDate: true,
+          briefingBookedAt: true,
+          briefingStaff: true,
+          briefingStaffId: true,
         },
       });
-      canceledCount = result.count;
-      if (canceledCount > 0) {
+
+      if (targets.length > 0) {
+        const ids = targets.map((t) => t.id);
+        const result = await prisma.slpCompanyRecord.updateMany({
+          where: { id: { in: ids } },
+          data: {
+            briefingStatus: "キャンセル",
+            briefingCanceledAt: new Date(),
+            // 予約日時・案内日時・担当者・予約IDをクリア（履歴は別テーブルに残す）
+            briefingBookedAt: null,
+            briefingDate: null,
+            briefingStaff: null,
+            briefingStaffId: null,
+            reservationId: null,
+          },
+        });
+        canceledCount = result.count;
         action = "canceled_by_id";
+
+        // 履歴記録: 各レコードについてキャンセル前の値を残す
+        await prisma.slpReservationHistory.createMany({
+          data: targets.map((t) => ({
+            companyRecordId: t.id,
+            reservationType: "briefing",
+            actionType: "キャンセル",
+            reservationId: t.reservationId ?? bookingId,
+            reservedAt: t.briefingDate,
+            bookedAt: t.briefingBookedAt,
+            staffName: t.briefingStaff,
+            staffId: t.briefingStaffId,
+            formAnswers: undefined,
+          })),
+        });
       }
     }
 
@@ -77,7 +106,14 @@ export async function GET(request: Request) {
           deletedAt: null,
         },
         orderBy: { id: "desc" },
-        select: { id: true },
+        select: {
+          id: true,
+          reservationId: true,
+          briefingDate: true,
+          briefingBookedAt: true,
+          briefingStaff: true,
+          briefingStaffId: true,
+        },
       });
 
       if (!target) {
@@ -92,7 +128,6 @@ export async function GET(request: Request) {
         data: {
           briefingStatus: "キャンセル",
           briefingCanceledAt: new Date(),
-          // 予約日時・案内日時・担当者・予約IDをクリア（履歴は別テーブルに残す）
           briefingBookedAt: null,
           briefingDate: null,
           briefingStaff: null,
@@ -102,6 +137,20 @@ export async function GET(request: Request) {
       });
       canceledCount = 1;
       action = "canceled_by_uid";
+
+      // 履歴記録（フォールバック側）
+      await prisma.slpReservationHistory.create({
+        data: {
+          companyRecordId: target.id,
+          reservationType: "briefing",
+          actionType: "キャンセル",
+          reservationId: target.reservationId ?? bookingId,
+          reservedAt: target.briefingDate,
+          bookedAt: target.briefingBookedAt,
+          staffName: target.briefingStaff,
+          staffId: target.briefingStaffId,
+        },
+      });
 
       await logAutomationError({
         source: "slp-briefing-cancel",

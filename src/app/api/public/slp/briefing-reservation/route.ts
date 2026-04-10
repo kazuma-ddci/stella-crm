@@ -343,6 +343,34 @@ export async function GET(request: Request) {
       }
     }
 
+    // 履歴記録（新規予約）
+    // フォーム回答（年間人件費・従業員数）も新規予約時のみ JSON で残す
+    const formAnswersJson =
+      annualLaborCostExecutiveFormAnswer ||
+      annualLaborCostEmployeeFormAnswer ||
+      employeeCountFormAnswer
+        ? {
+            annualLaborCostExecutive: annualLaborCostExecutiveFormAnswer,
+            annualLaborCostEmployee: annualLaborCostEmployeeFormAnswer,
+            employeeCount: employeeCountFormAnswer,
+          }
+        : undefined;
+    if (createdOrUpdatedRecordIds.length > 0) {
+      await prisma.slpReservationHistory.createMany({
+        data: createdOrUpdatedRecordIds.map((recordId) => ({
+          companyRecordId: recordId,
+          reservationType: "briefing",
+          actionType: "予約",
+          reservationId: bookingId ?? null,
+          reservedAt: briefingDateParsed,
+          bookedAt: briefingBookedAt,
+          staffName: briefingStaff || null,
+          staffId: resolvedStaffId,
+          formAnswers: formAnswersJson,
+        })),
+      });
+    }
+
     // ペンディング情報を消費済みに
     if (pending) {
       await prisma.slpReservationPending.update({

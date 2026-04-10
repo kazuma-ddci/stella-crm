@@ -88,6 +88,10 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
             { createdAt: "desc" },
           ],
         },
+        // 予約履歴（新しい順）
+        reservationHistories: {
+          orderBy: { createdAt: "desc" },
+        },
       },
     }),
     prisma.slpLineFriend.findMany({
@@ -219,6 +223,18 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
     consultationReservationId: record.consultationReservationId,
     mergedBriefingReservationIds: record.mergedBriefingReservationIds,
     mergedConsultationReservationIds: record.mergedConsultationReservationIds,
+    // 予約履歴（概要案内・導入希望商談 共通テーブル、新しい順）
+    reservationHistories: record.reservationHistories.map((h) => ({
+      id: h.id,
+      reservationType: h.reservationType,
+      actionType: h.actionType,
+      reservationId: h.reservationId,
+      reservedAt: toJstDisplay(h.reservedAt),
+      bookedAt: toJstDisplay(h.bookedAt),
+      staffName: h.staffName,
+      formAnswers: h.formAnswers as Record<string, string | null> | null,
+      createdAt: toJstDisplay(h.createdAt),
+    })),
     // 基本情報
     companyName: record.companyName,
     representativeName: record.representativeName,
@@ -242,6 +258,10 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
     annualLaborCostExecutive: toDecimalString(record.annualLaborCostExecutive),
     annualLaborCostEmployee: toDecimalString(record.annualLaborCostEmployee),
     averageMonthlySalary: toDecimalString(record.averageMonthlySalary),
+    // プロライン予約フォーム回答（生テキスト・サジェスト表示用）
+    annualLaborCostExecutiveFormAnswer: record.annualLaborCostExecutiveFormAnswer,
+    annualLaborCostEmployeeFormAnswer: record.annualLaborCostEmployeeFormAnswer,
+    employeeCountFormAnswer: record.employeeCountFormAnswer,
     // 金額・契約情報
     initialFee: toDecimalString(record.initialFee),
     initialPeopleCount: record.initialPeopleCount,

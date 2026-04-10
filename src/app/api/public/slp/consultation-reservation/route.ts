@@ -273,6 +273,22 @@ export async function GET(request: Request) {
       }
     }
 
+    // 履歴記録（新規予約）
+    if (updatedRecordIds.length > 0) {
+      await prisma.slpReservationHistory.createMany({
+        data: updatedRecordIds.map((recordId) => ({
+          companyRecordId: recordId,
+          reservationType: "consultation",
+          actionType: "予約",
+          reservationId: bookingId ?? null,
+          reservedAt: consultationDateParsed,
+          bookedAt: consultationBookedAt,
+          staffName: consultationStaff || null,
+          staffId: resolvedStaffId,
+        })),
+      });
+    }
+
     // ペンディング情報を消費済みに
     if (pending) {
       await prisma.slpReservationPending.update({

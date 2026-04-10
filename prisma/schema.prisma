@@ -4019,6 +4019,7 @@ model SlpCompanyRecord {
   status2            SlpCompanyStatus2Master?        @relation(fields: [status2Id], references: [id])
   statusHistories    SlpCompanyRecordStatusHistory[]
   submittedDocuments SlpCompanyDocument[]
+  reservationHistories SlpReservationHistory[]
 
   // 重複統合関連リレーション
   duplicateCandidatesA SlpCompanyDuplicateCandidate[] @relation("DuplicateCandidateA")
@@ -4081,6 +4082,32 @@ model SlpCompanyDuplicateExclusion {
   @@index([recordIdA])
   @@index([recordIdB])
   @@map("slp_company_duplicate_exclusions")
+}
+
+// ============================================
+// SLP 予約履歴 (SLP Reservation History)
+// 概要案内・導入希望商談 の予約・変更・キャンセル履歴を保存する。
+// プロラインのwebhookから来るたびに記録（新規予約・変更・キャンセル）。
+// 既存データは遡及作成しないので、テーブル作成後の予約からのみ記録される。
+// ============================================
+
+model SlpReservationHistory {
+  id              Int       @id @default(autoincrement())
+  companyRecordId Int       @map("company_record_id")
+  reservationType String    @map("reservation_type") @db.VarChar(20) // "briefing" | "consultation"
+  actionType      String    @map("action_type") @db.VarChar(20) // "予約" | "変更" | "キャンセル"
+  reservationId   String?   @map("reservation_id") @db.VarChar(100) // プロラインの予約ID（その時点の値）
+  reservedAt      DateTime? @map("reserved_at") // 案内日/商談日（その時点の値）
+  bookedAt        DateTime? @map("booked_at") // 予約発生日時（その時点の値）
+  staffName       String?   @map("staff_name") @db.VarChar(100) // 担当者名スナップショット
+  staffId         Int?      @map("staff_id") // 解決済みスタッフID（FKなし、参照のみ）
+  formAnswers     Json?     @map("form_answers") // 新規予約時のフォーム回答（年間人件費・従業員数等）。将来のフォーム拡張に備えてJSON
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  companyRecord SlpCompanyRecord @relation(fields: [companyRecordId], references: [id], onDelete: Cascade)
+
+  @@index([companyRecordId, reservationType, createdAt(sort: Desc)])
+  @@map("slp_reservation_history")
 }
 
 // ============================================

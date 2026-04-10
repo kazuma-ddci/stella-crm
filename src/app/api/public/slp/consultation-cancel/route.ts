@@ -42,7 +42,8 @@ export async function GET(request: Request) {
     // 1. bookingId で予約ID一致のレコードを優先的にキャンセル
     // メインの consultationReservationId だけでなく、マージで取り込まれた配列も検索対象に
     if (bookingId) {
-      const result = await prisma.slpCompanyRecord.updateMany({
+      // 履歴記録用に、クリア前の値を取得
+      const targets = await prisma.slpCompanyRecord.findMany({
         where: {
           OR: [
             { consultationReservationId: bookingId },
@@ -50,20 +51,46 @@ export async function GET(request: Request) {
           ],
           deletedAt: null,
         },
-        data: {
-          consultationStatus: "キャンセル",
-          consultationCanceledAt: new Date(),
-          // 予約日時・商談日時・担当者・予約IDをクリア（履歴は別テーブルに残す）
-          consultationBookedAt: null,
-          consultationDate: null,
-          consultationStaff: null,
-          consultationStaffId: null,
-          consultationReservationId: null,
+        select: {
+          id: true,
+          consultationReservationId: true,
+          consultationDate: true,
+          consultationBookedAt: true,
+          consultationStaff: true,
+          consultationStaffId: true,
         },
       });
-      canceledCount = result.count;
-      if (canceledCount > 0) {
+
+      if (targets.length > 0) {
+        const ids = targets.map((t) => t.id);
+        const result = await prisma.slpCompanyRecord.updateMany({
+          where: { id: { in: ids } },
+          data: {
+            consultationStatus: "キャンセル",
+            consultationCanceledAt: new Date(),
+            // 予約日時・商談日時・担当者・予約IDをクリア（履歴は別テーブルに残す）
+            consultationBookedAt: null,
+            consultationDate: null,
+            consultationStaff: null,
+            consultationStaffId: null,
+            consultationReservationId: null,
+          },
+        });
+        canceledCount = result.count;
         action = "canceled_by_id";
+
+        await prisma.slpReservationHistory.createMany({
+          data: targets.map((t) => ({
+            companyRecordId: t.id,
+            reservationType: "consultation",
+            actionType: "キャンセル",
+            reservationId: t.consultationReservationId ?? bookingId,
+            reservedAt: t.consultationDate,
+            bookedAt: t.consultationBookedAt,
+            staffName: t.consultationStaff,
+            staffId: t.consultationStaffId,
+          })),
+        });
       }
     }
 
@@ -76,7 +103,14 @@ export async function GET(request: Request) {
           deletedAt: null,
         },
         orderBy: { id: "desc" },
-        select: { id: true },
+        select: {
+          id: true,
+          consultationReservationId: true,
+          consultationDate: true,
+          consultationBookedAt: true,
+          consultationStaff: true,
+          consultationStaffId: true,
+        },
       });
 
       if (!target) {
@@ -100,6 +134,19 @@ export async function GET(request: Request) {
       });
       canceledCount = 1;
       action = "canceled_by_uid";
+
+      await prisma.slpReservationHistory.create({
+        data: {
+          companyRecordId: target.id,
+          reservationType: "consultation",
+          actionType: "キャンセル",
+          reservationId: target.consultationReservationId ?? bookingId,
+          reservedAt: target.consultationDate,
+          bookedAt: target.consultationBookedAt,
+          staffName: target.consultationStaff,
+          staffId: target.consultationStaffId,
+        },
+      });
 
       await logAutomationError({
         source: "slp-consultation-cancel",

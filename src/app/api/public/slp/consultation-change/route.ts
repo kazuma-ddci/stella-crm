@@ -102,11 +102,12 @@ export async function GET(request: Request) {
     let updatedCount = 0;
     let action: "updated_by_id" | "updated_by_uid" | "created" =
       "updated_by_uid";
+    const changedRecordIds: number[] = [];
 
     // 1. bookingId で予約ID一致のレコードを優先的に検索
     // メインの consultationReservationId だけでなく、マージで取り込まれた配列も検索対象に
     if (bookingId) {
-      const result = await prisma.slpCompanyRecord.updateMany({
+      const targets = await prisma.slpCompanyRecord.findMany({
         where: {
           OR: [
             { consultationReservationId: bookingId },
@@ -114,11 +115,17 @@ export async function GET(request: Request) {
           ],
           deletedAt: null,
         },
-        data: updateData,
+        select: { id: true },
       });
-      updatedCount = result.count;
-      if (updatedCount > 0) {
+      if (targets.length > 0) {
+        const ids = targets.map((t) => t.id);
+        const result = await prisma.slpCompanyRecord.updateMany({
+          where: { id: { in: ids } },
+          data: updateData,
+        });
+        updatedCount = result.count;
         action = "updated_by_id";
+        changedRecordIds.push(...ids);
       }
     }
 
@@ -144,6 +151,7 @@ export async function GET(request: Request) {
         });
         updatedCount = 1;
         action = "updated_by_uid";
+        changedRecordIds.push(target.id);
 
         await logAutomationError({
           source: "slp-consultation-change",
@@ -166,14 +174,8 @@ export async function GET(request: Request) {
             prolineUid: uid,
             consultationReservationId: bookingId ?? null,
             consultationStatus: "予約中",
-            consultationBookedAt:
-              consultationBookedAt && !isNaN(consultationBookedAt.getTime())
-                ? consultationBookedAt
-                : null,
-            consultationDate:
-              consultationDateParsed && !isNaN(consultationDateParsed.getTime())
-                ? consultationDateParsed
-                : null,
+            consultationBookedAt: consultationBookedAt ?? null,
+            consultationDate: consultationDateParsed ?? null,
             consultationStaff: consultationStaff || null,
             consultationStaffId: resolvedStaffId,
             consultationChangedAt: new Date(),
@@ -191,6 +193,7 @@ export async function GET(request: Request) {
         });
         updatedCount = 1;
         action = "created";
+        changedRecordIds.push(created.id);
 
         await logAutomationError({
           source: "slp-consultation-change",
@@ -198,6 +201,22 @@ export async function GET(request: Request) {
           detail: { bookingId, uid, createdId: created.id },
         });
       }
+    }
+
+    // 履歴記録（変更）
+    if (changedRecordIds.length > 0) {
+      await prisma.slpReservationHistory.createMany({
+        data: changedRecordIds.map((recordId) => ({
+          companyRecordId: recordId,
+          reservationType: "consultation",
+          actionType: "変更",
+          reservationId: bookingId ?? null,
+          reservedAt: consultationDateParsed,
+          bookedAt: consultationBookedAt,
+          staffName: consultationStaff || null,
+          staffId: resolvedStaffId,
+        })),
+      });
     }
 
     return NextResponse.json({

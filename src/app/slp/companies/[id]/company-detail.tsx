@@ -189,6 +189,10 @@ export type CompanyDetailRecord = {
   annualLaborCostExecutive: string | null;
   annualLaborCostEmployee: string | null;
   averageMonthlySalary: string | null;
+  // プロライン予約フォーム回答（生テキスト・サジェスト表示用）
+  annualLaborCostExecutiveFormAnswer: string | null;
+  annualLaborCostEmployeeFormAnswer: string | null;
+  employeeCountFormAnswer: string | null;
   // 金額・契約情報
   initialFee: string | null;
   initialPeopleCount: number | null;
@@ -209,6 +213,19 @@ export type CompanyDetailRecord = {
   paymentReceivedDate: string | null;
   statusHistories: StatusHistoryEntry[];
   submittedDocuments: CompanyDocumentEntry[];
+  reservationHistories: ReservationHistoryEntry[];
+};
+
+export type ReservationHistoryEntry = {
+  id: number;
+  reservationType: string; // "briefing" | "consultation"
+  actionType: string; // "予約" | "変更" | "キャンセル"
+  reservationId: string | null;
+  reservedAt: string | null;
+  bookedAt: string | null;
+  staffName: string | null;
+  formAnswers: Record<string, string | null> | null;
+  createdAt: string | null;
 };
 
 type LineFriendOption = { id: number; label: string };
@@ -574,11 +591,15 @@ export function CompanyDetail({
     }
     setAsOverridePending(true);
     try {
-      await setManualContactAs(
+      const result = await setManualContactAs(
         asOverrideTarget.contactId,
         parseInt(asOverrideAsId, 10),
         asOverrideReason.trim()
       );
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("AS担当を手動上書きしました");
       setAsOverrideDialogOpen(false);
       router.refresh();
@@ -592,7 +613,11 @@ export function CompanyDetail({
   const handleClearAsOverride = async (contactId: number) => {
     if (!confirm("手動上書きを解除して自動解決値に戻しますか？")) return;
     try {
-      await clearManualContactAs(contactId);
+      const result = await clearManualContactAs(contactId);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("手動上書きを解除しました");
       router.refresh();
     } catch (e) {
@@ -778,7 +803,12 @@ export function CompanyDetail({
         activeFlow === "briefing"
           ? changeBriefingStatusWithReason
           : changeConsultationStatusWithReason;
-      const { tagResults } = await changeFn(record.id, reasonTargetStatus, reasonText);
+      const actionResult = await changeFn(record.id, reasonTargetStatus, reasonText);
+      if (!actionResult.ok) {
+        toast.error(actionResult.error);
+        return;
+      }
+      const { tagResults } = actionResult.data;
 
       const tagFails = tagResults.filter((r) => !r.success);
       const tagSuccess = tagResults.filter((r) => r.success);
@@ -1011,10 +1041,14 @@ export function CompanyDetail({
                         )
                           return;
                         try {
-                          await markAsNotDuplicate(
+                          const result = await markAsNotDuplicate(
                             record.id,
                             c.otherRecordId
                           );
+                          if (!result.ok) {
+                            toast.error(result.error);
+                            return;
+                          }
                           toast.success("重複候補から除外しました");
                           router.refresh();
                         } catch {
@@ -1093,6 +1127,14 @@ export function CompanyDetail({
                 </div>
                 <div>
                   <Label>従業員数</Label>
+                  {record.employeeCountFormAnswer && (
+                    <div className="mb-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                      💡 フォーム回答:{" "}
+                      <span className="font-semibold">
+                        {record.employeeCountFormAnswer}
+                      </span>
+                    </div>
+                  )}
                   <Input
                     type="number"
                     value={employeeCount}
@@ -1241,6 +1283,14 @@ export function CompanyDetail({
                 </div>
                 <div>
                   <Label>年間人件費（役員様分）（円）</Label>
+                  {record.annualLaborCostExecutiveFormAnswer && (
+                    <div className="mb-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                      💡 フォーム回答:{" "}
+                      <span className="font-semibold">
+                        {record.annualLaborCostExecutiveFormAnswer}
+                      </span>
+                    </div>
+                  )}
                   <Input
                     type="number"
                     value={annualLaborCostExecutive}
@@ -1250,6 +1300,14 @@ export function CompanyDetail({
                 </div>
                 <div>
                   <Label>年間人件費（従業員様分）（円）</Label>
+                  {record.annualLaborCostEmployeeFormAnswer && (
+                    <div className="mb-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                      💡 フォーム回答:{" "}
+                      <span className="font-semibold">
+                        {record.annualLaborCostEmployeeFormAnswer}
+                      </span>
+                    </div>
+                  )}
                   <Input
                     type="number"
                     value={annualLaborCostEmployee}
@@ -1647,6 +1705,11 @@ export function CompanyDetail({
                       )}
                     </div>
                   )}
+                  {/* 概要案内の履歴（予約・変更・キャンセル） */}
+                  <ReservationHistorySection
+                    histories={record.reservationHistories}
+                    type="briefing"
+                  />
                 </div>
               </div>
             </CardContent>
@@ -1859,6 +1922,11 @@ export function CompanyDetail({
                       )}
                     </div>
                   )}
+                  {/* 導入希望商談の履歴（予約・変更・キャンセル） */}
+                  <ReservationHistorySection
+                    histories={record.reservationHistories}
+                    type="consultation"
+                  />
                 </div>
               </div>
             </CardContent>
@@ -2407,6 +2475,96 @@ export function CompanyDetail({
           }}
           kind={masterModalKind}
         />
+      )}
+    </div>
+  );
+}
+
+/**
+ * 予約履歴の折りたたみ表示
+ * 概要案内 / 導入希望商談 それぞれの予約IDの下に折りたたみ式で表示する
+ */
+function ReservationHistorySection({
+  histories,
+  type,
+}: {
+  histories: ReservationHistoryEntry[];
+  type: "briefing" | "consultation";
+}) {
+  const [open, setOpen] = useState(false);
+  const filtered = histories.filter((h) => h.reservationType === type);
+  if (filtered.length === 0) return null;
+
+  const actionBadgeVariant = (
+    actionType: string,
+  ): "default" | "secondary" | "destructive" | "outline" => {
+    if (actionType === "予約") return "default";
+    if (actionType === "変更") return "secondary";
+    if (actionType === "キャンセル") return "destructive";
+    return "outline";
+  };
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-xs text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
+      >
+        <span>{open ? "▼" : "▶"}</span>
+        履歴を表示 ({filtered.length}件)
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2 border-l-2 border-slate-200 pl-3">
+          {filtered.map((h) => (
+            <div key={h.id} className="text-xs space-y-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-muted-foreground">{h.createdAt}</span>
+                <Badge
+                  variant={actionBadgeVariant(h.actionType)}
+                  className="text-[10px] px-1.5 py-0"
+                >
+                  {h.actionType}
+                </Badge>
+                {h.reservationId && (
+                  <code className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">
+                    {h.reservationId}
+                  </code>
+                )}
+              </div>
+              {(h.reservedAt || h.staffName) && (
+                <div className="text-muted-foreground pl-4">
+                  {h.reservedAt && (
+                    <span>
+                      {type === "briefing" ? "案内日" : "商談日"}: {h.reservedAt}
+                    </span>
+                  )}
+                  {h.reservedAt && h.staffName && <span> / </span>}
+                  {h.staffName && <span>担当: {h.staffName}</span>}
+                </div>
+              )}
+              {h.formAnswers && (
+                <div className="text-muted-foreground pl-4 text-[10px]">
+                  {h.formAnswers.annualLaborCostExecutive && (
+                    <span>
+                      役員人件費: {h.formAnswers.annualLaborCostExecutive}
+                    </span>
+                  )}
+                  {h.formAnswers.annualLaborCostEmployee && (
+                    <span className="ml-2">
+                      従業員人件費: {h.formAnswers.annualLaborCostEmployee}
+                    </span>
+                  )}
+                  {h.formAnswers.employeeCount && (
+                    <span className="ml-2">
+                      従業員数: {h.formAnswers.employeeCount}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
