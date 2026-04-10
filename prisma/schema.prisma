@@ -1123,6 +1123,9 @@ model MasterContract {
   cloudsignSelfSigningUrl     String?   @map("cloudsign_self_signing_url") @db.VarChar(2000)
   cloudsignSelfSigningEmailId Int?      @map("cloudsign_self_signing_email_id")
   cloudsignSelfSignedAt       DateTime? @map("cloudsign_self_signed_at")
+  // 締結完了時に CloudSign から取得した受信者の入力値 (widget の label と text の配列)
+  // { capturedAt: ISO8601, widgets: [{ label, text, widgetType, page, participantId, participantEmail?, status }, ...] }
+  cloudsignInputData          Json?     @map("cloudsign_input_data")
   filePath                    String?   @map("file_path") @db.VarChar(500)
   fileName                    String?   @map("file_name") @db.VarChar(200)
   assignedTo                  String?   @map("assigned_to") @db.VarChar(500)

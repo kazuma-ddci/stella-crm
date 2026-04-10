@@ -7,10 +7,83 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { cloudsignClient } from "@/lib/cloudsign";
+import { cloudsignClient, type CloudSignDocument } from "@/lib/cloudsign";
 import { recordStatusChangeIfNeeded } from "@/lib/contract-status/record-status-change";
 import * as fs from "fs/promises";
 import * as path from "path";
+
+/**
+ * 締結完了した CloudSign 書類から、受信者（お客様）が入力した widget の値を抽出する。
+ *
+ * - widget_type === 1 (フリーテキスト) と 2 (チェックボックス) を主に対象とする
+ * - 署名 (widget_type === 0) は status だけを記録
+ * - トップレベル data.widgets のフォールバックも対応（CloudSign のレスポンス形式ゆらぎ対策）
+ * - widget_type が数値でも文字列でも拾えるよう String() で比較
+ */
+export function extractCloudsignInputData(doc: CloudSignDocument): {
+  capturedAt: string;
+  documentId: string;
+  widgets: Array<{
+    label: string | null;
+    text: string;
+    widgetType: number;
+    widgetTypeName: string;
+    page: number;
+    status: number;
+    participantId: string;
+    participantEmail: string | null;
+  }>;
+} {
+  // participant_id → email のマップ
+  const participantMap = new Map<string, string>();
+  for (const p of doc.participants ?? []) {
+    participantMap.set(p.id, p.email);
+  }
+
+  // files[].widgets[] を全部集める（空ならトップレベル data.widgets をフォールバック）
+  const all: Array<Record<string, unknown>> = [];
+  for (const file of doc.files ?? []) {
+    for (const w of file.widgets ?? []) {
+      all.push(w as unknown as Record<string, unknown>);
+    }
+  }
+  if (all.length === 0) {
+    const topLevel = (doc as unknown as { widgets?: Array<Record<string, unknown>> })
+      .widgets;
+    if (topLevel && Array.isArray(topLevel)) {
+      for (const w of topLevel) all.push(w);
+    }
+  }
+
+  const WIDGET_TYPE_NAMES: Record<string, string> = {
+    "0": "署名",
+    "1": "フリーテキスト",
+    "2": "チェックボックス",
+  };
+
+  const widgets = all.map((w) => {
+    const widgetTypeRaw = w.widget_type;
+    const widgetTypeKey = String(widgetTypeRaw ?? "");
+    const widgetType = Number(widgetTypeRaw ?? 0) || 0;
+    const participantId = String(w.participant_id ?? "");
+    return {
+      label: (w.label as string | undefined)?.trim() || null,
+      text: String(w.text ?? ""),
+      widgetType,
+      widgetTypeName: WIDGET_TYPE_NAMES[widgetTypeKey] ?? "不明",
+      page: Number(w.page ?? 0) || 0,
+      status: Number(w.status ?? 0) || 0,
+      participantId,
+      participantEmail: participantMap.get(participantId) ?? null,
+    };
+  });
+
+  return {
+    capturedAt: new Date().toISOString(),
+    documentId: doc.id,
+    widgets,
+  };
+}
 
 type ContractForSync = {
   id: number;
@@ -109,6 +182,7 @@ export async function syncContractStatus(
   // CloudSign APIからタイトルを取得（clientIdがある場合）
   let cloudTitle: string | null = null;
   let pdfResult: { filePath: string; fileName: string } | null = null;
+  let inputData: ReturnType<typeof extractCloudsignInputData> | null = null;
 
   if (clientId && contract.cloudsignDocumentId) {
     try {
@@ -146,7 +220,7 @@ export async function syncContractStatus(
         }
       }
 
-      // completed時にPDFをダウンロード（ファイルID指定）
+      // completed時にPDFをダウンロード（ファイルID指定）+ 受信者入力値の抽出
       if (newCloudsignStatus === "completed" && doc.files && doc.files.length > 0) {
         try {
           pdfResult = await saveSignedPdf(
@@ -161,6 +235,17 @@ export async function syncContractStatus(
           console.error(
             `[CloudSign Sync] PDF保存失敗 (contract #${contract.id}). 手動同期で再取得してください:`,
             pdfErr
+          );
+        }
+
+        // 受信者（お客様）が契約書に入力した内容を抽出
+        // 失敗してもステータス更新は続行する
+        try {
+          inputData = extractCloudsignInputData(doc);
+        } catch (extractErr) {
+          console.error(
+            `[CloudSign Sync] Widget入力値抽出失敗 (contract #${contract.id}):`,
+            extractErr
           );
         }
       }
@@ -194,6 +279,10 @@ export async function syncContractStatus(
     if (pdfResult) {
       updateData.filePath = pdfResult.filePath;
       updateData.fileName = pdfResult.fileName;
+    }
+
+    if (inputData) {
+      updateData.cloudsignInputData = inputData;
     }
 
     await tx.masterContract.update({

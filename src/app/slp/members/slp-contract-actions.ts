@@ -48,6 +48,20 @@ export async function getSlpMemberContracts(memberId: number) {
     cloudsignSentAt: c.cloudsignSentAt?.toISOString() ?? null,
     cloudsignCompletedAt: c.cloudsignCompletedAt?.toISOString() ?? null,
     cloudsignLastRemindedAt: c.cloudsignLastRemindedAt?.toISOString() ?? null,
+    cloudsignInputData: c.cloudsignInputData as null | {
+      capturedAt: string;
+      documentId: string;
+      widgets: Array<{
+        label: string | null;
+        text: string;
+        widgetType: number;
+        widgetTypeName: string;
+        page: number;
+        status: number;
+        participantId: string;
+        participantEmail: string | null;
+      }>;
+    },
     filePath: c.filePath,
     fileName: c.fileName,
     contractFiles: c.contractFiles.map((cf) => ({
