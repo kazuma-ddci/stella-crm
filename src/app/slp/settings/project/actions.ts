@@ -105,16 +105,16 @@ export async function updateSlpForm5AutoSendOnLink(
   revalidatePath("/slp/settings/project");
 }
 
-// 入会フォーム用契約種別の更新
-export async function updateMemberContractType(
+// 入会フォーム回答後の自動送付契約書（CloudSignテンプレート）の更新
+export async function updateMemberCloudSignTemplate(
   projectId: number,
-  contractTypeId: number | null
+  templateId: number | null
 ) {
   await requireProjectMasterDataEditPermission("slp");
 
   await prisma.masterProject.update({
     where: { id: projectId },
-    data: { slpMemberContractTypeId: contractTypeId },
+    data: { slpMemberCloudSignTemplateId: templateId },
   });
 
   revalidatePath("/slp/settings/project");

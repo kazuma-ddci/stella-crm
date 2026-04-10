@@ -29,16 +29,37 @@ export default async function SlpProjectSettingsPage() {
     },
   });
 
-  // SLPプロジェクトの契約種別一覧を取得
+  // SLPプロジェクトの契約種別一覧（追加モーダル表示用）
   const contractTypes = slpProject
     ? await prisma.contractType.findMany({
         where: { projectId: slpProject.id, isActive: true },
-        include: {
-          cloudsignTemplates: {
-            include: { template: { select: { name: true, cloudsignTemplateId: true } } },
+        orderBy: { displayOrder: "asc" },
+      })
+    : [];
+
+  // SLP契約種別に紐付いた CloudSign テンプレート一覧（自動送付契約書の選択肢）
+  // B案: 何らかのSLP契約種別に紐付いているテンプレートのみ
+  const memberTemplates = slpProject
+    ? await prisma.cloudSignTemplate.findMany({
+        where: {
+          isActive: true,
+          contractTypes: {
+            some: {
+              contractType: {
+                projectId: slpProject.id,
+                isActive: true,
+              },
+            },
           },
         },
-        orderBy: { displayOrder: "asc" },
+        include: {
+          contractTypes: {
+            include: {
+              contractType: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { name: "asc" },
       })
     : [];
 
@@ -95,9 +116,14 @@ export default async function SlpProjectSettingsPage() {
         contractTypes={contractTypes.map((ct) => ({
           id: ct.id,
           name: ct.name,
-          templateNames: ct.cloudsignTemplates.map((t) => t.template.name),
         }))}
-        currentMemberContractTypeId={slpProject.slpMemberContractTypeId}
+        memberTemplates={memberTemplates.map((t) => ({
+          id: t.id,
+          name: t.name,
+          cloudsignTemplateId: t.cloudsignTemplateId,
+          contractTypeNames: t.contractTypes.map((ct) => ct.contractType.name),
+        }))}
+        currentMemberCloudSignTemplateId={slpProject.slpMemberCloudSignTemplateId}
         autoSendContract={slpProject.autoSendContract}
         slpForm5AutoSendOnLink={slpProject.slpForm5AutoSendOnLink}
         emails={slpProject.projectEmails.map((pe) => ({

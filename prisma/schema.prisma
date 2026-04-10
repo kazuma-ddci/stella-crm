@@ -508,7 +508,6 @@ model ContractType {
   // Relations
   project            MasterProject                   @relation(fields: [projectId], references: [id])
   cloudsignTemplates CloudSignTemplateContractType[]
-  slpMemberProjects  MasterProject[]                 @relation("SlpMemberContractType")
 
   @@unique([projectId, name])
   @@index([projectId], map: "idx_contract_types_project_id")
@@ -530,8 +529,9 @@ model CloudSignTemplate {
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
-  operatingCompany OperatingCompany                @relation(fields: [operatingCompanyId], references: [id])
-  contractTypes    CloudSignTemplateContractType[]
+  operatingCompany  OperatingCompany                @relation(fields: [operatingCompanyId], references: [id])
+  contractTypes     CloudSignTemplateContractType[]
+  slpMemberProjects MasterProject[]                 @relation("SlpMemberCloudSignTemplate")
 
   @@unique([operatingCompanyId, cloudsignTemplateId])
   @@index([operatingCompanyId], map: "idx_cloudsign_templates_operating_company_id")
@@ -948,7 +948,7 @@ model MasterProject {
   displayOrder            Int     @default(0) @map("display_order")
   operatingCompanyId      Int?    @map("operating_company_id")
   defaultCostCenterId     Int?    @map("default_cost_center_id")
-  slpMemberContractTypeId Int?    @map("slp_member_contract_type_id") // SLP入会フォーム用の契約種別
+  slpMemberCloudSignTemplateId Int? @map("slp_member_cloudsign_template_id") // SLP入会フォーム回答後の自動送付契約書(CloudSignテンプレート)
   reminderDays            Int     @default(7) @map("reminder_days") // 契約書送付から何日後にリマインドするか
   autoSendContract        Boolean @default(true) @map("auto_send_contract") // フォーム回答時の契約書自動送付ON/OFF
   slpForm5AutoSendOnLink  Boolean @default(false) @map("slp_form5_auto_send_on_link") // LINE後紐付け時にForm5（紹介者通知）を自動送信するか
@@ -960,7 +960,7 @@ model MasterProject {
   operatingCompany          OperatingCompany?             @relation(fields: [operatingCompanyId], references: [id])
   defaultApprover           MasterStaff?                  @relation("ProjectDefaultApprover", fields: [defaultApproverStaffId], references: [id])
   defaultCostCenter         CostCenter?                   @relation("ProjectDefaultCostCenter", fields: [defaultCostCenterId], references: [id])
-  slpMemberContractType     ContractType?                 @relation("SlpMemberContractType", fields: [slpMemberContractTypeId], references: [id])
+  slpMemberCloudSignTemplate CloudSignTemplate?           @relation("SlpMemberCloudSignTemplate", fields: [slpMemberCloudSignTemplateId], references: [id])
   contracts                 MasterContract[]
   staffAssignments          StaffProjectAssignment[]
   staffPermissions          StaffPermission[]

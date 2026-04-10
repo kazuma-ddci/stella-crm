@@ -31,7 +31,7 @@ import {
 import { Loader2, Mail, Landmark, Star, FileText, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
-import { updateProjectBasicInfo, updateOperatingCompanyInfo, updateMemberContractType, updateAutoSendContract, updateSlpForm5AutoSendOnLink } from "./actions";
+import { updateProjectBasicInfo, updateOperatingCompanyInfo, updateMemberCloudSignTemplate, updateAutoSendContract, updateSlpForm5AutoSendOnLink } from "./actions";
 import { addContractType } from "@/app/settings/contract-types/actions";
 import { ProjectEmailsModal } from "@/app/settings/projects/project-emails-modal";
 import { ProjectBankAccountsModal } from "@/app/settings/projects/project-bank-accounts-modal";
@@ -72,7 +72,13 @@ type BankAccountItem = {
 type ContractTypeOption = {
   id: number;
   name: string;
-  templateNames: string[];
+};
+
+type MemberTemplateOption = {
+  id: number;
+  name: string;
+  cloudsignTemplateId: string;
+  contractTypeNames: string[];
 };
 
 type ApproverOption = { id: number; name: string };
@@ -82,7 +88,8 @@ type Props = {
   operatingCompany: OperatingCompanyData;
   isSystemAdmin: boolean;
   contractTypes: ContractTypeOption[];
-  currentMemberContractTypeId: number | null;
+  memberTemplates: MemberTemplateOption[];
+  currentMemberCloudSignTemplateId: number | null;
   autoSendContract: boolean;
   slpForm5AutoSendOnLink: boolean;
   emails: EmailItem[];
@@ -91,7 +98,7 @@ type Props = {
   approverOptions: ApproverOption[];
 };
 
-export function ProjectSettings({ project, operatingCompany, isSystemAdmin, contractTypes, currentMemberContractTypeId, autoSendContract, slpForm5AutoSendOnLink, emails, bankAccounts, canEdit, approverOptions }: Props) {
+export function ProjectSettings({ project, operatingCompany, isSystemAdmin, contractTypes, memberTemplates, currentMemberCloudSignTemplateId, autoSendContract, slpForm5AutoSendOnLink, emails, bankAccounts, canEdit, approverOptions }: Props) {
   const router = useRouter();
   const [projectName, setProjectName] = useState(project.name);
   const [projectDescription, setProjectDescription] = useState(
@@ -121,11 +128,11 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, cont
   const [companySaving, setCompanySaving] = useState(false);
   const [companySuccess, setCompanySuccess] = useState(false);
 
-  const [memberContractTypeId, setMemberContractTypeId] = useState<string>(
-    currentMemberContractTypeId ? String(currentMemberContractTypeId) : ""
+  const [memberTemplateId, setMemberTemplateId] = useState<string>(
+    currentMemberCloudSignTemplateId ? String(currentMemberCloudSignTemplateId) : ""
   );
-  const [contractTypeSaving, setContractTypeSaving] = useState(false);
-  const [contractTypeSuccess, setContractTypeSuccess] = useState(false);
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateSuccess, setTemplateSuccess] = useState(false);
 
   const [autoSend, setAutoSend] = useState(autoSendContract);
   const [autoSendSaving, setAutoSendSaving] = useState(false);
@@ -186,18 +193,18 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, cont
     }
   };
 
-  const handleSaveContractType = async () => {
-    setContractTypeSaving(true);
-    setContractTypeSuccess(false);
+  const handleSaveMemberTemplate = async () => {
+    setTemplateSaving(true);
+    setTemplateSuccess(false);
     try {
-      await updateMemberContractType(
+      await updateMemberCloudSignTemplate(
         project.id,
-        memberContractTypeId ? Number(memberContractTypeId) : null
+        memberTemplateId ? Number(memberTemplateId) : null
       );
-      setContractTypeSuccess(true);
-      setTimeout(() => setContractTypeSuccess(false), 3000);
+      setTemplateSuccess(true);
+      setTimeout(() => setTemplateSuccess(false), 3000);
     } finally {
-      setContractTypeSaving(false);
+      setTemplateSaving(false);
     }
   };
 
@@ -297,32 +304,32 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, cont
 
       <Card>
         <CardHeader>
-          <CardTitle>入会フォーム設定</CardTitle>
+          <CardTitle>入会フォーム回答後の自動送付契約書</CardTitle>
           <CardDescription>
-            組合員入会フォームから契約書を自動送付する際の契約種別を設定します。
-            契約種別にCloudSignテンプレートを紐付けてください（共通設定 &gt; 契約種別管理）。
+            組合員入会フォーム回答時に自動送付するCloudSign契約書テンプレートを選択します。
+            選択肢には、SLPの契約種別に紐付いたテンプレートが表示されます。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label>入会フォーム用の契約種別</Label>
+            <Label>自動送付するテンプレート</Label>
             <Select
-              value={memberContractTypeId}
-              onValueChange={setMemberContractTypeId}
+              value={memberTemplateId}
+              onValueChange={setMemberTemplateId}
               disabled={!canEdit}
             >
               <SelectTrigger>
-                <SelectValue placeholder="契約種別を選択してください" />
+                <SelectValue placeholder="テンプレートを選択してください" />
               </SelectTrigger>
               <SelectContent>
-                {contractTypes.map((ct) => (
-                  <SelectItem key={ct.id} value={String(ct.id)}>
+                {memberTemplates.map((t) => (
+                  <SelectItem key={t.id} value={String(t.id)}>
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4 text-muted-foreground" />
-                      <span>{ct.name}</span>
-                      {ct.templateNames.length > 0 && (
+                      <span>{t.name}</span>
+                      {t.contractTypeNames.length > 0 && (
                         <span className="text-xs text-muted-foreground">
-                          ({ct.templateNames.join(", ")})
+                          ({t.contractTypeNames.join(", ")})
                         </span>
                       )}
                     </div>
@@ -330,18 +337,25 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, cont
                 ))}
               </SelectContent>
             </Select>
-            {contractTypes.length === 0 && (
+            {memberTemplates.length === 0 && (
               <p className="text-xs text-amber-600">
-                契約種別が登録されていません。下の「契約種別を追加」から作成してください。
+                選択可能なテンプレートがありません。先に下の「契約種別を追加」で契約種別を作成し、
+                <a
+                  href="/settings/contract-types?project=slp"
+                  className="text-blue-600 hover:underline mx-1"
+                >
+                  契約種別管理ページ
+                </a>
+                の「テンプレート管理」からCloudSignテンプレートを登録してください。
               </p>
             )}
           </div>
           <div className="flex items-center gap-3">
             <Button
-              onClick={handleSaveContractType}
-              disabled={contractTypeSaving || !canEdit}
+              onClick={handleSaveMemberTemplate}
+              disabled={templateSaving || !canEdit}
             >
-              {contractTypeSaving ? (
+              {templateSaving ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   保存中...
@@ -350,7 +364,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, cont
                 "保存"
               )}
             </Button>
-            {contractTypeSuccess && (
+            {templateSuccess && (
               <span className="text-sm text-green-600">保存しました</span>
             )}
             <Button
@@ -365,7 +379,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, cont
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            CloudSignテンプレートの紐付けは、追加後に
+            CloudSignテンプレートの登録・編集は、
             <a
               href="/settings/contract-types?project=slp"
               className="text-blue-600 hover:underline mx-1"

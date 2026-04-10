@@ -88,6 +88,7 @@ export async function reorderContractTypes(orderedIds: number[]) {
 
 /**
  * 契約種別に紐づくテンプレート一覧を取得
+ * 各テンプレートが他の契約種別でも使われているかの情報も返す
  */
 export async function getLinkedTemplates(contractTypeId: number) {
   const links = await prisma.cloudSignTemplateContractType.findMany({
@@ -97,6 +98,14 @@ export async function getLinkedTemplates(contractTypeId: number) {
         include: {
           operatingCompany: {
             select: { companyName: true },
+          },
+          contractTypes: {
+            where: { contractTypeId: { not: contractTypeId } },
+            include: {
+              contractType: {
+                select: { name: true, project: { select: { name: true } } },
+              },
+            },
           },
         },
       },
@@ -111,7 +120,38 @@ export async function getLinkedTemplates(contractTypeId: number) {
     name: l.template.name,
     description: l.template.description,
     operatingCompanyName: l.template.operatingCompany.companyName,
+    // 他の契約種別（同じプロジェクトか別プロジェクトか問わず）での紐付け
+    otherContractTypes: l.template.contractTypes.map((c) => ({
+      name: c.contractType.name,
+      projectName: c.contractType.project.name,
+    })),
   }));
+}
+
+/**
+ * テンプレートの名前・説明を更新
+ * 注意: 同じテンプレートが他の契約種別で共有されている場合、そちらにも反映されます
+ */
+export async function updateTemplate(
+  templateId: number,
+  input: { name: string; description: string | null }
+) {
+  await requireProjectMasterDataEditPermission();
+
+  if (!input.name.trim()) {
+    throw new Error("テンプレート名を入力してください");
+  }
+
+  await prisma.cloudSignTemplate.update({
+    where: { id: templateId },
+    data: {
+      name: input.name.trim(),
+      description: input.description?.trim() || null,
+    },
+  });
+
+  revalidatePath("/settings/contract-types");
+  revalidatePath("/slp/settings/project");
 }
 
 /**

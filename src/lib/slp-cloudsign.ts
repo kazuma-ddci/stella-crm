@@ -5,7 +5,7 @@
  * 既存の cloudsignClient (src/lib/cloudsign.ts) を利用する。
  *
  * テンプレートIDの解決順序:
- * 1. SLPプロジェクト設定の「入会フォーム用契約種別」に紐付くCloudSignテンプレート
+ * 1. SLPプロジェクト設定の「入会フォーム回答後の自動送付契約書」で選択されたCloudSignテンプレート
  * 2. 環境変数 SLP_CLOUDSIGN_TEMPLATE_ID
  * 3. フォールバック: GASと同じハードコード値
  */
@@ -38,13 +38,11 @@ async function getSlpCloudsignConfig(): Promise<{
       operatingCompany: {
         select: { cloudsignClientId: true },
       },
-      slpMemberContractType: {
+      slpMemberCloudSignTemplate: {
         include: {
-          cloudsignTemplates: {
+          contractTypes: {
             include: {
-              template: {
-                select: { cloudsignTemplateId: true, isActive: true, name: true },
-              },
+              contractType: { select: { name: true } },
             },
           },
         },
@@ -64,20 +62,19 @@ async function getSlpCloudsignConfig(): Promise<{
     );
   }
 
-  // テンプレートID/名・契約種別名: 契約種別設定 → 環境変数 → フォールバック
+  // テンプレートID/名・契約種別名: 選択済みテンプレート → 環境変数 → フォールバック
   let templateId = FALLBACK_TEMPLATE_ID;
   let templateName: string | null = null;
   let contractTypeName: string | null = null;
 
-  const contractType = project.slpMemberContractType;
-  if (contractType) {
-    contractTypeName = contractType.name;
-    const activeTemplate = contractType.cloudsignTemplates.find(
-      (link) => link.template.isActive
-    );
-    if (activeTemplate) {
-      templateId = activeTemplate.template.cloudsignTemplateId;
-      templateName = activeTemplate.template.name;
+  const selectedTemplate = project.slpMemberCloudSignTemplate;
+  if (selectedTemplate && selectedTemplate.isActive) {
+    templateId = selectedTemplate.cloudsignTemplateId;
+    templateName = selectedTemplate.name;
+    // 契約種別名は紐付いた最初の契約種別の名前を使用
+    const firstLink = selectedTemplate.contractTypes[0];
+    if (firstLink) {
+      contractTypeName = firstLink.contractType.name;
     }
   }
 
