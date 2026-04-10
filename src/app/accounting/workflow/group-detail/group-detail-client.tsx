@@ -265,7 +265,6 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
   };
 
   const groupTypeLabel = detail.groupType === "invoice" ? "請求" : "支払";
-  const paymentLabel = detail.groupType === "invoice" ? "入金日" : "支払日";
 
   return (
     <>
@@ -341,10 +340,20 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
               )}
             </div>
             <div className="flex items-center gap-2">
-              {detail.hasActualPaymentDate ? (
+              {/* 経理判断による入金/支払ステータス（手動フラグ） */}
+              {detail.manualPaymentStatus === "completed" ? (
                 <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
                   <Check className="h-3 w-3 mr-1" />
-                  {paymentLabel}確認済
+                  {detail.groupType === "invoice" ? "入金" : "支払"}完了
+                  {detail.actualPaymentDate && (
+                    <span className="ml-1 font-mono">
+                      ({new Date(detail.actualPaymentDate).toLocaleDateString("ja-JP")})
+                    </span>
+                  )}
+                </Badge>
+              ) : detail.manualPaymentStatus === "partial" ? (
+                <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300">
+                  一部{detail.groupType === "invoice" ? "入金" : "支払"}
                   {detail.actualPaymentDate && (
                     <span className="ml-1 font-mono">
                       ({new Date(detail.actualPaymentDate).toLocaleDateString("ja-JP")})
@@ -353,7 +362,7 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
                 </Badge>
               ) : (
                 <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
-                  <Clock className="h-3 w-3 mr-1" />{paymentLabel}未確認
+                  <Clock className="h-3 w-3 mr-1" />未{detail.groupType === "invoice" ? "入金" : "支払"}
                 </Badge>
               )}
             </div>

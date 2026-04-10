@@ -23,7 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { PaymentGroupListItem } from "./actions";
-import { submitPaymentGroupToAccounting } from "./actions";
+import { submitPaymentGroupToAccounting, getPaymentGroupById } from "./actions";
 import { toLocalDateString } from "@/lib/utils";
 import { CreatePaymentGroupModal } from "./create-payment-group-modal";
 import { PaymentGroupDetailModal } from "./payment-group-detail-modal";
@@ -72,14 +72,15 @@ type TabDef = {
 };
 
 // 「支払完了」判定:
-//   - 新方式: 支払記録の合計が請求金額と一致 (paymentStatus === "complete")
-//   - 旧データ: ステータスが既に paid になっているもの (移行済みデータを含む)
+//   経理が手動で「支払完了 (completed)」フラグを立てたもののみ
+//   (振込手数料等で記録合計と支払金額が一致しないため、自動判定は不可能)
 function isPaidCompleted(r: PaymentGroupListItem): boolean {
-  return r.paymentStatus === "complete" || r.status === "paid";
+  return r.manualPaymentStatus === "completed";
 }
 
 // 「支払待ち」判定:
-//   経理引渡し済み (awaiting_accounting) で、まだ支払記録が揃っていないもの
+//   経理引渡し済み (awaiting_accounting) で、支払完了になっていないもの
+//   (未支払 + 一部支払中 の両方を含む)
 function isAwaitingPayment(r: PaymentGroupListItem): boolean {
   const isHandedOver = r.status === "awaiting_accounting";
   return isHandedOver && !isPaidCompleted(r);
@@ -156,6 +157,13 @@ export function PaymentGroupsTable({
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedGroup, setSelectedGroup] =
     useState<PaymentGroupListItem | null>(null);
+
+  const handlePaymentCreated = async (groupId: number) => {
+    const group = await getPaymentGroupById(groupId);
+    if (group) {
+      setSelectedGroup(group);
+    }
+  };
 
   const tabCounts = useMemo(() => {
     const counts: Partial<Record<StatusTab, number>> = {};
@@ -360,15 +368,13 @@ export function PaymentGroupsTable({
                     {row.actualPaymentDate ? (
                       <span className="whitespace-nowrap">
                         {row.actualPaymentDate}
-                        {row.paymentStatus === "partial" && (
+                        {row.manualPaymentStatus === "partial" && (
                           <span className="ml-1 text-red-600 text-xs font-medium">(一部支払)</span>
                         )}
-                        {row.paymentStatus === "over" && (
-                          <span className="ml-1 text-yellow-700 text-xs font-medium">(過剰)</span>
+                        {row.manualPaymentStatus === "completed" && (
+                          <span className="ml-1 text-green-700 text-xs font-medium">(完了)</span>
                         )}
                       </span>
-                    ) : row.status === "paid" ? (
-                      "—"
                     ) : (
                       <span className="text-orange-600 font-medium">未支払</span>
                     )}
@@ -469,6 +475,7 @@ export function PaymentGroupsTable({
           operatingCompanyOptions={operatingCompanyOptions}
           expenseCategories={expenseCategories}
           projectId={projectId}
+          onCreated={handlePaymentCreated}
         />
       )}
 

@@ -65,6 +65,7 @@ import {
   changeConsultationStatusWithReason,
   setManualContactAs,
   clearManualContactAs,
+  markAsNotDuplicate,
   type CompanyBasicInfoPatch,
   type MasterKind,
 } from "../actions";
@@ -147,6 +148,11 @@ export type CompanyDetailRecord = {
   briefingStaffName: string | null;
   briefingChangedAt: string | null;
   briefingCanceledAt: string | null;
+  // 予約ID（メイン + マージで取り込まれた配列）
+  reservationId: string | null;
+  consultationReservationId: string | null;
+  mergedBriefingReservationIds: string[];
+  mergedConsultationReservationIds: string[];
   // 導入希望商談
   consultationStatus: string | null;
   consultationBookedAt: string | null;
@@ -180,7 +186,8 @@ export type CompanyDetailRecord = {
   status2Id: number | null;
   status2Name: string | null;
   lastContactDate: string | null;
-  annualLaborCost: string | null;
+  annualLaborCostExecutive: string | null;
+  annualLaborCostEmployee: string | null;
   averageMonthlySalary: string | null;
   // 金額・契約情報
   initialFee: string | null;
@@ -237,6 +244,13 @@ type AgencyResolutionEntry = {
   agencies: Array<{ agencyId: number; agencyName: string; label: string }>;
 };
 
+type DuplicateCandidateInfo = {
+  candidateId: number;
+  otherRecordId: number;
+  otherCompanyName: string | null;
+  reasons: string[];
+};
+
 type Props = {
   record: CompanyDetailRecord;
   lineFriendOptions: LineFriendOption[];
@@ -253,6 +267,7 @@ type Props = {
     contactDisplay: string;
     agencyLabels: string[];
   }>;
+  duplicateCandidates: DuplicateCandidateInfo[];
 };
 
 // ----------------------------------------------------------------
@@ -271,6 +286,7 @@ export function CompanyDetail({
   referrerResolutions,
   agencyResolutions,
   multipleAgencyWarnings,
+  duplicateCandidates,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -296,7 +312,8 @@ export function CompanyDetail({
   const [status1Id, setStatus1Id] = useState<number | null>(record.status1Id);
   const [status2Id, setStatus2Id] = useState<number | null>(record.status2Id);
   const [lastContactDate, setLastContactDate] = useState(record.lastContactDate ?? "");
-  const [annualLaborCost, setAnnualLaborCost] = useState(record.annualLaborCost ?? "");
+  const [annualLaborCostExecutive, setAnnualLaborCostExecutive] = useState(record.annualLaborCostExecutive ?? "");
+  const [annualLaborCostEmployee, setAnnualLaborCostEmployee] = useState(record.annualLaborCostEmployee ?? "");
   const [averageMonthlySalary, setAverageMonthlySalary] = useState(record.averageMonthlySalary ?? "");
 
   // --- 金額・契約 ---
@@ -364,7 +381,8 @@ export function CompanyDetail({
         status1Id,
         status2Id,
         lastContactDate,
-        annualLaborCost,
+        annualLaborCostExecutive,
+        annualLaborCostEmployee,
         averageMonthlySalary,
         initialFee,
         initialPeopleCount,
@@ -398,7 +416,7 @@ export function CompanyDetail({
       companyName, representativeName, employeeCount, prefecture, address, companyPhone,
       pensionOffice, pensionOfficerName, industryId, flowSourceId,
       salesStaffId, status1Id, status2Id, lastContactDate,
-      annualLaborCost, averageMonthlySalary,
+      annualLaborCostExecutive, annualLaborCostEmployee, averageMonthlySalary,
       initialFee, initialPeopleCount, monthlyFee, monthlyPeopleCount,
       contractDate, lastPaymentDate, invoiceSentDate, nextPaymentDate,
       estMaxRefundPeople, estMaxRefundAmount, estOurRevenue, estAgentPayment,
@@ -465,7 +483,8 @@ export function CompanyDetail({
           status1Id,
           status2Id,
           lastContactDate,
-          annualLaborCost,
+          annualLaborCostExecutive,
+          annualLaborCostEmployee,
           averageMonthlySalary,
           initialFee,
           initialPeopleCount,
@@ -955,6 +974,65 @@ export function CompanyDetail({
         </div>
       </div>
 
+      {/* 重複候補の警告バッジ */}
+      {duplicateCandidates.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+          <div className="flex items-start gap-2">
+            <span className="text-amber-700">⚠️</span>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-amber-900">
+                この企業には{duplicateCandidates.length}件の重複候補があります
+              </p>
+              <ul className="mt-1.5 space-y-1 text-xs text-amber-800">
+                {duplicateCandidates.map((c) => (
+                  <li key={c.candidateId} className="flex items-center gap-2 flex-wrap">
+                    <Link
+                      href={`/slp/companies/${c.otherRecordId}`}
+                      className="font-medium hover:underline"
+                    >
+                      ID {c.otherRecordId}: {c.otherCompanyName ?? "(未登録)"}
+                    </Link>
+                    <span className="text-amber-600">
+                      ({c.reasons.join(", ")})
+                    </span>
+                    <Link
+                      href={`/slp/companies/merge?a=${record.id}&b=${c.otherRecordId}`}
+                      className="text-blue-600 hover:underline"
+                    >
+                      統合する →
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (
+                          !confirm(
+                            "この2社は重複ではないとマークしますか？以降この組み合わせは候補に表示されません"
+                          )
+                        )
+                          return;
+                        try {
+                          await markAsNotDuplicate(
+                            record.id,
+                            c.otherRecordId
+                          );
+                          toast.success("重複候補から除外しました");
+                          router.refresh();
+                        } catch {
+                          toast.error("操作に失敗しました");
+                        }
+                      }}
+                      className="text-slate-600 hover:underline"
+                    >
+                      重複ではない
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ============================================
           タブ
           ============================================ */}
@@ -1162,12 +1240,21 @@ export function CompanyDetail({
                   />
                 </div>
                 <div>
-                  <Label>年間人件費（円）</Label>
+                  <Label>年間人件費（役員様分）（円）</Label>
                   <Input
                     type="number"
-                    value={annualLaborCost}
-                    onChange={(e) => setAnnualLaborCost(e.target.value)}
-                    placeholder="例: 50000000"
+                    value={annualLaborCostExecutive}
+                    onChange={(e) => setAnnualLaborCostExecutive(e.target.value)}
+                    placeholder="例: 20000000"
+                  />
+                </div>
+                <div>
+                  <Label>年間人件費（従業員様分）（円）</Label>
+                  <Input
+                    type="number"
+                    value={annualLaborCostEmployee}
+                    onChange={(e) => setAnnualLaborCostEmployee(e.target.value)}
+                    placeholder="例: 30000000"
                   />
                 </div>
                 <div>
@@ -1502,6 +1589,65 @@ export function CompanyDetail({
                     </p>
                   </div>
                 </div>
+
+                {/* ----- 概要案内の予約ID一覧 ----- */}
+                <hr />
+                <div>
+                  <Label className="mb-2 block">概要案内の予約ID</Label>
+                  {!record.reservationId &&
+                  record.mergedBriefingReservationIds.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      予約はありません
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {record.reservationId && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Badge variant="default" className="text-xs">
+                            メイン
+                          </Badge>
+                          <code className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">
+                            {record.reservationId}
+                          </code>
+                          {record.briefingDate && (
+                            <span className="text-xs text-muted-foreground">
+                              {record.briefingDate}
+                            </span>
+                          )}
+                          {record.briefingStatus && (
+                            <Badge variant="outline" className="text-xs">
+                              {record.briefingStatus}
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                      {record.mergedBriefingReservationIds.map((rid) => (
+                        <div key={rid} className="flex items-center gap-2 text-sm">
+                          <Badge
+                            variant="secondary"
+                            className="text-xs bg-amber-100 text-amber-800"
+                          >
+                            取り込み
+                          </Badge>
+                          <code className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">
+                            {rid}
+                          </code>
+                          <span className="text-xs text-muted-foreground">
+                            （統合で取り込まれた予約 / 詳細はプロライン側で確認）
+                          </span>
+                        </div>
+                      ))}
+                      {(record.reservationId !== null ? 1 : 0) +
+                        record.mergedBriefingReservationIds.length >
+                        1 && (
+                        <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
+                          ⚠️
+                          1企業に対して複数の概要案内予約が紐付いています。お客様にご確認の上、不要な予約はキャンセルするなど対応してください。
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1654,6 +1800,65 @@ export function CompanyDetail({
                       公的(SLP)に閲覧以上の権限を持つスタッフのみ表示
                     </p>
                   </div>
+                </div>
+
+                {/* ----- 導入希望商談の予約ID一覧 ----- */}
+                <hr />
+                <div>
+                  <Label className="mb-2 block">導入希望商談の予約ID</Label>
+                  {!record.consultationReservationId &&
+                  record.mergedConsultationReservationIds.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      予約はありません
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {record.consultationReservationId && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Badge variant="default" className="text-xs">
+                            メイン
+                          </Badge>
+                          <code className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">
+                            {record.consultationReservationId}
+                          </code>
+                          {record.consultationDate && (
+                            <span className="text-xs text-muted-foreground">
+                              {record.consultationDate}
+                            </span>
+                          )}
+                          {record.consultationStatus && (
+                            <Badge variant="outline" className="text-xs">
+                              {record.consultationStatus}
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                      {record.mergedConsultationReservationIds.map((rid) => (
+                        <div key={rid} className="flex items-center gap-2 text-sm">
+                          <Badge
+                            variant="secondary"
+                            className="text-xs bg-amber-100 text-amber-800"
+                          >
+                            取り込み
+                          </Badge>
+                          <code className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">
+                            {rid}
+                          </code>
+                          <span className="text-xs text-muted-foreground">
+                            （統合で取り込まれた予約 / 詳細はプロライン側で確認）
+                          </span>
+                        </div>
+                      ))}
+                      {(record.consultationReservationId !== null ? 1 : 0) +
+                        record.mergedConsultationReservationIds.length >
+                        1 && (
+                        <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
+                          ⚠️
+                          1企業に対して複数の導入希望商談予約が紐付いています。お客様にご確認の上、不要な予約はキャンセルするなど対応してください。
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>

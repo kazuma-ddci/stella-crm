@@ -132,6 +132,26 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
 
   if (!record) notFound();
 
+  // この企業の重複候補を取得
+  const duplicateCandidates = await prisma.slpCompanyDuplicateCandidate.findMany({
+    where: {
+      OR: [{ recordIdA: id }, { recordIdB: id }],
+    },
+    include: {
+      recordA: { select: { id: true, companyName: true } },
+      recordB: { select: { id: true, companyName: true } },
+    },
+  });
+  const duplicateCandidatesData = duplicateCandidates.map((c) => {
+    const other = c.recordIdA === id ? c.recordB : c.recordA;
+    return {
+      candidateId: c.id,
+      otherRecordId: other.id,
+      otherCompanyName: other.companyName,
+      reasons: c.reasons,
+    };
+  });
+
   // SlpAs一覧（手動上書き選択肢用）
   const asOptions = await prisma.slpAs.findMany({
     select: { id: true, name: true },
@@ -194,6 +214,11 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
     consultationStaffName: record.consultationStaffUser?.name ?? null,
     consultationChangedAt: toJstDisplay(record.consultationChangedAt),
     consultationCanceledAt: toJstDisplay(record.consultationCanceledAt),
+    // 予約ID（メイン + マージで取り込まれた配列）
+    reservationId: record.reservationId,
+    consultationReservationId: record.consultationReservationId,
+    mergedBriefingReservationIds: record.mergedBriefingReservationIds,
+    mergedConsultationReservationIds: record.mergedConsultationReservationIds,
     // 基本情報
     companyName: record.companyName,
     representativeName: record.representativeName,
@@ -214,7 +239,8 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
     status2Id: record.status2Id,
     status2Name: record.status2?.name ?? null,
     lastContactDate: toDateString(record.lastContactDate),
-    annualLaborCost: toDecimalString(record.annualLaborCost),
+    annualLaborCostExecutive: toDecimalString(record.annualLaborCostExecutive),
+    annualLaborCostEmployee: toDecimalString(record.annualLaborCostEmployee),
     averageMonthlySalary: toDecimalString(record.averageMonthlySalary),
     // 金額・契約情報
     initialFee: toDecimalString(record.initialFee),
@@ -314,6 +340,7 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
       referrerResolutions={referrerResolutions}
       agencyResolutions={agencyResolutions}
       multipleAgencyWarnings={resolution.aggregated.multipleAgencyWarnings}
+      duplicateCandidates={duplicateCandidatesData}
     />
   );
 }

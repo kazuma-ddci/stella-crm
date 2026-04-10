@@ -58,6 +58,7 @@ export type BankTransactionRow = {
   amount: number;
   description: string | null;
   source: string;
+  linkCompleted: boolean;
   paymentMethod: {
     id: number;
     name: string;
@@ -67,18 +68,17 @@ export type BankTransactionRow = {
     id: number;
     name: string;
   } | null;
-  invoiceGroup: {
+  // 紐付けられているグループ一覧（分割紐付け対応）
+  groupLinks: {
     id: number;
-    invoiceNumber: string | null;
-    counterparty: { name: string };
-    totalAmount: number | null;
-  } | null;
-  paymentGroup: {
-    id: number;
-    referenceCode: string | null;
-    counterparty: { name: string } | null;
-    totalAmount: number | null;
-  } | null;
+    groupType: "invoice" | "payment";
+    groupId: number;
+    groupLabel: string;
+    counterpartyName: string;
+    groupTotalAmount: number | null;
+    amount: number;
+    note: string | null;
+  }[];
   reconciliations: {
     id: number;
     amount: number;
@@ -138,13 +138,6 @@ function validateBankTransactionData(data: Record<string, unknown>) {
     throw new Error("取引先IDが不正です");
   }
 
-  // invoiceGroupId / paymentGroupId（排他）
-  const invoiceGroupId = data.invoiceGroupId ? Number(data.invoiceGroupId) : null;
-  const paymentGroupId = data.paymentGroupId ? Number(data.paymentGroupId) : null;
-  if (invoiceGroupId && paymentGroupId) {
-    throw new Error("請求グループと支払グループは同時に指定できません");
-  }
-
   // amount
   const amount = Number(data.amount);
   if (isNaN(amount) || amount <= 0 || !Number.isInteger(amount)) {
@@ -159,8 +152,6 @@ function validateBankTransactionData(data: Record<string, unknown>) {
     direction,
     paymentMethodId,
     counterpartyId,
-    invoiceGroupId,
-    paymentGroupId,
     amount,
     description,
   };
@@ -252,6 +243,100 @@ export async function getBankTransactionFormData(): Promise<BankTransactionFormD
   };
 }
 
+const BANK_TX_INCLUDE = {
+  paymentMethod: {
+    select: { id: true, name: true, methodType: true },
+  },
+  counterparty: {
+    select: { id: true, name: true },
+  },
+  groupLinks: {
+    include: {
+      invoiceGroup: {
+        select: {
+          id: true,
+          invoiceNumber: true,
+          totalAmount: true,
+          counterparty: { select: { name: true } },
+        },
+      },
+      paymentGroup: {
+        select: {
+          id: true,
+          referenceCode: true,
+          totalAmount: true,
+          counterparty: { select: { name: true } },
+        },
+      },
+    },
+  },
+  reconciliations: {
+    select: { id: true, amount: true },
+  },
+  attachments: {
+    where: { deletedAt: null },
+    select: {
+      id: true,
+      fileName: true,
+      filePath: true,
+      fileSize: true,
+      mimeType: true,
+      attachmentType: true,
+    },
+  },
+  cryptoDetail: {
+    select: {
+      id: true,
+      currency: true,
+      network: true,
+      counterpartyWallet: true,
+      ownWallet: true,
+      foreignAmount: true,
+      foreignCurrency: true,
+      exchangeRate: true,
+      paymentMethodId: true,
+    },
+  },
+} as const;
+
+function mapBankTxRow(
+  raw: Awaited<ReturnType<typeof prisma.bankTransaction.findFirstOrThrow<{ include: typeof BANK_TX_INCLUDE }>>>
+): BankTransactionRow {
+  return {
+    id: raw.id,
+    transactionDate: raw.transactionDate,
+    direction: raw.direction,
+    amount: raw.amount,
+    description: raw.description,
+    source: raw.source,
+    linkCompleted: raw.linkCompleted,
+    paymentMethod: raw.paymentMethod,
+    counterparty: raw.counterparty,
+    groupLinks: raw.groupLinks.map((l) => {
+      const isInvoice = l.invoiceGroupId !== null;
+      return {
+        id: l.id,
+        groupType: isInvoice ? "invoice" as const : "payment" as const,
+        groupId: isInvoice ? (l.invoiceGroupId ?? 0) : (l.paymentGroupId ?? 0),
+        groupLabel: isInvoice
+          ? (l.invoiceGroup?.invoiceNumber ?? `INV-${l.invoiceGroupId}`)
+          : (l.paymentGroup?.referenceCode ?? `PG-${l.paymentGroupId}`),
+        counterpartyName: isInvoice
+          ? (l.invoiceGroup?.counterparty?.name ?? "")
+          : (l.paymentGroup?.counterparty?.name ?? ""),
+        groupTotalAmount: isInvoice
+          ? (l.invoiceGroup?.totalAmount ?? null)
+          : (l.paymentGroup?.totalAmount ?? null),
+        amount: l.amount,
+        note: l.note,
+      };
+    }),
+    reconciliations: raw.reconciliations,
+    attachments: raw.attachments,
+    cryptoDetail: raw.cryptoDetail,
+  };
+}
+
 export async function getBankTransactions(filters?: {
   paymentMethodIds?: number[];
   direction?: string;
@@ -271,132 +356,37 @@ export async function getBankTransactions(filters?: {
     where,
     orderBy: { transactionDate: "desc" },
     take: 200,
-    include: {
-      paymentMethod: {
-        select: { id: true, name: true, methodType: true },
-      },
-      counterparty: {
-        select: { id: true, name: true },
-      },
-      invoiceGroup: {
-        select: {
-          id: true,
-          invoiceNumber: true,
-          counterparty: { select: { name: true } },
-          totalAmount: true,
-        },
-      },
-      paymentGroup: {
-        select: {
-          id: true,
-          referenceCode: true,
-          counterparty: { select: { name: true } },
-          totalAmount: true,
-        },
-      },
-      reconciliations: {
-        select: { id: true, amount: true },
-      },
-      attachments: {
-        where: { deletedAt: null },
-        select: {
-          id: true,
-          fileName: true,
-          filePath: true,
-          fileSize: true,
-          mimeType: true,
-          attachmentType: true,
-        },
-      },
-      cryptoDetail: {
-        select: {
-          id: true,
-          currency: true,
-          network: true,
-          counterpartyWallet: true,
-          ownWallet: true,
-          foreignAmount: true,
-          foreignCurrency: true,
-          exchangeRate: true,
-          paymentMethodId: true,
-        },
-      },
-    },
+    include: BANK_TX_INCLUDE,
   });
+
+  const rows = transactions.map(mapBankTxRow);
 
   // search filter (client-side for simplicity with includes)
   if (filters?.search?.trim()) {
     const q = filters.search.trim().toLowerCase();
-    return transactions.filter(
+    return rows.filter(
       (tx) =>
         tx.counterparty?.name?.toLowerCase().includes(q) ||
         tx.description?.toLowerCase().includes(q) ||
         tx.paymentMethod.name.toLowerCase().includes(q) ||
-        tx.invoiceGroup?.counterparty?.name?.toLowerCase().includes(q) ||
-        tx.invoiceGroup?.invoiceNumber?.toLowerCase().includes(q) ||
-        tx.paymentGroup?.counterparty?.name?.toLowerCase().includes(q) ||
-        tx.paymentGroup?.referenceCode?.toLowerCase().includes(q)
+        tx.groupLinks.some(
+          (l) =>
+            l.groupLabel.toLowerCase().includes(q) ||
+            l.counterpartyName.toLowerCase().includes(q)
+        )
     );
   }
 
-  return transactions;
+  return rows;
 }
 
 export async function getBankTransaction(id: number): Promise<BankTransactionRow | null> {
-  return prisma.bankTransaction.findFirst({
+  const raw = await prisma.bankTransaction.findFirst({
     where: { id, deletedAt: null },
-    include: {
-      paymentMethod: {
-        select: { id: true, name: true, methodType: true },
-      },
-      counterparty: {
-        select: { id: true, name: true },
-      },
-      invoiceGroup: {
-        select: {
-          id: true,
-          invoiceNumber: true,
-          counterparty: { select: { name: true } },
-          totalAmount: true,
-        },
-      },
-      paymentGroup: {
-        select: {
-          id: true,
-          referenceCode: true,
-          counterparty: { select: { name: true } },
-          totalAmount: true,
-        },
-      },
-      reconciliations: {
-        select: { id: true, amount: true },
-      },
-      attachments: {
-        where: { deletedAt: null },
-        select: {
-          id: true,
-          fileName: true,
-          filePath: true,
-          fileSize: true,
-          mimeType: true,
-          attachmentType: true,
-        },
-      },
-      cryptoDetail: {
-        select: {
-          id: true,
-          currency: true,
-          network: true,
-          counterpartyWallet: true,
-          ownWallet: true,
-          foreignAmount: true,
-          foreignCurrency: true,
-          exchangeRate: true,
-          paymentMethodId: true,
-        },
-      },
-    },
+    include: BANK_TX_INCLUDE,
   });
+  if (!raw) return null;
+  return mapBankTxRow(raw);
 }
 
 // ============================================
@@ -429,8 +419,6 @@ export async function createBankTransaction(data: Record<string, unknown>) {
         direction: validated.direction,
         paymentMethodId: validated.paymentMethodId,
         counterpartyId: validated.counterpartyId,
-        invoiceGroupId: validated.invoiceGroupId,
-        paymentGroupId: validated.paymentGroupId,
         amount: validated.amount,
         description: validated.description,
         source: "manual",
@@ -525,8 +513,6 @@ export async function updateBankTransaction(id: number, data: Record<string, unk
         direction: validated.direction,
         paymentMethodId: validated.paymentMethodId,
         counterpartyId: validated.counterpartyId,
-        invoiceGroupId: validated.invoiceGroupId,
-        paymentGroupId: validated.paymentGroupId,
         amount: validated.amount,
         description: validated.description,
         updatedBy: staffId,

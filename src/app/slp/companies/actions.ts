@@ -13,6 +13,7 @@ import {
 } from "@/lib/proline-form";
 import { logAutomationError } from "@/lib/automation-error";
 import { auth } from "@/auth";
+import { recomputeDuplicateCandidatesForRecord } from "@/lib/slp/duplicate-detector";
 
 /** タグ操作の結果型 */
 export type TagResult = {
@@ -151,6 +152,14 @@ async function getCurrentStaffId(): Promise<number | null> {
 
 export async function addCompanyRecord(): Promise<{ id: number }> {
   const created = await prisma.slpCompanyRecord.create({ data: {} });
+  // 重複候補を再計算（fire-and-forget）
+  recomputeDuplicateCandidatesForRecord(created.id).catch(async (err) => {
+    await logAutomationError({
+      source: "slp-recompute-duplicates",
+      message: `重複候補の再計算に失敗: recordId=${created.id}`,
+      detail: { error: err instanceof Error ? err.message : String(err) },
+    });
+  });
   revalidatePath("/slp/companies");
   return { id: created.id };
 }
@@ -261,7 +270,8 @@ export type CompanyBasicInfoPatch = {
   status1Id?: number | null;
   status2Id?: number | null;
   lastContactDate?: string | null;
-  annualLaborCost?: string | null;
+  annualLaborCostExecutive?: string | null;
+  annualLaborCostEmployee?: string | null;
   averageMonthlySalary?: string | null;
   // 金額・契約情報
   initialFee?: string | null;
@@ -318,7 +328,8 @@ export async function updateCompanyBasicInfo(
   if (patch.confirmedRefundPeople !== undefined) data.confirmedRefundPeople = toIntOrNull(patch.confirmedRefundPeople);
 
   // Decimal金額フィールド
-  if (patch.annualLaborCost !== undefined) data.annualLaborCost = toDecimalOrNull(patch.annualLaborCost);
+  if (patch.annualLaborCostExecutive !== undefined) data.annualLaborCostExecutive = toDecimalOrNull(patch.annualLaborCostExecutive);
+  if (patch.annualLaborCostEmployee !== undefined) data.annualLaborCostEmployee = toDecimalOrNull(patch.annualLaborCostEmployee);
   if (patch.averageMonthlySalary !== undefined) data.averageMonthlySalary = toDecimalOrNull(patch.averageMonthlySalary);
   if (patch.initialFee !== undefined) data.initialFee = toDecimalOrNull(patch.initialFee);
   if (patch.monthlyFee !== undefined) data.monthlyFee = toDecimalOrNull(patch.monthlyFee);
@@ -358,6 +369,23 @@ export async function updateCompanyBasicInfo(
     where: { id },
     data,
   });
+
+  // 企業名・電話番号・住所のいずれかが更新された場合は重複候補を再計算
+  const duplicateRelevantChanged =
+    patch.companyName !== undefined ||
+    patch.companyPhone !== undefined ||
+    patch.address !== undefined ||
+    patch.prefecture !== undefined;
+  if (duplicateRelevantChanged) {
+    recomputeDuplicateCandidatesForRecord(id).catch(async (err) => {
+      await logAutomationError({
+        source: "slp-recompute-duplicates",
+        message: `重複候補の再計算に失敗: recordId=${id}`,
+        detail: { error: err instanceof Error ? err.message : String(err) },
+      });
+    });
+  }
+
   revalidatePath("/slp/companies");
 }
 
@@ -1305,4 +1333,407 @@ export async function clearManualContactAs(contactId: number) {
   });
 
   revalidatePath("/slp/companies");
+}
+
+// ============================================
+// 重複統合機能
+// ============================================
+
+/**
+ * 「この2社は重複ではない」とマーク
+ * - SlpCompanyDuplicateExclusion に登録
+ * - SlpCompanyDuplicateCandidate からそのペアを削除
+ */
+export async function markAsNotDuplicate(
+  recordIdA: number,
+  recordIdB: number,
+  reason?: string
+) {
+  const staffId = await getCurrentStaffId();
+  if (staffId === null) throw new Error("認証が必要です");
+
+  // 順序を統一（小さい方をAに）
+  const a = Math.min(recordIdA, recordIdB);
+  const b = Math.max(recordIdA, recordIdB);
+
+  await prisma.slpCompanyDuplicateExclusion.upsert({
+    where: { recordIdA_recordIdB: { recordIdA: a, recordIdB: b } },
+    create: {
+      recordIdA: a,
+      recordIdB: b,
+      excludedById: staffId,
+      reason: reason?.trim() || null,
+    },
+    update: {
+      excludedById: staffId,
+      reason: reason?.trim() || null,
+    },
+  });
+
+  // 候補テーブルから削除
+  await prisma.slpCompanyDuplicateCandidate.deleteMany({
+    where: { recordIdA: a, recordIdB: b },
+  });
+
+  revalidatePath("/slp/companies");
+  revalidatePath(`/slp/companies/${a}`);
+  revalidatePath(`/slp/companies/${b}`);
+}
+
+/**
+ * 重複統合（マージ）を実行
+ *
+ * @param mainId 統合先（残す側）
+ * @param mergedId 統合元（論理削除される側）
+ * @param mergedData マージ画面でスタッフが編集した最終的なメインレコードの値
+ */
+export type MergeCompanyData = {
+  companyName?: string | null;
+  representativeName?: string | null;
+  employeeCount?: string | null;
+  prefecture?: string | null;
+  address?: string | null;
+  companyPhone?: string | null;
+  pensionOffice?: string | null;
+  pensionOfficerName?: string | null;
+  industryId?: number | null;
+  flowSourceId?: number | null;
+  salesStaffId?: number | null;
+  status1Id?: number | null;
+  status2Id?: number | null;
+  lastContactDate?: string | null;
+  annualLaborCostExecutive?: string | null;
+  annualLaborCostEmployee?: string | null;
+  averageMonthlySalary?: string | null;
+  initialFee?: string | null;
+  initialPeopleCount?: string | null;
+  monthlyFee?: string | null;
+  monthlyPeopleCount?: string | null;
+  contractDate?: string | null;
+  lastPaymentDate?: string | null;
+  invoiceSentDate?: string | null;
+  nextPaymentDate?: string | null;
+  estMaxRefundPeople?: string | null;
+  estMaxRefundAmount?: string | null;
+  estOurRevenue?: string | null;
+  estAgentPayment?: string | null;
+  confirmedRefundPeople?: string | null;
+  confirmedRefundAmount?: string | null;
+  confirmedOurRevenue?: string | null;
+  confirmedAgentPayment?: string | null;
+  paymentReceivedDate?: string | null;
+};
+
+export async function mergeCompanyRecords(
+  mainId: number,
+  mergedId: number,
+  mergedData: MergeCompanyData
+) {
+  const staffId = await getCurrentStaffId();
+  if (staffId === null) throw new Error("認証が必要です");
+
+  if (mainId === mergedId) {
+    throw new Error("同じレコード同士は統合できません");
+  }
+
+  // 両レコードを取得
+  const [mainRecord, mergedRecord] = await Promise.all([
+    prisma.slpCompanyRecord.findFirst({
+      where: { id: mainId, deletedAt: null },
+      include: {
+        contacts: true,
+        statusHistories: true,
+        submittedDocuments: { where: { deletedAt: null } },
+      },
+    }),
+    prisma.slpCompanyRecord.findFirst({
+      where: { id: mergedId, deletedAt: null },
+      include: {
+        contacts: true,
+        statusHistories: true,
+        submittedDocuments: { where: { deletedAt: null } },
+      },
+    }),
+  ]);
+
+  if (!mainRecord) throw new Error("統合先のレコードが見つかりません");
+  if (!mergedRecord) throw new Error("統合元のレコードが見つかりません");
+
+  // マージする予約ID配列を構築
+  const mergedBriefingIds = new Set<string>([
+    ...mainRecord.mergedBriefingReservationIds,
+    ...mergedRecord.mergedBriefingReservationIds,
+  ]);
+  const mergedConsultationIds = new Set<string>([
+    ...mainRecord.mergedConsultationReservationIds,
+    ...mergedRecord.mergedConsultationReservationIds,
+  ]);
+
+  // 編集された基本情報の data を構築（既存の updateCompanyBasicInfo パターンを流用）
+  const updateData: Record<string, unknown> = {};
+
+  // ============================================
+  // 予約情報の自動マージ
+  // ============================================
+  // メインに概要案内予約が無く、マージ元にある場合 → マージ元の予約情報を取り込む
+  // 両方にある場合 → メイン優先、マージ元の予約IDだけ配列に追加
+  if (!mainRecord.reservationId && mergedRecord.reservationId) {
+    // メインに予約なし → マージ元の予約をメインに昇格
+    updateData.reservationId = mergedRecord.reservationId;
+    updateData.briefingStatus = mergedRecord.briefingStatus;
+    updateData.briefingBookedAt = mergedRecord.briefingBookedAt;
+    updateData.briefingDate = mergedRecord.briefingDate;
+    updateData.briefingStaff = mergedRecord.briefingStaff;
+    updateData.briefingStaffId = mergedRecord.briefingStaffId;
+    updateData.briefingChangedAt = mergedRecord.briefingChangedAt;
+    updateData.briefingCanceledAt = mergedRecord.briefingCanceledAt;
+  } else if (
+    mergedRecord.reservationId &&
+    mergedRecord.reservationId !== mainRecord.reservationId
+  ) {
+    // 両方に予約あり → マージ元の予約IDを配列に追加（メインは触らない）
+    mergedBriefingIds.add(mergedRecord.reservationId);
+  }
+
+  // 同様に導入希望商談
+  if (
+    !mainRecord.consultationReservationId &&
+    mergedRecord.consultationReservationId
+  ) {
+    updateData.consultationReservationId = mergedRecord.consultationReservationId;
+    updateData.consultationStatus = mergedRecord.consultationStatus;
+    updateData.consultationBookedAt = mergedRecord.consultationBookedAt;
+    updateData.consultationDate = mergedRecord.consultationDate;
+    updateData.consultationStaff = mergedRecord.consultationStaff;
+    updateData.consultationStaffId = mergedRecord.consultationStaffId;
+    updateData.consultationChangedAt = mergedRecord.consultationChangedAt;
+    updateData.consultationCanceledAt = mergedRecord.consultationCanceledAt;
+  } else if (
+    mergedRecord.consultationReservationId &&
+    mergedRecord.consultationReservationId !== mainRecord.consultationReservationId
+  ) {
+    mergedConsultationIds.add(mergedRecord.consultationReservationId);
+  }
+
+  // 文字列フィールド
+  const stringFields: (keyof MergeCompanyData)[] = [
+    "companyName",
+    "representativeName",
+    "prefecture",
+    "address",
+    "companyPhone",
+    "pensionOffice",
+    "pensionOfficerName",
+  ];
+  for (const f of stringFields) {
+    if (mergedData[f] !== undefined) {
+      const v = mergedData[f] as string | null;
+      updateData[f] = v && v.trim() !== "" ? v.trim() : null;
+    }
+  }
+
+  // 整数フィールド
+  if (mergedData.employeeCount !== undefined)
+    updateData.employeeCount = toIntOrNull(mergedData.employeeCount);
+  if (mergedData.initialPeopleCount !== undefined)
+    updateData.initialPeopleCount = toIntOrNull(mergedData.initialPeopleCount);
+  if (mergedData.monthlyPeopleCount !== undefined)
+    updateData.monthlyPeopleCount = toIntOrNull(mergedData.monthlyPeopleCount);
+  if (mergedData.estMaxRefundPeople !== undefined)
+    updateData.estMaxRefundPeople = toIntOrNull(mergedData.estMaxRefundPeople);
+  if (mergedData.confirmedRefundPeople !== undefined)
+    updateData.confirmedRefundPeople = toIntOrNull(
+      mergedData.confirmedRefundPeople
+    );
+
+  // Decimal フィールド
+  if (mergedData.annualLaborCostExecutive !== undefined)
+    updateData.annualLaborCostExecutive = toDecimalOrNull(
+      mergedData.annualLaborCostExecutive
+    );
+  if (mergedData.annualLaborCostEmployee !== undefined)
+    updateData.annualLaborCostEmployee = toDecimalOrNull(
+      mergedData.annualLaborCostEmployee
+    );
+  if (mergedData.averageMonthlySalary !== undefined)
+    updateData.averageMonthlySalary = toDecimalOrNull(
+      mergedData.averageMonthlySalary
+    );
+  if (mergedData.initialFee !== undefined)
+    updateData.initialFee = toDecimalOrNull(mergedData.initialFee);
+  if (mergedData.monthlyFee !== undefined)
+    updateData.monthlyFee = toDecimalOrNull(mergedData.monthlyFee);
+  if (mergedData.estMaxRefundAmount !== undefined)
+    updateData.estMaxRefundAmount = toDecimalOrNull(
+      mergedData.estMaxRefundAmount
+    );
+  if (mergedData.estOurRevenue !== undefined)
+    updateData.estOurRevenue = toDecimalOrNull(mergedData.estOurRevenue);
+  if (mergedData.estAgentPayment !== undefined)
+    updateData.estAgentPayment = toDecimalOrNull(mergedData.estAgentPayment);
+  if (mergedData.confirmedRefundAmount !== undefined)
+    updateData.confirmedRefundAmount = toDecimalOrNull(
+      mergedData.confirmedRefundAmount
+    );
+  if (mergedData.confirmedOurRevenue !== undefined)
+    updateData.confirmedOurRevenue = toDecimalOrNull(
+      mergedData.confirmedOurRevenue
+    );
+  if (mergedData.confirmedAgentPayment !== undefined)
+    updateData.confirmedAgentPayment = toDecimalOrNull(
+      mergedData.confirmedAgentPayment
+    );
+
+  // 日付フィールド
+  if (mergedData.lastContactDate !== undefined)
+    updateData.lastContactDate = toDateOrNull(mergedData.lastContactDate);
+  if (mergedData.contractDate !== undefined)
+    updateData.contractDate = toDateOrNull(mergedData.contractDate);
+  if (mergedData.lastPaymentDate !== undefined)
+    updateData.lastPaymentDate = toDateOrNull(mergedData.lastPaymentDate);
+  if (mergedData.invoiceSentDate !== undefined)
+    updateData.invoiceSentDate = toDateOrNull(mergedData.invoiceSentDate);
+  if (mergedData.nextPaymentDate !== undefined)
+    updateData.nextPaymentDate = toDateOrNull(mergedData.nextPaymentDate);
+  if (mergedData.paymentReceivedDate !== undefined)
+    updateData.paymentReceivedDate = toDateOrNull(
+      mergedData.paymentReceivedDate
+    );
+
+  // FK
+  if (mergedData.industryId !== undefined)
+    updateData.industryId = mergedData.industryId;
+  if (mergedData.flowSourceId !== undefined)
+    updateData.flowSourceId = mergedData.flowSourceId;
+  if (mergedData.salesStaffId !== undefined)
+    updateData.salesStaffId = mergedData.salesStaffId;
+  if (mergedData.status1Id !== undefined)
+    updateData.status1Id = mergedData.status1Id;
+  if (mergedData.status2Id !== undefined)
+    updateData.status2Id = mergedData.status2Id;
+
+  // 予約ID配列を更新
+  updateData.mergedBriefingReservationIds = Array.from(mergedBriefingIds);
+  updateData.mergedConsultationReservationIds = Array.from(mergedConsultationIds);
+
+  // トランザクションで実行
+  await prisma.$transaction(async (tx) => {
+    // 1. メインレコードを更新
+    await tx.slpCompanyRecord.update({
+      where: { id: mainId },
+      data: updateData,
+    });
+
+    // 2. 担当者をマージ先に移動（lineFriend重複は除外）
+    // メインに既に同じ lineFriendId の担当者がいる場合、マージ元の担当者を削除
+    // それ以外はマージ先に移動
+    const mainLineFriendIds = new Set(
+      mainRecord.contacts
+        .map((c) => c.lineFriendId)
+        .filter((id): id is number => id !== null)
+    );
+    const duplicateContactIds: number[] = [];
+    const movableContactIds: number[] = [];
+    for (const c of mergedRecord.contacts) {
+      if (c.lineFriendId !== null && mainLineFriendIds.has(c.lineFriendId)) {
+        // 同じ lineFriend が既に存在 → 削除
+        duplicateContactIds.push(c.id);
+      } else {
+        // 移動可能
+        movableContactIds.push(c.id);
+      }
+    }
+    if (movableContactIds.length > 0) {
+      await tx.slpCompanyContact.updateMany({
+        where: { id: { in: movableContactIds } },
+        data: { companyRecordId: mainId },
+      });
+    }
+    if (duplicateContactIds.length > 0) {
+      // 重複担当者は物理削除（マージ元が論理削除されると Cascade で消えるが念のため明示）
+      await tx.slpCompanyContact.deleteMany({
+        where: { id: { in: duplicateContactIds } },
+      });
+    }
+
+    // 3. ステータス変更履歴をマージ先に移動
+    await tx.slpCompanyRecordStatusHistory.updateMany({
+      where: { recordId: mergedId },
+      data: { recordId: mainId },
+    });
+
+    // 4. 提出書類をマージ先に移動
+    await tx.slpCompanyDocument.updateMany({
+      where: { companyRecordId: mergedId },
+      data: { companyRecordId: mainId },
+    });
+
+    // 5. マージ元レコードを論理削除
+    await tx.slpCompanyRecord.update({
+      where: { id: mergedId },
+      data: { deletedAt: new Date() },
+    });
+
+    // 6. 候補テーブルからこのペアを削除
+    const a = Math.min(mainId, mergedId);
+    const b = Math.max(mainId, mergedId);
+    await tx.slpCompanyDuplicateCandidate.deleteMany({
+      where: { recordIdA: a, recordIdB: b },
+    });
+
+    // 7. マージ元レコードに関する全候補を削除（論理削除済みなので不要）
+    await tx.slpCompanyDuplicateCandidate.deleteMany({
+      where: {
+        OR: [{ recordIdA: mergedId }, { recordIdB: mergedId }],
+      },
+    });
+  });
+
+  // メインレコードについて重複候補を再計算（内容が変わったので）
+  recomputeDuplicateCandidatesForRecord(mainId).catch(async (err) => {
+    await logAutomationError({
+      source: "slp-recompute-duplicates",
+      message: `マージ後の重複候補再計算に失敗: recordId=${mainId}`,
+      detail: { error: err instanceof Error ? err.message : String(err) },
+    });
+  });
+
+  revalidatePath("/slp/companies");
+  revalidatePath(`/slp/companies/${mainId}`);
+}
+
+/**
+ * 重複候補リストを取得（一覧表示用）
+ */
+export async function getDuplicateCandidates() {
+  const candidates = await prisma.slpCompanyDuplicateCandidate.findMany({
+    include: {
+      recordA: {
+        select: {
+          id: true,
+          companyName: true,
+          companyPhone: true,
+          prefecture: true,
+          address: true,
+          briefingStatus: true,
+          briefingDate: true,
+          createdAt: true,
+        },
+      },
+      recordB: {
+        select: {
+          id: true,
+          companyName: true,
+          companyPhone: true,
+          prefecture: true,
+          address: true,
+          briefingStatus: true,
+          briefingDate: true,
+          createdAt: true,
+        },
+      },
+    },
+    orderBy: { detectedAt: "desc" },
+  });
+  return candidates;
 }

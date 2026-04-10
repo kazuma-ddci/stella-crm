@@ -11,18 +11,24 @@ function verifySecret(request: Request): boolean {
 }
 
 /**
- * プロラインフリーから概要案内予約変更時に呼ばれるWebhook
+ * プロラインフリーから概要案内予約変更時に呼ばれるWebhook（中継URL方式対応版）
  *
  * クエリパラメータ:
  *   uid: ユーザーID ([[uid]])
+ *   bookingId: 予約ID ([[cl1-booking-id]])
  *   booked: 予約日 ([[cl1-booking-create]])
  *   briefingDate: 概要案内日 ([[cl1-booking-start]])
  *   briefingStaff: 概要案内担当者 ([[cl1-booking-staff]])
  *   secret: 認証用シークレット
  *
  * 動作:
- *   prolineUidが一致する直近のキャンセルされていない企業名簿レコードを更新する
- *   見つからない場合は新規作成（予約Webhookと同じフロー）
+ *   1. bookingId で reservationId が一致する全レコードを検索（複製対応）
+ *   2. 見つかった全レコードを updateMany で一括更新
+ *   3. 見つからない場合は uid ベースのフォールバック検索 → 更新 or 新規作成
+ *
+ * 重要:
+ *   同じ予約IDが複数レコードに紐付いている場合（CRMで案件分割した時）、
+ *   全レコードがまとめて変更される（ユーザー要件）。
  */
 export async function GET(request: Request) {
   if (!verifySecret(request)) {
@@ -31,6 +37,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const uid = searchParams.get("uid");
+  const bookingId = searchParams.get("bookingId");
   const booked = searchParams.get("booked");
   const briefingDate = searchParams.get("briefingDate");
   const briefingStaff = searchParams.get("briefingStaff");
@@ -54,71 +61,126 @@ export async function GET(request: Request) {
     const briefingBookedAt = booked ? new Date(booked) : null;
     const briefingDateParsed = briefingDate ? new Date(briefingDate) : null;
 
-    // prolineUid一致の直近のアクティブなレコード（キャンセル/削除されていない）を検索
-    const target = await prisma.slpCompanyRecord.findFirst({
-      where: {
-        prolineUid: uid,
-        briefingCanceledAt: null,
-        deletedAt: null,
-      },
-      orderBy: { id: "desc" },
-      select: { id: true },
-    });
-
     // LINE友達情報（紹介者通知用に共通取得）
     const lineFriend = await prisma.slpLineFriend.findUnique({
       where: { uid },
       select: { id: true, snsname: true, phone: true, free1: true },
     });
 
-    let recordId: number;
-    let action: "created" | "updated";
+    // 共通の更新データ
+    const updateData = {
+      briefingStatus: "予約中" as const,
+      briefingBookedAt:
+        briefingBookedAt && !isNaN(briefingBookedAt.getTime())
+          ? briefingBookedAt
+          : undefined,
+      briefingDate:
+        briefingDateParsed && !isNaN(briefingDateParsed.getTime())
+          ? briefingDateParsed
+          : undefined,
+      briefingStaff: briefingStaff || undefined,
+      briefingStaffId: briefingStaff ? resolvedStaffId : undefined,
+      briefingChangedAt: new Date(),
+      // 再予約時のキャンセルクリア
+      briefingCanceledAt: null,
+    };
 
-    if (!target) {
-      // 該当レコードが見つからない場合は新規作成
-      const member = await prisma.slpMember.findUnique({
-        where: { uid },
-        select: { email: true },
+    let updatedCount = 0;
+    let action: "updated_by_id" | "updated_by_uid" | "created" =
+      "updated_by_uid";
+
+    // 1. bookingId で予約ID一致のレコードを優先的に検索
+    // メインの reservationId だけでなく、マージで取り込まれた配列も検索対象に
+    if (bookingId) {
+      const result = await prisma.slpCompanyRecord.updateMany({
+        where: {
+          OR: [
+            { reservationId: bookingId },
+            { mergedBriefingReservationIds: { has: bookingId } },
+          ],
+          deletedAt: null,
+        },
+        data: updateData,
+      });
+      updatedCount = result.count;
+      if (updatedCount > 0) {
+        action = "updated_by_id";
+      }
+    }
+
+    // 2. 予約IDで見つからなかった場合のフォールバック: uid + 直近のアクティブレコード
+    if (updatedCount === 0) {
+      const target = await prisma.slpCompanyRecord.findFirst({
+        where: {
+          prolineUid: uid,
+          briefingCanceledAt: null,
+          deletedAt: null,
+        },
+        orderBy: { id: "desc" },
+        select: { id: true },
       });
 
-      const created = await prisma.slpCompanyRecord.create({
-        data: {
-          prolineUid: uid,
-          briefingStatus: "予約中",
-          briefingBookedAt: briefingBookedAt && !isNaN(briefingBookedAt.getTime()) ? briefingBookedAt : null,
-          briefingDate: briefingDateParsed && !isNaN(briefingDateParsed.getTime()) ? briefingDateParsed : null,
-          briefingStaff: briefingStaff || null,
-          briefingStaffId: resolvedStaffId,
-          briefingChangedAt: new Date(),
-          contacts: {
-            create: {
-              name: lineFriend?.snsname ?? null,
-              role: "概要案内予約者",
-              email: member?.email ?? null,
-              phone: lineFriend?.phone ?? null,
-              lineFriendId: lineFriend?.id ?? null,
-              isPrimary: true,
+      if (target) {
+        await prisma.slpCompanyRecord.update({
+          where: { id: target.id },
+          data: {
+            ...updateData,
+            // フォールバック時は予約IDも保存
+            reservationId: bookingId ?? undefined,
+          },
+        });
+        updatedCount = 1;
+        action = "updated_by_uid";
+
+        await logAutomationError({
+          source: "slp-briefing-change",
+          message: `予約IDで一致するレコードが見つからずuidベースで更新: bookingId=${bookingId}, uid=${uid}`,
+          detail: { bookingId, uid, targetId: target.id },
+        });
+      } else {
+        // 3. それでも見つからない場合は新規作成
+        const member = await prisma.slpMember.findUnique({
+          where: { uid },
+          select: { email: true },
+        });
+
+        const created = await prisma.slpCompanyRecord.create({
+          data: {
+            prolineUid: uid,
+            reservationId: bookingId ?? null,
+            briefingStatus: "予約中",
+            briefingBookedAt:
+              briefingBookedAt && !isNaN(briefingBookedAt.getTime())
+                ? briefingBookedAt
+                : null,
+            briefingDate:
+              briefingDateParsed && !isNaN(briefingDateParsed.getTime())
+                ? briefingDateParsed
+                : null,
+            briefingStaff: briefingStaff || null,
+            briefingStaffId: resolvedStaffId,
+            briefingChangedAt: new Date(),
+            contacts: {
+              create: {
+                name: lineFriend?.snsname ?? null,
+                role: "概要案内予約者",
+                email: member?.email ?? null,
+                phone: lineFriend?.phone ?? null,
+                lineFriendId: lineFriend?.id ?? null,
+                isPrimary: true,
+              },
             },
           },
-        },
-      });
-      recordId = created.id;
-      action = "created";
-    } else {
-      // 既存レコードを更新
-      const updated = await prisma.slpCompanyRecord.update({
-        where: { id: target.id },
-        data: {
-          briefingStatus: "予約中",
-          briefingBookedAt: briefingBookedAt && !isNaN(briefingBookedAt.getTime()) ? briefingBookedAt : undefined,
-          briefingDate: briefingDateParsed && !isNaN(briefingDateParsed.getTime()) ? briefingDateParsed : undefined,
-          briefingStaff: briefingStaff || undefined,
-          briefingStaffId: briefingStaff ? resolvedStaffId : undefined,
-          briefingChangedAt: new Date(),
-        },
-      });
-      recordId = updated.id;
-      action = "updated";
+        });
+        updatedCount = 1;
+        action = "created";
+
+        await logAutomationError({
+          source: "slp-briefing-change",
+          message: `変更webhookで対象レコードが見つからず新規作成: bookingId=${bookingId}, uid=${uid}`,
+          detail: { bookingId, uid, createdId: created.id },
+        });
+      }
     }
 
     // 紹介者通知（form7）— 紹介者がいれば fire-and-forget で送信
@@ -147,7 +209,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       action,
-      companyRecordId: recordId,
+      updatedCount,
     });
   } catch (error) {
     await logAutomationError({

@@ -750,6 +750,7 @@ model MasterStaff {
   slpSalesCompanyRecords        SlpCompanyRecord[]              @relation("SlpCompanySalesStaff")
   slpStatusChanges          SlpCompanyRecordStatusHistory[] @relation("SlpCompanyRecordStatusChanger")
   slpCompanyContactManualAsChanges SlpCompanyContact[]      @relation("SlpCompanyContactManualAsChangedBy")
+  slpDuplicateExclusions    SlpCompanyDuplicateExclusion[]  @relation("SlpDuplicateExclusionStaff")
   hojoVendorConsultingStaff HojoVendorConsultingStaff[]
 
   // 経理承認フロー関連
@@ -2563,6 +2564,11 @@ model InvoiceGroup {
   // "draft" | "pdf_created" | "sent" | "awaiting_accounting" |
   // "partially_paid" | "paid" | "returned" | "corrected"
 
+  // 経理が手動で切り替える入金完了ステータス
+  // "unpaid"（未入金）/ "partial"（一部入金）/ "completed"（入金完了）
+  // 振込手数料等で記録合計と請求金額が一致しないことがあるため、自動判定せず手動管理
+  manualPaymentStatus String @default("unpaid") @map("manual_payment_status")
+
   createdBy Int // FK → MasterStaff
   updatedBy Int? // FK → MasterStaff
   createdAt DateTime  @default(now())
@@ -2582,7 +2588,6 @@ model InvoiceGroup {
   comments               TransactionComment[]
   attachments            Attachment[]
   memoLines              InvoiceGroupMemoLine[]
-  bankTransactions       BankTransaction[]
   bankTxGroupLinks       BankTransactionGroupLink[]
   receipts               InvoiceGroupReceipt[]
   projectId              Int?
@@ -2644,6 +2649,11 @@ model PaymentGroup {
   //          "awaiting_accounting" | "returned" | "paid"
   // pending_approval: 手動追加の経費が経理承認待ち状態
 
+  // 経理が手動で切り替える支払完了ステータス
+  // "unpaid"（未支払）/ "partial"（一部支払）/ "completed"（支払完了）
+  // 振込手数料等で記録合計と支払金額が一致しないことがあるため、自動判定せず手動管理
+  manualPaymentStatus String @default("unpaid") @map("manual_payment_status")
+
   confirmedBy Int? // FK → MasterStaff（請求書確認者）
   confirmedAt DateTime?
 
@@ -2674,7 +2684,6 @@ model PaymentGroup {
   updater              MasterStaff?               @relation("PaymentGroupUpdater", fields: [updatedBy], references: [id])
   expectedInboundEmail OperatingCompanyEmail?     @relation("ExpectedInbound", fields: [expectedInboundEmailId], references: [id])
   inboundInvoices      InboundInvoice[]
-  bankTransactions     BankTransaction[]
   bankTxGroupLinks     BankTransactionGroupLink[]
   payments             PaymentGroupPayment[]
 }
@@ -3157,10 +3166,12 @@ model BankTransactionGroupLink {
   createdBy         Int // FK → MasterStaff
   createdAt         DateTime @default(now())
 
-  bankTransaction BankTransaction @relation(fields: [bankTransactionId], references: [id], onDelete: Cascade)
-  invoiceGroup    InvoiceGroup?   @relation(fields: [invoiceGroupId], references: [id], onDelete: Cascade)
-  paymentGroup    PaymentGroup?   @relation(fields: [paymentGroupId], references: [id], onDelete: Cascade)
-  creator         MasterStaff     @relation("BankTxGroupLinkCreator", fields: [createdBy], references: [id])
+  bankTransaction BankTransaction      @relation(fields: [bankTransactionId], references: [id], onDelete: Cascade)
+  invoiceGroup    InvoiceGroup?        @relation(fields: [invoiceGroupId], references: [id], onDelete: Cascade)
+  paymentGroup    PaymentGroup?        @relation(fields: [paymentGroupId], references: [id], onDelete: Cascade)
+  creator         MasterStaff          @relation("BankTxGroupLinkCreator", fields: [createdBy], references: [id])
+  invoiceReceipt  InvoiceGroupReceipt? // 自動生成された入金記録 (1:1)
+  paymentPayment  PaymentGroupPayment? // 自動生成された支払記録 (1:1)
 
   @@index([bankTransactionId])
   @@index([invoiceGroupId])
@@ -3918,6 +3929,20 @@ model SlpCompanyRecord {
   briefingCanceledAt DateTime? @map("briefing_canceled_at") // 概要案内予約がキャンセルされた日時
 
   // ============================================
+  // 予約ID (プロライン側で発行される予約ID)
+  // 中継URL方式: 予約変更・キャンセル時にこのIDで該当レコードを一括特定する
+  // 同じ予約IDが複数レコードに紐付く場合は全て一括更新（複製対応）
+  // ============================================
+  reservationId             String? @map("reservation_id") @db.VarChar(100) // 概要案内の予約ID ([[cl1-booking-id]])
+  consultationReservationId String? @map("consultation_reservation_id") @db.VarChar(100) // 導入希望商談の予約ID ([[cl2-booking-id]])
+
+  // 重複統合で取り込まれた予約IDたち（マージ元の予約も追跡できるように配列で保持）
+  // メインのreservationIdとは別に、過去にマージされた予約IDをここに格納する
+  // 変更・キャンセルwebhookではメインID + この配列の両方を検索対象にする
+  mergedBriefingReservationIds     String[] @default([]) @map("merged_briefing_reservation_ids")
+  mergedConsultationReservationIds String[] @default([]) @map("merged_consultation_reservation_ids")
+
+  // ============================================
   // 導入希望商談 (cl2) — 概要案内と並列で管理
   // ============================================
   consultationStatus     String?   @map("consultation_status") @db.VarChar(50) // 導入希望商談ステータス（予約中/キャンセル/完了）
@@ -3945,8 +3970,9 @@ model SlpCompanyRecord {
   status1Id          Int?      @map("status1_id") // 企業ステータス①マスタID
   status2Id          Int?      @map("status2_id") // 企業ステータス②マスタID
   lastContactDate    DateTime? @map("last_contact_date") @db.Date // 最終接触日
-  annualLaborCost     Decimal? @map("annual_labor_cost") @db.Decimal(15, 2) // 年間人件費（円）
-  averageMonthlySalary Decimal? @map("average_monthly_salary") @db.Decimal(15, 2) // 平均月給（円）
+  annualLaborCostExecutive Decimal? @map("annual_labor_cost_executive") @db.Decimal(15, 2) // 年間人件費（役員様分、円）
+  annualLaborCostEmployee  Decimal? @map("annual_labor_cost_employee") @db.Decimal(15, 2) // 年間人件費（従業員様分、円）
+  averageMonthlySalary     Decimal? @map("average_monthly_salary") @db.Decimal(15, 2) // 平均月給（円）
 
   // ============================================
   // 金額・契約情報（Phase 1 で追加）
@@ -3984,13 +4010,67 @@ model SlpCompanyRecord {
   statusHistories    SlpCompanyRecordStatusHistory[]
   submittedDocuments SlpCompanyDocument[]
 
+  // 重複統合関連リレーション
+  duplicateCandidatesA SlpCompanyDuplicateCandidate[] @relation("DuplicateCandidateA")
+  duplicateCandidatesB SlpCompanyDuplicateCandidate[] @relation("DuplicateCandidateB")
+  duplicateExclusionsA SlpCompanyDuplicateExclusion[] @relation("DuplicateExclusionA")
+  duplicateExclusionsB SlpCompanyDuplicateExclusion[] @relation("DuplicateExclusionB")
+
   @@index([prolineUid])
+  @@index([reservationId])
+  @@index([consultationReservationId])
   @@index([industryId])
   @@index([flowSourceId])
   @@index([salesStaffId])
   @@index([status1Id])
   @@index([status2Id])
   @@map("slp_company_records")
+}
+
+// ============================================
+// SLP 企業重複候補キャッシュ (SLP Company Duplicate Candidates)
+// 企業名・電話番号・住所のいずれかが部分一致する企業ペアを記録する
+// 基本情報の更新時に再計算される
+// ============================================
+
+model SlpCompanyDuplicateCandidate {
+  id         Int      @id @default(autoincrement())
+  recordIdA  Int      @map("record_id_a") // 小さい方のID
+  recordIdB  Int      @map("record_id_b") // 大きい方のID
+  reasons    String[] // 一致した理由 ["企業名", "電話番号", "住所"]
+  detectedAt DateTime @default(now()) @map("detected_at")
+
+  recordA SlpCompanyRecord @relation("DuplicateCandidateA", fields: [recordIdA], references: [id], onDelete: Cascade)
+  recordB SlpCompanyRecord @relation("DuplicateCandidateB", fields: [recordIdB], references: [id], onDelete: Cascade)
+
+  @@unique([recordIdA, recordIdB])
+  @@index([recordIdA])
+  @@index([recordIdB])
+  @@map("slp_company_duplicate_candidates")
+}
+
+// ============================================
+// SLP 企業重複除外 (SLP Company Duplicate Exclusions)
+// 「この2社は重複ではない」とスタッフが判定したペアを記録する
+// 一度マークしたペアは重複候補として表示されなくなる
+// ============================================
+
+model SlpCompanyDuplicateExclusion {
+  id           Int      @id @default(autoincrement())
+  recordIdA    Int      @map("record_id_a") // 小さい方のID
+  recordIdB    Int      @map("record_id_b") // 大きい方のID
+  excludedById Int?     @map("excluded_by_id") // マークしたスタッフ
+  reason       String?  @db.Text // 任意のメモ
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  recordA    SlpCompanyRecord @relation("DuplicateExclusionA", fields: [recordIdA], references: [id], onDelete: Cascade)
+  recordB    SlpCompanyRecord @relation("DuplicateExclusionB", fields: [recordIdB], references: [id], onDelete: Cascade)
+  excludedBy MasterStaff?     @relation("SlpDuplicateExclusionStaff", fields: [excludedById], references: [id])
+
+  @@unique([recordIdA, recordIdB])
+  @@index([recordIdA])
+  @@index([recordIdB])
+  @@map("slp_company_duplicate_exclusions")
 }
 
 // ============================================
@@ -4861,6 +4941,36 @@ model SlpAgencyContact {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("slp_agency_contacts")
+}
+
+// ============================================
+// SLP 予約ペンディング情報 (SLP Reservation Pending)
+// CRM中継URL → プロライン予約フォーム自動送信 → 予約完了webhook という流れで、
+// 「どの企業の予約か」を CRM側で一意に紐付けるための一時情報。
+// 中継URLでユーザーが企業を選択した瞬間にここへ保存し、
+// プロライン側のフォームには企業名と一緒に token を hidden で送る。
+// 予約完了 webhook 受信時、token でこのレコードを引いて正しい企業に紐付ける。
+// ============================================
+
+model SlpReservationPending {
+  id                    Int       @id @default(autoincrement())
+  token                 String    @unique @db.VarChar(64) // CRMが生成するランダムトークン（フォームhiddenで送る）
+  uid                   String    @db.VarChar(100) // 対象ユーザーのプロラインUID
+  reservationType       String    @map("reservation_type") @db.VarChar(20) // "briefing" | "consultation"
+  companyRecordIds      Int[]     @map("company_record_ids") // 既存企業を選択した場合のレコードID配列
+  newCompanyName        String?   @map("new_company_name") @db.VarChar(500) // 新規企業として予約する場合の企業名（カンマ区切り可）
+  expectedCompanyName   String    @map("expected_company_name") @db.VarChar(500) // 整合性チェック用：CRMがフォームに送信した企業名
+  // 年間人件費・従業員数（概要案内のform3-2,3,4で送られてくる値を参考に保持）
+  // ※実際にはwebhook側でDBに直接書くので、ここには持たない
+  createdAt             DateTime  @default(now()) @map("created_at")
+  expiresAt             DateTime  @map("expires_at") // 30分後
+  consumedAt            DateTime? @map("consumed_at") // webhook受信時に紐付けが完了した時刻
+  consumedReservationId String?   @map("consumed_reservation_id") @db.VarChar(100) // 紐付けに使われた予約ID
+
+  @@index([token])
+  @@index([uid, createdAt])
+  @@index([expiresAt])
+  @@map("slp_reservation_pending")
 }
 
 // ============================================

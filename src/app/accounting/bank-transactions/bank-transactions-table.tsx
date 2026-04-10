@@ -69,10 +69,11 @@ export function BankTransactionsTable({ transactions, formData }: Props) {
           tx.description?.toLowerCase().includes(q) ||
           tx.paymentMethod.name.toLowerCase().includes(q) ||
           String(tx.amount).includes(q) ||
-          tx.invoiceGroup?.counterparty?.name?.toLowerCase().includes(q) ||
-          tx.invoiceGroup?.invoiceNumber?.toLowerCase().includes(q) ||
-          tx.paymentGroup?.counterparty?.name?.toLowerCase().includes(q) ||
-          tx.paymentGroup?.referenceCode?.toLowerCase().includes(q)
+          tx.groupLinks.some(
+            (l) =>
+              l.groupLabel.toLowerCase().includes(q) ||
+              l.counterpartyName.toLowerCase().includes(q)
+          )
       );
     }
 
@@ -203,14 +204,28 @@ export function BankTransactionsTable({ transactions, formData }: Props) {
                       {tx.paymentMethod.name}
                     </td>
                     <td className="px-3 py-2">
-                      {tx.invoiceGroup ? (
-                        <span className="inline-flex items-center gap-1 text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-xs font-medium">
-                          請求: {tx.invoiceGroup.invoiceNumber || `#${tx.invoiceGroup.id}`} / {tx.invoiceGroup.counterparty.name}
-                        </span>
-                      ) : tx.paymentGroup ? (
-                        <span className="inline-flex items-center gap-1 text-purple-700 bg-purple-50 px-2 py-0.5 rounded text-xs font-medium">
-                          支払: {tx.paymentGroup.referenceCode || `#${tx.paymentGroup.id}`} / {tx.paymentGroup.counterparty?.name ?? "（未設定）"}
-                        </span>
+                      {tx.groupLinks.length > 0 ? (
+                        <div className="flex flex-col gap-0.5">
+                          {tx.groupLinks.map((l) => (
+                            <span
+                              key={l.id}
+                              className={
+                                "inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium w-fit " +
+                                (l.groupType === "invoice"
+                                  ? "text-blue-700 bg-blue-50"
+                                  : "text-purple-700 bg-purple-50")
+                              }
+                            >
+                              {l.groupType === "invoice" ? "請求: " : "支払: "}
+                              {l.groupLabel}
+                              {l.counterpartyName && ` / ${l.counterpartyName}`}
+                              {tx.groupLinks.length > 1 && ` (¥${l.amount.toLocaleString()})`}
+                            </span>
+                          ))}
+                          {tx.linkCompleted && (
+                            <span className="text-xs text-green-600">✓ 紐付け完了</span>
+                          )}
+                        </div>
                       ) : tx.counterparty?.name ? (
                         <span className="text-muted-foreground text-xs">{tx.counterparty.name}</span>
                       ) : (

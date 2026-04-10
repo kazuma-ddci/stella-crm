@@ -4,9 +4,12 @@ export type PaymentGroupPaymentItem = {
   amount: number;
   comment: string | null;
   createdByName: string;
+  isBankLinked: boolean; // 銀行履歴由来の自動生成記録か
 };
 
 export type PaymentStatus = "none" | "partial" | "complete" | "over";
+
+export type ManualPaymentStatus = "unpaid" | "partial" | "completed";
 
 export type PaymentGroupListItem = {
   id: number;
@@ -37,6 +40,8 @@ export type PaymentGroupListItem = {
   payments: PaymentGroupPaymentItem[];
   paymentStatus: PaymentStatus;
   paymentTotal: number;
+  // 経理が手動で切り替える支払完了フラグ
+  manualPaymentStatus: ManualPaymentStatus;
 };
 
 export type UngroupedAllocationItem = {

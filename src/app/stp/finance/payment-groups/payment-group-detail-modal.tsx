@@ -1072,11 +1072,11 @@ export function PaymentGroupDetailModal({
                       {group.actualPaymentDate ? (
                         <>
                           {group.actualPaymentDate}
-                          {group.paymentStatus === "partial" && (
+                          {group.manualPaymentStatus === "partial" && (
                             <span className="ml-1 text-red-600">(一部支払)</span>
                           )}
-                          {group.paymentStatus === "over" && (
-                            <span className="ml-1 text-yellow-700">(過剰)</span>
+                          {group.manualPaymentStatus === "completed" && (
+                            <span className="ml-1 text-green-700">(完了)</span>
                           )}
                         </>
                       ) : (
@@ -1133,9 +1133,11 @@ export function PaymentGroupDetailModal({
                   amount: p.amount,
                   comment: p.comment,
                   createdByName: p.createdByName,
+                  isBankLinked: p.isBankLinked,
                 }))}
                 status={group.paymentStatus}
                 recordTotal={group.paymentTotal}
+                manualPaymentStatus={group.manualPaymentStatus}
               />
 
               {/* 金額表示 */}

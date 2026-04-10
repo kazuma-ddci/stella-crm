@@ -1186,11 +1186,11 @@ export function InvoiceGroupDetailModal({
                       {actualPaymentDate ? (
                         <>
                           {actualPaymentDate}
-                          {group.receiptStatus === "partial" && (
+                          {group.manualPaymentStatus === "partial" && (
                             <span className="ml-1 text-red-600">(一部入金)</span>
                           )}
-                          {group.receiptStatus === "over" && (
-                            <span className="ml-1 text-yellow-700">(過剰)</span>
+                          {group.manualPaymentStatus === "completed" && (
+                            <span className="ml-1 text-green-700">(完了)</span>
                           )}
                         </>
                       ) : (
@@ -1229,9 +1229,11 @@ export function InvoiceGroupDetailModal({
                   amount: r.amount,
                   comment: r.comment,
                   createdByName: r.createdByName,
+                  isBankLinked: r.isBankLinked,
                 }))}
                 status={group.receiptStatus}
                 recordTotal={group.receiptTotal}
+                manualPaymentStatus={group.manualPaymentStatus}
               />
 
               {/* 金額 */}

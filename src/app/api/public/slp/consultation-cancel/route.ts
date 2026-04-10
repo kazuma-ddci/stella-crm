@@ -10,17 +10,17 @@ function verifySecret(request: Request): boolean {
 }
 
 /**
- * プロラインフリーから導入希望商談予約キャンセル時に呼ばれるWebhook
+ * プロラインフリーから導入希望商談予約キャンセル時に呼ばれるWebhook（中継URL方式対応版）
  *
  * クエリパラメータ:
- *   uid: ユーザーID ([[uid]]) のみ
+ *   uid: ユーザーID ([[uid]])
+ *   bookingId: 予約ID ([[cl2-booking-id]])
  *   secret: 認証用シークレット
  *
  * 動作:
- *   prolineUidが一致する直近のキャンセルされていない企業名簿レコードの
- *   導入希望商談ステータスを「キャンセル」に更新する。
- *
- * 紹介者通知は送らない。
+ *   1. bookingId で consultationReservationId 一致のレコードを検索
+ *   2. 該当する全レコードを updateMany で一括キャンセル（複製対応）
+ *   3. 見つからない場合は uid ベースでフォールバック
  */
 export async function GET(request: Request) {
   if (!verifySecret(request)) {
@@ -29,40 +29,78 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const uid = searchParams.get("uid");
+  const bookingId = searchParams.get("bookingId");
 
   if (!uid) {
     return NextResponse.json({ error: "uid is required" }, { status: 400 });
   }
 
   try {
-    const target = await prisma.slpCompanyRecord.findFirst({
-      where: {
-        prolineUid: uid,
-        consultationCanceledAt: null,
-        deletedAt: null,
-      },
-      orderBy: { id: "desc" },
-      select: { id: true },
-    });
+    let canceledCount = 0;
+    let action: "canceled_by_id" | "canceled_by_uid" = "canceled_by_uid";
 
-    if (!target) {
-      return NextResponse.json(
-        { success: false, error: "対象の導入希望商談予約レコードが見つかりません" },
-        { status: 404 }
-      );
+    // 1. bookingId で予約ID一致のレコードを優先的にキャンセル
+    // メインの consultationReservationId だけでなく、マージで取り込まれた配列も検索対象に
+    if (bookingId) {
+      const result = await prisma.slpCompanyRecord.updateMany({
+        where: {
+          OR: [
+            { consultationReservationId: bookingId },
+            { mergedConsultationReservationIds: { has: bookingId } },
+          ],
+          deletedAt: null,
+        },
+        data: {
+          consultationStatus: "キャンセル",
+          consultationCanceledAt: new Date(),
+        },
+      });
+      canceledCount = result.count;
+      if (canceledCount > 0) {
+        action = "canceled_by_id";
+      }
     }
 
-    const updated = await prisma.slpCompanyRecord.update({
-      where: { id: target.id },
-      data: {
-        consultationStatus: "キャンセル",
-        consultationCanceledAt: new Date(),
-      },
-    });
+    // 2. フォールバック: uid + 直近のアクティブレコード
+    if (canceledCount === 0) {
+      const target = await prisma.slpCompanyRecord.findFirst({
+        where: {
+          prolineUid: uid,
+          consultationCanceledAt: null,
+          deletedAt: null,
+        },
+        orderBy: { id: "desc" },
+        select: { id: true },
+      });
+
+      if (!target) {
+        return NextResponse.json(
+          { success: false, error: "対象の導入希望商談予約レコードが見つかりません" },
+          { status: 404 }
+        );
+      }
+
+      await prisma.slpCompanyRecord.update({
+        where: { id: target.id },
+        data: {
+          consultationStatus: "キャンセル",
+          consultationCanceledAt: new Date(),
+        },
+      });
+      canceledCount = 1;
+      action = "canceled_by_uid";
+
+      await logAutomationError({
+        source: "slp-consultation-cancel",
+        message: `予約IDで一致するレコードが見つからずuidベースでキャンセル: bookingId=${bookingId}, uid=${uid}`,
+        detail: { bookingId, uid, targetId: target.id },
+      });
+    }
 
     return NextResponse.json({
       success: true,
-      companyRecordId: updated.id,
+      action,
+      canceledCount,
     });
   } catch (error) {
     await logAutomationError({

@@ -25,9 +25,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, Check, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, X, Link2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { DatePicker } from "@/components/ui/date-picker";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   listInvoiceGroupReceipts,
   addInvoiceGroupReceipt,
@@ -37,8 +44,11 @@ import {
   addPaymentGroupPayment,
   updatePaymentGroupPayment,
   deletePaymentGroupPayment,
+  setInvoiceGroupManualPaymentStatus,
+  setPaymentGroupManualPaymentStatus,
   type ReceiptRecordView,
   type ReceiptRecordsResult,
+  type ManualPaymentStatus,
 } from "../actions";
 
 type Props = {
@@ -244,33 +254,81 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
     });
   };
 
+  // 手動入金/支払フラグの切替
+  const handleManualStatusChange = (newStatus: ManualPaymentStatus) => {
+    startTransition(async () => {
+      try {
+        if (groupType === "invoice") {
+          await setInvoiceGroupManualPaymentStatus(groupId, newStatus);
+        } else {
+          await setPaymentGroupManualPaymentStatus(groupId, newStatus);
+        }
+        toast.success(`ステータスを更新しました`);
+        await fetchData();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "更新に失敗しました");
+      }
+    });
+  };
+
   return (
     <>
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle className="text-base flex items-center gap-3">
               {recordLabel}
               {data && (
-                <span className="ml-3">
-                  <StatusBadge
-                    status={data.summary.status}
-                    recordCount={data.summary.recordCount}
-                  />
-                </span>
+                <StatusBadge
+                  status={data.summary.status}
+                  recordCount={data.summary.recordCount}
+                />
               )}
             </CardTitle>
-            {!readOnly && !addOpen && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setAddOpen(true)}
-                disabled={isPending}
-              >
-                <Plus className="h-4 w-4 mr-1" />
-                {actionLabel}を記録
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {/* 手動入金/支払フラグ */}
+              {data && !readOnly && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {actionLabel}ステータス:
+                  </span>
+                  <Select
+                    value={data.manualPaymentStatus}
+                    onValueChange={(v) => handleManualStatusChange(v as ManualPaymentStatus)}
+                    disabled={isPending}
+                  >
+                    <SelectTrigger
+                      className={
+                        "h-8 w-32 text-xs " +
+                        (data.manualPaymentStatus === "completed"
+                          ? "bg-green-50 border-green-300 text-green-800"
+                          : data.manualPaymentStatus === "partial"
+                            ? "bg-orange-50 border-orange-300 text-orange-800"
+                            : "bg-gray-50 border-gray-300 text-gray-700")
+                      }
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unpaid">未{actionLabel}</SelectItem>
+                      <SelectItem value="partial">一部{actionLabel}</SelectItem>
+                      <SelectItem value="completed">{actionLabel}完了</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {!readOnly && !addOpen && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setAddOpen(true)}
+                  disabled={isPending}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  {actionLabel}を記録
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -300,6 +358,51 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
                   }
                 >
                   ¥{remaining.toLocaleString()}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* 完了フラグと記録合計の不一致アラート */}
+          {data && data.manualPaymentStatus === "completed" && data.summary.status !== "complete" && (
+            <div
+              className={
+                "flex items-start gap-2 rounded-md border p-3 text-sm " +
+                (data.summary.status === "over"
+                  ? "border-yellow-300 bg-yellow-50 text-yellow-900"
+                  : "border-red-300 bg-red-50 text-red-900")
+              }
+            >
+              <AlertTriangle
+                className={
+                  "h-4 w-4 mt-0.5 shrink-0 " +
+                  (data.summary.status === "over" ? "text-yellow-700" : "text-red-700")
+                }
+              />
+              <div className="flex-1">
+                <p className="font-medium">
+                  {actionLabel}完了フラグが立っていますが、{actionLabel}記録の合計が
+                  {actionLabel === "入金" ? "請求金額" : "支払金額"}と一致していません
+                </p>
+                <p className="text-xs mt-0.5">
+                  {data.summary.status === "none" && (
+                    <>記録が0件です。</>
+                  )}
+                  {data.summary.status === "partial" && (
+                    <>
+                      記録合計 ¥{data.summary.totalReceived.toLocaleString()} /
+                      {actionLabel === "入金" ? "請求" : "支払"}金額 ¥{(totalAmount ?? 0).toLocaleString()}
+                      （あと ¥{remaining.toLocaleString()} 不足）
+                    </>
+                  )}
+                  {data.summary.status === "over" && (
+                    <>
+                      記録合計 ¥{data.summary.totalReceived.toLocaleString()} /
+                      {actionLabel === "入金" ? "請求" : "支払"}金額 ¥{(totalAmount ?? 0).toLocaleString()}
+                      （¥{Math.abs(remaining).toLocaleString()} 超過）
+                    </>
+                  )}
+                  {" "}振込手数料等の意図的な差額であれば問題ありません。
                 </p>
               </div>
             </div>
@@ -429,9 +532,19 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
                     );
                   }
                   return (
-                    <TableRow key={r.id}>
+                    <TableRow key={r.id} className={r.isBankLinked ? "bg-blue-50/20" : ""}>
                       <TableCell className="font-mono text-sm">
-                        {new Date(r.date).toLocaleDateString("ja-JP")}
+                        <div className="flex items-center gap-1.5">
+                          {r.isBankLinked && (
+                            <span
+                              title="銀行入出金履歴から自動生成された記録"
+                              className="inline-flex items-center"
+                            >
+                              <Link2 className="h-3.5 w-3.5 text-blue-600" />
+                            </span>
+                          )}
+                          {new Date(r.date).toLocaleDateString("ja-JP")}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         ¥{r.amount.toLocaleString()}
@@ -440,30 +553,43 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
                         {r.comment ?? <span className="text-muted-foreground">-</span>}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {r.createdByName}
+                        {r.isBankLinked ? (
+                          <span className="text-blue-700">銀行履歴由来</span>
+                        ) : (
+                          r.createdByName
+                        )}
                       </TableCell>
                       {!readOnly && (
                         <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => startEdit(r)}
-                              disabled={isPending}
-                              title="編集"
+                          {r.isBankLinked ? (
+                            <span
+                              className="text-xs text-muted-foreground"
+                              title="銀行取引側で編集してください"
                             >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setDeleteId(r.id)}
-                              disabled={isPending}
-                              title="削除"
-                            >
-                              <Trash2 className="h-4 w-4 text-red-600" />
-                            </Button>
-                          </div>
+                              編集不可
+                            </span>
+                          ) : (
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => startEdit(r)}
+                                disabled={isPending}
+                                title="編集"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setDeleteId(r.id)}
+                                disabled={isPending}
+                                title="削除"
+                              >
+                                <Trash2 className="h-4 w-4 text-red-600" />
+                              </Button>
+                            </div>
+                          )}
                         </TableCell>
                       )}
                     </TableRow>

@@ -125,10 +125,65 @@ export default async function SlpCompaniesPage() {
     };
   });
 
+  // 重複候補リストを取得
+  const duplicateCandidates =
+    await prisma.slpCompanyDuplicateCandidate.findMany({
+      include: {
+        recordA: {
+          select: {
+            id: true,
+            companyName: true,
+            companyPhone: true,
+            prefecture: true,
+            address: true,
+            briefingStatus: true,
+          },
+        },
+        recordB: {
+          select: {
+            id: true,
+            companyName: true,
+            companyPhone: true,
+            prefecture: true,
+            address: true,
+            briefingStatus: true,
+          },
+        },
+      },
+      orderBy: { detectedAt: "desc" },
+    });
+
+  const duplicateCandidatesData = duplicateCandidates.map((c) => ({
+    id: c.id,
+    reasons: c.reasons,
+    detectedAt: c.detectedAt.toISOString(),
+    recordA: {
+      id: c.recordA.id,
+      companyName: c.recordA.companyName,
+      companyPhone: c.recordA.companyPhone,
+      address: [c.recordA.prefecture, c.recordA.address]
+        .filter(Boolean)
+        .join(""),
+      briefingStatus: c.recordA.briefingStatus,
+    },
+    recordB: {
+      id: c.recordB.id,
+      companyName: c.recordB.companyName,
+      companyPhone: c.recordB.companyPhone,
+      address: [c.recordB.prefecture, c.recordB.address]
+        .filter(Boolean)
+        .join(""),
+      briefingStatus: c.recordB.briefingStatus,
+    },
+  }));
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">企業名簿</h1>
-      <CompanyRecordsTable data={data} />
+      <CompanyRecordsTable
+        data={data}
+        duplicateCandidates={duplicateCandidatesData}
+      />
     </div>
   );
 }

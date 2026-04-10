@@ -133,11 +133,97 @@ export async function getPaymentGroups(
         amount: x.amount,
         comment: x.comment,
         createdByName: x.creator.name,
+        isBankLinked: x.bankTransactionLinkId !== null,
       })),
       paymentStatus,
       paymentTotal,
+      manualPaymentStatus: r.manualPaymentStatus as "unpaid" | "partial" | "completed",
     };
   });
+}
+
+// ============================================
+// 単一の支払グループを取得（新規作成後の詳細モーダル自動オープン用）
+// ============================================
+
+export async function getPaymentGroupById(
+  groupId: number
+): Promise<PaymentGroupListItem | null> {
+  const session = await getSession();
+  const confidentialFilter = buildConfidentialFilter(session);
+
+  const r = await prisma.paymentGroup.findFirst({
+    where: {
+      id: groupId,
+      deletedAt: null,
+      ...confidentialFilter,
+    },
+    include: {
+      counterparty: true,
+      operatingCompany: true,
+      transactions: { where: { deletedAt: null }, select: { id: true } },
+      allocationItems: { select: { id: true } },
+      creator: true,
+      confirmer: true,
+      expectedInboundEmail: { select: { email: true } },
+      payments: {
+        orderBy: { paidDate: "asc" },
+        include: { creator: { select: { name: true } } },
+      },
+    },
+  });
+  if (!r) return null;
+
+  const paymentTotal = r.payments.reduce((sum, x) => sum + x.amount, 0);
+  const paymentStatus: "none" | "partial" | "complete" | "over" =
+    r.payments.length === 0
+      ? "none"
+      : paymentTotal === (r.totalAmount ?? 0)
+        ? "complete"
+        : paymentTotal < (r.totalAmount ?? 0)
+          ? "partial"
+          : "over";
+
+  return {
+    id: r.id,
+    referenceCode: r.referenceCode,
+    counterpartyId: r.counterpartyId,
+    counterpartyName: r.counterparty?.name ?? "（未設定）",
+    operatingCompanyId: r.operatingCompanyId,
+    operatingCompanyName: r.operatingCompany.companyName,
+    targetMonth: r.targetMonth ? toLocalDateString(r.targetMonth).slice(0, 7) : null,
+    expectedPaymentDate:
+      r.expectedPaymentDate ? toLocalDateString(r.expectedPaymentDate) : null,
+    paymentDueDate:
+      r.paymentDueDate ? toLocalDateString(r.paymentDueDate) : null,
+    actualPaymentDate:
+      r.actualPaymentDate ? toLocalDateString(r.actualPaymentDate) : null,
+    totalAmount: r.totalAmount,
+    taxAmount: r.taxAmount,
+    receivedPdfPath: r.receivedPdfPath,
+    receivedPdfFileName: r.receivedPdfFileName,
+    paymentType: r.paymentType as "invoice" | "direct",
+    isConfidential: r.isConfidential,
+    status: r.status,
+    confirmedByName: r.confirmer?.name ?? null,
+    confirmedAt: r.confirmedAt ? toLocalDateString(r.confirmedAt) : null,
+    expectedInboundEmail: r.expectedInboundEmail ? { email: r.expectedInboundEmail.email } : null,
+    transactionCount: r.transactions.length,
+    allocationItemCount: r.allocationItems.length,
+    createdByName: r.creator.name,
+    createdAt: toLocalDateString(r.createdAt),
+    payments: r.payments.map((x) => ({
+      id: x.id,
+      paidDate: toLocalDateString(x.paidDate),
+      amount: x.amount,
+      comment: x.comment,
+      createdByName: x.creator.name,
+      isBankLinked: x.bankTransactionLinkId !== null,
+    })),
+    paymentStatus,
+    paymentTotal,
+    manualPaymentStatus: r.manualPaymentStatus as "unpaid" | "partial" | "completed",
+  };
 }
 
 // ============================================
@@ -1110,6 +1196,14 @@ export async function submitPaymentGroupToAccounting(
     throw new Error(
       "「確認済み」ステータスの支払のみ経理へ引渡できます"
     );
+  }
+
+  // 支払期限・支払予定日の必須チェック (経理引渡し時)
+  if (!group.paymentDueDate) {
+    throw new Error("支払期限が未設定です。詳細画面で設定してから引き渡してください");
+  }
+  if (!group.expectedPaymentDate) {
+    throw new Error("支払予定日が未設定です。詳細画面で設定してから引き渡してください");
   }
 
   // 按分確定チェック: allocationTemplateId がある取引は全プロジェクトの按分確定が必要

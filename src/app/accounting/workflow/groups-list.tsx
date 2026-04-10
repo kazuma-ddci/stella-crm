@@ -24,13 +24,10 @@ type Props = {
   projects: { id: number; code: string; name: string }[];
 };
 
-// 入金/支払の分割記録ステータスバッジ
-function ReceiptStatusBadge({ group }: { group: WorkflowGroup }) {
+// 入金/支払の手動ステータスバッジ（経理が手動で切り替えた状態を表示）
+function ManualPaymentStatusBadge({ group }: { group: WorkflowGroup }) {
   const label = group.groupType === "invoice" ? "入金" : "支払";
-  if (group.receiptStatus === "none") {
-    return null;
-  }
-  if (group.receiptStatus === "complete") {
+  if (group.manualPaymentStatus === "completed") {
     return (
       <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 text-xs">
         <Check className="h-3 w-3 mr-0.5" />
@@ -43,7 +40,7 @@ function ReceiptStatusBadge({ group }: { group: WorkflowGroup }) {
       </Badge>
     );
   }
-  if (group.receiptStatus === "partial") {
+  if (group.manualPaymentStatus === "partial") {
     return (
       <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300 text-xs">
         {label}一部のみ
@@ -55,15 +52,11 @@ function ReceiptStatusBadge({ group }: { group: WorkflowGroup }) {
       </Badge>
     );
   }
-  // over
+  // unpaid
   return (
-    <Badge variant="outline" className="bg-yellow-50 text-yellow-800 border-yellow-300 text-xs">
-      {label}過剰
-      {group.actualPaymentDate && (
-        <span className="ml-1 font-mono">
-          ({new Date(group.actualPaymentDate).toLocaleDateString("ja-JP")})
-        </span>
-      )}
+    <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 text-xs">
+      <Clock className="h-3 w-3 mr-0.5" />
+      未{label}
     </Badge>
   );
 }
@@ -126,14 +119,7 @@ function ConditionBadges({ group }: { group: WorkflowGroup }) {
             実現 {group.allRealizedCount}/{group.transactionCount}
           </Badge>
         )}
-        {group.receiptStatus === "none" ? (
-          <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 text-xs">
-            <Clock className="h-3 w-3 mr-0.5" />
-            入出金未
-          </Badge>
-        ) : (
-          <ReceiptStatusBadge group={group} />
-        )}
+        <ManualPaymentStatusBadge group={group} />
       </div>
     );
   }
@@ -145,9 +131,9 @@ function ConditionBadges({ group }: { group: WorkflowGroup }) {
           <Check className="h-3 w-3 mr-0.5" />
           完了
         </Badge>
-        {/* 完了状態でも、入金記録の合計が一致しなければ警告バッジを並べる */}
-        {(group.receiptStatus === "partial" || group.receiptStatus === "over") && (
-          <ReceiptStatusBadge group={group} />
+        {/* 入金完了でない場合は警告バッジを並べる */}
+        {group.manualPaymentStatus !== "completed" && (
+          <ManualPaymentStatusBadge group={group} />
         )}
       </div>
     );

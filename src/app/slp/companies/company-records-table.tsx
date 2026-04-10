@@ -21,11 +21,35 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Search, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Search, AlertTriangle, Copy, X } from "lucide-react";
 import { toast } from "sonner";
-import { addCompanyRecord, deleteCompanyRecord } from "./actions";
+import {
+  addCompanyRecord,
+  deleteCompanyRecord,
+  markAsNotDuplicate,
+} from "./actions";
 
 const ALL = "__all__";
+
+type DuplicateCandidate = {
+  id: number;
+  reasons: string[];
+  detectedAt: string;
+  recordA: {
+    id: number;
+    companyName: string | null;
+    companyPhone: string | null;
+    address: string;
+    briefingStatus: string | null;
+  };
+  recordB: {
+    id: number;
+    companyName: string | null;
+    companyPhone: string | null;
+    address: string;
+    briefingStatus: string | null;
+  };
+};
 
 type ResolvedEntry = {
   label: string;
@@ -60,10 +84,14 @@ type RecordRow = {
 
 type Props = {
   data: RecordRow[];
+  duplicateCandidates: DuplicateCandidate[];
 };
 
-export function CompanyRecordsTable({ data }: Props) {
+export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
   const router = useRouter();
+
+  // 重複候補パネル
+  const [showDuplicates, setShowDuplicates] = useState(false);
 
   // 検索・フィルタ
   const [searchText, setSearchText] = useState("");
@@ -121,8 +149,122 @@ export function CompanyRecordsTable({ data }: Props) {
     }
   };
 
+  const handleMarkNotDuplicate = async (
+    recordIdA: number,
+    recordIdB: number
+  ) => {
+    if (
+      !confirm(
+        "この2社は重複ではないとマークしますか？以降この組み合わせは候補に表示されません"
+      )
+    )
+      return;
+    try {
+      await markAsNotDuplicate(recordIdA, recordIdB);
+      toast.success("重複候補から除外しました");
+      router.refresh();
+    } catch {
+      toast.error("操作に失敗しました");
+    }
+  };
+
   return (
     <>
+      {/* 重複候補パネル */}
+      {duplicateCandidates.length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50">
+          <div
+            className="flex items-center justify-between p-3 cursor-pointer hover:bg-amber-100 transition-colors"
+            onClick={() => setShowDuplicates(!showDuplicates)}
+          >
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-700" />
+              <span className="text-sm font-medium text-amber-900">
+                重複候補が{duplicateCandidates.length}件あります
+              </span>
+            </div>
+            <Button variant="ghost" size="sm">
+              {showDuplicates ? "閉じる" : "開く"}
+            </Button>
+          </div>
+          {showDuplicates && (
+            <div className="border-t border-amber-200 p-3 space-y-2 max-h-[400px] overflow-y-auto">
+              {duplicateCandidates.map((cand) => (
+                <div
+                  key={cand.id}
+                  className="bg-white border border-amber-200 rounded p-3"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-amber-700">
+                        一致理由:
+                      </span>
+                      {cand.reasons.map((r) => (
+                        <Badge
+                          key={r}
+                          variant="outline"
+                          className="text-xs border-amber-400 text-amber-700"
+                        >
+                          {r}
+                        </Badge>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="h-7 text-xs"
+                        asChild
+                      >
+                        <Link
+                          href={`/slp/companies/merge?a=${cand.recordA.id}&b=${cand.recordB.id}`}
+                        >
+                          <Copy className="h-3 w-3 mr-1" />
+                          統合する
+                        </Link>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs text-slate-600"
+                        onClick={() =>
+                          handleMarkNotDuplicate(
+                            cand.recordA.id,
+                            cand.recordB.id
+                          )
+                        }
+                      >
+                        <X className="h-3 w-3 mr-1" />
+                        重複ではない
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    {[cand.recordA, cand.recordB].map((rec) => (
+                      <Link
+                        key={rec.id}
+                        href={`/slp/companies/${rec.id}`}
+                        className="border border-slate-200 rounded p-2 hover:border-blue-400"
+                      >
+                        <div className="font-medium text-blue-700">
+                          ID {rec.id}: {rec.companyName ?? "(未登録)"}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          {rec.companyPhone && `📞 ${rec.companyPhone}`}
+                        </div>
+                        <div className="text-xs text-slate-500 truncate">
+                          {rec.address && `📍 ${rec.address}`}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 検索・フィルタ・追加 */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="relative flex-1 min-w-[240px] max-w-md">

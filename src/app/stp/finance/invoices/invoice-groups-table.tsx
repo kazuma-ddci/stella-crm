@@ -64,14 +64,15 @@ const CORRECTION_LABELS: Record<string, string> = {
 };
 
 // 「入金完了」判定:
-//   - 新方式: 入金記録の合計が請求金額と一致 (receiptStatus === "complete")
-//   - 旧データ: ステータスが既に paid になっているもの (移行済みデータを含む)
+//   経理が手動で「入金完了 (completed)」フラグを立てたもののみ
+//   (振込手数料等で記録合計と請求金額が一致しないため、自動判定は不可能)
 function isPaidCompleted(r: InvoiceGroupListItem): boolean {
-  return r.receiptStatus === "complete" || r.status === "paid";
+  return r.manualPaymentStatus === "completed";
 }
 
 // 「入金待ち」判定:
-//   経理引渡し済み (awaiting_accounting / partially_paid) で、まだ入金記録が揃っていないもの
+//   経理引渡し済み (awaiting_accounting / partially_paid) で、入金完了になっていないもの
+//   (未入金 + 一部入金中 の両方を含む)
 function isAwaitingPayment(r: InvoiceGroupListItem): boolean {
   const isHandedOver = r.status === "awaiting_accounting" || r.status === "partially_paid";
   return isHandedOver && !isPaidCompleted(r);
@@ -405,14 +406,14 @@ export function InvoiceGroupsTable({
                     {row.actualPaymentDate ? (
                       <span className="whitespace-nowrap">
                         {row.actualPaymentDate}
-                        {row.receiptStatus === "partial" && (
+                        {row.manualPaymentStatus === "partial" && (
                           <span className="ml-1 text-red-600 text-xs font-medium">(一部入金)</span>
                         )}
-                        {row.receiptStatus === "over" && (
-                          <span className="ml-1 text-yellow-700 text-xs font-medium">(過剰)</span>
+                        {row.manualPaymentStatus === "completed" && (
+                          <span className="ml-1 text-green-700 text-xs font-medium">(完了)</span>
                         )}
                       </span>
-                    ) : ["paid", "corrected"].includes(row.status) ? (
+                    ) : row.status === "corrected" ? (
                       "—"
                     ) : (
                       <span className="text-orange-600 font-medium">未入金</span>

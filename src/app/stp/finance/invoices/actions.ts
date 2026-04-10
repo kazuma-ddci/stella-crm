@@ -148,9 +148,11 @@ export async function getInvoiceGroups(
       amount: x.amount,
       comment: x.comment,
       createdByName: x.creator.name,
+      isBankLinked: x.bankTransactionLinkId !== null,
     })),
     receiptStatus,
     receiptTotal,
+    manualPaymentStatus: r.manualPaymentStatus as "unpaid" | "partial" | "completed",
   };
   });
 }
@@ -238,9 +240,11 @@ export async function getInvoiceGroupById(
       amount: x.amount,
       comment: x.comment,
       createdByName: x.creator.name,
+      isBankLinked: x.bankTransactionLinkId !== null,
     })),
     receiptStatus,
     receiptTotal,
+    manualPaymentStatus: r.manualPaymentStatus as "unpaid" | "partial" | "completed",
   };
 }
 
@@ -1361,6 +1365,14 @@ export async function submitInvoiceGroupToAccounting(
 
   if (group.status !== "sent") {
     throw new Error("送付済みの請求のみ経理へ引き渡せます");
+  }
+
+  // 入金期限・入金予定日の必須チェック (経理引渡し時)
+  if (!group.paymentDueDate) {
+    throw new Error("入金期限が未設定です。詳細画面で設定してから引き渡してください");
+  }
+  if (!group.expectedPaymentDate) {
+    throw new Error("入金予定日が未設定です。詳細画面で設定してから引き渡してください");
   }
 
   // 按分確定チェック: allocationTemplateId がある取引は全プロジェクトの按分確定が必要

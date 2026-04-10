@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { Loader2, Upload, X, FileText } from "lucide-react";
+import { Loader2, Upload, X, FileText, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,10 +23,26 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Combobox } from "@/components/ui/combobox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { toLocalDateString } from "@/lib/utils";
 import type { BankTransactionRow, BankTransactionFormData } from "./actions";
 import { createBankTransaction, updateBankTransaction } from "./actions";
+import {
+  replaceBankTransactionLinks,
+  setBankTransactionLinkCompleted,
+  checkManualReceiptsExist,
+  type LinkAllocation,
+} from "@/lib/accounting/bank-transaction-link";
 
 type AttachmentInput = {
   id?: number;
@@ -69,19 +85,38 @@ export function BankTransactionModal({
   const [paymentMethodId, setPaymentMethodId] = useState(
     editEntry?.paymentMethod.id ? String(editEntry.paymentMethod.id) : ""
   );
-  const [linkedGroupType, setLinkedGroupType] = useState(
-    editEntry?.invoiceGroup ? "invoice" : editEntry?.paymentGroup ? "payment" : "none"
-  );
-  const [invoiceGroupId, setInvoiceGroupId] = useState(
-    editEntry?.invoiceGroup?.id ? String(editEntry.invoiceGroup.id) : ""
-  );
-  const [paymentGroupId, setPaymentGroupId] = useState(
-    editEntry?.paymentGroup?.id ? String(editEntry.paymentGroup.id) : ""
-  );
+  // 分割紐付け対応: 複数のグループに同時に紐付け可能
+  type AllocationRow = {
+    key: string; // UI用のユニークキー
+    groupType: "invoice" | "payment";
+    groupId: string;
+    amount: string;
+    comment: string;
+  };
+  const [allocations, setAllocations] = useState<AllocationRow[]>(() => {
+    if (editEntry?.groupLinks && editEntry.groupLinks.length > 0) {
+      return editEntry.groupLinks.map((l, i) => ({
+        key: `existing-${l.id}-${i}`,
+        groupType: l.groupType,
+        groupId: String(l.groupId),
+        amount: String(l.amount),
+        comment: l.note ?? "",
+      }));
+    }
+    return [];
+  });
+  const [linkCompleted, setLinkCompleted] = useState(editEntry?.linkCompleted ?? false);
   const [amount, setAmount] = useState(
     editEntry?.amount !== undefined ? String(editEntry.amount) : ""
   );
   const [description, setDescription] = useState(editEntry?.description ?? "");
+
+  // 重複警告ダイアログ
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [conflictCount, setConflictCount] = useState(0);
+  const [pendingSubmitAction, setPendingSubmitAction] = useState<
+    null | ((replaceManual: boolean) => Promise<void>)
+  >(null);
 
   // 仮想通貨詳細
   const [cryptoCurrency, setCryptoCurrency] = useState(
@@ -251,59 +286,144 @@ export function BankTransactionModal({
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // 紐付け行の操作
+  const addAllocationRow = () => {
+    setAllocations((prev) => [
+      ...prev,
+      {
+        key: `new-${Date.now()}-${Math.random()}`,
+        groupType: direction === "incoming" ? "invoice" : "payment",
+        groupId: "",
+        amount: "",
+        comment: "",
+      },
+    ]);
+  };
+
+  const updateAllocationRow = (key: string, patch: Partial<AllocationRow>) => {
+    setAllocations((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  };
+
+  const removeAllocationRow = (key: string) => {
+    setAllocations((prev) => prev.filter((r) => r.key !== key));
+  };
+
+  // バリデート済み allocations を取得
+  const getValidatedAllocations = (): LinkAllocation[] => {
+    const validated: LinkAllocation[] = [];
+    for (const row of allocations) {
+      if (!row.groupId) continue;
+      const amt = Number(row.amount);
+      if (!Number.isFinite(amt) || amt <= 0) continue;
+      validated.push({
+        groupType: row.groupType,
+        groupId: Number(row.groupId),
+        amount: amt,
+        comment: row.comment || null,
+      });
+    }
+    return validated;
+  };
+
   // 保存
   const handleSubmit = async () => {
-    setSubmitting(true);
-    try {
-      const data: Record<string, unknown> = {
-        transactionDate,
-        direction,
-        paymentMethodId: Number(paymentMethodId),
-        counterpartyId: null,
-        invoiceGroupId: linkedGroupType === "invoice" && invoiceGroupId ? Number(invoiceGroupId) : null,
-        paymentGroupId: linkedGroupType === "payment" && paymentGroupId ? Number(paymentGroupId) : null,
-        amount: Number(amount),
-        description: description || null,
-        attachments,
-      };
-
-      // 仮想通貨詳細
-      if (isCrypto && cryptoCurrency) {
-        data.cryptoDetail = {
-          currency: cryptoCurrency,
-          network: cryptoNetwork,
-          counterpartyWallet: counterpartyWallet || undefined,
-          ownWallet: ownWallet || undefined,
-          foreignAmount,
-          foreignCurrency,
-          exchangeRate,
-        };
+    // allocation の簡易バリデーション
+    for (const row of allocations) {
+      if (row.groupId && (!row.amount || Number(row.amount) <= 0)) {
+        toast.error("紐付け行の金額を正しく入力してください");
+        return;
       }
-
-      if (isEdit && editEntry) {
-        await updateBankTransaction(editEntry.id, data);
-        toast.success("入出金を更新しました");
-      } else {
-        await createBankTransaction(data);
-        toast.success("入出金を登録しました");
+      if (!row.groupId && row.amount) {
+        toast.error("紐付け行のグループを選択してください");
+        return;
       }
-
-      onOpenChange(false);
-      onSuccess?.();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "保存に失敗しました");
-    } finally {
-      setSubmitting(false);
     }
+
+    const validatedAllocations = getValidatedAllocations();
+
+    const submitCore = async (replaceManual: boolean) => {
+      setSubmitting(true);
+      try {
+        const data: Record<string, unknown> = {
+          transactionDate,
+          direction,
+          paymentMethodId: Number(paymentMethodId),
+          counterpartyId: null,
+          amount: Number(amount),
+          description: description || null,
+          attachments,
+        };
+
+        // 仮想通貨詳細
+        if (isCrypto && cryptoCurrency) {
+          data.cryptoDetail = {
+            currency: cryptoCurrency,
+            network: cryptoNetwork,
+            counterpartyWallet: counterpartyWallet || undefined,
+            ownWallet: ownWallet || undefined,
+            foreignAmount,
+            foreignCurrency,
+            exchangeRate,
+          };
+        }
+
+        let bankTxId: number;
+        if (isEdit && editEntry) {
+          await updateBankTransaction(editEntry.id, data);
+          bankTxId = editEntry.id;
+        } else {
+          const created = await createBankTransaction(data);
+          bankTxId = created.id;
+        }
+
+        // 紐付けリンクを置換
+        await replaceBankTransactionLinks(bankTxId, validatedAllocations, {
+          replaceManualReceipts: replaceManual,
+        });
+
+        // 紐付け完了フラグ
+        if (linkCompleted !== (editEntry?.linkCompleted ?? false)) {
+          await setBankTransactionLinkCompleted(bankTxId, linkCompleted);
+        }
+
+        toast.success(isEdit ? "入出金を更新しました" : "入出金を登録しました");
+        onOpenChange(false);
+        onSuccess?.();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "保存に失敗しました");
+      } finally {
+        setSubmitting(false);
+      }
+    };
+
+    // 既存の手動記録の有無をチェック（新規リンクされるグループのみ対象）
+    let totalManualCount = 0;
+    for (const a of validatedAllocations) {
+      // 既存 (editEntry 内の groupLinks) に既に含まれる場合は除外 (既に紐付いているので重複ではない)
+      const alreadyLinked = editEntry?.groupLinks.some(
+        (l) => l.groupType === a.groupType && l.groupId === a.groupId
+      );
+      if (alreadyLinked) continue;
+      const result = await checkManualReceiptsExist(a.groupType, a.groupId);
+      totalManualCount += result.count;
+    }
+
+    if (totalManualCount > 0) {
+      setConflictCount(totalManualCount);
+      setPendingSubmitAction(() => submitCore);
+      setConflictDialogOpen(true);
+      return;
+    }
+
+    await submitCore(false);
   };
 
   const resetForm = () => {
     setTransactionDate(toLocalDateString(new Date()));
     setDirection("outgoing");
     setPaymentMethodId("");
-    setLinkedGroupType("none");
-    setInvoiceGroupId("");
-    setPaymentGroupId("");
+    setAllocations([]);
+    setLinkCompleted(false);
     setAmount("");
     setDescription("");
     setCryptoCurrency("");
@@ -379,51 +499,120 @@ export function BankTransactionModal({
               </Select>
             </div>
 
-            {/* 紐付けグループ */}
-            <div className="space-y-2">
-              <Label>紐付け</Label>
-              <Select
-                value={linkedGroupType}
-                onValueChange={(v) => {
-                  setLinkedGroupType(v);
-                  if (v !== "invoice") setInvoiceGroupId("");
-                  if (v !== "payment") setPaymentGroupId("");
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="紐付けなし" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">紐付けなし</SelectItem>
-                  <SelectItem value="invoice">請求グループ</SelectItem>
-                  <SelectItem value="payment">支払グループ</SelectItem>
-                </SelectContent>
-              </Select>
+            {/* 紐付けグループ（分割紐付け対応） */}
+            <div className="space-y-2 rounded-lg border p-3 bg-blue-50/30">
+              <div className="flex items-center justify-between">
+                <Label>紐付け（複数グループへの分割可能）</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addAllocationRow}
+                  className="h-7 text-xs"
+                >
+                  <Plus className="h-3 w-3 mr-1" />
+                  行を追加
+                </Button>
+              </div>
+
+              {allocations.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-2 text-center">
+                  紐付けなし（「行を追加」で請求/支払グループに割当）
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {allocations.map((row) => (
+                    <div
+                      key={row.key}
+                      className="grid grid-cols-12 gap-2 items-start border rounded p-2 bg-white"
+                    >
+                      <div className="col-span-2">
+                        <Select
+                          value={row.groupType}
+                          onValueChange={(v) =>
+                            updateAllocationRow(row.key, {
+                              groupType: v as "invoice" | "payment",
+                              groupId: "",
+                            })
+                          }
+                        >
+                          <SelectTrigger className="h-9 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="invoice">請求</SelectItem>
+                            <SelectItem value="payment">支払</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-5">
+                        <Combobox
+                          options={
+                            row.groupType === "invoice"
+                              ? invoiceGroupOptions
+                              : paymentGroupOptions
+                          }
+                          value={row.groupId}
+                          onChange={(v) => updateAllocationRow(row.key, { groupId: v })}
+                          placeholder={
+                            row.groupType === "invoice"
+                              ? "請求グループを検索..."
+                              : "支払グループを検索..."
+                          }
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <Input
+                          type="number"
+                          inputMode="numeric"
+                          value={row.amount}
+                          onChange={(e) =>
+                            updateAllocationRow(row.key, { amount: e.target.value })
+                          }
+                          placeholder="金額"
+                          className="h-9 text-sm"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <Input
+                          value={row.comment}
+                          onChange={(e) =>
+                            updateAllocationRow(row.key, { comment: e.target.value })
+                          }
+                          placeholder="コメント"
+                          className="h-9 text-sm"
+                        />
+                      </div>
+                      <div className="col-span-1 flex justify-end">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeAllocationRow(row.key)}
+                          className="h-9 w-9 p-0"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-600" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 紐付け完了フラグ */}
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="linkCompleted"
+                  checked={linkCompleted}
+                  onChange={(e) => setLinkCompleted(e.target.checked)}
+                  className="rounded"
+                />
+                <Label htmlFor="linkCompleted" className="text-xs font-normal cursor-pointer">
+                  この入出金履歴の紐付けは完了（振込手数料等で金額が一致しなくても手動で確定）
+                </Label>
+              </div>
             </div>
-
-            {linkedGroupType === "invoice" && (
-              <div className="space-y-2">
-                <Label>請求グループ</Label>
-                <Combobox
-                  options={invoiceGroupOptions}
-                  value={invoiceGroupId}
-                  onChange={setInvoiceGroupId}
-                  placeholder="請求グループを検索..."
-                />
-              </div>
-            )}
-
-            {linkedGroupType === "payment" && (
-              <div className="space-y-2">
-                <Label>支払グループ</Label>
-                <Combobox
-                  options={paymentGroupOptions}
-                  value={paymentGroupId}
-                  onChange={setPaymentGroupId}
-                  placeholder="支払グループを検索..."
-                />
-              </div>
-            )}
 
             {/* 金額 */}
             <div className="space-y-2">
@@ -635,6 +824,56 @@ export function BankTransactionModal({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* 重複警告ダイアログ */}
+      <AlertDialog open={conflictDialogOpen} onOpenChange={setConflictDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>既存の手動入力記録が見つかりました</AlertDialogTitle>
+            <AlertDialogDescription>
+              紐付け先のグループに、手動で入力された入金/支払記録が {conflictCount} 件あります。
+              このまま紐付けると、同じ入金が二重に記録される可能性があります。どうしますか？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setConflictDialogOpen(false);
+                setPendingSubmitAction(null);
+              }}
+              disabled={submitting}
+            >
+              キャンセル
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                setConflictDialogOpen(false);
+                if (pendingSubmitAction) {
+                  await pendingSubmitAction(false);
+                  setPendingSubmitAction(null);
+                }
+              }}
+              disabled={submitting}
+              className="bg-yellow-600 hover:bg-yellow-700"
+            >
+              両方残す（重複の可能性あり）
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={async () => {
+                setConflictDialogOpen(false);
+                if (pendingSubmitAction) {
+                  await pendingSubmitAction(true);
+                  setPendingSubmitAction(null);
+                }
+              }}
+              disabled={submitting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              手動記録を削除して銀行データで置換
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
