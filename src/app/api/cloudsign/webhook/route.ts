@@ -9,19 +9,22 @@ import { submitForm5ContractNotification } from "@/lib/proline-form";
  *
  * CloudSignからのWebhook通知を受信し、契約書ステータスを自動更新する。
  *
- * CloudSign Webhook イベント:
- * - status=2 (completed): 全員署名完了 → ステータスを「締結済み」に
- * - status=3 (canceled): 送信取消・拒否 → ステータスを「破棄」に
+ * CloudSign Webhook イベント（text フィールドのプレフィックスで判定）:
+ * - text が "COMPLETED ..." → 全員署名完了 → ステータスを「締結済み」に
+ * - text が "CANCELED ..."  → 送信取消・拒否 → ステータスを「破棄」に
+ * - text が "BOUNCED ..."   → メール不達 → SlpMemberの cloudsignBounced=true
+ *
+ * 注意: status フィールドは「通知時点のドキュメント状態」を返すため、メール不達時でも
+ * status=1（先方確認中）や status=2（締結済）が返ってくる。text プレフィックスで判定する。
  *
  * クラウドサイン側の設定:
- *   管理画面 > 設定 > Web API > Webhook URL に以下を登録
- *   本番: https://<本番ドメイン>/api/cloudsign/webhook
- *   ステージング: https://<ステージングドメイン>/api/cloudsign/webhook
+ *   管理画面 > 設定 > Web API > Webhook URL に以下を登録（token認証はクエリに付与）
+ *   本番: https://portal.stella-international.co.jp/api/cloudsign/webhook?token=<secret>
+ *   stg:  https://stg-portal.stella-international.co.jp/api/cloudsign/webhook?token=<secret>
+ *   通知条件: 締結時 + 取り消し・却下時 + メール不達時 の3つすべてON
  */
 
-// CloudSign webhook status codes
-const CS_STATUS_COMPLETED = 2;
-const CS_STATUS_CANCELED = 3;
+type CloudSignEventType = "completed" | "canceled" | "bounced";
 
 type WebhookPayload = {
   documentID: string;
@@ -30,6 +33,32 @@ type WebhookPayload = {
   email?: string;
   text?: string;
 };
+
+/**
+ * text フィールドのプレフィックスからイベント種別を判定。
+ * CloudSign仕様:
+ *  - COMPLETED : ... → 締結完了
+ *  - CANCELED : ...  → 取り消し・却下
+ *  - BOUNCED : [title] sent by [sender] for [email] <[url]> → メール不達
+ */
+function detectEventType(text?: string): CloudSignEventType | null {
+  if (!text) return null;
+  const trimmed = text.trimStart();
+  if (/^BOUNCED\b/i.test(trimmed)) return "bounced";
+  if (/^CANCELED\b/i.test(trimmed)) return "canceled";
+  if (/^COMPLETED\b/i.test(trimmed)) return "completed";
+  return null;
+}
+
+/**
+ * BOUNCED text から不達先メールアドレスを抽出。
+ * 例: "BOUNCED : タイトル sent by 塩澤 for foo@example.com <https://...>"
+ */
+function extractBouncedEmail(text?: string): string | null {
+  if (!text) return null;
+  const match = text.match(/\bfor\s+([^\s<>]+@[^\s<>]+)/i);
+  return match?.[1] ?? null;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -40,19 +69,142 @@ export async function POST(request: NextRequest) {
       const url = new URL(request.url);
       const token = url.searchParams.get("token");
       if (token !== webhookSecret) {
+        // CloudSignは400番台を「送信成功扱い」で再送しないため、認証失敗はアラート検知に必ず記録
+        // （ログを見落とすと永久にWebhookが抜ける可能性があるため）
         console.warn("[CloudSign Webhook] トークン不一致。不正なリクエストの可能性があります。");
+        await logAutomationError({
+          source: "cloudsign-webhook/auth",
+          message: "CloudSign Webhook トークン認証失敗（再送されないため要確認）",
+          detail: {
+            userAgent: request.headers.get("user-agent") ?? "unknown",
+            tokenProvided: token ? "present (mismatched)" : "missing",
+            // セキュリティ上、トークン値やクエリパラメータは記録しない
+            pathname: url.pathname,
+          },
+        });
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
     }
 
     const body: WebhookPayload = await request.json();
-    const { documentID, status, email } = body;
+    const { documentID, status, email, text } = body;
 
-    console.log(`[CloudSign Webhook] documentID=${documentID}, status=${status}, email=${email}`);
+    // ペイロード全体をログ（運用初期のペイロード仕様確認のため）
+    console.log(
+      `[CloudSign Webhook] documentID=${documentID}, status=${status}, email=${email}, text=${text}`
+    );
 
     if (!documentID) {
       return NextResponse.json({ error: "documentID is required" }, { status: 400 });
     }
+
+    // text プレフィックスでイベント種別を判定（status より信頼性が高い）
+    const detectedEventType = detectEventType(text);
+
+    // ============================================
+    // メール不達処理（BOUNCED）
+    // ============================================
+    // CloudSign仕様: メール不達通知のタイミングは以下の3つ
+    //   - 確認依頼メール不達 → BOUNCED (status=1 先方確認中)
+    //   - 書類転送メール不達 → BOUNCED (status=1 先方確認中)
+    //   - 締結完了メール不達 → BOUNCED (status=2 締結済)
+    // status=2 の場合、契約自体は締結済みなので、bounce フラグを立てた後に
+    // 締結処理（COMPLETED）も続行する必要がある。
+    if (detectedEventType === "bounced") {
+      const bouncedEmail = extractBouncedEmail(text);
+      console.log(
+        `[CloudSign Webhook/Bounce] documentID=${documentID}, bouncedEmail=${bouncedEmail}, status=${status}`
+      );
+
+      if (!bouncedEmail) {
+        // 抽出失敗時もログ記録（フォーマット変更検知用）
+        await logAutomationError({
+          source: "cloudsign-webhook/bounce",
+          message: `CloudSign不達通知からメールアドレス抽出失敗: documentID=${documentID}`,
+          detail: { documentID, text, rawStatus: status },
+        });
+        return NextResponse.json({ ok: true, message: "bounce text format not recognized" });
+      }
+
+      // 該当する契約書を検索して、紐づくSlpMemberにフラグを立てる
+      const contractForBounce = await prisma.masterContract.findFirst({
+        where: { cloudsignDocumentId: documentID },
+        select: { id: true, slpMemberId: true },
+      });
+
+      // 1. 契約書経由のSlpMember検索（優先）
+      let bouncedMember = contractForBounce?.slpMemberId
+        ? await prisma.slpMember.findUnique({
+            where: { id: contractForBounce.slpMemberId },
+          })
+        : null;
+
+      // 2. 契約書未リンクの場合、メールアドレスで直接検索（レガシー対応）
+      if (!bouncedMember) {
+        bouncedMember = await prisma.slpMember.findFirst({
+          where: { email: bouncedEmail, deletedAt: null },
+        });
+      }
+
+      if (bouncedMember) {
+        await prisma.slpMember.update({
+          where: { id: bouncedMember.id },
+          data: {
+            cloudsignBounced: true,
+            cloudsignBouncedAt: new Date(),
+            cloudsignBouncedEmail: bouncedEmail,
+          },
+        });
+        await logAutomationError({
+          source: "cloudsign-bounce",
+          message: `CloudSignメール送信失敗: ${bouncedMember.name} (${bouncedEmail})`,
+          detail: {
+            memberId: bouncedMember.id,
+            memberName: bouncedMember.name,
+            bouncedEmail,
+            bouncedAt: new Date().toISOString(),
+            documentID,
+            rawStatus: status,
+            source: "webhook",
+            retryAction: "slp-resend-cloudsign",
+          },
+        });
+      } else {
+        // 該当組合員なしでも記録（どの契約かは追跡できるようにする）
+        await logAutomationError({
+          source: "cloudsign-bounce",
+          message: `CloudSignメール送信失敗（該当組合員なし）: ${bouncedEmail}`,
+          detail: {
+            bouncedEmail,
+            documentID,
+            rawStatus: status,
+            source: "webhook",
+          },
+        });
+      }
+
+      // status=1 (確認依頼/転送メール不達) → 契約はまだ締結されていないので、ここで終了
+      if (status !== 2) {
+        return NextResponse.json({
+          ok: true,
+          message: "bounce recorded (contract not yet completed)",
+          memberId: bouncedMember?.id,
+        });
+      }
+
+      // status=2 (締結完了メール不達) → 契約は締結済みなので、続けて締結処理を実行する
+      console.log(
+        `[CloudSign Webhook/Bounce] status=2 → 締結処理も続行 documentID=${documentID}`
+      );
+    }
+
+    // BOUNCED(status=2) の場合は completed として扱う
+    const eventType: CloudSignEventType | null =
+      detectedEventType === "bounced" && status === 2 ? "completed" : detectedEventType;
+
+    // ============================================
+    // 以下、締結・取消処理
+    // ============================================
 
     // CloudSign Document ID からCRM内の契約書を検索
     const contract = await prisma.masterContract.findFirst({
@@ -71,7 +223,7 @@ export async function POST(request: NextRequest) {
 
     if (!contract) {
       // MasterContractに見つからない場合、レガシーSLPメンバーを検索（移行前データ対応）
-      const slpHandled = await handleSlpMemberWebhookLegacy(documentID, status);
+      const slpHandled = await handleSlpMemberWebhookLegacy(documentID, eventType);
       if (slpHandled) {
         return NextResponse.json({ ok: true, message: "slp member status updated (legacy)" });
       }
@@ -95,9 +247,9 @@ export async function POST(request: NextRequest) {
     // ステータスマッピング
     let newCloudsignStatus: string | null = null;
 
-    if (status === CS_STATUS_COMPLETED) {
+    if (eventType === "completed") {
       newCloudsignStatus = "completed";
-    } else if (status === CS_STATUS_CANCELED) {
+    } else if (eventType === "canceled") {
       // 破棄者の判定: 運営会社のメールアドレスと一致するか
       const registeredEmail = project?.operatingCompany?.cloudsignRegisteredEmail;
       if (registeredEmail && email && registeredEmail.toLowerCase() === email.toLowerCase()) {
@@ -108,8 +260,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (!newCloudsignStatus) {
-      console.log(`[CloudSign Webhook] Unhandled status=${status}, skipped`);
-      return NextResponse.json({ ok: true, message: "unhandled status, skipped" });
+      console.log(
+        `[CloudSign Webhook] Unhandled event (status=${status}, text prefix unknown), skipped`
+      );
+      return NextResponse.json({ ok: true, message: "unhandled event, skipped" });
     }
 
     // 既に同じステータスなら更新しない
@@ -293,7 +447,7 @@ async function syncSlpMemberFromContract(
  */
 async function handleSlpMemberWebhookLegacy(
   documentID: string,
-  status: number
+  eventType: CloudSignEventType | null
 ): Promise<boolean> {
   const member = await prisma.slpMember.findFirst({
     where: { documentId: documentID, deletedAt: null },
@@ -303,7 +457,7 @@ async function handleSlpMemberWebhookLegacy(
 
   const now = new Date();
 
-  if (status === CS_STATUS_COMPLETED) {
+  if (eventType === "completed") {
     await prisma.slpMember.update({
       where: { id: member.id },
       data: {
@@ -375,7 +529,7 @@ async function handleSlpMemberWebhookLegacy(
     return true;
   }
 
-  if (status === CS_STATUS_CANCELED) {
+  if (eventType === "canceled") {
     await prisma.slpMember.update({
       where: { id: member.id },
       data: { status: "契約破棄" },

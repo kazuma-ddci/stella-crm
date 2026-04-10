@@ -1,12 +1,13 @@
 import nodemailer from "nodemailer";
 
 // SMTPトランスポートの設定
+const SMTP_PORT = parseInt(process.env.SMTP_PORT || "587");
 const transporter =
   process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
     ? nodemailer.createTransport({
         host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT || "587"),
-        secure: false, // TLS
+        port: SMTP_PORT,
+        secure: SMTP_PORT === 465, // 465=SSL/SMTPS, それ以外(587等)=STARTTLS
         auth: {
           user: process.env.SMTP_USER,
           pass: process.env.SMTP_PASS,

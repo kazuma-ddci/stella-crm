@@ -133,8 +133,8 @@
 ## A-5. クラウドサイン送信失敗の検知
 
 ### 起こること
-1. クラウドサインからメールを送付したが、お客様のメールアドレスが無効だった場合、`support@cloudsign.jp` から `support@koutekiseido-japan.com` 宛に「**◯◯◯@◯◯◯宛のメールが返送されました**」という通知メールが届きます。
-2. CRM が **5分に1度** メールボックスを巡回し、件名から失敗したメールアドレスを抽出します。
+1. クラウドサインからメールを送付したが、お客様のメールアドレスが無効だった場合、クラウドサインが **Webhook** で CRM に通知します（text フィールドが `BOUNCED : ...` で始まる）。
+2. CRM は text から不達メールアドレスを抽出します。
 3. 該当する組合員レコードに「送信失敗フラグ」を立てます。
 4. 組合員名簿でその行が **赤背景**＋「✉️送信失敗」バッジで表示されます。
 5. 自動化エラーページにも記録されます。
@@ -143,10 +143,13 @@
 - 組合員名簿で赤くなっている人に対し、メールアドレスを修正してから「新規契約書送付」ボタンで再送付してください。
 
 ### 設定箇所
-- メール受信設定: `/settings/operating-companies` の運営法人に対して、SMTPとIMAPの両方を登録（IMAPポートは **993**）
+- クラウドサイン管理画面: **設定 > Web API > Webhook** で、以下のURLを登録し「メール不達時」にチェックを入れる
+  - 本番: `https://portal.stella-international.co.jp/api/cloudsign/webhook?token=<CLOUDSIGN_WEBHOOK_SECRET>`
+  - stg:  `https://stg-portal.stella-international.co.jp/api/cloudsign/webhook?token=<CLOUDSIGN_WEBHOOK_SECRET>`
+- メール受信設定は **不要**（Webhookで検知するため IMAP 巡回は廃止）
 
-### 関連URL
-- **自動Cron**: `GET /api/cron/check-cloudsign-bounces`（5分に1度推奨）
+### 関連エンドポイント
+- **Webhook受信**: `POST /api/cloudsign/webhook`（締結・取消・メール不達すべて同じURL）
 
 ---
 
@@ -402,11 +405,12 @@
 | パス | 推奨頻度 | 役割 |
 |------|---------|------|
 | `/api/cron/remind-slp-members` | 毎日10:00 | 契約書未締結リマインド送付（クラウドサイン + LINE） |
-| `/api/cron/check-cloudsign-bounces` | 5分に1度 | クラウドサイン送信失敗メール検知 |
 | `/api/cron/check-cloudsign-signing` | 5分に1度 | クラウドサイン署名URL取得 |
 | `/api/cron/check-inbound-invoices` | 5分に1度 | 受領請求書チェック |
 | `/api/cron/sync-line-friends` | 任意 | プロラインから公式LINE友達同期 |
 | `/api/cron/slp-proline-accounts` | 任意 | プロラインアカウント情報の同期 |
+
+※ クラウドサイン送信失敗検知は Cron ではなく **Webhook** で受信するようになりました（`POST /api/cloudsign/webhook`）。
 
 ### Cron認証
 - HTTPヘッダー `Authorization: Bearer $CRON_SECRET` で認証
@@ -415,9 +419,6 @@
 ```
 # 毎日10時：契約書リマインド
 0 10 * * * curl -s -H "Authorization: Bearer $CRON_SECRET" http://localhost:4001/api/cron/remind-slp-members
-
-# 5分に1度：CloudSign送信失敗検知
-*/5 * * * * curl -s -H "Authorization: Bearer $CRON_SECRET" http://localhost:4001/api/cron/check-cloudsign-bounces
 
 # 5分に1度：CloudSign署名URL取得
 */5 * * * * curl -s -H "Authorization: Bearer $CRON_SECRET" http://localhost:4001/api/cron/check-cloudsign-signing

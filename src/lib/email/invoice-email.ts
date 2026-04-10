@@ -4,12 +4,13 @@ import path from "path";
 import type { EmailResult } from "../email";
 
 // システム共通のSMTPトランスポート（index.tsと同じ設定）
+const SYSTEM_SMTP_PORT = parseInt(process.env.SMTP_PORT || "587");
 const systemTransporter =
   process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
     ? nodemailer.createTransport({
         host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT || "587"),
-        secure: false,
+        port: SYSTEM_SMTP_PORT,
+        secure: SYSTEM_SMTP_PORT === 465, // 465=SSL/SMTPS, 587=STARTTLS
         auth: {
           user: process.env.SMTP_USER,
           pass: process.env.SMTP_PASS,
@@ -28,10 +29,11 @@ function getTransporter(senderEmail: {
 }): nodemailer.Transporter | null {
   // 法人固有のSMTP設定がある場合
   if (senderEmail.smtpHost && senderEmail.smtpUser && senderEmail.smtpPass) {
+    const port = senderEmail.smtpPort || 587;
     return nodemailer.createTransport({
       host: senderEmail.smtpHost,
-      port: senderEmail.smtpPort || 587,
-      secure: false,
+      port,
+      secure: port === 465, // 465=SSL/SMTPS, 587=STARTTLS
       auth: {
         user: senderEmail.smtpUser,
         pass: senderEmail.smtpPass,
