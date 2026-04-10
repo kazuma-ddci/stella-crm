@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CrudTable, ColumnDef } from "@/components/crud-table";
-import { addLineFriend, updateLineFriend, deleteLineFriend, triggerProLineSync } from "./actions";
+import { CrudTable, ColumnDef, CustomAction } from "@/components/crud-table";
+import { addLineFriend, updateLineFriend, deleteLineFriend, triggerProLineSync, openRichMenu } from "./actions";
 import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Menu } from "lucide-react";
 import { toast } from "sonner";
 
 type Props = {
@@ -92,6 +92,33 @@ export function LineFriendsTable({ data, lastSyncAt }: Props) {
     }
   };
 
+  const handleOpenRichMenu = async (item: Record<string, unknown>) => {
+    const id = item.id as number;
+    const name = (item.snsname as string | null) ?? "(名前なし)";
+    if (!confirm(`${name} さんにリッチメニューを開放しますか？`)) return;
+    try {
+      const result = await openRichMenu(id);
+      if (result.success) {
+        toast.success(`${name} さんのリッチメニューを開放しました`);
+      } else {
+        toast.error(`リッチメニュー開放に失敗しました`, {
+          description: result.error,
+          duration: 10000,
+        });
+      }
+    } catch {
+      toast.error("リッチメニュー開放リクエストに失敗しました");
+    }
+  };
+
+  const customActions: CustomAction[] = [
+    {
+      icon: <Menu className="h-4 w-4" />,
+      label: "リッチメニューを開放する",
+      onClick: handleOpenRichMenu,
+    },
+  ];
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -119,6 +146,7 @@ export function LineFriendsTable({ data, lastSyncAt }: Props) {
         onAdd={handleAdd}
         onUpdate={handleUpdate}
         onDelete={handleDelete}
+        customActions={customActions}
         emptyMessage="LINE友達情報が登録されていません"
       />
     </div>

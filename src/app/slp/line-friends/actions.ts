@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { openRichMenuForFriend } from "@/lib/proline-form";
+import { logAutomationError } from "@/lib/automation-error";
 
 export async function addLineFriend(data: Record<string, unknown>) {
   const uid = String(data.uid ?? "").trim();
@@ -153,6 +155,39 @@ export async function updateSlpAs(
 export async function deleteSlpAs(id: number) {
   await prisma.slpAs.delete({ where: { id } });
   revalidatePath("/slp/line-friends");
+}
+
+/**
+ * 指定LINE友達に対してリッチメニューを開放する（autosns call-beacon経由）
+ */
+export async function openRichMenu(
+  lineFriendId: number
+): Promise<{ success: boolean; error?: string }> {
+  const friend = await prisma.slpLineFriend.findUnique({
+    where: { id: lineFriendId },
+    select: { uid: true, snsname: true },
+  });
+  if (!friend) {
+    return { success: false, error: "LINE友達が見つかりません" };
+  }
+
+  try {
+    await openRichMenuForFriend(friend.uid);
+    return { success: true };
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    await logAutomationError({
+      source: "slp-rich-menu-open",
+      message: `リッチメニュー開放失敗: ${friend.snsname ?? "(名前なし)"} (uid=${friend.uid})`,
+      detail: {
+        error: errMsg,
+        uid: friend.uid,
+        lineFriendId,
+        retryAction: "rich-menu-open",
+      },
+    });
+    return { success: false, error: errMsg };
+  }
 }
 
 export async function triggerProLineSync(): Promise<{

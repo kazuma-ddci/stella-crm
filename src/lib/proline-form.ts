@@ -69,6 +69,9 @@ const TAG_BRIEFING_COMPLETE_REMOVE_URL = "https://autosns.jp/api/call-beacon/R0I
 const TAG_CONSULTATION_COMPLETE_ADD_URL = "https://autosns.jp/api/call-beacon/mODdQkrvzF"; // 導入希望商談完了タグ付与
 const TAG_CONSULTATION_COMPLETE_REMOVE_URL = "https://autosns.jp/api/call-beacon/JFar5gqPeV"; // 導入希望商談完了タグ削除
 
+// リッチメニュー操作
+const RICH_MENU_OPEN_URL = "https://autosns.jp/api/call-beacon/xZugEszbhx"; // リッチメニュー開放
+
 /**
  * Form4: 友だち追加通知（紹介者に「○○様がLINEに追加されました」と通知）
  */
@@ -497,5 +500,28 @@ export async function submitForm14PreFillConsultationReservation(
     throw new Error(
       `ProLine Form14 PreFill API returned error: ${JSON.stringify(result)}`
     );
+  }
+}
+
+/**
+ * リッチメニューを開放する（call-beacon経由）
+ * 成功判定: レスポンスJSONの status === 0
+ */
+export async function openRichMenuForFriend(uid: string): Promise<void> {
+  const url = `${RICH_MENU_OPEN_URL}/${encodeURIComponent(uid)}`;
+  const response = await fetch(url, {
+    method: "GET",
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `リッチメニュー開放API HTTP error: ${response.status} ${response.statusText}`
+    );
+  }
+
+  const result = await response.json();
+  if (result.status !== 0) {
+    throw new Error(`リッチメニュー開放APIエラー: ${JSON.stringify(result)}`);
   }
 }
