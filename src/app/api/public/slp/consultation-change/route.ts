@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
+import { parseReservationDate } from "@/lib/slp/parse-reservation-date";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -42,32 +43,56 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 担当者マッピング解決
+    // プロライン担当者マッピング解決
     let resolvedStaffId: number | null = null;
     if (consultationStaff) {
-      const mapping = await prisma.slpBriefingStaffMapping.findUnique({
-        where: { briefingStaffName: consultationStaff },
+      const mapping = await prisma.slpProlineStaffMapping.findUnique({
+        where: { prolineStaffName: consultationStaff },
         select: { staffId: true },
       });
       resolvedStaffId = mapping?.staffId ?? null;
+
+      if (!mapping) {
+        await logAutomationError({
+          source: "slp-consultation-change",
+          message: `マッピング未登録のプロライン担当者名を受信: "${consultationStaff}"`,
+          detail: {
+            prolineStaffName: consultationStaff,
+            uid,
+            bookingId: bookingId ?? null,
+            hint: "/slp/settings/proline-staff でマッピングを追加してください",
+          },
+        });
+      }
     }
 
-    // 日付パース
-    const consultationBookedAt = booked ? new Date(booked) : null;
-    const consultationDateParsed = consultationDate
-      ? new Date(consultationDate)
-      : null;
+    // 日付パース（プロラインの複数フォーマットに対応）
+    const consultationBookedAt = parseReservationDate(booked);
+    const consultationDateParsed = parseReservationDate(consultationDate);
+
+    if (booked && !consultationBookedAt) {
+      await logAutomationError({
+        source: "slp-consultation-change",
+        message: `booked(予約作成日時)の日付形式がパースできません: "${booked}"`,
+        detail: { uid, bookingId: bookingId ?? null, rawBooked: booked },
+      });
+    }
+    if (consultationDate && !consultationDateParsed) {
+      await logAutomationError({
+        source: "slp-consultation-change",
+        message: `consultationDate(商談日)の日付形式がパースできません: "${consultationDate}"`,
+        detail: {
+          uid,
+          bookingId: bookingId ?? null,
+          rawConsultationDate: consultationDate,
+        },
+      });
+    }
 
     const updateData = {
       consultationStatus: "予約中" as const,
-      consultationBookedAt:
-        consultationBookedAt && !isNaN(consultationBookedAt.getTime())
-          ? consultationBookedAt
-          : undefined,
-      consultationDate:
-        consultationDateParsed && !isNaN(consultationDateParsed.getTime())
-          ? consultationDateParsed
-          : undefined,
+      consultationBookedAt: consultationBookedAt ?? undefined,
+      consultationDate: consultationDateParsed ?? undefined,
       consultationStaff: consultationStaff || undefined,
       consultationStaffId: consultationStaff ? resolvedStaffId : undefined,
       consultationChangedAt: new Date(),

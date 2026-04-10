@@ -2,9 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { canViewProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import { redirect } from "next/navigation";
-import { BriefingStaffTable } from "./briefing-staff-table";
+import { ProlineStaffTable } from "./proline-staff-table";
 
-export default async function SlpBriefingStaffPage() {
+export default async function SlpProlineStaffPage() {
   const session = await auth();
   const user = session?.user;
 
@@ -18,7 +18,7 @@ export default async function SlpBriefingStaffPage() {
   });
 
   const [mappings, lineFriends, slpStaffPermissions] = await Promise.all([
-    prisma.slpBriefingStaffMapping.findMany({
+    prisma.slpProlineStaffMapping.findMany({
       include: {
         lineFriend: { select: { id: true, snsname: true } },
         staff: { select: { id: true, name: true } },
@@ -47,7 +47,7 @@ export default async function SlpBriefingStaffPage() {
 
   const data = mappings.map((m) => ({
     id: m.id,
-    briefingStaffName: m.briefingStaffName,
+    prolineStaffName: m.prolineStaffName,
     lineFriendId: m.lineFriendId,
     lineFriendLabel: m.lineFriend
       ? `${m.lineFriend.id} ${m.lineFriend.snsname ?? ""}`.trim()
@@ -68,12 +68,13 @@ export default async function SlpBriefingStaffPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">概要案内担当者マッピング</h1>
+        <h1 className="text-2xl font-bold">プロライン担当者マッピング</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          プロラインから送られてくる「概要案内担当者」の名前を、公式LINE友達およびスタッフに紐付けます
+          プロラインから送られてくる「概要案内担当者」「導入希望商談担当者」の名前を、公式LINE友達およびスタッフに紐付けます。
+          このマッピングは概要案内・導入希望商談 両方の予約Webhookで共用されます。
         </p>
       </div>
-      <BriefingStaffTable
+      <ProlineStaffTable
         data={data}
         lineFriendOptions={lineFriendOptions}
         staffOptions={staffOptions}

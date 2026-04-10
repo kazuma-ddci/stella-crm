@@ -33,7 +33,7 @@ import { addMapping, updateMapping, deleteMapping } from "./actions";
 
 type MappingRow = {
   id: number;
-  briefingStaffName: string;
+  prolineStaffName: string;
   lineFriendId: number | null;
   lineFriendLabel: string | null;
   staffId: number | null;
@@ -48,7 +48,7 @@ type Props = {
 
 const UNSET = "__unset__";
 
-export function BriefingStaffTable({ data, lineFriendOptions, staffOptions }: Props) {
+export function ProlineStaffTable({ data, lineFriendOptions, staffOptions }: Props) {
   const router = useRouter();
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -68,7 +68,7 @@ export function BriefingStaffTable({ data, lineFriendOptions, staffOptions }: Pr
 
   const openEdit = (row: MappingRow) => {
     setEditing(row);
-    setFormName(row.briefingStaffName);
+    setFormName(row.prolineStaffName);
     setFormLineFriendId(row.lineFriendId?.toString() ?? UNSET);
     setFormStaffId(row.staffId?.toString() ?? UNSET);
     setDialogOpen(true);
@@ -76,13 +76,13 @@ export function BriefingStaffTable({ data, lineFriendOptions, staffOptions }: Pr
 
   const handleSave = async () => {
     if (!formName.trim()) {
-      toast.error("概要案内担当者名は必須です");
+      toast.error("プロライン担当者名は必須です");
       return;
     }
     setPending(true);
     try {
       const payload = {
-        briefingStaffName: formName,
+        prolineStaffName: formName,
         lineFriendId: formLineFriendId !== UNSET ? parseInt(formLineFriendId) : null,
         staffId: formStaffId !== UNSET ? parseInt(formStaffId) : null,
       };
@@ -126,7 +126,7 @@ export function BriefingStaffTable({ data, lineFriendOptions, staffOptions }: Pr
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>概要案内担当者名</TableHead>
+              <TableHead>プロライン担当者名</TableHead>
               <TableHead>LINE名</TableHead>
               <TableHead>スタッフ</TableHead>
               <TableHead className="w-[100px]">操作</TableHead>
@@ -142,7 +142,7 @@ export function BriefingStaffTable({ data, lineFriendOptions, staffOptions }: Pr
             ) : (
               data.map((row) => (
                 <TableRow key={row.id}>
-                  <TableCell className="font-medium">{row.briefingStaffName}</TableCell>
+                  <TableCell className="font-medium">{row.prolineStaffName}</TableCell>
                   <TableCell>
                     {row.lineFriendLabel ?? <span className="text-muted-foreground">未設定</span>}
                   </TableCell>
@@ -178,7 +178,7 @@ export function BriefingStaffTable({ data, lineFriendOptions, staffOptions }: Pr
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>概要案内担当者名 *</Label>
+              <Label>プロライン担当者名 *</Label>
               <Input
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}

@@ -744,7 +744,7 @@ model MasterStaff {
   bbsAccountApprovals       HojoBbsAccount[]
   lenderAccountApprovals    HojoLenderAccount[]
   vendorAccountApprovals    HojoVendorAccount[]
-  slpBriefingStaffMappings      SlpBriefingStaffMapping[]
+  slpProlineStaffMappings       SlpProlineStaffMapping[]
   slpBriefingCompanyRecords     SlpCompanyRecord[]              @relation("SlpCompanyBriefingStaff")
   slpConsultationCompanyRecords SlpCompanyRecord[]              @relation("SlpCompanyConsultationStaff")
   slpSalesCompanyRecords        SlpCompanyRecord[]              @relation("SlpCompanySalesStaff")
@@ -3908,10 +3908,10 @@ model SlpLineFriend {
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
-  companyContacts       SlpCompanyContact[]
-  briefingStaffMappings SlpBriefingStaffMapping[]
-  asLinks               SlpAs[]                   @relation("LineFriendAsLinks")
-  agencyContacts        SlpAgencyContact[]         @relation("AgencyContactLineFriend")
+  companyContacts      SlpCompanyContact[]
+  prolineStaffMappings SlpProlineStaffMapping[]
+  asLinks              SlpAs[]                   @relation("LineFriendAsLinks")
+  agencyContacts       SlpAgencyContact[]         @relation("AgencyContactLineFriend")
 
   @@map("slp_line_friends")
 }
@@ -3953,7 +3953,7 @@ model SlpCompanyRecord {
   consultationBookedAt   DateTime? @map("consultation_booked_at") // 導入希望商談予約日（予約が作成された日）
   consultationDate       DateTime? @map("consultation_date") // 導入希望商談日（実際の商談日時）
   consultationStaff      String?   @map("consultation_staff") @db.VarChar(100) // 導入希望商談担当者（生テキスト・マッピング未解決時のフォールバック）
-  consultationStaffId    Int?      @map("consultation_staff_id") // 導入希望商談担当者（SlpBriefingStaffMappingを共用して解決したスタッフID）
+  consultationStaffId    Int?      @map("consultation_staff_id") // 導入希望商談担当者（SlpProlineStaffMappingで解決したスタッフID）
   consultationChangedAt  DateTime? @map("consultation_changed_at") // 導入希望商談予約が変更された日時
   consultationCanceledAt DateTime? @map("consultation_canceled_at") // 導入希望商談予約がキャンセルされた日時
 
@@ -3977,6 +3977,12 @@ model SlpCompanyRecord {
   annualLaborCostExecutive Decimal? @map("annual_labor_cost_executive") @db.Decimal(15, 2) // 年間人件費（役員様分、円）
   annualLaborCostEmployee  Decimal? @map("annual_labor_cost_employee") @db.Decimal(15, 2) // 年間人件費（従業員様分、円）
   averageMonthlySalary     Decimal? @map("average_monthly_salary") @db.Decimal(15, 2) // 平均月給（円）
+  // プロライン予約フォーム(form3-2〜4)でユーザーが入力した生テキスト。
+  // 「5000万円」「約50人」等、数値に自動変換できない回答もそのまま保存し、
+  // 企業詳細画面で数値入力欄の上にサジェストとして表示する（スタッフが見て手動で数値化）。
+  annualLaborCostExecutiveFormAnswer String? @map("annual_labor_cost_executive_form_answer") @db.VarChar(500) // 年間人件費(役員)フォーム回答
+  annualLaborCostEmployeeFormAnswer  String? @map("annual_labor_cost_employee_form_answer")  @db.VarChar(500) // 年間人件費(従業員)フォーム回答
+  employeeCountFormAnswer            String? @map("employee_count_form_answer")              @db.VarChar(500) // 従業員数フォーム回答
 
   // ============================================
   // 金額・契約情報（Phase 1 で追加）
@@ -4165,18 +4171,21 @@ model SlpCompanyContact {
 }
 
 // ============================================
-// SLP 概要案内担当者マッピング (SLP Briefing Staff Mapping)
-// ProLineから来る「概要案内担当者」のテキスト名を、
+// SLP プロライン担当者マッピング (SLP Proline Staff Mapping)
+// ProLineから来る「概要案内担当者 / 導入希望商談担当者」のテキスト名を、
 // LINE友達およびスタッフに紐付けるためのマスタ
+// （概要案内・導入希望商談どちらでも共用）
+//
+// DBテーブル名は互換性のため slp_briefing_staff_mappings のまま
 // ============================================
 
-model SlpBriefingStaffMapping {
-  id                Int      @id @default(autoincrement())
-  briefingStaffName String   @unique @map("briefing_staff_name") @db.VarChar(100) // 概要案内担当者名
-  lineFriendId      Int?     @map("line_friend_id") // 公式LINE友達
-  staffId           Int?     @map("staff_id") // スタッフ
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+model SlpProlineStaffMapping {
+  id               Int      @id @default(autoincrement())
+  prolineStaffName String   @unique @map("briefing_staff_name") @db.VarChar(100) // プロライン担当者名（DBカラムは旧名のまま）
+  lineFriendId     Int?     @map("line_friend_id") // 公式LINE友達
+  staffId          Int?     @map("staff_id") // スタッフ
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   lineFriend SlpLineFriend? @relation(fields: [lineFriendId], references: [id])
   staff      MasterStaff?   @relation(fields: [staffId], references: [id])

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
 import { submitForm7BriefingChange } from "@/lib/proline-form";
+import { parseReservationDate } from "@/lib/slp/parse-reservation-date";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -47,19 +48,51 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 概要案内担当者マッピングを解決
+    // プロライン担当者マッピングを解決
     let resolvedStaffId: number | null = null;
     if (briefingStaff) {
-      const mapping = await prisma.slpBriefingStaffMapping.findUnique({
-        where: { briefingStaffName: briefingStaff },
+      const mapping = await prisma.slpProlineStaffMapping.findUnique({
+        where: { prolineStaffName: briefingStaff },
         select: { staffId: true },
       });
       resolvedStaffId = mapping?.staffId ?? null;
+
+      if (!mapping) {
+        await logAutomationError({
+          source: "slp-briefing-change",
+          message: `マッピング未登録のプロライン担当者名を受信: "${briefingStaff}"`,
+          detail: {
+            prolineStaffName: briefingStaff,
+            uid,
+            bookingId: bookingId ?? null,
+            hint: "/slp/settings/proline-staff でマッピングを追加してください",
+          },
+        });
+      }
     }
 
-    // 日付パース
-    const briefingBookedAt = booked ? new Date(booked) : null;
-    const briefingDateParsed = briefingDate ? new Date(briefingDate) : null;
+    // 日付パース（プロラインの複数フォーマットに対応）
+    const briefingBookedAt = parseReservationDate(booked);
+    const briefingDateParsed = parseReservationDate(briefingDate);
+
+    if (booked && !briefingBookedAt) {
+      await logAutomationError({
+        source: "slp-briefing-change",
+        message: `booked(予約作成日時)の日付形式がパースできません: "${booked}"`,
+        detail: { uid, bookingId: bookingId ?? null, rawBooked: booked },
+      });
+    }
+    if (briefingDate && !briefingDateParsed) {
+      await logAutomationError({
+        source: "slp-briefing-change",
+        message: `briefingDate(概要案内日)の日付形式がパースできません: "${briefingDate}"`,
+        detail: {
+          uid,
+          bookingId: bookingId ?? null,
+          rawBriefingDate: briefingDate,
+        },
+      });
+    }
 
     // LINE友達情報（紹介者通知用に共通取得）
     const lineFriend = await prisma.slpLineFriend.findUnique({

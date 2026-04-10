@@ -277,7 +277,7 @@ const navigation: NavItem[] = [
               { name: "プロジェクト設定", href: "/slp/settings/project", icon: Building2 },
               { name: "契約種別", href: "/settings/contract-types?project=slp", icon: FileText },
               { name: "資料管理", href: "/slp/settings/documents", icon: FileText },
-              { name: "概要案内担当者", href: "/slp/settings/briefing-staff", icon: Users },
+              { name: "プロライン担当者", href: "/slp/settings/proline-staff", icon: Users },
               { name: "プロライン情報", href: "/slp/settings/proline", icon: UserCog },
             ],
           },

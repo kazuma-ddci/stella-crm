@@ -93,14 +93,29 @@ export async function GET(request: Request) {
       select: { email: true },
     });
 
-    // 概要案内担当者マッピングを解決（テキスト名→スタッフID）
+    // プロライン担当者マッピングを解決（テキスト名→スタッフID）
     let resolvedStaffId: number | null = null;
     if (briefingStaff) {
-      const mapping = await prisma.slpBriefingStaffMapping.findUnique({
-        where: { briefingStaffName: briefingStaff },
+      const mapping = await prisma.slpProlineStaffMapping.findUnique({
+        where: { prolineStaffName: briefingStaff },
         select: { staffId: true },
       });
       resolvedStaffId = mapping?.staffId ?? null;
+
+      // マッピング未登録の場合は automation_errors に記録
+      // （CRM上でスタッフIDと紐付けできず、自動通知や統計が動かないため）
+      if (!mapping) {
+        await logAutomationError({
+          source: "slp-briefing-reservation",
+          message: `マッピング未登録のプロライン担当者名を受信: "${briefingStaff}"`,
+          detail: {
+            prolineStaffName: briefingStaff,
+            uid,
+            bookingId: bookingId ?? null,
+            hint: "/slp/settings/proline-staff でマッピングを追加してください",
+          },
+        });
+      }
     }
 
     // 日付パース（プロラインの複数フォーマットに対応）

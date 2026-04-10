@@ -72,14 +72,28 @@ export async function GET(request: Request) {
       }
     }
 
-    // 担当者マッピングを解決（SlpBriefingStaffMapping を概要案内/導入希望商談で共用）
+    // プロライン担当者マッピングを解決（概要案内/導入希望商談で共用）
     let resolvedStaffId: number | null = null;
     if (consultationStaff) {
-      const mapping = await prisma.slpBriefingStaffMapping.findUnique({
-        where: { briefingStaffName: consultationStaff },
+      const mapping = await prisma.slpProlineStaffMapping.findUnique({
+        where: { prolineStaffName: consultationStaff },
         select: { staffId: true },
       });
       resolvedStaffId = mapping?.staffId ?? null;
+
+      // マッピング未登録の場合は automation_errors に記録
+      if (!mapping) {
+        await logAutomationError({
+          source: "slp-consultation-reservation",
+          message: `マッピング未登録のプロライン担当者名を受信: "${consultationStaff}"`,
+          detail: {
+            prolineStaffName: consultationStaff,
+            uid,
+            bookingId: bookingId ?? null,
+            hint: "/slp/settings/proline-staff でマッピングを追加してください",
+          },
+        });
+      }
     }
 
     // 日付パース（プロラインの複数フォーマットに対応）
