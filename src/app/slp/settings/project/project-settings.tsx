@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,18 +20,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Loader2, Mail, Landmark, Star, FileText, Plus } from "lucide-react";
-import { toast } from "sonner";
+import { Loader2, Mail, Landmark, Star, FileText } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { updateProjectBasicInfo, updateOperatingCompanyInfo, updateMemberCloudSignTemplate, updateAutoSendContract, updateSlpForm5AutoSendOnLink } from "./actions";
-import { addContractType } from "@/app/settings/contract-types/actions";
 import { ProjectEmailsModal } from "@/app/settings/projects/project-emails-modal";
 import { ProjectBankAccountsModal } from "@/app/settings/projects/project-bank-accounts-modal";
 
@@ -69,11 +59,6 @@ type BankAccountItem = {
   isDefault: boolean;
 };
 
-type ContractTypeOption = {
-  id: number;
-  name: string;
-};
-
 type MemberTemplateOption = {
   id: number;
   name: string;
@@ -87,7 +72,6 @@ type Props = {
   project: ProjectData;
   operatingCompany: OperatingCompanyData;
   isSystemAdmin: boolean;
-  contractTypes: ContractTypeOption[];
   memberTemplates: MemberTemplateOption[];
   currentMemberCloudSignTemplateId: number | null;
   autoSendContract: boolean;
@@ -98,8 +82,7 @@ type Props = {
   approverOptions: ApproverOption[];
 };
 
-export function ProjectSettings({ project, operatingCompany, isSystemAdmin, contractTypes, memberTemplates, currentMemberCloudSignTemplateId, autoSendContract, slpForm5AutoSendOnLink, emails, bankAccounts, canEdit, approverOptions }: Props) {
-  const router = useRouter();
+export function ProjectSettings({ project, operatingCompany, isSystemAdmin, memberTemplates, currentMemberCloudSignTemplateId, autoSendContract, slpForm5AutoSendOnLink, emails, bankAccounts, canEdit, approverOptions }: Props) {
   const [projectName, setProjectName] = useState(project.name);
   const [projectDescription, setProjectDescription] = useState(
     project.description ?? ""
@@ -142,40 +125,6 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, cont
 
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [bankModalOpen, setBankModalOpen] = useState(false);
-
-  // 契約種別追加モーダル
-  const [addCtModalOpen, setAddCtModalOpen] = useState(false);
-  const [newCtName, setNewCtName] = useState("");
-  const [newCtDescription, setNewCtDescription] = useState("");
-  const [addingCt, setAddingCt] = useState(false);
-
-  const handleAddContractType = async () => {
-    if (!newCtName.trim()) {
-      toast.error("契約種別名を入力してください");
-      return;
-    }
-    setAddingCt(true);
-    try {
-      await addContractType({
-        projectId: project.id,
-        name: newCtName.trim(),
-        description: newCtDescription.trim() || null,
-        isActive: true,
-      });
-      toast.success("契約種別を追加しました");
-      setNewCtName("");
-      setNewCtDescription("");
-      setAddCtModalOpen(false);
-      router.refresh();
-    } catch (error) {
-      console.error(error);
-      toast.error(
-        error instanceof Error ? error.message : "追加に失敗しました"
-      );
-    } finally {
-      setAddingCt(false);
-    }
-  };
 
   const handleSaveProject = async () => {
     setProjectSaving(true);
@@ -339,14 +288,14 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, cont
             </Select>
             {memberTemplates.length === 0 && (
               <p className="text-xs text-amber-600">
-                選択可能なテンプレートがありません。先に下の「契約種別を追加」で契約種別を作成し、
+                選択可能なテンプレートがありません。
                 <a
                   href="/settings/contract-types?project=slp"
                   className="text-blue-600 hover:underline mx-1"
                 >
-                  契約種別管理ページ
+                  契約種別ページ
                 </a>
-                の「テンプレート管理」からCloudSignテンプレートを登録してください。
+                で契約種別を作成し、「テンプレート管理」からCloudSignテンプレートを登録してください。
               </p>
             )}
           </div>
@@ -367,26 +316,9 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, cont
             {templateSuccess && (
               <span className="text-sm text-green-600">保存しました</span>
             )}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setAddCtModalOpen(true)}
-              disabled={!canEdit}
-              className="ml-auto"
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              契約種別を追加
-            </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            CloudSignテンプレートの登録・編集は、
-            <a
-              href="/settings/contract-types?project=slp"
-              className="text-blue-600 hover:underline mx-1"
-            >
-              契約種別管理ページ
-            </a>
-            の「テンプレート管理」から行ってください。
+            契約種別・テンプレートの登録や編集は、サイドバー「SLP &gt; 固有設定 &gt; 契約種別」から行ってください。
           </p>
         </CardContent>
       </Card>
@@ -678,61 +610,6 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, cont
         projectId={project.id}
         projectName={project.name}
       />
-
-      {/* 契約種別追加モーダル */}
-      <Dialog open={addCtModalOpen} onOpenChange={setAddCtModalOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>契約種別を追加</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="new-ct-name">
-                契約種別名 <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="new-ct-name"
-                value={newCtName}
-                onChange={(e) => setNewCtName(e.target.value)}
-                placeholder="例: 組合員契約"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-ct-description">説明（任意）</Label>
-              <Textarea
-                id="new-ct-description"
-                value={newCtDescription}
-                onChange={(e) => setNewCtDescription(e.target.value)}
-                placeholder="契約種別の説明"
-                rows={3}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setAddCtModalOpen(false);
-                setNewCtName("");
-                setNewCtDescription("");
-              }}
-              disabled={addingCt}
-            >
-              キャンセル
-            </Button>
-            <Button onClick={handleAddContractType} disabled={addingCt}>
-              {addingCt ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  追加中...
-                </>
-              ) : (
-                "追加"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

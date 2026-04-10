@@ -29,14 +29,6 @@ export default async function SlpProjectSettingsPage() {
     },
   });
 
-  // SLPプロジェクトの契約種別一覧（追加モーダル表示用）
-  const contractTypes = slpProject
-    ? await prisma.contractType.findMany({
-        where: { projectId: slpProject.id, isActive: true },
-        orderBy: { displayOrder: "asc" },
-      })
-    : [];
-
   // SLP契約種別に紐付いた CloudSign テンプレート一覧（自動送付契約書の選択肢）
   // B案: 何らかのSLP契約種別に紐付いているテンプレートのみ
   const memberTemplates = slpProject
@@ -113,10 +105,6 @@ export default async function SlpProjectSettingsPage() {
         isSystemAdmin={isSystemAdmin}
         canEdit={canEdit}
         approverOptions={approverOptions}
-        contractTypes={contractTypes.map((ct) => ({
-          id: ct.id,
-          name: ct.name,
-        }))}
         memberTemplates={memberTemplates.map((t) => ({
           id: t.id,
           name: t.name,
