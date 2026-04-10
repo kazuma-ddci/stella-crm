@@ -99,11 +99,8 @@ export function BriefingReserveClient({
       newCompanyName: newCompanyName.trim(),
     });
     if (result.success) {
-      setStep({
-        type: "ready",
-        calendarUrl: result.calendarUrl,
-        expectedCompanyName: result.expectedCompanyName,
-      });
+      // 新規会社の場合は準備完了画面をスキップして直接プロラインの予約フォームに遷移
+      window.location.href = result.calendarUrl;
     } else {
       setStep({ type: "error", message: result.error });
     }
@@ -241,7 +238,9 @@ export function BriefingReserveClient({
                   <p className="text-xs text-slate-500 mt-0.5">
                     {c.briefingCompleted
                       ? "概要案内: 完了"
-                      : `概要案内: ${c.briefingDate ? formatDate(c.briefingDate) : ""} で予約中`}
+                      : c.briefingDate
+                        ? `概要案内: ${formatDate(c.briefingDate)} で予約中`
+                        : "概要案内: 予約中"}
                   </p>
                   {c.briefingHasReservation && (
                     <p className="text-xs text-slate-400 mt-1">

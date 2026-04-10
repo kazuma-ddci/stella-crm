@@ -233,8 +233,9 @@ export function ConsultationReserveClient({
                   {c.companyName ?? "(企業名未登録)"}
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  導入希望商談:{" "}
-                  {c.consultationDate ? formatDate(c.consultationDate) : ""} で予約中
+                  {c.consultationDate
+                    ? `導入希望商談: ${formatDate(c.consultationDate)} で予約中`
+                    : "導入希望商談: 予約中"}
                 </p>
                 <p className="text-xs text-slate-400 mt-1">
                   変更・キャンセルは上記の予約履歴から
