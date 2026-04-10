@@ -18,31 +18,38 @@ export default function SlpVideoPage() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // 認証チェック
+  // 初回: URL クエリ (?uid=xxx&snsname=yyy) で認証 → Cookie 発行 → URL からクエリ削除
+  // リロード・2回目以降: Cookie（1時間有効）で再認証
   useEffect(() => {
     const checkAuth = async () => {
       const params = new URLSearchParams(window.location.search);
       const uid = params.get("uid");
       const snsname = params.get("snsname");
 
-      if (!uid || !snsname) {
-        setErrorReason("missing_params");
-        setLoading(false);
-        return;
-      }
+      // URL クエリがあれば初回認証、なければ Cookie での再認証を試みる
+      const apiUrl =
+        uid && snsname
+          ? `/api/public/slp/video-access?uid=${encodeURIComponent(uid)}&snsname=${encodeURIComponent(snsname)}`
+          : `/api/public/slp/video-access`;
 
       try {
-        const res = await fetch(
-          `/api/public/slp/video-access?uid=${encodeURIComponent(uid)}&snsname=${encodeURIComponent(snsname)}`
-        );
+        const res = await fetch(apiUrl, {
+          credentials: "include", // Cookie の送受信
+        });
         const data = await res.json();
         if (data.authorized) {
           setAuthorized(true);
-          setViewerData({ authorized: true, uid: data.uid, snsname: data.snsname });
-          setVideoUrl(
-            `/api/public/slp/video-access?uid=${encodeURIComponent(uid)}&snsname=${encodeURIComponent(snsname)}&type=video`
-          );
-          // URL欄からパラメータを削除
-          window.history.replaceState({}, "", "/form/slp-video");
+          setViewerData({
+            authorized: true,
+            uid: data.uid,
+            snsname: data.snsname,
+          });
+          // video URL は Cookie 認証で動作するので、クエリパラメータ不要
+          setVideoUrl(`/api/public/slp/video-access?type=video`);
+          // URL 欄からパラメータを削除
+          if (uid && snsname) {
+            window.history.replaceState({}, "", "/form/slp-video");
+          }
         } else {
           setErrorReason(data.reason || "not_authorized");
         }

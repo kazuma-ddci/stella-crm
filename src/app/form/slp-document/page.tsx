@@ -41,31 +41,38 @@ export default function SlpDocumentPage() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // 認証チェック
+  // 初回: URL クエリ (?uid=xxx&snsname=yyy) で認証 → Cookie 発行 → URL からクエリ削除
+  // リロード・2回目以降: Cookie（1時間有効）で再認証
   useEffect(() => {
     const checkAuth = async () => {
       const params = new URLSearchParams(window.location.search);
       const uid = params.get("uid");
       const snsname = params.get("snsname");
 
-      if (!uid || !snsname) {
-        setErrorReason("missing_params");
-        setLoading(false);
-        return;
-      }
+      // URL クエリがあれば初回認証、なければ Cookie での再認証を試みる
+      const apiUrl =
+        uid && snsname
+          ? `/api/public/slp/document-access?uid=${encodeURIComponent(uid)}&snsname=${encodeURIComponent(snsname)}`
+          : `/api/public/slp/document-access`;
 
       try {
-        const res = await fetch(
-          `/api/public/slp/document-access?uid=${encodeURIComponent(uid)}&snsname=${encodeURIComponent(snsname)}`
-        );
+        const res = await fetch(apiUrl, {
+          credentials: "include", // Cookie の送受信
+        });
         const data = await res.json();
         if (data.authorized) {
           setAuthorized(true);
-          setViewerData({ authorized: true, uid: data.uid, snsname: data.snsname });
-          setPdfUrl(
-            `/api/public/slp/document-access?uid=${encodeURIComponent(uid)}&snsname=${encodeURIComponent(snsname)}&type=pdf`
-          );
-          // URL欄からパラメータを削除（履歴を残さず置換）
-          window.history.replaceState({}, "", "/form/slp-document");
+          setViewerData({
+            authorized: true,
+            uid: data.uid,
+            snsname: data.snsname,
+          });
+          // PDF URL は Cookie 認証で動作するので、クエリパラメータ不要
+          setPdfUrl(`/api/public/slp/document-access?type=pdf`);
+          // URL 欄からパラメータを削除（履歴を残さず置換）
+          if (uid && snsname) {
+            window.history.replaceState({}, "", "/form/slp-document");
+          }
         } else {
           setErrorReason(data.reason || "not_authorized");
         }

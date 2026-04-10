@@ -231,6 +231,23 @@ export default auth((request) => {
   const host = request.headers.get("host") || "";
 
   // =====================================================================
+  // SLP 資料配信の Cache-Control 強制上書き
+  // Next.js は API Route に `no-cache, no-store, must-revalidate` を
+  // 自動注入してしまうので、リロード時のブラウザキャッシュ（304 応答）
+  // を効かせるために middleware でヘッダーを強制設定する
+  // =====================================================================
+  const typeParam = request.nextUrl.searchParams.get("type");
+  const isResourceStreaming =
+    (pathname === "/api/public/slp/document-access" && typeParam === "pdf") ||
+    (pathname === "/api/public/slp/video-access" && typeParam === "video");
+  if (isResourceStreaming) {
+    const res = NextResponse.next();
+    res.headers.set("Cache-Control", "private, max-age=3600, immutable");
+    // お客様ドメインでも同じパスがヒットする可能性があるので通過
+    return res;
+  }
+
+  // =====================================================================
   // お客様向けドメイン（koutekiseido-japan.com）からのアクセス制限
   // 公開ページのみ許可、それ以外は 404（ログイン画面にも飛ばさない）
   // =====================================================================

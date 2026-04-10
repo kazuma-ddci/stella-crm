@@ -4,7 +4,8 @@ WORKDIR /app
 
 ENV TZ=Asia/Tokyo
 
-RUN apk add --no-cache openssl
+# ghostscript: PDF アップロード時の自動圧縮で使用
+RUN apk add --no-cache openssl ghostscript
 
 COPY package*.json ./
 RUN npm install
