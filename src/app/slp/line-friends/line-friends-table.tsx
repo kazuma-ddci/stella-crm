@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CrudTable, ColumnDef, CustomAction } from "@/components/crud-table";
+import { CrudTable, ColumnDef, CustomAction, CustomRenderers } from "@/components/crud-table";
 import { addLineFriend, updateLineFriend, deleteLineFriend, triggerProLineSync, openRichMenu } from "./actions";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { RefreshCw, Menu } from "lucide-react";
 import { toast } from "sonner";
 
@@ -24,6 +25,7 @@ export function LineFriendsTable({ data, lastSyncAt }: Props) {
 
   const columns: ColumnDef[] = [
     { key: "displayNo", header: "番号", editable: false },
+    { key: "isManuallyAdded", header: "種別", editable: false, filterable: true },
     { key: "snsname", header: "LINE名", type: "text", filterable: true },
     { key: "password", header: "パスワード", type: "text" },
     { key: "emailLine", header: "LINE送信専用メルアド", type: "text" },
@@ -119,6 +121,24 @@ export function LineFriendsTable({ data, lastSyncAt }: Props) {
     },
   ];
 
+  // 種別列のカスタム表示（バッジ）
+  const customRenderers: CustomRenderers = {
+    isManuallyAdded: (value) =>
+      value ? (
+        <Badge variant="outline" className="border-blue-400 text-blue-700 bg-blue-50">
+          手動追加
+        </Badge>
+      ) : (
+        <Badge variant="outline" className="border-slate-300 text-slate-600 bg-slate-50">
+          プロライン同期
+        </Badge>
+      ),
+  };
+
+  // プロライン由来の行は編集・削除不可
+  const isRowFromProline = (item: Record<string, unknown>) =>
+    !item.isManuallyAdded;
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -147,6 +167,9 @@ export function LineFriendsTable({ data, lastSyncAt }: Props) {
         onUpdate={handleUpdate}
         onDelete={handleDelete}
         customActions={customActions}
+        customRenderers={customRenderers}
+        isEditDisabled={isRowFromProline}
+        isDeleteDisabled={isRowFromProline}
         emptyMessage="LINE友達情報が登録されていません"
       />
     </div>

@@ -31,8 +31,15 @@ export async function GET(request: Request) {
 
     await prisma.slpLineFriend.upsert({
       where: { uid },
-      create: { uid, ...data, friendAddedDate: friendAddedDate ?? new Date() },
-      update: data,
+      create: {
+        uid,
+        ...data,
+        friendAddedDate: friendAddedDate ?? new Date(),
+        isManuallyAdded: false, // Webhook経由はプロライン由来扱い
+      },
+      // 既存レコードを更新時、手動追加フラグは明示的に false に戻す
+      // （手動追加されていたuidがWebhookで来た=プロラインにも載った状態）
+      update: { ...data, isManuallyAdded: false },
     });
 
     // Form4: 紹介者に友だち追加通知を送信（fire-and-forget）

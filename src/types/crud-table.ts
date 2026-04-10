@@ -105,6 +105,8 @@ export type CrudTableProps = {
   onDeletePrepare?: (id: number) => Promise<ReactNode | null>;
   // 行単位で削除を無効にする（trueを返すと削除ボタン非表示）
   isDeleteDisabled?: (item: Record<string, unknown>) => boolean;
+  // 行単位で編集を無効にする（trueを返すと編集ボタン非表示）
+  isEditDisabled?: (item: Record<string, unknown>) => boolean;
   // 左側から固定する列数（可視列のみカウント）
   stickyLeftCount?: number;
   // 行ごとのカスタムクラス名

@@ -115,14 +115,16 @@ export async function POST(request: Request) {
 
       const existing = existingMap.get(f.uid);
       if (existing) {
+        // Excel同期時は必ず「プロライン由来」フラグに戻す
+        // （手動追加していたuidがCSVに登場した場合、以後は編集・削除不可に切り替える）
         await prisma.slpLineFriend.update({
           where: { uid: f.uid },
-          data,
+          data: { ...data, isManuallyAdded: false },
         });
         updated++;
       } else {
         await prisma.slpLineFriend.create({
-          data: { uid: f.uid, ...data },
+          data: { uid: f.uid, ...data, isManuallyAdded: false },
         });
         created++;
       }

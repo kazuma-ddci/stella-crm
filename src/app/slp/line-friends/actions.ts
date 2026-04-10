@@ -46,6 +46,8 @@ export async function addLineFriend(data: Record<string, unknown>) {
       scenarioPos3: data.scenarioPos3 ? String(data.scenarioPos3).trim() : null,
       scenarioPos4: data.scenarioPos4 ? String(data.scenarioPos4).trim() : null,
       scenarioPos5: data.scenarioPos5 ? String(data.scenarioPos5).trim() : null,
+      // CRM画面からの手動追加は編集・削除可能フラグを立てる
+      isManuallyAdded: true,
     },
   });
 
@@ -53,6 +55,16 @@ export async function addLineFriend(data: Record<string, unknown>) {
 }
 
 export async function updateLineFriend(id: number, data: Record<string, unknown>) {
+  // 編集可否チェック（プロライン由来は不可）
+  const current = await prisma.slpLineFriend.findUnique({
+    where: { id },
+    select: { uid: true, isManuallyAdded: true },
+  });
+  if (!current) throw new Error("LINE友達が見つかりません");
+  if (!current.isManuallyAdded) {
+    throw new Error("プロライン由来のデータは編集できません");
+  }
+
   const updateData: Record<string, unknown> = {};
 
   const stringFields = [
@@ -76,8 +88,7 @@ export async function updateLineFriend(id: number, data: Record<string, unknown>
   // uid変更時は重複チェック
   if (data.uid !== undefined) {
     const newUid = String(data.uid).trim();
-    const current = await prisma.slpLineFriend.findUnique({ where: { id } });
-    if (current && current.uid !== newUid) {
+    if (current.uid !== newUid) {
       const existing = await prisma.slpLineFriend.findUnique({ where: { uid: newUid } });
       if (existing) throw new Error(`UID「${newUid}」は既に使用されています`);
       updateData.uid = newUid;
@@ -92,6 +103,16 @@ export async function updateLineFriend(id: number, data: Record<string, unknown>
 }
 
 export async function deleteLineFriend(id: number) {
+  // 削除可否チェック（プロライン由来は不可）
+  const current = await prisma.slpLineFriend.findUnique({
+    where: { id },
+    select: { isManuallyAdded: true },
+  });
+  if (!current) throw new Error("LINE友達が見つかりません");
+  if (!current.isManuallyAdded) {
+    throw new Error("プロライン由来のデータは削除できません");
+  }
+
   await prisma.slpLineFriend.update({
     where: { id },
     data: { deletedAt: new Date() },

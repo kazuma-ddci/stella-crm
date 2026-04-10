@@ -91,6 +91,7 @@ export default async function SlpLineFriendsPage() {
     scenarioPos3: f.scenarioPos3,
     scenarioPos4: f.scenarioPos4,
     scenarioPos5: f.scenarioPos5,
+    isManuallyAdded: f.isManuallyAdded,
   }));
 
   // ユーザー情報タブ用データ

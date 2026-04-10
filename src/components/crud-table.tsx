@@ -94,6 +94,7 @@ export function CrudTable({
   changeTrackedFields = [],
   onDeletePrepare,
   isDeleteDisabled,
+  isEditDisabled,
   stickyLeftCount = 0,
   rowClassName,
   customHeaderRenderers,
@@ -1733,7 +1734,7 @@ export function CrudTable({
                   {(onUpdate || onDelete || customActions.length > 0) && (
                     <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                       <div className="flex items-center gap-1">
-                        {onUpdate && (
+                        {onUpdate && !(isEditDisabled?.(item)) && (
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button

@@ -3900,6 +3900,7 @@ model SlpLineFriend {
   scenarioPos5     String? // 現在の場所5
   sortOrder        Int       @default(0) @map("sort_order") // 廃止予定（レガシー: ProLine同期時の連番）。idで代替
   form4NotifyCount Int       @default(0) // Form4（友だち追加通知）送信回数
+  isManuallyAdded  Boolean   @default(false) @map("is_manually_added") // true=CRMから手動追加（編集・削除可）, false=プロライン同期/Webhook由来（編集・削除不可）
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
