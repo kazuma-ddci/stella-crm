@@ -25,11 +25,16 @@ export default function VendorChangePasswordPage() {
 
     setLoading(true);
     try {
-      if (!vendorAccountId) throw new Error("セッションが無効です");
-      await changeVendorPassword(vendorAccountId, newPassword);
+      if (!vendorAccountId) {
+        setError("セッションが無効です");
+        return;
+      }
+      const result = await changeVendorPassword(vendorAccountId, newPassword);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
       await signOut({ callbackUrl: "/hojo/vendor" });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "パスワード変更に失敗しました");
     } finally {
       setLoading(false);
     }

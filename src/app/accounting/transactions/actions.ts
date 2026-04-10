@@ -12,6 +12,7 @@ import { toBoolean } from "@/lib/utils";
 import { recordChangeLog, extractChanges, pickRecordData } from "@/app/accounting/changelog/actions";
 import { TRANSACTION_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // 型定義
@@ -193,7 +194,9 @@ function validateTransactionData(data: Record<string, unknown>) {
 // 1. createTransaction
 // ============================================
 
-export async function createTransaction(data: Record<string, unknown>): Promise<{ id: number } | { error: string }> {
+export async function createTransaction(
+  data: Record<string, unknown>
+): Promise<ActionResult<{ id: number }>> {
   try {
   const session = await getSession();
   const staffId = session.id;
@@ -335,9 +338,10 @@ export async function createTransaction(data: Record<string, unknown>): Promise<
   revalidatePath("/accounting/transactions");
   revalidatePath("/accounting/dashboard");
 
-  return { id: result.transaction.id };
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "取引の作成に失敗しました" };
+  return ok({ id: result.transaction.id });
+  } catch (e) {
+    console.error("[createTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "取引の作成に失敗しました");
   }
 }
 
@@ -348,7 +352,7 @@ export async function createTransaction(data: Record<string, unknown>): Promise<
 export async function updateTransaction(
   id: number,
   data: Record<string, unknown>
-): Promise<{ error: string } | void> {
+): Promise<ActionResult> {
   try {
   const session = await getSession();
   const staffId = session.id;
@@ -528,8 +532,10 @@ export async function updateTransaction(
 
   revalidatePath("/accounting/transactions");
   revalidatePath("/stp/finance/transactions");
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "取引の更新に失敗しました" };
+  return ok();
+  } catch (e) {
+    console.error("[updateTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "取引の更新に失敗しました");
   }
 }
 
@@ -652,7 +658,7 @@ async function checkMonthlyClose(periodFrom: Date, periodTo: Date) {
 // 5. confirmTransaction（未確認→確認済み）
 // ============================================
 
-export async function confirmTransaction(id: number): Promise<{ error: string } | void> {
+export async function confirmTransaction(id: number): Promise<ActionResult> {
   try {
   const session = await getSession();
   const staffId = session.id;
@@ -706,8 +712,10 @@ export async function confirmTransaction(id: number): Promise<{ error: string } 
   await checkAndTransitionToAwaitingAccounting(id);
 
   revalidatePath("/accounting/transactions");
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "取引確定に失敗しました" };
+  return ok();
+  } catch (e) {
+    console.error("[confirmTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "取引確定に失敗しました");
   }
 }
 
@@ -715,7 +723,7 @@ export async function confirmTransaction(id: number): Promise<{ error: string } 
 // 5b. unconfirmTransaction（確認済み→未確認）
 // ============================================
 
-export async function unconfirmTransaction(id: number): Promise<{ error: string } | void> {
+export async function unconfirmTransaction(id: number): Promise<ActionResult> {
   try {
   const session = await getSession();
   const staffId = session.id;
@@ -781,8 +789,10 @@ export async function unconfirmTransaction(id: number): Promise<{ error: string 
   });
 
   revalidatePath("/accounting/transactions");
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "確定取消に失敗しました" };
+  return ok();
+  } catch (e) {
+    console.error("[unconfirmTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "確定取消に失敗しました");
   }
 }
 
@@ -793,7 +803,8 @@ export async function unconfirmTransaction(id: number): Promise<{ error: string 
 export async function returnTransaction(
   id: number,
   data: { body: string; returnReasonType: string }
-) {
+): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -805,13 +816,13 @@ export async function returnTransaction(
   ] as const;
 
   if (!data.body?.trim()) {
-    throw new Error("差し戻しコメントは必須です");
+    return err("差し戻しコメントは必須です");
   }
   if (
     !data.returnReasonType ||
     !(VALID_RETURN_REASONS as readonly string[]).includes(data.returnReasonType)
   ) {
-    throw new Error("差し戻し理由の種別を選択してください");
+    return err("差し戻し理由の種別を選択してください");
   }
 
   const transaction = await prisma.transaction.findFirst({
@@ -819,12 +830,12 @@ export async function returnTransaction(
     select: { id: true, status: true, periodFrom: true, periodTo: true, projectId: true, createdBy: true },
   });
   if (!transaction) {
-    throw new Error("取引が見つかりません");
+    return err("取引が見つかりません");
   }
 
   const allowedFrom = VALID_STATUS_TRANSITIONS[transaction.status] ?? [];
   if (!allowedFrom.includes("returned")) {
-    throw new Error(
+    return err(
       `ステータス「${transaction.status}」の取引は差し戻しできません`
     );
   }
@@ -878,13 +889,22 @@ export async function returnTransaction(
   }
 
   revalidatePath("/accounting/transactions");
+  return ok();
+  } catch (e) {
+    console.error("[returnTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
 // 7. resubmitTransaction（差し戻し→再提出）
 // ============================================
 
-export async function resubmitTransaction(id: number, body?: string) {
+export async function resubmitTransaction(
+  id: number,
+  body?: string
+): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -893,11 +913,11 @@ export async function resubmitTransaction(id: number, body?: string) {
     select: { id: true, status: true, periodFrom: true, periodTo: true, projectId: true },
   });
   if (!transaction) {
-    throw new Error("取引が見つかりません");
+    return err("取引が見つかりません");
   }
 
   if (transaction.status !== "returned") {
-    throw new Error(
+    return err(
       `ステータス「${transaction.status}」の取引は再提出できません（差し戻し状態の取引のみ再提出可能です）`
     );
   }
@@ -939,13 +959,19 @@ export async function resubmitTransaction(id: number, body?: string) {
   });
 
   revalidatePath("/accounting/transactions");
+  return ok();
+  } catch (e) {
+    console.error("[resubmitTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
 // 7b. submitToAccountingTransaction（確認済み/再提出→経理処理待ち）
 // ============================================
 
-export async function submitToAccountingTransaction(id: number) {
+export async function submitToAccountingTransaction(id: number): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -960,12 +986,12 @@ export async function submitToAccountingTransaction(id: number) {
     },
   });
   if (!transaction) {
-    throw new Error("取引が見つかりません");
+    return err("取引が見つかりません");
   }
 
   // confirmed または resubmitted のみ許可
   if (transaction.status !== "confirmed" && transaction.status !== "resubmitted") {
-    throw new Error(
+    return err(
       `ステータス「${transaction.status}」の取引は経理へ引き渡しできません（確認済みまたは再提出の取引のみ可能です）`
     );
   }
@@ -993,7 +1019,7 @@ export async function submitToAccountingTransaction(id: number) {
           confirmedIds.has(cid)
         );
         if (!allConfirmed) {
-          throw new Error(
+          return err(
             "全ての按分先が確定されていないため、経理へ引き渡しできません"
           );
         }
@@ -1024,13 +1050,19 @@ export async function submitToAccountingTransaction(id: number) {
   });
 
   revalidatePath("/accounting/transactions");
+  return ok();
+  } catch (e) {
+    console.error("[submitToAccountingTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
 // 7c. deleteTransaction（論理削除）
 // ============================================
 
-export async function deleteTransaction(id: number) {
+export async function deleteTransaction(id: number): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -1046,17 +1078,17 @@ export async function deleteTransaction(id: number) {
     },
   });
   if (!transaction) {
-    throw new Error("取引が見つかりません");
+    return err("取引が見つかりません");
   }
 
   // 請求/支払に紐づいている場合はエラー
   if (transaction.invoiceGroupId) {
-    throw new Error(
+    return err(
       "この取引は請求に紐づけられています。削除するには請求管理から紐づけを解除してください。"
     );
   }
   if (transaction.paymentGroupId) {
-    throw new Error(
+    return err(
       "この取引は支払に紐づけられています。削除するには支払管理から紐づけを解除してください。"
     );
   }
@@ -1087,13 +1119,19 @@ export async function deleteTransaction(id: number) {
 
   revalidatePath("/accounting/transactions");
   revalidatePath("/stp/finance/transactions");
+  return ok();
+  } catch (e) {
+    console.error("[deleteTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
 // 8. hideTransaction（非表示 / 論理削除）
 // ============================================
 
-export async function hideTransaction(id: number) {
+export async function hideTransaction(id: number): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -1102,11 +1140,11 @@ export async function hideTransaction(id: number) {
     select: { id: true, status: true, periodFrom: true, periodTo: true, projectId: true },
   });
   if (!transaction) {
-    throw new Error("取引が見つかりません");
+    return err("取引が見つかりません");
   }
 
   if (transaction.status !== "paid") {
-    throw new Error(
+    return err(
       `ステータス「${transaction.status}」の取引は非表示にできません（入金完了/支払完了の取引のみ非表示可能です）`
     );
   }
@@ -1138,6 +1176,11 @@ export async function hideTransaction(id: number) {
   });
 
   revalidatePath("/accounting/transactions");
+  return ok();
+  } catch (e) {
+    console.error("[hideTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
@@ -1235,7 +1278,9 @@ export async function getAccountingTransactions() {
 // 9c. createAccountingTransaction（経理側から取引作成 — 直接awaiting_accountingで作成）
 // ============================================
 
-export async function createAccountingTransaction(data: Record<string, unknown>): Promise<{ id: number } | { error: string }> {
+export async function createAccountingTransaction(
+  data: Record<string, unknown>
+): Promise<ActionResult<{ id: number }>> {
   try {
   const session = await getSession();
   const staffId = session.id;
@@ -1275,13 +1320,13 @@ export async function createAccountingTransaction(data: Record<string, unknown>)
 
   // バリデーション: 請求グループは売上のみ、支払グループは経費のみ
   if (invoiceGroupId && validated.type !== "revenue") {
-    throw new Error("請求グループには売上取引のみ紐づけできます");
+    return err("請求グループには売上取引のみ紐づけできます");
   }
   if (paymentGroupId && validated.type !== "expense") {
-    throw new Error("支払グループには経費取引のみ紐づけできます");
+    return err("支払グループには経費取引のみ紐づけできます");
   }
   if (invoiceGroupId && paymentGroupId) {
-    throw new Error("請求グループと支払グループを同時に指定できません");
+    return err("請求グループと支払グループを同時に指定できません");
   }
 
   // グループの存在・ステータスチェック
@@ -1290,9 +1335,9 @@ export async function createAccountingTransaction(data: Record<string, unknown>)
       where: { id: invoiceGroupId, deletedAt: null },
       select: { id: true, status: true },
     });
-    if (!group) throw new Error("指定された請求グループが見つかりません");
+    if (!group) return err("指定された請求グループが見つかりません");
     if (!["awaiting_accounting", "partially_paid"].includes(group.status)) {
-      throw new Error("この請求グループには取引を追加できません（経理処理待ちまたは一部入金済みのみ可能）");
+      return err("この請求グループには取引を追加できません（経理処理待ちまたは一部入金済みのみ可能）");
     }
   }
   if (paymentGroupId) {
@@ -1300,9 +1345,9 @@ export async function createAccountingTransaction(data: Record<string, unknown>)
       where: { id: paymentGroupId, deletedAt: null },
       select: { id: true, status: true },
     });
-    if (!group) throw new Error("指定された支払グループが見つかりません");
+    if (!group) return err("指定された支払グループが見つかりません");
     if (!["awaiting_accounting", "confirmed"].includes(group.status)) {
-      throw new Error("この支払グループには取引を追加できません（経理処理待ちまたは確認済みのみ可能）");
+      return err("この支払グループには取引を追加できません（経理処理待ちまたは確認済みのみ可能）");
     }
   }
 
@@ -1361,9 +1406,10 @@ export async function createAccountingTransaction(data: Record<string, unknown>)
   revalidatePath("/accounting/transactions");
   revalidatePath("/accounting/dashboard");
 
-  return { id: result.transaction.id };
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "取引の作成に失敗しました" };
+  return ok({ id: result.transaction.id });
+  } catch (e) {
+    console.error("[createAccountingTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "取引の作成に失敗しました");
   }
 }
 

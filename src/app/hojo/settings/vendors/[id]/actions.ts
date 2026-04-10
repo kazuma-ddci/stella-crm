@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 import { revalidatePath } from "next/cache";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 type ContractDocumentInput = {
   id?: number;
@@ -28,7 +29,8 @@ function parseDateTime(value: unknown): Date | null {
 export async function updateVendorDetail(
   id: number,
   data: Record<string, unknown>
-) {
+): Promise<ActionResult> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   const email = data.email ? String(data.email).trim() : null;
@@ -148,6 +150,11 @@ export async function updateVendorDetail(
 
   revalidatePath(`/hojo/settings/vendors/${id}`);
   revalidatePath("/hojo/settings/vendors");
+  return ok();
+  } catch (e) {
+    console.error("[updateVendorDetail] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================
@@ -158,11 +165,12 @@ export async function updateVendorContractDocuments(
   vendorId: number,
   serviceType: ServiceType,
   documents: ContractDocumentInput[]
-) {
+): Promise<ActionResult> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   if (!SERVICE_TYPES.includes(serviceType)) {
-    throw new Error("無効なサービス種別です");
+    return err("無効なサービス種別です");
   }
 
   // 既存のドキュメントを削除して、入れ直す（シンプル）
@@ -188,38 +196,55 @@ export async function updateVendorContractDocuments(
 
   revalidatePath(`/hojo/settings/vendors/${vendorId}`);
   revalidatePath("/hojo/settings/vendors");
-}
-
-export async function updateVendorConsultingStaff(vendorId: number, staffIds: number[]) {
-  await requireProjectMasterDataEditPermission();
-
-  // Delete existing
-  await prisma.hojoVendorConsultingStaff.deleteMany({ where: { vendorId } });
-  // Create new
-  if (staffIds.length > 0) {
-    await prisma.hojoVendorConsultingStaff.createMany({
-      data: staffIds.map((staffId) => ({ vendorId, staffId })),
-    });
+  return ok();
+  } catch (e) {
+    console.error("[updateVendorContractDocuments] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  revalidatePath(`/hojo/settings/vendors/${vendorId}`);
-  revalidatePath("/hojo/settings/vendors");
 }
 
-export async function updateVendorAssignedAs(vendorId: number, lineFriendId: number | null) {
-  await requireProjectMasterDataEditPermission();
+export async function updateVendorConsultingStaff(vendorId: number, staffIds: number[]): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
 
-  await prisma.hojoVendor.update({
-    where: { id: vendorId },
-    data: {
-      assignedAsLineFriend: lineFriendId
-        ? { connect: { id: lineFriendId } }
-        : { disconnect: true },
-    },
-  });
+    // Delete existing
+    await prisma.hojoVendorConsultingStaff.deleteMany({ where: { vendorId } });
+    // Create new
+    if (staffIds.length > 0) {
+      await prisma.hojoVendorConsultingStaff.createMany({
+        data: staffIds.map((staffId) => ({ vendorId, staffId })),
+      });
+    }
 
-  revalidatePath(`/hojo/settings/vendors/${vendorId}`);
-  revalidatePath("/hojo/settings/vendors");
+    revalidatePath(`/hojo/settings/vendors/${vendorId}`);
+    revalidatePath("/hojo/settings/vendors");
+    return ok();
+  } catch (e) {
+    console.error("[updateVendorConsultingStaff] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+export async function updateVendorAssignedAs(vendorId: number, lineFriendId: number | null): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+
+    await prisma.hojoVendor.update({
+      where: { id: vendorId },
+      data: {
+        assignedAsLineFriend: lineFriendId
+          ? { connect: { id: lineFriendId } }
+          : { disconnect: true },
+      },
+    });
+
+    revalidatePath(`/hojo/settings/vendors/${vendorId}`);
+    revalidatePath("/hojo/settings/vendors");
+    return ok();
+  } catch (e) {
+    console.error("[updateVendorAssignedAs] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // --- Wrapper actions for vendor detail tabs ---
@@ -241,69 +266,87 @@ import {
   deletePostApplication,
 } from "@/app/hojo/grant-customers/post-application/actions";
 
-export async function addActivityForVendor(data: Record<string, unknown>) {
-  await addActivity(data);
+export async function addActivityForVendor(data: Record<string, unknown>): Promise<ActionResult> {
+  const result = await addActivity(data);
+  if (!result.ok) return result;
   revalidatePath(`/hojo/settings/vendors/${data.vendorId}`);
+  return ok();
 }
 
 export async function updateActivityForVendor(
   id: number,
   data: Record<string, unknown>
-) {
-  await updateActivity(id, data);
+): Promise<ActionResult> {
+  const result = await updateActivity(id, data);
+  if (!result.ok) return result;
   revalidatePath(`/hojo/settings/vendors/${data.vendorId}`);
+  return ok();
 }
 
 export async function deleteActivityForVendor(
   id: number,
   vendorId: string
-) {
-  await deleteActivity(id);
+): Promise<ActionResult> {
+  const result = await deleteActivity(id);
+  if (!result.ok) return result;
   revalidatePath(`/hojo/settings/vendors/${vendorId}`);
+  return ok();
 }
 
 export async function addPreApplicationForVendor(
   data: Record<string, unknown>
-) {
-  await addPreApplication(data);
+): Promise<ActionResult> {
+  const result = await addPreApplication(data);
+  if (!result.ok) return result;
   revalidatePath(`/hojo/settings/vendors/${data.vendorId}`);
+  return ok();
 }
 
 export async function updatePreApplicationForVendor(
   id: number,
   data: Record<string, unknown>
-) {
-  await updatePreApplication(id, data);
+): Promise<ActionResult> {
+  const result = await updatePreApplication(id, data);
+  if (!result.ok) return result;
   revalidatePath(`/hojo/settings/vendors/${data.vendorId}`);
+  return ok();
 }
 
 export async function deletePreApplicationForVendor(
   id: number,
   vendorId: string
-) {
-  await deletePreApplication(id);
+): Promise<ActionResult> {
+  const result = await deletePreApplication(id);
+  if (!result.ok) return result;
   revalidatePath(`/hojo/settings/vendors/${vendorId}`);
+  return ok();
 }
 
 export async function addPostApplicationForVendor(
   data: Record<string, unknown>
-) {
-  await addPostApplication(data);
+): Promise<ActionResult> {
+  const result = await addPostApplication(data);
+  if (!result.ok) return result;
   revalidatePath(`/hojo/settings/vendors/${data.vendorId}`);
+  return ok();
 }
 
 export async function updatePostApplicationForVendor(
   id: number,
   data: Record<string, unknown>
-) {
-  await updatePostApplication(id, data);
+): Promise<ActionResult> {
+  const result = await updatePostApplication(id, data);
+  if (!result.ok) return result;
   revalidatePath(`/hojo/settings/vendors/${data.vendorId}`);
+  return ok();
 }
 
 export async function deletePostApplicationForVendor(
   id: number,
   vendorId: string
-) {
-  await deletePostApplication(id);
+): Promise<ActionResult> {
+  const result = await deletePostApplication(id);
+  if (!result.ok) return result;
   revalidatePath(`/hojo/settings/vendors/${vendorId}`);
+  return ok();
 }

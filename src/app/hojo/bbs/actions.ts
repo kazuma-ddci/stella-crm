@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { canEdit as canEditProject } from "@/lib/auth/permissions";
 import type { UserPermission } from "@/types/auth";
 import bcrypt from "bcryptjs";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 const REVALIDATE_PATH = "/hojo/bbs";
 
@@ -24,39 +25,45 @@ export async function registerBbsAccount(data: {
   name: string;
   email: string;
   password: string;
-}) {
-  const { name, email, password } = data;
+}): Promise<ActionResult> {
+  try {
+    const { name, email, password } = data;
 
-  if (!name.trim() || !email.trim() || !password.trim()) {
-    throw new Error("すべての項目を入力してください");
-  }
-  if (password.length < 8) {
-    throw new Error("パスワードは8文字以上にしてください");
-  }
+    if (!name.trim() || !email.trim() || !password.trim()) {
+      return err("すべての項目を入力してください");
+    }
+    if (password.length < 8) {
+      return err("パスワードは8文字以上にしてください");
+    }
 
-  // メールアドレスの重複チェック（BBS、スタッフ、外部ユーザー全体で）
-  const existingBbs = await prisma.hojoBbsAccount.findUnique({
-    where: { email: email.trim() },
-  });
-  if (existingBbs) {
-    throw new Error("このメールアドレスは既に登録されています");
-  }
-  const existingStaff = await prisma.masterStaff.findUnique({
-    where: { email: email.trim() },
-  });
-  if (existingStaff) {
-    throw new Error("このメールアドレスは既に使用されています");
-  }
+    // メールアドレスの重複チェック（BBS、スタッフ、外部ユーザー全体で）
+    const existingBbs = await prisma.hojoBbsAccount.findUnique({
+      where: { email: email.trim() },
+    });
+    if (existingBbs) {
+      return err("このメールアドレスは既に登録されています");
+    }
+    const existingStaff = await prisma.masterStaff.findUnique({
+      where: { email: email.trim() },
+    });
+    if (existingStaff) {
+      return err("このメールアドレスは既に使用されています");
+    }
 
-  const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await bcrypt.hash(password, 12);
 
-  await prisma.hojoBbsAccount.create({
-    data: {
-      name: name.trim(),
-      email: email.trim(),
-      passwordHash,
-    },
-  });
+    await prisma.hojoBbsAccount.create({
+      data: {
+        name: name.trim(),
+        email: email.trim(),
+        passwordHash,
+      },
+    });
+    return ok();
+  } catch (e) {
+    console.error("[registerBbsAccount] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -95,45 +102,57 @@ export async function recordPasswordResetRequest(email: string) {
 export async function updateBbsFields(
   applicationSupportId: number,
   data: { bbsStatusId?: number | null; bbsMemo?: string }
-) {
-  await requireBbsEditPermission();
-  const updateData: Record<string, unknown> = {};
+): Promise<ActionResult> {
+  try {
+    await requireBbsEditPermission();
+    const updateData: Record<string, unknown> = {};
 
-  if (data.bbsStatusId !== undefined) {
-    updateData.bbsStatusId = data.bbsStatusId || null;
-  }
-  if (data.bbsMemo !== undefined) {
-    updateData.bbsMemo = data.bbsMemo || null;
-  }
+    if (data.bbsStatusId !== undefined) {
+      updateData.bbsStatusId = data.bbsStatusId || null;
+    }
+    if (data.bbsMemo !== undefined) {
+      updateData.bbsMemo = data.bbsMemo || null;
+    }
 
-  if (Object.keys(updateData).length > 0) {
-    await prisma.hojoApplicationSupport.update({
-      where: { id: applicationSupportId },
-      data: updateData,
-    });
-  }
+    if (Object.keys(updateData).length > 0) {
+      await prisma.hojoApplicationSupport.update({
+        where: { id: applicationSupportId },
+        data: updateData,
+      });
+    }
 
-  revalidatePath(REVALIDATE_PATH);
-  revalidatePath("/hojo/application-support");
+    revalidatePath(REVALIDATE_PATH);
+    revalidatePath("/hojo/application-support");
+    return ok();
+  } catch (e) {
+    console.error("[updateBbsFields] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 export async function changeBbsPassword(
   accountId: number,
   newPassword: string
-) {
-  if (newPassword.length < 8) {
-    throw new Error("パスワードは8文字以上にしてください");
+): Promise<ActionResult> {
+  try {
+    if (newPassword.length < 8) {
+      return err("パスワードは8文字以上にしてください");
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+
+    await prisma.hojoBbsAccount.update({
+      where: { id: accountId },
+      data: {
+        passwordHash,
+        mustChangePassword: false,
+      },
+    });
+    return ok();
+  } catch (e) {
+    console.error("[changeBbsPassword] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  const passwordHash = await bcrypt.hash(newPassword, 12);
-
-  await prisma.hojoBbsAccount.update({
-    where: { id: accountId },
-    data: {
-      passwordHash,
-      mustChangePassword: false,
-    },
-  });
 }
 
 export async function getBbsPageData() {

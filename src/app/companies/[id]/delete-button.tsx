@@ -59,7 +59,11 @@ export function DeleteCompanyButton({ id, name }: Props) {
   const handleDelete = async () => {
     setLoading(true);
     try {
-      await deleteCompany(id);
+      const result = await deleteCompany(id);
+      if (!result.ok) {
+        toast.error(result.error || "削除に失敗しました");
+        return;
+      }
       toast.success("顧客を削除しました");
       router.push("/companies");
     } catch {

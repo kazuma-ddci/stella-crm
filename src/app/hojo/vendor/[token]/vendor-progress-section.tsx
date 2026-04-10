@@ -106,30 +106,36 @@ export function VendorProgressSection({ data, vendorId, canEdit }: Props) {
 
       for (const { field, newVal, oldVal } of fields) {
         if (newVal !== oldVal) {
-          await updateVendorProgress(editRow.id, vendorId, field, newVal);
+          const r = await updateVendorProgress(editRow.id, vendorId, field, newVal);
+          if (!r.ok) {
+            alert(r.error);
+            return;
+          }
         }
       }
 
       if (loanDateChanged || loanTimeChanged) {
-        await updateVendorProgress(editRow.id, vendorId, "loanExecutionDate", newCombined);
+        const r = await updateVendorProgress(editRow.id, vendorId, "loanExecutionDate", newCombined);
+        if (!r.ok) {
+          alert(r.error);
+          return;
+        }
       }
 
       router.refresh();
       setEditRow(null);
-    } catch {
-      alert("保存に失敗しました");
     } finally {
       setSaving(false);
     }
   };
 
   const handleSave = async (progressId: number, field: string, value: string) => {
-    try {
-      await updateVendorProgress(progressId, vendorId, field, value);
-      router.refresh();
-    } catch {
-      alert("保存に失敗しました");
+    const result = await updateVendorProgress(progressId, vendorId, field, value);
+    if (!result.ok) {
+      alert(result.error);
+      return;
     }
+    router.refresh();
   };
 
   const handleDateTimeSave = async (

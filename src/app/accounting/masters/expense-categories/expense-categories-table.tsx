@@ -106,7 +106,10 @@ export function ExpenseCategoriesTable({ data, accountOptions, projectOptions }:
       onUpdate={updateExpenseCategory}
       emptyMessage="費目が登録されていません"
       sortableItems={sortableItems}
-      onReorder={reorderExpenseCategories}
+      onReorder={async (ids) => {
+        const result = await reorderExpenseCategories(ids);
+        if (!result.ok) throw new Error(result.error);
+      }}
       customRenderers={customRenderers}
     />
   );

@@ -1,13 +1,19 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
-  CheckCircle,
+  KoutekiPageShell,
+  KoutekiCard,
+  KoutekiCardContent,
+  KoutekiButton,
+  KoutekiInput,
+  KoutekiTextarea,
+  KoutekiCheckbox,
+  KoutekiFormField,
+  KoutekiFormStack,
+} from "@/components/kouteki";
+import {
+  CheckCircle2,
   AlertCircle,
   Loader2,
   Upload,
@@ -106,15 +112,15 @@ function FileUploadArea({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer ${
+        className={`cursor-pointer rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
           isDragging
-            ? "border-sky-400 bg-sky-50"
-            : "border-gray-200 bg-gray-50 hover:border-gray-300"
+            ? "border-blue-400 bg-blue-50"
+            : "border-slate-200 bg-slate-50 hover:border-slate-300"
         }`}
         onClick={() => inputRef.current?.click()}
       >
-        <Upload className="h-6 w-6 text-gray-400 mx-auto mb-2" />
-        <p className="text-sm text-gray-500">
+        <Upload className="mx-auto mb-2 h-6 w-6 text-slate-400" />
+        <p className="text-sm text-slate-500">
           ファイルをここにドラッグ&ドロップでアップロード
         </p>
       </div>
@@ -122,7 +128,7 @@ function FileUploadArea({
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-800 transition-colors mx-auto"
+        className="mx-auto flex items-center gap-1.5 text-sm text-slate-600 transition-colors hover:text-slate-800"
       >
         <span className="text-lg leading-none">+</span>
         ローカルファイルをアップロード
@@ -144,28 +150,28 @@ function FileUploadArea({
 
       {/* アップロード済みファイル一覧 */}
       {files.length > 0 && (
-        <div className="space-y-1.5 mt-2">
+        <div className="mt-2 space-y-1.5">
           {files.map((f, i) => (
             <div
               key={`${f.name}-${i}`}
-              className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2"
+              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
             >
-              <FileText className="h-4 w-4 text-sky-500 flex-shrink-0" />
+              <FileText className="h-4 w-4 flex-shrink-0 text-blue-500" />
               <button
                 type="button"
                 onClick={() => openPreview(f)}
-                className="text-sm text-sky-600 hover:text-sky-800 hover:underline truncate flex-1 text-left transition-colors"
+                className="flex-1 truncate text-left text-sm text-blue-700 transition-colors hover:text-blue-900 hover:underline"
                 title="クリックしてプレビュー"
               >
                 {f.name}
               </button>
-              <span className="text-xs text-gray-400 flex-shrink-0">
+              <span className="flex-shrink-0 text-xs text-slate-400">
                 {formatFileSize(f.size)}
               </span>
               <button
                 type="button"
                 onClick={() => openPreview(f)}
-                className="text-gray-400 hover:text-sky-600 transition-colors flex-shrink-0"
+                className="flex-shrink-0 text-slate-400 transition-colors hover:text-blue-600"
                 title="プレビュー"
               >
                 <Eye className="h-4 w-4" />
@@ -173,7 +179,7 @@ function FileUploadArea({
               <button
                 type="button"
                 onClick={() => removeFile(i)}
-                className="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0"
+                className="flex-shrink-0 text-slate-400 transition-colors hover:text-rose-500"
                 title="削除"
               >
                 <X className="h-4 w-4" />
@@ -186,27 +192,34 @@ function FileUploadArea({
   );
 }
 
-// ヘッダー
-function Header() {
+/** 結果/エラー画面用の共通カード */
+function StatusCard({
+  icon,
+  iconBg,
+  title,
+  children,
+}: {
+  icon: React.ReactNode;
+  iconBg: string;
+  title: React.ReactNode;
+  children?: React.ReactNode;
+}) {
   return (
-    <div className="bg-gradient-to-r from-sky-500 to-emerald-400 rounded-t-2xl p-8 text-center">
-      <h1 className="text-2xl font-bold text-white tracking-wide">
-        人事評価制度再設計
-      </h1>
-      <p className="text-sky-100 text-sm mt-1">(必要書類提出フォーム)</p>
-      <p className="text-sky-100 text-sm mt-2">
-        一般社団法人 公的制度教育推進協会
-      </p>
+    <div className="space-y-5 text-center">
+      <div className="flex justify-center">
+        <div
+          className={`inline-flex h-16 w-16 items-center justify-center rounded-full ${iconBg}`}
+        >
+          {icon}
+        </div>
+      </div>
+      <h2 className="text-xl font-bold text-slate-900 sm:text-2xl">{title}</h2>
+      {children && (
+        <div className="space-y-3 text-sm leading-relaxed text-slate-600">
+          {children}
+        </div>
+      )}
     </div>
-  );
-}
-
-// フッター
-function Footer() {
-  return (
-    <p className="text-center text-xs text-gray-400 mt-6">
-      &copy; 一般社団法人 公的制度教育推進協会
-    </p>
   );
 }
 
@@ -283,234 +296,223 @@ export default function SlpHrEvaluationFormPage() {
   // 送信成功
   if (status === "success") {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-sky-50 to-white py-8 px-4">
-        <div className="max-w-2xl mx-auto">
-          <Header />
-          <div className="bg-white rounded-b-2xl shadow-lg p-8 text-center">
-            <CheckCircle className="h-16 w-16 text-emerald-500 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-gray-800 mb-3">
-              書類を提出いただきありがとうございます
-            </h2>
-            <p className="text-gray-600 leading-relaxed text-sm">
-              ご提出いただいた書類およびご入力内容をもとに内容を確認し、
-              <br />
-              人事評価改善のご提案をさせていただきます。
-            </p>
-          </div>
-          <Footer />
-        </div>
-      </div>
+      <KoutekiPageShell
+        title="人事評価制度再設計"
+        subtitle="（必要書類提出フォーム）"
+      >
+        <StatusCard
+          icon={<CheckCircle2 className="h-8 w-8 text-emerald-500" />}
+          iconBg="bg-emerald-50"
+          title="書類を提出いただきありがとうございます"
+        >
+          <p>
+            ご提出いただいた書類およびご入力内容をもとに内容を確認し、
+            <br />
+            人事評価改善のご提案をさせていただきます。
+          </p>
+        </StatusCard>
+      </KoutekiPageShell>
     );
   }
 
   // エラー
   if (status === "error") {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-sky-50 to-white py-8 px-4">
-        <div className="max-w-2xl mx-auto">
-          <Header />
-          <div className="bg-white rounded-b-2xl shadow-lg p-8 text-center">
-            <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-gray-800 mb-3">
-              送信に失敗しました
-            </h2>
-            <p className="text-gray-600 text-sm mb-4">{errorMessage}</p>
-            <Button
-              onClick={() => setStatus("form")}
-              className="bg-gradient-to-r from-sky-500 to-emerald-400 hover:from-sky-600 hover:to-emerald-500 text-white rounded-xl"
-            >
+      <KoutekiPageShell
+        title="人事評価制度再設計"
+        subtitle="（必要書類提出フォーム）"
+      >
+        <StatusCard
+          icon={<AlertCircle className="h-8 w-8 text-rose-500" />}
+          iconBg="bg-rose-50"
+          title="送信に失敗しました"
+        >
+          <p>{errorMessage}</p>
+          <div className="pt-2">
+            <KoutekiButton onClick={() => setStatus("form")}>
               フォームに戻る
-            </Button>
+            </KoutekiButton>
           </div>
-          <Footer />
-        </div>
-      </div>
+        </StatusCard>
+      </KoutekiPageShell>
     );
   }
 
   // フォーム表示
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-50 to-white py-8 px-4">
-      <div className="max-w-2xl mx-auto">
-        <Header />
+    <KoutekiPageShell
+      title="人事評価制度再設計"
+      subtitle={
+        <>
+          本フォームは、人事評価改善に伴う制度設計および検討を行うために、
+          必要書類をご提出いただくためのフォームです。
+          <br />
+          ご提出いただいた書類およびご入力内容をもとに内容を確認し、問題がないことを確認次第、人事評価改善のご提案をさせていただきます。
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit}>
+        <p className="mb-5 text-xs text-rose-500">* 必須の質問です</p>
 
-        <div className="bg-white rounded-b-2xl shadow-lg">
-          <div className="px-8 pt-8 pb-4">
-            <p className="text-gray-700 text-sm leading-relaxed">
-              本フォームは、人事評価改善に伴う制度設計および検討を行うために、
-              <br />
-              必要書類をご提出いただくためのフォームです。
-              <br />
-              ご提出いただいた書類およびご入力内容をもとに内容を確認し、
-              <br />
-              問題がないことを確認次第、人事評価改善のご提案をさせていただきます。
-            </p>
-            <p className="text-red-500 text-xs mt-3">* 必須の質問です</p>
-          </div>
+        <KoutekiFormStack>
+          {/* 氏名 */}
+          <KoutekiFormField label="氏名(漢字及びフルネーム)" required htmlFor="name">
+            <KoutekiInput
+              id="name"
+              value={formData.name}
+              onChange={(e) => handleInputChange("name", e.target.value)}
+              placeholder="内容を入力"
+            />
+          </KoutekiFormField>
 
-          <form onSubmit={handleSubmit} className="px-8 pb-8 space-y-6">
-            {/* 氏名 */}
-            <div className="space-y-2">
-              <Label htmlFor="name" className="text-sm font-semibold text-gray-800">
-                氏名(漢字及びフルネーム) <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => handleInputChange("name", e.target.value)}
-                className="border-gray-300 focus:border-sky-500 focus:ring-sky-500"
-                placeholder="内容を入力"
-              />
-            </div>
+          {/* LINE名 */}
+          <KoutekiFormField
+            label="LINE名"
+            required
+            htmlFor="lineName"
+            description="本名ではなく、LINEで登録しているお名前をご記載ください。"
+          >
+            <KoutekiInput
+              id="lineName"
+              value={formData.lineName}
+              onChange={(e) => handleInputChange("lineName", e.target.value)}
+              placeholder="内容を入力"
+            />
+          </KoutekiFormField>
 
-            {/* LINE名 */}
-            <div className="space-y-2">
-              <Label htmlFor="lineName" className="text-sm font-semibold text-gray-800">
-                LINE名 <span className="text-red-500">*</span>
-              </Label>
-              <p className="text-xs text-gray-500">
-                本名ではなく、LINEで登録しているお名前をご記載ください。
-              </p>
-              <Input
-                id="lineName"
-                value={formData.lineName}
-                onChange={(e) => handleInputChange("lineName", e.target.value)}
-                className="border-gray-300 focus:border-sky-500 focus:ring-sky-500"
-                placeholder="内容を入力"
-              />
-            </div>
+          {/* メールアドレス */}
+          <KoutekiFormField label="メールアドレス" required htmlFor="email">
+            <KoutekiInput
+              id="email"
+              type="email"
+              value={formData.email}
+              onChange={(e) => handleInputChange("email", e.target.value)}
+              placeholder="内容を入力"
+            />
+          </KoutekiFormField>
 
-            {/* メールアドレス */}
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm font-semibold text-gray-800">
-                メールアドレス <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="email"
-                type="email"
-                value={formData.email}
-                onChange={(e) => handleInputChange("email", e.target.value)}
-                className="border-gray-300 focus:border-sky-500 focus:ring-sky-500"
-                placeholder="内容を入力"
-              />
-            </div>
-
-            {/* 算定基礎届 */}
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold text-gray-800">
-                算定基礎届 <span className="text-red-500">*</span>
-              </Label>
-              <p className="text-xs text-gray-500 leading-relaxed">
+          {/* 算定基礎届 */}
+          <KoutekiFormField
+            label="算定基礎届"
+            required
+            description={
+              <>
                 原則として、直近から最大過去5年間分の算定基礎届をご提出ください。
                 <br />
                 取得可能な範囲で問題ありません。
-              </p>
-              <FileUploadArea
-                files={formData.santeiKisoFiles}
-                onFilesChange={(files) =>
-                  handleFilesChange("santeiKisoFiles", files)
-                }
-              />
-            </div>
+              </>
+            }
+          >
+            <FileUploadArea
+              files={formData.santeiKisoFiles}
+              onFilesChange={(files) =>
+                handleFilesChange("santeiKisoFiles", files)
+              }
+            />
+          </KoutekiFormField>
 
-            {/* 被保険者報酬月額変更届 */}
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold text-gray-800">
-                被保険者報酬月額変更届
-              </Label>
-              <p className="text-xs text-gray-500 leading-relaxed">
+          {/* 被保険者報酬月額変更届 */}
+          <KoutekiFormField
+            label="被保険者報酬月額変更届"
+            description={
+              <>
                 報酬変更・随時改定等に関する変更届について、
                 <br />
                 直近から最大過去5年分をご提出ください。
-              </p>
-              <FileUploadArea
-                files={formData.hoshuGetsugakuFiles}
-                onFilesChange={(files) =>
-                  handleFilesChange("hoshuGetsugakuFiles", files)
-                }
-              />
-            </div>
+              </>
+            }
+          >
+            <FileUploadArea
+              files={formData.hoshuGetsugakuFiles}
+              onFilesChange={(files) =>
+                handleFilesChange("hoshuGetsugakuFiles", files)
+              }
+            />
+          </KoutekiFormField>
 
-            {/* 被保険者資格取得届 */}
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold text-gray-800">
-                被保険者資格取得届
-              </Label>
-              <p className="text-xs text-gray-500 leading-relaxed">
+          {/* 被保険者資格取得届 */}
+          <KoutekiFormField
+            label="被保険者資格取得届"
+            description={
+              <>
                 対象期間（最大過去5年間）に在籍していた従業員分の
                 <br />
                 被保険者資格取得届をご提出ください。
-              </p>
-              <FileUploadArea
-                files={formData.shikakuShutokuFiles}
-                onFilesChange={(files) =>
-                  handleFilesChange("shikakuShutokuFiles", files)
-                }
-              />
-            </div>
+              </>
+            }
+          >
+            <FileUploadArea
+              files={formData.shikakuShutokuFiles}
+              onFilesChange={(files) =>
+                handleFilesChange("shikakuShutokuFiles", files)
+              }
+            />
+          </KoutekiFormField>
 
-            {/* 源泉徴収簿 */}
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold text-gray-800">
-                源泉徴収簿 <span className="text-red-500">*</span>
-              </Label>
-              <p className="text-xs text-gray-500 leading-relaxed">
+          {/* 源泉徴収簿 */}
+          <KoutekiFormField
+            label="源泉徴収簿"
+            required
+            description={
+              <>
                 最大過去5年間分について、
                 <br />
                 源泉徴収簿をご提出ください。
-              </p>
-              <FileUploadArea
-                files={formData.gensenChoshuFiles}
-                onFilesChange={(files) =>
-                  handleFilesChange("gensenChoshuFiles", files)
-                }
-              />
-            </div>
+              </>
+            }
+          >
+            <FileUploadArea
+              files={formData.gensenChoshuFiles}
+              onFilesChange={(files) =>
+                handleFilesChange("gensenChoshuFiles", files)
+              }
+            />
+          </KoutekiFormField>
 
-            {/* 賃金台帳 */}
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold text-gray-800">
-                賃金台帳
-              </Label>
-              <p className="text-xs text-gray-500 leading-relaxed">
+          {/* 賃金台帳 */}
+          <KoutekiFormField
+            label="賃金台帳"
+            description={
+              <>
                 最大過去5年間分について、
                 <br />
                 賃金台帳をご提出ください。
-              </p>
-              <FileUploadArea
-                files={formData.chinginDaichoFiles}
-                onFilesChange={(files) =>
-                  handleFilesChange("chinginDaichoFiles", files)
-                }
-              />
-            </div>
+              </>
+            }
+          >
+            <FileUploadArea
+              files={formData.chinginDaichoFiles}
+              onFilesChange={(files) =>
+                handleFilesChange("chinginDaichoFiles", files)
+              }
+            />
+          </KoutekiFormField>
 
-            {/* 賞与関連資料 */}
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold text-gray-800">
-                賞与関連資料（該当がある場合）
-              </Label>
-              <p className="text-xs text-gray-500 leading-relaxed">
+          {/* 賞与関連資料 */}
+          <KoutekiFormField
+            label="賞与関連資料（該当がある場合）"
+            description={
+              <>
                 賞与支給がある場合のみ、
                 <br />
                 最大過去5年間分の賞与関連資料をご提出ください。
                 <br />
                 （例：賞与支給明細、賞与台帳 等）
-              </p>
-              <FileUploadArea
-                files={formData.shoyoFiles}
-                onFilesChange={(files) =>
-                  handleFilesChange("shoyoFiles", files)
-                }
-              />
-            </div>
+              </>
+            }
+          >
+            <FileUploadArea
+              files={formData.shoyoFiles}
+              onFilesChange={(files) => handleFilesChange("shoyoFiles", files)}
+            />
+          </KoutekiFormField>
 
-            {/* 補足事項 */}
-            <div className="space-y-2">
-              <Label htmlFor="note" className="text-sm font-semibold text-gray-800">
-                補足事項
-              </Label>
-              <p className="text-xs text-gray-500 leading-relaxed">
+          {/* 補足事項 */}
+          <KoutekiFormField
+            label="補足事項"
+            htmlFor="note"
+            description={
+              <>
                 書類内容に関する補足や、事前に共有しておきたい事項があればご記載ください。
                 <br />
                 記載例：
@@ -522,73 +524,79 @@ export default function SlpHrEvaluationFormPage() {
                 ・社労士が関与している
                 <br />
                 ・一部年度の書類が未取得 など
-              </p>
-              <Textarea
-                id="note"
-                value={formData.note}
-                onChange={(e) => handleInputChange("note", e.target.value)}
-                className="border-gray-300 focus:border-sky-500 focus:ring-sky-500 min-h-[80px]"
-                placeholder="内容を入力"
-              />
-            </div>
+              </>
+            }
+          >
+            <KoutekiTextarea
+              id="note"
+              value={formData.note}
+              onChange={(e) => handleInputChange("note", e.target.value)}
+              placeholder="内容を入力"
+              rows={4}
+            />
+          </KoutekiFormField>
 
-            {/* 個人情報・機密情報の取扱い同意 */}
-            <div className="space-y-3 bg-gray-50 rounded-xl p-5">
-              <Label className="text-sm font-semibold text-gray-800">
-                個人情報・機密情報の取扱い同意{" "}
-                <span className="text-red-500">*</span>
-              </Label>
-              <p className="text-xs text-gray-600 leading-relaxed">
+          {/* 個人情報・機密情報の取扱い同意 */}
+          <KoutekiCard variant="ghost">
+            <KoutekiCardContent className="space-y-3 px-5 py-5">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-slate-800">
+                  個人情報・機密情報の取扱い同意
+                </span>
+                <span className="inline-flex h-5 items-center justify-center rounded-md bg-rose-50 px-1.5 text-[10px] font-semibold text-rose-600">
+                  必須
+                </span>
+              </div>
+              <p className="text-xs leading-relaxed text-slate-600">
                 機密情報および個人情報の取扱いに関する同意書を確認し、同意します。
               </p>
               <a
                 href="https://drive.google.com/file/d/1jI-cUueB5QX5ROLnMgIDtNkIUe94s_7G/view?usp=sharing"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block text-sky-600 hover:text-sky-700 text-xs underline underline-offset-2"
+                className="inline-block text-xs text-blue-700 underline underline-offset-2 hover:text-blue-900"
               >
                 同意書を確認する（Google Drive）
               </a>
-              <label className="flex items-center gap-3 cursor-pointer mt-2">
-                <Checkbox
+              <div className="pt-1">
+                <KoutekiCheckbox
                   checked={formData.privacyAgreed}
-                  onCheckedChange={(checked) =>
-                    handleInputChange("privacyAgreed", checked === true)
+                  onChange={(e) =>
+                    handleInputChange("privacyAgreed", e.target.checked)
                   }
-                  className="data-[state=checked]:bg-sky-500 data-[state=checked]:border-sky-500"
-                />
-                <span className="text-sm text-gray-700">同意する</span>
-              </label>
-            </div>
-
-            {/* エラーメッセージ */}
-            {errorMessage && (
-              <div className="flex items-start gap-2 bg-red-50 text-red-600 p-4 rounded-lg text-sm">
-                <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
-                <span>{errorMessage}</span>
+                >
+                  同意する
+                </KoutekiCheckbox>
               </div>
+            </KoutekiCardContent>
+          </KoutekiCard>
+
+          {/* エラーメッセージ */}
+          {errorMessage && (
+            <div className="flex items-start gap-2 rounded-lg border border-rose-100 bg-rose-50 p-3 text-sm text-rose-600">
+              <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
+          {/* 送信ボタン */}
+          <KoutekiButton
+            type="submit"
+            size="lg"
+            className="w-full"
+            disabled={status === "submitting"}
+          >
+            {status === "submitting" ? (
+              <>
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                送信中...
+              </>
+            ) : (
+              "送信"
             )}
-
-            {/* 送信ボタン */}
-            <Button
-              type="submit"
-              className="w-full h-12 text-base font-semibold bg-gradient-to-r from-sky-500 to-emerald-400 hover:from-sky-600 hover:to-emerald-500 text-white rounded-xl shadow-md transition-all duration-200"
-              disabled={status === "submitting"}
-            >
-              {status === "submitting" ? (
-                <>
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  送信中...
-                </>
-              ) : (
-                "送信"
-              )}
-            </Button>
-          </form>
-        </div>
-
-        <Footer />
-      </div>
-    </div>
+          </KoutekiButton>
+        </KoutekiFormStack>
+      </form>
+    </KoutekiPageShell>
   );
 }

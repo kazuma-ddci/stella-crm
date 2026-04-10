@@ -101,23 +101,22 @@ export function LoanProgressTable({
     if (!editRow) return;
     setSaving(true);
     try {
-      await updateProgressStaffMemo(editRow.id, editMemo);
+      const result = await updateProgressStaffMemo(editRow.id, editMemo);
+      if (!result.ok) { alert(result.error); return; }
       setEditRow(null);
       router.refresh();
-    } catch {
-      alert("保存に失敗しました");
     } finally {
       setSaving(false);
     }
   };
 
   const handleStaffMemoSave = async (id: number, value: string) => {
-    try {
-      await updateProgressStaffMemo(id, value);
-      router.refresh();
-    } catch {
-      alert("保存に失敗しました");
+    const result = await updateProgressStaffMemo(id, value);
+    if (!result.ok) {
+      alert(result.error);
+      return;
     }
+    router.refresh();
   };
 
   if (data.length === 0) {

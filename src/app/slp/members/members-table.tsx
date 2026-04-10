@@ -93,7 +93,11 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
     if (!notifyTarget) return;
     setNotifying(true);
     try {
-      await sendForm5Notification(notifyTarget.id);
+      const result = await sendForm5Notification(notifyTarget.id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success(`${notifyTarget.name}さんの紹介者に通知を送信しました`);
       setNotifyDialogOpen(false);
       setNotifyTarget(null);
@@ -215,7 +219,11 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
                 e.stopPropagation();
                 const id = row?.id as number;
                 if (id) {
-                  await clearResubmitted(id);
+                  const result = await clearResubmitted(id);
+                  if (!result.ok) {
+                    toast.error(result.error);
+                    return;
+                  }
                   toast.success("通知をクリアしました");
                   router.refresh();
                 }
@@ -255,7 +263,11 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
         const email = row.email as string;
         if (!confirm(`${name}さん（${email}）に新規契約書を送付しますか？`)) return;
         try {
-          await sendContractToMember(id);
+          const result = await sendContractToMember(id);
+          if (!result.ok) {
+            toast.error(result.error);
+            return;
+          }
           toast.success(`${name}さんに契約書を送付しました`);
           router.refresh();
         } catch (error) {
@@ -276,7 +288,11 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
         const name = row.name as string;
         if (!confirm(`${name}さんにリマインドを送付しますか？`)) return;
         try {
-          await remindMember(id);
+          const result = await remindMember(id);
+          if (!result.ok) {
+            toast.error(result.error);
+            return;
+          }
           toast.success(`${name}さんにリマインドを送付しました`);
           router.refresh();
         } catch (error) {
@@ -300,8 +316,9 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
   ];
 
   const handleAdd = async (formData: Record<string, unknown>) => {
-    await addMember(formData);
-    router.refresh();
+    const result = await addMember(formData);
+    if (result.ok) router.refresh();
+    return result;
   };
 
   const handleUpdate = async (id: number, formData: Record<string, unknown>) => {
@@ -320,8 +337,9 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
       return;
     }
 
-    await updateMember(id, formData);
-    router.refresh();
+    const result = await updateMember(id, formData);
+    if (result.ok) router.refresh();
+    return result;
   };
 
   const handleForm5Confirm = useCallback(async (sendNotification: boolean) => {
@@ -331,14 +349,17 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
     pendingUpdateRef.current = null;
 
     try {
-      await updateMember(pending.id, pending.formData);
+      const result = await updateMember(pending.id, pending.formData);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       if (sendNotification) {
-        try {
-          await sendForm5Notification(pending.id);
+        const r2 = await sendForm5Notification(pending.id);
+        if (!r2.ok) {
+          toast.error(r2.error);
+        } else {
           toast.success("紹介者に契約締結通知を送信しました");
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : "通知送信に失敗しました";
-          toast.error(msg);
         }
       }
       router.refresh();
@@ -349,8 +370,9 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
   }, [router]);
 
   const handleDelete = async (id: number) => {
-    await deleteMember(id);
-    router.refresh();
+    const result = await deleteMember(id);
+    if (result.ok) router.refresh();
+    return result;
   };
 
   return (

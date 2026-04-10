@@ -515,7 +515,11 @@ export function AgentsTable({
           text={value as string | null}
           title="代理店メモ"
           onEdit={async (newValue) => {
-            await updateAgent(row.id as number, { note: newValue });
+            const r = await updateAgent(row.id as number, { note: newValue });
+            if (!r.ok) {
+              alert(r.error);
+              return;
+            }
             router.refresh();
           }}
         />
@@ -649,11 +653,15 @@ export function AgentsTable({
 
     setCategoryLoading(true);
     try {
-      await updateAgent(pendingCategoryChange.rowId, {
+      const result = await updateAgent(pendingCategoryChange.rowId, {
         category1: pendingCategoryChange.category1,
         minimumCases: pendingCategoryChange.minimumCases,
         monthlyFee: pendingCategoryChange.monthlyFee,
       });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("更新しました");
       setCategoryConfirmOpen(false);
       setPendingCategoryChange(null);

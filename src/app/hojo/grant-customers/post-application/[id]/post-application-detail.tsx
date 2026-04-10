@@ -43,10 +43,12 @@ export function PostApplicationDetail({ data, canEdit, vendorOptions }: Props) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await updatePostApplicationDetail(data.id as number, form);
+      const result = await updatePostApplicationDetail(data.id as number, form);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("保存しました");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "保存に失敗しました");
     } finally {
       setSaving(false);
     }

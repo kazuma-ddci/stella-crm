@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireEdit } from "@/lib/auth";
 import { sendInvoiceEmail } from "@/lib/email/invoice-email";
 import { toLocalDateString } from "@/lib/utils";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // 型定義
@@ -65,7 +66,7 @@ export type PaymentGroupMailFormData = {
 
 export async function getPaymentGroupMailData(
   paymentGroupId: number
-): Promise<PaymentGroupMailFormData> {
+): Promise<PaymentGroupMailFormData | null> {
   // PaymentGroup取得（counterparty + operatingCompany含む）
   const group = await prisma.paymentGroup.findUnique({
     where: { id: paymentGroupId, deletedAt: null },
@@ -74,7 +75,8 @@ export async function getPaymentGroupMailData(
       operatingCompany: true,
     },
   });
-  if (!group) throw new Error("支払が見つかりません");
+  // 見つからない場合は null を返す（throw すると本番で英語エラー化される）
+  if (!group) return null;
 
   // counterpartyに紐づくMasterStellaCompanyの担当者を取得
   // Counterparty.companyId → MasterStellaCompany.id
@@ -579,20 +581,21 @@ export async function recordManualPaymentGroupSend(data: {
   paymentGroupId: number;
   sendMethod: "line" | "postal" | "other";
   note?: string;
-}): Promise<void> {
+}): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
 
   const group = await prisma.paymentGroup.findUnique({
     where: { id: data.paymentGroupId, deletedAt: null },
   });
-  if (!group) throw new Error("支払が見つかりません");
+  if (!group) return err("支払が見つかりません");
 
   if (group.paymentType === "direct") {
-    throw new Error("即時支払いタイプの支払には手動記録できません");
+    return err("即時支払いタイプの支払には手動記録できません");
   }
 
   if (!["before_request", "rejected"].includes(group.status)) {
-    throw new Error("依頼前・差し戻しのステータスでのみ手動記録できます");
+    return err("依頼前・差し戻しのステータスでのみ手動記録できます");
   }
 
   await prisma.$transaction(async (tx) => {
@@ -623,4 +626,9 @@ export async function recordManualPaymentGroupSend(data: {
   });
 
   revalidatePath("/stp/finance/payment-groups");
+  return ok();
+ } catch (e) {
+  console.error("[recordManualPaymentGroupSend] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }

@@ -552,12 +552,12 @@ function SubmissionTable({
   const router = useRouter();
 
   const handleMemoSave = async (id: number, value: string) => {
-    try {
-      await updateLoanLenderMemo(id, value);
-      router.refresh();
-    } catch {
-      alert("保存に失敗しました");
+    const result = await updateLoanLenderMemo(id, value);
+    if (!result.ok) {
+      alert(result.error);
+      return;
     }
+    router.refresh();
   };
 
   const filtered = vendorFilter
@@ -728,12 +728,12 @@ function CustomerProgressSection({
   const [saving, setSaving] = useState(false);
 
   const handleSave = async (id: number, field: string, value: string) => {
-    try {
-      await updateLenderProgress(id, field, value);
-      router.refresh();
-    } catch {
-      alert("保存に失敗しました");
+    const result = await updateLenderProgress(id, field, value);
+    if (!result.ok) {
+      alert(result.error);
+      return;
     }
+    router.refresh();
   };
 
   const openProgressEdit = (row: LenderProgressRow) => {

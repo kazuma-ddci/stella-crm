@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 function toDateOrNull(val: unknown): Date | null {
   if (!val) return null;
@@ -27,69 +28,88 @@ function toStr(val: unknown): string | null {
   return String(val).trim();
 }
 
-export async function addPostApplication(data: Record<string, unknown>) {
-  await requireProjectMasterDataEditPermission();
+export async function addPostApplication(data: Record<string, unknown>): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
 
-  const vendorId = data.vendorId ? Number(data.vendorId) : null;
-  if (!vendorId) throw new Error("ベンダーを選択してください");
+    const vendorId = data.vendorId ? Number(data.vendorId) : null;
+    if (!vendorId) return err("ベンダーを選択してください");
 
-  await prisma.hojoGrantCustomerPostApplication.create({
-    data: {
-      vendor: { connect: { id: vendorId } },
-      applicantName: toStr(data.applicantName),
-      grantApplicationNumber: toStr(data.grantApplicationNumber),
-      subsidyStatus: toStr(data.subsidyStatus),
-      applicationCompletedDate: toDateOrNull(data.applicationCompletedDate),
-      hasLoan: data.hasLoan === true || data.hasLoan === "true",
-    },
-  });
+    await prisma.hojoGrantCustomerPostApplication.create({
+      data: {
+        vendor: { connect: { id: vendorId } },
+        applicantName: toStr(data.applicantName),
+        grantApplicationNumber: toStr(data.grantApplicationNumber),
+        subsidyStatus: toStr(data.subsidyStatus),
+        applicationCompletedDate: toDateOrNull(data.applicationCompletedDate),
+        hasLoan: data.hasLoan === true || data.hasLoan === "true",
+      },
+    });
 
-  revalidatePath("/hojo/grant-customers/post-application");
+    revalidatePath("/hojo/grant-customers/post-application");
+    return ok();
+  } catch (e) {
+    console.error("[addPostApplication] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function updatePostApplication(id: number, data: Record<string, unknown>) {
-  await requireProjectMasterDataEditPermission();
+export async function updatePostApplication(id: number, data: Record<string, unknown>): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
 
-  const updateData: Record<string, unknown> = {};
+    const updateData: Record<string, unknown> = {};
 
-  if ("vendorId" in data) {
-    const vendorId = data.vendorId ? Number(data.vendorId) : null;
-    if (vendorId) {
-      updateData.vendor = { connect: { id: vendorId } };
+    if ("vendorId" in data) {
+      const vendorId = data.vendorId ? Number(data.vendorId) : null;
+      if (vendorId) {
+        updateData.vendor = { connect: { id: vendorId } };
+      }
     }
-  }
-  if ("applicantName" in data) updateData.applicantName = toStr(data.applicantName);
-  if ("grantApplicationNumber" in data) updateData.grantApplicationNumber = toStr(data.grantApplicationNumber);
-  if ("subsidyStatus" in data) updateData.subsidyStatus = toStr(data.subsidyStatus);
-  if ("applicationCompletedDate" in data) updateData.applicationCompletedDate = toDateOrNull(data.applicationCompletedDate);
-  if ("hasLoan" in data) updateData.hasLoan = data.hasLoan === true || data.hasLoan === "true";
-  if ("completedDate" in data) updateData.completedDate = toDateOrNull(data.completedDate);
+    if ("applicantName" in data) updateData.applicantName = toStr(data.applicantName);
+    if ("grantApplicationNumber" in data) updateData.grantApplicationNumber = toStr(data.grantApplicationNumber);
+    if ("subsidyStatus" in data) updateData.subsidyStatus = toStr(data.subsidyStatus);
+    if ("applicationCompletedDate" in data) updateData.applicationCompletedDate = toDateOrNull(data.applicationCompletedDate);
+    if ("hasLoan" in data) updateData.hasLoan = data.hasLoan === true || data.hasLoan === "true";
+    if ("completedDate" in data) updateData.completedDate = toDateOrNull(data.completedDate);
 
-  if (Object.keys(updateData).length > 0) {
+    if (Object.keys(updateData).length > 0) {
+      await prisma.hojoGrantCustomerPostApplication.update({
+        where: { id },
+        data: updateData,
+      });
+    }
+
+    revalidatePath("/hojo/grant-customers/post-application");
+    return ok();
+  } catch (e) {
+    console.error("[updatePostApplication] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+export async function deletePostApplication(id: number): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+
     await prisma.hojoGrantCustomerPostApplication.update({
       where: { id },
-      data: updateData,
+      data: { deletedAt: new Date() },
     });
+
+    revalidatePath("/hojo/grant-customers/post-application");
+    return ok();
+  } catch (e) {
+    console.error("[deletePostApplication] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  revalidatePath("/hojo/grant-customers/post-application");
-}
-
-export async function deletePostApplication(id: number) {
-  await requireProjectMasterDataEditPermission();
-
-  await prisma.hojoGrantCustomerPostApplication.update({
-    where: { id },
-    data: { deletedAt: new Date() },
-  });
-
-  revalidatePath("/hojo/grant-customers/post-application");
 }
 
 export async function updatePostApplicationDetail(
   id: number,
   data: Record<string, unknown>
-) {
+): Promise<ActionResult> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   const updateData: Record<string, unknown> = {};
@@ -189,4 +209,9 @@ export async function updatePostApplicationDetail(
 
   revalidatePath("/hojo/grant-customers/post-application");
   revalidatePath(`/hojo/grant-customers/post-application/${id}`);
+  return ok();
+  } catch (e) {
+    console.error("[updatePostApplicationDetail] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }

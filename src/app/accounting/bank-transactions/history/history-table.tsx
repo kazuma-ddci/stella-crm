@@ -183,15 +183,13 @@ export function HistoryTable({ initialTransactions, filterOptions }: Props) {
   const handleDelete = useCallback(
     (id: number) => {
       startTransition(async () => {
-        try {
-          await deleteTransaction(id);
-          toast.success("取引を削除しました");
-          refetch();
-        } catch (err) {
-          toast.error(
-            err instanceof Error ? err.message : "削除に失敗しました"
-          );
+        const result = await deleteTransaction(id);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
         }
+        toast.success("取引を削除しました");
+        refetch();
       });
     },
     [refetch]

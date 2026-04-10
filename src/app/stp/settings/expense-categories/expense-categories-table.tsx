@@ -72,7 +72,7 @@ export function ExpenseCategoriesTable({ data, canEdit }: Props) {
       isDeleteDisabled={(item) => !!item.systemCode}
       emptyMessage="費目が登録されていません"
       sortableItems={sortableItems}
-      onReorder={canEdit ? reorderExpenseCategories : undefined}
+      onReorder={canEdit ? async (ids: number[]) => { await reorderExpenseCategories(ids); } : undefined}
       customRenderers={{
         name: (value, row) => (
           <span className="flex items-center gap-2">

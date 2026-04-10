@@ -221,7 +221,7 @@ export function TransactionPreviewModal({
     setIsConfirming(true);
     try {
       const result = await confirmTransaction(transactionId);
-      if (result && "error" in result) {
+      if (!result.ok) {
         alert(result.error);
         return;
       }
@@ -239,12 +239,12 @@ export function TransactionPreviewModal({
     setIsSaving(true);
     try {
       const updateResult = await updateTransaction(transactionId, data as Record<string, unknown>);
-      if (updateResult && "error" in updateResult) {
+      if (!updateResult.ok) {
         alert(updateResult.error);
         return;
       }
       const confirmResult = await confirmTransaction(transactionId);
-      if (confirmResult && "error" in confirmResult) {
+      if (!confirmResult.ok) {
         alert(confirmResult.error);
         return;
       }

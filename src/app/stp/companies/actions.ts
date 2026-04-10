@@ -10,6 +10,7 @@ import { validateStaffForField } from "@/lib/staff/get-staff-by-field";
 import { createFieldChangeLogEntries, FieldChange } from "@/lib/field-change-log.server";
 import { logActivity } from "@/lib/activity-log/log";
 import { calcChanges } from "@/lib/activity-log/utils";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // 配列またはカンマ区切り文字列を文字列に変換するヘルパー関数
 function toCommaSeparatedString(value: unknown): string | null {
@@ -28,7 +29,8 @@ const TRACKED_FIELDS: Record<string, { displayName: string; fieldCode?: string }
   billingContactIds: { displayName: "請求先担当者" },
 };
 
-export async function addStpCompany(data: Record<string, unknown>) {
+export async function addStpCompany(data: Record<string, unknown>): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
   const currentStageId = data.currentStageId ? Number(data.currentStageId) : null;
   const nextTargetStageId = data.nextTargetStageId ? Number(data.nextTargetStageId) : null;
@@ -63,7 +65,7 @@ export async function addStpCompany(data: Record<string, unknown>) {
       .filter((a) => a.severity === "ERROR")
       .map((a) => a.message)
       .join("\n");
-    throw new Error(errorMessages || "バリデーションエラー");
+    return err(errorMessages || "バリデーションエラー");
   }
 
   // 企業IDの重複チェック
@@ -74,7 +76,7 @@ export async function addStpCompany(data: Record<string, unknown>) {
   });
 
   if (existingStpCompany) {
-    throw new Error(
+    return err(
       `この企業はすでにSTPプロジェクトに登録されています（プロジェクトNo. ${existingStpCompany.id}）`
     );
   }
@@ -82,11 +84,11 @@ export async function addStpCompany(data: Record<string, unknown>) {
   // サーバー側スタッフ権限バリデーション
   if (data.salesStaffId) {
     const isValid = await validateStaffForField("STP_COMPANY_SALES", Number(data.salesStaffId));
-    if (!isValid) throw new Error("選択された担当営業はこのフィールドに割り当てできません");
+    if (!isValid) return err("選択された担当営業はこのフィールドに割り当てできません");
   }
   if (data.adminStaffId) {
     const isValid = await validateStaffForField("STP_COMPANY_ADMIN", Number(data.adminStaffId));
-    if (!isValid) throw new Error("選択された担当事務はこのフィールドに割り当てできません");
+    if (!isValid) return err("選択された担当事務はこのフィールドに割り当てできません");
   }
 
   // トランザクションで企業作成と履歴作成を実行
@@ -157,6 +159,11 @@ export async function addStpCompany(data: Record<string, unknown>) {
     userId: user.id,
   });
   revalidatePath("/stp/companies");
+  return ok();
+ } catch (e) {
+  console.error("[addStpCompany] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // updateStpCompany用のフィールドラベルマッピング
@@ -183,7 +190,8 @@ const UPDATE_FIELD_LABELS: Record<string, string> = {
   industryType: "業種",
 };
 
-export async function updateStpCompany(id: number, data: Record<string, unknown>) {
+export async function updateStpCompany(id: number, data: Record<string, unknown>): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
 
   // __changeNotesを取り出す（変更履歴用メモ）
@@ -234,7 +242,7 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
     const staffId = data.salesStaffId ? Number(data.salesStaffId) : null;
     if (staffId) {
       const isValid = await validateStaffForField("STP_COMPANY_SALES", staffId);
-      if (!isValid) throw new Error("選択された担当営業はこのフィールドに割り当てできません");
+      if (!isValid) return err("選択された担当営業はこのフィールドに割り当てできません");
     }
     updateData.salesStaffId = staffId;
   }
@@ -244,7 +252,7 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
     const staffId = data.adminStaffId ? Number(data.adminStaffId) : null;
     if (staffId) {
       const isValid = await validateStaffForField("STP_COMPANY_ADMIN", staffId);
-      if (!isValid) throw new Error("選択された担当事務はこのフィールドに割り当てできません");
+      if (!isValid) return err("選択された担当事務はこのフィールドに割り当てできません");
     }
     updateData.adminStaffId = staffId;
   }
@@ -437,9 +445,15 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
     userId: user.id,
   });
   revalidatePath("/stp/companies");
+  return ok();
+ } catch (e) {
+  console.error("[updateStpCompany] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
-export async function deleteStpCompany(id: number) {
+export async function deleteStpCompany(id: number): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
   const companyForLog = await prisma.stpCompany.findUnique({ where: { id }, select: { company: { select: { name: true } } } });
   await logActivity({
@@ -453,6 +467,11 @@ export async function deleteStpCompany(id: number) {
     where: { id },
   });
   revalidatePath("/stp/companies");
+  return ok();
+ } catch (e) {
+  console.error("[deleteStpCompany] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // 企業IDの重複チェック（リアルタイム用）

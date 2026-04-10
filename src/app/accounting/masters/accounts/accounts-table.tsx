@@ -83,7 +83,10 @@ export function AccountsTable({ data }: Props) {
       onUpdate={updateAccount}
       emptyMessage="勘定科目が登録されていません"
       sortableItems={sortableItems}
-      onReorder={reorderAccounts}
+      onReorder={async (ids) => {
+        const result = await reorderAccounts(ids);
+        if (!result.ok) throw new Error(result.error);
+      }}
     />
   );
 }

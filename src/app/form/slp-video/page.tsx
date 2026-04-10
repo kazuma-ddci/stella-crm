@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { ShieldAlert } from "lucide-react";
+import { KoutekiPageShell } from "@/components/kouteki";
 
 type ViewerData = {
   authorized: true;
@@ -65,40 +66,42 @@ export default function SlpVideoPage() {
   // ローディング
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-gray-500">読み込み中...</div>
-      </div>
+      <KoutekiPageShell title="動画閲覧ページ">
+        <div className="py-16 text-center text-sm text-slate-500">
+          読み込み中...
+        </div>
+      </KoutekiPageShell>
     );
   }
 
   // 権限なし
   if (!authorized || !viewerData) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center">
-          <div className="flex justify-center mb-4">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
-              <ShieldAlert className="w-8 h-8 text-red-500" />
+      <KoutekiPageShell title="動画閲覧ページ">
+        <div className="space-y-5 text-center">
+          <div className="flex justify-center">
+            <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-rose-50">
+              <ShieldAlert className="h-8 w-8 text-rose-500" />
             </div>
           </div>
-          <h1 className="text-xl font-bold text-gray-900 mb-2">
+          <h2 className="text-xl font-bold text-slate-900">
             閲覧権限がありません
-          </h1>
-          <p className="text-gray-600 mb-6">
+          </h2>
+          <p className="text-sm text-slate-600">
             {errorReason === "missing_params"
               ? "アクセスURLが正しくありません。"
               : "この動画を閲覧する権限がありません。"}
           </p>
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <p className="text-sm text-green-800 font-medium mb-1">
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-left">
+            <p className="mb-1 text-sm font-semibold text-emerald-800">
               お問い合わせ
             </p>
-            <p className="text-sm text-green-700">
+            <p className="text-sm text-emerald-700">
               詳しくは公式LINEへお問い合わせください。
             </p>
           </div>
         </div>
-      </div>
+      </KoutekiPageShell>
     );
   }
 
@@ -106,9 +109,9 @@ export default function SlpVideoPage() {
   const watermarkText = `スクリーンショット禁止 ${viewerData.snsname} ${viewerData.uid}`;
 
   return (
-    <div ref={containerRef} className="min-h-screen flex flex-col bg-black select-none">
+    <div ref={containerRef} className="flex min-h-screen select-none flex-col bg-black">
       {/* 動画コンテナ */}
-      <div className="flex-1 flex items-center justify-center p-4">
+      <div className="flex flex-1 items-center justify-center p-4">
         <div className="relative w-full max-w-4xl">
           <video
             src={videoUrl}
@@ -117,14 +120,14 @@ export default function SlpVideoPage() {
             disablePictureInPicture
             playsInline
             onContextMenu={(e) => e.preventDefault()}
-            className="w-full h-auto rounded-lg shadow-2xl bg-black"
+            className="h-auto w-full rounded-lg bg-black shadow-2xl"
           >
             お使いのブラウザは動画再生に対応していません。
           </video>
 
           {/* ウォーターマーク: 斜め繰り返し（操作を妨げない） */}
           <div
-            className="absolute inset-0 pointer-events-none overflow-hidden rounded-lg"
+            className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg"
             style={{ zIndex: 10 }}
           >
             <div
@@ -147,7 +150,7 @@ export default function SlpVideoPage() {
                 .map((_, j) => (
                   <span
                     key={j}
-                    className="font-medium whitespace-nowrap"
+                    className="whitespace-nowrap font-medium"
                     style={{
                       fontSize: "14px",
                       color: "#ffffff",
@@ -165,7 +168,7 @@ export default function SlpVideoPage() {
 
           {/* 識別ID（右上固定） */}
           <div
-            className="absolute top-2 right-2 pointer-events-none"
+            className="pointer-events-none absolute top-2 right-2"
             style={{ zIndex: 11 }}
           >
             <span

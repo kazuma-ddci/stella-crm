@@ -552,10 +552,18 @@ export function JournalEntryModal({
       };
 
       if (isEdit && editEntry) {
-        await updateJournalEntry(editEntry.id, payload);
+        const result = await updateJournalEntry(editEntry.id, payload);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         toast.success("仕訳を更新しました");
       } else {
-        await createJournalEntry(payload);
+        const result = await createJournalEntry(payload);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         toast.success("仕訳を作成しました");
       }
       onOpenChange(false);

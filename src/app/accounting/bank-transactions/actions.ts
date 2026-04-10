@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { Decimal } from "@prisma/client/runtime/library";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // 型定義
@@ -110,84 +111,114 @@ export type BankTransactionRow = {
 
 const VALID_DIRECTIONS = ["incoming", "outgoing"] as const;
 
-function validateBankTransactionData(data: Record<string, unknown>) {
+type ValidatedBankTx = {
+  transactionDate: Date;
+  direction: string;
+  paymentMethodId: number;
+  counterpartyId: number | null;
+  amount: number;
+  description: string | null;
+};
+
+function validateBankTransactionData(
+  data: Record<string, unknown>
+): { ok: true; value: ValidatedBankTx } | { ok: false; error: string } {
   // transactionDate
   if (!data.transactionDate) {
-    throw new Error("日付は必須です");
+    return { ok: false, error: "日付は必須です" };
   }
   const transactionDate = new Date(data.transactionDate as string);
   if (isNaN(transactionDate.getTime())) {
-    throw new Error("日付が無効です");
+    return { ok: false, error: "日付が無効です" };
   }
 
   // direction
   const direction = data.direction as string;
   if (!direction || !(VALID_DIRECTIONS as readonly string[]).includes(direction)) {
-    throw new Error("区分（入金/出金）は必須です");
+    return { ok: false, error: "区分（入金/出金）は必須です" };
   }
 
   // paymentMethodId
   const paymentMethodId = Number(data.paymentMethodId);
   if (!data.paymentMethodId || isNaN(paymentMethodId)) {
-    throw new Error("決済手段は必須です");
+    return { ok: false, error: "決済手段は必須です" };
   }
 
   // counterpartyId (optional)
   const counterpartyId = data.counterpartyId ? Number(data.counterpartyId) : null;
   if (data.counterpartyId && isNaN(counterpartyId!)) {
-    throw new Error("取引先IDが不正です");
+    return { ok: false, error: "取引先IDが不正です" };
   }
 
   // amount
   const amount = Number(data.amount);
   if (isNaN(amount) || amount <= 0 || !Number.isInteger(amount)) {
-    throw new Error("金額は1以上の整数で入力してください");
+    return { ok: false, error: "金額は1以上の整数で入力してください" };
   }
 
   // description (optional)
   const description = (data.description as string)?.trim() || null;
 
   return {
-    transactionDate,
-    direction,
-    paymentMethodId,
-    counterpartyId,
-    amount,
-    description,
+    ok: true,
+    value: {
+      transactionDate,
+      direction,
+      paymentMethodId,
+      counterpartyId,
+      amount,
+      description,
+    },
   };
 }
 
-function validateCryptoDetail(data: CryptoDetailInput) {
+type ValidatedCrypto = {
+  currency: string;
+  network: string;
+  counterpartyWallet: string | null;
+  ownWallet: string | null;
+  foreignAmount: Decimal;
+  foreignCurrency: string;
+  exchangeRate: Decimal;
+  paymentMethodId: number | null;
+};
+
+function validateCryptoDetail(
+  data: CryptoDetailInput
+): { ok: true; value: ValidatedCrypto } | { ok: false; error: string } {
   if (!data.currency?.trim()) {
-    throw new Error("仮想通貨の銘柄は必須です");
+    return { ok: false, error: "仮想通貨の銘柄は必須です" };
   }
   if (!data.network?.trim()) {
-    throw new Error("ネットワークは必須です");
+    return { ok: false, error: "ネットワークは必須です" };
   }
 
   const foreignAmount = Number(data.foreignAmount);
   if (isNaN(foreignAmount) || foreignAmount <= 0) {
-    throw new Error("外貨金額は0より大きい数値で入力してください");
+    return { ok: false, error: "外貨金額は0より大きい数値で入力してください" };
   }
 
   if (!data.foreignCurrency?.trim()) {
-    throw new Error("外貨単位は必須です");
+    return { ok: false, error: "外貨単位は必須です" };
   }
 
   const exchangeRate = Number(data.exchangeRate);
   if (isNaN(exchangeRate) || exchangeRate <= 0) {
-    throw new Error("レートは0より大きい数値で入力してください");
+    return { ok: false, error: "レートは0より大きい数値で入力してください" };
   }
 
   return {
-    currency: data.currency.trim(),
-    network: data.network.trim(),
-    counterpartyWallet: data.counterpartyWallet?.trim() || null,
-    ownWallet: data.ownWallet?.trim() || null,
-    foreignAmount: new Decimal(data.foreignAmount),
-    foreignCurrency: data.foreignCurrency.trim(),
-    exchangeRate: new Decimal(data.exchangeRate),
-    paymentMethodId: data.paymentMethodId || null,
+    ok: true,
+    value: {
+      currency: data.currency.trim(),
+      network: data.network.trim(),
+      counterpartyWallet: data.counterpartyWallet?.trim() || null,
+      ownWallet: data.ownWallet?.trim() || null,
+      foreignAmount: new Decimal(data.foreignAmount),
+      foreignCurrency: data.foreignCurrency.trim(),
+      exchangeRate: new Decimal(data.exchangeRate),
+      paymentMethodId: data.paymentMethodId || null,
+    },
   };
 }
 
@@ -393,77 +424,92 @@ export async function getBankTransaction(id: number): Promise<BankTransactionRow
 // 作成
 // ============================================
 
-export async function createBankTransaction(data: Record<string, unknown>) {
-  const session = await getSession();
-  const staffId = session.id;
+export async function createBankTransaction(
+  data: Record<string, unknown>
+): Promise<ActionResult<{ id: number }>> {
+  try {
+    const session = await getSession();
+    const staffId = session.id;
 
-  const validated = validateBankTransactionData(data);
+    const validatedRes = validateBankTransactionData(data);
+    if (!validatedRes.ok) return err(validatedRes.error);
+    const validated = validatedRes.value;
 
-  // 月次クローズチェック
-  await ensureMonthNotClosed(validated.transactionDate);
-
-  // 仮想通貨詳細
-  const cryptoDetailRaw = data.cryptoDetail as CryptoDetailInput | undefined;
-  let cryptoDetailValidated: ReturnType<typeof validateCryptoDetail> | null = null;
-  if (cryptoDetailRaw) {
-    cryptoDetailValidated = validateCryptoDetail(cryptoDetailRaw);
-  }
-
-  // 証憑
-  const attachments = (data.attachments as AttachmentInput[] | undefined) ?? [];
-
-  const result = await prisma.$transaction(async (tx) => {
-    const bankTransaction = await tx.bankTransaction.create({
-      data: {
-        transactionDate: validated.transactionDate,
-        direction: validated.direction,
-        paymentMethodId: validated.paymentMethodId,
-        counterpartyId: validated.counterpartyId,
-        amount: validated.amount,
-        description: validated.description,
-        source: "manual",
-        createdBy: staffId,
-      },
-    });
+    // 月次クローズチェック
+    await ensureMonthNotClosed(validated.transactionDate);
 
     // 仮想通貨詳細
-    if (cryptoDetailValidated) {
-      await tx.cryptoTransactionDetail.create({
-        data: {
-          bankTransactionId: bankTransaction.id,
-          ...cryptoDetailValidated,
-          createdBy: staffId,
-        },
-      });
+    const cryptoDetailRaw = data.cryptoDetail as CryptoDetailInput | undefined;
+    let cryptoDetailValidated: ValidatedCrypto | null = null;
+    if (cryptoDetailRaw) {
+      const res = validateCryptoDetail(cryptoDetailRaw);
+      if (!res.ok) return err(res.error);
+      cryptoDetailValidated = res.value;
     }
 
     // 証憑
-    if (attachments.length > 0) {
-      await tx.attachment.createMany({
-        data: attachments.map((att) => ({
-          bankTransactionId: bankTransaction.id,
-          filePath: att.filePath,
-          fileName: att.fileName,
-          fileSize: att.fileSize ?? null,
-          mimeType: att.mimeType ?? null,
-          attachmentType: att.attachmentType || "other",
-          uploadedBy: staffId,
-        })),
+    const attachments = (data.attachments as AttachmentInput[] | undefined) ?? [];
+
+    const result = await prisma.$transaction(async (tx) => {
+      const bankTransaction = await tx.bankTransaction.create({
+        data: {
+          transactionDate: validated.transactionDate,
+          direction: validated.direction,
+          paymentMethodId: validated.paymentMethodId,
+          counterpartyId: validated.counterpartyId,
+          amount: validated.amount,
+          description: validated.description,
+          source: "manual",
+          createdBy: staffId,
+        },
       });
-    }
 
-    return bankTransaction;
-  });
+      // 仮想通貨詳細
+      if (cryptoDetailValidated) {
+        await tx.cryptoTransactionDetail.create({
+          data: {
+            bankTransactionId: bankTransaction.id,
+            ...cryptoDetailValidated,
+            createdBy: staffId,
+          },
+        });
+      }
 
-  revalidatePath("/accounting/bank-transactions");
-  return { id: result.id };
+      // 証憑
+      if (attachments.length > 0) {
+        await tx.attachment.createMany({
+          data: attachments.map((att) => ({
+            bankTransactionId: bankTransaction.id,
+            filePath: att.filePath,
+            fileName: att.fileName,
+            fileSize: att.fileSize ?? null,
+            mimeType: att.mimeType ?? null,
+            attachmentType: att.attachmentType || "other",
+            uploadedBy: staffId,
+          })),
+        });
+      }
+
+      return bankTransaction;
+    });
+
+    revalidatePath("/accounting/bank-transactions");
+    return ok({ id: result.id });
+  } catch (e) {
+    console.error("[createBankTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
 // 更新
 // ============================================
 
-export async function updateBankTransaction(id: number, data: Record<string, unknown>) {
+export async function updateBankTransaction(
+  id: number,
+  data: Record<string, unknown>
+): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -475,7 +521,7 @@ export async function updateBankTransaction(id: number, data: Record<string, unk
     },
   });
   if (!existing) {
-    throw new Error("入出金データが見つかりません");
+    return err("入出金データが見つかりません");
   }
 
   // 月次クローズチェック（既存レコードの日付）
@@ -486,19 +532,23 @@ export async function updateBankTransaction(id: number, data: Record<string, unk
     where: { bankTransactionId: id },
   });
   if (reconciliationCount > 0) {
-    throw new Error("消込済みの入出金は編集できません");
+    return err("消込済みの入出金は編集できません");
   }
 
-  const validated = validateBankTransactionData(data);
+  const validatedRes = validateBankTransactionData(data);
+  if (!validatedRes.ok) return err(validatedRes.error);
+  const validated = validatedRes.value;
 
   // 月次クローズチェック（新しい日付）
   await ensureMonthNotClosed(validated.transactionDate);
 
   // 仮想通貨詳細
   const cryptoDetailRaw = data.cryptoDetail as CryptoDetailInput | undefined;
-  let cryptoDetailValidated: ReturnType<typeof validateCryptoDetail> | null = null;
+  let cryptoDetailValidated: ValidatedCrypto | null = null;
   if (cryptoDetailRaw) {
-    cryptoDetailValidated = validateCryptoDetail(cryptoDetailRaw);
+    const res = validateCryptoDetail(cryptoDetailRaw);
+    if (!res.ok) return err(res.error);
+    cryptoDetailValidated = res.value;
   }
 
   // 証憑
@@ -583,41 +633,52 @@ export async function updateBankTransaction(id: number, data: Record<string, unk
   });
 
   revalidatePath("/accounting/bank-transactions");
+  return ok();
+  } catch (e) {
+    console.error("[updateBankTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
 // 論理削除
 // ============================================
 
-export async function deleteBankTransaction(id: number) {
-  const session = await getSession();
-  const staffId = session.id;
+export async function deleteBankTransaction(id: number): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    const staffId = session.id;
 
-  const existing = await prisma.bankTransaction.findFirst({
-    where: { id, deletedAt: null },
-  });
-  if (!existing) {
-    throw new Error("入出金データが見つかりません");
+    const existing = await prisma.bankTransaction.findFirst({
+      where: { id, deletedAt: null },
+    });
+    if (!existing) {
+      return err("入出金データが見つかりません");
+    }
+
+    // 月次クローズチェック
+    await ensureMonthNotClosed(existing.transactionDate);
+
+    // 消込済みの場合は削除不可
+    const reconciliationCount = await prisma.reconciliation.count({
+      where: { bankTransactionId: id },
+    });
+    if (reconciliationCount > 0) {
+      return err("消込済みの入出金は削除できません");
+    }
+
+    await prisma.bankTransaction.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+        updatedBy: staffId,
+      },
+    });
+
+    revalidatePath("/accounting/bank-transactions");
+    return ok();
+  } catch (e) {
+    console.error("[deleteBankTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  // 月次クローズチェック
-  await ensureMonthNotClosed(existing.transactionDate);
-
-  // 消込済みの場合は削除不可
-  const reconciliationCount = await prisma.reconciliation.count({
-    where: { bankTransactionId: id },
-  });
-  if (reconciliationCount > 0) {
-    throw new Error("消込済みの入出金は削除できません");
-  }
-
-  await prisma.bankTransaction.update({
-    where: { id },
-    data: {
-      deletedAt: new Date(),
-      updatedBy: staffId,
-    },
-  });
-
-  revalidatePath("/accounting/bank-transactions");
 }

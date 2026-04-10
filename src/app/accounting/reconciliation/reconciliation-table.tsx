@@ -111,15 +111,13 @@ export function ReconciliationTable({
   // 消込取り消し
   const handleCancel = (id: number) => {
     startTransition(async () => {
-      try {
-        await cancelReconciliation(id);
-        toast.success("消込を取り消しました");
-        router.refresh();
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "取り消しに失敗しました"
-        );
+      const result = await cancelReconciliation(id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
       }
+      toast.success("消込を取り消しました");
+      router.refresh();
     });
   };
 

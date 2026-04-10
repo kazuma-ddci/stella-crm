@@ -107,10 +107,14 @@ export function TemplateLinkModal({
     }
     setEditSaving(true);
     try {
-      await updateTemplate(templateId, {
+      const result = await updateTemplate(templateId, {
         name: editName.trim(),
         description: editDescription.trim() || null,
       });
+      if (!result.ok) {
+        toast.error(result.error || "更新に失敗しました");
+        return;
+      }
       toast.success("テンプレートを更新しました");
       handleCancelEdit();
       await loadTemplates();
@@ -135,11 +139,15 @@ export function TemplateLinkModal({
     }
 
     try {
-      await addTemplateLink(contractTypeId, {
+      const result = await addTemplateLink(contractTypeId, {
         cloudsignTemplateId: newCloudsignId.trim(),
         name: newName.trim(),
         description: newDescription.trim() || null,
       });
+      if (!result.ok) {
+        toast.error(result.error || "追加に失敗しました");
+        return;
+      }
       toast.success("テンプレートを追加しました");
       setNewCloudsignId("");
       setNewName("");
@@ -158,7 +166,11 @@ export function TemplateLinkModal({
     if (!confirm(`テンプレート「${templateName}」の紐づけを解除しますか？`)) return;
 
     try {
-      await removeTemplateLink(linkId);
+      const result = await removeTemplateLink(linkId);
+      if (!result.ok) {
+        toast.error(result.error || "解除に失敗しました");
+        return;
+      }
       toast.success("紐づけを解除しました");
       await loadTemplates();
     } catch (error) {

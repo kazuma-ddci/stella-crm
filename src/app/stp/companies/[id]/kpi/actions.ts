@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireEdit } from "@/lib/auth";
 import { randomBytes } from "crypto";
 import { toLocalDateString } from "@/lib/utils";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // KPIシート一覧を取得
 export async function getKpiSheets(stpCompanyId: number) {
@@ -63,49 +64,66 @@ export async function getKpiSheets(stpCompanyId: number) {
 }
 
 // KPIシートを作成
-export async function createKpiSheet(stpCompanyId: number, name: string) {
-  await requireEdit("stp");
-  const sheet = await prisma.stpKpiSheet.create({
-    data: {
-      stpCompanyId,
-      name,
-    },
-  });
+export async function createKpiSheet(stpCompanyId: number, name: string): Promise<ActionResult<{ id: number }>> {
+  try {
+    await requireEdit("stp");
+    const sheet = await prisma.stpKpiSheet.create({
+      data: {
+        stpCompanyId,
+        name,
+      },
+    });
 
-  revalidatePath(`/stp/companies/${stpCompanyId}/kpi`);
+    revalidatePath(`/stp/companies/${stpCompanyId}/kpi`);
 
-  return { id: sheet.id };
+    return ok({ id: sheet.id });
+  } catch (e) {
+    console.error("[createKpiSheet] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // KPIシートを削除
-export async function deleteKpiSheet(sheetId: number) {
-  await requireEdit("stp");
-  const sheet = await prisma.stpKpiSheet.findUnique({
-    where: { id: sheetId },
-    select: { stpCompanyId: true },
-  });
+export async function deleteKpiSheet(sheetId: number): Promise<ActionResult> {
+  try {
+    await requireEdit("stp");
+    const sheet = await prisma.stpKpiSheet.findUnique({
+      where: { id: sheetId },
+      select: { stpCompanyId: true },
+    });
 
-  if (!sheet) {
-    throw new Error("KPIシートが見つかりません");
+    if (!sheet) {
+      return err("KPIシートが見つかりません");
+    }
+
+    await prisma.stpKpiSheet.delete({
+      where: { id: sheetId },
+    });
+
+    revalidatePath(`/stp/companies/${sheet.stpCompanyId}/kpi`);
+    return ok();
+  } catch (e) {
+    console.error("[deleteKpiSheet] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  await prisma.stpKpiSheet.delete({
-    where: { id: sheetId },
-  });
-
-  revalidatePath(`/stp/companies/${sheet.stpCompanyId}/kpi`);
 }
 
 // KPIシート名を更新
-export async function updateKpiSheetName(sheetId: number, name: string) {
-  await requireEdit("stp");
-  const sheet = await prisma.stpKpiSheet.update({
-    where: { id: sheetId },
-    data: { name },
-    select: { stpCompanyId: true },
-  });
+export async function updateKpiSheetName(sheetId: number, name: string): Promise<ActionResult> {
+  try {
+    await requireEdit("stp");
+    const sheet = await prisma.stpKpiSheet.update({
+      where: { id: sheetId },
+      data: { name },
+      select: { stpCompanyId: true },
+    });
 
-  revalidatePath(`/stp/companies/${sheet.stpCompanyId}/kpi`);
+    revalidatePath(`/stp/companies/${sheet.stpCompanyId}/kpi`);
+    return ok();
+  } catch (e) {
+    console.error("[updateKpiSheetName] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // 週データを追加
@@ -113,84 +131,102 @@ export async function addWeeklyData(
   sheetId: number,
   startDate: string,
   endDate: string
-) {
-  await requireEdit("stp");
-  const sheet = await prisma.stpKpiSheet.findUnique({
-    where: { id: sheetId },
-    select: { stpCompanyId: true },
-  });
+): Promise<ActionResult> {
+  try {
+    await requireEdit("stp");
+    const sheet = await prisma.stpKpiSheet.findUnique({
+      where: { id: sheetId },
+      select: { stpCompanyId: true },
+    });
 
-  if (!sheet) {
-    throw new Error("KPIシートが見つかりません");
+    if (!sheet) {
+      return err("KPIシートが見つかりません");
+    }
+
+    await prisma.stpKpiWeeklyData.create({
+      data: {
+        kpiSheetId: sheetId,
+        weekStartDate: new Date(startDate),
+        weekEndDate: new Date(endDate),
+      },
+    });
+
+    revalidatePath(`/stp/companies/${sheet.stpCompanyId}/kpi`);
+    return ok();
+  } catch (e) {
+    console.error("[addWeeklyData] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  await prisma.stpKpiWeeklyData.create({
-    data: {
-      kpiSheetId: sheetId,
-      weekStartDate: new Date(startDate),
-      weekEndDate: new Date(endDate),
-    },
-  });
-
-  revalidatePath(`/stp/companies/${sheet.stpCompanyId}/kpi`);
 }
 
 // 週データの開始日を更新
 export async function updateWeekStartDate(
   weeklyDataId: number,
   startDate: string
-) {
-  await requireEdit("stp");
-  const weeklyData = await prisma.stpKpiWeeklyData.findUnique({
-    where: { id: weeklyDataId },
-    include: {
-      kpiSheet: {
-        select: { stpCompanyId: true },
+): Promise<ActionResult> {
+  try {
+    await requireEdit("stp");
+    const weeklyData = await prisma.stpKpiWeeklyData.findUnique({
+      where: { id: weeklyDataId },
+      include: {
+        kpiSheet: {
+          select: { stpCompanyId: true },
+        },
       },
-    },
-  });
+    });
 
-  if (!weeklyData) {
-    throw new Error("週データが見つかりません");
+    if (!weeklyData) {
+      return err("週データが見つかりません");
+    }
+
+    // 新しい開始日から終了日を計算（7日間）
+    const newStartDate = new Date(startDate);
+    const newEndDate = new Date(newStartDate);
+    newEndDate.setDate(newEndDate.getDate() + 6);
+
+    await prisma.stpKpiWeeklyData.update({
+      where: { id: weeklyDataId },
+      data: {
+        weekStartDate: newStartDate,
+        weekEndDate: newEndDate,
+      },
+    });
+
+    revalidatePath(`/stp/companies/${weeklyData.kpiSheet.stpCompanyId}/kpi`);
+    return ok();
+  } catch (e) {
+    console.error("[updateWeekStartDate] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  // 新しい開始日から終了日を計算（7日間）
-  const newStartDate = new Date(startDate);
-  const newEndDate = new Date(newStartDate);
-  newEndDate.setDate(newEndDate.getDate() + 6);
-
-  await prisma.stpKpiWeeklyData.update({
-    where: { id: weeklyDataId },
-    data: {
-      weekStartDate: newStartDate,
-      weekEndDate: newEndDate,
-    },
-  });
-
-  revalidatePath(`/stp/companies/${weeklyData.kpiSheet.stpCompanyId}/kpi`);
 }
 
 // 週データを削除
-export async function deleteWeeklyData(weeklyDataId: number) {
-  await requireEdit("stp");
-  const weeklyData = await prisma.stpKpiWeeklyData.findUnique({
-    where: { id: weeklyDataId },
-    include: {
-      kpiSheet: {
-        select: { stpCompanyId: true },
+export async function deleteWeeklyData(weeklyDataId: number): Promise<ActionResult> {
+  try {
+    await requireEdit("stp");
+    const weeklyData = await prisma.stpKpiWeeklyData.findUnique({
+      where: { id: weeklyDataId },
+      include: {
+        kpiSheet: {
+          select: { stpCompanyId: true },
+        },
       },
-    },
-  });
+    });
 
-  if (!weeklyData) {
-    throw new Error("週データが見つかりません");
+    if (!weeklyData) {
+      return err("週データが見つかりません");
+    }
+
+    await prisma.stpKpiWeeklyData.delete({
+      where: { id: weeklyDataId },
+    });
+
+    revalidatePath(`/stp/companies/${weeklyData.kpiSheet.stpCompanyId}/kpi`);
+    return ok();
+  } catch (e) {
+    console.error("[deleteWeeklyData] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  await prisma.stpKpiWeeklyData.delete({
-    where: { id: weeklyDataId },
-  });
-
-  revalidatePath(`/stp/companies/${weeklyData.kpiSheet.stpCompanyId}/kpi`);
 }
 
 // セルの値を更新
@@ -198,113 +234,130 @@ export async function updateKpiCell(
   weeklyDataId: number,
   field: string,
   value: number | null
-) {
-  await requireEdit("stp");
-  // フィールド名のバリデーション
-  const allowedFields = [
-    "targetImpressions",
-    "targetCpm",
-    "targetClicks",
-    "targetCtr",
-    "targetCpc",
-    "targetApplications",
-    "targetCvr",
-    "targetCpa",
-    "targetCost",
-    "actualImpressions",
-    "actualCpm",
-    "actualClicks",
-    "actualCtr",
-    "actualCpc",
-    "actualApplications",
-    "actualCvr",
-    "actualCpa",
-    "actualCost",
-  ];
+): Promise<ActionResult> {
+  try {
+    await requireEdit("stp");
+    // フィールド名のバリデーション
+    const allowedFields = [
+      "targetImpressions",
+      "targetCpm",
+      "targetClicks",
+      "targetCtr",
+      "targetCpc",
+      "targetApplications",
+      "targetCvr",
+      "targetCpa",
+      "targetCost",
+      "actualImpressions",
+      "actualCpm",
+      "actualClicks",
+      "actualCtr",
+      "actualCpc",
+      "actualApplications",
+      "actualCvr",
+      "actualCpa",
+      "actualCost",
+    ];
 
-  if (!allowedFields.includes(field)) {
-    throw new Error(`Invalid field: ${field}`);
-  }
+    if (!allowedFields.includes(field)) {
+      return err(`Invalid field: ${field}`);
+    }
 
-  const weeklyData = await prisma.stpKpiWeeklyData.findUnique({
-    where: { id: weeklyDataId },
-    include: {
-      kpiSheet: {
-        select: { stpCompanyId: true },
+    const weeklyData = await prisma.stpKpiWeeklyData.findUnique({
+      where: { id: weeklyDataId },
+      include: {
+        kpiSheet: {
+          select: { stpCompanyId: true },
+        },
       },
-    },
-  });
+    });
 
-  if (!weeklyData) {
-    throw new Error("週データが見つかりません");
+    if (!weeklyData) {
+      return err("週データが見つかりません");
+    }
+
+    await prisma.stpKpiWeeklyData.update({
+      where: { id: weeklyDataId },
+      data: {
+        [field]: value,
+      },
+    });
+
+    revalidatePath(`/stp/companies/${weeklyData.kpiSheet.stpCompanyId}/kpi`);
+    return ok();
+  } catch (e) {
+    console.error("[updateKpiCell] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  await prisma.stpKpiWeeklyData.update({
-    where: { id: weeklyDataId },
-    data: {
-      [field]: value,
-    },
-  });
-
-  revalidatePath(`/stp/companies/${weeklyData.kpiSheet.stpCompanyId}/kpi`);
 }
 
 // 共有リンクを生成
 export async function createShareLink(
   sheetId: number,
   expiresInHours: number = 1
-) {
-  await requireEdit("stp");
-  const sheet = await prisma.stpKpiSheet.findUnique({
-    where: { id: sheetId },
-    select: { stpCompanyId: true },
-  });
+): Promise<ActionResult<{ token: string; expiresAt: string }>> {
+  try {
+    await requireEdit("stp");
+    const sheet = await prisma.stpKpiSheet.findUnique({
+      where: { id: sheetId },
+      select: { stpCompanyId: true },
+    });
 
-  if (!sheet) {
-    throw new Error("KPIシートが見つかりません");
+    if (!sheet) {
+      return err("KPIシートが見つかりません");
+    }
+
+    const token = randomBytes(32).toString("hex");
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + expiresInHours);
+
+    const shareLink = await prisma.stpKpiShareLink.create({
+      data: {
+        kpiSheetId: sheetId,
+        token,
+        expiresAt,
+      },
+    });
+
+    revalidatePath(`/stp/companies/${sheet.stpCompanyId}/kpi`);
+
+    return ok({
+      token: shareLink.token,
+      expiresAt: shareLink.expiresAt.toISOString(),
+    });
+  } catch (e) {
+    console.error("[createShareLink] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  const token = randomBytes(32).toString("hex");
-  const expiresAt = new Date();
-  expiresAt.setHours(expiresAt.getHours() + expiresInHours);
-
-  const shareLink = await prisma.stpKpiShareLink.create({
-    data: {
-      kpiSheetId: sheetId,
-      token,
-      expiresAt,
-    },
-  });
-
-  revalidatePath(`/stp/companies/${sheet.stpCompanyId}/kpi`);
-
-  return {
-    token: shareLink.token,
-    expiresAt: shareLink.expiresAt.toISOString(),
-  };
 }
 
 // 共有リンクを削除
-export async function deleteShareLink(linkId: number) {
-  await requireEdit("stp");
-  const link = await prisma.stpKpiShareLink.findUnique({
-    where: { id: linkId },
-    include: {
-      kpiSheet: {
-        select: { stpCompanyId: true },
+export async function deleteShareLink(linkId: number): Promise<ActionResult> {
+  try {
+    await requireEdit("stp");
+    const link = await prisma.stpKpiShareLink.findUnique({
+      where: { id: linkId },
+      include: {
+        kpiSheet: {
+          select: { stpCompanyId: true },
+        },
       },
-    },
-  });
+    });
 
-  if (!link) {
-    throw new Error("共有リンクが見つかりません");
+    if (!link) {
+      return err("共有リンクが見つかりません");
+    }
+
+    await prisma.stpKpiShareLink.delete({
+      where: { id: linkId },
+    });
+
+    revalidatePath(`/stp/companies/${link.kpiSheet.stpCompanyId}/kpi`);
+    return ok();
+  } catch (e) {
+    console.error("[deleteShareLink] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  await prisma.stpKpiShareLink.delete({
-    where: { id: linkId },
-  });
-
-  revalidatePath(`/stp/companies/${link.kpiSheet.stpCompanyId}/kpi`);
 }
 
 // 共有リンクでKPIシートを取得（公開用）

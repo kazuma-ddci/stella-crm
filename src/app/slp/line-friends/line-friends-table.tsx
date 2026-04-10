@@ -60,19 +60,24 @@ export function LineFriendsTable({ data, lastSyncAt }: Props) {
     { key: "scenarioPos5", header: "現在の場所5", type: "text" },
   ];
 
+  // ActionResult を返す action は結果をそのまま crud-table に return する。
+  // crud-table 側が ok:false を検知して日本語エラーをトーストで表示する。
   const handleAdd = async (formData: Record<string, unknown>) => {
-    await addLineFriend(formData);
-    router.refresh();
+    const result = await addLineFriend(formData);
+    if (result.ok) router.refresh();
+    return result;
   };
 
   const handleUpdate = async (id: number, formData: Record<string, unknown>) => {
-    await updateLineFriend(id, formData);
-    router.refresh();
+    const result = await updateLineFriend(id, formData);
+    if (result.ok) router.refresh();
+    return result;
   };
 
   const handleDelete = async (id: number) => {
-    await deleteLineFriend(id);
-    router.refresh();
+    const result = await deleteLineFriend(id);
+    if (result.ok) router.refresh();
+    return result;
   };
 
   const handleSync = async () => {

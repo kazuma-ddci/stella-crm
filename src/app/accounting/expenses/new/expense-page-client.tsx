@@ -192,26 +192,26 @@ function PendingApprovalsTab({ items }: { items: ExpenseStatusItem[] }) {
   const handleApprove = (id: number) => {
     if (!confirm("この経費を承認して経理へ引き渡しますか？")) return;
     startTransition(async () => {
-      try {
-        await approveByProjectApprover(id);
-        router.refresh();
-      } catch (e) {
-        alert(e instanceof Error ? e.message : "承認に失敗しました");
+      const result = await approveByProjectApprover(id);
+      if (!result.ok) {
+        alert(result.error);
+        return;
       }
+      router.refresh();
     });
   };
 
   const handleReject = () => {
     if (rejectId === null) return;
     startTransition(async () => {
-      try {
-        await rejectByProjectApprover(rejectId, rejectReason.trim() || undefined);
-        setRejectId(null);
-        setRejectReason("");
-        router.refresh();
-      } catch (e) {
-        alert(e instanceof Error ? e.message : "差し戻しに失敗しました");
+      const result = await rejectByProjectApprover(rejectId, rejectReason.trim() || undefined);
+      if (!result.ok) {
+        alert(result.error);
+        return;
       }
+      setRejectId(null);
+      setRejectReason("");
+      router.refresh();
     });
   };
 

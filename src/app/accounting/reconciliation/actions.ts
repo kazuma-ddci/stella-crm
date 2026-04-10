@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // Prisma transaction client type
 type TxClient = Omit<
@@ -112,20 +113,30 @@ type DifferenceJournalLine = {
   description?: string;
 };
 
-function validateReconciliationData(data: Record<string, unknown>) {
+type ValidatedReconciliation = {
+  journalEntryId: number;
+  bankTransactionId: number;
+  amount: number;
+  differenceType: DifferenceType | undefined;
+  differenceLines: DifferenceJournalLine[] | undefined;
+};
+
+function validateReconciliationData(
+  data: Record<string, unknown>
+): { ok: true; value: ValidatedReconciliation } | { ok: false; error: string } {
   const journalEntryId = Number(data.journalEntryId);
   if (!data.journalEntryId || isNaN(journalEntryId)) {
-    throw new Error("仕訳は必須です");
+    return { ok: false, error: "仕訳は必須です" };
   }
 
   const bankTransactionId = Number(data.bankTransactionId);
   if (!data.bankTransactionId || isNaN(bankTransactionId)) {
-    throw new Error("入出金は必須です");
+    return { ok: false, error: "入出金は必須です" };
   }
 
   const amount = Number(data.amount);
   if (isNaN(amount) || amount <= 0 || !Number.isInteger(amount)) {
-    throw new Error("消込金額は1以上の整数で入力してください");
+    return { ok: false, error: "消込金額は1以上の整数で入力してください" };
   }
 
   // 差額処理タイプ（任意）
@@ -134,7 +145,7 @@ function validateReconciliationData(data: Record<string, unknown>) {
     differenceType &&
     !(VALID_DIFFERENCE_TYPES as readonly string[]).includes(differenceType)
   ) {
-    throw new Error("差額処理タイプが不正です");
+    return { ok: false, error: "差額処理タイプが不正です" };
   }
 
   // 差額仕訳明細（差額処理がある場合）
@@ -147,21 +158,21 @@ function validateReconciliationData(data: Record<string, unknown>) {
     differenceType !== "manual"
   ) {
     if (!differenceLines || differenceLines.length < 2) {
-      throw new Error("差額仕訳は最低2行（借方・貸方）必要です");
+      return { ok: false, error: "差額仕訳は最低2行（借方・貸方）必要です" };
     }
     // 各行の詳細バリデーション
     for (let i = 0; i < differenceLines.length; i++) {
       const line = differenceLines[i];
       if (line.side !== "debit" && line.side !== "credit") {
-        throw new Error(`差額仕訳の明細${i + 1}: 借方/貸方の指定が不正です`);
+        return { ok: false, error: `差額仕訳の明細${i + 1}: 借方/貸方の指定が不正です` };
       }
       const lineAccountId = Number(line.accountId);
       if (!line.accountId || isNaN(lineAccountId) || !Number.isInteger(lineAccountId) || lineAccountId <= 0) {
-        throw new Error(`差額仕訳の明細${i + 1}: 勘定科目は必須です`);
+        return { ok: false, error: `差額仕訳の明細${i + 1}: 勘定科目は必須です` };
       }
       const lineAmount = Number(line.amount);
       if (isNaN(lineAmount) || lineAmount <= 0 || !Number.isInteger(lineAmount)) {
-        throw new Error(`差額仕訳の明細${i + 1}: 金額は1以上の整数で入力してください`);
+        return { ok: false, error: `差額仕訳の明細${i + 1}: 金額は1以上の整数で入力してください` };
       }
     }
     const debitTotal = differenceLines
@@ -171,18 +182,22 @@ function validateReconciliationData(data: Record<string, unknown>) {
       .filter((l) => l.side === "credit")
       .reduce((sum, l) => sum + Number(l.amount), 0);
     if (debitTotal !== creditTotal) {
-      throw new Error(
-        `差額仕訳の借方合計（${debitTotal.toLocaleString()}円）と貸方合計（${creditTotal.toLocaleString()}円）が一致しません`
-      );
+      return {
+        ok: false,
+        error: `差額仕訳の借方合計（${debitTotal.toLocaleString()}円）と貸方合計（${creditTotal.toLocaleString()}円）が一致しません`,
+      };
     }
   }
 
   return {
-    journalEntryId,
-    bankTransactionId,
-    amount,
-    differenceType: differenceType as DifferenceType | undefined,
-    differenceLines,
+    ok: true,
+    value: {
+      journalEntryId,
+      bankTransactionId,
+      amount,
+      differenceType: differenceType as DifferenceType | undefined,
+      differenceLines,
+    },
   };
 }
 
@@ -558,11 +573,16 @@ export async function getReconciliationFormData(): Promise<ReconciliationFormDat
 // 5. createReconciliation（消込作成）
 // ============================================
 
-export async function createReconciliation(data: Record<string, unknown>) {
+export async function createReconciliation(
+  data: Record<string, unknown>
+): Promise<ActionResult<{ id: number }>> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
-  const validated = validateReconciliationData(data);
+  const validatedRes = validateReconciliationData(data);
+  if (!validatedRes.ok) return err(validatedRes.error);
+  const validated = validatedRes.value;
 
   // 仕訳の存在チェック（事前チェック）
   const journalEntry = await prisma.journalEntry.findFirst({
@@ -576,7 +596,7 @@ export async function createReconciliation(data: Record<string, unknown>) {
     },
   });
   if (!journalEntry) {
-    throw new Error("仕訳が見つかりません（確定済みの仕訳が必要です）");
+    return err("仕訳が見つかりません（確定済みの仕訳が必要です）");
   }
 
   // 入出金の存在チェック（事前チェック）
@@ -587,7 +607,7 @@ export async function createReconciliation(data: Record<string, unknown>) {
     },
   });
   if (!bankTransaction) {
-    throw new Error("入出金が見つかりません");
+    return err("入出金が見つかりません");
   }
 
   // 差額仕訳の勘定科目存在チェック
@@ -600,7 +620,7 @@ export async function createReconciliation(data: Record<string, unknown>) {
     const foundIds = new Set(diffAccounts.map((a) => a.id));
     for (const aid of diffAccountIds) {
       if (!foundIds.has(aid)) {
-        throw new Error(`差額仕訳の勘定科目ID ${aid} が見つかりません`);
+        return err(`差額仕訳の勘定科目ID ${aid} が見つかりません`);
       }
     }
   }
@@ -775,14 +795,19 @@ export async function createReconciliation(data: Record<string, unknown>) {
   revalidatePath("/accounting/bank-transactions");
   revalidatePath("/accounting/journal");
   revalidatePath("/accounting/transactions");
-  return { id: result.id };
+  return ok({ id: result.id });
+  } catch (e) {
+    console.error("[createReconciliation] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
 // 6. cancelReconciliation（消込取り消し）
 // ============================================
 
-export async function cancelReconciliation(id: number) {
+export async function cancelReconciliation(id: number): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -807,7 +832,7 @@ export async function cancelReconciliation(id: number) {
     },
   });
   if (!reconciliation) {
-    throw new Error("消込が見つかりません");
+    return err("消込が見つかりません");
   }
 
   // P3: 月次クローズチェック
@@ -850,4 +875,9 @@ export async function cancelReconciliation(id: number) {
   revalidatePath("/accounting/bank-transactions");
   revalidatePath("/accounting/journal");
   revalidatePath("/accounting/transactions");
+  return ok();
+  } catch (e) {
+    console.error("[cancelReconciliation] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }

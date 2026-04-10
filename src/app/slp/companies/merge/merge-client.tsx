@@ -165,7 +165,12 @@ export function MergeClient({
         confirmedAgentPayment: edited.confirmedAgentPayment || null,
         paymentReceivedDate: edited.paymentReceivedDate || null,
       };
-      await mergeCompanyRecords(main.id, sub.id, data);
+      const result = await mergeCompanyRecords(main.id, sub.id, data);
+      if (!result.ok) {
+        toast.error(result.error);
+        setSubmitting(false);
+        return;
+      }
       toast.success("統合が完了しました");
       router.push(`/slp/companies/${main.id}`);
     } catch (e) {

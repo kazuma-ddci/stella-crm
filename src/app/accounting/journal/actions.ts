@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth";
 import { recordChangeLog, extractChanges, pickRecordData } from "@/app/accounting/changelog/actions";
 import { JOURNAL_ENTRY_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // 型定義
@@ -311,7 +312,10 @@ export async function getJournalEntries(filters?: {
 // 2. createJournalEntry（新規仕訳作成）
 // ============================================
 
-export async function createJournalEntry(data: Record<string, unknown>) {
+export async function createJournalEntry(
+  data: Record<string, unknown>
+): Promise<ActionResult<{ id: number }>> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -327,7 +331,7 @@ export async function createJournalEntry(data: Record<string, unknown>) {
       select: { id: true },
     });
     if (!ig) {
-      throw new Error("指定された請求が見つかりません");
+      return err("指定された請求が見つかりません");
     }
   }
   if (validated.paymentGroupId) {
@@ -336,7 +340,7 @@ export async function createJournalEntry(data: Record<string, unknown>) {
       select: { id: true },
     });
     if (!pg) {
-      throw new Error("指定された支払が見つかりません");
+      return err("指定された支払が見つかりません");
     }
   }
   if (validated.transactionId) {
@@ -345,7 +349,7 @@ export async function createJournalEntry(data: Record<string, unknown>) {
       select: { id: true },
     });
     if (!tx) {
-      throw new Error("指定された取引が見つかりません");
+      return err("指定された取引が見つかりません");
     }
   }
   if (validated.bankTransactionId) {
@@ -354,7 +358,7 @@ export async function createJournalEntry(data: Record<string, unknown>) {
       select: { id: true },
     });
     if (!bt) {
-      throw new Error("指定された入出金が見つかりません");
+      return err("指定された入出金が見つかりません");
     }
   }
 
@@ -369,7 +373,7 @@ export async function createJournalEntry(data: Record<string, unknown>) {
   const foundAccountIds = new Set(accounts.map((a) => a.id));
   for (const id of accountIds) {
     if (!foundAccountIds.has(id)) {
-      throw new Error(`勘定科目ID ${id} が見つかりません`);
+      return err(`勘定科目ID ${id} が見つかりません`);
     }
   }
 
@@ -425,15 +429,19 @@ export async function createJournalEntry(data: Record<string, unknown>) {
 
     return journalEntry;
   });
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("Foreign key constraint")) {
-      throw new Error("紐づき先のレコードが見つかりません。入力内容を確認してください");
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("Foreign key constraint")) {
+      return err("紐づき先のレコードが見つかりません。入力内容を確認してください");
     }
-    throw err;
+    throw e;
   }
 
   revalidatePath("/accounting/journal");
-  return { id: result.id };
+  return ok({ id: result.id });
+  } catch (e) {
+    console.error("[createJournalEntry] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
@@ -443,7 +451,8 @@ export async function createJournalEntry(data: Record<string, unknown>) {
 export async function updateJournalEntry(
   id: number,
   data: Record<string, unknown>
-) {
+): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -451,10 +460,10 @@ export async function updateJournalEntry(
     where: { id, deletedAt: null },
   });
   if (!existing) {
-    throw new Error("仕訳が見つかりません");
+    return err("仕訳が見つかりません");
   }
   if (existing.status !== "draft") {
-    throw new Error("確定済みの仕訳は編集できません");
+    return err("確定済みの仕訳は編集できません");
   }
 
   // 月次クローズチェック（既存レコードの日付）
@@ -472,7 +481,7 @@ export async function updateJournalEntry(
       select: { id: true },
     });
     if (!bt) {
-      throw new Error("指定された入出金が見つかりません");
+      return err("指定された入出金が見つかりません");
     }
   }
 
@@ -487,7 +496,7 @@ export async function updateJournalEntry(
   const foundAccountIds = new Set(accounts.map((a) => a.id));
   for (const aid of accountIds) {
     if (!foundAccountIds.has(aid)) {
-      throw new Error(`勘定科目ID ${aid} が見つかりません`);
+      return err(`勘定科目ID ${aid} が見つかりません`);
     }
   }
 
@@ -553,21 +562,27 @@ export async function updateJournalEntry(
       );
     }
   });
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("Foreign key constraint")) {
-      throw new Error("紐づき先のレコードが見つかりません。入力内容を確認してください");
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("Foreign key constraint")) {
+      return err("紐づき先のレコードが見つかりません。入力内容を確認してください");
     }
-    throw err;
+    throw e;
   }
 
   revalidatePath("/accounting/journal");
+  return ok();
+  } catch (e) {
+    console.error("[updateJournalEntry] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
 // 4. confirmJournalEntry（仕訳確定）
 // ============================================
 
-export async function confirmJournalEntry(id: number) {
+export async function confirmJournalEntry(id: number): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -578,10 +593,10 @@ export async function confirmJournalEntry(id: number) {
     },
   });
   if (!entry) {
-    throw new Error("仕訳が見つかりません");
+    return err("仕訳が見つかりません");
   }
   if (entry.status !== "draft") {
-    throw new Error("下書き状態の仕訳のみ確定できます");
+    return err("下書き状態の仕訳のみ確定できます");
   }
 
   // 月次クローズチェック
@@ -596,7 +611,7 @@ export async function confirmJournalEntry(id: number) {
     .reduce((sum, l) => sum + l.amount, 0);
 
   if (debitTotal !== creditTotal) {
-    throw new Error(
+    return err(
       `借方合計（${debitTotal.toLocaleString()}円）と貸方合計（${creditTotal.toLocaleString()}円）が一致しないため確定できません`
     );
   }
@@ -686,13 +701,19 @@ export async function confirmJournalEntry(id: number) {
 
   revalidatePath("/accounting/journal");
   revalidatePath("/accounting/transactions");
+  return ok();
+  } catch (e) {
+    console.error("[confirmJournalEntry] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
 // 5. deleteJournalEntry（仕訳削除 / 論理削除）
 // ============================================
 
-export async function deleteJournalEntry(id: number) {
+export async function deleteJournalEntry(id: number): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -700,10 +721,10 @@ export async function deleteJournalEntry(id: number) {
     where: { id, deletedAt: null },
   });
   if (!entry) {
-    throw new Error("仕訳が見つかりません");
+    return err("仕訳が見つかりません");
   }
   if (entry.status !== "draft") {
-    throw new Error("確定済みの仕訳は削除できません。下書きの仕訳のみ削除可能です");
+    return err("確定済みの仕訳は削除できません。下書きの仕訳のみ削除可能です");
   }
 
   // 月次クローズチェック
@@ -735,6 +756,11 @@ export async function deleteJournalEntry(id: number) {
   });
 
   revalidatePath("/accounting/journal");
+  return ok();
+  } catch (e) {
+    console.error("[deleteJournalEntry] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
@@ -798,7 +824,8 @@ export async function getJournalFormData(): Promise<JournalFormData> {
 // 7. realizeJournalEntry（仕訳を実現に変更）
 // ============================================
 
-export async function realizeJournalEntry(id: number) {
+export async function realizeJournalEntry(id: number): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -806,13 +833,13 @@ export async function realizeJournalEntry(id: number) {
     where: { id, deletedAt: null },
   });
   if (!entry) {
-    throw new Error("仕訳が見つかりません");
+    return err("仕訳が見つかりません");
   }
   if (entry.status !== "confirmed") {
-    throw new Error("確定済みの仕訳のみ実現に変更できます");
+    return err("確定済みの仕訳のみ実現に変更できます");
   }
   if (entry.realizationStatus !== "unrealized") {
-    throw new Error("未実現の仕訳のみ実現に変更できます");
+    return err("未実現の仕訳のみ実現に変更できます");
   }
 
   // 月次クローズチェック
@@ -844,13 +871,19 @@ export async function realizeJournalEntry(id: number) {
 
   revalidatePath("/accounting/journal");
   revalidatePath("/accounting/workflow");
+  return ok();
+  } catch (e) {
+    console.error("[realizeJournalEntry] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
 // 8. unrealizeJournalEntry（仕訳を未実現に戻す）
 // ============================================
 
-export async function unrealizeJournalEntry(id: number) {
+export async function unrealizeJournalEntry(id: number): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -858,13 +891,13 @@ export async function unrealizeJournalEntry(id: number) {
     where: { id, deletedAt: null },
   });
   if (!entry) {
-    throw new Error("仕訳が見つかりません");
+    return err("仕訳が見つかりません");
   }
   if (entry.status !== "confirmed") {
-    throw new Error("確定済みの仕訳のみ実現ステータスを変更できます");
+    return err("確定済みの仕訳のみ実現ステータスを変更できます");
   }
   if (entry.realizationStatus !== "realized") {
-    throw new Error("実現済みの仕訳のみ未実現に戻せます");
+    return err("実現済みの仕訳のみ未実現に戻せます");
   }
 
   // 月次クローズチェック
@@ -896,6 +929,11 @@ export async function unrealizeJournalEntry(id: number) {
 
   revalidatePath("/accounting/journal");
   revalidatePath("/accounting/workflow");
+  return ok();
+  } catch (e) {
+    console.error("[unrealizeJournalEntry] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================

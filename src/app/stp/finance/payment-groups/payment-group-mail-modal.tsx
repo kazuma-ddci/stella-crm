@@ -125,6 +125,10 @@ export function PaymentGroupMailModal({
     setLoading(true);
     try {
       const result = await getPaymentGroupMailData(paymentGroupId);
+      if (!result) {
+        toast.error("支払が見つかりません");
+        return;
+      }
       setData(result);
 
       // デフォルト送信元メール
@@ -403,11 +407,15 @@ export function PaymentGroupMailModal({
   const handleManualRecord = useCallback(async () => {
     setSending(true);
     try {
-      await recordManualPaymentGroupSend({
+      const result = await recordManualPaymentGroupSend({
         paymentGroupId,
         sendMethod: manualSendMethod,
         note: manualNote || undefined,
       });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("送付記録を保存しました");
       setManualNote("");
       onClose();

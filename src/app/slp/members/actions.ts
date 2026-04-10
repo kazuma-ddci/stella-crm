@@ -4,119 +4,144 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { sendSlpContract, sendSlpRemind } from "@/lib/slp-cloudsign";
 import { submitForm5ContractNotification } from "@/lib/proline-form";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
-export async function addMember(data: Record<string, unknown>) {
-  const uid = String(data.uid ?? "").trim();
-  if (!uid) throw new Error("UIDは必須です");
+export async function addMember(data: Record<string, unknown>): Promise<ActionResult> {
+  try {
+    const uid = String(data.uid ?? "").trim();
+    if (!uid) return err("UIDは必須です");
 
-  const existing = await prisma.slpMember.findUnique({ where: { uid } });
-  if (existing) throw new Error(`UID「${uid}」は既に使用されています`);
+    const existing = await prisma.slpMember.findUnique({ where: { uid } });
+    if (existing) return err(`UID「${uid}」は既に使用されています`);
 
-  await prisma.slpMember.create({
-    data: {
-      name: String(data.name ?? "").trim(),
-      email: data.email ? String(data.email).trim() : null,
-      status: data.status ? String(data.status) : null,
-      contractSentDate: data.contractSentDate ? new Date(String(data.contractSentDate)) : null,
-      contractSignedDate: data.contractSignedDate ? new Date(String(data.contractSignedDate)) : null,
-      position: data.position ? String(data.position).trim() : null,
-      company: data.company ? String(data.company).trim() : null,
-      memberCategory: data.memberCategory ? String(data.memberCategory) : null,
-      lineName: data.lineName ? String(data.lineName).trim() : null,
-      uid,
-      phone: data.phone ? String(data.phone).trim() : null,
-      address: data.address ? String(data.address).trim() : null,
-      referrerUid: data.referrerUid ? String(data.referrerUid) : null,
-      note: data.note ? String(data.note).trim() : null,
-      memo: data.memo ? String(data.memo).trim() : null,
-      documentId: data.documentId ? String(data.documentId).trim() : null,
-      cloudsignUrl: data.cloudsignUrl ? String(data.cloudsignUrl).trim() : null,
-      reminderCount: data.reminderCount ? Number(data.reminderCount) : 0,
-    },
-  });
+    await prisma.slpMember.create({
+      data: {
+        name: String(data.name ?? "").trim(),
+        email: data.email ? String(data.email).trim() : null,
+        status: data.status ? String(data.status) : null,
+        contractSentDate: data.contractSentDate ? new Date(String(data.contractSentDate)) : null,
+        contractSignedDate: data.contractSignedDate ? new Date(String(data.contractSignedDate)) : null,
+        position: data.position ? String(data.position).trim() : null,
+        company: data.company ? String(data.company).trim() : null,
+        memberCategory: data.memberCategory ? String(data.memberCategory) : null,
+        lineName: data.lineName ? String(data.lineName).trim() : null,
+        uid,
+        phone: data.phone ? String(data.phone).trim() : null,
+        address: data.address ? String(data.address).trim() : null,
+        referrerUid: data.referrerUid ? String(data.referrerUid) : null,
+        note: data.note ? String(data.note).trim() : null,
+        memo: data.memo ? String(data.memo).trim() : null,
+        documentId: data.documentId ? String(data.documentId).trim() : null,
+        cloudsignUrl: data.cloudsignUrl ? String(data.cloudsignUrl).trim() : null,
+        reminderCount: data.reminderCount ? Number(data.reminderCount) : 0,
+      },
+    });
 
-  revalidatePath("/slp/members");
+    revalidatePath("/slp/members");
+    return ok();
+  } catch (e) {
+    console.error("[addMember] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function updateMember(id: number, data: Record<string, unknown>) {
-  const updateData: Record<string, unknown> = {};
+export async function updateMember(id: number, data: Record<string, unknown>): Promise<ActionResult> {
+  try {
+    const updateData: Record<string, unknown> = {};
 
-  if (data.name !== undefined) updateData.name = String(data.name).trim();
-  if (data.email !== undefined) updateData.email = data.email ? String(data.email).trim() : null;
-  if (data.status !== undefined) updateData.status = data.status ? String(data.status) : null;
-  if (data.contractSentDate !== undefined) updateData.contractSentDate = data.contractSentDate ? new Date(String(data.contractSentDate)) : null;
-  if (data.contractSignedDate !== undefined) updateData.contractSignedDate = data.contractSignedDate ? new Date(String(data.contractSignedDate)) : null;
-  if (data.position !== undefined) updateData.position = data.position ? String(data.position).trim() : null;
-  if (data.company !== undefined) updateData.company = data.company ? String(data.company).trim() : null;
-  if (data.memberCategory !== undefined) updateData.memberCategory = data.memberCategory ? String(data.memberCategory) : null;
-  if (data.lineName !== undefined) updateData.lineName = data.lineName ? String(data.lineName).trim() : null;
-  if (data.phone !== undefined) updateData.phone = data.phone ? String(data.phone).trim() : null;
-  if (data.address !== undefined) updateData.address = data.address ? String(data.address).trim() : null;
-  if (data.referrerUid !== undefined) updateData.referrerUid = data.referrerUid ? String(data.referrerUid) : null;
-  if (data.note !== undefined) updateData.note = data.note ? String(data.note).trim() : null;
-  if (data.memo !== undefined) updateData.memo = data.memo ? String(data.memo).trim() : null;
-  if (data.documentId !== undefined) updateData.documentId = data.documentId ? String(data.documentId).trim() : null;
-  if (data.cloudsignUrl !== undefined) updateData.cloudsignUrl = data.cloudsignUrl ? String(data.cloudsignUrl).trim() : null;
-  if (data.reminderCount !== undefined) updateData.reminderCount = Number(data.reminderCount);
+    if (data.name !== undefined) updateData.name = String(data.name).trim();
+    if (data.email !== undefined) updateData.email = data.email ? String(data.email).trim() : null;
+    if (data.status !== undefined) updateData.status = data.status ? String(data.status) : null;
+    if (data.contractSentDate !== undefined) updateData.contractSentDate = data.contractSentDate ? new Date(String(data.contractSentDate)) : null;
+    if (data.contractSignedDate !== undefined) updateData.contractSignedDate = data.contractSignedDate ? new Date(String(data.contractSignedDate)) : null;
+    if (data.position !== undefined) updateData.position = data.position ? String(data.position).trim() : null;
+    if (data.company !== undefined) updateData.company = data.company ? String(data.company).trim() : null;
+    if (data.memberCategory !== undefined) updateData.memberCategory = data.memberCategory ? String(data.memberCategory) : null;
+    if (data.lineName !== undefined) updateData.lineName = data.lineName ? String(data.lineName).trim() : null;
+    if (data.phone !== undefined) updateData.phone = data.phone ? String(data.phone).trim() : null;
+    if (data.address !== undefined) updateData.address = data.address ? String(data.address).trim() : null;
+    if (data.referrerUid !== undefined) updateData.referrerUid = data.referrerUid ? String(data.referrerUid) : null;
+    if (data.note !== undefined) updateData.note = data.note ? String(data.note).trim() : null;
+    if (data.memo !== undefined) updateData.memo = data.memo ? String(data.memo).trim() : null;
+    if (data.documentId !== undefined) updateData.documentId = data.documentId ? String(data.documentId).trim() : null;
+    if (data.cloudsignUrl !== undefined) updateData.cloudsignUrl = data.cloudsignUrl ? String(data.cloudsignUrl).trim() : null;
+    if (data.reminderCount !== undefined) updateData.reminderCount = Number(data.reminderCount);
 
-  // uid変更時は重複チェック
-  if (data.uid !== undefined) {
-    const newUid = String(data.uid).trim();
-    const current = await prisma.slpMember.findUnique({ where: { id } });
-    if (current && current.uid !== newUid) {
-      const existing = await prisma.slpMember.findUnique({ where: { uid: newUid } });
-      if (existing) throw new Error(`UID「${newUid}」は既に使用されています`);
-      updateData.uid = newUid;
+    // uid変更時は重複チェック
+    if (data.uid !== undefined) {
+      const newUid = String(data.uid).trim();
+      const current = await prisma.slpMember.findUnique({ where: { id } });
+      if (current && current.uid !== newUid) {
+        const existing = await prisma.slpMember.findUnique({ where: { uid: newUid } });
+        if (existing) return err(`UID「${newUid}」は既に使用されています`);
+        updateData.uid = newUid;
+      }
     }
-  }
 
-  if (Object.keys(updateData).length > 0) {
-    await prisma.slpMember.update({ where: { id }, data: updateData });
-  }
+    if (Object.keys(updateData).length > 0) {
+      await prisma.slpMember.update({ where: { id }, data: updateData });
+    }
 
-  revalidatePath("/slp/members");
+    revalidatePath("/slp/members");
+    return ok();
+  } catch (e) {
+    console.error("[updateMember] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function deleteMember(id: number) {
-  await prisma.slpMember.update({
-    where: { id },
-    data: { deletedAt: new Date() },
-  });
+export async function deleteMember(id: number): Promise<ActionResult> {
+  try {
+    await prisma.slpMember.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
 
-  revalidatePath("/slp/members");
+    revalidatePath("/slp/members");
+    return ok();
+  } catch (e) {
+    console.error("[deleteMember] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 /**
  * CloudSignで新規契約書を送付（組合員名簿から手動送付）
  * MasterContractを作成し、SlpMemberの旧カラムも後方互換で更新
  */
-export async function sendContractToMember(id: number) {
-  const member = await prisma.slpMember.findUnique({ where: { id } });
-  if (!member) throw new Error("メンバーが見つかりません");
-  if (!member.email) throw new Error("メールアドレスが登録されていません");
-  if (member.status === "組合員契約書締結") throw new Error("この組合員は契約締結済みです");
+export async function sendContractToMember(id: number): Promise<ActionResult> {
+  try {
+    const member = await prisma.slpMember.findUnique({ where: { id } });
+    if (!member) return err("メンバーが見つかりません");
+    if (!member.email) return err("メールアドレスが登録されていません");
+    if (member.status === "組合員契約書締結") return err("この組合員は契約締結済みです");
 
-  const result = await sendSlpContract({
-    email: member.email,
-    name: member.name,
-    slpMemberId: id,
-  });
+    const result = await sendSlpContract({
+      email: member.email,
+      name: member.name,
+      slpMemberId: id,
+    });
 
-  // 後方互換: SlpMemberの旧カラムも更新
-  await prisma.slpMember.update({
-    where: { id },
-    data: {
-      documentId: result.documentId,
-      cloudsignUrl: result.cloudsignUrl,
-      contractSentDate: new Date(),
-      status: "契約書送付済",
-      reminderCount: 0,
-      lastReminderSentAt: null,
-    },
-  });
+    // 後方互換: SlpMemberの旧カラムも更新
+    await prisma.slpMember.update({
+      where: { id },
+      data: {
+        documentId: result.documentId,
+        cloudsignUrl: result.cloudsignUrl,
+        contractSentDate: new Date(),
+        status: "契約書送付済",
+        reminderCount: 0,
+        lastReminderSentAt: null,
+      },
+    });
 
-  revalidatePath("/slp/members");
-  revalidatePath("/slp/contracts");
+    revalidatePath("/slp/members");
+    revalidatePath("/slp/contracts");
+    return ok();
+  } catch (e) {
+    console.error("[sendContractToMember] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 /**
@@ -124,71 +149,77 @@ export async function sendContractToMember(id: number) {
  * MasterContract経由でリマインドし、旧カラムも更新
  * 同時に Form12 で公式LINEメッセージも送信する（fire-and-forget）
  */
-export async function remindMember(id: number) {
-  const member = await prisma.slpMember.findUnique({ where: { id } });
-  if (!member) throw new Error("メンバーが見つかりません");
-  if (member.status !== "契約書送付済") throw new Error("リマインド対象のステータスではありません");
+export async function remindMember(id: number): Promise<ActionResult> {
+  try {
+    const member = await prisma.slpMember.findUnique({ where: { id } });
+    if (!member) return err("メンバーが見つかりません");
+    if (member.status !== "契約書送付済") return err("リマインド対象のステータスではありません");
 
-  // MasterContractから最新の送付済み契約を取得
-  const contract = await prisma.masterContract.findFirst({
-    where: {
-      slpMemberId: id,
-      cloudsignStatus: "sent",
-      cloudsignDocumentId: { not: null },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+    // MasterContractから最新の送付済み契約を取得
+    const contract = await prisma.masterContract.findFirst({
+      where: {
+        slpMemberId: id,
+        cloudsignStatus: "sent",
+        cloudsignDocumentId: { not: null },
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
-  if (contract) {
-    await sendSlpRemind(contract.id);
-  } else if (member.documentId) {
-    // フォールバック: 旧カラムのdocumentIdを使用（移行前データ対応）
-    const { sendSlpRemindLegacy } = await import("@/lib/slp-cloudsign-legacy");
-    await sendSlpRemindLegacy(member.documentId);
-  } else {
-    throw new Error("契約書のドキュメントIDがありません");
+    if (contract) {
+      await sendSlpRemind(contract.id);
+    } else if (member.documentId) {
+      // フォールバック: 旧カラムのdocumentIdを使用（移行前データ対応）
+      const { sendSlpRemindLegacy } = await import("@/lib/slp-cloudsign-legacy");
+      await sendSlpRemindLegacy(member.documentId);
+    } else {
+      return err("契約書のドキュメントIDがありません");
+    }
+
+    // 後方互換: SlpMemberの旧カラムも更新
+    await prisma.slpMember.update({
+      where: { id },
+      data: {
+        reminderCount: member.reminderCount + 1,
+        lastReminderSentAt: new Date(),
+      },
+    });
+
+    // Form12: 公式LINEで契約書リマインドメッセージを送信（fire-and-forget）
+    if (member.uid && member.email) {
+      const sentDateSrc = member.contractSentDate ?? contract?.cloudsignSentAt ?? null;
+      const sentDate = sentDateSrc
+        ? (() => {
+            const jst = new Date(sentDateSrc.getTime() + 9 * 60 * 60 * 1000);
+            return `${jst.getUTCFullYear()}年${jst.getUTCMonth() + 1}月${jst.getUTCDate()}日`;
+          })()
+        : "";
+      const { submitForm12ContractReminder } = await import("@/lib/proline-form");
+      const { logAutomationError } = await import("@/lib/automation-error");
+      submitForm12ContractReminder(member.uid, sentDate, member.email).catch(
+        async (e2) => {
+          await logAutomationError({
+            source: "members/remind/form12",
+            message: `Form12契約書リマインドLINE送信失敗: ${member.name} (uid=${member.uid})`,
+            detail: {
+              memberId: member.id,
+              uid: member.uid,
+              sentDate,
+              email: member.email,
+              error: e2 instanceof Error ? e2.message : String(e2),
+              retryAction: "form12-contract-reminder",
+            },
+          });
+        }
+      );
+    }
+
+    revalidatePath("/slp/members");
+    revalidatePath("/slp/contracts");
+    return ok();
+  } catch (e) {
+    console.error("[remindMember] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  // 後方互換: SlpMemberの旧カラムも更新
-  await prisma.slpMember.update({
-    where: { id },
-    data: {
-      reminderCount: member.reminderCount + 1,
-      lastReminderSentAt: new Date(),
-    },
-  });
-
-  // Form12: 公式LINEで契約書リマインドメッセージを送信（fire-and-forget）
-  if (member.uid && member.email) {
-    const sentDateSrc = member.contractSentDate ?? contract?.cloudsignSentAt ?? null;
-    const sentDate = sentDateSrc
-      ? (() => {
-          const jst = new Date(sentDateSrc.getTime() + 9 * 60 * 60 * 1000);
-          return `${jst.getUTCFullYear()}年${jst.getUTCMonth() + 1}月${jst.getUTCDate()}日`;
-        })()
-      : "";
-    const { submitForm12ContractReminder } = await import("@/lib/proline-form");
-    const { logAutomationError } = await import("@/lib/automation-error");
-    submitForm12ContractReminder(member.uid, sentDate, member.email).catch(
-      async (err) => {
-        await logAutomationError({
-          source: "members/remind/form12",
-          message: `Form12契約書リマインドLINE送信失敗: ${member.name} (uid=${member.uid})`,
-          detail: {
-            memberId: member.id,
-            uid: member.uid,
-            sentDate,
-            email: member.email,
-            error: err instanceof Error ? err.message : String(err),
-            retryAction: "form12-contract-reminder",
-          },
-        });
-      }
-    );
-  }
-
-  revalidatePath("/slp/members");
-  revalidatePath("/slp/contracts");
 }
 
 /**
@@ -196,44 +227,56 @@ export async function remindMember(id: number) {
  * 送信成功時に form5NotifiedReferrerUid に現在のfree1を保存し、
  * 「現在の紹介者に通知済み」状態にする
  */
-export async function sendForm5Notification(id: number) {
-  const member = await prisma.slpMember.findUnique({ where: { id } });
-  if (!member) throw new Error("メンバーが見つかりません");
+export async function sendForm5Notification(id: number): Promise<ActionResult> {
+  try {
+    const member = await prisma.slpMember.findUnique({ where: { id } });
+    if (!member) return err("メンバーが見つかりません");
 
-  const lineFriend = await prisma.slpLineFriend.findUnique({
-    where: { uid: member.uid },
-    select: { free1: true },
-  });
-  const referrerUid = lineFriend?.free1;
-  if (!referrerUid) throw new Error("紹介者UIDが見つかりません");
+    const lineFriend = await prisma.slpLineFriend.findUnique({
+      where: { uid: member.uid },
+      select: { free1: true },
+    });
+    const referrerUid = lineFriend?.free1;
+    if (!referrerUid) return err("紹介者UIDが見つかりません");
 
-  await submitForm5ContractNotification(
-    referrerUid,
-    member.lineName || "",
-    member.name
-  );
+    await submitForm5ContractNotification(
+      referrerUid,
+      member.lineName || "",
+      member.name
+    );
 
-  await prisma.slpMember.update({
-    where: { id },
-    data: {
-      form5NotifyCount: { increment: 1 },
-      form5NotifiedReferrerUid: referrerUid,
-    },
-  });
+    await prisma.slpMember.update({
+      where: { id },
+      data: {
+        form5NotifyCount: { increment: 1 },
+        form5NotifiedReferrerUid: referrerUid,
+      },
+    });
 
-  revalidatePath("/slp/members");
+    revalidatePath("/slp/members");
+    return ok();
+  } catch (e) {
+    console.error("[sendForm5Notification] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 /**
  * resubmittedフラグをクリア（通知を確認済みにする）
  */
-export async function clearResubmitted(id: number) {
-  await prisma.slpMember.update({
-    where: { id },
-    data: { resubmitted: false },
-  });
+export async function clearResubmitted(id: number): Promise<ActionResult> {
+  try {
+    await prisma.slpMember.update({
+      where: { id },
+      data: { resubmitted: false },
+    });
 
-  revalidatePath("/slp/members");
+    revalidatePath("/slp/members");
+    return ok();
+  } catch (e) {
+    console.error("[clearResubmitted] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 /**

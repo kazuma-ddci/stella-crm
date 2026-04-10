@@ -397,7 +397,11 @@ function FileActions({
   const handleDelete = () => {
     startTransition(async () => {
       try {
-        await softDeleteCompanyDocument(doc.id);
+        const result = await softDeleteCompanyDocument(doc.id);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         toast.success("書類を削除しました");
         setConfirmOpen(false);
       } catch {

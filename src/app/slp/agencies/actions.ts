@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 import { revalidatePath } from "next/cache";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // 代理店 CRUD
@@ -233,20 +234,26 @@ export async function updateAgencyContractStatus(
   revalidatePath("/slp/agencies");
 }
 
-export async function deleteAgencyContractStatus(id: number) {
-  await requireProjectMasterDataEditPermission("slp");
+export async function deleteAgencyContractStatus(id: number): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission("slp");
 
-  const usageCount = await prisma.slpAgency.count({
-    where: { contractStatusId: id, deletedAt: null },
-  });
-  if (usageCount > 0) {
-    throw new Error(
-      `このステータスは${usageCount}件の代理店で使用中のため削除できません`
-    );
+    const usageCount = await prisma.slpAgency.count({
+      where: { contractStatusId: id, deletedAt: null },
+    });
+    if (usageCount > 0) {
+      return err(
+        `このステータスは${usageCount}件の代理店で使用中のため削除できません`
+      );
+    }
+
+    await prisma.slpAgencyContractStatus.delete({ where: { id } });
+    revalidatePath("/slp/agencies");
+    return ok();
+  } catch (e) {
+    console.error("[deleteAgencyContractStatus] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  await prisma.slpAgencyContractStatus.delete({ where: { id } });
-  revalidatePath("/slp/agencies");
 }
 
 export async function reorderAgencyContractStatuses(

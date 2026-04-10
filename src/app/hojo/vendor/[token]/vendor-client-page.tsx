@@ -192,9 +192,10 @@ function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; ca
     if (!editRecord || !vendorId) return;
     setSaving(true);
     try {
-      await updateVendorFields(editRecord.id, vendorId, { subsidyDesiredDate: editData.subsidyDesiredDate || null, subsidyAmount: editData.subsidyAmount ? Number(editData.subsidyAmount) : null, vendorMemo: editData.vendorMemo || null });
+      const result = await updateVendorFields(editRecord.id, vendorId, { subsidyDesiredDate: editData.subsidyDesiredDate || null, subsidyAmount: editData.subsidyAmount ? Number(editData.subsidyAmount) : null, vendorMemo: editData.vendorMemo || null });
+      if (!result.ok) { alert(result.error); return; }
       setEditRecord(null); router.refresh();
-    } catch { alert("保存に失敗しました"); } finally { setSaving(false); }
+    } finally { setSaving(false); }
   };
 
   const inlineSave = async (id: number, field: string, value: string) => {
@@ -203,7 +204,9 @@ function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; ca
     if (field === "subsidyDesiredDate") payload.subsidyDesiredDate = value || null;
     if (field === "subsidyAmount") payload.subsidyAmount = value ? Number(value) : null;
     if (field === "vendorMemo") payload.vendorMemo = value || null;
-    try { await updateVendorFields(id, vendorId, payload); router.refresh(); } catch { alert("保存に失敗しました"); }
+    const result = await updateVendorFields(id, vendorId, payload);
+    if (!result.ok) { alert(result.error); return; }
+    router.refresh();
   };
 
   const fmt = (n: number | null) => n == null ? "-" : `¥${n.toLocaleString()}`;
@@ -272,29 +275,35 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
     if (!editRecord || !vendorId) return;
     setSaving(true);
     try {
-      await updateWholesaleAccountByVendor(editRecord.id, vendorId, { ...editData, recruitmentRound: editData.recruitmentRound ? Number(editData.recruitmentRound) : null });
+      const result = await updateWholesaleAccountByVendor(editRecord.id, vendorId, { ...editData, recruitmentRound: editData.recruitmentRound ? Number(editData.recruitmentRound) : null });
+      if (!result.ok) { alert(result.error); return; }
       setEditRecord(null); router.refresh();
-    } catch { alert("保存に失敗しました"); } finally { setSaving(false); }
+    } finally { setSaving(false); }
   };
 
   const inlineSave = async (id: number, field: string, value: string) => {
     if (!vendorId) return;
     const payload: Record<string, unknown> = { [field]: field === "recruitmentRound" ? (value ? Number(value) : null) : (value || null) };
-    try { await updateWholesaleAccountByVendor(id, vendorId, payload); router.refresh(); } catch { alert("保存に失敗しました"); }
+    const result = await updateWholesaleAccountByVendor(id, vendorId, payload);
+    if (!result.ok) { alert(result.error); return; }
+    router.refresh();
   };
 
   const handleAdd = async () => {
     if (!vendorId) return;
     setSaving(true);
     try {
-      await addWholesaleAccount(vendorId, { ...newData, recruitmentRound: newData.recruitmentRound ? Number(newData.recruitmentRound) : null });
+      const result = await addWholesaleAccount(vendorId, { ...newData, recruitmentRound: newData.recruitmentRound ? Number(newData.recruitmentRound) : null });
+      if (!result.ok) { alert(result.error); return; }
       setAdding(false); setNewData({}); router.refresh();
-    } catch { alert("追加に失敗しました"); } finally { setSaving(false); }
+    } finally { setSaving(false); }
   };
 
   const handleDelete = async (id: number) => {
     if (!vendorId || !confirm("削除しますか？")) return;
-    try { await deleteWholesaleAccountByVendor(id, vendorId); router.refresh(); } catch { alert("削除に失敗しました"); }
+    const result = await deleteWholesaleAccountByVendor(id, vendorId);
+    if (!result.ok) { alert(result.error); return; }
+    router.refresh();
   };
 
   const fmtCost = (n: number | null) => n == null ? "-" : `${n}万円`;

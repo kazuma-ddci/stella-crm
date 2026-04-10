@@ -14,6 +14,7 @@ import {
 import { logAutomationError } from "@/lib/automation-error";
 import { auth } from "@/auth";
 import { recomputeDuplicateCandidatesForRecord } from "@/lib/slp/duplicate-detector";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 /** タグ操作の結果型 */
 export type TagResult = {
@@ -437,80 +438,85 @@ export async function addMasterOption(
   kind: MasterKind,
   name: string,
   isActive: boolean = true
-): Promise<MasterItem> {
-  const trimmed = name.trim();
-  if (!trimmed) {
-    throw new Error("名称を入力してください");
-  }
+): Promise<ActionResult<MasterItem>> {
+  try {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      return err("名称を入力してください");
+    }
 
-  // 重複チェック
-  const label = MASTER_LABELS[kind];
-  let existsId: number | null = null;
-  switch (kind) {
-    case "industry": {
-      const e = await prisma.slpIndustryMaster.findUnique({ where: { name: trimmed }, select: { id: true } });
-      existsId = e?.id ?? null;
-      break;
+    // 重複チェック
+    const label = MASTER_LABELS[kind];
+    let existsId: number | null = null;
+    switch (kind) {
+      case "industry": {
+        const e = await prisma.slpIndustryMaster.findUnique({ where: { name: trimmed }, select: { id: true } });
+        existsId = e?.id ?? null;
+        break;
+      }
+      case "flow_source": {
+        const e = await prisma.slpFlowSourceMaster.findUnique({ where: { name: trimmed }, select: { id: true } });
+        existsId = e?.id ?? null;
+        break;
+      }
+      case "status1": {
+        const e = await prisma.slpCompanyStatus1Master.findUnique({ where: { name: trimmed }, select: { id: true } });
+        existsId = e?.id ?? null;
+        break;
+      }
+      case "status2": {
+        const e = await prisma.slpCompanyStatus2Master.findUnique({ where: { name: trimmed }, select: { id: true } });
+        existsId = e?.id ?? null;
+        break;
+      }
     }
-    case "flow_source": {
-      const e = await prisma.slpFlowSourceMaster.findUnique({ where: { name: trimmed }, select: { id: true } });
-      existsId = e?.id ?? null;
-      break;
+    if (existsId !== null) {
+      return err(`同じ${label}名「${trimmed}」が既に登録されています`);
     }
-    case "status1": {
-      const e = await prisma.slpCompanyStatus1Master.findUnique({ where: { name: trimmed }, select: { id: true } });
-      existsId = e?.id ?? null;
-      break;
-    }
-    case "status2": {
-      const e = await prisma.slpCompanyStatus2Master.findUnique({ where: { name: trimmed }, select: { id: true } });
-      existsId = e?.id ?? null;
-      break;
-    }
-  }
-  if (existsId !== null) {
-    throw new Error(`同じ${label}名「${trimmed}」が既に登録されています`);
-  }
 
-  // displayOrder = 既存最大値 + 1
-  let result: MasterItem;
-  switch (kind) {
-    case "industry": {
-      const max = await prisma.slpIndustryMaster.aggregate({ _max: { displayOrder: true } });
-      const displayOrder = (max._max.displayOrder ?? 0) + 1;
-      result = await prisma.slpIndustryMaster.create({
-        data: { name: trimmed, displayOrder, isActive },
-      });
-      break;
+    // displayOrder = 既存最大値 + 1
+    let result: MasterItem;
+    switch (kind) {
+      case "industry": {
+        const max = await prisma.slpIndustryMaster.aggregate({ _max: { displayOrder: true } });
+        const displayOrder = (max._max.displayOrder ?? 0) + 1;
+        result = await prisma.slpIndustryMaster.create({
+          data: { name: trimmed, displayOrder, isActive },
+        });
+        break;
+      }
+      case "flow_source": {
+        const max = await prisma.slpFlowSourceMaster.aggregate({ _max: { displayOrder: true } });
+        const displayOrder = (max._max.displayOrder ?? 0) + 1;
+        result = await prisma.slpFlowSourceMaster.create({
+          data: { name: trimmed, displayOrder, isActive },
+        });
+        break;
+      }
+      case "status1": {
+        const max = await prisma.slpCompanyStatus1Master.aggregate({ _max: { displayOrder: true } });
+        const displayOrder = (max._max.displayOrder ?? 0) + 1;
+        result = await prisma.slpCompanyStatus1Master.create({
+          data: { name: trimmed, displayOrder, isActive },
+        });
+        break;
+      }
+      case "status2": {
+        const max = await prisma.slpCompanyStatus2Master.aggregate({ _max: { displayOrder: true } });
+        const displayOrder = (max._max.displayOrder ?? 0) + 1;
+        result = await prisma.slpCompanyStatus2Master.create({
+          data: { name: trimmed, displayOrder, isActive },
+        });
+        break;
+      }
     }
-    case "flow_source": {
-      const max = await prisma.slpFlowSourceMaster.aggregate({ _max: { displayOrder: true } });
-      const displayOrder = (max._max.displayOrder ?? 0) + 1;
-      result = await prisma.slpFlowSourceMaster.create({
-        data: { name: trimmed, displayOrder, isActive },
-      });
-      break;
-    }
-    case "status1": {
-      const max = await prisma.slpCompanyStatus1Master.aggregate({ _max: { displayOrder: true } });
-      const displayOrder = (max._max.displayOrder ?? 0) + 1;
-      result = await prisma.slpCompanyStatus1Master.create({
-        data: { name: trimmed, displayOrder, isActive },
-      });
-      break;
-    }
-    case "status2": {
-      const max = await prisma.slpCompanyStatus2Master.aggregate({ _max: { displayOrder: true } });
-      const displayOrder = (max._max.displayOrder ?? 0) + 1;
-      result = await prisma.slpCompanyStatus2Master.create({
-        data: { name: trimmed, displayOrder, isActive },
-      });
-      break;
-    }
-  }
 
-  revalidatePath("/slp/companies");
-  return result;
+    revalidatePath("/slp/companies");
+    return ok(result);
+  } catch (e) {
+    console.error("[addMasterOption] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 /** マスタ更新（名称・有効フラグ） */
@@ -518,82 +524,94 @@ export async function updateMasterOption(
   kind: MasterKind,
   id: number,
   patch: { name?: string; isActive?: boolean }
-): Promise<void> {
-  const data: { name?: string; isActive?: boolean } = {};
-  if (patch.name !== undefined) {
-    const trimmed = patch.name.trim();
-    if (!trimmed) throw new Error("名称を入力してください");
-    data.name = trimmed;
-  }
-  if (patch.isActive !== undefined) {
-    data.isActive = patch.isActive;
-  }
-  if (Object.keys(data).length === 0) return;
+): Promise<ActionResult> {
+  try {
+    const data: { name?: string; isActive?: boolean } = {};
+    if (patch.name !== undefined) {
+      const trimmed = patch.name.trim();
+      if (!trimmed) return err("名称を入力してください");
+      data.name = trimmed;
+    }
+    if (patch.isActive !== undefined) {
+      data.isActive = patch.isActive;
+    }
+    if (Object.keys(data).length === 0) return ok();
 
-  switch (kind) {
-    case "industry":
-      await prisma.slpIndustryMaster.update({ where: { id }, data });
-      break;
-    case "flow_source":
-      await prisma.slpFlowSourceMaster.update({ where: { id }, data });
-      break;
-    case "status1":
-      await prisma.slpCompanyStatus1Master.update({ where: { id }, data });
-      break;
-    case "status2":
-      await prisma.slpCompanyStatus2Master.update({ where: { id }, data });
-      break;
+    switch (kind) {
+      case "industry":
+        await prisma.slpIndustryMaster.update({ where: { id }, data });
+        break;
+      case "flow_source":
+        await prisma.slpFlowSourceMaster.update({ where: { id }, data });
+        break;
+      case "status1":
+        await prisma.slpCompanyStatus1Master.update({ where: { id }, data });
+        break;
+      case "status2":
+        await prisma.slpCompanyStatus2Master.update({ where: { id }, data });
+        break;
+    }
+    revalidatePath("/slp/companies");
+    return ok();
+  } catch (e) {
+    console.error("[updateMasterOption] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-  revalidatePath("/slp/companies");
 }
 
 /** マスタ削除（使用中の場合はエラー） */
-export async function deleteMasterOption(kind: MasterKind, id: number): Promise<void> {
-  const label = MASTER_LABELS[kind];
-  let usageCount: number;
+export async function deleteMasterOption(kind: MasterKind, id: number): Promise<ActionResult> {
+  try {
+    const label = MASTER_LABELS[kind];
+    let usageCount: number;
 
-  switch (kind) {
-    case "industry":
-      usageCount = await prisma.slpCompanyRecord.count({
-        where: { industryId: id, deletedAt: null },
-      });
-      break;
-    case "flow_source":
-      usageCount = await prisma.slpCompanyRecord.count({
-        where: { flowSourceId: id, deletedAt: null },
-      });
-      break;
-    case "status1":
-      usageCount = await prisma.slpCompanyRecord.count({
-        where: { status1Id: id, deletedAt: null },
-      });
-      break;
-    case "status2":
-      usageCount = await prisma.slpCompanyRecord.count({
-        where: { status2Id: id, deletedAt: null },
-      });
-      break;
-  }
+    switch (kind) {
+      case "industry":
+        usageCount = await prisma.slpCompanyRecord.count({
+          where: { industryId: id, deletedAt: null },
+        });
+        break;
+      case "flow_source":
+        usageCount = await prisma.slpCompanyRecord.count({
+          where: { flowSourceId: id, deletedAt: null },
+        });
+        break;
+      case "status1":
+        usageCount = await prisma.slpCompanyRecord.count({
+          where: { status1Id: id, deletedAt: null },
+        });
+        break;
+      case "status2":
+        usageCount = await prisma.slpCompanyRecord.count({
+          where: { status2Id: id, deletedAt: null },
+        });
+        break;
+    }
 
-  if (usageCount > 0) {
-    throw new Error(`この${label}は${usageCount}件の企業名簿で使用中のため削除できません`);
-  }
+    if (usageCount > 0) {
+      return err(`この${label}は${usageCount}件の企業名簿で使用中のため削除できません`);
+    }
 
-  switch (kind) {
-    case "industry":
-      await prisma.slpIndustryMaster.delete({ where: { id } });
-      break;
-    case "flow_source":
-      await prisma.slpFlowSourceMaster.delete({ where: { id } });
-      break;
-    case "status1":
-      await prisma.slpCompanyStatus1Master.delete({ where: { id } });
-      break;
-    case "status2":
-      await prisma.slpCompanyStatus2Master.delete({ where: { id } });
-      break;
+    switch (kind) {
+      case "industry":
+        await prisma.slpIndustryMaster.delete({ where: { id } });
+        break;
+      case "flow_source":
+        await prisma.slpFlowSourceMaster.delete({ where: { id } });
+        break;
+      case "status1":
+        await prisma.slpCompanyStatus1Master.delete({ where: { id } });
+        break;
+      case "status2":
+        await prisma.slpCompanyStatus2Master.delete({ where: { id } });
+        break;
+    }
+    revalidatePath("/slp/companies");
+    return ok();
+  } catch (e) {
+    console.error("[deleteMasterOption] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-  revalidatePath("/slp/companies");
 }
 
 /** マスタの並び替え */
@@ -924,8 +942,14 @@ export async function changeBriefingStatusWithReason(
   recordId: number,
   toStatus: string,
   reason: string
-): Promise<{ tagResults: TagResult[] }> {
-  return _changeStatusWithReasonImpl(recordId, toStatus, reason, "briefing");
+): Promise<ActionResult<{ tagResults: TagResult[] }>> {
+  try {
+    const result = await _changeStatusWithReasonImpl(recordId, toStatus, reason, "briefing");
+    return ok(result);
+  } catch (e) {
+    console.error("[changeBriefingStatusWithReason] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 /** 導入希望商談のステータス変更（理由付き） */
@@ -933,8 +957,14 @@ export async function changeConsultationStatusWithReason(
   recordId: number,
   toStatus: string,
   reason: string
-): Promise<{ tagResults: TagResult[] }> {
-  return _changeStatusWithReasonImpl(recordId, toStatus, reason, "consultation");
+): Promise<ActionResult<{ tagResults: TagResult[] }>> {
+  try {
+    const result = await _changeStatusWithReasonImpl(recordId, toStatus, reason, "consultation");
+    return ok(result);
+  } catch (e) {
+    console.error("[changeConsultationStatusWithReason] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 /** @deprecated changeBriefingStatusWithReason を使用してください */
@@ -942,7 +972,7 @@ export async function changeStatusWithReason(
   recordId: number,
   toStatus: string,
   reason: string
-): Promise<{ tagResults: TagResult[] }> {
+): Promise<ActionResult<{ tagResults: TagResult[] }>> {
   return changeBriefingStatusWithReason(recordId, toStatus, reason);
 }
 
@@ -990,7 +1020,10 @@ export async function completeBriefingAndNotify(
   await prisma.$transaction([
     prisma.slpCompanyRecord.update({
       where: { id: recordId },
-      data: { briefingStatus: "完了" },
+      // status を「完了」に進める際、過去にキャンセルされた記録があれば
+      // canceledAt もクリアしてデータ整合性を保つ
+      // （resolver.ts の判定や将来の再予約フローでの不整合を防ぐため）
+      data: { briefingStatus: "完了", briefingCanceledAt: null },
     }),
     prisma.slpCompanyRecordStatusHistory.create({
       data: {
@@ -1155,7 +1188,9 @@ export async function completeConsultationAndNotify(
   await prisma.$transaction([
     prisma.slpCompanyRecord.update({
       where: { id: recordId },
-      data: { consultationStatus: "完了" },
+      // status を「完了」に進める際、過去にキャンセルされた記録があれば
+      // canceledAt もクリアしてデータ整合性を保つ
+      data: { consultationStatus: "完了", consultationCanceledAt: null },
     }),
     prisma.slpCompanyRecordStatusHistory.create({
       data: {
@@ -1268,16 +1303,22 @@ export async function getLineFriendOptions() {
  * 削除されたレコードは画面・公開フォームの両方で非表示になる。
  * 物理ファイルは保持する（誤削除に備えて）。
  */
-export async function softDeleteCompanyDocument(documentId: number): Promise<void> {
-  const session = await auth();
-  if (!session?.user) {
-    throw new Error("認証が必要です");
+export async function softDeleteCompanyDocument(documentId: number): Promise<ActionResult> {
+  try {
+    const session = await auth();
+    if (!session?.user) {
+      return err("認証が必要です");
+    }
+    await prisma.slpCompanyDocument.update({
+      where: { id: documentId },
+      data: { deletedAt: new Date() },
+    });
+    revalidatePath("/slp/companies");
+    return ok();
+  } catch (e) {
+    console.error("[softDeleteCompanyDocument] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-  await prisma.slpCompanyDocument.update({
-    where: { id: documentId },
-    data: { deletedAt: new Date() },
-  });
-  revalidatePath("/slp/companies");
 }
 
 // ============================================
@@ -1294,45 +1335,57 @@ export async function setManualContactAs(
   contactId: number,
   manualAsId: number | null,
   reason: string
-) {
-  const staffId = await getCurrentStaffId();
-  if (staffId === null) throw new Error("認証が必要です");
+): Promise<ActionResult> {
+  try {
+    const staffId = await getCurrentStaffId();
+    if (staffId === null) return err("認証が必要です");
 
-  if (manualAsId !== null && !reason.trim()) {
-    throw new Error("変更理由は必須です");
+    if (manualAsId !== null && !reason.trim()) {
+      return err("変更理由は必須です");
+    }
+
+    await prisma.slpCompanyContact.update({
+      where: { id: contactId },
+      data: {
+        manualAsId,
+        manualAsReason: manualAsId !== null ? reason.trim() : null,
+        manualAsChangedAt: manualAsId !== null ? new Date() : null,
+        manualAsChangedById: manualAsId !== null ? staffId : null,
+      },
+    });
+
+    revalidatePath("/slp/companies");
+    return ok();
+  } catch (e) {
+    console.error("[setManualContactAs] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  await prisma.slpCompanyContact.update({
-    where: { id: contactId },
-    data: {
-      manualAsId,
-      manualAsReason: manualAsId !== null ? reason.trim() : null,
-      manualAsChangedAt: manualAsId !== null ? new Date() : null,
-      manualAsChangedById: manualAsId !== null ? staffId : null,
-    },
-  });
-
-  revalidatePath("/slp/companies");
 }
 
 /**
  * 手動上書きを解除して自動解決値に戻す。
  */
-export async function clearManualContactAs(contactId: number) {
-  const staffId = await getCurrentStaffId();
-  if (staffId === null) throw new Error("認証が必要です");
+export async function clearManualContactAs(contactId: number): Promise<ActionResult> {
+  try {
+    const staffId = await getCurrentStaffId();
+    if (staffId === null) return err("認証が必要です");
 
-  await prisma.slpCompanyContact.update({
-    where: { id: contactId },
-    data: {
-      manualAsId: null,
-      manualAsReason: null,
-      manualAsChangedAt: null,
-      manualAsChangedById: null,
-    },
-  });
+    await prisma.slpCompanyContact.update({
+      where: { id: contactId },
+      data: {
+        manualAsId: null,
+        manualAsReason: null,
+        manualAsChangedAt: null,
+        manualAsChangedById: null,
+      },
+    });
 
-  revalidatePath("/slp/companies");
+    revalidatePath("/slp/companies");
+    return ok();
+  } catch (e) {
+    console.error("[clearManualContactAs] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
@@ -1348,36 +1401,42 @@ export async function markAsNotDuplicate(
   recordIdA: number,
   recordIdB: number,
   reason?: string
-) {
-  const staffId = await getCurrentStaffId();
-  if (staffId === null) throw new Error("認証が必要です");
+): Promise<ActionResult> {
+  try {
+    const staffId = await getCurrentStaffId();
+    if (staffId === null) return err("認証が必要です");
 
-  // 順序を統一（小さい方をAに）
-  const a = Math.min(recordIdA, recordIdB);
-  const b = Math.max(recordIdA, recordIdB);
+    // 順序を統一（小さい方をAに）
+    const a = Math.min(recordIdA, recordIdB);
+    const b = Math.max(recordIdA, recordIdB);
 
-  await prisma.slpCompanyDuplicateExclusion.upsert({
-    where: { recordIdA_recordIdB: { recordIdA: a, recordIdB: b } },
-    create: {
-      recordIdA: a,
-      recordIdB: b,
-      excludedById: staffId,
-      reason: reason?.trim() || null,
-    },
-    update: {
-      excludedById: staffId,
-      reason: reason?.trim() || null,
-    },
-  });
+    await prisma.slpCompanyDuplicateExclusion.upsert({
+      where: { recordIdA_recordIdB: { recordIdA: a, recordIdB: b } },
+      create: {
+        recordIdA: a,
+        recordIdB: b,
+        excludedById: staffId,
+        reason: reason?.trim() || null,
+      },
+      update: {
+        excludedById: staffId,
+        reason: reason?.trim() || null,
+      },
+    });
 
-  // 候補テーブルから削除
-  await prisma.slpCompanyDuplicateCandidate.deleteMany({
-    where: { recordIdA: a, recordIdB: b },
-  });
+    // 候補テーブルから削除
+    await prisma.slpCompanyDuplicateCandidate.deleteMany({
+      where: { recordIdA: a, recordIdB: b },
+    });
 
-  revalidatePath("/slp/companies");
-  revalidatePath(`/slp/companies/${a}`);
-  revalidatePath(`/slp/companies/${b}`);
+    revalidatePath("/slp/companies");
+    revalidatePath(`/slp/companies/${a}`);
+    revalidatePath(`/slp/companies/${b}`);
+    return ok();
+  } catch (e) {
+    console.error("[markAsNotDuplicate] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 /**
@@ -1428,12 +1487,13 @@ export async function mergeCompanyRecords(
   mainId: number,
   mergedId: number,
   mergedData: MergeCompanyData
-) {
+): Promise<ActionResult> {
+  try {
   const staffId = await getCurrentStaffId();
-  if (staffId === null) throw new Error("認証が必要です");
+  if (staffId === null) return err("認証が必要です");
 
   if (mainId === mergedId) {
-    throw new Error("同じレコード同士は統合できません");
+    return err("同じレコード同士は統合できません");
   }
 
   // 両レコードを取得
@@ -1456,8 +1516,8 @@ export async function mergeCompanyRecords(
     }),
   ]);
 
-  if (!mainRecord) throw new Error("統合先のレコードが見つかりません");
-  if (!mergedRecord) throw new Error("統合元のレコードが見つかりません");
+  if (!mainRecord) return err("統合先のレコードが見つかりません");
+  if (!mergedRecord) return err("統合元のレコードが見つかりません");
 
   // マージする予約ID配列を構築
   const mergedBriefingIds = new Set<string>([
@@ -1690,16 +1750,21 @@ export async function mergeCompanyRecords(
   });
 
   // メインレコードについて重複候補を再計算（内容が変わったので）
-  recomputeDuplicateCandidatesForRecord(mainId).catch(async (err) => {
+  recomputeDuplicateCandidatesForRecord(mainId).catch(async (e) => {
     await logAutomationError({
       source: "slp-recompute-duplicates",
       message: `マージ後の重複候補再計算に失敗: recordId=${mainId}`,
-      detail: { error: err instanceof Error ? err.message : String(err) },
+      detail: { error: e instanceof Error ? e.message : String(e) },
     });
   });
 
   revalidatePath("/slp/companies");
   revalidatePath(`/slp/companies/${mainId}`);
+  return ok();
+  } catch (e) {
+    console.error("[mergeCompanyRecords] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 /**

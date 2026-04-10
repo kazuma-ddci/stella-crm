@@ -433,7 +433,10 @@ export function PaymentGroupsTable({
                             <AlertDialogAction
                               onClick={async () => {
                                 try {
-                                  await submitPaymentGroupToAccounting(row.id);
+                                  const result = await submitPaymentGroupToAccounting(row.id);
+                                  if (!result.ok) {
+                                    alert(result.error);
+                                  }
                                 } catch (e) {
                                   alert(
                                     e instanceof Error

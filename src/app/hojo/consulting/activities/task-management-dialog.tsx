@@ -131,12 +131,14 @@ function TaskGroup({
     }
     setSaving(true);
     try {
-      await addActivityTask(activityId, taskType, newTask, vendorIdForPermCheck);
+      const result = await addActivityTask(activityId, taskType, newTask, vendorIdForPermCheck);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setNewTask({ content: "", deadline: "", priority: "", completed: false });
       setAdding(false);
       onRefresh();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "追加に失敗しました");
     } finally {
       setSaving(false);
     }
@@ -276,11 +278,13 @@ function TaskRow({
   const handleSave = async () => {
     setSaving(true);
     try {
-      await updateActivityTask(task.id, editData, vendorIdForPermCheck);
+      const result = await updateActivityTask(task.id, editData, vendorIdForPermCheck);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setEditing(false);
       onRefresh();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "保存に失敗しました");
     } finally {
       setSaving(false);
     }
@@ -288,12 +292,12 @@ function TaskRow({
 
   const handleDelete = async () => {
     if (!confirm("このタスクを削除しますか？")) return;
-    try {
-      await deleteActivityTask(task.id, vendorIdForPermCheck);
-      onRefresh();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "削除に失敗しました");
+    const result = await deleteActivityTask(task.id, vendorIdForPermCheck);
+    if (!result.ok) {
+      alert(result.error);
+      return;
     }
+    onRefresh();
   };
 
   const priorityColor = task.priority === "高" ? "bg-red-50 text-red-700" : task.priority === "中" ? "bg-amber-50 text-amber-700" : task.priority === "低" ? "bg-gray-100 text-gray-600" : "";

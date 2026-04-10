@@ -103,111 +103,106 @@ export function BudgetInputTable({
 
   const handleAdd = async () => {
     setSubmitting(true);
-    try {
-      await createBudget({
-        categoryLabel: newCategoryLabel,
-        accountId: newAccountId || null,
-        targetMonth: new Date(fiscalYear, Number(newTargetMonth), 1).toISOString(),
-        budgetAmount: Number(newBudgetAmount),
-        costCenterId: costCenterId ?? null,
-        memo: newMemo || null,
-      });
-      toast.success("予算を追加しました");
-      setAddOpen(false);
-      resetAddForm();
-      router.refresh();
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setSubmitting(false);
+    const result = await createBudget({
+      categoryLabel: newCategoryLabel,
+      accountId: newAccountId || null,
+      targetMonth: new Date(fiscalYear, Number(newTargetMonth), 1).toISOString(),
+      budgetAmount: Number(newBudgetAmount),
+      costCenterId: costCenterId ?? null,
+      memo: newMemo || null,
+    });
+    setSubmitting(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    toast.success("予算を追加しました");
+    setAddOpen(false);
+    resetAddForm();
+    router.refresh();
   };
 
   const handleEdit = async () => {
     if (!editBudget) return;
     setSubmitting(true);
-    try {
-      await updateBudget(editBudget.id, {
-        categoryLabel: editCategoryLabel,
-        accountId: editAccountId || null,
-        budgetAmount: Number(editBudgetAmount),
-        memo: editMemo || null,
-      });
-      toast.success("予算を更新しました");
-      setEditBudget(null);
-      router.refresh();
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setSubmitting(false);
+    const result = await updateBudget(editBudget.id, {
+      categoryLabel: editCategoryLabel,
+      accountId: editAccountId || null,
+      budgetAmount: Number(editBudgetAmount),
+      memo: editMemo || null,
+    });
+    setSubmitting(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    toast.success("予算を更新しました");
+    setEditBudget(null);
+    router.refresh();
   };
 
   const handleDelete = async (id: number) => {
     if (!confirm("この予算を削除しますか？")) return;
-    try {
-      await deleteBudget(id);
-      toast.success("予算を削除しました");
-      router.refresh();
-    } catch (err) {
-      toast.error((err as Error).message);
+    const result = await deleteBudget(id);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    toast.success("予算を削除しました");
+    router.refresh();
   };
 
   const handleCopy = async () => {
     setSubmitting(true);
-    try {
-      const result = await copyBudgetMonth(
-        costCenterId ?? null,
-        fiscalYear,
-        Number(copySourceMonth),
-        fiscalYear,
-        Number(copyTargetMonth)
-      );
-      toast.success(
-        `${result.copied}件コピーしました（${result.skipped}件はスキップ）`
-      );
-      setCopyOpen(false);
-      router.refresh();
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setSubmitting(false);
+    const result = await copyBudgetMonth(
+      costCenterId ?? null,
+      fiscalYear,
+      Number(copySourceMonth),
+      fiscalYear,
+      Number(copyTargetMonth)
+    );
+    setSubmitting(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    toast.success(
+      `${result.data.copied}件コピーしました（${result.data.skipped}件はスキップ）`
+    );
+    setCopyOpen(false);
+    router.refresh();
   };
 
   const handlePreviewRecurring = async () => {
     setSubmitting(true);
-    try {
-      const preview = await previewBudgetFromRecurring(
-        fiscalYear,
-        costCenterId ?? null
-      );
-      setRecurringPreview(preview);
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setSubmitting(false);
+    const result = await previewBudgetFromRecurring(
+      fiscalYear,
+      costCenterId ?? null
+    );
+    setSubmitting(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    setRecurringPreview(result.data);
   };
 
   const handleConfirmGenerate = async () => {
     setSubmitting(true);
-    try {
-      const result = await generateBudgetFromRecurring(
-        fiscalYear,
-        costCenterId ?? null
-      );
-      toast.success(
-        `${result.created}件生成しました（${result.skipped}件はスキップ）`
-      );
-      setRecurringPreview(null);
-      router.refresh();
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setSubmitting(false);
+    const result = await generateBudgetFromRecurring(
+      fiscalYear,
+      costCenterId ?? null
+    );
+    setSubmitting(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    toast.success(
+      `${result.data.created}件生成しました（${result.data.skipped}件はスキップ）`
+    );
+    setRecurringPreview(null);
+    router.refresh();
   };
 
   const openEdit = (budget: BudgetRow) => {

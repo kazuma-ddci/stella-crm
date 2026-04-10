@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // 型定義
@@ -55,7 +56,7 @@ const VALID_RETURN_REASONS = [
   "other",
 ] as const;
 
-function validateEntityRef(input: CreateCommentInput) {
+function validateEntityRef(input: CreateCommentInput): string | null {
   const refs = [
     input.transactionId,
     input.invoiceGroupId,
@@ -63,40 +64,41 @@ function validateEntityRef(input: CreateCommentInput) {
   ].filter((v) => v !== undefined && v !== null);
 
   if (refs.length === 0) {
-    throw new Error(
-      "取引、請求、支払のいずれかを指定してください"
-    );
+    return "取引、請求、支払のいずれかを指定してください";
   }
   if (refs.length > 1) {
-    throw new Error(
-      "取引、請求、支払は1つのみ指定できます"
-    );
+    return "取引、請求、支払は1つのみ指定できます";
   }
+  return null;
 }
 
 // ============================================
 // 1. createComment
 // ============================================
 
-export async function createComment(input: CreateCommentInput) {
+export async function createComment(
+  input: CreateCommentInput
+): Promise<ActionResult<{ id: number }>> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
   // バリデーション
   if (!input.body?.trim()) {
-    throw new Error("コメント本文は必須です");
+    return err("コメント本文は必須です");
   }
 
-  validateEntityRef(input);
+  const entityErr = validateEntityRef(input);
+  if (entityErr) return err(entityErr);
 
   const commentType = input.commentType || "normal";
   if (!(VALID_COMMENT_TYPES as readonly string[]).includes(commentType)) {
-    throw new Error("コメント種別が不正です");
+    return err("コメント種別が不正です");
   }
 
   // 差し戻しはreturnTransaction経由に限定（transactionIdへの直接差し戻しを禁止）
   if (commentType === "return" && input.transactionId) {
-    throw new Error(
+    return err(
       "取引の差し戻しはコメント欄からではなく、差し戻し機能をご利用ください"
     );
   }
@@ -108,7 +110,7 @@ export async function createComment(input: CreateCommentInput) {
         input.returnReasonType
       )
     ) {
-      throw new Error("差し戻し理由の種別を選択してください");
+      return err("差し戻し理由の種別を選択してください");
     }
   }
 
@@ -119,7 +121,7 @@ export async function createComment(input: CreateCommentInput) {
       select: { id: true, transactionId: true, invoiceGroupId: true, paymentGroupId: true },
     });
     if (!parent) {
-      throw new Error("返信先のコメントが見つかりません");
+      return err("返信先のコメントが見つかりません");
     }
     // 親コメントと同じエンティティに紐づいているか確認
     if (
@@ -127,7 +129,7 @@ export async function createComment(input: CreateCommentInput) {
       (input.invoiceGroupId && parent.invoiceGroupId !== input.invoiceGroupId) ||
       (input.paymentGroupId && parent.paymentGroupId !== input.paymentGroupId)
     ) {
-      throw new Error("返信先のコメントが対象と一致しません");
+      return err("返信先のコメントが対象と一致しません");
     }
   }
 
@@ -171,7 +173,11 @@ export async function createComment(input: CreateCommentInput) {
   revalidatePath("/stp/finance/invoices");
   revalidatePath("/stp/finance/payment-groups");
 
-  return { id: result.id };
+  return ok({ id: result.id });
+  } catch (e) {
+    console.error("[createComment] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================

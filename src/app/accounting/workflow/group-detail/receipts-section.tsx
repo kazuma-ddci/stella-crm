@@ -134,7 +134,11 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
         groupType === "invoice"
           ? await listInvoiceGroupReceipts(groupId)
           : await listPaymentGroupPayments(groupId);
-      setData(result);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      setData(result.data);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "データの取得に失敗しました");
     } finally {
@@ -160,29 +164,28 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
       return;
     }
     startTransition(async () => {
-      try {
-        if (groupType === "invoice") {
-          await addInvoiceGroupReceipt(groupId, {
-            receivedDate: newDate,
-            amount,
-            comment: newComment || null,
-          });
-        } else {
-          await addPaymentGroupPayment(groupId, {
-            paidDate: newDate,
-            amount,
-            comment: newComment || null,
-          });
-        }
-        toast.success(`${recordLabel}を追加しました`);
-        setAddOpen(false);
-        setNewDate(toDateString(new Date()));
-        setNewAmount("");
-        setNewComment("");
-        await fetchData();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "追加に失敗しました");
+      const result =
+        groupType === "invoice"
+          ? await addInvoiceGroupReceipt(groupId, {
+              receivedDate: newDate,
+              amount,
+              comment: newComment || null,
+            })
+          : await addPaymentGroupPayment(groupId, {
+              paidDate: newDate,
+              amount,
+              comment: newComment || null,
+            });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
       }
+      toast.success(`${recordLabel}を追加しました`);
+      setAddOpen(false);
+      setNewDate(toDateString(new Date()));
+      setNewAmount("");
+      setNewComment("");
+      await fetchData();
     });
   };
 
@@ -212,26 +215,25 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
       return;
     }
     startTransition(async () => {
-      try {
-        if (groupType === "invoice") {
-          await updateInvoiceGroupReceipt(editingId, {
-            receivedDate: editDate,
-            amount,
-            comment: editComment || null,
-          });
-        } else {
-          await updatePaymentGroupPayment(editingId, {
-            paidDate: editDate,
-            amount,
-            comment: editComment || null,
-          });
-        }
-        toast.success(`${recordLabel}を更新しました`);
-        cancelEdit();
-        await fetchData();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "更新に失敗しました");
+      const result =
+        groupType === "invoice"
+          ? await updateInvoiceGroupReceipt(editingId, {
+              receivedDate: editDate,
+              amount,
+              comment: editComment || null,
+            })
+          : await updatePaymentGroupPayment(editingId, {
+              paidDate: editDate,
+              amount,
+              comment: editComment || null,
+            });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
       }
+      toast.success(`${recordLabel}を更新しました`);
+      cancelEdit();
+      await fetchData();
     });
   };
 
@@ -239,35 +241,33 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
     if (deleteId === null) return;
     const id = deleteId;
     startTransition(async () => {
-      try {
-        if (groupType === "invoice") {
-          await deleteInvoiceGroupReceipt(id);
-        } else {
-          await deletePaymentGroupPayment(id);
-        }
-        toast.success(`${recordLabel}を削除しました`);
-        setDeleteId(null);
-        await fetchData();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "削除に失敗しました");
+      const result =
+        groupType === "invoice"
+          ? await deleteInvoiceGroupReceipt(id)
+          : await deletePaymentGroupPayment(id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
       }
+      toast.success(`${recordLabel}を削除しました`);
+      setDeleteId(null);
+      await fetchData();
     });
   };
 
   // 手動入金/支払フラグの切替
   const handleManualStatusChange = (newStatus: ManualPaymentStatus) => {
     startTransition(async () => {
-      try {
-        if (groupType === "invoice") {
-          await setInvoiceGroupManualPaymentStatus(groupId, newStatus);
-        } else {
-          await setPaymentGroupManualPaymentStatus(groupId, newStatus);
-        }
-        toast.success(`ステータスを更新しました`);
-        await fetchData();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "更新に失敗しました");
+      const result =
+        groupType === "invoice"
+          ? await setInvoiceGroupManualPaymentStatus(groupId, newStatus)
+          : await setPaymentGroupManualPaymentStatus(groupId, newStatus);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
       }
+      toast.success(`ステータスを更新しました`);
+      await fetchData();
     });
   };
 

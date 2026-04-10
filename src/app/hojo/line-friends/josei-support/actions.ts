@@ -3,15 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { syncVendorIdFromFree1 } from "@/lib/hojo/sync-vendor-id";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 const REVALIDATE_PATH = "/hojo/line-friends/josei-support";
 
-export async function addLineFriend(data: Record<string, unknown>) {
+export async function addLineFriend(data: Record<string, unknown>): Promise<ActionResult> {
+  try {
   const uid = String(data.uid ?? "").trim();
-  if (!uid) throw new Error("UIDは必須です");
+  if (!uid) return err("UIDは必須です");
 
   const existing = await prisma.hojoLineFriendJoseiSupport.findUnique({ where: { uid } });
-  if (existing) throw new Error(`UID「${uid}」は既に使用されています`);
+  if (existing) return err(`UID「${uid}」は既に使用されています`);
 
   await prisma.hojoLineFriendJoseiSupport.create({
     data: {
@@ -51,9 +53,15 @@ export async function addLineFriend(data: Record<string, unknown>) {
   });
 
   revalidatePath(REVALIDATE_PATH);
+  return ok();
+  } catch (e) {
+    console.error("[addLineFriend:josei-support] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function updateLineFriend(id: number, data: Record<string, unknown>) {
+export async function updateLineFriend(id: number, data: Record<string, unknown>): Promise<ActionResult> {
+  try {
   const updateData: Record<string, unknown> = {};
 
   const stringFields = [
@@ -79,7 +87,7 @@ export async function updateLineFriend(id: number, data: Record<string, unknown>
     const current = await prisma.hojoLineFriendJoseiSupport.findUnique({ where: { id } });
     if (current && current.uid !== newUid) {
       const existing = await prisma.hojoLineFriendJoseiSupport.findUnique({ where: { uid: newUid } });
-      if (existing) throw new Error(`UID「${newUid}」は既に使用されています`);
+      if (existing) return err(`UID「${newUid}」は既に使用されています`);
       updateData.uid = newUid;
     }
   }
@@ -95,15 +103,26 @@ export async function updateLineFriend(id: number, data: Record<string, unknown>
 
   revalidatePath(REVALIDATE_PATH);
   revalidatePath("/hojo/application-support");
+  return ok();
+  } catch (e) {
+    console.error("[updateLineFriend:josei-support] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function deleteLineFriend(id: number) {
-  await prisma.hojoLineFriendJoseiSupport.update({
-    where: { id },
-    data: { deletedAt: new Date() },
-  });
+export async function deleteLineFriend(id: number): Promise<ActionResult> {
+  try {
+    await prisma.hojoLineFriendJoseiSupport.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
 
-  revalidatePath(REVALIDATE_PATH);
+    revalidatePath(REVALIDATE_PATH);
+    return ok();
+  } catch (e) {
+    console.error("[deleteLineFriend:josei-support] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 export async function triggerProLineSync(): Promise<{

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 function toDateOrNull(val: unknown): Date | null {
   if (!val) return null;
@@ -74,14 +75,15 @@ async function syncTasks(activityId: number, tasks: TaskFormData[]) {
   }
 }
 
-export async function addActivity(data: Record<string, unknown>) {
+export async function addActivity(data: Record<string, unknown>): Promise<ActionResult> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   const vendorId = data.vendorId ? Number(data.vendorId) : null;
-  if (!vendorId) throw new Error("ベンダーを選択してください");
+  if (!vendorId) return err("ベンダーを選択してください");
 
   const activityDate = toDateOrNull(data.activityDate);
-  if (!activityDate) throw new Error("活動日を入力してください");
+  if (!activityDate) return err("活動日を入力してください");
 
   const contractId = data.contractId ? Number(data.contractId) : null;
   const tasks = Array.isArray(data.tasks) ? (data.tasks as TaskFormData[]) : [];
@@ -112,9 +114,15 @@ export async function addActivity(data: Record<string, unknown>) {
   revalidatePath("/hojo/consulting/activities");
   revalidatePath("/hojo/vendor");
   revalidatePath("/hojo/settings/vendors");
+  return ok();
+  } catch (e) {
+    console.error("[addActivity] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function updateActivity(id: number, data: Record<string, unknown>) {
+export async function updateActivity(id: number, data: Record<string, unknown>): Promise<ActionResult> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   const updateData: Record<string, unknown> = {};
@@ -164,17 +172,28 @@ export async function updateActivity(id: number, data: Record<string, unknown>) 
   revalidatePath("/hojo/consulting/activities");
   revalidatePath("/hojo/vendor");
   revalidatePath("/hojo/settings/vendors");
+  return ok();
+  } catch (e) {
+    console.error("[updateActivity] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function deleteActivity(id: number) {
-  await requireProjectMasterDataEditPermission();
+export async function deleteActivity(id: number): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
 
-  await prisma.hojoConsultingActivity.update({
-    where: { id },
-    data: { deletedAt: new Date() },
-  });
+    await prisma.hojoConsultingActivity.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
 
-  revalidatePath("/hojo/consulting/activities");
+    revalidatePath("/hojo/consulting/activities");
+    return ok();
+  } catch (e) {
+    console.error("[deleteActivity] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ========== タスク管理 ==========
@@ -221,85 +240,103 @@ export async function addActivityTask(
   taskType: "vendor" | "consulting_team",
   input: TaskInput,
   vendorIdForPermCheck?: number
-) {
-  const { isStaff } = await checkPermissionForActivity(activityId, vendorIdForPermCheck);
-  // ベンダーユーザーはvendorタイプのみ追加可
-  if (!isStaff && taskType !== "vendor") {
-    throw new Error("このタスクタイプは編集できません");
+): Promise<ActionResult> {
+  try {
+    const { isStaff } = await checkPermissionForActivity(activityId, vendorIdForPermCheck);
+    // ベンダーユーザーはvendorタイプのみ追加可
+    if (!isStaff && taskType !== "vendor") {
+      return err("このタスクタイプは編集できません");
+    }
+
+    const maxOrder = await prisma.hojoConsultingActivityTask.aggregate({
+      where: { activityId, taskType },
+      _max: { displayOrder: true },
+    });
+
+    await prisma.hojoConsultingActivityTask.create({
+      data: {
+        activityId,
+        taskType,
+        content: input.content?.trim() || null,
+        deadline: toDateOrNull(input.deadline),
+        priority: input.priority?.trim() || null,
+        completed: input.completed ?? false,
+        displayOrder: (maxOrder._max.displayOrder ?? 0) + 1,
+      },
+    });
+
+    revalidatePath("/hojo/consulting/activities");
+    revalidatePath("/hojo/vendor");
+    revalidatePath("/hojo/settings/vendors");
+    return ok();
+  } catch (e) {
+    console.error("[addActivityTask] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  const maxOrder = await prisma.hojoConsultingActivityTask.aggregate({
-    where: { activityId, taskType },
-    _max: { displayOrder: true },
-  });
-
-  await prisma.hojoConsultingActivityTask.create({
-    data: {
-      activityId,
-      taskType,
-      content: input.content?.trim() || null,
-      deadline: toDateOrNull(input.deadline),
-      priority: input.priority?.trim() || null,
-      completed: input.completed ?? false,
-      displayOrder: (maxOrder._max.displayOrder ?? 0) + 1,
-    },
-  });
-
-  revalidatePath("/hojo/consulting/activities");
-  revalidatePath("/hojo/vendor");
-  revalidatePath("/hojo/settings/vendors");
 }
 
 export async function updateActivityTask(
   taskId: number,
   input: TaskInput,
   vendorIdForPermCheck?: number
-) {
-  const task = await prisma.hojoConsultingActivityTask.findUnique({
-    where: { id: taskId },
-    select: { activityId: true, taskType: true },
-  });
-  if (!task) throw new Error("タスクが見つかりません");
+): Promise<ActionResult> {
+  try {
+    const task = await prisma.hojoConsultingActivityTask.findUnique({
+      where: { id: taskId },
+      select: { activityId: true, taskType: true },
+    });
+    if (!task) return err("タスクが見つかりません");
 
-  const { isStaff } = await checkPermissionForActivity(task.activityId, vendorIdForPermCheck);
-  if (!isStaff && task.taskType !== "vendor") {
-    throw new Error("このタスクは編集できません");
+    const { isStaff } = await checkPermissionForActivity(task.activityId, vendorIdForPermCheck);
+    if (!isStaff && task.taskType !== "vendor") {
+      return err("このタスクは編集できません");
+    }
+
+    const updateData: Record<string, unknown> = {};
+    if ("content" in input) updateData.content = input.content?.trim() || null;
+    if ("deadline" in input) updateData.deadline = toDateOrNull(input.deadline);
+    if ("priority" in input) updateData.priority = input.priority?.trim() || null;
+    if ("completed" in input) updateData.completed = input.completed ?? false;
+
+    await prisma.hojoConsultingActivityTask.update({
+      where: { id: taskId },
+      data: updateData,
+    });
+
+    revalidatePath("/hojo/consulting/activities");
+    revalidatePath("/hojo/vendor");
+    revalidatePath("/hojo/settings/vendors");
+    return ok();
+  } catch (e) {
+    console.error("[updateActivityTask] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  const updateData: Record<string, unknown> = {};
-  if ("content" in input) updateData.content = input.content?.trim() || null;
-  if ("deadline" in input) updateData.deadline = toDateOrNull(input.deadline);
-  if ("priority" in input) updateData.priority = input.priority?.trim() || null;
-  if ("completed" in input) updateData.completed = input.completed ?? false;
-
-  await prisma.hojoConsultingActivityTask.update({
-    where: { id: taskId },
-    data: updateData,
-  });
-
-  revalidatePath("/hojo/consulting/activities");
-  revalidatePath("/hojo/vendor");
-  revalidatePath("/hojo/settings/vendors");
 }
 
 export async function deleteActivityTask(
   taskId: number,
   vendorIdForPermCheck?: number
-) {
-  const task = await prisma.hojoConsultingActivityTask.findUnique({
-    where: { id: taskId },
-    select: { activityId: true, taskType: true },
-  });
-  if (!task) throw new Error("タスクが見つかりません");
+): Promise<ActionResult> {
+  try {
+    const task = await prisma.hojoConsultingActivityTask.findUnique({
+      where: { id: taskId },
+      select: { activityId: true, taskType: true },
+    });
+    if (!task) return err("タスクが見つかりません");
 
-  const { isStaff } = await checkPermissionForActivity(task.activityId, vendorIdForPermCheck);
-  if (!isStaff && task.taskType !== "vendor") {
-    throw new Error("このタスクは編集できません");
+    const { isStaff } = await checkPermissionForActivity(task.activityId, vendorIdForPermCheck);
+    if (!isStaff && task.taskType !== "vendor") {
+      return err("このタスクは編集できません");
+    }
+
+    await prisma.hojoConsultingActivityTask.delete({ where: { id: taskId } });
+
+    revalidatePath("/hojo/consulting/activities");
+    revalidatePath("/hojo/vendor");
+    revalidatePath("/hojo/settings/vendors");
+    return ok();
+  } catch (e) {
+    console.error("[deleteActivityTask] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  await prisma.hojoConsultingActivityTask.delete({ where: { id: taskId } });
-
-  revalidatePath("/hojo/consulting/activities");
-  revalidatePath("/hojo/vendor");
-  revalidatePath("/hojo/settings/vendors");
 }

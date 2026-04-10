@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import type { SessionUser } from "@/types/auth";
 import { isSystemAdmin, isFounder, hasPermission } from "@/lib/auth/permissions";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // 機密フィルタ: 作成者・承認者・経理権限者のみ閲覧可能
 // システム管理者・Founderであっても機密経費は見えない
@@ -219,25 +220,25 @@ export type SubmitExpenseInput = {
 
 export async function submitExpenseRequest(
   input: SubmitExpenseInput
-): Promise<{ id: number; type: "transaction" | "recurring" } | { error: string }> {
+): Promise<ActionResult<{ id: number; type: "transaction" | "recurring" }>> {
   try {
     const session = await getSession();
     const staffId = session.id;
 
-    if (!input.projectId) throw new Error("プロジェクトは必須です");
+    if (!input.projectId) return err("プロジェクトは必須です");
     if (!input.counterpartyId && !input.customCounterpartyName?.trim()) {
-      throw new Error("取引先を選択するか、取引先名を入力してください");
+      return err("取引先を選択するか、取引先名を入力してください");
     }
-    if (!input.operatingCompanyId) throw new Error("支払元法人は必須です");
+    if (!input.operatingCompanyId) return err("支払元法人は必須です");
     if (input.mode === "accounting" && !input.expenseCategoryId) {
-      throw new Error("勘定科目（費目）は必須です");
+      return err("勘定科目（費目）は必須です");
     }
     if (input.mode === "project" && !input.approverStaffId) {
-      throw new Error("承認者は必須です");
+      return err("承認者は必須です");
     }
     if (input.amountType === "fixed") {
       if (input.amount == null || input.amount < 0 || !Number.isInteger(input.amount)) {
-        throw new Error("金額は0以上の整数で入力してください");
+        return err("金額は0以上の整数で入力してください");
       }
     }
 
@@ -256,7 +257,7 @@ export async function submitExpenseRequest(
         where: { staffId: input.approverStaffId, projectId: input.projectId, canApprove: true },
         select: { id: true },
       });
-      if (!perm) throw new Error("選択された承認者はこ��プロジェクトの承認権限を持っていません");
+      if (!perm) return err("選択された承認者はこのプロジェクトの承認権限を持っていません");
     }
 
     const isAccounting = input.mode === "accounting";
@@ -264,9 +265,9 @@ export async function submitExpenseRequest(
 
     // === 定期取引 ===
     if (input.frequency !== "once") {
-      if (!counterpartyId) throw new Error("定期取引の場合は取引先をマスタから選択してください（手入力不可）");
-      if (!input.recurringName?.trim()) throw new Error("定期取引の名称���必須です");
-      if (!input.startDate) throw new Error("支払い開始日は必須です");
+      if (!counterpartyId) return err("定期取引の場合は取引先をマスタから選択してください（手入力不可）");
+      if (!input.recurringName?.trim()) return err("定期取引の名称は必須です");
+      if (!input.startDate) return err("支払い開始日は必須です");
 
       const result = await prisma.$transaction(async (tx) => {
         const recurring = await tx.recurringTransaction.create({
@@ -379,11 +380,11 @@ export async function submitExpenseRequest(
       });
 
       revalidatePath("/accounting/workflow");
-      return { id: result.recurringId, type: "recurring" as const };
+      return ok({ id: result.recurringId, type: "recurring" as const });
     }
 
     // === 一度限り ===
-    if (!input.scheduledPaymentDate) throw new Error("支払予定日は必須です");
+    if (!input.scheduledPaymentDate) return err("支払予定日は必須です");
     const scheduledPaymentDate = new Date(input.scheduledPaymentDate);
     // 一度限りの場合: periodFrom/periodTo は支払予定日と同じにする
     const periodFrom = scheduledPaymentDate;
@@ -461,9 +462,10 @@ export async function submitExpenseRequest(
     });
 
     revalidatePath("/accounting/workflow");
-    return { id: result.paymentGroupId, type: "transaction" as const };
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "経費の作成に失敗しました" };
+    return ok({ id: result.paymentGroupId, type: "transaction" as const });
+  } catch (e) {
+    console.error("[submitExpenseRequest] error:", e);
+    return err(e instanceof Error ? e.message : "経費の作成に失敗しました");
   }
 }
 
@@ -775,73 +777,88 @@ export async function getMonthlyExpenseSummary(projectId: number): Promise<Month
 // pending_project_approval → pending_accounting_approval
 // ============================================
 
-export async function approveByProjectApprover(groupId: number) {
-  const session = await getSession();
-  const staffId = session.id;
+export async function approveByProjectApprover(groupId: number): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    const staffId = session.id;
 
-  const group = await prisma.paymentGroup.findFirst({
-    where: { id: groupId, deletedAt: null },
-    select: { id: true, status: true, approverStaffId: true },
-  });
-  if (!group) throw new Error("支払グループが見つかりません");
-  if (group.status !== "pending_project_approval") {
-    throw new Error("このグループはプロジェクト承認待ちではありません");
-  }
-  if (group.approverStaffId !== staffId) {
-    throw new Error("あなたはこのグループの承認者ではありません");
-  }
+    const group = await prisma.paymentGroup.findFirst({
+      where: { id: groupId, deletedAt: null },
+      select: { id: true, status: true, approverStaffId: true },
+    });
+    if (!group) return err("支払グループが見つかりません");
+    if (group.status !== "pending_project_approval") {
+      return err("このグループはプロジェクト承認待ちではありません");
+    }
+    if (group.approverStaffId !== staffId) {
+      return err("あなたはこのグループの承認者ではありません");
+    }
 
-  await prisma.paymentGroup.update({
-    where: { id: groupId },
-    data: {
-      status: "pending_accounting_approval",
-      approvedAt: new Date(),
-      updater: { connect: { id: staffId } },
-    },
-  });
-
-  // 子のTransactionも遷移（存在する場合）
-  await prisma.transaction.updateMany({
-    where: { paymentGroupId: groupId, deletedAt: null, status: "pending_project_approval" },
-    data: { status: "pending_accounting_approval" },
-  });
-
-  revalidatePath("/accounting/workflow");
-  revalidatePath("/stp/expenses/new");
-  revalidatePath("/slp/expenses/new");
-  revalidatePath("/hojo/expenses/new");
-}
-
-export async function rejectByProjectApprover(groupId: number, reason?: string) {
-  const session = await getSession();
-  const staffId = session.id;
-
-  const group = await prisma.paymentGroup.findFirst({
-    where: { id: groupId, deletedAt: null },
-    select: { id: true, status: true, approverStaffId: true },
-  });
-  if (!group) throw new Error("支払グループが見つかりません");
-  if (group.status !== "pending_project_approval") {
-    throw new Error("このグループはプロジェクト承認待ちではありません");
-  }
-
-  await prisma.paymentGroup.update({
-    where: { id: groupId },
-    data: { status: "returned", updatedBy: staffId },
-  });
-
-  if (reason) {
-    await prisma.transactionComment.create({
+    await prisma.paymentGroup.update({
+      where: { id: groupId },
       data: {
-        paymentGroupId: groupId,
-        body: reason,
-        commentType: "return",
-        createdBy: staffId,
+        status: "pending_accounting_approval",
+        approvedAt: new Date(),
+        updater: { connect: { id: staffId } },
       },
     });
-  }
 
-  revalidatePath("/stp/expenses/new");
-  revalidatePath("/slp/expenses/new");
-  revalidatePath("/hojo/expenses/new");
+    // 子のTransactionも遷移（存在する場合）
+    await prisma.transaction.updateMany({
+      where: { paymentGroupId: groupId, deletedAt: null, status: "pending_project_approval" },
+      data: { status: "pending_accounting_approval" },
+    });
+
+    revalidatePath("/accounting/workflow");
+    revalidatePath("/stp/expenses/new");
+    revalidatePath("/slp/expenses/new");
+    revalidatePath("/hojo/expenses/new");
+    return ok();
+  } catch (e) {
+    console.error("[approveByProjectApprover] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+export async function rejectByProjectApprover(
+  groupId: number,
+  reason?: string
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    const staffId = session.id;
+
+    const group = await prisma.paymentGroup.findFirst({
+      where: { id: groupId, deletedAt: null },
+      select: { id: true, status: true, approverStaffId: true },
+    });
+    if (!group) return err("支払グループが見つかりません");
+    if (group.status !== "pending_project_approval") {
+      return err("このグループはプロジェクト承認待ちではありません");
+    }
+
+    await prisma.paymentGroup.update({
+      where: { id: groupId },
+      data: { status: "returned", updatedBy: staffId },
+    });
+
+    if (reason) {
+      await prisma.transactionComment.create({
+        data: {
+          paymentGroupId: groupId,
+          body: reason,
+          commentType: "return",
+          createdBy: staffId,
+        },
+      });
+    }
+
+    revalidatePath("/stp/expenses/new");
+    revalidatePath("/slp/expenses/new");
+    revalidatePath("/hojo/expenses/new");
+    return ok();
+  } catch (e) {
+    console.error("[rejectByProjectApprover] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }

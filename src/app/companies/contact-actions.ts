@@ -2,6 +2,20 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { ok, err, type ActionResult } from "@/lib/action-result";
+
+type ContactDto = {
+  id: number;
+  companyId: number;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  department: string | null;
+  isPrimary: boolean;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export async function getContacts(companyId: number) {
   const contacts = await prisma.stellaCompanyContact.findMany({
@@ -25,93 +39,109 @@ export async function getContacts(companyId: number) {
 export async function addContact(
   companyId: number,
   data: Record<string, unknown>
-) {
-  // isPrimary が true の場合、他の連絡先の isPrimary を false にする
-  if (data.isPrimary) {
-    await prisma.stellaCompanyContact.updateMany({
-      where: { companyId, isPrimary: true, deletedAt: null },
-      data: { isPrimary: false },
+): Promise<ActionResult<ContactDto>> {
+  try {
+    // isPrimary が true の場合、他の連絡先の isPrimary を false にする
+    if (data.isPrimary) {
+      await prisma.stellaCompanyContact.updateMany({
+        where: { companyId, isPrimary: true, deletedAt: null },
+        data: { isPrimary: false },
+      });
+    }
+
+    const contact = await prisma.stellaCompanyContact.create({
+      data: {
+        companyId,
+        name: data.name as string,
+        email: (data.email as string) || null,
+        phone: (data.phone as string) || null,
+        department: (data.department as string) || null,
+        isPrimary: (data.isPrimary as boolean) || false,
+        note: (data.note as string) || null,
+      },
     });
+
+    revalidatePath("/companies");
+    return ok({
+      id: contact.id,
+      companyId: contact.companyId,
+      name: contact.name,
+      email: contact.email,
+      phone: contact.phone,
+      department: contact.department,
+      isPrimary: contact.isPrimary,
+      note: contact.note,
+      createdAt: contact.createdAt.toISOString(),
+      updatedAt: contact.updatedAt.toISOString(),
+    });
+  } catch (e) {
+    console.error("[addContact] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  const contact = await prisma.stellaCompanyContact.create({
-    data: {
-      companyId,
-      name: data.name as string,
-      email: (data.email as string) || null,
-      phone: (data.phone as string) || null,
-      department: (data.department as string) || null,
-      isPrimary: (data.isPrimary as boolean) || false,
-      note: (data.note as string) || null,
-    },
-  });
-
-  revalidatePath("/companies");
-  return {
-    id: contact.id,
-    companyId: contact.companyId,
-    name: contact.name,
-    email: contact.email,
-    phone: contact.phone,
-    department: contact.department,
-    isPrimary: contact.isPrimary,
-    note: contact.note,
-    createdAt: contact.createdAt.toISOString(),
-    updatedAt: contact.updatedAt.toISOString(),
-  };
 }
 
 export async function updateContact(
   id: number,
   data: Record<string, unknown>
-) {
-  const existing = await prisma.stellaCompanyContact.findUnique({
-    where: { id },
-  });
-  if (!existing) throw new Error("Contact not found");
-
-  // isPrimary が true の場合、他の連絡先の isPrimary を false にする
-  if (data.isPrimary) {
-    await prisma.stellaCompanyContact.updateMany({
-      where: { companyId: existing.companyId, isPrimary: true, deletedAt: null, NOT: { id } },
-      data: { isPrimary: false },
+): Promise<ActionResult<ContactDto>> {
+  try {
+    const existing = await prisma.stellaCompanyContact.findUnique({
+      where: { id },
     });
+    if (!existing) return err("担当者が見つかりません");
+
+    // isPrimary が true の場合、他の連絡先の isPrimary を false にする
+    if (data.isPrimary) {
+      await prisma.stellaCompanyContact.updateMany({
+        where: { companyId: existing.companyId, isPrimary: true, deletedAt: null, NOT: { id } },
+        data: { isPrimary: false },
+      });
+    }
+
+    const contact = await prisma.stellaCompanyContact.update({
+      where: { id },
+      data: {
+        name: data.name as string,
+        email: (data.email as string) || null,
+        phone: (data.phone as string) || null,
+        department: (data.department as string) || null,
+        isPrimary: (data.isPrimary as boolean) || false,
+        note: (data.note as string) || null,
+      },
+    });
+
+    revalidatePath("/companies");
+    return ok({
+      id: contact.id,
+      companyId: contact.companyId,
+      name: contact.name,
+      email: contact.email,
+      phone: contact.phone,
+      department: contact.department,
+      isPrimary: contact.isPrimary,
+      note: contact.note,
+      createdAt: contact.createdAt.toISOString(),
+      updatedAt: contact.updatedAt.toISOString(),
+    });
+  } catch (e) {
+    console.error("[updateContact] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  const contact = await prisma.stellaCompanyContact.update({
-    where: { id },
-    data: {
-      name: data.name as string,
-      email: (data.email as string) || null,
-      phone: (data.phone as string) || null,
-      department: (data.department as string) || null,
-      isPrimary: (data.isPrimary as boolean) || false,
-      note: (data.note as string) || null,
-    },
-  });
-
-  revalidatePath("/companies");
-  return {
-    id: contact.id,
-    companyId: contact.companyId,
-    name: contact.name,
-    email: contact.email,
-    phone: contact.phone,
-    department: contact.department,
-    isPrimary: contact.isPrimary,
-    note: contact.note,
-    createdAt: contact.createdAt.toISOString(),
-    updatedAt: contact.updatedAt.toISOString(),
-  };
 }
 
-export async function deleteContact(id: number) {
-  // 論理削除：deletedAtに現在日時を設定
-  await prisma.stellaCompanyContact.update({
-    where: { id },
-    data: { deletedAt: new Date() },
-  });
-  revalidatePath("/companies");
+export async function deleteContact(id: number): Promise<ActionResult> {
+  try {
+    // 論理削除：deletedAtに現在日時を設定
+    await prisma.stellaCompanyContact.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+    revalidatePath("/companies");
+    return ok();
+  } catch (e) {
+    console.error("[deleteContact] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // 部署一覧を動的に取得（既存データから）

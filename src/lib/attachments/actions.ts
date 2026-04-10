@@ -8,6 +8,7 @@ import {
   getFileExtension,
 } from "@/lib/attachments/constants";
 import { revalidatePath } from "next/cache";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 /**
  * 証憑の表示名（displayName）を変更し、generatedName を再生成する。
@@ -16,64 +17,70 @@ import { revalidatePath } from "next/cache";
 export async function updateAttachmentDisplayName(
   attachmentId: number,
   newDisplayName: string
-) {
-  const session = await requireEdit("stp");
+): Promise<ActionResult> {
+  try {
+    const session = await requireEdit("stp");
 
-  const attachment = await prisma.attachment.findUnique({
-    where: { id: attachmentId, deletedAt: null },
-    select: {
-      id: true,
-      attachmentType: true,
-      displayName: true,
-      generatedName: true,
-      fileName: true,
-      filePath: true,
-      invoiceGroupId: true,
-      paymentGroupId: true,
-      createdAt: true,
-    },
-  });
-  if (!attachment) throw new Error("証憑が見つかりません");
-
-  // 拡張子をfilePathから取得
-  const ext = getFileExtension(attachment.filePath);
-  // 生成ファイル名を再生成（タイムスタンプは元のcreatedAtを使用）
-  const newGeneratedName = generateAttachmentFileName(
-    attachment.attachmentType,
-    newDisplayName,
-    ext,
-    attachment.createdAt
-  );
-
-  await prisma.attachment.update({
-    where: { id: attachmentId },
-    data: {
-      displayName: newDisplayName,
-      generatedName: newGeneratedName,
-      fileName: newGeneratedName, // ダウンロード時のファイル名としても更新
-    },
-  });
-
-  // ChangeLogに変更を記録
-  await recordChangeLog(
-    {
-      tableName: "Attachment",
-      recordId: attachmentId,
-      changeType: "update",
-      oldData: {
-        displayName: attachment.displayName,
-        generatedName: attachment.generatedName,
+    const attachment = await prisma.attachment.findUnique({
+      where: { id: attachmentId, deletedAt: null },
+      select: {
+        id: true,
+        attachmentType: true,
+        displayName: true,
+        generatedName: true,
+        fileName: true,
+        filePath: true,
+        invoiceGroupId: true,
+        paymentGroupId: true,
+        createdAt: true,
       },
-      newData: {
+    });
+    if (!attachment) return err("証憑が見つかりません");
+
+    // 拡張子をfilePathから取得
+    const ext = getFileExtension(attachment.filePath);
+    // 生成ファイル名を再生成（タイムスタンプは元のcreatedAtを使用）
+    const newGeneratedName = generateAttachmentFileName(
+      attachment.attachmentType,
+      newDisplayName,
+      ext,
+      attachment.createdAt
+    );
+
+    await prisma.attachment.update({
+      where: { id: attachmentId },
+      data: {
         displayName: newDisplayName,
         generatedName: newGeneratedName,
+        fileName: newGeneratedName, // ダウンロード時のファイル名としても更新
       },
-    },
-    session.id
-  );
+    });
 
-  revalidatePath("/stp/finance/invoices");
-  revalidatePath("/stp/finance/payment-groups");
+    // ChangeLogに変更を記録
+    await recordChangeLog(
+      {
+        tableName: "Attachment",
+        recordId: attachmentId,
+        changeType: "update",
+        oldData: {
+          displayName: attachment.displayName,
+          generatedName: attachment.generatedName,
+        },
+        newData: {
+          displayName: newDisplayName,
+          generatedName: newGeneratedName,
+        },
+      },
+      session.id
+    );
+
+    revalidatePath("/stp/finance/invoices");
+    revalidatePath("/stp/finance/payment-groups");
+    return ok();
+  } catch (e) {
+    console.error("[updateAttachmentDisplayName] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 /**

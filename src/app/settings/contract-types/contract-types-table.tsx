@@ -106,7 +106,14 @@ export function ContractTypesTable({ data, projectOptions, canEdit, filterProjec
         customRenderers={customRenderers}
         customActions={customActions}
         sortableItems={canEdit ? sortableItems : undefined}
-        onReorder={canEdit ? reorderContractTypes : undefined}
+        onReorder={
+          canEdit
+            ? async (ids) => {
+                const result = await reorderContractTypes(ids);
+                if (!result.ok) throw new Error(result.error);
+              }
+            : undefined
+        }
         sortableGrouped={true}
       />
 

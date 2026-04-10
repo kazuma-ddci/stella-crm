@@ -412,7 +412,7 @@ export function AllocationTemplatesTable({
         label: l.label || null,
       })),
     };
-    await createAllocationTemplate(processedData);
+    return await createAllocationTemplate(processedData);
   };
 
   // 更新ハンドラ（影響確認付き）
@@ -428,8 +428,7 @@ export function AllocationTemplatesTable({
 
     // 明細変更がない場合はそのまま更新
     if (!("lines" in formData)) {
-      await updateAllocationTemplate(id, formData);
-      return;
+      return await updateAllocationTemplate(id, formData);
     }
 
     const newLines = formData.lines as LineData[];
@@ -438,12 +437,17 @@ export function AllocationTemplatesTable({
 
     // ★ Issue 2: 按分率変更の検出 → 新テンプレート作成を促す
     if (detectRateChanges(oldLines, newLines)) {
-      return new Promise<void>((resolve, reject) => {
+      return new Promise<
+        { ok: true; data: void } | { ok: false; error: string }
+      >((resolve) => {
         setRateChangeDialog({
           open: true,
           newName: `${(templateData?.name as string) ?? ""} (v2)`,
           lines: newLines,
-          promiseHandlers: { resolve, reject },
+          promiseHandlers: {
+            resolve: () => resolve({ ok: true, data: undefined }),
+            reject: (error: Error) => resolve({ ok: false, error: error.message }),
+          },
         });
       });
     }
@@ -462,14 +466,15 @@ export function AllocationTemplatesTable({
           label: l.label || null,
         })),
       };
-      await updateAllocationTemplate(id, processedData);
-      return;
+      return await updateAllocationTemplate(id, processedData);
     }
 
     // クローズ月関与チェック
     const hasClosedMonth = await checkClosedMonthInvolvement(id);
 
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<
+      { ok: true; data: void } | { ok: false; error: string }
+    >((resolve) => {
       setImpactDialog({
         open: true,
         templateId: id,
@@ -479,7 +484,10 @@ export function AllocationTemplatesTable({
         pendingData: formData,
         oldLines,
         reason: "",
-        promiseHandlers: { resolve, reject },
+        promiseHandlers: {
+          resolve: () => resolve({ ok: true, data: undefined }),
+          reject: (error: Error) => resolve({ ok: false, error: error.message }),
+        },
       });
     });
   };
@@ -500,15 +508,19 @@ export function AllocationTemplatesTable({
             label: l.label || null,
           })),
         };
-        await createAllocationTemplate(processedData);
-        toast.success("新テンプレートとして保存しました");
+        const result = await createAllocationTemplate(processedData);
         setRateChangeDialog({
           open: false,
           newName: "",
           lines: [],
           promiseHandlers: null,
         });
-        resolve();
+        if (result.ok) {
+          toast.success("新テンプレートとして保存しました");
+          resolve();
+        } else {
+          reject(new Error(result.error));
+        }
       } catch (error) {
         setRateChangeDialog({
           open: false,
@@ -573,7 +585,19 @@ export function AllocationTemplatesTable({
           })),
         };
 
-        await updateAllocationTemplate(impactDialog.templateId, processedData);
+        const updateResult = await updateAllocationTemplate(
+          impactDialog.templateId,
+          processedData
+        );
+        if (!updateResult.ok) {
+          setImpactDialog((prev) => ({
+            ...prev,
+            open: false,
+            promiseHandlers: null,
+          }));
+          reject(new Error(updateResult.error));
+          return;
+        }
 
         // 変更前維持の取引にオーバーライドを作成
         const keepIds = Array.from(impactDialog.keepIds);
@@ -582,12 +606,21 @@ export function AllocationTemplatesTable({
             costCenterId: l.costCenterId ? Number(l.costCenterId) : null,
             rate: l.allocationRate,
           }));
-          await createTemplateOverrides(
+          const overrideResult = await createTemplateOverrides(
             impactDialog.templateId,
             keepIds,
             snapshotRates,
             impactDialog.reason || undefined // ★ Issue 3: 維持理由
           );
+          if (!overrideResult.ok) {
+            setImpactDialog((prev) => ({
+              ...prev,
+              open: false,
+              promiseHandlers: null,
+            }));
+            reject(new Error(overrideResult.error));
+            return;
+          }
         }
 
         setImpactDialog({
@@ -657,8 +690,11 @@ export function AllocationTemplatesTable({
   };
 
   const handleDelete = async (id: number) => {
-    await deleteAllocationTemplate(id);
-    toast.success("テンプレートを削除しました");
+    const result = await deleteAllocationTemplate(id);
+    if (result.ok) {
+      toast.success("テンプレートを削除しました");
+    }
+    return result;
   };
 
   return (

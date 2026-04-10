@@ -158,7 +158,11 @@ export function InvoiceGroupsTable({
     if (!submitToAccountingTarget) return;
     setSubmitting(true);
     try {
-      await submitInvoiceGroupToAccounting(submitToAccountingTarget.id);
+      const result = await submitInvoiceGroupToAccounting(submitToAccountingTarget.id);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setSubmitToAccountingTarget(null);
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");

@@ -7,6 +7,7 @@ import { getRelatedDataCounts } from "@/lib/company/get-related-data-counts";
 import type { CompanyRelatedData } from "@/types/company-merge";
 import { getSession } from "@/lib/auth";
 import { createCounterpartyForCompany, updateCounterpartyForCompany, deactivateCounterpartyForCompany } from "@/lib/counterparty-sync";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 async function generateCompanyCode(): Promise<string> {
   const lastCompany = await prisma.masterStellaCompany.findFirst({
@@ -22,7 +23,10 @@ async function generateCompanyCode(): Promise<string> {
   return `SC-${nextNumber}`;
 }
 
-export async function addCompany(data: Record<string, unknown>) {
+export async function addCompany(
+  data: Record<string, unknown>
+): Promise<ActionResult> {
+  try {
   const companyCode = await generateCompanyCode();
   const staffId = data.staffId ? parseInt(data.staffId as string, 10) : null;
 
@@ -30,7 +34,7 @@ export async function addCompany(data: Record<string, unknown>) {
   const corporateNumberInput = (data.corporateNumber as string) || null;
   const validation = validateCorporateNumber(corporateNumberInput);
   if (!validation.valid) {
-    throw new Error(validation.error!);
+    return err(validation.error!);
   }
 
   // ユニークチェック
@@ -40,7 +44,7 @@ export async function addCompany(data: Record<string, unknown>) {
       select: { id: true, name: true },
     });
     if (existing) {
-      throw new Error(`この法人番号は既に「${existing.name}」に登録されています`);
+      return err(`この法人番号は既に「${existing.name}」に登録されています`);
     }
   }
 
@@ -74,10 +78,19 @@ export async function addCompany(data: Record<string, unknown>) {
     // 同名の取引先が既に存在する場合等は無視
   }
 
-  revalidatePath("/companies");
+    revalidatePath("/companies");
+    return ok();
+  } catch (e) {
+    console.error("[addCompany] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function updateCompany(id: number, data: Record<string, unknown>) {
+export async function updateCompany(
+  id: number,
+  data: Record<string, unknown>
+): Promise<ActionResult> {
+  try {
   const staffId = data.staffId ? parseInt(data.staffId as string, 10) : null;
 
   // 更新データを動的に構築（渡されたフィールドのみを更新）
@@ -89,7 +102,7 @@ export async function updateCompany(id: number, data: Record<string, unknown>) {
   if ("corporateNumber" in data) {
     const validation = validateCorporateNumber(data.corporateNumber as string);
     if (!validation.valid) {
-      throw new Error(validation.error!);
+      return err(validation.error!);
     }
     // ユニークチェック（自分自身を除外）
     if (validation.normalized) {
@@ -98,7 +111,7 @@ export async function updateCompany(id: number, data: Record<string, unknown>) {
         select: { id: true, name: true },
       });
       if (existing) {
-        throw new Error(`この法人番号は既に「${existing.name}」に登録されています`);
+        return err(`この法人番号は既に「${existing.name}」に登録されています`);
       }
     }
     updateData.corporateNumber = validation.normalized;
@@ -156,24 +169,35 @@ export async function updateCompany(id: number, data: Record<string, unknown>) {
     }
   }
 
-  revalidatePath("/companies");
+    revalidatePath("/companies");
+    return ok();
+  } catch (e) {
+    console.error("[updateCompany] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function deleteCompany(id: number) {
-  await prisma.masterStellaCompany.update({
-    where: { id },
-    data: { deletedAt: new Date() },
-  });
-
-  // Counterpartyも無効化
+export async function deleteCompany(id: number): Promise<ActionResult> {
   try {
-    const session = await getSession();
-    await deactivateCounterpartyForCompany(id, session.id);
-  } catch {
-    // 同期失敗時は無視
-  }
+    await prisma.masterStellaCompany.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
 
-  revalidatePath("/companies");
+    // Counterpartyも無効化
+    try {
+      const session = await getSession();
+      await deactivateCounterpartyForCompany(id, session.id);
+    } catch {
+      // 同期失敗時は無視
+    }
+
+    revalidatePath("/companies");
+    return ok();
+  } catch (e) {
+    console.error("[deleteCompany] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 export async function getCompanyDeleteInfo(id: number): Promise<CompanyRelatedData> {
@@ -193,53 +217,58 @@ export async function createCompany(data: {
   closingDay?: number | null;
   paymentMonthOffset?: number | null;
   paymentDay?: number | null;
-}) {
-  const companyCode = await generateCompanyCode();
-
-  // 法人番号のバリデーション+正規化
-  const validation = validateCorporateNumber(data.corporateNumber);
-  if (!validation.valid) {
-    throw new Error(validation.error!);
-  }
-
-  // ユニークチェック
-  if (validation.normalized) {
-    const existing = await prisma.masterStellaCompany.findFirst({
-      where: { corporateNumber: validation.normalized },
-      select: { id: true, name: true },
-    });
-    if (existing) {
-      throw new Error(`この法人番号は既に「${existing.name}」に登録されています`);
-    }
-  }
-
-  const company = await prisma.masterStellaCompany.create({
-    data: {
-      companyCode,
-      name: data.name,
-      nameKana: data.nameKana || null,
-      corporateNumber: validation.normalized,
-      companyType: data.companyType || null,
-      websiteUrl: data.websiteUrl || null,
-      industry: data.industry || null,
-      revenueScale: data.revenueScale || null,
-      note: data.note || null,
-      ...(data.closingDay !== undefined && { closingDay: data.closingDay }),
-      ...(data.paymentMonthOffset !== undefined && { paymentMonthOffset: data.paymentMonthOffset }),
-      ...(data.paymentDay !== undefined && { paymentDay: data.paymentDay }),
-    },
-  });
-
-  // 設計書8.6: Counterparty自動作成（企業新規作成時）
+}): Promise<ActionResult<{ id: number; companyCode: string; name: string }>> {
   try {
-    const session = await getSession();
-    await createCounterpartyForCompany(company.id, data.name, session.id);
-  } catch {
-    // 同名の取引先が既に存在する場合等は無視
-  }
+    const companyCode = await generateCompanyCode();
 
-  revalidatePath("/companies");
-  return company;
+    // 法人番号のバリデーション+正規化
+    const validation = validateCorporateNumber(data.corporateNumber);
+    if (!validation.valid) {
+      return err(validation.error!);
+    }
+
+    // ユニークチェック
+    if (validation.normalized) {
+      const existing = await prisma.masterStellaCompany.findFirst({
+        where: { corporateNumber: validation.normalized },
+        select: { id: true, name: true },
+      });
+      if (existing) {
+        return err(`この法人番号は既に「${existing.name}」に登録されています`);
+      }
+    }
+
+    const company = await prisma.masterStellaCompany.create({
+      data: {
+        companyCode,
+        name: data.name,
+        nameKana: data.nameKana || null,
+        corporateNumber: validation.normalized,
+        companyType: data.companyType || null,
+        websiteUrl: data.websiteUrl || null,
+        industry: data.industry || null,
+        revenueScale: data.revenueScale || null,
+        note: data.note || null,
+        ...(data.closingDay !== undefined && { closingDay: data.closingDay }),
+        ...(data.paymentMonthOffset !== undefined && { paymentMonthOffset: data.paymentMonthOffset }),
+        ...(data.paymentDay !== undefined && { paymentDay: data.paymentDay }),
+      },
+    });
+
+    // 設計書8.6: Counterparty自動作成（企業新規作成時）
+    try {
+      const session = await getSession();
+      await createCounterpartyForCompany(company.id, data.name, session.id);
+    } catch {
+      // 同名の取引先が既に存在する場合等は無視
+    }
+
+    revalidatePath("/companies");
+    return ok({ id: company.id, companyCode: company.companyCode, name: company.name });
+  } catch (e) {
+    console.error("[createCompany] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 export type SimilarCompany = {

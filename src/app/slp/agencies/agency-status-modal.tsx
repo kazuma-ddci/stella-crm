@@ -287,7 +287,11 @@ export function AgencyStatusModal({
   const handleDelete = async (id: number) => {
     setError(null);
     try {
-      await deleteAgencyContractStatus(id);
+      const result = await deleteAgencyContractStatus(id);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
       await loadStatuses();
       router.refresh();
     } catch (e) {

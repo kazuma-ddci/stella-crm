@@ -9,9 +9,9 @@ type Props = {
   data: Record<string, unknown>[];
   canEdit: boolean;
   vendorOptions: { value: string; label: string }[];
-  onAddOverride?: (data: Record<string, unknown>) => Promise<void>;
-  onUpdateOverride?: (id: number, data: Record<string, unknown>) => Promise<void>;
-  onDeleteOverride?: (id: number) => Promise<void>;
+  onAddOverride?: (data: Record<string, unknown>) => Promise<void | import("@/lib/action-result").ActionResult>;
+  onUpdateOverride?: (id: number, data: Record<string, unknown>) => Promise<void | import("@/lib/action-result").ActionResult>;
+  onDeleteOverride?: (id: number) => Promise<void | import("@/lib/action-result").ActionResult>;
 };
 
 export function PreApplicationTable({ data, canEdit, vendorOptions, onAddOverride, onUpdateOverride, onDeleteOverride }: Props) {

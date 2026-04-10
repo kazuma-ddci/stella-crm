@@ -49,7 +49,7 @@ function toContractStatusInfo(s: {
  */
 export async function getContractStatusManagementData(
   contractId: number
-): Promise<ContractStatusManagementData> {
+): Promise<ContractStatusManagementData | null> {
   // 契約書情報を取得
   const contract = await prisma.masterContract.findUnique({
     where: { id: contractId },
@@ -59,8 +59,9 @@ export async function getContractStatusManagementData(
     },
   });
 
+  // 見つからない場合は null を返す（throw すると本番で英語エラー化される）
   if (!contract) {
-    throw new Error("Contract not found");
+    return null;
   }
 
   // ステータスマスタを取得

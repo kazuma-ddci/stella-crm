@@ -107,13 +107,17 @@ export function FieldRestrictionsEditor({
     setSavingField(code);
     try {
       const fieldLabel = fields.find((f) => f.code === code)?.label ?? code;
-      await saveFieldRestrictions(
+      const result = await saveFieldRestrictions(
         code as AssignableFieldCode,
         managingProjectId,
         editData[code].sourceProjectIds,
         editData[code].roleTypeIds,
       );
-      toast.success(`${fieldLabel} の制約を保存しました`);
+      if (result.ok) {
+        toast.success(`${fieldLabel} の制約を保存しました`);
+      } else {
+        toast.error(result.error || "保存に失敗しました");
+      }
     } catch {
       toast.error("保存に失敗しました");
     } finally {

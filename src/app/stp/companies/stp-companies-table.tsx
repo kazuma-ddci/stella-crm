@@ -402,7 +402,11 @@ export function StpCompaniesTable({
           text={value as string | null}
           title="企業メモ"
           onEdit={async (newValue) => {
-            await updateStpCompany(row.id as number, { note: newValue });
+            const r = await updateStpCompany(row.id as number, { note: newValue });
+            if (!r.ok) {
+              alert(r.error);
+              return;
+            }
             router.refresh();
           }}
         />
@@ -422,7 +426,11 @@ export function StpCompaniesTable({
           text={value as string | null}
           title="検討理由"
           onEdit={async (newValue) => {
-            await updateStpCompany(row.id as number, { pendingReason: newValue });
+            const r = await updateStpCompany(row.id as number, { pendingReason: newValue });
+            if (!r.ok) {
+              alert(r.error);
+              return;
+            }
             router.refresh();
           }}
         />
@@ -442,7 +450,11 @@ export function StpCompaniesTable({
           text={value as string | null}
           title="失注理由"
           onEdit={async (newValue) => {
-            await updateStpCompany(row.id as number, { lostReason: newValue });
+            const r = await updateStpCompany(row.id as number, { lostReason: newValue });
+            if (!r.ok) {
+              alert(r.error);
+              return;
+            }
             router.refresh();
           }}
         />

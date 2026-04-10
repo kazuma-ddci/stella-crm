@@ -59,7 +59,14 @@ export function ContactCategoriesTable({ data, projectOptions, canEdit, filterPr
       emptyMessage="接触種別が登録されていません"
       customRenderers={customRenderers}
       sortableItems={canEdit ? sortableItems : undefined}
-      onReorder={canEdit ? reorderContactCategories : undefined}
+      onReorder={
+        canEdit
+          ? async (ids) => {
+              const result = await reorderContactCategories(ids);
+              if (!result.ok) throw new Error(result.error);
+            }
+          : undefined
+      }
       sortableGrouped={true}
     />
   );

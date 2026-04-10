@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireEdit } from "@/lib/auth";
 import { getSystemProjectContext } from "@/lib/project-context";
 import { toBoolean } from "@/lib/utils";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 const VALID_TYPES = ["revenue", "expense", "both"] as const;
 
@@ -14,7 +15,8 @@ async function getStpProjectId(): Promise<number> {
   return ctx.projectId;
 }
 
-export async function createExpenseCategory(data: Record<string, unknown>) {
+export async function createExpenseCategory(data: Record<string, unknown>): Promise<ActionResult> {
+ try {
   const session = await requireEdit("stp");
   const staffId = session.id;
   const projectId = await getStpProjectId();
@@ -25,11 +27,11 @@ export async function createExpenseCategory(data: Record<string, unknown>) {
   const isActive = data.isActive !== false && data.isActive !== "false";
 
   if (!name || !type) {
-    throw new Error("名称と種別は必須です");
+    return err("名称と種別は必須です");
   }
 
   if (!(VALID_TYPES as readonly string[]).includes(type)) {
-    throw new Error("無効な種別です");
+    return err("無効な種別です");
   }
 
   // 名称重複チェック（同一プロジェクト内）
@@ -38,7 +40,7 @@ export async function createExpenseCategory(data: Record<string, unknown>) {
     select: { id: true },
   });
   if (existing) {
-    throw new Error(`費目「${name}」は既に登録されています`);
+    return err(`費目「${name}」は既に登録されています`);
   }
 
   await prisma.expenseCategory.create({
@@ -55,12 +57,18 @@ export async function createExpenseCategory(data: Record<string, unknown>) {
   revalidatePath("/stp/settings/expense-categories");
   revalidatePath("/stp/finance/generate");
   revalidatePath("/stp/finance/transactions");
+  return ok();
+ } catch (e) {
+  console.error("[createExpenseCategory] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 export async function updateExpenseCategory(
   id: number,
   data: Record<string, unknown>
-) {
+): Promise<ActionResult> {
+ try {
   const session = await requireEdit("stp");
   const staffId = session.id;
   const projectId = await getStpProjectId();
@@ -70,21 +78,21 @@ export async function updateExpenseCategory(
     where: { id, projectId, deletedAt: null },
   });
   if (!target) {
-    throw new Error("この費目は編集できません");
+    return err("この費目は編集できません");
   }
 
   const updateData: Record<string, unknown> = {};
 
   if ("name" in data) {
     const name = (data.name as string).trim();
-    if (!name) throw new Error("名称は必須です");
+    if (!name) return err("名称は必須です");
 
     const existing = await prisma.expenseCategory.findFirst({
       where: { name, deletedAt: null, projectId, id: { not: id } },
       select: { id: true },
     });
     if (existing) {
-      throw new Error(`費目「${name}」は既に登録されています`);
+      return err(`費目「${name}」は既に登録されています`);
     }
     updateData.name = name;
   }
@@ -92,11 +100,11 @@ export async function updateExpenseCategory(
   if ("type" in data) {
     const type = data.type as string;
     if (!(VALID_TYPES as readonly string[]).includes(type)) {
-      throw new Error("無効な種別です");
+      return err("無効な種別です");
     }
     // システム費目は種別変更不可
     if (target.systemCode && type !== target.type) {
-      throw new Error("システム費目の種別は変更できません");
+      return err("システム費目の種別は変更できません");
     }
     updateData.type = type;
   }
@@ -119,9 +127,15 @@ export async function updateExpenseCategory(
   revalidatePath("/stp/settings/expense-categories");
   revalidatePath("/stp/finance/generate");
   revalidatePath("/stp/finance/transactions");
+  return ok();
+ } catch (e) {
+  console.error("[updateExpenseCategory] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
-export async function deleteExpenseCategory(id: number) {
+export async function deleteExpenseCategory(id: number): Promise<ActionResult> {
+ try {
   const session = await requireEdit("stp");
   const staffId = session.id;
   const projectId = await getStpProjectId();
@@ -130,10 +144,10 @@ export async function deleteExpenseCategory(id: number) {
     where: { id, projectId, deletedAt: null },
   });
   if (!target) {
-    throw new Error("この費目は削除できません");
+    return err("この費目は削除できません");
   }
   if (target.systemCode) {
-    throw new Error("システム費目は削除できません");
+    return err("システム費目は削除できません");
   }
 
   await prisma.expenseCategory.update({
@@ -144,9 +158,15 @@ export async function deleteExpenseCategory(id: number) {
   revalidatePath("/stp/settings/expense-categories");
   revalidatePath("/stp/finance/generate");
   revalidatePath("/stp/finance/transactions");
+  return ok();
+ } catch (e) {
+  console.error("[deleteExpenseCategory] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
-export async function reorderExpenseCategories(orderedIds: number[]) {
+export async function reorderExpenseCategories(orderedIds: number[]): Promise<ActionResult> {
+ try {
   const session = await requireEdit("stp");
   const staffId = session.id;
 
@@ -160,4 +180,9 @@ export async function reorderExpenseCategories(orderedIds: number[]) {
   );
 
   revalidatePath("/stp/settings/expense-categories");
+  return ok();
+ } catch (e) {
+  console.error("[reorderExpenseCategories] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }

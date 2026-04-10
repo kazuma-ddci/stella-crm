@@ -136,12 +136,14 @@ function PreApplicationTab({ data, vendorId, canEdit }: { data: PreAppRecord[]; 
     if (!vendorId) return;
     setLoading(true);
     try {
-      const detail = await getPreApplicationDetail(id, vendorId);
+      const result = await getPreApplicationDetail(id, vendorId);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setEditId(id);
-      setForm(detail);
+      setForm(result.data);
       setModalOpen(true);
-    } catch {
-      alert("データの取得に失敗しました");
     } finally {
       setLoading(false);
     }
@@ -151,15 +153,15 @@ function PreApplicationTab({ data, vendorId, canEdit }: { data: PreAppRecord[]; 
     if (!vendorId) return;
     setSaving(true);
     try {
-      if (editId) {
-        await updatePreApplicationByVendor(editId, vendorId, form);
-      } else {
-        await addPreApplicationByVendor(vendorId, form);
+      const result = editId
+        ? await updatePreApplicationByVendor(editId, vendorId, form)
+        : await addPreApplicationByVendor(vendorId, form);
+      if (!result.ok) {
+        alert(result.error);
+        return;
       }
       setModalOpen(false);
       router.refresh();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "保存に失敗しました");
     } finally {
       setSaving(false);
     }
@@ -432,12 +434,14 @@ function PostApplicationTab({ data, vendorId, canEdit }: { data: PostAppRecord[]
     if (!vendorId) return;
     setLoading(true);
     try {
-      const detail = await getPostApplicationDetail(id, vendorId);
+      const result = await getPostApplicationDetail(id, vendorId);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setEditId(id);
-      setForm(detail);
+      setForm(result.data);
       setModalOpen(true);
-    } catch {
-      alert("データの取得に失敗しました");
     } finally {
       setLoading(false);
     }
@@ -447,15 +451,15 @@ function PostApplicationTab({ data, vendorId, canEdit }: { data: PostAppRecord[]
     if (!vendorId) return;
     setSaving(true);
     try {
-      if (editId) {
-        await updatePostApplicationByVendor(editId, vendorId, form);
-      } else {
-        await addPostApplicationByVendor(vendorId, form);
+      const result = editId
+        ? await updatePostApplicationByVendor(editId, vendorId, form)
+        : await addPostApplicationByVendor(vendorId, form);
+      if (!result.ok) {
+        alert(result.error);
+        return;
       }
       setModalOpen(false);
       router.refresh();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "保存に失敗しました");
     } finally {
       setSaving(false);
     }

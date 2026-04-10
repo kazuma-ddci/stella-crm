@@ -124,6 +124,10 @@ export function InvoiceMailModal({ open, onClose, invoiceGroupId }: Props) {
     setLoading(true);
     try {
       const result = await getInvoiceMailData(invoiceGroupId);
+      if (!result) {
+        toast.error("請求が見つかりません");
+        return;
+      }
       setData(result);
 
       // デフォルト送信元メール
@@ -434,11 +438,15 @@ export function InvoiceMailModal({ open, onClose, invoiceGroupId }: Props) {
   const handleManualRecord = useCallback(async () => {
     setSending(true);
     try {
-      await recordManualSend({
+      const result = await recordManualSend({
         invoiceGroupId,
         sendMethod: manualSendMethod,
         note: manualNote || undefined,
       });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("送付記録を保存しました");
       setManualNote("");
       onClose();

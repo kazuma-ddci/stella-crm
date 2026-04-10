@@ -115,7 +115,11 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
     setIsCreatingCounterparty(true);
     try {
       const result = await createCounterpartyFromApproval(newCounterpartyName.trim());
-      setCounterpartyId(result.id);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setCounterpartyId(result.data.id);
       setNewCounterpartyName("");
       setCounterpartyTab("other");
       // detailを再取得して選択肢を更新
@@ -134,21 +138,21 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
     if (!detail) return;
     setError(null);
     startTransition(async () => {
-      try {
-        await updateAndApprovePaymentGroup(detail.id, {
-          counterpartyId: counterpartyId ?? undefined,
-          expenseCategoryId,
-          paymentMethodId,
-          amount: amount ? Number(amount) : undefined,
-          taxAmount: amount ? computedTaxAmount : undefined,
-          taxRate,
-          note: note.trim() || null,
-          actualPaymentDate: actualPaymentDate || null,
-        });
-        onClose();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "承認に失敗しました");
+      const result = await updateAndApprovePaymentGroup(detail.id, {
+        counterpartyId: counterpartyId ?? undefined,
+        expenseCategoryId,
+        paymentMethodId,
+        amount: amount ? Number(amount) : undefined,
+        taxAmount: amount ? computedTaxAmount : undefined,
+        taxRate,
+        note: note.trim() || null,
+        actualPaymentDate: actualPaymentDate || null,
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
+      onClose();
     });
   };
 
@@ -156,12 +160,12 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
     if (!detail) return;
     setError(null);
     startTransition(async () => {
-      try {
-        await rejectPaymentGroup(detail.id, rejectReason.trim() || undefined);
-        onClose();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "差し戻しに失敗しました");
+      const result = await rejectPaymentGroup(detail.id, rejectReason.trim() || undefined);
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
+      onClose();
     });
   };
 

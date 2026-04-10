@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
 import { generateOtherCounterpartyDisplayId, createCounterpartyForCompany, updateCounterpartyForCompany } from "@/lib/counterparty-sync";
 import { toBoolean } from "@/lib/utils";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 const VALID_TYPES = ["customer", "vendor", "service", "project", "other"] as const;
 
@@ -63,121 +64,135 @@ export async function checkSimilarCounterparties(name: string) {
 }
 
 // 新規作成
-export async function createCounterparty(data: Record<string, unknown>) {
-  const session = await getSession();
-  const staffId = session.id;
+export async function createCounterparty(
+  data: Record<string, unknown>
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    const staffId = session.id;
 
-  const name = (data.name as string).trim();
-  const counterpartyType = data.counterpartyType as string;
-  const memo = data.memo ? (data.memo as string).trim() : null;
-  const isActive = data.isActive !== false && data.isActive !== "false";
+    const name = (data.name as string).trim();
+    const counterpartyType = data.counterpartyType as string;
+    const memo = data.memo ? (data.memo as string).trim() : null;
+    const isActive = data.isActive !== false && data.isActive !== "false";
 
-  if (!name || !counterpartyType) {
-    throw new Error("名称と種別は必須です");
+    if (!name || !counterpartyType) {
+      return err("名称と種別は必須です");
+    }
+
+    if (!(VALID_TYPES as readonly string[]).includes(counterpartyType)) {
+      return err("無効な種別です");
+    }
+
+    // 名称重複チェック（論理削除・統合済みを除く）
+    const existing = await prisma.counterparty.findFirst({
+      where: { name, deletedAt: null, mergedIntoId: null },
+      select: { id: true },
+    });
+    if (existing) {
+      return err(`取引先「${name}」は既に登録されています`);
+    }
+
+    // TP-X displayId 自動採番
+    const displayId = await generateOtherCounterpartyDisplayId();
+
+    const isInvoiceRegistered = toBoolean(data.isInvoiceRegistered);
+    const invoiceRegistrationNumber = data.invoiceRegistrationNumber
+      ? (data.invoiceRegistrationNumber as string).trim() || null
+      : null;
+
+    await prisma.counterparty.create({
+      data: {
+        displayId,
+        name,
+        counterpartyType,
+        memo: memo || null,
+        isActive,
+        isInvoiceRegistered,
+        invoiceRegistrationNumber,
+        createdBy: staffId,
+      },
+    });
+
+    revalidatePath("/accounting/masters/counterparties");
+    return ok();
+  } catch (e) {
+    console.error("[createCounterparty] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  if (!(VALID_TYPES as readonly string[]).includes(counterpartyType)) {
-    throw new Error("無効な種別です");
-  }
-
-  // 名称重複チェック（論理削除・統合済みを除く）
-  const existing = await prisma.counterparty.findFirst({
-    where: { name, deletedAt: null, mergedIntoId: null },
-    select: { id: true },
-  });
-  if (existing) {
-    throw new Error(`取引先「${name}」は既に登録されています`);
-  }
-
-  // TP-X displayId 自動採番
-  const displayId = await generateOtherCounterpartyDisplayId();
-
-  const isInvoiceRegistered = toBoolean(data.isInvoiceRegistered);
-  const invoiceRegistrationNumber = data.invoiceRegistrationNumber
-    ? (data.invoiceRegistrationNumber as string).trim() || null
-    : null;
-
-  await prisma.counterparty.create({
-    data: {
-      displayId,
-      name,
-      counterpartyType,
-      memo: memo || null,
-      isActive,
-      isInvoiceRegistered,
-      invoiceRegistrationNumber,
-      createdBy: staffId,
-    },
-  });
-
-  revalidatePath("/accounting/masters/counterparties");
 }
 
 // 更新（部分更新対応）
 export async function updateCounterparty(
   id: number,
   data: Record<string, unknown>
-) {
-  const session = await getSession();
-  const staffId = session.id;
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    const staffId = session.id;
 
-  const updateData: Record<string, unknown> = {};
+    const updateData: Record<string, unknown> = {};
 
-  if ("name" in data) {
-    const name = (data.name as string).trim();
-    if (!name) throw new Error("名称は必須です");
+    if ("name" in data) {
+      const name = (data.name as string).trim();
+      if (!name) return err("名称は必須です");
 
-    // 名称重複チェック（自分自身は除く）
-    const existing = await prisma.counterparty.findFirst({
-      where: { name, deletedAt: null, mergedIntoId: null, id: { not: id } },
-      select: { id: true },
+      // 名称重複チェック（自分自身は除く）
+      const existing = await prisma.counterparty.findFirst({
+        where: { name, deletedAt: null, mergedIntoId: null, id: { not: id } },
+        select: { id: true },
+      });
+      if (existing) {
+        return err(`取引先「${name}」は既に登録されています`);
+      }
+      updateData.name = name;
+    }
+
+    if ("counterpartyType" in data) {
+      const counterpartyType = data.counterpartyType as string;
+      if (!(VALID_TYPES as readonly string[]).includes(counterpartyType)) {
+        return err("無効な種別です");
+      }
+      updateData.counterpartyType = counterpartyType;
+    }
+
+    if ("memo" in data) {
+      updateData.memo = data.memo ? (data.memo as string).trim() || null : null;
+    }
+
+    if ("isActive" in data) {
+      updateData.isActive = toBoolean(data.isActive);
+    }
+
+    if ("isInvoiceRegistered" in data) {
+      updateData.isInvoiceRegistered = toBoolean(data.isInvoiceRegistered);
+    }
+
+    if ("invoiceRegistrationNumber" in data) {
+      updateData.invoiceRegistrationNumber = data.invoiceRegistrationNumber
+        ? (data.invoiceRegistrationNumber as string).trim() || null
+        : null;
+    }
+
+    if ("invoiceEffectiveDate" in data) {
+      updateData.invoiceEffectiveDate = data.invoiceEffectiveDate
+        ? new Date(data.invoiceEffectiveDate as string)
+        : null;
+    }
+
+    updateData.updatedBy = staffId;
+
+    await prisma.counterparty.update({
+      where: { id },
+      data: updateData,
     });
-    if (existing) {
-      throw new Error(`取引先「${name}」は既に登録されています`);
-    }
-    updateData.name = name;
+
+    revalidatePath("/accounting/masters/counterparties");
+    return ok();
+  } catch (e) {
+    console.error("[updateCounterparty] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  if ("counterpartyType" in data) {
-    const counterpartyType = data.counterpartyType as string;
-    if (!(VALID_TYPES as readonly string[]).includes(counterpartyType)) {
-      throw new Error("無効な種別です");
-    }
-    updateData.counterpartyType = counterpartyType;
-  }
-
-  if ("memo" in data) {
-    updateData.memo = data.memo ? (data.memo as string).trim() || null : null;
-  }
-
-  if ("isActive" in data) {
-    updateData.isActive = toBoolean(data.isActive);
-  }
-
-  if ("isInvoiceRegistered" in data) {
-    updateData.isInvoiceRegistered = toBoolean(data.isInvoiceRegistered);
-  }
-
-  if ("invoiceRegistrationNumber" in data) {
-    updateData.invoiceRegistrationNumber = data.invoiceRegistrationNumber
-      ? (data.invoiceRegistrationNumber as string).trim() || null
-      : null;
-  }
-
-  if ("invoiceEffectiveDate" in data) {
-    updateData.invoiceEffectiveDate = data.invoiceEffectiveDate
-      ? new Date(data.invoiceEffectiveDate as string)
-      : null;
-  }
-
-  updateData.updatedBy = staffId;
-
-  await prisma.counterparty.update({
-    where: { id },
-    data: updateData,
-  });
-
-  revalidatePath("/accounting/masters/counterparties");
 }
 
 // MasterStellaCompanyとの同期処理（設計書8.6）
@@ -485,7 +500,8 @@ export type MergeImpact = {
 export async function getCounterpartyMergeImpact(
   sourceId: number,
   targetId: number
-): Promise<MergeImpact> {
+): Promise<ActionResult<MergeImpact>> {
+  try {
   const [source, target] = await Promise.all([
     prisma.counterparty.findUnique({
       where: { id: sourceId },
@@ -497,8 +513,8 @@ export async function getCounterpartyMergeImpact(
     }),
   ]);
 
-  if (!source) throw new Error(`統合元の取引先 (ID: ${sourceId}) が見つかりません`);
-  if (!target) throw new Error(`統合先の取引先 (ID: ${targetId}) が見つかりません`);
+  if (!source) return err(`統合元の取引先 (ID: ${sourceId}) が見つかりません`);
+  if (!target) return err(`統合先の取引先 (ID: ${targetId}) が見つかりません`);
 
   // 各テーブルの影響件数を並列カウント
   const [
@@ -536,30 +552,35 @@ export async function getCounterpartyMergeImpact(
     }
   }
 
-  return {
-    source,
-    target,
-    transactionCount,
-    recurringTransactionCount,
-    bankTransactionCount,
-    autoJournalRuleCount,
-    invoiceGroupCount,
-    paymentGroupCount,
-    totalAffected,
-    duplicateRuleWarning,
-  };
+    return ok({
+      source,
+      target,
+      transactionCount,
+      recurringTransactionCount,
+      bankTransactionCount,
+      autoJournalRuleCount,
+      invoiceGroupCount,
+      paymentGroupCount,
+      totalAffected,
+      duplicateRuleWarning,
+    });
+  } catch (e) {
+    console.error("[getCounterpartyMergeImpact] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // 統合実行（設計書5.7: FK付け替え + 論理削除 + ChangeLog記録）
 export async function mergeCounterparties(
   sourceId: number,
   targetId: number
-): Promise<{ success: true; totalUpdated: number }> {
+): Promise<ActionResult<{ totalUpdated: number }>> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
   if (sourceId === targetId) {
-    throw new Error("統合元と統合先が同じです");
+    return err("統合元と統合先が同じです");
   }
 
   // 統合元・統合先の存在確認
@@ -569,10 +590,10 @@ export async function mergeCounterparties(
   ]);
 
   if (!source || source.deletedAt || source.mergedIntoId) {
-    throw new Error("統合元の取引先が存在しないか、既に削除/統合済みです");
+    return err("統合元の取引先が存在しないか、既に削除/統合済みです");
   }
   if (!target || target.deletedAt || target.mergedIntoId) {
-    throw new Error("統合先の取引先が存在しないか、既に削除/統合済みです");
+    return err("統合先の取引先が存在しないか、既に削除/統合済みです");
   }
 
   // トランザクション内でFK付替え + 統合元の論理削除 + ChangeLog記録
@@ -668,5 +689,9 @@ export async function mergeCounterparties(
   revalidatePath("/accounting/masters/counterparties");
   revalidatePath("/accounting/masters/counterparties/duplicates");
 
-  return { success: true, totalUpdated: result };
+    return ok({ totalUpdated: result });
+  } catch (e) {
+    console.error("[mergeCounterparties] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }

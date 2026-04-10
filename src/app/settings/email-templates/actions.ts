@@ -4,10 +4,14 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { toBoolean } from "@/lib/utils";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 const VALID_TEMPLATE_TYPES = ["sending", "request"] as const;
 
-export async function createInvoiceTemplate(data: Record<string, unknown>) {
+export async function createInvoiceTemplate(
+  data: Record<string, unknown>
+): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -20,11 +24,11 @@ export async function createInvoiceTemplate(data: Record<string, unknown>) {
   const isDefault = toBoolean(data.isDefault);
 
   if (!name || !templateType || !operatingCompanyId || !emailSubjectTemplate || !emailBodyTemplate) {
-    throw new Error("テンプレート名、種別、運営法人、メール件名、メール本文は必須です");
+    return err("テンプレート名、種別、運営法人、メール件名、メール本文は必須です");
   }
 
   if (!(VALID_TEMPLATE_TYPES as readonly string[]).includes(templateType)) {
-    throw new Error("無効なテンプレート種別です");
+    return err("無効なテンプレート種別です");
   }
 
   // 運営法人の存在チェック
@@ -33,7 +37,7 @@ export async function createInvoiceTemplate(data: Record<string, unknown>) {
     select: { id: true },
   });
   if (!company) {
-    throw new Error("指定された運営法人が見つかりません");
+    return err("指定された運営法人が見つかりません");
   }
 
   // プロジェクトの存在チェック
@@ -43,7 +47,7 @@ export async function createInvoiceTemplate(data: Record<string, unknown>) {
       select: { id: true },
     });
     if (!project) {
-      throw new Error("指定されたプロジェクトが見つかりません");
+      return err("指定されたプロジェクトが見つかりません");
     }
   }
 
@@ -59,7 +63,7 @@ export async function createInvoiceTemplate(data: Record<string, unknown>) {
     select: { id: true },
   });
   if (existing) {
-    throw new Error(`テンプレート名「${name}」は同じプロジェクト・法人・種別で既に使用されています`);
+    return err(`テンプレート名「${name}」は同じプロジェクト・法人・種別で既に使用されています`);
   }
 
   // isDefaultがtrueの場合、既存デフォルト解除とcreateをトランザクションで実行
@@ -102,10 +106,19 @@ export async function createInvoiceTemplate(data: Record<string, unknown>) {
     });
   }
 
-  revalidatePath("/settings/email-templates");
+    revalidatePath("/settings/email-templates");
+    return ok();
+  } catch (e) {
+    console.error("[createInvoiceTemplate] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function updateInvoiceTemplate(id: number, data: Record<string, unknown>) {
+export async function updateInvoiceTemplate(
+  id: number,
+  data: Record<string, unknown>
+): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -117,7 +130,7 @@ export async function updateInvoiceTemplate(id: number, data: Record<string, unk
     select: { id: true, operatingCompanyId: true, templateType: true, name: true, projectId: true },
   });
   if (!current) {
-    throw new Error("テンプレートが見つかりません");
+    return err("テンプレートが見つかりません");
   }
 
   // 全フィールドの最終値を先に確定
@@ -128,14 +141,14 @@ export async function updateInvoiceTemplate(id: number, data: Record<string, unk
 
   if ("operatingCompanyId" in data) {
     const newCompanyId = Number(data.operatingCompanyId);
-    if (!newCompanyId) throw new Error("運営法人は必須です");
+    if (!newCompanyId) return err("運営法人は必須です");
 
     const company = await prisma.operatingCompany.findUnique({
       where: { id: newCompanyId },
       select: { id: true },
     });
     if (!company) {
-      throw new Error("指定された運営法人が見つかりません");
+      return err("指定された運営法人が見つかりません");
     }
     operatingCompanyId = newCompanyId;
     updateData.operatingCompanyId = newCompanyId;
@@ -149,7 +162,7 @@ export async function updateInvoiceTemplate(id: number, data: Record<string, unk
         select: { id: true },
       });
       if (!project) {
-        throw new Error("指定されたプロジェクトが見つかりません");
+        return err("指定されたプロジェクトが見つかりません");
       }
     }
     projectId = newProjectId;
@@ -159,7 +172,7 @@ export async function updateInvoiceTemplate(id: number, data: Record<string, unk
   if ("templateType" in data) {
     const newType = data.templateType as string;
     if (!(VALID_TEMPLATE_TYPES as readonly string[]).includes(newType)) {
-      throw new Error("無効なテンプレート種別です");
+      return err("無効なテンプレート種別です");
     }
     templateType = newType;
     updateData.templateType = newType;
@@ -167,7 +180,7 @@ export async function updateInvoiceTemplate(id: number, data: Record<string, unk
 
   if ("name" in data) {
     const newName = ((data.name as string) ?? "").trim();
-    if (!newName) throw new Error("テンプレート名は必須です");
+    if (!newName) return err("テンプレート名は必須です");
     name = newName;
     updateData.name = newName;
   }
@@ -186,19 +199,19 @@ export async function updateInvoiceTemplate(id: number, data: Record<string, unk
       select: { id: true },
     });
     if (existing) {
-      throw new Error(`テンプレート名「${name}」は同じプロジェクト・法人・種別で既に使用されています`);
+      return err(`テンプレート名「${name}」は同じプロジェクト・法人・種別で既に使用されています`);
     }
   }
 
   if ("emailSubjectTemplate" in data) {
     const subject = ((data.emailSubjectTemplate as string) ?? "").trim();
-    if (!subject) throw new Error("メール件名テンプレートは必須です");
+    if (!subject) return err("メール件名テンプレートは必須です");
     updateData.emailSubjectTemplate = subject;
   }
 
   if ("emailBodyTemplate" in data) {
     const body = ((data.emailBodyTemplate as string) ?? "").trim();
-    if (!body) throw new Error("メール本文テンプレートは必須です");
+    if (!body) return err("メール本文テンプレートは必須です");
     updateData.emailBodyTemplate = body;
   }
 
@@ -234,20 +247,31 @@ export async function updateInvoiceTemplate(id: number, data: Record<string, unk
     });
   }
 
-  revalidatePath("/settings/email-templates");
+    revalidatePath("/settings/email-templates");
+    return ok();
+  } catch (e) {
+    console.error("[updateInvoiceTemplate] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function deleteInvoiceTemplate(id: number) {
-  const session = await getSession();
-  const staffId = session.id;
+export async function deleteInvoiceTemplate(id: number): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    const staffId = session.id;
 
-  await prisma.invoiceTemplate.update({
-    where: { id },
-    data: {
-      deletedAt: new Date(),
-      updatedBy: staffId,
-    },
-  });
+    await prisma.invoiceTemplate.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+        updatedBy: staffId,
+      },
+    });
 
-  revalidatePath("/settings/email-templates");
+    revalidatePath("/settings/email-templates");
+    return ok();
+  } catch (e) {
+    console.error("[deleteInvoiceTemplate] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }

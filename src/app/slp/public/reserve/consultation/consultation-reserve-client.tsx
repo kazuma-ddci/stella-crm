@@ -195,9 +195,10 @@ export function ConsultationReserveClient({
                       <p className="font-medium text-slate-900 truncate">
                         {c.companyName ?? "(企業名未登録)"}
                       </p>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        概要案内: 完了 ✓ / 導入希望商談: 未予約
-                      </p>
+                      <div className="mt-1 space-y-0.5 text-xs text-slate-500">
+                        <p>概要案内: 完了 ✓</p>
+                        <p>導入希望商談: 未予約</p>
+                      </div>
                     </div>
                     <KoutekiButton
                       size="sm"

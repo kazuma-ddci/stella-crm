@@ -109,26 +109,30 @@ export function CounterpartiesTable({ data }: Props) {
   const handleAdd = async (formData: Record<string, unknown>) => {
     const name = (formData.name as string)?.trim();
     if (!name) {
-      throw new Error("名称は必須です");
+      return { ok: false as const, error: "名称は必須です" };
     }
 
     // 類似名称チェック
     const candidates = await checkSimilarCounterparties(name);
     if (candidates.length === 0) {
       // 類似なし → そのまま作成
-      await createCounterparty(formData);
-      return;
+      return await createCounterparty(formData);
     }
 
     // 類似候補がある場合はPromiseを保留してユーザーの判断を待つ
-    return new Promise<void>((resolve, reject) => {
-      setSimilarDialog({
-        open: true,
-        candidates,
-        pendingData: formData,
-        promiseHandlers: { resolve, reject },
-      });
-    });
+    return new Promise<{ ok: true; data: void } | { ok: false; error: string }>(
+      (resolve) => {
+        setSimilarDialog({
+          open: true,
+          candidates,
+          pendingData: formData,
+          promiseHandlers: {
+            resolve: () => resolve({ ok: true, data: undefined }),
+            reject: (error: Error) => resolve({ ok: false, error: error.message }),
+          },
+        });
+      }
+    );
   };
 
   // 類似候補確認後に新規作成
@@ -139,9 +143,13 @@ export function CounterpartiesTable({ data }: Props) {
 
     setIsCreating(true);
     try {
-      await createCounterparty(pendingData);
+      const result = await createCounterparty(pendingData);
       setSimilarDialog({ open: false, candidates: [], pendingData: null, promiseHandlers: null });
-      resolve();
+      if (result.ok) {
+        resolve();
+      } else {
+        reject(new Error(result.error));
+      }
     } catch (error) {
       setSimilarDialog({ open: false, candidates: [], pendingData: null, promiseHandlers: null });
       reject(error instanceof Error ? error : new Error("作成に失敗しました"));

@@ -433,7 +433,7 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
 
       if (isEdit && transaction) {
         const result = await updateTransaction(transaction.id, data);
-        if (result && "error" in result) {
+        if (!result.ok) {
           toast.error(result.error);
           return;
         }
@@ -443,21 +443,21 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
         if (invoiceGroupId) data.invoiceGroupId = Number(invoiceGroupId);
         if (paymentGroupId) data.paymentGroupId = Number(paymentGroupId);
         const result = await createAccountingTransaction(data);
-        if ("error" in result) {
+        if (!result.ok) {
           toast.error(result.error);
           return;
         }
         toast.success("取引を作成しました（経理処理待ち）");
-        router.push(`/accounting/transactions/${result.id}/edit`);
+        router.push(`/accounting/transactions/${result.data.id}/edit`);
         return;
       } else {
         const result = await createTransaction(data);
-        if ("error" in result) {
+        if (!result.ok) {
           toast.error(result.error);
           return;
         }
         toast.success("取引を作成しました");
-        router.push(`/accounting/transactions/${result.id}/edit`);
+        router.push(`/accounting/transactions/${result.data.id}/edit`);
         return;
       }
       router.refresh();

@@ -189,8 +189,8 @@ export function EmailSettingsClient({
         isDefault: false,
       });
 
-      if (!result.success) {
-        setError(result.error ?? "追加に失敗しました");
+      if (!result.ok) {
+        setError(result.error);
         return;
       }
 
@@ -225,12 +225,16 @@ export function EmailSettingsClient({
     setError(null);
 
     try {
-      await updateEmailSmtp(editingPe.emailId, {
+      const result = await updateEmailSmtp(editingPe.emailId, {
         smtpHost: smtpForm.smtpHost.trim() || null,
         smtpPort: smtpForm.smtpPort ? parseInt(smtpForm.smtpPort) : null,
         smtpUser: editingPe.email, // ユーザー名 = メールアドレス
         smtpPass: smtpForm.smtpPass.trim() || null,
       });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
       setSuccess("SMTP設定を更新しました");
       setIsSmtpDialogOpen(false);
       clearMessages();
@@ -247,17 +251,17 @@ export function EmailSettingsClient({
   // ============================================
 
   const handleMemoSave = async (peId: number) => {
-    try {
-      await updateProjectEmailMemo(peId, memoValue.trim() || null);
-      setProjectEmails((prev) =>
-        prev.map((item) =>
-          item.id === peId ? { ...item, memo: memoValue.trim() || null } : item
-        )
-      );
-      setEditingMemoId(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "メモの更新に失敗しました");
+    const result = await updateProjectEmailMemo(peId, memoValue.trim() || null);
+    if (!result.ok) {
+      setError(result.error || "メモの更新に失敗しました");
+      return;
     }
+    setProjectEmails((prev) =>
+      prev.map((item) =>
+        item.id === peId ? { ...item, memo: memoValue.trim() || null } : item
+      )
+    );
+    setEditingMemoId(null);
   };
 
   // ============================================
@@ -266,14 +270,14 @@ export function EmailSettingsClient({
 
   const handleDelete = async (pe: ProjectEmailRecord) => {
     if (!confirm(`${pe.email} をこのプロジェクトから削除しますか？`)) return;
-    try {
-      await deleteProjectEmail(pe.id);
-      setProjectEmails((prev) => prev.filter((item) => item.id !== pe.id));
-      setSuccess("削除しました");
-      clearMessages();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "削除に失敗しました");
+    const result = await deleteProjectEmail(pe.id);
+    if (!result.ok) {
+      setError(result.error || "削除に失敗しました");
+      return;
     }
+    setProjectEmails((prev) => prev.filter((item) => item.id !== pe.id));
+    setSuccess("削除しました");
+    clearMessages();
   };
 
   // ============================================

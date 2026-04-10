@@ -266,12 +266,9 @@ export function ProjectEmailsModal({
     setError(null);
 
     try {
-      // メモを更新
-      await updateProjectEmailMemo(editingEmail.id, editForm.memo.trim() || null);
-
       // メール設定を更新（admin のみ）
       if (isSystemAdmin) {
-        await updateEmailSettings(editingEmail.emailId, {
+        const emailResult = await updateEmailSettings(editingEmail.emailId, {
           smtpHost: editForm.smtpHost.trim() || null,
           smtpPort: editForm.smtpPort ? parseInt(editForm.smtpPort) : null,
           smtpPass: editForm.smtpPass.trim() || null,
@@ -279,7 +276,14 @@ export function ProjectEmailsModal({
           imapPort: editForm.imapPort ? parseInt(editForm.imapPort) : null,
           enableInbound: editForm.enableInbound,
         });
+        if (!emailResult.ok) {
+          setError(emailResult.error);
+          clearError();
+          return;
+        }
       }
+
+      await updateProjectEmailMemo(editingEmail.id, editForm.memo.trim() || null);
 
       setEditingEmail(null);
       await loadEmails();

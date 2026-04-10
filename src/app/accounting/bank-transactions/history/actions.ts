@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // 型定義
@@ -162,19 +163,25 @@ export async function getHistoryFilterOptions(): Promise<HistoryFilterOptions> {
 // 削除
 // ============================================
 
-export async function deleteTransaction(id: number): Promise<void> {
-  await getSession();
+export async function deleteTransaction(id: number): Promise<ActionResult> {
+  try {
+    await getSession();
 
-  const existing = await prisma.accountingTransaction.findUnique({
-    where: { id },
-  });
-  if (!existing) {
-    throw new Error("取引データが見つかりません");
+    const existing = await prisma.accountingTransaction.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      return err("取引データが見つかりません");
+    }
+
+    await prisma.accountingTransaction.delete({
+      where: { id },
+    });
+    return ok();
+  } catch (e) {
+    console.error("[deleteTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  await prisma.accountingTransaction.delete({
-    where: { id },
-  });
 }
 
 // ============================================

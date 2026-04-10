@@ -49,12 +49,12 @@ function SubmissionTable({
   const router = useRouter();
 
   const handleStaffMemoSave = async (id: number, value: string) => {
-    try {
-      await updateLoanStaffMemo(id, value);
-      router.refresh();
-    } catch {
-      alert("保存に失敗しました");
+    const result = await updateLoanStaffMemo(id, value);
+    if (!result.ok) {
+      alert(result.error);
+      return;
     }
+    router.refresh();
   };
 
   const filtered = vendorFilter

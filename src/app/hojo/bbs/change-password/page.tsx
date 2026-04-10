@@ -33,12 +33,17 @@ export default function BbsChangePasswordPage() {
 
     setLoading(true);
     try {
-      if (!bbsAccountId) throw new Error("セッションが無効です");
-      await changeBbsPassword(bbsAccountId, newPassword);
+      if (!bbsAccountId) {
+        setError("セッションが無効です");
+        return;
+      }
+      const result = await changeBbsPassword(bbsAccountId, newPassword);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
       // パスワード変更後、再ログインさせる（mustChangePasswordフラグをセッションに反映するため）
       await signOut({ callbackUrl: "/hojo/bbs" });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "パスワード変更に失敗しました");
     } finally {
       setLoading(false);
     }

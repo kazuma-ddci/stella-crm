@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 const REVALIDATE_PATH = "/hojo/settings/telegram-notifications";
 
@@ -14,45 +15,68 @@ export async function getBots() {
   return prisma.hojoTelegramBot.findMany({ orderBy: { id: "asc" } });
 }
 
-export async function createBot(data: { name: string; token: string }) {
-  await requireProjectMasterDataEditPermission();
-  await prisma.hojoTelegramBot.create({ data });
-  revalidatePath(REVALIDATE_PATH);
-}
-
-export async function updateBot(id: number, data: { name?: string; token?: string; isActive?: boolean }) {
-  await requireProjectMasterDataEditPermission();
-  await prisma.hojoTelegramBot.update({ where: { id }, data });
-  revalidatePath(REVALIDATE_PATH);
-}
-
-export async function deleteBot(id: number) {
-  await requireProjectMasterDataEditPermission();
-  await prisma.hojoTelegramBot.delete({ where: { id } });
-  revalidatePath(REVALIDATE_PATH);
-}
-
-export async function testBot(id: number, chatId: string) {
-  await requireProjectMasterDataEditPermission();
-  const bot = await prisma.hojoTelegramBot.findUnique({ where: { id } });
-  if (!bot) throw new Error("Bot not found");
-  if (!chatId.trim()) throw new Error("チャットIDを入力してください");
-
-  const payload: Record<string, string> = {
-    chat_id: chatId.trim(),
-    text: `[テスト] Stella CRM からのテスト通知です (${new Date().toLocaleString("ja-JP")})`,
-  };
-
-  const res = await fetch(`https://api.telegram.org/bot${bot.token}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const result = await res.json();
-  if (!result.ok) {
-    throw new Error(`Telegram API error: ${result.description || "Unknown error"}`);
+export async function createBot(data: { name: string; token: string }): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+    await prisma.hojoTelegramBot.create({ data });
+    revalidatePath(REVALIDATE_PATH);
+    return ok();
+  } catch (e) {
+    console.error("[createBot] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-  return { success: true };
+}
+
+export async function updateBot(id: number, data: { name?: string; token?: string; isActive?: boolean }): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+    await prisma.hojoTelegramBot.update({ where: { id }, data });
+    revalidatePath(REVALIDATE_PATH);
+    return ok();
+  } catch (e) {
+    console.error("[updateBot] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+export async function deleteBot(id: number): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+    await prisma.hojoTelegramBot.delete({ where: { id } });
+    revalidatePath(REVALIDATE_PATH);
+    return ok();
+  } catch (e) {
+    console.error("[deleteBot] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+export async function testBot(id: number, chatId: string): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+    const bot = await prisma.hojoTelegramBot.findUnique({ where: { id } });
+    if (!bot) return err("Bot not found");
+    if (!chatId.trim()) return err("チャットIDを入力してください");
+
+    const payload: Record<string, string> = {
+      chat_id: chatId.trim(),
+      text: `[テスト] Stella CRM からのテスト通知です (${new Date().toLocaleString("ja-JP")})`,
+    };
+
+    const res = await fetch(`https://api.telegram.org/bot${bot.token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const result = await res.json();
+    if (!result.ok) {
+      return err(`Telegram API error: ${result.description || "Unknown error"}`);
+    }
+    return ok();
+  } catch (e) {
+    console.error("[testBot] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
@@ -66,44 +90,80 @@ export async function getGroups() {
   });
 }
 
-export async function createGroup(data: { name: string; chatId: string }) {
-  await requireProjectMasterDataEditPermission();
-  await prisma.hojoTelegramGroup.create({ data });
-  revalidatePath(REVALIDATE_PATH);
+export async function createGroup(data: { name: string; chatId: string }): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+    await prisma.hojoTelegramGroup.create({ data });
+    revalidatePath(REVALIDATE_PATH);
+    return ok();
+  } catch (e) {
+    console.error("[createGroup] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function updateGroup(id: number, data: { name?: string; chatId?: string }) {
-  await requireProjectMasterDataEditPermission();
-  await prisma.hojoTelegramGroup.update({ where: { id }, data });
-  revalidatePath(REVALIDATE_PATH);
+export async function updateGroup(id: number, data: { name?: string; chatId?: string }): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+    await prisma.hojoTelegramGroup.update({ where: { id }, data });
+    revalidatePath(REVALIDATE_PATH);
+    return ok();
+  } catch (e) {
+    console.error("[updateGroup] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function deleteGroup(id: number) {
-  await requireProjectMasterDataEditPermission();
-  await prisma.hojoTelegramGroup.delete({ where: { id } });
-  revalidatePath(REVALIDATE_PATH);
+export async function deleteGroup(id: number): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+    await prisma.hojoTelegramGroup.delete({ where: { id } });
+    revalidatePath(REVALIDATE_PATH);
+    return ok();
+  } catch (e) {
+    console.error("[deleteGroup] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
 // Topic CRUD
 // ============================================
 
-export async function createTopic(data: { groupId: number; name: string; topicId: string }) {
-  await requireProjectMasterDataEditPermission();
-  await prisma.hojoTelegramTopic.create({ data });
-  revalidatePath(REVALIDATE_PATH);
+export async function createTopic(data: { groupId: number; name: string; topicId: string }): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+    await prisma.hojoTelegramTopic.create({ data });
+    revalidatePath(REVALIDATE_PATH);
+    return ok();
+  } catch (e) {
+    console.error("[createTopic] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function updateTopic(id: number, data: { name?: string; topicId?: string }) {
-  await requireProjectMasterDataEditPermission();
-  await prisma.hojoTelegramTopic.update({ where: { id }, data });
-  revalidatePath(REVALIDATE_PATH);
+export async function updateTopic(id: number, data: { name?: string; topicId?: string }): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+    await prisma.hojoTelegramTopic.update({ where: { id }, data });
+    revalidatePath(REVALIDATE_PATH);
+    return ok();
+  } catch (e) {
+    console.error("[updateTopic] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function deleteTopic(id: number) {
-  await requireProjectMasterDataEditPermission();
-  await prisma.hojoTelegramTopic.delete({ where: { id } });
-  revalidatePath(REVALIDATE_PATH);
+export async function deleteTopic(id: number): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+    await prisma.hojoTelegramTopic.delete({ where: { id } });
+    revalidatePath(REVALIDATE_PATH);
+    return ok();
+  } catch (e) {
+    console.error("[deleteTopic] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
@@ -149,7 +209,8 @@ export type RuleInput = {
   topicMappings: TopicMappingInput[];
 };
 
-export async function createRule(input: RuleInput) {
+export async function createRule(input: RuleInput): Promise<ActionResult<{ id: number }>> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   const { topicMappings, ...ruleData } = input;
@@ -180,10 +241,15 @@ export async function createRule(input: RuleInput) {
   });
 
   revalidatePath(REVALIDATE_PATH);
-  return rule;
+  return ok({ id: rule.id });
+  } catch (e) {
+    console.error("[createRule] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function updateRule(id: number, input: RuleInput) {
+export async function updateRule(id: number, input: RuleInput): Promise<ActionResult<{ id: number }>> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   const { topicMappings, ...ruleData } = input;
@@ -217,20 +283,36 @@ export async function updateRule(id: number, input: RuleInput) {
   });
 
   revalidatePath(REVALIDATE_PATH);
-  return rule;
+  return ok({ id: rule.id });
+  } catch (e) {
+    console.error("[updateRule] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function deleteRule(id: number) {
-  await requireProjectMasterDataEditPermission();
-  await prisma.hojoTelegramNotificationRule.delete({ where: { id } });
-  revalidatePath(REVALIDATE_PATH);
+export async function deleteRule(id: number): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+    await prisma.hojoTelegramNotificationRule.delete({ where: { id } });
+    revalidatePath(REVALIDATE_PATH);
+    return ok();
+  } catch (e) {
+    console.error("[deleteRule] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function toggleRule(id: number, isActive: boolean) {
-  await requireProjectMasterDataEditPermission();
-  await prisma.hojoTelegramNotificationRule.update({
-    where: { id },
-    data: { isActive },
-  });
-  revalidatePath(REVALIDATE_PATH);
+export async function toggleRule(id: number, isActive: boolean): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+    await prisma.hojoTelegramNotificationRule.update({
+      where: { id },
+      data: { isActive },
+    });
+    revalidatePath(REVALIDATE_PATH);
+    return ok();
+  } catch (e) {
+    console.error("[toggleRule] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }

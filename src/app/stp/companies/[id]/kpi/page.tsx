@@ -127,9 +127,13 @@ export default function KpiSheetPage() {
     setCreating(true);
     try {
       const result = await createKpiSheet(stpCompanyId, newSheetName.trim());
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setNewSheetName("");
       setCreateDialogOpen(false);
-      setSelectedSheetId(result.id);
+      setSelectedSheetId(result.data.id);
       await fetchSheets();
     } catch (error) {
       console.error("Failed to create sheet:", error);
@@ -142,7 +146,11 @@ export default function KpiSheetPage() {
   const handleDeleteSheet = useCallback(
     async (sheetId: number) => {
       try {
-        await deleteKpiSheet(sheetId);
+        const result = await deleteKpiSheet(sheetId);
+        if (!result.ok) {
+          alert(result.error);
+          return;
+        }
         if (selectedSheetId === sheetId) {
           setSelectedSheetId(null);
         }
@@ -163,7 +171,11 @@ export default function KpiSheetPage() {
       }
 
       try {
-        await updateKpiSheetName(sheetId, editNameValue.trim());
+        const result = await updateKpiSheetName(sheetId, editNameValue.trim());
+        if (!result.ok) {
+          alert(result.error);
+          return;
+        }
         setEditingName(null);
         await fetchSheets();
       } catch (error) {
@@ -179,7 +191,11 @@ export default function KpiSheetPage() {
       if (!selectedSheetId) return;
 
       try {
-        await addWeeklyData(selectedSheetId, startDate, endDate);
+        const result = await addWeeklyData(selectedSheetId, startDate, endDate);
+        if (!result.ok) {
+          alert(result.error);
+          return;
+        }
         await fetchSheets();
       } catch (error) {
         console.error("Failed to add week:", error);
@@ -192,7 +208,11 @@ export default function KpiSheetPage() {
   const handleDeleteWeek = useCallback(
     async (weeklyDataId: number) => {
       try {
-        await deleteWeeklyData(weeklyDataId);
+        const result = await deleteWeeklyData(weeklyDataId);
+        if (!result.ok) {
+          alert(result.error);
+          return;
+        }
         await fetchSheets();
       } catch (error) {
         console.error("Failed to delete week:", error);
@@ -216,7 +236,11 @@ export default function KpiSheetPage() {
 
       // サーバーに保存（エラー時のみ再取得）
       try {
-        await updateKpiCell(weeklyDataId, field, value);
+        const result = await updateKpiCell(weeklyDataId, field, value);
+        if (!result.ok) {
+          alert(result.error);
+          await fetchSheets();
+        }
       } catch (error) {
         console.error("Failed to update cell:", error);
         await fetchSheets(); // エラー時はリフェッチして整合性を回復
@@ -229,7 +253,11 @@ export default function KpiSheetPage() {
   const handleUpdateStartDate = useCallback(
     async (weeklyDataId: number, startDate: string) => {
       try {
-        await updateWeekStartDate(weeklyDataId, startDate);
+        const result = await updateWeekStartDate(weeklyDataId, startDate);
+        if (!result.ok) {
+          alert(result.error);
+          return;
+        }
         await fetchSheets();
       } catch (error) {
         console.error("Failed to update start date:", error);
@@ -244,7 +272,11 @@ export default function KpiSheetPage() {
 
     setGeneratingLink(true);
     try {
-      await createShareLink(selectedSheetId, Number(shareExpiresHours));
+      const result = await createShareLink(selectedSheetId, Number(shareExpiresHours));
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setShareDialogOpen(false);
       await fetchSheets();
     } catch (error) {
@@ -258,7 +290,11 @@ export default function KpiSheetPage() {
   const handleDeleteShareLink = useCallback(
     async (linkId: number) => {
       try {
-        await deleteShareLink(linkId);
+        const result = await deleteShareLink(linkId);
+        if (!result.ok) {
+          alert(result.error);
+          return;
+        }
         await fetchSheets();
       } catch (error) {
         console.error("Failed to delete share link:", error);

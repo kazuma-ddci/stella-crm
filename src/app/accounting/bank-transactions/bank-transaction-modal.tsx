@@ -369,21 +369,42 @@ export function BankTransactionModal({
 
         let bankTxId: number;
         if (isEdit && editEntry) {
-          await updateBankTransaction(editEntry.id, data);
+          const result = await updateBankTransaction(editEntry.id, data);
+          if (!result.ok) {
+            toast.error(result.error);
+            return;
+          }
           bankTxId = editEntry.id;
         } else {
-          const created = await createBankTransaction(data);
-          bankTxId = created.id;
+          const result = await createBankTransaction(data);
+          if (!result.ok) {
+            toast.error(result.error);
+            return;
+          }
+          bankTxId = result.data.id;
         }
 
         // 紐付けリンクを置換
-        await replaceBankTransactionLinks(bankTxId, validatedAllocations, {
-          replaceManualReceipts: replaceManual,
-        });
+        const replaceResult = await replaceBankTransactionLinks(
+          bankTxId,
+          validatedAllocations,
+          { replaceManualReceipts: replaceManual }
+        );
+        if (!replaceResult.ok) {
+          toast.error(replaceResult.error);
+          return;
+        }
 
         // 紐付け完了フラグ
         if (linkCompleted !== (editEntry?.linkCompleted ?? false)) {
-          await setBankTransactionLinkCompleted(bankTxId, linkCompleted);
+          const completedResult = await setBankTransactionLinkCompleted(
+            bankTxId,
+            linkCompleted
+          );
+          if (!completedResult.ok) {
+            toast.error(completedResult.error);
+            return;
+          }
         }
 
         toast.success(isEdit ? "入出金を更新しました" : "入出金を登録しました");

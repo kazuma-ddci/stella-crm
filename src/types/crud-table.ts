@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { EditableCellOption } from "@/components/editable-cell";
+import type { ActionResult } from "@/lib/action-result";
 
 export type ColumnDef = {
   key: string;
@@ -76,9 +77,12 @@ export type CrudTableProps = {
   data: Record<string, unknown>[];
   columns: ColumnDef[];
   emptyMessage?: string;
-  onAdd?: (data: Record<string, unknown>) => Promise<void>;
-  onUpdate?: (id: number, data: Record<string, unknown>) => Promise<void>;
-  onDelete?: (id: number) => Promise<void>;
+  // ActionResult を返す新形式・void を返すレガシー形式の両方に対応。
+  // 戻り値が ActionResult 形式なら crud-table 内部の callAction が自動的に
+  // ok:false を検知して日本語エラーを toast 表示する。
+  onAdd?: (data: Record<string, unknown>) => Promise<void | ActionResult<unknown>>;
+  onUpdate?: (id: number, data: Record<string, unknown>) => Promise<void | ActionResult<unknown>>;
+  onDelete?: (id: number) => Promise<void | ActionResult<unknown>>;
   title?: string;
   addButtonLabel?: string; // 追加ボタンのラベル
   enableInputModeToggle?: boolean; // 簡易/詳細入力モード切り替えを有効にする

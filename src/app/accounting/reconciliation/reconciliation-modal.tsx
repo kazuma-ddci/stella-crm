@@ -240,7 +240,11 @@ export function ReconciliationModal({
         data.differenceType = "manual";
       }
 
-      await createReconciliation(data);
+      const result = await createReconciliation(data);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
 
       if (differenceType === "manual") {
         toast.success("消込を実行しました", {

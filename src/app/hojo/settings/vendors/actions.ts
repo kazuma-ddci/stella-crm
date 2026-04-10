@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 import { toBoolean } from "@/lib/utils";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 function generateToken(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -25,7 +26,8 @@ function parseStaffIds(value: unknown): number[] {
     .filter((n) => !isNaN(n) && n > 0);
 }
 
-export async function addVendor(data: Record<string, unknown>) {
+export async function addVendor(data: Record<string, unknown>): Promise<ActionResult> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   const maxOrder = await prisma.hojoVendor.aggregate({
@@ -88,9 +90,15 @@ export async function addVendor(data: Record<string, unknown>) {
   }
 
   revalidatePath("/hojo/settings/vendors");
+  return ok();
+  } catch (e) {
+    console.error("[addVendor] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function updateVendor(id: number, data: Record<string, unknown>) {
+export async function updateVendor(id: number, data: Record<string, unknown>): Promise<ActionResult> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   const currentVendor = await prisma.hojoVendor.findUnique({ where: { id } });
@@ -204,16 +212,22 @@ export async function updateVendor(id: number, data: Record<string, unknown>) {
   }
 
   revalidatePath("/hojo/settings/vendors");
+  return ok();
+  } catch (e) {
+    console.error("[updateVendor] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function deleteVendor(id: number) {
+export async function deleteVendor(id: number): Promise<ActionResult> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   const usageCount = await prisma.hojoApplicationSupport.count({
     where: { vendorId: id, deletedAt: null },
   });
   if (usageCount > 0) {
-    throw new Error(`このベンダーは${usageCount}件の申請管理で使用中のため削除できません`);
+    return err(`このベンダーは${usageCount}件の申請管理で使用中のため削除できません`);
   }
 
   const vendor = await prisma.hojoVendor.findUnique({
@@ -271,19 +285,30 @@ export async function deleteVendor(id: number) {
   }
 
   revalidatePath("/hojo/settings/vendors");
+  return ok();
+  } catch (e) {
+    console.error("[deleteVendor] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function reorderVendors(orderedIds: number[]) {
-  await requireProjectMasterDataEditPermission();
-  await prisma.$transaction(
-    orderedIds.map((id, index) =>
-      prisma.hojoVendor.update({
-        where: { id },
-        data: { displayOrder: index + 1 },
-      })
-    )
-  );
-  revalidatePath("/hojo/settings/vendors");
+export async function reorderVendors(orderedIds: number[]): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+    await prisma.$transaction(
+      orderedIds.map((id, index) =>
+        prisma.hojoVendor.update({
+          where: { id },
+          data: { displayOrder: index + 1 },
+        })
+      )
+    );
+    revalidatePath("/hojo/settings/vendors");
+    return ok();
+  } catch (e) {
+    console.error("[reorderVendors] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================
@@ -295,7 +320,8 @@ export async function addVendorContact(
   lineFriendId: number | null,
   joseiLineFriendId: number | null,
   extra?: { name?: string; role?: string; email?: string; phone?: string }
-) {
+): Promise<ActionResult> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   // 既存のcontactがなければisPrimary=true
@@ -331,6 +357,11 @@ export async function addVendorContact(
   }
 
   revalidatePath("/hojo/settings/vendors");
+  return ok();
+  } catch (e) {
+    console.error("[addVendorContact] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 export async function updateVendorContact(
@@ -338,13 +369,14 @@ export async function updateVendorContact(
   lineFriendId: number | null,
   joseiLineFriendId: number | null,
   extra?: { name?: string; role?: string; email?: string; phone?: string }
-) {
+): Promise<ActionResult> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   const contact = await prisma.hojoVendorContact.findUnique({
     where: { id: contactId },
   });
-  if (!contact) return;
+  if (!contact) return ok();
 
   // 旧紐づけのuserTypeを戻す
   if (contact.lineFriendId && contact.lineFriendId !== lineFriendId) {
@@ -403,15 +435,21 @@ export async function updateVendorContact(
   }
 
   revalidatePath("/hojo/settings/vendors");
+  return ok();
+  } catch (e) {
+    console.error("[updateVendorContact] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function deleteVendorContact(contactId: number) {
+export async function deleteVendorContact(contactId: number): Promise<ActionResult> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   const contact = await prisma.hojoVendorContact.findUnique({
     where: { id: contactId },
   });
-  if (!contact) return;
+  if (!contact) return ok();
 
   await prisma.hojoVendorContact.delete({
     where: { id: contactId },
@@ -462,15 +500,21 @@ export async function deleteVendorContact(contactId: number) {
   }
 
   revalidatePath("/hojo/settings/vendors");
+  return ok();
+  } catch (e) {
+    console.error("[deleteVendorContact] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function setPrimaryContact(contactId: number) {
+export async function setPrimaryContact(contactId: number): Promise<ActionResult> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   const contact = await prisma.hojoVendorContact.findUnique({
     where: { id: contactId },
   });
-  if (!contact) return;
+  if (!contact) return ok();
 
   // 同じベンダーの全contactのisPrimaryをfalseにしてから、指定のcontactをtrueにする
   await prisma.$transaction([
@@ -485,6 +529,11 @@ export async function setPrimaryContact(contactId: number) {
   ]);
 
   revalidatePath("/hojo/settings/vendors");
+  return ok();
+  } catch (e) {
+    console.error("[setPrimaryContact] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================
@@ -531,14 +580,15 @@ async function findOrCreateStatus(
   return null;
 }
 
-export async function createVendorFromFormSubmission(submissionId: number) {
+export async function createVendorFromFormSubmission(submissionId: number): Promise<ActionResult<{ vendorId: number; vendorName: string }>> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   const submission = await prisma.hojoFormSubmission.findUnique({
     where: { id: submissionId },
   });
   if (!submission || submission.formType !== "contract-confirmation") {
-    throw new Error("フォーム回答が見つかりません");
+    return err("フォーム回答が見つかりません");
   }
 
   const answers = submission.answers as Record<string, string>;
@@ -615,5 +665,9 @@ export async function createVendorFromFormSubmission(submissionId: number) {
   });
 
   revalidatePath("/hojo/settings/vendors");
-  return { vendorId: vendor.id, vendorName: vendor.name };
+  return ok({ vendorId: vendor.id, vendorName: vendor.name });
+  } catch (e) {
+    console.error("[createVendorFromFormSubmission] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }

@@ -7,6 +7,7 @@ import {
   recalcInvoiceGroupActualPaymentDate,
   recalcPaymentGroupActualPaymentDate,
 } from "@/lib/accounting/sync-payment-date";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // 銀行入出金履歴 (BankTransaction) ↔ 請求/支払グループ の分割紐付けシステム
@@ -116,18 +117,19 @@ export async function linkBankTransactionToGroups(
   bankTransactionId: number,
   allocations: LinkAllocation[],
   options?: { replaceManualReceipts?: boolean }
-): Promise<void> {
+): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
   if (allocations.length === 0) {
-    throw new Error("紐付け先が1つも指定されていません");
+    return err("紐付け先が1つも指定されていません");
   }
 
   // バリデーション
   for (const a of allocations) {
     if (!Number.isFinite(a.amount) || a.amount <= 0) {
-      throw new Error("割当金額は1以上の数値で入力してください");
+      return err("割当金額は1以上の数値で入力してください");
     }
   }
 
@@ -136,7 +138,7 @@ export async function linkBankTransactionToGroups(
     where: { id: bankTransactionId, deletedAt: null },
     select: { id: true, transactionDate: true },
   });
-  if (!bankTx) throw new Error("銀行入出金履歴が見つかりません");
+  if (!bankTx) return err("銀行入出金履歴が見つかりません");
 
   await prisma.$transaction(async (tx) => {
     // replaceManualReceipts = true の場合、対象グループの手動記録を削除
@@ -211,6 +213,11 @@ export async function linkBankTransactionToGroups(
   revalidatePath("/accounting/workflow");
   revalidatePath("/stp/finance/invoices");
   revalidatePath("/stp/finance/payment-groups");
+  return ok();
+  } catch (e) {
+    console.error("[linkBankTransactionToGroups] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
@@ -219,7 +226,10 @@ export async function linkBankTransactionToGroups(
 //
 // 1つのリンクを解除し、対応する InvoiceGroupReceipt / PaymentGroupPayment も削除する
 //
-export async function unlinkBankTransactionLink(linkId: number): Promise<void> {
+export async function unlinkBankTransactionLink(
+  linkId: number
+): Promise<ActionResult> {
+  try {
   await getSession();
 
   const link = await prisma.bankTransactionGroupLink.findUnique({
@@ -230,7 +240,7 @@ export async function unlinkBankTransactionLink(linkId: number): Promise<void> {
       paymentGroupId: true,
     },
   });
-  if (!link) throw new Error("紐付けが見つかりません");
+  if (!link) return err("紐付けが見つかりません");
 
   await prisma.$transaction(async (tx) => {
     // 対応する入金/支払記録を先に削除（onDelete: SetNull により自動削除されないため手動）
@@ -261,6 +271,11 @@ export async function unlinkBankTransactionLink(linkId: number): Promise<void> {
   revalidatePath("/accounting/workflow");
   revalidatePath("/stp/finance/invoices");
   revalidatePath("/stp/finance/payment-groups");
+  return ok();
+  } catch (e) {
+    console.error("[unlinkBankTransactionLink] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
@@ -273,21 +288,27 @@ export async function unlinkBankTransactionLink(linkId: number): Promise<void> {
 export async function setBankTransactionLinkCompleted(
   bankTransactionId: number,
   completed: boolean
-): Promise<void> {
-  await getSession();
+): Promise<ActionResult> {
+  try {
+    await getSession();
 
-  const bankTx = await prisma.bankTransaction.findFirst({
-    where: { id: bankTransactionId, deletedAt: null },
-    select: { id: true },
-  });
-  if (!bankTx) throw new Error("銀行入出金履歴が見つかりません");
+    const bankTx = await prisma.bankTransaction.findFirst({
+      where: { id: bankTransactionId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!bankTx) return err("銀行入出金履歴が見つかりません");
 
-  await prisma.bankTransaction.update({
-    where: { id: bankTransactionId },
-    data: { linkCompleted: completed },
-  });
+    await prisma.bankTransaction.update({
+      where: { id: bankTransactionId },
+      data: { linkCompleted: completed },
+    });
 
-  revalidatePath("/accounting/bank-transactions");
+    revalidatePath("/accounting/bank-transactions");
+    return ok();
+  } catch (e) {
+    console.error("[setBankTransactionLinkCompleted] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
@@ -300,7 +321,8 @@ export async function replaceBankTransactionLinks(
   bankTransactionId: number,
   allocations: LinkAllocation[],
   options?: { replaceManualReceipts?: boolean }
-): Promise<void> {
+): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -308,12 +330,12 @@ export async function replaceBankTransactionLinks(
     where: { id: bankTransactionId, deletedAt: null },
     select: { id: true, transactionDate: true },
   });
-  if (!bankTx) throw new Error("銀行入出金履歴が見つかりません");
+  if (!bankTx) return err("銀行入出金履歴が見つかりません");
 
   // バリデーション
   for (const a of allocations) {
     if (!Number.isFinite(a.amount) || a.amount <= 0) {
-      throw new Error("割当金額は1以上の数値で入力してください");
+      return err("割当金額は1以上の数値で入力してください");
     }
   }
 
@@ -431,4 +453,9 @@ export async function replaceBankTransactionLinks(
   revalidatePath("/accounting/workflow");
   revalidatePath("/stp/finance/invoices");
   revalidatePath("/stp/finance/payment-groups");
+  return ok();
+  } catch (e) {
+    console.error("[replaceBankTransactionLinks] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }

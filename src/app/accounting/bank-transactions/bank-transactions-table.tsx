@@ -82,15 +82,13 @@ export function BankTransactionsTable({ transactions, formData }: Props) {
 
   const handleDelete = (id: number) => {
     startTransition(async () => {
-      try {
-        await deleteBankTransaction(id);
-        toast.success("入出金を削除しました");
-        router.refresh();
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "削除に失敗しました"
-        );
+      const result = await deleteBankTransaction(id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
       }
+      toast.success("入出金を削除しました");
+      router.refresh();
     });
   };
 

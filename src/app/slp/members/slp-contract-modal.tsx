@@ -134,7 +134,10 @@ function ContractCard({
 
   const handleDelete = async () => {
     if (!confirm("この契約書を削除してもよろしいですか？")) return;
-    await handleAction("delete", () => deleteSlpMemberContract(contract.id));
+    await handleAction("delete", async () => {
+      const result = await deleteSlpMemberContract(contract.id);
+      if (!result.ok) throw new Error(result.error);
+    });
   };
 
   const handleRemind = () =>
@@ -146,10 +149,14 @@ function ContractCard({
   const handleSync = () =>
     handleAction("sync", async () => {
       const result = await syncContractCloudsignStatus(contract.id);
-      if (result.previousStatus === result.newStatus) {
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      if (result.data.previousStatus === result.data.newStatus) {
         toast.info("ステータスに変更はありません");
       } else {
-        toast.success(`同期しました: ${result.previousStatus} → ${result.newStatus}`);
+        toast.success(`同期しました: ${result.data.previousStatus} → ${result.data.newStatus}`);
       }
     });
 
@@ -157,7 +164,11 @@ function ContractCard({
     const newState = !contract.cloudsignAutoSync;
     if (!newState && !confirm("CloudSign側のステータス変更がCRMに反映されなくなります。よろしいですか？")) return;
     handleAction("autoSync", async () => {
-      await toggleCloudsignAutoSync(contract.id, newState);
+      const r = await toggleCloudsignAutoSync(contract.id, newState);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
       toast.success(newState ? "自動同期をONにしました" : "自動同期をOFFにしました");
     });
   };
@@ -167,7 +178,11 @@ function ContractCard({
     if (!docId?.trim()) return;
     if (!confirm(`ドキュメントID「${docId.trim()}」で同期しますか？`)) return;
     handleAction("link", async () => {
-      await linkCloudsignDocument(contract.id, docId.trim());
+      const r = await linkCloudsignDocument(contract.id, docId.trim());
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
       toast.success("CloudSignと紐付けました");
     });
   };
@@ -523,15 +538,23 @@ export function SlpContractModal({
       let savedId: number | null = editingId;
 
       if (editingId) {
-        await updateSlpMemberContract(editingId, data);
+        const updateResult = await updateSlpMemberContract(editingId, data);
+        if (!updateResult.ok) {
+          toast.error(updateResult.error);
+          return;
+        }
         toast.success("契約書を更新しました");
       } else {
-        const result = await addSlpMemberContract({
+        const addResult = await addSlpMemberContract({
           memberId,
           ...data,
         });
-        savedId = result.contractId;
-        toast.success(`契約書番号「${result.contractNumber}」で保存しました`);
+        if (!addResult.ok) {
+          toast.error(addResult.error);
+          return;
+        }
+        savedId = addResult.data.contractId;
+        toast.success(`契約書番号「${addResult.data.contractNumber}」で保存しました`);
       }
 
       // CloudSign書類IDが新たに入力された場合、紐付け＆同期
@@ -541,8 +564,12 @@ export function SlpContractModal({
         if (!existingContract?.cloudsignDocumentId) {
           if (confirm(`CloudSignドキュメントID「${docId}」で同期しますか？\nCloudSign側のステータスがCRMに反映されます。`)) {
             try {
-              await linkCloudsignDocument(savedId, docId);
-              toast.success("CloudSignと紐付けました");
+              const r = await linkCloudsignDocument(savedId, docId);
+              if (!r.ok) {
+                toast.error(r.error);
+              } else {
+                toast.success("CloudSignと紐付けました");
+              }
             } catch {
               toast.error("CloudSign紐付けに失敗しました。ドキュメントIDを確認してください。");
             }

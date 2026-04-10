@@ -135,7 +135,7 @@ export function EmailsModal({
     }
     setLoading(true);
     try {
-      const newEmail = await addOperatingCompanyEmail(companyId, {
+      const result = await addOperatingCompanyEmail(companyId, {
         email: form.email.trim(),
         label: form.label.trim() || null,
         isDefault: form.isDefault,
@@ -146,6 +146,11 @@ export function EmailsModal({
         imapPort: form.imapPort ? Number(form.imapPort) : null,
         enableInbound: form.enableInbound,
       });
+      if (!result.ok) {
+        toast.error(result.error || "追加に失敗しました");
+        return;
+      }
+      const newEmail = result.data;
       if (newEmail.isDefault) {
         setEmails((prev) => [
           ...prev.map((e) => ({ ...e, isDefault: false })),
@@ -170,7 +175,7 @@ export function EmailsModal({
     }
     setLoading(true);
     try {
-      const updated = await updateOperatingCompanyEmail(editEmail.id, {
+      const result = await updateOperatingCompanyEmail(editEmail.id, {
         email: form.email.trim(),
         label: form.label.trim() || null,
         isDefault: form.isDefault,
@@ -181,6 +186,11 @@ export function EmailsModal({
         imapPort: form.imapPort ? Number(form.imapPort) : null,
         enableInbound: form.enableInbound,
       });
+      if (!result.ok) {
+        toast.error(result.error || "更新に失敗しました");
+        return;
+      }
+      const updated = result.data;
       if (updated.isDefault) {
         setEmails(
           emails.map((e) =>
@@ -209,7 +219,11 @@ export function EmailsModal({
     if (!deleteConfirm) return;
     setLoading(true);
     try {
-      await deleteOperatingCompanyEmail(deleteConfirm.id);
+      const result = await deleteOperatingCompanyEmail(deleteConfirm.id);
+      if (!result.ok) {
+        toast.error(result.error || "削除に失敗しました");
+        return;
+      }
       setEmails(emails.filter((e) => e.id !== deleteConfirm.id));
       toast.success("メールアドレスを削除しました");
       setDeleteConfirm(null);

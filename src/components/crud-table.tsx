@@ -58,7 +58,24 @@ import { ChangeConfirmationDialog, ChangeItem, ChangeItemWithNote } from "@/comp
 import { cn, toLocalDateString, matchesWithWordBoundary } from "@/lib/utils";
 import { formatValue, formatForInput } from "@/lib/format-utils";
 import { toast } from "sonner";
+import { isActionResult } from "@/lib/action-result";
 import type { ColumnDef, CrudTableProps } from "@/types/crud-table";
+
+/**
+ * Server Action の戻り値を自動検知し、ActionResult 形式で ok:false なら
+ * クライアント側 Error を throw する。本番モードでの Next.js エラーサニタイズを
+ * 回避するための汎用ラッパー。
+ *
+ * レガシー（void を返す throw ベース）の action と、新形式（ActionResult を返す）
+ * の両方に対応する。
+ */
+async function callAction<T>(fn: () => Promise<T>): Promise<T> {
+  const result = await fn();
+  if (isActionResult(result) && !result.ok) {
+    throw new Error(result.error);
+  }
+  return result;
+}
 export type { ColumnDef, CustomAction, CustomRenderers, CustomFormField, CustomFormFields, DynamicOptionsMap, InlineEditConfig, CrudTableProps } from "@/types/crud-table";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
@@ -384,7 +401,7 @@ export function CrudTable({
       if (skipInlineConfirm && !isTrackedFieldForInline(columnKey)) {
         setInlineLoading(true);
         try {
-          await onUpdate!(row.id as number, { [columnKey]: newValue });
+          await callAction(() => onUpdate!(row.id as number, { [columnKey]: newValue }));
           toast.success("更新しました");
           setEditingCell(null);
         } catch (error) {
@@ -421,7 +438,7 @@ export function CrudTable({
       if (note && isTrackedField(pendingChange.columnKey)) {
         updateData.__changeNotes = { [pendingChange.columnKey]: note };
       }
-      await onUpdate(pendingChange.rowId, updateData);
+      await callAction(() => onUpdate(pendingChange.rowId, updateData));
       toast.success("更新しました");
       setEditingCell(null);
       setConfirmDialogOpen(false);
@@ -452,11 +469,59 @@ export function CrudTable({
     return formatDisplayValue(value, type, options);
   };
 
+  /**
+   * クライアント側で必須項目の入力チェックを行う。
+   *
+   * 背景: Next.js 本番ビルドでは Server Action 内で throw された Error の
+   * メッセージは自動的にサニタイズされ、日本語メッセージが
+   * "An error occurred in the Server Components render..." という英語汎用文言に
+   * 置き換わってしまう。そのため「UIDは必須です」等のバリデーションエラーは
+   * サーバー到達前にクライアント側で弾いて、ユーザーに日本語で表示する必要がある。
+   *
+   * @returns 不足している必須項目の日本語ヘッダー名配列（空配列ならOK）
+   */
+  const collectMissingRequiredFields = (
+    targetColumns: ColumnDef[]
+  ): string[] => {
+    const missing: string[] = [];
+    for (const col of targetColumns) {
+      if (!col.required) continue;
+      // visibleWhen / hiddenWhen 条件で非表示のカラムはチェック対象外
+      if (
+        col.visibleWhen &&
+        formData[col.visibleWhen.field] !== col.visibleWhen.value
+      ) {
+        continue;
+      }
+      if (
+        col.hiddenWhen &&
+        formData[col.hiddenWhen.field] === col.hiddenWhen.value
+      ) {
+        continue;
+      }
+      const v = formData[col.key];
+      const isEmpty =
+        v === undefined ||
+        v === null ||
+        (typeof v === "string" && v.trim() === "");
+      if (isEmpty) missing.push(col.header);
+    }
+    return missing;
+  };
+
   const handleAdd = async () => {
     if (!onAdd) return;
+
+    // 必須項目のクライアント側チェック
+    const missing = collectMissingRequiredFields(visibleColumnsForCreate);
+    if (missing.length > 0) {
+      toast.error(`入力必須項目です: ${missing.join("、")}`);
+      return;
+    }
+
     setLoading(true);
     try {
-      await onAdd(formData);
+      await callAction(() => onAdd(formData));
       toast.success("追加しました");
       setIsAddOpen(false);
       setFormData({});
@@ -546,6 +611,13 @@ export function CrudTable({
   const handleUpdate = async () => {
     if (!onUpdate || !editItem) return;
 
+    // 必須項目のクライアント側チェック（編集時も、必須項目を空にして更新しようとした場合に対策）
+    const missing = collectMissingRequiredFields(visibleColumnsForUpdate);
+    if (missing.length > 0) {
+      toast.error(`入力必須項目です: ${missing.join("、")}`);
+      return;
+    }
+
     const changedData = computeChangedData();
     if (!changedData) {
       toast.info("変更はありません");
@@ -568,7 +640,7 @@ export function CrudTable({
     // 警告なし・履歴管理対象なしの場合はそのまま更新
     setLoading(true);
     try {
-      await onUpdate(editItem.id as number, changedData);
+      await callAction(() => onUpdate(editItem.id as number, changedData));
       toast.success("更新しました");
       setEditItem(null);
       setFormData({});
@@ -599,7 +671,7 @@ export function CrudTable({
       const dataWithNotes = Object.keys(changeNotes).length > 0
         ? { ...editChangedData, __changeNotes: changeNotes }
         : editChangedData;
-      await onUpdate(editItem.id as number, dataWithNotes);
+      await callAction(() => onUpdate(editItem.id as number, dataWithNotes));
       toast.success("更新しました");
       setEditConfirmOpen(false);
       setEditItem(null);
@@ -626,13 +698,14 @@ export function CrudTable({
     if (!onDelete || !deleteItem) return;
     setLoading(true);
     try {
-      await onDelete(deleteItem.id as number);
+      await callAction(() => onDelete(deleteItem.id as number));
       toast.success("削除しました");
       setDeleteItem(null);
       setDeleteInfo(null);
       router.refresh();
-    } catch {
-      toast.error("削除に失敗しました");
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "削除に失敗しました";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

@@ -186,7 +186,11 @@ export function ContractCard({
     if (!confirm("この下書きを削除しますか？CloudSign側のドラフトも削除されます。")) return;
     setDeletingDraftId(contract.id);
     try {
-      await deleteDraftContract(contract.id);
+      const result = await deleteDraftContract(contract.id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("下書きを削除しました");
       await loadContracts();
       router.refresh();
@@ -205,7 +209,11 @@ export function ContractCard({
     setLinkingContractId(contract.id);
     try {
       const result = await linkCloudsignDocument(contract.id, docId.trim());
-      toast.success(`CloudSignと紐付けました（ステータス: ${result.newStatus}）`);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`CloudSignと紐付けました（ステータス: ${result.data.newStatus}）`);
       await loadContracts();
       router.refresh();
     } catch (error) {
@@ -333,10 +341,14 @@ export function ContractCard({
                       setSyncingContractId(contract.id);
                       try {
                         const result = await syncContractCloudsignStatus(contract.id);
-                        if (result.previousStatus === result.newStatus) {
+                        if (!result.ok) {
+                          toast.error(result.error);
+                          return;
+                        }
+                        if (result.data.previousStatus === result.data.newStatus) {
                           toast.info("ステータスに変更はありません");
                         } else {
-                          toast.success(`ステータスを同期しました: ${result.previousStatus} → ${result.newStatus}`);
+                          toast.success(`ステータスを同期しました: ${result.data.previousStatus} → ${result.data.newStatus}`);
                         }
                         await loadContracts();
                         router.refresh();
@@ -362,7 +374,11 @@ export function ContractCard({
                         }
                         setTogglingAutoSyncId(contract.id);
                         try {
-                          await toggleCloudsignAutoSync(contract.id, newState);
+                          const result = await toggleCloudsignAutoSync(contract.id, newState);
+                          if (!result.ok) {
+                            toast.error(result.error);
+                            return;
+                          }
                           toast.success(newState ? "自動同期をONにしました" : "自動同期をOFFにしました");
                           await loadContracts();
                           router.refresh();

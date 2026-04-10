@@ -24,11 +24,11 @@ export function SidebarCustomizer({ projects }: { projects: Project[] }) {
 
     const hiddenItems = updated.filter((i) => i.hidden).map((i) => i.key);
     startTransition(async () => {
-      try {
-        await updateSidebarPreference(hiddenItems);
+      const result = await updateSidebarPreference(hiddenItems);
+      if (result.ok) {
         toast.success("サイドバー設定を更新しました");
-      } catch {
-        toast.error("更新に失敗しました");
+      } else {
+        toast.error(result.error || "更新に失敗しました");
         // ロールバック
         setItems(items);
       }

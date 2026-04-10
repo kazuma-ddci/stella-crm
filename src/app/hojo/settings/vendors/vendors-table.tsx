@@ -137,7 +137,17 @@ export function VendorsTable({
       onDelete={canEdit ? deleteVendor : undefined}
       emptyMessage="ベンダーが登録されていません"
       sortableItems={canEdit ? sortableItems : undefined}
-      onReorder={canEdit ? reorderVendors : undefined}
+      onReorder={
+        canEdit
+          ? async (orderedIds) => {
+              const result = await reorderVendors(orderedIds);
+              if (!result.ok) {
+                const { toast } = await import("sonner");
+                toast.error(result.error);
+              }
+            }
+          : undefined
+      }
       customRenderers={customRenderers}
     />
   );

@@ -11,6 +11,7 @@ import {
   moveSlideToFolder,
 } from "@/lib/proposals/slide-generator";
 import type { ProposalContent } from "@/lib/proposals/simulation";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 /**
  * 紐付け時にスライドを企業フォルダへ移動（エラーはログのみ）
@@ -60,7 +61,8 @@ export async function processAsNewCompany(
     revenueScale?: string;
     websiteUrl?: string;
   }
-) {
+): Promise<ActionResult<{ masterCompany: { id: number; companyCode: string; name: string }; stpCompany: { id: number } }>> {
+ try {
   const user = await requireEdit("stp");
   const submission = await prisma.stpLeadFormSubmission.findUnique({
     where: { id: submissionId },
@@ -74,11 +76,11 @@ export async function processAsNewCompany(
   });
 
   if (!submission) {
-    throw new Error("フォーム回答が見つかりません");
+    return err("フォーム回答が見つかりません");
   }
 
   if (submission.status !== "pending") {
-    throw new Error("この回答は既に処理されています");
+    return err("この回答は既に処理されています");
   }
 
   // トランザクションで全顧客マスタとSTP企業を作成
@@ -195,7 +197,11 @@ export async function processAsNewCompany(
   revalidatePath("/stp/companies");
   revalidatePath("/companies");
 
-  return result;
+  return ok(result);
+ } catch (e) {
+  console.error("[processAsNewCompany] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // 既存企業に紐付けて処理
@@ -214,7 +220,8 @@ export async function processWithExistingCompany(
     revenueScale?: string;
     websiteUrl?: string;
   }
-) {
+): Promise<ActionResult<unknown>> {
+ try {
   const user = await requireEdit("stp");
   const submission = await prisma.stpLeadFormSubmission.findUnique({
     where: { id: submissionId },
@@ -228,11 +235,11 @@ export async function processWithExistingCompany(
   });
 
   if (!submission) {
-    throw new Error("フォーム回答が見つかりません");
+    return err("フォーム回答が見つかりません");
   }
 
   if (submission.status !== "pending") {
-    throw new Error("この回答は既に処理されています");
+    return err("この回答は既に処理されています");
   }
 
   // 既存企業がSTP企業として登録済みかチェック
@@ -394,7 +401,11 @@ export async function processWithExistingCompany(
   revalidatePath("/stp/companies");
   revalidatePath(`/companies/${masterCompanyId}`);
 
-  return result;
+  return ok(result);
+ } catch (e) {
+  console.error("[processWithExistingCompany] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // フォーム回答を編集
@@ -424,7 +435,8 @@ export async function updateSubmission(
     masterCompanyId?: number | null;
     overwriteAgent?: boolean;
   }
-) {
+): Promise<ActionResult> {
+ try {
   await requireEdit("stp");
   const submission = await prisma.stpLeadFormSubmission.findUnique({
     where: { id: submissionId },
@@ -434,7 +446,7 @@ export async function updateSubmission(
   });
 
   if (!submission) {
-    throw new Error("フォーム回答が見つかりません");
+    return err("フォーム回答が見つかりません");
   }
 
   await prisma.$transaction(async (tx) => {
@@ -489,24 +501,30 @@ export async function updateSubmission(
   if (data.masterCompanyId && data.masterCompanyId !== submission.masterCompanyId) {
     revalidatePath(`/companies/${data.masterCompanyId}`);
   }
+  return ok();
+ } catch (e) {
+  console.error("[updateSubmission] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // 却下する
 export async function rejectSubmission(
   submissionId: number,
   processingNote?: string
-) {
+): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
   const submission = await prisma.stpLeadFormSubmission.findUnique({
     where: { id: submissionId },
   });
 
   if (!submission) {
-    throw new Error("フォーム回答が見つかりません");
+    return err("フォーム回答が見つかりません");
   }
 
   if (submission.status !== "pending") {
-    throw new Error("この回答は既に処理されています");
+    return err("この回答は既に処理されています");
   }
 
   await prisma.stpLeadFormSubmission.update({
@@ -521,6 +539,11 @@ export async function rejectSubmission(
   await logActivity({ model: "StpLeadFormSubmission", recordId: submissionId, action: "update", summary: "リード回答を却下", userId: user.id });
 
   revalidatePath("/stp/lead-submissions");
+  return ok();
+ } catch (e) {
+  console.error("[rejectSubmission] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // STP企業のノートを生成

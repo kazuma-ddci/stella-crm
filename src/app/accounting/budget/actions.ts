@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // 型定義
@@ -107,20 +108,31 @@ export async function getBudgets(
 // バリデーション
 // ============================================
 
-function validateBudgetData(data: Record<string, unknown>) {
+type ValidatedBudget = {
+  categoryLabel: string;
+  targetMonth: Date;
+  budgetAmount: number;
+  costCenterId: number | null;
+  accountId: number | null;
+  memo: string | null;
+};
+
+function validateBudgetData(
+  data: Record<string, unknown>
+): { ok: true; value: ValidatedBudget } | { ok: false; error: string } {
   // categoryLabel
   const categoryLabel = (data.categoryLabel as string)?.trim();
   if (!categoryLabel) {
-    throw new Error("カテゴリラベルは必須です");
+    return { ok: false, error: "カテゴリラベルは必須です" };
   }
 
   // targetMonth
   if (!data.targetMonth) {
-    throw new Error("対象月は必須です");
+    return { ok: false, error: "対象月は必須です" };
   }
   const targetMonth = new Date(data.targetMonth as string);
   if (isNaN(targetMonth.getTime())) {
-    throw new Error("対象月が無効な日付です");
+    return { ok: false, error: "対象月が無効な日付です" };
   }
   // 月初日に正規化
   targetMonth.setDate(1);
@@ -129,161 +141,189 @@ function validateBudgetData(data: Record<string, unknown>) {
   // budgetAmount
   const budgetAmount = Number(data.budgetAmount);
   if (data.budgetAmount === undefined || data.budgetAmount === null || isNaN(budgetAmount) || !Number.isInteger(budgetAmount)) {
-    throw new Error("予算額は整数で入力してください");
+    return { ok: false, error: "予算額は整数で入力してください" };
   }
 
   // costCenterId
   const costCenterId = data.costCenterId ? Number(data.costCenterId) : null;
   if (costCenterId !== null && isNaN(costCenterId)) {
-    throw new Error("コストセンターIDが不正です");
+    return { ok: false, error: "コストセンターIDが不正です" };
   }
 
   // accountId
   const accountId = data.accountId ? Number(data.accountId) : null;
   if (accountId !== null && isNaN(accountId)) {
-    throw new Error("勘定科目IDが不正です");
+    return { ok: false, error: "勘定科目IDが不正です" };
   }
 
   // memo
   const memo = data.memo ? (data.memo as string).trim() : null;
 
-  return { categoryLabel, targetMonth, budgetAmount, costCenterId, accountId, memo };
+  return {
+    ok: true,
+    value: { categoryLabel, targetMonth, budgetAmount, costCenterId, accountId, memo },
+  };
 }
 
 // ============================================
 // CRUD操作
 // ============================================
 
-export async function createBudget(data: Record<string, unknown>) {
-  const session = await getSession();
-  const staffId = session.id;
+export async function createBudget(
+  data: Record<string, unknown>
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    const staffId = session.id;
 
-  const { categoryLabel, targetMonth, budgetAmount, costCenterId, accountId, memo } =
-    validateBudgetData(data);
+    const validatedRes = validateBudgetData(data);
+    if (!validatedRes.ok) return err(validatedRes.error);
+    const { categoryLabel, targetMonth, budgetAmount, costCenterId, accountId, memo } =
+      validatedRes.value;
 
-  // コストセンター存在チェック
-  if (costCenterId) {
-    const cc = await prisma.costCenter.findFirst({
-      where: { id: costCenterId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!cc) {
-      throw new Error("指定されたコストセンターが見つかりません");
+    // コストセンター存在チェック
+    if (costCenterId) {
+      const cc = await prisma.costCenter.findFirst({
+        where: { id: costCenterId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!cc) {
+        return err("指定されたコストセンターが見つかりません");
+      }
     }
-  }
 
-  // 勘定科目存在チェック
-  if (accountId) {
-    const account = await prisma.account.findUnique({
-      where: { id: accountId },
-      select: { id: true },
-    });
-    if (!account) {
-      throw new Error("指定された勘定科目が見つかりません");
-    }
-  }
-
-  // 重複チェック（同じコストセンター×カテゴリ×月）
-  const existing = await prisma.budget.findFirst({
-    where: {
-      costCenterId: costCenterId,
-      categoryLabel,
-      targetMonth,
-    },
-    select: { id: true },
-  });
-  if (existing) {
-    throw new Error(
-      `同じコストセンター・カテゴリ・月の予算が既に存在します（ID: ${existing.id}）`
-    );
-  }
-
-  await prisma.budget.create({
-    data: {
-      costCenterId,
-      accountId,
-      categoryLabel,
-      targetMonth,
-      budgetAmount,
-      memo,
-      createdBy: staffId,
-    },
-  });
-
-  revalidatePath("/accounting/budget");
-}
-
-export async function updateBudget(id: number, data: Record<string, unknown>) {
-  const session = await getSession();
-  const staffId = session.id;
-
-  const existing = await prisma.budget.findUnique({
-    where: { id },
-    select: { id: true },
-  });
-  if (!existing) {
-    throw new Error("予算が見つかりません");
-  }
-
-  const updateData: Record<string, unknown> = {};
-
-  if ("categoryLabel" in data) {
-    const categoryLabel = (data.categoryLabel as string)?.trim();
-    if (!categoryLabel) throw new Error("カテゴリラベルは必須です");
-    updateData.categoryLabel = categoryLabel;
-  }
-
-  if ("budgetAmount" in data) {
-    const budgetAmount = Number(data.budgetAmount);
-    if (isNaN(budgetAmount) || !Number.isInteger(budgetAmount)) {
-      throw new Error("予算額は整数で入力してください");
-    }
-    updateData.budgetAmount = budgetAmount;
-  }
-
-  if ("accountId" in data) {
-    const accountId = data.accountId ? Number(data.accountId) : null;
+    // 勘定科目存在チェック
     if (accountId) {
       const account = await prisma.account.findUnique({
         where: { id: accountId },
         select: { id: true },
       });
-      if (!account) throw new Error("指定された勘定科目が見つかりません");
+      if (!account) {
+        return err("指定された勘定科目が見つかりません");
+      }
     }
-    updateData.accountId = accountId;
+
+    // 重複チェック（同じコストセンター×カテゴリ×月）
+    const existing = await prisma.budget.findFirst({
+      where: {
+        costCenterId: costCenterId,
+        categoryLabel,
+        targetMonth,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      return err(
+        `同じコストセンター・カテゴリ・月の予算が既に存在します（ID: ${existing.id}）`
+      );
+    }
+
+    await prisma.budget.create({
+      data: {
+        costCenterId,
+        accountId,
+        categoryLabel,
+        targetMonth,
+        budgetAmount,
+        memo,
+        createdBy: staffId,
+      },
+    });
+
+    revalidatePath("/accounting/budget");
+    return ok();
+  } catch (e) {
+    console.error("[createBudget] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  if ("memo" in data) {
-    updateData.memo = data.memo ? (data.memo as string).trim() : null;
-  }
-
-  updateData.updatedBy = staffId;
-
-  await prisma.budget.update({
-    where: { id },
-    data: updateData,
-  });
-
-  revalidatePath("/accounting/budget");
 }
 
-export async function deleteBudget(id: number) {
-  const session = await getSession();
-  void session; // 認証確認のみ
+export async function updateBudget(
+  id: number,
+  data: Record<string, unknown>
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    const staffId = session.id;
 
-  const existing = await prisma.budget.findUnique({
-    where: { id },
-    select: { id: true },
-  });
-  if (!existing) {
-    throw new Error("予算が見つかりません");
+    const existing = await prisma.budget.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!existing) {
+      return err("予算が見つかりません");
+    }
+
+    const updateData: Record<string, unknown> = {};
+
+    if ("categoryLabel" in data) {
+      const categoryLabel = (data.categoryLabel as string)?.trim();
+      if (!categoryLabel) return err("カテゴリラベルは必須です");
+      updateData.categoryLabel = categoryLabel;
+    }
+
+    if ("budgetAmount" in data) {
+      const budgetAmount = Number(data.budgetAmount);
+      if (isNaN(budgetAmount) || !Number.isInteger(budgetAmount)) {
+        return err("予算額は整数で入力してください");
+      }
+      updateData.budgetAmount = budgetAmount;
+    }
+
+    if ("accountId" in data) {
+      const accountId = data.accountId ? Number(data.accountId) : null;
+      if (accountId) {
+        const account = await prisma.account.findUnique({
+          where: { id: accountId },
+          select: { id: true },
+        });
+        if (!account) return err("指定された勘定科目が見つかりません");
+      }
+      updateData.accountId = accountId;
+    }
+
+    if ("memo" in data) {
+      updateData.memo = data.memo ? (data.memo as string).trim() : null;
+    }
+
+    updateData.updatedBy = staffId;
+
+    await prisma.budget.update({
+      where: { id },
+      data: updateData,
+    });
+
+    revalidatePath("/accounting/budget");
+    return ok();
+  } catch (e) {
+    console.error("[updateBudget] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
+}
 
-  await prisma.budget.delete({
-    where: { id },
-  });
+export async function deleteBudget(id: number): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    void session; // 認証確認のみ
 
-  revalidatePath("/accounting/budget");
+    const existing = await prisma.budget.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!existing) {
+      return err("予算が見つかりません");
+    }
+
+    await prisma.budget.delete({
+      where: { id },
+    });
+
+    revalidatePath("/accounting/budget");
+    return ok();
+  } catch (e) {
+    console.error("[deleteBudget] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================
@@ -296,60 +336,65 @@ export async function copyBudgetMonth(
   sourceMonth: number, // 0-indexed (0=1月)
   targetYear: number,
   targetMonth: number // 0-indexed
-) {
-  const session = await getSession();
-  const staffId = session.id;
+): Promise<ActionResult<{ copied: number; skipped: number }>> {
+  try {
+    const session = await getSession();
+    const staffId = session.id;
 
-  const sourceDate = new Date(sourceYear, sourceMonth, 1);
-  const targetDate = new Date(targetYear, targetMonth, 1);
+    const sourceDate = new Date(sourceYear, sourceMonth, 1);
+    const targetDate = new Date(targetYear, targetMonth, 1);
 
-  // コピー元の予算取得
-  const sourceBudgets = await prisma.budget.findMany({
-    where: {
-      costCenterId: sourceCostCenterId,
-      targetMonth: sourceDate,
-    },
-  });
+    // コピー元の予算取得
+    const sourceBudgets = await prisma.budget.findMany({
+      where: {
+        costCenterId: sourceCostCenterId,
+        targetMonth: sourceDate,
+      },
+    });
 
-  if (sourceBudgets.length === 0) {
-    throw new Error("コピー元の月に予算データがありません");
+    if (sourceBudgets.length === 0) {
+      return err("コピー元の月に予算データがありません");
+    }
+
+    // コピー先に既存データがあるかチェック
+    const existingTarget = await prisma.budget.findMany({
+      where: {
+        costCenterId: sourceCostCenterId,
+        targetMonth: targetDate,
+      },
+      select: { id: true, categoryLabel: true },
+    });
+
+    const existingLabels = new Set(existingTarget.map((b) => b.categoryLabel));
+
+    // 既存でないものだけコピー
+    const toCreate = sourceBudgets.filter(
+      (b) => !existingLabels.has(b.categoryLabel)
+    );
+
+    if (toCreate.length === 0) {
+      return err("コピー先の月にはすべてのカテゴリが既に存在します");
+    }
+
+    await prisma.budget.createMany({
+      data: toCreate.map((b) => ({
+        costCenterId: b.costCenterId,
+        accountId: b.accountId,
+        categoryLabel: b.categoryLabel,
+        targetMonth: targetDate,
+        budgetAmount: b.budgetAmount,
+        memo: b.memo,
+        createdBy: staffId,
+      })),
+    });
+
+    revalidatePath("/accounting/budget");
+
+    return ok({ copied: toCreate.length, skipped: existingLabels.size });
+  } catch (e) {
+    console.error("[copyBudgetMonth] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  // コピー先に既存データがあるかチェック
-  const existingTarget = await prisma.budget.findMany({
-    where: {
-      costCenterId: sourceCostCenterId,
-      targetMonth: targetDate,
-    },
-    select: { id: true, categoryLabel: true },
-  });
-
-  const existingLabels = new Set(existingTarget.map((b) => b.categoryLabel));
-
-  // 既存でないものだけコピー
-  const toCreate = sourceBudgets.filter(
-    (b) => !existingLabels.has(b.categoryLabel)
-  );
-
-  if (toCreate.length === 0) {
-    throw new Error("コピー先の月にはすべてのカテゴリが既に存在します");
-  }
-
-  await prisma.budget.createMany({
-    data: toCreate.map((b) => ({
-      costCenterId: b.costCenterId,
-      accountId: b.accountId,
-      categoryLabel: b.categoryLabel,
-      targetMonth: targetDate,
-      budgetAmount: b.budgetAmount,
-      memo: b.memo,
-      createdBy: staffId,
-    })),
-  });
-
-  revalidatePath("/accounting/budget");
-
-  return { copied: toCreate.length, skipped: existingLabels.size };
 }
 
 // ============================================
@@ -373,7 +418,8 @@ export type RecurringBudgetPreviewItem = {
 export async function previewBudgetFromRecurring(
   fiscalYear: number,
   costCenterId: number | null
-): Promise<RecurringBudgetPreviewItem[]> {
+): Promise<ActionResult<RecurringBudgetPreviewItem[]>> {
+  try {
   await getSession();
 
   const recurring = await prisma.recurringTransaction.findMany({
@@ -393,7 +439,7 @@ export async function previewBudgetFromRecurring(
   });
 
   if (recurring.length === 0) {
-    throw new Error("対象となる定期取引（固定金額・アクティブ）がありません");
+    return err("対象となる定期取引（固定金額・アクティブ）がありません");
   }
 
   const preview: RecurringBudgetPreviewItem[] = [];
@@ -426,13 +472,18 @@ export async function previewBudgetFromRecurring(
     }
   }
 
-  return preview;
+  return ok(preview);
+  } catch (e) {
+    console.error("[previewBudgetFromRecurring] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 export async function generateBudgetFromRecurring(
   fiscalYear: number,
   costCenterId: number | null
-) {
+): Promise<ActionResult<{ created: number; skipped: number }>> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -454,7 +505,7 @@ export async function generateBudgetFromRecurring(
   });
 
   if (recurring.length === 0) {
-    throw new Error("対象となる定期取引（固定金額・アクティブ）がありません");
+    return err("対象となる定期取引（固定金額・アクティブ）がありません");
   }
 
   let created = 0;
@@ -501,7 +552,11 @@ export async function generateBudgetFromRecurring(
 
   revalidatePath("/accounting/budget");
 
-  return { created, skipped };
+  return ok({ created, skipped });
+  } catch (e) {
+    console.error("[generateBudgetFromRecurring] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 /**

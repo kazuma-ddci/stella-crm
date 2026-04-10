@@ -197,7 +197,7 @@ export function TransactionsTable({ data, deletedData, counterpartyOptions }: Pr
   // 取引確定アクション
   const handleConfirm = async (id: number) => {
     const result = await confirmTransaction(id);
-    if (result && "error" in result) {
+    if (!result.ok) {
       toast.error(result.error);
       return;
     }
@@ -210,7 +210,7 @@ export function TransactionsTable({ data, deletedData, counterpartyOptions }: Pr
   // 確定取消アクション
   const handleUnconfirm = async (id: number) => {
     const result = await unconfirmTransaction(id);
-    if (result && "error" in result) {
+    if (!result.ok) {
       toast.error(result.error);
       return;
     }
@@ -222,15 +222,15 @@ export function TransactionsTable({ data, deletedData, counterpartyOptions }: Pr
 
   // 削除アクション
   const handleDelete = async (id: number) => {
-    try {
-      await deleteTransaction(id);
-      toast.success("取引を削除しました");
-      startTransition(() => {
-        router.refresh();
-      });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "削除に失敗しました");
+    const result = await deleteTransaction(id);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    toast.success("取引を削除しました");
+    startTransition(() => {
+      router.refresh();
+    });
   };
 
   return (

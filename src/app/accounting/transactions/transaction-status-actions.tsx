@@ -39,7 +39,7 @@ export function TransactionStatusActions({
     setError(null);
     startTransition(async () => {
       const result = await confirmTransaction(transactionId);
-      if (result && "error" in result) {
+      if (!result.ok) {
         setError(result.error);
         return;
       }
@@ -51,7 +51,7 @@ export function TransactionStatusActions({
     setError(null);
     startTransition(async () => {
       const result = await unconfirmTransaction(transactionId);
-      if (result && "error" in result) {
+      if (!result.ok) {
         setError(result.error);
         return;
       }
@@ -62,12 +62,12 @@ export function TransactionStatusActions({
   const handleDelete = () => {
     setError(null);
     startTransition(async () => {
-      try {
-        await deleteTransaction(transactionId);
-        router.refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "エラーが発生しました");
+      const result = await deleteTransaction(transactionId);
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
+      router.refresh();
     });
   };
 

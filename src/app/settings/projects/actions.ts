@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 import { getSession } from "@/lib/auth";
 import { toBoolean } from "@/lib/utils";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 export async function updateProject(id: number, data: Record<string, unknown>) {
   await requireProjectMasterDataEditPermission();
@@ -278,14 +279,6 @@ export async function updateProjectEmailMemo(
 // プロジェクトメール: メール設定更新（admin専用）
 // ============================================
 
-async function requireSystemAdmin() {
-  const user = await getSession();
-  if (user.loginId !== "admin") {
-    throw new Error("メール設定の変更にはシステム管理者権限が必要です");
-  }
-  return user;
-}
-
 export async function updateEmailSettings(
   emailId: number,
   data: {
@@ -296,40 +289,49 @@ export async function updateEmailSettings(
     imapPort?: number | null;
     enableInbound?: boolean;
   }
-): Promise<void> {
-  const user = await requireSystemAdmin();
-
-  const updateData: Record<string, unknown> = { updatedBy: user.id };
-  if ("smtpHost" in data) updateData.smtpHost = data.smtpHost ?? null;
-  if ("smtpPort" in data) updateData.smtpPort = data.smtpPort ?? null;
-  if ("smtpPass" in data && data.smtpPass) {
-    updateData.smtpPass = data.smtpPass;
-    updateData.imapPass = data.smtpPass;
-  }
-  if ("imapHost" in data) updateData.imapHost = data.imapHost ?? null;
-  if ("imapPort" in data) updateData.imapPort = data.imapPort ?? null;
-  if ("enableInbound" in data) updateData.enableInbound = data.enableInbound;
-
-  // smtpUser/imapUser はメールアドレスと同じ値を自動設定
-  // enableInbound有効化時にimapPassが未設定ならsmtpPassをコピー
-  const email = await prisma.operatingCompanyEmail.findUnique({
-    where: { id: emailId },
-    select: { email: true, smtpPass: true, imapPass: true },
-  });
-  if (email) {
-    updateData.smtpUser = email.email;
-    updateData.imapUser = email.email;
-    if (data.enableInbound && !updateData.imapPass && !email.imapPass && email.smtpPass) {
-      updateData.imapPass = email.smtpPass;
+): Promise<ActionResult> {
+  try {
+    const user = await getSession();
+    if (user.loginId !== "admin") {
+      return err("メール設定の変更にはシステム管理者権限が必要です");
     }
+
+    const updateData: Record<string, unknown> = { updatedBy: user.id };
+    if ("smtpHost" in data) updateData.smtpHost = data.smtpHost ?? null;
+    if ("smtpPort" in data) updateData.smtpPort = data.smtpPort ?? null;
+    if ("smtpPass" in data && data.smtpPass) {
+      updateData.smtpPass = data.smtpPass;
+      updateData.imapPass = data.smtpPass;
+    }
+    if ("imapHost" in data) updateData.imapHost = data.imapHost ?? null;
+    if ("imapPort" in data) updateData.imapPort = data.imapPort ?? null;
+    if ("enableInbound" in data) updateData.enableInbound = data.enableInbound;
+
+    // smtpUser/imapUser はメールアドレスと同じ値を自動設定
+    // enableInbound有効化時にimapPassが未設定ならsmtpPassをコピー
+    const email = await prisma.operatingCompanyEmail.findUnique({
+      where: { id: emailId },
+      select: { email: true, smtpPass: true, imapPass: true },
+    });
+    if (email) {
+      updateData.smtpUser = email.email;
+      updateData.imapUser = email.email;
+      if (data.enableInbound && !updateData.imapPass && !email.imapPass && email.smtpPass) {
+        updateData.imapPass = email.smtpPass;
+      }
+    }
+
+    await prisma.operatingCompanyEmail.update({
+      where: { id: emailId },
+      data: updateData,
+    });
+
+    revalidatePath("/settings/projects");
+    return ok();
+  } catch (e) {
+    console.error("[updateEmailSettings] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  await prisma.operatingCompanyEmail.update({
-    where: { id: emailId },
-    data: updateData,
-  });
-
-  revalidatePath("/settings/projects");
 }
 
 /** @deprecated updateEmailSettings を使用してください */

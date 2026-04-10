@@ -7,22 +7,29 @@ import { getRelatedDataCounts } from "@/lib/company/get-related-data-counts";
 import type { CompanyRelatedData } from "@/types/company-merge";
 import { getSession } from "@/lib/auth";
 import { updateCounterpartyForCompany, deactivateCounterpartyForCompany } from "@/lib/counterparty-sync";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
-export async function deleteCompany(id: number) {
-  await prisma.masterStellaCompany.update({
-    where: { id },
-    data: { deletedAt: new Date() },
-  });
-
-  // Counterpartyも無効化
+export async function deleteCompany(id: number): Promise<ActionResult> {
   try {
-    const session = await getSession();
-    await deactivateCounterpartyForCompany(id, session.id);
-  } catch {
-    // 同期失敗時は無視
-  }
+    await prisma.masterStellaCompany.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
 
-  revalidatePath("/companies");
+    // Counterpartyも無効化
+    try {
+      const session = await getSession();
+      await deactivateCounterpartyForCompany(id, session.id);
+    } catch {
+      // 同期失敗時は無視
+    }
+
+    revalidatePath("/companies");
+    return ok();
+  } catch (e) {
+    console.error("[deleteCompany] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 export async function getCompanyDeleteInfo(id: number): Promise<CompanyRelatedData> {
@@ -44,54 +51,60 @@ export async function updateCompany(
     paymentMonthOffset?: number | null;
     paymentDay?: number | null;
   }
-) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const updateData: Record<string, any> = {};
+): Promise<ActionResult> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updateData: Record<string, any> = {};
 
-  if ("name" in data) updateData.name = data.name;
-  if ("nameKana" in data) updateData.nameKana = data.nameKana || null;
-  if ("corporateNumber" in data) {
-    const validation = validateCorporateNumber(data.corporateNumber);
-    if (!validation.valid) {
-      throw new Error(validation.error!);
+    if ("name" in data) updateData.name = data.name;
+    if ("nameKana" in data) updateData.nameKana = data.nameKana || null;
+    if ("corporateNumber" in data) {
+      const validation = validateCorporateNumber(data.corporateNumber);
+      if (!validation.valid) {
+        return err(validation.error!);
+      }
+      if (validation.normalized) {
+        const existing = await prisma.masterStellaCompany.findFirst({
+          where: { corporateNumber: validation.normalized, id: { not: id } },
+          select: { id: true, name: true },
+        });
+        if (existing) {
+          return err(`この法人番号は既に「${existing.name}」に登録されています`);
+        }
+      }
+      updateData.corporateNumber = validation.normalized;
     }
-    if (validation.normalized) {
-      const existing = await prisma.masterStellaCompany.findFirst({
-        where: { corporateNumber: validation.normalized, id: { not: id } },
-        select: { id: true, name: true },
+    if ("companyType" in data) updateData.companyType = data.companyType || null;
+    if ("websiteUrl" in data) updateData.websiteUrl = data.websiteUrl || null;
+    if ("industry" in data) updateData.industry = data.industry || null;
+    if ("revenueScale" in data) updateData.revenueScale = data.revenueScale || null;
+    if ("note" in data) updateData.note = data.note || null;
+    if ("closingDay" in data) updateData.closingDay = data.closingDay ?? null;
+    if ("paymentMonthOffset" in data) updateData.paymentMonthOffset = data.paymentMonthOffset ?? null;
+    if ("paymentDay" in data) updateData.paymentDay = data.paymentDay ?? null;
+
+    if (Object.keys(updateData).length > 0) {
+      await prisma.masterStellaCompany.update({
+        where: { id },
+        data: updateData,
       });
-      if (existing) {
-        throw new Error(`この法人番号は既に「${existing.name}」に登録されています`);
+    }
+
+    // 設計書8.6: 名称変更時、紐づくCounterpartyの名称も同期更新
+    if ("name" in data && data.name) {
+      try {
+        const session = await getSession();
+        await updateCounterpartyForCompany(id, data.name, session.id);
+      } catch {
+        // 同期失敗時は無視
       }
     }
-    updateData.corporateNumber = validation.normalized;
-  }
-  if ("companyType" in data) updateData.companyType = data.companyType || null;
-  if ("websiteUrl" in data) updateData.websiteUrl = data.websiteUrl || null;
-  if ("industry" in data) updateData.industry = data.industry || null;
-  if ("revenueScale" in data) updateData.revenueScale = data.revenueScale || null;
-  if ("note" in data) updateData.note = data.note || null;
-  if ("closingDay" in data) updateData.closingDay = data.closingDay ?? null;
-  if ("paymentMonthOffset" in data) updateData.paymentMonthOffset = data.paymentMonthOffset ?? null;
-  if ("paymentDay" in data) updateData.paymentDay = data.paymentDay ?? null;
 
-  if (Object.keys(updateData).length > 0) {
-    await prisma.masterStellaCompany.update({
-      where: { id },
-      data: updateData,
-    });
+    revalidatePath("/companies");
+    revalidatePath(`/companies/${id}`);
+    return ok();
+  } catch (e) {
+    console.error("[updateCompany] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  // 設計書8.6: 名称変更時、紐づくCounterpartyの名称も同期更新
-  if ("name" in data && data.name) {
-    try {
-      const session = await getSession();
-      await updateCounterpartyForCompany(id, data.name, session.id);
-    } catch {
-      // 同期失敗時は無視
-    }
-  }
-
-  revalidatePath("/companies");
-  revalidatePath(`/companies/${id}`);
 }

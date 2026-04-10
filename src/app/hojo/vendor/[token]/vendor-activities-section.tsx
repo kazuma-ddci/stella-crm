@@ -58,12 +58,12 @@ export function VendorActivitiesSection({ data, vendorId, canEdit }: Props) {
   const [taskDialog, setTaskDialog] = useState<{ activityId: number; tasks: TaskRecord[]; label: string } | null>(null);
 
   const handleNotesSave = async (activityId: number, value: string) => {
-    try {
-      await updateActivityNotesByVendor(activityId, vendorId, value);
-      router.refresh();
-    } catch {
-      alert("保存に失敗しました");
+    const result = await updateActivityNotesByVendor(activityId, vendorId, value);
+    if (!result.ok) {
+      alert(result.error);
+      return;
     }
+    router.refresh();
   };
 
   if (data.length === 0) {

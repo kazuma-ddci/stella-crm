@@ -72,6 +72,10 @@ export function ContractStatusModal({
       setLoading(true);
       try {
         const result = await getContractStatusManagementData(contractId);
+        if (!result) {
+          toast.error("契約書が見つかりません");
+          return;
+        }
         setData(result);
       } catch (error) {
         console.error("Failed to load contract status data:", error);
@@ -107,7 +111,7 @@ export function ContractStatusModal({
       if (result.success) {
         // データを再読み込み
         const newData = await getContractStatusManagementData(contractId);
-        setData(newData);
+        if (newData) setData(newData);
         toast.success(result.autoSync ? "CloudSign同期をONにしました" : "CloudSign同期をOFFにしました");
       } else {
         toast.error(result.error ?? "同期設定の変更に失敗しました");

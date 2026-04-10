@@ -98,8 +98,19 @@ export function DuplicatesCheck({ initialPairs }: Props) {
     });
 
     try {
-      const impact = await getCounterpartyMergeImpact(sourceId, targetId);
-      setImpactDialog((prev) => ({ ...prev, impact, loading: false }));
+      const result = await getCounterpartyMergeImpact(sourceId, targetId);
+      if (!result.ok) {
+        toast.error(result.error);
+        setImpactDialog({
+          open: false,
+          impact: null,
+          loading: false,
+          sourceId: 0,
+          targetId: 0,
+        });
+        return;
+      }
+      setImpactDialog((prev) => ({ ...prev, impact: result.data, loading: false }));
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -125,8 +136,12 @@ export function DuplicatesCheck({ initialPairs }: Props) {
         impactDialog.sourceId,
         impactDialog.targetId
       );
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success(
-        `統合が完了しました（${result.totalUpdated}件のレコードを付替え）`
+        `統合が完了しました（${result.data.totalUpdated}件のレコードを付替え）`
       );
       setImpactDialog({
         open: false,

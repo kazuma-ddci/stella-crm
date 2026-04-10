@@ -7,6 +7,7 @@ import { generateContractNumber } from "@/lib/contracts/generate-number";
 import { recordContractCreationInTx } from "@/lib/contract-status/record-status-change";
 import { cloudsignClient } from "@/lib/cloudsign";
 import { syncContractStatus, saveSignedPdf } from "@/lib/cloudsign-sync";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // Types
@@ -100,14 +101,22 @@ export async function getTemplatesForContractType(contractTypeId: number) {
  * 3. 送信（即時の場合）
  * 4. DB契約書レコード作成
  */
-export async function sendContractViaCloudsign(input: SendContractInput) {
+export async function sendContractViaCloudsign(input: SendContractInput): Promise<ActionResult<{
+  id: number;
+  contractNumber: string | null;
+  cloudsignDocumentId: string;
+  cloudsignUrl: string;
+  cloudsignStatus: string;
+  selfSigningRequired: boolean;
+}>> {
+ try {
   const session = await getSession();
   const changedBy = session.name ?? null;
 
   // 運営法人を取得
   const operatingCompany = await getOperatingCompanyForProject(input.projectId);
   if (!operatingCompany?.cloudsignClientId) {
-    throw new Error(
+    return err(
       "運営法人にクラウドサインのクライアントIDが設定されていません"
     );
   }
@@ -284,14 +293,18 @@ export async function sendContractViaCloudsign(input: SendContractInput) {
   revalidatePath("/stp/agents");
   revalidatePath("/stp/contracts");
 
-  return {
+  return ok({
     id: contract.id,
     contractNumber: contract.contractNumber,
     cloudsignDocumentId: documentId,
     cloudsignUrl,
     cloudsignStatus,
     selfSigningRequired,
-  };
+  });
+ } catch (e) {
+  console.error("[sendContractViaCloudsign] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // ============================================
@@ -307,7 +320,8 @@ export async function saveDraftContract(input: {
   cloudsignDocumentId: string;
   assignedTo?: string;
   note?: string;
-}): Promise<{ id: number; contractNumber: string }> {
+}): Promise<ActionResult<{ id: number; contractNumber: string }>> {
+ try {
   const session = await getSession();
   const changedBy = session.name ?? null;
 
@@ -354,14 +368,19 @@ export async function saveDraftContract(input: {
   revalidatePath("/stp/companies");
   revalidatePath("/stp/contracts");
 
-  return { id: contract.id, contractNumber: contract.contractNumber || "" };
+  return ok({ id: contract.id, contractNumber: contract.contractNumber || "" });
+ } catch (e) {
+  console.error("[saveDraftContract] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // ============================================
 // 5. 下書き削除
 // ============================================
 
-export async function deleteDraftContract(contractId: number): Promise<void> {
+export async function deleteDraftContract(contractId: number): Promise<ActionResult> {
+ try {
   const contract = await prisma.masterContract.findUnique({
     where: { id: contractId },
     select: {
@@ -372,9 +391,9 @@ export async function deleteDraftContract(contractId: number): Promise<void> {
     },
   });
 
-  if (!contract) throw new Error("契約書が見つかりません");
+  if (!contract) return err("契約書が見つかりません");
   if (contract.cloudsignStatus !== "draft") {
-    throw new Error("下書き以外の契約書は削除できません");
+    return err("下書き以外の契約書は削除できません");
   }
 
   // CloudSign API から削除（失敗してもDB削除は続行）
@@ -400,6 +419,11 @@ export async function deleteDraftContract(contractId: number): Promise<void> {
 
   revalidatePath("/stp/companies");
   revalidatePath("/stp/contracts");
+  return ok();
+ } catch (e) {
+  console.error("[deleteDraftContract] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // ============================================
@@ -446,7 +470,8 @@ export async function getDraftsForCompany(companyId: number) {
 /**
  * 単一契約のCloudSignステータスを手動で同期
  */
-export async function syncContractCloudsignStatus(contractId: number) {
+export async function syncContractCloudsignStatus(contractId: number): Promise<ActionResult<{ previousStatus: string | null; newStatus: string }>> {
+ try {
   const contract = await prisma.masterContract.findUnique({
     where: { id: contractId },
     select: {
@@ -463,7 +488,7 @@ export async function syncContractCloudsignStatus(contractId: number) {
   });
 
   if (!contract || !contract.cloudsignDocumentId) {
-    throw new Error("CloudSign連携契約が見つかりません");
+    return err("CloudSign連携契約が見つかりません");
   }
 
   const operatingCompany = contract.projectId
@@ -471,7 +496,7 @@ export async function syncContractCloudsignStatus(contractId: number) {
     : null;
 
   if (!operatingCompany?.cloudsignClientId) {
-    throw new Error("運営法人のクラウドサインClientIDが未設定です");
+    return err("運営法人のクラウドサインClientIDが未設定です");
   }
 
   const token = await cloudsignClient.getToken(operatingCompany.cloudsignClientId);
@@ -480,7 +505,7 @@ export async function syncContractCloudsignStatus(contractId: number) {
   // CloudSign APIステータス → CRMステータス名
   const mappedStatus = mapCloudsignApiStatus(doc.status, doc);
   if (!mappedStatus) {
-    throw new Error(`未知のCloudSignステータス: ${doc.status}`);
+    return err(`未知のCloudSignステータス: ${doc.status}`);
   }
 
   const session = await getSession();
@@ -513,7 +538,7 @@ export async function syncContractCloudsignStatus(contractId: number) {
     revalidatePath("/stp/companies");
     revalidatePath("/stp/agents");
     revalidatePath("/stp/contracts");
-    return { previousStatus: contract.cloudsignStatus, newStatus: mappedStatus };
+    return ok({ previousStatus: contract.cloudsignStatus, newStatus: mappedStatus });
   }
 
   await syncContractStatus(
@@ -533,7 +558,11 @@ export async function syncContractCloudsignStatus(contractId: number) {
   revalidatePath("/stp/agents");
   revalidatePath("/stp/contracts");
 
-  return { previousStatus: contract.cloudsignStatus, newStatus: mappedStatus };
+  return ok({ previousStatus: contract.cloudsignStatus, newStatus: mappedStatus });
+ } catch (e) {
+  console.error("[syncContractCloudsignStatus] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // ============================================
@@ -547,11 +576,13 @@ export async function syncContractCloudsignStatus(contractId: number) {
 export async function toggleCloudsignAutoSync(
   contractId: number,
   enabled: boolean
-) {
+): Promise<ActionResult> {
+ try {
   if (enabled) {
     // ONに戻す場合: 最新ステータスを同期してからフラグを更新
-    // 同期失敗時はフラグを更新せずエラーをそのまま投げる
-    await syncContractCloudsignStatus(contractId);
+    // 同期失敗時はフラグを更新せずエラーを返す
+    const syncResult = await syncContractCloudsignStatus(contractId);
+    if (!syncResult.ok) return syncResult;
   }
 
   await prisma.masterContract.update({
@@ -562,6 +593,11 @@ export async function toggleCloudsignAutoSync(
   revalidatePath("/stp/companies");
   revalidatePath("/stp/agents");
   revalidatePath("/stp/contracts");
+  return ok();
+ } catch (e) {
+  console.error("[toggleCloudsignAutoSync] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // ============================================
@@ -575,7 +611,8 @@ export async function toggleCloudsignAutoSync(
 export async function linkCloudsignDocument(
   contractId: number,
   documentId: string
-) {
+): Promise<ActionResult<{ previousStatus: string | null; newStatus: string }>> {
+ try {
   const trimmedId = documentId.trim();
 
   // 契約のプロジェクトIDを取得
@@ -584,14 +621,14 @@ export async function linkCloudsignDocument(
     select: { projectId: true },
   });
   if (!contract) {
-    throw new Error("契約が見つかりません");
+    return err("契約が見つかりません");
   }
 
   const operatingCompany = contract.projectId
     ? await getOperatingCompanyForProject(contract.projectId)
     : null;
   if (!operatingCompany?.cloudsignClientId) {
-    throw new Error("運営法人のクラウドサインClientIDが未設定です");
+    return err("運営法人のクラウドサインClientIDが未設定です");
   }
 
   // 先にCloudSign APIでドキュメントの存在を検証
@@ -600,7 +637,7 @@ export async function linkCloudsignDocument(
   try {
     doc = await cloudsignClient.getDocument(token, trimmedId);
   } catch {
-    throw new Error("CloudSignにこのドキュメントIDの書類が見つかりません。IDを確認してください。");
+    return err("CloudSignにこのドキュメントIDの書類が見つかりません。IDを確認してください。");
   }
 
   // 検証OK → DB保存
@@ -650,6 +687,10 @@ export async function linkCloudsignDocument(
   revalidatePath("/stp/contracts");
 
   return result;
+ } catch (e) {
+  console.error("[linkCloudsignDocument] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 /**

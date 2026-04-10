@@ -161,7 +161,11 @@ export function ContactsModal({
     if (location.isPrimary || primaryLoading) return;
     setPrimaryLoading(location.id);
     try {
-      await updateLocation(location.id, { ...location, isPrimary: true });
+      const result = await updateLocation(location.id, { ...location, isPrimary: true });
+      if (!result.ok) {
+        toast.error(result.error || "更新に失敗しました");
+        return;
+      }
       setLocations(
         locations.map((l) => ({
           ...l,
@@ -181,7 +185,11 @@ export function ContactsModal({
     if (contact.isPrimary || primaryLoading) return;
     setPrimaryLoading(contact.id);
     try {
-      await updateContact(contact.id, { ...contact, isPrimary: true });
+      const result = await updateContact(contact.id, { ...contact, isPrimary: true });
+      if (!result.ok) {
+        toast.error(result.error || "更新に失敗しました");
+        return;
+      }
       setContacts(
         contacts.map((c) => ({
           ...c,
@@ -221,7 +229,12 @@ export function ContactsModal({
     }
     setLoading(true);
     try {
-      const newLocation = await addLocation(companyId, locationFormData);
+      const result = await addLocation(companyId, locationFormData);
+      if (!result.ok) {
+        toast.error(result.error || "追加に失敗しました");
+        return;
+      }
+      const newLocation = result.data;
       if (locationFormData.isPrimary) {
         setLocations([
           ...locations.map((l) => ({ ...l, isPrimary: false })),
@@ -247,7 +260,12 @@ export function ContactsModal({
     }
     setLoading(true);
     try {
-      const updated = await updateLocation(editLocation.id, locationFormData);
+      const result = await updateLocation(editLocation.id, locationFormData);
+      if (!result.ok) {
+        toast.error(result.error || "更新に失敗しました");
+        return;
+      }
+      const updated = result.data;
       if (locationFormData.isPrimary) {
         setLocations(
           locations.map((l) =>
@@ -277,7 +295,11 @@ export function ContactsModal({
     if (!deleteLocationConfirm) return;
     setLoading(true);
     try {
-      await deleteLocation(deleteLocationConfirm.id);
+      const result = await deleteLocation(deleteLocationConfirm.id);
+      if (!result.ok) {
+        toast.error(result.error || "削除に失敗しました");
+        return;
+      }
       setLocations(locations.filter((l) => l.id !== deleteLocationConfirm.id));
       toast.success("拠点を削除しました");
       setDeleteLocationConfirm(null);
@@ -313,7 +335,12 @@ export function ContactsModal({
     }
     setLoading(true);
     try {
-      const newContact = await addContact(companyId, contactFormData);
+      const result = await addContact(companyId, contactFormData);
+      if (!result.ok) {
+        toast.error(result.error || "追加に失敗しました");
+        return;
+      }
+      const newContact = result.data;
       if (contactFormData.isPrimary) {
         setContacts([
           ...contacts.map((c) => ({ ...c, isPrimary: false })),
@@ -342,7 +369,12 @@ export function ContactsModal({
     }
     setLoading(true);
     try {
-      const updated = await updateContact(editContact.id, contactFormData);
+      const result = await updateContact(editContact.id, contactFormData);
+      if (!result.ok) {
+        toast.error(result.error || "更新に失敗しました");
+        return;
+      }
+      const updated = result.data;
       if (contactFormData.isPrimary) {
         setContacts(
           contacts.map((c) =>
@@ -375,7 +407,11 @@ export function ContactsModal({
     if (!deleteContactConfirm) return;
     setLoading(true);
     try {
-      await deleteContact(deleteContactConfirm.id);
+      const result = await deleteContact(deleteContactConfirm.id);
+      if (!result.ok) {
+        toast.error(result.error || "削除に失敗しました");
+        return;
+      }
       setContacts(contacts.filter((c) => c.id !== deleteContactConfirm.id));
       toast.success("担当者を削除しました");
       setDeleteContactConfirm(null);
@@ -414,8 +450,12 @@ export function ContactsModal({
     }
     setLoading(true);
     try {
-      const newBankAccount = await addBankAccount(companyId, bankAccountFormData);
-      setBankAccounts([...bankAccounts, newBankAccount as unknown as BankAccount]);
+      const result = await addBankAccount(companyId, bankAccountFormData);
+      if (!result.ok) {
+        toast.error(result.error || "追加に失敗しました");
+        return;
+      }
+      setBankAccounts([...bankAccounts, result.data as unknown as BankAccount]);
       toast.success("銀行情報を追加しました");
       setIsAddBankAccountMode(false);
       setBankAccountFormData({});
@@ -436,7 +476,12 @@ export function ContactsModal({
     }
     setLoading(true);
     try {
-      const updated = await updateBankAccount(editBankAccount.id, bankAccountFormData);
+      const result = await updateBankAccount(editBankAccount.id, bankAccountFormData);
+      if (!result.ok) {
+        toast.error(result.error || "更新に失敗しました");
+        return;
+      }
+      const updated = result.data;
       setBankAccounts(
         bankAccounts.map((b) =>
           b.id === editBankAccount.id ? (updated as unknown as BankAccount) : b
@@ -456,7 +501,11 @@ export function ContactsModal({
     if (!deleteBankAccountConfirm) return;
     setLoading(true);
     try {
-      await deleteBankAccount(deleteBankAccountConfirm.id);
+      const result = await deleteBankAccount(deleteBankAccountConfirm.id);
+      if (!result.ok) {
+        toast.error(result.error || "削除に失敗しました");
+        return;
+      }
       setBankAccounts(bankAccounts.filter((b) => b.id !== deleteBankAccountConfirm.id));
       toast.success("銀行情報を削除しました");
       setDeleteBankAccountConfirm(null);

@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Upload, FileText, Trash2, CheckCircle2, Clock, Link2, Copy, Check, Video, Film } from "lucide-react";
 import { activateDocument, deleteDocument, activateVideo, deleteVideo } from "./actions";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 // 資料・動画ビューアは顧客向けドメイン (customer.koutekiseido-japan.com) 経由で配信する
 // stg: https://stg-customer.koutekiseido-japan.com
@@ -286,7 +287,11 @@ function VideoManagementTab({ videos, canEdit }: { videos: VideoItem[]; canEdit:
   const handleActivate = async (id: number) => {
     setActionLoading(id);
     try {
-      await activateVideo(id);
+      const result = await activateVideo(id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       router.refresh();
     } finally {
       setActionLoading(null);
@@ -296,7 +301,11 @@ function VideoManagementTab({ videos, canEdit }: { videos: VideoItem[]; canEdit:
   const handleDelete = async (id: number) => {
     setActionLoading(id);
     try {
-      await deleteVideo(id);
+      const result = await deleteVideo(id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       router.refresh();
     } finally {
       setActionLoading(null);
@@ -541,7 +550,11 @@ export function DocumentManagement({ documents, videos, accessLogs, canEdit }: P
   const handleActivate = async (id: number) => {
     setActionLoading(id);
     try {
-      await activateDocument(id);
+      const result = await activateDocument(id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       router.refresh();
     } finally {
       setActionLoading(null);
@@ -551,7 +564,11 @@ export function DocumentManagement({ documents, videos, accessLogs, canEdit }: P
   const handleDelete = async (id: number) => {
     setActionLoading(id);
     try {
-      await deleteDocument(id);
+      const result = await deleteDocument(id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       router.refresh();
     } finally {
       setActionLoading(null);

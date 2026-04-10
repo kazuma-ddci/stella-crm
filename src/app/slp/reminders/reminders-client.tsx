@@ -21,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Loader2, Bell, BellOff } from "lucide-react";
+import { toast } from "sonner";
 import { updateReminderDays, toggleReminderExcluded } from "./actions";
 
 type MemberRow = {
@@ -50,7 +51,11 @@ export function RemindersClient({ projectId, reminderDays, members }: Props) {
     setSaving(true);
     setSaveSuccess(false);
     try {
-      await updateReminderDays(projectId, parsed);
+      const result = await updateReminderDays(projectId, parsed);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } finally {
@@ -61,7 +66,10 @@ export function RemindersClient({ projectId, reminderDays, members }: Props) {
   const handleToggleExcluded = async (memberId: number) => {
     setTogglingId(memberId);
     try {
-      await toggleReminderExcluded(memberId);
+      const result = await toggleReminderExcluded(memberId);
+      if (!result.ok) {
+        toast.error(result.error);
+      }
     } finally {
       setTogglingId(null);
     }

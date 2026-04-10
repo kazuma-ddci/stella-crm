@@ -176,19 +176,25 @@ function GroupsTab({ groups, canEdit }: { groups: GroupData[]; canEdit: boolean 
 
   const handleDeleteGroup = async () => {
     if (!deleteTarget) return;
-    try {
-      await deleteGroup(deleteTarget.id);
-      toast.success("グループを削除しました");
-    } catch { toast.error("削除に失敗しました"); }
+    const result = await deleteGroup(deleteTarget.id);
+    if (!result.ok) {
+      toast.error(result.error);
+      setDeleteTarget(null);
+      return;
+    }
+    toast.success("グループを削除しました");
     setDeleteTarget(null);
   };
 
   const handleDeleteTopic = async () => {
     if (!deleteTopicTarget) return;
-    try {
-      await deleteTopic(deleteTopicTarget.id);
-      toast.success("トピックを削除しました");
-    } catch { toast.error("削除に失敗しました"); }
+    const result = await deleteTopic(deleteTopicTarget.id);
+    if (!result.ok) {
+      toast.error(result.error);
+      setDeleteTopicTarget(null);
+      return;
+    }
+    toast.success("トピックを削除しました");
     setDeleteTopicTarget(null);
   };
 
@@ -312,12 +318,16 @@ function GroupDialog({ group, onClose }: { group: GroupData | null; onClose: () 
   const handleSave = async () => {
     if (!name.trim() || !chatId.trim()) { toast.error("全項目を入力してください"); return; }
     setSaving(true);
-    try {
-      if (group) { await updateGroup(group.id, { name: name.trim(), chatId: chatId.trim() }); }
-      else { await createGroup({ name: name.trim(), chatId: chatId.trim() }); }
-      toast.success(group ? "更新しました" : "追加しました");
-      onClose();
-    } catch { toast.error("保存に失敗しました"); }
+    const result = group
+      ? await updateGroup(group.id, { name: name.trim(), chatId: chatId.trim() })
+      : await createGroup({ name: name.trim(), chatId: chatId.trim() });
+    if (!result.ok) {
+      toast.error(result.error);
+      setSaving(false);
+      return;
+    }
+    toast.success(group ? "更新しました" : "追加しました");
+    onClose();
     setSaving(false);
   };
 
@@ -346,12 +356,16 @@ function TopicDialog({ groupId, topic, onClose }: { groupId: number; topic: Topi
   const handleSave = async () => {
     if (!name.trim() || !topicId.trim()) { toast.error("全項目を入力してください"); return; }
     setSaving(true);
-    try {
-      if (topic) { await updateTopic(topic.id, { name: name.trim(), topicId: topicId.trim() }); }
-      else { await createTopic({ groupId, name: name.trim(), topicId: topicId.trim() }); }
-      toast.success(topic ? "更新しました" : "追加しました");
-      onClose();
-    } catch { toast.error("保存に失敗しました"); }
+    const result = topic
+      ? await updateTopic(topic.id, { name: name.trim(), topicId: topicId.trim() })
+      : await createTopic({ groupId, name: name.trim(), topicId: topicId.trim() });
+    if (!result.ok) {
+      toast.error(result.error);
+      setSaving(false);
+      return;
+    }
+    toast.success(topic ? "更新しました" : "追加しました");
+    onClose();
     setSaving(false);
   };
 
@@ -386,18 +400,25 @@ function BotsTab({ bots, canEdit }: { bots: BotData[]; canEdit: boolean }) {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    try { await deleteBot(deleteTarget.id); toast.success("削除しました"); }
-    catch { toast.error("削除に失敗しました"); }
+    const result = await deleteBot(deleteTarget.id);
+    if (!result.ok) {
+      toast.error(result.error);
+      setDeleteTarget(null);
+      return;
+    }
+    toast.success("削除しました");
     setDeleteTarget(null);
   };
 
   const handleTest = async () => {
     if (!testBotTarget) return;
-    try {
-      await testBot(testBotTarget.id, testChatId);
-      toast.success("テストメッセージを送信しました");
-      setTestBotTarget(null); setTestChatId("");
-    } catch (err) { toast.error(`テスト送信失敗: ${err instanceof Error ? err.message : "不明なエラー"}`); }
+    const result = await testBot(testBotTarget.id, testChatId);
+    if (!result.ok) {
+      toast.error(`テスト送信失敗: ${result.error}`);
+      return;
+    }
+    toast.success("テストメッセージを送信しました");
+    setTestBotTarget(null); setTestChatId("");
   };
 
   const maskToken = (t: string) => t.length <= 10 ? "****" : t.substring(0, 6) + "****" + t.substring(t.length - 4);
@@ -481,12 +502,16 @@ function BotDialog({ bot, onClose }: { bot: BotData | null; onClose: () => void 
   const handleSave = async () => {
     if (!name.trim() || !token.trim()) { toast.error("全項目を入力してください"); return; }
     setSaving(true);
-    try {
-      if (bot) { await updateBot(bot.id, { name: name.trim(), token: token.trim() }); }
-      else { await createBot({ name: name.trim(), token: token.trim() }); }
-      toast.success(bot ? "更新しました" : "追加しました");
-      onClose();
-    } catch { toast.error("保存に失敗しました"); }
+    const result = bot
+      ? await updateBot(bot.id, { name: name.trim(), token: token.trim() })
+      : await createBot({ name: name.trim(), token: token.trim() });
+    if (!result.ok) {
+      toast.error(result.error);
+      setSaving(false);
+      return;
+    }
+    toast.success(bot ? "更新しました" : "追加しました");
+    onClose();
     setSaving(false);
   };
 
@@ -525,14 +550,23 @@ function RulesTab({ rules, bots, groups, canEdit }: { rules: RuleData[]; bots: B
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    try { await deleteRule(deleteTarget.id); toast.success("削除しました"); }
-    catch { toast.error("削除に失敗しました"); }
+    const result = await deleteRule(deleteTarget.id);
+    if (!result.ok) {
+      toast.error(result.error);
+      setDeleteTarget(null);
+      return;
+    }
+    toast.success("削除しました");
     setDeleteTarget(null);
   };
 
   const handleToggle = async (rule: RuleData) => {
-    try { await toggleRule(rule.id, !rule.isActive); toast.success(rule.isActive ? "無効にしました" : "有効にしました"); }
-    catch { toast.error("変更に失敗しました"); }
+    const result = await toggleRule(rule.id, !rule.isActive);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(rule.isActive ? "無効にしました" : "有効にしました");
   };
 
   const eventLabel = (t: string) => EVENT_TYPES.find((e) => e.value === t)?.label || t;
@@ -755,8 +789,15 @@ function RuleEditor({ rule, bots, groups, onClose }: { rule: RuleData | null; bo
           : [],
       };
 
-      if (rule) { await updateRule(rule.id, input); toast.success("更新しました"); }
-      else { await createRule(input); toast.success("作成しました"); }
+      const result = rule
+        ? await updateRule(rule.id, input)
+        : await createRule(input);
+      if (!result.ok) {
+        toast.error(`保存失敗: ${result.error}`);
+        setSaving(false);
+        return;
+      }
+      toast.success(rule ? "更新しました" : "作成しました");
       onClose();
     } catch (err) { toast.error(`保存失敗: ${err instanceof Error ? err.message : "不明なエラー"}`); }
     setSaving(false);

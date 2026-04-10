@@ -403,7 +403,10 @@ export function StaffTable({ data, projectOptions, permissionProjects, editableP
       customFormFields={permFormFields}
       emptyMessage="スタッフが登録されていません"
       sortableItems={sortableItems}
-      onReorder={reorderStaff}
+      onReorder={async (ids) => {
+        const result = await reorderStaff(ids);
+        if (!result.ok) throw new Error(result.error);
+      }}
       dynamicOptions={dynamicOptions}
       stickyLeftCount={1}
     />

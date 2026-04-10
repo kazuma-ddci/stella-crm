@@ -643,7 +643,11 @@ export function BillingLifecycleView({
         paymentDueDate: item.expectedPaymentDeadline ?? undefined,
       };
       const result = await createTransactionFromBilling(input);
-      toast.success(`取引を作成しました（ID: ${result.transactionId}）`);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`取引を作成しました（ID: ${result.data.transactionId}）`);
       await loadRevenueData(selectedMonth);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "取引化に失敗しました");
@@ -670,7 +674,11 @@ export function BillingLifecycleView({
         paymentDueDate: item.expectedPaymentDeadline ?? undefined,
       }));
       const result = await bulkCreateTransactionsFromBilling(inputs);
-      toast.success(`${result.created}件の取引を作成しました`);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${result.data.created}件の取引を作成しました`);
       await loadRevenueData(selectedMonth);
     } catch {
       toast.error("一括取引化に失敗しました");
@@ -696,7 +704,11 @@ export function BillingLifecycleView({
         agentName: item.agentName,
         companyName: item.companyName,
       });
-      toast.success(`経費取引を作成しました（ID: ${result.transactionId}）`);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`経費取引を作成しました（ID: ${result.data.transactionId}）`);
       await loadExpenseData(selectedMonth);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "経費取引化に失敗しました");
@@ -727,7 +739,11 @@ export function BillingLifecycleView({
         companyName: item.companyName,
       }));
       const result = await bulkCreateTransactionsFromExpenses(inputs);
-      toast.success(`${result.created}件の経費取引を作成しました`);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${result.data.created}件の経費取引を作成しました`);
       await loadExpenseData(selectedMonth);
     } catch {
       toast.error("一括取引化に失敗しました");

@@ -358,23 +358,27 @@ export function CandidatesTable({ data, stpCompanyOptions, contractOptionsByStpC
   );
 
   const handleAdd = async (formData: Record<string, unknown>) => {
-    await addCandidate(formData);
+    return await addCandidate(formData);
   };
 
   const handleUpdate = async (
     id: number,
     formData: Record<string, unknown>
   ) => {
-    await updateCandidate(id, formData);
+    return await updateCandidate(id, formData);
   };
 
   const handleDelete = async (id: number) => {
-    await deleteCandidate(id);
+    return await deleteCandidate(id);
   };
 
   const handleRestore = async (row: Record<string, unknown>) => {
     try {
-      await restoreCandidate(row.id as number);
+      const result = await restoreCandidate(row.id as number);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       router.refresh();
       toast.success("復元しました");
     } catch {
@@ -390,10 +394,14 @@ export function CandidatesTable({ data, stpCompanyOptions, contractOptionsByStpC
     }
     setNameEditLoading(true);
     try {
-      await updateCandidate(nameEditRow.id as number, {
+      const result = await updateCandidate(nameEditRow.id as number, {
         lastName: editLastName.trim(),
         firstName: editFirstName.trim(),
       });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       router.refresh();
       setNameEditOpen(false);
       toast.success("候補者名を更新しました");
@@ -503,7 +511,11 @@ export function CandidatesTable({ data, stpCompanyOptions, contractOptionsByStpC
                 text={value as string | null}
                 title="メモ書き"
                 onEdit={async (newValue) => {
-                  await updateCandidate(row.id as number, { note: newValue });
+                  const r = await updateCandidate(row.id as number, { note: newValue });
+                  if (!r.ok) {
+                    alert(r.error);
+                    return;
+                  }
                   router.refresh();
                 }}
               />

@@ -21,9 +21,9 @@ type Props = {
   canEdit: boolean;
   vendorOptions: { value: string; label: string }[];
   contractOptions: { value: string; label: string }[];
-  onAddOverride?: (data: Record<string, unknown>) => Promise<void>;
-  onUpdateOverride?: (id: number, data: Record<string, unknown>) => Promise<void>;
-  onDeleteOverride?: (id: number) => Promise<void>;
+  onAddOverride?: (data: Record<string, unknown>) => Promise<void | import("@/lib/action-result").ActionResult>;
+  onUpdateOverride?: (id: number, data: Record<string, unknown>) => Promise<void | import("@/lib/action-result").ActionResult>;
+  onDeleteOverride?: (id: number) => Promise<void | import("@/lib/action-result").ActionResult>;
   hideVendorColumn?: boolean;
   notesReadOnly?: boolean;
   defaultVendorId?: string;

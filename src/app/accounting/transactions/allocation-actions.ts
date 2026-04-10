@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth";
 import { Prisma } from "@prisma/client";
 import { createNotificationBulk } from "@/lib/notifications/create-notification";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 const REVALIDATE_PATH = "/accounting/transactions";
 
@@ -67,7 +68,8 @@ export type AllocationStatusResult = {
 
 export async function getAllocationStatus(
   transactionId: number
-): Promise<AllocationStatusResult | null> {
+): Promise<ActionResult<AllocationStatusResult | null>> {
+  try {
   const transaction = await prisma.transaction.findFirst({
     where: { id: transactionId, deletedAt: null },
     include: {
@@ -90,11 +92,11 @@ export async function getAllocationStatus(
   });
 
   if (!transaction) {
-    throw new Error("取引が見つかりません");
+    return err("取引が見つかりません");
   }
 
   if (!transaction.allocationTemplateId || !transaction.allocationTemplate) {
-    return null; // 按分なし
+    return ok(null); // 按分なし
   }
 
   const amountIncludingTax = transaction.amount + transaction.taxAmount;
@@ -172,7 +174,7 @@ export async function getAllocationStatus(
   ).length;
   const totalRequired = confirmations.length;
 
-  return {
+  return ok({
     transactionId,
     transactionStatus: transaction.status,
     amountIncludingTax,
@@ -181,85 +183,95 @@ export async function getAllocationStatus(
     pending: totalRequired - totalConfirmed,
     isFullyConfirmed: totalConfirmed === totalRequired,
     confirmations,
-  };
+  });
+  } catch (e) {
+    console.error("[getAllocationStatus] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ===== 按分確定 =====
 export async function confirmAllocation(
   transactionId: number,
   costCenterId: number
-) {
-  const session = await getSession();
-  const staffId = session.id;
-
-  const transaction = await prisma.transaction.findFirst({
-    where: { id: transactionId, deletedAt: null },
-    include: {
-      allocationTemplate: {
-        include: { lines: true },
-      },
-    },
-  });
-
-  if (!transaction) {
-    throw new Error("取引が見つかりません");
-  }
-
-  if (!transaction.allocationTemplateId || !transaction.allocationTemplate) {
-    throw new Error("この取引には按分テンプレートが設定されていません");
-  }
-
-  // 按分確定可能なステータスかチェック
-  const confirmableStatuses = ["unconfirmed", "confirmed"];
-  if (!confirmableStatuses.includes(transaction.status)) {
-    throw new Error(
-      `ステータス「${transaction.status}」の取引は按分確定できません`
-    );
-  }
-
-  // 指定されたcostCenterIdがテンプレート内に存在するか
-  const templateLine = transaction.allocationTemplate.lines.find(
-    (l) => l.costCenterId === costCenterId
-  );
-  if (!templateLine) {
-    throw new Error("指定された按分先はテンプレートに含まれていません");
-  }
-
-  // AllocationConfirmation を作成（重複は@@uniqueで防止）
+): Promise<ActionResult> {
   try {
-    const confirmation = await prisma.allocationConfirmation.create({
-      data: {
-        transactionId,
-        costCenterId,
-        confirmedBy: staffId,
-        confirmedAt: new Date(),
+    const session = await getSession();
+    const staffId = session.id;
+
+    const transaction = await prisma.transaction.findFirst({
+      where: { id: transactionId, deletedAt: null },
+      include: {
+        allocationTemplate: {
+          include: { lines: true },
+        },
       },
     });
 
-    await recordChangeLog(
-      {
-        tableName: "AllocationConfirmation",
-        recordId: confirmation.id,
-        changeType: "create",
-        newData: { transactionId, costCenterId },
-      },
-      session.id
-    );
-  } catch (e) {
-    if (
-      e instanceof Prisma.PrismaClientKnownRequestError &&
-      e.code === "P2002"
-    ) {
-      throw new Error("この按分先は既に確定済みです");
+    if (!transaction) {
+      return err("取引が見つかりません");
     }
-    throw e;
+
+    if (!transaction.allocationTemplateId || !transaction.allocationTemplate) {
+      return err("この取引には按分テンプレートが設定されていません");
+    }
+
+    // 按分確定可能なステータスかチェック
+    const confirmableStatuses = ["unconfirmed", "confirmed"];
+    if (!confirmableStatuses.includes(transaction.status)) {
+      return err(
+        `ステータス「${transaction.status}」の取引は按分確定できません`
+      );
+    }
+
+    // 指定されたcostCenterIdがテンプレート内に存在するか
+    const templateLine = transaction.allocationTemplate.lines.find(
+      (l) => l.costCenterId === costCenterId
+    );
+    if (!templateLine) {
+      return err("指定された按分先はテンプレートに含まれていません");
+    }
+
+    // AllocationConfirmation を作成（重複は@@uniqueで防止）
+    try {
+      const confirmation = await prisma.allocationConfirmation.create({
+        data: {
+          transactionId,
+          costCenterId,
+          confirmedBy: staffId,
+          confirmedAt: new Date(),
+        },
+      });
+
+      await recordChangeLog(
+        {
+          tableName: "AllocationConfirmation",
+          recordId: confirmation.id,
+          changeType: "create",
+          newData: { transactionId, costCenterId },
+        },
+        session.id
+      );
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2002"
+      ) {
+        return err("この按分先は既に確定済みです");
+      }
+      throw e;
+    }
+
+    // 全プロジェクト確定チェック → 経理引き渡し
+    await checkAndTransitionToAwaitingAccounting(transactionId);
+
+    revalidatePath(REVALIDATE_PATH);
+    revalidatePath("/accounting/dashboard");
+    return ok();
+  } catch (e) {
+    console.error("[confirmAllocation] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  // 全プロジェクト確定チェック → 経理引き渡し
-  await checkAndTransitionToAwaitingAccounting(transactionId);
-
-  revalidatePath(REVALIDATE_PATH);
-  revalidatePath("/accounting/dashboard");
 }
 
 // ===== 全プロジェクト確定チェック → 経理引き渡し =====

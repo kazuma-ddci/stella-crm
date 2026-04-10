@@ -141,7 +141,11 @@ function ApprovalActionPanel({
     if (!confirm("この支払を承認しますか？")) return;
     setApproving(true);
     try {
-      await approvePaymentGroupFromNotification(notification.id);
+      const result = await approvePaymentGroupFromNotification(notification.id);
+      if (!result.ok) {
+        toast.error(result.error || "承認に失敗しました");
+        return;
+      }
       toast.success("承認しました");
       onApproved();
     } catch (e) {
@@ -274,7 +278,11 @@ export function NotificationTable({ notifications }: Props) {
   const handleStatusChange = (id: number, newStatus: string) => {
     startTransition(async () => {
       try {
-        await updateNotificationStatus(id, newStatus);
+        const result = await updateNotificationStatus(id, newStatus);
+        if (!result.ok) {
+          toast.error(result.error || "ステータスの更新に失敗しました");
+          return;
+        }
         toast.success("ステータスを更新しました");
         router.refresh();
       } catch (err) {
@@ -288,7 +296,11 @@ export function NotificationTable({ notifications }: Props) {
   const handleMarkAllAsRead = () => {
     startTransition(async () => {
       try {
-        await markAllAsRead();
+        const result = await markAllAsRead();
+        if (!result.ok) {
+          toast.error(result.error || "一括既読に失敗しました");
+          return;
+        }
         toast.success("全て既読にしました");
         router.refresh();
       } catch (err) {

@@ -4,40 +4,47 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 import type { AssignableFieldCode } from "@/lib/staff/assignable-fields";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 export async function saveFieldRestrictions(
   fieldCode: AssignableFieldCode,
   managingProjectId: number,
   sourceProjectIds: number[],
   roleTypeIds: number[],
-) {
-  await requireProjectMasterDataEditPermission();
+): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
 
-  // fieldCodeからStaffFieldDefinitionのidを取得
-  const fieldDef = await prisma.staffFieldDefinition.findUnique({
-    where: { fieldCode },
-    select: { id: true },
-  });
-  if (!fieldDef) {
-    throw new Error(`フィールド定義が見つかりません: ${fieldCode}`);
+    // fieldCodeからStaffFieldDefinitionのidを取得
+    const fieldDef = await prisma.staffFieldDefinition.findUnique({
+      where: { fieldCode },
+      select: { id: true },
+    });
+    if (!fieldDef) {
+      return err(`フィールド定義が見つかりません: ${fieldCode}`);
+    }
+
+    // 既存の制約を全削除して再作成（fieldDefinitionId + managingProjectId で絞り込み）
+    await prisma.staffFieldRestriction.deleteMany({
+      where: { fieldDefinitionId: fieldDef.id, managingProjectId },
+    });
+
+    const data: { fieldDefinitionId: number; managingProjectId: number; sourceProjectId?: number; roleTypeId?: number }[] = [];
+    for (const sourceProjectId of sourceProjectIds) {
+      data.push({ fieldDefinitionId: fieldDef.id, managingProjectId, sourceProjectId });
+    }
+    for (const roleTypeId of roleTypeIds) {
+      data.push({ fieldDefinitionId: fieldDef.id, managingProjectId, roleTypeId });
+    }
+
+    if (data.length > 0) {
+      await prisma.staffFieldRestriction.createMany({ data });
+    }
+
+    revalidatePath("/staff/field-restrictions");
+    return ok();
+  } catch (e) {
+    console.error("[saveFieldRestrictions] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  // 既存の制約を全削除して再作成（fieldDefinitionId + managingProjectId で絞り込み）
-  await prisma.staffFieldRestriction.deleteMany({
-    where: { fieldDefinitionId: fieldDef.id, managingProjectId },
-  });
-
-  const data: { fieldDefinitionId: number; managingProjectId: number; sourceProjectId?: number; roleTypeId?: number }[] = [];
-  for (const sourceProjectId of sourceProjectIds) {
-    data.push({ fieldDefinitionId: fieldDef.id, managingProjectId, sourceProjectId });
-  }
-  for (const roleTypeId of roleTypeIds) {
-    data.push({ fieldDefinitionId: fieldDef.id, managingProjectId, roleTypeId });
-  }
-
-  if (data.length > 0) {
-    await prisma.staffFieldRestriction.createMany({ data });
-  }
-
-  revalidatePath("/staff/field-restrictions");
 }

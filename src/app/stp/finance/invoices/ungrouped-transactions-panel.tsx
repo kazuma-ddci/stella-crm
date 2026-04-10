@@ -201,10 +201,14 @@ export function UngroupedTransactionsPanel({
     const { counterpartyGroup } = draftSelectionTarget;
     setLoading(counterpartyGroup.counterpartyId);
     try {
-      await addTransactionToGroup(
+      const result = await addTransactionToGroup(
         selectedDraftId,
         counterpartyGroup.transactions.map((t) => t.id)
       );
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setDraftSelectionTarget(null);
       setSelectedDraftId(null);
     } catch (e) {

@@ -4,17 +4,19 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireEdit } from "@/lib/auth";
 import { logActivity } from "@/lib/activity-log/log";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // 定数: 顧客種別「代理店」のID
 const CUSTOMER_TYPE_AGENT_ID = 2;
 
-export async function addAgentContact(data: Record<string, unknown>) {
+export async function addAgentContact(data: Record<string, unknown>): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
   // agentIdからcompanyIdを取得
   const agentId = data.agentId ? Number(data.agentId) : null;
 
   if (!agentId) {
-    throw new Error("代理店IDが必要です");
+    return err("代理店IDが必要です");
   }
 
   const agent = await prisma.stpAgent.findUnique({
@@ -23,7 +25,7 @@ export async function addAgentContact(data: Record<string, unknown>) {
   });
 
   if (!agent) {
-    throw new Error("代理店が見つかりません");
+    return err("代理店が見つかりません");
   }
 
   // 顧客種別ID（文字列配列を数値配列に変換、デフォルト: 代理店）
@@ -34,7 +36,7 @@ export async function addAgentContact(data: Record<string, unknown>) {
   }
 
   if (customerTypeIds.length === 0) {
-    throw new Error("プロジェクト（顧客種別）を少なくとも1つ選択してください");
+    return err("プロジェクト（顧客種別）を少なくとも1つ選択してください");
   }
 
   // assignedToの処理（配列の場合はカンマ区切り文字列に変換）
@@ -78,12 +80,18 @@ export async function addAgentContact(data: Record<string, unknown>) {
   revalidatePath("/stp/records/agent-contacts");
   revalidatePath("/stp/agents");
   revalidatePath(`/companies/${agent.companyId}`);
+  return ok();
+ } catch (e) {
+  console.error("[addAgentContact] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 export async function updateAgentContact(
   id: number,
   data: Record<string, unknown>
-) {
+): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
   // 顧客種別IDが指定されている場合（文字列配列を数値配列に変換）
   let customerTypeIds: number[] | undefined;
@@ -142,9 +150,15 @@ export async function updateAgentContact(
   await logActivity({ model: "ContactHistory", recordId: id, action: "update", summary: `代理店接触履歴を更新（${data.contactDate as string}）`, userId: user.id });
   revalidatePath("/stp/records/agent-contacts");
   revalidatePath("/stp/agents");
+  return ok();
+ } catch (e) {
+  console.error("[updateAgentContact] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
-export async function deleteAgentContact(id: number) {
+export async function deleteAgentContact(id: number): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
   // 論理削除
   const history = await prisma.contactHistory.update({
@@ -157,4 +171,9 @@ export async function deleteAgentContact(id: number) {
   revalidatePath("/stp/records/agent-contacts");
   revalidatePath("/stp/agents");
   revalidatePath(`/companies/${history.companyId}`);
+  return ok();
+ } catch (e) {
+  console.error("[deleteAgentContact] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }

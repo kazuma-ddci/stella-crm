@@ -562,8 +562,12 @@ export function ContractSendModal({
         assignedTo: assignedTo || undefined,
         note: note.trim() || undefined,
       });
-      setDraftContractId(saved.id);
-      setDraftContractNumber(saved.contractNumber);
+      if (!saved.ok) {
+        setDraftError(saved.error);
+        return;
+      }
+      setDraftContractId(saved.data.id);
+      setDraftContractNumber(saved.data.contractNumber);
     } catch (err) {
       console.error("Draft creation error:", err);
       setDraftError(err instanceof Error ? err.message : "ドラフト作成に失敗しました");
@@ -714,25 +718,31 @@ export function ContractSendModal({
         existingContractId: draftContractId || undefined,
       });
 
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      const data = result.data;
+
       // 送付成功時は即座に親の契約書一覧を更新
       onSuccess?.();
       router.refresh();
 
-      if (sendImmediately && result.selfSigningRequired) {
-        toast.success(`契約書「${result.contractNumber}」を送付しました`);
+      if (sendImmediately && data.selfSigningRequired) {
+        toast.success(`契約書「${data.contractNumber}」を送付しました`);
         // 自社署名ダイアログを表示
-        setSigningDialogContractId(result.id);
-        setSigningDialogContractNumber(result.contractNumber ?? "");
+        setSigningDialogContractId(data.id);
+        setSigningDialogContractNumber(data.contractNumber ?? "");
         setSigningUrl(null);
         setSigningUrlLoading(true);
         setSigningDialogOpen(true);
         // ポーリング開始
-        pollSigningUrl(result.id);
+        pollSigningUrl(data.id);
       } else {
         toast.success(
           sendImmediately
-            ? `契約書「${result.contractNumber}」を送付しました`
-            : `契約書「${result.contractNumber}」を下書き保存しました`
+            ? `契約書「${data.contractNumber}」を送付しました`
+            : `契約書「${data.contractNumber}」を下書き保存しました`
         );
         onOpenChange(false);
       }

@@ -52,7 +52,11 @@ export function AllocationConfirmationPanel({
     setError(null);
     try {
       const result = await getAllocationStatus(transactionId);
-      setStatus(result);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setStatus(result.data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "エラーが発生しました");
     } finally {
@@ -70,7 +74,11 @@ export function AllocationConfirmationPanel({
     setError(null);
     startTransition(async () => {
       try {
-        await confirmAllocation(transactionId, costCenterId);
+        const result = await confirmAllocation(transactionId, costCenterId);
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
         await loadStatus();
         router.refresh();
       } catch (e) {

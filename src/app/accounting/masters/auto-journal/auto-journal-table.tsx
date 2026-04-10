@@ -220,19 +220,24 @@ export function AutoJournalTable({
     });
 
     if (conflicts.length > 0) {
-      return new Promise<void>((resolve, reject) => {
+      return new Promise<
+        { ok: true; data: void } | { ok: false; error: string }
+      >((resolve) => {
         setConflictDialog({
           open: true,
           conflicts,
           pendingData: formData,
           isUpdate: false,
           updateId: null,
-          promiseHandlers: { resolve, reject },
+          promiseHandlers: {
+            resolve: () => resolve({ ok: true, data: undefined }),
+            reject: (error: Error) => resolve({ ok: false, error: error.message }),
+          },
         });
       });
     }
 
-    await createAutoJournalRule(formData);
+    return await createAutoJournalRule(formData);
   };
 
   // 競合チェック付きの更新ハンドラ
@@ -271,19 +276,24 @@ export function AutoJournalTable({
     });
 
     if (conflicts.length > 0) {
-      return new Promise<void>((resolve, reject) => {
+      return new Promise<
+        { ok: true; data: void } | { ok: false; error: string }
+      >((resolve) => {
         setConflictDialog({
           open: true,
           conflicts,
           pendingData: formData,
           isUpdate: true,
           updateId: id,
-          promiseHandlers: { resolve, reject },
+          promiseHandlers: {
+            resolve: () => resolve({ ok: true, data: undefined }),
+            reject: (error: Error) => resolve({ ok: false, error: error.message }),
+          },
         });
       });
     }
 
-    await updateAutoJournalRule(id, formData);
+    return await updateAutoJournalRule(id, formData);
   };
 
   const handleConfirmSave = () => {
@@ -292,14 +302,13 @@ export function AutoJournalTable({
 
     startTransition(async () => {
       try {
-        if (conflictDialog.isUpdate && conflictDialog.updateId !== null) {
-          await updateAutoJournalRule(
-            conflictDialog.updateId,
-            conflictDialog.pendingData!
-          );
-        } else {
-          await createAutoJournalRule(conflictDialog.pendingData!);
-        }
+        const result =
+          conflictDialog.isUpdate && conflictDialog.updateId !== null
+            ? await updateAutoJournalRule(
+                conflictDialog.updateId,
+                conflictDialog.pendingData!
+              )
+            : await createAutoJournalRule(conflictDialog.pendingData!);
         setConflictDialog({
           open: false,
           conflicts: [],
@@ -308,7 +317,11 @@ export function AutoJournalTable({
           updateId: null,
           promiseHandlers: null,
         });
-        resolve();
+        if (result.ok) {
+          resolve();
+        } else {
+          reject(new Error(result.error));
+        }
       } catch (error) {
         reject(
           error instanceof Error ? error : new Error("保存に失敗しました")
@@ -332,8 +345,11 @@ export function AutoJournalTable({
   };
 
   const handleDelete = async (id: number) => {
-    await deleteAutoJournalRule(id);
-    toast.success("ルールを削除しました");
+    const result = await deleteAutoJournalRule(id);
+    if (result.ok) {
+      toast.success("ルールを削除しました");
+    }
+    return result;
   };
 
   return (
@@ -347,7 +363,10 @@ export function AutoJournalTable({
         onDelete={handleDelete}
         emptyMessage="自動仕訳ルールが登録されていません"
         sortableItems={sortableItems}
-        onReorder={reorderAutoJournalRules}
+        onReorder={async (ids) => {
+          const result = await reorderAutoJournalRules(ids);
+          if (!result.ok) throw new Error(result.error);
+        }}
         customRenderers={customRenderers}
       />
 

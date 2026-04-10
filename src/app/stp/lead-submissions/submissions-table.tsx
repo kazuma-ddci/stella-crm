@@ -602,7 +602,11 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
       })();
 
       if (processType === "new") {
-        await processAsNewCompany(selectedSubmission.id, processingNote || undefined, stpCompanyInfo);
+        const result = await processAsNewCompany(selectedSubmission.id, processingNote || undefined, stpCompanyInfo);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         toast.success("新規企業として登録しました");
       } else if (processType === "existing") {
         if (!selectedCompanyId) {
@@ -612,7 +616,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
         }
         // 企業名が異なる場合はcompanyNameUnificationを渡す
         const companyNameUnification = isCompanyNameDifferent() ? companyNameChoice : null;
-        await processWithExistingCompany(
+        const result = await processWithExistingCompany(
           selectedSubmission.id,
           Number(selectedCompanyId),
           processingNote || undefined,
@@ -620,9 +624,17 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
           companyNameUnification,
           stpCompanyInfo
         );
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         toast.success("既存企業に紐付けました");
       } else {
-        await rejectSubmission(selectedSubmission.id, processingNote || undefined);
+        const result = await rejectSubmission(selectedSubmission.id, processingNote || undefined);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         toast.success("却下しました");
       }
       setProcessModalOpen(false);
@@ -644,7 +656,7 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
 
     setIsProcessing(true);
     try {
-      await updateSubmission(selectedSubmission.id, {
+      const result = await updateSubmission(selectedSubmission.id, {
         companyName: editForm.companyName,
         contactName: editForm.contactName,
         contactEmail: editForm.contactEmail,
@@ -666,6 +678,10 @@ export function SubmissionsTable({ submissions: initialSubmissions, companyOptio
         preferredConditions: editForm.preferredConditions || null,
         overwriteAgent: editForm.overwriteAgent,
       });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("更新しました");
       setEditModalOpen(false);
       setConfirmDialogOpen(false);

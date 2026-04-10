@@ -10,13 +10,15 @@ import { logActivity } from "@/lib/activity-log/log";
 import { calcChanges } from "@/lib/activity-log/utils";
 import { toBoolean } from "@/lib/utils";
 import crypto from "crypto";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ユニークなトークンを生成
 function generateToken(): string {
   return crypto.randomBytes(32).toString("hex");
 }
 
-export async function addAgent(data: Record<string, unknown>) {
+export async function addAgent(data: Record<string, unknown>): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
   // staffAssignmentsを分離
   const staffAssignmentsRaw = data.staffAssignments as string | string[] | null;
@@ -25,7 +27,7 @@ export async function addAgent(data: Record<string, unknown>) {
   // サーバー側スタッフ権限バリデーション
   if (data.adminStaffId) {
     const isValid = await validateStaffForField("STP_AGENT_ADMIN", Number(data.adminStaffId));
-    if (!isValid) throw new Error("選択された担当事務はこのフィールドに割り当てできません");
+    if (!isValid) return err("選択された担当事務はこのフィールドに割り当てできません");
   }
 
   const result = await prisma.$transaction(async (tx) => {
@@ -81,6 +83,11 @@ export async function addAgent(data: Record<string, unknown>) {
     userId: user.id,
   });
   revalidatePath("/stp/agents");
+  return ok();
+ } catch (e) {
+  console.error("[addAgent] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // updateAgent用のフィールドラベルマッピング
@@ -96,7 +103,8 @@ const UPDATE_AGENT_FIELD_LABELS: Record<string, string> = {
   adminStaffId: "担当事務",
 };
 
-export async function updateAgent(id: number, data: Record<string, unknown>) {
+export async function updateAgent(id: number, data: Record<string, unknown>): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
 
   // __changeNotesを取り出す（変更履歴用メモ）
@@ -142,7 +150,7 @@ export async function updateAgent(id: number, data: Record<string, unknown>) {
     const staffId = data.adminStaffId ? Number(data.adminStaffId) : null;
     if (staffId) {
       const isValid = await validateStaffForField("STP_AGENT_ADMIN", staffId);
-      if (!isValid) throw new Error("選択された担当事務はこのフィールドに割り当てできません");
+      if (!isValid) return err("選択された担当事務はこのフィールドに割り当てできません");
     }
     updateData.adminStaffId = staffId;
   }
@@ -264,9 +272,15 @@ export async function updateAgent(id: number, data: Record<string, unknown>) {
     userId: user.id,
   });
   revalidatePath("/stp/agents");
+  return ok();
+ } catch (e) {
+  console.error("[updateAgent] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
-export async function deleteAgent(id: number) {
+export async function deleteAgent(id: number): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
   const agentForLog = await prisma.stpAgent.findUnique({ where: { id }, select: { company: { select: { name: true } } } });
   await logActivity({
@@ -280,6 +294,11 @@ export async function deleteAgent(id: number) {
     where: { id },
   });
   revalidatePath("/stp/agents");
+  return ok();
+ } catch (e) {
+  console.error("[deleteAgent] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // staffAssignmentsのパース関数

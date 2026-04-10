@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 function toDateOrNull(val: unknown): Date | null {
   if (!val) return null;
@@ -27,72 +28,91 @@ function toStr(val: unknown): string | null {
   return String(val).trim();
 }
 
-export async function addPreApplication(data: Record<string, unknown>) {
-  await requireProjectMasterDataEditPermission();
+export async function addPreApplication(data: Record<string, unknown>): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
 
-  const vendorId = data.vendorId ? Number(data.vendorId) : null;
-  if (!vendorId) throw new Error("ベンダーを選択してください");
+    const vendorId = data.vendorId ? Number(data.vendorId) : null;
+    if (!vendorId) return err("ベンダーを選択してください");
 
-  await prisma.hojoGrantCustomerPreApplication.create({
-    data: {
-      vendor: { connect: { id: vendorId } },
-      applicantName: toStr(data.applicantName),
-      status: toStr(data.status),
-      category: toStr(data.category),
-      prospectLevel: toStr(data.prospectLevel),
-      salesStaff: toStr(data.salesStaff),
-      businessName: toStr(data.businessName),
-      nextContactDate: toDateOrNull(data.nextContactDate),
-    },
-  });
+    await prisma.hojoGrantCustomerPreApplication.create({
+      data: {
+        vendor: { connect: { id: vendorId } },
+        applicantName: toStr(data.applicantName),
+        status: toStr(data.status),
+        category: toStr(data.category),
+        prospectLevel: toStr(data.prospectLevel),
+        salesStaff: toStr(data.salesStaff),
+        businessName: toStr(data.businessName),
+        nextContactDate: toDateOrNull(data.nextContactDate),
+      },
+    });
 
-  revalidatePath("/hojo/grant-customers/pre-application");
+    revalidatePath("/hojo/grant-customers/pre-application");
+    return ok();
+  } catch (e) {
+    console.error("[addPreApplication] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function updatePreApplication(id: number, data: Record<string, unknown>) {
-  await requireProjectMasterDataEditPermission();
+export async function updatePreApplication(id: number, data: Record<string, unknown>): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
 
-  const updateData: Record<string, unknown> = {};
+    const updateData: Record<string, unknown> = {};
 
-  if ("vendorId" in data) {
-    const vendorId = data.vendorId ? Number(data.vendorId) : null;
-    if (vendorId) {
-      updateData.vendor = { connect: { id: vendorId } };
+    if ("vendorId" in data) {
+      const vendorId = data.vendorId ? Number(data.vendorId) : null;
+      if (vendorId) {
+        updateData.vendor = { connect: { id: vendorId } };
+      }
     }
-  }
-  if ("applicantName" in data) updateData.applicantName = toStr(data.applicantName);
-  if ("status" in data) updateData.status = toStr(data.status);
-  if ("category" in data) updateData.category = toStr(data.category);
-  if ("prospectLevel" in data) updateData.prospectLevel = toStr(data.prospectLevel);
-  if ("salesStaff" in data) updateData.salesStaff = toStr(data.salesStaff);
-  if ("businessName" in data) updateData.businessName = toStr(data.businessName);
-  if ("nextContactDate" in data) updateData.nextContactDate = toDateOrNull(data.nextContactDate);
+    if ("applicantName" in data) updateData.applicantName = toStr(data.applicantName);
+    if ("status" in data) updateData.status = toStr(data.status);
+    if ("category" in data) updateData.category = toStr(data.category);
+    if ("prospectLevel" in data) updateData.prospectLevel = toStr(data.prospectLevel);
+    if ("salesStaff" in data) updateData.salesStaff = toStr(data.salesStaff);
+    if ("businessName" in data) updateData.businessName = toStr(data.businessName);
+    if ("nextContactDate" in data) updateData.nextContactDate = toDateOrNull(data.nextContactDate);
 
-  if (Object.keys(updateData).length > 0) {
+    if (Object.keys(updateData).length > 0) {
+      await prisma.hojoGrantCustomerPreApplication.update({
+        where: { id },
+        data: updateData,
+      });
+    }
+
+    revalidatePath("/hojo/grant-customers/pre-application");
+    return ok();
+  } catch (e) {
+    console.error("[updatePreApplication] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+export async function deletePreApplication(id: number): Promise<ActionResult> {
+  try {
+    await requireProjectMasterDataEditPermission();
+
     await prisma.hojoGrantCustomerPreApplication.update({
       where: { id },
-      data: updateData,
+      data: { deletedAt: new Date() },
     });
+
+    revalidatePath("/hojo/grant-customers/pre-application");
+    return ok();
+  } catch (e) {
+    console.error("[deletePreApplication] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  revalidatePath("/hojo/grant-customers/pre-application");
-}
-
-export async function deletePreApplication(id: number) {
-  await requireProjectMasterDataEditPermission();
-
-  await prisma.hojoGrantCustomerPreApplication.update({
-    where: { id },
-    data: { deletedAt: new Date() },
-  });
-
-  revalidatePath("/hojo/grant-customers/pre-application");
 }
 
 export async function updatePreApplicationDetail(
   id: number,
   data: Record<string, unknown>
-) {
+): Promise<ActionResult> {
+  try {
   await requireProjectMasterDataEditPermission();
 
   const updateData: Record<string, unknown> = {};
@@ -168,4 +188,9 @@ export async function updatePreApplicationDetail(
 
   revalidatePath("/hojo/grant-customers/pre-application");
   revalidatePath(`/hojo/grant-customers/pre-application/${id}`);
+  return ok();
+  } catch (e) {
+    console.error("[updatePreApplicationDetail] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }

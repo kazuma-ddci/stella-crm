@@ -32,10 +32,12 @@ export default function LenderRegisterPage() {
 
     setLoading(true);
     try {
-      await registerLenderAccount({ name, email, password });
+      const result = await registerLenderAccount({ name, email, password });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
       setRegistered(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "登録に失敗しました");
     } finally {
       setLoading(false);
     }

@@ -200,7 +200,11 @@ export function ContractsTable({
   const handleSync = async (contractId: number) => {
     setSyncingContractId(contractId);
     try {
-      await syncContractCloudsignStatus(contractId);
+      const result = await syncContractCloudsignStatus(contractId);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("CloudSignステータスを同期しました");
       router.refresh();
     } catch (e) {
@@ -216,7 +220,11 @@ export function ContractsTable({
     if (!confirm(`自動同期を${action}しますか？`)) return;
     setTogglingAutoSyncId(contractId);
     try {
-      await toggleCloudsignAutoSync(contractId, !currentEnabled);
+      const result = await toggleCloudsignAutoSync(contractId, !currentEnabled);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success(`自動同期を${action}しました`);
       router.refresh();
     } catch (e) {
@@ -233,7 +241,11 @@ export function ContractsTable({
     if (!confirm("入力したドキュメントIDで紐付けて同期しますか？")) return;
     setLinkingContractId(contractId);
     try {
-      await linkCloudsignDocument(contractId, documentId);
+      const result = await linkCloudsignDocument(contractId, documentId);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("ドキュメントIDを紐付けて同期しました");
       router.refresh();
     } catch (e) {

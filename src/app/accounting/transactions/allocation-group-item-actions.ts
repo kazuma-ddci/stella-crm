@@ -8,6 +8,7 @@ import { z } from "zod";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
 import { calculateAllocatedAmounts } from "./allocation-actions";
 import { toLocalDateString } from "@/lib/utils";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ===== 共通定数・スキーマ =====
 
@@ -58,7 +59,8 @@ export async function addAllocationItemToGroup(
   costCenterId: number,
   groupType: "invoice" | "payment",
   groupId: number
-): Promise<{ warnings: string[] }> {
+): Promise<ActionResult<{ warnings: string[] }>> {
+  try {
   // P2: groupType のランタイム検証
   groupTypeSchema.parse(groupType);
 
@@ -84,29 +86,29 @@ export async function addAllocationItemToGroup(
   });
 
   if (!transaction) {
-    throw new Error("取引が見つかりません");
+    return err("取引が見つかりません");
   }
 
   if (!transaction.allocationTemplateId || !transaction.allocationTemplate) {
-    throw new Error("この取引には按分テンプレートが設定されていません");
+    return err("この取引には按分テンプレートが設定されていません");
   }
 
   // 2. groupType と transaction.type の整合性
   if (transaction.type === "revenue" && groupType !== "invoice") {
-    throw new Error("売上取引は請求管理（invoice）にのみ追加できます");
+    return err("売上取引は請求管理（invoice）にのみ追加できます");
   }
   if (transaction.type === "expense" && groupType !== "payment") {
-    throw new Error("経費取引は支払管理（payment）にのみ追加できます");
+    return err("経費取引は支払管理（payment）にのみ追加できます");
   }
 
   // P1-1: direct FK 所属との二重計上防止
   if (transaction.type === "revenue" && transaction.invoiceGroupId !== null) {
-    throw new Error(
+    return err(
       "この按分取引は既に請求に直接所属しています。按分明細として追加する必要はありません。"
     );
   }
   if (transaction.type === "expense" && transaction.paymentGroupId !== null) {
-    throw new Error(
+    return err(
       "この按分取引は既に支払に直接所属しています。按分明細として追加する必要はありません。"
     );
   }
@@ -116,7 +118,7 @@ export async function addAllocationItemToGroup(
     (l) => l.costCenterId === costCenterId
   );
   if (!templateLine) {
-    throw new Error("指定されたコストセンターは按分テンプレートの明細に含まれていません");
+    return err("指定されたコストセンターは按分テンプレートの明細に含まれていません");
   }
 
   // 4. 対象CostCenterのAllocationConfirmationが完了済みか
@@ -124,7 +126,7 @@ export async function addAllocationItemToGroup(
     (ac) => ac.costCenterId === costCenterId
   );
   if (!isConfirmed) {
-    throw new Error("このコストセンターの按分確定が完了していません。先に按分確定を行ってください。");
+    return err("このコストセンターの按分確定が完了していません。先に按分確定を行ってください。");
   }
 
   // 5. グループのステータス確認
@@ -132,17 +134,17 @@ export async function addAllocationItemToGroup(
     const group = await prisma.invoiceGroup.findFirst({
       where: { id: groupId, deletedAt: null },
     });
-    if (!group) throw new Error("請求管理レコードが見つかりません");
+    if (!group) return err("請求管理レコードが見つかりません");
     if (!["draft", "pdf_created"].includes(group.status)) {
-      throw new Error(`ステータス「${group.status}」の請求管理レコードには追加できません`);
+      return err(`ステータス「${group.status}」の請求管理レコードには追加できません`);
     }
   } else {
     const group = await prisma.paymentGroup.findFirst({
       where: { id: groupId, deletedAt: null },
     });
-    if (!group) throw new Error("支払管理レコードが見つかりません");
+    if (!group) return err("支払管理レコードが見つかりません");
     if (!["before_request", "rejected"].includes(group.status)) {
-      throw new Error(`ステータス「${group.status}」の支払管理レコードには追加できません`);
+      return err(`ステータス「${group.status}」の支払管理レコードには追加できません`);
     }
   }
 
@@ -157,7 +159,7 @@ export async function addAllocationItemToGroup(
     },
   });
   if (existing) {
-    throw new Error("このコストセンター分は既に別の請求・支払に追加されています");
+    return err("このコストセンター分は既に別の請求・支払に追加されています");
   }
 
   // 7. 代表PJ以外からの追加時の警告
@@ -184,7 +186,7 @@ export async function addAllocationItemToGroup(
 
   const allocated = allocatedAmounts.find((a) => a.costCenterId === costCenterId);
   if (!allocated) {
-    throw new Error("按分金額の計算に失敗しました");
+    return err("按分金額の計算に失敗しました");
   }
 
   // P1-2: 税額按分も端数寄せ付きで計算（金額と同じ remainder-to-last 方式）
@@ -242,20 +244,25 @@ export async function addAllocationItemToGroup(
   revalidatePath("/stp/finance/payment-groups");
   revalidatePath("/accounting/transactions");
 
-  return { warnings };
+  return ok({ warnings });
+  } catch (e) {
+    console.error("[addAllocationItemToGroup] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ===== 按分アイテムをグループから削除 =====
 
 export async function removeAllocationItemFromGroup(
   allocationGroupItemId: number
-) {
+): Promise<ActionResult> {
+  try {
   const item = await prisma.allocationGroupItem.findUnique({
     where: { id: allocationGroupItemId },
   });
 
   if (!item) {
-    throw new Error("按分明細が見つかりません");
+    return err("按分明細が見つかりません");
   }
 
   // グループのステータス確認
@@ -264,14 +271,14 @@ export async function removeAllocationItemFromGroup(
       where: { id: item.invoiceGroupId, deletedAt: null },
     });
     if (group && !["draft", "pdf_created"].includes(group.status)) {
-      throw new Error(`ステータス「${group.status}」の請求管理レコードからは削除できません`);
+      return err(`ステータス「${group.status}」の請求管理レコードからは削除できません`);
     }
   } else if (item.groupType === "payment" && item.paymentGroupId) {
     const group = await prisma.paymentGroup.findFirst({
       where: { id: item.paymentGroupId, deletedAt: null },
     });
     if (group && !["before_request", "rejected"].includes(group.status)) {
-      throw new Error(`ステータス「${group.status}」の支払管理レコードからは削除できません`);
+      return err(`ステータス「${group.status}」の支払管理レコードからは削除できません`);
     }
   }
 
@@ -304,13 +311,19 @@ export async function removeAllocationItemFromGroup(
   revalidatePath("/stp/finance/invoices");
   revalidatePath("/stp/finance/payment-groups");
   revalidatePath("/accounting/transactions");
+  return ok();
+  } catch (e) {
+    console.error("[removeAllocationItemFromGroup] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ===== 按分取引のグループ所属状況を取得 =====
 
 export async function getAllocationGroupStatus(
   transactionId: number
-): Promise<AllocationGroupStatus | null> {
+): Promise<ActionResult<AllocationGroupStatus | null>> {
+  try {
   const transaction = await prisma.transaction.findFirst({
     where: { id: transactionId, deletedAt: null },
     include: {
@@ -338,11 +351,11 @@ export async function getAllocationGroupStatus(
   });
 
   if (!transaction) {
-    throw new Error("取引が見つかりません");
+    return err("取引が見つかりません");
   }
 
   if (!transaction.allocationTemplateId || !transaction.allocationTemplate) {
-    return null;
+    return ok(null);
   }
 
   const amountIncludingTax = transaction.amount + transaction.taxAmount;
@@ -418,7 +431,7 @@ export async function getAllocationGroupStatus(
     };
   });
 
-  return {
+  return ok({
     transactionId,
     transactionType: transaction.type,
     amountIncludingTax,
@@ -427,7 +440,11 @@ export async function getAllocationGroupStatus(
       (l) => l.costCenterId === transaction.allocationTemplate!.ownerCostCenterId
     )?.costCenter?.name ?? null,
     items,
-  };
+  });
+  } catch (e) {
+    console.error("[getAllocationGroupStatus] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ===== 未処理按分一覧（プロジェクトのCostCenter単位） =====

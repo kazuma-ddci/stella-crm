@@ -33,11 +33,16 @@ export default function LenderChangePasswordPage() {
 
     setLoading(true);
     try {
-      if (!lenderAccountId) throw new Error("セッションが無効です");
-      await changeLenderPassword(lenderAccountId, newPassword);
+      if (!lenderAccountId) {
+        setError("セッションが無効です");
+        return;
+      }
+      const result = await changeLenderPassword(lenderAccountId, newPassword);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
       await signOut({ callbackUrl: "/hojo/lender" });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "パスワード変更に失敗しました");
     } finally {
       setLoading(false);
     }

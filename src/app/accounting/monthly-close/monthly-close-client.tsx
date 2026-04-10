@@ -41,15 +41,14 @@ export function MonthlyCloseClient({ statuses, history }: Props) {
 
   const handleClose = async (month: string) => {
     setLoading(month);
-    try {
-      await closeMonthAction(`${month}-01`);
-      router.refresh();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "クローズに失敗しました");
-    } finally {
-      setLoading(null);
-      setConfirmClose(null);
+    const result = await closeMonthAction(`${month}-01`);
+    setLoading(null);
+    setConfirmClose(null);
+    if (!result.ok) {
+      alert(result.error);
+      return;
     }
+    router.refresh();
   };
 
   const handleReopen = async (month: string) => {
@@ -58,16 +57,15 @@ export function MonthlyCloseClient({ statuses, history }: Props) {
       return;
     }
     setLoading(month);
-    try {
-      await reopenMonthAction(`${month}-01`, reopenReason.trim());
-      router.refresh();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "再オープンに失敗しました");
-    } finally {
-      setLoading(null);
-      setReopenDialog(null);
-      setReopenReason("");
+    const result = await reopenMonthAction(`${month}-01`, reopenReason.trim());
+    setLoading(null);
+    setReopenDialog(null);
+    setReopenReason("");
+    if (!result.ok) {
+      alert(result.error);
+      return;
     }
+    router.refresh();
   };
 
   const formatDateTime = (isoString: string) => {

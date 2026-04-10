@@ -90,13 +90,21 @@ export function CompanyForm({ company }: Props) {
 
     try {
       if (isEdit) {
-        await updateCompany(company.id, data);
+        const result = await updateCompany(company.id, data);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         toast.success("顧客情報を更新しました");
         router.push(`/companies/${company.id}`);
       } else {
-        const newCompany = await createCompany(data);
+        const result = await createCompany(data);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         toast.success("顧客を登録しました");
-        router.push(`/companies/${newCompany.id}`);
+        router.push(`/companies/${result.data.id}`);
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : (isEdit ? "更新に失敗しました" : "登録に失敗しました");

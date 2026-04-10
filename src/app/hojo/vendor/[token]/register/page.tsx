@@ -28,10 +28,12 @@ export default function VendorRegisterPage() {
 
     setLoading(true);
     try {
-      await registerVendorAccount({ name, email, password, vendorToken: token });
+      const result = await registerVendorAccount({ name, email, password, vendorToken: token });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
       setRegistered(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "登録に失敗しました");
     } finally {
       setLoading(false);
     }

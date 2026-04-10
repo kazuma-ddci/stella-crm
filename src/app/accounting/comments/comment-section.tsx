@@ -240,7 +240,7 @@ function CommentForm({
     setSubmitting(true);
 
     try {
-      await createComment({
+      const result = await createComment({
         transactionId,
         invoiceGroupId,
         paymentGroupId,
@@ -250,6 +250,11 @@ function CommentForm({
         returnReasonType: commentType === "return" ? returnReasonType : undefined,
         attachments: attachments.length > 0 ? attachments : undefined,
       });
+
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
       // リセット
       setBody("");

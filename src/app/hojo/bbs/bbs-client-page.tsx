@@ -125,24 +125,26 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
     if (!editRecord) return;
     setSaving(true);
     try {
-      await updateBbsFields(editRecord.id, {
+      const result = await updateBbsFields(editRecord.id, {
         bbsStatusId: editData.bbsStatusId ? Number(editData.bbsStatusId) : null,
         bbsMemo: editData.bbsMemo,
       });
+      if (!result.ok) { alert(result.error); return; }
       setEditRecord(null);
       router.refresh();
-    } catch { alert("保存に失敗しました"); }
-    finally { setSaving(false); }
+    } finally { setSaving(false); }
   };
 
   const inlineSave = async (id: number, field: string, value: string) => {
     if (field === "bbsStatusId") {
       const bbsStatusId = value === "__empty" ? null : Number(value);
-      try { await updateBbsFields(id, { bbsStatusId }); router.refresh(); }
-      catch { alert("保存に失敗しました"); }
+      const result = await updateBbsFields(id, { bbsStatusId });
+      if (!result.ok) { alert(result.error); return; }
+      router.refresh();
     } else if (field === "bbsMemo") {
-      try { await updateBbsFields(id, { bbsMemo: value }); router.refresh(); }
-      catch { alert("保存に失敗しました"); }
+      const result = await updateBbsFields(id, { bbsMemo: value });
+      if (!result.ok) { alert(result.error); return; }
+      router.refresh();
     }
   };
 

@@ -9,6 +9,7 @@ import {
   reopenMonth as doReopenMonth,
 } from "@/lib/finance/monthly-close";
 import { toLocalDateString } from "@/lib/utils";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // 型定義
@@ -256,34 +257,46 @@ async function generatePLSnapshot(targetMonth: Date) {
 // クローズ・再オープン操作
 // ============================================
 
-export async function closeMonthAction(targetMonth: string) {
-  const session = await getSession();
-  if (!isManager(session.permissions, "accounting") && !isFounder(session)) {
-    throw new Error("月次クローズは経理マネージャー権限が必要です");
+export async function closeMonthAction(targetMonth: string): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!isManager(session.permissions, "accounting") && !isFounder(session)) {
+      return err("月次クローズは経理マネージャー権限が必要です");
+    }
+    const staffId = session.id;
+
+    const monthDate = new Date(targetMonth);
+
+    // PLスナップショット生成
+    const snapshot = await generatePLSnapshot(monthDate);
+
+    await doCloseMonth(monthDate, staffId, snapshot);
+
+    revalidatePath("/accounting/monthly-close");
+    return ok();
+  } catch (e) {
+    console.error("[closeMonthAction] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-  const staffId = session.id;
-
-  const monthDate = new Date(targetMonth);
-
-  // PLスナップショット生成
-  const snapshot = await generatePLSnapshot(monthDate);
-
-  await doCloseMonth(monthDate, staffId, snapshot);
-
-  revalidatePath("/accounting/monthly-close");
 }
 
 export async function reopenMonthAction(
   targetMonth: string,
   reason: string
-) {
-  const session = await getSession();
-  if (!isManager(session.permissions, "accounting") && !isFounder(session)) {
-    throw new Error("月次クローズ解除は経理マネージャー権限が必要です");
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!isManager(session.permissions, "accounting") && !isFounder(session)) {
+      return err("月次クローズ解除は経理マネージャー権限が必要です");
+    }
+    const staffId = session.id;
+
+    await doReopenMonth(new Date(targetMonth), staffId, reason);
+
+    revalidatePath("/accounting/monthly-close");
+    return ok();
+  } catch (e) {
+    console.error("[reopenMonthAction] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-  const staffId = session.id;
-
-  await doReopenMonth(new Date(targetMonth), staffId, reason);
-
-  revalidatePath("/accounting/monthly-close");
 }

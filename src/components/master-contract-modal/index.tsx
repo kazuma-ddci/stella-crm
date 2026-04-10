@@ -392,7 +392,11 @@ export function MasterContractModal({
           if (confirm(`CloudSignドキュメントID「${docId}」で同期しますか？\nCloudSign側のステータスがCRMに反映されます。`)) {
             try {
               const syncResult = await linkCloudsignDocument(savedId, docId);
-              toast.success(`CloudSignと紐付けました（ステータス: ${syncResult.newStatus}）`);
+              if (!syncResult.ok) {
+                toast.error(syncResult.error);
+              } else {
+                toast.success(`CloudSignと紐付けました（ステータス: ${syncResult.data.newStatus}）`);
+              }
             } catch (error) {
               console.error(error);
               toast.error("CloudSign紐付けに失敗しました。ドキュメントIDを確認してください。");
@@ -1863,7 +1867,11 @@ export function MasterContractModal({
                         if (!confirm("この下書きを削除しますか？")) return;
                         setDeletingDraftId(draft.id);
                         try {
-                          await deleteDraftContract(draft.id);
+                          const result = await deleteDraftContract(draft.id);
+                          if (!result.ok) {
+                            toast.error(result.error);
+                            return;
+                          }
                           toast.success("下書きを削除しました");
                           setDrafts((prev: typeof drafts) => prev.filter((d) => d.id !== draft.id));
                           await loadContracts();

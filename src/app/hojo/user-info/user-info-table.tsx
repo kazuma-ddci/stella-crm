@@ -142,9 +142,9 @@ function LineFriendTab({
   lastSyncAt: string | null;
   invalidIds?: number[];
   duplicateIds?: number[];
-  onAdd: (formData: Record<string, unknown>) => Promise<void>;
-  onUpdate: (id: number, formData: Record<string, unknown>) => Promise<void>;
-  onDelete: (id: number) => Promise<void>;
+  onAdd: (formData: Record<string, unknown>) => Promise<import("@/lib/action-result").ActionResult | void>;
+  onUpdate: (id: number, formData: Record<string, unknown>) => Promise<import("@/lib/action-result").ActionResult | void>;
+  onDelete: (id: number) => Promise<import("@/lib/action-result").ActionResult | void>;
   onSync: () => Promise<{ success: boolean; created?: number; updated?: number; total?: number; error?: string }>;
 }) {
   const invalidIdSet = new Set(invalidIds);
@@ -153,18 +153,24 @@ function LineFriendTab({
   const [isSyncing, setIsSyncing] = useState(false);
 
   const handleAdd = async (formData: Record<string, unknown>) => {
-    await onAdd(formData);
+    const result = await onAdd(formData);
+    if (result && "ok" in result && !result.ok) return result;
     router.refresh();
+    return result;
   };
 
   const handleUpdate = async (id: number, formData: Record<string, unknown>) => {
-    await onUpdate(id, formData);
+    const result = await onUpdate(id, formData);
+    if (result && "ok" in result && !result.ok) return result;
     router.refresh();
+    return result;
   };
 
   const handleDelete = async (id: number) => {
-    await onDelete(id);
+    const result = await onDelete(id);
+    if (result && "ok" in result && !result.ok) return result;
     router.refresh();
+    return result;
   };
 
   const handleSync = async () => {
@@ -281,12 +287,12 @@ export function CustomerPageClient({
   const router = useRouter();
 
   const handleUserTypeChange = async (id: number, newType: string) => {
-    try {
-      await updateCustomerUserType(id, newType);
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "更新に失敗しました");
+    const result = await updateCustomerUserType(id, newType);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    router.refresh();
   };
 
   return (

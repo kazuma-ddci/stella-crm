@@ -87,10 +87,18 @@ export function ProlineStaffTable({ data, lineFriendOptions, staffOptions }: Pro
         staffId: formStaffId !== UNSET ? parseInt(formStaffId) : null,
       };
       if (editing) {
-        await updateMapping(editing.id, payload);
+        const result = await updateMapping(editing.id, payload);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         toast.success("更新しました");
       } else {
-        await addMapping(payload);
+        const result = await addMapping(payload);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         toast.success("追加しました");
       }
       setDialogOpen(false);
@@ -105,7 +113,11 @@ export function ProlineStaffTable({ data, lineFriendOptions, staffOptions }: Pro
   const handleDelete = async (id: number) => {
     if (!confirm("削除しますか？")) return;
     try {
-      await deleteMapping(id);
+      const result = await deleteMapping(id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("削除しました");
       router.refresh();
     } catch {

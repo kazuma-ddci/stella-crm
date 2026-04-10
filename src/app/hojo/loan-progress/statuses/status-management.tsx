@@ -60,7 +60,8 @@ export function StatusManagement({ statuses }: Props) {
   const handleAdd = () => {
     if (!newName.trim()) return;
     startTransition(async () => {
-      await addLoanProgressStatus(newName.trim());
+      const result = await addLoanProgressStatus(newName.trim());
+      if (!result.ok) { alert(result.error); return; }
       setNewName("");
       setAddOpen(false);
       router.refresh();
@@ -69,14 +70,16 @@ export function StatusManagement({ statuses }: Props) {
 
   const handleUpdateName = (id: number, name: string) => {
     startTransition(async () => {
-      await updateLoanProgressStatus(id, { name });
+      const result = await updateLoanProgressStatus(id, { name });
+      if (!result.ok) { alert(result.error); return; }
       router.refresh();
     });
   };
 
   const handleToggleActive = (id: number, isActive: boolean) => {
     startTransition(async () => {
-      await updateLoanProgressStatus(id, { isActive });
+      const result = await updateLoanProgressStatus(id, { isActive });
+      if (!result.ok) { alert(result.error); return; }
       router.refresh();
     });
   };
@@ -88,14 +91,14 @@ export function StatusManagement({ statuses }: Props) {
   const confirmDelete = () => {
     if (!deleteTarget) return;
     startTransition(async () => {
-      try {
-        await deleteLoanProgressStatus(deleteTarget.id);
-        router.refresh();
-      } catch (e) {
-        alert(e instanceof Error ? e.message : "削除に失敗しました");
-      } finally {
+      const result = await deleteLoanProgressStatus(deleteTarget.id);
+      if (!result.ok) {
+        alert(result.error);
         setDeleteTarget(null);
+        return;
       }
+      router.refresh();
+      setDeleteTarget(null);
     });
   };
 

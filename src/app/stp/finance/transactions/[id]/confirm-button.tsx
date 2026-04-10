@@ -27,7 +27,7 @@ export function TransactionConfirmButton({ transactionId }: Props) {
 
   const handleConfirm = async () => {
     const result = await confirmTransaction(transactionId);
-    if (result && "error" in result) {
+    if (!result.ok) {
       toast.error(result.error);
       return;
     }

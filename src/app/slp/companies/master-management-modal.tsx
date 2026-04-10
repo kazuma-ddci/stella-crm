@@ -231,7 +231,11 @@ export function MasterManagementModal({ open, onOpenChange, kind }: Props) {
     if (!newName.trim()) return;
     setLoading(true);
     try {
-      await addMasterOption(kind, newName.trim(), true);
+      const result = await addMasterOption(kind, newName.trim(), true);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       setNewName("");
       setAddingNew(false);
       await loadItems();
@@ -275,7 +279,11 @@ export function MasterManagementModal({ open, onOpenChange, kind }: Props) {
     if (!renameConfirm) return;
     setLoading(true);
     try {
-      await updateMasterOption(kind, renameConfirm.id, { name: renameConfirm.newName });
+      const result = await updateMasterOption(kind, renameConfirm.id, { name: renameConfirm.newName });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       setEditingId(null);
       setRenameConfirm(null);
       await loadItems();
@@ -295,7 +303,11 @@ export function MasterManagementModal({ open, onOpenChange, kind }: Props) {
   const handleToggleActive = async (item: MasterItem) => {
     setLoading(true);
     try {
-      await updateMasterOption(kind, item.id, { isActive: !item.isActive });
+      const result = await updateMasterOption(kind, item.id, { isActive: !item.isActive });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       await loadItems();
       toast.success(`${item.isActive ? "無効" : "有効"}にしました`);
     } catch (e) {
@@ -314,7 +326,11 @@ export function MasterManagementModal({ open, onOpenChange, kind }: Props) {
     if (!deleteConfirm) return;
     setLoading(true);
     try {
-      await deleteMasterOption(kind, deleteConfirm.id);
+      const result = await deleteMasterOption(kind, deleteConfirm.id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       setDeleteConfirm(null);
       await loadItems();
       toast.success("削除しました");

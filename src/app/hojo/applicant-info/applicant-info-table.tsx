@@ -116,27 +116,30 @@ export function ApplicantPageClient({
       toast.error("このユーザーはベンダーとして登録されているため、ユーザー種別を変更できません");
       return;
     }
-    try {
-      await updateUserType(id, newType);
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "更新に失敗しました");
+    const result = await updateUserType(id, newType);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    router.refresh();
   };
 
   const handleAdd = async (formData: Record<string, unknown>) => {
-    await addLineFriend(formData);
-    router.refresh();
+    const result = await addLineFriend(formData);
+    if (result.ok) router.refresh();
+    return result;
   };
 
   const handleUpdate = async (id: number, formData: Record<string, unknown>) => {
-    await updateLineFriend(id, formData);
-    router.refresh();
+    const result = await updateLineFriend(id, formData);
+    if (result.ok) router.refresh();
+    return result;
   };
 
   const handleDelete = async (id: number) => {
-    await deleteLineFriend(id);
-    router.refresh();
+    const result = await deleteLineFriend(id);
+    if (result.ok) router.refresh();
+    return result;
   };
 
   const handleSync = async () => {

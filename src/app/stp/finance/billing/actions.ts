@@ -18,6 +18,7 @@ import {
   calcWithholdingTax,
   isWithholdingTarget,
 } from "@/lib/finance/withholding-tax";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // 型定義
@@ -578,7 +579,8 @@ export async function getBillingLifecycleData(
 
 export async function createTransactionFromBilling(
   item: BillingItemInput
-): Promise<{ transactionId: number }> {
+): Promise<ActionResult<{ transactionId: number }>> {
+ try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -594,7 +596,7 @@ export async function createTransactionFromBilling(
   });
 
   if (!contractHistory) {
-    throw new Error("契約履歴が見つかりません");
+    return err("契約履歴が見つかりません");
   }
 
   // Counterparty取得（companyId経由）
@@ -606,7 +608,7 @@ export async function createTransactionFromBilling(
   });
 
   if (!counterparty) {
-    throw new Error(
+    return err(
       `取引先が見つかりません（企業: ${contractHistory.company.name}）。先に取引先マスタに登録してください。`
     );
   }
@@ -675,7 +677,11 @@ export async function createTransactionFromBilling(
   revalidatePath("/stp/finance/billing");
   revalidatePath("/stp/finance/transactions");
 
-  return { transactionId: transaction.id };
+  return ok({ transactionId: transaction.id });
+ } catch (e) {
+  console.error("[createTransactionFromBilling] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // ============================================
@@ -684,22 +690,27 @@ export async function createTransactionFromBilling(
 
 export async function bulkCreateTransactionsFromBilling(
   items: BillingItemInput[]
-): Promise<{ created: number }> {
-  let created = 0;
-  for (const item of items) {
-    try {
-      await createTransactionFromBilling(item);
-      created++;
-    } catch {
-      // エラーがあってもスキップして続行
-      console.error(`取引化失敗: contractHistoryId=${item.contractHistoryId}, feeType=${item.feeType}`);
+): Promise<ActionResult<{ created: number }>> {
+  try {
+    let created = 0;
+    for (const item of items) {
+      const result = await createTransactionFromBilling(item);
+      if (result.ok) {
+        created++;
+      } else {
+        // エラーがあってもスキップして続行
+        console.error(`取引化失敗: contractHistoryId=${item.contractHistoryId}, feeType=${item.feeType}: ${result.error}`);
+      }
     }
+
+    revalidatePath("/stp/finance/billing");
+    revalidatePath("/stp/finance/transactions");
+
+    return ok({ created });
+  } catch (e) {
+    console.error("[bulkCreateTransactionsFromBilling] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  revalidatePath("/stp/finance/billing");
-  revalidatePath("/stp/finance/transactions");
-
-  return { created };
 }
 
 // ============================================
@@ -1340,47 +1351,52 @@ export type ExpenseItemInput = {
 
 export async function createTransactionFromExpense(
   input: ExpenseItemInput
-): Promise<{ transactionId: number }> {
-  const session = await getSession();
-  const staffId = session.id;
+): Promise<ActionResult<{ transactionId: number }>> {
+  try {
+    const session = await getSession();
+    const staffId = session.id;
 
-  const stpCtx = await getSystemProjectContext("stp");
-  const stpProjectId = stpCtx?.projectId ?? null;
+    const stpCtx = await getSystemProjectContext("stp");
+    const stpProjectId = stpCtx?.projectId ?? null;
 
-  // 代理店を取引先として検索（companyId経由）
-  const agent = await prisma.stpAgent.findUnique({
-    where: { id: input.agentId },
-    include: { company: true },
-  });
-  if (!agent) {
-    throw new Error("代理店情報が見つかりません");
-  }
+    // 代理店を取引先として検索（companyId経由）
+    const agent = await prisma.stpAgent.findUnique({
+      where: { id: input.agentId },
+      include: { company: true },
+    });
+    if (!agent) {
+      return err("代理店情報が見つかりません");
+    }
 
-  const counterparty = await prisma.counterparty.findFirst({
-    where: {
-      companyId: agent.companyId,
-      deletedAt: null,
-    },
-  });
-
-  if (!counterparty) {
-    // companyId経由で見つからない場合は名前で検索（後方互換）
-    const nameMatch = await prisma.counterparty.findFirst({
+    const counterparty = await prisma.counterparty.findFirst({
       where: {
-        name: input.agentName,
+        companyId: agent.companyId,
         deletedAt: null,
       },
     });
-    if (!nameMatch) {
-      throw new Error(
-        `取引先が見つかりません（代理店: ${input.agentName}）。先に取引先マスタに登録してください。`
-      );
-    }
-    // 名前マッチを使用
-    return createExpenseTransaction(input, nameMatch.id, stpProjectId, staffId);
-  }
 
-  return createExpenseTransaction(input, counterparty.id, stpProjectId, staffId);
+    if (!counterparty) {
+      // companyId経由で見つからない場合は名前で検索（後方互換）
+      const nameMatch = await prisma.counterparty.findFirst({
+        where: {
+          name: input.agentName,
+          deletedAt: null,
+        },
+      });
+      if (!nameMatch) {
+        return err(
+          `取引先が見つかりません（代理店: ${input.agentName}）。先に取引先マスタに登録してください。`
+        );
+      }
+      // 名前マッチを使用
+      return ok(await createExpenseTransaction(input, nameMatch.id, stpProjectId, staffId));
+    }
+
+    return ok(await createExpenseTransaction(input, counterparty.id, stpProjectId, staffId));
+  } catch (e) {
+    console.error("[createTransactionFromExpense] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 async function createExpenseTransaction(
@@ -1456,21 +1472,26 @@ async function createExpenseTransaction(
 
 export async function bulkCreateTransactionsFromExpenses(
   inputs: ExpenseItemInput[]
-): Promise<{ created: number }> {
+): Promise<ActionResult<{ created: number }>> {
+ try {
   let created = 0;
   for (const input of inputs) {
-    try {
-      await createTransactionFromExpense(input);
+    const result = await createTransactionFromExpense(input);
+    if (result.ok) {
       created++;
-    } catch {
-      console.error(`経費取引化失敗: expenseType=${input.expenseType}, agentId=${input.agentId}`);
+    } else {
+      console.error(`経費取引化失敗: expenseType=${input.expenseType}, agentId=${input.agentId}: ${result.error}`);
     }
   }
 
   revalidatePath("/stp/finance/billing");
   revalidatePath("/stp/finance/transactions");
 
-  return { created };
+  return ok({ created });
+ } catch (e) {
+  console.error("[bulkCreateTransactionsFromExpenses] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // ============================================

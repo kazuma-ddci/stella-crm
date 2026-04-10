@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession, canApprove } from "@/lib/auth";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // 型定義
@@ -65,59 +66,71 @@ export async function listNotifications(): Promise<NotificationRow[]> {
 export async function updateNotificationStatus(
   id: number,
   newStatus: string
-): Promise<void> {
-  const session = await getSession();
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
 
-  // バリデーション
-  if (!(VALID_STATUSES as readonly string[]).includes(newStatus)) {
-    throw new Error(`無効なステータスです: ${newStatus}`);
+    // バリデーション
+    if (!(VALID_STATUSES as readonly string[]).includes(newStatus)) {
+      return err(`無効なステータスです: ${newStatus}`);
+    }
+
+    // 自分宛の通知かチェック
+    const notification = await prisma.notification.findUnique({
+      where: { id },
+      select: { recipientId: true },
+    });
+
+    if (!notification) {
+      return err("通知が見つかりません");
+    }
+
+    if (notification.recipientId !== session.id) {
+      return err("この通知を操作する権限がありません");
+    }
+
+    await prisma.notification.update({
+      where: { id },
+      data: {
+        status: newStatus,
+        statusChangedAt: new Date(),
+        statusChangedBy: session.id,
+      },
+    });
+
+    revalidatePath("/notifications");
+    return ok();
+  } catch (e) {
+    console.error("[updateNotificationStatus] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  // 自分宛の通知かチェック
-  const notification = await prisma.notification.findUnique({
-    where: { id },
-    select: { recipientId: true },
-  });
-
-  if (!notification) {
-    throw new Error("通知が見つかりません");
-  }
-
-  if (notification.recipientId !== session.id) {
-    throw new Error("この通知を操作する権限がありません");
-  }
-
-  await prisma.notification.update({
-    where: { id },
-    data: {
-      status: newStatus,
-      statusChangedAt: new Date(),
-      statusChangedBy: session.id,
-    },
-  });
-
-  revalidatePath("/notifications");
 }
 
 /**
  * 通知を一括既読にする
  */
-export async function markAllAsRead(): Promise<void> {
-  const session = await getSession();
+export async function markAllAsRead(): Promise<ActionResult> {
+  try {
+    const session = await getSession();
 
-  await prisma.notification.updateMany({
-    where: {
-      recipientId: session.id,
-      status: "unread",
-    },
-    data: {
-      status: "read",
-      statusChangedAt: new Date(),
-      statusChangedBy: session.id,
-    },
-  });
+    await prisma.notification.updateMany({
+      where: {
+        recipientId: session.id,
+        status: "unread",
+      },
+      data: {
+        status: "read",
+        statusChangedAt: new Date(),
+        statusChangedBy: session.id,
+      },
+    });
 
-  revalidatePath("/notifications");
+    revalidatePath("/notifications");
+    return ok();
+  } catch (e) {
+    console.error("[markAllAsRead] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 /**
@@ -131,25 +144,31 @@ export async function createNotification(data: {
   title: string;
   message: string;
   linkUrl?: string;
-}): Promise<void> {
-  // カテゴリバリデーション
-  if (!(VALID_CATEGORIES as readonly string[]).includes(data.category)) {
-    throw new Error(`無効なカテゴリです: ${data.category}`);
+}): Promise<ActionResult> {
+  try {
+    // カテゴリバリデーション
+    if (!(VALID_CATEGORIES as readonly string[]).includes(data.category)) {
+      return err(`無効なカテゴリです: ${data.category}`);
+    }
+
+    await prisma.notification.create({
+      data: {
+        recipientId: data.recipientId,
+        senderType: data.senderType,
+        senderId: data.senderId ?? null,
+        category: data.category,
+        title: data.title,
+        message: data.message,
+        linkUrl: data.linkUrl ?? null,
+      },
+    });
+
+    revalidatePath("/notifications");
+    return ok();
+  } catch (e) {
+    console.error("[createNotification] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-
-  await prisma.notification.create({
-    data: {
-      recipientId: data.recipientId,
-      senderType: data.senderType,
-      senderId: data.senderId ?? null,
-      category: data.category,
-      title: data.title,
-      message: data.message,
-      linkUrl: data.linkUrl ?? null,
-    },
-  });
-
-  revalidatePath("/notifications");
 }
 
 /**
@@ -217,33 +236,34 @@ export async function getPaymentGroupSummary(
  */
 export async function approvePaymentGroupFromNotification(
   notificationId: number
-): Promise<void> {
+): Promise<ActionResult> {
+  try {
   const session = await getSession();
 
   // 承認権限チェック
   if (!canApprove(session.permissions, "stp")) {
-    throw new Error("承認権限がありません");
+    return err("承認権限がありません");
   }
 
   // 通知を取得
   const notification = await prisma.notification.findUnique({
     where: { id: notificationId },
   });
-  if (!notification) throw new Error("通知が見つかりません");
+  if (!notification) return err("通知が見つかりません");
   if (notification.recipientId !== session.id) {
-    throw new Error("この通知を操作する権限がありません");
+    return err("この通知を操作する権限がありません");
   }
   if (notification.actionType !== "payment_group_approval" || !notification.actionTargetId) {
-    throw new Error("この通知にはアクションがありません");
+    return err("この通知にはアクションがありません");
   }
 
   // 支払グループを承認
   const group = await prisma.paymentGroup.findUnique({
     where: { id: notification.actionTargetId, deletedAt: null },
   });
-  if (!group) throw new Error("支払グループが見つかりません");
+  if (!group) return err("支払グループが見つかりません");
   if (group.status !== "pending_approval") {
-    throw new Error("既に承認済みまたはステータスが変更されています");
+    return err("既に承認済みまたはステータスが変更されています");
   }
 
   await prisma.$transaction(async (tx) => {
@@ -292,6 +312,11 @@ export async function approvePaymentGroupFromNotification(
     }, session.id, tx);
   });
 
-  revalidatePath("/notifications");
-  revalidatePath("/stp/finance/payment-groups");
+    revalidatePath("/notifications");
+    revalidatePath("/stp/finance/payment-groups");
+    return ok();
+  } catch (e) {
+    console.error("[approvePaymentGroupFromNotification] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }

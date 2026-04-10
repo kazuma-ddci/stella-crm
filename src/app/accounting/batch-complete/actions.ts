@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
 import { createNotification } from "@/lib/notifications/create-notification";
 import { toLocalDateString } from "@/lib/utils";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // 型定義
@@ -188,7 +189,8 @@ export async function returnGroupToStp(
   groupId: number,
   groupType: "invoice" | "payment",
   reason?: string
-): Promise<void> {
+): Promise<ActionResult> {
+  try {
   const session = await getSession();
   const staffId = session.id;
 
@@ -197,9 +199,9 @@ export async function returnGroupToStp(
       where: { id: groupId, deletedAt: null },
       select: { id: true, status: true, createdBy: true },
     });
-    if (!group) throw new Error("請求グループが見つかりません");
+    if (!group) return err("請求グループが見つかりません");
     if (!["awaiting_accounting", "partially_paid"].includes(group.status)) {
-      throw new Error("このステータスでは差し戻しできません");
+      return err("このステータスでは差し戻しできません");
     }
 
     await prisma.$transaction(async (tx) => {
@@ -247,9 +249,9 @@ export async function returnGroupToStp(
       where: { id: groupId, deletedAt: null },
       select: { id: true, status: true, createdBy: true },
     });
-    if (!group) throw new Error("支払グループが見つかりません");
+    if (!group) return err("支払グループが見つかりません");
     if (group.status !== "awaiting_accounting") {
-      throw new Error("このステータスでは差し戻しできません");
+      return err("このステータスでは差し戻しできません");
     }
 
     await prisma.$transaction(async (tx) => {
@@ -297,4 +299,9 @@ export async function returnGroupToStp(
   revalidatePath("/accounting/batch-complete");
   revalidatePath("/stp/finance/invoices");
   revalidatePath("/stp/finance/payment-groups");
+  return ok();
+  } catch (e) {
+    console.error("[returnGroupToStp] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }

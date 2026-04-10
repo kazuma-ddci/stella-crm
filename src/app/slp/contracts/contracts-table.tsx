@@ -127,11 +127,15 @@ export function ContractsTable({ rows, statusOptions }: Props) {
     if (!statusDialogContractId || !selectedStatusId) return;
     setStatusSaving(true);
     try {
-      await updateContractStatus(
+      const result = await updateContractStatus(
         statusDialogContractId,
         parseInt(selectedStatusId, 10),
         statusNote || undefined
       );
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setStatusDialogOpen(false);
       setSelectedStatusId("");
       setStatusNote("");
@@ -213,7 +217,10 @@ export function ContractsTable({ rows, statusOptions }: Props) {
                       {row.cloudsignStatus === "sent" && (
                         <DropdownMenuItem
                           onClick={() =>
-                            handleAction(row.id, "remind", () => remindContract(row.id))
+                            handleAction(row.id, "remind", async () => {
+                              const r = await remindContract(row.id);
+                              if (!r.ok) throw new Error(r.error);
+                            })
                           }
                         >
                           <Bell className="h-4 w-4 mr-2" />
@@ -224,7 +231,10 @@ export function ContractsTable({ rows, statusOptions }: Props) {
                       {row.cloudsignDocumentId && (
                         <DropdownMenuItem
                           onClick={() =>
-                            handleAction(row.id, "sync", () => manualSync(row.id))
+                            handleAction(row.id, "sync", async () => {
+                              const r = await manualSync(row.id);
+                              if (!r.ok) throw new Error(r.error);
+                            })
                           }
                         >
                           <RefreshCw className="h-4 w-4 mr-2" />
@@ -233,7 +243,10 @@ export function ContractsTable({ rows, statusOptions }: Props) {
                       )}
                       <DropdownMenuItem
                         onClick={() =>
-                          handleAction(row.id, "autoSync", () => toggleAutoSync(row.id))
+                          handleAction(row.id, "autoSync", async () => {
+                            const r = await toggleAutoSync(row.id);
+                            if (!r.ok) throw new Error(r.error);
+                          })
                         }
                       >
                         {row.cloudsignAutoSync ? (

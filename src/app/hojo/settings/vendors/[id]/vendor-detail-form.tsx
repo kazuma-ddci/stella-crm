@@ -412,17 +412,16 @@ export function VendorDetailForm({
     setContactPending(true);
     try {
       const extra = { name: formName, role, email: formEmail, phone: formPhone };
-      if (editingContact) {
-        await updateVendorContact(editingContact.id, scId, joseiId, extra);
-        toast.success("担当者を更新しました");
-      } else {
-        await addVendorContact(vendor.id, scId, joseiId, extra);
-        toast.success("担当者を追加しました");
+      const result = editingContact
+        ? await updateVendorContact(editingContact.id, scId, joseiId, extra)
+        : await addVendorContact(vendor.id, scId, joseiId, extra);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
       }
+      toast.success(editingContact ? "担当者を更新しました" : "担当者を追加しました");
       closeContactDialog();
       router.refresh();
-    } catch {
-      toast.error("保存に失敗しました");
     } finally {
       setContactPending(false);
     }
@@ -430,34 +429,36 @@ export function VendorDetailForm({
 
   async function handleDeleteContact(contactId: number) {
     if (!confirm("この担当者を削除しますか？")) return;
-    try {
-      await deleteVendorContact(contactId);
-      toast.success("担当者を削除しました");
-      router.refresh();
-    } catch {
-      toast.error("削除に失敗しました");
+    const result = await deleteVendorContact(contactId);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    toast.success("担当者を削除しました");
+    router.refresh();
   }
 
   async function handleSetPrimary(contactId: number) {
-    try {
-      await setPrimaryContact(contactId);
-      toast.success("主担当を変更しました");
-      router.refresh();
-    } catch {
-      toast.error("変更に失敗しました");
+    const result = await setPrimaryContact(contactId);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    toast.success("主担当を変更しました");
+    router.refresh();
   }
 
   async function handleSaveConsultingStaff() {
     setConsultingStaffPending(true);
     try {
-      await updateVendorConsultingStaff(vendor.id, consultingStaffIds);
+      const result = await updateVendorConsultingStaff(vendor.id, consultingStaffIds);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       setSavedValues(currentValues);
       toast.success("コンサル担当者を更新しました");
       router.refresh();
-    } catch {
-      toast.error("更新に失敗しました");
     } finally {
       setConsultingStaffPending(false);
     }
@@ -466,12 +467,14 @@ export function VendorDetailForm({
   async function handleSaveAssignedAs() {
     setAsPending(true);
     try {
-      await updateVendorAssignedAs(vendor.id, asLineFriendId ? Number(asLineFriendId) : null);
+      const result = await updateVendorAssignedAs(vendor.id, asLineFriendId ? Number(asLineFriendId) : null);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       setSavedValues(currentValues);
       toast.success("担当ASを更新しました");
       router.refresh();
-    } catch {
-      toast.error("更新に失敗しました");
     } finally {
       setAsPending(false);
     }
@@ -482,13 +485,14 @@ export function VendorDetailForm({
     // Immediately save with null
     setAsPending(true);
     updateVendorAssignedAs(vendor.id, null)
-      .then(() => {
+      .then((result) => {
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         setSavedValues(JSON.stringify({ ...JSON.parse(currentValues), asLineFriendId: "" }));
         toast.success("担当ASをクリアしました");
         router.refresh();
-      })
-      .catch(() => {
-        toast.error("更新に失敗しました");
       })
       .finally(() => {
         setAsPending(false);
@@ -503,8 +507,7 @@ export function VendorDetailForm({
 
   const handleSave = () => {
     startTransition(async () => {
-      try {
-        await updateVendorDetail(vendor.id, {
+      const detailResult = await updateVendorDetail(vendor.id, {
           email: vendorEmail,
           phone: vendorPhone,
           kickoffMtg: kickoffMtg || null,
@@ -543,19 +546,25 @@ export function VendorDetailForm({
           toolRegistrationMemo,
           memo,
           vendorSharedMemo,
-        });
-        // 契約書ドキュメントも更新
-        await Promise.all([
-          updateVendorContractDocuments(vendor.id, "scWholesale", scWholesaleDocs),
-          updateVendorContractDocuments(vendor.id, "consultingPlan", consultingPlanDocs),
-          updateVendorContractDocuments(vendor.id, "grantApplicationBpo", grantApplicationBpoDocs),
-        ]);
-        setSavedValues(currentValues);
-        toast.success("保存しました");
-        router.refresh();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "保存に失敗しました");
+      });
+      if (!detailResult.ok) {
+        toast.error(detailResult.error);
+        return;
       }
+      // 契約書ドキュメントも更新
+      const docResults = await Promise.all([
+        updateVendorContractDocuments(vendor.id, "scWholesale", scWholesaleDocs),
+        updateVendorContractDocuments(vendor.id, "consultingPlan", consultingPlanDocs),
+        updateVendorContractDocuments(vendor.id, "grantApplicationBpo", grantApplicationBpoDocs),
+      ]);
+      const failedDoc = docResults.find((r) => !r.ok);
+      if (failedDoc && !failedDoc.ok) {
+        toast.error(failedDoc.error);
+        return;
+      }
+      setSavedValues(currentValues);
+      toast.success("保存しました");
+      router.refresh();
     });
   };
 

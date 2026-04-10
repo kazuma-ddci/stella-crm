@@ -106,8 +106,12 @@ export function BankAccountsModal({
     }
     setLoading(true);
     try {
-      const newBankAccount = await addOperatingCompanyBankAccount(companyId, formData);
-      const added = newBankAccount as unknown as BankAccount;
+      const result = await addOperatingCompanyBankAccount(companyId, formData);
+      if (!result.ok) {
+        toast.error(result.error || "追加に失敗しました");
+        return;
+      }
+      const added = result.data as unknown as BankAccount;
       if (added.isDefault) {
         setBankAccounts([...bankAccounts.map((b) => ({ ...b, isDefault: false })), added]);
       } else {
@@ -133,8 +137,12 @@ export function BankAccountsModal({
     }
     setLoading(true);
     try {
-      const updated = await updateOperatingCompanyBankAccount(editBankAccount.id, formData);
-      const updatedAccount = updated as unknown as BankAccount;
+      const result = await updateOperatingCompanyBankAccount(editBankAccount.id, formData);
+      if (!result.ok) {
+        toast.error(result.error || "更新に失敗しました");
+        return;
+      }
+      const updatedAccount = result.data as unknown as BankAccount;
       setBankAccounts(
         bankAccounts.map((b) =>
           b.id === editBankAccount.id
@@ -158,7 +166,11 @@ export function BankAccountsModal({
     if (!deleteConfirm) return;
     setLoading(true);
     try {
-      await deleteOperatingCompanyBankAccount(deleteConfirm.id);
+      const result = await deleteOperatingCompanyBankAccount(deleteConfirm.id);
+      if (!result.ok) {
+        toast.error(result.error || "削除に失敗しました");
+        return;
+      }
       setBankAccounts(bankAccounts.filter((b) => b.id !== deleteConfirm.id));
       toast.success("銀行情報を削除しました");
       setDeleteConfirm(null);

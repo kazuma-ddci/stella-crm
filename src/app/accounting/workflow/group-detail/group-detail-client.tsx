@@ -175,50 +175,48 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
 
   const handleConfirm = async (journalEntryId: number) => {
     setProcessingId(journalEntryId);
-    try {
-      await confirmJournalEntry(journalEntryId);
+    const result = await confirmJournalEntry(journalEntryId);
+    if (!result.ok) {
+      toast.error(result.error);
+    } else {
       toast.success("仕訳を確定しました");
       router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "エラーが発生しました");
-    } finally {
-      setProcessingId(null);
     }
+    setProcessingId(null);
   };
 
   const handleRealize = async (journalEntryId: number) => {
     setProcessingId(journalEntryId);
-    try {
-      await realizeJournalEntry(journalEntryId);
+    const result = await realizeJournalEntry(journalEntryId);
+    if (!result.ok) {
+      toast.error(result.error);
+    } else {
       toast.success("仕訳を実現にしました");
       router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "エラーが発生しました");
-    } finally {
-      setProcessingId(null);
     }
+    setProcessingId(null);
   };
 
   const [completeConfirmId, setCompleteConfirmId] = useState<number | null>(null);
 
   const handleConfirmComplete = async () => {
     if (completeConfirmId === null) return;
-    try {
-      await setTransactionJournalCompleted(completeConfirmId, true);
+    const result = await setTransactionJournalCompleted(completeConfirmId, true);
+    if (!result.ok) {
+      toast.error(result.error);
+    } else {
       router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "エラーが発生しました");
     }
     setCompleteConfirmId(null);
   };
 
   const handleUncomplete = async (transactionId: number) => {
-    try {
-      await setTransactionJournalCompleted(transactionId, false);
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "エラーが発生しました");
+    const result = await setTransactionJournalCompleted(transactionId, false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    router.refresh();
   };
 
   const [showReturnDialog, setShowReturnDialog] = useState(false);
@@ -228,7 +226,11 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
   const handleReturnToStp = async () => {
     setReturning(true);
     try {
-      await returnGroupToStp(detail.id, detail.groupType, returnReason.trim() || undefined);
+      const result = await returnGroupToStp(detail.id, detail.groupType, returnReason.trim() || undefined);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("プロジェクト側に差し戻しました");
       setShowReturnDialog(false);
       setReturnReason("");
@@ -245,12 +247,12 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
 
   const handleDeleteJournal = async () => {
     if (deleteConfirmId === null) return;
-    try {
-      await deleteJournalEntry(deleteConfirmId);
+    const result = await deleteJournalEntry(deleteConfirmId);
+    if (!result.ok) {
+      toast.error(result.error);
+    } else {
       toast.success("仕訳を削除しました");
       router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "エラーが発生しました");
     }
     setDeleteConfirmId(null);
   };

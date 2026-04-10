@@ -316,11 +316,15 @@ export function PaymentGroupDetailModal({
   const handleSave = async () => {
     setLoading(true);
     try {
-      await updatePaymentGroup(group.id, {
+      const result = await updatePaymentGroup(group.id, {
         expectedPaymentDate: expectedPaymentDate || null,
         paymentDueDate: paymentDueDate || null,
         isConfidential: isConfidentialState,
       });
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -338,7 +342,11 @@ export function PaymentGroupDetailModal({
       return;
     setLoading(true);
     try {
-      await deletePaymentGroup(group.id);
+      const result = await deletePaymentGroup(group.id);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -351,7 +359,11 @@ export function PaymentGroupDetailModal({
     if (!confirm("この取引を支払から外しますか？")) return;
     setLoading(true);
     try {
-      await removeTransactionFromPaymentGroup(group.id, transactionId);
+      const result = await removeTransactionFromPaymentGroup(group.id, transactionId);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       await loadTransactions();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -364,10 +376,14 @@ export function PaymentGroupDetailModal({
     if (selectedAddIds.size === 0) return;
     setLoading(true);
     try {
-      await addTransactionToPaymentGroup(
+      const result = await addTransactionToPaymentGroup(
         group.id,
         Array.from(selectedAddIds)
       );
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setSelectedAddIds(new Set());
       setActiveTab("transactions");
       await loadTransactions();
@@ -390,7 +406,11 @@ export function PaymentGroupDetailModal({
         return;
       }
       if (!confirm("請求書の受領・保管が完了しました。受領を記録しますか？")) return;
-      await updatePaymentGroupStatus(group.id, "invoice_received");
+      const result = await updatePaymentGroupStatus(group.id, "invoice_received");
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -409,14 +429,24 @@ export function PaymentGroupDetailModal({
     setLoading(true);
     try {
       // まず日付情報を保存
-      await updatePaymentGroup(group.id, {
-        expectedPaymentDate: expectedPaymentDate || null,
-        paymentDueDate: paymentDueDate || null,
-      });
+      {
+        const r = await updatePaymentGroup(group.id, {
+          expectedPaymentDate: expectedPaymentDate || null,
+          paymentDueDate: paymentDueDate || null,
+        });
+        if (!r.ok) {
+          alert(r.error);
+          return;
+        }
+      }
       // 確認ステータスへ遷移
-      await confirmReceivedInvoice(group.id, {
+      const result = await confirmReceivedInvoice(group.id, {
         expectedPaymentDate: expectedPaymentDate || undefined,
       });
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -430,7 +460,11 @@ export function PaymentGroupDetailModal({
     if (!confirm("この支払を承認しますか？承認後、請求書発行依頼に進めます。")) return;
     setLoading(true);
     try {
-      await approvePaymentGroup(group.id);
+      const result = await approvePaymentGroup(group.id);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -447,7 +481,11 @@ export function PaymentGroupDetailModal({
     }
     setLoading(true);
     try {
-      await rejectInvoice(group.id, rejectReason.trim());
+      const result = await rejectInvoice(group.id, rejectReason.trim());
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setShowRejectDialog(false);
       setRejectReason("");
       onClose();
@@ -462,7 +500,11 @@ export function PaymentGroupDetailModal({
   const handleSubmitToAccounting = async () => {
     setLoading(true);
     try {
-      await submitPaymentGroupToAccounting(group.id);
+      const result = await submitPaymentGroupToAccounting(group.id);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -513,7 +555,11 @@ export function PaymentGroupDetailModal({
       if (pendingReceiptRecord) {
         setPendingReceiptRecord(false);
         if (confirm("請求書の受領・保管が完了しました。受領を記録しますか？")) {
-          await updatePaymentGroupStatus(group.id, "invoice_received");
+          const r = await updatePaymentGroupStatus(group.id, "invoice_received");
+          if (!r.ok) {
+            alert(r.error);
+            return;
+          }
           onClose();
           return;
         }
@@ -533,11 +579,15 @@ export function PaymentGroupDetailModal({
       return;
     }
     try {
-      await updateAttachmentDisplayName(attachmentId, trimmed);
+      const result = await updateAttachmentDisplayName(attachmentId, trimmed);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       const atts = await getPaymentGroupAttachments(group.id);
       setGroupAttachments(atts);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "変更に失敗しました");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "変更に失敗しました");
     } finally {
       setEditingAttachmentId(null);
     }
@@ -728,7 +778,11 @@ export function PaymentGroupDetailModal({
                     if (!confirm("経理引渡を取り消して「確認済み」に戻しますか？\n※経理側で仕訳処理が開始されている場合は取り消せません。")) return;
                     setLoading(true);
                     try {
-                      await cancelPaymentGroupHandover(group.id);
+                      const result = await cancelPaymentGroupHandover(group.id);
+                      if (!result.ok) {
+                        alert(result.error);
+                        return;
+                      }
                       onClose();
                     } catch (e) {
                       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -760,7 +814,11 @@ export function PaymentGroupDetailModal({
                     if (!confirm("確認済みに戻しますか？")) return;
                     setLoading(true);
                     try {
-                      await updatePaymentGroupStatus(group.id, "confirmed");
+                      const result = await updatePaymentGroupStatus(group.id, "confirmed");
+                      if (!result.ok) {
+                        alert(result.error);
+                        return;
+                      }
                       onClose();
                     } catch (e) {
                       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -1709,7 +1767,11 @@ export function PaymentGroupDetailModal({
                 onClick={async () => {
                   setLoading(true);
                   try {
-                    await requestReturnPaymentGroup(group.id, { body: returnRequestBody.trim() });
+                    const result = await requestReturnPaymentGroup(group.id, { body: returnRequestBody.trim() });
+                    if (!result.ok) {
+                      alert(result.error);
+                      return;
+                    }
                     alert("差し戻し依頼を送信しました");
                     setShowReturnRequestDialog(false);
                     setReturnRequestBody("");

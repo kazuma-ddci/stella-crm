@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireEdit } from "@/lib/auth";
 import { sendInvoiceEmail } from "@/lib/email/invoice-email";
 import { toLocalDateString } from "@/lib/utils";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // ============================================
 // 型定義
@@ -65,7 +66,7 @@ export type InvoiceMailFormData = {
 
 export async function getInvoiceMailData(
   invoiceGroupId: number
-): Promise<InvoiceMailFormData> {
+): Promise<InvoiceMailFormData | null> {
   // InvoiceGroup取得（counterparty + operatingCompany含む）
   const group = await prisma.invoiceGroup.findUnique({
     where: { id: invoiceGroupId, deletedAt: null },
@@ -74,7 +75,8 @@ export async function getInvoiceMailData(
       operatingCompany: true,
     },
   });
-  if (!group) throw new Error("請求が見つかりません");
+  // 見つからない場合は null を返す（throw すると本番で英語エラー化される）
+  if (!group) return null;
 
   // counterpartyに紐づくMasterStellaCompanyの担当者を取得
   // Counterparty.companyId → MasterStellaCompany.id
@@ -552,14 +554,15 @@ export async function recordManualSend(data: {
   invoiceGroupId: number;
   sendMethod: "line" | "postal" | "other";
   note?: string;
-}): Promise<void> {
+}): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
 
   // InvoiceGroupの存在確認とステータスチェック
   const group = await prisma.invoiceGroup.findUnique({
     where: { id: data.invoiceGroupId, deletedAt: null },
   });
-  if (!group) throw new Error("請求が見つかりません");
+  if (!group) return err("請求が見つかりません");
 
   // pdf_created以降のステータスが必要
   const allowedStatuses = [
@@ -570,7 +573,7 @@ export async function recordManualSend(data: {
     "paid",
   ];
   if (!allowedStatuses.includes(group.status)) {
-    throw new Error("PDF作成済み以降のステータスでのみ手動送付を記録できます");
+    return err("PDF作成済み以降のステータスでのみ手動送付を記録できます");
   }
 
   await prisma.$transaction(async (tx) => {
@@ -602,4 +605,9 @@ export async function recordManualSend(data: {
   });
 
   revalidatePath("/stp/finance/invoices");
+  return ok();
+ } catch (e) {
+  console.error("[recordManualSend] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }

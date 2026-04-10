@@ -335,10 +335,10 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
         isConfidential,
       });
 
-      if ("error" in result) return setError(result.error);
+      if (!result.ok) return setError(result.error);
 
       // 証憑ファイルがあればアップロード
-      if (pendingFiles.length > 0 && result.id) {
+      if (pendingFiles.length > 0 && result.data.id) {
         try {
           const uploadData = new FormData();
           for (const pf of pendingFiles) {
@@ -351,7 +351,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
           if (uploadRes.ok) {
             const { files: uploaded } = await uploadRes.json();
             const { addGroupAttachments } = await import("@/app/accounting/workflow/actions");
-            await addGroupAttachments(result.id, "payment", uploaded.map((f: { filePath: string; fileName: string; fileSize: number; mimeType: string }) => ({
+            await addGroupAttachments(result.data.id, "payment", uploaded.map((f: { filePath: string; fileName: string; fileSize: number; mimeType: string }) => ({
               ...f,
               attachmentType: "voucher",
             })));
@@ -361,7 +361,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
         }
       }
 
-      if (result.type === "recurring") {
+      if (result.data.type === "recurring") {
         alert("定期取引として登録しました。");
       } else {
         alert(mode === "accounting" ? "経費を仕訳待ちとして登録しました。" : "経費を申請しました。");

@@ -363,13 +363,13 @@ export function ApplicationSupportTable({
                     type="button"
                     onClick={async (e) => {
                       e.stopPropagation();
-                      try {
-                        await addApplicationSupportRecord(r.lineFriendId);
-                        toast.success("レコードを追加しました");
-                        router.refresh();
-                      } catch {
-                        toast.error("追加に失敗しました");
+                      const result = await addApplicationSupportRecord(r.lineFriendId);
+                      if (!result.ok) {
+                        toast.error(result.error);
+                        return;
                       }
+                      toast.success("レコードを追加しました");
+                      router.refresh();
                     }}
                     className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-blue-600"
                   >
@@ -389,13 +389,13 @@ export function ApplicationSupportTable({
                     onClick={async (e) => {
                       e.stopPropagation();
                       if (!confirm("このレコードを削除しますか？")) return;
-                      try {
-                        await deleteApplicationSupportRecord(r.id);
-                        toast.success("レコードを削除しました");
-                        router.refresh();
-                      } catch (err) {
-                        toast.error(err instanceof Error ? err.message : "削除に失敗しました");
+                      const result = await deleteApplicationSupportRecord(r.id);
+                      if (!result.ok) {
+                        toast.error(result.error);
+                        return;
                       }
+                      toast.success("レコードを削除しました");
+                      router.refresh();
                     }}
                     className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-red-600"
                   >
@@ -412,35 +412,36 @@ export function ApplicationSupportTable({
   };
 
   const handleUpdate = async (id: number, formData: Record<string, unknown>) => {
-    await updateApplicationSupport(id, formData);
-    router.refresh();
+    const result = await updateApplicationSupport(id, formData);
+    if (result.ok) router.refresh();
+    return result;
   };
 
   const handleAcceptMismatch = async () => {
     if (!mismatchDialog) return;
-    try {
-      await acceptResolvedVendor(
-        mismatchDialog.id,
-        mismatchDialog.mismatchResolvedVendorId
-      );
-      toast.success("紹介元ベンダーを更新しました");
-      setMismatchDialog(null);
-      router.refresh();
-    } catch {
-      toast.error("更新に失敗しました");
+    const result = await acceptResolvedVendor(
+      mismatchDialog.id,
+      mismatchDialog.mismatchResolvedVendorId
+    );
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    toast.success("紹介元ベンダーを更新しました");
+    setMismatchDialog(null);
+    router.refresh();
   };
 
   const handleKeepMismatch = async () => {
     if (!mismatchDialog) return;
-    try {
-      await resolveVendorMismatch(mismatchDialog.id, "keep");
-      toast.success("現在のベンダーを維持します");
-      setMismatchDialog(null);
-      router.refresh();
-    } catch {
-      toast.error("更新に失敗しました");
+    const result = await resolveVendorMismatch(mismatchDialog.id, "keep");
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    toast.success("現在のベンダーを維持します");
+    setMismatchDialog(null);
+    router.refresh();
   };
 
   return (

@@ -6,12 +6,14 @@ import { requireEdit } from "@/lib/auth";
 import { isInvalidJobMedia } from "@/lib/stp/job-media";
 import { logActivity } from "@/lib/activity-log/log";
 import { calcChanges } from "@/lib/activity-log/utils";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
-export async function addCandidate(data: Record<string, unknown>) {
+export async function addCandidate(data: Record<string, unknown>): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
 
   if (!data.stpCompanyId) {
-    throw new Error("企業は必須です");
+    return err("企業は必須です");
   }
 
   const result = await prisma.stpCandidate.create({
@@ -54,6 +56,11 @@ export async function addCandidate(data: Record<string, unknown>) {
     userId: user.id,
   });
   revalidatePath("/stp/candidates");
+  return ok();
+ } catch (e) {
+  console.error("[addCandidate] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
 // updateCandidate用のフィールドラベルマッピング
@@ -75,7 +82,8 @@ const UPDATE_CANDIDATE_FIELD_LABELS: Record<string, string> = {
 export async function updateCandidate(
   id: number,
   data: Record<string, unknown>
-) {
+): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
   const updateData: Record<string, unknown> = {};
 
@@ -118,7 +126,7 @@ export async function updateCandidate(
   if ("jobMedia" in data) {
     const jobMediaValue = (data.jobMedia as string) || null;
     if (isInvalidJobMedia(jobMediaValue)) {
-      throw new Error("無効な求人媒体が指定されています");
+      return err("無効な求人媒体が指定されています");
     }
     updateData.jobMedia = jobMediaValue;
   }
@@ -156,9 +164,15 @@ export async function updateCandidate(
     userId: user.id,
   });
   revalidatePath("/stp/candidates");
+  return ok();
+ } catch (e) {
+  console.error("[updateCandidate] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
-export async function deleteCandidate(id: number) {
+export async function deleteCandidate(id: number): Promise<ActionResult> {
+ try {
   const user = await requireEdit("stp");
   const candidateForLog = await prisma.stpCandidate.findUnique({ where: { id }, select: { lastName: true, firstName: true } });
   const candidateName = `${candidateForLog?.lastName ?? ""}${candidateForLog?.firstName ?? ""}`.trim() || String(id);
@@ -174,13 +188,24 @@ export async function deleteCandidate(id: number) {
     userId: user.id,
   });
   revalidatePath("/stp/candidates");
+  return ok();
+ } catch (e) {
+  console.error("[deleteCandidate] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }
 
-export async function restoreCandidate(id: number) {
+export async function restoreCandidate(id: number): Promise<ActionResult> {
+ try {
   await requireEdit("stp");
   await prisma.stpCandidate.update({
     where: { id },
     data: { deletedAt: null },
   });
   revalidatePath("/stp/candidates");
+  return ok();
+ } catch (e) {
+  console.error("[restoreCandidate] error:", e);
+  return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+ }
 }

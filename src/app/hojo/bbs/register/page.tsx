@@ -32,10 +32,12 @@ export default function BbsRegisterPage() {
 
     setLoading(true);
     try {
-      await registerBbsAccount({ name, email, password });
+      const result = await registerBbsAccount({ name, email, password });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
       setRegistered(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "登録に失敗しました");
     } finally {
       setLoading(false);
     }

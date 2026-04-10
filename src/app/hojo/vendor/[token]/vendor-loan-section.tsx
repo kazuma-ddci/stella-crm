@@ -222,7 +222,11 @@ function DetailModal({
         setEditing(false);
         return;
       }
-      await updateLoanSubmissionAnswers(localSubmission.id, vendorId, fieldMap);
+      const result = await updateLoanSubmissionAnswers(localSubmission.id, vendorId, fieldMap);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
 
       // ローカルstateを即時更新
       const newModifiedAnswers = { ...currentAnswers };
@@ -249,8 +253,6 @@ function DetailModal({
 
       setEditing(false);
       router.refresh(); // バックグラウンドでサーバーデータも更新
-    } catch {
-      alert("保存に失敗しました");
     } finally {
       setSaving(false);
     }
@@ -449,21 +451,21 @@ function SubmissionTable({
   const router = useRouter();
 
   const handleMemoSave = async (id: number, value: string) => {
-    try {
-      await updateLoanVendorMemo(id, vendorId, value);
-      router.refresh();
-    } catch {
-      alert("保存に失敗しました");
+    const result = await updateLoanVendorMemo(id, vendorId, value);
+    if (!result.ok) {
+      alert(result.error);
+      return;
     }
+    router.refresh();
   };
 
   const handleToggleProgress = async (submissionId: number, exclude: boolean) => {
-    try {
-      await toggleProgressExclusion(submissionId, vendorId, exclude);
-      router.refresh();
-    } catch {
-      alert("変更に失敗しました");
+    const result = await toggleProgressExclusion(submissionId, vendorId, exclude);
+    if (!result.ok) {
+      alert(result.error);
+      return;
     }
+    router.refresh();
   };
 
   if (data.length === 0) {

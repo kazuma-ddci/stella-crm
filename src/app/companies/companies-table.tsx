@@ -199,17 +199,22 @@ export function CompaniesTable({ data, staffOptions }: Props) {
 
   const handleAdd = async (formData: Record<string, unknown>) => {
     if (!duplicateConfirmedRef.current) {
-      throw new Error(
-        "類似する企業が見つかっています。「重複ではない - 新規登録する」を押してから登録してください。"
-      );
+      return {
+        ok: false as const,
+        error:
+          "類似する企業が見つかっています。「重複ではない - 新規登録する」を押してから登録してください。",
+      };
     }
     // クライアント側でも法人番号バリデーション（即座にフィードバック）
     const cnValidation = validateCorporateNumber(formData.corporateNumber as string);
     if (!cnValidation.valid) {
-      throw new Error(cnValidation.error!);
+      return { ok: false as const, error: cnValidation.error! };
     }
-    await addCompany(formData);
-    duplicateConfirmedRef.current = true;
+    const result = await addCompany(formData);
+    if (result.ok) {
+      duplicateConfirmedRef.current = true;
+    }
+    return result;
   };
 
   const handleUpdate = async (id: number, formData: Record<string, unknown>) => {
@@ -217,10 +222,10 @@ export function CompaniesTable({ data, staffOptions }: Props) {
     if ("corporateNumber" in formData) {
       const cnValidation = validateCorporateNumber(formData.corporateNumber as string);
       if (!cnValidation.valid) {
-        throw new Error(cnValidation.error!);
+        return { ok: false as const, error: cnValidation.error! };
       }
     }
-    await updateCompany(id, formData);
+    return await updateCompany(id, formData);
   };
 
   const [contactsModal, setContactsModal] = useState<{

@@ -8,6 +8,7 @@ import { auth } from "@/auth";
 import { requireEdit } from "@/lib/auth";
 import { toBoolean } from "@/lib/utils";
 import type { UserPermission } from "@/types/auth";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 const PERM_PREFIX = "perm_";
 const APPROVE_PREFIX = "approve_";
@@ -127,7 +128,10 @@ async function buildPermissions(
   return permissions;
 }
 
-export async function addStaff(data: Record<string, unknown>) {
+export async function addStaff(
+  data: Record<string, unknown>
+): Promise<ActionResult> {
+  try {
   const roleTypeIds = (data.roleTypeIds as string[]) || [];
   const projectIds = (data.projectIds as string[]) || [];
   const editableProjectsList = await getEditableProjects();
@@ -195,10 +199,19 @@ export async function addStaff(data: Record<string, unknown>) {
     }
   }
 
-  revalidatePath("/staff");
+    revalidatePath("/staff");
+    return ok();
+  } catch (e) {
+    console.error("[addStaff] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function updateStaff(id: number, data: Record<string, unknown>) {
+export async function updateStaff(
+  id: number,
+  data: Record<string, unknown>
+): Promise<ActionResult> {
+  try {
   const editableProjectsList = await getEditableProjects(id);
   const editableCodes = editableProjectsList.map((p) => p.code);
 
@@ -342,15 +355,26 @@ export async function updateStaff(id: number, data: Record<string, unknown>) {
     }
   }
 
-  revalidatePath("/staff");
+    revalidatePath("/staff");
+    return ok();
+  } catch (e) {
+    console.error("[updateStaff] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
-export async function deleteStaff(id: number) {
-  await requireEdit("stella");
-  await prisma.masterStaff.delete({
-    where: { id },
-  });
-  revalidatePath("/staff");
+export async function deleteStaff(id: number): Promise<ActionResult> {
+  try {
+    await requireEdit("stella");
+    await prisma.masterStaff.delete({
+      where: { id },
+    });
+    revalidatePath("/staff");
+    return ok();
+  } catch (e) {
+    console.error("[deleteStaff] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 export async function sendStaffInvite(
@@ -393,15 +417,23 @@ export async function sendStaffInvite(
   return { success: true };
 }
 
-export async function reorderStaff(orderedIds: number[]) {
-  await requireEdit("stella");
-  await prisma.$transaction(
-    orderedIds.map((id, index) =>
-      prisma.masterStaff.update({
-        where: { id },
-        data: { displayOrder: index + 1 },
-      })
-    )
-  );
-  revalidatePath("/staff");
+export async function reorderStaff(
+  orderedIds: number[]
+): Promise<ActionResult> {
+  try {
+    await requireEdit("stella");
+    await prisma.$transaction(
+      orderedIds.map((id, index) =>
+        prisma.masterStaff.update({
+          where: { id },
+          data: { displayOrder: index + 1 },
+        })
+      )
+    );
+    revalidatePath("/staff");
+    return ok();
+  } catch (e) {
+    console.error("[reorderStaff] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }

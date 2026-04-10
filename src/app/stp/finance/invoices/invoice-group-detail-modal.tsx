@@ -347,13 +347,17 @@ export function InvoiceGroupDetailModal({
   const handleSave = async () => {
     setLoading(true);
     try {
-      await updateInvoiceGroup(group.id, {
+      const result = await updateInvoiceGroup(group.id, {
         counterpartyId: counterpartyId.startsWith("new-") ? counterpartyId : Number(counterpartyId),
         bankAccountId: bankAccountId ? Number(bankAccountId) : null,
         invoiceDate: invoiceDate || null,
         paymentDueDate: paymentDueDate || null,
         expectedPaymentDate: expectedPaymentDate || null,
       });
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setSaved(true);
       setIsEditingBilling(false);
       setTimeout(() => setSaved(false), 2000);
@@ -368,7 +372,11 @@ export function InvoiceGroupDetailModal({
     if (!confirm("この請求を削除しますか？取引は請求から外れます。")) return;
     setLoading(true);
     try {
-      await deleteInvoiceGroup(group.id);
+      const result = await deleteInvoiceGroup(group.id);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -381,7 +389,11 @@ export function InvoiceGroupDetailModal({
     if (!confirm("この取引を請求から外しますか？")) return;
     setLoading(true);
     try {
-      await removeTransactionFromGroup(group.id, transactionId);
+      const result = await removeTransactionFromGroup(group.id, transactionId);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       await loadTransactions();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -394,7 +406,11 @@ export function InvoiceGroupDetailModal({
     if (selectedAddIds.size === 0) return;
     setLoading(true);
     try {
-      await addTransactionToGroup(group.id, Array.from(selectedAddIds));
+      const result = await addTransactionToGroup(group.id, Array.from(selectedAddIds));
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setSelectedAddIds(new Set());
       setActiveTab("transactions");
       await loadTransactions();
@@ -431,7 +447,11 @@ export function InvoiceGroupDetailModal({
     setLoading(true);
     try {
       const result = await generateInvoicePdf(group.id);
-      alert(`PDFを保存しました（${result.invoiceNumber}）`);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
+      alert(`PDFを保存しました（${result.data.invoiceNumber}）`);
       // プレビューのblobURLを解放
       if (pdfPreviewUrl) {
         URL.revokeObjectURL(pdfPreviewUrl);
@@ -464,7 +484,11 @@ export function InvoiceGroupDetailModal({
   ) => {
     setLoading(true);
     try {
-      await createCorrectionInvoiceGroup(group.id, type);
+      const result = await createCorrectionInvoiceGroup(group.id, type);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setShowCorrectionDialog(false);
       onClose();
     } catch (e) {
@@ -478,7 +502,11 @@ export function InvoiceGroupDetailModal({
     if (newStatus === "sent" && !confirm("送付済みにしますか？以降は編集できなくなります。")) return;
     setLoading(true);
     try {
-      await updateInvoiceGroupStatus(group.id, newStatus);
+      const result = await updateInvoiceGroupStatus(group.id, newStatus);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -490,7 +518,11 @@ export function InvoiceGroupDetailModal({
   const handleSubmitToAccounting = async () => {
     setLoading(true);
     try {
-      await submitInvoiceGroupToAccounting(group.id);
+      const result = await submitInvoiceGroupToAccounting(group.id);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       setShowSubmitToAccountingDialog(false);
       onClose();
     } catch (e) {
@@ -583,11 +615,15 @@ export function InvoiceGroupDetailModal({
       return;
     }
     try {
-      await updateAttachmentDisplayName(attachmentId, trimmed);
+      const result = await updateAttachmentDisplayName(attachmentId, trimmed);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       const atts = await getInvoiceGroupAttachments(group.id);
       setGroupAttachments(atts);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "変更に失敗しました");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "変更に失敗しました");
     } finally {
       setEditingAttachmentId(null);
     }
@@ -885,7 +921,11 @@ export function InvoiceGroupDetailModal({
                         if (!confirm("経理引渡を取り消して「送付済み」に戻しますか？\n※経理側で仕訳処理が開始されている場合は取り消せません。")) return;
                         setLoading(true);
                         try {
-                          await cancelInvoiceGroupHandover(group.id);
+                          const result = await cancelInvoiceGroupHandover(group.id);
+                          if (!result.ok) {
+                            alert(result.error);
+                            return;
+                          }
                           onClose();
                         } catch (e) {
                           alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -1922,7 +1962,11 @@ export function InvoiceGroupDetailModal({
                 onClick={async () => {
                   setLoading(true);
                   try {
-                    await requestReturnInvoiceGroup(group.id, { body: returnRequestBody.trim() });
+                    const result = await requestReturnInvoiceGroup(group.id, { body: returnRequestBody.trim() });
+                    if (!result.ok) {
+                      alert(result.error);
+                      return;
+                    }
                     alert("差し戻し依頼を送信しました");
                     setShowReturnRequestDialog(false);
                     setReturnRequestBody("");

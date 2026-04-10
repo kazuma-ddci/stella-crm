@@ -434,13 +434,19 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
           return v !== defaultVal;
         })
       );
-      await updateInvoiceGroup(groupId, {
-        honorific,
-        remarks: remarks || null,
-        invoiceDate: invoiceDate || null,
-        paymentDueDate: paymentDueDate || null,
-        lineDescriptions: Object.keys(cleanedDescriptions).length > 0 ? cleanedDescriptions : null,
-      });
+      {
+        const r = await updateInvoiceGroup(groupId, {
+          honorific,
+          remarks: remarks || null,
+          invoiceDate: invoiceDate || null,
+          paymentDueDate: paymentDueDate || null,
+          lineDescriptions: Object.keys(cleanedDescriptions).length > 0 ? cleanedDescriptions : null,
+        });
+        if (!r.ok) {
+          alert(r.error);
+          return false;
+        }
+      }
 
       // 2. メモ行の同期
       // tempID→実IDの対応を追跡
@@ -450,10 +456,11 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
       const memoLinesToAdd = memoLines.filter((ml) => ml.isNew && !ml.isDeleted);
       for (const ml of memoLinesToAdd) {
         const result = await addMemoLine(groupId, ml.description, ml.sortOrder);
-        if (result && typeof result === "object" && "id" in result) {
-          const realId = (result as { id: number }).id;
-          idReplacements.set(ml.id, realId);
+        if (!result.ok) {
+          alert(result.error);
+          return false;
         }
+        idReplacements.set(ml.id, result.data.id);
       }
 
       // 既存メモ行の内容変更を更新
@@ -464,7 +471,11 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
           ml.description !== ml.originalDescription
       );
       for (const ml of memoLinesToUpdate) {
-        await updateMemoLine(ml.id, ml.description);
+        const r = await updateMemoLine(ml.id, ml.description);
+        if (!r.ok) {
+          alert(r.error);
+          return false;
+        }
       }
 
       // 削除されたメモ行
@@ -472,7 +483,11 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
         .filter((ml) => !ml.isNew && ml.isDeleted)
         .map((ml) => ml.id);
       for (const id of memoLineIdsToDelete) {
-        await deleteMemoLine(id);
+        const r = await deleteMemoLine(id);
+        if (!r.ok) {
+          alert(r.error);
+          return false;
+        }
       }
 
       // 3. 並び順の保存
@@ -490,7 +505,13 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
           const [, idStr] = key.split(":");
           return Number(idStr) > 0;
         });
-      await updateLineOrder(groupId, resolvedLineOrder);
+      {
+        const r = await updateLineOrder(groupId, resolvedLineOrder);
+        if (!r.ok) {
+          alert(r.error);
+          return false;
+        }
+      }
 
       // stateも更新（次回保存時に正しい値を参照するため）
       setLineOrderState(resolvedLineOrder);
@@ -519,6 +540,10 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
 
       // PDF生成
       const result = await generateInvoicePdf(groupId);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
 
       // データリロード
       await loadData();
@@ -527,8 +552,8 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
       onInvoiceCreated?.();
 
       // PDF生成後のアクション選択を親に委譲
-      if (result?.pdfPath && onPdfGenerated) {
-        onPdfGenerated(result.pdfPath);
+      if (result.data.pdfPath && onPdfGenerated) {
+        onPdfGenerated(result.data.pdfPath);
       }
     } catch (e) {
       alert(e instanceof Error ? e.message : "PDF生成中にエラーが発生しました");

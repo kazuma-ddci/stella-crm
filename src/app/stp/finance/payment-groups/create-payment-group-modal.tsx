@@ -190,9 +190,13 @@ export function CreatePaymentGroupModal({
         projectId,
         isConfidential,
       });
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
       onClose();
       if (onCreated) {
-        onCreated(result.id);
+        onCreated(result.data.id);
       }
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");

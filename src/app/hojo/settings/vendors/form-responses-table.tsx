@@ -82,10 +82,12 @@ export function FormResponsesTable({ data, canEdit }: Props) {
     setCreating(true);
     try {
       const result = await createVendorFromFormSubmission(response.id);
-      toast.success(`ベンダー「${result.vendorName}」を作成しました`);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`ベンダー「${result.data.vendorName}」を作成しました`);
       router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "作成に失敗しました");
     } finally {
       setCreating(false);
     }

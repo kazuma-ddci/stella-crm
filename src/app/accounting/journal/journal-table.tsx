@@ -139,57 +139,49 @@ export function JournalTable({ entries, formData }: Props) {
 
   const handleConfirm = (id: number) => {
     startTransition(async () => {
-      try {
-        await confirmJournalEntry(id);
-        toast.success("仕訳を確定しました");
-        router.refresh();
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "確定に失敗しました"
-        );
+      const result = await confirmJournalEntry(id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
       }
+      toast.success("仕訳を確定しました");
+      router.refresh();
     });
   };
 
   const handleDelete = (id: number) => {
     startTransition(async () => {
-      try {
-        await deleteJournalEntry(id);
-        toast.success("仕訳を削除しました");
-        router.refresh();
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "削除に失敗しました"
-        );
+      const result = await deleteJournalEntry(id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
       }
+      toast.success("仕訳を削除しました");
+      router.refresh();
     });
   };
 
   const handleRealize = (id: number) => {
     startTransition(async () => {
-      try {
-        await realizeJournalEntry(id);
-        toast.success("仕訳を実現にしました");
-        router.refresh();
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "実現に失敗しました"
-        );
+      const result = await realizeJournalEntry(id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
       }
+      toast.success("仕訳を実現にしました");
+      router.refresh();
     });
   };
 
   const handleUnrealize = (id: number) => {
     startTransition(async () => {
-      try {
-        await unrealizeJournalEntry(id);
-        toast.success("仕訳を未実現に戻しました");
-        router.refresh();
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "未実現に戻す処理に失敗しました"
-        );
+      const result = await unrealizeJournalEntry(id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
       }
+      toast.success("仕訳を未実現に戻しました");
+      router.refresh();
     });
   };
 

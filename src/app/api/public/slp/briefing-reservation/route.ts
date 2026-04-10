@@ -255,6 +255,13 @@ export async function GET(request: Request) {
       briefingDate: briefingDateParsed,
       briefingStaff: briefingStaff || null,
       briefingStaffId: resolvedStaffId,
+      // 再予約時にキャンセル記録をクリア。
+      // キャンセル→再予約フローでは briefingStatus は "予約中" に戻るが、
+      // briefingCanceledAt が古い値のまま残ると resolver.ts の
+      // `status === "予約中" && canceledAt === null` 判定で
+      // 「未予約」扱いになってしまうバグを防ぐ。
+      // consultation-reservation / briefing-change と挙動を揃える。
+      briefingCanceledAt: null,
     };
 
     let createdOrUpdatedRecordIds: number[] = [];
