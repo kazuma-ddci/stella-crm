@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
 import { submitForm6BriefingReservation } from "@/lib/proline-form";
 import { recomputeDuplicateCandidatesForRecord } from "@/lib/slp/duplicate-detector";
+import { parseReservationDate } from "@/lib/slp/parse-reservation-date";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -102,26 +103,63 @@ export async function GET(request: Request) {
       resolvedStaffId = mapping?.staffId ?? null;
     }
 
-    // 日付パース
-    const briefingBookedAt = booked ? new Date(booked) : null;
-    const briefingDateParsed = briefingDate ? new Date(briefingDate) : null;
+    // 日付パース（プロラインの複数フォーマットに対応）
+    const briefingBookedAt = parseReservationDate(booked);
+    const briefingDateParsed = parseReservationDate(briefingDate);
+
+    // パース失敗時はautomation_errorsに記録して後日デバッグできるようにする
+    if (booked && !briefingBookedAt) {
+      await logAutomationError({
+        source: "slp-briefing-reservation",
+        message: `booked(予約作成日時)の日付形式がパースできません: "${booked}"`,
+        detail: { uid, bookingId: bookingId ?? null, rawBooked: booked },
+      });
+    }
+    if (briefingDate && !briefingDateParsed) {
+      await logAutomationError({
+        source: "slp-briefing-reservation",
+        message: `briefingDate(概要案内日)の日付形式がパースできません: "${briefingDate}"`,
+        detail: {
+          uid,
+          bookingId: bookingId ?? null,
+          rawBriefingDate: briefingDate,
+        },
+      });
+    }
 
     // 数値パース（form3-2, 3, 4）
-    const parseDecimal = (s: string | null): string | null => {
+    // 方針: 生テキストは常に *FormAnswer カラムに保存する。
+    // 数値カラム（annualLaborCostExecutive 等）は「曖昧さゼロ」（カンマ・空白・¥・円・人・名
+    // だけを除去すれば純粋な数字になる場合）のみ自動保存し、「5000万」「約50人」などは
+    // 数値カラムを null のままにしてスタッフが企業詳細画面で手入力する運用。
+    const strictDecimal = (s: string | null): string | null => {
       if (!s) return null;
-      const cleaned = s.replace(/[,\s¥円]/g, "");
-      const n = parseFloat(cleaned);
-      return isNaN(n) ? null : String(n);
+      const trimmed = s.trim();
+      if (!trimmed) return null;
+      // 半角¥(U+00A5)と全角￥(U+FFE5)の両方に対応
+      const cleaned = trimmed.replace(/[,\s¥￥円]/g, "");
+      // 除去後に [0-9] と任意で小数点だけで構成されていること
+      if (!/^\d+(\.\d+)?$/.test(cleaned)) return null;
+      return cleaned;
     };
-    const parseInteger = (s: string | null): number | null => {
+    const strictInteger = (s: string | null): number | null => {
       if (!s) return null;
-      const cleaned = s.replace(/[,\s人]/g, "");
+      const trimmed = s.trim();
+      if (!trimmed) return null;
+      const cleaned = trimmed.replace(/[,\s人名]/g, "");
+      if (!/^\d+$/.test(cleaned)) return null;
       const n = parseInt(cleaned, 10);
       return isNaN(n) ? null : n;
     };
-    const annualLaborCostExecutive = parseDecimal(formAnnualLaborCostExecutive);
-    const annualLaborCostEmployee = parseDecimal(formAnnualLaborCostEmployee);
-    const employeeCount = parseInteger(formEmployeeCount);
+    const annualLaborCostExecutive = strictDecimal(formAnnualLaborCostExecutive);
+    const annualLaborCostEmployee = strictDecimal(formAnnualLaborCostEmployee);
+    const employeeCount = strictInteger(formEmployeeCount);
+    // 生テキスト（空文字はnullに正規化）
+    const annualLaborCostExecutiveFormAnswer =
+      formAnnualLaborCostExecutive?.trim() || null;
+    const annualLaborCostEmployeeFormAnswer =
+      formAnnualLaborCostEmployee?.trim() || null;
+    const employeeCountFormAnswer = formEmployeeCount?.trim() || null;
 
     // ペンディング情報を検索（form3-5 のCRMトークンで一意特定）
     let pending: Awaited<
@@ -198,14 +236,8 @@ export async function GET(request: Request) {
     const baseData = {
       reservationId: bookingId ?? null,
       briefingStatus: "予約中" as const,
-      briefingBookedAt:
-        briefingBookedAt && !isNaN(briefingBookedAt.getTime())
-          ? briefingBookedAt
-          : null,
-      briefingDate:
-        briefingDateParsed && !isNaN(briefingDateParsed.getTime())
-          ? briefingDateParsed
-          : null,
+      briefingBookedAt,
+      briefingDate: briefingDateParsed,
       briefingStaff: briefingStaff || null,
       briefingStaffId: resolvedStaffId,
     };
@@ -219,7 +251,16 @@ export async function GET(request: Request) {
         where: { id: { in: ids }, deletedAt: null },
         data: {
           ...baseData,
-          // 年間人件費・従業員数はユーザーが入力した時のみ上書き
+          // 生テキスト（フォーム回答）はユーザーが入力した時のみ上書き（監査用）
+          ...(annualLaborCostExecutiveFormAnswer !== null && {
+            annualLaborCostExecutiveFormAnswer,
+          }),
+          ...(annualLaborCostEmployeeFormAnswer !== null && {
+            annualLaborCostEmployeeFormAnswer,
+          }),
+          ...(employeeCountFormAnswer !== null && { employeeCountFormAnswer }),
+          // 数値カラムは「純粋な数字で書かれた時だけ」自動保存
+          // （「5000万」等はスタッフが画面上のサジェストを見て手動で入れる）
           ...(annualLaborCostExecutive !== null && {
             annualLaborCostExecutive,
           }),
@@ -244,6 +285,9 @@ export async function GET(request: Request) {
           annualLaborCostExecutive,
           annualLaborCostEmployee,
           employeeCount,
+          annualLaborCostExecutiveFormAnswer,
+          annualLaborCostEmployeeFormAnswer,
+          employeeCountFormAnswer,
           contacts: {
             create: {
               name: lineFriend?.snsname ?? null,

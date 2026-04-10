@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
 import { recomputeDuplicateCandidatesForRecord } from "@/lib/slp/duplicate-detector";
+import { parseReservationDate } from "@/lib/slp/parse-reservation-date";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -81,11 +82,29 @@ export async function GET(request: Request) {
       resolvedStaffId = mapping?.staffId ?? null;
     }
 
-    // 日付パース
-    const consultationBookedAt = booked ? new Date(booked) : null;
-    const consultationDateParsed = consultationDate
-      ? new Date(consultationDate)
-      : null;
+    // 日付パース（プロラインの複数フォーマットに対応）
+    const consultationBookedAt = parseReservationDate(booked);
+    const consultationDateParsed = parseReservationDate(consultationDate);
+
+    // パース失敗時はautomation_errorsに記録して後日デバッグできるようにする
+    if (booked && !consultationBookedAt) {
+      await logAutomationError({
+        source: "slp-consultation-reservation",
+        message: `booked(予約作成日時)の日付形式がパースできません: "${booked}"`,
+        detail: { uid, bookingId: bookingId ?? null, rawBooked: booked },
+      });
+    }
+    if (consultationDate && !consultationDateParsed) {
+      await logAutomationError({
+        source: "slp-consultation-reservation",
+        message: `consultationDate(商談日)の日付形式がパースできません: "${consultationDate}"`,
+        detail: {
+          uid,
+          bookingId: bookingId ?? null,
+          rawConsultationDate: consultationDate,
+        },
+      });
+    }
 
     // ペンディング情報を検索
     let pending: Awaited<
@@ -158,14 +177,8 @@ export async function GET(request: Request) {
     const baseData = {
       consultationReservationId: bookingId ?? null,
       consultationStatus: "予約中" as const,
-      consultationBookedAt:
-        consultationBookedAt && !isNaN(consultationBookedAt.getTime())
-          ? consultationBookedAt
-          : null,
-      consultationDate:
-        consultationDateParsed && !isNaN(consultationDateParsed.getTime())
-          ? consultationDateParsed
-          : null,
+      consultationBookedAt,
+      consultationDate: consultationDateParsed,
       consultationStaff: consultationStaff || null,
       consultationStaffId: resolvedStaffId,
       // 再予約時のキャンセルクリア
