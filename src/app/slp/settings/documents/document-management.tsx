@@ -85,7 +85,7 @@ function ViewerUrlCard({
   pathName: string;
 }) {
   const [copied, setCopied] = useState(false);
-  const viewerUrlTemplate = `${APP_URL}${pathName}?uid={uid}&snsname={snsname}`;
+  const viewerUrlTemplate = `${APP_URL}${pathName}?uid=[[uid]]&snsname=[[snsname]]`;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(viewerUrlTemplate);
@@ -98,7 +98,7 @@ function ViewerUrlCard({
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>
-          {description}<code className="bg-muted px-1 rounded text-xs">{"{uid}"}</code> と <code className="bg-muted px-1 rounded text-xs">{"{snsname}"}</code> の両方をプロラインの差し込み変数で置換してから共有してください。両方が揃っていないとアクセスできません。
+          {description}<code className="bg-muted px-1 rounded text-xs">[[uid]]</code> と <code className="bg-muted px-1 rounded text-xs">[[snsname]]</code> はプロラインの差し込み変数で自動置換されます。両方が揃っていないとアクセスできません。
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
