@@ -54,6 +54,12 @@ export async function GET(request: Request) {
         data: {
           briefingStatus: "キャンセル",
           briefingCanceledAt: new Date(),
+          // 予約日時・案内日時・担当者・予約IDをクリア（履歴は別テーブルに残す）
+          briefingBookedAt: null,
+          briefingDate: null,
+          briefingStaff: null,
+          briefingStaffId: null,
+          reservationId: null,
         },
       });
       canceledCount = result.count;
@@ -86,6 +92,12 @@ export async function GET(request: Request) {
         data: {
           briefingStatus: "キャンセル",
           briefingCanceledAt: new Date(),
+          // 予約日時・案内日時・担当者・予約IDをクリア（履歴は別テーブルに残す）
+          briefingBookedAt: null,
+          briefingDate: null,
+          briefingStaff: null,
+          briefingStaffId: null,
+          reservationId: null,
         },
       });
       canceledCount = 1;

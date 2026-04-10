@@ -53,6 +53,12 @@ export async function GET(request: Request) {
         data: {
           consultationStatus: "キャンセル",
           consultationCanceledAt: new Date(),
+          // 予約日時・商談日時・担当者・予約IDをクリア（履歴は別テーブルに残す）
+          consultationBookedAt: null,
+          consultationDate: null,
+          consultationStaff: null,
+          consultationStaffId: null,
+          consultationReservationId: null,
         },
       });
       canceledCount = result.count;
@@ -85,6 +91,11 @@ export async function GET(request: Request) {
         data: {
           consultationStatus: "キャンセル",
           consultationCanceledAt: new Date(),
+          consultationBookedAt: null,
+          consultationDate: null,
+          consultationStaff: null,
+          consultationStaffId: null,
+          consultationReservationId: null,
         },
       });
       canceledCount = 1;
