@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
 import { CompanyRecordsTable } from "./company-records-table";
 import {
   resolveCompaniesData,
@@ -23,7 +24,22 @@ function toJstDisplay(d: Date | null | undefined): string | null {
   return `${date} ${time ?? ""}`.trim();
 }
 
+// 今日のJST日付文字列 "YYYY-MM-DD"
+function getTodayJstString(): string {
+  const now = new Date();
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return jst.toISOString().slice(0, 10);
+}
+
 export default async function SlpCompaniesPage() {
+  const session = await auth();
+  const currentStaffId = (session?.user as { id?: number | string } | undefined)?.id;
+  const currentStaffIdNum =
+    typeof currentStaffId === "string"
+      ? parseInt(currentStaffId, 10)
+      : (currentStaffId ?? null);
+
+  const todayJst = getTodayJstString();
   // 一覧ページでは「パッと見る」のに必要な項目に加え、
   // AS担当・紹介者・代理店の自動解決に必要な担当者・LINE情報も取得する。
   const records = await prisma.slpCompanyRecord.findMany({
@@ -33,8 +49,10 @@ export default async function SlpCompaniesPage() {
       companyName: true,
       briefingStatus: true,
       briefingDate: true,
+      briefingStaffId: true,
       consultationStatus: true,
       consultationDate: true,
+      consultationStaffId: true,
       salesStaff: { select: { id: true, name: true } },
       status1: { select: { id: true, name: true } },
       status2: { select: { id: true, name: true } },
@@ -90,6 +108,36 @@ export default async function SlpCompaniesPage() {
     const primaryContactLineLabel = primaryContact?.lineFriend
       ? `${primaryContact.lineFriend.id} ${primaryContact.lineFriend.snsname ?? ""}`.trim()
       : null;
+
+    // 商談バッジ用の事前計算
+    const briefingDateOnly = toJstDate(r.briefingDate);
+    const consultationDateOnly = toJstDate(r.consultationDate);
+    // 今日商談あり (概要案内 or 導入希望商談 のどちらか・種別不問)
+    const briefingIsToday =
+      briefingDateOnly === todayJst && r.briefingStatus !== "完了" && r.briefingStatus !== "キャンセル";
+    const consultationIsToday =
+      consultationDateOnly === todayJst &&
+      r.consultationStatus !== "完了" &&
+      r.consultationStatus !== "キャンセル";
+    const hasMeetingToday = briefingIsToday || consultationIsToday;
+    // 自分が今日の担当か（current staffId === briefing/consultation staffId）
+    const assignedToCurrentUserToday =
+      currentStaffIdNum !== null &&
+      ((briefingIsToday && r.briefingStaffId === currentStaffIdNum) ||
+        (consultationIsToday && r.consultationStaffId === currentStaffIdNum));
+    // 過去の商談日が「完了」になっていない（昨日以前）
+    const hasOverdueBriefing =
+      briefingDateOnly !== null &&
+      briefingDateOnly < todayJst &&
+      r.briefingStatus !== "完了" &&
+      r.briefingStatus !== "キャンセル";
+    const hasOverdueConsultation =
+      consultationDateOnly !== null &&
+      consultationDateOnly < todayJst &&
+      r.consultationStatus !== "完了" &&
+      r.consultationStatus !== "キャンセル";
+    const hasOverdueUnfinished = hasOverdueBriefing || hasOverdueConsultation;
+
     return {
       id: r.id,
       companyNo: r.id,
@@ -97,8 +145,13 @@ export default async function SlpCompaniesPage() {
       primaryContactLineLabel,
       briefingStatus: r.briefingStatus,
       briefingDate: toJstDisplay(r.briefingDate),
+      briefingDateOnly,
       consultationStatus: r.consultationStatus,
       consultationDate: toJstDisplay(r.consultationDate),
+      consultationDateOnly,
+      hasMeetingToday,
+      assignedToCurrentUserToday,
+      hasOverdueUnfinished,
       salesStaffName: r.salesStaff?.name ?? null,
       status1Name: r.status1?.name ?? null,
       status2Name: r.status2?.name ?? null,

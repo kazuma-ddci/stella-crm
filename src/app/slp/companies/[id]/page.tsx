@@ -1,10 +1,18 @@
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
+import { auth } from "@/auth";
 import { CompanyDetail } from "./company-detail";
 import {
   resolveCompanyData,
   type ContactForResolution,
 } from "@/lib/slp/company-resolution";
+
+// 今日のJST日付文字列
+function getTodayJstString(): string {
+  const now = new Date();
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return jst.toISOString().slice(0, 10);
+}
 
 // JST(UTC+9)の日付・時刻文字列を返す
 function toJstDate(d: Date | null | undefined): string | null {
@@ -40,6 +48,14 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
   const { id: idStr } = await params;
   const id = parseInt(idStr, 10);
   if (isNaN(id)) notFound();
+
+  const session = await auth();
+  const currentStaffId = (session?.user as { id?: number | string } | undefined)?.id;
+  const currentStaffIdNum =
+    typeof currentStaffId === "string"
+      ? parseInt(currentStaffId, 10)
+      : (currentStaffId ?? null);
+  const todayJst = getTodayJstString();
 
   const slpProject = await prisma.masterProject.findFirst({
     where: { code: "slp" },
@@ -235,6 +251,51 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
       formAnswers: h.formAnswers as Record<string, string | null> | null,
       createdAt: toJstDisplay(h.createdAt),
     })),
+    // 商談バッジ用フラグ
+    hasMeetingToday: (() => {
+      const briefingDateOnly = toJstDate(record.briefingDate);
+      const consultationDateOnly = toJstDate(record.consultationDate);
+      const briefingIsToday =
+        briefingDateOnly === todayJst &&
+        record.briefingStatus !== "完了" &&
+        record.briefingStatus !== "キャンセル";
+      const consultationIsToday =
+        consultationDateOnly === todayJst &&
+        record.consultationStatus !== "完了" &&
+        record.consultationStatus !== "キャンセル";
+      return briefingIsToday || consultationIsToday;
+    })(),
+    assignedToCurrentUserToday: (() => {
+      if (currentStaffIdNum === null) return false;
+      const briefingDateOnly = toJstDate(record.briefingDate);
+      const consultationDateOnly = toJstDate(record.consultationDate);
+      const briefingIsTodayMine =
+        briefingDateOnly === todayJst &&
+        record.briefingStatus !== "完了" &&
+        record.briefingStatus !== "キャンセル" &&
+        record.briefingStaffId === currentStaffIdNum;
+      const consultationIsTodayMine =
+        consultationDateOnly === todayJst &&
+        record.consultationStatus !== "完了" &&
+        record.consultationStatus !== "キャンセル" &&
+        record.consultationStaffId === currentStaffIdNum;
+      return briefingIsTodayMine || consultationIsTodayMine;
+    })(),
+    hasOverdueUnfinished: (() => {
+      const briefingDateOnly = toJstDate(record.briefingDate);
+      const consultationDateOnly = toJstDate(record.consultationDate);
+      const briefingOverdue =
+        briefingDateOnly !== null &&
+        briefingDateOnly < todayJst &&
+        record.briefingStatus !== "完了" &&
+        record.briefingStatus !== "キャンセル";
+      const consultationOverdue =
+        consultationDateOnly !== null &&
+        consultationDateOnly < todayJst &&
+        record.consultationStatus !== "完了" &&
+        record.consultationStatus !== "キャンセル";
+      return briefingOverdue || consultationOverdue;
+    })(),
     // 基本情報
     companyName: record.companyName,
     representativeName: record.representativeName,

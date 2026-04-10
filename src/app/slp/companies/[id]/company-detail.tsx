@@ -49,6 +49,7 @@ import {
   Settings,
   Save,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -214,6 +215,10 @@ export type CompanyDetailRecord = {
   statusHistories: StatusHistoryEntry[];
   submittedDocuments: CompanyDocumentEntry[];
   reservationHistories: ReservationHistoryEntry[];
+  // 商談バッジ用フラグ
+  hasMeetingToday: boolean;
+  assignedToCurrentUserToday: boolean;
+  hasOverdueUnfinished: boolean;
 };
 
 export type ReservationHistoryEntry = {
@@ -977,6 +982,33 @@ export function CompanyDetail({
             <span className="text-sm text-muted-foreground flex-shrink-0">
               (No. {record.companyNo})
             </span>
+            {record.hasMeetingToday && (
+              <Badge
+                variant="default"
+                className={`text-xs flex-shrink-0 ${
+                  record.assignedToCurrentUserToday
+                    ? "bg-red-600 hover:bg-red-700"
+                    : "bg-green-600 hover:bg-green-700"
+                }`}
+                title={
+                  record.assignedToCurrentUserToday
+                    ? "本日商談あり（あなたが担当）"
+                    : "本日商談あり"
+                }
+              >
+                本日商談
+              </Badge>
+            )}
+            {record.hasOverdueUnfinished && (
+              <Badge
+                variant="outline"
+                className="text-xs flex-shrink-0 border-amber-500 text-amber-700 bg-amber-50"
+                title="商談日が過ぎているのに完了していません"
+              >
+                <AlertTriangle className="h-3 w-3 mr-1" />
+                商談未完了
+              </Badge>
+            )}
             {isDirty && (
               <Badge variant="outline" className="text-orange-600 border-orange-300 bg-orange-50 flex-shrink-0">
                 未保存の変更あり

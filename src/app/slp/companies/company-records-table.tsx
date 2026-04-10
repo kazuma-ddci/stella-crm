@@ -68,8 +68,13 @@ type RecordRow = {
   primaryContactLineLabel: string | null;
   briefingStatus: string | null;
   briefingDate: string | null;
+  briefingDateOnly: string | null;
   consultationStatus: string | null;
   consultationDate: string | null;
+  consultationDateOnly: string | null;
+  hasMeetingToday: boolean;
+  assignedToCurrentUserToday: boolean;
+  hasOverdueUnfinished: boolean;
   salesStaffName: string | null;
   status1Name: string | null;
   status2Name: string | null;
@@ -99,6 +104,8 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
   const [filterStatus2, setFilterStatus2] = useState(ALL);
   const [filterBriefing, setFilterBriefing] = useState(ALL);
   const [filterConsultation, setFilterConsultation] = useState(ALL);
+  // 商談日フィルタ（その日に商談予定の企業のみ表示）
+  const [filterMeetingDate, setFilterMeetingDate] = useState("");
 
   // 絞り込み候補（表示中データから自動生成）
   const status1Options = Array.from(
@@ -124,6 +131,19 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
     if (filterStatus2 !== ALL && row.status2Name !== filterStatus2) return false;
     if (filterBriefing !== ALL && row.briefingStatus !== filterBriefing) return false;
     if (filterConsultation !== ALL && row.consultationStatus !== filterConsultation) return false;
+    if (filterMeetingDate) {
+      // 概要案内日 or 導入希望商談日 のいずれかが指定日と一致する企業のみ表示
+      // ステータスが完了/キャンセルのものは除外
+      const briefingMatch =
+        row.briefingDateOnly === filterMeetingDate &&
+        row.briefingStatus !== "完了" &&
+        row.briefingStatus !== "キャンセル";
+      const consultationMatch =
+        row.consultationDateOnly === filterMeetingDate &&
+        row.consultationStatus !== "完了" &&
+        row.consultationStatus !== "キャンセル";
+      if (!briefingMatch && !consultationMatch) return false;
+    }
     return true;
   });
 
@@ -160,7 +180,11 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
     )
       return;
     try {
-      await markAsNotDuplicate(recordIdA, recordIdB);
+      const result = await markAsNotDuplicate(recordIdA, recordIdB);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("重複候補から除外しました");
       router.refresh();
     } catch {
@@ -328,6 +352,27 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
             ))}
           </SelectContent>
         </Select>
+        {/* 商談日フィルタ */}
+        <div className="flex items-center gap-1">
+          <Input
+            type="date"
+            value={filterMeetingDate}
+            onChange={(e) => setFilterMeetingDate(e.target.value)}
+            className="w-[160px]"
+            title="指定日に商談予定の企業のみ表示"
+          />
+          {filterMeetingDate && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setFilterMeetingDate("")}
+              title="日付フィルタを解除"
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
         <div className="ml-auto">
           <Button size="sm" onClick={handleAddRecord}>
             <Plus className="h-4 w-4 mr-2" />
@@ -371,12 +416,39 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
               filteredData.map((row) => (
                 <TableRow key={row.id} className="group/row align-top">
                   <TableCell>
-                    <Link
-                      href={`/slp/companies/${row.id}`}
-                      className="text-blue-600 hover:underline font-medium"
-                    >
-                      {row.companyNo}
-                    </Link>
+                    <div className="flex items-center gap-1">
+                      <Link
+                        href={`/slp/companies/${row.id}`}
+                        className="text-blue-600 hover:underline font-medium"
+                      >
+                        {row.companyNo}
+                      </Link>
+                      {row.hasMeetingToday && (
+                        <Badge
+                          variant="default"
+                          className={`text-[10px] px-1.5 py-0 ${
+                            row.assignedToCurrentUserToday
+                              ? "bg-red-600 hover:bg-red-700"
+                              : "bg-green-600 hover:bg-green-700"
+                          }`}
+                          title={
+                            row.assignedToCurrentUserToday
+                              ? "本日商談あり（あなたが担当）"
+                              : "本日商談あり"
+                          }
+                        >
+                          本日
+                        </Badge>
+                      )}
+                      {row.hasOverdueUnfinished && (
+                        <span
+                          title="商談日が過ぎているのに完了していません"
+                          className="inline-flex items-center"
+                        >
+                          <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="font-medium">
                     <Link
