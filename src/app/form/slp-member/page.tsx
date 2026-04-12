@@ -115,10 +115,10 @@ function StatusCard({
   );
 }
 
-/** 不達チェックのポーリング（1.5秒間隔で最大7回 = 約10秒） */
+/** 不達チェックのポーリング（1秒間隔で最大7回 = 約7秒） */
 async function pollBounceCheck(uid: string): Promise<{ bounced: boolean; bouncedEmail: string | null }> {
   for (let i = 0; i < 7; i++) {
-    await new Promise((r) => setTimeout(r, 1500));
+    await new Promise((r) => setTimeout(r, 1000));
     try {
       const res = await fetch(
         `/api/public/slp/member-bounced-check?uid=${encodeURIComponent(uid)}`
@@ -288,7 +288,9 @@ export default function SlpMemberRegistrationPage() {
         }
       }
 
-      setStatus("submitting");
+      // fixBounce 時は直接 checking_bounce に遷移
+      // （"submitting" にすると専用画面がなくフォーム画面が一瞬表示されるため）
+      setStatus(fixBounce ? "checking_bounce" : "submitting");
 
       try {
         const body: Record<string, unknown> = {
