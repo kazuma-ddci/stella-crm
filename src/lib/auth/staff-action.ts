@@ -54,6 +54,10 @@ export async function requireStaff(): Promise<SessionUser> {
 /** ログイン中の社内スタッフ + いずれかのプロジェクトで edit 以上の権限を持つことを確認する。 */
 export async function requireStaffWithAnyEditPermission(): Promise<SessionUser> {
   const session = await requireStaff();
+  // ファウンダー・システム管理者は全プロジェクトの全権限を持つ
+  if (isSystemAdmin(session) || isFounder(session)) {
+    return session;
+  }
   const editLevels: PermissionLevel[] = ["edit", "manager"];
   const hasAny = (session.permissions ?? []).some((p) =>
     editLevels.includes(p.permissionLevel as PermissionLevel)
