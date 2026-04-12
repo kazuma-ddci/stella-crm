@@ -207,7 +207,7 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
     { key: "note", header: "備考", type: "textarea" },
     { key: "memo", header: "メモ", type: "textarea" },
     { key: "documentId", header: "documentID", type: "text" },
-    { key: "cloudsignUrl", header: "クラウドサインURL", type: "text" },
+    { key: "cloudsignUrl", header: "クラウドサインURL", editable: false },
     { key: "reminderCount", header: "リマインド回数", type: "number", defaultValue: 0 },
     { key: "lastReminderSentAt", header: "直近リマインド日時", type: "text", editable: false },
     { key: "emailChangeCount", header: "メアド変更回数", type: "number", editable: false },
@@ -215,6 +215,21 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
   ];
 
   const customRenderers: CustomRenderers = {
+    cloudsignUrl: (_value, row) => {
+      const docId = row?.documentId as string | null | undefined;
+      if (!docId) return <span className="text-muted-foreground">-</span>;
+      const url = `https://www.cloudsign.jp/document/${docId}/summary`;
+      return (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-600 hover:underline text-xs break-all"
+        >
+          {url}
+        </a>
+      );
+    },
     referrerDisplay: (value) => {
       if (!value) return "-";
       return String(value);

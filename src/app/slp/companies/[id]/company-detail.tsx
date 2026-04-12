@@ -346,7 +346,7 @@ export function CompanyDetail({
   const [averageMonthlySalary, setAverageMonthlySalary] = useState(record.averageMonthlySalary ?? "");
 
   // --- 事業形態・法人/個人事業主対応 ---
-  const [businessType, setBusinessType] = useState(record.businessType ?? "");
+  const [businessType, setBusinessType] = useState(record.businessType || "corporation");
   const [corporateNumber, setCorporateNumber] = useState(record.corporateNumber ?? "");
   const [companyEmail, setCompanyEmail] = useState(record.companyEmail ?? "");
   const [representativePhone, setRepresentativePhone] = useState(record.representativePhone ?? "");
@@ -1171,15 +1171,7 @@ export function CompanyDetail({
                         <span className="text-sm">{opt.label}</span>
                       </label>
                     ))}
-                    {businessType && (
-                      <button
-                        type="button"
-                        onClick={() => setBusinessType("")}
-                        className="text-xs text-gray-400 hover:text-gray-600 ml-2"
-                      >
-                        クリア
-                      </button>
-                    )}
+                    {/* クリアボタンは非表示（必ず法人か個人事業主の選択が必要） */}
                   </div>
                 </div>
                 <div>

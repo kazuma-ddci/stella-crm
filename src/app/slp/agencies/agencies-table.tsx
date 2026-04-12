@@ -49,7 +49,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Switch } from "@/components/ui/switch";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { createAgency, deleteAgency } from "./actions";
 import { AgencyStatusModal } from "./agency-status-modal";
 
@@ -552,16 +552,22 @@ export function AgenciesTable({
                 placeholder="代理店名"
               />
             </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                id="new-is-individual"
-                checked={newIsIndividualBusiness}
-                onCheckedChange={setNewIsIndividualBusiness}
-              />
-              <Label htmlFor="new-is-individual">個人事業主</Label>
-              <Badge variant={newIsIndividualBusiness ? "outline" : "secondary"} className="text-xs">
-                {newIsIndividualBusiness ? "個人事業主" : "法人"}
-              </Badge>
+            <div className="space-y-2">
+              <Label>事業形態</Label>
+              <RadioGroup
+                value={newIsIndividualBusiness ? "sole_proprietor" : "corporation"}
+                onValueChange={(v) => setNewIsIndividualBusiness(v === "sole_proprietor")}
+                className="flex gap-4"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="corporation" id="new-biz-corp" />
+                  <Label htmlFor="new-biz-corp" className="cursor-pointer">法人</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="sole_proprietor" id="new-biz-sole" />
+                  <Label htmlFor="new-biz-sole" className="cursor-pointer">個人事業主</Label>
+                </div>
+              </RadioGroup>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
