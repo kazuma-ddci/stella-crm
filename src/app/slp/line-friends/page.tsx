@@ -87,7 +87,11 @@ export default async function SlpLineFriendsPage() {
     nendai: f.nendai,
     seibetu: f.seibetu,
     free1: f.free1,
-    free1Invalid: !!(f.free1 && !friendByUidMap.has(f.free1)),
+    // free1警告: 無効UID or 未設定（紹介者不要フラグで抑制可能）
+    free1Warning: f.free1
+      ? (friendByUidMap.has(f.free1) ? null : "invalid_uid")
+      : (f.referrerNotRequired ? null : "empty"),
+    referrerNotRequired: f.referrerNotRequired,
     free2: f.free2,
     free3: f.free3,
     free4: f.free4,

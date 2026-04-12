@@ -903,6 +903,7 @@ model StpContractHistory {
   revenueRecords StpRevenueRecord[]
   expenseRecords StpExpenseRecord[]
   transactions   Transaction[]
+  mediaAds       StpMediaAd[]
 
   @@index([masterContractId], map: "idx_stp_contract_histories_master_contract_id")
   @@map("stp_contract_histories")
@@ -1644,6 +1645,104 @@ model StpKpiShareLink {
   @@index([token])
   @@index([kpiSheetId])
   @@map("stp_kpi_share_links")
+}
+
+// ============================================
+// 媒体広告管理 (STP Media Ad Management)
+// Airワーク等の媒体広告データ管理
+// ============================================
+
+model StpMediaAd {
+  id                Int       @id @default(autoincrement())
+  contractHistoryId Int // stp_contract_historiesへの外部キー
+  adNumber          String    @unique @db.VarChar(20) // 広告番号（例: "2048083"）
+  adName            String    @db.VarChar(200) // 広告名（例: "施工管理"）
+  status            String    @default("active") @db.VarChar(20) // active, ended, preparing, paused
+  startDate         DateTime? @db.Date // 配信開始日
+  endDate           DateTime? @db.Date // 配信終了日
+  budgetLimit       Int? // 予算上限（円）
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relations
+  contractHistory StpContractHistory     @relation(fields: [contractHistoryId], references: [id], onDelete: Cascade)
+  dailyMetrics    StpMediaAdDailyMetric[]
+  jobPostings     StpMediaAdJobPosting[]
+
+  @@index([contractHistoryId])
+  @@map("stp_media_ads")
+}
+
+model StpMediaAdDailyMetric {
+  id   Int      @id @default(autoincrement())
+  adId Int // stp_media_adsへの外部キー
+  date DateTime @db.Date // 配信日
+
+  // カウント系
+  impressions       Int @default(0) // 表示数
+  clicks            Int @default(0) // クリック数
+  applicationStarts Int @default(0) // 応募開始数
+  applications      Int @default(0) // 応募数
+  cost              Int @default(0) // 利用済予算（円）
+
+  // 率（CSVの値をそのまま保存、例: 5.04 = 5.04%）
+  ctr                       Decimal? @db.Decimal(7, 2) // クリック率
+  applicationStartRate      Decimal? @db.Decimal(7, 2) // 応募開始率
+  applicationCompletionRate Decimal? @db.Decimal(7, 2) // 応募完了率
+  applicationRate           Decimal? @db.Decimal(7, 2) // 応募率
+
+  // 単価（円）
+  cpc                     Int? // クリック単価
+  costPerApplicationStart Int? // 応募開始単価
+  cpa                     Int? // 応募単価
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  ad StpMediaAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+
+  @@unique([adId, date])
+  @@index([adId])
+  @@map("stp_media_ad_daily_metrics")
+}
+
+model StpMediaAdJobPosting {
+  id        Int    @id @default(autoincrement())
+  adId      Int // stp_media_adsへの外部キー
+  jobNumber String @db.VarChar(20) // 求人番号
+  jobTitle  String @db.Text // 求人内容（タイトル）
+  jobMemo   String? @db.Text // 求人メモ
+
+  // カウント系
+  impressions       Int @default(0) // 表示数
+  clicks            Int @default(0) // クリック数
+  applicationStarts Int @default(0) // 応募開始数
+  applications      Int @default(0) // 応募数
+  cost              Int @default(0) // 利用済予算（円）
+
+  // 率
+  ctr                       Decimal? @db.Decimal(7, 2) // クリック率
+  applicationStartRate      Decimal? @db.Decimal(7, 2) // 応募開始率
+  applicationCompletionRate Decimal? @db.Decimal(7, 2) // 応募完了率
+  applicationRate           Decimal? @db.Decimal(7, 2) // 応募率
+
+  // 単価（円）
+  cpc                     Int? // クリック単価
+  costPerApplicationStart Int? // 応募開始単価
+  cpa                     Int? // 応募単価
+
+  // 雇用形態
+  employmentType String? @db.VarChar(20) // 正社員, パート等
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  ad StpMediaAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+
+  @@unique([adId, jobNumber])
+  @@index([adId])
+  @@map("stp_media_ad_job_postings")
 }
 
 // ============================================
@@ -3903,7 +4002,8 @@ model SlpLineFriend {
   scenarioPos5     String? // 現在の場所5
   sortOrder        Int       @default(0) @map("sort_order") // 廃止予定（レガシー: ProLine同期時の連番）。idで代替
   form4NotifyCount Int       @default(0) // Form4（友だち追加通知）送信回数
-  isManuallyAdded  Boolean   @default(false) @map("is_manually_added") // true=CRMから手動追加（編集・削除可）, false=プロライン同期/Webhook由来（編集・削除不可）
+  isManuallyAdded       Boolean   @default(false) @map("is_manually_added") // true=CRMから手動追加（編集・削除可）, false=プロライン同期/Webhook由来（編集・削除不可）
+  referrerNotRequired   Boolean   @default(false) @map("referrer_not_required") // true=紹介者不要（free1が空でも警告しない）
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?

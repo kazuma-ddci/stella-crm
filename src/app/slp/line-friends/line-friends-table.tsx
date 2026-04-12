@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CrudTable, ColumnDef, CustomAction, CustomRenderers } from "@/components/crud-table";
-import { addLineFriend, updateLineFriend, deleteLineFriend, triggerProLineSync, openRichMenu } from "./actions";
+import { addLineFriend, updateLineFriend, deleteLineFriend, triggerProLineSync, openRichMenu, toggleReferrerNotRequired } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Menu, AlertTriangle } from "lucide-react";
+import { RefreshCw, Menu, AlertTriangle, UserX } from "lucide-react";
 import { toast } from "sonner";
 
 type Props = {
@@ -118,11 +118,37 @@ export function LineFriendsTable({ data, lastSyncAt }: Props) {
     }
   };
 
+  const handleToggleReferrerNotRequired = async (item: Record<string, unknown>) => {
+    const id = item.id as number;
+    const name = (item.snsname as string | null) ?? "(名前なし)";
+    const current = item.referrerNotRequired as boolean;
+    try {
+      const result = await toggleReferrerNotRequired(id);
+      if (result.ok) {
+        toast.success(
+          current
+            ? `${name} さんの「紹介者不要」を解除しました`
+            : `${name} さんを「紹介者不要」に設定しました`
+        );
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    } catch {
+      toast.error("更新に失敗しました");
+    }
+  };
+
   const customActions: CustomAction[] = [
     {
       icon: <Menu className="h-4 w-4" />,
       label: "リッチメニューを開放する",
       onClick: handleOpenRichMenu,
+    },
+    {
+      icon: <UserX className="h-4 w-4" />,
+      label: "紹介者不要の切替",
+      onClick: handleToggleReferrerNotRequired,
     },
   ];
 
@@ -139,18 +165,27 @@ export function LineFriendsTable({ data, lastSyncAt }: Props) {
         </Badge>
       ),
     free1: (value, item) => {
-      if (!value) return null;
-      const isInvalid = item.free1Invalid === true;
-      return (
-        <span className="flex items-center gap-1">
-          <span className={isInvalid ? "text-red-700 font-medium" : ""}>{String(value)}</span>
-          {isInvalid && (
+      const warning = item.free1Warning as string | null;
+      if (!value && !warning) return null;
+      if (warning === "invalid_uid") {
+        return (
+          <span className="flex items-center gap-1">
+            <span className="text-red-700 font-medium">{String(value)}</span>
             <span title="このUIDはLINE友達一覧に存在しません">
               <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
             </span>
-          )}
-        </span>
-      );
+          </span>
+        );
+      }
+      if (warning === "empty") {
+        return (
+          <span className="flex items-center gap-1 text-amber-600 text-xs">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            紹介者未設定
+          </span>
+        );
+      }
+      return <span>{String(value)}</span>;
     },
   };
 
@@ -190,9 +225,12 @@ export function LineFriendsTable({ data, lastSyncAt }: Props) {
         isEditDisabled={isRowFromProline}
         isDeleteDisabled={isRowFromProline}
         emptyMessage="LINE友達情報が登録されていません"
-        rowClassName={(item) =>
-          item.free1Invalid ? "!bg-red-50" : undefined
-        }
+        rowClassName={(item) => {
+          const w = item.free1Warning as string | null;
+          if (w === "invalid_uid") return "!bg-red-50";
+          if (w === "empty") return "!bg-amber-50";
+          return undefined;
+        }}
       />
     </div>
   );

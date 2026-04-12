@@ -328,3 +328,27 @@ export async function triggerProLineSync(): Promise<{
     return { success: false, error: message };
   }
 }
+
+/**
+ * 紹介者不要フラグをトグルする。
+ * free1が空でも警告を出さないようにするためのフラグ。
+ */
+export async function toggleReferrerNotRequired(
+  id: number
+): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
+
+  const friend = await prisma.slpLineFriend.findUnique({
+    where: { id },
+    select: { referrerNotRequired: true },
+  });
+  if (!friend) return err("LINE友達が見つかりません");
+
+  await prisma.slpLineFriend.update({
+    where: { id },
+    data: { referrerNotRequired: !friend.referrerNotRequired },
+  });
+
+  revalidatePath("/slp/line-friends");
+  return ok();
+}
