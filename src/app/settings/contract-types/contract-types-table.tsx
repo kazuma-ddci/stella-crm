@@ -32,6 +32,10 @@ export function ContractTypesTable({ data, projectOptions, canEdit, filterProjec
       required: true,
       simpleMode: true,
       hidden: !!filterProjectId,
+      // filterProjectId モードではフォーム(追加・編集ダイアログ)からも除外し、
+      // defaultValue だけが裏で適用されるようにする
+      editableOnCreate: filterProjectId ? false : undefined,
+      editableOnUpdate: filterProjectId ? false : undefined,
       defaultValue: filterProjectId ? String(filterProjectId) : undefined,
     },
     { key: "projectName", header: "プロジェクト", editable: false, hidden: true },

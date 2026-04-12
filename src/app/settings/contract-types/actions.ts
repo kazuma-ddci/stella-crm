@@ -30,6 +30,8 @@ export async function addContractType(
       },
     });
     revalidatePath("/settings/contract-types");
+    revalidatePath("/slp/settings/contract-types");
+    revalidatePath("/slp/contracts");
     return ok();
   } catch (e) {
     console.error("[addContractType] error:", e);
@@ -56,6 +58,8 @@ export async function updateContractType(
       });
     }
     revalidatePath("/settings/contract-types");
+    revalidatePath("/slp/settings/contract-types");
+    revalidatePath("/slp/contracts");
     return ok();
   } catch (e) {
     console.error("[updateContractType] error:", e);
@@ -70,6 +74,8 @@ export async function deleteContractType(id: number): Promise<ActionResult> {
       where: { id },
     });
     revalidatePath("/settings/contract-types");
+    revalidatePath("/slp/settings/contract-types");
+    revalidatePath("/slp/contracts");
     return ok();
   } catch (e) {
     console.error("[deleteContractType] error:", e);
@@ -107,6 +113,8 @@ export async function reorderContractTypes(
     );
 
     revalidatePath("/settings/contract-types");
+    revalidatePath("/slp/settings/contract-types");
+    revalidatePath("/slp/contracts");
     return ok();
   } catch (e) {
     console.error("[reorderContractTypes] error:", e);
@@ -184,6 +192,8 @@ export async function updateTemplate(
     });
 
     revalidatePath("/settings/contract-types");
+    revalidatePath("/slp/settings/contract-types");
+    revalidatePath("/slp/contracts");
     revalidatePath("/slp/settings/project");
     return ok();
   } catch (e) {
@@ -275,6 +285,9 @@ export async function addTemplateLink(
     });
 
     revalidatePath("/settings/contract-types");
+    revalidatePath("/slp/settings/contract-types");
+    revalidatePath("/slp/contracts");
+    revalidatePath("/slp/settings/project");
     return ok();
   } catch (e) {
     console.error("[addTemplateLink] error:", e);
@@ -294,6 +307,9 @@ export async function removeTemplateLink(linkId: number): Promise<ActionResult> 
     });
 
     revalidatePath("/settings/contract-types");
+    revalidatePath("/slp/settings/contract-types");
+    revalidatePath("/slp/contracts");
+    revalidatePath("/slp/settings/project");
     return ok();
   } catch (e) {
     console.error("[removeTemplateLink] error:", e);

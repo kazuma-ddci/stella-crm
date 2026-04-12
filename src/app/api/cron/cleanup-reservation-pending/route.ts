@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
+import { verifyCronAuth } from "@/lib/cron-auth";
 
 /**
  * GET /api/cron/cleanup-reservation-pending
@@ -12,13 +13,8 @@ import { logAutomationError } from "@/lib/automation-error";
  *   0 4 * * * curl -s -H "Authorization: Bearer $CRON_SECRET" http://localhost:4001/api/cron/cleanup-reservation-pending
  */
 export async function GET(request: NextRequest) {
-  // Bearer認証
-  const authHeader = request.headers.get("authorization");
-  const expectedToken = process.env.CRON_SECRET;
-
-  if (!expectedToken || authHeader !== `Bearer ${expectedToken}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authError = verifyCronAuth(request);
+  if (authError) return authError;
 
   try {
     const now = new Date();

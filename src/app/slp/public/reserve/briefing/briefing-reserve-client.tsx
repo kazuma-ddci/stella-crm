@@ -16,6 +16,7 @@ import { createBriefingPendingAction } from "./actions";
 type CompanyRow = {
   recordId: number;
   companyName: string | null;
+  businessType: string | null;
   briefingStatus: string | null;
   briefingDate: string | null;
   briefingHasReservation: boolean;
@@ -54,6 +55,7 @@ export function BriefingReserveClient({
   const [step, setStep] = useState<Step>({ type: "select" });
   const [newCompanyName, setNewCompanyName] = useState("");
   const [showNewForm, setShowNewForm] = useState(false);
+  const [newBusinessType, setNewBusinessType] = useState("corporation");
 
   // 既に予約中の企業を上に、予約可能な企業を下に
   const reservableCompanies = useMemo(
@@ -97,6 +99,7 @@ export function BriefingReserveClient({
     const result = await createBriefingPendingAction({
       uid,
       newCompanyName: newCompanyName.trim(),
+      businessType: newBusinessType,
     });
     if (result.success) {
       // 新規会社の場合は準備完了画面をスキップして直接プロラインの予約フォームに遷移
@@ -120,7 +123,7 @@ export function BriefingReserveClient({
               {step.expectedCompanyName}
             </span>
             <br />
-            この企業の概要案内予約として処理されます。
+            この事業者の概要案内予約として処理されます。
           </p>
         </div>
 
@@ -129,7 +132,7 @@ export function BriefingReserveClient({
             ⚠️ 次の予約画面では「企業名」が編集可能な状態で表示されますが、
             <strong>編集しないでください</strong>。
             <br />
-            別の企業を予約したい場合は、このページに戻ってもう一度やり直してください。
+            別の事業者を予約したい場合は、このページに戻ってもう一度やり直してください。
           </p>
         </div>
 
@@ -150,10 +153,11 @@ export function BriefingReserveClient({
             setStep({ type: "select" });
             setNewCompanyName("");
             setShowNewForm(false);
+            setNewBusinessType("corporation");
           }}
           className="w-full text-xs text-slate-500 underline hover:text-slate-700"
         >
-          別の企業を選び直す
+          別の事業者を選び直す
         </button>
       </div>
     );
@@ -195,7 +199,7 @@ export function BriefingReserveClient({
       {/* 既に担当している企業のリスト */}
       {companies.length > 0 && (
         <div>
-          <KoutekiSectionHeader title="あなたが担当している企業" />
+          <KoutekiSectionHeader title="あなたが担当している事業者" />
 
           {reservableCompanies.length > 0 && (
             <div className="space-y-2 mt-3">
@@ -204,9 +208,16 @@ export function BriefingReserveClient({
                   <KoutekiCardContent className="p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-slate-900 truncate">
-                          {c.companyName ?? "(企業名未登録)"}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-slate-900 truncate">
+                            {c.companyName ?? "(事業者名未登録)"}
+                          </p>
+                          {c.businessType && (
+                            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-slate-100 text-slate-600 whitespace-nowrap">
+                              {c.businessType === "sole_proprietor" ? "個人事業主" : "法人"}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-slate-500 mt-0.5">
                           概要案内: 未予約
                         </p>
@@ -215,7 +226,7 @@ export function BriefingReserveClient({
                         size="sm"
                         onClick={() => handleSelectExisting(c.recordId)}
                       >
-                        この企業で予約する
+                        この事業者で予約する
                       </KoutekiButton>
                     </div>
                   </KoutekiCardContent>
@@ -226,15 +237,22 @@ export function BriefingReserveClient({
 
           {reservedCompanies.length > 0 && (
             <div className="space-y-2 mt-3">
-              <p className="text-xs text-slate-500">予約済み・完了済みの企業</p>
+              <p className="text-xs text-slate-500">予約済み・完了済みの事業者</p>
               {reservedCompanies.map((c) => (
                 <div
                   key={c.recordId}
                   className="rounded-lg border border-slate-200 bg-slate-50 p-3"
                 >
-                  <p className="text-sm font-medium text-slate-700">
-                    {c.companyName ?? "(企業名未登録)"}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-slate-700">
+                      {c.companyName ?? "(事業者名未登録)"}
+                    </p>
+                    {c.businessType && (
+                      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-slate-100 text-slate-600 whitespace-nowrap">
+                        {c.businessType === "sole_proprietor" ? "個人事業主" : "法人"}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-slate-500 mt-0.5">
                     {c.briefingCompleted
                       ? "概要案内: 完了"
@@ -256,7 +274,7 @@ export function BriefingReserveClient({
 
       {/* 新しい企業として予約 */}
       <div>
-        <KoutekiSectionHeader title="新しい企業の概要案内を予約する" />
+        <KoutekiSectionHeader title="新しい事業者の概要案内を予約する" />
 
         {!showNewForm ? (
           <div className="mt-3">
@@ -265,19 +283,47 @@ export function BriefingReserveClient({
               className="w-full"
               onClick={() => setShowNewForm(true)}
             >
-              + 新しい企業として予約する
+              + 新しい事業者として予約する
             </KoutekiButton>
           </div>
         ) : (
           <div className="mt-3 space-y-3">
+            <div className="mb-3">
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                事業形態 <span className="text-red-500">*</span>
+              </label>
+              <div className="flex gap-4">
+                {[
+                  { value: "corporation", label: "法人" },
+                  { value: "sole_proprietor", label: "個人事業主" },
+                ].map((opt) => (
+                  <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="newBusinessType"
+                      value={opt.value}
+                      checked={newBusinessType === opt.value}
+                      onChange={(e) => setNewBusinessType(e.target.value)}
+                      className="h-4 w-4 text-blue-600"
+                    />
+                    <span className="text-sm">{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
-                会社名 <span className="text-red-500">*</span>
+                {newBusinessType === "sole_proprietor" ? "屋号(個人名可)" : "企業名"}{" "}
+                <span className="text-red-500">*</span>
               </label>
               <KoutekiInput
                 value={newCompanyName}
                 onChange={(e) => setNewCompanyName(e.target.value)}
-                placeholder="株式会社○○"
+                placeholder={
+                  newBusinessType === "sole_proprietor"
+                    ? "○○商店 / 山田太郎"
+                    : "株式会社○○"
+                }
                 autoFocus
               />
               <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
@@ -290,17 +336,17 @@ export function BriefingReserveClient({
             {similarCompanies.length > 0 && (
               <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
                 <p className="text-xs text-amber-800 font-medium mb-1.5">
-                  ⚠️ 類似する企業が既に登録されています
+                  ⚠️ 類似する事業者が既に登録されています
                 </p>
                 <ul className="text-xs text-amber-700 space-y-0.5">
                   {similarCompanies.map((c) => (
                     <li key={c.recordId}>
-                      ・{c.companyName ?? "(企業名未登録)"}
+                      ・{c.companyName ?? "(事業者名未登録)"}
                     </li>
                   ))}
                 </ul>
                 <p className="text-xs text-amber-700 mt-2">
-                  同じ企業の場合は上のリストから選択してください。
+                  同じ事業者の場合は上のリストから選択してください。
                 </p>
               </div>
             )}
@@ -311,6 +357,7 @@ export function BriefingReserveClient({
                 onClick={() => {
                   setShowNewForm(false);
                   setNewCompanyName("");
+                  setNewBusinessType("corporation");
                 }}
               >
                 戻る

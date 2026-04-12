@@ -10,6 +10,7 @@ import {
   type ReceiptPaymentSummary,
 } from "@/lib/accounting/sync-payment-date";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 // ============================================
 // 型定義
@@ -153,6 +154,9 @@ function determineCategory(
 // ============================================
 
 export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
   const [invoiceGroups, paymentGroups] = await Promise.all([
     prisma.invoiceGroup.findMany({
       where: {
@@ -383,6 +387,9 @@ export async function getWorkflowGroupDetail(
   groupType: "invoice" | "payment",
   groupId: number
 ): Promise<WorkflowGroupDetail | null> {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
   const transactionSelect = {
     id: true,
     type: true,
@@ -821,6 +828,9 @@ export type PendingApprovalDetail = {
 };
 
 export async function getPendingApprovalDetail(groupId: number): Promise<PendingApprovalDetail | null> {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
   const pg = await prisma.paymentGroup.findFirst({
     where: { id: groupId, deletedAt: null },
     select: {
@@ -1192,31 +1202,51 @@ export async function addGroupAttachments(
     displayName?: string;
     generatedName?: string;
   }[]
-) {
+): Promise<ActionResult<void>> {
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
   const session = await getSession();
-  await prisma.attachment.createMany({
-    data: files.map((f) => ({
-      ...(groupType === "invoice" ? { invoiceGroupId: groupId } : { paymentGroupId: groupId }),
-      filePath: f.filePath,
-      fileName: f.generatedName ?? f.fileName,
-      fileSize: f.fileSize,
-      mimeType: f.mimeType,
-      attachmentType: f.attachmentType ?? "voucher",
-      displayName: f.displayName ?? null,
-      generatedName: f.generatedName ?? null,
-      uploadedBy: session.id,
-    })),
-  });
-  revalidatePath("/accounting/workflow");
+  try {
+    await prisma.attachment.createMany({
+      data: files.map((f) => ({
+        ...(groupType === "invoice" ? { invoiceGroupId: groupId } : { paymentGroupId: groupId }),
+        filePath: f.filePath,
+        fileName: f.generatedName ?? f.fileName,
+        fileSize: f.fileSize,
+        mimeType: f.mimeType,
+        attachmentType: f.attachmentType ?? "voucher",
+        displayName: f.displayName ?? null,
+        generatedName: f.generatedName ?? null,
+        uploadedBy: session.id,
+      })),
+    });
+    revalidatePath("/accounting/workflow");
+    return ok();
+  } catch (e) {
+    console.error("[addGroupAttachments] error:", e);
+    return err(
+      e instanceof Error ? e.message : "添付ファイルの追加に失敗しました"
+    );
+  }
 }
 
-export async function deleteGroupAttachment(attachmentId: number) {
+export async function deleteGroupAttachment(
+  attachmentId: number
+): Promise<ActionResult<void>> {
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
   await getSession();
-  await prisma.attachment.update({
-    where: { id: attachmentId },
-    data: { deletedAt: new Date() },
-  });
-  revalidatePath("/accounting/workflow");
+  try {
+    await prisma.attachment.update({
+      where: { id: attachmentId },
+      data: { deletedAt: new Date() },
+    });
+    revalidatePath("/accounting/workflow");
+    return ok();
+  } catch (e) {
+    console.error("[deleteGroupAttachment] error:", e);
+    return err(
+      e instanceof Error ? e.message : "添付ファイルの削除に失敗しました"
+    );
+  }
 }
 
 // ============================================

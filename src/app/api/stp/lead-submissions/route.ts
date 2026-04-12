@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
+import { authorizeApi } from "@/lib/api-auth";
 
 // JSON文字列を配列にパースするヘルパー
 const parseJsonArray = (json: string | null): string[] => {
@@ -25,6 +26,10 @@ const formatDateTime = (date: Date): string => {
 };
 
 export async function GET() {
+  // STP閲覧権限以上のスタッフのみ
+  const authz = await authorizeApi([{ project: "stp", level: "view" }]);
+  if (!authz.ok) return authz.response;
+
   const [submissions, masterCompanies, stpCompanies, agents] = await Promise.all([
     prisma.stpLeadFormSubmission.findMany({
       include: {

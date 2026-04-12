@@ -34,6 +34,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Switch } from "@/components/ui/switch";
 import {
   ArrowLeft,
   Plus,
@@ -93,6 +94,11 @@ type AgencyData = {
   notes: string;
   parentId: number | null;
   parentName: string | null;
+  isIndividualBusiness: boolean;
+  corporateNumber: string;
+  representativeName: string;
+  representativePhone: string;
+  representativeEmail: string;
   contacts: Contact[];
   children: ChildAgency[];
   asResolutions: AsResolution[];
@@ -125,6 +131,11 @@ export function AgencyDetail({
   );
   const [contractEndDate, setContractEndDate] = useState(agency.contractEndDate);
   const [notes, setNotes] = useState(agency.notes);
+  const [isIndividualBusiness, setIsIndividualBusiness] = useState(agency.isIndividualBusiness);
+  const [corporateNumber, setCorporateNumber] = useState(agency.corporateNumber);
+  const [representativeName, setRepresentativeName] = useState(agency.representativeName);
+  const [representativePhone, setRepresentativePhone] = useState(agency.representativePhone);
+  const [representativeEmail, setRepresentativeEmail] = useState(agency.representativeEmail);
   const [saving, setSaving] = useState(false);
 
   // 担当者ダイアログ
@@ -159,6 +170,11 @@ export function AgencyDetail({
         contractStartDate,
         contractEndDate,
         notes,
+        isIndividualBusiness,
+        corporateNumber,
+        representativeName,
+        representativePhone,
+        representativeEmail,
       }),
     [
       name,
@@ -170,6 +186,11 @@ export function AgencyDetail({
       contractStartDate,
       contractEndDate,
       notes,
+      isIndividualBusiness,
+      corporateNumber,
+      representativeName,
+      representativePhone,
+      representativeEmail,
     ]
   );
 
@@ -219,6 +240,11 @@ export function AgencyDetail({
         contractStartDate: contractStartDate || null,
         contractEndDate: contractEndDate || null,
         notes,
+        isIndividualBusiness,
+        corporateNumber,
+        representativeName,
+        representativePhone,
+        representativeEmail,
       });
       setSavedValues(currentValues);
       router.refresh();
@@ -384,17 +410,59 @@ export function AgencyDetail({
 
           {!isChild && (
             <>
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="is-individual"
+                  checked={isIndividualBusiness}
+                  onCheckedChange={setIsIndividualBusiness}
+                />
+                <Label htmlFor="is-individual">個人事業主</Label>
+                <Badge variant={isIndividualBusiness ? "outline" : "secondary"} className="text-xs">
+                  {isIndividualBusiness ? "個人事業主" : "法人"}
+                </Badge>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>法人名</Label>
+                  <Label>{isIndividualBusiness ? "屋号(個人名可)" : "企業名"}</Label>
                   <Input
                     value={corporateName}
                     onChange={(e) => setCorporateName(e.target.value)}
-                    placeholder="法人名"
+                    placeholder={isIndividualBusiness ? "屋号または個人名" : "企業名"}
+                  />
+                </div>
+                {!isIndividualBusiness && (
+                  <div>
+                    <Label>法人番号</Label>
+                    <Input
+                      value={corporateNumber}
+                      onChange={(e) => setCorporateNumber(e.target.value)}
+                      placeholder="1234567890123"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <Label>代表者名</Label>
+                <Input
+                  value={representativeName}
+                  onChange={(e) => setRepresentativeName(e.target.value)}
+                  placeholder="代表者名"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>{isIndividualBusiness ? "事業用電話番号" : "企業電話番号"}</Label>
+                  <Input
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="03-0000-0000"
                   />
                 </div>
                 <div>
-                  <Label>メールアドレス</Label>
+                  <Label>{isIndividualBusiness ? "事業用メールアドレス" : "企業メールアドレス"}</Label>
                   <Input
                     type="email"
                     value={email}
@@ -404,23 +472,35 @@ export function AgencyDetail({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>電話番号</Label>
-                  <Input
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="03-0000-0000"
-                  />
+              {!isIndividualBusiness && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>代表者電話番号</Label>
+                    <Input
+                      value={representativePhone}
+                      onChange={(e) => setRepresentativePhone(e.target.value)}
+                      placeholder="090-0000-0000"
+                    />
+                  </div>
+                  <div>
+                    <Label>代表者メールアドレス</Label>
+                    <Input
+                      type="email"
+                      value={representativeEmail}
+                      onChange={(e) => setRepresentativeEmail(e.target.value)}
+                      placeholder="representative@example.com"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <Label>所在地</Label>
-                  <Input
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    placeholder="東京都..."
-                  />
-                </div>
+              )}
+
+              <div>
+                <Label>{isIndividualBusiness ? "事業用住所" : "本店所在地"}</Label>
+                <Input
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="東京都..."
+                />
               </div>
 
               <div className="grid grid-cols-3 gap-4">

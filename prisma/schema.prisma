@@ -3985,6 +3985,16 @@ model SlpCompanyRecord {
   employeeCountFormAnswer            String? @map("employee_count_form_answer")              @db.VarChar(500) // 従業員数フォーム回答
 
   // ============================================
+  // 事業形態・法人/個人事業主対応
+  // ============================================
+  businessType         String?            @map("business_type") @db.VarChar(20) // "corporation" | "sole_proprietor"
+  corporateNumber      String?            @map("corporate_number") @db.VarChar(13) // 法人番号（将来の全企業マスタ統合で法人同一判定に使用）
+  companyEmail         String?            @map("company_email") @db.VarChar(255) // 企業メール / 事業用メール
+  representativePhone  String?            @map("representative_phone") @db.VarChar(50) // 代表者電話番号
+  representativeEmail  String?            @map("representative_email") @db.VarChar(255) // 代表者メールアドレス
+  primaryContactId     Int?               @map("primary_contact_id") // 代表者として選択した担当者ID
+
+  // ============================================
   // 金額・契約情報（Phase 1 で追加）
   // ============================================
   initialFee            Decimal?  @map("initial_fee") @db.Decimal(15, 2) // 初期導入費用
@@ -4010,6 +4020,7 @@ model SlpCompanyRecord {
   deletedAt DateTime? @map("deleted_at")
 
   contacts             SlpCompanyContact[]
+  primaryContact       SlpCompanyContact?              @relation("PrimaryContact", fields: [primaryContactId], references: [id])
   briefingStaffUser    MasterStaff?                    @relation("SlpCompanyBriefingStaff", fields: [briefingStaffId], references: [id])
   consultationStaffUser MasterStaff?                   @relation("SlpCompanyConsultationStaff", fields: [consultationStaffId], references: [id])
   salesStaff           MasterStaff?                    @relation("SlpCompanySalesStaff", fields: [salesStaffId], references: [id])
@@ -4190,6 +4201,7 @@ model SlpCompanyContact {
   manualAsChangedById Int?      @map("manual_as_changed_by_id") // 手動上書きしたスタッフID
 
   companyRecord  SlpCompanyRecord @relation(fields: [companyRecordId], references: [id], onDelete: Cascade)
+  primaryOf      SlpCompanyRecord[] @relation("PrimaryContact")
   lineFriend     SlpLineFriend?   @relation(fields: [lineFriendId], references: [id])
   manualAs       SlpAs?           @relation("SlpCompanyContactManualAs", fields: [manualAsId], references: [id])
   manualAsChangedBy MasterStaff?  @relation("SlpCompanyContactManualAsChangedBy", fields: [manualAsChangedById], references: [id])
@@ -4951,6 +4963,12 @@ model SlpAgency {
   contractStartDate DateTime? @map("contract_start_date") @db.Date // 契約開始日
   contractEndDate   DateTime? @map("contract_end_date") @db.Date // 契約終了日
   notes             String?   @db.Text // 備考
+  // 事業形態・法人/個人事業主対応
+  isIndividualBusiness  Boolean  @default(false) @map("is_individual_business") // true=個人事業主, false=法人
+  corporateNumber       String?  @map("corporate_number") @db.VarChar(13) // 法人番号
+  representativeName    String?  @map("representative_name") @db.VarChar(100) // 代表者名
+  representativePhone   String?  @map("representative_phone") @db.VarChar(50) // 代表者電話番号
+  representativeEmail   String?  @map("representative_email") @db.VarChar(255) // 代表者メールアドレス
   parentId          Int?      @map("parent_id") // 親代理店ID（自己参照で無限階層）
 
   parent         SlpAgency?                @relation("AgencyHierarchy", fields: [parentId], references: [id])
@@ -5006,6 +5024,7 @@ model SlpReservationPending {
   expiresAt             DateTime  @map("expires_at") // 30分後
   consumedAt            DateTime? @map("consumed_at") // webhook受信時に紐付けが完了した時刻
   consumedReservationId String?   @map("consumed_reservation_id") @db.VarChar(100) // 紐付けに使われた予約ID
+  businessType          String?  @map("business_type") @db.VarChar(20) // "corporation" | "sole_proprietor"（予約時の事業形態）
 
   @@index([token])
   @@index([uid, createdAt])

@@ -2,10 +2,17 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 const REVALIDATE_PATH = "/hojo/security-cloud/accounts";
 
+// このファイルの全関数は補助金プロジェクトの編集権限以上の社内スタッフのみ実行可能。
+async function requireHojoEditStaff() {
+  await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
+}
+
 export async function updateWholesaleAccount(id: number, data: Record<string, unknown>) {
+  await requireHojoEditStaff();
   const updateData: Record<string, unknown> = {};
 
   // 弊社側で編集可能なフィールドのみ
@@ -28,6 +35,7 @@ export async function updateWholesaleAccount(id: number, data: Record<string, un
 }
 
 export async function deleteWholesaleAccount(id: number) {
+  await requireHojoEditStaff();
   await prisma.hojoWholesaleAccount.update({
     where: { id },
     data: { deletedAt: new Date() },
@@ -36,6 +44,7 @@ export async function deleteWholesaleAccount(id: number) {
 }
 
 export async function restoreWholesaleAccount(id: number) {
+  await requireHojoEditStaff();
   await prisma.hojoWholesaleAccount.update({
     where: { id },
     data: { deletedByVendor: false },

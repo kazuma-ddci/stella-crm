@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth";
 import type { SessionUser } from "@/types/auth";
 import { isSystemAdmin, isFounder, hasPermission } from "@/lib/auth/permissions";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 // 機密フィルタ: 作成者・承認者・経理権限者のみ閲覧可能
 // システム管理者・Founderであっても機密経費は見えない
@@ -642,6 +643,9 @@ export type RecurringItem = {
 
 /** 定期取引タブ（プロジェクト指定） */
 export async function getProjectRecurringTransactions(projectId: number): Promise<RecurringItem[]> {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
   const rts = await prisma.recurringTransaction.findMany({
     where: { deletedAt: null, projectId, type: "expense" },
     select: {
@@ -677,6 +681,9 @@ export async function getProjectRecurringTransactions(projectId: number): Promis
 
 /** 全プロジェクト横断の定期取引（経理用） */
 export async function getAllRecurringTransactions(): Promise<RecurringItem[]> {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
   const rts = await prisma.recurringTransaction.findMany({
     where: { deletedAt: null, type: "expense" },
     select: {
@@ -726,6 +733,9 @@ export type MonthlySummary = {
 
 /** 月別サマリータブ */
 export async function getMonthlyExpenseSummary(projectId: number): Promise<MonthlySummary[]> {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
   sixMonthsAgo.setDate(1);

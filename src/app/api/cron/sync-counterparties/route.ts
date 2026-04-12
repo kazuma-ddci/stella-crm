@@ -1,18 +1,12 @@
 import { NextResponse } from "next/server";
 import { syncCounterpartiesCore } from "@/app/accounting/masters/counterparties/actions";
+import { verifyCronAuth } from "@/lib/cron-auth";
 
 const SYSTEM_STAFF_ID = 1;
 
 export async function GET(request: Request) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    console.error("[Cron] CRON_SECRET is not configured");
-    return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
-  }
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authError = verifyCronAuth(request);
+  if (authError) return authError;
 
   try {
     const result = await syncCounterpartiesCore(SYSTEM_STAFF_ID);

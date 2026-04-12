@@ -7,6 +7,7 @@ import { Prisma } from "@prisma/client";
 import { createNotificationBulk } from "@/lib/notifications/create-notification";
 import { recordChangeLog } from "@/app/accounting/changelog/actions";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 const REVALIDATE_PATH = "/accounting/transactions";
 
@@ -69,6 +70,10 @@ export type AllocationStatusResult = {
 export async function getAllocationStatus(
   transactionId: number
 ): Promise<ActionResult<AllocationStatusResult | null>> {
+  // 注: requireStaffWithProjectPermission の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
   try {
   const transaction = await prisma.transaction.findFirst({
     where: { id: transactionId, deletedAt: null },

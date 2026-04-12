@@ -53,11 +53,11 @@ export async function createConsultationPendingAction(params: {
   if (record.briefingStatus !== "完了") {
     return {
       success: false,
-      error: "この企業の概要案内が完了していないため、導入希望商談の予約はできません",
+      error: "この事業者の概要案内が完了していないため、導入希望商談の予約はできません",
     };
   }
 
-  const expectedCompanyName = record.companyName ?? "(企業名未登録)";
+  const expectedCompanyName = record.companyName ?? "(事業者名未登録)";
   const token = generateReservationToken();
   const expiresAt = new Date(Date.now() + PENDING_EXPIRES_MS);
 

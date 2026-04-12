@@ -14,6 +14,25 @@ interface SubmitRegistrationRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    // RESEND_API_KEY が未設定なら登録を拒否(fail-secure)。
+    // 元の実装では未設定時にメール認証をスキップしていたが、これは
+    // 設定漏れに気づきにくく、メール検証なしで pending_approval まで進める
+    // 抜け道になっていたため、明示的にエラーで返す。
+    // 注: 補助金事業の BBS / ベンダー / 貸金業社の登録は別エンドポイントを
+    // 使っており、この設定の影響を受けない。
+    if (!process.env.RESEND_API_KEY) {
+      console.error(
+        "[registration/submit] RESEND_API_KEY is not configured, registration is disabled"
+      );
+      return NextResponse.json(
+        {
+          error:
+            "新規登録機能が現在利用できません。管理者にお問い合わせください。",
+        },
+        { status: 500 }
+      );
+    }
+
     const body: SubmitRegistrationRequest = await request.json();
     const { token, name, position, email, password } = body;
 
@@ -74,9 +93,8 @@ export async function POST(request: NextRequest) {
 
     // トランザクションで外部ユーザー作成とトークン更新
     const result = await prisma.$transaction(async (tx) => {
-      // 外部ユーザー作成
-      // 開発環境ではメール認証をスキップして直接「承認待ち」状態にする
-      const skipEmailVerification = !process.env.RESEND_API_KEY;
+      // RESEND_API_KEY 設定済みの前提でメール認証フローを必ず通す。
+      // 未設定の場合は関数冒頭で 500 を返してここに到達しない。
       const externalUser = await tx.externalUser.create({
         data: {
           companyId: registrationToken.companyId,
@@ -85,8 +103,8 @@ export async function POST(request: NextRequest) {
           position,
           email,
           passwordHash,
-          status: skipEmailVerification ? "pending_approval" : "pending_email",
-          emailVerifiedAt: skipEmailVerification ? new Date() : null,
+          status: "pending_email",
+          emailVerifiedAt: null,
         },
       });
 
@@ -117,16 +135,6 @@ export async function POST(request: NextRequest) {
 
       return { externalUser, verificationToken, updatedToken };
     });
-
-    // メール認証がスキップされた場合
-    const skipEmailVerification = !process.env.RESEND_API_KEY;
-    if (skipEmailVerification) {
-      return NextResponse.json({
-        success: true,
-        message:
-          "登録が完了しました。管理者の承認後、ログインできるようになります。",
-      });
-    }
 
     // 確認メール送信
     const emailResult = await sendVerificationEmail(

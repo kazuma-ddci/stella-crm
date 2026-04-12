@@ -8,11 +8,14 @@ import {
   getNextContractNumber as getNextNumber,
 } from "@/lib/contracts/generate-number";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 /**
  * SLPメンバーの契約書一覧を取得
  */
 export async function getSlpMemberContracts(memberId: number) {
+  // 閲覧目的なので SLP の view 以上で OK
+  await requireStaffWithProjectPermission([{ project: "slp", level: "view" }]);
   const slpProject = await prisma.masterProject.findFirst({
     where: { code: "slp" },
     select: { id: true },
@@ -79,6 +82,7 @@ export async function getSlpMemberContracts(memberId: number) {
  * 次の契約番号をプレビュー取得
  */
 export async function getSlpNextContractNumber(): Promise<string> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "view" }]);
   return getNextNumber();
 }
 
@@ -108,6 +112,7 @@ type AddContractInput = {
 export async function addSlpMemberContract(
   input: AddContractInput
 ): Promise<ActionResult<{ contractId: number; contractNumber: string }>> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     const slpProject = await prisma.masterProject.findFirst({
       where: { code: "slp" },
@@ -179,6 +184,7 @@ export async function updateSlpMemberContract(
   contractId: number,
   input: UpdateContractInput
 ): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
   const contract = await prisma.masterContract.findUnique({
     where: { id: contractId },
@@ -265,6 +271,7 @@ export async function updateSlpMemberContract(
  * 契約書を削除（物理削除）
  */
 export async function deleteSlpMemberContract(contractId: number): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     // 関連する履歴も削除
     await prisma.masterContractStatusHistory.deleteMany({

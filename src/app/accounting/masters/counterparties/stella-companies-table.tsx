@@ -116,11 +116,15 @@ export function StellaCompaniesTable({ data }: Props) {
     if (!editCompany) return;
     startTransition(async () => {
       try {
-        await updateStellaCompanyInvoiceInfo(editCompany.id, {
+        const result = await updateStellaCompanyInvoiceInfo(editCompany.id, {
           isInvoiceRegistered: editInvoiceRegistered,
           invoiceRegistrationNumber: editRegNumber || null,
           invoiceEffectiveDate: editInvoiceEffectiveDate || null,
         });
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         toast.success("インボイス情報を更新しました");
         setEditCompany(null);
         router.refresh();

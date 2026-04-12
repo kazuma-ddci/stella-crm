@@ -255,6 +255,7 @@ export async function GET(request: Request) {
       briefingDate: briefingDateParsed,
       briefingStaff: briefingStaff || null,
       briefingStaffId: resolvedStaffId,
+      businessType: pending?.businessType ?? null,
       // 再予約時にキャンセル記録をクリア。
       // キャンセル→再予約フローでは briefingStatus は "予約中" に戻るが、
       // briefingCanceledAt が古い値のまま残ると resolver.ts の

@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncMoneyForwardTransactions } from "@/lib/moneyforward/sync";
-import { getSession } from "@/lib/auth";
+import { authorizeApi } from "@/lib/api-auth";
 
 export async function POST(request: NextRequest) {
   try {
-    // 認証チェック
-    await getSession();
+    // 経理プロジェクトの編集権限以上のスタッフのみ
+    const authz = await authorizeApi([
+      { project: "accounting", level: "edit" },
+    ]);
+    if (!authz.ok) return authz.response;
 
     const body = await request.json();
     const { connectionId } = body as { connectionId: number };

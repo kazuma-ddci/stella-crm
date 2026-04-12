@@ -1,33 +1,18 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { authorizeApi } from "@/lib/api-auth";
 
 export async function GET() {
   try {
-    // 認証チェック
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const userId = (session.user as any).id as number;
-
-    // 管理者権限チェック
-    const staffPermissions = await prisma.staffPermission.findMany({
-      where: { staffId: userId },
-    });
-
-    const hasEditPermission = staffPermissions.some(
-      (p) => p.permissionLevel === "edit" || p.permissionLevel === "manager"
-    );
-
-    if (!hasEditPermission) {
-      return NextResponse.json(
-        { error: "編集権限が必要です" },
-        { status: 403 }
-      );
-    }
+    // 社内スタッフ + いずれかのプロジェクトで edit 以上
+    const authz = await authorizeApi([
+      { project: "stp", level: "edit" },
+      { project: "slp", level: "edit" },
+      { project: "accounting", level: "edit" },
+      { project: "hojo", level: "edit" },
+      { project: "stella", level: "edit" },
+    ]);
+    if (!authz.ok) return authz.response;
 
     // 企業一覧を取得
     const companies = await prisma.masterStellaCompany.findMany({

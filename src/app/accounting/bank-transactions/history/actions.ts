@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 // ============================================
 // 型定義
@@ -48,7 +49,9 @@ export type HistoryFilters = {
 export async function getTransactionHistory(
   filters?: HistoryFilters
 ): Promise<TransactionHistoryRow[]> {
-  await getSession();
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
 
   const where: Record<string, unknown> = {};
 
@@ -129,7 +132,9 @@ export async function getTransactionHistory(
 }
 
 export async function getHistoryFilterOptions(): Promise<HistoryFilterOptions> {
-  await getSession();
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
 
   const [operatingCompanies, bankAccountNamesRaw, sourcesRaw] = await Promise.all([
     prisma.operatingCompany.findMany({
@@ -164,9 +169,11 @@ export async function getHistoryFilterOptions(): Promise<HistoryFilterOptions> {
 // ============================================
 
 export async function deleteTransaction(id: number): Promise<ActionResult> {
+  // 注: requireStaffWithProjectPermission の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "edit" },
+  ]);
   try {
-    await getSession();
-
     const existing = await prisma.accountingTransaction.findUnique({
       where: { id },
     });

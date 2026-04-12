@@ -339,54 +339,62 @@ export async function updateStellaCompanyInvoiceInfo(
     invoiceRegistrationNumber?: string | null;
     invoiceEffectiveDate?: Date | string | null;
   }
-) {
-  const updateData: Record<string, unknown> = {};
+): Promise<ActionResult<void>> {
+  try {
+    const updateData: Record<string, unknown> = {};
 
-  if ("isInvoiceRegistered" in data) {
-    updateData.isInvoiceRegistered = data.isInvoiceRegistered === true;
-  }
-
-  if ("invoiceRegistrationNumber" in data) {
-    updateData.invoiceRegistrationNumber = data.invoiceRegistrationNumber?.trim() || null;
-  }
-
-  if ("invoiceEffectiveDate" in data) {
-    updateData.invoiceEffectiveDate = data.invoiceEffectiveDate
-      ? new Date(data.invoiceEffectiveDate)
-      : null;
-  }
-
-  await prisma.masterStellaCompany.update({
-    where: { id },
-    data: updateData,
-  });
-
-  // 紐づくCounterpartyにも同期
-  const counterparty = await prisma.counterparty.findFirst({
-    where: { companyId: id, deletedAt: null },
-  });
-  if (counterparty) {
-    const cpUpdate: Record<string, unknown> = {};
     if ("isInvoiceRegistered" in data) {
-      cpUpdate.isInvoiceRegistered = data.isInvoiceRegistered === true;
+      updateData.isInvoiceRegistered = data.isInvoiceRegistered === true;
     }
+
     if ("invoiceRegistrationNumber" in data) {
-      cpUpdate.invoiceRegistrationNumber = data.invoiceRegistrationNumber?.trim() || null;
+      updateData.invoiceRegistrationNumber = data.invoiceRegistrationNumber?.trim() || null;
     }
+
     if ("invoiceEffectiveDate" in data) {
-      cpUpdate.invoiceEffectiveDate = data.invoiceEffectiveDate
+      updateData.invoiceEffectiveDate = data.invoiceEffectiveDate
         ? new Date(data.invoiceEffectiveDate)
         : null;
     }
-    if (Object.keys(cpUpdate).length > 0) {
-      await prisma.counterparty.update({
-        where: { id: counterparty.id },
-        data: cpUpdate,
-      });
-    }
-  }
 
-  revalidatePath("/accounting/masters/counterparties");
+    await prisma.masterStellaCompany.update({
+      where: { id },
+      data: updateData,
+    });
+
+    // 紐づくCounterpartyにも同期
+    const counterparty = await prisma.counterparty.findFirst({
+      where: { companyId: id, deletedAt: null },
+    });
+    if (counterparty) {
+      const cpUpdate: Record<string, unknown> = {};
+      if ("isInvoiceRegistered" in data) {
+        cpUpdate.isInvoiceRegistered = data.isInvoiceRegistered === true;
+      }
+      if ("invoiceRegistrationNumber" in data) {
+        cpUpdate.invoiceRegistrationNumber = data.invoiceRegistrationNumber?.trim() || null;
+      }
+      if ("invoiceEffectiveDate" in data) {
+        cpUpdate.invoiceEffectiveDate = data.invoiceEffectiveDate
+          ? new Date(data.invoiceEffectiveDate)
+          : null;
+      }
+      if (Object.keys(cpUpdate).length > 0) {
+        await prisma.counterparty.update({
+          where: { id: counterparty.id },
+          data: cpUpdate,
+        });
+      }
+    }
+
+    revalidatePath("/accounting/masters/counterparties");
+    return ok();
+  } catch (e) {
+    console.error("[updateStellaCompanyInvoiceInfo] error:", e);
+    return err(
+      e instanceof Error ? e.message : "インボイス情報の更新に失敗しました"
+    );
+  }
 }
 
 // ============================================

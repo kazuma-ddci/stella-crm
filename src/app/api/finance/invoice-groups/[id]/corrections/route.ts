@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { authorizeApi } from "@/lib/api-auth";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
-  }
+  // STP編集 or 経理編集 のスタッフのみ
+  const authz = await authorizeApi([
+    { project: "stp", level: "edit" },
+    { project: "accounting", level: "edit" },
+  ]);
+  if (!authz.ok) return authz.response;
 
   const { id } = await params;
   const groupId = Number(id);

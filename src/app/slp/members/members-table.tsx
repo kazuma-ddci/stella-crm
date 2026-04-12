@@ -163,7 +163,7 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
     { key: "contractSignedDate", header: "契約締結日", type: "text", editable: false },
     { key: "formSubmittedAt", header: "フォーム送信日時", type: "text", editable: false },
     { key: "position", header: "役職", type: "text" },
-    { key: "company", header: "会社", type: "text", filterable: true },
+    { key: "company", header: "事業者", type: "text", filterable: true },
     { key: "memberCategory", header: "入会者区分", type: "select", options: memberCategoryOptions, filterable: true },
     { key: "lineName", header: "LINE名", type: "text" },
     { key: "uid", header: "UID", type: "text", required: true, editableOnCreate: true },

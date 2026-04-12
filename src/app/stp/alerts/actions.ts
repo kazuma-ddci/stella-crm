@@ -5,6 +5,7 @@ import { addBusinessDays, isBusinessDay } from "@/lib/business-days";
 import { getDashboardKgiData } from "@/app/stp/dashboard/actions";
 import { MONTHLY_KPI_KEYS, KPI_LABELS } from "@/lib/kpi/constants";
 import { revalidatePath } from "next/cache";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 // ============================================
 // 型定義
@@ -86,6 +87,9 @@ async function getStpProjectId(): Promise<number> {
 // ============================================
 
 export async function getAlerts(): Promise<AlertItem[]> {
+  // 認証: STPプロジェクトの閲覧権限以上
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -281,6 +285,7 @@ export async function acknowledgeAlert(
   alertKey: string,
   note?: string
 ): Promise<void> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   await prisma.alertAcknowledgment.upsert({
     where: {
       alertType_alertKey: { alertType, alertKey },
@@ -295,6 +300,7 @@ export async function removeAcknowledgment(
   alertType: string,
   alertKey: string
 ): Promise<void> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   await prisma.alertAcknowledgment.deleteMany({
     where: { alertType, alertKey },
   });

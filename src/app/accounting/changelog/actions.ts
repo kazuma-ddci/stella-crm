@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import type { InputJsonValue } from "@prisma/client/runtime/library";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 // ============================================
 // 型定義
@@ -91,6 +92,11 @@ export async function getChangeLogs(
   tableName: string,
   recordId: number
 ): Promise<ChangeLogEntry[]> {
+  // 認証: 経理プロジェクトの閲覧権限以上
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
+
   const logs = await prisma.changeLog.findMany({
     where: { tableName, recordId },
     include: {
@@ -119,6 +125,10 @@ export async function getChangeLogs(
 export async function getChangeLogsForTransaction(
   transactionId: number
 ): Promise<ChangeLogEntry[]> {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
+
   // 取引自体の変更履歴
   const transactionLogs = await prisma.changeLog.findMany({
     where: { tableName: "Transaction", recordId: transactionId },

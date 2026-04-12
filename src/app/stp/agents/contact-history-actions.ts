@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 type FileInput = {
   id?: number;
@@ -37,6 +38,9 @@ export async function addAgentContactHistory(
   agentId: number,
   data: ContactHistoryInput
 ) {
+  // 認証: STPプロジェクトの編集権限以上
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   // StpAgentからcompanyId（MasterStellaCompany.id）を取得
   const agent = await prisma.stpAgent.findUnique({
     where: { id: agentId },
@@ -121,6 +125,7 @@ export async function updateAgentContactHistory(
   id: number,
   data: ContactHistoryInput
 ) {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   const result = await prisma.$transaction(async (tx) => {
     // 接触履歴を更新
     const history = await tx.contactHistory.update({
@@ -225,6 +230,7 @@ export async function deleteAgentContactHistoryRole(
   contactHistoryId: number,
   customerTypeId: number
 ) {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   await prisma.$transaction(async (tx) => {
     // 指定されたロールを削除
     await tx.contactHistoryRole.delete({
@@ -259,6 +265,7 @@ export async function deleteAgentContactHistoryRole(
  * @param id - 接触履歴ID
  */
 export async function deleteAgentContactHistory(id: number) {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   const history = await prisma.contactHistory.update({
     where: { id },
     data: { deletedAt: new Date() },
@@ -274,6 +281,7 @@ export async function deleteAgentContactHistory(id: number) {
  * @param companyId - MasterStellaCompanyのID（代理店の企業ID）
  */
 export async function getAgentContactHistories(companyId: number) {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   const histories = await prisma.contactHistory.findMany({
     where: {
       companyId,
@@ -311,6 +319,7 @@ export async function getAgentContactHistories(companyId: number) {
  * 顧客種別一覧を取得（STPプロジェクト）
  */
 export async function getCustomerTypes() {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   return await prisma.customerType.findMany({
     where: {
       projectId: STP_PROJECT_ID,

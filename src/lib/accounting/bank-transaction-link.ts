@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { requireEdit } from "@/lib/auth";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 import {
   recalcInvoiceGroupActualPaymentDate,
   recalcPaymentGroupActualPaymentDate,
@@ -44,7 +45,11 @@ export type BankTxLinkView = {
 export async function getBankTransactionLinks(
   bankTransactionId: number
 ): Promise<BankTxLinkView[]> {
-  await getSession();
+  // 経理プロジェクトの閲覧権限以上を要求
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
 
   const links = await prisma.bankTransactionGroupLink.findMany({
     where: { bankTransactionId },
@@ -92,7 +97,9 @@ export async function checkManualReceiptsExist(
   groupType: "invoice" | "payment",
   groupId: number
 ): Promise<{ exists: boolean; count: number }> {
-  await getSession();
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
 
   if (groupType === "invoice") {
     const count = await prisma.invoiceGroupReceipt.count({
@@ -118,10 +125,11 @@ export async function linkBankTransactionToGroups(
   allocations: LinkAllocation[],
   options?: { replaceManualReceipts?: boolean }
 ): Promise<ActionResult> {
-  try {
-  const session = await getSession();
+  // 経理プロジェクトの編集権限以上を要求(write操作)
+  // requireEdit は redirect でなく Error を throw するので try/catch 内で OK
+  const session = await requireEdit("accounting");
   const staffId = session.id;
-
+  try {
   if (allocations.length === 0) {
     return err("紐付け先が1つも指定されていません");
   }
@@ -229,9 +237,8 @@ export async function linkBankTransactionToGroups(
 export async function unlinkBankTransactionLink(
   linkId: number
 ): Promise<ActionResult> {
+  await requireEdit("accounting");
   try {
-  await getSession();
-
   const link = await prisma.bankTransactionGroupLink.findUnique({
     where: { id: linkId },
     select: {
@@ -289,9 +296,8 @@ export async function setBankTransactionLinkCompleted(
   bankTransactionId: number,
   completed: boolean
 ): Promise<ActionResult> {
+  await requireEdit("accounting");
   try {
-    await getSession();
-
     const bankTx = await prisma.bankTransaction.findFirst({
       where: { id: bankTransactionId, deletedAt: null },
       select: { id: true },
@@ -322,10 +328,9 @@ export async function replaceBankTransactionLinks(
   allocations: LinkAllocation[],
   options?: { replaceManualReceipts?: boolean }
 ): Promise<ActionResult> {
-  try {
-  const session = await getSession();
+  const session = await requireEdit("accounting");
   const staffId = session.id;
-
+  try {
   const bankTx = await prisma.bankTransaction.findFirst({
     where: { id: bankTransactionId, deletedAt: null },
     select: { id: true, transactionDate: true },

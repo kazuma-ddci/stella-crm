@@ -9,11 +9,18 @@ import {
   type MonthlyKpiKey,
   type DeptKpiKey,
 } from "@/lib/kpi/constants";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+
+// 注: KPI管理は現状STPプロジェクトのみで使用されている。
+// 詳細は memory/kpi_stp_only_scope.md を参照。
+// このファイル内の関数は全てSTPプロジェクトの権限で保護する。
 
 export type KpiTargets = Record<MonthlyKpiKey, number | null>;
 export type DeptKpiTargets = Record<DeptKpiKey, number | null>;
 
 export async function getKpiTargets(yearMonth: string): Promise<KpiTargets> {
+  // 認証: STPプロジェクトの閲覧権限以上
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   const targets = await prisma.kpiMonthlyTarget.findMany({
     where: { yearMonth },
   });
@@ -38,6 +45,7 @@ export async function saveKpiTargets(
   yearMonth: string,
   targets: KpiTargets
 ): Promise<void> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   const entries = Object.entries(targets) as [MonthlyKpiKey, number | null][];
 
   await prisma.$transaction(
@@ -65,12 +73,15 @@ function getPrevYearMonth(yearMonth: string): string {
 export async function copyFromPreviousMonth(
   yearMonth: string
 ): Promise<KpiTargets> {
+  // 内部で getKpiTargets を呼ぶので個別の認証チェックは不要だが、念のため
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   return getKpiTargets(getPrevYearMonth(yearMonth));
 }
 
 export async function copyDeptFromPreviousMonth(
   yearMonth: string
 ): Promise<DeptKpiTargets> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   return getDeptKpiTargets(getPrevYearMonth(yearMonth));
 }
 
@@ -78,11 +89,13 @@ export async function copyLeadSourceFromPreviousMonth(
   yearMonth: string,
   sourceIds: number[]
 ): Promise<LeadSourceTargets> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   return getLeadSourceTargets(getPrevYearMonth(yearMonth), sourceIds);
 }
 
 /** 決算期首月を取得（デフォルト: 4月） */
 export async function getFiscalYearStart(): Promise<number> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   const record = await prisma.kpiMonthlyTarget.findUnique({
     where: {
       yearMonth_kpiKey: {
@@ -96,6 +109,7 @@ export async function getFiscalYearStart(): Promise<number> {
 
 /** 決算期首月を保存 */
 export async function saveFiscalYearStart(month: number): Promise<void> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   await prisma.kpiMonthlyTarget.upsert({
     where: {
       yearMonth_kpiKey: {
@@ -117,6 +131,7 @@ export async function saveFiscalYearStart(month: number): Promise<void> {
 
 /** 利用可能な月のリスト（目標設定用 - 今月±12ヶ月） */
 export async function getTargetMonths(): Promise<string[]> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   const now = new Date();
   const months: string[] = [];
 
@@ -137,6 +152,7 @@ export async function getTargetMonths(): Promise<string[]> {
 const ALL_DEPT_KPI_KEYS = Object.values(DEPT_KPI_KEYS);
 
 export async function getDeptKpiTargets(yearMonth: string): Promise<DeptKpiTargets> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   const targets = await prisma.kpiMonthlyTarget.findMany({
     where: {
       yearMonth,
@@ -157,6 +173,7 @@ export async function saveDeptKpiTargets(
   yearMonth: string,
   targets: DeptKpiTargets
 ): Promise<void> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   const entries = Object.entries(targets) as [DeptKpiKey, number | null][];
 
   await prisma.$transaction(
@@ -187,6 +204,7 @@ export type LeadSourceItem = {
 export type LeadSourceTargets = Record<string, number | null>;
 
 export async function getLeadSources(): Promise<LeadSourceItem[]> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   const sources = await prisma.stpLeadSource.findMany({
     where: { isActive: true },
     select: { id: true, name: true },
@@ -199,6 +217,7 @@ export async function getLeadSourceTargets(
   yearMonth: string,
   sourceIds: number[]
 ): Promise<LeadSourceTargets> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   const keys = sourceIds.map((id) => `lead_source_target_${id}`);
   const targets = await prisma.kpiMonthlyTarget.findMany({
     where: { yearMonth, kpiKey: { in: keys } },
@@ -217,6 +236,7 @@ export async function saveLeadSourceTargets(
   yearMonth: string,
   targets: LeadSourceTargets
 ): Promise<void> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   const entries = Object.entries(targets);
 
   await prisma.$transaction(

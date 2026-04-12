@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 export type DashboardData = {
   pendingCounts: {
@@ -46,6 +47,11 @@ export type DashboardData = {
 };
 
 export async function getDashboardData(): Promise<DashboardData> {
+  // 認証: 経理プロジェクトの閲覧権限以上
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
+
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);

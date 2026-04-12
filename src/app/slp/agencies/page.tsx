@@ -59,6 +59,11 @@ export default async function SlpAgenciesPage() {
     notes: a.notes,
     parentId: a.parentId,
     parentName: a.parent?.name ?? null,
+    isIndividualBusiness: a.isIndividualBusiness,
+    corporateNumber: a.corporateNumber,
+    representativeName: a.representativeName,
+    representativePhone: a.representativePhone,
+    representativeEmail: a.representativeEmail,
     contacts: a.contacts.map((c) => ({
       id: c.id,
       name: c.name,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { authorizeApi } from "@/lib/api-auth";
 
 // 許可するファイル形式
 const ALLOWED_TYPES = [
@@ -25,6 +26,10 @@ const MAX_FILE_COUNT = 5;
 
 export async function POST(request: NextRequest) {
   try {
+    // ログイン中の社内スタッフのみ
+    const authz = await authorizeApi();
+    if (!authz.ok) return authz.response;
+
     const formData = await request.formData();
     const files = formData.getAll("files") as File[];
 

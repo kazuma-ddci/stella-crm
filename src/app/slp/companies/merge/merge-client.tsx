@@ -275,7 +275,7 @@ export function MergeClient({
         <Button variant="outline" size="sm" asChild>
           <Link href="/slp/companies">
             <ArrowLeft className="h-4 w-4 mr-1" />
-            企業名簿に戻る
+            事業者名簿に戻る
           </Link>
         </Button>
 
@@ -345,7 +345,7 @@ export function MergeClient({
                   className="w-full mt-4"
                   onClick={() => handleSelectMain(side)}
                 >
-                  この企業をメインにする
+                  この事業者をメインにする
                 </Button>
               </CardContent>
             </Card>

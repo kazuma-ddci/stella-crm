@@ -3,10 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 const VALID_USER_TYPES = ["顧客", "AS", "スタッフ", "その他"];
 
 export async function updateCustomerUserType(id: number, userType: string): Promise<ActionResult> {
+  // 認証: 補助金プロジェクトの編集権限以上
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
   try {
     if (!VALID_USER_TYPES.includes(userType)) {
       return err(`無効なユーザー種別です: ${userType}`);

@@ -248,7 +248,7 @@ const navigation: NavItem[] = [
         sectionLabel: true,
         children: [
           { name: "全顧客マスタ", href: "/companies", icon: BookOpen },
-          { name: "企業名簿", href: "/slp/companies", icon: Building2 },
+          { name: "事業者名簿", href: "/slp/companies", icon: Building2 },
           { name: "組合員名簿", href: "/slp/members", icon: Users },
           { name: "契約書", href: "/slp/contracts", icon: FileText },
           { name: "公式LINE友達情報", href: "/slp/line-friends", icon: MessageSquare },
@@ -275,7 +275,7 @@ const navigation: NavItem[] = [
             collapsible: true,
             children: [
               { name: "プロジェクト設定", href: "/slp/settings/project", icon: Building2 },
-              { name: "契約種別", href: "/settings/contract-types?project=slp", icon: FileText },
+              { name: "契約種別", href: "/slp/settings/contract-types", icon: FileText },
               { name: "資料管理", href: "/slp/settings/documents", icon: FileText },
               { name: "プロライン担当者", href: "/slp/settings/proline-staff", icon: Users },
               { name: "プロライン情報", href: "/slp/settings/proline", icon: UserCog },

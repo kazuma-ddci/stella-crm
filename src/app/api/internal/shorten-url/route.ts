@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { authorizeApi } from "@/lib/api-auth";
+import { isUrlAllowedForShortening } from "@/lib/short-url-allowlist";
 
 // ランダムな6文字の短縮コードを生成
 function generateShortCode(): string {
@@ -13,12 +15,27 @@ function generateShortCode(): string {
 
 export async function POST(request: Request) {
   try {
+    // 社内スタッフのみ作成可能(誰でも作れると phishing に悪用される)
+    const authz = await authorizeApi();
+    if (!authz.ok) return authz.response;
+
     const body = await request.json();
     const { originalUrl } = body;
 
     if (!originalUrl) {
       return NextResponse.json(
         { error: "originalUrl is required" },
+        { status: 400 }
+      );
+    }
+
+    // ドメインホワイトリストチェック(自社ドメイン以外は弾く)
+    if (!isUrlAllowedForShortening(originalUrl)) {
+      return NextResponse.json(
+        {
+          error:
+            "短縮できるのは自社ドメインのURLのみです。自社外のURLは短縮できません。",
+        },
         { status: 400 }
       );
     }

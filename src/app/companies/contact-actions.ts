@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithAnyEditPermission } from "@/lib/auth/staff-action";
 
 type ContactDto = {
   id: number;
@@ -40,6 +41,9 @@ export async function addContact(
   companyId: number,
   data: Record<string, unknown>
 ): Promise<ActionResult<ContactDto>> {
+  // 認証: 社内スタッフ + いずれかのプロジェクトで edit 以上
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithAnyEditPermission();
   try {
     // isPrimary が true の場合、他の連絡先の isPrimary を false にする
     if (data.isPrimary) {
@@ -84,6 +88,7 @@ export async function updateContact(
   id: number,
   data: Record<string, unknown>
 ): Promise<ActionResult<ContactDto>> {
+  await requireStaffWithAnyEditPermission();
   try {
     const existing = await prisma.stellaCompanyContact.findUnique({
       where: { id },
@@ -130,6 +135,7 @@ export async function updateContact(
 }
 
 export async function deleteContact(id: number): Promise<ActionResult> {
+  await requireStaffWithAnyEditPermission();
   try {
     // 論理削除：deletedAtに現在日時を設定
     await prisma.stellaCompanyContact.update({

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithAnyEditPermission } from "@/lib/auth/staff-action";
 
 type BankAccountDto = {
   id: number;
@@ -22,6 +23,9 @@ export async function addBankAccount(
   companyId: number,
   data: Record<string, unknown>
 ): Promise<ActionResult<BankAccountDto>> {
+  // 認証: 社内スタッフ + いずれかのプロジェクトで edit 以上
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithAnyEditPermission();
   try {
     const bankAccount = await prisma.stellaCompanyBankAccount.create({
       data: {
@@ -60,6 +64,7 @@ export async function updateBankAccount(
   id: number,
   data: Record<string, unknown>
 ): Promise<ActionResult<BankAccountDto>> {
+  await requireStaffWithAnyEditPermission();
   try {
     const existing = await prisma.stellaCompanyBankAccount.findUnique({
       where: { id },
@@ -100,6 +105,7 @@ export async function updateBankAccount(
 }
 
 export async function deleteBankAccount(id: number): Promise<ActionResult> {
+  await requireStaffWithAnyEditPermission();
   try {
     // 論理削除：deletedAtに現在日時を設定
     await prisma.stellaCompanyBankAccount.update({

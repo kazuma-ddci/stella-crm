@@ -51,6 +51,7 @@ export default async function SlpReserveConsultationPage({ searchParams }: Props
           companies={result.companies.map((c) => ({
             recordId: c.recordId,
             companyName: c.companyName,
+            businessType: c.businessType,
             briefingStatus: c.briefingStatus,
             briefingCompleted: c.briefingCompleted,
             consultationStatus: c.consultationStatus,

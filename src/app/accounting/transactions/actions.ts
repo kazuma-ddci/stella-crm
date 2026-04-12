@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { hasPermission, isFounder, isSystemAdmin } from "@/lib/auth";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 import type { SessionUser } from "@/types/auth";
 import { autoConfirmCreatorAllocations, checkAndTransitionToAwaitingAccounting, sendAllocationNotifications } from "./allocation-actions";
 import type { AllocationNotificationInfo } from "./allocation-actions";
@@ -544,6 +545,10 @@ export async function updateTransaction(
 // ============================================
 
 export async function getTransactionById(id: number) {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
+
   const transaction = await prisma.transaction.findFirst({
     where: { id, deletedAt: null },
     include: {
@@ -1193,6 +1198,9 @@ export async function getTransactions(filters?: {
   status?: string;
   counterpartyId?: number;
 }) {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
   const session = await getSession();
   const txConfidentialFilter = buildConfidentialFilter(session);
 
@@ -1247,6 +1255,9 @@ const ACCOUNTING_VISIBLE_STATUSES = [
 ];
 
 export async function getAccountingTransactions() {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
   const session = await getSession();
   const txConfidentialFilter = buildConfidentialFilter(session);
 
@@ -1444,6 +1455,9 @@ export async function isMonthClosed(
 // ============================================
 
 export async function getTransactionFormData(): Promise<TransactionFormData> {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
   const [
     session,
     counterparties,

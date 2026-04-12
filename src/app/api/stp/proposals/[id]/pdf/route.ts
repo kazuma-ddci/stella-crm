@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { exportSlideToPdf } from "@/lib/proposals/slide-generator";
 import fs from "fs/promises";
 import path from "path";
+import { authorizeApi } from "@/lib/api-auth";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -11,6 +12,10 @@ type RouteContext = {
 // PDF保存（GoogleスライドからPDFをエクスポートしてCRMに保存）
 export async function POST(_request: NextRequest, context: RouteContext) {
   try {
+    // STP編集権限以上のスタッフのみ
+    const authz = await authorizeApi([{ project: "stp", level: "edit" }]);
+    if (!authz.ok) return authz.response;
+
     const { id } = await context.params;
     const proposalId = parseInt(id, 10);
     if (isNaN(proposalId)) {
@@ -85,6 +90,10 @@ export async function POST(_request: NextRequest, context: RouteContext) {
  */
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
+    // STP閲覧権限以上のスタッフのみ
+    const authz = await authorizeApi([{ project: "stp", level: "view" }]);
+    if (!authz.ok) return authz.response;
+
     const { id } = await context.params;
     const proposalId = parseInt(id, 10);
     if (isNaN(proposalId)) {

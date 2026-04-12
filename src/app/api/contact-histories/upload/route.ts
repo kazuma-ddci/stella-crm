@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { authorizeApi } from "@/lib/api-auth";
 
 // 許可するファイル形式
 const ALLOWED_TYPES = [
@@ -22,6 +23,16 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
   try {
+    // 顧客企業の連絡履歴は複数プロジェクトに跨るため、いずれかの project edit 以上で許可
+    const authz = await authorizeApi([
+      { project: "stp", level: "edit" },
+      { project: "slp", level: "edit" },
+      { project: "accounting", level: "edit" },
+      { project: "hojo", level: "edit" },
+      { project: "stella", level: "edit" },
+    ]);
+    if (!authz.ok) return authz.response;
+
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const contactHistoryId = formData.get("contactHistoryId") as string | null;
@@ -57,8 +68,12 @@ export async function POST(request: NextRequest) {
 
     // ファイル名をサニタイズ
     const originalName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const fileName = contactHistoryId
-      ? `${contactHistoryId}_${timestamp}_${originalName}`
+    // セキュリティ: contactHistoryId は数値以外を弾いてパストラバーサル防止
+    const safeContactHistoryId = contactHistoryId && Number.isInteger(Number(contactHistoryId))
+      ? String(Number(contactHistoryId))
+      : null;
+    const fileName = safeContactHistoryId
+      ? `${safeContactHistoryId}_${timestamp}_${originalName}`
       : `${timestamp}_${originalName}`;
 
     // 保存ディレクトリのパス

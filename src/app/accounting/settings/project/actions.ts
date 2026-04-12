@@ -3,34 +3,43 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 // プロジェクト基本情報更新
 export async function updateProjectBasicInfo(
   projectId: number,
   data: { name?: string; description?: string; defaultApproverStaffId?: number | null }
-) {
-  await requireProjectMasterDataEditPermission("accounting");
+): Promise<ActionResult<void>> {
+  try {
+    await requireProjectMasterDataEditPermission("accounting");
 
-  const updateData: Record<string, unknown> = {};
-  if (data.name !== undefined) updateData.name = data.name.trim();
-  if (data.description !== undefined)
-    updateData.description = data.description.trim() || null;
-  if (data.defaultApproverStaffId !== undefined) {
-    if (data.defaultApproverStaffId) {
-      updateData.defaultApprover = { connect: { id: data.defaultApproverStaffId } };
-    } else {
-      updateData.defaultApprover = { disconnect: true };
+    const updateData: Record<string, unknown> = {};
+    if (data.name !== undefined) updateData.name = data.name.trim();
+    if (data.description !== undefined)
+      updateData.description = data.description.trim() || null;
+    if (data.defaultApproverStaffId !== undefined) {
+      if (data.defaultApproverStaffId) {
+        updateData.defaultApprover = { connect: { id: data.defaultApproverStaffId } };
+      } else {
+        updateData.defaultApprover = { disconnect: true };
+      }
     }
-  }
 
-  if (Object.keys(updateData).length > 0) {
-    await prisma.masterProject.update({
-      where: { id: projectId },
-      data: updateData,
-    });
-  }
+    if (Object.keys(updateData).length > 0) {
+      await prisma.masterProject.update({
+        where: { id: projectId },
+        data: updateData,
+      });
+    }
 
-  revalidatePath("/accounting/settings/project");
+    revalidatePath("/accounting/settings/project");
+    return ok();
+  } catch (e) {
+    console.error("[updateProjectBasicInfo] error:", e);
+    return err(
+      e instanceof Error ? e.message : "プロジェクト基本情報の更新に失敗しました"
+    );
+  }
 }
 
 // 運営法人情報更新
@@ -45,31 +54,39 @@ export async function updateOperatingCompanyInfo(
     phone?: string;
     registrationNumber?: string;
   }
-) {
-  await requireProjectMasterDataEditPermission("accounting");
+): Promise<ActionResult<void>> {
+  try {
+    await requireProjectMasterDataEditPermission("accounting");
 
-  const updateData: Record<string, unknown> = {};
-  if (data.companyName !== undefined)
-    updateData.companyName = data.companyName.trim();
-  if (data.postalCode !== undefined)
-    updateData.postalCode = data.postalCode.trim() || null;
-  if (data.address !== undefined)
-    updateData.address = data.address.trim() || null;
-  if (data.address2 !== undefined)
-    updateData.address2 = data.address2.trim() || null;
-  if (data.representativeName !== undefined)
-    updateData.representativeName = data.representativeName.trim() || null;
-  if (data.phone !== undefined)
-    updateData.phone = data.phone.trim() || null;
-  if (data.registrationNumber !== undefined)
-    updateData.registrationNumber = data.registrationNumber.trim() || null;
+    const updateData: Record<string, unknown> = {};
+    if (data.companyName !== undefined)
+      updateData.companyName = data.companyName.trim();
+    if (data.postalCode !== undefined)
+      updateData.postalCode = data.postalCode.trim() || null;
+    if (data.address !== undefined)
+      updateData.address = data.address.trim() || null;
+    if (data.address2 !== undefined)
+      updateData.address2 = data.address2.trim() || null;
+    if (data.representativeName !== undefined)
+      updateData.representativeName = data.representativeName.trim() || null;
+    if (data.phone !== undefined)
+      updateData.phone = data.phone.trim() || null;
+    if (data.registrationNumber !== undefined)
+      updateData.registrationNumber = data.registrationNumber.trim() || null;
 
-  if (Object.keys(updateData).length > 0) {
-    await prisma.operatingCompany.update({
-      where: { id: companyId },
-      data: updateData,
-    });
+    if (Object.keys(updateData).length > 0) {
+      await prisma.operatingCompany.update({
+        where: { id: companyId },
+        data: updateData,
+      });
+    }
+
+    revalidatePath("/accounting/settings/project");
+    return ok();
+  } catch (e) {
+    console.error("[updateOperatingCompanyInfo] error:", e);
+    return err(
+      e instanceof Error ? e.message : "運営法人情報の更新に失敗しました"
+    );
   }
-
-  revalidatePath("/accounting/settings/project");
 }

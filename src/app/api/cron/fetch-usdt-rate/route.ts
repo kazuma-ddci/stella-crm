@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
+import { verifyCronAuth } from "@/lib/cron-auth";
 
 // CoinGecko market_chart APIから直近180日の日次平均データを取得し、
 // DB未登録の日付をバックフィルする。
@@ -82,16 +83,8 @@ async function backfillUsdtRates(): Promise<{ inserted: number; total: number }>
 }
 
 export async function GET(request: Request) {
-  // CRON_SECRET認証
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    console.error("[Cron] CRON_SECRET is not configured");
-    return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
-  }
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authError = verifyCronAuth(request);
+  if (authError) return authError;
 
   try {
     const result = await backfillUsdtRates();

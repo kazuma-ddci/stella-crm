@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { generateSlide, getOrCreateCompanyFolder } from "@/lib/proposals/slide-generator";
 import { calculateSimulation, type ProposalContent, type SlideVersion } from "@/lib/proposals/simulation";
+import { authorizeApi } from "@/lib/api-auth";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -14,6 +15,10 @@ type RouteContext = {
  */
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
+    // STP編集権限以上のスタッフのみ
+    const authz = await authorizeApi([{ project: "stp", level: "edit" }]);
+    if (!authz.ok) return authz.response;
+
     const { id } = await context.params;
     const proposalId = parseInt(id, 10);
     if (isNaN(proposalId)) {

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { getAuthorizationUrl } from "@/lib/moneyforward/client";
 import { revalidatePath } from "next/cache";
+import { ok, err, type ActionResult } from "@/lib/action-result";
 
 export type MFConnectionRow = {
   id: number;
@@ -52,38 +53,63 @@ export async function getOperatingCompanies(): Promise<
 /** OAuth認可フローを開始（認可URLを返す） */
 export async function startOAuthFlow(
   operatingCompanyId: number
-): Promise<string> {
+): Promise<ActionResult<{ authorizationUrl: string }>> {
+  // 注: getSession() は未認証時に redirect("/login") を throw するため、
+  // try/catch の外に置いて Next.js に伝播させる（catch すると redirect が消える）
   await getSession();
-
-  const state = JSON.stringify({ operatingCompanyId });
-  return getAuthorizationUrl(state);
+  try {
+    const state = JSON.stringify({ operatingCompanyId });
+    const authorizationUrl = getAuthorizationUrl(state);
+    return ok({ authorizationUrl });
+  } catch (e) {
+    console.error("[startOAuthFlow] error:", e);
+    return err(
+      e instanceof Error ? e.message : "認可URLの生成に失敗しました"
+    );
+  }
 }
 
 /** 接続を無効化（論理削除） */
 export async function disconnectConnection(
   connectionId: number
-): Promise<void> {
+): Promise<ActionResult<void>> {
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
   await getSession();
+  try {
+    await prisma.moneyForwardConnection.update({
+      where: { id: connectionId },
+      data: { isActive: false },
+    });
 
-  await prisma.moneyForwardConnection.update({
-    where: { id: connectionId },
-    data: { isActive: false },
-  });
-
-  revalidatePath("/accounting/settings/moneyforward");
+    revalidatePath("/accounting/settings/moneyforward");
+    return ok();
+  } catch (e) {
+    console.error("[disconnectConnection] error:", e);
+    return err(
+      e instanceof Error ? e.message : "接続解除に失敗しました"
+    );
+  }
 }
 
 /** 同期開始日を更新 */
 export async function updateSyncFromDate(
   connectionId: number,
   date: string
-): Promise<void> {
+): Promise<ActionResult<void>> {
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
   await getSession();
+  try {
+    await prisma.moneyForwardConnection.update({
+      where: { id: connectionId },
+      data: { syncFromDate: new Date(date) },
+    });
 
-  await prisma.moneyForwardConnection.update({
-    where: { id: connectionId },
-    data: { syncFromDate: new Date(date) },
-  });
-
-  revalidatePath("/accounting/settings/moneyforward");
+    revalidatePath("/accounting/settings/moneyforward");
+    return ok();
+  } catch (e) {
+    console.error("[updateSyncFromDate] error:", e);
+    return err(
+      e instanceof Error ? e.message : "同期開始日の更新に失敗しました"
+    );
+  }
 }

@@ -5,8 +5,12 @@ import { prisma } from "@/lib/prisma";
 import { sendSlpContract, sendSlpRemind } from "@/lib/slp-cloudsign";
 import { submitForm5ContractNotification } from "@/lib/proline-form";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 export async function addMember(data: Record<string, unknown>): Promise<ActionResult> {
+  // 認証: SLPプロジェクトの編集権限以上
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     const uid = String(data.uid ?? "").trim();
     if (!uid) return err("UIDは必須です");
@@ -46,6 +50,7 @@ export async function addMember(data: Record<string, unknown>): Promise<ActionRe
 }
 
 export async function updateMember(id: number, data: Record<string, unknown>): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     const updateData: Record<string, unknown> = {};
 
@@ -91,6 +96,7 @@ export async function updateMember(id: number, data: Record<string, unknown>): P
 }
 
 export async function deleteMember(id: number): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     await prisma.slpMember.update({
       where: { id },
@@ -110,6 +116,7 @@ export async function deleteMember(id: number): Promise<ActionResult> {
  * MasterContractを作成し、SlpMemberの旧カラムも後方互換で更新
  */
 export async function sendContractToMember(id: number): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     const member = await prisma.slpMember.findUnique({ where: { id } });
     if (!member) return err("メンバーが見つかりません");
@@ -150,6 +157,7 @@ export async function sendContractToMember(id: number): Promise<ActionResult> {
  * 同時に Form12 で公式LINEメッセージも送信する（fire-and-forget）
  */
 export async function remindMember(id: number): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     const member = await prisma.slpMember.findUnique({ where: { id } });
     if (!member) return err("メンバーが見つかりません");
@@ -228,6 +236,7 @@ export async function remindMember(id: number): Promise<ActionResult> {
  * 「現在の紹介者に通知済み」状態にする
  */
 export async function sendForm5Notification(id: number): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     const member = await prisma.slpMember.findUnique({ where: { id } });
     if (!member) return err("メンバーが見つかりません");
@@ -265,6 +274,7 @@ export async function sendForm5Notification(id: number): Promise<ActionResult> {
  * resubmittedフラグをクリア（通知を確認済みにする）
  */
 export async function clearResubmitted(id: number): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     await prisma.slpMember.update({
       where: { id },
@@ -288,6 +298,9 @@ export async function bulkSendContracts(memberIds: number[]): Promise<{
   failed: number;
   results: { id: number; name: string; success: boolean; error?: string }[];
 }> {
+  // 認証: SLPプロジェクトの編集権限以上
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
+
   const members = await prisma.slpMember.findMany({
     where: {
       id: { in: memberIds },

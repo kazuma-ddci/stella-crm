@@ -62,28 +62,41 @@ function extractBouncedEmail(text?: string): string | null {
 
 export async function POST(request: NextRequest) {
   try {
-    // Webhook認証: CLOUDSIGN_WEBHOOK_SECRET が設定されている場合のみトークン検証
-    // CloudSignのWebhookには独自の署名機構がないため、シークレット未設定でも受け付ける
+    // Webhook認証: CLOUDSIGN_WEBHOOK_SECRET は必須(fail-secure)。
+    // 未設定の場合は500を返してリクエストを拒否する。
+    // CloudSignのWebhookには独自の署名機構がないため、URLクエリの ?token=<secret> で認証する。
     const webhookSecret = process.env.CLOUDSIGN_WEBHOOK_SECRET;
-    if (webhookSecret) {
-      const url = new URL(request.url);
-      const token = url.searchParams.get("token");
-      if (token !== webhookSecret) {
-        // CloudSignは400番台を「送信成功扱い」で再送しないため、認証失敗はアラート検知に必ず記録
-        // （ログを見落とすと永久にWebhookが抜ける可能性があるため）
-        console.warn("[CloudSign Webhook] トークン不一致。不正なリクエストの可能性があります。");
-        await logAutomationError({
-          source: "cloudsign-webhook/auth",
-          message: "CloudSign Webhook トークン認証失敗（再送されないため要確認）",
-          detail: {
-            userAgent: request.headers.get("user-agent") ?? "unknown",
-            tokenProvided: token ? "present (mismatched)" : "missing",
-            // セキュリティ上、トークン値やクエリパラメータは記録しない
-            pathname: url.pathname,
-          },
-        });
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
+    if (!webhookSecret) {
+      console.error("[CloudSign Webhook] CLOUDSIGN_WEBHOOK_SECRET is not configured");
+      await logAutomationError({
+        source: "cloudsign-webhook/config",
+        message: "CLOUDSIGN_WEBHOOK_SECRET 未設定のため Webhook を拒否",
+        detail: {
+          userAgent: request.headers.get("user-agent") ?? "unknown",
+        },
+      });
+      return NextResponse.json(
+        { error: "Server configuration error" },
+        { status: 500 }
+      );
+    }
+    const url = new URL(request.url);
+    const token = url.searchParams.get("token");
+    if (token !== webhookSecret) {
+      // CloudSignは400番台を「送信成功扱い」で再送しないため、認証失敗はアラート検知に必ず記録
+      // （ログを見落とすと永久にWebhookが抜ける可能性があるため）
+      console.warn("[CloudSign Webhook] トークン不一致。不正なリクエストの可能性があります。");
+      await logAutomationError({
+        source: "cloudsign-webhook/auth",
+        message: "CloudSign Webhook トークン認証失敗（再送されないため要確認）",
+        detail: {
+          userAgent: request.headers.get("user-agent") ?? "unknown",
+          tokenProvided: token ? "present (mismatched)" : "missing",
+          // セキュリティ上、トークン値やクエリパラメータは記録しない
+          pathname: url.pathname,
+        },
+      });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body: WebhookPayload = await request.json();

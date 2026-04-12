@@ -10,12 +10,15 @@ import type {
   MergeResult,
   FieldDiff,
 } from "@/types/company-merge";
+import { requireStaffWithAnyEditPermission, requireStaff } from "@/lib/auth/staff-action";
 
 /** マージプレビューを取得 */
 export async function getMergePreview(
   survivorId: number,
   duplicateId: number
 ): Promise<MergePreview> {
+  // 閲覧情報なので staff のみで OK
+  await requireStaff();
   const [survivor, duplicate] = await Promise.all([
     prisma.masterStellaCompany.findUniqueOrThrow({
       where: { id: survivorId },
@@ -210,6 +213,9 @@ export async function executeMerge(
   duplicateId: number,
   resolution: MergeResolution
 ): Promise<MergeResult> {
+  // 認証: 社内スタッフ + いずれかのプロジェクトで edit 以上
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithAnyEditPermission();
   try {
     const warnings: string[] = [];
 

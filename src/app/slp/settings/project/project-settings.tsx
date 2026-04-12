@@ -290,7 +290,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, memb
               <p className="text-xs text-amber-600">
                 選択可能なテンプレートがありません。
                 <a
-                  href="/settings/contract-types?project=slp"
+                  href="/slp/settings/contract-types"
                   className="text-blue-600 hover:underline mx-1"
                 >
                   契約種別ページ
@@ -405,9 +405,9 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, memb
 
       <Card>
         <CardHeader>
-          <CardTitle>運営法人情報</CardTitle>
+          <CardTitle>運営事業者情報</CardTitle>
           <CardDescription>
-            このプロジェクトの運営法人の基本情報を管理します
+            このプロジェクトの運営事業者の基本情報を管理します
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -415,12 +415,12 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, memb
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="company-name">法人名</Label>
+                  <Label htmlFor="company-name">事業者名</Label>
                   <Input
                     id="company-name"
                     value={companyName}
                     onChange={(e) => setCompanyName(e.target.value)}
-                    placeholder="法人名"
+                    placeholder="事業者名"
                     disabled={!canEdit}
                   />
                 </div>
@@ -508,7 +508,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, memb
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              運営法人が設定されていません。管理者に設定を依頼してください。
+              運営事業者が設定されていません。管理者に設定を依頼してください。
             </p>
           )}
         </CardContent>

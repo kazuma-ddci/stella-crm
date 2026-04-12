@@ -323,6 +323,13 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
     annualLaborCostExecutiveFormAnswer: record.annualLaborCostExecutiveFormAnswer,
     annualLaborCostEmployeeFormAnswer: record.annualLaborCostEmployeeFormAnswer,
     employeeCountFormAnswer: record.employeeCountFormAnswer,
+    // 事業形態・法人/個人事業主対応
+    businessType: record.businessType,
+    corporateNumber: record.corporateNumber,
+    companyEmail: record.companyEmail,
+    representativePhone: record.representativePhone,
+    representativeEmail: record.representativeEmail,
+    primaryContactId: record.primaryContactId,
     // 金額・契約情報
     initialFee: toDecimalString(record.initialFee),
     initialPeopleCount: record.initialPeopleCount,

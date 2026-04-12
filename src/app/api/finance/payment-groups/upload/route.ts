@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { authorizeApi } from "@/lib/api-auth";
 
 const ALLOWED_TYPES = [
   "application/pdf",
@@ -21,6 +22,13 @@ const MAX_FILE_COUNT = 5;
 
 export async function POST(request: NextRequest) {
   try {
+    // STP編集 or 経理編集 のスタッフのみ(invoice-groups/upload と同じパターン)
+    const authz = await authorizeApi([
+      { project: "stp", level: "edit" },
+      { project: "accounting", level: "edit" },
+    ]);
+    if (!authz.ok) return authz.response;
+
     const formData = await request.formData();
     const files = formData.getAll("files") as File[];
 

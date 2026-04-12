@@ -3,10 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 const REVALIDATE_PATH = "/hojo/application-support";
 
 export async function updateApplicationSupport(id: number, data: Record<string, unknown>): Promise<ActionResult> {
+  // 認証: 補助金プロジェクトの編集権限以上
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
   try {
     const updateData: Record<string, unknown> = {};
 
@@ -67,6 +71,7 @@ export async function updateApplicationSupport(id: number, data: Record<string, 
 
 /** 同一LINEアカウントの新規レコードを追加（複製） */
 export async function addApplicationSupportRecord(lineFriendId: number): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
   try {
     await prisma.hojoApplicationSupport.create({
       data: { lineFriendId },
@@ -81,6 +86,7 @@ export async function addApplicationSupportRecord(lineFriendId: number): Promise
 
 /** 申請者管理レコードの論理削除 */
 export async function deleteApplicationSupportRecord(id: number): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
   try {
     // 同一lineFriendIdのレコードが他にあるか確認
     const record = await prisma.hojoApplicationSupport.findUnique({
@@ -115,6 +121,7 @@ export async function resolveVendorMismatch(
   id: number,
   action: "accept" | "keep"
 ): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
   try {
     if (action === "accept") {
       // free1から解決されたベンダーを受け入れる → vendorIdManualをfalseに戻してsyncに任せる
@@ -141,6 +148,7 @@ export async function resolveVendorMismatch(
 
 /** 紹介元ベンダーの不一致を解決する（新しいベンダーを指定して受け入れ） */
 export async function acceptResolvedVendor(id: number, newVendorId: number | null): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
   try {
     await prisma.hojoApplicationSupport.update({
       where: { id },

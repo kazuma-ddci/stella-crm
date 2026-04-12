@@ -338,6 +338,10 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
       if (!result.ok) return setError(result.error);
 
       // 証憑ファイルがあればアップロード
+      // 失敗してもメインの経費登録は成功しているため、ロールバックせずに
+      // ユーザーへ「添付だけ失敗した」旨を伝えてリトライを促す。
+      let attachmentFailed = false;
+      let attachmentErrorMessage: string | null = null;
       if (pendingFiles.length > 0 && result.data.id) {
         try {
           const uploadData = new FormData();
@@ -348,23 +352,45 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
             method: "POST",
             body: uploadData,
           });
-          if (uploadRes.ok) {
+          if (!uploadRes.ok) {
+            attachmentFailed = true;
+            const errBody = await uploadRes.json().catch(() => ({}));
+            attachmentErrorMessage =
+              errBody?.error || `ファイルアップロードに失敗しました (HTTP ${uploadRes.status})`;
+            console.warn("[manual-expense-form] file upload failed:", attachmentErrorMessage);
+          } else {
             const { files: uploaded } = await uploadRes.json();
             const { addGroupAttachments } = await import("@/app/accounting/workflow/actions");
-            await addGroupAttachments(result.data.id, "payment", uploaded.map((f: { filePath: string; fileName: string; fileSize: number; mimeType: string }) => ({
+            const attachResult = await addGroupAttachments(result.data.id, "payment", uploaded.map((f: { filePath: string; fileName: string; fileSize: number; mimeType: string }) => ({
               ...f,
               attachmentType: "voucher",
             })));
+            if (!attachResult.ok) {
+              attachmentFailed = true;
+              attachmentErrorMessage = attachResult.error;
+              console.warn("[manual-expense-form] addGroupAttachments failed:", attachResult.error);
+            }
           }
-        } catch {
-          // アップロード失敗しても経費自体は登録済みなので続行
+        } catch (err) {
+          attachmentFailed = true;
+          attachmentErrorMessage =
+            err instanceof Error ? err.message : "ネットワークエラーが発生しました";
+          console.warn("[manual-expense-form] attachment error:", err);
         }
       }
 
-      if (result.data.type === "recurring") {
-        alert("定期取引として登録しました。");
+      const baseSuccessMessage =
+        result.data.type === "recurring"
+          ? "定期取引として登録しました。"
+          : mode === "accounting"
+            ? "経費を仕訳待ちとして登録しました。"
+            : "経費を申請しました。";
+      if (attachmentFailed) {
+        alert(
+          `${baseSuccessMessage}\n\nただし、証憑ファイルの添付に失敗しました：\n${attachmentErrorMessage ?? "詳細不明"}\n\nお手数ですが、経費詳細画面から添付をやり直してください。`
+        );
       } else {
-        alert(mode === "accounting" ? "経費を仕訳待ちとして登録しました。" : "経費を申請しました。");
+        alert(baseSuccessMessage);
       }
       router.push(backUrl);
       router.refresh();

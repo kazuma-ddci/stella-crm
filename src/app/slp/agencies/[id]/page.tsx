@@ -83,6 +83,11 @@ export default async function SlpAgencyDetailPage({ params }: Props) {
     notes: agency.notes ?? "",
     parentId: agency.parentId,
     parentName: agency.parent?.name ?? null,
+    isIndividualBusiness: agency.isIndividualBusiness,
+    corporateNumber: agency.corporateNumber ?? "",
+    representativeName: agency.representativeName ?? "",
+    representativePhone: agency.representativePhone ?? "",
+    representativeEmail: agency.representativeEmail ?? "",
     contacts: agency.contacts.map((c) => ({
       id: c.id,
       name: c.name,

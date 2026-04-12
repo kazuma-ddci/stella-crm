@@ -121,6 +121,21 @@ export async function updateVendorFields(
 }
 
 export async function changeVendorPassword(accountId: number, newPassword: string): Promise<ActionResult> {
+  // 認証: ベンダー本人の自己変更のみ許可。
+  // 他人の accountId を指定された場合は拒否する。
+  // スタッフによるリセットは hojo/settings/partner-accounts/actions.ts:resetVendorPassword を使う。
+  const session = await auth();
+  if (!session?.user) {
+    return err("認証が必要です");
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userType = (session.user as any).userType;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sessionVendorAccountId = (session.user as any).vendorAccountId as number | undefined;
+  if (userType !== "vendor" || sessionVendorAccountId !== accountId) {
+    return err("自分のアカウント以外のパスワードは変更できません");
+  }
+
   try {
     if (newPassword.length < 8) return err("パスワードは8文字以上にしてください");
     const passwordHash = await bcrypt.hash(newPassword, 12);

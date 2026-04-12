@@ -5,10 +5,16 @@ import { prisma } from "@/lib/prisma";
 import { openRichMenuForFriend } from "@/lib/proline-form";
 import { logAutomationError } from "@/lib/automation-error";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { getOptionalSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/auth/permissions";
 
 export async function addLineFriend(
   data: Record<string, unknown>
 ): Promise<ActionResult> {
+  // 認証: SLPプロジェクトの編集権限以上
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     const uid = String(data.uid ?? "").trim();
     if (!uid) return err("UIDは必須です");
@@ -67,6 +73,7 @@ export async function updateLineFriend(
   id: number,
   data: Record<string, unknown>
 ): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     // 編集可否チェック（プロライン由来は不可）
     const current = await prisma.slpLineFriend.findUnique({
@@ -121,6 +128,7 @@ export async function updateLineFriend(
 }
 
 export async function deleteLineFriend(id: number): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     // 削除可否チェック（プロライン由来は不可）
     const current = await prisma.slpLineFriend.findUnique({
@@ -152,6 +160,7 @@ export async function addSlpAs(data: {
   lineFriendId: number | null;
   staffId: number | null;
 }): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     if (!data.name.trim()) {
       return err("名前は必須です");
@@ -183,6 +192,7 @@ export async function updateSlpAs(
     staffId: number | null;
   }
 ): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     if (!data.name.trim()) {
       return err("名前は必須です");
@@ -210,6 +220,7 @@ export async function updateSlpAs(
 }
 
 export async function deleteSlpAs(id: number): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
     await prisma.slpAs.delete({ where: { id } });
     revalidatePath("/slp/line-friends");
@@ -226,6 +237,15 @@ export async function deleteSlpAs(id: number): Promise<ActionResult> {
 export async function openRichMenu(
   lineFriendId: number
 ): Promise<{ success: boolean; error?: string }> {
+  // 認証: SLPプロジェクトの編集権限以上
+  // 戻り値が独自形式のため、redirect を飲まないよう getOptionalSession を使う
+  const session = await getOptionalSession();
+  if (!session) return { success: false, error: "認証が必要です" };
+  if (session.userType !== "staff") return { success: false, error: "社内スタッフのみ実行可能です" };
+  if (!hasPermission(session.permissions ?? [], "slp", "edit")) {
+    return { success: false, error: "SLPプロジェクトの編集権限が必要です" };
+  }
+
   const friend = await prisma.slpLineFriend.findUnique({
     where: { id: lineFriendId },
     select: { uid: true, snsname: true },
@@ -260,6 +280,15 @@ export async function triggerProLineSync(): Promise<{
   total?: number;
   error?: string;
 }> {
+  // 認証: SLPプロジェクトの編集権限以上
+  // 戻り値が独自形式のため、redirect を飲まないよう getOptionalSession を使う
+  const session = await getOptionalSession();
+  if (!session) return { success: false, error: "認証が必要です" };
+  if (session.userType !== "staff") return { success: false, error: "社内スタッフのみ実行可能です" };
+  if (!hasPermission(session.permissions ?? [], "slp", "edit")) {
+    return { success: false, error: "SLPプロジェクトの編集権限が必要です" };
+  }
+
   const triggerUrl =
     process.env.PROLINE_SYNC_TRIGGER_URL || "http://host.docker.internal:3100";
   const cronSecret = process.env.CRON_SECRET;

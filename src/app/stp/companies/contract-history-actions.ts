@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { markFinanceRecordsForContractChange } from "@/lib/finance/auto-generate";
 import { isInvalidJobMedia } from "@/lib/stp/job-media";
 import { createFieldChangeLogEntries } from "@/lib/field-change-log.server";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 // 契約履歴データの型定義
 export type ContractHistoryData = {
@@ -30,6 +31,7 @@ export type ContractHistoryData = {
 
 // 契約履歴一覧取得（deletedAt: null のみ）
 export async function getContractHistories(companyId: number) {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   const histories = await prisma.stpContractHistory.findMany({
     where: {
       companyId,
@@ -71,6 +73,9 @@ export async function getContractHistories(companyId: number) {
 
 // 契約履歴追加
 export async function addContractHistory(companyId: number, data: ContractHistoryData): Promise<{ success: boolean; error?: string }> {
+  // 認証: STPプロジェクトの編集権限以上
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     if (isInvalidJobMedia(data.jobMedia)) {
       return { success: false, error: "無効な求人媒体が指定されています" };
@@ -115,6 +120,7 @@ export async function updateContractHistory(
   data: ContractHistoryData,
   changeNotes?: { operationStaffId?: string },
 ): Promise<{ success: boolean; error?: string; affectedFinanceCount?: number }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     if (isInvalidJobMedia(data.jobMedia)) {
       return { success: false, error: "無効な求人媒体が指定されています" };
@@ -186,6 +192,7 @@ export async function updateContractHistory(
 
 // 論理削除（deletedAt = new Date()）
 export async function deleteContractHistory(id: number): Promise<{ success: boolean; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     await prisma.stpContractHistory.update({
       where: { id },
@@ -207,6 +214,7 @@ export async function linkContractHistoryToContract(
   historyId: number,
   masterContractId: number | null,
 ): Promise<{ success: boolean; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     await prisma.stpContractHistory.update({
       where: { id: historyId },
@@ -224,6 +232,7 @@ export async function linkContractHistoryToContract(
 
 // スタッフ一覧取得（担当営業・担当運用の選択用）
 export async function getStaffList() {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   const { getStaffOptionsByFields } = await import("@/lib/staff/get-staff-by-field");
   const result = await getStaffOptionsByFields(["CONTRACT_HISTORY_SALES", "CONTRACT_HISTORY_OPERATION"]);
   return {

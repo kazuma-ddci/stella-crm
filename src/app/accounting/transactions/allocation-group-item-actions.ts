@@ -9,6 +9,7 @@ import { recordChangeLog } from "@/app/accounting/changelog/actions";
 import { calculateAllocatedAmounts } from "./allocation-actions";
 import { toLocalDateString } from "@/lib/utils";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 // ===== 共通定数・スキーマ =====
 
@@ -323,6 +324,10 @@ export async function removeAllocationItemFromGroup(
 export async function getAllocationGroupStatus(
   transactionId: number
 ): Promise<ActionResult<AllocationGroupStatus | null>> {
+  // 注: requireStaffWithProjectPermission の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
   try {
   const transaction = await prisma.transaction.findFirst({
     where: { id: transactionId, deletedAt: null },
@@ -462,6 +467,9 @@ export async function getUnprocessedAllocations(projectId?: number): Promise<{
   ownerCostCenterName: string | null;
   otherItemsSummary: { costCenterName: string; groupLabel: string | null; isProcessed: boolean }[];
 }[]> {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
   // プロジェクトに紐づくCostCenterのIDを取得
   let targetCostCenterIds: number[] | undefined;
   if (projectId) {
@@ -711,6 +719,9 @@ export async function getGroupAllocationWarnings(
   groupType: "invoice" | "payment",
   groupId: number
 ): Promise<AllocationWarning[]> {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
   // グループ内の直接取引（按分テンプレート付き）を取得
   const directTransactions = groupType === "invoice"
     ? await prisma.transaction.findMany({
@@ -869,6 +880,9 @@ export async function getRelatedGroupsForTransaction(transactionId: number): Pro
   invoiceGroups: { id: number; projectName: string | null; amount: number; status: string }[];
   paymentGroups: { id: number; projectName: string | null; amount: number; status: string }[];
 }> {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
   const items = await prisma.allocationGroupItem.findMany({
     where: { transactionId },
     include: {

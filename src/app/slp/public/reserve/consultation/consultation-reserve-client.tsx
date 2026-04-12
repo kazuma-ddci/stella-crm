@@ -19,6 +19,7 @@ import { createConsultationPendingAction } from "./actions";
 type CompanyRow = {
   recordId: number;
   companyName: string | null;
+  businessType: string | null;
   briefingStatus: string | null;
   briefingCompleted: boolean;
   consultationStatus: string | null;
@@ -110,7 +111,7 @@ export function ConsultationReserveClient({
               {step.expectedCompanyName}
             </span>
             <br />
-            この企業の導入希望商談予約として処理されます。
+            この事業者の導入希望商談予約として処理されます。
           </p>
         </div>
 
@@ -119,7 +120,7 @@ export function ConsultationReserveClient({
             ⚠️ 次の予約画面では「企業名」が編集可能な状態で表示されますが、
             <strong>編集しないでください</strong>。
             <br />
-            別の企業を予約したい場合は、このページに戻ってもう一度やり直してください。
+            別の事業者を予約したい場合は、このページに戻ってもう一度やり直してください。
           </p>
         </div>
 
@@ -136,7 +137,7 @@ export function ConsultationReserveClient({
           onClick={() => setStep({ type: "select" })}
           className="w-full text-xs text-slate-500 underline hover:text-slate-700"
         >
-          別の企業を選び直す
+          別の事業者を選び直す
         </button>
       </div>
     );
@@ -178,23 +179,30 @@ export function ConsultationReserveClient({
       <div className="rounded-xl bg-blue-50/60 border border-blue-200/80 p-4">
         <p className="text-sm text-slate-700 leading-relaxed">
           📌 <strong>導入希望商談</strong>は、概要案内が
-          <strong className="text-blue-700">完了している企業</strong>のみ予約できます。
+          <strong className="text-blue-700">完了している事業者</strong>のみ予約できます。
         </p>
       </div>
 
       {/* 予約可能な企業 */}
       {reservableCompanies.length > 0 ? (
         <div>
-          <KoutekiSectionHeader title="予約できる企業" />
+          <KoutekiSectionHeader title="予約できる事業者" />
           <div className="space-y-2 mt-3">
             {reservableCompanies.map((c) => (
               <KoutekiCard key={c.recordId}>
                 <KoutekiCardContent className="p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-slate-900 truncate">
-                        {c.companyName ?? "(企業名未登録)"}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-slate-900 truncate">
+                          {c.companyName ?? "(事業者名未登録)"}
+                        </p>
+                        {c.businessType && (
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-slate-100 text-slate-600 whitespace-nowrap">
+                            {c.businessType === "sole_proprietor" ? "個人事業主" : "法人"}
+                          </span>
+                        )}
+                      </div>
                       <div className="mt-1 space-y-0.5 text-xs text-slate-500">
                         <p>概要案内: 完了 ✓</p>
                         <p>導入希望商談: 未予約</p>
@@ -204,7 +212,7 @@ export function ConsultationReserveClient({
                       size="sm"
                       onClick={() => handleSelect(c.recordId)}
                     >
-                      この企業で予約する
+                      この事業者で予約する
                     </KoutekiButton>
                   </div>
                 </KoutekiCardContent>
@@ -215,7 +223,7 @@ export function ConsultationReserveClient({
       ) : (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-center">
           <p className="text-sm text-slate-600">
-            現在、導入希望商談を予約できる企業はありません。
+            現在、導入希望商談を予約できる事業者はありません。
           </p>
         </div>
       )}
@@ -223,16 +231,23 @@ export function ConsultationReserveClient({
       {/* 予約済み企業の参考表示 */}
       {consultationReservedCompanies.length > 0 && (
         <div>
-          <p className="text-xs text-slate-500 mb-2">予約済みの企業</p>
+          <p className="text-xs text-slate-500 mb-2">予約済みの事業者</p>
           <div className="space-y-2">
             {consultationReservedCompanies.map((c) => (
               <div
                 key={c.recordId}
                 className="rounded-lg border border-slate-200 bg-slate-50 p-3"
               >
-                <p className="text-sm font-medium text-slate-700">
-                  {c.companyName ?? "(企業名未登録)"}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-slate-700">
+                    {c.companyName ?? "(事業者名未登録)"}
+                  </p>
+                  {c.businessType && (
+                    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-slate-100 text-slate-600 whitespace-nowrap">
+                      {c.businessType === "sole_proprietor" ? "個人事業主" : "法人"}
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500 mt-0.5">
                   {c.consultationDate
                     ? `導入希望商談: ${formatDate(c.consultationDate)} で予約中`
@@ -251,7 +266,7 @@ export function ConsultationReserveClient({
       {briefingNotCompletedCompanies.length > 0 && (
         <div>
           <p className="text-xs text-slate-500 mb-2">
-            まだ概要案内が完了していない企業
+            まだ概要案内が完了していない事業者
           </p>
           <div className="space-y-2">
             {briefingNotCompletedCompanies.map((c) => (
@@ -259,9 +274,16 @@ export function ConsultationReserveClient({
                 key={c.recordId}
                 className="rounded-lg border border-slate-200 bg-slate-50 p-3"
               >
-                <p className="text-sm font-medium text-slate-700">
-                  {c.companyName ?? "(企業名未登録)"}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-slate-700">
+                    {c.companyName ?? "(事業者名未登録)"}
+                  </p>
+                  {c.businessType && (
+                    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-slate-100 text-slate-600 whitespace-nowrap">
+                      {c.businessType === "sole_proprietor" ? "個人事業主" : "法人"}
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500 mt-0.5">
                   概要案内: {c.briefingStatus ?? "未予約"}
                 </p>
@@ -277,7 +299,7 @@ export function ConsultationReserveClient({
       {/* 注意事項 */}
       <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
         <p className="text-xs text-amber-800 leading-relaxed">
-          ⚠️ 表示されない企業の導入希望商談をご希望の場合は、
+          ⚠️ 表示されない事業者の導入希望商談をご希望の場合は、
           まず「概要案内」のご予約からお願いします。
           <br />
           ⚠️ 複数の予約を同時に進めないでください。

@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 // ============================================
 // 型定義
@@ -240,6 +241,11 @@ export async function getComments(params: {
   invoiceGroupId?: number;
   paymentGroupId?: number;
 }): Promise<CommentWithReplies[]> {
+  // 認証: 経理プロジェクトの閲覧権限以上
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
+
   const where: Record<string, unknown> = {
     deletedAt: null,
     parentId: null, // トップレベルのみ取得

@@ -49,6 +49,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Switch } from "@/components/ui/switch";
 import { createAgency, deleteAgency } from "./actions";
 import { AgencyStatusModal } from "./agency-status-modal";
 
@@ -68,6 +69,11 @@ type AgencyRow = {
   notes: string | null;
   parentId: number | null;
   parentName: string | null;
+  isIndividualBusiness: boolean;
+  corporateNumber: string | null;
+  representativeName: string | null;
+  representativePhone: string | null;
+  representativeEmail: string | null;
   contacts: {
     id: number;
     name: string;
@@ -152,6 +158,11 @@ export function AgenciesTable({
   const [newContractStartDate, setNewContractStartDate] = useState("");
   const [newContractEndDate, setNewContractEndDate] = useState("");
   const [newNotes, setNewNotes] = useState("");
+  const [newIsIndividualBusiness, setNewIsIndividualBusiness] = useState(false);
+  const [newCorporateNumber, setNewCorporateNumber] = useState("");
+  const [newRepresentativeName, setNewRepresentativeName] = useState("");
+  const [newRepresentativePhone, setNewRepresentativePhone] = useState("");
+  const [newRepresentativeEmail, setNewRepresentativeEmail] = useState("");
 
   const tree = useMemo(() => buildTree(data), [data]);
 
@@ -224,6 +235,11 @@ export function AgenciesTable({
     setNewContractStartDate("");
     setNewContractEndDate("");
     setNewNotes("");
+    setNewIsIndividualBusiness(false);
+    setNewCorporateNumber("");
+    setNewRepresentativeName("");
+    setNewRepresentativePhone("");
+    setNewRepresentativeEmail("");
     setCreateDialogOpen(true);
   };
 
@@ -242,6 +258,11 @@ export function AgenciesTable({
         contractStartDate: newContractStartDate || null,
         contractEndDate: newContractEndDate || null,
         notes: newNotes.trim() || undefined,
+        isIndividualBusiness: newIsIndividualBusiness,
+        corporateNumber: newCorporateNumber.trim() || undefined,
+        representativeName: newRepresentativeName.trim() || undefined,
+        representativePhone: newRepresentativePhone.trim() || undefined,
+        representativeEmail: newRepresentativeEmail.trim() || undefined,
       });
       setCreateDialogOpen(false);
       router.push(`/slp/agencies/${agency.id}`);
@@ -289,7 +310,7 @@ export function AgenciesTable({
       {/* フィルタバー */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <Input
-          placeholder="代理店ID・名前・法人名・担当者で検索"
+          placeholder="代理店ID・名前・事業者名・担当者で検索"
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
           className="w-72"
@@ -345,7 +366,7 @@ export function AgenciesTable({
             <TableRow>
               <TableHead className="w-24">代理店ID</TableHead>
               <TableHead>代理店名</TableHead>
-              <TableHead>法人名</TableHead>
+              <TableHead>事業者名</TableHead>
               <TableHead>担当者</TableHead>
               <TableHead>契約ステータス</TableHead>
               <TableHead>担当AS</TableHead>
@@ -402,7 +423,17 @@ export function AgenciesTable({
                       )}
                     </div>
                   </TableCell>
-                  <TableCell>{row.corporateName ?? "-"}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5">
+                      <Badge
+                        variant={row.isIndividualBusiness ? "outline" : "secondary"}
+                        className="text-xs shrink-0"
+                      >
+                        {row.isIndividualBusiness ? "個人" : "法人"}
+                      </Badge>
+                      <span>{row.corporateName ?? "-"}</span>
+                    </div>
+                  </TableCell>
                   <TableCell>
                     {row.contacts.length > 0 ? (
                       <div className="space-y-0.5">
@@ -521,17 +552,56 @@ export function AgenciesTable({
                 placeholder="代理店名"
               />
             </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="new-is-individual"
+                checked={newIsIndividualBusiness}
+                onCheckedChange={setNewIsIndividualBusiness}
+              />
+              <Label htmlFor="new-is-individual">個人事業主</Label>
+              <Badge variant={newIsIndividualBusiness ? "outline" : "secondary"} className="text-xs">
+                {newIsIndividualBusiness ? "個人事業主" : "法人"}
+              </Badge>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>法人名</Label>
+                <Label>{newIsIndividualBusiness ? "屋号(個人名可)" : "企業名"}</Label>
                 <Input
                   value={newCorporateName}
                   onChange={(e) => setNewCorporateName(e.target.value)}
-                  placeholder="法人名"
+                  placeholder={newIsIndividualBusiness ? "屋号または個人名" : "企業名"}
+                />
+              </div>
+              {!newIsIndividualBusiness && (
+                <div>
+                  <Label>法人番号</Label>
+                  <Input
+                    value={newCorporateNumber}
+                    onChange={(e) => setNewCorporateNumber(e.target.value)}
+                    placeholder="1234567890123"
+                  />
+                </div>
+              )}
+            </div>
+            <div>
+              <Label>代表者名</Label>
+              <Input
+                value={newRepresentativeName}
+                onChange={(e) => setNewRepresentativeName(e.target.value)}
+                placeholder="代表者名"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>{newIsIndividualBusiness ? "事業用電話番号" : "企業電話番号"}</Label>
+                <Input
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
+                  placeholder="03-0000-0000"
                 />
               </div>
               <div>
-                <Label>メールアドレス</Label>
+                <Label>{newIsIndividualBusiness ? "事業用メールアドレス" : "企業メールアドレス"}</Label>
                 <Input
                   type="email"
                   value={newEmail}
@@ -540,23 +610,34 @@ export function AgenciesTable({
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>電話番号</Label>
-                <Input
-                  value={newPhone}
-                  onChange={(e) => setNewPhone(e.target.value)}
-                  placeholder="03-0000-0000"
-                />
+            {!newIsIndividualBusiness && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>代表者電話番号</Label>
+                  <Input
+                    value={newRepresentativePhone}
+                    onChange={(e) => setNewRepresentativePhone(e.target.value)}
+                    placeholder="090-0000-0000"
+                  />
+                </div>
+                <div>
+                  <Label>代表者メールアドレス</Label>
+                  <Input
+                    type="email"
+                    value={newRepresentativeEmail}
+                    onChange={(e) => setNewRepresentativeEmail(e.target.value)}
+                    placeholder="representative@example.com"
+                  />
+                </div>
               </div>
-              <div>
-                <Label>所在地</Label>
-                <Input
-                  value={newAddress}
-                  onChange={(e) => setNewAddress(e.target.value)}
-                  placeholder="東京都..."
-                />
-              </div>
+            )}
+            <div>
+              <Label>{newIsIndividualBusiness ? "事業用住所" : "本店所在地"}</Label>
+              <Input
+                value={newAddress}
+                onChange={(e) => setNewAddress(e.target.value)}
+                placeholder="東京都..."
+              />
             </div>
             <div className="grid grid-cols-3 gap-4">
               <div>

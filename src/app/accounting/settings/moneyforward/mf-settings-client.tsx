@@ -109,8 +109,12 @@ export function MFSettingsClient({ connections, companies }: Props) {
     if (!confirm("この接続を解除しますか？")) return;
     setDisconnectingIds((prev) => new Set(prev).add(connectionId));
     try {
-      await disconnectConnection(connectionId);
-      setMessage({ type: "success", text: "接続を解除しました" });
+      const result = await disconnectConnection(connectionId);
+      if (!result.ok) {
+        setMessage({ type: "error", text: result.error });
+      } else {
+        setMessage({ type: "success", text: "接続を解除しました" });
+      }
     } catch {
       setMessage({ type: "error", text: "接続解除に失敗しました" });
     } finally {
@@ -127,8 +131,13 @@ export function MFSettingsClient({ connections, companies }: Props) {
     if (!connectingCompanyId) return;
     setIsConnecting(true);
     try {
-      const url = await startOAuthFlow(Number(connectingCompanyId));
-      window.location.href = url;
+      const result = await startOAuthFlow(Number(connectingCompanyId));
+      if (!result.ok) {
+        setMessage({ type: "error", text: result.error });
+        setIsConnecting(false);
+        return;
+      }
+      window.location.href = result.data.authorizationUrl;
     } catch {
       setMessage({ type: "error", text: "認可URLの生成に失敗しました" });
       setIsConnecting(false);
@@ -141,8 +150,12 @@ export function MFSettingsClient({ connections, companies }: Props) {
     date: string
   ) {
     try {
-      await updateSyncFromDate(connectionId, date);
-      setMessage({ type: "success", text: "同期開始日を更新しました" });
+      const result = await updateSyncFromDate(connectionId, date);
+      if (!result.ok) {
+        setMessage({ type: "error", text: result.error });
+      } else {
+        setMessage({ type: "success", text: "同期開始日を更新しました" });
+      }
     } catch {
       setMessage({ type: "error", text: "同期開始日の更新に失敗しました" });
     }

@@ -66,7 +66,11 @@ export async function POST(request: NextRequest) {
     }
 
     const timestamp = Date.now();
-    const fileName = `logo_${companyId || "new"}_${timestamp}${ext}`;
+    // セキュリティ: companyId は数値以外を弾いてパストラバーサル防止
+    const safeCompanyId = companyId && Number.isInteger(Number(companyId))
+      ? String(Number(companyId))
+      : "new";
+    const fileName = `logo_${safeCompanyId}_${timestamp}${ext}`;
 
     const uploadDir = path.join(
       process.cwd(),

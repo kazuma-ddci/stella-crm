@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import fs from "fs/promises";
 import path from "path";
@@ -7,6 +6,7 @@ import {
   getInvoicePdfData,
   generateInvoicePdfBuffer,
 } from "@/lib/invoices/pdf-generator";
+import { authorizeApi } from "@/lib/api-auth";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -19,10 +19,12 @@ type RouteContext = {
  */
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
-    }
+    // STP編集 or 経理編集 のスタッフのみ
+    const authz = await authorizeApi([
+      { project: "stp", level: "edit" },
+      { project: "accounting", level: "edit" },
+    ]);
+    if (!authz.ok) return authz.response;
 
     const { id } = await context.params;
     const groupId = parseInt(id, 10);

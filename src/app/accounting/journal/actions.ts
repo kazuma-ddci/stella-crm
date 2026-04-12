@@ -7,6 +7,7 @@ import { recordChangeLog, extractChanges, pickRecordData } from "@/app/accountin
 import { JOURNAL_ENTRY_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 // ============================================
 // 型定義
@@ -240,6 +241,11 @@ export async function getJournalEntries(filters?: {
   dateFrom?: string;
   dateTo?: string;
 }) {
+  // 認証: 経理プロジェクトの閲覧権限以上
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
+
   const where: Record<string, unknown> = {
     deletedAt: null,
   };
@@ -768,6 +774,10 @@ export async function deleteJournalEntry(id: number): Promise<ActionResult> {
 // ============================================
 
 export async function getJournalFormData(): Promise<JournalFormData> {
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
+
   const [accounts, bankTransactions, projects, counterparties, inputTaxAccount, outputTaxAccount] = await Promise.all([
     prisma.account.findMany({
       where: { isActive: true },
@@ -943,6 +953,11 @@ export async function unrealizeJournalEntry(id: number): Promise<ActionResult> {
 export async function getUnrealizedScheduledEntries() {
   const today = new Date();
   today.setHours(23, 59, 59, 999);
+
+  // 認証: 経理プロジェクトの閲覧権限以上
+  await requireStaffWithProjectPermission([
+    { project: "accounting", level: "view" },
+  ]);
 
   return prisma.journalEntry.findMany({
     where: {

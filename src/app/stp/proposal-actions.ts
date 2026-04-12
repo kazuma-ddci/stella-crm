@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { toLocalDateString } from "@/lib/utils";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 import { generateProposalNumber } from "@/lib/proposals/generate-number";
 import {
   calculateSimulation,
@@ -34,6 +35,8 @@ export type ProposalData = {
 
 // 提案書一覧取得
 export async function getProposals(stpCompanyId: number) {
+  // 認証: STPプロジェクトの閲覧権限以上
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   const allProposals = await prisma.stpProposal.findMany({
     where: { stpCompanyId, deletedAt: null },
     orderBy: { createdAt: "desc" },
@@ -110,6 +113,9 @@ export async function addProposal(
   stpCompanyId: number,
   data: ProposalData
 ): Promise<{ success: boolean; error?: string }> {
+  // 認証: STPプロジェクトの編集権限以上
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     const proposalNumber = await generateProposalNumber();
 
@@ -144,6 +150,7 @@ export async function updateProposal(
   id: number,
   data: ProposalData
 ): Promise<{ success: boolean; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     await prisma.stpProposal.update({
       where: { id },
@@ -171,6 +178,7 @@ export async function updateProposal(
 
 // 提案書削除
 export async function deleteProposal(id: number): Promise<{ success: boolean; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     await prisma.stpProposal.delete({
       where: { id },
@@ -187,6 +195,7 @@ export async function deleteProposal(id: number): Promise<{ success: boolean; er
 
 // 提案書をproposalContent込みで取得
 export async function getProposalWithContent(id: number) {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   const proposal = await prisma.stpProposal.findUnique({
     where: { id },
     include: {
@@ -230,6 +239,7 @@ export async function updateProposalContent(
   id: number,
   content: ProposalContent,
 ): Promise<{ success: boolean; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     await prisma.stpProposal.update({
       where: { id },
@@ -252,6 +262,7 @@ export async function regenerateProposal(
   id: number,
   input: SimulationInput,
 ): Promise<{ success: boolean; content?: ProposalContent; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     const existing = await prisma.stpProposal.findUnique({ where: { id } });
     const existingContent = existing?.proposalContent as unknown as ProposalContent | null;
@@ -292,6 +303,7 @@ export async function confirmProposal(
   editorProposalId: number,
   version: number,
 ): Promise<{ success: boolean; confirmedProposalId?: number; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     const proposal = await prisma.stpProposal.findUnique({
       where: { id: editorProposalId },
@@ -376,6 +388,7 @@ export async function overwriteProposal(
   editorProposalId: number,
   version: number,
 ): Promise<{ success: boolean; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     const proposal = await prisma.stpProposal.findUnique({
       where: { id: editorProposalId },
@@ -449,6 +462,7 @@ export async function deleteSlideVersion(
   editorProposalId: number,
   version: number,
 ): Promise<{ success: boolean; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     const proposal = await prisma.stpProposal.findUnique({
       where: { id: editorProposalId },
@@ -520,6 +534,7 @@ export async function unlockSlideForEdit(
   editorProposalId: number,
   version: number,
 ): Promise<{ success: boolean; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     const proposal = await prisma.stpProposal.findUnique({
       where: { id: editorProposalId },
@@ -562,6 +577,7 @@ export async function lockSlideAfterEdit(
   editorProposalId: number,
   version: number,
 ): Promise<{ success: boolean; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     const proposal = await prisma.stpProposal.findUnique({
       where: { id: editorProposalId },
@@ -604,6 +620,7 @@ export async function lockSlideAfterEdit(
 export async function lockAllUnlockedSlides(
   editorProposalId: number,
 ): Promise<{ success: boolean; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     const proposal = await prisma.stpProposal.findUnique({
       where: { id: editorProposalId },
@@ -655,6 +672,7 @@ export async function lockAllUnlockedSlides(
 
 // スタッフ一覧取得（担当者の選択用）
 export async function getStaffListForProposal() {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   const { getStaffOptionsByField } = await import("@/lib/staff/get-staff-by-field");
   const options = await getStaffOptionsByField("PROPOSAL_STAFF");
   // 提案書は名前ベースのvalue（互換性維持）

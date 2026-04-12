@@ -40,6 +40,11 @@ export async function createAgency(data: {
   contractEndDate?: string | null;
   notes?: string;
   parentId?: number | null;
+  isIndividualBusiness?: boolean;
+  corporateNumber?: string;
+  representativeName?: string;
+  representativePhone?: string;
+  representativeEmail?: string;
 }) {
   await requireProjectMasterDataEditPermission("slp");
 
@@ -59,6 +64,11 @@ export async function createAgency(data: {
         : null,
       notes: data.notes || null,
       parentId: data.parentId ?? null,
+      isIndividualBusiness: data.isIndividualBusiness ?? false,
+      corporateNumber: data.corporateNumber || null,
+      representativeName: data.representativeName || null,
+      representativePhone: data.representativePhone || null,
+      representativeEmail: data.representativeEmail || null,
     },
   });
 
@@ -78,6 +88,11 @@ export async function updateAgency(
     contractStartDate?: string | null;
     contractEndDate?: string | null;
     notes?: string;
+    isIndividualBusiness?: boolean;
+    corporateNumber?: string;
+    representativeName?: string;
+    representativePhone?: string;
+    representativeEmail?: string;
   }
 ) {
   await requireProjectMasterDataEditPermission("slp");
@@ -100,6 +115,16 @@ export async function updateAgency(
       ? new Date(data.contractEndDate)
       : null;
   if (data.notes !== undefined) updateData.notes = data.notes || null;
+  if (data.isIndividualBusiness !== undefined)
+    updateData.isIndividualBusiness = data.isIndividualBusiness;
+  if (data.corporateNumber !== undefined)
+    updateData.corporateNumber = data.corporateNumber || null;
+  if (data.representativeName !== undefined)
+    updateData.representativeName = data.representativeName || null;
+  if (data.representativePhone !== undefined)
+    updateData.representativePhone = data.representativePhone || null;
+  if (data.representativeEmail !== undefined)
+    updateData.representativeEmail = data.representativeEmail || null;
 
   await prisma.slpAgency.update({ where: { id }, data: updateData });
   revalidatePath("/slp/agencies");

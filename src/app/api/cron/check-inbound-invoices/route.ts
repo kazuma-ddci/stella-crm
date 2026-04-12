@@ -8,18 +8,11 @@ import { matchInboundInvoice } from "@/lib/email/inbound-invoice-matcher";
 import { logAutomationError } from "@/lib/automation-error";
 import fs from "fs/promises";
 import path from "path";
+import { verifyCronAuth } from "@/lib/cron-auth";
 
 export async function GET(request: Request) {
-  // CRON_SECRET認証
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    console.error("[Cron] CRON_SECRET is not configured");
-    return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
-  }
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authError = verifyCronAuth(request);
+  if (authError) return authError;
 
   const results: Array<{
     emailAddress: string;

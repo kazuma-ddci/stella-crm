@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2, Mail, Landmark, Star } from "lucide-react";
+import { toast } from "sonner";
 import { updateProjectBasicInfo, updateOperatingCompanyInfo } from "./actions";
 import { ProjectEmailsModal } from "@/app/settings/projects/project-emails-modal";
 import { ProjectBankAccountsModal } from "@/app/settings/projects/project-bank-accounts-modal";
@@ -109,11 +110,15 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
     setProjectSaving(true);
     setProjectSuccess(false);
     try {
-      await updateProjectBasicInfo(project.id, {
+      const result = await updateProjectBasicInfo(project.id, {
         name: projectName,
         description: projectDescription,
         defaultApproverStaffId,
       });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       setProjectSuccess(true);
       setTimeout(() => setProjectSuccess(false), 3000);
     } finally {
@@ -126,7 +131,7 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
     setCompanySaving(true);
     setCompanySuccess(false);
     try {
-      await updateOperatingCompanyInfo(operatingCompany.id, {
+      const result = await updateOperatingCompanyInfo(operatingCompany.id, {
         companyName,
         registrationNumber,
         postalCode,
@@ -135,6 +140,10 @@ export function ProjectSettings({ project, operatingCompany, isSystemAdmin, emai
         representativeName,
         phone,
       });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       setCompanySuccess(true);
       setTimeout(() => setCompanySuccess(false), 3000);
     } finally {

@@ -129,7 +129,11 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
         throw new Error(data.error || "アップロードに失敗しました");
       }
       const { files: uploadedFiles } = await res.json();
-      await addGroupAttachments(detail.id, detail.groupType, uploadedFiles);
+      const addResult = await addGroupAttachments(detail.id, detail.groupType, uploadedFiles);
+      if (!addResult.ok) {
+        toast.error(addResult.error);
+        return;
+      }
       const updated = await getGroupAttachments(detail.id, detail.groupType);
       setAttachments(updated);
       toast.success(`${files.length}件の証憑をアップロードしました`);
@@ -143,7 +147,11 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
 
   const handleDeleteAttachment = async (attachmentId: number) => {
     try {
-      await deleteGroupAttachment(attachmentId);
+      const result = await deleteGroupAttachment(attachmentId);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
       setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
       toast.success("証憑を削除しました");
     } catch (err) {

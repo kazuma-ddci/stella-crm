@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { authorizeApi } from "@/lib/api-auth";
 
 const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1GB
 const ALLOWED_MIME_TYPES = ["video/mp4", "video/webm", "video/quicktime", "video/x-m4v"];
@@ -12,10 +12,9 @@ export const maxDuration = 300; // 5分
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  // SLP編集権限以上のスタッフのみ
+  const authz = await authorizeApi([{ project: "slp", level: "edit" }]);
+  if (!authz.ok) return authz.response;
 
   try {
     const formData = await request.formData();
@@ -70,7 +69,7 @@ export async function POST(request: NextRequest) {
           fileSize: file.size,
           mimeType: file.type,
           isActive: true,
-          uploadedById: session.user.id,
+          uploadedById: authz.user.id,
           note: note?.trim() || null,
         },
       }),

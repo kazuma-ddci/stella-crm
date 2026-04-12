@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { authorizeApi } from "@/lib/api-auth";
 
 interface UpdateUserRequest {
   status?: "active" | "suspended";
@@ -12,6 +12,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // 社内スタッフ + いずれかのプロジェクトで edit 以上
+    const authz = await authorizeApi([
+      { project: "stp", level: "edit" },
+      { project: "slp", level: "edit" },
+      { project: "accounting", level: "edit" },
+      { project: "hojo", level: "edit" },
+      { project: "stella", level: "edit" },
+    ]);
+    if (!authz.ok) return authz.response;
+
     const { id } = await params;
     const userId = parseInt(id, 10);
 
@@ -22,35 +32,25 @@ export async function GET(
       );
     }
 
-    // 認証チェック
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const staffId = (session.user as any).id as number;
-
-    // 管理者権限チェック
-    const staffPermissions = await prisma.staffPermission.findMany({
-      where: { staffId },
-    });
-
-    const hasEditPermission = staffPermissions.some(
-      (p) => p.permissionLevel === "edit" || p.permissionLevel === "manager"
-    );
-
-    if (!hasEditPermission) {
-      return NextResponse.json(
-        { error: "編集権限が必要です" },
-        { status: 403 }
-      );
-    }
-
     // ユーザー取得
+    // 注: passwordHash は select で明示的に除外している
     const user = await prisma.externalUser.findUnique({
       where: { id: userId },
-      include: {
+      select: {
+        id: true,
+        companyId: true,
+        registrationTokenId: true,
+        contactId: true,
+        name: true,
+        position: true,
+        email: true,
+        status: true,
+        emailVerifiedAt: true,
+        approvedAt: true,
+        approvedBy: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true,
         company: {
           select: {
             id: true,
@@ -111,6 +111,16 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // 社内スタッフ + いずれかのプロジェクトで edit 以上
+    const authz = await authorizeApi([
+      { project: "stp", level: "edit" },
+      { project: "slp", level: "edit" },
+      { project: "accounting", level: "edit" },
+      { project: "hojo", level: "edit" },
+      { project: "stella", level: "edit" },
+    ]);
+    if (!authz.ok) return authz.response;
+
     const { id } = await params;
     const userId = parseInt(id, 10);
 
@@ -118,31 +128,6 @@ export async function PUT(
       return NextResponse.json(
         { error: "無効なユーザーIDです" },
         { status: 400 }
-      );
-    }
-
-    // 認証チェック
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const staffId = (session.user as any).id as number;
-
-    // 管理者権限チェック
-    const staffPermissions = await prisma.staffPermission.findMany({
-      where: { staffId },
-    });
-
-    const hasEditPermission = staffPermissions.some(
-      (p) => p.permissionLevel === "edit" || p.permissionLevel === "manager"
-    );
-
-    if (!hasEditPermission) {
-      return NextResponse.json(
-        { error: "編集権限が必要です" },
-        { status: 403 }
       );
     }
 

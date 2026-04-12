@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { writeFile, mkdir, stat, unlink } from "fs/promises";
 import path from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { authorizeApi } from "@/lib/api-auth";
 
 const execAsync = promisify(exec);
 
@@ -63,10 +63,9 @@ async function compressPdf(
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  // SLP編集権限以上のスタッフのみ
+  const authz = await authorizeApi([{ project: "slp", level: "edit" }]);
+  if (!authz.ok) return authz.response;
 
   try {
     const formData = await request.formData();
@@ -184,7 +183,7 @@ export async function POST(request: NextRequest) {
           filePath: publicPath,
           fileSize: finalSize,
           isActive: true,
-          uploadedById: session.user.id,
+          uploadedById: authz.user.id,
           note: note?.trim() || null,
         },
       }),

@@ -274,6 +274,13 @@ export type CompanyBasicInfoPatch = {
   annualLaborCostExecutive?: string | null;
   annualLaborCostEmployee?: string | null;
   averageMonthlySalary?: string | null;
+  // 事業形態・法人/個人事業主対応
+  businessType?: string | null;
+  corporateNumber?: string | null;
+  companyEmail?: string | null;
+  representativePhone?: string | null;
+  representativeEmail?: string | null;
+  primaryContactId?: number | null;
   // 金額・契約情報
   initialFee?: string | null;
   initialPeopleCount?: string | null;
@@ -313,6 +320,11 @@ export async function updateCompanyBasicInfo(
     "companyPhone",
     "pensionOffice",
     "pensionOfficerName",
+    "corporateNumber",
+    "companyEmail",
+    "representativePhone",
+    "representativeEmail",
+    "businessType",
   ];
   for (const f of stringFields) {
     if (patch[f] !== undefined) {
@@ -365,6 +377,9 @@ export async function updateCompanyBasicInfo(
   if (patch.status2Id !== undefined) {
     data.status2Id = patch.status2Id !== null ? patch.status2Id : null;
   }
+  if (patch.primaryContactId !== undefined) {
+    data.primaryContactId = patch.primaryContactId !== null ? patch.primaryContactId : null;
+  }
 
   await prisma.slpCompanyRecord.update({
     where: { id },
@@ -376,7 +391,8 @@ export async function updateCompanyBasicInfo(
     patch.companyName !== undefined ||
     patch.companyPhone !== undefined ||
     patch.address !== undefined ||
-    patch.prefecture !== undefined;
+    patch.prefecture !== undefined ||
+    patch.corporateNumber !== undefined;
   if (duplicateRelevantChanged) {
     recomputeDuplicateCandidatesForRecord(id).catch(async (err) => {
       await logAutomationError({
@@ -385,6 +401,40 @@ export async function updateCompanyBasicInfo(
         detail: { error: err instanceof Error ? err.message : String(err) },
       });
     });
+  }
+
+  // 代表者→担当者 双方向同期: primaryContactId が設定されていて代表者情報が変更された場合、
+  // 担当者レコードの name/phone/email も同時更新し、isPrimary を設定する
+  if (data.primaryContactId && typeof data.primaryContactId === "number") {
+    const contactSyncData: Record<string, unknown> = {};
+    if (patch.representativeName !== undefined) {
+      const v = patch.representativeName?.trim();
+      contactSyncData.name = v || null;
+    }
+    if (patch.representativePhone !== undefined) {
+      const v = patch.representativePhone?.trim();
+      contactSyncData.phone = v || null;
+    }
+    if (patch.representativeEmail !== undefined) {
+      const v = patch.representativeEmail?.trim();
+      contactSyncData.email = v || null;
+    }
+    // 担当者レコードに同期 + isPrimary 更新
+    await prisma.$transaction([
+      // まず全担当者の isPrimary を false にリセット
+      prisma.slpCompanyContact.updateMany({
+        where: { companyRecordId: id },
+        data: { isPrimary: false },
+      }),
+      // 選択された担当者を isPrimary = true + 代表者情報を同期
+      prisma.slpCompanyContact.update({
+        where: { id: data.primaryContactId as number },
+        data: {
+          isPrimary: true,
+          ...contactSyncData,
+        },
+      }),
+    ]);
   }
 
   revalidatePath("/slp/companies");
@@ -589,7 +639,7 @@ export async function deleteMasterOption(kind: MasterKind, id: number): Promise<
     }
 
     if (usageCount > 0) {
-      return err(`この${label}は${usageCount}件の企業名簿で使用中のため削除できません`);
+      return err(`この${label}は${usageCount}件の事業者名簿で使用中のため削除できません`);
     }
 
     switch (kind) {
@@ -740,6 +790,22 @@ export async function updateContact(
       lineFriendId: data.lineFriendId,
     },
   });
+
+  // 逆方向同期: この担当者が代表者として選択されている場合、
+  // 企業の代表者情報も同時に更新する
+  const companyWithPrimary = await prisma.slpCompanyRecord.findFirst({
+    where: { primaryContactId: id, deletedAt: null },
+  });
+  if (companyWithPrimary) {
+    await prisma.slpCompanyRecord.update({
+      where: { id: companyWithPrimary.id },
+      data: {
+        representativeName: data.name || null,
+        representativePhone: data.phone || null,
+        representativeEmail: data.email || null,
+      },
+    });
+  }
 
   // タグ連動: 親企業が「完了」状態かつ lineFriendId が変わった場合
   // 概要案内・導入希望商談 それぞれ独立にタグ操作する

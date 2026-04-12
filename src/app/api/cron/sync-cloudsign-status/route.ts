@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { cloudsignClient } from "@/lib/cloudsign";
 import { syncContractStatus } from "@/lib/cloudsign-sync";
 import { logAutomationError } from "@/lib/automation-error";
+import { verifyCronAuth } from "@/lib/cron-auth";
 
 /**
  * CloudSign APIステータスマッピング
@@ -49,19 +50,8 @@ type SyncResult = {
 };
 
 export async function GET(request: Request) {
-  // CRON_SECRET認証
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    console.error("[Cron] CRON_SECRET is not configured");
-    return NextResponse.json(
-      { error: "Server configuration error" },
-      { status: 500 }
-    );
-  }
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authError = verifyCronAuth(request);
+  if (authError) return authError;
 
   try {
     // 対象: cloudsignAutoSync=true, status IN (sent, draft), cloudsignDocumentId IS NOT NULL

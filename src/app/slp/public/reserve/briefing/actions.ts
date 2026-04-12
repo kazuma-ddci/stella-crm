@@ -27,6 +27,7 @@ export async function createBriefingPendingAction(params: {
   uid: string;
   companyRecordIds?: number[];
   newCompanyName?: string;
+  businessType?: string;
 }): Promise<CreateBriefingPendingResult> {
   const { uid, companyRecordIds, newCompanyName } = params;
 
@@ -38,7 +39,7 @@ export async function createBriefingPendingAction(params: {
   if (!companyRecordIds?.length && !newCompanyName?.trim()) {
     return {
       success: false,
-      error: "企業を選択するか企業名を入力してください",
+      error: "事業者を選択するか事業者名を入力してください",
     };
   }
 
@@ -57,7 +58,7 @@ export async function createBriefingPendingAction(params: {
       return { success: false, error: "選択した企業が見つかりません" };
     }
     expectedCompanyName = records
-      .map((r) => r.companyName ?? "(企業名未登録)")
+      .map((r) => r.companyName ?? "(事業者名未登録)")
       .join(", ");
   } else {
     expectedCompanyName = newCompanyName!.trim();
@@ -76,6 +77,7 @@ export async function createBriefingPendingAction(params: {
         companyRecordIds: companyRecordIds ?? [],
         newCompanyName: newCompanyName?.trim() || null,
         expectedCompanyName,
+        businessType: params.businessType ?? null,
         expiresAt,
       },
     });

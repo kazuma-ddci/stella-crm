@@ -8,8 +8,12 @@ import type { CompanyRelatedData } from "@/types/company-merge";
 import { getSession } from "@/lib/auth";
 import { updateCounterpartyForCompany, deactivateCounterpartyForCompany } from "@/lib/counterparty-sync";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithAnyEditPermission, requireStaff } from "@/lib/auth/staff-action";
 
 export async function deleteCompany(id: number): Promise<ActionResult> {
+  // 認証: 社内スタッフ + いずれかのプロジェクトで edit 以上
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithAnyEditPermission();
   try {
     await prisma.masterStellaCompany.update({
       where: { id },
@@ -33,6 +37,8 @@ export async function deleteCompany(id: number): Promise<ActionResult> {
 }
 
 export async function getCompanyDeleteInfo(id: number): Promise<CompanyRelatedData> {
+  // 閲覧情報なので staff のみで OK
+  await requireStaff();
   return getRelatedDataCounts(id);
 }
 
@@ -52,6 +58,7 @@ export async function updateCompany(
     paymentDay?: number | null;
   }
 ): Promise<ActionResult> {
+  await requireStaffWithAnyEditPermission();
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: Record<string, any> = {};

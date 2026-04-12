@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { cloudsignClient } from "@/lib/cloudsign";
+import { authorizeApi } from "@/lib/api-auth";
 
 /**
  * POST /api/cloudsign/documents
@@ -12,10 +12,12 @@ import { cloudsignClient } from "@/lib/cloudsign";
  */
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
-    }
+    // STP編集 or 経理編集 のスタッフのみ
+    const authz = await authorizeApi([
+      { project: "stp", level: "edit" },
+      { project: "accounting", level: "edit" },
+    ]);
+    if (!authz.ok) return authz.response;
 
     const body = await request.json();
     const { operatingCompanyId, templateId, title } = body;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { authorizeApi } from "@/lib/api-auth";
 
 // 許可するファイル形式
 const ALLOWED_TYPES = [
@@ -18,6 +19,10 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
   try {
+    // ログイン中の社内スタッフのみ
+    const authz = await authorizeApi();
+    if (!authz.ok) return authz.response;
+
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const contractId = formData.get("contractId") as string | null;
@@ -53,8 +58,12 @@ export async function POST(request: NextRequest) {
 
     // ファイル名をサニタイズ
     const originalName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const fileName = contractId
-      ? `${contractId}_${timestamp}_${originalName}`
+    // セキュリティ: contractId は数値以外を弾いてパストラバーサル防止
+    const safeContractId = contractId && Number.isInteger(Number(contractId))
+      ? String(Number(contractId))
+      : null;
+    const fileName = safeContractId
+      ? `${safeContractId}_${timestamp}_${originalName}`
       : `${timestamp}_${originalName}`;
 
     // 保存ディレクトリのパス

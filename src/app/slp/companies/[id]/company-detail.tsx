@@ -194,6 +194,13 @@ export type CompanyDetailRecord = {
   annualLaborCostExecutiveFormAnswer: string | null;
   annualLaborCostEmployeeFormAnswer: string | null;
   employeeCountFormAnswer: string | null;
+  // 事業形態・法人/個人事業主対応
+  businessType: string | null;
+  corporateNumber: string | null;
+  companyEmail: string | null;
+  representativePhone: string | null;
+  representativeEmail: string | null;
+  primaryContactId: number | null;
   // 金額・契約情報
   initialFee: string | null;
   initialPeopleCount: number | null;
@@ -338,6 +345,16 @@ export function CompanyDetail({
   const [annualLaborCostEmployee, setAnnualLaborCostEmployee] = useState(record.annualLaborCostEmployee ?? "");
   const [averageMonthlySalary, setAverageMonthlySalary] = useState(record.averageMonthlySalary ?? "");
 
+  // --- 事業形態・法人/個人事業主対応 ---
+  const [businessType, setBusinessType] = useState(record.businessType ?? "");
+  const [corporateNumber, setCorporateNumber] = useState(record.corporateNumber ?? "");
+  const [companyEmail, setCompanyEmail] = useState(record.companyEmail ?? "");
+  const [representativePhone, setRepresentativePhone] = useState(record.representativePhone ?? "");
+  const [representativeEmail, setRepresentativeEmail] = useState(record.representativeEmail ?? "");
+  const [primaryContactId, setPrimaryContactIdState] = useState<string>(
+    record.primaryContactId?.toString() ?? UNSET
+  );
+
   // --- 金額・契約 ---
   const [initialFee, setInitialFee] = useState(record.initialFee ?? "");
   const [initialPeopleCount, setInitialPeopleCount] = useState(
@@ -406,6 +423,12 @@ export function CompanyDetail({
         annualLaborCostExecutive,
         annualLaborCostEmployee,
         averageMonthlySalary,
+        businessType,
+        corporateNumber,
+        companyEmail,
+        representativePhone,
+        representativeEmail,
+        primaryContactId,
         initialFee,
         initialPeopleCount,
         monthlyFee,
@@ -439,6 +462,7 @@ export function CompanyDetail({
       pensionOffice, pensionOfficerName, industryId, flowSourceId,
       salesStaffId, status1Id, status2Id, lastContactDate,
       annualLaborCostExecutive, annualLaborCostEmployee, averageMonthlySalary,
+      businessType, corporateNumber, companyEmail, representativePhone, representativeEmail, primaryContactId,
       initialFee, initialPeopleCount, monthlyFee, monthlyPeopleCount,
       contractDate, lastPaymentDate, invoiceSentDate, nextPaymentDate,
       estMaxRefundPeople, estMaxRefundAmount, estOurRevenue, estAgentPayment,
@@ -508,6 +532,12 @@ export function CompanyDetail({
           annualLaborCostExecutive,
           annualLaborCostEmployee,
           averageMonthlySalary,
+          businessType: businessType || null,
+          corporateNumber,
+          companyEmail,
+          representativePhone,
+          representativeEmail,
+          primaryContactId: primaryContactId !== UNSET ? parseInt(primaryContactId, 10) : null,
           initialFee,
           initialPeopleCount,
           monthlyFee,
@@ -975,7 +1005,7 @@ export function CompanyDetail({
               className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 flex-shrink-0"
             >
               <ArrowLeft className="h-4 w-4" />
-              企業名簿
+              事業者名簿
             </Link>
             <span className="text-muted-foreground">/</span>
             <h1 className="text-xl font-bold truncate">{displayName}</h1>
@@ -1043,7 +1073,7 @@ export function CompanyDetail({
             <span className="text-amber-700">⚠️</span>
             <div className="flex-1">
               <p className="text-sm font-medium text-amber-900">
-                この企業には{duplicateCandidates.length}件の重複候補があります
+                この事業者には{duplicateCandidates.length}件の重複候補があります
               </p>
               <ul className="mt-1.5 space-y-1 text-xs text-amber-800">
                 {duplicateCandidates.map((c) => (
@@ -1121,19 +1151,108 @@ export function CompanyDetail({
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 事業形態 */}
+                <div className="md:col-span-2">
+                  <Label>事業形態</Label>
+                  <div className="flex gap-4 mt-1.5">
+                    {[
+                      { value: "corporation", label: "法人" },
+                      { value: "sole_proprietor", label: "個人事業主" },
+                    ].map((opt) => (
+                      <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="businessType"
+                          value={opt.value}
+                          checked={businessType === opt.value}
+                          onChange={(e) => setBusinessType(e.target.value)}
+                          className="h-4 w-4 text-blue-600"
+                        />
+                        <span className="text-sm">{opt.label}</span>
+                      </label>
+                    ))}
+                    {businessType && (
+                      <button
+                        type="button"
+                        onClick={() => setBusinessType("")}
+                        className="text-xs text-gray-400 hover:text-gray-600 ml-2"
+                      >
+                        クリア
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <div>
-                  <Label>企業名</Label>
+                  <Label>{businessType === "sole_proprietor" ? "屋号(個人名可)" : "企業名"}</Label>
                   <Input
                     value={companyName}
                     onChange={(e) => setCompanyName(e.target.value)}
-                    placeholder="株式会社○○"
+                    placeholder={businessType === "sole_proprietor" ? "○○商店 / 山田太郎" : "株式会社○○"}
                   />
                 </div>
+                {businessType === "corporation" && (
+                  <div>
+                    <Label>法人番号</Label>
+                    <Input
+                      value={corporateNumber}
+                      onChange={(e) => setCorporateNumber(e.target.value)}
+                      placeholder="1234567890123"
+                      maxLength={13}
+                    />
+                  </div>
+                )}
                 <div>
                   <Label>代表者名</Label>
                   <Input
                     value={representativeName}
                     onChange={(e) => setRepresentativeName(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label>代表者(担当者から選択)</Label>
+                  <Select
+                    value={primaryContactId}
+                    onValueChange={(v) => {
+                      setPrimaryContactIdState(v);
+                      // 選択した担当者の情報で代表者フィールドを自動入力
+                      if (v !== UNSET) {
+                        const contact = record.contacts.find((c) => c.id === parseInt(v, 10));
+                        if (contact) {
+                          setRepresentativeName(contact.name ?? "");
+                          setRepresentativePhone(contact.phone ?? "");
+                          setRepresentativeEmail(contact.email ?? "");
+                        }
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="選択してください" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={UNSET}>未設定</SelectItem>
+                      {record.contacts.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.name ?? `(担当者#${c.id})`}
+                          {c.lineFriendLabel ? ` [${c.lineFriendLabel}]` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>代表者電話番号</Label>
+                  <Input
+                    value={representativePhone}
+                    onChange={(e) => setRepresentativePhone(e.target.value)}
+                    placeholder="090-1234-5678"
+                  />
+                </div>
+                <div>
+                  <Label>代表者メールアドレス</Label>
+                  <Input
+                    value={representativeEmail}
+                    onChange={(e) => setRepresentativeEmail(e.target.value)}
+                    placeholder="taro@example.com"
                   />
                 </div>
                 <div>
@@ -1194,15 +1313,23 @@ export function CompanyDetail({
                   </Select>
                 </div>
                 <div>
-                  <Label>企業電話番号</Label>
+                  <Label>{businessType === "sole_proprietor" ? "事業用電話番号" : "企業電話番号"}</Label>
                   <Input
                     value={companyPhone}
                     onChange={(e) => setCompanyPhone(e.target.value)}
                     placeholder="03-1234-5678"
                   />
                 </div>
+                <div>
+                  <Label>{businessType === "sole_proprietor" ? "事業用メールアドレス" : "企業メールアドレス"}</Label>
+                  <Input
+                    value={companyEmail}
+                    onChange={(e) => setCompanyEmail(e.target.value)}
+                    placeholder="info@example.com"
+                  />
+                </div>
                 <div className="md:col-span-2">
-                  <Label>住所</Label>
+                  <Label>{businessType === "sole_proprietor" ? "事業用住所" : "本店所在地"}</Label>
                   <Input
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}

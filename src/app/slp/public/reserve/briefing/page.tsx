@@ -52,6 +52,7 @@ export default async function SlpReserveBriefingPage({ searchParams }: Props) {
           companies={result.companies.map((c) => ({
             recordId: c.recordId,
             companyName: c.companyName,
+            businessType: c.businessType,
             briefingStatus: c.briefingStatus,
             briefingDate: c.briefingDate?.toISOString() ?? null,
             briefingHasReservation: c.briefingHasReservation,

@@ -134,6 +134,21 @@ export async function changeBbsPassword(
   accountId: number,
   newPassword: string
 ): Promise<ActionResult> {
+  // 認証: BBSユーザー本人の自己変更のみ許可。
+  // 他人の accountId を指定された場合は拒否する。
+  // スタッフによるリセットは hojo/settings/partner-accounts/actions.ts:resetBbsPassword を使う。
+  const session = await auth();
+  if (!session?.user) {
+    return err("認証が必要です");
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userType = (session.user as any).userType;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sessionBbsAccountId = (session.user as any).bbsAccountId as number | undefined;
+  if (userType !== "bbs" || sessionBbsAccountId !== accountId) {
+    return err("自分のアカウント以外のパスワードは変更できません");
+  }
+
   try {
     if (newPassword.length < 8) {
       return err("パスワードは8文字以上にしてください");
@@ -156,6 +171,27 @@ export async function changeBbsPassword(
 }
 
 export async function getBbsPageData() {
+  // 認証: BBSユーザー本人 または 補助金プロジェクトの編集権限以上のスタッフのみ
+  // データのスコープは設計通り「全レコード共有」のため where 句は変更しない
+  const session = await auth();
+  if (!session?.user) {
+    throw new Error("認証が必要です");
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userType = (session.user as any).userType;
+  if (userType !== "bbs") {
+    if (userType !== "staff") {
+      throw new Error("権限がありません");
+    }
+    // スタッフの場合は hojo の閲覧以上を要求
+    const { hasPermission } = await import("@/lib/auth/permissions");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const permissions = ((session.user as any).permissions ?? []) as import("@/types/auth").UserPermission[];
+    if (!hasPermission(permissions, "hojo", "view")) {
+      throw new Error("補助金プロジェクトの閲覧権限が必要です");
+    }
+  }
+
   const records = await prisma.hojoApplicationSupport.findMany({
     where: { deletedAt: null },
     include: {

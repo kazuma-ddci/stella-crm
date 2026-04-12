@@ -65,6 +65,7 @@ type RecordRow = {
   id: number;
   companyNo: number;
   companyName: string | null;
+  businessType: string | null;
   primaryContactLineLabel: string | null;
   briefingStatus: string | null;
   briefingDate: string | null;
@@ -104,6 +105,7 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
   const [filterStatus2, setFilterStatus2] = useState(ALL);
   const [filterBriefing, setFilterBriefing] = useState(ALL);
   const [filterConsultation, setFilterConsultation] = useState(ALL);
+  const [filterBusinessType, setFilterBusinessType] = useState(ALL);
   // 商談日フィルタ（その日に商談予定の企業のみ表示）
   const [filterMeetingDate, setFilterMeetingDate] = useState("");
 
@@ -131,6 +133,13 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
     if (filterStatus2 !== ALL && row.status2Name !== filterStatus2) return false;
     if (filterBriefing !== ALL && row.briefingStatus !== filterBriefing) return false;
     if (filterConsultation !== ALL && row.consultationStatus !== filterConsultation) return false;
+    if (filterBusinessType !== ALL) {
+      if (filterBusinessType === "__unset__") {
+        if (row.businessType) return false;
+      } else {
+        if (row.businessType !== filterBusinessType) return false;
+      }
+    }
     if (filterMeetingDate) {
       // 概要案内日 or 導入希望商談日 のいずれかが指定日と一致する企業のみ表示
       // ステータスが完了/キャンセルのものは除外
@@ -296,7 +305,7 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
           <Input
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            placeholder="企業名・No・担当営業で検索"
+            placeholder="事業者名・No・担当営業で検索"
             className="pl-8"
           />
         </div>
@@ -352,6 +361,17 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
             ))}
           </SelectContent>
         </Select>
+        <Select value={filterBusinessType} onValueChange={setFilterBusinessType}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="事業形態" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>すべて（事業形態）</SelectItem>
+            <SelectItem value="corporation">法人</SelectItem>
+            <SelectItem value="sole_proprietor">個人事業主</SelectItem>
+            <SelectItem value="__unset__">未設定</SelectItem>
+          </SelectContent>
+        </Select>
         {/* 商談日フィルタ */}
         <div className="flex items-center gap-1">
           <Input
@@ -376,7 +396,7 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
         <div className="ml-auto">
           <Button size="sm" onClick={handleAddRecord}>
             <Plus className="h-4 w-4 mr-2" />
-            新規企業を追加
+            新規事業者を追加
           </Button>
         </div>
       </div>
@@ -386,8 +406,8 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[80px]">企業No.</TableHead>
-              <TableHead>企業名</TableHead>
+              <TableHead className="w-[80px]">事業者No.</TableHead>
+              <TableHead>事業者名</TableHead>
               <TableHead className="w-[140px]">ステータス①</TableHead>
               <TableHead className="w-[140px]">ステータス②</TableHead>
               <TableHead className="w-[140px]">担当営業</TableHead>
@@ -408,8 +428,8 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
               <TableRow>
                 <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
                   {data.length === 0
-                    ? "企業名簿にレコードがありません"
-                    : "条件に一致する企業がありません"}
+                    ? "事業者名簿にレコードがありません"
+                    : "条件に一致する事業者がありません"}
                 </TableCell>
               </TableRow>
             ) : (
@@ -455,6 +475,12 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
                       href={`/slp/companies/${row.id}`}
                       className="text-blue-600 hover:underline"
                     >
+                      {row.businessType === "corporation" && (
+                        <span className="mr-1.5 inline-flex items-center rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 ring-1 ring-inset ring-blue-200">法人</span>
+                      )}
+                      {row.businessType === "sole_proprietor" && (
+                        <span className="mr-1.5 inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200">個人</span>
+                      )}
                       {row.companyName ? (
                         <span>{row.companyName}</span>
                       ) : row.primaryContactLineLabel ? (
@@ -591,7 +617,7 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
       </div>
 
       <p className="text-xs text-muted-foreground mt-2">
-        ※ 企業名・企業No. をクリックすると、その企業の詳細・編集ページが開きます。
+        ※ 事業者名・事業者No. をクリックすると、その事業者の詳細・編集ページが開きます。
       </p>
     </>
   );

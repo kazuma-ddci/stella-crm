@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
 import { normalizeSeiMei } from "@/lib/hojo/normalize-sei-mei";
+import { verifyCronAuth } from "@/lib/cron-auth";
 
 interface FriendData {
   snsname?: string | null;
@@ -44,14 +45,8 @@ function toStringOrNull(val: unknown): string | null {
 }
 
 export async function POST(request: Request) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
-  }
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authError = verifyCronAuth(request);
+  if (authError) return authError;
 
   try {
     const body = await request.json();

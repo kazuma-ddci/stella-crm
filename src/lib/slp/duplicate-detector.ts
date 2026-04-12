@@ -237,6 +237,9 @@ type CompanyForDetection = {
   companyPhone: string | null;
   address: string | null;
   prefecture: string | null;
+  corporateNumber: string | null;
+  representativeName: string | null;
+  businessType: string | null;
 };
 
 /**
@@ -247,6 +250,16 @@ export function detectDuplicateReasons(
   b: CompanyForDetection
 ): string[] {
   const reasons: string[] = [];
+
+  // 法人番号一致（最優先・確定判定）
+  if (a.corporateNumber && b.corporateNumber) {
+    const na = a.corporateNumber.replace(/\D/g, "");
+    const nb = b.corporateNumber.replace(/\D/g, "");
+    if (na.length === 13 && na === nb) {
+      reasons.push("法人番号");
+      return reasons; // 法人番号一致は確定なので他の判定を待たず即return
+    }
+  }
 
   if (a.companyName && b.companyName) {
     if (isCompanyNameMatch(a.companyName, b.companyName)) {
@@ -266,6 +279,21 @@ export function detectDuplicateReasons(
   if (addrA && addrB) {
     if (isAddressMatch(addrA, addrB)) {
       reasons.push("住所");
+    }
+  }
+
+  // 個人事業主: 代表者名 + 事業用電話番号の組み合わせ一致
+  if (
+    (a.businessType === "sole_proprietor" || b.businessType === "sole_proprietor") &&
+    a.representativeName && b.representativeName &&
+    a.companyPhone && b.companyPhone
+  ) {
+    const nameA = a.representativeName.trim();
+    const nameB = b.representativeName.trim();
+    const phoneA = a.companyPhone.replace(/\D/g, "");
+    const phoneB = b.companyPhone.replace(/\D/g, "");
+    if (nameA === nameB && phoneA === phoneB && phoneA.length >= 10) {
+      reasons.push("代表者名+電話番号");
     }
   }
 
@@ -291,6 +319,9 @@ export async function recomputeDuplicateCandidatesForRecord(
       companyPhone: true,
       address: true,
       prefecture: true,
+      corporateNumber: true,
+      representativeName: true,
+      businessType: true,
     },
   });
 
@@ -328,6 +359,9 @@ export async function recomputeDuplicateCandidatesForRecord(
       companyPhone: true,
       address: true,
       prefecture: true,
+      corporateNumber: true,
+      representativeName: true,
+      businessType: true,
     },
   });
 
@@ -385,6 +419,9 @@ export async function recomputeAllDuplicateCandidates(): Promise<{
       companyPhone: true,
       address: true,
       prefecture: true,
+      corporateNumber: true,
+      representativeName: true,
+      businessType: true,
     },
     orderBy: { id: "asc" },
   });

@@ -47,6 +47,7 @@ export default async function SlpCompaniesPage() {
     select: {
       id: true,
       companyName: true,
+      businessType: true,
       briefingStatus: true,
       briefingDate: true,
       briefingStaffId: true,
@@ -142,6 +143,7 @@ export default async function SlpCompaniesPage() {
       id: r.id,
       companyNo: r.id,
       companyName: r.companyName,
+      businessType: r.businessType,
       primaryContactLineLabel,
       briefingStatus: r.briefingStatus,
       briefingDate: toJstDisplay(r.briefingDate),
@@ -232,7 +234,7 @@ export default async function SlpCompaniesPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">企業名簿</h1>
+      <h1 className="text-2xl font-bold">事業者名簿</h1>
       <CompanyRecordsTable
         data={data}
         duplicateCandidates={duplicateCandidatesData}

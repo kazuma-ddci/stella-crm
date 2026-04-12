@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { authorizeApi } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
   try {
-    // 認証チェック
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
-    }
+    // 社内スタッフ限定。閲覧目的なので project 制限なし
+    const authz = await authorizeApi();
+    if (!authz.ok) return authz.response;
 
     const searchParams = request.nextUrl.searchParams;
     const query = searchParams.get("q") || "";

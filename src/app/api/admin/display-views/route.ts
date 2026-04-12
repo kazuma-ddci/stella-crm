@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { authorizeApi } from "@/lib/api-auth";
 
 export async function GET() {
   try {
-    // 認証チェック
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
-    }
+    // 社内スタッフ + いずれかのプロジェクトで edit 以上
+    const authz = await authorizeApi([
+      { project: "stp", level: "edit" },
+      { project: "slp", level: "edit" },
+      { project: "accounting", level: "edit" },
+      { project: "hojo", level: "edit" },
+      { project: "stella", level: "edit" },
+    ]);
+    if (!authz.ok) return authz.response;
 
     // 表示ビュー一覧を取得（projectリレーションを含む）
     const views = await prisma.displayView.findMany({

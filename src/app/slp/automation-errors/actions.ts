@@ -17,10 +17,23 @@ import {
 } from "@/lib/proline-form";
 import { sendSlpContract } from "@/lib/slp-cloudsign";
 import type { ProlineFormData } from "@/lib/proline-form";
+import { getOptionalSession } from "@/lib/auth/session";
+import { hasPermission } from "@/lib/auth/permissions";
 
 export async function retryAutomationError(
   errorId: number
 ): Promise<{ success: boolean; message: string }> {
+  // 認証: SLPプロジェクトの編集権限以上(自動化エラーの再試行は重要操作)
+  // 戻り値が独自形式のため、redirect を飲まないよう getOptionalSession を使う
+  const session = await getOptionalSession();
+  if (!session) return { success: false, message: "認証が必要です" };
+  if (session.userType !== "staff") {
+    return { success: false, message: "社内スタッフのみ実行可能です" };
+  }
+  if (!hasPermission(session.permissions ?? [], "slp", "edit")) {
+    return { success: false, message: "SLPプロジェクトの編集権限が必要です" };
+  }
+
   const error = await prisma.automationError.findUnique({
     where: { id: errorId },
   });
@@ -336,6 +349,16 @@ async function retryCloudsignSend(
 export async function resolveError(
   errorId: number
 ): Promise<{ success: boolean; message: string }> {
+  // 認証: SLPプロジェクトの編集権限以上
+  const session = await getOptionalSession();
+  if (!session) return { success: false, message: "認証が必要です" };
+  if (session.userType !== "staff") {
+    return { success: false, message: "社内スタッフのみ実行可能です" };
+  }
+  if (!hasPermission(session.permissions ?? [], "slp", "edit")) {
+    return { success: false, message: "SLPプロジェクトの編集権限が必要です" };
+  }
+
   try {
     await prisma.automationError.update({
       where: { id: errorId },

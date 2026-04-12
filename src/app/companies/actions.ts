@@ -8,6 +8,7 @@ import type { CompanyRelatedData } from "@/types/company-merge";
 import { getSession } from "@/lib/auth";
 import { createCounterpartyForCompany, updateCounterpartyForCompany, deactivateCounterpartyForCompany } from "@/lib/counterparty-sync";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { requireStaffWithAnyEditPermission, requireStaff } from "@/lib/auth/staff-action";
 
 async function generateCompanyCode(): Promise<string> {
   const lastCompany = await prisma.masterStellaCompany.findFirst({
@@ -26,6 +27,9 @@ async function generateCompanyCode(): Promise<string> {
 export async function addCompany(
   data: Record<string, unknown>
 ): Promise<ActionResult> {
+  // 認証: 社内スタッフ + いずれかのプロジェクトで edit 以上
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithAnyEditPermission();
   try {
   const companyCode = await generateCompanyCode();
   const staffId = data.staffId ? parseInt(data.staffId as string, 10) : null;
@@ -90,6 +94,7 @@ export async function updateCompany(
   id: number,
   data: Record<string, unknown>
 ): Promise<ActionResult> {
+  await requireStaffWithAnyEditPermission();
   try {
   const staffId = data.staffId ? parseInt(data.staffId as string, 10) : null;
 
@@ -178,6 +183,7 @@ export async function updateCompany(
 }
 
 export async function deleteCompany(id: number): Promise<ActionResult> {
+  await requireStaffWithAnyEditPermission();
   try {
     await prisma.masterStellaCompany.update({
       where: { id },
@@ -201,6 +207,8 @@ export async function deleteCompany(id: number): Promise<ActionResult> {
 }
 
 export async function getCompanyDeleteInfo(id: number): Promise<CompanyRelatedData> {
+  // 閲覧情報なので staff のみで OK
+  await requireStaff();
   return getRelatedDataCounts(id);
 }
 
@@ -218,6 +226,7 @@ export async function createCompany(data: {
   paymentMonthOffset?: number | null;
   paymentDay?: number | null;
 }): Promise<ActionResult<{ id: number; companyCode: string; name: string }>> {
+  await requireStaffWithAnyEditPermission();
   try {
     const companyCode = await generateCompanyCode();
 
@@ -291,6 +300,8 @@ export async function searchSimilarCompanies(
   corporateNumber?: string,
   excludeId?: number
 ): Promise<SimilarCompany[]> {
+  // 閲覧用検索なので staff のみで OK
+  await requireStaff();
   if (!name || name.trim().length < 2) return [];
 
   const normalizedInput = normalizeCompanyName(name);

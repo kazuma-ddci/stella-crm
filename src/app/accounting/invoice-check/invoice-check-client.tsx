@@ -67,7 +67,11 @@ export function InvoiceCheckClient({ data }: Props) {
 
     startTransition(async () => {
       try {
-        await bulkUpdateInvoiceClassification(idsToUpdate);
+        const result = await bulkUpdateInvoiceClassification(idsToUpdate);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
         toast.success(`${idsToUpdate.length}件の仕訳の税区分を更新しました`);
         setSelectedIds(new Set());
         router.refresh();

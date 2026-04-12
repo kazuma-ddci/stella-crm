@@ -11,6 +11,7 @@ import { randomBytes } from "node:crypto";
 export type CandidateCompany = {
   recordId: number;
   companyName: string | null;
+  businessType: string | null;
   briefingStatus: string | null;
   briefingDate: Date | null;
   consultationStatus: string | null;
@@ -64,6 +65,7 @@ export async function resolveContactCompanies(
         select: {
           id: true,
           companyName: true,
+          businessType: true,
           briefingStatus: true,
           briefingDate: true,
           briefingCanceledAt: true,
@@ -99,6 +101,7 @@ export async function resolveContactCompanies(
     companies.push({
       recordId: r.id,
       companyName: r.companyName,
+      businessType: r.businessType,
       briefingStatus: r.briefingStatus,
       briefingDate: r.briefingDate,
       consultationStatus: r.consultationStatus,

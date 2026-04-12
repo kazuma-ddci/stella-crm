@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { authorizeApi } from "@/lib/api-auth";
 
 // 許可するファイル形式
 const ALLOWED_TYPES = [
@@ -22,6 +23,12 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
   try {
+    // 補助金プロジェクトの編集権限以上のスタッフのみ
+    const authz = await authorizeApi([
+      { project: "hojo", level: "edit" },
+    ]);
+    if (!authz.ok) return authz.response;
+
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const vendorId = formData.get("vendorId") as string | null;
@@ -54,8 +61,12 @@ export async function POST(request: NextRequest) {
 
     // ファイル名をサニタイズ
     const originalName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const fileName = vendorId
-      ? `${vendorId}_${timestamp}_${originalName}`
+    // セキュリティ: vendorId は数値以外を弾いてパストラバーサル防止
+    const safeVendorId = vendorId && Number.isInteger(Number(vendorId))
+      ? String(Number(vendorId))
+      : null;
+    const fileName = safeVendorId
+      ? `${safeVendorId}_${timestamp}_${originalName}`
       : `${timestamp}_${originalName}`;
 
     const uploadDir = path.join(process.cwd(), "public", "uploads", "hojo-vendor-contracts", String(year), month);

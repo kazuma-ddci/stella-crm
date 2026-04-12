@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { authorizeApi } from "@/lib/api-auth";
 
 const UPLOAD_DIR = path.join(process.cwd(), "uploads", "invoices");
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -15,6 +16,10 @@ const ALLOWED_TYPES = [
 
 export async function POST(request: NextRequest) {
   try {
+    // STP編集権限以上のスタッフのみ
+    const authz = await authorizeApi([{ project: "stp", level: "edit" }]);
+    if (!authz.ok) return authz.response;
+
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
 

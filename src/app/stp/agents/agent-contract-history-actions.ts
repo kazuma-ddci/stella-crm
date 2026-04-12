@@ -5,6 +5,7 @@ import { toLocalDateString } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
 import { Decimal } from "@prisma/client/runtime/library";
 import { markExpenseRecordsForAgentChange } from "@/lib/finance/auto-generate";
+import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
 // 代理店契約履歴データの型定義
 export type AgentContractHistoryData = {
@@ -66,6 +67,7 @@ function decimalToNumber(val: Decimal | null): number | null {
 
 // 代理店契約履歴一覧取得
 export async function getAgentContractHistories(agentId: number) {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   const histories = await prisma.stpAgentContractHistory.findMany({
     where: {
       agentId,
@@ -145,6 +147,9 @@ export async function addAgentContractHistory(
   agentId: number,
   data: AgentContractHistoryData
 ): Promise<{ success: boolean; error?: string }> {
+  // 認証: STPプロジェクトの編集権限以上
+  // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     await prisma.stpAgentContractHistory.create({
       data: {
@@ -190,6 +195,7 @@ export async function updateAgentContractHistory(
   id: number,
   data: AgentContractHistoryData
 ): Promise<{ success: boolean; error?: string; affectedFinanceCount?: number }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     await prisma.stpAgentContractHistory.update({
       where: { id },
@@ -239,6 +245,7 @@ export async function updateAgentContractHistory(
 export async function deleteAgentContractHistory(
   id: number
 ): Promise<{ success: boolean; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     await prisma.stpAgentContractHistory.update({
       where: { id },
@@ -256,6 +263,7 @@ export async function deleteAgentContractHistory(
 
 // 紹介企業一覧取得
 export async function getReferredCompanies(agentId: number) {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "view" }]);
   const agent = await prisma.stpAgent.findUnique({
     where: { id: agentId },
   });
@@ -280,6 +288,7 @@ export async function getReferredCompanies(agentId: number) {
 export async function addCommissionOverride(
   data: CommissionOverrideData
 ): Promise<{ success: boolean; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     await prisma.stpAgentCommissionOverride.create({
       data: {
@@ -319,6 +328,7 @@ export async function updateCommissionOverride(
   id: number,
   data: Omit<CommissionOverrideData, "agentContractHistoryId" | "stpCompanyId">
 ): Promise<{ success: boolean; error?: string; affectedFinanceCount?: number }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     const override = await prisma.stpAgentCommissionOverride.update({
       where: { id },
@@ -361,6 +371,7 @@ export async function updateCommissionOverride(
 export async function deleteCommissionOverride(
   id: number
 ): Promise<{ success: boolean; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     await prisma.stpAgentCommissionOverride.delete({
       where: { id },
@@ -380,6 +391,7 @@ export async function linkAgentContractHistoryToContract(
   historyId: number,
   contractId: number
 ): Promise<{ success: boolean; error?: string }> {
+  await requireStaffWithProjectPermission([{ project: "stp", level: "edit" }]);
   try {
     await prisma.stpAgentContractHistory.update({
       where: { id: historyId },
