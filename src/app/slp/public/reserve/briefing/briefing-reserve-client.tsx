@@ -83,11 +83,8 @@ export function BriefingReserveClient({
       companyRecordIds: [recordId],
     });
     if (result.success) {
-      setStep({
-        type: "ready",
-        calendarUrl: result.calendarUrl,
-        expectedCompanyName: result.expectedCompanyName,
-      });
+      // 既存事業者も準備完了画面をスキップして直接予約フォームに遷移
+      window.location.href = result.calendarUrl;
     } else {
       setStep({ type: "error", message: result.error });
     }
@@ -208,8 +205,8 @@ export function BriefingReserveClient({
                   <KoutekiCardContent className="p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-slate-900 truncate">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium text-slate-900">
                             {c.companyName ?? "(事業者名未登録)"}
                           </p>
                           {c.businessType && (
