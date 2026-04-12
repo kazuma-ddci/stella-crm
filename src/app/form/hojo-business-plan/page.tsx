@@ -1,20 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { CheckCircle, Loader2 } from "lucide-react";
+  HojoFormLayout,
+  HojoFormHeader,
+  HojoFormSection,
+  HojoFormComplete,
+  HojoFormActions,
+} from "@/components/hojo-external-portal";
+import { Upload, X, FileText } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,12 +24,13 @@ type FieldDef = {
   label: string;
   placeholder?: string;
   required?: boolean;
-  type?: "text" | "textarea" | "radio" | "select" | "date";
+  type?: "text" | "textarea" | "radio" | "select" | "date" | "file";
   inputType?: string;
   inputMode?: "numeric" | "tel" | "email" | "text";
   options?: string[];
   helpText?: string;
   validation?: { pattern: RegExp; message: string };
+  accept?: string;
 };
 
 type SectionDef = {
@@ -41,348 +41,626 @@ type SectionDef = {
   condition?: (a: Record<string, string>) => boolean;
 };
 
+type UploadedFile = {
+  filePath: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+};
+
 // ---------------------------------------------------------------------------
-// セクション定義（スクリーンショット準拠）
+// セクション定義（PDF準拠 全45問）
 // ---------------------------------------------------------------------------
 
 const SECTIONS: SectionDef[] = [
-  // ── セクション1: 基本情報 ──
+  // ── 基本情報 (Q1-Q8) ──
   {
-    key: "sec1",
+    key: "basic",
     title: "基本情報",
     fields: [
-      { key: "tradeName", label: "屋号", required: true, placeholder: "例) 山田商店" },
-      { key: "industry", label: "業種", required: true, placeholder: "回答を入力" },
-      { key: "mainPhone", label: "電話番号はメインの？", required: true, placeholder: "例）", inputType: "tel", inputMode: "tel" },
-      { key: "contactPerson", label: "先方", required: true, placeholder: "回答を入力" },
-      { key: "contactPerson2", label: "先方2", placeholder: "回答を入力" },
       {
-        key: "businessDescription",
-        label: "事業の内容（会社として事業や経営としている事柄の内容を具体的で記入ください）",
-        required: true, type: "textarea", placeholder: "回答を入力",
+        key: "tradeName",
+        label: "①屋号",
+        required: true,
+        placeholder: "例）山田商店",
       },
-      { key: "maxMonthlySales", label: "最大月商", placeholder: "回答を入力" },
-      { key: "industryCode", label: "業種コード・「類似業種」", required: true, placeholder: "回答を入力" },
       {
-        key: "constructionLicense",
-        label: "建設業：「建設業者」",
-        required: true, type: "textarea", placeholder: "回答を入力",
+        key: "openingDate",
+        label: "②開業年月日",
+        required: true,
+        placeholder: "例: 2019年1月7日",
+        helpText: "例: 2019年1月7日",
       },
-      { key: "employeeCount", label: "従業員数（※正社員のみ パート・アルバイト除く）", required: true, placeholder: "回答を入力", inputMode: "numeric" },
+      {
+        key: "fullName",
+        label: "③氏名",
+        required: true,
+        placeholder: "回答を入力",
+      },
+      {
+        key: "officeAddress",
+        label: "④事業所の所在地（ご自宅を事業所としている場合はその住所をご記入ください）",
+        required: true,
+        type: "textarea",
+        placeholder: "回答を入力",
+      },
+      {
+        key: "phone",
+        label: "⑤連絡先（電話番号）",
+        required: true,
+        placeholder: "回答を入力",
+        inputType: "tel",
+        inputMode: "tel",
+      },
+      {
+        key: "email",
+        label: "⑥連絡先（メールアドレス）",
+        required: true,
+        placeholder: "回答を入力",
+        inputType: "email",
+        inputMode: "email",
+        validation: {
+          pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+          message: "正しいメールアドレスを入力してください",
+        },
+      },
+      {
+        key: "employeeCount",
+        label: "⑦従業員数（ご自身を含めた人数）",
+        required: true,
+        placeholder: "回答を入力",
+        inputMode: "numeric",
+      },
+      {
+        key: "homepageUrl",
+        label: "⑧ホームページURL（ホームページがない場合は「なし」とご回答ください）",
+        required: true,
+        placeholder: "回答を入力",
+      },
     ],
   },
 
-  // ── 振込先選択 ──
+  // ── 口座情報: 金融機関選択 (Q9) ──
   {
     key: "bank-select",
-    title: "振込先アカウントの確認",
-    description: "ゆうちょ口座の場合はセクション2で、その他の銀行の場合はセクション3で回答ください。",
+    title: "口座情報",
     fields: [
       {
-        key: "bankType", label: "振込先の口座", required: true, type: "radio",
-        options: ["ゆうちょ銀行", "その他の銀行"],
+        key: "bankType",
+        label: "助成金を受ける際にご利用される金融機関をお選びください",
+        required: true,
+        type: "radio",
+        options: ["ゆうちょ銀行", "他の金融機関"],
+        helpText: "1つだけマークしてください。",
       },
     ],
   },
 
-  // ── セクション2: ゆうちょ銀行 ──
+  // ── ゆうちょ銀行 (Q10-Q13) ──
   {
-    key: "sec2",
-    title: "セクション2: ゆうちょ口座の場合は下記セクションで回答ください",
+    key: "yucho",
+    title: "ゆうちょ銀行",
     condition: (a) => a.bankType === "ゆうちょ銀行",
     fields: [
       {
-        key: "yuchoAccountType", label: "口座種別", required: true, type: "select",
-        options: ["振替口座", "総合口座"],
+        key: "yuchoSymbol",
+        label: "①記号",
+        required: true,
+        placeholder: "回答を入力",
+        inputMode: "numeric",
+        helpText: "半角5桁",
+        validation: { pattern: /^\d{5}$/, message: "半角5桁の数字で入力してください" },
       },
       {
-        key: "yuchoHighValue",
-        label: "高額な手数を要し主務大臣に係る金融機関を入力ください？",
-        type: "radio", options: ["はい", "キャンセル対象外"],
+        key: "yuchoPassbookNumber",
+        label: "②通帳番号",
+        required: true,
+        placeholder: "回答を入力",
+        inputMode: "numeric",
+        helpText: "半角最大8桁",
+        validation: { pattern: /^\d{1,8}$/, message: "半角8桁以内の数字で入力してください" },
       },
-    ],
-  },
-  {
-    key: "sec2-yucho-detail",
-    title: "ゆうちょ銀行の場合は下記セクションで回答ください",
-    condition: (a) => a.bankType === "ゆうちょ銀行",
-    fields: [
-      { key: "yuchoBank", label: "ゆうちょ銀行", placeholder: "回答を入力" },
-      { key: "yuchoSymbol", label: "記号", required: true, placeholder: "回答を入力", inputMode: "numeric" },
-      { key: "yuchoBranchNumber", label: "本店番号", placeholder: "回答を入力" },
-      { key: "yuchoNumber", label: "番号", required: true, placeholder: "回答を入力", inputMode: "numeric" },
-      { key: "yuchoHolderName", label: "口座名義人", required: true, placeholder: "回答を入力" },
-      { key: "yuchoHolderNameKana", label: "口座名義人（カタカナ）", required: true, placeholder: "回答を入力" },
+      {
+        key: "yuchoAccountHolder",
+        label: "③口座名義人",
+        required: true,
+        placeholder: "回答を入力",
+      },
+      {
+        key: "yuchoAccountHolderKana",
+        label: "④口座名義人（フリガナ）",
+        required: true,
+        placeholder: "回答を入力",
+      },
     ],
   },
 
-  // ── セクション3: その他の銀行 ──
+  // ── 他の金融機関 (Q14-Q21) ──
   {
-    key: "sec3",
-    title: "セクション3:（口座情報）ゆうちょ以外の口座をご利用の場合回答ください",
-    condition: (a) => a.bankType === "その他の銀行",
+    key: "other-bank",
+    title: "他の金融機関",
+    condition: (a) => a.bankType === "他の金融機関",
     fields: [
       {
-        key: "otherBankCode", label: "その金融機関コード",
-        helpText: "半角4桁 例：0001",
-        required: true, placeholder: "回答を入力", inputMode: "numeric",
-        validation: { pattern: /^\d{4}$/, message: "4桁の数字で入力してください" },
+        key: "otherBankName",
+        label: "①金融機関名",
+        required: true,
+        placeholder: "回答を入力",
+        helpText: "正式名称（〇〇銀行、△△信用金庫など）",
       },
       {
-        key: "otherBankName", label: "金融機関名",
-        helpText: "正式名称（〇〇銀行、○○信用金庫等）",
-        required: true, placeholder: "回答を入力",
+        key: "otherBankCode",
+        label: "②金融機関コード",
+        required: true,
+        placeholder: "回答を入力",
+        inputMode: "numeric",
+        helpText: "半角4桁（例：0005）",
+        validation: { pattern: /^\d{4}$/, message: "半角4桁の数字で入力してください" },
       },
       {
-        key: "otherBranchCode", label: "支店機関コード",
-        helpText: "半角3桁 例：001",
-        required: true, placeholder: "回答を入力", inputMode: "numeric",
-        validation: { pattern: /^\d{3}$/, message: "3桁の数字で入力してください" },
-      },
-      {
-        key: "otherBranchName", label: "支店名",
+        key: "otherBranchName",
+        label: "③支店名",
+        required: true,
+        placeholder: "回答を入力",
         helpText: "正式名称（例：新宿支店）",
-        required: true, placeholder: "回答を入力",
       },
       {
-        key: "otherDeliveryCode", label: "配送コード",
-        helpText: "半角4桁",
-        placeholder: "回答を入力", inputMode: "numeric",
+        key: "otherBranchCode",
+        label: "④支店コード",
+        required: true,
+        placeholder: "回答を入力",
+        inputMode: "numeric",
+        helpText: "半角3桁（例：123）",
+        validation: { pattern: /^\d{3}$/, message: "半角3桁の数字で入力してください" },
       },
       {
-        key: "otherDepositType", label: "口座種別", required: true, type: "radio",
-        options: ["普通（税振）", "当座"],
+        key: "otherAccountType",
+        label: "⑤口座種別",
+        required: true,
+        type: "radio",
+        options: ["普通（総合）", "当座"],
+        helpText: "1つだけマークしてください。",
       },
       {
-        key: "otherAccountNumber", label: "口座番号",
+        key: "otherAccountNumber",
+        label: "⑥口座番号",
+        required: true,
+        placeholder: "回答を入力",
+        inputMode: "numeric",
         helpText: "半角7桁",
-        required: true, placeholder: "回答を入力", inputMode: "numeric",
-        validation: { pattern: /^\d{7}$/, message: "7桁の数字で入力してください" },
-      },
-      { key: "otherHolderName", label: "口座名義人", required: true, placeholder: "回答を入力" },
-      { key: "otherHolderNameKana", label: "口座名義人（カタカナ）", required: true, placeholder: "回答を入力" },
-    ],
-  },
-
-  // ── セクション4: 口座確認書類 ──
-  {
-    key: "sec4",
-    title: "セクション4:（口座確認書類）口座情報を確認する書類をご準備のこと",
-    fields: [
-      { key: "accountDocDate", label: "口座情報", type: "date" },
-      {
-        key: "accountDocDesc",
-        label: "口座開設（経過及び許可に関する確認書類）予約確認と名義の認証確認をファイル添付ください",
-        type: "textarea", placeholder: "書類に関する備考を記入してください",
+        validation: { pattern: /^\d{7}$/, message: "半角7桁の数字で入力してください" },
       },
       {
-        key: "accountDocCredit",
-        label: "口座情報（クレジット：入力された代表者名義の確認者のクレジットカードのカラーコピー）",
-        type: "textarea", placeholder: "該当する場合は記入してください",
+        key: "otherAccountHolder",
+        label: "⑦口座名義人",
+        required: true,
+        placeholder: "回答を入力",
+      },
+      {
+        key: "otherAccountHolderKana",
+        label: "⑧口座名義人（フリガナ）",
+        required: true,
+        placeholder: "回答を入力",
       },
     ],
   },
 
-  // ── セクション5: 事業情報 ──
+  // ── 口座情報: スクリーンショット添付 (Q22) ──
   {
-    key: "sec5",
-    title: "セクション5:（事業情報）ITツールの情報を書類を添付のこと",
+    key: "bank-screenshot",
+    title: "口座情報",
+    description:
+      "口座情報（助成金を受け取る際にご利用される口座のスクリーンショットの添付）",
     fields: [
-      { key: "orderInfo", label: "発注情報", type: "date" },
+      {
+        key: "bankAccountScreenshot",
+        label: "口座情報のスクリーンショット",
+        required: true,
+        type: "file",
+        helpText:
+          "◎通帳がある場合：通帳表紙と表紙裏面の写しを1つのファイルにしてご提出ください。\n◎通帳がない場合：ご入力いただいた内容が記載されたページのスクリーンショットを添付してください。",
+        accept: "image/*,.pdf,.doc,.docx",
+      },
+    ],
+  },
+
+  // ── 事業概要 (Q23-Q27) ──
+  {
+    key: "business-overview",
+    title: "事業概要",
+    fields: [
       {
         key: "businessContent",
-        label: "事業内容：どのような事業を行っていますか？",
-        required: true, type: "textarea", placeholder: "回答を入力",
-      },
-      { key: "serviceName", label: "名称・サービス名の確認", required: true, placeholder: "回答を入力" },
-      { key: "developmentTimeline", label: "開発の見通し（工事期間がある場合）", placeholder: "回答を入力" },
-      {
-        key: "previousYearOverview",
-        label: "前年の事業概要（前年度の売上と、会社の大きな変更は、経緯含めて）",
-        required: true, type: "textarea", placeholder: "回答を入力",
-      },
-    ],
-  },
-
-  // ── セクション6: ITツール情報 ──
-  {
-    key: "sec6",
-    title: "セクション6: 事業関連情報の確認",
-    fields: [
-      { key: "itBudget", label: "予算・金額情報", required: true, placeholder: "回答を入力" },
-      {
-        key: "itCategory",
-        label: "カテゴリフィルタとソフトウェアの情報を確認してください",
-        required: true, type: "textarea", placeholder: "回答を入力",
-      },
-      {
-        key: "itToolTarget",
-        label: "ツール又は通信名（「大分類」「中分類」「小分類」「顧客管理」のうち入力）",
-        required: true, type: "textarea",
-        helpText: "ターゲット又はカテゴリに該当する導入するITツール名を入力してください",
+        label: "①事業内容（どのような事業をされていますか）",
+        required: true,
+        type: "textarea",
         placeholder: "回答を入力",
       },
       {
-        key: "itToolType",
-        label: "ターゲット又はカテゴリ",
-        required: true, type: "radio",
-        options: [
-          "通常枠（A類型）", "通常枠（B類型）",
-          "インボイス枠（インボイス対応類型）", "インボイス枠（電子取引類型）",
-          "セキュリティ対策推進枠", "複数社連携IT導入枠",
-        ],
+        key: "mainProductService",
+        label: "②主力商品・サービスの内容",
+        required: true,
+        type: "textarea",
+        placeholder: "回答を入力",
       },
-      { key: "accountingSoftware", label: "類別で使用（会計ソフト等で向き）", placeholder: "回答を入力" },
       {
-        key: "futureBusinessPlan",
-        label: "2次年度の事業の目標、今後の課題と展開していますか？",
-        required: true, type: "textarea",
-        helpText: "お客様の課題に（部分に）して、「現在の損失」「部品のコスト」「顧客からの要望」「改善が必要」「品質のコスト」「効率のコスト」「売り上げのコスト」のいずれかに当てはまるか記入してください。",
+        key: "businessStrength",
+        label: "③事業の特徴や強み（差別化ポイント）",
+        required: true,
+        type: "textarea",
+        placeholder: "回答を入力",
+        helpText:
+          "例）\n・どのような顧客獲得方法／ビジネスモデルを採用しているか\n・他社と比較した際の違い（差別化されているポイント）\n・強みがどのように成果（成約率・継続率・効率性など）につながっているか\n・単発ではなく、継続的な成長や関係性につながる仕組みがあるか",
+      },
+      {
+        key: "openingBackground",
+        label: "④開業の経緯や、この事業にかける想い",
+        type: "textarea",
+        placeholder: "回答を入力",
+      },
+      {
+        key: "businessScale",
+        label: "⑤現状の事業規模（昨年度の売上高、おおよその月間売上、顧客数など）",
+        required: true,
+        type: "textarea",
         placeholder: "回答を入力",
       },
     ],
   },
 
-  // ── セクション7: 事業実績・財務 ──
+  // ── 市場・競合情報 (Q28-Q31) ──
   {
-    key: "sec7",
-    title: "セクション7: 事業実績・財務の確認",
+    key: "market-competition",
+    title: "市場・競合情報",
     fields: [
-      { key: "financeDate", label: "主な顧客先の情報", type: "date" },
       {
-        key: "businessEnvironment",
-        label: "主な経営環境の変化",
-        helpText: "主な経営環境の変化で会計に影響した内容を記入してください。",
-        type: "textarea", placeholder: "回答を入力",
+        key: "targetMarket",
+        label: "①ターゲットとしている市場やお客様について",
+        type: "textarea",
+        placeholder: "回答を入力",
       },
       {
-        key: "supplierInfo",
-        label: "主な取引先情報を含め、予想した情報について",
-        helpText: "勘定科目を含む（経理情報）、予測金額、支払い条件等の支払い情報を記入してください。",
-        type: "textarea", placeholder: "回答を入力",
+        key: "targetCustomerProfile",
+        label: "②ターゲット顧客層（年齢、性別、地域、嗜好など）",
+        required: true,
+        type: "textarea",
+        placeholder: "回答を入力",
+        helpText:
+          "例）\n・ターゲット顧客の基本属性（年齢層・性別・地域・職業・企業規模など）\n・顧客の抱えている課題やニーズ、購買に至る背景（なぜ必要としているのか）\n・嗜好・行動特性（情報収集手段、意思決定の傾向、重視するポイントなど）\n・なぜ当該ターゲット層を設定しているのか（自社サービスとの適合性・優位性）",
       },
       {
-        key: "expenseInfo",
-        label: "先端取引技術を含む全体：経費類、為替など会社別の情報",
-        type: "textarea", placeholder: "回答を入力",
+        key: "competitors",
+        label: "③競合する相手（お店やサービスなど）",
+        type: "textarea",
+        placeholder: "回答を入力",
       },
       {
-        key: "overseasInfo",
-        label: "海外からの生産需要を受ける事業もある場合",
-        type: "textarea", placeholder: "回答を入力",
+        key: "strengthsAndChallenges",
+        label: "④ご自身の事業の強みと、今後の課題だと感じていること",
+        required: true,
+        type: "textarea",
+        placeholder: "回答を入力",
+        helpText:
+          "例）\n・自社の優位性（競合と比較した際の強み・選ばれている理由）\n・その優位性がどのように成果（売上・成約率・継続率など）につながっているか\n・現状認識している課題やボトルネック（人材・体制・集客・オペレーションなど）\n・課題に対する具体的な改善方針や今後の取り組み（成長に向けた戦略）",
       },
     ],
   },
 
-  // ── セクション8: 事業概要情報 ──
+  // ── 支援制度申請関連 (Q32-Q35) ──
   {
-    key: "sec8",
-    title: "セクション8: 事業概要情報",
+    key: "support-application",
+    title: "支援制度申請関連",
     fields: [
-      { key: "bizOverviewDate", label: "事業種別の情報", type: "date" },
       {
-        key: "publicDisclosure",
-        label: "事業記録において公表する必要がある情報、顧客に関連が出るスキル、項目",
-        type: "textarea", placeholder: "回答を入力",
+        key: "supportPurpose",
+        label: "①支援制度の目的",
+        required: true,
+        type: "textarea",
+        placeholder: "回答を入力",
+        helpText:
+          "例）\n・本支援制度を活用する目的（何を実現したいのか）\n・自社の現状課題と、本制度の活用がどのように結びつくか",
       },
       {
-        key: "systemInfo",
-        label: "メインシステム通信と、その他の状態",
-        type: "textarea", placeholder: "回答を入力",
+        key: "supportGoal",
+        label: "②支援制度を活用して実現したいこと",
+        required: true,
+        type: "textarea",
+        placeholder: "回答を入力",
+        helpText:
+          "例）\n・支援制度を活用して実施する具体的な取り組み内容（導入内容・施策など）\n・その取り組みによってどのような変化が生まれるか（業務・体制・サービスの改善点）\n・期待される成果（業務効率化、売上向上、生産性向上など）\n・実現後の事業への波及効果（競争力強化、顧客満足度向上、事業拡大など）",
       },
       {
-        key: "futureManagement",
-        label: "今後、このシステムの管理で管理する？（顧客管理を含む？）",
-        type: "textarea", placeholder: "回答を入力",
+        key: "investmentPlan",
+        label: "③支援制度による投資・設備導入・採用など具体的計画",
+        required: true,
+        type: "textarea",
+        placeholder: "回答を入力",
+        helpText:
+          "例）\n・支援制度を活用して実施する具体的な投資内容（設備導入・システム導入・採用などの詳細）\n・導入・実施のスケジュールおよび進め方（いつ・何を・どのように行うか）\n・投資内容と自社課題・目的との関連性（なぜその投資が必要なのか）\n・実行体制および実現可能性（担当者、外部パートナー、過去実績など）",
+      },
+      {
+        key: "expectedOutcome",
+        label: "④期待される成果（売上を○%向上、新しい顧客層の獲得、作業効率の改善など）",
+        required: true,
+        type: "textarea",
+        placeholder: "回答を入力",
+        helpText:
+          "例）\n・売上増加の見込み（具体的な金額・成長率・その根拠）\n・業務効率化の効果（工数削減、対応件数増加、生産性向上など）\n・雇用や組織への影響（人員増加、人材の有効活用、役割分担の最適化など）\n・中長期的な事業への波及効果（競争力強化、顧客満足度向上、継続収益の拡大など）",
       },
     ],
   },
 
-  // ── セクション9: 賃金等 ──
+  // ── 事業体制とご経歴 (Q36-Q38) ──
   {
-    key: "sec9",
-    title: "セクション9: 賃金等に関して",
+    key: "business-structure",
+    title: "事業体制とご経歴",
     fields: [
-      { key: "wageDate", label: "選択", type: "date" },
-      { key: "wage", label: "賃金（今年分の、全の給与）", required: true, placeholder: "回答を入力" },
-      { key: "procedureOther", label: "手順（以外）、対話？", placeholder: "回答を入力" },
-      { key: "wageAdditional", label: "賃金（以外）追加？", placeholder: "回答を入力" },
-      { key: "annualIncome", label: "年初金", placeholder: "回答を入力" },
-      { key: "wageOtherAdditional", label: "手順（以外の）追加？", placeholder: "回答を入力" },
-      { key: "wageYearEnd", label: "賃金（件末年次の確認）", placeholder: "回答を入力" },
       {
-        key: "dataSubmissionNote",
-        label: "企業選択大含む・必要な通知解除申を提起して",
-        type: "textarea", placeholder: "回答を入力",
+        key: "ownerCareer",
+        label: "①事業主(あなた)のこれまでの経歴や、現在の事業に活かせるスキル・資格",
+        type: "textarea",
+        placeholder: "回答を入力",
+      },
+      {
+        key: "staffRoles",
+        label: "②スタッフがいる場合、その方の役割",
+        type: "textarea",
+        placeholder: "回答を入力",
+      },
+      {
+        key: "futureHiring",
+        label: "③今後、どのような人材が必要ですか（採用予定など）",
+        type: "textarea",
+        placeholder: "回答を入力",
       },
     ],
   },
 
-  // ── セクション10: メールアドレス ──
+  // ── 事業計画 (Q39-Q42) ──
   {
-    key: "sec10",
-    title: "セクション10: 事業用メールアドレス等",
+    key: "business-plan",
+    title: "事業計画",
     fields: [
       {
-        key: "businessEmail", label: "事業用メールアドレス",
-        placeholder: "回答を入力", inputType: "email", inputMode: "email",
-        validation: { pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: "正しいメールアドレスを入力してください" },
+        key: "shortTermGoal",
+        label: "①短期（1年以内）の目標",
+        required: true,
+        type: "textarea",
+        placeholder: "回答を入力",
       },
       {
-        key: "recentBusinessPlan",
-        label: "近々の事業実施（来年）・経営・予定もインデバイスかなど",
-        type: "textarea", placeholder: "回答を入力",
+        key: "midTermGoal",
+        label: "②中期（3年）の目標",
+        required: true,
+        type: "textarea",
+        placeholder: "回答を入力",
       },
       {
-        key: "futurePlan",
-        label: "今後の事業について…事業計画のセット",
-        type: "textarea", placeholder: "回答を入力",
+        key: "longTermGoal",
+        label: "③長期（5年）の目標",
+        required: true,
+        type: "textarea",
+        placeholder: "回答を入力",
       },
-      { key: "personalAnnual", label: "個人の計・年初・実績関連", type: "textarea", placeholder: "回答を入力" },
+      {
+        key: "salesStrategy",
+        label: "④目標達成のための販売戦略やPR計画",
+        required: true,
+        type: "textarea",
+        placeholder: "回答を入力",
+        helpText:
+          "例）\n・ターゲット顧客に対する基本的な販売戦略（どの市場に、どのようにアプローチするか）\n・具体的な集客・マーケティング手法（紹介、広告、Web施策、営業手法など）\n・自社の強みや差別化ポイントをどのように訴求していくか\n・継続的な売上につなげる仕組み（リピート、アップセル、クロスセル、紹介など）",
+      },
+    ],
+  },
+
+  // ── 財務情報 (Q43-Q45) ──
+  {
+    key: "financial",
+    title: "財務情報",
+    fields: [
+      {
+        key: "pastBusinessRecord",
+        label: "①過去の事業実績（売上・経費・所得などがわかるもの）",
+        required: true,
+        type: "file",
+        helpText: "【確定申告書の控えなどで構いません。過去1〜3年分】",
+        accept: "image/*,.pdf,.doc,.docx,.xls,.xlsx",
+      },
+      {
+        key: "futureInvestmentPlan",
+        label: "②今後の投資計画と、必要な資金について",
+        required: true,
+        type: "textarea",
+        placeholder: "回答を入力",
+        helpText:
+          "例）\n・今後予定している投資内容（設備・人材・システム・販促などの具体的な計画）\n・資金調達方法の内訳（自己資金、借入、補助金等）およびその妥当性\n・資金繰りおよび返済・回収の見通し（売上計画との整合性、無理のない計画か）",
+      },
+      {
+        key: "debtInfo",
+        label: "③借入状況・担保・保障情報",
+        type: "textarea",
+        placeholder: "回答を入力",
+      },
     ],
   },
 ];
 
 // ---------------------------------------------------------------------------
-// フィールドレンダラー
+// ファイルアップロードフィールド
 // ---------------------------------------------------------------------------
 
-function FormField({
-  field, value, onChange, error, errorMessage,
+function FileUploadField({
+  field,
+  uploadedFile,
+  onUpload,
+  onRemove,
+  error,
+  errorMessage,
 }: {
-  field: FieldDef; value: string; onChange: (v: string) => void; error?: boolean; errorMessage?: string;
+  field: FieldDef;
+  uploadedFile?: UploadedFile;
+  onUpload: (file: File) => Promise<void>;
+  onRemove: () => void;
+  error?: boolean;
+  errorMessage?: string;
 }) {
-  const errCls = error ? "border-red-500 focus-visible:ring-red-500" : "";
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const handleFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      setUploading(true);
+      setUploadError(null);
+      try {
+        await onUpload(f);
+      } catch (err) {
+        setUploadError(err instanceof Error ? err.message : "アップロードに失敗しました");
+      } finally {
+        setUploading(false);
+        if (inputRef.current) inputRef.current.value = "";
+      }
+    },
+    [onUpload],
+  );
+
   return (
-    <div className="space-y-1.5 py-3 border-b border-gray-100 last:border-b-0" data-field-key={field.key}>
+    <div className="space-y-1.5 py-4 border-b border-gray-100 last:border-b-0" data-field-key={field.key}>
       <Label className="text-sm font-medium text-gray-800">
         {field.label}
         {field.required && <span className="text-red-500 ml-0.5">*</span>}
       </Label>
-      {field.helpText && <p className="text-xs text-gray-500 leading-relaxed">{field.helpText}</p>}
+      {field.helpText && (
+        <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-line">{field.helpText}</p>
+      )}
+
+      {uploadedFile ? (
+        <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+          <FileText className="h-5 w-5 text-blue-600 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-blue-900 truncate">{uploadedFile.fileName}</p>
+            <p className="text-xs text-blue-600">
+              {(uploadedFile.fileSize / 1024).toFixed(1)} KB
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="p-1 rounded hover:bg-blue-100 text-blue-400 hover:text-blue-600 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
+        <div>
+          <input
+            ref={inputRef}
+            type="file"
+            accept={field.accept}
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            className={`
+              flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 border-dashed transition-colors text-sm
+              ${uploading
+                ? "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed"
+                : "border-gray-300 hover:border-[#2c5282] hover:bg-[#f7fafc] text-gray-600 cursor-pointer"
+              }
+              ${error ? "border-red-300 bg-red-50" : ""}
+            `}
+          >
+            {uploading ? (
+              <>
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                アップロード中...
+              </>
+            ) : (
+              <>
+                <Upload className="h-4 w-4" />
+                ファイルを選択
+              </>
+            )}
+          </button>
+        </div>
+      )}
+      {(error || uploadError) && (
+        <p className="text-xs text-red-500">{uploadError || errorMessage || "この項目は必須です"}</p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// テキストフィールドレンダラー
+// ---------------------------------------------------------------------------
+
+function FormField({
+  field,
+  value,
+  onChange,
+  error,
+  errorMessage,
+}: {
+  field: FieldDef;
+  value: string;
+  onChange: (v: string) => void;
+  error?: boolean;
+  errorMessage?: string;
+}) {
+  const errCls = error ? "border-red-400 focus-visible:ring-red-400" : "";
+
+  return (
+    <div className="space-y-1.5 py-4 border-b border-gray-100 last:border-b-0" data-field-key={field.key}>
+      <Label className="text-sm font-medium text-gray-800">
+        {field.label}
+        {field.required && <span className="text-red-500 ml-0.5">*</span>}
+      </Label>
+      {field.helpText && (
+        <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-line">{field.helpText}</p>
+      )}
 
       {field.type === "radio" && field.options ? (
-        <RadioGroup value={value} onValueChange={onChange} className="flex flex-col gap-1.5 pt-1">
+        <RadioGroup value={value} onValueChange={onChange} className="flex flex-col gap-2 pt-1">
           {field.options.map((o) => (
-            <label key={o} className="flex items-center gap-2 cursor-pointer">
+            <label key={o} className="flex items-center gap-2.5 cursor-pointer">
               <RadioGroupItem value={o} id={`${field.key}_${o}`} />
-              <span className="text-sm">{o}</span>
+              <span className="text-sm text-gray-700">{o}</span>
             </label>
           ))}
         </RadioGroup>
-      ) : field.type === "select" && field.options ? (
-        <Select value={value} onValueChange={onChange}>
-          <SelectTrigger className={errCls}><SelectValue placeholder="選択" /></SelectTrigger>
-          <SelectContent>
-            {field.options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-          </SelectContent>
-        </Select>
       ) : field.type === "textarea" ? (
-        <Textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={field.placeholder} className={`min-h-[72px] text-sm ${errCls}`} />
+        <Textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={field.placeholder}
+          className={`min-h-[100px] text-sm ${errCls}`}
+        />
       ) : field.type === "date" ? (
-        <Input type="date" value={value} onChange={(e) => onChange(e.target.value)} className={`max-w-[200px] text-sm ${errCls}`} />
+        <Input
+          type="date"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={`max-w-[200px] text-sm ${errCls}`}
+        />
       ) : (
-        <Input type={field.inputType || "text"} inputMode={field.inputMode} value={value} onChange={(e) => onChange(e.target.value)} placeholder={field.placeholder} className={`text-sm ${errCls}`} />
+        <Input
+          type={field.inputType || "text"}
+          inputMode={field.inputMode}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={field.placeholder}
+          className={`text-sm ${errCls}`}
+        />
       )}
       {error && <p className="text-xs text-red-500">{errorMessage || "この項目は必須です"}</p>}
     </div>
@@ -398,13 +676,58 @@ export default function BusinessPlanFormPage() {
   const uid = searchParams.get("uid") || "";
 
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [uploadedFiles, setUploadedFiles] = useState<Record<string, UploadedFile>>({});
   const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
   function handleChange(key: string, val: string) {
     setAnswers((p) => ({ ...p, [key]: val }));
-    setErrors((p) => { const n = new Map(p); n.delete(key); return n; });
+    setErrors((p) => {
+      const n = new Map(p);
+      n.delete(key);
+      return n;
+    });
+  }
+
+  async function handleFileUpload(fieldKey: string, file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("fieldKey", fieldKey);
+
+    const res = await fetch("/api/public/hojo/form/business-plan/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "アップロードに失敗しました");
+    }
+
+    const data = await res.json();
+    setUploadedFiles((p) => ({
+      ...p,
+      [fieldKey]: {
+        filePath: data.filePath,
+        fileName: data.fileName,
+        fileSize: data.fileSize,
+        mimeType: data.mimeType,
+      },
+    }));
+    setErrors((p) => {
+      const n = new Map(p);
+      n.delete(fieldKey);
+      return n;
+    });
+  }
+
+  function handleFileRemove(fieldKey: string) {
+    setUploadedFiles((p) => {
+      const n = { ...p };
+      delete n[fieldKey];
+      return n;
+    });
   }
 
   function validate(): boolean {
@@ -412,15 +735,25 @@ export default function BusinessPlanFormPage() {
     for (const sec of SECTIONS) {
       if (sec.condition && !sec.condition(answers)) continue;
       for (const f of sec.fields) {
-        const v = answers[f.key]?.trim() ?? "";
-        if (f.required && !v) errs.set(f.key, "この項目は必須です");
-        else if (v && f.validation?.pattern && !f.validation.pattern.test(v)) errs.set(f.key, f.validation.message);
+        if (f.type === "file") {
+          if (f.required && !uploadedFiles[f.key]) {
+            errs.set(f.key, "ファイルを添付してください");
+          }
+        } else {
+          const v = answers[f.key]?.trim() ?? "";
+          if (f.required && !v) errs.set(f.key, "この項目は必須です");
+          else if (v && f.validation?.pattern && !f.validation.pattern.test(v))
+            errs.set(f.key, f.validation.message);
+        }
       }
     }
     setErrors(errs);
     if (errs.size > 0) {
       const k = errs.keys().next().value;
-      if (k) document.querySelector(`[data-field-key="${k}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (k)
+        document
+          .querySelector(`[data-field-key="${k}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
     return errs.size === 0;
   }
@@ -432,7 +765,11 @@ export default function BusinessPlanFormPage() {
       const res = await fetch("/api/public/hojo/form/business-plan/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid, answers }),
+        body: JSON.stringify({
+          uid,
+          answers,
+          fileUrls: uploadedFiles,
+        }),
       });
       if (!res.ok) throw new Error("送信失敗");
       setSubmitted(true);
@@ -446,67 +783,63 @@ export default function BusinessPlanFormPage() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen bg-[#f0ebf8] flex items-center justify-center p-4">
-        <div className="w-full max-w-lg bg-white rounded-xl shadow border p-8 text-center space-y-4">
-          <CheckCircle className="h-12 w-12 text-green-500 mx-auto" />
-          <h2 className="text-xl font-bold text-gray-900">送信が完了しました</h2>
-          <p className="text-sm text-gray-600">情報回収フォームの送信が完了しました。ご協力ありがとうございます。</p>
-        </div>
-      </div>
+      <HojoFormComplete
+        title="送信が完了しました"
+        message="情報回収フォームの送信が完了しました。ご協力ありがとうございます。"
+      />
     );
   }
 
   const visible = SECTIONS.filter((s) => !s.condition || s.condition(answers));
 
   return (
-    <div className="min-h-screen bg-[#f0ebf8] py-6 px-4">
-      <div className="max-w-[640px] mx-auto space-y-3">
-        {/* ヘッダー */}
-        <div className="bg-white rounded-xl shadow border-t-[10px] border-t-purple-700 overflow-hidden">
-          <div className="px-6 py-5">
-            <h1 className="text-2xl font-bold text-gray-900 leading-tight">
-              中小企業デジタル化支援制度に伴う事業<br />計画書作成のための情報回収フォーム
-            </h1>
-            <p className="text-sm text-gray-600 mt-3 leading-relaxed">
-              事業計画書を弊社で作成いたします。作成する上で必要な情報の入力をお願いいたします。下記に記載のない場合はお電話で別途確認させて頂きます。
-            </p>
-            <p className="text-sm text-red-600 mt-3">* 必須の質問です</p>
-          </div>
-        </div>
+    <HojoFormLayout>
+      <HojoFormHeader
+        title="中小企業デジタル促進支援制度に伴う事業計画書作成のための情報回収フォーム"
+        description="事業計画書を弊社で作成いたします。作成するにあたって基となる情報を下記にご記入ください。"
+        requiredNote="* 必須の質問です"
+      />
 
-        {visible.map((section) => (
-          <div key={section.key} className="bg-white rounded-xl shadow border-l-4 border-l-transparent overflow-hidden">
-            {/* セクションヘッダー（紫帯） */}
-            <div className="bg-purple-700 px-5 py-2.5">
-              <h2 className="text-white font-semibold text-sm">{section.title}</h2>
-            </div>
-            {section.description && (
-              <p className="text-xs text-gray-500 px-6 pt-3">{section.description}</p>
-            )}
-            <div className="px-6 pb-4">
-              {section.fields.map((field) => (
-                <FormField
-                  key={field.key} field={field} value={answers[field.key] || ""}
-                  onChange={(v) => handleChange(field.key, v)}
-                  error={errors.has(field.key)} errorMessage={errors.get(field.key)}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
+      {visible.map((section) => (
+        <HojoFormSection
+          key={section.key}
+          title={section.title}
+          description={section.description}
+        >
+          {section.fields.map((field) =>
+            field.type === "file" ? (
+              <FileUploadField
+                key={field.key}
+                field={field}
+                uploadedFile={uploadedFiles[field.key]}
+                onUpload={(f) => handleFileUpload(field.key, f)}
+                onRemove={() => handleFileRemove(field.key)}
+                error={errors.has(field.key)}
+                errorMessage={errors.get(field.key)}
+              />
+            ) : (
+              <FormField
+                key={field.key}
+                field={field}
+                value={answers[field.key] || ""}
+                onChange={(v) => handleChange(field.key, v)}
+                error={errors.has(field.key)}
+                errorMessage={errors.get(field.key)}
+              />
+            ),
+          )}
+        </HojoFormSection>
+      ))}
 
-        {/* 送信ボタン */}
-        <div className="flex justify-between items-center pt-2 pb-8">
-          <Button onClick={handleSubmit} disabled={submitting}
-            className="bg-purple-700 hover:bg-purple-800 text-white px-8 rounded">
-            {submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />送信中</> : "送信"}
-          </Button>
-          <button type="button" className="text-sm text-purple-700 hover:underline"
-            onClick={() => { setAnswers({}); setErrors(new Map()); }}>
-            フォームをクリア
-          </button>
-        </div>
-      </div>
-    </div>
+      <HojoFormActions
+        onSubmit={handleSubmit}
+        onClear={() => {
+          setAnswers({});
+          setUploadedFiles({});
+          setErrors(new Map());
+        }}
+        submitting={submitting}
+      />
+    </HojoFormLayout>
   );
 }

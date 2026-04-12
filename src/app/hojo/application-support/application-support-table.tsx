@@ -10,7 +10,7 @@ import {
   resolveVendorMismatch,
 } from "./actions";
 import { StatusManagementModal } from "./status-management-modal";
-import { ExternalLink, Copy, Check, Settings, Plus, Trash2, AlertTriangle } from "lucide-react";
+import { ExternalLink, Copy, Check, Settings, Plus, Trash2, AlertTriangle, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -29,9 +29,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+type FormSubmissionData = {
+  id: number;
+  submittedAt: string;
+  answers: Record<string, unknown>;
+};
+
 type DataRow = Record<string, unknown> & {
   id: number;
   lineFriendId: number;
+  lineFriendUid: string;
   lineName: string;
   vendorName: string;
   vendorId: string;
@@ -41,6 +48,7 @@ type DataRow = Record<string, unknown> & {
   hasMismatch: boolean;
   mismatchResolvedVendorName: string | null;
   mismatchResolvedVendorId: number | null;
+  formSubmission: FormSubmissionData | null;
 };
 
 type Props = {
@@ -79,6 +87,108 @@ function BbsUrlButton() {
   );
 }
 
+// --- 回答データ表示用のセクション定義 ---
+const ANSWER_SECTIONS = [
+  { title: "基本情報", path: "basic", fields: [
+    ["tradeName", "屋号"], ["openingDate", "開業年月日"], ["fullName", "氏名"],
+    ["officeAddress", "事業所所在地"], ["phone", "電話番号"], ["email", "メールアドレス"],
+    ["employeeCount", "従業員数"], ["homepageUrl", "ホームページURL"],
+  ]},
+  { title: "口座情報", path: "bankAccount", fields: [
+    ["bankType", "金融機関"], ["yuchoSymbol", "記号"], ["yuchoPassbookNumber", "通帳番号"],
+    ["yuchoAccountHolder", "口座名義人"], ["yuchoAccountHolderKana", "フリガナ"],
+    ["otherBankName", "金融機関名"], ["otherBankCode", "金融機関コード"],
+    ["otherBranchName", "支店名"], ["otherBranchCode", "支店コード"],
+    ["otherAccountType", "口座種別"], ["otherAccountNumber", "口座番号"],
+    ["otherAccountHolder", "口座名義人"], ["otherAccountHolderKana", "フリガナ"],
+  ]},
+  { title: "事業概要", path: "businessOverview", fields: [
+    ["businessContent", "事業内容"], ["mainProductService", "主力商品・サービス"],
+    ["businessStrength", "特徴・強み"], ["openingBackground", "開業の経緯"],
+    ["businessScale", "事業規模"],
+  ]},
+  { title: "市場・競合情報", path: "marketCompetition", fields: [
+    ["targetMarket", "ターゲット市場"], ["targetCustomerProfile", "ターゲット顧客層"],
+    ["competitors", "競合"], ["strengthsAndChallenges", "強みと課題"],
+  ]},
+  { title: "支援制度申請関連", path: "supportApplication", fields: [
+    ["supportPurpose", "目的"], ["supportGoal", "実現したいこと"],
+    ["investmentPlan", "具体的計画"], ["expectedOutcome", "期待される成果"],
+  ]},
+  { title: "事業体制とご経歴", path: "businessStructure", fields: [
+    ["ownerCareer", "経歴・スキル"], ["staffRoles", "スタッフの役割"],
+    ["futureHiring", "必要な人材"],
+  ]},
+  { title: "事業計画", path: "businessPlan", fields: [
+    ["shortTermGoal", "短期目標(1年)"], ["midTermGoal", "中期目標(3年)"],
+    ["longTermGoal", "長期目標(5年)"], ["salesStrategy", "販売戦略・PR計画"],
+  ]},
+  { title: "財務情報", path: "financial", fields: [
+    ["futureInvestmentPlan", "投資計画と必要資金"], ["debtInfo", "借入状況"],
+  ]},
+];
+
+// --- フォームURLコピーボタン ---
+function FormUrlCopyBtn({ uid }: { uid: string }) {
+  const [copied, setCopied] = useState(false);
+  const url = typeof window !== "undefined"
+    ? `${window.location.origin}/form/hojo-business-plan?uid=${uid}`
+    : `/form/hojo-business-plan?uid=${uid}`;
+  return (
+    <button
+      onClick={async (e) => {
+        e.stopPropagation();
+        try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
+      }}
+      className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
+    >
+      {copied ? <><Check className="h-3 w-3 text-green-500" />コピー済</> : <><Copy className="h-3 w-3" />コピー</>}
+    </button>
+  );
+}
+
+// --- 回答データモーダル ---
+function FormAnswerModal({ data, open, onClose }: { data: FormSubmissionData; open: boolean; onClose: () => void }) {
+  const answers = data.answers;
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>フォーム回答データ</DialogTitle>
+          <DialogDescription>
+            回答日時: {new Date(data.submittedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-6 mt-2">
+          {ANSWER_SECTIONS.map((section) => {
+            const sectionData = answers[section.path] as Record<string, string> | undefined;
+            if (!sectionData) return null;
+            const hasValue = section.fields.some(([key]) => sectionData[key]);
+            if (!hasValue) return null;
+            return (
+              <div key={section.path}>
+                <h3 className="text-sm font-bold text-gray-900 border-b pb-1 mb-3">{section.title}</h3>
+                <dl className="space-y-2">
+                  {section.fields.map(([key, label]) => {
+                    const v = sectionData[key];
+                    if (!v) return null;
+                    return (
+                      <div key={key}>
+                        <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+                        <dd className="text-sm whitespace-pre-wrap bg-gray-50 rounded p-2 mt-0.5">{v}</dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+              </div>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function ApplicationSupportTable({
   data,
   vendorOptions,
@@ -91,6 +201,7 @@ export function ApplicationSupportTable({
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [bbsStatusModalOpen, setBbsStatusModalOpen] = useState(false);
   const [mismatchDialog, setMismatchDialog] = useState<DataRow | null>(null);
+  const [viewSubmission, setViewSubmission] = useState<FormSubmissionData | null>(null);
 
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
@@ -100,6 +211,8 @@ export function ApplicationSupportTable({
     { key: "hasMismatch", header: "", editable: false, hidden: true },
     { key: "mismatchResolvedVendorName", header: "", editable: false, hidden: true },
     { key: "mismatchResolvedVendorId", header: "", editable: false, hidden: true },
+    { key: "lineFriendUid", header: "", editable: false, hidden: true },
+    { key: "formSubmission", header: "", editable: false, hidden: true },
     {
       key: "rowNo",
       header: "No.",
@@ -165,10 +278,20 @@ export function ApplicationSupportTable({
       inlineEditable: true,
     },
     {
+      key: "formUrl",
+      header: "フォームURL",
+      editable: false,
+    },
+    {
       key: "formAnswerDate",
       header: "フォーム回答日",
       type: "date",
       inlineEditable: true,
+    },
+    {
+      key: "formAnswerData",
+      header: "回答データ",
+      editable: false,
     },
     {
       key: "formTranscriptDate",
@@ -334,6 +457,22 @@ export function ApplicationSupportTable({
     subsidyAmount: (value) => {
       if (!value) return "-";
       return `¥${Number(value).toLocaleString()}`;
+    },
+    formAnswerData: (_value, row) => {
+      const r = row as unknown as DataRow;
+      if (!r.formSubmission) return <span className="text-gray-400">-</span>;
+      return (
+        <button
+          onClick={(e) => { e.stopPropagation(); setViewSubmission(r.formSubmission); }}
+          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
+        >
+          <Eye className="h-3 w-3" />回答を見る
+        </button>
+      );
+    },
+    formUrl: (_value, row) => {
+      const r = row as unknown as DataRow;
+      return <FormUrlCopyBtn uid={r.lineFriendUid} />;
     },
     documentStorageUrl: (value) => {
       if (!value) return "-";
@@ -545,6 +684,14 @@ export function ApplicationSupportTable({
         onOpenChange={setBbsStatusModalOpen}
         type="bbs"
       />
+
+      {viewSubmission && (
+        <FormAnswerModal
+          data={viewSubmission}
+          open={true}
+          onClose={() => setViewSubmission(null)}
+        />
+      )}
     </>
   );
 }

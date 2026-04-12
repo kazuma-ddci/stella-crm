@@ -14,6 +14,7 @@ import {
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  renderInline?: boolean;
   stpCompanyId: number;
   companyName: string;
   contactHistories: Record<string, unknown>[];
@@ -27,6 +28,7 @@ type Props = {
 export function CompanyContactHistoryModal({
   open,
   onOpenChange,
+  renderInline,
   stpCompanyId,
   companyName,
   contactHistories,
@@ -40,6 +42,7 @@ export function CompanyContactHistoryModal({
     <ContactHistoryModalBase
       open={open}
       onOpenChange={onOpenChange}
+      renderInline={renderInline}
       config={{
         entityId: stpCompanyId,
         entityName: companyName,

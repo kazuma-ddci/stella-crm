@@ -11,9 +11,10 @@ import { Eye, Copy, Check } from "lucide-react";
 type RowData = {
   id: number;
   tradeName: string;
-  contactPerson: string;
-  industry: string;
+  fullName: string;
   phone: string;
+  email: string;
+  employeeCount: string;
   bankType: string;
   uid: string;
   submittedAt: string;
@@ -59,9 +60,10 @@ export function SubmissionsTable({ data }: Props) {
               <TableRow>
                 <TableHead className="w-14">No.</TableHead>
                 <TableHead>屋号</TableHead>
-                <TableHead>先方</TableHead>
-                <TableHead>業種</TableHead>
+                <TableHead>氏名</TableHead>
                 <TableHead>電話番号</TableHead>
+                <TableHead>メールアドレス</TableHead>
+                <TableHead>従業員数</TableHead>
                 <TableHead>振込先</TableHead>
                 <TableHead>UID</TableHead>
                 <TableHead>回答日時</TableHead>
@@ -73,9 +75,10 @@ export function SubmissionsTable({ data }: Props) {
                 <TableRow key={r.id} className="group/row">
                   <TableCell>{i + 1}</TableCell>
                   <TableCell className="font-medium">{r.tradeName}</TableCell>
-                  <TableCell>{r.contactPerson || "-"}</TableCell>
-                  <TableCell>{r.industry || "-"}</TableCell>
+                  <TableCell>{r.fullName || "-"}</TableCell>
                   <TableCell>{r.phone || "-"}</TableCell>
+                  <TableCell>{r.email || "-"}</TableCell>
+                  <TableCell>{r.employeeCount || "-"}</TableCell>
                   <TableCell>{r.bankType || "-"}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{r.uid || "-"}</TableCell>
                   <TableCell className="text-sm">

@@ -104,7 +104,7 @@ export async function addContractHistory(companyId: number, data: ContractHistor
       },
     });
 
-    revalidatePath("/stp/companies");
+    revalidatePath("/stp/companies", "layout");
     revalidatePath("/companies");
     return { success: true };
   } catch (error) {
@@ -178,7 +178,7 @@ export async function updateContractHistory(
     // 既存の会計レコードに差異をマーク（スナップショット方式）
     const affectedFinanceCount = await markFinanceRecordsForContractChange(id);
 
-    revalidatePath("/stp/companies");
+    revalidatePath("/stp/companies", "layout");
     revalidatePath("/companies");
     revalidatePath("/stp/finance/overview");
     revalidatePath("/stp/finance/transactions");
@@ -199,7 +199,7 @@ export async function deleteContractHistory(id: number): Promise<{ success: bool
       data: { deletedAt: new Date() },
     });
 
-    revalidatePath("/stp/companies");
+    revalidatePath("/stp/companies", "layout");
     revalidatePath("/companies");
     return { success: true };
   } catch (error) {
@@ -220,7 +220,7 @@ export async function linkContractHistoryToContract(
       where: { id: historyId },
       data: { masterContractId },
     });
-    revalidatePath("/stp/companies");
+    revalidatePath("/stp/companies", "layout");
     revalidatePath("/companies");
     return { success: true };
   } catch (error) {

@@ -118,6 +118,7 @@ export type ContactHistoryModalConfig = {
 export type BaseProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  renderInline?: boolean;
   config: ContactHistoryModalConfig;
   contactHistories: Record<string, unknown>[];
   contactMethodOptions: { value: string; label: string }[];
@@ -142,6 +143,7 @@ function formatDateTime(dateString: string): string {
 export function ContactHistoryModalBase({
   open,
   onOpenChange,
+  renderInline,
   config,
   contactHistories: initialHistories,
   contactMethodOptions,
@@ -150,6 +152,7 @@ export function ContactHistoryModalBase({
   staffByProject,
   contactCategories,
 }: BaseProps) {
+  const isActive = open || !!renderInline;
   const {
     entityId,
     entityName,
@@ -197,14 +200,14 @@ export function ContactHistoryModalBase({
 
   // クローズ時にキャッシュ保存
   useEffect(() => {
-    if (!open) return;
+    if (!isActive) return;
     return () => {
       save(formStateRef.current);
     };
-  }, [open, save]);
+  }, [isActive, save]);
 
   useEffect(() => {
-    if (open) {
+    if (isActive) {
       const cached = restore();
       if (cached) {
         setFormData(cached.formData);
@@ -222,7 +225,7 @@ export function ContactHistoryModalBase({
       setStaffPopoverOpen(false);
       setRequiredWarning(false);
     }
-  }, [open, restore]);
+  }, [isActive, restore]);
 
   // スタッフIDからスタッフ名を取得するヘルパー
   const getStaffNames = (assignedTo: string | null): string => {
@@ -762,6 +765,179 @@ export function ContactHistoryModalBase({
     (a, b) => new Date(b.contactDate).getTime() - new Date(a.contactDate).getTime()
   );
 
+  const content = (
+    <>
+      {!renderInline && (
+        <DialogHeader className="px-4 py-3 border-b shrink-0">
+          <DialogTitle className="text-base">接触履歴管理 - {entityName}</DialogTitle>
+        </DialogHeader>
+      )}
+
+      <div className={renderInline ? "flex flex-col gap-2 flex-1 min-h-0" : "px-4 py-3 flex flex-col gap-2 flex-1 min-h-0"}>
+        {/* 追加ボタン */}
+        {!isAddMode && !editHistory && !viewHistory && (
+          <div className="flex justify-end shrink-0">
+            <Button size="sm" onClick={openAddForm}>
+              <Plus className="mr-1 h-3.5 w-3.5" />
+              接触履歴を追加
+            </Button>
+          </div>
+        )}
+
+        {/* 閲覧モード */}
+        {viewHistory && (
+          <div className="shrink-0 max-h-[50vh] overflow-y-auto">
+            {renderViewDetail(viewHistory)}
+          </div>
+        )}
+
+        {/* 追加/編集フォーム */}
+        {(isAddMode || editHistory) && (
+          <div className="shrink-0 max-h-[50vh] overflow-y-auto">
+            {renderForm()}
+          </div>
+        )}
+
+        {/* 接触履歴一覧 */}
+        {sortedHistories.length === 0 ? (
+          <div className="text-center text-muted-foreground py-8">
+            接触履歴が登録されていません
+          </div>
+        ) : (
+          <Table containerClassName="border rounded-lg flex-1 min-h-0" containerStyle={{ overflow: 'auto' }}>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[120px] whitespace-nowrap">接触日時</TableHead>
+                <TableHead className="w-[72px] whitespace-nowrap">接触方法</TableHead>
+                <TableHead className="w-[72px] whitespace-nowrap">接触種別</TableHead>
+                <TableHead className="w-[80px] whitespace-nowrap">担当者</TableHead>
+                <TableHead className="w-[80px] whitespace-nowrap">先方参加者</TableHead>
+                <TableHead className="min-w-[120px] whitespace-nowrap">議事録</TableHead>
+                <TableHead className="min-w-[100px] whitespace-nowrap">備考</TableHead>
+                <TableHead className="w-[48px] whitespace-nowrap">添付</TableHead>
+                <TableHead className="w-[130px] whitespace-nowrap sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedHistories.map((history) => (
+                <TableRow key={history.id}>
+                  <TableCell className="whitespace-nowrap">
+                    {formatDateTime(history.contactDate)}
+                  </TableCell>
+                  <TableCell>{history.contactMethodName || "-"}</TableCell>
+                  <TableCell>{history.contactCategoryName || "-"}</TableCell>
+                  <TableCell>{history.assignedToNames || getStaffNames(history.assignedTo)}</TableCell>
+                  <TableCell>{history.customerParticipants || "-"}</TableCell>
+                  <TableCell>
+                    <TextPreviewCell text={history.meetingMinutes} title="議事録" />
+                  </TableCell>
+                  <TableCell>
+                    <TextPreviewCell text={history.note} title="備考" />
+                  </TableCell>
+                  <TableCell>
+                    <FileDisplay files={history.files || []} />
+                  </TableCell>
+                  <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setViewHistory(history);
+                          setEditHistory(null);
+                          setIsAddMode(false);
+                        }}
+                        disabled={isAddMode || !!editHistory}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setViewHistory(null);
+                          openEditForm(history);
+                        }}
+                        disabled={isAddMode || !!editHistory}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setDeleteConfirm(history)}
+                        disabled={isAddMode || !!editHistory}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
+    </>
+  );
+
+  if (renderInline) {
+    return (
+      <>
+        <div className="flex flex-col flex-1 min-h-0">{content}</div>
+
+        {/* 編集確認ダイアログ */}
+        <AlertDialog open={editConfirm} onOpenChange={setEditConfirm}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>接触履歴を更新しますか？</AlertDialogTitle>
+              <AlertDialogDescription>
+                この操作により、接触履歴の内容が更新されます。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setEditConfirm(false)}>
+                キャンセル
+              </AlertDialogCancel>
+              <AlertDialogAction onClick={handleUpdate} disabled={loading}>
+                {loading ? "更新中..." : "はい"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* 削除確認ダイアログ */}
+        <AlertDialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>接触履歴を削除しますか？</AlertDialogTitle>
+              <AlertDialogDescription>
+                {deleteConfirm && (
+                  <>
+                    {formatDateTime(deleteConfirm.contactDate)}の接触履歴を削除します。
+                    この操作は取り消せません。
+                  </>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setDeleteConfirm(null)}>
+                キャンセル
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDelete}
+                disabled={loading}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {loading ? "削除中..." : "はい"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </>
+    );
+  }
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -770,115 +946,7 @@ export function ContactHistoryModalBase({
           className="p-0 overflow-hidden flex flex-col"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
-          <DialogHeader className="px-4 py-3 border-b shrink-0">
-            <DialogTitle className="text-base">接触履歴管理 - {entityName}</DialogTitle>
-          </DialogHeader>
-
-          <div className="px-4 py-3 flex flex-col gap-2 flex-1 min-h-0">
-            {/* 追加ボタン */}
-            {!isAddMode && !editHistory && !viewHistory && (
-              <div className="flex justify-end shrink-0">
-                <Button size="sm" onClick={openAddForm}>
-                  <Plus className="mr-1 h-3.5 w-3.5" />
-                  接触履歴を追加
-                </Button>
-              </div>
-            )}
-
-            {/* 閲覧モード */}
-            {viewHistory && (
-              <div className="shrink-0 max-h-[50vh] overflow-y-auto">
-                {renderViewDetail(viewHistory)}
-              </div>
-            )}
-
-            {/* 追加/編集フォーム */}
-            {(isAddMode || editHistory) && (
-              <div className="shrink-0 max-h-[50vh] overflow-y-auto">
-                {renderForm()}
-              </div>
-            )}
-
-            {/* 接触履歴一覧 */}
-            {sortedHistories.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8">
-                接触履歴が登録されていません
-              </div>
-            ) : (
-              <Table containerClassName="border rounded-lg flex-1 min-h-0" containerStyle={{ overflow: 'auto' }}>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[120px] whitespace-nowrap">接触日時</TableHead>
-                    <TableHead className="w-[72px] whitespace-nowrap">接触方法</TableHead>
-                    <TableHead className="w-[72px] whitespace-nowrap">接触種別</TableHead>
-                    <TableHead className="w-[80px] whitespace-nowrap">担当者</TableHead>
-                    <TableHead className="w-[80px] whitespace-nowrap">先方参加者</TableHead>
-                    <TableHead className="min-w-[120px] whitespace-nowrap">議事録</TableHead>
-                    <TableHead className="min-w-[100px] whitespace-nowrap">備考</TableHead>
-                    <TableHead className="w-[48px] whitespace-nowrap">添付</TableHead>
-                    <TableHead className="w-[130px] whitespace-nowrap sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sortedHistories.map((history) => (
-                    <TableRow key={history.id}>
-                      <TableCell className="whitespace-nowrap">
-                        {formatDateTime(history.contactDate)}
-                      </TableCell>
-                      <TableCell>{history.contactMethodName || "-"}</TableCell>
-                      <TableCell>{history.contactCategoryName || "-"}</TableCell>
-                      <TableCell>{history.assignedToNames || getStaffNames(history.assignedTo)}</TableCell>
-                      <TableCell>{history.customerParticipants || "-"}</TableCell>
-                      <TableCell>
-                        <TextPreviewCell text={history.meetingMinutes} title="議事録" />
-                      </TableCell>
-                      <TableCell>
-                        <TextPreviewCell text={history.note} title="備考" />
-                      </TableCell>
-                      <TableCell>
-                        <FileDisplay files={history.files || []} />
-                      </TableCell>
-                      <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
-                        <div className="flex gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              setViewHistory(history);
-                              setEditHistory(null);
-                              setIsAddMode(false);
-                            }}
-                            disabled={isAddMode || !!editHistory}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              setViewHistory(null);
-                              openEditForm(history);
-                            }}
-                            disabled={isAddMode || !!editHistory}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setDeleteConfirm(history)}
-                            disabled={isAddMode || !!editHistory}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </div>
+          {content}
         </DialogContent>
       </Dialog>
 

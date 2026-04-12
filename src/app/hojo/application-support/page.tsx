@@ -4,10 +4,37 @@ import { syncVendorIdFromFree1, VendorMismatch } from "@/lib/hojo/sync-vendor-id
 
 export default async function ApplicationSupportPage() {
   // 助成金申請サポートのLINE友達を全件取得
-  const allJoseiFriends = await prisma.hojoLineFriendJoseiSupport.findMany({
-    where: { deletedAt: null },
-    orderBy: { id: "asc" },
-  });
+  const [allJoseiFriends, formSubmissions] = await Promise.all([
+    prisma.hojoLineFriendJoseiSupport.findMany({
+      where: { deletedAt: null },
+      orderBy: { id: "asc" },
+    }),
+    // 事業計画フォームの回答（UID→回答データ紐付け用）
+    prisma.hojoFormSubmission.findMany({
+      where: { deletedAt: null, formType: "business-plan" },
+      orderBy: { submittedAt: "desc" },
+    }),
+  ]);
+
+  // uid → フォーム回答データ（最新のもの）
+  const formSubmissionByUid = new Map<string, { id: number; submittedAt: string; answers: Record<string, unknown> }>();
+  for (const s of formSubmissions) {
+    const meta = (s.answers as Record<string, unknown>)?._meta as Record<string, unknown> | undefined;
+    const uid = meta?.uid as string | null;
+    if (uid && !formSubmissionByUid.has(uid)) {
+      formSubmissionByUid.set(uid, {
+        id: s.id,
+        submittedAt: s.submittedAt.toISOString(),
+        answers: s.answers as Record<string, unknown>,
+      });
+    }
+  }
+
+  // lineFriendId → uid のマップ
+  const uidByLineFriendId = new Map<number, string>();
+  for (const f of allJoseiFriends) {
+    uidByLineFriendId.set(f.id, f.uid);
+  }
 
   // 顧客のみ抽出
   const joseiLineFriends = allJoseiFriends.filter((f) => f.userType === "顧客");
@@ -119,10 +146,13 @@ export default async function ApplicationSupportPage() {
     return records.map((record, idx) => {
       rowCounter++;
       const mismatch = mismatchMap.get(record.id);
+      const uid = uidByLineFriendId.get(f.id) || "";
+      const submission = formSubmissionByUid.get(uid);
       return {
         id: record.id,
         rowNo: rowCounter,
         lineFriendId: f.id,
+        lineFriendUid: uid,
         lineName: f.snsname || "-",
         vendorName: record.vendor?.name || "-",
         vendorId: record.vendorId ? String(record.vendorId) : "",
@@ -153,6 +183,12 @@ export default async function ApplicationSupportPage() {
         hasMismatch: !!mismatch,
         mismatchResolvedVendorName: mismatch?.resolvedVendorName ?? null,
         mismatchResolvedVendorId: mismatch?.resolvedVendorId ?? null,
+        // フォーム回答データ
+        formSubmission: submission ? {
+          id: submission.id,
+          submittedAt: submission.submittedAt,
+          answers: submission.answers,
+        } : null,
       };
     });
   });

@@ -136,7 +136,7 @@ export async function addProposal(
       },
     });
 
-    revalidatePath("/stp/companies");
+    revalidatePath("/stp/companies", "layout");
     return { success: true };
   } catch (error) {
     console.error("提案書追加エラー:", error);
@@ -167,7 +167,7 @@ export async function updateProposal(
       },
     });
 
-    revalidatePath("/stp/companies");
+    revalidatePath("/stp/companies", "layout");
     return { success: true };
   } catch (error) {
     console.error("提案書更新エラー:", error);
@@ -184,7 +184,7 @@ export async function deleteProposal(id: number): Promise<{ success: boolean; er
       where: { id },
     });
 
-    revalidatePath("/stp/companies");
+    revalidatePath("/stp/companies", "layout");
     return { success: true };
   } catch (error) {
     console.error("提案書削除エラー:", error);
@@ -368,7 +368,7 @@ export async function confirmProposal(
       },
     });
 
-    revalidatePath("/stp/companies");
+    revalidatePath("/stp/companies", "layout");
     revalidatePath("/stp/proposals");
     return { success: true, confirmedProposalId: confirmed.id };
   } catch (error) {
@@ -443,7 +443,7 @@ export async function overwriteProposal(
       },
     });
 
-    revalidatePath("/stp/companies");
+    revalidatePath("/stp/companies", "layout");
     revalidatePath("/stp/proposals");
     return { success: true };
   } catch (error) {
@@ -517,7 +517,7 @@ export async function deleteSlideVersion(
       },
     });
 
-    revalidatePath("/stp/companies");
+    revalidatePath("/stp/companies", "layout");
     revalidatePath("/stp/proposals");
     return { success: true };
   } catch (error) {
@@ -660,7 +660,7 @@ export async function lockAllUnlockedSlides(
       },
     });
 
-    revalidatePath("/stp/companies");
+    revalidatePath("/stp/companies", "layout");
     revalidatePath("/stp/proposals");
     return { success: true };
   } catch (error) {

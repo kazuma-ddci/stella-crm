@@ -194,7 +194,7 @@ export async function processAsNewCompany(
   );
 
   revalidatePath("/stp/lead-submissions");
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath("/companies");
 
   return ok(result);
@@ -398,7 +398,7 @@ export async function processWithExistingCompany(
   }
 
   revalidatePath("/stp/lead-submissions");
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath(`/companies/${masterCompanyId}`);
 
   return ok(result);
@@ -494,7 +494,7 @@ export async function updateSubmission(
   });
 
   revalidatePath("/stp/lead-submissions");
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   if (submission.masterCompanyId) {
     revalidatePath(`/companies/${submission.masterCompanyId}`);
   }

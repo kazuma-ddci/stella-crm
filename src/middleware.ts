@@ -49,6 +49,7 @@ const COMMON_MASTER_DATA_PATHS = [
 // 注: /stp/settings/*, /slp/settings/* 等のPJ固有パスはここに含めない
 //     → 一般のPJ権限チェック（getRequiredProject）で該当PJの権限を確認する
 const PROJECT_MASTER_DATA_PATHS = [
+  "/settings/contract-types",
   "/settings/customer-types",
   "/settings/contact-categories",
   "/settings/display-views",

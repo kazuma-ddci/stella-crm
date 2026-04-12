@@ -245,6 +245,8 @@ export function StpCompaniesTable({
     { key: "contractAccountPass", header: "アカウントPASS", editable: false },
     // 運用KPI（操作ボタン）
     { key: "operationKpi", header: "運用KPI", editable: false },
+    // 運用管理（操作ボタン）
+    { key: "operations", header: "運用管理", editable: false },
     // 請求先住所（選択した企業の拠点住所から複数選択）- インライン編集可能
     { key: "billingAddress", header: "請求先住所", type: "multiselect", dynamicOptionsKey: "billingAddress", dependsOn: "companyId", inlineEditable: true },
     // 請求先担当者（選択用、非表示）- インライン編集可能
@@ -352,16 +354,16 @@ export function StpCompaniesTable({
         </span>
       );
     },
-    // 企業名をクリックで全顧客マスタの詳細ページへ（重複警告付き）
+    // 企業名をクリックでSTP企業詳細ページへ（重複警告付き）
     companyName: (value, row) => {
       if (!value) return "-";
-      const companyId = row.companyId as number;
+      const stpCompanyId = row.id as number;
       const companyCode = row.companyCode as string;
       const hasDuplicateWarning = row.hasDuplicateCompanyWarning as boolean;
       return (
         <div className="flex items-center gap-1">
           <Link
-            href={`/companies/${companyId}`}
+            href={`/stp/companies/${stpCompanyId}`}
             className="hover:underline font-medium"
             onClick={(e) => e.stopPropagation()}
           >
@@ -647,6 +649,23 @@ export function StpCompaniesTable({
           }}
         >
           <LineChart className="h-4 w-4" />
+        </Button>
+      );
+    },
+    // 運用管理：運用管理画面への遷移ボタン
+    operations: (_value, row) => {
+      return (
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-7 w-7"
+          onClick={(e) => {
+            e.stopPropagation();
+            const stpCompanyId = row.id as number;
+            router.push(`/stp/companies/${stpCompanyId}/operations`);
+          }}
+        >
+          <BarChart3 className="h-4 w-4" />
         </Button>
       );
     },

@@ -67,6 +67,7 @@ type Proposal = {
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  renderInline?: boolean;
   stpCompanyId: number;
   companyName: string;
   staffOptions: { value: string; label: string }[];
@@ -126,10 +127,12 @@ const EMPTY_FORM_DATA: FormData = {
 export function ProposalModal({
   open,
   onOpenChange,
+  renderInline,
   stpCompanyId,
   companyName,
   staffOptions,
 }: Props) {
+  const isActive = open || !!renderInline;
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
@@ -159,11 +162,11 @@ export function ProposalModal({
 
   // クローズ時にキャッシュ保存
   useEffect(() => {
-    if (!open) return;
+    if (!isActive) return;
     return () => {
       save(formStateRef.current);
     };
-  }, [open, save]);
+  }, [isActive, save]);
 
   // モーダルが開くたびにサーバーから最新データを取得
   const loadProposals = useCallback(async () => {
@@ -180,7 +183,7 @@ export function ProposalModal({
   }, [stpCompanyId]);
 
   useEffect(() => {
-    if (open) {
+    if (isActive) {
       loadProposals();
       const cached = restore();
       if (cached) {
@@ -193,7 +196,7 @@ export function ProposalModal({
         setFormOpen(false);
       }
     }
-  }, [open, loadProposals, restore]);
+  }, [isActive, loadProposals, restore]);
 
   const resetForm = () => {
     setFormData(EMPTY_FORM_DATA);
@@ -340,22 +343,19 @@ export function ProposalModal({
 
   const datePickerClassName = "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="mixed" className="flex flex-col p-0">
-        <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
-          <div className="flex items-center justify-between">
-            <DialogTitle className="text-lg">提案書管理 - {companyName}</DialogTitle>
-            {(editorProposals.length === 0 || activeTab === "proposals") && (
-              <Button onClick={handleAdd} size="sm" disabled={formOpen} variant="outline">
-                <Plus className="h-4 w-4 mr-1" />
-                追加
-              </Button>
-            )}
-          </div>
-        </DialogHeader>
+  const inlineHeader = renderInline ? (
+    <div className="flex items-center justify-between mb-4">
+      {(editorProposals.length === 0 || activeTab === "proposals") && (
+        <Button onClick={handleAdd} size="sm" disabled={formOpen} variant="outline">
+          <Plus className="h-4 w-4 mr-1" />
+          追加
+        </Button>
+      )}
+    </div>
+  ) : null;
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+  const mainContent = (
+        <div className={renderInline ? "space-y-4" : "flex-1 overflow-y-auto px-6 py-4 space-y-4"}>
           {editorProposals.length > 0 ? (
             <Tabs
               value={activeTab}
@@ -1030,6 +1030,32 @@ export function ProposalModal({
             </>
           )}
         </div>
+  );
+
+  if (renderInline) {
+    return (
+      <>
+        {inlineHeader}
+        {mainContent}
+      </>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="mixed" className="flex flex-col p-0">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
+          <div className="flex items-center justify-between">
+            <DialogTitle className="text-lg">提案書管理 - {companyName}</DialogTitle>
+            {(editorProposals.length === 0 || activeTab === "proposals") && (
+              <Button onClick={handleAdd} size="sm" disabled={formOpen} variant="outline">
+                <Plus className="h-4 w-4 mr-1" />
+                追加
+              </Button>
+            )}
+          </div>
+        </DialogHeader>
+        {mainContent}
       </DialogContent>
     </Dialog>
   );

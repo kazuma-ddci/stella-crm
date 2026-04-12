@@ -78,7 +78,7 @@ export async function addCompanyContact(data: Record<string, unknown>): Promise<
 
   await logActivity({ model: "ContactHistory", recordId: result.id, action: "create", summary: `企業接触履歴を作成（${data.contactDate as string}）`, userId: user.id });
   revalidatePath("/stp/records/company-contacts");
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath(`/companies/${stpCompany.companyId}`);
   return ok();
  } catch (e) {
@@ -149,7 +149,7 @@ export async function updateCompanyContact(
 
   await logActivity({ model: "ContactHistory", recordId: id, action: "update", summary: `企業接触履歴を更新（${data.contactDate as string}）`, userId: user.id });
   revalidatePath("/stp/records/company-contacts");
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   return ok();
  } catch (e) {
   console.error("[updateCompanyContact] error:", e);
@@ -169,7 +169,7 @@ export async function deleteCompanyContact(id: number): Promise<ActionResult> {
   });
   await logActivity({ model: "ContactHistory", recordId: id, action: "delete", summary: "企業接触履歴を削除", userId: user.id });
   revalidatePath("/stp/records/company-contacts");
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath(`/companies/${history.companyId}`);
   return ok();
  } catch (e) {

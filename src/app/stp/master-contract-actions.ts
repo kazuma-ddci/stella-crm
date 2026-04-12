@@ -256,7 +256,7 @@ export async function addMasterContract(companyId: number, data: ContractInput):
     return contract;
   });
 
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath("/stp/agents");
   revalidatePath("/stp/contracts");
 
@@ -335,7 +335,7 @@ export async function updateMasterContract(id: number, data: ContractInput) {
     );
   });
 
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath("/stp/agents");
   revalidatePath("/stp/contracts");
 }
@@ -349,7 +349,7 @@ export async function deleteMasterContract(id: number) {
     where: { id },
   });
 
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath("/stp/agents");
   revalidatePath("/stp/contracts");
 }

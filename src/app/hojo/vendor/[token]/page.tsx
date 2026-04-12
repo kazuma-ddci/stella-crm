@@ -127,8 +127,31 @@ export default async function VendorPage({
     orderBy: { lineFriendId: "asc" },
   });
 
+  // 各申請者のUIDでフォーム回答を取得
+  const applicantUids = records.map((r) => r.lineFriend.uid);
+  const formSubmissions = await prisma.hojoFormSubmission.findMany({
+    where: {
+      deletedAt: null,
+      formType: "business-plan",
+    },
+    orderBy: { submittedAt: "desc" },
+  });
+  const formByUid = new Map<string, { id: number; submittedAt: string; answers: Record<string, unknown> }>();
+  for (const s of formSubmissions) {
+    const meta = (s.answers as Record<string, unknown>)?._meta as Record<string, unknown> | undefined;
+    const uid = meta?.uid as string | null;
+    if (uid && applicantUids.includes(uid) && !formByUid.has(uid)) {
+      formByUid.set(uid, {
+        id: s.id,
+        submittedAt: s.submittedAt.toISOString(),
+        answers: s.answers as Record<string, unknown>,
+      });
+    }
+  }
+
   const applicantData = records.map((r) => ({
     id: r.id,
+    lineFriendUid: r.lineFriend.uid,
     lineName: r.lineFriend.snsname || "-",
     applicantName: r.applicantName || "-",
     statusName: r.status?.name || "-",
@@ -139,6 +162,7 @@ export default async function VendorPage({
     paymentReceivedDate: r.paymentReceivedDate?.toISOString().slice(0, 10) ?? "-",
     subsidyReceivedDate: r.subsidyReceivedDate?.toISOString().slice(0, 10) ?? "-",
     vendorMemo: r.vendorMemo || "",
+    formSubmission: formByUid.get(r.lineFriend.uid) ?? null,
   }));
 
   // 卸アカウント管理データ（ベンダー側削除されたものは非表示）

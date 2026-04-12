@@ -108,13 +108,15 @@ registerLocale("ja", ja);
 export function MasterContractModal({
   open,
   onOpenChange,
+  renderInline,
   companyId,
   companyName,
   contractStatusOptions,
   staffOptions,
   contractTypeOptions,
   agentId,
-}: Props) {
+}: Props & { renderInline?: boolean }) {
+  const isActive = open || !!renderInline;
   const isAgentMode = !!agentId;
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -207,11 +209,11 @@ export function MasterContractModal({
 
   // クローズ時にキャッシュ保存
   useEffect(() => {
-    if (!open) return;
+    if (!isActive) return;
     return () => {
       save(formStateRef.current);
     };
-  }, [open, save]);
+  }, [isActive, save]);
 
   // モーダルが開くたびにサーバーから最新データを取得
   const loadContracts = useCallback(async () => {
@@ -244,7 +246,7 @@ export function MasterContractModal({
   }, [companyId, isAgentMode, agentId]);
 
   useEffect(() => {
-    if (open) {
+    if (isActive) {
       loadContracts();
       const cached = restore();
       if (cached) {
@@ -267,7 +269,7 @@ export function MasterContractModal({
       setEditingAgentHistoryId(null);
       setAgentHistoryFormData(EMPTY_AGENT_HISTORY_FORM);
     }
-  }, [open, loadContracts, restore]);
+  }, [isActive, loadContracts, restore]);
 
   // 契約履歴フォームが開いたらスクロールして表示
   useEffect(() => {
@@ -766,17 +768,8 @@ export function MasterContractModal({
     }
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        size="mixed"
-        className="p-0 overflow-hidden flex flex-col"
-      >
-        <DialogHeader className="px-6 py-4 border-b shrink-0">
-          <DialogTitle>契約管理 - {companyName}</DialogTitle>
-        </DialogHeader>
-
-        <div className="px-6 py-4 flex flex-col gap-4 flex-1 min-h-0">
+  const mainContent = (
+        <div className={renderInline ? "flex flex-col gap-4" : "px-6 py-4 flex flex-col gap-4 flex-1 min-h-0"}>
           {/* ボタン行 */}
           {!formOpen && !historyFormOpen && !agentHistoryFormOpen && (
             <div className="flex justify-end gap-2 shrink-0">
@@ -1816,8 +1809,10 @@ export function MasterContractModal({
             </div>
           )}
         </div>
-      </DialogContent>
+  );
 
+  const subDialogs = (
+    <>
       {/* 下書き選択ダイアログ */}
       <Dialog open={draftSelectOpen} onOpenChange={setDraftSelectOpen}>
         <DialogContent size="form" className="p-0 overflow-hidden flex flex-col">
@@ -1936,6 +1931,30 @@ export function MasterContractModal({
           resumeDraft={resumeDraft}
         />
       )}
+    </>
+  );
+
+  if (renderInline) {
+    return (
+      <>
+        {mainContent}
+        {subDialogs}
+      </>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        size="mixed"
+        className="p-0 overflow-hidden flex flex-col"
+      >
+        <DialogHeader className="px-6 py-4 border-b shrink-0">
+          <DialogTitle>契約管理 - {companyName}</DialogTitle>
+        </DialogHeader>
+        {mainContent}
+      </DialogContent>
+      {subDialogs}
     </Dialog>
   );
 }

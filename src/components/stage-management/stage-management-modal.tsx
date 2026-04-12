@@ -31,6 +31,7 @@ import { Loader2 } from "lucide-react";
 interface StageManagementModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  renderInline?: boolean;
   stpCompanyId: number | null;
   onUpdateSuccess?: () => void;
 }
@@ -38,9 +39,11 @@ interface StageManagementModalProps {
 export function StageManagementModal({
   open,
   onOpenChange,
+  renderInline,
   stpCompanyId,
   onUpdateSuccess,
 }: StageManagementModalProps) {
+  const isActive = open || !!renderInline;
   const [data, setData] = useState<StageManagementData | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -65,7 +68,7 @@ export function StageManagementModal({
   // データを読み込む
   useEffect(() => {
     async function loadData() {
-      if (!open || !stpCompanyId) return;
+      if (!isActive || !stpCompanyId) return;
 
       setLoading(true);
       try {
@@ -80,17 +83,17 @@ export function StageManagementModal({
     }
 
     loadData();
-  }, [open, stpCompanyId]);
+  }, [isActive, stpCompanyId]);
 
   // モーダルを閉じたときにリセット
   useEffect(() => {
-    if (!open) {
+    if (!isActive) {
       setData(null);
       setPendingSubmit(null);
       setAlertNote("");
       setHasFormChanges(false);
     }
-  }, [open]);
+  }, [isActive]);
 
   // 変更状態の更新ハンドラ
   const handleHasChangesChange = useCallback((hasChanges: boolean) => {
@@ -202,86 +205,62 @@ export function StageManagementModal({
     }
   };
 
-  return (
+  const contentBody = loading ? (
+    <div className="flex items-center justify-center py-16 flex-1">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  ) : data ? (
+    <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
+      {/* ヘッダー: パイプライン進捗（常に全幅） */}
+      <div className="shrink-0 border-b px-5 py-3">
+        <StageProgressVisual
+          stages={data.stages}
+          currentStageId={data.currentStageId}
+          targetStageId={data.nextTargetStageId}
+        />
+      </div>
+
+      {/* 2カラムレイアウト（狭い画面では1カラムにフォールバック） */}
+      <div className="flex flex-col min-[1100px]:flex-row flex-1 overflow-hidden min-h-0">
+        {/* 左カラム: 情報パネル (6割) */}
+        <div className="min-[1100px]:w-[60%] overflow-y-auto min-[1100px]:border-r px-5 py-4 space-y-4 min-w-0">
+          <CurrentStatusSection data={data} />
+          <ReasonEditSection
+            data={data}
+            onUpdateSuccess={async () => {
+              const result = await getStageManagementData(stpCompanyId!);
+              setData(result);
+              onUpdateSuccess?.();
+            }}
+          />
+          <StageHistorySection histories={data.histories} />
+        </div>
+
+        {/* 右カラム: 操作パネル (4割) */}
+        <div className="min-[1100px]:w-[40%] shrink-0 overflow-y-auto border-t min-[1100px]:border-t-0 px-5 py-4">
+          <StageUpdateForm
+            key={formKey}
+            stages={data.stages}
+            currentStageId={data.currentStageId}
+            currentTargetStageId={data.nextTargetStageId}
+            currentTargetDate={data.nextTargetDate}
+            onSubmit={handleFormSubmit}
+            onCancel={renderInline ? () => {} : handleCancel}
+            loading={saving}
+            hasChanges={hasFormChanges}
+            onHasChangesChange={handleHasChangesChange}
+          />
+        </div>
+      </div>
+    </div>
+  ) : (
+    <div className="py-16 text-center text-muted-foreground flex-1">
+      データが見つかりませんでした
+    </div>
+  );
+
+  const dialogs = (
     <>
-      <Dialog open={open} onOpenChange={(newOpen) => {
-        if (!newOpen && hasFormChanges) {
-          setShowDiscardConfirm(true);
-        } else {
-          onOpenChange(newOpen);
-        }
-      }}>
-        <DialogContent
-          size="datagrid"
-          className="p-0 overflow-hidden flex flex-col"
-        >
-          <DialogHeader className="px-6 py-4 border-b shrink-0">
-            <DialogTitle className="flex items-center gap-3">
-              <span>パイプライン管理</span>
-              {data && (
-                <span className="font-normal text-base text-muted-foreground">
-                  {data.companyName}
-                </span>
-              )}
-            </DialogTitle>
-          </DialogHeader>
-
-          {loading ? (
-            <div className="flex items-center justify-center py-16 flex-1">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : data ? (
-            <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
-              {/* ヘッダー: パイプライン進捗（常に全幅） */}
-              <div className="shrink-0 border-b px-5 py-3">
-                <StageProgressVisual
-                  stages={data.stages}
-                  currentStageId={data.currentStageId}
-                  targetStageId={data.nextTargetStageId}
-                />
-              </div>
-
-              {/* 2カラムレイアウト（狭い画面では1カラムにフォールバック） */}
-              <div className="flex flex-col min-[1100px]:flex-row flex-1 overflow-hidden min-h-0">
-                {/* 左カラム: 情報パネル (6割) */}
-                <div className="min-[1100px]:w-[60%] overflow-y-auto min-[1100px]:border-r px-5 py-4 space-y-4 min-w-0">
-                  <CurrentStatusSection data={data} />
-                  <ReasonEditSection
-                    data={data}
-                    onUpdateSuccess={async () => {
-                      const result = await getStageManagementData(stpCompanyId!);
-                      setData(result);
-                      onUpdateSuccess?.();
-                    }}
-                  />
-                  <StageHistorySection histories={data.histories} />
-                </div>
-
-                {/* 右カラム: 操作パネル (4割) */}
-                <div className="min-[1100px]:w-[40%] shrink-0 overflow-y-auto border-t min-[1100px]:border-t-0 px-5 py-4">
-                  <StageUpdateForm
-                    key={formKey}
-                    stages={data.stages}
-                    currentStageId={data.currentStageId}
-                    currentTargetStageId={data.nextTargetStageId}
-                    currentTargetDate={data.nextTargetDate}
-                    onSubmit={handleFormSubmit}
-                    onCancel={handleCancel}
-                    loading={saving}
-                    hasChanges={hasFormChanges}
-                    onHasChangesChange={handleHasChangesChange}
-                  />
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="py-16 text-center text-muted-foreground flex-1">
-              データが見つかりませんでした
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
       {/* アラート確認ダイアログ */}
       <StageAlertDialog
         alerts={pendingSubmit?.validation.alerts ?? []}
@@ -310,6 +289,29 @@ export function StageManagementModal({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </>
+  );
+
+  if (renderInline) {
+    return (
+      <>
+        {contentBody}
+        {dialogs}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={hasFormChanges ? () => setShowDiscardConfirm(true) : onOpenChange}>
+        <DialogContent size="mixed" className="p-0 overflow-hidden flex flex-col">
+          <DialogHeader className="px-5 py-3 border-b shrink-0 flex flex-row items-center justify-between">
+            <DialogTitle>パイプライン管理</DialogTitle>
+          </DialogHeader>
+          {contentBody}
+        </DialogContent>
+      </Dialog>
+      {dialogs}
     </>
   );
 }

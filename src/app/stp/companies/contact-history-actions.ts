@@ -109,7 +109,7 @@ export async function addCompanyContactHistory(
     });
   });
 
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath("/stp/records/company-contacts");
   revalidatePath(`/companies/${stpCompany.companyId}`);
 
@@ -211,7 +211,7 @@ export async function updateCompanyContactHistory(
     });
   });
 
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath("/stp/records/company-contacts");
   if (result) {
     revalidatePath(`/companies/${result.companyId}`);
@@ -256,7 +256,7 @@ export async function deleteCompanyContactHistoryRole(
     }
   });
 
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath("/stp/records/company-contacts");
 }
 
@@ -271,7 +271,7 @@ export async function deleteCompanyContactHistory(id: number) {
     data: { deletedAt: new Date() },
   });
 
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath("/stp/records/company-contacts");
   revalidatePath(`/companies/${history.companyId}`);
 }

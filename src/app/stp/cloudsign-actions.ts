@@ -289,7 +289,7 @@ export async function sendContractViaCloudsign(input: SendContractInput): Promis
     return created;
   });
 
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath("/stp/agents");
   revalidatePath("/stp/contracts");
 
@@ -365,7 +365,7 @@ export async function saveDraftContract(input: {
     return created;
   });
 
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath("/stp/contracts");
 
   return ok({ id: contract.id, contractNumber: contract.contractNumber || "" });
@@ -417,7 +417,7 @@ export async function deleteDraftContract(contractId: number): Promise<ActionRes
   // 物理削除（下書きは監査証跡不要）
   await prisma.masterContract.delete({ where: { id: contractId } });
 
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath("/stp/contracts");
   return ok();
  } catch (e) {
@@ -535,7 +535,7 @@ export async function syncContractCloudsignStatus(contractId: number): Promise<A
       );
     }
 
-    revalidatePath("/stp/companies");
+    revalidatePath("/stp/companies", "layout");
     revalidatePath("/stp/agents");
     revalidatePath("/stp/contracts");
     return ok({ previousStatus: contract.cloudsignStatus, newStatus: mappedStatus });
@@ -554,7 +554,7 @@ export async function syncContractCloudsignStatus(contractId: number): Promise<A
     changedBy
   );
 
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath("/stp/agents");
   revalidatePath("/stp/contracts");
 
@@ -590,7 +590,7 @@ export async function toggleCloudsignAutoSync(
     data: { cloudsignAutoSync: enabled },
   });
 
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath("/stp/agents");
   revalidatePath("/stp/contracts");
   return ok();
@@ -682,7 +682,7 @@ export async function linkCloudsignDocument(
   // ステータス同期
   const result = await syncContractCloudsignStatus(contractId);
 
-  revalidatePath("/stp/companies");
+  revalidatePath("/stp/companies", "layout");
   revalidatePath("/stp/agents");
   revalidatePath("/stp/contracts");
 

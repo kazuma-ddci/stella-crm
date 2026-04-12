@@ -384,7 +384,7 @@ export async function executeMerge(
     revalidatePath("/companies");
     revalidatePath(`/companies/${survivorId}`);
     revalidatePath(`/companies/${duplicateId}`);
-    revalidatePath("/stp/companies");
+    revalidatePath("/stp/companies", "layout");
     revalidatePath("/stp/agents");
 
     return {

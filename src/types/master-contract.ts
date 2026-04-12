@@ -63,6 +63,7 @@ export type Contract = {
 export type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  renderInline?: boolean;
   companyId: number;
   companyName: string;
   contractStatusOptions: { value: string; label: string }[];
