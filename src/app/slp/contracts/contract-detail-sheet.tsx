@@ -237,7 +237,7 @@ export function ContractDetailSheet({
                   </a>
                 </Button>
               ))}
-              {!contract.cloudsignUrl &&
+              {!contract.cloudsignDocumentId &&
                 !contract.filePath &&
                 contract.contractFiles.length === 0 && (
                   <span className="text-xs text-gray-400">添付なし</span>
