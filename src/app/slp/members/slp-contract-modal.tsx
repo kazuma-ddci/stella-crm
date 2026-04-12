@@ -239,7 +239,7 @@ function ContractCard({
               {contract.cloudsignDocumentId ? (
                 <>
                   <DropdownMenuItem
-                    onClick={() => window.open(contract.cloudsignUrl || `https://www.cloudsign.jp/documents/${contract.cloudsignDocumentId}`, "_blank")}
+                    onClick={() => window.open(`https://www.cloudsign.jp/document/${contract.cloudsignDocumentId}/summary`, "_blank")}
                   >
                     <ExternalLink className="h-3.5 w-3.5 mr-2" />
                     CloudSignで開く
@@ -316,6 +316,21 @@ function ContractCard({
                   {cf.fileName}
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* CloudSign URL（ドキュメントIDがあれば自動表示） */}
+          {contract.cloudsignDocumentId && (
+            <div className="px-4 py-1.5 bg-blue-50/50 border-t">
+              <a
+                href={`https://www.cloudsign.jp/document/${contract.cloudsignDocumentId}/summary`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
+              >
+                <ExternalLink className="h-3 w-3" />
+                https://www.cloudsign.jp/document/{contract.cloudsignDocumentId}/summary
+              </a>
             </div>
           )}
 

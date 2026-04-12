@@ -21,7 +21,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Search, AlertTriangle, Copy, X } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Plus, Trash2, Search, AlertTriangle, Copy, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   addCompanyRecord,
@@ -156,14 +165,36 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
     return true;
   });
 
+  // 新規事業者追加モーダル
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [newBusinessType, setNewBusinessType] = useState("corporation");
+  const [newCompanyName, setNewCompanyName] = useState("");
+  const [addPending, setAddPending] = useState(false);
+
+  const handleOpenAddModal = () => {
+    setNewBusinessType("corporation");
+    setNewCompanyName("");
+    setAddModalOpen(true);
+  };
+
   const handleAddRecord = async () => {
+    if (!newCompanyName.trim()) {
+      toast.error(newBusinessType === "sole_proprietor" ? "屋号または個人名を入力してください" : "企業名を入力してください");
+      return;
+    }
+    setAddPending(true);
     try {
-      const { id } = await addCompanyRecord();
-      toast.success("レコードを追加しました");
-      // 新規作成後は詳細ページへ遷移して、すぐに情報入力できるようにする
+      const { id } = await addCompanyRecord({
+        businessType: newBusinessType,
+        companyName: newCompanyName.trim(),
+      });
+      toast.success("事業者を追加しました");
+      setAddModalOpen(false);
       router.push(`/slp/companies/${id}`);
     } catch {
       toast.error("追加に失敗しました");
+    } finally {
+      setAddPending(false);
     }
   };
 
@@ -394,7 +425,7 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
           )}
         </div>
         <div className="ml-auto">
-          <Button size="sm" onClick={handleAddRecord}>
+          <Button size="sm" onClick={handleOpenAddModal}>
             <Plus className="h-4 w-4 mr-2" />
             新規事業者を追加
           </Button>
@@ -619,6 +650,61 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
       <p className="text-xs text-muted-foreground mt-2">
         ※ 事業者名・事業者No. をクリックすると、その事業者の詳細・編集ページが開きます。
       </p>
+
+      {/* 新規事業者追加モーダル */}
+      <Dialog open={addModalOpen} onOpenChange={setAddModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>新規事業者を追加</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>事業形態 <span className="text-red-500">*</span></Label>
+              <RadioGroup
+                value={newBusinessType}
+                onValueChange={setNewBusinessType}
+                className="flex gap-6"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="corporation" id="new-biz-corp" />
+                  <Label htmlFor="new-biz-corp" className="cursor-pointer">法人</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="sole_proprietor" id="new-biz-sole" />
+                  <Label htmlFor="new-biz-sole" className="cursor-pointer">個人事業主</Label>
+                </div>
+              </RadioGroup>
+            </div>
+            <div className="space-y-2">
+              <Label>
+                {newBusinessType === "sole_proprietor" ? "屋号(個人名可)" : "企業名"}{" "}
+                <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                value={newCompanyName}
+                onChange={(e) => setNewCompanyName(e.target.value)}
+                placeholder={newBusinessType === "sole_proprietor" ? "○○商店 / 山田太郎" : "株式会社○○"}
+                autoFocus
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddModalOpen(false)} disabled={addPending}>
+              キャンセル
+            </Button>
+            <Button onClick={handleAddRecord} disabled={addPending || !newCompanyName.trim()}>
+              {addPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  作成中...
+                </>
+              ) : (
+                "保存して詳細へ"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

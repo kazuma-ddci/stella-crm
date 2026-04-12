@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { sendSlpContract, sendSlpRemind } from "@/lib/slp-cloudsign";
 import { submitForm5ContractNotification } from "@/lib/proline-form";
+import { cloudsignClient } from "@/lib/cloudsign";
+import { syncContractStatus as doSyncContractStatus } from "@/lib/cloudsign-sync";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 
@@ -351,4 +353,141 @@ export async function bulkSendContracts(memberIds: number[]): Promise<{
 
   const succeeded = results.filter((r) => r.success).length;
   return { total: results.length, succeeded, failed: results.length - succeeded, results };
+}
+
+/**
+ * CloudSignステータス一斉同期（SLPプロジェクトの全契約書対象）
+ * 条件: cloudsignDocumentId IS NOT NULL AND cloudsignAutoSync = true
+ * 既に完了/取消済みは再確認不要のためスキップ
+ */
+export async function batchSyncCloudsignStatus(): Promise<{
+  total: number;
+  synced: number;
+  unchanged: number;
+  errors: number;
+  details: Array<{
+    contractId: number;
+    memberName: string | null;
+    previousStatus: string | null;
+    newStatus: string | null;
+    error?: string;
+  }>;
+}> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
+
+  // SLPプロジェクトID取得
+  const slpProject = await prisma.masterProject.findFirst({
+    where: { code: "slp" },
+    select: { id: true, operatingCompany: { select: { cloudsignClientId: true } } },
+  });
+  if (!slpProject?.operatingCompany?.cloudsignClientId) {
+    throw new Error("SLPプロジェクトの運営法人にCloudSign APIキーが設定されていません");
+  }
+
+  // 対象契約書を取得
+  const contracts = await prisma.masterContract.findMany({
+    where: {
+      projectId: slpProject.id,
+      cloudsignDocumentId: { not: null },
+      cloudsignAutoSync: true,
+      // 完了/取消済みはスキップ
+      cloudsignStatus: { notIn: ["completed", "canceled_by_sender", "canceled_by_recipient"] },
+    },
+    select: {
+      id: true,
+      currentStatusId: true,
+      cloudsignStatus: true,
+      cloudsignDocumentId: true,
+      slpMember: { select: { name: true } },
+    },
+  });
+
+  if (contracts.length === 0) {
+    return { total: 0, synced: 0, unchanged: 0, errors: 0, details: [] };
+  }
+
+  // トークン取得（SLP用は1つで良い）
+  const token = await cloudsignClient.getToken(slpProject.operatingCompany.cloudsignClientId);
+
+  const details: Array<{
+    contractId: number;
+    memberName: string | null;
+    previousStatus: string | null;
+    newStatus: string | null;
+    error?: string;
+  }> = [];
+  let synced = 0;
+  let unchanged = 0;
+  let errors = 0;
+
+  // CloudSign APIステータスマッピング
+  function mapStatus(apiStatus: number, doc?: { participants?: { status?: number; order?: number }[] }): string | null {
+    switch (apiStatus) {
+      case 0: return "draft";
+      case 1: return "sent";
+      case 2: return "completed";
+      case 3: {
+        if (doc?.participants?.some((p) => p.order !== undefined && p.order >= 1 && p.status === 9)) {
+          return "canceled_by_recipient";
+        }
+        return "canceled_by_sender";
+      }
+      default: return null;
+    }
+  }
+
+  for (const contract of contracts) {
+    const docId = contract.cloudsignDocumentId!;
+    try {
+      const doc = await cloudsignClient.getDocument(token, docId);
+      const mappedStatus = mapStatus(doc.status, doc);
+
+      if (!mappedStatus || mappedStatus === contract.cloudsignStatus) {
+        unchanged++;
+        details.push({
+          contractId: contract.id,
+          memberName: contract.slpMember?.name ?? null,
+          previousStatus: contract.cloudsignStatus,
+          newStatus: contract.cloudsignStatus,
+        });
+        continue;
+      }
+
+      // ステータス更新
+      await doSyncContractStatus(
+        {
+          id: contract.id,
+          currentStatusId: contract.currentStatusId,
+          cloudsignStatus: contract.cloudsignStatus,
+          cloudsignTitle: null,
+          cloudsignDocumentId: contract.cloudsignDocumentId,
+        },
+        slpProject.operatingCompany.cloudsignClientId,
+        mappedStatus,
+        "batch-sync"
+      );
+
+      synced++;
+      details.push({
+        contractId: contract.id,
+        memberName: contract.slpMember?.name ?? null,
+        previousStatus: contract.cloudsignStatus,
+        newStatus: mappedStatus,
+      });
+    } catch (e) {
+      errors++;
+      details.push({
+        contractId: contract.id,
+        memberName: contract.slpMember?.name ?? null,
+        previousStatus: contract.cloudsignStatus,
+        newStatus: null,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  revalidatePath("/slp/members");
+  revalidatePath("/slp/contracts");
+
+  return { total: contracts.length, synced, unchanged, errors, details };
 }

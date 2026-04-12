@@ -151,8 +151,16 @@ async function getCurrentStaffId(): Promise<number | null> {
 // 企業名簿 CRUD
 // ========================================
 
-export async function addCompanyRecord(): Promise<{ id: number }> {
-  const created = await prisma.slpCompanyRecord.create({ data: {} });
+export async function addCompanyRecord(input: {
+  businessType: string;
+  companyName: string;
+}): Promise<{ id: number }> {
+  const created = await prisma.slpCompanyRecord.create({
+    data: {
+      businessType: input.businessType,
+      companyName: input.companyName.trim() || null,
+    },
+  });
   // 重複候補を再計算（fire-and-forget）
   recomputeDuplicateCandidatesForRecord(created.id).catch(async (err) => {
     await logAutomationError({

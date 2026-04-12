@@ -34,7 +34,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Switch } from "@/components/ui/switch";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   ArrowLeft,
   Plus,
@@ -410,16 +410,22 @@ export function AgencyDetail({
 
           {!isChild && (
             <>
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="is-individual"
-                  checked={isIndividualBusiness}
-                  onCheckedChange={setIsIndividualBusiness}
-                />
-                <Label htmlFor="is-individual">個人事業主</Label>
-                <Badge variant={isIndividualBusiness ? "outline" : "secondary"} className="text-xs">
-                  {isIndividualBusiness ? "個人事業主" : "法人"}
-                </Badge>
+              <div className="space-y-2">
+                <Label>事業形態</Label>
+                <RadioGroup
+                  value={isIndividualBusiness ? "sole_proprietor" : "corporation"}
+                  onValueChange={(v) => setIsIndividualBusiness(v === "sole_proprietor")}
+                  className="flex gap-4"
+                >
+                  <div className="flex items-center gap-2">
+                    <RadioGroupItem value="corporation" id="biz-corp" />
+                    <Label htmlFor="biz-corp" className="cursor-pointer">法人</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <RadioGroupItem value="sole_proprietor" id="biz-sole" />
+                    <Label htmlFor="biz-sole" className="cursor-pointer">個人事業主</Label>
+                  </div>
+                </RadioGroup>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

@@ -31,6 +31,7 @@ export type ContractDetailRow = {
   contractType: string;
   memberName: string;
   memberEmail: string;
+  memberBounced: boolean;
   title: string;
   statusName: string;
   statusType: "progress" | "signed" | "discarded";
@@ -205,10 +206,10 @@ export function ContractDetailSheet({
           <section>
             <h3 className="text-xs font-semibold text-gray-700 mb-2">リンク・ファイル</h3>
             <div className="flex flex-wrap gap-2">
-              {contract.cloudsignUrl && (
+              {contract.cloudsignDocumentId && (
                 <Button variant="outline" size="sm" asChild>
                   <a
-                    href={contract.cloudsignUrl}
+                    href={`https://www.cloudsign.jp/document/${contract.cloudsignDocumentId}/summary`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >

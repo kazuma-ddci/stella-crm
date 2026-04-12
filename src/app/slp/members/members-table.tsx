@@ -4,10 +4,11 @@ import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CrudTable, ColumnDef, CustomRenderers, CustomAction } from "@/components/crud-table";
-import { addMember, updateMember, deleteMember, remindMember, sendContractToMember, clearResubmitted, sendForm5Notification, bulkSendContracts } from "./actions";
-import { Bell, Send, ScrollText, AlertTriangle, Loader2, Settings, Users, UserCheck } from "lucide-react";
+import { addMember, updateMember, deleteMember, remindMember, sendContractToMember, clearResubmitted, sendForm5Notification, bulkSendContracts, batchSyncCloudsignStatus } from "./actions";
+import { Bell, Send, ScrollText, AlertTriangle, Loader2, Settings, Users, UserCheck, History, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { SlpContractModal } from "./slp-contract-modal";
+import { ContractAttemptModal } from "./contract-attempt-modal";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -65,6 +66,7 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
   const [form5NotifyCount, setForm5NotifyCount] = useState(0);
   const pendingUpdateRef = useRef<{ id: number; formData: Record<string, unknown> } | null>(null);
   const [contractModalOpen, setContractModalOpen] = useState(false);
+  const [attemptModalOpen, setAttemptModalOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState<{ id: number; name: string } | null>(null);
 
   // 一括送付モーダル
@@ -72,6 +74,16 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ succeeded: number; failed: number; results: { id: number; name: string; success: boolean; error?: string }[] } | null>(null);
+
+  // クラウドサイン一斉同期
+  const [syncingCloudsign, setSyncingCloudsign] = useState(false);
+  const [syncResult, setSyncResult] = useState<{
+    total: number;
+    synced: number;
+    unchanged: number;
+    errors: number;
+    details: { contractId: number; memberName: string | null; previousStatus: string | null; newStatus: string | null; error?: string }[];
+  } | null>(null);
 
   // 未送付・送付エラーのメンバー
   const unsendableMembers = data.filter(
@@ -107,6 +119,27 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
       toast.error(msg);
     } finally {
       setNotifying(false);
+    }
+  };
+
+  const handleBatchSync = async () => {
+    setSyncingCloudsign(true);
+    setSyncResult(null);
+    try {
+      const result = await batchSyncCloudsignStatus();
+      setSyncResult(result);
+      if (result.synced > 0) {
+        toast.success(`${result.synced}件のステータスを更新しました`);
+        router.refresh();
+      } else if (result.errors > 0) {
+        toast.error(`${result.errors}件のエラーが発生しました`);
+      } else {
+        toast.info("すべてのステータスが最新です（変更なし）");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "同期に失敗しました");
+    } finally {
+      setSyncingCloudsign(false);
     }
   };
 
@@ -238,6 +271,14 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
   };
 
   const customActions: CustomAction[] = [
+    {
+      label: "送付履歴",
+      icon: <History className="h-4 w-4" />,
+      onClick: async (row) => {
+        setSelectedMember({ id: row.id as number, name: row.name as string });
+        setAttemptModalOpen(true);
+      },
+    },
     {
       label: "契約管理",
       icon: <ScrollText className="h-4 w-4" />,
@@ -440,6 +481,56 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
         </div>
       )}
 
+      {/* クラウドサイン一斉同期ボタン + 結果表示 */}
+      <div className="flex items-center gap-2 mb-2 justify-end">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleBatchSync}
+          disabled={syncingCloudsign}
+        >
+          {syncingCloudsign ? (
+            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4 mr-1" />
+          )}
+          {syncingCloudsign ? "同期中..." : "クラウドサイン同期"}
+        </Button>
+      </div>
+
+      {syncResult && (
+        <div className="mb-4 rounded-lg border p-3 text-sm">
+          <div className="flex items-center gap-4 mb-2">
+            <span className="font-medium">同期結果:</span>
+            <Badge variant="default" className="bg-green-600">{syncResult.synced}件 更新</Badge>
+            <Badge variant="secondary">{syncResult.unchanged}件 変更なし</Badge>
+            {syncResult.errors > 0 && <Badge variant="destructive">{syncResult.errors}件 エラー</Badge>}
+          </div>
+          {syncResult.details.filter((d) => d.previousStatus !== d.newStatus || d.error).length > 0 && (
+            <details className="mt-2">
+              <summary className="text-xs text-muted-foreground cursor-pointer hover:underline">
+                詳細を表示
+              </summary>
+              <div className="mt-2 space-y-1 text-xs">
+                {syncResult.details
+                  .filter((d) => d.previousStatus !== d.newStatus || d.error)
+                  .map((d) => (
+                    <div key={d.contractId} className="flex items-center gap-2">
+                      <span className="text-muted-foreground">#{d.contractId}</span>
+                      <span>{d.memberName ?? "(不明)"}</span>
+                      {d.error ? (
+                        <span className="text-red-600">{d.error}</span>
+                      ) : (
+                        <span className="text-green-700">{d.previousStatus} → {d.newStatus}</span>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+
       <CrudTable
         data={data}
         columns={columns}
@@ -467,6 +558,15 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
           memberName={selectedMember.name}
           contractStatusOptions={contractStatusOptions}
           contractTypeOptions={contractTypeOptions}
+        />
+      )}
+
+      {selectedMember && (
+        <ContractAttemptModal
+          open={attemptModalOpen}
+          onOpenChange={setAttemptModalOpen}
+          memberId={selectedMember.id}
+          memberName={selectedMember.name}
         />
       )}
 
