@@ -306,6 +306,26 @@ export const cloudsignClient = {
   },
 
   /**
+   * 送信済み書類を取り消し（破棄）
+   * PUT /documents/{documentId}/decline で先方確認中の書類を取り消す
+   */
+  async declineDocument(token: string, documentId: string): Promise<void> {
+    const url = `${CLOUDSIGN_API_BASE}/documents/${documentId}/decline`;
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: "",
+    });
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => "");
+      throw new Error(`書類の取り消しに失敗しました（${res.status}）: ${errorText}`);
+    }
+  },
+
+  /**
    * ドラフト書類を削除
    */
   async deleteDocument(token: string, documentId: string): Promise<void> {

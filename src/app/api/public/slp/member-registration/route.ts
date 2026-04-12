@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { sendSlpContract, isRemindable, isRemindExpired } from "@/lib/slp-cloudsign";
+import { sendSlpContract, isRemindable, isRemindExpired, recordContractAttempt } from "@/lib/slp-cloudsign";
 import { logAutomationError } from "@/lib/automation-error";
 import { submitProlineForm } from "@/lib/proline-form";
 import { generateWatermarkCode } from "@/lib/watermark";
@@ -28,9 +28,12 @@ interface RegistrationData {
  * - "already_signed"    : 既に契約締結済み
  * - "already_sent"      : 契約書送付済み（リマインド可能期間内）
  * - "remind_expired"    : 契約書の期限切れ（再送付は公式LINEへ）
- * - "email_changed"     : メールアドレス変更＋契約書再送付完了
- * - "email_change_limit": メールアドレス変更上限到達
+ * - "email_changed"     : メールアドレス変更＋契約書再送付完了（並行方式）
  * - "email_diff"        : 異なるメールアドレスで送信された（変更確認を促す）
+ * - "form_locked"       : フォームから完全に操作不可（公式LINE案内）
+ * - "auto_send_locked"  : 自動送付ロック（希望メアド保存のみ可能）
+ * - "bounce_confirmed"  : 「間違いない」確認済み（スタッフ確認中）
+ * - "send_error"        : 送付エラー（お待ちください画面）
  * - "error"             : エラー
  */
 
@@ -81,34 +84,36 @@ export async function POST(request: NextRequest) {
       where: { uid: data.uid },
     });
 
-    // SlpLineFriendからfree1（紹介者UID）を取得し、組合員名簿に存在するか確認
-    const lineFriend = await prisma.slpLineFriend.findUnique({
-      where: { uid: data.uid },
-      select: { free1: true },
-    });
-    const rawReferrerUid = lineFriend?.free1 || null;
-
-    // 紹介者が組合員名簿に登録済みか事前チェック（FK制約違反を防ぐ）
+    // =============================================
+    // 紹介者チェック（fixBounce時はスキップ：初回登録時に実行済み）
+    // =============================================
     let referrerUid: string | null = null;
-    if (rawReferrerUid) {
-      const referrerMember = await prisma.slpMember.findUnique({
-        where: { uid: rawReferrerUid },
-        select: { uid: true, deletedAt: true },
+    if (!data.fixBounce && !data.confirmEmailChange) {
+      const lineFriend = await prisma.slpLineFriend.findUnique({
+        where: { uid: data.uid },
+        select: { free1: true },
       });
-      if (referrerMember && !referrerMember.deletedAt) {
-        referrerUid = rawReferrerUid;
-      } else {
-        // 紹介者が組合員未登録 → 紹介者なしで登録し、自動化エラーに記録
-        await logAutomationError({
-          source: "slp-member-registration",
-          message: `紹介者が組合員名簿に未登録のため、紹介者なしで登録しました: 申込者「${data.name}」`,
-          detail: {
-            uid: data.uid,
-            applicantName: data.name,
-            referrerUid: rawReferrerUid,
-            hint: "紹介者が組合員入会フォームを未提出の可能性があります。紹介者が登録完了後、組合員名簿の「紹介者」を手動で設定してください。",
-          },
+      const rawReferrerUid = lineFriend?.free1 || null;
+
+      if (rawReferrerUid) {
+        const referrerMember = await prisma.slpMember.findUnique({
+          where: { uid: rawReferrerUid },
+          select: { uid: true, deletedAt: true },
         });
+        if (referrerMember && !referrerMember.deletedAt) {
+          referrerUid = rawReferrerUid;
+        } else {
+          await logAutomationError({
+            source: "slp-member-registration",
+            message: `紹介者が組合員名簿に未登録のため、紹介者なしで登録しました: 申込者「${data.name}」`,
+            detail: {
+              uid: data.uid,
+              applicantName: data.name,
+              referrerUid: rawReferrerUid,
+              hint: "紹介者が組合員入会フォームを未提出の可能性があります。紹介者が登録完了後、組合員名簿の「紹介者」を手動で設定してください。",
+            },
+          });
+        }
       }
     }
 
@@ -127,10 +132,41 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      // (B) 契約書送付済み
+      // (B) フォーム完全ロック
+      if (existingMember.formLocked) {
+        return NextResponse.json({
+          success: true,
+          type: "form_locked",
+        });
+      }
+
+      // (C) 自動送付ロック（希望メアド保存は別API）
+      if (existingMember.autoSendLocked) {
+        return NextResponse.json({
+          success: true,
+          type: "auto_send_locked",
+          email: existingMember.email,
+        });
+      }
+
+      // (D) 契約書送付済み
       if (status === "契約書送付済") {
-        // (B-0) メール不達 → メアド修正して再送付
+        // ─── (D-0) メール不達修正 (fixBounce) ───
         if (existingMember.cloudsignBounced && data.fixBounce) {
+          // bounceFixUsedチェック: 既に1回リトライ済みなら自動送付ロック
+          if (existingMember.bounceFixUsed) {
+            // ユーザーが入力した新しいメアドを希望メアドとして保存
+            await prisma.slpMember.update({
+              where: { id: existingMember.id },
+              data: { autoSendLocked: true, email: data.email },
+            });
+            return NextResponse.json({
+              success: true,
+              type: "auto_send_locked",
+              email: data.email,
+            });
+          }
+
           try {
             const result = await sendSlpContract({
               email: data.email,
@@ -138,8 +174,18 @@ export async function POST(request: NextRequest) {
               slpMemberId: existingMember.id,
             });
 
-            // bounced フラグをリセットし、新しいメアドで更新
-            // emailChangeCount はインクリメントしない（不達修正はカウント外）
+            // 送付履歴に記録
+            await recordContractAttempt({
+              slpMemberId: existingMember.id,
+              email: data.email,
+              documentId: result.documentId,
+              cloudsignUrl: result.cloudsignUrl,
+              sendResult: "delivered",
+              cloudsignStatus: "pending",
+              triggerType: "bounce_fix",
+            });
+
+            // メンバー情報を更新（bounceFixUsed = true, bounceConfirmedAtリセット）
             await prisma.slpMember.update({
               where: { id: existingMember.id },
               data: {
@@ -151,10 +197,11 @@ export async function POST(request: NextRequest) {
                 cloudsignBounced: false,
                 cloudsignBouncedAt: null,
                 cloudsignBouncedEmail: null,
+                bounceConfirmedAt: null,
+                bounceFixUsed: true,
                 reminderCount: 0,
                 lastReminderSentAt: null,
                 formSubmittedAt: new Date(),
-                // その他フォーム情報も更新
                 name: data.name,
                 memberCategory: data.memberCategory,
                 lineName: data.lineName,
@@ -174,6 +221,29 @@ export async function POST(request: NextRequest) {
             });
           } catch (error) {
             console.error("CloudSign send error (bounce fix):", error);
+
+            // 送付履歴にエラー記録
+            await recordContractAttempt({
+              slpMemberId: existingMember.id,
+              email: data.email,
+              sendResult: "api_error",
+              cloudsignStatus: "unknown",
+              triggerType: "bounce_fix",
+            });
+
+            // bounceFixUsed = true, autoSendLocked = true
+            await prisma.slpMember.update({
+              where: { id: existingMember.id },
+              data: {
+                email: data.email, // メアドは更新（スタッフが希望メアドを確認できるように）
+                bounceFixUsed: true,
+                autoSendLocked: true,
+                bounceConfirmedAt: null,
+                status: "送付エラー",
+                formSubmittedAt: new Date(),
+              },
+            });
+
             await logAutomationError({
               source: "slp-member-registration",
               message: `契約書再送付失敗（メール不達修正）: ${data.name}`,
@@ -182,8 +252,10 @@ export async function POST(request: NextRequest) {
                 name: data.name,
                 email: data.email,
                 error: String(error),
+                retryAction: "cloudsign-send",
               },
             });
+
             return NextResponse.json({
               success: true,
               type: "send_error",
@@ -191,16 +263,16 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // ─── (D-1) メールアドレス変更（並行方式） ───
         const emailDiffers =
           existingMember.email?.toLowerCase() !== data.email.toLowerCase();
 
-        // メールアドレスが異なる場合
         if (emailDiffers && !data.confirmEmailChange) {
-          // 変更上限チェック
-          if (existingMember.emailChangeCount >= 2) {
+          // emailChangeUsedチェック
+          if (existingMember.emailChangeUsed) {
             return NextResponse.json({
               success: true,
-              type: "email_change_limit",
+              type: "form_locked",
             });
           }
           return NextResponse.json({
@@ -208,20 +280,18 @@ export async function POST(request: NextRequest) {
             type: "email_diff",
             currentEmail: existingMember.email,
             newEmail: data.email,
-            remainingChanges: 2 - existingMember.emailChangeCount,
           });
         }
 
-        // メールアドレス変更確認済み
         if (emailDiffers && data.confirmEmailChange) {
-          if (existingMember.emailChangeCount >= 2) {
+          if (existingMember.emailChangeUsed) {
             return NextResponse.json({
               success: true,
-              type: "email_change_limit",
+              type: "form_locked",
             });
           }
 
-          // 新しいメールアドレスで契約書再送付
+          // 並行方式: 旧契約書は破棄せず、新メアドに新規送付
           try {
             const result = await sendSlpContract({
               email: data.email,
@@ -229,15 +299,26 @@ export async function POST(request: NextRequest) {
               slpMemberId: existingMember.id,
             });
 
+            // 送付履歴に記録
+            await recordContractAttempt({
+              slpMemberId: existingMember.id,
+              email: data.email,
+              documentId: result.documentId,
+              cloudsignUrl: result.cloudsignUrl,
+              sendResult: "delivered",
+              cloudsignStatus: "pending",
+              triggerType: "email_change",
+            });
+
+            // メンバー更新（emailChangeUsed = true, 新しいドキュメント情報）
             await prisma.slpMember.update({
               where: { id: existingMember.id },
               data: {
                 email: data.email,
-                emailChangeCount: existingMember.emailChangeCount + 1,
+                emailChangeUsed: true,
                 documentId: result.documentId,
                 cloudsignUrl: result.cloudsignUrl,
                 contractSentDate: new Date(),
-                status: "契約書送付済",
                 reminderCount: 0,
                 lastReminderSentAt: null,
                 formSubmittedAt: new Date(),
@@ -282,8 +363,28 @@ export async function POST(request: NextRequest) {
             });
           } catch (error) {
             console.error("CloudSign send error (email change):", error);
+
+            // 送付履歴にエラー記録
+            await recordContractAttempt({
+              slpMemberId: existingMember.id,
+              email: data.email,
+              sendResult: "api_error",
+              cloudsignStatus: "unknown",
+              triggerType: "email_change",
+            });
+
+            // メアド変更失敗 → 完全ロック
+            await prisma.slpMember.update({
+              where: { id: existingMember.id },
+              data: {
+                emailChangeUsed: true,
+                formLocked: true,
+                formSubmittedAt: new Date(),
+              },
+            });
+
             await logAutomationError({
-              source: "public/slp/member-registration",
+              source: "slp-member-registration",
               message: `契約書再送付失敗（メール変更）: ${data.name}`,
               detail: {
                 retryAction: "cloudsign-send",
@@ -293,17 +394,16 @@ export async function POST(request: NextRequest) {
                 error: String(error),
               },
             });
+
             return NextResponse.json({
-              success: false,
-              type: "error",
-              error: "契約書の送付に失敗しました。公式LINEにお問い合わせください。",
+              success: true,
+              type: "form_locked",
             });
           }
         }
 
-        // メールアドレス同じ → リマインド可能か判定
+        // ─── (D-2) メールアドレス同じ → リマインド判定 ───
         if (isRemindExpired(existingMember.contractSentDate)) {
-          // リマインド期限切れ → resubmittedフラグを立てる
           await prisma.slpMember.update({
             where: { id: existingMember.id },
             data: { resubmitted: true, formSubmittedAt: new Date() },
@@ -325,15 +425,16 @@ export async function POST(request: NextRequest) {
           email: existingMember.email,
           documentId: existingMember.documentId,
           canRemind: isRemindable(existingMember.contractSentDate),
+          emailChangeAvailable: !existingMember.emailChangeUsed,
         });
       }
 
-      // (C) 契約書未送付 or 契約破棄 → 情報更新して新規送付
+      // (E) 契約書未送付 or 契約破棄 or 送付エラー → 情報更新して新規送付
       // fall through to new registration logic below
     }
 
     // =============================================
-    // 新規メンバー or 未送付/破棄 → 登録＋契約書送付
+    // 新規メンバー or 未送付/破棄/送付エラー → 登録＋契約書送付
     // =============================================
     const now = new Date();
 
@@ -344,12 +445,12 @@ export async function POST(request: NextRequest) {
     });
     const autoSendEnabled = slpProjectSettings?.autoSendContract ?? true;
 
-    // CloudSign で契約書を送付（slpMemberIdは既存メンバーの場合のみ）
     let documentId: string | null = null;
     let cloudsignUrl: string | null = null;
     let contractId: number | null = null;
     let newStatus = "契約書未送付";
     let contractSentDate: Date | null = null;
+    let sendResult: "delivered" | "api_error" | null = null;
 
     const existingMemberId = existingMember && !existingMember.deletedAt ? existingMember.id : null;
 
@@ -365,10 +466,11 @@ export async function POST(request: NextRequest) {
         contractId = result.contractId;
         newStatus = "契約書送付済";
         contractSentDate = now;
+        sendResult = "delivered";
       } catch (error) {
         console.error("CloudSign send error:", error);
         await logAutomationError({
-          source: "public/slp/member-registration",
+          source: "slp-member-registration",
           message: `契約書送付失敗: ${data.name}`,
           detail: {
             retryAction: "cloudsign-send",
@@ -378,14 +480,15 @@ export async function POST(request: NextRequest) {
             error: String(error),
           },
         });
-        // 送付失敗しても登録は行う。ステータスを「送付エラー」にしてOS側で検知可能に
         newStatus = "送付エラー";
+        sendResult = "api_error";
       }
     }
-    // autoSend OFF: newStatus = "契約書未送付" のまま
+
+    let memberId: number;
 
     if (existingMemberId) {
-      // 既存メンバー更新（未送付/破棄からの再登録）
+      // 既存メンバー更新（未送付/破棄/送付エラーからの再登録）
       await prisma.slpMember.update({
         where: { id: existingMemberId },
         data: {
@@ -410,8 +513,15 @@ export async function POST(request: NextRequest) {
           cloudsignBounced: false,
           cloudsignBouncedAt: null,
           cloudsignBouncedEmail: null,
+          // フロー制御リセット
+          bounceConfirmedAt: null,
+          bounceFixUsed: false,
+          emailChangeUsed: false,
+          formLocked: false,
+          autoSendLocked: false,
         },
       });
+      memberId = existingMemberId;
     } else {
       // 新規作成
       const watermarkCode = await generateWatermarkCode();
@@ -436,6 +546,7 @@ export async function POST(request: NextRequest) {
           watermarkCode,
         },
       });
+      memberId = newMember.id;
 
       // 新規作成時: MasterContractにslpMemberIdを紐付け
       if (contractId) {
@@ -444,6 +555,19 @@ export async function POST(request: NextRequest) {
           data: { slpMemberId: newMember.id },
         });
       }
+    }
+
+    // 送付履歴に記録（送付を試みた場合のみ）
+    if (sendResult) {
+      await recordContractAttempt({
+        slpMemberId: memberId,
+        email: data.email,
+        documentId,
+        cloudsignUrl,
+        sendResult,
+        cloudsignStatus: sendResult === "delivered" ? "pending" : "unknown",
+        triggerType: "initial",
+      });
     }
 
     // ProLineフォーム送信（fire-and-forget、CloudSign成否に関わらず送信）
@@ -484,7 +608,6 @@ export async function POST(request: NextRequest) {
         sentDate: now.toISOString(),
       });
     } else {
-      // 送付エラー: ユーザーには「お待ちください」表示、OS側では「送付エラー」ステータスで検知
       return NextResponse.json({
         success: true,
         type: "send_error",
@@ -493,7 +616,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Member registration error:", error);
 
-    // Prismaエラーを日本語メッセージに変換
     let userMessage = "組合員登録処理でエラーが発生しました";
     const errorStr = String(error);
     if (errorStr.includes("Foreign key constraint") && errorStr.includes("referrerUid")) {

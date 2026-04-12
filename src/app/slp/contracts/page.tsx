@@ -43,7 +43,7 @@ export default async function SlpContractsPage() {
       include: {
         currentStatus: true,
         slpMember: {
-          select: { id: true, name: true, email: true, uid: true, reminderExcluded: true },
+          select: { id: true, name: true, email: true, uid: true, reminderExcluded: true, cloudsignBounced: true },
         },
         contractFiles: {
           select: { id: true, filePath: true, fileName: true },
@@ -75,6 +75,7 @@ export default async function SlpContractsPage() {
     contractType: c.contractType,
     memberName: c.slpMember?.name ?? "-",
     memberEmail: c.slpMember?.email ?? "-",
+    memberBounced: c.slpMember?.cloudsignBounced ?? false,
     title: c.title,
     statusName: c.currentStatus?.name ?? "-",
     statusType: (c.currentStatus?.statusType ?? "progress") as "progress" | "signed" | "discarded",

@@ -213,3 +213,114 @@ export function isRemindExpired(contractSentDate: Date | null): boolean {
     (Date.now() - contractSentDate.getTime()) / (1000 * 60 * 60 * 24);
   return daysSinceSent > 10;
 }
+
+/**
+ * CloudSignの送信済み書類を取り消し（破棄）する
+ * PUT /documents/{documentId}/decline
+ */
+export async function declineSlpContract(documentId: string): Promise<void> {
+  const { clientId } = await getSlpCloudsignConfig();
+  const token = await cloudsignClient.getToken(clientId);
+  await cloudsignClient.declineDocument(token, documentId);
+}
+
+/**
+ * 指定した組合員に対する送信エラー系の自動化エラーを解決済みにする
+ * 新しい契約書が正常に送付された時に呼び出す
+ */
+export async function resolveRelatedAutomationErrors(
+  memberUid: string,
+  memberName: string
+): Promise<void> {
+  try {
+    // detail JSON内にuidが含まれるcloudsign-bounce系 / slp-member-registration系の未解決エラーを解決
+    const unresolvedErrors = await prisma.automationError.findMany({
+      where: {
+        resolved: false,
+        source: {
+          in: [
+            "cloudsign-bounce",
+            "slp-member-registration",
+            "cloudsign-webhook-bounced-notify",
+          ],
+        },
+      },
+      select: { id: true, detail: true },
+    });
+
+    const idsToResolve: number[] = [];
+    for (const err of unresolvedErrors) {
+      if (!err.detail) continue;
+      try {
+        const detail = JSON.parse(err.detail);
+        if (detail.uid === memberUid || detail.memberName === memberName) {
+          idsToResolve.push(err.id);
+        }
+      } catch {
+        // JSON parse failure, skip
+      }
+    }
+
+    if (idsToResolve.length > 0) {
+      await prisma.automationError.updateMany({
+        where: { id: { in: idsToResolve } },
+        data: { resolved: true },
+      });
+      console.log(
+        `[resolveRelatedAutomationErrors] Resolved ${idsToResolve.length} errors for uid=${memberUid}`
+      );
+    }
+  } catch (err) {
+    console.error("[resolveRelatedAutomationErrors] Error:", err);
+  }
+}
+
+/**
+ * SlpContractAttempt（送付履歴）テーブルにレコードを作成する
+ * sequence は同じ組合員の既存レコードの最大値 + 1 を自動計算
+ */
+export async function recordContractAttempt(data: {
+  slpMemberId: number;
+  email: string;
+  documentId?: string | null;
+  cloudsignUrl?: string | null;
+  sendResult: "delivered" | "bounced" | "api_error";
+  cloudsignStatus?: string | null;
+  triggerType: "initial" | "bounce_fix" | "email_change" | "staff_manual";
+}) {
+  // sequence を自動計算（同じ組合員の max(sequence) + 1）
+  // 並行性対応: 一意制約(slpMemberId, sequence)違反時は最大3回リトライ
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const maxResult = await prisma.slpContractAttempt.aggregate({
+      where: { slpMemberId: data.slpMemberId },
+      _max: { sequence: true },
+    });
+    const sequence = (maxResult._max.sequence ?? 0) + 1 + attempt;
+
+    try {
+      return await prisma.slpContractAttempt.create({
+        data: {
+          slpMemberId: data.slpMemberId,
+          email: data.email,
+          documentId: data.documentId ?? null,
+          cloudsignUrl: data.cloudsignUrl ?? null,
+          sendResult: data.sendResult,
+          cloudsignStatus: data.cloudsignStatus ?? null,
+          triggerType: data.triggerType,
+          sequence,
+        },
+      });
+    } catch (err) {
+      // P2002 = Unique constraint violation
+      const isUniqueErr =
+        err && typeof err === "object" && "code" in err && err.code === "P2002";
+      if (isUniqueErr && attempt < MAX_RETRIES - 1) {
+        // 次のsequenceで再試行
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error("送付履歴の記録に失敗しました（sequence競合）");
+}

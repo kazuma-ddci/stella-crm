@@ -365,7 +365,16 @@ export function ContractsTable({ rows, statusOptions, contractTypeOptions }: Pro
                   </TableCell>
                   <TableCell>{row.memberName}</TableCell>
                   <TableCell className="text-sm">{row.memberEmail}</TableCell>
-                  <TableCell>{statusBadge(row.statusName, row.statusType)}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5">
+                      {statusBadge(row.statusName, row.statusType)}
+                      {row.memberBounced && (
+                        <Badge variant="destructive" className="text-[10px]">
+                          メール不達
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-sm">{row.sentAt}</TableCell>
                   {showSignedDate && (
                     <TableCell className="text-sm">{row.signedDate}</TableCell>

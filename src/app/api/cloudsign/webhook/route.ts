@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { syncContractStatus } from "@/lib/cloudsign-sync";
 import { logAutomationError } from "@/lib/automation-error";
 import { submitForm5ContractNotification, submitForm15BounceNotification } from "@/lib/proline-form";
+import { declineSlpContract, resolveRelatedAutomationErrors } from "@/lib/slp-cloudsign";
 
 /**
  * POST /api/cloudsign/webhook
@@ -160,35 +161,97 @@ export async function POST(request: NextRequest) {
       }
 
       if (bouncedMember) {
-        await prisma.slpMember.update({
-          where: { id: bouncedMember.id },
-          data: {
-            cloudsignBounced: true,
-            cloudsignBouncedAt: new Date(),
-            cloudsignBouncedEmail: bouncedEmail,
+        // 冪等性チェック: 既にこのdocumentIdがbouncedとして記録済みならスキップ
+        // （CloudSignが同じWebhookを複数回送ってきた場合の重複処理を防ぐ）
+        const alreadyBounced = await prisma.slpContractAttempt.findFirst({
+          where: {
+            slpMemberId: bouncedMember.id,
+            documentId: documentID,
+            sendResult: "bounced",
           },
+          select: { id: true },
         });
-        await logAutomationError({
-          source: "cloudsign-bounce",
-          message: `CloudSignメール送信失敗: ${bouncedMember.name} (${bouncedEmail})`,
-          detail: {
+        if (alreadyBounced && status !== 2) {
+          console.log(
+            `[CloudSign Webhook/Bounce] Already processed: documentID=${documentID}, skipping duplicate notifications`
+          );
+          return NextResponse.json({
+            ok: true,
+            message: "bounce already processed (idempotent skip)",
             memberId: bouncedMember.id,
-            memberName: bouncedMember.name,
-            bouncedEmail,
-            bouncedAt: new Date().toISOString(),
-            documentID,
-            rawStatus: status,
-            source: "webhook",
-            retryAction: "slp-resend-cloudsign",
+          });
+        }
+
+        // SlpContractAttemptのsendResultを「bounced」に更新
+        await prisma.slpContractAttempt.updateMany({
+          where: {
+            slpMemberId: bouncedMember.id,
+            documentId: documentID,
+            sendResult: "delivered",
+          },
+          data: {
+            sendResult: "bounced",
+            cloudsignStatus: "pending", // CloudSign上はまだ先方確認中
           },
         });
 
-        // 契約書メール不達をお客様にLINE通知（fire-and-forget）
+        // バウンスしたdocumentIdが「最新」かどうかを判定
+        // 並行方式で旧契約が遅延バウンス通知された場合、最新契約への影響を避ける
+        const isLatestContract =
+          bouncedMember.documentId === documentID;
+
+        // 最新契約のバウンスの場合のみ、memberのcloudsign不達フラグを更新
+        // （古い契約の遅延バウンスで、新しい契約の状態を上書きしないように）
+        if (isLatestContract) {
+          const memberUpdateData: Record<string, unknown> = {
+            cloudsignBounced: true,
+            cloudsignBouncedAt: new Date(),
+            cloudsignBouncedEmail: bouncedEmail,
+          };
+          if (bouncedMember.emailChangeUsed) {
+            // メアド変更後の送付がバウンスした → 完全ロック
+            memberUpdateData.formLocked = true;
+          } else if (bouncedMember.bounceFixUsed) {
+            // 不達修正後の再送付もバウンス → 自動送付停止（希望メアド保存のみ可能）
+            memberUpdateData.autoSendLocked = true;
+          }
+
+          await prisma.slpMember.update({
+            where: { id: bouncedMember.id },
+            data: memberUpdateData,
+          });
+        } else {
+          console.log(
+            `[CloudSign Webhook/Bounce] Not the latest contract, skipping member update: documentID=${documentID}, latest=${bouncedMember.documentId}`
+          );
+        }
+
+        // 自動化エラー記録（最新契約・旧契約問わず記録。旧契約の場合は別途スタッフ手動対応の必要性を記録）
+        await logAutomationError({
+          source: "cloudsign-bounce",
+          message: isLatestContract
+            ? `CloudSignメール送信失敗: ${bouncedMember.name} (${bouncedEmail})`
+            : `CloudSignメール送信失敗（旧契約の遅延通知）: ${bouncedMember.name} (${bouncedEmail})`,
+          detail: {
+            memberId: bouncedMember.id,
+            memberName: bouncedMember.name,
+            uid: bouncedMember.uid,
+            bouncedEmail,
+            bouncedAt: new Date().toISOString(),
+            documentID,
+            isLatestContract,
+            rawStatus: status,
+            source: "webhook",
+            retryAction: isLatestContract ? "slp-resend-cloudsign" : undefined,
+          },
+        });
+
+        // 契約書メール不達をお客様にLINE通知（最新契約のバウンスのみ、fire-and-forget）
         const bouncedMemberUid = bouncedMember.uid;
-        if (bouncedMemberUid) {
+        if (isLatestContract && bouncedMemberUid) {
           submitForm15BounceNotification(
             bouncedMemberUid,
-            "組合員入会の契約書をメールでお送りしましたが、メールが届きませんでした。\nお手数ですが、再度入会フォームを開いてメールアドレスをご確認ください。"
+            "組合員入会の契約書をメールでお送りしましたが、メールが送信できませんでした。\nお手数ですが、再度入会フォームを開いてメールアドレスをご確認ください。"
           ).catch(async (err) => {
             await logAutomationError({
               source: "cloudsign-webhook-bounced-notify",
@@ -201,7 +264,28 @@ export async function POST(request: NextRequest) {
           });
         }
       } else {
-        // 該当組合員なしでも記録（どの契約かは追跡できるようにする）
+        // 該当組合員なし → 未照合バウンスとして保存（後でスタッフが照合可能に）
+        // 冪等性: 同一documentIdで既存レコードがあればスキップ
+        const existingUnmatched = await prisma.slpUnmatchedBounce.findFirst({
+          where: { documentId: documentID },
+          select: { id: true },
+        });
+        if (existingUnmatched) {
+          console.log(
+            `[CloudSign Webhook/Bounce] Unmatched bounce already recorded: documentID=${documentID}`
+          );
+          return NextResponse.json({
+            ok: true,
+            message: "unmatched bounce already recorded",
+          });
+        }
+        await prisma.slpUnmatchedBounce.create({
+          data: {
+            documentId: documentID,
+            bouncedEmail,
+            webhookText: text,
+          },
+        });
         await logAutomationError({
           source: "cloudsign-bounce",
           message: `CloudSignメール送信失敗（該当組合員なし）: ${bouncedEmail}`,
@@ -377,6 +461,72 @@ async function syncSlpMemberFromContract(
     console.log(
       `[CloudSign Webhook] SLP member #${member.id} (${member.name}) → 組合員契約書締結`
     );
+
+    // 締結されたドキュメントのSlpContractAttemptをcompleted に更新
+    const completedContract = await prisma.masterContract.findFirst({
+      where: { slpMemberId: member.id, cloudsignStatus: "completed" },
+      select: { cloudsignDocumentId: true },
+    });
+    if (completedContract?.cloudsignDocumentId) {
+      await prisma.slpContractAttempt.updateMany({
+        where: {
+          slpMemberId: member.id,
+          documentId: completedContract.cloudsignDocumentId,
+        },
+        data: { cloudsignStatus: "completed" },
+      });
+    }
+
+    // 並行方式: 同じ組合員の他の未締結契約書を自動破棄
+    const otherPendingContracts = await prisma.masterContract.findMany({
+      where: {
+        slpMemberId: member.id,
+        cloudsignStatus: { in: ["sent"] },
+        cloudsignDocumentId: { not: completedContract?.cloudsignDocumentId ?? "" },
+      },
+      select: { id: true, cloudsignDocumentId: true },
+    });
+    for (const otherContract of otherPendingContracts) {
+      if (!otherContract.cloudsignDocumentId) continue;
+      try {
+        await declineSlpContract(otherContract.cloudsignDocumentId);
+        await prisma.masterContract.update({
+          where: { id: otherContract.id },
+          data: { cloudsignStatus: "canceled_by_sender" },
+        });
+        // SlpContractAttemptも更新
+        await prisma.slpContractAttempt.updateMany({
+          where: {
+            slpMemberId: member.id,
+            documentId: otherContract.cloudsignDocumentId,
+          },
+          data: { cloudsignStatus: "canceled", declinedAt: new Date(), declinedBy: "system（自動破棄）" },
+        });
+        console.log(
+          `[CloudSign Webhook] Auto-declined parallel contract: documentId=${otherContract.cloudsignDocumentId}`
+        );
+      } catch (declineErr) {
+        console.error(
+          `[CloudSign Webhook] Failed to auto-decline parallel contract: documentId=${otherContract.cloudsignDocumentId}`,
+          declineErr
+        );
+        await logAutomationError({
+          source: "cloudsign-webhook/auto-decline",
+          message: `旧契約書の自動破棄に失敗しました（組合員: ${member.name}）`,
+          detail: {
+            memberId: member.id,
+            memberName: member.name,
+            uid: member.uid,
+            failedDocumentId: otherContract.cloudsignDocumentId,
+            error: String(declineErr),
+            hint: "クラウドサインにログインして手動で破棄してください。",
+          },
+        });
+      }
+    }
+
+    // 関連する自動化エラーを解決済みにする
+    await resolveRelatedAutomationErrors(member.uid, member.name);
 
     // Form5: 紹介者に契約締結通知を送信
     // 判定: 現在のfree1（紹介者UID）が form5NotifiedReferrerUid と異なる場合のみ送信

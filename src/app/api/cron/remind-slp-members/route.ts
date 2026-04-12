@@ -57,10 +57,14 @@ export async function GET(request: NextRequest) {
           gte: nPlusOneDaysAgo,
           lte: nDaysAgo,
         },
-        // 紐づくSlpMemberが除外されていない
+        // 紐づくSlpMemberが除外されていない、かつ不達・ロック状態でないこと
+        // （不達/ロック中のメンバーにリマインドを送っても届かない → 220円の無駄）
         slpMember: {
           reminderExcluded: false,
           deletedAt: null,
+          cloudsignBounced: false,
+          formLocked: false,
+          autoSendLocked: false,
         },
       },
       include: {
