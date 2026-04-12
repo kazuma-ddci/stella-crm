@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendSlpRemind, isRemindable } from "@/lib/slp-cloudsign";
 import { sendSlpRemindLegacy } from "@/lib/slp-cloudsign-legacy";
+import { logAutomationError } from "@/lib/automation-error";
 
 /**
  * POST /api/public/slp/member-remind
@@ -81,6 +82,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Member remind error:", error);
+    await logAutomationError({
+      source: "slp-member-remind",
+      message: `組合員への契約書リマインド送信に失敗しました`,
+      detail: {
+        originalError: String(error),
+        hint: "CloudSignの設定や契約書の状態を確認してください。必要に応じて手動でリマインドを送信してください。",
+      },
+    });
     return NextResponse.json(
       { success: false, error: "リマインドの送信に失敗しました" },
       { status: 500 }
