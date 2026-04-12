@@ -56,6 +56,12 @@ export default async function SlpLineFriendsPage() {
     ? friends.reduce((latest, f) => (f.updatedAt > latest ? f.updatedAt : latest), new Date(0))
     : null;
 
+  // uid → {displayNo, snsname} のマップ（紹介者解決用 + free1バリデーション用）
+  const friendByUidMap = new Map<string, { displayNo: number; snsname: string | null }>();
+  for (const f of friends) {
+    friendByUidMap.set(f.uid, { displayNo: f.id, snsname: f.snsname });
+  }
+
   const data = friends.map((f) => ({
     id: f.id,
     displayNo: f.id,
@@ -111,12 +117,6 @@ export default async function SlpLineFriendsPage() {
       // draft, canceled等
       memberStatusMap.set(m.uid, "契約書送付待ち");
     }
-  }
-
-  // uid → {displayNo, snsname} のマップ（紹介者解決用）
-  const friendByUidMap = new Map<string, { displayNo: number; snsname: string | null }>();
-  for (const f of friends) {
-    friendByUidMap.set(f.uid, { displayNo: f.id, snsname: f.snsname });
   }
 
   const userData = friends.map((f) => {
