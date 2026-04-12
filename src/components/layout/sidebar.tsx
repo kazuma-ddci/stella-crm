@@ -248,13 +248,11 @@ const navigation: NavItem[] = [
         sectionLabel: true,
         children: [
           { name: "全顧客マスタ", href: "/companies", icon: BookOpen },
-          { name: "事業者名簿", href: "/slp/companies", icon: Building2 },
           { name: "組合員名簿", href: "/slp/members", icon: Users },
-          { name: "契約書", href: "/slp/contracts", icon: FileText },
+          { name: "事業者名簿", href: "/slp/companies", icon: Building2 },
           { name: "公式LINE友達情報", href: "/slp/line-friends", icon: MessageSquare },
         ],
       },
-      { name: "経費申請", href: "/slp/expenses/new", icon: Plus },
       {
         name: "代理店",
         icon: Handshake,
@@ -264,11 +262,21 @@ const navigation: NavItem[] = [
         ],
       },
       {
+        name: "売上・経費",
+        icon: Plus,
+        sectionLabel: true,
+        children: [
+          { name: "経費申請", href: "/slp/expenses/new", icon: Plus },
+        ],
+      },
+      {
         name: "管理",
         icon: Settings,
         sectionLabel: true,
         children: [
+          { name: "契約書", href: "/slp/contracts", icon: FileText },
           { name: "スタッフ管理", href: "/staff", icon: Users },
+          { name: "説明書", href: "/slp/guide", icon: BookOpen },
           {
             name: "固有設定",
             icon: Settings,
