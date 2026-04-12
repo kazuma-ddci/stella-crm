@@ -970,8 +970,15 @@ async function _changeStatusWithReasonImpl(
 
   const staffId = await getCurrentStaffId();
 
+  // ステータス変更に伴い canceledAt も整合させる:
+  // - 「キャンセル」に変更 → canceledAt をセット
+  // - 「キャンセル」以外に変更 → canceledAt をクリア（過去のキャンセル記録を解消）
+  // これにより resolver.ts の `status === "予約中" && canceledAt === null` 判定が正しく動作する
+  const canceledAtValue = toStatus === "キャンセル" ? new Date() : null;
   const updateData =
-    flow === "briefing" ? { briefingStatus: toStatus } : { consultationStatus: toStatus };
+    flow === "briefing"
+      ? { briefingStatus: toStatus, briefingCanceledAt: canceledAtValue }
+      : { consultationStatus: toStatus, consultationCanceledAt: canceledAtValue };
 
   await prisma.$transaction([
     prisma.slpCompanyRecord.update({
