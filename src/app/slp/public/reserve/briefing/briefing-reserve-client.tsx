@@ -83,7 +83,8 @@ export function BriefingReserveClient({
       companyRecordIds: [recordId],
     });
     if (result.success) {
-      // 既存事業者も準備完了画面をスキップして直接予約フォームに遷移
+      // 既存事業者も準備完了画面をスキップして直接予約フォームに遷移（外部URL）
+      // eslint-disable-next-line react-hooks/immutability
       window.location.href = result.calendarUrl;
     } else {
       setStep({ type: "error", message: result.error });
