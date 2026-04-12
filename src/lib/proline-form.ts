@@ -503,6 +503,45 @@ export async function submitForm14PreFillConsultationReservation(
   }
 }
 
+// ============================================
+// Form 15: 契約書メール不達通知
+// ============================================
+
+const FORM15_BASE_URL = "https://zcr5z7pk.autosns.app/fm/q4KYTVil9N";
+
+/**
+ * 契約書のメール送付が不達（BOUNCED）になった場合に、
+ * お客様にLINEで通知するためのフォーム送信。
+ *
+ * @param uid プロラインUID
+ * @param message 通知メッセージ（自由テキスト）
+ */
+export async function submitForm15BounceNotification(
+  uid: string,
+  message: string
+): Promise<void> {
+  const url = `${FORM15_BASE_URL}?uid=${encodeURIComponent(uid)}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      dataType: "json",
+      "form15-1": message,
+    }),
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`ProLine Form15 API error: ${response.status} ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  if (result.status !== "200" && result.status !== 200) {
+    throw new Error(`ProLine Form15 API returned error: ${JSON.stringify(result)}`);
+  }
+}
+
 /**
  * リッチメニューを開放する（call-beacon経由）
  * 成功判定: レスポンスJSONの status === 0

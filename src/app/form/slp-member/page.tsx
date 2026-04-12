@@ -21,6 +21,7 @@ import {
   FileCheck,
   Bell,
   Mail,
+  MailWarning,
 } from "lucide-react";
 import { getPublicUid } from "@/lib/slp/public-uid";
 
@@ -44,9 +45,11 @@ interface FormData {
 }
 
 type PageStatus =
+  | "loading"
   | "no_uid"
   | "form"
   | "submitting"
+  | "checking_bounce"
   | "success"
   | "already_signed"
   | "already_sent"
@@ -55,7 +58,10 @@ type PageStatus =
   | "email_changed"
   | "email_change_limit"
   | "send_error"
-  | "error";
+  | "error"
+  | "bounce_detected"
+  | "fix_bounce_email"
+  | "bounce_retry_fail";
 
 type ApiResponse = {
   success: boolean;
@@ -69,6 +75,7 @@ type ApiResponse = {
   remainingChanges?: number;
   documentId?: string;
   canRemind?: boolean;
+  bouncedEmail?: string;
 };
 
 function formatDateTime(isoString: string | null | undefined): string {
@@ -108,9 +115,28 @@ function StatusCard({
   );
 }
 
+/** 不達チェックのポーリング（1.5秒間隔で最大7回 = 約10秒） */
+async function pollBounceCheck(uid: string): Promise<{ bounced: boolean; bouncedEmail: string | null }> {
+  for (let i = 0; i < 7; i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    try {
+      const res = await fetch(
+        `/api/public/slp/member-bounced-check?uid=${encodeURIComponent(uid)}`
+      );
+      const data = await res.json();
+      if (data.bounced) {
+        return { bounced: true, bouncedEmail: data.bouncedEmail };
+      }
+    } catch {
+      // ネットワークエラーは無視して次のポーリングへ
+    }
+  }
+  return { bounced: false, bouncedEmail: null };
+}
+
 export default function SlpMemberRegistrationPage() {
   const searchParams = useSearchParams();
-  const [status, setStatus] = useState<PageStatus>("form");
+  const [status, setStatus] = useState<PageStatus>("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [apiResponse, setApiResponse] = useState<ApiResponse | null>(null);
   const [remindSent, setRemindSent] = useState(false);
@@ -119,8 +145,6 @@ export default function SlpMemberRegistrationPage() {
   const [showLineNameConfirm, setShowLineNameConfirm] = useState(false);
 
   const lineNameParam = searchParams.get("lineName") || "";
-  // uid は URL と sessionStorage の両方から取得（リロード時の復元に対応）
-  // 初期値は空で、useEffect 内で解決する
   const [uidParam, setUidParam] = useState("");
 
   const [formData, setFormData] = useState<FormData>({
@@ -136,23 +160,94 @@ export default function SlpMemberRegistrationPage() {
     note: "",
   });
 
-  // UID を URL / sessionStorage から取得、ない場合はエラー
-  useEffect(() => {
-    const resolved = getPublicUid();
-    if (!resolved) {
-      setStatus("no_uid");
-      return;
-    }
-    setUidParam(resolved);
+  // 不達修正用
+  const [fixEmail, setFixEmail] = useState("");
 
-    // URL に uid が含まれていなければ付け直しておく（以降のリロードに備える）
-    const sp = new URLSearchParams(window.location.search);
-    if (!sp.get("uid")) {
-      const url = new URL(window.location.href);
-      url.searchParams.set("uid", resolved);
-      window.history.replaceState(null, "", url.pathname + url.search);
-    }
-  }, []);
+  // UID取得 + プリフィル
+  useEffect(() => {
+    const init = async () => {
+      const resolved = getPublicUid();
+      if (!resolved) {
+        setStatus("no_uid");
+        return;
+      }
+      setUidParam(resolved);
+
+      // URL に uid が含まれていなければ付け直す
+      const sp = new URLSearchParams(window.location.search);
+      if (!sp.get("uid")) {
+        const url = new URL(window.location.href);
+        url.searchParams.set("uid", resolved);
+        window.history.replaceState(null, "", url.pathname + url.search);
+      }
+
+      // プリフィルデータを取得
+      try {
+        const res = await fetch(
+          `/api/public/slp/member-prefill?uid=${encodeURIComponent(resolved)}`
+        );
+        const prefill = await res.json();
+
+        if (prefill.exists) {
+          // 不達状態 → メアド確認画面を優先表示
+          if (prefill.cloudsignBounced) {
+            setApiResponse({
+              success: true,
+              type: "bounce_detected",
+              bouncedEmail: prefill.cloudsignBouncedEmail,
+              email: prefill.email,
+            });
+            setFixEmail(prefill.email ?? "");
+            setStatus("bounce_detected");
+            return;
+          }
+
+          // 契約締結済み
+          if (prefill.status === "組合員契約書締結") {
+            setApiResponse({
+              success: true,
+              type: "already_signed",
+              signedDate: prefill.contractSignedDate,
+            });
+            setStatus("already_signed");
+            return;
+          }
+
+          // 契約書送付済み
+          if (prefill.status === "契約書送付済") {
+            setApiResponse({
+              success: true,
+              type: "already_sent",
+              sentDate: prefill.contractSentDate,
+              email: prefill.email,
+              canRemind: true,
+            });
+            setStatus("already_sent");
+            return;
+          }
+
+          // フォームにプリフィル（未送付/送付エラー/その他）
+          setFormData((prev) => ({
+            ...prev,
+            memberCategory: prefill.memberCategory ?? prev.memberCategory,
+            lineName: prefill.lineName ?? prev.lineName,
+            name: prefill.name ?? prev.name,
+            position: prefill.position ?? prev.position,
+            email: prefill.email ?? prev.email,
+            phone: prefill.phone ?? prev.phone,
+            company: prefill.company ?? prev.company,
+            address: prefill.address ?? prev.address,
+          }));
+        }
+      } catch {
+        // プリフィル失敗は無視（空フォームで表示）
+      }
+
+      setStatus("form");
+    };
+
+    init();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (lineNameParam) {
@@ -184,8 +279,8 @@ export default function SlpMemberRegistrationPage() {
   };
 
   const submitForm = useCallback(
-    async (confirmEmailChange = false) => {
-      if (!confirmEmailChange) {
+    async (confirmEmailChange = false, fixBounce = false) => {
+      if (!confirmEmailChange && !fixBounce) {
         const error = validate();
         if (error) {
           setErrorMessage(error);
@@ -196,23 +291,27 @@ export default function SlpMemberRegistrationPage() {
       setStatus("submitting");
 
       try {
+        const body: Record<string, unknown> = {
+          memberCategory: formData.memberCategory,
+          lineName: formData.lineName,
+          name: formData.name,
+          position: formData.position,
+          email: fixBounce ? fixEmail : formData.email,
+          phone: formData.phone,
+          company: formData.company || null,
+          address: formData.address,
+          note: formData.note || null,
+          uid: uidParam,
+          confirmEmailChange,
+        };
+        if (fixBounce) {
+          body.fixBounce = true;
+        }
+
         const response = await fetch("/api/public/slp/member-registration", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            memberCategory: formData.memberCategory,
-            lineName: formData.lineName,
-            name: formData.name,
-            position: formData.position,
-            email: formData.email,
-            phone: formData.phone,
-            company: formData.company || null,
-            address: formData.address,
-            note: formData.note || null,
-            uid: uidParam,
-
-            confirmEmailChange,
-          }),
+          body: JSON.stringify(body),
         });
 
         const data: ApiResponse = await response.json();
@@ -231,6 +330,30 @@ export default function SlpMemberRegistrationPage() {
         };
 
         const newStatus = statusMap[data.type] || "error";
+
+        // success / email_changed の場合、10秒間ポーリングで不達チェック
+        if (newStatus === "success" || newStatus === "email_changed") {
+          setStatus("checking_bounce");
+          const bounceResult = await pollBounceCheck(uidParam);
+          if (bounceResult.bounced) {
+            setApiResponse((prev) => ({
+              ...prev!,
+              bouncedEmail: bounceResult.bouncedEmail ?? undefined,
+            }));
+            setFixEmail(data.email ?? formData.email);
+            if (fixBounce) {
+              // 不達修正後の再送付でまた不達 → スタッフ対応
+              setStatus("bounce_retry_fail");
+            } else {
+              setStatus("bounce_detected");
+            }
+            return;
+          }
+          // 不達なし → 通常の成功画面
+          setStatus(newStatus);
+          return;
+        }
+
         if (newStatus === "error") {
           setErrorMessage(data.error || "送信に失敗しました");
         }
@@ -240,13 +363,17 @@ export default function SlpMemberRegistrationPage() {
         setStatus("error");
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [formData, uidParam]
+    [formData, fixEmail, uidParam]
   );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    submitForm(false);
+    submitForm(false, false);
+  };
+
+  const handleFixBounceSubmit = () => {
+    if (!fixEmail.trim()) return;
+    submitForm(false, true);
   };
 
   const handleRemind = async () => {
@@ -272,6 +399,18 @@ export default function SlpMemberRegistrationPage() {
 
   // ===== 各種状態画面 =====
 
+  // ローディング（プリフィル取得中）
+  if (status === "loading") {
+    return (
+      <KoutekiPageShell title="組合員入会申込フォーム">
+        <div className="flex flex-col items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-3" />
+          <p className="text-sm text-slate-500">読み込み中...</p>
+        </div>
+      </KoutekiPageShell>
+    );
+  }
+
   // UID なし → エラーページ
   if (status === "no_uid") {
     return (
@@ -287,6 +426,127 @@ export default function SlpMemberRegistrationPage() {
           <p>
             修正されたのに同じエラー画面が表示されている場合は、お手数ですが<strong>公式LINE</strong>へメッセージをお送りください。
           </p>
+        </StatusCard>
+      </KoutekiPageShell>
+    );
+  }
+
+  // 送信確認中（10秒ポーリング）
+  if (status === "checking_bounce") {
+    return (
+      <KoutekiPageShell title="組合員入会申込フォーム">
+        <div className="flex flex-col items-center justify-center py-16">
+          <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
+          <h2 className="text-lg font-bold text-slate-900 mb-2">
+            契約書を送信確認中です
+          </h2>
+          <p className="text-sm text-slate-500">
+            メールの送信状況を確認しています...
+          </p>
+        </div>
+      </KoutekiPageShell>
+    );
+  }
+
+  // 不達検知 → メアド確認画面
+  if (status === "bounce_detected") {
+    return (
+      <KoutekiPageShell title="組合員入会申込フォーム">
+        <StatusCard
+          icon={<MailWarning className="h-8 w-8 text-amber-600" />}
+          iconBg="bg-amber-50"
+          title="メールが届きませんでした"
+        >
+          <div className="rounded-xl bg-amber-50 border border-amber-200 p-4">
+            <p className="text-amber-800">
+              以下のメールアドレス宛に契約書を送付しましたが、メールが届きませんでした。
+              メールアドレスをご確認ください。
+            </p>
+            <p className="mt-2 font-semibold text-slate-800 break-all">
+              {apiResponse?.bouncedEmail || apiResponse?.email || fixEmail}
+            </p>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <KoutekiButton
+              variant="outline"
+              className="flex-1"
+              onClick={() => setStatus("bounce_retry_fail")}
+            >
+              間違いない
+            </KoutekiButton>
+            <KoutekiButton
+              className="flex-1"
+              onClick={() => {
+                setFixEmail(apiResponse?.bouncedEmail || apiResponse?.email || "");
+                setStatus("fix_bounce_email");
+              }}
+            >
+              変更する
+            </KoutekiButton>
+          </div>
+        </StatusCard>
+      </KoutekiPageShell>
+    );
+  }
+
+  // メアド再入力画面
+  if (status === "fix_bounce_email") {
+    return (
+      <KoutekiPageShell title="組合員入会申込フォーム">
+        <StatusCard
+          icon={<Mail className="h-8 w-8 text-blue-600" />}
+          iconBg="bg-blue-50"
+          title="メールアドレスを変更"
+        >
+          <p>正しいメールアドレスを入力してください。契約書を再送付します。</p>
+          <KoutekiFormField label="メールアドレス" required htmlFor="fix-email">
+            <KoutekiInput
+              id="fix-email"
+              type="email"
+              value={fixEmail}
+              onChange={(e) => setFixEmail(e.target.value)}
+              placeholder="example@email.com"
+            />
+          </KoutekiFormField>
+          <div className="flex gap-3 pt-2">
+            <KoutekiButton
+              variant="outline"
+              className="flex-1"
+              onClick={() => setStatus("bounce_detected")}
+            >
+              戻る
+            </KoutekiButton>
+            <KoutekiButton
+              className="flex-1"
+              disabled={!fixEmail.trim()}
+              onClick={handleFixBounceSubmit}
+            >
+              再送付する
+            </KoutekiButton>
+          </div>
+        </StatusCard>
+      </KoutekiPageShell>
+    );
+  }
+
+  // 再送付も不達 / 「間違いない」→ スタッフ対応
+  if (status === "bounce_retry_fail") {
+    return (
+      <KoutekiPageShell title="組合員入会申込フォーム">
+        <StatusCard
+          icon={<AlertCircle className="h-8 w-8 text-amber-500" />}
+          iconBg="bg-amber-50"
+          title="契約書の送付に失敗しました"
+        >
+          <p>
+            メールの送付に問題が発生しています。
+            スタッフが確認して対応いたしますので、今しばらくお待ちください。
+          </p>
+          <div className="rounded-xl bg-blue-50 border border-blue-100 p-4">
+            <p className="text-blue-700 text-sm">
+              お急ぎの場合は、<strong>公式LINE</strong>へメッセージをお送りください。
+            </p>
+          </div>
         </StatusCard>
       </KoutekiPageShell>
     );
@@ -362,7 +622,6 @@ export default function SlpMemberRegistrationPage() {
             </p>
           </div>
 
-          {/* リマインドボタン */}
           {apiResponse?.canRemind && (
             <div className="text-center">
               {remindSent ? (
@@ -512,7 +771,7 @@ export default function SlpMemberRegistrationPage() {
     );
   }
 
-  // 送付エラー / その他エラー（ユーザー向けにはやさしいメッセージ）
+  // 送付エラー / その他エラー
   if (status === "send_error" || status === "error") {
     return (
       <KoutekiPageShell title="組合員入会申込フォーム">

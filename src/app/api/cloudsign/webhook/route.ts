@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { syncContractStatus } from "@/lib/cloudsign-sync";
 import { logAutomationError } from "@/lib/automation-error";
-import { submitForm5ContractNotification } from "@/lib/proline-form";
+import { submitForm5ContractNotification, submitForm15BounceNotification } from "@/lib/proline-form";
 
 /**
  * POST /api/cloudsign/webhook
@@ -182,6 +182,24 @@ export async function POST(request: NextRequest) {
             retryAction: "slp-resend-cloudsign",
           },
         });
+
+        // 契約書メール不達をお客様にLINE通知（fire-and-forget）
+        const bouncedMemberUid = bouncedMember.uid;
+        if (bouncedMemberUid) {
+          submitForm15BounceNotification(
+            bouncedMemberUid,
+            "組合員入会の契約書をメールでお送りしましたが、メールが届きませんでした。\nお手数ですが、再度入会フォームを開いてメールアドレスをご確認ください。"
+          ).catch(async (err) => {
+            await logAutomationError({
+              source: "cloudsign-webhook-bounced-notify",
+              message: "契約書メール不達のLINE通知送信に失敗しました",
+              detail: {
+                uid: bouncedMemberUid,
+                error: err instanceof Error ? err.message : String(err),
+              },
+            });
+          });
+        }
       } else {
         // 該当組合員なしでも記録（どの契約かは追跡できるようにする）
         await logAutomationError({

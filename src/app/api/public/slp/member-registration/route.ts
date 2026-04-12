@@ -18,6 +18,7 @@ interface RegistrationData {
   uid: string;
   // メールアドレス変更確認時
   confirmEmailChange?: boolean;
+  fixBounce?: boolean; // メール不達修正時のフラグ
 }
 
 /**
@@ -128,6 +129,68 @@ export async function POST(request: NextRequest) {
 
       // (B) 契約書送付済み
       if (status === "契約書送付済") {
+        // (B-0) メール不達 → メアド修正して再送付
+        if (existingMember.cloudsignBounced && data.fixBounce) {
+          try {
+            const result = await sendSlpContract({
+              email: data.email,
+              name: data.name,
+              slpMemberId: existingMember.id,
+            });
+
+            // bounced フラグをリセットし、新しいメアドで更新
+            // emailChangeCount はインクリメントしない（不達修正はカウント外）
+            await prisma.slpMember.update({
+              where: { id: existingMember.id },
+              data: {
+                email: data.email,
+                documentId: result.documentId,
+                cloudsignUrl: result.cloudsignUrl,
+                contractSentDate: new Date(),
+                status: "契約書送付済",
+                cloudsignBounced: false,
+                cloudsignBouncedAt: null,
+                cloudsignBouncedEmail: null,
+                reminderCount: 0,
+                lastReminderSentAt: null,
+                formSubmittedAt: new Date(),
+                // その他フォーム情報も更新
+                name: data.name,
+                memberCategory: data.memberCategory,
+                lineName: data.lineName,
+                position: data.position,
+                phone: data.phone,
+                company: data.company,
+                address: data.address,
+                memo: data.note || null,
+              },
+            });
+
+            return NextResponse.json({
+              success: true,
+              type: "success",
+              email: data.email,
+              sentDate: new Date().toISOString(),
+            });
+          } catch (error) {
+            console.error("CloudSign send error (bounce fix):", error);
+            await logAutomationError({
+              source: "slp-member-registration",
+              message: `契約書再送付失敗（メール不達修正）: ${data.name}`,
+              detail: {
+                uid: data.uid,
+                name: data.name,
+                email: data.email,
+                error: String(error),
+              },
+            });
+            return NextResponse.json({
+              success: true,
+              type: "send_error",
+            });
+          }
+        }
+
         const emailDiffers =
           existingMember.email?.toLowerCase() !== data.email.toLowerCase();
 
@@ -344,6 +407,9 @@ export async function POST(request: NextRequest) {
           reminderCount: 0,
           lastReminderSentAt: null,
           resubmitted: false,
+          cloudsignBounced: false,
+          cloudsignBouncedAt: null,
+          cloudsignBouncedEmail: null,
         },
       });
     } else {
