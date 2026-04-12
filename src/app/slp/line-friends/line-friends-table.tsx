@@ -6,7 +6,7 @@ import { CrudTable, ColumnDef, CustomAction, CustomRenderers } from "@/component
 import { addLineFriend, updateLineFriend, deleteLineFriend, triggerProLineSync, openRichMenu } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Menu } from "lucide-react";
+import { RefreshCw, Menu, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 type Props = {
@@ -138,6 +138,20 @@ export function LineFriendsTable({ data, lastSyncAt }: Props) {
           プロライン同期
         </Badge>
       ),
+    free1: (value, item) => {
+      if (!value) return null;
+      const isInvalid = item.free1Invalid === true;
+      return (
+        <span className="flex items-center gap-1">
+          <span className={isInvalid ? "text-red-700 font-medium" : ""}>{String(value)}</span>
+          {isInvalid && (
+            <span title="このUIDはLINE友達一覧に存在しません">
+              <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+            </span>
+          )}
+        </span>
+      );
+    },
   };
 
   // プロライン由来の行は編集・削除不可
@@ -176,6 +190,9 @@ export function LineFriendsTable({ data, lastSyncAt }: Props) {
         isEditDisabled={isRowFromProline}
         isDeleteDisabled={isRowFromProline}
         emptyMessage="LINE友達情報が登録されていません"
+        rowClassName={(item) =>
+          item.free1Invalid ? "!bg-red-50" : undefined
+        }
       />
     </div>
   );

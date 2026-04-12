@@ -81,6 +81,7 @@ export default async function SlpLineFriendsPage() {
     nendai: f.nendai,
     seibetu: f.seibetu,
     free1: f.free1,
+    free1Invalid: !!(f.free1 && !friendByUidMap.has(f.free1)),
     free2: f.free2,
     free3: f.free3,
     free4: f.free4,
