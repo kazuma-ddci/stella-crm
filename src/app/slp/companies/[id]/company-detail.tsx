@@ -1788,6 +1788,12 @@ export function CompanyDetail({
                   </div>
                   <div className="md:col-span-2">
                     <Label>案内担当者</Label>
+                    {!record.briefingStaffId && record.briefingStaff && (
+                      <div className="mb-1.5 rounded border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
+                        プロラインからの担当者名: <strong>{record.briefingStaff}</strong>
+                        <span className="text-amber-600 ml-1">（マッピング未登録）</span>
+                      </div>
+                    )}
                     <Select value={briefingStaffIdState} onValueChange={setBriefingStaffIdState}>
                       <SelectTrigger>
                         <SelectValue placeholder="選択してください" />
@@ -2005,6 +2011,12 @@ export function CompanyDetail({
                   </div>
                   <div className="md:col-span-2">
                     <Label>商談担当者</Label>
+                    {!record.consultationStaffId && record.consultationStaff && (
+                      <div className="mb-1.5 rounded border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
+                        プロラインからの担当者名: <strong>{record.consultationStaff}</strong>
+                        <span className="text-amber-600 ml-1">（マッピング未登録）</span>
+                      </div>
+                    )}
                     <Select value={consultationStaffIdState} onValueChange={setConsultationStaffIdState}>
                       <SelectTrigger>
                         <SelectValue placeholder="選択してください" />
