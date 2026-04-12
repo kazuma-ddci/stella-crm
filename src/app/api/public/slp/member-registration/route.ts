@@ -80,12 +80,36 @@ export async function POST(request: NextRequest) {
       where: { uid: data.uid },
     });
 
-    // SlpLineFriendからfree1（紹介者UID）を取得
+    // SlpLineFriendからfree1（紹介者UID）を取得し、組合員名簿に存在するか確認
     const lineFriend = await prisma.slpLineFriend.findUnique({
       where: { uid: data.uid },
       select: { free1: true },
     });
-    const referrerUid = lineFriend?.free1 || null;
+    const rawReferrerUid = lineFriend?.free1 || null;
+
+    // 紹介者が組合員名簿に登録済みか事前チェック（FK制約違反を防ぐ）
+    let referrerUid: string | null = null;
+    if (rawReferrerUid) {
+      const referrerMember = await prisma.slpMember.findUnique({
+        where: { uid: rawReferrerUid },
+        select: { uid: true, deletedAt: true },
+      });
+      if (referrerMember && !referrerMember.deletedAt) {
+        referrerUid = rawReferrerUid;
+      } else {
+        // 紹介者が組合員未登録 → 紹介者なしで登録し、自動化エラーに記録
+        await logAutomationError({
+          source: "slp-member-registration",
+          message: `紹介者が組合員名簿に未登録のため、紹介者なしで登録しました: 申込者「${data.name}」`,
+          detail: {
+            uid: data.uid,
+            applicantName: data.name,
+            referrerUid: rawReferrerUid,
+            hint: "紹介者が組合員入会フォームを未提出の可能性があります。紹介者が登録完了後、組合員名簿の「紹介者」を手動で設定してください。",
+          },
+        });
+      }
+    }
 
     // =============================================
     // 既存メンバーの場合
@@ -402,10 +426,23 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     console.error("Member registration error:", error);
+
+    // Prismaエラーを日本語メッセージに変換
+    let userMessage = "組合員登録処理でエラーが発生しました";
+    const errorStr = String(error);
+    if (errorStr.includes("Foreign key constraint") && errorStr.includes("referrerUid")) {
+      userMessage = "紹介者の情報が見つからなかったため、組合員の登録に失敗しました";
+    } else if (errorStr.includes("Unique constraint")) {
+      userMessage = "同じ情報で既に登録されています";
+    }
+
     await logAutomationError({
-      source: "public/slp/member-registration",
-      message: error instanceof Error ? error.message : "不明なエラー",
-      detail: { error: String(error) },
+      source: "slp-member-registration",
+      message: userMessage,
+      detail: {
+        originalError: errorStr,
+        hint: "組合員名簿を確認し、必要に応じて手動で登録してください。",
+      },
     });
     return NextResponse.json(
       { success: false, type: "error", error: "サーバーエラーが発生しました" },
