@@ -1,4 +1,5 @@
 import { getSession } from "@/lib/auth";
+import { isSystemAdmin, isFounder } from "./permissions";
 import type { SessionUser, ProjectCode, PermissionLevel } from "@/types/auth";
 
 /**
@@ -71,6 +72,11 @@ export async function requireStaffWithProjectPermission(
   projects: Array<{ project: ProjectCode; level: PermissionLevel }>
 ): Promise<SessionUser> {
   const session = await requireStaff();
+
+  // ファウンダー・システム管理者は全プロジェクトの全権限を持つ
+  if (isSystemAdmin(session) || isFounder(session)) {
+    return session;
+  }
 
   const levelOrder: Record<PermissionLevel, number> = {
     none: 0,
