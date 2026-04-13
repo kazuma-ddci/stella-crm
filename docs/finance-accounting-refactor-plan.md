@@ -11,8 +11,36 @@
 - v3: Codex 2次指摘を全件反映 → Codex 3次レビュー（Major 4件 + Minor 1件、全て文書整合性問題）
 - v4: Codex 3次指摘を全件反映 → Codex 4次レビュー（P1 2件 + Minor 1件、Result<T>規約の徹底漏れ）
 - v5: Codex 4次指摘を全件反映 → Codex 5次レビュー（**blocking なし、実装着手OK**、サンプル文言P2/P3 2件のみ）
-- **v6: Codex 5次指摘の最終整合 ← 現在ここ**
-- 次: **Phase 0 から実装着手** → 実装完了後 Codex 最終コードレビュー
+- v6: Codex 5次指摘の最終整合 → **Phase 0〜4 実装済 → Codex 6次中間レビュー**（P0 1件 + P1 3件、auth の穴）
+- **実装完了（2026-04-14）**: Phase 0〜6 全 Phase 実装完了 ← 現在ここ
+
+## 📌 実装完了（2026-04-14）
+
+以下のコミットで全6Phase + security pre-5 が完了：
+
+| SHA | Phase | 内容 |
+|-----|-------|------|
+| `5dca4cc` | 0 | 権限ヘルパー新設（8 ヘルパー＋2 エラークラス） |
+| `fd139ea` | 0 | 既知5件の権限バグ暫定修正 |
+| `4768305` | 1 | changelog → finance/ 移動（17ファイル import 更新） |
+| `d3c4846` | 2 | comments → finance/ 移動 |
+| `969cf04` | 3 | transactions 移動 + 経理専用分割 + loaders.ts 新設 |
+| `30f6588` | 4 | expenses 移動 + getAllRecurringTransactions 分離 |
+| `aa1c80b` | pre-5 | Codex 6次指摘の auth 4点先行修正 |
+| `9dc3560` | 5a | getTransactionById 廃止 → loader + Result<T> wrapper 分割 |
+| `04b5eb2` | 5b | transactions 系 actions に per-record 認可適用 |
+| `a04ffa6` | 5c | comments/changelog per-record + Result<T> 化 |
+| `748f254` | 5d | finance/expenses 残関数に per-record 認可適用 |
+| `ddb30d3` | 5e | accounting/ 配下を requireStaffForAccounting へ一括置換 |
+| Phase 6 | ローカルCLAUDE.md 更新 + 計画書完了マーク | (docs コミット) |
+
+### 次のステップ
+- **Codex 最終コードレビュー依頼** → 指摘があれば対応 → ステージングへデプロイ → 本番デプロイ
+
+### 残務（スコープ外・将来タスク）
+- InvoiceGroup/PaymentGroup を finance/ へ移動（§2.2 で明示的スコープ外）
+- API Routes の authorizeApiForFinance 統一ヘルパー導入
+- API Routes 内での per-record 検証
 
 ---
 
