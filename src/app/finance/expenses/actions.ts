@@ -680,43 +680,6 @@ export async function getProjectRecurringTransactions(projectId: number): Promis
 }
 
 /** 全プロジェクト横断の定期取引（経理用） */
-export async function getAllRecurringTransactions(): Promise<RecurringItem[]> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
-  const rts = await prisma.recurringTransaction.findMany({
-    where: { deletedAt: null, type: "expense" },
-    select: {
-      id: true,
-      name: true,
-      amount: true,
-      amountType: true,
-      frequency: true,
-      intervalCount: true,
-      isActive: true,
-      startDate: true,
-      endDate: true,
-      counterparty: { select: { name: true } },
-      project: { select: { name: true } },
-    },
-    orderBy: [{ projectId: "asc" }, { createdAt: "desc" }],
-  });
-
-  return rts.map((rt) => ({
-    id: rt.id,
-    name: rt.name,
-    counterpartyName: rt.counterparty.name,
-    amount: rt.amount,
-    amountType: rt.amountType,
-    frequency: rt.frequency,
-    intervalCount: rt.intervalCount,
-    isActive: rt.isActive,
-    startDate: rt.startDate,
-    endDate: rt.endDate,
-    projectName: rt.project?.name ?? null,
-  }));
-}
-
 export type MonthlySummary = {
   month: string; // YYYY-MM
   totalAmount: number;

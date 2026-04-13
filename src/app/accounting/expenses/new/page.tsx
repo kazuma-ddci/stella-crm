@@ -1,10 +1,10 @@
 import {
   getExpenseFormData,
   getMyExpenses,
-  getAllRecurringTransactions,
   getMonthlyExpenseSummary,
-} from "./actions";
-import { ExpensePageClient } from "./expense-page-client";
+} from "@/app/finance/expenses/actions";
+import { getAllRecurringTransactions } from "../accounting-actions";
+import { ExpensePageClient } from "@/app/finance/expenses/expense-page-client";
 import { prisma } from "@/lib/prisma";
 
 export default async function AccountingExpenseNewPage() {
