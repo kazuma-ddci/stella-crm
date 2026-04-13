@@ -5,7 +5,6 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { ok, err, type ActionResult } from "@/lib/action-result";
-import { requireStaffForFinance } from "@/lib/auth/staff-action";
 import {
   requireFinanceTransactionAccess,
   requireFinanceInvoiceGroupAccess,
@@ -256,46 +255,67 @@ function pickCommentFields(c: CommentBase): Omit<CommentWithReplies, "replies"> 
   };
 }
 
+export type GetCommentsResult =
+  | { ok: true; data: CommentWithReplies[] }
+  | { ok: false; reason: "not_found" | "forbidden" | "internal"; message: string };
+
+/**
+ * コメント一覧取得（client から直呼び、§4.3.3(d) Result<T> 規約）。
+ *
+ * 呼び出し側は result.ok で分岐して表示する。
+ * params に対応 ID が無い場合は空配列を ok で返す（エラーではない）。
+ */
 export async function getComments(params: {
   transactionId?: number;
   invoiceGroupId?: number;
   paymentGroupId?: number;
-}): Promise<CommentWithReplies[]> {
-  // 認証: 経理 OR 任意の事業PJ の閲覧権限以上（Phase 0暫定）
-  // Phase 5 で per-record helper（requireFinance{Transaction|InvoiceGroup|PaymentGroup}Access）に
-  // 置換 + 戻り値を Result<T> 化する予定。詳細は計画書 §6.3 Phase 5 参照
-  await requireStaffForFinance("view");
+}): Promise<GetCommentsResult> {
+  try {
+    // per-record 認可（対象 entity の view 権限が必要）
+    if (params.transactionId) {
+      await requireFinanceTransactionAccess(params.transactionId, "view");
+    } else if (params.invoiceGroupId) {
+      await requireFinanceInvoiceGroupAccess(params.invoiceGroupId, "view");
+    } else if (params.paymentGroupId) {
+      await requireFinancePaymentGroupAccess(params.paymentGroupId, "view");
+    } else {
+      return { ok: true, data: [] };
+    }
 
-  const where: Record<string, unknown> = {
-    deletedAt: null,
-    parentId: null, // トップレベルのみ取得
-  };
+    const where: Record<string, unknown> = {
+      deletedAt: null,
+      parentId: null, // トップレベルのみ取得
+    };
+    if (params.transactionId) where.transactionId = params.transactionId;
+    else if (params.invoiceGroupId) where.invoiceGroupId = params.invoiceGroupId;
+    else if (params.paymentGroupId) where.paymentGroupId = params.paymentGroupId;
 
-  if (params.transactionId) {
-    where.transactionId = params.transactionId;
-  } else if (params.invoiceGroupId) {
-    where.invoiceGroupId = params.invoiceGroupId;
-  } else if (params.paymentGroupId) {
-    where.paymentGroupId = params.paymentGroupId;
-  } else {
-    return [];
-  }
+    const comments = await prisma.transactionComment.findMany({
+      where,
+      include: commentThreadInclude,
+      orderBy: { createdAt: "desc" },
+    });
 
-  const comments = await prisma.transactionComment.findMany({
-    where,
-    include: commentThreadInclude,
-    orderBy: { createdAt: "desc" },
-  });
-
-  // 型安全なマッピング（3階層目の replies を空配列で補完）
-  return comments.map((c) => ({
-    ...pickCommentFields(c),
-    replies: c.replies.map((r1) => ({
-      ...pickCommentFields(r1),
-      replies: r1.replies.map((r2) => ({
-        ...pickCommentFields(r2),
-        replies: [],
+    // 型安全なマッピング（3階層目の replies を空配列で補完）
+    const data = comments.map((c) => ({
+      ...pickCommentFields(c),
+      replies: c.replies.map((r1) => ({
+        ...pickCommentFields(r1),
+        replies: r1.replies.map((r2) => ({
+          ...pickCommentFields(r2),
+          replies: [],
+        })),
       })),
-    })),
-  }));
+    }));
+    return { ok: true, data };
+  } catch (e) {
+    if (e instanceof FinanceRecordNotFoundError) {
+      return { ok: false, reason: "not_found", message: "コメント対象が見つかりません" };
+    }
+    if (e instanceof FinanceForbiddenError) {
+      return { ok: false, reason: "forbidden", message: "コメントを閲覧する権限がありません" };
+    }
+    console.error("[getComments] error:", e);
+    return { ok: false, reason: "internal", message: e instanceof Error ? e.message : "予期しないエラー" };
+  }
 }

@@ -3,7 +3,14 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import type { InputJsonValue } from "@prisma/client/runtime/library";
-import { requireStaffForFinance } from "@/lib/auth/staff-action";
+import { requireStaffForAccounting } from "@/lib/auth/staff-action";
+import {
+  requireFinanceTransactionAccess,
+  requireFinanceInvoiceGroupAccess,
+  requireFinancePaymentGroupAccess,
+  FinanceRecordNotFoundError,
+  FinanceForbiddenError,
+} from "@/lib/auth/finance-access";
 
 // ============================================
 // 型定義
@@ -92,9 +99,17 @@ export async function getChangeLogs(
   tableName: string,
   recordId: number
 ): Promise<ChangeLogEntry[]> {
-  // 認証: 経理 OR 任意の事業PJ の閲覧権限以上（Phase 0暫定）
-  // Phase 5 で tableName に応じた per-record helper に置換予定
-  await requireStaffForFinance("view");
+  // tableName に応じて per-record helper で認可する
+  if (tableName === "Transaction") {
+    await requireFinanceTransactionAccess(recordId, "view");
+  } else if (tableName === "InvoiceGroup") {
+    await requireFinanceInvoiceGroupAccess(recordId, "view");
+  } else if (tableName === "PaymentGroup") {
+    await requireFinancePaymentGroupAccess(recordId, "view");
+  } else {
+    // Counterparty / ExpenseCategory 等、project 境界を持たないマスタ系は経理のみ
+    await requireStaffForAccounting("view");
+  }
 
   const logs = await prisma.changeLog.findMany({
     where: { tableName, recordId },
@@ -121,55 +136,72 @@ export async function getChangeLogs(
  * 特定レコードに関連する全ての変更履歴を取得する。
  * 例: 取引IDから、その取引自体 + 紐づく仕訳の変更履歴を一括取得。
  */
+export type GetChangeLogsResult =
+  | { ok: true; data: ChangeLogEntry[] }
+  | { ok: false; reason: "not_found" | "forbidden" | "internal"; message: string };
+
+/**
+ * 取引に関連する全ての変更履歴を取得する（client から直呼び、§4.3.3(d) Result<T> 規約）。
+ */
 export async function getChangeLogsForTransaction(
   transactionId: number
-): Promise<ChangeLogEntry[]> {
-  // Phase 0暫定: 経理 OR 任意PJ の view 以上
-  // Phase 5 で requireFinanceTransactionAccess(transactionId, "view") に置換予定
-  await requireStaffForFinance("view");
+): Promise<GetChangeLogsResult> {
+  try {
+    await requireFinanceTransactionAccess(transactionId, "view");
 
-  // 取引自体の変更履歴
-  const transactionLogs = await prisma.changeLog.findMany({
-    where: { tableName: "Transaction", recordId: transactionId },
-    include: {
-      changer: { select: { id: true, name: true } },
-    },
-    orderBy: { changedAt: "desc" },
-  });
-
-  // 紐づく仕訳の変更履歴
-  const journalEntries = await prisma.journalEntry.findMany({
-    where: { transactionId },
-    select: { id: true },
-  });
-  const journalIds = journalEntries.map((je) => je.id);
-
-  let journalLogs: typeof transactionLogs = [];
-  if (journalIds.length > 0) {
-    journalLogs = await prisma.changeLog.findMany({
-      where: { tableName: "JournalEntry", recordId: { in: journalIds } },
+    // 取引自体の変更履歴
+    const transactionLogs = await prisma.changeLog.findMany({
+      where: { tableName: "Transaction", recordId: transactionId },
       include: {
         changer: { select: { id: true, name: true } },
       },
       orderBy: { changedAt: "desc" },
     });
+
+    // 紐づく仕訳の変更履歴
+    const journalEntries = await prisma.journalEntry.findMany({
+      where: { transactionId },
+      select: { id: true },
+    });
+    const journalIds = journalEntries.map((je) => je.id);
+
+    let journalLogs: typeof transactionLogs = [];
+    if (journalIds.length > 0) {
+      journalLogs = await prisma.changeLog.findMany({
+        where: { tableName: "JournalEntry", recordId: { in: journalIds } },
+        include: {
+          changer: { select: { id: true, name: true } },
+        },
+        orderBy: { changedAt: "desc" },
+      });
+    }
+
+    const allLogs = [...transactionLogs, ...journalLogs].sort(
+      (a, b) => b.changedAt.getTime() - a.changedAt.getTime()
+    );
+
+    const data = allLogs.map((log) => ({
+      id: log.id,
+      tableName: log.tableName,
+      recordId: log.recordId,
+      changeType: log.changeType,
+      oldData: log.oldData as Record<string, unknown> | null,
+      newData: log.newData as Record<string, unknown> | null,
+      changedBy: log.changedBy,
+      changedAt: log.changedAt,
+      changer: log.changer,
+    }));
+    return { ok: true, data };
+  } catch (e) {
+    if (e instanceof FinanceRecordNotFoundError) {
+      return { ok: false, reason: "not_found", message: "取引が見つかりません" };
+    }
+    if (e instanceof FinanceForbiddenError) {
+      return { ok: false, reason: "forbidden", message: "変更履歴を閲覧する権限がありません" };
+    }
+    console.error("[getChangeLogsForTransaction] error:", e);
+    return { ok: false, reason: "internal", message: e instanceof Error ? e.message : "予期しないエラー" };
   }
-
-  const allLogs = [...transactionLogs, ...journalLogs].sort(
-    (a, b) => b.changedAt.getTime() - a.changedAt.getTime()
-  );
-
-  return allLogs.map((log) => ({
-    id: log.id,
-    tableName: log.tableName,
-    recordId: log.recordId,
-    changeType: log.changeType,
-    oldData: log.oldData as Record<string, unknown> | null,
-    newData: log.newData as Record<string, unknown> | null,
-    changedBy: log.changedBy,
-    changedAt: log.changedAt,
-    changer: log.changer,
-  }));
 }
 
 // ============================================
