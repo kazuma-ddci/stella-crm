@@ -16,15 +16,14 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { calcTax } from "@/lib/finance/tax-calc";
 import { Loader2, ExternalLink, Pencil } from "lucide-react";
 import {
-  getTransactionById,
+  getTransactionForPreview,
   updateTransaction,
   confirmTransaction,
 } from "@/app/finance/transactions/actions";
 import { toLocalDateString } from "@/lib/utils";
 
-type TransactionData = NonNullable<
-  Awaited<ReturnType<typeof getTransactionById>>
->;
+type PreviewResult = Awaited<ReturnType<typeof getTransactionForPreview>>;
+type TransactionData = Extract<PreviewResult, { ok: true }>["data"];
 
 type Props = {
   transactionId: number;
@@ -67,6 +66,7 @@ export function TransactionPreviewModal({
 }: Props) {
   const router = useRouter();
   const [transaction, setTransaction] = useState<TransactionData | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -93,25 +93,25 @@ export function TransactionPreviewModal({
 
   const loadTransaction = useCallback(async () => {
     setLoading(true);
-    try {
-      const data = await getTransactionById(transactionId);
+    setLoadError(null);
+    const result = await getTransactionForPreview(transactionId);
+    if (result.ok) {
+      const data = result.data;
       setTransaction(data);
-      if (data) {
-        setExpenseCategoryId(String(data.expenseCategoryId));
-        setAmount(String(data.amount));
-        setTaxType(data.taxType);
-        setTaxRate(String(data.taxRate));
-        setTaxAmount(String(data.taxAmount));
-        setTaxManuallyEdited(false);
-        setPeriodFrom(toDateInputValue(data.periodFrom));
-        setPeriodTo(toDateInputValue(data.periodTo));
-        setNote(data.note ?? "");
-      }
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
+      setExpenseCategoryId(String(data.expenseCategoryId));
+      setAmount(String(data.amount));
+      setTaxType(data.taxType);
+      setTaxRate(String(data.taxRate));
+      setTaxAmount(String(data.taxAmount));
+      setTaxManuallyEdited(false);
+      setPeriodFrom(toDateInputValue(data.periodFrom));
+      setPeriodTo(toDateInputValue(data.periodTo));
+      setNote(data.note ?? "");
+    } else {
+      setTransaction(null);
+      setLoadError(result.message);
     }
+    setLoading(false);
   }, [transactionId]);
 
   useEffect(() => {
@@ -282,7 +282,7 @@ export function TransactionPreviewModal({
             </div>
           ) : !transaction ? (
             <div className="text-center py-12 text-muted-foreground">
-              取引が見つかりません
+              {loadError ?? "取引が見つかりません"}
             </div>
           ) : isEditing ? (
             /* 編集モード */

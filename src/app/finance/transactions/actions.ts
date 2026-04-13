@@ -16,6 +16,10 @@ import {
   buildConfidentialFilter,
   checkMonthlyClose,
 } from "./_helpers";
+import {
+  FinanceRecordNotFoundError,
+  FinanceForbiddenError,
+} from "@/lib/auth/finance-access";
 
 // ============================================
 // 型定義
@@ -425,81 +429,49 @@ export async function updateTransaction(
 }
 
 // ============================================
-// 3. getTransactionById
+// 3. 取引詳細取得
 // ============================================
+//
+// v6: getTransactionById は廃止され、用途別に以下に分割された:
+// - Server Component から呼ぶ場合:
+//   → finance/transactions/loaders.ts の getTransactionForDetailPage
+//   → typed error (FinanceRecordNotFoundError) を直接 throw、呼び出し側で notFound() 変換
+// - Client Component から呼ぶ場合:
+//   → 下記の getTransactionForPreview（wrapper、Result<T> 形式）
 
-export async function getTransactionById(id: number) {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-    { project: "stp", level: "view" },
-    { project: "hojo", level: "view" },
-    { project: "srd", level: "view" },
-    { project: "slp", level: "view" },
-  ]);
-
-  const transaction = await prisma.transaction.findFirst({
-    where: { id, deletedAt: null },
-    include: {
-      counterparty: {
-        select: { id: true, name: true, counterpartyType: true },
-      },
-      allocationTemplate: {
-        include: {
-          lines: {
-            include: {
-              costCenter: { select: { id: true, name: true } },
-            },
-          },
-        },
-      },
-      allocationGroupItems: {
-        include: {
-          costCenter: { select: { id: true, name: true } },
-          invoiceGroup: { select: { invoiceNumber: true } },
-          paymentGroup: { select: { targetMonth: true } },
-        },
-      },
-      costCenter: {
-        select: { id: true, name: true, projectId: true },
-      },
-      expenseCategory: {
-        select: { id: true, name: true, type: true },
-      },
-      project: {
-        select: { id: true, name: true, code: true },
-      },
-      paymentMethod: {
-        select: { id: true, name: true, methodType: true },
-      },
-      attachments: {
-        where: { deletedAt: null },
-      },
-      invoiceGroup: {
-        select: {
-          id: true,
-          invoiceNumber: true,
-          attachments: { where: { deletedAt: null } },
-        },
-      },
-      paymentGroup: {
-        select: {
-          id: true,
-          targetMonth: true,
-          attachments: { where: { deletedAt: null } },
-        },
-      },
-      creator: { select: { id: true, name: true } },
-      updater: { select: { id: true, name: true } },
-      confirmer: { select: { id: true, name: true } },
-      expenseOwners: {
-        include: {
-          staff: { select: { id: true, name: true } },
-        },
-      },
-    },
-  });
-
-  return transaction ?? null;
+/**
+ * Client Component 向けの取引詳細取得ラッパー（§4.3.3(d) 規約）。
+ *
+ * loaders.ts の getTransactionForDetailPage を呼び出し、typed error を
+ * Result<T> 形式に変換して返す。
+ *
+ * 呼び出し側（stp/finance/transactions/transaction-preview-modal.tsx 等）は
+ * `result.ok` で分岐して UI を決める。
+ */
+export async function getTransactionForPreview(
+  transactionId: number
+): Promise<
+  | { ok: true; data: Awaited<ReturnType<typeof import("./loaders").getTransactionForDetailPage>> }
+  | { ok: false; reason: "not_found" | "forbidden" | "internal"; message: string }
+> {
+  try {
+    const { getTransactionForDetailPage } = await import("./loaders");
+    const data = await getTransactionForDetailPage(transactionId);
+    return { ok: true, data };
+  } catch (e) {
+    if (e instanceof FinanceRecordNotFoundError) {
+      return { ok: false, reason: "not_found", message: "取引が見つかりません" };
+    }
+    if (e instanceof FinanceForbiddenError) {
+      return { ok: false, reason: "forbidden", message: "この取引にアクセスする権限がありません" };
+    }
+    console.error("[getTransactionForPreview] error:", e);
+    return {
+      ok: false,
+      reason: "internal",
+      message: e instanceof Error ? e.message : "予期しないエラーが発生しました",
+    };
+  }
 }
 
 // ============================================

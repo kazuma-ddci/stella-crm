@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
-import { getTransactionById } from "@/app/finance/transactions/actions";
+import { getTransactionForDetailPage } from "@/app/finance/transactions/loaders";
 import { getAccountingTransactionFormData } from "../../accounting-actions";
 import { TransactionForm } from "@/app/finance/transactions/transaction-form";
 import { CommentSection } from "@/app/finance/comments/comment-section";
 import { ChangeLogSection } from "@/app/finance/changelog/changelog-section";
+import { FinanceRecordNotFoundError, FinanceForbiddenError } from "@/lib/auth/finance-access";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -17,13 +18,17 @@ export default async function EditTransactionPage({ params }: Props) {
     notFound();
   }
 
-  const [transaction, formData] = await Promise.all([
-    getTransactionById(transactionId),
-    getAccountingTransactionFormData(),
-  ]);
-
-  if (!transaction) {
-    notFound();
+  let transaction: Awaited<ReturnType<typeof getTransactionForDetailPage>>;
+  let formData: Awaited<ReturnType<typeof getAccountingTransactionFormData>>;
+  try {
+    [transaction, formData] = await Promise.all([
+      getTransactionForDetailPage(transactionId),
+      getAccountingTransactionFormData(),
+    ]);
+  } catch (e) {
+    if (e instanceof FinanceRecordNotFoundError) notFound();
+    if (e instanceof FinanceForbiddenError) notFound();
+    throw e;
   }
 
   // TransactionFormが期待する形式に変換

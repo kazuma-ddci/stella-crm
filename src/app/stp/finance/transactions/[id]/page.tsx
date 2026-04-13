@@ -3,10 +3,9 @@ import Link from "next/link";
 import { ArrowLeft, CheckCircle2, Circle, Info } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  getTransactionById,
-  getTransactionFormData,
-} from "@/app/finance/transactions/actions";
+import { getTransactionFormData } from "@/app/finance/transactions/actions";
+import { getTransactionForDetailPage } from "@/app/finance/transactions/loaders";
+import { FinanceRecordNotFoundError, FinanceForbiddenError } from "@/lib/auth/finance-access";
 import { TransactionStatusBadge } from "@/app/finance/transactions/transaction-status-badge";
 import { TransactionForm } from "@/app/finance/transactions/transaction-form";
 import { CommentSection } from "@/app/finance/comments/comment-section";
@@ -35,13 +34,21 @@ export default async function TransactionDetailPage({ params }: Props) {
     notFound();
   }
 
-  const [transaction, formData] = await Promise.all([
-    getTransactionById(transactionId),
-    getTransactionFormData(),
-  ]);
-
-  if (!transaction) {
-    notFound();
+  let transaction: Awaited<ReturnType<typeof getTransactionForDetailPage>>;
+  let formData: Awaited<ReturnType<typeof getTransactionFormData>>;
+  try {
+    [transaction, formData] = await Promise.all([
+      getTransactionForDetailPage(transactionId),
+      getTransactionFormData(),
+    ]);
+  } catch (e) {
+    if (e instanceof FinanceRecordNotFoundError) notFound();
+    if (e instanceof FinanceForbiddenError) {
+      // middleware が /stp/* を stp 権限でゲート済みのためここには通常到達しないが、
+      // 万一レコードの projectId が別PJを指す場合は 404 扱いにする（情報漏洩防止）
+      notFound();
+    }
+    throw e;
   }
 
   const isEditable =
