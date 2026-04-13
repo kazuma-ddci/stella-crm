@@ -6,9 +6,10 @@ import { getSession } from "@/lib/auth";
 import type { SessionUser } from "@/types/auth";
 import { isSystemAdmin, isFounder, hasPermission } from "@/lib/auth/permissions";
 import { ok, err, type ActionResult } from "@/lib/action-result";
-import { requireStaffWithProjectPermission, requireStaffForFinance, requireStaffForAccounting } from "@/lib/auth/staff-action";
+import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 import {
   requireFinanceProjectAccess,
+  requireFinanceProjectCodeAccess,
   requireFinancePaymentGroupApprovalAccess,
   FinanceRecordNotFoundError,
   FinanceForbiddenError,
@@ -73,6 +74,7 @@ export type ExpenseFormData = {
 export async function getExpenseFormData(
   projectCode: string | null
 ): Promise<ExpenseFormData> {
+  await requireFinanceProjectCodeAccess(projectCode, "view");
   const session = await getSession();
 
   const [
@@ -526,6 +528,7 @@ export type ExpenseStatusItem = {
 
 /** 申請状況タブ: プロジェクト内の手動経費一覧 */
 export async function getMyExpenses(projectId: number): Promise<ExpenseStatusItem[]> {
+  await requireFinanceProjectAccess(projectId, "view");
   const session = await getSession();
   const confidentialFilter = buildExpenseConfidentialFilter(session);
   const pgs = await prisma.paymentGroup.findMany({
@@ -588,6 +591,7 @@ export async function getMyExpenses(projectId: number): Promise<ExpenseStatusIte
 
 /** 承認待ちタブ: 自分が承認者になっている経費 */
 export async function getPendingApprovals(projectId: number): Promise<ExpenseStatusItem[]> {
+  await requireFinanceProjectAccess(projectId, "view");
   const session = await getSession();
 
   const pgs = await prisma.paymentGroup.findMany({
@@ -662,9 +666,7 @@ export type RecurringItem = {
 
 /** 定期取引タブ（プロジェクト指定） */
 export async function getProjectRecurringTransactions(projectId: number): Promise<RecurringItem[]> {
-  // Phase 0暫定: 経理 OR 任意PJ の view 以上
-  // Phase 5 で requireFinanceProjectAccess(projectId, "view") に置換予定
-  await requireStaffForFinance("view");
+  await requireFinanceProjectAccess(projectId, "view");
   const rts = await prisma.recurringTransaction.findMany({
     where: { deletedAt: null, projectId, type: "expense" },
     select: {
@@ -715,9 +717,7 @@ export type MonthlySummary = {
 
 /** 月別サマリータブ */
 export async function getMonthlyExpenseSummary(projectId: number): Promise<MonthlySummary[]> {
-  // Phase 0暫定: 経理 OR 任意PJ の view 以上
-  // Phase 5 で requireFinanceProjectAccess(projectId, "view") に置換予定
-  await requireStaffForFinance("view");
+  await requireFinanceProjectAccess(projectId, "view");
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
   sixMonthsAgo.setDate(1);
