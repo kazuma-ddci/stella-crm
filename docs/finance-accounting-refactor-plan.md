@@ -1,7 +1,7 @@
-# 経理モジュール分離リファクタリング計画書（A案）— v4
+# 経理モジュール分離リファクタリング計画書（A案）— v5
 
 **作成日**: 2026-04-13
-**改訂日**: 2026-04-14（Codex 3次レビュー反映 — 文書整合性修正）
+**改訂日**: 2026-04-14（Codex 4次レビュー反映 — Result<T>規約の徹底）
 **対象ブランチ**: `refactor/finance-accounting-split`
 **対象コミット起点**: `bd0839a`（main）
 **Next.js バージョン**: 16.1.6
@@ -9,12 +9,23 @@
 - v1: 初版 → Codex 1次レビュー（10件指摘）
 - v2: Codex 1次指摘を全件反映 → Codex 2次レビュー（Major 6件 + Minor 2件）
 - v3: Codex 2次指摘を全件反映 → Codex 3次レビュー（Major 4件 + Minor 1件、全て文書整合性問題）
-- **v4: Codex 3次指摘を全件反映 ← 現在ここ**
-- 次: Codex 最終確認（または直接実装着手）→ 実装 → Codex 最終コードレビュー
+- v4: Codex 3次指摘を全件反映 → Codex 4次レビュー（P1 2件 + Minor 1件、Result<T>規約の徹底漏れ）
+- **v5: Codex 4次指摘を全件反映 ← 現在ここ**
+- 次: 実装着手（Phase 0 から）→ 実装完了後 Codex 最終コードレビュー
 
 ---
 
-## 📌 v3 → v4 の主な変更点（Codex 3次レビュー反映 — 全て文書整合性修正）
+## 📌 v4 → v5 の主な変更点（Codex 4次レビュー反映 — Result<T>規約の徹底）
+
+| # | Codex指摘 | v5での対応 |
+|---|----------|-----------|
+| P1 | `getComments()` / `getGroupAllocationWarnings()` も client から直接呼ばれているため Result<T> 化が必要だが、Phase 5 にその手順がない | **§6.3 Phase 5 に明示手順追加**：両関数の戻り値を `Result<T>` に変更（破壊的変更だが client 専用なので安全）+ comment-section.tsx・invoice/payment-detail-modal.tsx の呼び出し側修正手順を明記 |
+| P1 | §4.3.5 置換マッピングで preview-modal が `getTransactionForDetailPage` に直接マップされているが、(d)規約では wrapper 経由必須 | **§4.3.5 マッピング修正**：preview-modal は `getTransactionForPreview(id)` wrapper 経由に統一 |
+| Minor | §10.2(b)・DoD で「page-loader wrapper」旧用語が残存 | **「loader Server Action」に置換** |
+
+---
+
+## 📌 v3 → v4 の主な変更点（Codex 3次レビュー反映 — 完了済）
 
 | # | Codex指摘 | v4での対応 |
 |---|----------|-----------|
@@ -330,7 +341,7 @@ type ProjectScopedRecord = {
  * 戻り値: { user, transaction } — transaction は最小フィールドのみ
  *   { id, projectId, project: { code } | null }
  *
- * ⚠️ 重い include が必要な場合は §4.3.6 の page-loader wrapper を使う
+ * ⚠️ 重い include が必要な場合は §4.3.6 の loader Server Action を使う
  */
 export async function requireFinanceTransactionAccess(
   transactionId: number,
@@ -425,7 +436,7 @@ export async function getTransactionMinimal(id: number) {
   return transaction;  // 最小フィールドのみ
 }
 
-// 取引取得（重いincludeが必要なケース）→ page-loader wrapper を使う（§4.3.6）
+// 取引取得（重いincludeが必要なケース）→ loader Server Action を使う（§4.3.6）
 // この関数は server action ではなく page loader 用ヘルパーとして実装
 export async function getTransactionForDetailPage(id: number) {
   await requireFinanceTransactionAccess(id, "view");  // 認可
@@ -705,13 +716,13 @@ export async function getTransactionForDetailPage(id: number) {
   - `getTransactionForDetailPage(id)` — heavy（detail page専用 wrapper）
 - 既存の呼び出し元（`stp/finance/transactions/[id]/page.tsx`、`stp/finance/transactions/transaction-preview-modal.tsx` 等）は、用途に応じてどちらかに書き換える
 
-**呼び出し元の置換マッピング（Phase 5実施時）**:
+**呼び出し元の置換マッピング（v5: client/server で正しく分岐）**:
 
-| 呼び出し元 | 用途 | v3での置換 |
-|-----------|------|-----------|
-| `stp/finance/transactions/[id]/page.tsx` | 取引詳細表示（重いinclude必要） | `getTransactionForDetailPage(id)` |
-| `stp/finance/transactions/transaction-preview-modal.tsx` | 取引プレビュー（中量のinclude） | `getTransactionForDetailPage(id)` （プレビューでも詳細とほぼ同じデータが必要） |
-| `accounting/transactions/[id]/edit/page.tsx` | 経理用編集（重いinclude必要） | `getTransactionForDetailPage(id)` |
+| 呼び出し元 | コンポーネント種別 | 用途 | v5での置換 |
+|-----------|-------------------|------|-----------|
+| `stp/finance/transactions/[id]/page.tsx` | **Server** Component | 取引詳細表示（重いinclude必要） | `getTransactionForDetailPage(id)` を直接呼ぶ + try/catch で `notFound()` 変換（§4.3.3(a)） |
+| `accounting/transactions/[id]/edit/page.tsx` | **Server** Component | 経理用編集（重いinclude必要） | 同上 |
+| `stp/finance/transactions/transaction-preview-modal.tsx` | **Client** Component | 取引プレビュー（中量のinclude） | **`getTransactionForPreview(id)` wrapper 経由**（§4.3.3(d) 必須）。直接 loader を呼んではいけない |
 
 #### 4.3.6 loader Server Action の配置と命名（v4整理）
 
@@ -1155,12 +1166,26 @@ v1 §5.5 で挙げた6ファイルについて、Codex の判定結果：
 3. **finance/transactions/allocation-actions.ts の権限チェック書き換え**:
    - 取引ID/グループIDを取る関数 → 該当の per-record helper
    - 引数なしの helper関数 → `requireStaffForFinance("view")`
-4. **finance/transactions/allocation-group-item-actions.ts の権限チェック書き換え**:
-   - `getGroupAllocationWarnings(groupType, groupId)` → groupType に応じて `requireFinance{Invoice|Payment}GroupAccess(groupId, "view")`
-   - 同様に他の関数も per-record チェック適用
-5. **finance/comments/actions.ts の権限チェック書き換え**:
-   - `getComments(params)` → params.transactionId/invoiceGroupId/paymentGroupId に応じて per-record helper
-   - `createComment(input)` → 同様にエンティティに応じて per-record helper
+4. **finance/transactions/allocation-group-item-actions.ts の権限チェック書き換え + Result<T>化（v5: client直呼びのため戻り値も変更）**:
+   - `getGroupAllocationWarnings(groupType, groupId)` の改修:
+     - 内部で `requireFinance{Invoice|Payment}GroupAccess(groupId, "view")` を呼ぶ
+     - **戻り値型を `Promise<AllocationWarning[]>` から `Promise<Result<AllocationWarning[]>>` に変更**（§4.3.3(d) Result<T>規約）
+     - `try { ... return ok(warnings) } catch (e) { /* typed error → reason変換 */ }`
+   - **呼び出し側修正**: `src/app/stp/finance/invoices/invoice-group-detail-modal.tsx` および `src/app/stp/finance/payment-groups/payment-group-detail-modal.tsx`
+     - `getGroupAllocationWarnings(...)` の戻り値受け取りを `result.ok` 分岐に書き換え
+     - エラー時は警告領域に「警告取得に失敗しました」等を表示（無音失敗を避ける）
+   - 他の `addAllocationItemToGroup` / `removeAllocationItemFromGroup` 等は既に `ActionResult` を返すので per-record helper 適用のみ
+   - `getAllocationGroupStatus` / `getUnprocessedAllocations` / `getUnprocessedAllocationCount` は内部利用のみのため per-record helper 適用のみ（戻り値型変更不要）
+5. **finance/comments/actions.ts の権限チェック書き換え + Result<T>化（v5: client直呼びのため戻り値も変更）**:
+   - `getComments(params)` の改修:
+     - 内部で per-record helper を呼ぶ（params.transactionId/invoiceGroupId/paymentGroupId に応じて）
+     - **戻り値型を `Promise<CommentWithReplies[]>` から `Promise<Result<CommentWithReplies[]>>` に変更**（§4.3.3(d) Result<T>規約）
+     - `try { ... return ok(comments) } catch (e) { /* typed error → reason変換 */ }`
+   - `createComment(input)` → 同様に per-record helper を呼ぶ。戻り値は既に `ActionResult` なのでそのまま
+   - **呼び出し側修正**: `src/app/finance/comments/comment-section.tsx` (Phase 2で移動済)
+     - `useEffect` 内の `const data = await getComments(...)` → `const result = await getComments(...)`
+     - `if (result.ok) setComments(result.data) else { /* not_found/forbidden/error 表示 */ }`
+     - 既存の try/catch 握りつぶしを削除（Result経由で適切に表示分岐）
 6. **finance/changelog/actions.ts の権限チェック書き換え**:
    - `getChangeLogs(tableName, recordId)` → tableName に応じて per-record helper
    - `getChangeLogsForTransaction(transactionId)` → `requireFinanceTransactionAccess(transactionId, "view")`
@@ -1448,10 +1473,10 @@ VPS上で前バージョンの Docker イメージに切り戻し（CLAUDE.md記
 - 移動後も権限チェック不要（呼び出し元で既にチェック済み）
 - 関数シグネチャを絶対に変えないこと
 
-#### (b) per-record helper の戻り値設計（v3: lean に統一）
+#### (b) per-record helper の戻り値設計（v5: lean に統一・loader Server Action と分離）
 - helper は **lean に統一**（`{ id, projectId, project: { code } }` のみ）
-- 重い `include` が必要な箇所は **page-loader wrapper を別途用意**（§4.3.4・§4.3.6）
-- 「helperの戻り値だけで済むケース」と「wrapperが必要なケース」を §4.3.5 のマッピング表で明示
+- 重い `include` が必要な箇所は **loader Server Action を別途用意**（§4.3.4・§4.3.6）
+- 「helperの戻り値だけで済むケース」と「loader が必要なケース」を §4.3.5 のマッピング表で明示
 - **絶対にやらないこと**: helperに「ある時は最小、ある時は重い」の二面性を持たせる（v2の曖昧さ）
 
 #### (c) Server Action の `"use server"` ファイル単位制約
@@ -1492,7 +1517,9 @@ VPS上で前バージョンの Docker イメージに切り戻し（CLAUDE.md記
   - `requireFinancePaymentGroupApprovalAccess` ★v3新設
   - `FinanceRecordNotFoundError` クラス ★v3新設
   - `FinanceForbiddenError` クラス ★v3新設
-- [ ] `src/app/finance/transactions/loaders.ts` 等の page-loader wrapper が必要箇所に新設されている（§4.3.6）
+- [ ] `src/app/finance/transactions/loaders.ts` 等の loader Server Action が必要箇所に新設されている（§4.3.6）
+- [ ] **client から呼ばれる取得系（`getComments`・`getGroupAllocationWarnings`・`getTransactionForPreview` 等）が `Result<T>` 形式で返している**（v5新規DoD・§4.3.3(d)）
+- [ ] **対応する client component（`comment-section.tsx`・`invoice-group-detail-modal.tsx`・`payment-group-detail-modal.tsx`・`transaction-preview-modal.tsx`）が `result.ok` 分岐で「未存在/権限なし/その他エラー」を区別して表示している**（v5新規DoD）
 - [ ] §5.2 + §5.3 の cross-project import 21箇所が全て新パスに更新されている
 - [ ] accounting 内部の相対／絶対 import も全て新パスに更新されている
 - [ ] `rg -n "@/app/accounting/(changelog|comments|transactions/(actions|allocation-actions|allocation-group-item-actions|transaction-form|transaction-status-badge)|expenses/new)" src/` が0件
@@ -1530,7 +1557,29 @@ VPS上で前バージョンの Docker イメージに切り戻し（CLAUDE.md記
 
 ### 12.3 Codex への依頼文テンプレート
 
-#### 計画v4の再レビュー依頼（短時間で完了想定）
+#### 計画v5の最終確認依頼（着手前最終チェック）
+
+```
+v4 計画書に対するCodexレビュー（P1 2件 + Minor 1件）を全件反映した
+v5 計画書をレビューしてください。
+
+@docs/finance-accounting-refactor-plan.md
+
+v4 → v5 の主な変更点（全て Result<T> 規約の徹底）:
+1. §6.3 Phase 5: getComments() の戻り値型を Promise<CommentWithReplies[]> から Promise<Result<CommentWithReplies[]>> に変更
+   + comment-section.tsx の呼び出し側修正手順を明記
+2. §6.3 Phase 5: getGroupAllocationWarnings() も同様に Result<T> 化
+   + invoice-group-detail-modal.tsx / payment-group-detail-modal.tsx の修正手順を明記
+3. §4.3.5 マッピング: preview-modal は getTransactionForPreview(id) wrapper 経由に統一
+4. §10.2(b)・DoD 等の旧用語「page-loader wrapper」を「loader Server Action」に置換
+5. DoD に v5 新規項目追加（client取得系の Result<T> 化、UI 分岐表示）
+
+このv5で実装に入って大丈夫か、最終確認お願いします。
+特にこれまでの指摘で未対応・未反映のものがないかチェックしてください。
+問題なければ Phase 0 から実装着手します。
+```
+
+#### 計画v4の再レビュー依頼（履歴・短時間で完了想定）
 
 ```
 v3 計画書に対するCodexレビュー（Major 4件 + Minor 1件、全て文書整合性問題）を全件反映した
