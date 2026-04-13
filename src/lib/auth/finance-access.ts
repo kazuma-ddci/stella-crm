@@ -78,9 +78,11 @@ export type ProjectScopedRecord = {
 /**
  * 複数プロジェクトに紐づき得るレコードの最小情報（InvoiceGroup・PaymentGroup 等）。
  *
- * これらのモデルは `projectId` カラムを直接持たず、子の Transaction を介して
- * プロジェクトに紐づく。グループ内に複数プロジェクトの取引が混在する可能性があるため、
- * `projectCodes` は配列。
+ * これらのモデルは自前の `projectId` カラムを持つ（主軸の所属）が、子 Transaction が
+ * 異なるプロジェクトに紐づくケースもある（按分取引など）。そのため `projectCodes` は
+ * 「グループ本体 + 子取引」を union したコードの配列。
+ *
+ * 権限判定は「いずれかのプロジェクトに view/edit 以上」あれば通す（any-match）。
  */
 export type GroupScopedRecord = {
   id: number;
@@ -111,7 +113,9 @@ function checkProjectScopedAccess(
 
 /**
  * 複数プロジェクトに紐づき得るレコード（グループ系）のアクセス可否判定。
- * グループ内のいずれかのプロジェクトで権限を持っていれば通す。
+ * グループ本体 or 子取引が紐づく PJ のいずれかで権限を持っていれば通す（any-match）。
+ *
+ * 空集合（group.projectId が null かつ子取引も空）の場合は founder/admin/accounting のみ許可。
  */
 function checkGroupScopedAccess(
   record: GroupScopedRecord,
@@ -121,7 +125,6 @@ function checkGroupScopedAccess(
   if (isSystemAdmin(user) || isFounder(user)) return true;
   if (hasPermission(user.permissions, "accounting" as ProjectCode, level)) return true;
 
-  // グループ内の取引が紐づく PJ のいずれかで権限を持っていればOK
   return record.projectCodes.some((code) =>
     hasPermission(user.permissions, code as ProjectCode, level)
   );
@@ -166,7 +169,10 @@ export async function requireFinanceTransactionAccess(
 /**
  * InvoiceGroup レコードへのアクセス可否を判定する。
  *
- * InvoiceGroup は `projectId` カラムを持たないため、子 Transaction の `projectId` を介して判定。
+ * 判定の優先順位:
+ * 1. グループ本体の projectId（主軸の所属プロジェクト）
+ * 2. 子 Transaction の projectId（按分取引で異なるPJの取引が混在するケース）
+ * 上記のうち**どれか一つ**で指定 level の権限があれば通す。
  *
  * @throws {FinanceRecordNotFoundError}
  * @throws {FinanceForbiddenError}
@@ -181,6 +187,7 @@ export async function requireFinanceInvoiceGroupAccess(
     where: { id: groupId, deletedAt: null },
     select: {
       id: true,
+      project: { select: { code: true } },
       transactions: {
         where: { deletedAt: null },
         select: { project: { select: { code: true } } },
@@ -194,9 +201,10 @@ export async function requireFinanceInvoiceGroupAccess(
 
   const projectCodes = Array.from(
     new Set(
-      group.transactions
-        .map((t) => t.project?.code)
-        .filter((code): code is string => !!code)
+      [
+        group.project?.code,
+        ...group.transactions.map((t) => t.project?.code),
+      ].filter((code): code is string => !!code)
     )
   );
 
@@ -212,7 +220,7 @@ export async function requireFinanceInvoiceGroupAccess(
 /**
  * PaymentGroup レコードへのアクセス可否を判定する。
  *
- * PaymentGroup も `projectId` カラムを持たないため、子 Transaction の `projectId` を介して判定。
+ * 判定の優先順位は InvoiceGroup と同じ（グループ本体の projectId + 子取引の projectId の any-match）。
  *
  * @throws {FinanceRecordNotFoundError}
  * @throws {FinanceForbiddenError}
@@ -227,6 +235,7 @@ export async function requireFinancePaymentGroupAccess(
     where: { id: groupId, deletedAt: null },
     select: {
       id: true,
+      project: { select: { code: true } },
       transactions: {
         where: { deletedAt: null },
         select: { project: { select: { code: true } } },
@@ -240,9 +249,10 @@ export async function requireFinancePaymentGroupAccess(
 
   const projectCodes = Array.from(
     new Set(
-      group.transactions
-        .map((t) => t.project?.code)
-        .filter((code): code is string => !!code)
+      [
+        group.project?.code,
+        ...group.transactions.map((t) => t.project?.code),
+      ].filter((code): code is string => !!code)
     )
   );
 

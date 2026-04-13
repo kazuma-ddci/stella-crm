@@ -6,6 +6,13 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffForFinance } from "@/lib/auth/staff-action";
+import {
+  requireFinanceTransactionAccess,
+  requireFinanceInvoiceGroupAccess,
+  requireFinancePaymentGroupAccess,
+  FinanceRecordNotFoundError,
+  FinanceForbiddenError,
+} from "@/lib/auth/finance-access";
 
 // ============================================
 // 型定義
@@ -81,16 +88,27 @@ export async function createComment(
   input: CreateCommentInput
 ): Promise<ActionResult<{ id: number }>> {
   try {
-  const session = await getSession();
-  const staffId = session.id;
-
-  // バリデーション
+  // バリデーション（先に entity 参照の健全性を確認）
   if (!input.body?.trim()) {
     return err("コメント本文は必須です");
   }
 
   const entityErr = validateEntityRef(input);
   if (entityErr) return err(entityErr);
+
+  // ⚠️ 権限チェック（Codex 6次指摘 P1 対応）:
+  // client から直接呼ばれるため、対象レコードに対する view 権限を必ず確認する。
+  // 親コメントへの返信の場合は、親の entity を基準に判定する（下の親チェックで取得済）。
+  if (input.transactionId) {
+    await requireFinanceTransactionAccess(input.transactionId, "view");
+  } else if (input.invoiceGroupId) {
+    await requireFinanceInvoiceGroupAccess(input.invoiceGroupId, "view");
+  } else if (input.paymentGroupId) {
+    await requireFinancePaymentGroupAccess(input.paymentGroupId, "view");
+  }
+
+  const session = await getSession();
+  const staffId = session.id;
 
   const commentType = input.commentType || "normal";
   if (!(VALID_COMMENT_TYPES as readonly string[]).includes(commentType)) {
@@ -176,6 +194,8 @@ export async function createComment(
 
   return ok({ id: result.id });
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この対象にコメントする権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("コメント対象が見つかりません");
     console.error("[createComment] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
