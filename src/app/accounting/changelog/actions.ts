@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import type { InputJsonValue } from "@prisma/client/runtime/library";
-import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { requireStaffForFinance } from "@/lib/auth/staff-action";
 
 // ============================================
 // 型定義
@@ -92,10 +92,9 @@ export async function getChangeLogs(
   tableName: string,
   recordId: number
 ): Promise<ChangeLogEntry[]> {
-  // 認証: 経理プロジェクトの閲覧権限以上
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  // 認証: 経理 OR 任意の事業PJ の閲覧権限以上（Phase 0暫定）
+  // Phase 5 で tableName に応じた per-record helper に置換予定
+  await requireStaffForFinance("view");
 
   const logs = await prisma.changeLog.findMany({
     where: { tableName, recordId },
@@ -125,9 +124,9 @@ export async function getChangeLogs(
 export async function getChangeLogsForTransaction(
   transactionId: number
 ): Promise<ChangeLogEntry[]> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  // Phase 0暫定: 経理 OR 任意PJ の view 以上
+  // Phase 5 で requireFinanceTransactionAccess(transactionId, "view") に置換予定
+  await requireStaffForFinance("view");
 
   // 取引自体の変更履歴
   const transactionLogs = await prisma.changeLog.findMany({

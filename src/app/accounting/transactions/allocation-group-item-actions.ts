@@ -9,7 +9,7 @@ import { recordChangeLog } from "@/app/accounting/changelog/actions";
 import { calculateAllocatedAmounts } from "./allocation-actions";
 import { toLocalDateString } from "@/lib/utils";
 import { ok, err, type ActionResult } from "@/lib/action-result";
-import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { requireStaffWithProjectPermission, requireStaffForFinance } from "@/lib/auth/staff-action";
 
 // ===== 共通定数・スキーマ =====
 
@@ -719,9 +719,10 @@ export async function getGroupAllocationWarnings(
   groupType: "invoice" | "payment",
   groupId: number
 ): Promise<AllocationWarning[]> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  // Phase 0暫定: 経理 OR 任意PJ の view 以上
+  // Phase 5 で groupType に応じた requireFinance{Invoice|Payment}GroupAccess に置換予定
+  // + 戻り値を Result<T> 化（client 直呼びのため）
+  await requireStaffForFinance("view");
   // グループ内の直接取引（按分テンプレート付き）を取得
   const directTransactions = groupType === "invoice"
     ? await prisma.transaction.findMany({
