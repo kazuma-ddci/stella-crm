@@ -120,8 +120,8 @@ import {
   recordChangeLog,
   extractChanges,
   pickRecordData,
-} from "@/app/accounting/changelog/actions";
-import { CANDIDATE_DECISION_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
+} from "@/app/finance/changelog/actions";
+import { CANDIDATE_DECISION_LOG_FIELDS } from "@/app/finance/changelog/log-fields";
 import { getSystemProjectContext } from "@/lib/project-context";
 import { toLocalDateString } from "@/lib/utils";
 import { calculateProratedFee, getDaysInMonth, addBusinessDays } from "@/lib/business-days";

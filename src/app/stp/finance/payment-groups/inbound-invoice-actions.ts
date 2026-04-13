@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { requireEdit } from "@/lib/auth";
 import { requireStpProjectId } from "@/lib/project-context";
-import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import { recordChangeLog } from "@/app/finance/changelog/actions";
 
 // ============================================
 // 承認待ち＋未マッチの受信請求書一覧取得

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { requireEdit, getSession } from "@/lib/auth";
 import { hasPermission, canApprove as checkCanApprove, isFounder, isSystemAdmin } from "@/lib/auth";
-import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import { recordChangeLog } from "@/app/finance/changelog/actions";
 import { requireStpProjectId } from "@/lib/project-context";
 import { toLocalDateString } from "@/lib/utils";
 import { createNotificationBulk } from "@/lib/notifications/create-notification";

@@ -10,8 +10,8 @@ import { autoConfirmCreatorAllocations, checkAndTransitionToAwaitingAccounting, 
 import type { AllocationNotificationInfo } from "./allocation-actions";
 import { createNotification } from "@/lib/notifications/create-notification";
 import { toBoolean } from "@/lib/utils";
-import { recordChangeLog, extractChanges, pickRecordData } from "@/app/accounting/changelog/actions";
-import { TRANSACTION_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
+import { recordChangeLog, extractChanges, pickRecordData } from "@/app/finance/changelog/actions";
+import { TRANSACTION_LOG_FIELDS } from "@/app/finance/changelog/log-fields";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 

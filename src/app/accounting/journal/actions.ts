@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { recordChangeLog, extractChanges, pickRecordData } from "@/app/accounting/changelog/actions";
-import { JOURNAL_ENTRY_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
+import { recordChangeLog, extractChanges, pickRecordData } from "@/app/finance/changelog/actions";
+import { JOURNAL_ENTRY_LOG_FIELDS } from "@/app/finance/changelog/log-fields";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";

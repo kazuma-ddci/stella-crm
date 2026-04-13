@@ -5,7 +5,7 @@ import { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
-import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import { recordChangeLog } from "@/app/finance/changelog/actions";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 

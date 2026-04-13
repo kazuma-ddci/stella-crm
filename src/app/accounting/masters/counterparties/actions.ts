@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import { recordChangeLog } from "@/app/finance/changelog/actions";
 import { generateOtherCounterpartyDisplayId, createCounterpartyForCompany, updateCounterpartyForCompany } from "@/lib/counterparty-sync";
 import { toBoolean } from "@/lib/utils";
 import { ok, err, type ActionResult } from "@/lib/action-result";

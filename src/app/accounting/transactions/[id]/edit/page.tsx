@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { getTransactionById, getTransactionFormData } from "../../actions";
 import { TransactionForm } from "../../transaction-form";
 import { CommentSection } from "@/app/accounting/comments/comment-section";
-import { ChangeLogSection } from "@/app/accounting/changelog/changelog-section";
+import { ChangeLogSection } from "@/app/finance/changelog/changelog-section";
 
 type Props = {
   params: Promise<{ id: string }>;

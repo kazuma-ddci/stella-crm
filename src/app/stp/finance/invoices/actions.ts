@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { requireEdit } from "@/lib/auth";
 import { generateInvoiceGroupNumber } from "@/lib/finance/invoice-number";
-import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import { recordChangeLog } from "@/app/finance/changelog/actions";
 import { requireStpProjectId } from "@/lib/project-context";
 import fs from "fs/promises";
 import path from "path";

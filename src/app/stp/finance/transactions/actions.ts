@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireEdit, getSession } from "@/lib/auth";
 import { hasPermission, isFounder, isSystemAdmin } from "@/lib/auth";
-import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import { recordChangeLog } from "@/app/finance/changelog/actions";
 import type { SessionUser } from "@/types/auth";
 import { revalidatePath } from "next/cache";
 import { toLocalDateString } from "@/lib/utils";

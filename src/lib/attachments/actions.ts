@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireEdit } from "@/lib/auth";
-import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import { recordChangeLog } from "@/app/finance/changelog/actions";
 import {
   generateAttachmentFileName,
   getFileExtension,
