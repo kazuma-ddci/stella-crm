@@ -289,6 +289,18 @@ export async function updateTransaction(
   await checkMonthlyClose(validated.periodFrom, validated.periodTo);
 
   const projectId = data.projectId ? Number(data.projectId) : null;
+
+  // Codex 最終 P1-1: projectId 変更時は移動先 PJ への edit 権限も確認
+  // （攻撃者が data.projectId を改ざんして別PJへ移動することを防止）
+  if (projectId !== existing.projectId) {
+    if (projectId) {
+      await requireFinanceProjectAccess(projectId, "edit");
+    } else {
+      // projectId を null に戻す操作は経理専用
+      await requireStaffForAccounting("edit");
+    }
+  }
+
   const paymentMethodId = data.paymentMethodId
     ? Number(data.paymentMethodId)
     : null;
