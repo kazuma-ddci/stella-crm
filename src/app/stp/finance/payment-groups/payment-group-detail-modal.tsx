@@ -44,7 +44,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CommentSection } from "@/app/accounting/comments/comment-section";
+import { CommentSection } from "@/app/finance/comments/comment-section";
 import { ReceiptsReadonly } from "@/components/finance/receipts-readonly";
 import { PaymentGroupMailModal } from "./payment-group-mail-modal";
 import { getPaymentGroupMailHistory, type MailHistoryItem } from "./mail-actions";

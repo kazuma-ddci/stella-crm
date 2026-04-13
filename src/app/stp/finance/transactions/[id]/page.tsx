@@ -9,7 +9,7 @@ import {
 } from "@/app/accounting/transactions/actions";
 import { TransactionStatusBadge } from "@/app/accounting/transactions/transaction-status-badge";
 import { TransactionForm } from "@/app/accounting/transactions/transaction-form";
-import { CommentSection } from "@/app/accounting/comments/comment-section";
+import { CommentSection } from "@/app/finance/comments/comment-section";
 import { ChangeLogSection } from "@/app/finance/changelog/changelog-section";
 import { TransactionConfirmButton } from "./confirm-button";
 

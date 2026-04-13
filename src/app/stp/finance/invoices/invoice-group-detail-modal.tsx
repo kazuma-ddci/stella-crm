@@ -23,7 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { CommentSection } from "@/app/accounting/comments/comment-section";
+import { CommentSection } from "@/app/finance/comments/comment-section";
 import { ReceiptsReadonly } from "@/components/finance/receipts-readonly";
 import { InvoiceMailModal } from "./invoice-mail-modal";
 import { getInvoiceGroupMailHistory, type MailHistoryItem } from "./mail-actions";
