@@ -547,6 +547,10 @@ export async function updateTransaction(
 export async function getTransactionById(id: number) {
   await requireStaffWithProjectPermission([
     { project: "accounting", level: "view" },
+    { project: "stp", level: "view" },
+    { project: "hojo", level: "view" },
+    { project: "srd", level: "view" },
+    { project: "slp", level: "view" },
   ]);
 
   const transaction = await prisma.transaction.findFirst({
@@ -1457,6 +1461,10 @@ export async function isMonthClosed(
 export async function getTransactionFormData(): Promise<TransactionFormData> {
   await requireStaffWithProjectPermission([
     { project: "accounting", level: "view" },
+    { project: "stp", level: "view" },
+    { project: "hojo", level: "view" },
+    { project: "srd", level: "view" },
+    { project: "slp", level: "view" },
   ]);
   const [
     session,
