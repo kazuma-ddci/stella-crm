@@ -1,7 +1,7 @@
-# 経理モジュール分離リファクタリング計画書（A案）— v5
+# 経理モジュール分離リファクタリング計画書（A案）— v6（実装着手版）
 
 **作成日**: 2026-04-13
-**改訂日**: 2026-04-14（Codex 4次レビュー反映 — Result<T>規約の徹底）
+**改訂日**: 2026-04-14（Codex 5次レビュー反映 — サンプル文言の最終整合、実装着手OK）
 **対象ブランチ**: `refactor/finance-accounting-split`
 **対象コミット起点**: `bd0839a`（main）
 **Next.js バージョン**: 16.1.6
@@ -10,12 +10,26 @@
 - v2: Codex 1次指摘を全件反映 → Codex 2次レビュー（Major 6件 + Minor 2件）
 - v3: Codex 2次指摘を全件反映 → Codex 3次レビュー（Major 4件 + Minor 1件、全て文書整合性問題）
 - v4: Codex 3次指摘を全件反映 → Codex 4次レビュー（P1 2件 + Minor 1件、Result<T>規約の徹底漏れ）
-- **v5: Codex 4次指摘を全件反映 ← 現在ここ**
-- 次: 実装着手（Phase 0 から）→ 実装完了後 Codex 最終コードレビュー
+- v5: Codex 4次指摘を全件反映 → Codex 5次レビュー（**blocking なし、実装着手OK**、サンプル文言P2/P3 2件のみ）
+- **v6: Codex 5次指摘の最終整合 ← 現在ここ**
+- 次: **Phase 0 から実装着手** → 実装完了後 Codex 最終コードレビュー
 
 ---
 
-## 📌 v4 → v5 の主な変更点（Codex 4次レビュー反映 — Result<T>規約の徹底）
+## 📌 v5 → v6 の主な変更点（Codex 5次レビュー反映 — サンプル文言の最終整合）
+
+| # | Codex指摘 | v6での対応 |
+|---|----------|-----------|
+| P2 | §4.3.2 の `getComments` サンプルが pre-v5 の bare array 返却のまま | サンプルを `Result<CommentWithReplies[]>` 返却に書き換え、`return ok([])` パターンに修正 |
+| P3 | §4.3.2 の `getTransactionForDetailPage` 上のコメントが「server actionではない / page loader helper」と古い表現 | 「`"use server"` ファイルに置く loader Server Action」に書き換え、Server/Client両用途を明記 |
+
+**Codex 5次レビュー判定**: 「blocking な問題は見当たりません。v5 はアーキテクチャ的にも手順的にも実装着手して大丈夫です。」
+
+→ v6 で残2件のサンプル文言も整合させ、**計画書として完全整合状態**に到達。Phase 0 から実装着手します。
+
+---
+
+## 📌 v4 → v5 の主な変更点（Codex 4次レビュー反映 — 完了済）
 
 | # | Codex指摘 | v5での対応 |
 |---|----------|-----------|
@@ -436,8 +450,9 @@ export async function getTransactionMinimal(id: number) {
   return transaction;  // 最小フィールドのみ
 }
 
-// 取引取得（重いincludeが必要なケース）→ loader Server Action を使う（§4.3.6）
-// この関数は server action ではなく page loader 用ヘルパーとして実装
+// 取引取得（重いincludeが必要なケース）→ loader Server Action として実装（§4.3.4・§4.3.6）
+// "use server" ファイル（finance/transactions/loaders.ts）に置く
+// Server Component から直接呼んでもよいし、Client Component からは §4.3.3(d) wrapper 経由で呼ぶ
 export async function getTransactionForDetailPage(id: number) {
   await requireFinanceTransactionAccess(id, "view");  // 認可
   const transaction = await prisma.transaction.findFirst({
@@ -460,18 +475,33 @@ export async function createTransaction(data: { projectId: number, ... }) {
   // ... 作成処理
 }
 
-// コメント取得（params.transactionId | invoiceGroupId | paymentGroupId のいずれか）
-export async function getComments(params) {
-  if (params.transactionId) {
-    await requireFinanceTransactionAccess(params.transactionId, "view");
-  } else if (params.invoiceGroupId) {
-    await requireFinanceInvoiceGroupAccess(params.invoiceGroupId, "view");
-  } else if (params.paymentGroupId) {
-    await requireFinancePaymentGroupAccess(params.paymentGroupId, "view");
-  } else {
-    return [];
+// コメント取得（client から呼ばれるため §4.3.3(d) Result<T> 規約に準拠）
+// params.transactionId | invoiceGroupId | paymentGroupId のいずれか
+export async function getComments(
+  params: { transactionId?: number; invoiceGroupId?: number; paymentGroupId?: number }
+): Promise<Result<CommentWithReplies[]>> {
+  try {
+    if (params.transactionId) {
+      await requireFinanceTransactionAccess(params.transactionId, "view");
+    } else if (params.invoiceGroupId) {
+      await requireFinanceInvoiceGroupAccess(params.invoiceGroupId, "view");
+    } else if (params.paymentGroupId) {
+      await requireFinancePaymentGroupAccess(params.paymentGroupId, "view");
+    } else {
+      return ok([]);  // 引数なし → 空リスト（エラーではない）
+    }
+    const comments = await prisma.transactionComment.findMany({ /* ... */ });
+    return ok(comments);
+  } catch (e) {
+    if (e instanceof FinanceRecordNotFoundError) {
+      return { ok: false, reason: "not_found", message: "対象が見つかりません" };
+    }
+    if (e instanceof FinanceForbiddenError) {
+      return { ok: false, reason: "forbidden", message: "アクセス権限がありません" };
+    }
+    console.error("[getComments] error:", e);
+    return { ok: false, reason: "internal", message: "予期しないエラー" };
   }
-  // ... fetch
 }
 
 // 変更履歴取得（tableName + recordId）
