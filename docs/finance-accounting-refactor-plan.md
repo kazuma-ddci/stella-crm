@@ -1,19 +1,33 @@
-# 経理モジュール分離リファクタリング計画書（A案）— v3
+# 経理モジュール分離リファクタリング計画書（A案）— v4
 
 **作成日**: 2026-04-13
-**改訂日**: 2026-04-14（Codex 2次レビュー反映）
+**改訂日**: 2026-04-14（Codex 3次レビュー反映 — 文書整合性修正）
 **対象ブランチ**: `refactor/finance-accounting-split`
 **対象コミット起点**: `bd0839a`（main）
 **Next.js バージョン**: 16.1.6
 **レビュー履歴**:
 - v1: 初版 → Codex 1次レビュー（10件指摘）
 - v2: Codex 1次指摘を全件反映 → Codex 2次レビュー（Major 6件 + Minor 2件）
-- **v3: Codex 2次指摘を全件反映 ← 現在ここ**
-- 次: Codex 3次レビュー（軽め想定）→ 実装 → Codex 最終コードレビュー
+- v3: Codex 2次指摘を全件反映 → Codex 3次レビュー（Major 4件 + Minor 1件、全て文書整合性問題）
+- **v4: Codex 3次指摘を全件反映 ← 現在ここ**
+- 次: Codex 最終確認（または直接実装着手）→ 実装 → Codex 最終コードレビュー
 
 ---
 
-## 📌 v2 → v3 の主な変更点（Codex 2次レビュー反映）
+## 📌 v3 → v4 の主な変更点（Codex 3次レビュー反映 — 全て文書整合性修正）
+
+| # | Codex指摘 | v4での対応 |
+|---|----------|-----------|
+| Major | §4.3.3 のエラー契約に「client component から呼ぶ server function」パターンが欠落 | **§4.3.3 に (d) パターン追加**：preview modal/comment-section 等のclient-component callerの変換規則を規定 |
+| Major | `getTransactionForDetailPage` を「page-loader」と呼びつつ preview modal（client）から使う矛盾 | **§4.3.4 / §4.3.5 / §4.3.6 を整理**：`"use server"` で client-callable server action として再定義、loader の名称を一般化 |
+| Major | §6.3 Phase 3 が `allocation-group-item-actions.ts` 全体を移動する旧手順のまま | **§6.3 Phase 3 を v3 分割方針に同期**：分割→2ファイル新規作成→旧削除の手順に書き換え |
+| Major | §6.3 Phase 5 が削除済の `getTransactionById()` の書き換えから始まる旧手順のまま | **§6.3 Phase 5 を v3 マッピングに同期**：`getTransactionMinimal` / `getTransactionForDetailPage` の導入 + 3呼び出し元の置換手順に書き換え |
+| Minor | §8.4 を6ケースに拡張済だが Phase 5/6/DoD で「4ケース」表記が残存 | **下流文言を全て「6ケース」に統一** |
+| Major | §10.2(e) が generic `Error("取引が見つかりません")` のままで §4.3.3 の typed error と矛盾 | **§10.2(e) を `FinanceRecordNotFoundError` に揃える** |
+
+---
+
+## 📌 v2 → v3 の主な変更点（Codex 2次レビュー反映 — 完了済）
 
 | # | Codex指摘 | v3での対応 |
 |---|----------|-----------|
@@ -552,24 +566,104 @@ export async function GET(req: NextRequest, ctx) {
     return NextResponse.json({ error: "internal" }, { status: 500 });
   }
 }
+
+// (d) Client Component から直接呼ぶ Server Action（v4新設）
+//
+// 該当箇所:
+// - src/app/stp/finance/transactions/transaction-preview-modal.tsx (取引プレビューモーダル)
+// - src/app/finance/comments/comment-section.tsx (コメントセクション)
+// - src/app/stp/finance/invoices/invoice-group-detail-modal.tsx (請求グループ詳細モーダル)
+// - src/app/stp/finance/payment-groups/payment-group-detail-modal.tsx (支払グループ詳細モーダル)
+//
+// これらは "use client" コンポーネント内で `await getTransactionForDetailPage(id)` 等を直接呼ぶ。
+// 現状は try/catch で握りつぶして空表示にしているが、これだと「データなし」と「権限なし」「未存在」が
+// ユーザーから見分けられない。
+//
+// 【v4 規約】Server Action を client から呼ぶ場合、Server Action 側で typed error を捕捉して
+// ActionResult パターンで返却する。client は result.ok を見て分岐する。
+
+// 共通パターン: 取得系 Server Action は Result<T> 形式に統一
+export async function getTransactionForPreview(id: number): Promise<
+  | { ok: true; data: TransactionFull }
+  | { ok: false; reason: "not_found" | "forbidden" | "internal"; message: string }
+> {
+  try {
+    const transaction = await getTransactionForDetailPage(id);
+    return { ok: true, data: transaction };
+  } catch (e) {
+    if (e instanceof FinanceRecordNotFoundError) {
+      return { ok: false, reason: "not_found", message: "取引が見つかりません" };
+    }
+    if (e instanceof FinanceForbiddenError) {
+      return { ok: false, reason: "forbidden", message: "この取引にアクセスする権限がありません" };
+    }
+    console.error("[getTransactionForPreview] error:", e);
+    return { ok: false, reason: "internal", message: "予期しないエラーが発生しました" };
+  }
+}
+
+// Client Component 側の受け取りパターン
+"use client";
+function TransactionPreviewModal({ transactionId }) {
+  const [state, setState] = useState<
+    | { status: "loading" }
+    | { status: "loaded"; transaction: TransactionFull }
+    | { status: "not_found" }
+    | { status: "forbidden" }
+    | { status: "error"; message: string }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    getTransactionForPreview(transactionId).then((result) => {
+      if (result.ok) {
+        setState({ status: "loaded", transaction: result.data });
+      } else if (result.reason === "not_found") {
+        setState({ status: "not_found" });
+      } else if (result.reason === "forbidden") {
+        setState({ status: "forbidden" });
+      } else {
+        setState({ status: "error", message: result.message });
+      }
+    });
+  }, [transactionId]);
+
+  if (state.status === "loading") return <Spinner />;
+  if (state.status === "not_found") return <div>取引が見つかりません</div>;
+  if (state.status === "forbidden") return <div>この取引にアクセスする権限がありません</div>;
+  if (state.status === "error") return <div>{state.message}</div>;
+  return <TransactionDetailView transaction={state.transaction} />;
+}
 ```
 
-#### 4.3.4 helper は lean、重い include は wrapper（v3明確化）
+⚠️ **client-callable な Server Action は、必ず `Result<T>` 形式で返す**。typed error を素で投げると client 側で `e instanceof FinanceRecordNotFoundError` の判定ができない（class が serialize されないため）。
+
+#### 4.3.4 helper は lean、重い include は loader server action（v4再整理）
 
 設計原則：
 
 - `requireFinance*Access` 系 helper は **認可 + 最小レコード取得** に限定（戻り値: `{ id, projectId, project: { code } }` のみ）
-- 重い `include`（attachments、allocationGroupItems、invoiceGroup.attachments 等）が必要な箇所は、**page-loader wrapper** を別途用意
+- 重い `include`（attachments、allocationGroupItems、invoiceGroup.attachments 等）が必要な箇所は、**loader 型の Server Action** を別途用意
 
-**新設する page-loader wrappers（finance/loaders.ts に集約）**:
+**用語の整理（v4）**:
+- 「page-loader wrapper」という呼称は v3 では誤解を招いた（実際は client component からも呼ぶ）
+- v4 では **「loader Server Action」** と呼ぶ。実体は `"use server"` ファイルに置く Server Action
+- Page（Server Component）からも、Client Component からも呼べる
+- 命名規則: `getXxxForDetail`, `getXxxFull`（"page" を名前に含めない）
+- ファイル位置: `finance/transactions/loaders.ts` 等（既存の actions.ts と分離）
+- typed error は throw する。Server Component から呼ぶときは §4.3.3(a)で `notFound()` に変換、Client Component から呼ぶときは §4.3.3(d) の wrapper Server Action 経由で `Result<T>` に変換
+
+**新設する loader Server Actions（`finance/{module}/loaders.ts` に集約）**:
 
 ```typescript
 // src/app/finance/transactions/loaders.ts （新設）
 "use server";
 
 /**
- * 取引詳細ページ用のローダー。認可 + 重いinclude を含む。
- * 取引詳細ページ・編集ページから直接呼ぶ。
+ * 取引詳細用のローダー。認可 + 重いinclude を含む。
+ * Server Component（page.tsx）からも、Client Component（preview-modal等）からも呼ばれる。
+ *
+ * Server Component から呼ぶ場合: 直接呼んでOK、typed error は呼び出し側で notFound() 等に変換
+ * Client Component から呼ぶ場合: §4.3.3(d) の wrapper（getTransactionForPreview 等）経由で呼ぶ
  */
 export async function getTransactionForDetailPage(id: number) {
   await requireFinanceTransactionAccess(id, "view");
@@ -619,16 +713,30 @@ export async function getTransactionForDetailPage(id: number) {
 | `stp/finance/transactions/transaction-preview-modal.tsx` | 取引プレビュー（中量のinclude） | `getTransactionForDetailPage(id)` （プレビューでも詳細とほぼ同じデータが必要） |
 | `accounting/transactions/[id]/edit/page.tsx` | 経理用編集（重いinclude必要） | `getTransactionForDetailPage(id)` |
 
-#### 4.3.6 page-loader wrapper の所属
+#### 4.3.6 loader Server Action の配置と命名（v4整理）
 
-`finance/transactions/loaders.ts` は **共通 page-loader** 集約ファイルとして新設する。これを `src/app/finance/transactions/` 配下に置く（page.tsx は無いので URLにはならない）。
+**配置**:
+- `src/app/finance/transactions/loaders.ts` — 重い include を持つ取引取得系
+- `src/app/finance/comments/loaders.ts` — （必要に応じて）
+- `src/app/finance/changelog/loaders.ts` — （必要に応じて）
+- `src/app/finance/expenses/loaders.ts` — （必要に応じて）
 
-同様に：
-- `finance/comments/loaders.ts`（必要に応じて）
-- `finance/changelog/loaders.ts`（必要に応じて）
-- `finance/expenses/loaders.ts`（必要に応じて）
+これらは全て `"use server"` 指令を持つ通常の Server Action ファイル。`page.tsx` を持たないので URL にはならない。
 
-ただしすべて必須ではなく、**重いincludeが必要な箇所だけ wrapper を作る**。シンプルなケース（コメント取得、変更履歴取得等）は actions.ts 内で完結させる。
+**命名規則**:
+- ❌ `loadTransaction`、`loadXxxForPage`（page限定の誤解を招く）
+- ✅ `getTransactionForDetailPage`、`getTransactionFull`、`getInvoiceGroupWithItems`（用途を表す名前）
+- 「page」を名前に含めても良いが、それは「Detail Page相当のデータ量」という意味であり「Server Componentからのみ」という意味ではない
+
+**actions.ts と loaders.ts の使い分け**:
+| 種類 | 配置 | 戻り値 | 呼ぶ側 |
+|------|------|--------|--------|
+| CRUD系（更新・削除・確定） | `actions.ts` | `ActionResult<T>` | Client Component から（フォーム送信等） |
+| 軽量取得（lean helper の戻り値で十分） | `actions.ts` の中で完結 | レコード or null | Server Component / Client Component |
+| 重量取得（heavy include 必要） | `loaders.ts` | レコード（throw on error） | Server Component から直接、Client Component からは§4.3.3(d) wrapper経由 |
+| Client から呼ぶ重量取得 wrapper | `actions.ts` または `client-loaders.ts` | `Result<T>` | Client Component から |
+
+ただしすべて必須ではなく、**重いincludeが必要な箇所だけ loader を作る**。シンプルなケース（コメント取得、変更履歴取得等）は actions.ts 内で完結させる。
 
 ### 4.4 URL境界の方針（v2明確化）
 
@@ -934,29 +1042,47 @@ v1 §5.5 で挙げた6ファイルについて、Codex の判定結果：
 
 **理由**: actionsだけ移動するとUIから dangling import が発生してビルドが壊れる（Codex指摘）。
 
-**対象ファイル（一括移動）**:
-- `accounting/transactions/actions.ts` → 分割：
+**対象ファイル（v4: 分割対象明記）**:
+- `accounting/transactions/actions.ts` → **分割**:
   - `finance/transactions/actions.ts`（共通関数のみ）
   - `accounting/transactions/accounting-actions.ts`（accounting系3関数を抽出）
-- `accounting/transactions/allocation-actions.ts` → `finance/transactions/allocation-actions.ts`
-- `accounting/transactions/allocation-group-item-actions.ts` → `finance/transactions/allocation-group-item-actions.ts`
+- `accounting/transactions/allocation-actions.ts` → `finance/transactions/allocation-actions.ts`（全体移動・分割なし）
+- `accounting/transactions/allocation-group-item-actions.ts` → **分割（§5.1.1.1準拠）**:
+  - `finance/transactions/allocation-group-item-actions.ts`（共通サブセット: getGroupAllocationWarnings, addAllocationItemToGroup, removeAllocationItemFromGroup, getAllocationGroupStatus, getUnprocessedAllocations, getUnprocessedAllocationCount, AllocationWarning型）
+  - `accounting/transactions/allocation-group-item-accounting-actions.ts`（経理専用サブセット: getRelatedGroupsForTransaction, batchUpdateGroupStatus, BatchUpdateResult型）
 - `accounting/transactions/transaction-form.tsx` → `finance/transactions/transaction-form.tsx`
 - `accounting/transactions/transaction-status-badge.tsx` → `finance/transactions/transaction-status-badge.tsx`
+- **★v4追加: loader Server Action ファイルを新設**:
+  - `finance/transactions/loaders.ts`（`getTransactionForDetailPage` を実装、§4.3.4参照）
 
-**手順**:
+**手順（v4: allocation-group-item-actions の分割を反映）**:
 1. `git tag refactor-checkpoint-phase-3-start`
-2. ファイルロック取得（上記5ファイル + 新規 `accounting-actions.ts`）
-3. **actions.ts の分割作業**:
-   - `accounting/transactions/actions.ts` の内容を読み、共通関数と accounting系関数を分離
+2. ファイルロック取得（対象ファイル + 新規 `accounting-actions.ts` + 新規 `allocation-group-item-accounting-actions.ts` + 新規 `loaders.ts`）
+3. **`accounting/transactions/actions.ts` の分割作業**:
+   - 内容を読み、共通関数と accounting系関数を分離
    - 共通部分を `finance/transactions/actions.ts` として新規作成
    - accounting系3関数（`getAccountingTransactions`・`createAccountingTransaction`・`getAccountingTransactionFormData`）を `accounting/transactions/accounting-actions.ts` として新規作成
    - 旧 `accounting/transactions/actions.ts` を削除
-4. `git mv` で残り4ファイルを移動
-5. UIファイル内の相対import を確認・更新
-6. `rg -n "@/app/accounting/transactions/(actions|allocation-actions|allocation-group-item-actions|transaction-form|transaction-status-badge)" src/` で呼び出し元全列挙
-7. 全呼び出し元のimportパスを更新（cross-project: §5.2 の #2, #4, #6, #8, #9, #11, #13）
-8. accounting内の `transactions-table.tsx`, `[id]/edit/page.tsx`, `new/page.tsx` の import 更新（共通系は finance、accounting系は `./accounting-actions`）
-9. 型チェック・ビルド・コミット
+4. **`accounting/transactions/allocation-group-item-actions.ts` の分割作業（v4新）**:
+   - 内容を読み、§5.1.1.1 のマッピング表に従って2ファイルに分割
+   - 共通サブセットを `finance/transactions/allocation-group-item-actions.ts` として新規作成
+   - 経理専用サブセットを `accounting/transactions/allocation-group-item-accounting-actions.ts` として新規作成
+   - 旧 `accounting/transactions/allocation-group-item-actions.ts` を削除
+5. `git mv` で残りファイルを移動:
+   - `allocation-actions.ts` → finance/
+   - `transaction-form.tsx` → finance/
+   - `transaction-status-badge.tsx` → finance/
+6. **`finance/transactions/loaders.ts` を新規作成（v4新）**:
+   - `getTransactionForDetailPage(id)` を実装（§4.3.4のサンプルコード参照）
+   - `requireFinanceTransactionAccess` で認可、その後重い include で取引取得
+   - 取引未存在なら `FinanceRecordNotFoundError` を throw
+7. UIファイル内の相対import を確認・更新
+8. `rg -n "@/app/accounting/transactions/(actions|allocation-actions|allocation-group-item-actions|transaction-form|transaction-status-badge)" src/` で呼び出し元全列挙
+9. 全呼び出し元のimportパスを更新:
+   - cross-project: §5.2 の #2, #4, #6, #8, #9, #11, #13
+   - `accounting/batch-complete/batch-complete-client.tsx` → `@/app/accounting/transactions/allocation-group-item-accounting-actions`（v4新）
+10. accounting内の `transactions-table.tsx`, `[id]/edit/page.tsx`, `new/page.tsx` の import 更新（共通系は finance、accounting系は `./accounting-actions`）
+11. 型チェック・ビルド・コミット
 
 **検証項目**:
 - [ ] STP取引化→請求管理 の一連フローが動く
@@ -1003,8 +1129,10 @@ v1 §5.5 で挙げた6ファイルについて、Codex の判定結果：
 
 **手順**:
 1. `git tag refactor-checkpoint-phase-5-start`
-2. **finance/transactions/actions.ts の権限チェック書き換え**:
-   - `getTransactionById(id)` → `requireFinanceTransactionAccess(id, "view")`
+2. **finance/transactions/actions.ts の権限チェック書き換え（v4: getTransactionById廃止）**:
+   - **`getTransactionById(id)` を削除し、用途別2関数に分割（§4.3.5準拠）**:
+     - `getTransactionMinimal(id)` を新設 — `requireFinanceTransactionAccess(id, "view")` の戻り値そのまま返す（軽量取得用）
+     - `getTransactionForDetailPage(id)` は Phase 3 で `finance/transactions/loaders.ts` に新設済 — 重いinclude含む
    - `updateTransaction(id, ...)` → `requireFinanceTransactionAccess(id, "edit")`
    - `confirmTransaction(id)` → `requireFinanceTransactionAccess(id, "edit")`
    - `unconfirmTransaction(id)` → 同上
@@ -1016,6 +1144,14 @@ v1 §5.5 で挙げた6ファイルについて、Codex の判定結果：
    - `createTransaction(data)` → `requireFinanceProjectAccess(data.projectId, "edit")`
    - `getTransactionFormData()` → `requireStaffForFinance("view")` （フォームメタデータ取得、project縛りなし）
    - `isMonthClosed(...)` → `requireFinanceProjectAccess(projectId, "view")`
+
+2b. **既存3呼び出し元の置換（v4新）**:
+   - `src/app/stp/finance/transactions/[id]/page.tsx` (Server Component): `getTransactionById(id)` → `getTransactionForDetailPage(id)` + try/catch で `notFound()` 変換（§4.3.3(a)）
+   - `src/app/accounting/transactions/[id]/edit/page.tsx` (Server Component): 同上
+   - `src/app/stp/finance/transactions/transaction-preview-modal.tsx` (Client Component):
+     - 新設する wrapper `getTransactionForPreview(id)` を `finance/transactions/actions.ts` に追加（§4.3.3(d) のパターン）
+     - 中身は `try { getTransactionForDetailPage(id) } catch (e) { Result変換 }`
+     - modal側は `result.ok` で分岐表示（loaded / not_found / forbidden / error）
 3. **finance/transactions/allocation-actions.ts の権限チェック書き換え**:
    - 取引ID/グループIDを取る関数 → 該当の per-record helper
    - 引数なしの helper関数 → `requireStaffForFinance("view")`
@@ -1047,7 +1183,7 @@ v1 §5.5 で挙げた6ファイルについて、Codex の判定結果：
 
 **検証項目**:
 - [ ] §8 のスモークテスト全項目
-- [ ] §8.4 の権限回帰テスト4ケース全パス
+- [ ] §8.4 の権限回帰テスト6ケース全パス
 
 #### Phase 6: 最終検証＋スモークテスト＋ドキュメント更新
 
@@ -1056,7 +1192,7 @@ v1 §5.5 で挙げた6ファイルについて、Codex の判定結果：
 2. `npx tsc --noEmit` / `docker compose exec app npx prisma generate` / `docker compose exec app npx next build`
 3. `npx eslint src/ --max-warnings 0`
 4. §8 のスモークテストチェックリストを**全項目実行**
-5. §8.4 の権限回帰テスト4ケースを実行
+5. §8.4 の権限回帰テスト6ケースを実行
 6. README・CLAUDE.md・docs を更新（ディレクトリ構造・権限ヘルパーの使い分け）
 7. コミット: "docs: finance/accounting 分離に伴うドキュメント更新"
 8. Codex に最終コードレビュー依頼
@@ -1326,9 +1462,14 @@ VPS上で前バージョンの Docker イメージに切り戻し（CLAUDE.md記
 - ファイル移動後は **必ず** `docker compose exec app rm -rf .next && docker compose restart app`（CLAUDE.mdの運用ルールどおり）
 - Turbopack は import path の変更を見逃すケースがある
 
-#### (e) per-record helper の「レコード未存在」ハンドリング
-- `prisma.transaction.findFirst({ id, deletedAt: null })` が null の場合、helperは `throw new Error("取引が見つかりません")` で 404 相当を表現
-- 呼び出し元（特に Server Action）は try/catch で受けて `ActionResult.err()` に変換
+#### (e) per-record helper の「レコード未存在」ハンドリング（v4: typed error に統一）
+- `prisma.transaction.findFirst({ id, deletedAt: null })` が null の場合、helperは **`throw new FinanceRecordNotFoundError("Transaction", id)`**（generic `Error` ではなく専用クラス）
+- 同様に権限不足の場合は **`throw new FinanceForbiddenError(...)`**
+- 呼び出し元での変換規則は §4.3.3 参照:
+  - (a) Page Loader（Server Component）→ `notFound()` または専用エラーUI
+  - (b) Server Action → `ActionResult.err()`
+  - (c) API Route → `NextResponse.json({error}, {status: 404|403})`
+  - (d) Client Component から呼ぶ Server Action → `Result<T>` 形式に変換
 
 ---
 
@@ -1361,7 +1502,7 @@ VPS上で前バージョンの Docker イメージに切り戻し（CLAUDE.md記
 - [ ] `docker compose exec app npx next build` 成功
 - [ ] `npx eslint src/ --max-warnings 0` 警告ゼロ
 - [ ] §8 のスモークテスト項目がすべて✅
-- [ ] §8.4 の権限回帰テスト4ケースがすべて✅
+- [ ] §8.4 の権限回帰テスト6ケースがすべて✅
 - [ ] ドキュメント（CLAUDE.md・README等）更新
 - [ ] Codex による最終レビューで Critical/Major 指摘が0件、または全て修正済み
 
@@ -1389,7 +1530,30 @@ VPS上で前バージョンの Docker イメージに切り戻し（CLAUDE.md記
 
 ### 12.3 Codex への依頼文テンプレート
 
-#### 計画v3の再レビュー依頼
+#### 計画v4の再レビュー依頼（短時間で完了想定）
+
+```
+v3 計画書に対するCodexレビュー（Major 4件 + Minor 1件、全て文書整合性問題）を全件反映した
+v4 計画書をレビューしてください。
+
+@docs/finance-accounting-refactor-plan.md
+
+v3 → v4 の主な変更点（全て文書整合性修正・アーキテクチャ変更なし）:
+1. §4.3.3 に (d) パターン追加: client component から呼ぶ server function を Result<T> 形式で返す規約を明示
+2. §4.3.4/§4.3.6: 「page-loader」を「loader Server Action」に呼称変更、配置・命名・client/server両対応を整理
+3. §6.3 Phase 3: allocation-group-item-actions 分割を手順に反映、loaders.ts 新設手順を追加
+4. §6.3 Phase 5: getTransactionById 廃止 → getTransactionMinimal/getTransactionForDetailPage 導入と3呼び出し元置換に書き換え
+5. §10.2(e): generic Error → FinanceRecordNotFoundError / FinanceForbiddenError に統一
+6. 下流文言（Phase 5/6/DoD）の「4ケース」を「6ケース」に統一
+
+このv4で実装に入って大丈夫か、特に以下を確認してください:
+- §4.3.3(d) Client から呼ぶ Server Action の Result<T> 規約に漏れはないか
+- §4.3.4/§4.3.6 loader Server Action の説明と Phase 3/5 の手順が一致しているか
+- v3→v4 の文言整合修正で新たに生まれた矛盾はないか
+- アーキテクチャ的に実装着手OKか
+```
+
+#### 計画v3の再レビュー依頼（履歴）
 
 ```
 v2 計画書に対するCodexレビュー（Major 6件 + Minor 2件）を全件反映した
