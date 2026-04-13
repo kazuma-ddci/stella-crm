@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { requireStaffForFinance, requireStaffForAccounting } from "@/lib/auth/staff-action";
+import {
+  requireFinanceTransactionAccess,
+  requireFinanceProjectAccess,
+} from "@/lib/auth/finance-access";
 import { autoConfirmCreatorAllocations, checkAndTransitionToAwaitingAccounting, sendAllocationNotifications } from "./allocation-actions";
 import type { AllocationNotificationInfo } from "./allocation-actions";
 import { createNotification } from "@/lib/notifications/create-notification";
@@ -87,6 +91,15 @@ export async function createTransaction(
   data: Record<string, unknown>
 ): Promise<ActionResult<{ id: number }>> {
   try {
+  // projectId が指定されているか事前に確認し、PJ別の edit 権限を判定
+  const projectId = data.projectId ? Number(data.projectId) : null;
+  if (projectId) {
+    await requireFinanceProjectAccess(projectId, "edit");
+  } else {
+    // projectId 無しの取引作成は経理編集権限のみ許可
+    await requireStaffForAccounting("edit");
+  }
+
   const session = await getSession();
   const staffId = session.id;
 
@@ -95,7 +108,6 @@ export async function createTransaction(
   // 月次クローズチェック
   await checkMonthlyClose(validated.periodFrom, validated.periodTo);
 
-  const projectId = data.projectId ? Number(data.projectId) : null;
   const paymentMethodId = data.paymentMethodId
     ? Number(data.paymentMethodId)
     : null;
@@ -229,6 +241,8 @@ export async function createTransaction(
 
   return ok({ id: result.transaction.id });
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[createTransaction] error:", e);
     return err(e instanceof Error ? e.message : "取引の作成に失敗しました");
   }
@@ -243,10 +257,11 @@ export async function updateTransaction(
   data: Record<string, unknown>
 ): Promise<ActionResult> {
   try {
-  const session = await getSession();
-  const staffId = session.id;
+  // per-record 認可（レコードの所属PJで判定）
+  const { user } = await requireFinanceTransactionAccess(id, "edit");
+  const staffId = user.id;
 
-  // 既存レコード取得
+  // 既存レコード取得（編集に必要な関連データを含む）
   const existing = await prisma.transaction.findFirst({
     where: { id, deletedAt: null },
     include: {
@@ -423,6 +438,8 @@ export async function updateTransaction(
   revalidatePath("/stp/finance/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[updateTransaction] error:", e);
     return err(e instanceof Error ? e.message : "取引の更新に失敗しました");
   }
@@ -505,7 +522,9 @@ const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
 
 export async function confirmTransaction(id: number): Promise<ActionResult> {
   try {
-  const session = await getSession();
+  // per-record 認可
+  await requireFinanceTransactionAccess(id, "edit");
+    const session = await getSession();
   const staffId = session.id;
 
   const transaction = await prisma.transaction.findFirst({
@@ -559,6 +578,8 @@ export async function confirmTransaction(id: number): Promise<ActionResult> {
   revalidatePath("/accounting/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[confirmTransaction] error:", e);
     return err(e instanceof Error ? e.message : "取引確定に失敗しました");
   }
@@ -570,7 +591,9 @@ export async function confirmTransaction(id: number): Promise<ActionResult> {
 
 export async function unconfirmTransaction(id: number): Promise<ActionResult> {
   try {
-  const session = await getSession();
+  // per-record 認可
+  await requireFinanceTransactionAccess(id, "edit");
+    const session = await getSession();
   const staffId = session.id;
 
   const transaction = await prisma.transaction.findFirst({
@@ -636,6 +659,8 @@ export async function unconfirmTransaction(id: number): Promise<ActionResult> {
   revalidatePath("/accounting/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[unconfirmTransaction] error:", e);
     return err(e instanceof Error ? e.message : "確定取消に失敗しました");
   }
@@ -650,7 +675,9 @@ export async function returnTransaction(
   data: { body: string; returnReasonType: string }
 ): Promise<ActionResult> {
   try {
-  const session = await getSession();
+  // per-record 認可
+  await requireFinanceTransactionAccess(id, "edit");
+    const session = await getSession();
   const staffId = session.id;
 
   const VALID_RETURN_REASONS = [
@@ -736,6 +763,8 @@ export async function returnTransaction(
   revalidatePath("/accounting/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[returnTransaction] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
@@ -750,7 +779,9 @@ export async function resubmitTransaction(
   body?: string
 ): Promise<ActionResult> {
   try {
-  const session = await getSession();
+  // per-record 認可
+  await requireFinanceTransactionAccess(id, "edit");
+    const session = await getSession();
   const staffId = session.id;
 
   const transaction = await prisma.transaction.findFirst({
@@ -806,6 +837,8 @@ export async function resubmitTransaction(
   revalidatePath("/accounting/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[resubmitTransaction] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
@@ -817,7 +850,9 @@ export async function resubmitTransaction(
 
 export async function submitToAccountingTransaction(id: number): Promise<ActionResult> {
   try {
-  const session = await getSession();
+  // per-record 認可
+  await requireFinanceTransactionAccess(id, "edit");
+    const session = await getSession();
   const staffId = session.id;
 
   const transaction = await prisma.transaction.findFirst({
@@ -897,6 +932,8 @@ export async function submitToAccountingTransaction(id: number): Promise<ActionR
   revalidatePath("/accounting/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[submitToAccountingTransaction] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
@@ -908,7 +945,9 @@ export async function submitToAccountingTransaction(id: number): Promise<ActionR
 
 export async function deleteTransaction(id: number): Promise<ActionResult> {
   try {
-  const session = await getSession();
+  // per-record 認可
+  await requireFinanceTransactionAccess(id, "edit");
+    const session = await getSession();
   const staffId = session.id;
 
   const transaction = await prisma.transaction.findFirst({
@@ -966,6 +1005,8 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
   revalidatePath("/stp/finance/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[deleteTransaction] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
@@ -977,6 +1018,8 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
 
 export async function hideTransaction(id: number): Promise<ActionResult> {
   try {
+  // 経理専用の論理削除操作
+  await requireStaffForAccounting("edit");
   const session = await getSession();
   const staffId = session.id;
 
@@ -1023,6 +1066,8 @@ export async function hideTransaction(id: number): Promise<ActionResult> {
   revalidatePath("/accounting/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[hideTransaction] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
@@ -1038,9 +1083,8 @@ export async function getTransactions(filters?: {
   status?: string;
   counterpartyId?: number;
 }) {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  // accounting view のみ（旧 requireStaffWithProjectPermission と同義）
+  await requireStaffForAccounting("view");
   const session = await getSession();
   const txConfidentialFilter = buildConfidentialFilter(session);
 
@@ -1094,6 +1138,7 @@ export async function isMonthClosed(
   targetMonth: Date,
   projectId: number
 ): Promise<boolean> {
+  await requireFinanceProjectAccess(projectId, "view");
   const monthStart = new Date(
     targetMonth.getFullYear(),
     targetMonth.getMonth(),
@@ -1117,13 +1162,8 @@ export async function isMonthClosed(
 // ============================================
 
 export async function getTransactionFormData(): Promise<TransactionFormData> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-    { project: "stp", level: "view" },
-    { project: "hojo", level: "view" },
-    { project: "srd", level: "view" },
-    { project: "slp", level: "view" },
-  ]);
+  // フォームメタデータ取得は project 縛りなし、finance エントリの view があれば通す
+  await requireStaffForFinance("view");
   const [
     session,
     counterparties,

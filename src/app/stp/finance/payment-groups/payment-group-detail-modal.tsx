@@ -271,13 +271,14 @@ export function PaymentGroupDetailModal({
     if (!open) return;
     if (group.allocationItemCount === 0 && group.transactionCount === 0) return;
     let cancelled = false;
-    getGroupAllocationWarnings("payment", group.id)
-      .then((warnings) => {
-        if (!cancelled) setAllocationWarnings(warnings);
-      })
-      .catch(() => {
-        if (!cancelled) setAllocationWarnings([]);
-      });
+    getGroupAllocationWarnings("payment", group.id).then((result) => {
+      if (cancelled) return;
+      if (result.ok) {
+        setAllocationWarnings(result.data);
+      } else {
+        setAllocationWarnings([]);
+      }
+    });
     return () => { cancelled = true; };
   }, [open, group.id, group.allocationItemCount, group.transactionCount]);
 

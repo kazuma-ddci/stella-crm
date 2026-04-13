@@ -7,7 +7,7 @@ import { Prisma } from "@prisma/client";
 import { createNotificationBulk } from "@/lib/notifications/create-notification";
 import { recordChangeLog } from "@/app/finance/changelog/actions";
 import { ok, err, type ActionResult } from "@/lib/action-result";
-import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { requireFinanceTransactionAccess } from "@/lib/auth/finance-access";
 
 const REVALIDATE_PATH = "/accounting/transactions";
 
@@ -70,10 +70,8 @@ export type AllocationStatusResult = {
 export async function getAllocationStatus(
   transactionId: number
 ): Promise<ActionResult<AllocationStatusResult | null>> {
-  // 注: requireStaffWithProjectPermission の redirect を伝播させるため try/catch の外で呼ぶ
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  // 注: per-record helper の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireFinanceTransactionAccess(transactionId, "view");
   try {
   const transaction = await prisma.transaction.findFirst({
     where: { id: transactionId, deletedAt: null },
@@ -201,8 +199,8 @@ export async function confirmAllocation(
   costCenterId: number
 ): Promise<ActionResult> {
   try {
-    const session = await getSession();
-    const staffId = session.id;
+    const { user } = await requireFinanceTransactionAccess(transactionId, "edit");
+    const staffId = user.id;
 
     const transaction = await prisma.transaction.findFirst({
       where: { id: transactionId, deletedAt: null },
@@ -255,7 +253,7 @@ export async function confirmAllocation(
           changeType: "create",
           newData: { transactionId, costCenterId },
         },
-        session.id
+        staffId
       );
     } catch (e) {
       if (

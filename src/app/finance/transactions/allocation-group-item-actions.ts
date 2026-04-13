@@ -9,7 +9,15 @@ import { recordChangeLog } from "@/app/finance/changelog/actions";
 import { calculateAllocatedAmounts } from "./allocation-actions";
 import { toLocalDateString } from "@/lib/utils";
 import { ok, err, type ActionResult } from "@/lib/action-result";
-import { requireStaffWithProjectPermission, requireStaffForFinance } from "@/lib/auth/staff-action";
+import { requireStaffForFinance } from "@/lib/auth/staff-action";
+import {
+  requireFinanceTransactionAccess,
+  requireFinanceInvoiceGroupAccess,
+  requireFinancePaymentGroupAccess,
+  requireFinanceProjectAccess,
+  FinanceRecordNotFoundError,
+  FinanceForbiddenError,
+} from "@/lib/auth/finance-access";
 
 // ===== 共通定数・スキーマ =====
 
@@ -65,8 +73,15 @@ export async function addAllocationItemToGroup(
   // P2: groupType のランタイム検証
   groupTypeSchema.parse(groupType);
 
-  const session = await getSession();
-  const staffId = session.id;
+  // per-record 認可: 取引 + グループ両方へのアクセス権を確認
+  const { user } = await requireFinanceTransactionAccess(transactionId, "edit");
+  if (groupType === "invoice") {
+    await requireFinanceInvoiceGroupAccess(groupId, "edit");
+  } else {
+    await requireFinancePaymentGroupAccess(groupId, "edit");
+  }
+
+  const staffId = user.id;
   const warnings: string[] = [];
 
   // 1. 取引の存在確認 + 按分テンプレート確認
@@ -233,7 +248,7 @@ export async function addAllocationItemToGroup(
           ...(groupType === "invoice" ? { invoiceGroupId: groupId } : { paymentGroupId: groupId }),
         },
       },
-      session.id,
+      staffId,
       tx
     );
 
@@ -247,6 +262,8 @@ export async function addAllocationItemToGroup(
 
   return ok({ warnings });
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("対象が見つかりません");
     console.error("[addAllocationItemToGroup] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
@@ -261,9 +278,17 @@ export async function removeAllocationItemFromGroup(
   const item = await prisma.allocationGroupItem.findUnique({
     where: { id: allocationGroupItemId },
   });
-
   if (!item) {
     return err("按分明細が見つかりません");
+  }
+
+  // per-record 認可: 取引 + グループ両方へのアクセス権を確認
+  await requireFinanceTransactionAccess(item.transactionId, "edit");
+  if (item.invoiceGroupId) {
+    await requireFinanceInvoiceGroupAccess(item.invoiceGroupId, "edit");
+  }
+  if (item.paymentGroupId) {
+    await requireFinancePaymentGroupAccess(item.paymentGroupId, "edit");
   }
 
   // グループのステータス確認
@@ -314,6 +339,8 @@ export async function removeAllocationItemFromGroup(
   revalidatePath("/accounting/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("対象が見つかりません");
     console.error("[removeAllocationItemFromGroup] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
@@ -324,10 +351,8 @@ export async function removeAllocationItemFromGroup(
 export async function getAllocationGroupStatus(
   transactionId: number
 ): Promise<ActionResult<AllocationGroupStatus | null>> {
-  // 注: requireStaffWithProjectPermission の redirect を伝播させるため try/catch の外で呼ぶ
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  // 注: per-record helper の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireFinanceTransactionAccess(transactionId, "view");
   try {
   const transaction = await prisma.transaction.findFirst({
     where: { id: transactionId, deletedAt: null },
@@ -467,9 +492,12 @@ export async function getUnprocessedAllocations(projectId?: number): Promise<{
   ownerCostCenterName: string | null;
   otherItemsSummary: { costCenterName: string; groupLabel: string | null; isProcessed: boolean }[];
 }[]> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  // 未処理按分一覧はダッシュボード的用途。projectId 指定ありならそのPJ、なければ finance エントリでOK
+  if (projectId) {
+    await requireFinanceProjectAccess(projectId, "view");
+  } else {
+    await requireStaffForFinance("view");
+  }
   // プロジェクトに紐づくCostCenterのIDを取得
   let targetCostCenterIds: number[] | undefined;
   if (projectId) {
@@ -715,14 +743,27 @@ export type AllocationWarning = {
   allConfirmationsComplete: boolean;
 };
 
+export type GroupAllocationWarningsResult =
+  | { ok: true; data: AllocationWarning[] }
+  | { ok: false; reason: "not_found" | "forbidden" | "internal"; message: string };
+
+/**
+ * グループ内の按分取引警告を取得する（client から直呼び、§4.3.3(d) Result<T> 規約）。
+ *
+ * 戻り値型が Result<T> のため、呼び出し側は result.ok で分岐する。
+ * 旧 `Promise<AllocationWarning[]>` から破壊的変更だが、呼び出し元は STP の 2 モーダルのみ。
+ */
 export async function getGroupAllocationWarnings(
   groupType: "invoice" | "payment",
   groupId: number
-): Promise<AllocationWarning[]> {
-  // Phase 0暫定: 経理 OR 任意PJ の view 以上
-  // Phase 5 で groupType に応じた requireFinance{Invoice|Payment}GroupAccess に置換予定
-  // + 戻り値を Result<T> 化（client 直呼びのため）
-  await requireStaffForFinance("view");
+): Promise<GroupAllocationWarningsResult> {
+  try {
+  // per-record 認可
+  if (groupType === "invoice") {
+    await requireFinanceInvoiceGroupAccess(groupId, "view");
+  } else {
+    await requireFinancePaymentGroupAccess(groupId, "view");
+  }
   // グループ内の直接取引（按分テンプレート付き）を取得
   const directTransactions = groupType === "invoice"
     ? await prisma.transaction.findMany({
@@ -872,6 +913,16 @@ export async function getGroupAllocationWarnings(
     }
   }
 
-  return warnings;
+  return { ok: true, data: warnings };
+  } catch (e) {
+    if (e instanceof FinanceRecordNotFoundError) {
+      return { ok: false, reason: "not_found", message: "対象のグループが見つかりません" };
+    }
+    if (e instanceof FinanceForbiddenError) {
+      return { ok: false, reason: "forbidden", message: "このグループにアクセスする権限がありません" };
+    }
+    console.error("[getGroupAllocationWarnings] error:", e);
+    return { ok: false, reason: "internal", message: e instanceof Error ? e.message : "予期しないエラー" };
+  }
 }
 
