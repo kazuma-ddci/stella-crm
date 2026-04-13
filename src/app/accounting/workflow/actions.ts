@@ -10,7 +10,7 @@ import {
   type ReceiptPaymentSummary,
 } from "@/lib/accounting/sync-payment-date";
 import { ok, err, type ActionResult } from "@/lib/action-result";
-import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 
 // ============================================
 // 型定義
@@ -154,9 +154,7 @@ function determineCategory(
 // ============================================
 
 export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireStaffForAccounting("view");
   const [invoiceGroups, paymentGroups] = await Promise.all([
     prisma.invoiceGroup.findMany({
       where: {
@@ -387,9 +385,7 @@ export async function getWorkflowGroupDetail(
   groupType: "invoice" | "payment",
   groupId: number
 ): Promise<WorkflowGroupDetail | null> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireStaffForAccounting("view");
   const transactionSelect = {
     id: true,
     type: true,
@@ -828,9 +824,7 @@ export type PendingApprovalDetail = {
 };
 
 export async function getPendingApprovalDetail(groupId: number): Promise<PendingApprovalDetail | null> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireStaffForAccounting("view");
   const pg = await prisma.paymentGroup.findFirst({
     where: { id: groupId, deletedAt: null },
     select: {

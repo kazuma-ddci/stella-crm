@@ -7,7 +7,7 @@ import { getSession } from "@/lib/auth";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
 import { recordChangeLog } from "@/app/finance/changelog/actions";
 import { ok, err, type ActionResult } from "@/lib/action-result";
-import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 
 // Prisma transaction client type
 type TxClient = Omit<
@@ -409,9 +409,7 @@ export async function getUnmatchedBankTransactions(): Promise<
   UnmatchedBankTransaction[]
 > {
   // 認証: 経理プロジェクトの閲覧権限以上
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireStaffForAccounting("view");
 
   const bankTransactions = await prisma.bankTransaction.findMany({
     where: { deletedAt: null },
@@ -452,9 +450,7 @@ export async function getUnmatchedBankTransactions(): Promise<
 export async function getUnmatchedJournalEntries(): Promise<
   UnmatchedJournalEntry[]
 > {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireStaffForAccounting("view");
 
   const entries = await prisma.journalEntry.findMany({
     where: {
@@ -529,9 +525,7 @@ export async function getUnmatchedJournalEntries(): Promise<
 // ============================================
 
 export async function getReconciliations(): Promise<ReconciliationRow[]> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireStaffForAccounting("view");
 
   const reconciliations = await prisma.reconciliation.findMany({
     include: {
@@ -574,9 +568,7 @@ export async function getReconciliations(): Promise<ReconciliationRow[]> {
 // ============================================
 
 export async function getReconciliationFormData(): Promise<ReconciliationFormData> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireStaffForAccounting("view");
 
   const accounts = await prisma.account.findMany({
     where: { isActive: true },

@@ -10,7 +10,7 @@ import {
 } from "@/lib/finance/monthly-close";
 import { toLocalDateString } from "@/lib/utils";
 import { ok, err, type ActionResult } from "@/lib/action-result";
-import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 
 // ============================================
 // 型定義
@@ -40,9 +40,7 @@ export type MonthlyCloseLogRow = {
 
 export async function getMonthlyCloseData(months: string[]) {
   // 認証: 経理プロジェクトの閲覧権限以上
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireStaffForAccounting("view");
 
   // MonthlyCloseLog のイベント履歴（全社クローズ: projectId = null）
   const logs = await prisma.monthlyCloseLog.findMany({
