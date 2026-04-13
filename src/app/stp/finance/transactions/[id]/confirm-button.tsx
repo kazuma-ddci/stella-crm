@@ -14,7 +14,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { confirmTransaction } from "@/app/accounting/transactions/actions";
+import { confirmTransaction } from "@/app/finance/transactions/actions";
 import { toast } from "sonner";
 
 type Props = {

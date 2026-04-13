@@ -35,8 +35,9 @@ import {
 import { Check, ChevronsUpDown, FileText, Loader2, Plus, X } from "lucide-react";
 import { cn, matchesWithWordBoundary, toLocalDateString } from "@/lib/utils";
 import { toast } from "sonner";
-import { createTransaction, createAccountingTransaction, updateTransaction } from "./actions";
+import { createTransaction, updateTransaction } from "./actions";
 import type { TransactionFormData } from "./actions";
+import { createAccountingTransaction } from "@/app/accounting/transactions/accounting-actions";
 
 // ============================================
 // 型定義

@@ -48,7 +48,7 @@ import {
 import {
   getGroupAllocationWarnings,
   type AllocationWarning,
-} from "@/app/accounting/transactions/allocation-group-item-actions";
+} from "@/app/finance/transactions/allocation-group-item-actions";
 import { InvoiceBuilderTab } from "./invoice-builder-tab";
 import {
   UploadConfirmationDialog,

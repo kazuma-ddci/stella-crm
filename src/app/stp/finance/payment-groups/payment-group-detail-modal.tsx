@@ -75,7 +75,7 @@ import {
 import {
   getGroupAllocationWarnings,
   type AllocationWarning,
-} from "@/app/accounting/transactions/allocation-group-item-actions";
+} from "@/app/finance/transactions/allocation-group-item-actions";
 import {
   UploadConfirmationDialog,
   type FileUploadEntry,

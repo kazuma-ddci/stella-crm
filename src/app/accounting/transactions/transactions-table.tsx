@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { TransactionStatusBadge } from "./transaction-status-badge";
+import { TransactionStatusBadge } from "@/app/finance/transactions/transaction-status-badge";
 import { TransactionStatusActions } from "./transaction-status-actions";
 import { AllocationStatusButton } from "./allocation-confirmation-panel";
 

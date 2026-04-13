@@ -27,7 +27,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import type { AwaitingGroupItem } from "./actions";
 import { returnGroupToStp } from "./actions";
-import { batchUpdateGroupStatus } from "@/app/accounting/transactions/allocation-group-item-actions";
+import { batchUpdateGroupStatus } from "@/app/accounting/transactions/allocation-group-item-accounting-actions";
 
 const STATUS_LABELS: Record<string, string> = {
   awaiting_accounting: "経理処理待ち",

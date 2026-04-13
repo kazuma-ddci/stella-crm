@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
-import { getTransactionById, getTransactionFormData } from "../../actions";
-import { TransactionForm } from "../../transaction-form";
+import { getTransactionById } from "@/app/finance/transactions/actions";
+import { getAccountingTransactionFormData } from "../../accounting-actions";
+import { TransactionForm } from "@/app/finance/transactions/transaction-form";
 import { CommentSection } from "@/app/finance/comments/comment-section";
 import { ChangeLogSection } from "@/app/finance/changelog/changelog-section";
 
@@ -18,7 +19,7 @@ export default async function EditTransactionPage({ params }: Props) {
 
   const [transaction, formData] = await Promise.all([
     getTransactionById(transactionId),
-    getTransactionFormData(),
+    getAccountingTransactionFormData(),
   ]);
 
   if (!transaction) {

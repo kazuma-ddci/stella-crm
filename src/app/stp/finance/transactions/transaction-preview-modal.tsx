@@ -19,7 +19,7 @@ import {
   getTransactionById,
   updateTransaction,
   confirmTransaction,
-} from "@/app/accounting/transactions/actions";
+} from "@/app/finance/transactions/actions";
 import { toLocalDateString } from "@/lib/utils";
 
 type TransactionData = NonNullable<

@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 import {
   getTransactionById,
   getTransactionFormData,
-} from "@/app/accounting/transactions/actions";
-import { TransactionStatusBadge } from "@/app/accounting/transactions/transaction-status-badge";
-import { TransactionForm } from "@/app/accounting/transactions/transaction-form";
+} from "@/app/finance/transactions/actions";
+import { TransactionStatusBadge } from "@/app/finance/transactions/transaction-status-badge";
+import { TransactionForm } from "@/app/finance/transactions/transaction-form";
 import { CommentSection } from "@/app/finance/comments/comment-section";
 import { ChangeLogSection } from "@/app/finance/changelog/changelog-section";
 import { TransactionConfirmButton } from "./confirm-button";
