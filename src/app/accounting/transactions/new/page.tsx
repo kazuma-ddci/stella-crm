@@ -1,5 +1,6 @@
-import { getTransactionFormData, getAccountingTransactionFormData } from "../actions";
-import { TransactionForm } from "../transaction-form";
+import { getTransactionFormData } from "@/app/finance/transactions/actions";
+import { getAccountingTransactionFormData } from "../accounting-actions";
+import { TransactionForm } from "@/app/finance/transactions/transaction-form";
 
 type Props = {
   searchParams: Promise<{ mode?: string }>;

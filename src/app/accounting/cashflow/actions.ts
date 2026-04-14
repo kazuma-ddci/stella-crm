@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 
 // ============================================
 // 型定義
@@ -81,9 +81,7 @@ export async function getCashflowForecast(
   forecastDays: number = 90
 ): Promise<CashflowForecastData> {
   // 認証: 経理プロジェクトの閲覧権限以上
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireStaffForAccounting("view");
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);

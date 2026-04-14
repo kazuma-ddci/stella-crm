@@ -3,17 +3,27 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { hasPermission, isFounder, isSystemAdmin } from "@/lib/auth";
-import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
-import type { SessionUser } from "@/types/auth";
+import { requireStaffForFinance, requireStaffForAccounting } from "@/lib/auth/staff-action";
+import {
+  requireFinanceTransactionAccess,
+  requireFinanceProjectAccess,
+} from "@/lib/auth/finance-access";
 import { autoConfirmCreatorAllocations, checkAndTransitionToAwaitingAccounting, sendAllocationNotifications } from "./allocation-actions";
 import type { AllocationNotificationInfo } from "./allocation-actions";
 import { createNotification } from "@/lib/notifications/create-notification";
 import { toBoolean } from "@/lib/utils";
-import { recordChangeLog, extractChanges, pickRecordData } from "@/app/accounting/changelog/actions";
-import { TRANSACTION_LOG_FIELDS } from "@/app/accounting/changelog/log-fields";
-import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
+import { recordChangeLog, extractChanges, pickRecordData } from "@/app/finance/changelog/actions";
+import { TRANSACTION_LOG_FIELDS } from "@/app/finance/changelog/log-fields";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import {
+  validateTransactionData,
+  checkMonthlyClose,
+} from "./_helpers";
+import {
+  FinanceRecordNotFoundError,
+  FinanceForbiddenError,
+} from "@/lib/auth/finance-access";
+import { getTransactionForDetailPage } from "./loaders";
 
 // ============================================
 // 型定義
@@ -71,125 +81,7 @@ export type TransactionFormData = {
   }[];
 };
 
-// ============================================
-// バリデーション
-// ============================================
-
-const VALID_TYPES = ["revenue", "expense"] as const;
-const VALID_TAX_TYPES = ["tax_included", "tax_excluded"] as const;
-
-function validateTransactionData(data: Record<string, unknown>) {
-  // type
-  const type = data.type as string;
-  if (!type || !(VALID_TYPES as readonly string[]).includes(type)) {
-    throw new Error("種別（revenue/expense）は必須です");
-  }
-
-  // taxType
-  const taxType = (data.taxType as string) || "tax_excluded";
-  if (!(VALID_TAX_TYPES as readonly string[]).includes(taxType)) {
-    throw new Error("税区分（tax_included/tax_excluded）が不正です");
-  }
-
-  // counterpartyId
-  const counterpartyId = Number(data.counterpartyId);
-  if (!data.counterpartyId || isNaN(counterpartyId)) {
-    throw new Error("取引先は必須です");
-  }
-
-  // expenseCategoryId
-  const expenseCategoryId = Number(data.expenseCategoryId);
-  if (!data.expenseCategoryId || isNaN(expenseCategoryId)) {
-    throw new Error("費目は必須です");
-  }
-
-  // amount
-  const amount = Number(data.amount);
-  if (data.amount === undefined || data.amount === null || isNaN(amount) || amount < 0 || !Number.isInteger(amount)) {
-    throw new Error("金額は0以上の整数で入力してください");
-  }
-
-  // taxRate
-  const taxRate = Number(data.taxRate);
-  if (data.taxRate === undefined || data.taxRate === null || isNaN(taxRate) || !Number.isInteger(taxRate)) {
-    throw new Error("税率は整数で入力してください");
-  }
-
-  // taxAmount
-  const taxAmount = Number(data.taxAmount);
-  if (data.taxAmount === undefined || data.taxAmount === null || isNaN(taxAmount) || !Number.isInteger(taxAmount)) {
-    throw new Error("消費税額は整数で入力してください");
-  }
-
-  // 消費税額の妥当性チェック（手動修正を許容しつつ、大幅な乖離を防ぐ）
-  if (amount > 0 && taxRate > 0) {
-    let expectedTax: number;
-    if (taxType === "tax_included") {
-      expectedTax = Math.floor(amount - amount / (1 + taxRate / 100));
-    } else {
-      expectedTax = Math.floor(amount * taxRate / 100);
-    }
-    // 手動修正を許容: 自動計算値との差が20%以上ある場合は警告
-    if (expectedTax > 0 && Math.abs(taxAmount - expectedTax) / expectedTax > 0.2) {
-      // 手動修正は許容するためエラーにはしない（ログ出力で追跡可能）
-      console.warn(
-        `消費税額が自動計算値と乖離しています: 入力=${taxAmount}, 期待=${expectedTax}, taxType=${taxType}`
-      );
-    }
-  }
-
-  // periodFrom, periodTo
-  if (!data.periodFrom) {
-    throw new Error("発生期間（開始）は必須です");
-  }
-  if (!data.periodTo) {
-    throw new Error("発生期間（終了）は必須です");
-  }
-  const periodFrom = new Date(data.periodFrom as string);
-  const periodTo = new Date(data.periodTo as string);
-  if (isNaN(periodFrom.getTime())) {
-    throw new Error("発生期間（開始）が無効な日付です");
-  }
-  if (isNaN(periodTo.getTime())) {
-    throw new Error("発生期間（終了）が無効な日付です");
-  }
-  if (periodFrom > periodTo) {
-    throw new Error("発生期間の開始日は終了日以前にしてください");
-  }
-
-  // allocationTemplateId と costCenterId の排他チェック
-  const allocationTemplateId = data.allocationTemplateId
-    ? Number(data.allocationTemplateId)
-    : null;
-  const costCenterId = data.costCenterId
-    ? Number(data.costCenterId)
-    : null;
-
-  if (allocationTemplateId && costCenterId) {
-    throw new Error(
-      "按分テンプレートとプロジェクトは同時に指定できません"
-    );
-  }
-  if (!allocationTemplateId && !costCenterId) {
-    throw new Error(
-      "按分テンプレートまたはプロジェクトのいずれかを指定してください"
-    );
-  }
-
-  return {
-    type,
-    taxType,
-    counterpartyId,
-    expenseCategoryId,
-    amount,
-    taxAmount,
-    taxRate,
-    periodFrom,
-    periodTo,
-    allocationTemplateId,
-    costCenterId,
-  };
-}
+// バリデーション・機密フィルタ・月次クローズチェック helper は ./_helpers.ts に分離（"use server"非対応のため）
 
 // ============================================
 // 1. createTransaction
@@ -199,6 +91,15 @@ export async function createTransaction(
   data: Record<string, unknown>
 ): Promise<ActionResult<{ id: number }>> {
   try {
+  // projectId が指定されているか事前に確認し、PJ別の edit 権限を判定
+  const projectId = data.projectId ? Number(data.projectId) : null;
+  if (projectId) {
+    await requireFinanceProjectAccess(projectId, "edit");
+  } else {
+    // projectId 無しの取引作成は経理編集権限のみ許可
+    await requireStaffForAccounting("edit");
+  }
+
   const session = await getSession();
   const staffId = session.id;
 
@@ -207,7 +108,6 @@ export async function createTransaction(
   // 月次クローズチェック
   await checkMonthlyClose(validated.periodFrom, validated.periodTo);
 
-  const projectId = data.projectId ? Number(data.projectId) : null;
   const paymentMethodId = data.paymentMethodId
     ? Number(data.paymentMethodId)
     : null;
@@ -341,6 +241,8 @@ export async function createTransaction(
 
   return ok({ id: result.transaction.id });
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[createTransaction] error:", e);
     return err(e instanceof Error ? e.message : "取引の作成に失敗しました");
   }
@@ -355,10 +257,11 @@ export async function updateTransaction(
   data: Record<string, unknown>
 ): Promise<ActionResult> {
   try {
-  const session = await getSession();
-  const staffId = session.id;
+  // per-record 認可（レコードの所属PJで判定）
+  const { user } = await requireFinanceTransactionAccess(id, "edit");
+  const staffId = user.id;
 
-  // 既存レコード取得
+  // 既存レコード取得（編集に必要な関連データを含む）
   const existing = await prisma.transaction.findFirst({
     where: { id, deletedAt: null },
     include: {
@@ -386,6 +289,18 @@ export async function updateTransaction(
   await checkMonthlyClose(validated.periodFrom, validated.periodTo);
 
   const projectId = data.projectId ? Number(data.projectId) : null;
+
+  // Codex 最終 P1-1: projectId 変更時は移動先 PJ への edit 権限も確認
+  // （攻撃者が data.projectId を改ざんして別PJへ移動することを防止）
+  if (projectId !== existing.projectId) {
+    if (projectId) {
+      await requireFinanceProjectAccess(projectId, "edit");
+    } else {
+      // projectId を null に戻す操作は経理専用
+      await requireStaffForAccounting("edit");
+    }
+  }
+
   const paymentMethodId = data.paymentMethodId
     ? Number(data.paymentMethodId)
     : null;
@@ -535,87 +450,56 @@ export async function updateTransaction(
   revalidatePath("/stp/finance/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[updateTransaction] error:", e);
     return err(e instanceof Error ? e.message : "取引の更新に失敗しました");
   }
 }
 
 // ============================================
-// 3. getTransactionById
+// 3. 取引詳細取得
 // ============================================
+//
+// v6: getTransactionById は廃止され、用途別に以下に分割された:
+// - Server Component から呼ぶ場合:
+//   → finance/transactions/loaders.ts の getTransactionForDetailPage
+//   → typed error (FinanceRecordNotFoundError) を直接 throw、呼び出し側で notFound() 変換
+// - Client Component から呼ぶ場合:
+//   → 下記の getTransactionForPreview（wrapper、Result<T> 形式）
 
-export async function getTransactionById(id: number) {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-    { project: "stp", level: "view" },
-    { project: "hojo", level: "view" },
-    { project: "srd", level: "view" },
-    { project: "slp", level: "view" },
-  ]);
-
-  const transaction = await prisma.transaction.findFirst({
-    where: { id, deletedAt: null },
-    include: {
-      counterparty: {
-        select: { id: true, name: true, counterpartyType: true },
-      },
-      allocationTemplate: {
-        include: {
-          lines: {
-            include: {
-              costCenter: { select: { id: true, name: true } },
-            },
-          },
-        },
-      },
-      allocationGroupItems: {
-        include: {
-          costCenter: { select: { id: true, name: true } },
-          invoiceGroup: { select: { invoiceNumber: true } },
-          paymentGroup: { select: { targetMonth: true } },
-        },
-      },
-      costCenter: {
-        select: { id: true, name: true, projectId: true },
-      },
-      expenseCategory: {
-        select: { id: true, name: true, type: true },
-      },
-      project: {
-        select: { id: true, name: true, code: true },
-      },
-      paymentMethod: {
-        select: { id: true, name: true, methodType: true },
-      },
-      attachments: {
-        where: { deletedAt: null },
-      },
-      invoiceGroup: {
-        select: {
-          id: true,
-          invoiceNumber: true,
-          attachments: { where: { deletedAt: null } },
-        },
-      },
-      paymentGroup: {
-        select: {
-          id: true,
-          targetMonth: true,
-          attachments: { where: { deletedAt: null } },
-        },
-      },
-      creator: { select: { id: true, name: true } },
-      updater: { select: { id: true, name: true } },
-      confirmer: { select: { id: true, name: true } },
-      expenseOwners: {
-        include: {
-          staff: { select: { id: true, name: true } },
-        },
-      },
-    },
-  });
-
-  return transaction ?? null;
+/**
+ * Client Component 向けの取引詳細取得ラッパー（§4.3.3(d) 規約）。
+ *
+ * loaders.ts の getTransactionForDetailPage を呼び出し、typed error を
+ * Result<T> 形式に変換して返す。
+ *
+ * 呼び出し側（stp/finance/transactions/transaction-preview-modal.tsx 等）は
+ * `result.ok` で分岐して UI を決める。
+ */
+export async function getTransactionForPreview(
+  transactionId: number
+): Promise<
+  | { ok: true; data: Awaited<ReturnType<typeof getTransactionForDetailPage>> }
+  | { ok: false; reason: "not_found" | "forbidden" | "internal"; message: string }
+> {
+  try {
+    const data = await getTransactionForDetailPage(transactionId);
+    return { ok: true, data };
+  } catch (e) {
+    if (e instanceof FinanceRecordNotFoundError) {
+      return { ok: false, reason: "not_found", message: "取引が見つかりません" };
+    }
+    if (e instanceof FinanceForbiddenError) {
+      return { ok: false, reason: "forbidden", message: "この取引にアクセスする権限がありません" };
+    }
+    console.error("[getTransactionForPreview] error:", e);
+    return {
+      ok: false,
+      reason: "internal",
+      message: e instanceof Error ? e.message : "予期しないエラーが発生しました",
+    };
+  }
 }
 
 // ============================================
@@ -641,27 +525,7 @@ const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
 // 機密フィルタヘルパー
 // ============================================
 
-function buildConfidentialFilter(user: SessionUser) {
-  if (isSystemAdmin(user) || isFounder(user)) return {};
-  if (hasPermission(user.permissions, "accounting", "edit")) return {};
-  return { OR: [{ isConfidential: false }, { isConfidential: true, createdBy: user.id }] };
-}
-
-// ============================================
-// 月次クローズチェック
-// ============================================
-
-async function checkMonthlyClose(periodFrom: Date, periodTo: Date) {
-  // periodFrom〜periodToに含まれる全ての月を対象にチェック
-  const startMonth = new Date(periodFrom.getFullYear(), periodFrom.getMonth(), 1);
-  const endMonth = new Date(periodTo.getFullYear(), periodTo.getMonth(), 1);
-
-  const current = new Date(startMonth);
-  while (current <= endMonth) {
-    await ensureMonthNotClosed(current);
-    current.setMonth(current.getMonth() + 1);
-  }
-}
+// buildConfidentialFilter / checkMonthlyClose は ./_helpers.ts に分離
 
 // ============================================
 // 5. confirmTransaction（未確認→確認済み）
@@ -669,7 +533,9 @@ async function checkMonthlyClose(periodFrom: Date, periodTo: Date) {
 
 export async function confirmTransaction(id: number): Promise<ActionResult> {
   try {
-  const session = await getSession();
+  // per-record 認可
+  await requireFinanceTransactionAccess(id, "edit");
+    const session = await getSession();
   const staffId = session.id;
 
   const transaction = await prisma.transaction.findFirst({
@@ -723,6 +589,8 @@ export async function confirmTransaction(id: number): Promise<ActionResult> {
   revalidatePath("/accounting/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[confirmTransaction] error:", e);
     return err(e instanceof Error ? e.message : "取引確定に失敗しました");
   }
@@ -734,7 +602,9 @@ export async function confirmTransaction(id: number): Promise<ActionResult> {
 
 export async function unconfirmTransaction(id: number): Promise<ActionResult> {
   try {
-  const session = await getSession();
+  // per-record 認可
+  await requireFinanceTransactionAccess(id, "edit");
+    const session = await getSession();
   const staffId = session.id;
 
   const transaction = await prisma.transaction.findFirst({
@@ -800,6 +670,8 @@ export async function unconfirmTransaction(id: number): Promise<ActionResult> {
   revalidatePath("/accounting/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[unconfirmTransaction] error:", e);
     return err(e instanceof Error ? e.message : "確定取消に失敗しました");
   }
@@ -814,7 +686,9 @@ export async function returnTransaction(
   data: { body: string; returnReasonType: string }
 ): Promise<ActionResult> {
   try {
-  const session = await getSession();
+  // per-record 認可
+  await requireFinanceTransactionAccess(id, "edit");
+    const session = await getSession();
   const staffId = session.id;
 
   const VALID_RETURN_REASONS = [
@@ -900,6 +774,8 @@ export async function returnTransaction(
   revalidatePath("/accounting/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[returnTransaction] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
@@ -914,7 +790,9 @@ export async function resubmitTransaction(
   body?: string
 ): Promise<ActionResult> {
   try {
-  const session = await getSession();
+  // per-record 認可
+  await requireFinanceTransactionAccess(id, "edit");
+    const session = await getSession();
   const staffId = session.id;
 
   const transaction = await prisma.transaction.findFirst({
@@ -970,6 +848,8 @@ export async function resubmitTransaction(
   revalidatePath("/accounting/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[resubmitTransaction] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
@@ -981,7 +861,9 @@ export async function resubmitTransaction(
 
 export async function submitToAccountingTransaction(id: number): Promise<ActionResult> {
   try {
-  const session = await getSession();
+  // per-record 認可
+  await requireFinanceTransactionAccess(id, "edit");
+    const session = await getSession();
   const staffId = session.id;
 
   const transaction = await prisma.transaction.findFirst({
@@ -1061,6 +943,8 @@ export async function submitToAccountingTransaction(id: number): Promise<ActionR
   revalidatePath("/accounting/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[submitToAccountingTransaction] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
@@ -1072,7 +956,9 @@ export async function submitToAccountingTransaction(id: number): Promise<ActionR
 
 export async function deleteTransaction(id: number): Promise<ActionResult> {
   try {
-  const session = await getSession();
+  // per-record 認可
+  await requireFinanceTransactionAccess(id, "edit");
+    const session = await getSession();
   const staffId = session.id;
 
   const transaction = await prisma.transaction.findFirst({
@@ -1130,6 +1016,8 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
   revalidatePath("/stp/finance/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[deleteTransaction] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
@@ -1141,6 +1029,8 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
 
 export async function hideTransaction(id: number): Promise<ActionResult> {
   try {
+  // 経理専用の論理削除操作
+  await requireStaffForAccounting("edit");
   const session = await getSession();
   const staffId = session.id;
 
@@ -1187,246 +1077,15 @@ export async function hideTransaction(id: number): Promise<ActionResult> {
   revalidatePath("/accounting/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("取引が見つかりません");
     console.error("[hideTransaction] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
 }
 
-// ============================================
-// 9. getTransactions（一覧取得）
-// ============================================
-
-export async function getTransactions(filters?: {
-  projectId?: number;
-  type?: string;
-  status?: string;
-  counterpartyId?: number;
-}) {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
-  const session = await getSession();
-  const txConfidentialFilter = buildConfidentialFilter(session);
-
-  const where: Record<string, unknown> = {
-    deletedAt: null,
-    status: { not: "hidden" },
-    ...txConfidentialFilter,
-  };
-
-  if (filters?.projectId) {
-    where.projectId = filters.projectId;
-  }
-  if (filters?.type) {
-    where.type = filters.type;
-  }
-  if (filters?.status) {
-    where.status = filters.status;
-  }
-  if (filters?.counterpartyId) {
-    where.counterpartyId = filters.counterpartyId;
-  }
-
-  const transactions = await prisma.transaction.findMany({
-    where,
-    include: {
-      counterparty: { select: { id: true, name: true } },
-      expenseCategory: { select: { id: true, name: true } },
-      costCenter: { select: { id: true, name: true } },
-      project: { select: { id: true, name: true, code: true } },
-      confirmer: { select: { id: true, name: true } },
-      allocationTemplate: { select: { id: true, name: true } },
-    },
-    orderBy: [{ periodFrom: "desc" }, { id: "desc" }],
-  });
-
-  // Decimal → number 変換（Client Componentに渡すため）
-  return transactions.map((t) => ({
-    ...t,
-    withholdingTaxRate: t.withholdingTaxRate != null ? Number(t.withholdingTaxRate) : null,
-  }));
-}
-
-// ============================================
-// 9b. getAccountingTransactions（経理側一覧取得 — awaiting_accounting以降のみ）
-// ============================================
-
-const ACCOUNTING_VISIBLE_STATUSES = [
-  "awaiting_accounting",
-  "journalized",
-  "partially_paid",
-  "paid",
-];
-
-export async function getAccountingTransactions() {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
-  const session = await getSession();
-  const txConfidentialFilter = buildConfidentialFilter(session);
-
-  const transactions = await prisma.transaction.findMany({
-    where: {
-      deletedAt: null,
-      status: { in: ACCOUNTING_VISIBLE_STATUSES },
-      ...txConfidentialFilter,
-    },
-    include: {
-      counterparty: { select: { id: true, name: true } },
-      expenseCategory: { select: { id: true, name: true } },
-      costCenter: { select: { id: true, name: true } },
-      project: { select: { id: true, name: true, code: true } },
-      confirmer: { select: { id: true, name: true } },
-      allocationTemplate: { select: { id: true, name: true } },
-      creator: { select: { id: true, name: true } },
-    },
-    orderBy: [{ periodFrom: "desc" }, { id: "desc" }],
-  });
-
-  return transactions.map((t) => ({
-    ...t,
-    withholdingTaxRate: t.withholdingTaxRate != null ? Number(t.withholdingTaxRate) : null,
-  }));
-}
-
-// ============================================
-// 9c. createAccountingTransaction（経理側から取引作成 — 直接awaiting_accountingで作成）
-// ============================================
-
-export async function createAccountingTransaction(
-  data: Record<string, unknown>
-): Promise<ActionResult<{ id: number }>> {
-  try {
-  const session = await getSession();
-  const staffId = session.id;
-
-  const validated = validateTransactionData(data);
-
-  // 月次クローズチェック
-  await checkMonthlyClose(validated.periodFrom, validated.periodTo);
-
-  const projectId = data.projectId ? Number(data.projectId) : null;
-  const paymentMethodId = data.paymentMethodId
-    ? Number(data.paymentMethodId)
-    : null;
-  const paymentDueDate = data.paymentDueDate
-    ? new Date(data.paymentDueDate as string)
-    : null;
-  const note = data.note ? (data.note as string).trim() || null : null;
-
-  // 源泉徴収
-  const isWithholdingTarget = toBoolean(data.isWithholdingTarget);
-  const withholdingTaxRate = data.withholdingTaxRate
-    ? Number(data.withholdingTaxRate)
-    : null;
-  const withholdingTaxAmount = data.withholdingTaxAmount
-    ? Number(data.withholdingTaxAmount)
-    : null;
-  const netPaymentAmount = data.netPaymentAmount
-    ? Number(data.netPaymentAmount)
-    : null;
-
-  // 機密フラグ
-  const isConfidential = toBoolean(data.isConfidential);
-
-  // グループ紐づけ
-  const invoiceGroupId = data.invoiceGroupId ? Number(data.invoiceGroupId) : null;
-  const paymentGroupId = data.paymentGroupId ? Number(data.paymentGroupId) : null;
-
-  // バリデーション: 請求グループは売上のみ、支払グループは経費のみ
-  if (invoiceGroupId && validated.type !== "revenue") {
-    return err("請求グループには売上取引のみ紐づけできます");
-  }
-  if (paymentGroupId && validated.type !== "expense") {
-    return err("支払グループには経費取引のみ紐づけできます");
-  }
-  if (invoiceGroupId && paymentGroupId) {
-    return err("請求グループと支払グループを同時に指定できません");
-  }
-
-  // グループの存在・ステータスチェック
-  if (invoiceGroupId) {
-    const group = await prisma.invoiceGroup.findFirst({
-      where: { id: invoiceGroupId, deletedAt: null },
-      select: { id: true, status: true },
-    });
-    if (!group) return err("指定された請求グループが見つかりません");
-    if (!["awaiting_accounting", "partially_paid"].includes(group.status)) {
-      return err("この請求グループには取引を追加できません（経理処理待ちまたは一部入金済みのみ可能）");
-    }
-  }
-  if (paymentGroupId) {
-    const group = await prisma.paymentGroup.findFirst({
-      where: { id: paymentGroupId, deletedAt: null },
-      select: { id: true, status: true },
-    });
-    if (!group) return err("指定された支払グループが見つかりません");
-    if (!["awaiting_accounting", "confirmed"].includes(group.status)) {
-      return err("この支払グループには取引を追加できません（経理処理待ちまたは確認済みのみ可能）");
-    }
-  }
-
-  const result = await prisma.$transaction(async (tx) => {
-    const transaction = await tx.transaction.create({
-      data: {
-        type: validated.type,
-        counterpartyId: validated.counterpartyId,
-        expenseCategoryId: validated.expenseCategoryId,
-        amount: validated.amount,
-        taxAmount: validated.taxAmount,
-        taxRate: validated.taxRate,
-        taxType: validated.taxType,
-        periodFrom: validated.periodFrom,
-        periodTo: validated.periodTo,
-        allocationTemplateId: validated.allocationTemplateId,
-        costCenterId: validated.costCenterId,
-        projectId,
-        paymentMethodId,
-        paymentDueDate,
-        note,
-        sourceType: "accounting",
-        status: "awaiting_accounting",
-        hasExpenseOwner: false,
-        isWithholdingTarget,
-        withholdingTaxRate,
-        withholdingTaxAmount,
-        netPaymentAmount,
-        isConfidential,
-        invoiceGroupId,
-        paymentGroupId,
-        createdBy: staffId,
-        confirmedBy: staffId,
-        confirmedAt: new Date(),
-      },
-    });
-
-    // 変更履歴を記録
-    await recordChangeLog(
-      {
-        tableName: "Transaction",
-        recordId: transaction.id,
-        changeType: "create",
-        newData: await pickRecordData(
-          transaction as unknown as Record<string, unknown>,
-          [...TRANSACTION_LOG_FIELDS]
-        ),
-      },
-      staffId,
-      tx
-    );
-
-    return { transaction };
-  });
-
-  revalidatePath("/accounting/transactions");
-  revalidatePath("/accounting/dashboard");
-
-  return ok({ id: result.transaction.id });
-  } catch (e) {
-    console.error("[createAccountingTransaction] error:", e);
-    return err(e instanceof Error ? e.message : "取引の作成に失敗しました");
-  }
-}
+// 9b. getAccountingTransactions / 9c. createAccountingTransaction は
+// src/app/accounting/transactions/accounting-actions.ts に分離（経理専用のため）
 
 // ============================================
 // 10. isMonthClosed（月次クローズ状態チェック）
@@ -1436,6 +1095,7 @@ export async function isMonthClosed(
   targetMonth: Date,
   projectId: number
 ): Promise<boolean> {
+  await requireFinanceProjectAccess(projectId, "view");
   const monthStart = new Date(
     targetMonth.getFullYear(),
     targetMonth.getMonth(),
@@ -1459,13 +1119,8 @@ export async function isMonthClosed(
 // ============================================
 
 export async function getTransactionFormData(): Promise<TransactionFormData> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-    { project: "stp", level: "view" },
-    { project: "hojo", level: "view" },
-    { project: "srd", level: "view" },
-    { project: "slp", level: "view" },
-  ]);
+  // フォームメタデータ取得は project 縛りなし、finance エントリの view があれば通す
+  await requireStaffForFinance("view");
   const [
     session,
     counterparties,
@@ -1558,52 +1213,4 @@ export async function getTransactionFormData(): Promise<TransactionFormData> {
   };
 }
 
-// ============================================
-// 12. getAccountingTransactionFormData（経理モード用）
-// ============================================
-
-export async function getAccountingTransactionFormData(): Promise<TransactionFormData> {
-  const [baseFormData, invoiceGroups, paymentGroups] = await Promise.all([
-    getTransactionFormData(),
-
-    // 経理処理待ち以降の請求グループ
-    prisma.invoiceGroup.findMany({
-      where: {
-        deletedAt: null,
-        status: { in: ["awaiting_accounting", "partially_paid"] },
-      },
-      select: {
-        id: true,
-        invoiceNumber: true,
-        totalAmount: true,
-        status: true,
-        counterparty: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 200,
-    }),
-
-    // 経理処理待ち以降の支払グループ
-    prisma.paymentGroup.findMany({
-      where: {
-        deletedAt: null,
-        status: { in: ["awaiting_accounting", "confirmed"] },
-      },
-      select: {
-        id: true,
-        referenceCode: true,
-        totalAmount: true,
-        status: true,
-        counterparty: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 200,
-    }),
-  ]);
-
-  return {
-    ...baseFormData,
-    invoiceGroups,
-    paymentGroups,
-  };
-}
+// 12. getAccountingTransactionFormData は src/app/accounting/transactions/accounting-actions.ts に分離

@@ -94,18 +94,23 @@ export function CommentSection({
 }: CommentSectionProps) {
   const [comments, setComments] = useState<CommentWithReplies[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<number | null>(null);
 
   const loadComments = useCallback(async () => {
     try {
-      const data = await getComments({
+      const result = await getComments({
         transactionId,
         invoiceGroupId,
         paymentGroupId,
       });
-      setComments(data);
-    } catch {
-      // ignore
+      if (result.ok) {
+        setComments(result.data);
+        setLoadError(null);
+      } else {
+        setComments([]);
+        setLoadError(result.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -145,6 +150,10 @@ export function CommentSection({
         <div className="flex items-center justify-center py-6">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
+      ) : loadError ? (
+        <p className="text-sm text-amber-600 text-center py-4">
+          {loadError}
+        </p>
       ) : comments.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-4">
           コメントはまだありません

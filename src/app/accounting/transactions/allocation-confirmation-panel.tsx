@@ -24,7 +24,7 @@ import {
   getAllocationStatus,
   confirmAllocation,
   type AllocationStatusResult,
-} from "./allocation-actions";
+} from "@/app/finance/transactions/allocation-actions";
 
 type AllocationConfirmationPanelProps = {
   transactionId: number;

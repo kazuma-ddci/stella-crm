@@ -25,7 +25,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { confirmTransaction, unconfirmTransaction, deleteTransaction } from "@/app/accounting/transactions/actions";
+import { confirmTransaction, unconfirmTransaction, deleteTransaction } from "@/app/finance/transactions/actions";
 import {
   Tooltip,
   TooltipContent,

@@ -4,9 +4,16 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import type { SessionUser } from "@/types/auth";
-import { isSystemAdmin, isFounder, hasPermission } from "@/lib/auth/permissions";
+import { hasPermission } from "@/lib/auth/permissions";
 import { ok, err, type ActionResult } from "@/lib/action-result";
-import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { requireStaffForAccounting } from "@/lib/auth/staff-action";
+import {
+  requireFinanceProjectAccess,
+  requireFinanceProjectCodeAccess,
+  requireFinancePaymentGroupApprovalAccess,
+  FinanceRecordNotFoundError,
+  FinanceForbiddenError,
+} from "@/lib/auth/finance-access";
 
 // 機密フィルタ: 作成者・承認者・経理権限者のみ閲覧可能
 // システム管理者・Founderであっても機密経費は見えない
@@ -67,6 +74,7 @@ export type ExpenseFormData = {
 export async function getExpenseFormData(
   projectCode: string | null
 ): Promise<ExpenseFormData> {
+  await requireFinanceProjectCodeAccess(projectCode, "view");
   const session = await getSession();
 
   const [
@@ -223,6 +231,17 @@ export async function submitExpenseRequest(
   input: SubmitExpenseInput
 ): Promise<ActionResult<{ id: number; type: "transaction" | "recurring" }>> {
   try {
+    // ⚠️ 権限チェック（Codex 6次指摘 P0 対応）:
+    // client 送信の input.mode / input.projectId を信頼せず、サーバー側で必ず検証する。
+    // accounting モードで送信するには accounting edit 権限必須（昇格防止）。
+    // project モードは projectId に対応する事業プロジェクトの edit 権限必須。
+    if (input.mode === "accounting") {
+      await requireStaffForAccounting("edit");
+    } else {
+      if (!input.projectId) return err("プロジェクトは必須です");
+      await requireFinanceProjectAccess(input.projectId, "edit");
+    }
+
     const session = await getSession();
     const staffId = session.id;
 
@@ -465,6 +484,8 @@ export async function submitExpenseRequest(
     revalidatePath("/accounting/workflow");
     return ok({ id: result.paymentGroupId, type: "transaction" as const });
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("対象が見つかりません");
     console.error("[submitExpenseRequest] error:", e);
     return err(e instanceof Error ? e.message : "経費の作成に失敗しました");
   }
@@ -507,6 +528,7 @@ export type ExpenseStatusItem = {
 
 /** 申請状況タブ: プロジェクト内の手動経費一覧 */
 export async function getMyExpenses(projectId: number): Promise<ExpenseStatusItem[]> {
+  await requireFinanceProjectAccess(projectId, "view");
   const session = await getSession();
   const confidentialFilter = buildExpenseConfidentialFilter(session);
   const pgs = await prisma.paymentGroup.findMany({
@@ -569,6 +591,7 @@ export async function getMyExpenses(projectId: number): Promise<ExpenseStatusIte
 
 /** 承認待ちタブ: 自分が承認者になっている経費 */
 export async function getPendingApprovals(projectId: number): Promise<ExpenseStatusItem[]> {
+  await requireFinanceProjectAccess(projectId, "view");
   const session = await getSession();
 
   const pgs = await prisma.paymentGroup.findMany({
@@ -643,9 +666,7 @@ export type RecurringItem = {
 
 /** 定期取引タブ（プロジェクト指定） */
 export async function getProjectRecurringTransactions(projectId: number): Promise<RecurringItem[]> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireFinanceProjectAccess(projectId, "view");
   const rts = await prisma.recurringTransaction.findMany({
     where: { deletedAt: null, projectId, type: "expense" },
     select: {
@@ -680,43 +701,6 @@ export async function getProjectRecurringTransactions(projectId: number): Promis
 }
 
 /** 全プロジェクト横断の定期取引（経理用） */
-export async function getAllRecurringTransactions(): Promise<RecurringItem[]> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
-  const rts = await prisma.recurringTransaction.findMany({
-    where: { deletedAt: null, type: "expense" },
-    select: {
-      id: true,
-      name: true,
-      amount: true,
-      amountType: true,
-      frequency: true,
-      intervalCount: true,
-      isActive: true,
-      startDate: true,
-      endDate: true,
-      counterparty: { select: { name: true } },
-      project: { select: { name: true } },
-    },
-    orderBy: [{ projectId: "asc" }, { createdAt: "desc" }],
-  });
-
-  return rts.map((rt) => ({
-    id: rt.id,
-    name: rt.name,
-    counterpartyName: rt.counterparty.name,
-    amount: rt.amount,
-    amountType: rt.amountType,
-    frequency: rt.frequency,
-    intervalCount: rt.intervalCount,
-    isActive: rt.isActive,
-    startDate: rt.startDate,
-    endDate: rt.endDate,
-    projectName: rt.project?.name ?? null,
-  }));
-}
-
 export type MonthlySummary = {
   month: string; // YYYY-MM
   totalAmount: number;
@@ -733,9 +717,7 @@ export type MonthlySummary = {
 
 /** 月別サマリータブ */
 export async function getMonthlyExpenseSummary(projectId: number): Promise<MonthlySummary[]> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireFinanceProjectAccess(projectId, "view");
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
   sixMonthsAgo.setDate(1);
@@ -789,19 +771,12 @@ export async function getMonthlyExpenseSummary(projectId: number): Promise<Month
 
 export async function approveByProjectApprover(groupId: number): Promise<ActionResult> {
   try {
-    const session = await getSession();
-    const staffId = session.id;
+    // ⚠️ 権限チェック: approver gate を helper に統一（v4 計画 §4.3.5）
+    const { user, paymentGroup: group } = await requireFinancePaymentGroupApprovalAccess(groupId);
+    const staffId = user.id;
 
-    const group = await prisma.paymentGroup.findFirst({
-      where: { id: groupId, deletedAt: null },
-      select: { id: true, status: true, approverStaffId: true },
-    });
-    if (!group) return err("支払グループが見つかりません");
     if (group.status !== "pending_project_approval") {
       return err("このグループはプロジェクト承認待ちではありません");
-    }
-    if (group.approverStaffId !== staffId) {
-      return err("あなたはこのグループの承認者ではありません");
     }
 
     await prisma.paymentGroup.update({
@@ -825,6 +800,8 @@ export async function approveByProjectApprover(groupId: number): Promise<ActionR
     revalidatePath("/hojo/expenses/new");
     return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("あなたはこのグループの承認者ではありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("支払グループが見つかりません");
     console.error("[approveByProjectApprover] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
@@ -835,14 +812,11 @@ export async function rejectByProjectApprover(
   reason?: string
 ): Promise<ActionResult> {
   try {
-    const session = await getSession();
-    const staffId = session.id;
+    // ⚠️ 権限チェック（Codex 6次指摘 P1 対応）:
+    // approveByProjectApprover と同じ approver gate を適用（rejectで欠落していた）
+    const { user, paymentGroup: group } = await requireFinancePaymentGroupApprovalAccess(groupId);
+    const staffId = user.id;
 
-    const group = await prisma.paymentGroup.findFirst({
-      where: { id: groupId, deletedAt: null },
-      select: { id: true, status: true, approverStaffId: true },
-    });
-    if (!group) return err("支払グループが見つかりません");
     if (group.status !== "pending_project_approval") {
       return err("このグループはプロジェクト承認待ちではありません");
     }
@@ -868,6 +842,8 @@ export async function rejectByProjectApprover(
     revalidatePath("/hojo/expenses/new");
     return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("あなたはこのグループの承認者ではありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("支払グループが見つかりません");
     console.error("[rejectByProjectApprover] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }

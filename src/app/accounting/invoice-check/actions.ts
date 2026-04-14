@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { ok, err, type ActionResult } from "@/lib/action-result";
-import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 
 export type InvoiceMismatchGroup = {
   counterparty: {
@@ -31,9 +31,7 @@ export type InvoiceMismatchGroup = {
 
 export async function getInvoiceMismatchedJournals(): Promise<InvoiceMismatchGroup[]> {
   // 認証: 経理プロジェクトの閲覧権限以上
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireStaffForAccounting("view");
 
   // 1. インボイス登録済み＋適用日ありの取引先
   const counterparties = await prisma.counterparty.findMany({

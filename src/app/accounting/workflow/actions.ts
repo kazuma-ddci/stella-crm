@@ -10,7 +10,7 @@ import {
   type ReceiptPaymentSummary,
 } from "@/lib/accounting/sync-payment-date";
 import { ok, err, type ActionResult } from "@/lib/action-result";
-import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 
 // ============================================
 // 型定義
@@ -154,9 +154,7 @@ function determineCategory(
 // ============================================
 
 export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireStaffForAccounting("view");
   const [invoiceGroups, paymentGroups] = await Promise.all([
     prisma.invoiceGroup.findMany({
       where: {
@@ -387,9 +385,7 @@ export async function getWorkflowGroupDetail(
   groupType: "invoice" | "payment",
   groupId: number
 ): Promise<WorkflowGroupDetail | null> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireStaffForAccounting("view");
   const transactionSelect = {
     id: true,
     type: true,
@@ -609,6 +605,7 @@ export async function toggleTransactionJournalCompleted(
   transactionId: number
 ): Promise<ActionResult> {
   try {
+    await requireStaffForAccounting("edit");
     const transaction = await prisma.transaction.findFirst({
       where: { id: transactionId, deletedAt: null },
       select: { id: true, journalCompleted: true },
@@ -640,6 +637,7 @@ export async function setTransactionJournalCompleted(
   completed: boolean
 ): Promise<ActionResult> {
   try {
+    await requireStaffForAccounting("edit");
     const transaction = await prisma.transaction.findFirst({
       where: { id: transactionId, deletedAt: null },
       select: { id: true },
@@ -667,6 +665,7 @@ export async function setTransactionJournalCompleted(
 // ============================================
 
 export async function checkAndCompleteTransaction(transactionId: number) {
+  await requireStaffForAccounting("view");
   const transaction = await prisma.transaction.findFirst({
     where: { id: transactionId, deletedAt: null },
     select: {
@@ -704,6 +703,7 @@ export async function checkAndCompleteTransaction(transactionId: number) {
 
 export async function approvePaymentGroup(groupId: number): Promise<ActionResult> {
   try {
+    await requireStaffForAccounting("edit");
     const session = await getSession();
     const staffId = session.id;
 
@@ -749,6 +749,7 @@ export async function rejectPaymentGroup(
   reason?: string
 ): Promise<ActionResult> {
   try {
+    await requireStaffForAccounting("edit");
     const session = await getSession();
     const staffId = session.id;
 
@@ -828,9 +829,7 @@ export type PendingApprovalDetail = {
 };
 
 export async function getPendingApprovalDetail(groupId: number): Promise<PendingApprovalDetail | null> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  await requireStaffForAccounting("view");
   const pg = await prisma.paymentGroup.findFirst({
     where: { id: groupId, deletedAt: null },
     select: {
@@ -960,6 +959,7 @@ export async function updateAndApprovePaymentGroup(
   }
 ): Promise<ActionResult> {
   try {
+    await requireStaffForAccounting("edit");
   const session = await getSession();
   const staffId = session.id;
 
@@ -1137,6 +1137,7 @@ export async function createCounterpartyFromApproval(
   name: string
 ): Promise<ActionResult<{ id: number; displayId: string }>> {
   try {
+    await requireStaffForAccounting("edit");
     const session = await getSession();
     const staffId = session.id;
 
@@ -1170,6 +1171,7 @@ export async function createCounterpartyFromApproval(
 // ============================================
 
 export async function getGroupAttachments(groupId: number, groupType: "invoice" | "payment") {
+  await requireStaffForAccounting("view");
   const attachments = await prisma.attachment.findMany({
     where: {
       ...(groupType === "invoice" ? { invoiceGroupId: groupId } : { paymentGroupId: groupId }),
@@ -1203,6 +1205,7 @@ export async function addGroupAttachments(
     generatedName?: string;
   }[]
 ): Promise<ActionResult<void>> {
+  await requireStaffForAccounting("edit");
   // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
   const session = await getSession();
   try {
@@ -1232,6 +1235,7 @@ export async function addGroupAttachments(
 export async function deleteGroupAttachment(
   attachmentId: number
 ): Promise<ActionResult<void>> {
+  await requireStaffForAccounting("edit");
   // 注: getSession() の redirect を伝播させるため try/catch の外で呼ぶ
   await getSession();
   try {
@@ -1280,6 +1284,7 @@ export async function listInvoiceGroupReceipts(
   invoiceGroupId: number
 ): Promise<ActionResult<ReceiptRecordsResult>> {
   try {
+    await requireStaffForAccounting("view");
   await getSession();
 
   const group = await prisma.invoiceGroup.findFirst({
@@ -1339,6 +1344,7 @@ export async function addInvoiceGroupReceipt(
   data: { receivedDate: string; amount: number; comment?: string | null }
 ): Promise<ActionResult> {
   try {
+    await requireStaffForAccounting("edit");
     const session = await getSession();
     const staffId = session.id;
 
@@ -1383,6 +1389,7 @@ export async function updateInvoiceGroupReceipt(
   data: { receivedDate?: string; amount?: number; comment?: string | null }
 ): Promise<ActionResult> {
   try {
+    await requireStaffForAccounting("edit");
     await getSession();
 
     const existing = await prisma.invoiceGroupReceipt.findUnique({
@@ -1433,6 +1440,7 @@ export async function deleteInvoiceGroupReceipt(
   receiptId: number
 ): Promise<ActionResult> {
   try {
+    await requireStaffForAccounting("edit");
     await getSession();
 
     const existing = await prisma.invoiceGroupReceipt.findUnique({
@@ -1465,6 +1473,7 @@ export async function listPaymentGroupPayments(
   paymentGroupId: number
 ): Promise<ActionResult<ReceiptRecordsResult>> {
   try {
+    await requireStaffForAccounting("view");
   await getSession();
 
   const group = await prisma.paymentGroup.findFirst({
@@ -1524,6 +1533,7 @@ export async function addPaymentGroupPayment(
   data: { paidDate: string; amount: number; comment?: string | null }
 ): Promise<ActionResult> {
   try {
+    await requireStaffForAccounting("edit");
     const session = await getSession();
     const staffId = session.id;
 
@@ -1568,6 +1578,7 @@ export async function updatePaymentGroupPayment(
   data: { paidDate?: string; amount?: number; comment?: string | null }
 ): Promise<ActionResult> {
   try {
+    await requireStaffForAccounting("edit");
     await getSession();
 
     const existing = await prisma.paymentGroupPayment.findUnique({
@@ -1618,6 +1629,7 @@ export async function deletePaymentGroupPayment(
   paymentId: number
 ): Promise<ActionResult> {
   try {
+    await requireStaffForAccounting("edit");
     await getSession();
 
     const existing = await prisma.paymentGroupPayment.findUnique({
@@ -1657,6 +1669,7 @@ export async function setInvoiceGroupManualPaymentStatus(
   status: ManualPaymentStatus
 ): Promise<ActionResult> {
   try {
+    await requireStaffForAccounting("edit");
     await getSession();
 
     if (!VALID_MANUAL_PAYMENT_STATUSES.includes(status)) {
@@ -1688,6 +1701,7 @@ export async function setPaymentGroupManualPaymentStatus(
   status: ManualPaymentStatus
 ): Promise<ActionResult> {
   try {
+    await requireStaffForAccounting("edit");
     await getSession();
 
     if (!VALID_MANUAL_PAYMENT_STATUSES.includes(status)) {

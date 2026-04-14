@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { Prisma } from "@prisma/client";
-import { recordChangeLogs } from "@/app/accounting/changelog/actions";
+import { recordChangeLogs } from "@/app/finance/changelog/actions";
 import { toLocalDateString, toBoolean } from "@/lib/utils";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 

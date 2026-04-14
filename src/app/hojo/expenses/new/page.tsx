@@ -4,8 +4,8 @@ import {
   getProjectRecurringTransactions,
   getMonthlyExpenseSummary,
   getPendingApprovals,
-} from "@/app/accounting/expenses/new/actions";
-import { ExpensePageClient } from "@/app/accounting/expenses/new/expense-page-client";
+} from "@/app/finance/expenses/actions";
+import { ExpensePageClient } from "@/app/finance/expenses/expense-page-client";
 import { prisma } from "@/lib/prisma";
 
 export default async function HojoExpenseNewPage() {

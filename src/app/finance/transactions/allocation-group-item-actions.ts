@@ -5,11 +5,18 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { recordChangeLog } from "@/app/accounting/changelog/actions";
+import { recordChangeLog } from "@/app/finance/changelog/actions";
 import { calculateAllocatedAmounts } from "./allocation-actions";
-import { toLocalDateString } from "@/lib/utils";
 import { ok, err, type ActionResult } from "@/lib/action-result";
-import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { requireStaffForFinance } from "@/lib/auth/staff-action";
+import {
+  requireFinanceTransactionAccess,
+  requireFinanceInvoiceGroupAccess,
+  requireFinancePaymentGroupAccess,
+  requireFinanceProjectAccess,
+  FinanceRecordNotFoundError,
+  FinanceForbiddenError,
+} from "@/lib/auth/finance-access";
 
 // ===== 共通定数・スキーマ =====
 
@@ -65,8 +72,15 @@ export async function addAllocationItemToGroup(
   // P2: groupType のランタイム検証
   groupTypeSchema.parse(groupType);
 
-  const session = await getSession();
-  const staffId = session.id;
+  // per-record 認可: 取引 + グループ両方へのアクセス権を確認
+  const { user } = await requireFinanceTransactionAccess(transactionId, "edit");
+  if (groupType === "invoice") {
+    await requireFinanceInvoiceGroupAccess(groupId, "edit");
+  } else {
+    await requireFinancePaymentGroupAccess(groupId, "edit");
+  }
+
+  const staffId = user.id;
   const warnings: string[] = [];
 
   // 1. 取引の存在確認 + 按分テンプレート確認
@@ -233,7 +247,7 @@ export async function addAllocationItemToGroup(
           ...(groupType === "invoice" ? { invoiceGroupId: groupId } : { paymentGroupId: groupId }),
         },
       },
-      session.id,
+      staffId,
       tx
     );
 
@@ -247,6 +261,8 @@ export async function addAllocationItemToGroup(
 
   return ok({ warnings });
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("対象が見つかりません");
     console.error("[addAllocationItemToGroup] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
@@ -261,9 +277,17 @@ export async function removeAllocationItemFromGroup(
   const item = await prisma.allocationGroupItem.findUnique({
     where: { id: allocationGroupItemId },
   });
-
   if (!item) {
     return err("按分明細が見つかりません");
+  }
+
+  // per-record 認可: 取引 + グループ両方へのアクセス権を確認
+  await requireFinanceTransactionAccess(item.transactionId, "edit");
+  if (item.invoiceGroupId) {
+    await requireFinanceInvoiceGroupAccess(item.invoiceGroupId, "edit");
+  }
+  if (item.paymentGroupId) {
+    await requireFinancePaymentGroupAccess(item.paymentGroupId, "edit");
   }
 
   // グループのステータス確認
@@ -314,6 +338,8 @@ export async function removeAllocationItemFromGroup(
   revalidatePath("/accounting/transactions");
   return ok();
   } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("対象が見つかりません");
     console.error("[removeAllocationItemFromGroup] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
@@ -324,10 +350,8 @@ export async function removeAllocationItemFromGroup(
 export async function getAllocationGroupStatus(
   transactionId: number
 ): Promise<ActionResult<AllocationGroupStatus | null>> {
-  // 注: requireStaffWithProjectPermission の redirect を伝播させるため try/catch の外で呼ぶ
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  // 注: per-record helper の redirect を伝播させるため try/catch の外で呼ぶ
+  await requireFinanceTransactionAccess(transactionId, "view");
   try {
   const transaction = await prisma.transaction.findFirst({
     where: { id: transactionId, deletedAt: null },
@@ -467,9 +491,12 @@ export async function getUnprocessedAllocations(projectId?: number): Promise<{
   ownerCostCenterName: string | null;
   otherItemsSummary: { costCenterName: string; groupLabel: string | null; isProcessed: boolean }[];
 }[]> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+  // 未処理按分一覧はダッシュボード的用途。projectId 指定ありならそのPJ、なければ finance エントリでOK
+  if (projectId) {
+    await requireFinanceProjectAccess(projectId, "view");
+  } else {
+    await requireStaffForFinance("view");
+  }
   // プロジェクトに紐づくCostCenterのIDを取得
   let targetCostCenterIds: number[] | undefined;
   if (projectId) {
@@ -715,13 +742,27 @@ export type AllocationWarning = {
   allConfirmationsComplete: boolean;
 };
 
+export type GroupAllocationWarningsResult =
+  | { ok: true; data: AllocationWarning[] }
+  | { ok: false; reason: "not_found" | "forbidden" | "internal"; message: string };
+
+/**
+ * グループ内の按分取引警告を取得する（client から直呼び、§4.3.3(d) Result<T> 規約）。
+ *
+ * 戻り値型が Result<T> のため、呼び出し側は result.ok で分岐する。
+ * 旧 `Promise<AllocationWarning[]>` から破壊的変更だが、呼び出し元は STP の 2 モーダルのみ。
+ */
 export async function getGroupAllocationWarnings(
   groupType: "invoice" | "payment",
   groupId: number
-): Promise<AllocationWarning[]> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
+): Promise<GroupAllocationWarningsResult> {
+  try {
+  // per-record 認可
+  if (groupType === "invoice") {
+    await requireFinanceInvoiceGroupAccess(groupId, "view");
+  } else {
+    await requireFinancePaymentGroupAccess(groupId, "view");
+  }
   // グループ内の直接取引（按分テンプレート付き）を取得
   const directTransactions = groupType === "invoice"
     ? await prisma.transaction.findMany({
@@ -871,153 +912,16 @@ export async function getGroupAllocationWarnings(
     }
   }
 
-  return warnings;
-}
-
-// ===== 按分取引に関連するすべてのグループを取得（経理一括完了用） =====
-
-export async function getRelatedGroupsForTransaction(transactionId: number): Promise<{
-  invoiceGroups: { id: number; projectName: string | null; amount: number; status: string }[];
-  paymentGroups: { id: number; projectName: string | null; amount: number; status: string }[];
-}> {
-  await requireStaffWithProjectPermission([
-    { project: "accounting", level: "view" },
-  ]);
-  const items = await prisma.allocationGroupItem.findMany({
-    where: { transactionId },
-    include: {
-      invoiceGroup: {
-        select: {
-          id: true, status: true, totalAmount: true,
-          project: { select: { name: true } },
-        },
-      },
-      paymentGroup: {
-        select: {
-          id: true, status: true, totalAmount: true,
-          project: { select: { name: true } },
-        },
-      },
-    },
-  });
-
-  const invoiceGroups = items
-    .filter((i) => i.invoiceGroup)
-    .map((i) => ({
-      id: i.invoiceGroup!.id,
-      projectName: i.invoiceGroup!.project?.name ?? null,
-      amount: i.allocatedAmount,
-      status: i.invoiceGroup!.status,
-    }));
-
-  const paymentGroups = items
-    .filter((i) => i.paymentGroup)
-    .map((i) => ({
-      id: i.paymentGroup!.id,
-      projectName: i.paymentGroup!.project?.name ?? null,
-      amount: i.allocatedAmount,
-      status: i.paymentGroup!.status,
-    }));
-
-  return { invoiceGroups, paymentGroups };
-}
-
-// ===== 複数グループの一括ステータス更新（経理一括完了 MVP: 完全一致のみ） =====
-
-export type BatchUpdateResult = {
-  success: { groupId: number; groupType: string }[];
-  skipped: { groupId: number; groupType: string; reason: string }[];
-};
-
-export async function batchUpdateGroupStatus(
-  items: { groupId: number; groupType: "invoice" | "payment" }[],
-  newStatus: string
-): Promise<BatchUpdateResult> {
-  const result: BatchUpdateResult = { success: [], skipped: [] };
-
-  // InvoiceGroup の有効な遷移
-  const invoiceValidTransitions: Record<string, string[]> = {
-    awaiting_accounting: ["paid", "returned"],
-    partially_paid: ["paid"],
-  };
-
-  // PaymentGroup の有効な遷移
-  const paymentValidTransitions: Record<string, string[]> = {
-    confirmed: ["paid"],
-    awaiting_accounting: ["paid", "returned"],
-  };
-
-  for (const item of items) {
-    try {
-      if (item.groupType === "invoice") {
-        const group = await prisma.invoiceGroup.findFirst({
-          where: { id: item.groupId, deletedAt: null },
-        });
-        if (!group) {
-          result.skipped.push({ ...item, reason: "請求管理レコードが見つかりません" });
-          continue;
-        }
-
-        const validNextStatuses = invoiceValidTransitions[group.status] ?? [];
-        if (!validNextStatuses.includes(newStatus)) {
-          result.skipped.push({
-            ...item,
-            reason: `ステータス「${group.status}」から「${newStatus}」への遷移はできません`,
-          });
-          continue;
-        }
-
-        await prisma.invoiceGroup.update({
-          where: { id: item.groupId },
-          data: {
-            status: newStatus,
-            ...(newStatus === "paid" && !group.actualPaymentDate ? {
-              actualPaymentDate: group.expectedPaymentDate ?? new Date(toLocalDateString(new Date()))
-            } : {}),
-          },
-        });
-        result.success.push(item);
-
-      } else {
-        const group = await prisma.paymentGroup.findFirst({
-          where: { id: item.groupId, deletedAt: null },
-        });
-        if (!group) {
-          result.skipped.push({ ...item, reason: "支払管理レコードが見つかりません" });
-          continue;
-        }
-
-        const validNextStatuses = paymentValidTransitions[group.status] ?? [];
-        if (!validNextStatuses.includes(newStatus)) {
-          result.skipped.push({
-            ...item,
-            reason: `ステータス「${group.status}」から「${newStatus}」への遷移はできません`,
-          });
-          continue;
-        }
-
-        await prisma.paymentGroup.update({
-          where: { id: item.groupId },
-          data: {
-            status: newStatus,
-            ...(newStatus === "paid" && !group.actualPaymentDate ? {
-              actualPaymentDate: group.expectedPaymentDate ?? new Date(toLocalDateString(new Date()))
-            } : {}),
-          },
-        });
-        result.success.push(item);
-      }
-    } catch (e) {
-      result.skipped.push({
-        ...item,
-        reason: e instanceof Error ? e.message : "不明なエラー",
-      });
+  return { ok: true, data: warnings };
+  } catch (e) {
+    if (e instanceof FinanceRecordNotFoundError) {
+      return { ok: false, reason: "not_found", message: "対象のグループが見つかりません" };
     }
+    if (e instanceof FinanceForbiddenError) {
+      return { ok: false, reason: "forbidden", message: "このグループにアクセスする権限がありません" };
+    }
+    console.error("[getGroupAllocationWarnings] error:", e);
+    return { ok: false, reason: "internal", message: e instanceof Error ? e.message : "予期しないエラー" };
   }
-
-  revalidatePath("/stp/finance/invoices");
-  revalidatePath("/stp/finance/payment-groups");
-  revalidatePath("/accounting/transactions");
-
-  return result;
 }
+

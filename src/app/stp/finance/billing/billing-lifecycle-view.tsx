@@ -47,7 +47,7 @@ import {
   createTransactionFromExpense,
   bulkCreateTransactionsFromExpenses,
 } from "./actions";
-import { deleteTransaction } from "@/app/accounting/transactions/actions";
+import { deleteTransaction } from "@/app/finance/transactions/actions";
 import type {
   BillingLifecycleData,
   BillingLifecycleItem,

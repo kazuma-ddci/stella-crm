@@ -23,7 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { CommentSection } from "@/app/accounting/comments/comment-section";
+import { CommentSection } from "@/app/finance/comments/comment-section";
 import { ReceiptsReadonly } from "@/components/finance/receipts-readonly";
 import { InvoiceMailModal } from "./invoice-mail-modal";
 import { getInvoiceGroupMailHistory, type MailHistoryItem } from "./mail-actions";
@@ -48,7 +48,7 @@ import {
 import {
   getGroupAllocationWarnings,
   type AllocationWarning,
-} from "@/app/accounting/transactions/allocation-group-item-actions";
+} from "@/app/finance/transactions/allocation-group-item-actions";
 import { InvoiceBuilderTab } from "./invoice-builder-tab";
 import {
   UploadConfirmationDialog,
@@ -250,13 +250,15 @@ export function InvoiceGroupDetailModal({
     if (!open) return;
     if (group.allocationItemCount === 0 && group.transactionCount === 0) return;
     let cancelled = false;
-    getGroupAllocationWarnings("invoice", group.id)
-      .then((warnings) => {
-        if (!cancelled) setAllocationWarnings(warnings);
-      })
-      .catch(() => {
-        if (!cancelled) setAllocationWarnings([]);
-      });
+    getGroupAllocationWarnings("invoice", group.id).then((result) => {
+      if (cancelled) return;
+      if (result.ok) {
+        setAllocationWarnings(result.data);
+      } else {
+        // 権限エラー / 未存在の場合は空配列で描画（詳細は server log に出力済）
+        setAllocationWarnings([]);
+      }
+    });
     return () => { cancelled = true; };
   }, [open, group.id, group.allocationItemCount, group.transactionCount]);
 

@@ -110,15 +110,19 @@ type ChangeLogSectionProps = {
 export function ChangeLogSection({ transactionId }: ChangeLogSectionProps) {
   const [logs, setLogs] = useState<ChangeLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   const fetchLogs = useCallback(async () => {
     try {
-      setLoading(true);
-      const data = await getChangeLogsForTransaction(transactionId);
-      setLogs(data);
-    } catch {
-      // エラー時は空配列のまま
+      const result = await getChangeLogsForTransaction(transactionId);
+      if (result.ok) {
+        setLogs(result.data);
+        setLoadError(null);
+      } else {
+        setLogs([]);
+        setLoadError(result.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -145,6 +149,17 @@ export function ChangeLogSection({ transactionId }: ChangeLogSectionProps) {
       <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
         変更履歴を読み込み中...
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="py-4 text-sm text-amber-600">
+        <div className="flex items-center gap-2">
+          <History className="h-4 w-4" />
+          {loadError}
+        </div>
       </div>
     );
   }

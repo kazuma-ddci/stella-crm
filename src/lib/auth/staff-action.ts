@@ -40,7 +40,14 @@ import type { SessionUser, ProjectCode, PermissionLevel } from "@/types/auth";
  * - `requireStaff()` — staff であることだけ確認(プロジェクト権限不問)
  * - `requireStaffWithAnyEditPermission()` — いずれかの project で edit 以上
  * - `requireStaffWithProjectPermission(projects)` — 指定 project の OR 条件
+ * - `requireStaffForFinance(level)` — 経理 OR 任意の事業PJ の指定 level 以上（src/app/finance/ 配下用）
+ * - `requireStaffForAccounting(level)` — 経理プロジェクトの指定 level 以上（src/app/accounting/ 配下用）
+ *
+ * ⚠️ `requireStaffForFinance` は「入口の」粗い門番です。実データへのアクセスは
+ *    `src/lib/auth/finance-access.ts` の per-record helper で必ず再判定してください。
  */
+
+const FINANCE_PROJECT_CODES: ProjectCode[] = ["accounting", "stp", "hojo", "srd", "slp", "stella"];
 
 /** ログイン中の社内スタッフであることを確認する。 */
 export async function requireStaff(): Promise<SessionUser> {
@@ -104,4 +111,40 @@ export async function requireStaffWithProjectPermission(
     throw new Error("この操作を行う権限がありません");
   }
   return session;
+}
+
+/**
+ * プロジェクト横断の財務機能（取引・コメント・変更履歴・経費申請等）を呼ぶための
+ * 「入口の」権限チェック。
+ *
+ * 経理プロジェクトの指定 level 以上、または任意の事業プロジェクト
+ * （stp/hojo/srd/slp/stella）の指定 level 以上を持っていれば通る。
+ *
+ * ⚠️ レコード単位の所属PJ検証は `src/lib/auth/finance-access.ts` の
+ *    per-record helper（`requireFinanceTransactionAccess` 等）で必ず行う。
+ *    本ヘルパーは「ログインしている社内スタッフで、何らかの事業に関わっているか」を
+ *    確認するだけの粗い門番。
+ *
+ * 使用場所: src/app/finance/ 配下の Server Actions の入口（recordIdを取らない関数のみ）
+ */
+export async function requireStaffForFinance(
+  level: PermissionLevel = "view"
+): Promise<SessionUser> {
+  return requireStaffWithProjectPermission(
+    FINANCE_PROJECT_CODES.map((project) => ({ project, level }))
+  );
+}
+
+/**
+ * 経理専用機能（仕訳・消込・月次締め・キャッシュフロー・経理ダッシュボード等）を
+ * 呼ぶための権限。
+ *
+ * 経理プロジェクトの指定 level 以上を持っていれば通る。事業プロジェクト側の権限は通らない。
+ *
+ * 使用場所: src/app/accounting/ 配下の全 Server Actions
+ */
+export async function requireStaffForAccounting(
+  level: PermissionLevel = "view"
+): Promise<SessionUser> {
+  return requireStaffWithProjectPermission([{ project: "accounting", level }]);
 }

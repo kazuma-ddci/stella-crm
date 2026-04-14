@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TransactionsTable } from "./transactions-table";
-import { getAccountingTransactions } from "./actions";
+import { getAccountingTransactions } from "./accounting-actions";
 
 const reconciliationStatusLabel: Record<string, string> = {
   unmatched: "未消込",

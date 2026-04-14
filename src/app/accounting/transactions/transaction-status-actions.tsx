@@ -14,7 +14,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { confirmTransaction, unconfirmTransaction, deleteTransaction } from "./actions";
+import { confirmTransaction, unconfirmTransaction, deleteTransaction } from "@/app/finance/transactions/actions";
 
 type TransactionStatusActionsProps = {
   transactionId: number;
