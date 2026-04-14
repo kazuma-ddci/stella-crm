@@ -23,6 +23,7 @@ import {
   FinanceRecordNotFoundError,
   FinanceForbiddenError,
 } from "@/lib/auth/finance-access";
+import { getTransactionForDetailPage } from "./loaders";
 
 // ============================================
 // 型定義
@@ -479,11 +480,10 @@ export async function updateTransaction(
 export async function getTransactionForPreview(
   transactionId: number
 ): Promise<
-  | { ok: true; data: Awaited<ReturnType<typeof import("./loaders").getTransactionForDetailPage>> }
+  | { ok: true; data: Awaited<ReturnType<typeof getTransactionForDetailPage>> }
   | { ok: false; reason: "not_found" | "forbidden" | "internal"; message: string }
 > {
   try {
-    const { getTransactionForDetailPage } = await import("./loaders");
     const data = await getTransactionForDetailPage(transactionId);
     return { ok: true, data };
   } catch (e) {
