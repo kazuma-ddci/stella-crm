@@ -17,7 +17,6 @@ import { TRANSACTION_LOG_FIELDS } from "@/app/finance/changelog/log-fields";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import {
   validateTransactionData,
-  buildConfidentialFilter,
   checkMonthlyClose,
 } from "./_helpers";
 import {
@@ -1083,60 +1082,6 @@ export async function hideTransaction(id: number): Promise<ActionResult> {
     console.error("[hideTransaction] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
-}
-
-// ============================================
-// 9. getTransactions（一覧取得）
-// ============================================
-
-export async function getTransactions(filters?: {
-  projectId?: number;
-  type?: string;
-  status?: string;
-  counterpartyId?: number;
-}) {
-  // accounting view のみ（旧 requireStaffWithProjectPermission と同義）
-  await requireStaffForAccounting("view");
-  const session = await getSession();
-  const txConfidentialFilter = buildConfidentialFilter(session);
-
-  const where: Record<string, unknown> = {
-    deletedAt: null,
-    status: { not: "hidden" },
-    ...txConfidentialFilter,
-  };
-
-  if (filters?.projectId) {
-    where.projectId = filters.projectId;
-  }
-  if (filters?.type) {
-    where.type = filters.type;
-  }
-  if (filters?.status) {
-    where.status = filters.status;
-  }
-  if (filters?.counterpartyId) {
-    where.counterpartyId = filters.counterpartyId;
-  }
-
-  const transactions = await prisma.transaction.findMany({
-    where,
-    include: {
-      counterparty: { select: { id: true, name: true } },
-      expenseCategory: { select: { id: true, name: true } },
-      costCenter: { select: { id: true, name: true } },
-      project: { select: { id: true, name: true, code: true } },
-      confirmer: { select: { id: true, name: true } },
-      allocationTemplate: { select: { id: true, name: true } },
-    },
-    orderBy: [{ periodFrom: "desc" }, { id: "desc" }],
-  });
-
-  // Decimal → number 変換（Client Componentに渡すため）
-  return transactions.map((t) => ({
-    ...t,
-    withholdingTaxRate: t.withholdingTaxRate != null ? Number(t.withholdingTaxRate) : null,
-  }));
 }
 
 // 9b. getAccountingTransactions / 9c. createAccountingTransaction は
