@@ -98,19 +98,22 @@ export function CommentSection({
   const [replyTo, setReplyTo] = useState<number | null>(null);
 
   const loadComments = useCallback(async () => {
-    setLoadError(null);
-    const result = await getComments({
-      transactionId,
-      invoiceGroupId,
-      paymentGroupId,
-    });
-    if (result.ok) {
-      setComments(result.data);
-    } else {
-      setComments([]);
-      setLoadError(result.message);
+    try {
+      const result = await getComments({
+        transactionId,
+        invoiceGroupId,
+        paymentGroupId,
+      });
+      if (result.ok) {
+        setComments(result.data);
+        setLoadError(null);
+      } else {
+        setComments([]);
+        setLoadError(result.message);
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [transactionId, invoiceGroupId, paymentGroupId]);
 
   useEffect(() => {

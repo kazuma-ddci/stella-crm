@@ -114,16 +114,18 @@ export function ChangeLogSection({ transactionId }: ChangeLogSectionProps) {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   const fetchLogs = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    const result = await getChangeLogsForTransaction(transactionId);
-    if (result.ok) {
-      setLogs(result.data);
-    } else {
-      setLogs([]);
-      setLoadError(result.message);
+    try {
+      const result = await getChangeLogsForTransaction(transactionId);
+      if (result.ok) {
+        setLogs(result.data);
+        setLoadError(null);
+      } else {
+        setLogs([]);
+        setLoadError(result.message);
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [transactionId]);
 
   useEffect(() => {

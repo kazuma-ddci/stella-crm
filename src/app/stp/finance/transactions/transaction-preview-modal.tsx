@@ -93,11 +93,11 @@ export function TransactionPreviewModal({
 
   const loadTransaction = useCallback(async () => {
     setLoading(true);
-    setLoadError(null);
     const result = await getTransactionForPreview(transactionId);
     if (result.ok) {
       const data = result.data;
       setTransaction(data);
+      setLoadError(null);
       setExpenseCategoryId(String(data.expenseCategoryId));
       setAmount(String(data.amount));
       setTaxType(data.taxType);
