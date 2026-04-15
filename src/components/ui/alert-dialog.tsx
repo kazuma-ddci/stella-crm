@@ -44,6 +44,25 @@ function AlertDialogOverlay({
   )
 }
 
+// Radix UI の既知の不具合: AlertDialog が閉じた直後に body の
+// pointer-events: none が残り、親 Dialog 配下の Select/Button が押せなくなることがある。
+// アンマウント後に残存していたら強制解除する。
+function useRadixPointerEventsGuard() {
+  React.useEffect(() => {
+    return () => {
+      setTimeout(() => {
+        if (typeof document === "undefined") return
+        const anyOpen = document.querySelector(
+          '[data-state="open"][role="dialog"], [data-state="open"][role="alertdialog"]'
+        )
+        if (!anyOpen && document.body.style.pointerEvents === "none") {
+          document.body.style.pointerEvents = ""
+        }
+      }, 100)
+    }
+  }, [])
+}
+
 function AlertDialogContent({
   className,
   size = "default",
@@ -51,6 +70,7 @@ function AlertDialogContent({
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: "default" | "sm"
 }) {
+  useRadixPointerEventsGuard()
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />

@@ -1,0 +1,139 @@
+"use client";
+
+import {
+  ContactHistoryModalBase,
+  type CustomerType,
+  type ContactCategoryOption,
+} from "@/components/contact-history-modal";
+import {
+  addSlpCompanyRecordContactHistory,
+  addSlpAgencyContactHistory,
+  updateSlpContactHistory,
+  deleteSlpContactHistory,
+} from "./actions";
+
+type BaseProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  renderInline?: boolean;
+  entityId: number;
+  entityName: string;
+  contactHistories: Record<string, unknown>[];
+  contactMethodOptions: { value: string; label: string }[];
+  staffOptions: { value: string; label: string }[];
+  customerTypes: CustomerType[];
+  staffByProject: Record<number, { value: string; label: string }[]>;
+  contactCategories: ContactCategoryOption[];
+  requiredCustomerTypeId: number;
+  requiredCustomerTypeName: string;
+  cacheKeyPrefix: string;
+  warningLink: { href: string; label: string };
+  addAction: (
+    entityId: number,
+    data: Record<string, unknown>
+  ) => Promise<Record<string, unknown>>;
+};
+
+function BaseWrapper(props: BaseProps) {
+  return (
+    <ContactHistoryModalBase
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      renderInline={props.renderInline}
+      config={{
+        entityId: props.entityId,
+        entityName: props.entityName,
+        requiredCustomerTypeId: props.requiredCustomerTypeId,
+        requiredCustomerTypeName: props.requiredCustomerTypeName,
+        cacheKeyPrefix: props.cacheKeyPrefix,
+        warningLink: props.warningLink,
+        actions: {
+          add: props.addAction,
+          update: async (id: number, data: Record<string, unknown>) => {
+            const result = await updateSlpContactHistory(id, data);
+            return result as unknown as Record<string, unknown>;
+          },
+          delete: async (id: number) => {
+            await deleteSlpContactHistory(id);
+          },
+        },
+      }}
+      contactHistories={props.contactHistories}
+      contactMethodOptions={props.contactMethodOptions}
+      staffOptions={props.staffOptions}
+      customerTypes={props.customerTypes}
+      staffByProject={props.staffByProject}
+      contactCategories={props.contactCategories}
+    />
+  );
+}
+
+// ============================================
+// 事業者名簿用モーダル
+// ============================================
+type CompanyProps = Omit<
+  BaseProps,
+  "requiredCustomerTypeId" | "requiredCustomerTypeName" | "cacheKeyPrefix" | "warningLink" | "addAction" | "entityId"
+> & {
+  slpCompanyRecordId: number;
+  requiredCustomerTypeId: number; // slp_company の解決済みID（Serverで取得）
+};
+
+export function SlpCompanyContactHistoryModal({
+  slpCompanyRecordId,
+  requiredCustomerTypeId,
+  ...rest
+}: CompanyProps) {
+  return (
+    <BaseWrapper
+      {...rest}
+      entityId={slpCompanyRecordId}
+      requiredCustomerTypeId={requiredCustomerTypeId}
+      requiredCustomerTypeName="事業者"
+      cacheKeyPrefix="slp-company-contact-history"
+      warningLink={{ href: "/slp/agencies", label: "代理店管理" }}
+      addAction={async (entityId, data) => {
+        const r = await addSlpCompanyRecordContactHistory(
+          entityId,
+          data as Parameters<typeof addSlpCompanyRecordContactHistory>[1]
+        );
+        return r as unknown as Record<string, unknown>;
+      }}
+    />
+  );
+}
+
+// ============================================
+// 代理店管理用モーダル
+// ============================================
+type AgencyProps = Omit<
+  BaseProps,
+  "requiredCustomerTypeId" | "requiredCustomerTypeName" | "cacheKeyPrefix" | "warningLink" | "addAction" | "entityId"
+> & {
+  slpAgencyId: number;
+  requiredCustomerTypeId: number; // slp_agency の解決済みID（Serverで取得）
+};
+
+export function SlpAgencyContactHistoryModal({
+  slpAgencyId,
+  requiredCustomerTypeId,
+  ...rest
+}: AgencyProps) {
+  return (
+    <BaseWrapper
+      {...rest}
+      entityId={slpAgencyId}
+      requiredCustomerTypeId={requiredCustomerTypeId}
+      requiredCustomerTypeName="代理店"
+      cacheKeyPrefix="slp-agency-contact-history"
+      warningLink={{ href: "/slp/companies", label: "事業者名簿" }}
+      addAction={async (entityId, data) => {
+        const r = await addSlpAgencyContactHistory(
+          entityId,
+          data as Parameters<typeof addSlpAgencyContactHistory>[1]
+        );
+        return r as unknown as Record<string, unknown>;
+      }}
+    />
+  );
+}

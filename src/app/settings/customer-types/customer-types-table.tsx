@@ -2,7 +2,7 @@
 
 import { CrudTable, ColumnDef, CustomRenderers } from "@/components/crud-table";
 import { SortableItem } from "@/components/sortable-list-modal";
-import { addCustomerType, updateCustomerType, deleteCustomerType, reorderCustomerTypes } from "./actions";
+import { updateCustomerType, reorderCustomerTypes } from "./actions";
 
 type Props = {
   data: Record<string, unknown>[];
@@ -14,18 +14,18 @@ type Props = {
 export function CustomerTypesTable({ data, projectOptions, canEdit, filterProjectId }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
+    { key: "code", header: "システムコード", editable: false },
     {
       key: "projectId",
       header: "プロジェクト",
       type: "select",
       options: projectOptions,
-      required: true,
+      editable: false,
       simpleMode: true,
       hidden: !!filterProjectId,
-      defaultValue: filterProjectId ? String(filterProjectId) : undefined,
     },
     { key: "projectName", header: "プロジェクト", editable: false, hidden: true },
-    { key: "name", header: "顧客種別名", type: "text", required: true, simpleMode: true },
+    { key: "name", header: "表示名", type: "text", required: true, simpleMode: true },
     { key: "isActive", header: "有効", type: "boolean" },
   ];
 
@@ -53,9 +53,7 @@ export function CustomerTypesTable({ data, projectOptions, canEdit, filterProjec
       data={data}
       columns={columns}
       title="顧客種別"
-      onAdd={canEdit ? addCustomerType : undefined}
       onUpdate={canEdit ? updateCustomerType : undefined}
-      onDelete={canEdit ? deleteCustomerType : undefined}
       emptyMessage="顧客種別が登録されていません"
       customRenderers={customRenderers}
       sortableItems={canEdit ? sortableItems : undefined}

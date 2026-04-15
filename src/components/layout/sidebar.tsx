@@ -262,6 +262,15 @@ const navigation: NavItem[] = [
         ],
       },
       {
+        name: "活動記録",
+        icon: Phone,
+        sectionLabel: true,
+        children: [
+          { name: "契約書", href: "/slp/contracts", icon: FileText },
+          { name: "接触履歴", href: "/slp/records/contact-histories", icon: Phone },
+        ],
+      },
+      {
         name: "売上・経費",
         icon: Plus,
         sectionLabel: true,
@@ -274,7 +283,6 @@ const navigation: NavItem[] = [
         icon: Settings,
         sectionLabel: true,
         children: [
-          { name: "契約書", href: "/slp/contracts", icon: FileText },
           { name: "スタッフ管理", href: "/staff", icon: Users },
           { name: "説明書", href: "/slp/guide", icon: BookOpen },
           {
@@ -284,6 +292,8 @@ const navigation: NavItem[] = [
             children: [
               { name: "プロジェクト設定", href: "/slp/settings/project", icon: Building2 },
               { name: "契約種別", href: "/slp/settings/contract-types", icon: FileText },
+              { name: "顧客種別", href: "/settings/customer-types?project=slp", icon: UserSquare2 },
+              { name: "接触種別", href: "/settings/contact-categories?project=slp", icon: Tag },
               { name: "資料管理", href: "/slp/settings/documents", icon: FileText },
               { name: "プロライン担当者", href: "/slp/settings/proline-staff", icon: Users },
               { name: "プロライン情報", href: "/slp/settings/proline", icon: UserCog },

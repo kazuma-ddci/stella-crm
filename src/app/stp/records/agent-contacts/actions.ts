@@ -5,9 +5,10 @@ import { prisma } from "@/lib/prisma";
 import { requireEdit } from "@/lib/auth";
 import { logActivity } from "@/lib/activity-log/log";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { getCustomerTypeIdByCode } from "@/lib/customer-type";
 
-// 定数: 顧客種別「代理店」のID
-const CUSTOMER_TYPE_AGENT_ID = 2;
+// 顧客種別「代理店」のシステムコード
+const CUSTOMER_TYPE_AGENT_CODE = "stp_agency";
 
 export async function addAgentContact(data: Record<string, unknown>): Promise<ActionResult> {
  try {
@@ -29,7 +30,8 @@ export async function addAgentContact(data: Record<string, unknown>): Promise<Ac
   }
 
   // 顧客種別ID（文字列配列を数値配列に変換、デフォルト: 代理店）
-  let customerTypeIds: number[] = [CUSTOMER_TYPE_AGENT_ID];
+  const agentCustomerTypeId = await getCustomerTypeIdByCode(CUSTOMER_TYPE_AGENT_CODE);
+  let customerTypeIds: number[] = [agentCustomerTypeId];
   if (data.customerTypeIds) {
     const rawIds = data.customerTypeIds as (string | number)[];
     customerTypeIds = rawIds.map((id) => Number(id)).filter((id) => !isNaN(id));

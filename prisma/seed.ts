@@ -232,20 +232,16 @@ async function main() {
   });
   console.log('✓ Display views (3)');
 
-  // 顧客種別マスタ
+  // 顧客種別マスタ（システムコードで固定管理。追加・削除不可、名前のみ変更可）
   await prisma.customerType.createMany({
     data: [
-      { id: 1, projectId: 1, name: '企業', displayOrder: 1 },
-      { id: 2, projectId: 1, name: '代理店', displayOrder: 2 },
-      { id: 3, projectId: 2, name: 'クライアント', displayOrder: 1 },
-      { id: 4, projectId: 2, name: 'パートナー', displayOrder: 2 },
-      { id: 5, projectId: 2, name: '紹介元', displayOrder: 3 },
-      { id: 6, projectId: 3, name: '財団', displayOrder: 1 },
-      { id: 7, projectId: 3, name: '企業', displayOrder: 2 },
-      { id: 8, projectId: 3, name: '自治体', displayOrder: 3 },
+      { id: 1, projectId: 1, code: 'stp_company', name: '企業', displayOrder: 1 },
+      { id: 2, projectId: 1, code: 'stp_agency', name: '代理店', displayOrder: 2 },
+      { id: 3, projectId: 3, code: 'slp_company', name: '事業者', displayOrder: 1 },
+      { id: 4, projectId: 3, code: 'slp_agency', name: '代理店', displayOrder: 2 },
     ],
   });
-  console.log('✓ Customer types (8)');
+  console.log('✓ Customer types (4)');
 
   // ============================================
   // 2. スタッフ (13名)

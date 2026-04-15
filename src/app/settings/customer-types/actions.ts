@@ -5,32 +5,14 @@ import { prisma } from "@/lib/prisma";
 import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-permission";
 import { toBoolean } from "@/lib/utils";
 
-export async function addCustomerType(data: Record<string, unknown>) {
-  await requireProjectMasterDataEditPermission();
-  const projectId = Number(data.projectId);
-
-  // 同プロジェクト内の最大表示順を取得して+1
-  const maxOrder = await prisma.customerType.aggregate({
-    where: { projectId },
-    _max: { displayOrder: true },
-  });
-  const displayOrder = (maxOrder._max.displayOrder ?? 0) + 1;
-
-  await prisma.customerType.create({
-    data: {
-      projectId,
-      name: data.name as string,
-      displayOrder,
-      isActive: toBoolean(data.isActive),
-    },
-  });
-  revalidatePath("/settings/customer-types");
-}
-
+/**
+ * 顧客種別の表示名と有効/無効を更新する。
+ * コードはシステムで管理されているため変更不可。
+ * 新規追加・削除はできない（コードベースで定義）。
+ */
 export async function updateCustomerType(id: number, data: Record<string, unknown>) {
   await requireProjectMasterDataEditPermission();
   const updateData: Record<string, unknown> = {};
-  if ("projectId" in data) updateData.projectId = Number(data.projectId);
   if ("name" in data) updateData.name = data.name as string;
   if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
 
@@ -40,14 +22,6 @@ export async function updateCustomerType(id: number, data: Record<string, unknow
       data: updateData,
     });
   }
-  revalidatePath("/settings/customer-types");
-}
-
-export async function deleteCustomerType(id: number) {
-  await requireProjectMasterDataEditPermission();
-  await prisma.customerType.delete({
-    where: { id },
-  });
   revalidatePath("/settings/customer-types");
 }
 

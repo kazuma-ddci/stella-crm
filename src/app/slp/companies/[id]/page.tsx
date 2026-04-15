@@ -6,6 +6,11 @@ import {
   resolveCompanyData,
   type ContactForResolution,
 } from "@/lib/slp/company-resolution";
+import {
+  loadContactHistoryMasters,
+  loadContactHistoriesForCompanyRecord,
+} from "@/app/slp/contact-histories/loaders";
+import { SlpCompanyContactHistorySection } from "@/app/slp/contact-histories/company-contact-history-section";
 
 // 今日のJST日付文字列
 function getTodayJstString(): string {
@@ -414,21 +419,40 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
     agencies: a.agencies,
   }));
 
+  // 接触履歴セクション用データ
+  const [contactMasters, companyContactHistories] = await Promise.all([
+    loadContactHistoryMasters(),
+    loadContactHistoriesForCompanyRecord(record.id),
+  ]);
+
   return (
-    <CompanyDetail
-      record={data}
-      lineFriendOptions={lineFriendOptions}
-      staffOptions={staffOptions}
-      industryOptions={industries}
-      flowSourceOptions={flowSources}
-      status1Options={status1List}
-      status2Options={status2List}
-      asOptions={asOptions}
-      asResolutions={asResolutions}
-      referrerResolutions={referrerResolutions}
-      agencyResolutions={agencyResolutions}
-      multipleAgencyWarnings={resolution.aggregated.multipleAgencyWarnings}
-      duplicateCandidates={duplicateCandidatesData}
-    />
+    <>
+      <CompanyDetail
+        record={data}
+        lineFriendOptions={lineFriendOptions}
+        staffOptions={staffOptions}
+        industryOptions={industries}
+        flowSourceOptions={flowSources}
+        status1Options={status1List}
+        status2Options={status2List}
+        asOptions={asOptions}
+        asResolutions={asResolutions}
+        referrerResolutions={referrerResolutions}
+        agencyResolutions={agencyResolutions}
+        multipleAgencyWarnings={resolution.aggregated.multipleAgencyWarnings}
+        duplicateCandidates={duplicateCandidatesData}
+      />
+      <SlpCompanyContactHistorySection
+        companyRecordId={record.id}
+        companyName={record.companyName ?? `事業者#${record.id}`}
+        contactHistories={companyContactHistories}
+        contactMethodOptions={contactMasters.contactMethodOptions}
+        staffOptions={contactMasters.staffOptions}
+        customerTypes={contactMasters.customerTypes}
+        staffByProject={contactMasters.staffByProject}
+        contactCategories={contactMasters.contactCategories}
+        requiredCustomerTypeId={contactMasters.slpCompanyCustomerTypeId}
+      />
+    </>
   );
 }

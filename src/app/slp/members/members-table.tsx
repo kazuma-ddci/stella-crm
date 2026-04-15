@@ -9,6 +9,7 @@ import { Bell, Send, ScrollText, AlertTriangle, Loader2, Settings, Users, UserCh
 import { toast } from "sonner";
 import { SlpContractModal } from "./slp-contract-modal";
 import { ContractAttemptModal } from "./contract-attempt-modal";
+import { LineLinkModal } from "./line-link-modal";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -52,6 +53,7 @@ const statusOptions = [
   { value: "組合員契約書締結", label: "組合員契約書締結" },
   { value: "契約破棄", label: "契約破棄" },
   { value: "送付エラー", label: "送付エラー" },
+  { value: "無効データ", label: "無効データ" },
 ];
 
 const memberCategoryOptions = [
@@ -60,14 +62,28 @@ const memberCategoryOptions = [
   { value: "代理店", label: "代理店" },
 ];
 
-export function MembersTable({ data, memberOptions, contractStatusOptions, contractTypeOptions, autoSendContract }: Props) {
+export function MembersTable({ data: allData, memberOptions, contractStatusOptions, contractTypeOptions, autoSendContract }: Props) {
   const router = useRouter();
+  const [showInvalid, setShowInvalid] = useState(false);
+  const data = showInvalid ? allData : allData.filter((d) => d.status !== "無効データ");
+  const invalidCount = allData.filter((d) => d.status === "無効データ").length;
   const [form5DialogOpen, setForm5DialogOpen] = useState(false);
   const [form5NotifyCount, setForm5NotifyCount] = useState(0);
   const pendingUpdateRef = useRef<{ id: number; formData: Record<string, unknown> } | null>(null);
   const [contractModalOpen, setContractModalOpen] = useState(false);
   const [attemptModalOpen, setAttemptModalOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState<{ id: number; name: string } | null>(null);
+
+  // LINE紐付け修正モーダル
+  const [lineLinkModalOpen, setLineLinkModalOpen] = useState(false);
+  const [lineLinkTarget, setLineLinkTarget] = useState<{
+    memberId: number;
+    memberName: string;
+    currentUid: string;
+    currentFriendSnsname: string | null;
+    submittedLineName: string | null;
+    reason: "mismatch" | "unlinked";
+  } | null>(null);
 
   // 一括送付モーダル
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
@@ -188,7 +204,7 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
 
   const columns: ColumnDef[] = [
     { key: "id", header: "No.", editable: false },
-    { key: "lineNo", header: "LINE番号", editable: false },
+    { key: "line", header: "LINE", editable: false },
     { key: "name", header: "氏名", type: "text", required: true, filterable: true },
     { key: "email", header: "メールアドレス", type: "text", filterable: true },
     { key: "status", header: "ステータス", type: "select", options: statusOptions, filterable: true },
@@ -198,14 +214,13 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
     { key: "position", header: "役職", type: "text" },
     { key: "company", header: "事業者", type: "text", filterable: true },
     { key: "memberCategory", header: "入会者区分", type: "select", options: memberCategoryOptions, filterable: true },
-    { key: "lineName", header: "LINE名", type: "text" },
-    { key: "uid", header: "UID", type: "text", required: true, editableOnCreate: true },
     { key: "phone", header: "電話番号", type: "text" },
     { key: "address", header: "住所", type: "text" },
     { key: "referrerUid", header: "紹介者", type: "select", options: memberOptions, searchable: true, hidden: true },
     { key: "referrerDisplay", header: "紹介者", editable: false, filterable: true },
     { key: "note", header: "備考", type: "textarea" },
     { key: "memo", header: "メモ", type: "textarea" },
+    { key: "uid", header: "UID", type: "text", required: true, editableOnCreate: true },
     { key: "documentId", header: "documentID", type: "text" },
     { key: "cloudsignUrl", header: "クラウドサインURL", editable: false },
     { key: "reminderCount", header: "リマインド回数", type: "number", defaultValue: 0 },
@@ -214,7 +229,65 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
     { key: "watermarkCode", header: "透かしコード", type: "text", editable: false },
   ];
 
+  const openLineLinkModal = (
+    row: Record<string, unknown>,
+    reason: "mismatch" | "unlinked"
+  ) => {
+    setLineLinkTarget({
+      memberId: row.id as number,
+      memberName: row.name as string,
+      currentUid: (row.uid as string) ?? "",
+      currentFriendSnsname: (row.lineFriendSnsname as string | null) ?? null,
+      submittedLineName: (row.submittedLineName as string | null) ?? null,
+      reason,
+    });
+    setLineLinkModalOpen(true);
+  };
+
   const customRenderers: CustomRenderers = {
+    line: (_value, row) => {
+      const lineLinked = row?.lineLinked === true;
+      const lineMismatch = row?.lineMismatch === true;
+      const lineNo = row?.lineNo as number | null | undefined;
+      const snsname = row?.lineFriendSnsname as string | null | undefined;
+
+      if (!lineLinked) {
+        return (
+          <button
+            type="button"
+            className="text-red-600 font-semibold underline hover:text-red-700"
+            onClick={(e) => {
+              e.stopPropagation();
+              openLineLinkModal(row ?? {}, "unlinked");
+            }}
+          >
+            未紐付け
+          </button>
+        );
+      }
+      if (lineMismatch) {
+        return (
+          <button
+            type="button"
+            className="text-red-600 font-semibold underline hover:text-red-700"
+            onClick={(e) => {
+              e.stopPropagation();
+              openLineLinkModal(row ?? {}, "mismatch");
+            }}
+          >
+            不一致
+          </button>
+        );
+      }
+      if (lineNo == null) {
+        return <span className="text-muted-foreground">-</span>;
+      }
+      return (
+        <span className="text-sm">
+          {lineNo} {snsname || ""}
+        </span>
+      );
+    },
     cloudsignUrl: (_value, row) => {
       const docId = row?.documentId as string | null | undefined;
       if (!docId) return <span className="text-muted-foreground">-</span>;
@@ -498,6 +571,13 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
 
       {/* クラウドサイン一斉同期ボタン + 結果表示 */}
       <div className="flex items-center gap-2 mb-2 justify-end">
+        <label className="flex items-center gap-2 text-sm mr-auto cursor-pointer">
+          <Checkbox
+            checked={showInvalid}
+            onCheckedChange={(v) => setShowInvalid(v === true)}
+          />
+          <span>無効データも表示する{invalidCount > 0 && `（${invalidCount}件）`}</span>
+        </label>
         <Button
           variant="outline"
           size="sm"
@@ -573,6 +653,22 @@ export function MembersTable({ data, memberOptions, contractStatusOptions, contr
           memberName={selectedMember.name}
           contractStatusOptions={contractStatusOptions}
           contractTypeOptions={contractTypeOptions}
+        />
+      )}
+
+      {lineLinkTarget && (
+        <LineLinkModal
+          open={lineLinkModalOpen}
+          onOpenChange={(open) => {
+            setLineLinkModalOpen(open);
+            if (!open) setLineLinkTarget(null);
+          }}
+          memberId={lineLinkTarget.memberId}
+          memberName={lineLinkTarget.memberName}
+          currentUid={lineLinkTarget.currentUid}
+          currentFriendSnsname={lineLinkTarget.currentFriendSnsname}
+          submittedLineName={lineLinkTarget.submittedLineName}
+          reason={lineLinkTarget.reason}
         />
       )}
 

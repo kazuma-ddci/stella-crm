@@ -88,10 +88,11 @@ export async function getSlpNextContractNumber(): Promise<string> {
 
 type ContractFileInput = {
   id?: number;
-  filePath: string;
+  filePath?: string | null;
   fileName: string;
-  fileSize: number;
-  mimeType: string;
+  fileSize?: number | null;
+  mimeType?: string | null;
+  url?: string | null;
 };
 
 type AddContractInput = {
@@ -137,10 +138,10 @@ export async function addSlpMemberContract(
         contractFiles: input.files && input.files.length > 0
           ? {
               create: input.files.filter((f) => !f.id).map((f) => ({
-                filePath: f.filePath,
+                filePath: f.filePath ?? "",
                 fileName: f.fileName,
-                fileSize: f.fileSize,
-                mimeType: f.mimeType,
+                fileSize: f.fileSize ?? 0,
+                mimeType: f.mimeType ?? "",
                 category: "contract",
               })),
             }
@@ -248,10 +249,10 @@ export async function updateSlpMemberContract(
       await prisma.contractFile.createMany({
         data: toCreate.map((f) => ({
           contractId,
-          filePath: f.filePath,
+          filePath: f.filePath ?? "",
           fileName: f.fileName,
-          fileSize: f.fileSize,
-          mimeType: f.mimeType,
+          fileSize: f.fileSize ?? 0,
+          mimeType: f.mimeType ?? "",
           category: "contract",
         })),
       });

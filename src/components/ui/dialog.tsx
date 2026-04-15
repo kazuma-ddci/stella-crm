@@ -7,6 +7,25 @@ import { XIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 
+// Radix UI の既知の不具合: Dialog/AlertDialog が閉じた直後に body の
+// pointer-events: none が残り、配下の Select/Button が押せなくなることがある。
+// モーダル配下の操作不能バグを防ぐため、アンマウント後に残存していたら強制解除する。
+function useRadixPointerEventsGuard() {
+  React.useEffect(() => {
+    return () => {
+      setTimeout(() => {
+        if (typeof document === "undefined") return
+        const anyOpen = document.querySelector(
+          '[data-state="open"][role="dialog"], [data-state="open"][role="alertdialog"]'
+        )
+        if (!anyOpen && document.body.style.pointerEvents === "none") {
+          document.body.style.pointerEvents = ""
+        }
+      }, 100)
+    }
+  }, [])
+}
+
 function Dialog({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
@@ -59,6 +78,7 @@ function DialogContent({
   showCloseButton?: boolean
   size?: DialogSize
 }) {
+  useRadixPointerEventsGuard()
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />

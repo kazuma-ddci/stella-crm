@@ -203,6 +203,7 @@ function isExternalDomain(host: string): boolean {
 const CUSTOMER_DOMAIN_ALLOWED_PATHS = [
   // SLP公開フォーム
   "/form/slp-member",         // 組合入会
+  "/form/slp-member-link",    // プロライン構築前組合員のLINE後追い紐付け
   "/form/slp-documents",      // 書類提出統合フォーム
   "/form/slp-document",       // 資料PDF閲覧
   "/form/slp-video",          // 資料動画閲覧

@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { MembersTable } from "./members-table";
+import { MembersTabs } from "./members-tabs";
+import type { LinkRequestRow } from "./link-resolve-modal";
 
 function formatDateTimeMinute(date: Date | null): string | null {
   if (!date) return null;
@@ -34,13 +36,14 @@ export default async function SlpMembersPage() {
       : [],
   ]);
 
-  // UID一覧からLINE友達のNo.（id）とfree1（紹介者UID）をまとめて取得
+  // UID一覧からLINE友達のNo.（id）・snsname・free1（紹介者UID）をまとめて取得
   const uids = members.map((m) => m.uid);
   const lineFriends = await prisma.slpLineFriend.findMany({
     where: { uid: { in: uids }, deletedAt: null },
-    select: { uid: true, id: true, free1: true },
+    select: { uid: true, id: true, snsname: true, free1: true },
   });
   const lineFriendIdMap = new Map(lineFriends.map((lf) => [lf.uid, lf.id]));
+  const lineFriendSnsnameMap = new Map(lineFriends.map((lf) => [lf.uid, lf.snsname]));
   const lineFriendFree1Map = new Map(lineFriends.map((lf) => [lf.uid, lf.free1]));
   // LINE紐付け済みかどうかの判定用（SlpLineFriendが存在するかどうか）
   const lineFriendExistSet = new Set(lineFriends.map((lf) => lf.uid));
@@ -51,6 +54,16 @@ export default async function SlpMembersPage() {
   const data = members.map((m) => {
     const lineLinked = lineFriendExistSet.has(m.uid);
     const currentFree1 = lineFriendFree1Map.get(m.uid) ?? null;
+    const lineFriendSnsname = lineFriendSnsnameMap.get(m.uid) ?? null;
+    const lineFriendNo = lineFriendIdMap.get(m.uid) ?? null;
+    // 不一致判定: 友だち情報があり、かつ送信されたLINE名と異なる場合
+    const submittedLineName = (m.lineName ?? "").trim();
+    const friendLineName = (lineFriendSnsname ?? "").trim();
+    const lineMismatch =
+      lineLinked &&
+      submittedLineName.length > 0 &&
+      friendLineName.length > 0 &&
+      submittedLineName !== friendLineName;
     // 紹介者未通知判定:
     //   - LINE紐付き済み
     //   - free1（紹介者UID）が存在する
@@ -64,7 +77,10 @@ export default async function SlpMembersPage() {
 
     return {
       id: m.id,
-      lineNo: lineFriendIdMap.get(m.uid) ?? null,
+      lineNo: lineFriendNo,
+      lineFriendSnsname,
+      submittedLineName: m.lineName,
+      lineMismatch,
       name: m.name,
       email: m.email,
       status: m.status,
@@ -73,7 +89,6 @@ export default async function SlpMembersPage() {
       position: m.position,
       company: m.company,
       memberCategory: m.memberCategory,
-      lineName: m.lineName,
       uid: m.uid,
       phone: m.phone,
       address: m.address,
@@ -119,15 +134,58 @@ export default async function SlpMembersPage() {
 
   const autoSendContract = slpProject?.autoSendContract ?? true;
 
+  // ---------------------------------------------------------------
+  // LINE紐付け申請（後追い紐付けフォームの申請レコード）を取得
+  // ---------------------------------------------------------------
+  const linkRequestsRaw = await prisma.slpLineLinkRequest.findMany({
+    where: { deletedAt: null },
+    orderBy: { id: "desc" },
+    include: { resolvedMember: { select: { id: true, name: true } } },
+  });
+
+  // 申請の uid に対応する SlpLineFriend.snsname を一括取得
+  const requestUids = linkRequestsRaw.map((r) => r.uid);
+  const requestFriends = requestUids.length
+    ? await prisma.slpLineFriend.findMany({
+        where: { uid: { in: requestUids }, deletedAt: null },
+        select: { uid: true, snsname: true },
+      })
+    : [];
+  const requestFriendMap = new Map(
+    requestFriends.map((f) => [f.uid, f.snsname])
+  );
+
+  const linkRequests: LinkRequestRow[] = linkRequestsRaw.map((r) => ({
+    id: r.id,
+    uid: r.uid,
+    submittedLineName: r.submittedLineName,
+    submittedEmail: r.submittedEmail,
+    status: r.status,
+    reviewReason: r.reviewReason,
+    resolvedMemberId: r.resolvedMemberId,
+    resolvedMemberName: r.resolvedMember?.name ?? null,
+    resolvedAt: formatDateTimeMinute(r.resolvedAt),
+    beaconType: r.beaconType,
+    beaconCalledAt: formatDateTimeMinute(r.beaconCalledAt),
+    staffNote: r.staffNote,
+    createdAt: formatDateTimeMinute(r.createdAt) ?? "",
+    lineFriendSnsname: requestFriendMap.get(r.uid) ?? null,
+  }));
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">組合員名簿</h1>
-      <MembersTable
-        data={data}
-        memberOptions={memberOptions}
-        contractStatusOptions={contractStatusOptions}
-        contractTypeOptions={contractTypeOptions}
-        autoSendContract={autoSendContract}
+      <MembersTabs
+        membersTable={
+          <MembersTable
+            data={data}
+            memberOptions={memberOptions}
+            contractStatusOptions={contractStatusOptions}
+            contractTypeOptions={contractTypeOptions}
+            autoSendContract={autoSendContract}
+          />
+        }
+        linkRequests={linkRequests}
       />
     </div>
   );

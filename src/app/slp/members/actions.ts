@@ -273,6 +273,79 @@ export async function sendForm5Notification(id: number): Promise<ActionResult> {
 }
 
 /**
+ * 紐付けモーダル用: LINE友だち候補一覧を取得（id降順、検索付き、上限50件）
+ */
+export async function searchLineFriendsForLink(
+  query: string
+): Promise<ActionResult<{ id: number; uid: string; snsname: string | null }[]>> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
+  try {
+    const trimmed = query.trim();
+    const friends = await prisma.slpLineFriend.findMany({
+      where: {
+        deletedAt: null,
+        ...(trimmed
+          ? {
+              OR: [
+                { snsname: { contains: trimmed, mode: "insensitive" } },
+                { uid: { contains: trimmed, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      },
+      select: { id: true, uid: true, snsname: true },
+      orderBy: { id: "desc" },
+      take: 50,
+    });
+    return ok(friends);
+  } catch (e) {
+    console.error("[searchLineFriendsForLink] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+/**
+ * 組合員のLINE紐付けを修正
+ * 選択した友だちの uid と snsname で SlpMember を上書き
+ */
+export async function relinkMemberLineFriend(
+  memberId: number,
+  newUid: string
+): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
+  try {
+    const friend = await prisma.slpLineFriend.findUnique({
+      where: { uid: newUid },
+      select: { uid: true, snsname: true },
+    });
+    if (!friend) return err("選択されたLINE友達が見つかりません");
+
+    // 同じUIDを別の組合員が既に使っている場合は重複エラー
+    const conflicting = await prisma.slpMember.findUnique({
+      where: { uid: newUid },
+      select: { id: true },
+    });
+    if (conflicting && conflicting.id !== memberId) {
+      return err(`UID「${newUid}」は既に別の組合員に紐付けられています`);
+    }
+
+    await prisma.slpMember.update({
+      where: { id: memberId },
+      data: {
+        uid: friend.uid,
+        lineName: friend.snsname,
+      },
+    });
+
+    revalidatePath("/slp/members");
+    return ok();
+  } catch (e) {
+    console.error("[relinkMemberLineFriend] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+/**
  * resubmittedフラグをクリア（通知を確認済みにする）
  */
 export async function clearResubmitted(id: number): Promise<ActionResult> {

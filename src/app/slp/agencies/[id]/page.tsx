@@ -2,6 +2,11 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import { AgencyDetail } from "./agency-detail";
 import { resolveAgencyAs } from "../actions";
+import {
+  loadContactHistoryMasters,
+  loadContactHistoriesForAgency,
+} from "@/app/slp/contact-histories/loaders";
+import { SlpAgencyContactHistorySection } from "@/app/slp/contact-histories/agency-contact-history-section";
 
 function toDateString(d: Date | null | undefined): string {
   if (!d) return "";
@@ -129,11 +134,29 @@ export default async function SlpAgencyDetailPage({ params }: Props) {
     name: s.name,
   }));
 
+  const [contactMasters, agencyContactHistories] = await Promise.all([
+    loadContactHistoryMasters(),
+    loadContactHistoriesForAgency(agency.id),
+  ]);
+
   return (
-    <AgencyDetail
-      agency={data}
-      lineFriendOptions={lineFriendOptions}
-      contractStatusOptions={contractStatusOptions}
-    />
+    <>
+      <AgencyDetail
+        agency={data}
+        lineFriendOptions={lineFriendOptions}
+        contractStatusOptions={contractStatusOptions}
+      />
+      <SlpAgencyContactHistorySection
+        agencyId={agency.id}
+        agencyName={agency.name}
+        contactHistories={agencyContactHistories}
+        contactMethodOptions={contactMasters.contactMethodOptions}
+        staffOptions={contactMasters.staffOptions}
+        customerTypes={contactMasters.customerTypes}
+        staffByProject={contactMasters.staffByProject}
+        contactCategories={contactMasters.contactCategories}
+        requiredCustomerTypeId={contactMasters.slpAgencyCustomerTypeId}
+      />
+    </>
   );
 }

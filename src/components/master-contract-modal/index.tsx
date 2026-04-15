@@ -1032,6 +1032,7 @@ export function MasterContractModal({
                       uploadUrl="/api/contracts/upload"
                       entityIdKey="contractId"
                       entityId={editingId || undefined}
+                      allowUrl={false}
                     />
                   </div>
 

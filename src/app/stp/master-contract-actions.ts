@@ -16,10 +16,11 @@ const STP_PROJECT_ID = 1; // 採用ブースト
 
 type ContractFileInput = {
   id?: number;
-  filePath: string;
+  filePath?: string | null;
   fileName: string;
-  fileSize: number;
-  mimeType: string;
+  fileSize?: number | null;
+  mimeType?: string | null;
+  url?: string | null;
 };
 
 type ContractInput = {
@@ -233,10 +234,10 @@ export async function addMasterContract(companyId: number, data: ContractInput):
       await tx.contractFile.createMany({
         data: data.files.map((f) => ({
           contractId: contract.id,
-          filePath: f.filePath,
+          filePath: f.filePath ?? "",
           fileName: f.fileName,
-          fileSize: f.fileSize,
-          mimeType: f.mimeType,
+          fileSize: f.fileSize ?? 0,
+          mimeType: f.mimeType ?? "",
           category: "other",
           uploadedBy: changedBy,
         })),
@@ -314,10 +315,10 @@ export async function updateMasterContract(id: number, data: ContractInput) {
         await tx.contractFile.createMany({
           data: data.files.map((f) => ({
             contractId: id,
-            filePath: f.filePath,
+            filePath: f.filePath ?? "",
             fileName: f.fileName,
-            fileSize: f.fileSize,
-            mimeType: f.mimeType,
+            fileSize: f.fileSize ?? 0,
+            mimeType: f.mimeType ?? "",
             category: "other",
             uploadedBy: changedBy,
           })),

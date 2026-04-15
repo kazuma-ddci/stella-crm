@@ -60,6 +60,9 @@ model MasterStellaCompany {
   externalUsers        ExternalUser[]
   registrationTokens   RegistrationToken[]
   counterparties       Counterparty[] // 経理システム追加
+  slpCompanyRecords    SlpCompanyRecord[]         @relation("SlpCompanyRecordToMaster")
+  slpAgencies          SlpAgency[]                @relation("SlpAgencyToMaster")
+  slpContactHistories  SlpContactHistory[]        @relation("SlpContactHistoryMasterCompany")
 
   @@map("master_stella_companies")
 }
@@ -270,7 +273,8 @@ model ContactMethod {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   // Relations
-  contactHistories ContactHistory[]
+  contactHistories    ContactHistory[]
+  slpContactHistories SlpContactHistory[]
 
   @@map("contact_methods")
 }
@@ -290,8 +294,9 @@ model ContactCategory {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   // Relations
-  project          MasterProject    @relation(fields: [projectId], references: [id])
-  contactHistories ContactHistory[]
+  project             MasterProject       @relation(fields: [projectId], references: [id])
+  contactHistories    ContactHistory[]
+  slpContactHistories SlpContactHistory[]
 
   @@unique([projectId, name])
   @@index([projectId], map: "idx_contact_categories_project_id")
@@ -456,10 +461,13 @@ model ContactHistory {
 model ContactHistoryFile {
   id               Int      @id @default(autoincrement())
   contactHistoryId Int      @map("contact_history_id")
-  filePath         String   @map("file_path") @db.VarChar(500)
+  // ファイルアップロード時のみ埋まる（URLエントリでは NULL）
+  filePath         String?  @map("file_path") @db.VarChar(500)
   fileName         String   @map("file_name") @db.VarChar(200)
-  fileSize         Int      @map("file_size")
-  mimeType         String   @map("mime_type") @db.VarChar(100)
+  fileSize         Int?     @map("file_size")
+  mimeType         String?  @map("mime_type") @db.VarChar(100)
+  // 外部URL（Googleドライブ共有リンク等）。ファイルは持たない
+  url              String?  @db.VarChar(1000)
   createdAt        DateTime @default(now()) @map("created_at")
 
   // Relations
@@ -488,6 +496,107 @@ model ContactHistoryRole {
   @@index([contactHistoryId], map: "idx_contact_history_roles_contact_history_id")
   @@index([customerTypeId], map: "idx_contact_history_roles_customer_type_id")
   @@map("contact_history_roles")
+}
+
+// ============================================
+// SLP接触履歴 (SLP Contact Histories)
+// SLP独自の接触履歴。事業者・代理店・LINEユーザー(複数)のいずれかを対象とする。
+// - targetType = "company_record": 事業者名簿の1レコード（companyRecordId 必須）
+// - targetType = "agency"        : 代理店管理の1レコード（agencyId 必須）
+// - targetType = "line_users"    : LINE友達を複数紐付け（0件も可=紐付けなし）
+// ============================================
+
+model SlpContactHistory {
+  id                   Int      @id @default(autoincrement())
+  contactDate          DateTime @map("contact_date")
+  contactMethodId      Int?     @map("contact_method_id")
+  contactCategoryId    Int?     @map("contact_category_id")
+  assignedTo           String?  @map("assigned_to") @db.VarChar(500) // スタッフIDカンマ区切り
+  customerParticipants String?  @map("customer_participants") @db.VarChar(500)
+  meetingMinutes       String?  @map("meeting_minutes") @db.Text
+  note                 String?  @db.Text
+  staffId              Int?     @map("staff_id") // 作成スタッフ
+
+  // ターゲット識別（3種類のうちいずれか）
+  targetType      String @map("target_type") @db.VarChar(30) // "company_record" | "agency" | "line_users"
+  companyRecordId Int?   @map("company_record_id")
+  agencyId        Int?   @map("agency_id")
+
+  // 全顧客マスタ集約用（事業者/代理店に紐づく場合の denormalize）
+  masterCompanyId Int? @map("master_company_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  // Relations
+  contactMethod   ContactMethod?       @relation(fields: [contactMethodId], references: [id])
+  contactCategory ContactCategory?     @relation(fields: [contactCategoryId], references: [id])
+  staff           MasterStaff?         @relation(fields: [staffId], references: [id])
+  companyRecord   SlpCompanyRecord?    @relation("SlpContactHistoryCompanyRecord", fields: [companyRecordId], references: [id])
+  agency          SlpAgency?           @relation("SlpContactHistoryAgency", fields: [agencyId], references: [id])
+  masterCompany   MasterStellaCompany? @relation("SlpContactHistoryMasterCompany", fields: [masterCompanyId], references: [id])
+
+  tags        SlpContactHistoryTag[]
+  lineFriends SlpContactHistoryLineFriend[]
+  files       SlpContactHistoryFile[]
+
+  @@index([targetType, deletedAt])
+  @@index([companyRecordId, deletedAt])
+  @@index([agencyId, deletedAt])
+  @@index([contactDate])
+  @@index([contactMethodId])
+  @@index([contactCategoryId])
+  @@index([staffId])
+  @@index([masterCompanyId])
+  @@map("slp_contact_histories")
+}
+
+// SLP接触履歴と顧客種別の中間テーブル（クロスプロジェクトタグ対応）
+model SlpContactHistoryTag {
+  contactHistoryId Int      @map("contact_history_id")
+  customerTypeId   Int      @map("customer_type_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  contactHistory SlpContactHistory @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
+  customerType   CustomerType      @relation(fields: [customerTypeId], references: [id])
+
+  @@id([contactHistoryId, customerTypeId])
+  @@index([customerTypeId])
+  @@map("slp_contact_history_tags")
+}
+
+// SLP接触履歴と公式LINE友達情報の中間テーブル（複数選択対応）
+model SlpContactHistoryLineFriend {
+  contactHistoryId Int      @map("contact_history_id")
+  lineFriendId     Int      @map("line_friend_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  contactHistory SlpContactHistory @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
+  lineFriend     SlpLineFriend     @relation(fields: [lineFriendId], references: [id], onDelete: Cascade)
+
+  @@id([contactHistoryId, lineFriendId])
+  @@index([lineFriendId])
+  @@map("slp_contact_history_line_friends")
+}
+
+// SLP接触履歴の添付ファイル
+model SlpContactHistoryFile {
+  id               Int      @id @default(autoincrement())
+  contactHistoryId Int      @map("contact_history_id")
+  // ファイルアップロード時のみ埋まる（URLエントリでは NULL）
+  filePath         String?  @map("file_path") @db.VarChar(500)
+  fileName         String   @map("file_name") @db.VarChar(200)
+  fileSize         Int?     @map("file_size")
+  mimeType         String?  @map("mime_type") @db.VarChar(100)
+  // 外部URL
+  url              String?  @db.VarChar(1000)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  contactHistory SlpContactHistory @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
+
+  @@index([contactHistoryId])
+  @@map("slp_contact_history_files")
 }
 
 // ============================================
@@ -564,6 +673,7 @@ model CloudSignTemplateContractType {
 model CustomerType {
   id           Int      @id @default(autoincrement())
   projectId    Int      @map("project_id")
+  code         String   @db.VarChar(50)
   name         String   @db.VarChar(50)
   displayOrder Int      @default(0) @map("display_order")
   isActive     Boolean  @default(true) @map("is_active")
@@ -571,10 +681,12 @@ model CustomerType {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   // Relations
-  project MasterProject        @relation(fields: [projectId], references: [id])
-  roles   ContactHistoryRole[]
+  project               MasterProject          @relation(fields: [projectId], references: [id])
+  roles                 ContactHistoryRole[]
+  slpContactHistoryTags SlpContactHistoryTag[]
 
   @@unique([projectId, name])
+  @@unique([projectId, code])
   @@index([projectId], map: "idx_customer_types_project_id")
   @@map("customer_types")
 }
@@ -654,6 +766,7 @@ model MasterStaff {
   adminStpCompanies          StpCompany[]             @relation("AdminStaffCompanies")
   adminAgents                StpAgent[]               @relation("AdminStaffAgents")
   contactHistories           ContactHistory[]
+  slpContactHistories        SlpContactHistory[]
   approvedExternalUsers      ExternalUser[]
   issuedRegistrationTokens   RegistrationToken[]
   processedLeadSubmissions   StpLeadFormSubmission[]
@@ -676,82 +789,82 @@ model MasterStaff {
   passwordResetTokens PasswordResetToken[]
 
   // 経理システム Relations
-  transactionConfirmed      Transaction[]                   @relation("TransactionConfirmer")
-  transactionCreated        Transaction[]                   @relation("TransactionCreator")
-  transactionUpdated        Transaction[]                   @relation("TransactionUpdater")
-  invoiceGroupCreated       InvoiceGroup[]                  @relation("InvoiceGroupCreator")
-  invoiceGroupUpdated       InvoiceGroup[]                  @relation("InvoiceGroupUpdater")
-  invoiceGroupReceiptCreated InvoiceGroupReceipt[]          @relation("InvoiceGroupReceiptCreator")
-  paymentGroupConfirmed     PaymentGroup[]                  @relation("PaymentGroupConfirmer")
-  paymentGroupCreated       PaymentGroup[]                  @relation("PaymentGroupCreator")
-  paymentGroupUpdated       PaymentGroup[]                  @relation("PaymentGroupUpdater")
-  paymentGroupPaymentCreated PaymentGroupPayment[]          @relation("PaymentGroupPaymentCreator")
-  recurringCreated          RecurringTransaction[]          @relation("RecurringCreator")
-  recurringUpdated          RecurringTransaction[]          @relation("RecurringUpdater")
-  costCenterCreated         CostCenter[]                    @relation("CostCenterCreator")
-  costCenterUpdated         CostCenter[]                    @relation("CostCenterUpdater")
-  allocTemplateCreated      AllocationTemplate[]            @relation("AllocTemplateCreator")
-  allocTemplateUpdated      AllocationTemplate[]            @relation("AllocTemplateUpdater")
-  allocLineCreated          AllocationTemplateLine[]        @relation("AllocLineCreator")
-  allocLineUpdated          AllocationTemplateLine[]        @relation("AllocLineUpdater")
-  allocConfirmations        AllocationConfirmation[]
-  allocOverrideCreated      AllocationTemplateOverride[]    @relation("AllocOverrideCreator")
-  allocGroupItemCreated     AllocationGroupItem[]           @relation("AllocGroupItemCreator")
-  expCatCreated             ExpenseCategory[]               @relation("ExpCatCreator")
-  expCatUpdated             ExpenseCategory[]               @relation("ExpCatUpdater")
-  journalApproved           JournalEntry[]                  @relation("JournalApprover")
-  journalRealized           JournalEntry[]                  @relation("JournalRealizer")
-  journalCreated            JournalEntry[]                  @relation("JournalCreator")
-  journalUpdated            JournalEntry[]                  @relation("JournalUpdater")
-  journalLineCreated        JournalEntryLine[]              @relation("JournalLineCreator")
-  journalLineUpdated        JournalEntryLine[]              @relation("JournalLineUpdater")
-  accountCreated            Account[]                       @relation("AccountCreator")
-  accountUpdated            Account[]                       @relation("AccountUpdater")
-  bankTxCreated             BankTransaction[]               @relation("BankTxCreator")
-  bankTxUpdated             BankTransaction[]               @relation("BankTxUpdater")
-  reconciliationPerformed   Reconciliation[]                @relation("ReconciliationPerformer")
-  counterpartyCreated       Counterparty[]                  @relation("CounterpartyCreator")
-  counterpartyUpdated       Counterparty[]                  @relation("CounterpartyUpdater")
-  autoJournalCreated        AutoJournalRule[]               @relation("AutoJournalCreator")
-  autoJournalUpdated        AutoJournalRule[]               @relation("AutoJournalUpdater")
-  payMethodCreated          PaymentMethod[]                 @relation("PayMethodCreator")
-  payMethodUpdated          PaymentMethod[]                 @relation("PayMethodUpdater")
-  attachmentUploaded        Attachment[]                    @relation("AttachmentUploader")
-  cryptoDetailCreated       CryptoTransactionDetail[]       @relation("CryptoDetailCreator")
-  cryptoDetailUpdated       CryptoTransactionDetail[]       @relation("CryptoDetailUpdater")
-  systemSettingCreated      SystemSetting[]                 @relation("SystemSettingCreator")
-  systemSettingUpdated      SystemSetting[]                 @relation("SystemSettingUpdater")
-  budgetCreated             Budget[]                        @relation("BudgetCreator")
-  budgetUpdated             Budget[]                        @relation("BudgetUpdater")
-  monthlyClosePerformed     MonthlyCloseLog[]               @relation("MonthlyClosePerformer")
-  opCoEmailCreated          OperatingCompanyEmail[]         @relation("OpCoEmailCreator")
-  opCoEmailUpdated          OperatingCompanyEmail[]         @relation("OpCoEmailUpdater")
-  invoiceTemplateCreated    InvoiceTemplate[]               @relation("InvoiceTemplateCreator")
-  invoiceTemplateUpdated    InvoiceTemplate[]               @relation("InvoiceTemplateUpdater")
-  invoiceMailSent           InvoiceMail[]                   @relation("InvoiceMailSender")
-  invoiceMailCreated        InvoiceMail[]                   @relation("InvoiceMailCreator")
-  invoiceMailUpdated        InvoiceMail[]                   @relation("InvoiceMailUpdater")
-  commentCreated            TransactionComment[]            @relation("CommentCreator")
-  notificationReceived      Notification[]                  @relation("NotificationRecipient")
-  notificationSent          Notification[]                  @relation("NotificationSender")
-  notificationStatusChanged Notification[]                  @relation("NotificationStatusChanger")
-  changeLogChanged          ChangeLog[]                     @relation("ChangeLogChanger")
-  candidateDecisions        TransactionCandidateDecision[]  @relation("CandidateDecisionDecider")
-  transactionExpenseOwners  TransactionExpenseOwner[]
-  processedInboundInvoices  InboundInvoice[]                @relation("InboundInvoiceProcessor")
-  alertAcknowledgments      AlertAcknowledgment[]
-  activityLogs              ActivityLog[]                   @relation("ActivityLogStaff")
-  bbsAccountApprovals       HojoBbsAccount[]
-  lenderAccountApprovals    HojoLenderAccount[]
-  vendorAccountApprovals    HojoVendorAccount[]
-  slpProlineStaffMappings       SlpProlineStaffMapping[]
-  slpBriefingCompanyRecords     SlpCompanyRecord[]              @relation("SlpCompanyBriefingStaff")
-  slpConsultationCompanyRecords SlpCompanyRecord[]              @relation("SlpCompanyConsultationStaff")
-  slpSalesCompanyRecords        SlpCompanyRecord[]              @relation("SlpCompanySalesStaff")
-  slpStatusChanges          SlpCompanyRecordStatusHistory[] @relation("SlpCompanyRecordStatusChanger")
-  slpCompanyContactManualAsChanges SlpCompanyContact[]      @relation("SlpCompanyContactManualAsChangedBy")
-  slpDuplicateExclusions    SlpCompanyDuplicateExclusion[]  @relation("SlpDuplicateExclusionStaff")
-  hojoVendorConsultingStaff HojoVendorConsultingStaff[]
+  transactionConfirmed             Transaction[]                   @relation("TransactionConfirmer")
+  transactionCreated               Transaction[]                   @relation("TransactionCreator")
+  transactionUpdated               Transaction[]                   @relation("TransactionUpdater")
+  invoiceGroupCreated              InvoiceGroup[]                  @relation("InvoiceGroupCreator")
+  invoiceGroupUpdated              InvoiceGroup[]                  @relation("InvoiceGroupUpdater")
+  invoiceGroupReceiptCreated       InvoiceGroupReceipt[]           @relation("InvoiceGroupReceiptCreator")
+  paymentGroupConfirmed            PaymentGroup[]                  @relation("PaymentGroupConfirmer")
+  paymentGroupCreated              PaymentGroup[]                  @relation("PaymentGroupCreator")
+  paymentGroupUpdated              PaymentGroup[]                  @relation("PaymentGroupUpdater")
+  paymentGroupPaymentCreated       PaymentGroupPayment[]           @relation("PaymentGroupPaymentCreator")
+  recurringCreated                 RecurringTransaction[]          @relation("RecurringCreator")
+  recurringUpdated                 RecurringTransaction[]          @relation("RecurringUpdater")
+  costCenterCreated                CostCenter[]                    @relation("CostCenterCreator")
+  costCenterUpdated                CostCenter[]                    @relation("CostCenterUpdater")
+  allocTemplateCreated             AllocationTemplate[]            @relation("AllocTemplateCreator")
+  allocTemplateUpdated             AllocationTemplate[]            @relation("AllocTemplateUpdater")
+  allocLineCreated                 AllocationTemplateLine[]        @relation("AllocLineCreator")
+  allocLineUpdated                 AllocationTemplateLine[]        @relation("AllocLineUpdater")
+  allocConfirmations               AllocationConfirmation[]
+  allocOverrideCreated             AllocationTemplateOverride[]    @relation("AllocOverrideCreator")
+  allocGroupItemCreated            AllocationGroupItem[]           @relation("AllocGroupItemCreator")
+  expCatCreated                    ExpenseCategory[]               @relation("ExpCatCreator")
+  expCatUpdated                    ExpenseCategory[]               @relation("ExpCatUpdater")
+  journalApproved                  JournalEntry[]                  @relation("JournalApprover")
+  journalRealized                  JournalEntry[]                  @relation("JournalRealizer")
+  journalCreated                   JournalEntry[]                  @relation("JournalCreator")
+  journalUpdated                   JournalEntry[]                  @relation("JournalUpdater")
+  journalLineCreated               JournalEntryLine[]              @relation("JournalLineCreator")
+  journalLineUpdated               JournalEntryLine[]              @relation("JournalLineUpdater")
+  accountCreated                   Account[]                       @relation("AccountCreator")
+  accountUpdated                   Account[]                       @relation("AccountUpdater")
+  bankTxCreated                    BankTransaction[]               @relation("BankTxCreator")
+  bankTxUpdated                    BankTransaction[]               @relation("BankTxUpdater")
+  reconciliationPerformed          Reconciliation[]                @relation("ReconciliationPerformer")
+  counterpartyCreated              Counterparty[]                  @relation("CounterpartyCreator")
+  counterpartyUpdated              Counterparty[]                  @relation("CounterpartyUpdater")
+  autoJournalCreated               AutoJournalRule[]               @relation("AutoJournalCreator")
+  autoJournalUpdated               AutoJournalRule[]               @relation("AutoJournalUpdater")
+  payMethodCreated                 PaymentMethod[]                 @relation("PayMethodCreator")
+  payMethodUpdated                 PaymentMethod[]                 @relation("PayMethodUpdater")
+  attachmentUploaded               Attachment[]                    @relation("AttachmentUploader")
+  cryptoDetailCreated              CryptoTransactionDetail[]       @relation("CryptoDetailCreator")
+  cryptoDetailUpdated              CryptoTransactionDetail[]       @relation("CryptoDetailUpdater")
+  systemSettingCreated             SystemSetting[]                 @relation("SystemSettingCreator")
+  systemSettingUpdated             SystemSetting[]                 @relation("SystemSettingUpdater")
+  budgetCreated                    Budget[]                        @relation("BudgetCreator")
+  budgetUpdated                    Budget[]                        @relation("BudgetUpdater")
+  monthlyClosePerformed            MonthlyCloseLog[]               @relation("MonthlyClosePerformer")
+  opCoEmailCreated                 OperatingCompanyEmail[]         @relation("OpCoEmailCreator")
+  opCoEmailUpdated                 OperatingCompanyEmail[]         @relation("OpCoEmailUpdater")
+  invoiceTemplateCreated           InvoiceTemplate[]               @relation("InvoiceTemplateCreator")
+  invoiceTemplateUpdated           InvoiceTemplate[]               @relation("InvoiceTemplateUpdater")
+  invoiceMailSent                  InvoiceMail[]                   @relation("InvoiceMailSender")
+  invoiceMailCreated               InvoiceMail[]                   @relation("InvoiceMailCreator")
+  invoiceMailUpdated               InvoiceMail[]                   @relation("InvoiceMailUpdater")
+  commentCreated                   TransactionComment[]            @relation("CommentCreator")
+  notificationReceived             Notification[]                  @relation("NotificationRecipient")
+  notificationSent                 Notification[]                  @relation("NotificationSender")
+  notificationStatusChanged        Notification[]                  @relation("NotificationStatusChanger")
+  changeLogChanged                 ChangeLog[]                     @relation("ChangeLogChanger")
+  candidateDecisions               TransactionCandidateDecision[]  @relation("CandidateDecisionDecider")
+  transactionExpenseOwners         TransactionExpenseOwner[]
+  processedInboundInvoices         InboundInvoice[]                @relation("InboundInvoiceProcessor")
+  alertAcknowledgments             AlertAcknowledgment[]
+  activityLogs                     ActivityLog[]                   @relation("ActivityLogStaff")
+  bbsAccountApprovals              HojoBbsAccount[]
+  lenderAccountApprovals           HojoLenderAccount[]
+  vendorAccountApprovals           HojoVendorAccount[]
+  slpProlineStaffMappings          SlpProlineStaffMapping[]
+  slpBriefingCompanyRecords        SlpCompanyRecord[]              @relation("SlpCompanyBriefingStaff")
+  slpConsultationCompanyRecords    SlpCompanyRecord[]              @relation("SlpCompanyConsultationStaff")
+  slpSalesCompanyRecords           SlpCompanyRecord[]              @relation("SlpCompanySalesStaff")
+  slpStatusChanges                 SlpCompanyRecordStatusHistory[] @relation("SlpCompanyRecordStatusChanger")
+  slpCompanyContactManualAsChanges SlpCompanyContact[]             @relation("SlpCompanyContactManualAsChangedBy")
+  slpDuplicateExclusions           SlpCompanyDuplicateExclusion[]  @relation("SlpDuplicateExclusionStaff")
+  hojoVendorConsultingStaff        HojoVendorConsultingStaff[]
 
   // 経理承認フロー関連
   projectDefaultApprovals MasterProject[]                    @relation("ProjectDefaultApprover")
@@ -941,41 +1054,41 @@ model StpBillingRule {
 // ============================================
 
 model MasterProject {
-  id                      Int     @id @default(autoincrement())
-  code                    String  @unique @db.VarChar(50) // 権限管理用コード（例: stp, srd, slp）
-  name                    String  @db.VarChar(100)
-  description             String?
-  isActive                Boolean @default(true) @map("is_active")
-  displayOrder            Int     @default(0) @map("display_order")
-  operatingCompanyId      Int?    @map("operating_company_id")
-  defaultCostCenterId     Int?    @map("default_cost_center_id")
-  slpMemberCloudSignTemplateId Int? @map("slp_member_cloudsign_template_id") // SLP入会フォーム回答後の自動送付契約書(CloudSignテンプレート)
-  reminderDays            Int     @default(7) @map("reminder_days") // 契約書送付から何日後にリマインドするか
-  autoSendContract        Boolean @default(true) @map("auto_send_contract") // フォーム回答時の契約書自動送付ON/OFF
-  slpForm5AutoSendOnLink  Boolean @default(false) @map("slp_form5_auto_send_on_link") // LINE後紐付け時にForm5（紹介者通知）を自動送信するか
-  defaultApproverStaffId  Int?    @map("default_approver_staff_id") // 経費の既定承認者（このプロジェクトで生成される取引に自動セット）
+  id                           Int     @id @default(autoincrement())
+  code                         String  @unique @db.VarChar(50) // 権限管理用コード（例: stp, srd, slp）
+  name                         String  @db.VarChar(100)
+  description                  String?
+  isActive                     Boolean @default(true) @map("is_active")
+  displayOrder                 Int     @default(0) @map("display_order")
+  operatingCompanyId           Int?    @map("operating_company_id")
+  defaultCostCenterId          Int?    @map("default_cost_center_id")
+  slpMemberCloudSignTemplateId Int?    @map("slp_member_cloudsign_template_id") // SLP入会フォーム回答後の自動送付契約書(CloudSignテンプレート)
+  reminderDays                 Int     @default(7) @map("reminder_days") // 契約書送付から何日後にリマインドするか
+  autoSendContract             Boolean @default(true) @map("auto_send_contract") // フォーム回答時の契約書自動送付ON/OFF
+  slpForm5AutoSendOnLink       Boolean @default(false) @map("slp_form5_auto_send_on_link") // LINE後紐付け時にForm5（紹介者通知）を自動送信するか
+  defaultApproverStaffId       Int?    @map("default_approver_staff_id") // 経費の既定承認者（このプロジェクトで生成される取引に自動セット）
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  operatingCompany          OperatingCompany?             @relation(fields: [operatingCompanyId], references: [id])
-  defaultApprover           MasterStaff?                  @relation("ProjectDefaultApprover", fields: [defaultApproverStaffId], references: [id])
-  defaultCostCenter         CostCenter?                   @relation("ProjectDefaultCostCenter", fields: [defaultCostCenterId], references: [id])
-  slpMemberCloudSignTemplate CloudSignTemplate?           @relation("SlpMemberCloudSignTemplate", fields: [slpMemberCloudSignTemplateId], references: [id])
-  contracts                 MasterContract[]
-  staffAssignments          StaffProjectAssignment[]
-  staffPermissions          StaffPermission[]
-  displayViews              DisplayView[]
-  contractTypes             ContractType[]
-  customerTypes             CustomerType[]
-  contactCategories         ContactCategory[]
-  accountingTransactions    AccountingTransaction[]
-  accountingMonthlyCloses   AccountingMonthlyClose[]
-  accountingReconciliations AccountingReconciliation[]
-  roleTypeLinks             StaffRoleTypeProject[]
-  fieldDefinitionProjects   StaffFieldDefinitionProject[]
-  managingRestrictions      StaffFieldRestriction[]       @relation("ManagingProjectRestrictions")
-  sourceRestrictions        StaffFieldRestriction[]       @relation("SourceProjectRestrictions")
+  operatingCompany           OperatingCompany?             @relation(fields: [operatingCompanyId], references: [id])
+  defaultApprover            MasterStaff?                  @relation("ProjectDefaultApprover", fields: [defaultApproverStaffId], references: [id])
+  defaultCostCenter          CostCenter?                   @relation("ProjectDefaultCostCenter", fields: [defaultCostCenterId], references: [id])
+  slpMemberCloudSignTemplate CloudSignTemplate?            @relation("SlpMemberCloudSignTemplate", fields: [slpMemberCloudSignTemplateId], references: [id])
+  contracts                  MasterContract[]
+  staffAssignments           StaffProjectAssignment[]
+  staffPermissions           StaffPermission[]
+  displayViews               DisplayView[]
+  contractTypes              ContractType[]
+  customerTypes              CustomerType[]
+  contactCategories          ContactCategory[]
+  accountingTransactions     AccountingTransaction[]
+  accountingMonthlyCloses    AccountingMonthlyClose[]
+  accountingReconciliations  AccountingReconciliation[]
+  roleTypeLinks              StaffRoleTypeProject[]
+  fieldDefinitionProjects    StaffFieldDefinitionProject[]
+  managingRestrictions       StaffFieldRestriction[]       @relation("ManagingProjectRestrictions")
+  sourceRestrictions         StaffFieldRestriction[]       @relation("SourceProjectRestrictions")
 
   // 経理システム追加Relations
   costCenters              CostCenter[]
@@ -1662,11 +1775,11 @@ model StpMediaAd {
   endDate           DateTime? @db.Date // 配信終了日
   budgetLimit       Int? // 予算上限（円）
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  contractHistory StpContractHistory     @relation(fields: [contractHistoryId], references: [id], onDelete: Cascade)
+  contractHistory StpContractHistory      @relation(fields: [contractHistoryId], references: [id], onDelete: Cascade)
   dailyMetrics    StpMediaAdDailyMetric[]
   jobPostings     StpMediaAdJobPosting[]
 
@@ -1708,10 +1821,10 @@ model StpMediaAdDailyMetric {
 }
 
 model StpMediaAdJobPosting {
-  id        Int    @id @default(autoincrement())
+  id        Int     @id @default(autoincrement())
   adId      Int // stp_media_adsへの外部キー
-  jobNumber String @db.VarChar(20) // 求人番号
-  jobTitle  String @db.Text // 求人内容（タイトル）
+  jobNumber String  @db.VarChar(20) // 求人番号
+  jobTitle  String  @db.Text // 求人内容（タイトル）
   jobMemo   String? @db.Text // 求人メモ
 
   // カウント系
@@ -3945,7 +4058,8 @@ model SlpMember {
   form5NotifyCount         Int       @default(0) // Form5（契約締結通知）送信回数
   form5NotifiedReferrerUid String?   @map("form5_notified_referrer_uid") @db.VarChar(100) // 最後にForm5通知を送信した紹介者UID（free1と比較して未通知判定に使用）
   reminderExcluded         Boolean   @default(false) // 自動リマインド除外フラグ
-  richmenuBeaconCalled     Boolean   @default(false) @map("richmenu_beacon_called") // リッチメニュー切り替えビーコンを呼び出し済みか
+  richmenuBeaconCalled     Boolean   @default(false) @map("richmenu_beacon_called") // リッチメニュー切り替えビーコンを呼び出し済みか（締結済み / 締結ビーコン D6DJAb2MNC・xZugEszbhx 共通）
+  postLinkSentBeaconCalled Boolean   @default(false) @map("post_link_sent_beacon_called") // 後追い紐付け時の「契約書送付済」案内ビーコン（G0JqiTyQx9）呼び出し済みフラグ
   cloudsignBounced         Boolean   @default(false) @map("cloudsign_bounced") // CloudSignメール送信失敗フラグ
   cloudsignBouncedAt       DateTime? @map("cloudsign_bounced_at") // CloudSignメール送信失敗検知日時
   cloudsignBouncedEmail    String?   @map("cloudsign_bounced_email") @db.VarChar(255) // 失敗したメールアドレス
@@ -3959,13 +4073,59 @@ model SlpMember {
   updatedAt                DateTime  @updatedAt
   deletedAt                DateTime?
 
-  referrer         SlpMember?              @relation("MemberReferral", fields: [referrerUid], references: [uid])
-  referrals        SlpMember[]             @relation("MemberReferral")
+  referrer         SlpMember?           @relation("MemberReferral", fields: [referrerUid], references: [uid])
+  referrals        SlpMember[]          @relation("MemberReferral")
   contracts        MasterContract[]
   contractAttempts SlpContractAttempt[]
+  lineLinkRequests SlpLineLinkRequest[]
 
   @@index([referrerUid])
   @@map("slp_members")
+}
+
+// ============================================
+// SLP LINE紐付け申請 (SLP LINE Link Requests)
+// プロライン構築前の既存組合員が、後から公式LINEを友達追加して
+// uidを紐付けるための申請レコード。1uidにつき1レコード（再送信不可）。
+// 自動紐付けに失敗したケースはスタッフが手動で対応する。
+// ============================================
+
+model SlpLineLinkRequest {
+  id                Int        @id @default(autoincrement())
+  uid               String     @unique @db.VarChar(100) // フォーム送信時の uid（1uid 1申請）
+  submittedLineName String?    @map("submitted_line_name") @db.VarChar(200) // フォーム送信されたLINE名
+  submittedEmail    String     @map("submitted_email") @db.VarChar(255) // フォーム送信されたメールアドレス（小文字正規化済み）
+  // ステータス:
+  //   pending_friend_sync   = SlpLineFriend未着、cronで再処理待ち
+  //   pending_staff_review  = 自動判定でスタッフ確認が必要と判定
+  //   email_not_found       = メアドがどの組合員にもマッチしなかった（ユーザー画面で案内）
+  //   resolved_auto         = フォーム送信時に自動紐付け成功
+  //   resolved_manual       = スタッフが手動で紐付け
+  //   rejected              = スタッフが却下（嫌がらせ等）
+  status            String     @db.VarChar(50)
+  // 保留理由（status=pending_staff_review のとき設定）:
+  //   line_name_mismatch    = 送信LINE名と公式LINE友達情報のsnsname不一致
+  //   email_multiple_match  = メアドが複数の組合員にマッチ
+  //   uid_already_linked    = マッチした組合員に既に別のuidが紐付いている
+  //   member_deleted        = マッチした組合員が論理削除済み
+  //   contract_canceled     = マッチした組合員の status=契約破棄
+  //   status_not_sent       = マッチした組合員が「契約書未送付」または「送付エラー」
+  reviewReason      String?    @map("review_reason") @db.VarChar(50)
+  resolvedMemberId  Int?       @map("resolved_member_id")
+  resolvedMember    SlpMember? @relation(fields: [resolvedMemberId], references: [id])
+  resolvedAt        DateTime?  @map("resolved_at")
+  resolvedByStaffId Int?       @map("resolved_by_staff_id") // スタッフユーザーID（自動の場合はnull）
+  beaconCalledAt    DateTime?  @map("beacon_called_at") // 後追い紐付け用ビーコンの実行日時
+  beaconType        String?    @map("beacon_type") @db.VarChar(20) // signed=締結済み / sent=送付済み（いずれが発火されたか）
+  staffNote         String?    @map("staff_note")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+  deletedAt         DateTime?  @map("deleted_at")
+
+  @@index([status])
+  @@index([submittedEmail])
+  @@index([resolvedMemberId])
+  @@map("slp_line_link_requests")
 }
 
 // ============================================
@@ -3982,7 +4142,7 @@ model SlpContractAttempt {
   sendResult        String    @map("send_result") @db.VarChar(20) // delivered / bounced / api_error
   cloudsignStatus   String?   @map("cloudsign_status") @db.VarChar(30) // pending / completed / canceled / unknown
   triggerType       String    @map("trigger_type") @db.VarChar(20) // initial / bounce_fix / email_change / staff_manual
-  sequence          Int       // 何番目の送付か（1, 2, 3...）
+  sequence          Int // 何番目の送付か（1, 2, 3...）
   // スタッフによるAPIエラー時の手動確認結果
   manualCheckResult String?   @map("manual_check_result") @db.VarChar(20) // found_pending / found_completed / not_found
   manualCheckAt     DateTime? @map("manual_check_at")
@@ -4008,13 +4168,13 @@ model SlpContractAttempt {
 // ============================================
 
 model SlpUnmatchedBounce {
-  id            Int      @id @default(autoincrement())
-  documentId    String   @map("document_id") @db.VarChar(255) // CloudSignドキュメントID
-  bouncedEmail  String   @map("bounced_email") @db.VarChar(255) // 不達メールアドレス
-  webhookText   String?  @map("webhook_text") // Webhookのtextフィールド（デバッグ用）
-  matched       Boolean  @default(false) // スタッフの手動確認で照合済みか
-  matchedAt     DateTime? @map("matched_at")
-  createdAt     DateTime @default(now()) @map("created_at")
+  id           Int       @id @default(autoincrement())
+  documentId   String    @map("document_id") @db.VarChar(255) // CloudSignドキュメントID
+  bouncedEmail String    @map("bounced_email") @db.VarChar(255) // 不達メールアドレス
+  webhookText  String?   @map("webhook_text") // Webhookのtextフィールド（デバッグ用）
+  matched      Boolean   @default(false) // スタッフの手動確認で照合済みか
+  matchedAt    DateTime? @map("matched_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
 
   @@index([documentId])
   @@map("slp_unmatched_bounces")
@@ -4026,51 +4186,52 @@ model SlpUnmatchedBounce {
 // ============================================
 
 model SlpLineFriend {
-  id               Int       @id @default(autoincrement())
-  snsname          String?   @db.VarChar(200) // アカウント名
-  password         String?   @db.VarChar(100) // プロラインパスワード
-  emailLine        String?   @db.VarChar(255) // LINE送信専用メルアド
-  emailRenkei      String?   @db.VarChar(255) // 連携用メールアドレス
-  emailLine2       String?   @db.VarChar(255) // LINE送信専用メルアド２
-  email            String?   @db.VarChar(255) // メールアドレス（ユーザー入力）
-  uid              String    @unique @db.VarChar(100) // ユーザーID
-  friendAddedDate  DateTime? // 友だち追加日
-  activeStatus     String?   @db.VarChar(50) // 稼働状態（稼働中/ブロック等）
-  lastActivityDate String?   @db.VarChar(50) // 最終活動日
-  sei              String?   @db.VarChar(100) // 姓
-  mei              String?   @db.VarChar(100) // 名
-  nickname         String?   @db.VarChar(100) // ニックネーム
-  phone            String?   @db.VarChar(50) // 電話番号
-  postcode         String?   @db.VarChar(20) // 郵便番号
-  address1         String?   @db.VarChar(255) // 住所１
-  address2         String?   @db.VarChar(255) // 住所２
-  address3         String?   @db.VarChar(255) // 住所３
-  nenrei           String?   @db.VarChar(20) // 年齢
-  nendai           String?   @db.VarChar(20) // 年代
-  seibetu          String?   @db.VarChar(20) // 性別
-  free1            String? // フリー項目１
-  free2            String? // フリー項目２
-  free3            String? // フリー項目３
-  free4            String? // フリー項目４
-  free5            String? // フリー項目５
-  free6            String? // フリー項目６
-  scenarioPos1     String? // シナリオ位置1
-  scenarioPos2     String? // 現在の場所2
-  scenarioPos3     String? // 現在の場所3
-  scenarioPos4     String? // 現在の場所4
-  scenarioPos5     String? // 現在の場所5
-  sortOrder        Int       @default(0) @map("sort_order") // 廃止予定（レガシー: ProLine同期時の連番）。idで代替
-  form4NotifyCount Int       @default(0) // Form4（友だち追加通知）送信回数
-  isManuallyAdded       Boolean   @default(false) @map("is_manually_added") // true=CRMから手動追加（編集・削除可）, false=プロライン同期/Webhook由来（編集・削除不可）
-  referrerNotRequired   Boolean   @default(false) @map("referrer_not_required") // true=紹介者不要（free1が空でも警告しない）
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  deletedAt        DateTime?
+  id                  Int       @id @default(autoincrement())
+  snsname             String?   @db.VarChar(200) // アカウント名
+  password            String?   @db.VarChar(100) // プロラインパスワード
+  emailLine           String?   @db.VarChar(255) // LINE送信専用メルアド
+  emailRenkei         String?   @db.VarChar(255) // 連携用メールアドレス
+  emailLine2          String?   @db.VarChar(255) // LINE送信専用メルアド２
+  email               String?   @db.VarChar(255) // メールアドレス（ユーザー入力）
+  uid                 String    @unique @db.VarChar(100) // ユーザーID
+  friendAddedDate     DateTime? // 友だち追加日
+  activeStatus        String?   @db.VarChar(50) // 稼働状態（稼働中/ブロック等）
+  lastActivityDate    String?   @db.VarChar(50) // 最終活動日
+  sei                 String?   @db.VarChar(100) // 姓
+  mei                 String?   @db.VarChar(100) // 名
+  nickname            String?   @db.VarChar(100) // ニックネーム
+  phone               String?   @db.VarChar(50) // 電話番号
+  postcode            String?   @db.VarChar(20) // 郵便番号
+  address1            String?   @db.VarChar(255) // 住所１
+  address2            String?   @db.VarChar(255) // 住所２
+  address3            String?   @db.VarChar(255) // 住所３
+  nenrei              String?   @db.VarChar(20) // 年齢
+  nendai              String?   @db.VarChar(20) // 年代
+  seibetu             String?   @db.VarChar(20) // 性別
+  free1               String? // フリー項目１
+  free2               String? // フリー項目２
+  free3               String? // フリー項目３
+  free4               String? // フリー項目４
+  free5               String? // フリー項目５
+  free6               String? // フリー項目６
+  scenarioPos1        String? // シナリオ位置1
+  scenarioPos2        String? // 現在の場所2
+  scenarioPos3        String? // 現在の場所3
+  scenarioPos4        String? // 現在の場所4
+  scenarioPos5        String? // 現在の場所5
+  sortOrder           Int       @default(0) @map("sort_order") // 廃止予定（レガシー: ProLine同期時の連番）。idで代替
+  form4NotifyCount    Int       @default(0) // Form4（友だち追加通知）送信回数
+  isManuallyAdded     Boolean   @default(false) @map("is_manually_added") // true=CRMから手動追加（編集・削除可）, false=プロライン同期/Webhook由来（編集・削除不可）
+  referrerNotRequired Boolean   @default(false) @map("referrer_not_required") // true=紹介者不要（free1が空でも警告しない）
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
 
   companyContacts      SlpCompanyContact[]
   prolineStaffMappings SlpProlineStaffMapping[]
-  asLinks              SlpAs[]                   @relation("LineFriendAsLinks")
-  agencyContacts       SlpAgencyContact[]         @relation("AgencyContactLineFriend")
+  asLinks              SlpAs[]                       @relation("LineFriendAsLinks")
+  agencyContacts       SlpAgencyContact[]            @relation("AgencyContactLineFriend")
+  contactHistoryLinks  SlpContactHistoryLineFriend[]
 
   @@map("slp_line_friends")
 }
@@ -4119,39 +4280,39 @@ model SlpCompanyRecord {
   // ============================================
   // 企業基本情報（Phase 1 で追加）
   // ============================================
-  companyName        String?   @map("company_name") @db.VarChar(200) // 企業名
-  representativeName String?   @map("representative_name") @db.VarChar(100) // 代表者名
-  employeeCount      Int?      @map("employee_count") // 従業員数
-  prefecture         String?   @db.VarChar(20) // 都道府県
-  address            String?   @db.VarChar(500) // 住所
-  companyPhone       String?   @map("company_phone") @db.VarChar(50) // 企業電話番号
-  pensionOffice      String?   @map("pension_office") @db.VarChar(100) // 管轄の年金事務所
-  pensionOfficerName String?   @map("pension_officer_name") @db.VarChar(100) // 年金事務所担当者名
-  industryId         Int?      @map("industry_id") // 業種マスタID
-  flowSourceId       Int?      @map("flow_source_id") // 流入経路マスタID
-  salesStaffId       Int?      @map("sales_staff_id") // 担当営業（スタッフID）
-  status1Id          Int?      @map("status1_id") // 企業ステータス①マスタID
-  status2Id          Int?      @map("status2_id") // 企業ステータス②マスタID
-  lastContactDate    DateTime? @map("last_contact_date") @db.Date // 最終接触日
-  annualLaborCostExecutive Decimal? @map("annual_labor_cost_executive") @db.Decimal(15, 2) // 年間人件費（役員様分、円）
-  annualLaborCostEmployee  Decimal? @map("annual_labor_cost_employee") @db.Decimal(15, 2) // 年間人件費（従業員様分、円）
-  averageMonthlySalary     Decimal? @map("average_monthly_salary") @db.Decimal(15, 2) // 平均月給（円）
+  companyName                        String?   @map("company_name") @db.VarChar(200) // 企業名
+  representativeName                 String?   @map("representative_name") @db.VarChar(100) // 代表者名
+  employeeCount                      Int?      @map("employee_count") // 従業員数
+  prefecture                         String?   @db.VarChar(20) // 都道府県
+  address                            String?   @db.VarChar(500) // 住所
+  companyPhone                       String?   @map("company_phone") @db.VarChar(50) // 企業電話番号
+  pensionOffice                      String?   @map("pension_office") @db.VarChar(100) // 管轄の年金事務所
+  pensionOfficerName                 String?   @map("pension_officer_name") @db.VarChar(100) // 年金事務所担当者名
+  industryId                         Int?      @map("industry_id") // 業種マスタID
+  flowSourceId                       Int?      @map("flow_source_id") // 流入経路マスタID
+  salesStaffId                       Int?      @map("sales_staff_id") // 担当営業（スタッフID）
+  status1Id                          Int?      @map("status1_id") // 企業ステータス①マスタID
+  status2Id                          Int?      @map("status2_id") // 企業ステータス②マスタID
+  lastContactDate                    DateTime? @map("last_contact_date") @db.Date // 最終接触日
+  annualLaborCostExecutive           Decimal?  @map("annual_labor_cost_executive") @db.Decimal(15, 2) // 年間人件費（役員様分、円）
+  annualLaborCostEmployee            Decimal?  @map("annual_labor_cost_employee") @db.Decimal(15, 2) // 年間人件費（従業員様分、円）
+  averageMonthlySalary               Decimal?  @map("average_monthly_salary") @db.Decimal(15, 2) // 平均月給（円）
   // プロライン予約フォーム(form3-2〜4)でユーザーが入力した生テキスト。
   // 「5000万円」「約50人」等、数値に自動変換できない回答もそのまま保存し、
   // 企業詳細画面で数値入力欄の上にサジェストとして表示する（スタッフが見て手動で数値化）。
-  annualLaborCostExecutiveFormAnswer String? @map("annual_labor_cost_executive_form_answer") @db.VarChar(500) // 年間人件費(役員)フォーム回答
-  annualLaborCostEmployeeFormAnswer  String? @map("annual_labor_cost_employee_form_answer")  @db.VarChar(500) // 年間人件費(従業員)フォーム回答
-  employeeCountFormAnswer            String? @map("employee_count_form_answer")              @db.VarChar(500) // 従業員数フォーム回答
+  annualLaborCostExecutiveFormAnswer String?   @map("annual_labor_cost_executive_form_answer") @db.VarChar(500) // 年間人件費(役員)フォーム回答
+  annualLaborCostEmployeeFormAnswer  String?   @map("annual_labor_cost_employee_form_answer") @db.VarChar(500) // 年間人件費(従業員)フォーム回答
+  employeeCountFormAnswer            String?   @map("employee_count_form_answer") @db.VarChar(500) // 従業員数フォーム回答
 
   // ============================================
   // 事業形態・法人/個人事業主対応
   // ============================================
-  businessType         String?            @map("business_type") @db.VarChar(20) // "corporation" | "sole_proprietor"
-  corporateNumber      String?            @map("corporate_number") @db.VarChar(13) // 法人番号（将来の全企業マスタ統合で法人同一判定に使用）
-  companyEmail         String?            @map("company_email") @db.VarChar(255) // 企業メール / 事業用メール
-  representativePhone  String?            @map("representative_phone") @db.VarChar(50) // 代表者電話番号
-  representativeEmail  String?            @map("representative_email") @db.VarChar(255) // 代表者メールアドレス
-  primaryContactId     Int?               @map("primary_contact_id") // 代表者として選択した担当者ID
+  businessType        String? @map("business_type") @db.VarChar(20) // "corporation" | "sole_proprietor"
+  corporateNumber     String? @map("corporate_number") @db.VarChar(13) // 法人番号（将来の全企業マスタ統合で法人同一判定に使用）
+  companyEmail        String? @map("company_email") @db.VarChar(255) // 企業メール / 事業用メール
+  representativePhone String? @map("representative_phone") @db.VarChar(50) // 代表者電話番号
+  representativeEmail String? @map("representative_email") @db.VarChar(255) // 代表者メールアドレス
+  primaryContactId    Int?    @map("primary_contact_id") // 代表者として選択した担当者ID
 
   // ============================================
   // 金額・契約情報（Phase 1 で追加）
@@ -4174,22 +4335,30 @@ model SlpCompanyRecord {
   confirmedAgentPayment Decimal?  @map("confirmed_agent_payment") @db.Decimal(15, 2) // 確定代理店支払金額
   paymentReceivedDate   DateTime? @map("payment_received_date") @db.Date // 着金日
 
+  // ============================================
+  // 全顧客マスタとの紐付け（任意）
+  // 同じ会社が他プロジェクトにも登録されている場合、全社マスタのIDをここに入れて集約する
+  // ============================================
+  masterCompanyId Int? @map("master_company_id")
+
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  contacts             SlpCompanyContact[]
-  primaryContact       SlpCompanyContact?              @relation("PrimaryContact", fields: [primaryContactId], references: [id])
-  briefingStaffUser    MasterStaff?                    @relation("SlpCompanyBriefingStaff", fields: [briefingStaffId], references: [id])
-  consultationStaffUser MasterStaff?                   @relation("SlpCompanyConsultationStaff", fields: [consultationStaffId], references: [id])
-  salesStaff           MasterStaff?                    @relation("SlpCompanySalesStaff", fields: [salesStaffId], references: [id])
-  industry           SlpIndustryMaster?              @relation(fields: [industryId], references: [id])
-  flowSource         SlpFlowSourceMaster?            @relation(fields: [flowSourceId], references: [id])
-  status1            SlpCompanyStatus1Master?        @relation(fields: [status1Id], references: [id])
-  status2            SlpCompanyStatus2Master?        @relation(fields: [status2Id], references: [id])
-  statusHistories    SlpCompanyRecordStatusHistory[]
-  submittedDocuments SlpCompanyDocument[]
-  reservationHistories SlpReservationHistory[]
+  contacts              SlpCompanyContact[]
+  primaryContact        SlpCompanyContact?              @relation("PrimaryContact", fields: [primaryContactId], references: [id])
+  briefingStaffUser     MasterStaff?                    @relation("SlpCompanyBriefingStaff", fields: [briefingStaffId], references: [id])
+  consultationStaffUser MasterStaff?                    @relation("SlpCompanyConsultationStaff", fields: [consultationStaffId], references: [id])
+  salesStaff            MasterStaff?                    @relation("SlpCompanySalesStaff", fields: [salesStaffId], references: [id])
+  industry              SlpIndustryMaster?              @relation(fields: [industryId], references: [id])
+  flowSource            SlpFlowSourceMaster?            @relation(fields: [flowSourceId], references: [id])
+  status1               SlpCompanyStatus1Master?        @relation(fields: [status1Id], references: [id])
+  status2               SlpCompanyStatus2Master?        @relation(fields: [status2Id], references: [id])
+  statusHistories       SlpCompanyRecordStatusHistory[]
+  submittedDocuments    SlpCompanyDocument[]
+  reservationHistories  SlpReservationHistory[]
+  masterCompany         MasterStellaCompany?            @relation("SlpCompanyRecordToMaster", fields: [masterCompanyId], references: [id])
+  contactHistories      SlpContactHistory[]             @relation("SlpContactHistoryCompanyRecord")
 
   // 重複統合関連リレーション
   duplicateCandidatesA SlpCompanyDuplicateCandidate[] @relation("DuplicateCandidateA")
@@ -4205,6 +4374,7 @@ model SlpCompanyRecord {
   @@index([salesStaffId])
   @@index([status1Id])
   @@index([status2Id])
+  @@index([masterCompanyId])
   @@map("slp_company_records")
 }
 
@@ -4359,11 +4529,11 @@ model SlpCompanyContact {
   manualAsChangedAt   DateTime? @map("manual_as_changed_at") // 手動上書きした日時
   manualAsChangedById Int?      @map("manual_as_changed_by_id") // 手動上書きしたスタッフID
 
-  companyRecord  SlpCompanyRecord @relation(fields: [companyRecordId], references: [id], onDelete: Cascade)
-  primaryOf      SlpCompanyRecord[] @relation("PrimaryContact")
-  lineFriend     SlpLineFriend?   @relation(fields: [lineFriendId], references: [id])
-  manualAs       SlpAs?           @relation("SlpCompanyContactManualAs", fields: [manualAsId], references: [id])
-  manualAsChangedBy MasterStaff?  @relation("SlpCompanyContactManualAsChangedBy", fields: [manualAsChangedById], references: [id])
+  companyRecord     SlpCompanyRecord   @relation(fields: [companyRecordId], references: [id], onDelete: Cascade)
+  primaryOf         SlpCompanyRecord[] @relation("PrimaryContact")
+  lineFriend        SlpLineFriend?     @relation(fields: [lineFriendId], references: [id])
+  manualAs          SlpAs?             @relation("SlpCompanyContactManualAs", fields: [manualAsId], references: [id])
+  manualAsChangedBy MasterStaff?       @relation("SlpCompanyContactManualAsChangedBy", fields: [manualAsChangedById], references: [id])
 
   @@map("slp_company_contacts")
 }
@@ -5099,12 +5269,12 @@ model SlpDocumentAccessLog {
 // ============================================
 
 model SlpAgencyContractStatus {
-  id           Int         @id @default(autoincrement())
-  name         String      @db.VarChar(100) // ステータス名
-  displayOrder Int         @default(0) @map("display_order")
-  isActive     Boolean     @default(true) @map("is_active")
-  createdAt    DateTime    @default(now()) @map("created_at")
-  updatedAt    DateTime    @updatedAt @map("updated_at")
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(100) // ステータス名
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   agencies SlpAgency[]
 
@@ -5112,47 +5282,53 @@ model SlpAgencyContractStatus {
 }
 
 model SlpAgency {
-  id                Int       @id @default(autoincrement())
-  name              String    @db.VarChar(200) // 代理店名
-  corporateName     String?   @db.VarChar(200) @map("corporate_name") // 法人名
-  email             String?   @db.VarChar(255) // メールアドレス
-  phone             String?   @db.VarChar(50) // 電話番号
-  address           String?   @db.Text // 所在地
-  contractStatusId  Int?      @map("contract_status_id") // 契約ステータス
-  contractStartDate DateTime? @map("contract_start_date") @db.Date // 契約開始日
-  contractEndDate   DateTime? @map("contract_end_date") @db.Date // 契約終了日
-  notes             String?   @db.Text // 備考
+  id                   Int       @id @default(autoincrement())
+  name                 String    @db.VarChar(200) // 代理店名
+  corporateName        String?   @map("corporate_name") @db.VarChar(200) // 法人名
+  email                String?   @db.VarChar(255) // メールアドレス
+  phone                String?   @db.VarChar(50) // 電話番号
+  address              String?   @db.Text // 所在地
+  contractStatusId     Int?      @map("contract_status_id") // 契約ステータス
+  contractStartDate    DateTime? @map("contract_start_date") @db.Date // 契約開始日
+  contractEndDate      DateTime? @map("contract_end_date") @db.Date // 契約終了日
+  notes                String?   @db.Text // 備考
   // 事業形態・法人/個人事業主対応
-  isIndividualBusiness  Boolean  @default(false) @map("is_individual_business") // true=個人事業主, false=法人
-  corporateNumber       String?  @map("corporate_number") @db.VarChar(13) // 法人番号
-  representativeName    String?  @map("representative_name") @db.VarChar(100) // 代表者名
-  representativePhone   String?  @map("representative_phone") @db.VarChar(50) // 代表者電話番号
-  representativeEmail   String?  @map("representative_email") @db.VarChar(255) // 代表者メールアドレス
-  parentId          Int?      @map("parent_id") // 親代理店ID（自己参照で無限階層）
+  isIndividualBusiness Boolean   @default(false) @map("is_individual_business") // true=個人事業主, false=法人
+  corporateNumber      String?   @map("corporate_number") @db.VarChar(13) // 法人番号
+  representativeName   String?   @map("representative_name") @db.VarChar(100) // 代表者名
+  representativePhone  String?   @map("representative_phone") @db.VarChar(50) // 代表者電話番号
+  representativeEmail  String?   @map("representative_email") @db.VarChar(255) // 代表者メールアドレス
+  parentId             Int?      @map("parent_id") // 親代理店ID（自己参照で無限階層）
 
-  parent         SlpAgency?                @relation("AgencyHierarchy", fields: [parentId], references: [id])
-  children       SlpAgency[]               @relation("AgencyHierarchy")
-  contacts       SlpAgencyContact[]
-  contractStatus SlpAgencyContractStatus?  @relation(fields: [contractStatusId], references: [id])
+  // 全顧客マスタとの紐付け（任意）
+  masterCompanyId Int? @map("master_company_id")
+
+  parent           SlpAgency?               @relation("AgencyHierarchy", fields: [parentId], references: [id])
+  children         SlpAgency[]              @relation("AgencyHierarchy")
+  contacts         SlpAgencyContact[]
+  contractStatus   SlpAgencyContractStatus? @relation(fields: [contractStatusId], references: [id])
+  masterCompany    MasterStellaCompany?     @relation("SlpAgencyToMaster", fields: [masterCompanyId], references: [id])
+  contactHistories SlpContactHistory[]      @relation("SlpContactHistoryAgency")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
+  @@index([masterCompanyId])
   @@map("slp_agencies")
 }
 
 model SlpAgencyContact {
-  id       Int    @id @default(autoincrement())
-  agencyId Int    @map("agency_id")
-  name     String @db.VarChar(200) // 名前
-  role     String? @db.VarChar(100) // 役割
-  email    String? @db.VarChar(255) // メールアドレス
-  phone    String? @db.VarChar(50) // 電話番号
-  lineFriendId Int? @map("line_friend_id") // LINE番号（SlpLineFriend.id）
+  id           Int     @id @default(autoincrement())
+  agencyId     Int     @map("agency_id")
+  name         String  @db.VarChar(200) // 名前
+  role         String? @db.VarChar(100) // 役割
+  email        String? @db.VarChar(255) // メールアドレス
+  phone        String? @db.VarChar(50) // 電話番号
+  lineFriendId Int?    @map("line_friend_id") // LINE番号（SlpLineFriend.id）
 
   agency     SlpAgency      @relation(fields: [agencyId], references: [id], onDelete: Cascade)
-  lineFriend SlpLineFriend?  @relation("AgencyContactLineFriend", fields: [lineFriendId], references: [id])
+  lineFriend SlpLineFriend? @relation("AgencyContactLineFriend", fields: [lineFriendId], references: [id])
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -5183,7 +5359,7 @@ model SlpReservationPending {
   expiresAt             DateTime  @map("expires_at") // 30分後
   consumedAt            DateTime? @map("consumed_at") // webhook受信時に紐付けが完了した時刻
   consumedReservationId String?   @map("consumed_reservation_id") @db.VarChar(100) // 紐付けに使われた予約ID
-  businessType          String?  @map("business_type") @db.VarChar(20) // "corporation" | "sole_proprietor"（予約時の事業形態）
+  businessType          String?   @map("business_type") @db.VarChar(20) // "corporation" | "sole_proprietor"（予約時の事業形態）
 
   @@index([token])
   @@index([uid, createdAt])

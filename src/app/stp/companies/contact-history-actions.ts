@@ -3,13 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { getCustomerTypeIdByCode } from "@/lib/customer-type";
 
 type FileInput = {
   id?: number;
-  filePath: string;
+  filePath?: string | null;
   fileName: string;
-  fileSize: number;
-  mimeType: string;
+  fileSize?: number | null;
+  mimeType?: string | null;
+  url?: string | null;
 };
 
 type ContactHistoryInput = {
@@ -26,8 +28,8 @@ type ContactHistoryInput = {
 
 // 定数: 採用ブースト（STP）プロジェクトID
 const STP_PROJECT_ID = 1;
-// 定数: 顧客種別「企業」のID
-const CUSTOMER_TYPE_COMPANY_ID = 1;
+// 顧客種別「企業」のシステムコード
+const CUSTOMER_TYPE_COMPANY_CODE = "stp_company";
 
 /**
  * STP企業の接触履歴を追加
@@ -52,9 +54,10 @@ export async function addCompanyContactHistory(
   }
 
   // 顧客種別IDのデフォルト値（企業）
+  const companyCustomerTypeId = await getCustomerTypeIdByCode(CUSTOMER_TYPE_COMPANY_CODE);
   const customerTypeIds = data.customerTypeIds?.length
     ? data.customerTypeIds
-    : [CUSTOMER_TYPE_COMPANY_ID];
+    : [companyCustomerTypeId];
 
   // トランザクションで接触履歴とロールを作成
   const result = await prisma.$transaction(async (tx) => {
@@ -85,10 +88,11 @@ export async function addCompanyContactHistory(
       await tx.contactHistoryFile.createMany({
         data: data.files.map((file) => ({
           contactHistoryId: history.id,
-          filePath: file.filePath,
+          filePath: file.filePath ?? null,
           fileName: file.fileName,
-          fileSize: file.fileSize,
-          mimeType: file.mimeType,
+          fileSize: file.fileSize ?? null,
+          mimeType: file.mimeType ?? null,
+          url: file.url ?? null,
         })),
       });
     }
@@ -186,10 +190,11 @@ export async function updateCompanyContactHistory(
         await tx.contactHistoryFile.createMany({
           data: newFiles.map((file) => ({
             contactHistoryId: id,
-            filePath: file.filePath,
+            filePath: file.filePath ?? null,
             fileName: file.fileName,
-            fileSize: file.fileSize,
-            mimeType: file.mimeType,
+            fileSize: file.fileSize ?? null,
+            mimeType: file.mimeType ?? null,
+            url: file.url ?? null,
           })),
         });
       }
@@ -289,8 +294,7 @@ export async function getCompanyContactHistories(companyId: number) {
       roles: {
         some: {
           customerType: {
-            projectId: STP_PROJECT_ID,
-            name: "企業",
+            code: CUSTOMER_TYPE_COMPANY_CODE,
           },
         },
       },
@@ -359,10 +363,11 @@ function formatContactHistoryResponse(history: {
   }>;
   files?: Array<{
     id: number;
-    filePath: string;
+    filePath: string | null;
     fileName: string;
-    fileSize: number;
-    mimeType: string;
+    fileSize: number | null;
+    mimeType: string | null;
+    url: string | null;
   }>;
 }) {
   return {
@@ -394,6 +399,7 @@ function formatContactHistoryResponse(history: {
         fileName: f.fileName,
         fileSize: f.fileSize,
         mimeType: f.mimeType,
+        url: f.url,
       })) || [],
   };
 }

@@ -42,6 +42,7 @@ export default async function CustomerTypesPage({
 
   const data = customerTypes.map((ct) => ({
     id: ct.id,
+    code: ct.code,
     projectId: String(ct.projectId),
     projectName: ct.project.name,
     name: ct.name,

@@ -267,6 +267,40 @@ const checkDefinitions: CheckDefinition[] = [
     countFn: () =>
       prisma.slpAgencyContractStatus.count({ where: { isActive: true } }),
   },
+  {
+    id: "slp-contact-categories",
+    category: "SLP",
+    name: "接触種別",
+    description: "商談・キックオフ・フォローアップなどの接触種別（SLP用）",
+    required: 1,
+    href: "/settings/contact-categories?project=slp",
+    countFn: async () => {
+      const project = await prisma.masterProject.findUnique({
+        where: { code: "slp" },
+      });
+      if (!project) return 0;
+      return prisma.contactCategory.count({
+        where: { projectId: project.id, isActive: true },
+      });
+    },
+  },
+  {
+    id: "slp-customer-types",
+    category: "SLP",
+    name: "顧客種別",
+    description: "事業者・代理店などの顧客種別（SLP用、コードで固定管理）",
+    required: 1,
+    href: "/settings/customer-types?project=slp",
+    countFn: async () => {
+      const project = await prisma.masterProject.findUnique({
+        where: { code: "slp" },
+      });
+      if (!project) return 0;
+      return prisma.customerType.count({
+        where: { projectId: project.id, isActive: true },
+      });
+    },
+  },
 
   // ========================================
   // 補助金
