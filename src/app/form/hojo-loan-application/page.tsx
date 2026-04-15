@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CheckCircle, Loader2, Plus, Trash2 } from "lucide-react";
+import Image from "next/image";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -624,9 +625,14 @@ export default function HojoLoanApplicationPage() {
 
   // ALKESロゴ
   const alkesLogo = (
-    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#3b9d9d] to-[#6fb789] flex items-center justify-center mx-auto mb-4">
-      <span className="text-white text-lg font-bold">A</span>
-    </div>
+    <Image
+      src="/images/alkes-logo-full.png"
+      alt="ALKES LLC"
+      width={160}
+      height={160}
+      priority
+      className="h-16 w-auto mx-auto mb-4 object-contain"
+    />
   );
 
   // URL検証
@@ -705,9 +711,13 @@ export default function HojoLoanApplicationPage() {
           <div className="h-1 bg-gradient-to-r from-[#3b9d9d] via-[#55a88f] to-[#6fb789]" />
           <div className="px-8 py-6">
             <div className="flex items-center gap-4 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#3b9d9d] to-[#6fb789] flex items-center justify-center shrink-0">
-                <span className="text-white text-xs font-bold">A</span>
-              </div>
+              <Image
+                src="/images/alkes-logo.png"
+                alt="ALKES"
+                width={36}
+                height={36}
+                className="w-9 h-9 shrink-0 object-contain"
+              />
               <h1 className="text-xl font-bold text-gray-900">
                 借入申込({formType === "corporate" ? "法人" : "個人事業主"})
               </h1>

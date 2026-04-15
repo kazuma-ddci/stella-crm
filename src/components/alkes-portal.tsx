@@ -11,6 +11,7 @@
 
 import { cn } from "@/lib/utils";
 import { LogOut } from "lucide-react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 
 // ========== ポータルヘッダー ==========
@@ -28,9 +29,14 @@ export function PortalHeader({
       <div className="px-8 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
           {/* ALKESロゴマーク */}
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#3b9d9d] to-[#6fb789] flex items-center justify-center shrink-0">
-            <span className="text-white text-xs font-bold">A</span>
-          </div>
+          <Image
+            src="/images/alkes-logo.png"
+            alt="ALKES"
+            width={36}
+            height={36}
+            className="w-9 h-9 shrink-0 object-contain"
+            priority
+          />
           <h1 className="text-xl font-bold text-gray-900">{title}</h1>
         </div>
         {rightContent && (
@@ -90,9 +96,14 @@ export function PortalLoginWrapper({
           {/* グラデーションライン */}
           <div className="h-1 bg-gradient-to-r from-[#3b9d9d] via-[#55a88f] to-[#6fb789]" />
           <div className="px-8 pt-8 pb-2 text-center">
-            <div className="mx-auto w-12 h-12 rounded-xl bg-gradient-to-br from-[#3b9d9d] to-[#6fb789] flex items-center justify-center mb-4">
-              <span className="text-white text-lg font-bold">A</span>
-            </div>
+            <Image
+              src="/images/alkes-logo-full.png"
+              alt="ALKES LLC"
+              width={160}
+              height={160}
+              priority
+              className="h-16 w-auto mx-auto mb-4 object-contain"
+            />
             <h2 className="text-xl font-bold text-gray-900">{title}</h2>
             {subtitle && <p className="text-sm text-gray-400 mt-1">{subtitle}</p>}
           </div>

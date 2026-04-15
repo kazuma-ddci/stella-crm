@@ -7,6 +7,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { updateActivityNotesByVendor } from "./actions";
 import { ClipboardList, ExternalLink, ListChecks } from "lucide-react";
 import { TaskManagementDialog, type TaskRecord } from "@/app/hojo/consulting/activities/task-management-dialog";
@@ -56,6 +57,23 @@ function UrlLinkList({ urls }: { urls: string[] }) {
 export function VendorActivitiesSection({ data, vendorId, canEdit }: Props) {
   const router = useRouter();
   const [taskDialog, setTaskDialog] = useState<{ activityId: number; tasks: TaskRecord[]; label: string } | null>(null);
+  const [textDialog, setTextDialog] = useState<{ title: string; content: string } | null>(null);
+
+  const renderExpandableCell = (title: string, content: string) => {
+    if (!content) return <span className="text-sm text-gray-300">-</span>;
+    return (
+      <button
+        type="button"
+        onClick={() => setTextDialog({ title, content })}
+        className="text-left w-full group/cell"
+        title="クリックで全文表示"
+      >
+        <p className="text-sm text-gray-600 whitespace-pre-wrap max-h-20 overflow-y-auto pr-1 group-hover/cell:text-[#3b9d9d] transition-colors">
+          {content}
+        </p>
+      </button>
+    );
+  };
 
   const handleNotesSave = async (activityId: number, value: string) => {
     const result = await updateActivityNotesByVendor(activityId, vendorId, value);
@@ -114,11 +132,11 @@ export function VendorActivitiesSection({ data, vendorId, canEdit }: Props) {
                         </span>
                       ) : "-"}
                     </TableCell>
-                    <TableCell className="max-w-[220px]">
-                      <p className="text-sm text-gray-600 whitespace-pre-wrap line-clamp-3">{r.vendorIssue || "-"}</p>
+                    <TableCell className="max-w-[220px] align-top">
+                      {renderExpandableCell("課題/ご相談内容", r.vendorIssue)}
                     </TableCell>
-                    <TableCell className="max-w-[220px]">
-                      <p className="text-sm text-gray-600 whitespace-pre-wrap line-clamp-3">{r.vendorNextAction || "-"}</p>
+                    <TableCell className="max-w-[220px] align-top">
+                      {renderExpandableCell("次回アクション", r.vendorNextAction)}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-gray-600">
                       {r.nextDeadline || "-"}
@@ -152,17 +170,19 @@ export function VendorActivitiesSection({ data, vendorId, canEdit }: Props) {
                     <TableCell>
                       <UrlLinkList urls={r.screenshotUrls} />
                     </TableCell>
-                    <TableCell className="max-w-[180px]">
+                    <TableCell className="max-w-[180px] align-top">
                       {canEdit ? (
                         <InlineCell
                           value={r.notes}
                           onSave={(v) => handleNotesSave(r.id, v)}
                           type="textarea"
                         >
-                          <span className="text-sm text-gray-600">{r.notes || <span className="text-gray-300 italic">クリックして入力</span>}</span>
+                          <span className="text-sm text-gray-600 whitespace-pre-wrap block max-h-20 overflow-y-auto pr-1">
+                            {r.notes || <span className="text-gray-300 italic">クリックして入力</span>}
+                          </span>
                         </InlineCell>
                       ) : (
-                        <span className="text-sm text-gray-600">{r.notes || "-"}</span>
+                        renderExpandableCell("備考", r.notes)
                       )}
                     </TableCell>
                   </TableRow>
@@ -172,6 +192,17 @@ export function VendorActivitiesSection({ data, vendorId, canEdit }: Props) {
           </Table>
         </div>
       </div>
+
+      <Dialog open={!!textDialog} onOpenChange={(open) => !open && setTextDialog(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{textDialog?.title}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap text-sm text-gray-700 leading-relaxed">
+            {textDialog?.content}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {taskDialog && (
         <TaskManagementDialog
