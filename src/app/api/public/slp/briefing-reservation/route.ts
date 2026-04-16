@@ -4,6 +4,7 @@ import { logAutomationError } from "@/lib/automation-error";
 import { submitForm6BriefingReservation } from "@/lib/proline-form";
 import { recomputeDuplicateCandidatesForRecord } from "@/lib/slp/duplicate-detector";
 import { parseReservationDate } from "@/lib/slp/parse-reservation-date";
+import { ensureZoomMeetingForReservation } from "@/lib/slp/zoom-reservation-handler";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -397,6 +398,23 @@ export async function GET(request: Request) {
           source: "slp-recompute-duplicates",
           message: `重複候補の再計算に失敗: recordId=${newId}`,
           detail: { error: err instanceof Error ? err.message : String(err) },
+        });
+      });
+    }
+
+    // Zoom会議を自動発行 → プロライン経由でお客様にURL案内LINE送信（fire-and-forget）
+    for (const recordId of createdOrUpdatedRecordIds) {
+      ensureZoomMeetingForReservation({
+        companyRecordId: recordId,
+        category: "briefing",
+        triggerReason: "confirm",
+      }).catch(async (err) => {
+        await logAutomationError({
+          source: "slp-briefing-reservation-zoom",
+          message: `Zoom発行フロー失敗: companyRecordId=${recordId}`,
+          detail: {
+            error: err instanceof Error ? err.message : String(err),
+          },
         });
       });
     }

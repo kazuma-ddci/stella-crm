@@ -36,6 +36,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ZoomMeetingPanel } from "./zoom-meeting-panel";
 import {
   ArrowLeft,
   Plus,
@@ -149,6 +150,13 @@ export type CompanyDetailRecord = {
   briefingStaffName: string | null;
   briefingChangedAt: string | null;
   briefingCanceledAt: string | null;
+  // 概要案内 Zoom
+  briefingZoomMeetingId: string | null;
+  briefingZoomJoinUrl: string | null;
+  briefingZoomHostName: string | null;
+  briefingZoomCreatedAt: string | null;
+  briefingZoomError: string | null;
+  briefingZoomErrorAt: string | null;
   // 予約ID（メイン + マージで取り込まれた配列）
   reservationId: string | null;
   consultationReservationId: string | null;
@@ -167,6 +175,13 @@ export type CompanyDetailRecord = {
   consultationStaffName: string | null;
   consultationChangedAt: string | null;
   consultationCanceledAt: string | null;
+  // 導入希望商談 Zoom
+  consultationZoomMeetingId: string | null;
+  consultationZoomJoinUrl: string | null;
+  consultationZoomHostName: string | null;
+  consultationZoomCreatedAt: string | null;
+  consultationZoomError: string | null;
+  consultationZoomErrorAt: string | null;
   // 基本情報
   companyName: string | null;
   representativeName: string | null;
@@ -1805,6 +1820,18 @@ export function CompanyDetail({
                   </div>
                 </div>
 
+                {/* ----- 概要案内 Zoom 会議パネル ----- */}
+                <ZoomMeetingPanel
+                  companyRecordId={record.id}
+                  category="briefing"
+                  joinUrl={record.briefingZoomJoinUrl}
+                  meetingId={record.briefingZoomMeetingId}
+                  hostName={record.briefingZoomHostName}
+                  createdAt={record.briefingZoomCreatedAt}
+                  error={record.briefingZoomError}
+                  errorAt={record.briefingZoomErrorAt}
+                />
+
                 {/* ----- 概要案内の予約ID一覧 ----- */}
                 <hr />
                 <div>
@@ -2027,6 +2054,18 @@ export function CompanyDetail({
                     </p>
                   </div>
                 </div>
+
+                {/* ----- 導入希望商談 Zoom 会議パネル ----- */}
+                <ZoomMeetingPanel
+                  companyRecordId={record.id}
+                  category="consultation"
+                  joinUrl={record.consultationZoomJoinUrl}
+                  meetingId={record.consultationZoomMeetingId}
+                  hostName={record.consultationZoomHostName}
+                  createdAt={record.consultationZoomCreatedAt}
+                  error={record.consultationZoomError}
+                  errorAt={record.consultationZoomErrorAt}
+                />
 
                 {/* ----- 導入希望商談の予約ID一覧 ----- */}
                 <hr />

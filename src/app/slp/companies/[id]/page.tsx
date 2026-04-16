@@ -91,6 +91,8 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
         },
         briefingStaffUser: { select: { id: true, name: true } },
         consultationStaffUser: { select: { id: true, name: true } },
+        briefingZoomHost: { select: { id: true, name: true } },
+        consultationZoomHost: { select: { id: true, name: true } },
         salesStaff: { select: { id: true, name: true } },
         industry: { select: { id: true, name: true } },
         flowSource: { select: { id: true, name: true } },
@@ -226,6 +228,13 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
     briefingStaffName: record.briefingStaffUser?.name ?? null,
     briefingChangedAt: toJstDisplay(record.briefingChangedAt),
     briefingCanceledAt: toJstDisplay(record.briefingCanceledAt),
+    // 概要案内 Zoom
+    briefingZoomMeetingId: record.briefingZoomMeetingId?.toString() ?? null,
+    briefingZoomJoinUrl: record.briefingZoomJoinUrl,
+    briefingZoomHostName: record.briefingZoomHost?.name ?? null,
+    briefingZoomCreatedAt: toJstDisplay(record.briefingZoomCreatedAt),
+    briefingZoomError: record.briefingZoomError,
+    briefingZoomErrorAt: toJstDisplay(record.briefingZoomErrorAt),
     // 導入希望商談
     consultationStatus: record.consultationStatus,
     consultationBookedAt: toJstDisplay(record.consultationBookedAt),
@@ -239,6 +248,13 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
     consultationStaffName: record.consultationStaffUser?.name ?? null,
     consultationChangedAt: toJstDisplay(record.consultationChangedAt),
     consultationCanceledAt: toJstDisplay(record.consultationCanceledAt),
+    // 導入希望商談 Zoom
+    consultationZoomMeetingId: record.consultationZoomMeetingId?.toString() ?? null,
+    consultationZoomJoinUrl: record.consultationZoomJoinUrl,
+    consultationZoomHostName: record.consultationZoomHost?.name ?? null,
+    consultationZoomCreatedAt: toJstDisplay(record.consultationZoomCreatedAt),
+    consultationZoomError: record.consultationZoomError,
+    consultationZoomErrorAt: toJstDisplay(record.consultationZoomErrorAt),
     // 予約ID（メイン + マージで取り込まれた配列）
     reservationId: record.reservationId,
     consultationReservationId: record.consultationReservationId,

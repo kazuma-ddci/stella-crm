@@ -230,6 +230,8 @@ export function StaffTable({ data, projectOptions, permissionProjects, editableP
     // 権限
     ...permissionColumns,
     { key: "isActive", header: "有効", type: "boolean" as const, ...(canManageStaff ? {} : { editable: false }) },
+    // Zoom連携
+    { key: "zoomStatus", header: "Zoom連携", editable: false },
     // 招待状態
     { key: "inviteStatus", header: "アカウント", editable: false },
   ];

@@ -4,6 +4,8 @@ import { StaffTable } from "./staff-table";
 import { getEditableProjects } from "./actions";
 import { auth } from "@/auth";
 import type { UserPermission } from "@/types/auth";
+import Link from "next/link";
+import { Video, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default async function StaffPage() {
   const session = await auth();
@@ -33,6 +35,14 @@ export default async function StaffPage() {
           },
         },
         permissions: { include: { project: true } },
+        meetingIntegrations: {
+          where: { provider: "zoom" },
+          select: {
+            connectedAt: true,
+            disconnectedAt: true,
+            externalEmail: true,
+          },
+        },
       },
     }),
     prisma.staffRoleType.findMany({
@@ -75,6 +85,12 @@ export default async function StaffPage() {
       projectPermissions[`approve_${project.code}`] = perm?.canApprove ?? false;
     }
 
+    const zoom = s.meetingIntegrations[0];
+    const zoomConnected = !!zoom && !zoom.disconnectedAt;
+    const zoomStatusText = zoomConnected
+      ? `✓ 連携済${zoom?.externalEmail ? ` (${zoom.externalEmail})` : ""}`
+      : "未連携";
+
     return {
       id: s.id,
       name: s.name,
@@ -98,8 +114,18 @@ export default async function StaffPage() {
       hasPassword: !!s.passwordHash,
       hasInviteToken: !!s.inviteToken,
       inviteTokenExpired: s.inviteTokenExpiresAt ? s.inviteTokenExpiresAt < new Date() : false,
+      // Zoom 連携状況
+      zoomConnected,
+      zoomStatus: zoomStatusText,
     };
   });
+
+  // 自分の Zoom 連携状況（バナー表示用）
+  const selfZoomIntegration = staffList
+    .find((s) => s.id === currentUserId)
+    ?.meetingIntegrations[0];
+  const selfZoomConnected =
+    !!selfZoomIntegration && !selfZoomIntegration.disconnectedAt;
 
   const roleTypeOptions = roleTypes.map((rt) => ({
     value: String(rt.id),
@@ -184,6 +210,37 @@ export default async function StaffPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">スタッフ管理</h1>
+
+      {/* Zoom連携 バナー（ログインユーザー本人の連携状況 + 遷移リンク） */}
+      <Link
+        href="/staff/me/integrations"
+        className="block rounded-lg border bg-muted/30 p-4 hover:bg-muted transition-colors"
+      >
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <Video className="h-6 w-6 text-blue-500" />
+            <div>
+              <div className="font-medium">あなたのZoom連携</div>
+              <div className="text-sm text-muted-foreground">
+                {selfZoomConnected ? (
+                  <span className="inline-flex items-center gap-1 text-green-700">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> 連携済
+                    {selfZoomIntegration?.externalEmail && (
+                      <span className="text-muted-foreground">（{selfZoomIntegration.externalEmail}）</span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-amber-700">
+                    <AlertCircle className="h-3.5 w-3.5" /> 未連携 — 商談予約時にZoom URLが自動発行されません
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <span className="text-sm text-blue-600 hover:underline">連携ページを開く →</span>
+        </div>
+      </Link>
+
       <Card>
         <CardHeader>
           <CardTitle>スタッフ一覧</CardTitle>

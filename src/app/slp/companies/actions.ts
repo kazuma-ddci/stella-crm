@@ -15,6 +15,10 @@ import { logAutomationError } from "@/lib/automation-error";
 import { auth } from "@/auth";
 import { recomputeDuplicateCandidatesForRecord } from "@/lib/slp/duplicate-detector";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import {
+  ensureZoomMeetingForReservation,
+  cancelZoomMeetingForReservation,
+} from "@/lib/slp/zoom-reservation-handler";
 
 /** タグ操作の結果型 */
 export type TagResult = {
@@ -227,11 +231,78 @@ export async function updateCompanyRecord(
     data.consultationStaffId = patch.consultationStaffId;
   }
 
+  // 保存前の値を取得して、Zoom 再作成・再送信の必要性を判定する
+  const before = await prisma.slpCompanyRecord.findUnique({
+    where: { id },
+    select: {
+      briefingStaffId: true,
+      briefingDate: true,
+      briefingStatus: true,
+      briefingCanceledAt: true,
+      consultationStaffId: true,
+      consultationDate: true,
+      consultationStatus: true,
+      consultationCanceledAt: true,
+    },
+  });
+
   await prisma.slpCompanyRecord.update({
     where: { id },
     data,
   });
+
+  // Zoom 同期: 担当者 or 日時が変わった場合、Webhookと同じハンドラを fire-and-forget で呼ぶ
+  // キャンセル状態・ステータスに変わった場合は Zoom 削除
+  if (before) {
+    const briefingStaffChanged =
+      data.briefingStaffId !== undefined &&
+      data.briefingStaffId !== before.briefingStaffId;
+    const briefingDateChanged =
+      data.briefingDate !== undefined &&
+      (data.briefingDate?.getTime() ?? null) !==
+        (before.briefingDate?.getTime() ?? null);
+    const briefingCanceledNow =
+      data.briefingStatus === "キャンセル" && before.briefingStatus !== "キャンセル";
+
+    if (briefingCanceledNow) {
+      cancelZoomMeetingForReservation({
+        companyRecordId: id,
+        category: "briefing",
+      }).catch(() => {}); // エラーは handler 内で logAutomationError 済み
+    } else if (briefingStaffChanged || briefingDateChanged) {
+      ensureZoomMeetingForReservation({
+        companyRecordId: id,
+        category: "briefing",
+        triggerReason: "change",
+      }).catch(() => {});
+    }
+
+    const consultStaffChanged =
+      data.consultationStaffId !== undefined &&
+      data.consultationStaffId !== before.consultationStaffId;
+    const consultDateChanged =
+      data.consultationDate !== undefined &&
+      (data.consultationDate?.getTime() ?? null) !==
+        (before.consultationDate?.getTime() ?? null);
+    const consultCanceledNow =
+      data.consultationStatus === "キャンセル" && before.consultationStatus !== "キャンセル";
+
+    if (consultCanceledNow) {
+      cancelZoomMeetingForReservation({
+        companyRecordId: id,
+        category: "consultation",
+      }).catch(() => {});
+    } else if (consultStaffChanged || consultDateChanged) {
+      ensureZoomMeetingForReservation({
+        companyRecordId: id,
+        category: "consultation",
+        triggerReason: "change",
+      }).catch(() => {});
+    }
+  }
+
   revalidatePath("/slp/companies");
+  revalidatePath(`/slp/companies/${id}`);
 }
 
 // ========================================

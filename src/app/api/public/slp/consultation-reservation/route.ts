@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
 import { recomputeDuplicateCandidatesForRecord } from "@/lib/slp/duplicate-detector";
 import { parseReservationDate } from "@/lib/slp/parse-reservation-date";
+import { ensureZoomMeetingForReservation } from "@/lib/slp/zoom-reservation-handler";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -297,6 +298,21 @@ export async function GET(request: Request) {
           consumedAt: new Date(),
           consumedReservationId: bookingId ?? null,
         },
+      });
+    }
+
+    // Zoom会議を自動発行 → プロライン経由でお客様にURL案内LINE送信（fire-and-forget）
+    for (const recordId of updatedRecordIds) {
+      ensureZoomMeetingForReservation({
+        companyRecordId: recordId,
+        category: "consultation",
+        triggerReason: "confirm",
+      }).catch(async (err) => {
+        await logAutomationError({
+          source: "slp-consultation-reservation-zoom",
+          message: `Zoom発行フロー失敗: companyRecordId=${recordId}`,
+          detail: { error: err instanceof Error ? err.message : String(err) },
+        });
       });
     }
 

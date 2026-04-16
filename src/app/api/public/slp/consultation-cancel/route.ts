@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
+import { cancelZoomMeetingForReservation } from "@/lib/slp/zoom-reservation-handler";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -38,6 +39,7 @@ export async function GET(request: Request) {
   try {
     let canceledCount = 0;
     let action: "canceled_by_id" | "canceled_by_uid" = "canceled_by_uid";
+    const canceledRecordIds: number[] = [];
 
     // 1. bookingId で予約ID一致のレコードを優先的にキャンセル
     // メインの consultationReservationId だけでなく、マージで取り込まれた配列も検索対象に
@@ -78,6 +80,7 @@ export async function GET(request: Request) {
         });
         canceledCount = result.count;
         action = "canceled_by_id";
+        canceledRecordIds.push(...ids);
 
         await prisma.slpReservationHistory.createMany({
           data: targets.map((t) => ({
@@ -134,6 +137,7 @@ export async function GET(request: Request) {
       });
       canceledCount = 1;
       action = "canceled_by_uid";
+      canceledRecordIds.push(target.id);
 
       await prisma.slpReservationHistory.create({
         data: {
@@ -152,6 +156,20 @@ export async function GET(request: Request) {
         source: "slp-consultation-cancel",
         message: `予約IDで一致するレコードが見つからずuidベースでキャンセル: bookingId=${bookingId}, uid=${uid}`,
         detail: { bookingId, uid, targetId: target.id },
+      });
+    }
+
+    // Zoom会議を削除（fire-and-forget）
+    for (const recordId of canceledRecordIds) {
+      cancelZoomMeetingForReservation({
+        companyRecordId: recordId,
+        category: "consultation",
+      }).catch(async (err) => {
+        await logAutomationError({
+          source: "slp-consultation-cancel-zoom",
+          message: `Zoomキャンセルフロー失敗: companyRecordId=${recordId}`,
+          detail: { error: err instanceof Error ? err.message : String(err) },
+        });
       });
     }
 

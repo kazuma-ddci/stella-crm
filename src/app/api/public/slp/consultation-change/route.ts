@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
 import { parseReservationDate } from "@/lib/slp/parse-reservation-date";
+import { ensureZoomMeetingForReservation } from "@/lib/slp/zoom-reservation-handler";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -216,6 +217,21 @@ export async function GET(request: Request) {
           staffName: consultationStaff || null,
           staffId: resolvedStaffId,
         })),
+      });
+    }
+
+    // Zoom会議を更新 → プロライン経由でお客様に変更通知LINE送信（fire-and-forget）
+    for (const recordId of changedRecordIds) {
+      ensureZoomMeetingForReservation({
+        companyRecordId: recordId,
+        category: "consultation",
+        triggerReason: "change",
+      }).catch(async (err) => {
+        await logAutomationError({
+          source: "slp-consultation-change-zoom",
+          message: `Zoom更新フロー失敗: companyRecordId=${recordId}`,
+          detail: { error: err instanceof Error ? err.message : String(err) },
+        });
       });
     }
 

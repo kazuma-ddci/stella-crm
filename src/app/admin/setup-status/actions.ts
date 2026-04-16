@@ -410,6 +410,40 @@ const checkDefinitions: CheckDefinition[] = [
     countFn: () =>
       prisma.invoiceTemplate.count({ where: { deletedAt: null } }),
   },
+  // ========================================
+  // SLP Zoom連携
+  // ========================================
+  {
+    id: "slp-zoom-message-templates",
+    category: "SLP",
+    name: "Zoom通知メッセージテンプレ",
+    description: "予約確定・変更・リマインドの文面（9〜10個の初期セットが投入済み）",
+    required: 9,
+    href: "/slp/settings/zoom-templates",
+    countFn: () =>
+      prisma.slpZoomMessageTemplate.count({ where: { isActive: true } }),
+  },
+  {
+    id: "slp-zoom-ai-prompts",
+    category: "SLP",
+    name: "Zoom AIプロンプト",
+    description: "議事録要約・参加者抽出・お礼メッセージ生成用プロンプト",
+    required: 4,
+    href: "/slp/settings/zoom-ai-prompts",
+    countFn: () => prisma.slpZoomAiPromptTemplate.count(),
+  },
+  {
+    id: "slp-staff-zoom-integration",
+    category: "SLP",
+    name: "スタッフのZoom連携",
+    description: "商談担当者のうち最低1名はZoom連携済が推奨（未連携だと自動発行できません）",
+    required: 1,
+    href: "/staff/me/integrations",
+    countFn: () =>
+      prisma.staffMeetingIntegration.count({
+        where: { provider: "zoom", disconnectedAt: null },
+      }),
+  },
 ];
 
 export async function getSetupStatus(): Promise<SetupCheckItem[]> {

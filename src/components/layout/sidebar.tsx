@@ -54,6 +54,8 @@ import {
   Package,
   UserCog,
   Plus,
+  Video,
+  Sparkles,
 } from "lucide-react";
 import { canView } from "@/lib/auth/permissions";
 import type { SessionUser } from "@/types/auth";
@@ -268,6 +270,7 @@ const navigation: NavItem[] = [
         children: [
           { name: "契約書", href: "/slp/contracts", icon: FileText },
           { name: "接触履歴", href: "/slp/records/contact-histories", icon: Phone },
+          { name: "Zoom商談録画", href: "/slp/records/zoom-recordings", icon: Video },
         ],
       },
       {
@@ -297,6 +300,8 @@ const navigation: NavItem[] = [
               { name: "資料管理", href: "/slp/settings/documents", icon: FileText },
               { name: "プロライン担当者", href: "/slp/settings/proline-staff", icon: Users },
               { name: "プロライン情報", href: "/slp/settings/proline", icon: UserCog },
+              { name: "Zoom通知文面", href: "/slp/settings/zoom-templates", icon: Video },
+              { name: "Zoom AIプロンプト", href: "/slp/settings/zoom-ai-prompts", icon: Sparkles },
             ],
           },
         ],

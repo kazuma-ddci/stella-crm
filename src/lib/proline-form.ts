@@ -564,3 +564,94 @@ export async function openRichMenuForFriend(uid: string): Promise<void> {
     throw new Error(`リッチメニュー開放APIエラー: ${JSON.stringify(result)}`);
   }
 }
+
+// ============================================
+// Zoom連携: 予約確定/変更/リマインドメッセージ送信
+// プロライン側で「form16の送信完了メッセージ = {{form16-1}}」と設定しておき、
+// CRMは form16-1 に完成文をPOSTすることでLINE送信させる。
+// ============================================
+
+const FORM16_ZOOM_GUIDE_URL = "https://zcr5z7pk.autosns.app/fm/Qn2rbXgZp7"; // 概要案内Zoom URL通知
+const FORM17_ZOOM_CONSULT_URL = "https://zcr5z7pk.autosns.app/fm/lcCZb3zdDW"; // 導入希望商談Zoom URL通知
+
+export type ProlineZoomFormResult = {
+  ok: boolean;
+  httpStatus: number;
+  responseJson: unknown;
+};
+
+async function submitZoomMessageForm(params: {
+  formUrl: string;
+  fieldKey: string; // "form16-1" or "form17-1"
+  uid: string;
+  bodyText: string;
+}): Promise<ProlineZoomFormResult> {
+  const url = `${params.formUrl}?uid=${encodeURIComponent(params.uid)}`;
+  const body: Record<string, string> = {
+    dataType: "json",
+    [params.fieldKey]: params.bodyText,
+  };
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
+  });
+  let json: unknown = null;
+  try {
+    json = await res.json();
+  } catch {
+    json = null;
+  }
+  if (!res.ok) {
+    return { ok: false, httpStatus: res.status, responseJson: json };
+  }
+  const statusField =
+    (json as { status?: string | number } | null)?.status;
+  const ok = statusField === "200" || statusField === 200;
+  return { ok, httpStatus: res.status, responseJson: json };
+}
+
+/**
+ * 概要案内のZoom URL案内メッセージをプロライン経由でLINE送信する。
+ * bodyTextに完成した文面を渡すと form16-1 に入れてフォーム代理回答 → LINE送信発火。
+ */
+export async function submitZoomGuideMessage(
+  uid: string,
+  bodyText: string
+): Promise<ProlineZoomFormResult> {
+  return submitZoomMessageForm({
+    formUrl: FORM16_ZOOM_GUIDE_URL,
+    fieldKey: "form16-1",
+    uid,
+    bodyText,
+  });
+}
+
+/**
+ * 導入希望商談のZoom URL案内メッセージをプロライン経由でLINE送信する。
+ */
+export async function submitZoomConsultMessage(
+  uid: string,
+  bodyText: string
+): Promise<ProlineZoomFormResult> {
+  return submitZoomMessageForm({
+    formUrl: FORM17_ZOOM_CONSULT_URL,
+    fieldKey: "form17-1",
+    uid,
+    bodyText,
+  });
+}
+
+// メタ情報（他所で使う時に参照）
+export const ZOOM_GUIDE_FORM = {
+  formUrl: FORM16_ZOOM_GUIDE_URL,
+  fieldKey: "form16-1",
+  category: "briefing" as const,
+};
+
+export const ZOOM_CONSULT_FORM = {
+  formUrl: FORM17_ZOOM_CONSULT_URL,
+  fieldKey: "form17-1",
+  category: "consultation" as const,
+};

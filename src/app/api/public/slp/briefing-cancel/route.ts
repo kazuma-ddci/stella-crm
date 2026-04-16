@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
 import { submitForm9BriefingCancel } from "@/lib/proline-form";
+import { cancelZoomMeetingForReservation } from "@/lib/slp/zoom-reservation-handler";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -39,6 +40,7 @@ export async function GET(request: Request) {
   try {
     let canceledCount = 0;
     let action: "canceled_by_id" | "canceled_by_uid" = "canceled_by_uid";
+    const canceledRecordIds: number[] = [];
 
     // 1. bookingId で予約ID一致のレコードを優先的にキャンセル
     // メインの reservationId だけでなく、マージで取り込まれた配列も検索対象に
@@ -79,6 +81,7 @@ export async function GET(request: Request) {
         });
         canceledCount = result.count;
         action = "canceled_by_id";
+        canceledRecordIds.push(...ids);
 
         // 履歴記録: 各レコードについてキャンセル前の値を残す
         await prisma.slpReservationHistory.createMany({
@@ -137,6 +140,7 @@ export async function GET(request: Request) {
       });
       canceledCount = 1;
       action = "canceled_by_uid";
+      canceledRecordIds.push(target.id);
 
       // 履歴記録（フォールバック側）
       await prisma.slpReservationHistory.create({
@@ -156,6 +160,20 @@ export async function GET(request: Request) {
         source: "slp-briefing-cancel",
         message: `予約IDで一致するレコードが見つからずuidベースでキャンセル: bookingId=${bookingId}, uid=${uid}`,
         detail: { bookingId, uid, targetId: target.id },
+      });
+    }
+
+    // Zoom会議を削除（fire-and-forget、既存通知はプロライン側既存設定で送られる）
+    for (const recordId of canceledRecordIds) {
+      cancelZoomMeetingForReservation({
+        companyRecordId: recordId,
+        category: "briefing",
+      }).catch(async (err) => {
+        await logAutomationError({
+          source: "slp-briefing-cancel-zoom",
+          message: `Zoomキャンセルフロー失敗: companyRecordId=${recordId}`,
+          detail: { error: err instanceof Error ? err.message : String(err) },
+        });
       });
     }
 
