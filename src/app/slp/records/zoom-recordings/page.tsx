@@ -39,13 +39,29 @@ export default async function ZoomRecordingsPage() {
       ? r.contactHistory?.companyRecord?.briefingDate
       : r.contactHistory?.companyRecord?.consultationDate;
 
+    // 「試行済み」フラグ（取得を試みて完了した）
+    const aiSummaryAttempted = !!r.aiCompanionFetchedAt;
+    const chatAttempted = !!r.chatFetchedAt;
+    const participantsAttempted = !!r.participantsFetchedAt;
+    const recordingAttempted =
+      r.downloadStatus === "completed" ||
+      r.downloadStatus === "failed" ||
+      r.downloadStatus === "no_recording";
+
+    // 「データが存在する」フラグ
     const hasAiSummary = !!r.aiCompanionSummary;
     const hasMp4 = !!r.mp4Path;
     const hasTranscript = !!r.transcriptText;
     const hasChat = !!r.chatLogText;
-    const hasParticipants = !!r.participantsFetchedAt;
+    const hasParticipants =
+      !!r.participantsJson && r.participantsJson !== "[]";
+
+    // 全項目が「試行済み」なら「取得済み」とみなす（その会議に存在しない情報があっても OK）
     const allFetched =
-      hasAiSummary && hasMp4 && hasTranscript && hasParticipants;
+      aiSummaryAttempted &&
+      chatAttempted &&
+      participantsAttempted &&
+      recordingAttempted;
 
     return {
       id: r.id,
@@ -53,6 +69,12 @@ export default async function ZoomRecordingsPage() {
       companyName: r.contactHistory?.companyRecord?.companyName ?? null,
       contactDate: toJstDisplay(contactDate),
       hostName: r.hostStaff?.name ?? null,
+      // 試行状態
+      aiSummaryAttempted,
+      chatAttempted,
+      participantsAttempted,
+      recordingAttempted,
+      // データ存在
       hasAiSummary,
       hasMp4,
       hasTranscript,

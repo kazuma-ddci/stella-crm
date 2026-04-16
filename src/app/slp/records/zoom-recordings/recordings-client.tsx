@@ -31,7 +31,12 @@ export type RecordingRow = {
   companyName: string | null;
   contactDate: string | null;
   hostName: string | null;
-  // 取得状態フラグ
+  // 試行状態（取得を試みた・結果問わず完了）
+  aiSummaryAttempted: boolean;
+  chatAttempted: boolean;
+  participantsAttempted: boolean;
+  recordingAttempted: boolean;
+  // データが実際に存在する
   hasAiSummary: boolean;
   hasMp4: boolean;
   hasTranscript: boolean;
@@ -89,28 +94,43 @@ function formatDuration(seconds: number): string {
   return s === 0 ? `${m}分` : `${m}分${s}秒`;
 }
 
+/**
+ * 取得状態アイコン
+ *  - 緑: データあり（取得成功）
+ *  - 灰色: 試行済みだがデータなし（その会議には存在しない情報）
+ *  - 黄: 未試行（取得ボタンで取りに行ける）
+ */
 function StatusIcon({
-  fetched,
+  attempted,
+  exists,
   Icon,
   label,
 }: {
-  fetched: boolean;
+  attempted: boolean;
+  exists: boolean;
   Icon: typeof Video;
   label: string;
 }) {
+  let cls: string;
+  let title: string;
+  let RightIcon: typeof CheckCircle2;
+  if (exists) {
+    cls = "text-green-600";
+    title = `${label}: あり`;
+    RightIcon = CheckCircle2;
+  } else if (attempted) {
+    cls = "text-muted-foreground/40";
+    title = `${label}: この会議には存在しません`;
+    RightIcon = Circle;
+  } else {
+    cls = "text-amber-500";
+    title = `${label}: 未取得`;
+    RightIcon = Circle;
+  }
   return (
-    <div
-      title={`${label}: ${fetched ? "取得済" : "未取得"}`}
-      className={`flex items-center gap-0.5 text-xs ${
-        fetched ? "text-green-600" : "text-muted-foreground/50"
-      }`}
-    >
+    <div title={title} className={`flex items-center gap-0.5 text-xs ${cls}`}>
       <Icon className="h-3.5 w-3.5" />
-      {fetched ? (
-        <CheckCircle2 className="h-3 w-3" />
-      ) : (
-        <Circle className="h-3 w-3" />
-      )}
+      <RightIcon className="h-3 w-3" />
     </div>
   );
 }
@@ -276,14 +296,40 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
                 <td className="p-3 whitespace-nowrap">{r.hostName ?? "—"}</td>
                 <td className="p-3">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <StatusIcon fetched={r.hasAiSummary} Icon={Brain} label="AI要約" />
-                    <StatusIcon fetched={r.hasMp4} Icon={Video} label="動画" />
-                    <StatusIcon fetched={r.hasTranscript} Icon={FileText} label="文字起こし" />
-                    <StatusIcon fetched={r.hasChat} Icon={MessageCircle} label="チャット" />
-                    <StatusIcon fetched={r.hasParticipants} Icon={Users} label="参加者" />
+                    <StatusIcon
+                      attempted={r.aiSummaryAttempted}
+                      exists={r.hasAiSummary}
+                      Icon={Brain}
+                      label="AI要約"
+                    />
+                    <StatusIcon
+                      attempted={r.recordingAttempted}
+                      exists={r.hasMp4}
+                      Icon={Video}
+                      label="動画"
+                    />
+                    <StatusIcon
+                      attempted={r.recordingAttempted}
+                      exists={r.hasTranscript}
+                      Icon={FileText}
+                      label="文字起こし"
+                    />
+                    <StatusIcon
+                      attempted={r.chatAttempted}
+                      exists={r.hasChat}
+                      Icon={MessageCircle}
+                      label="チャット"
+                    />
+                    <StatusIcon
+                      attempted={r.participantsAttempted}
+                      exists={r.hasParticipants}
+                      Icon={Users}
+                      label="参加者"
+                    />
                     {r.hasNextSteps && (
                       <StatusIcon
-                        fetched={true}
+                        attempted={true}
+                        exists={true}
                         Icon={ListChecks}
                         label="アクション"
                       />

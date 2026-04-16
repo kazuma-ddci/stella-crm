@@ -186,12 +186,18 @@ async function ensureRecordingRow(params: {
       },
     });
   } catch {
-    // race で別実行が先に作成した → 既存を取得
+    // race で別実行が先に作成した → 既存を取得 + 孤児となる history を削除
     const existing2 = await prisma.slpZoomRecording.findUnique({
       where: { zoomMeetingId: params.meetingId },
     });
     if (!existing2) throw new Error("SlpZoomRecording作成race解決失敗");
-    // 自分が作った history は孤児になる（小さい問題）
+    // 自分が作った history (まだ recording に紐付かず orphan) を削除
+    // tag は SlpContactHistoryTag に onDelete: Cascade があるので一緒に消える
+    try {
+      await prisma.slpContactHistory.delete({ where: { id: history.id } });
+    } catch {
+      // 削除失敗は無視（誰かが既に拾っているケースは稀）
+    }
     return {
       recordingRowId: existing2.id,
       contactHistoryId: existing2.contactHistoryId,
@@ -256,27 +262,29 @@ export async function fetchAndSaveAiSummary(
     return { ok: false, updated: false };
   }
 
+  // 取得試行は常に記録（要約が生成されない会議でも UI で「試行済み」と判別するため）
   const updates: {
     aiCompanionSummary?: string | null;
-    aiCompanionFetchedAt?: Date;
+    aiCompanionFetchedAt: Date;
     summaryNextSteps?: string | null;
-  } = {};
+  } = {
+    aiCompanionFetchedAt: new Date(),
+  };
   let changed = false;
   if (summaryResult.summaryText && !rec.aiCompanionSummary) {
     updates.aiCompanionSummary = summaryResult.summaryText;
-    updates.aiCompanionFetchedAt = new Date();
     changed = true;
   }
   if (summaryResult.nextSteps && !rec.summaryNextSteps) {
     updates.summaryNextSteps = summaryResult.nextSteps;
     changed = true;
   }
-  if (!changed) return { ok: true, updated: false };
 
   await prisma.slpZoomRecording.update({
     where: { id: recordingRowId },
     data: updates,
   });
+  if (!changed) return { ok: true, updated: false };
 
   // meetingMinutes に未入力なら反映
   if (
@@ -336,6 +344,15 @@ export async function downloadAndSaveRecordingFiles(
     }
   }
   if (!recordingPayload) {
+    // Zoom側に録画が存在しない/削除済み → "no_recording" 確定状態に
+    await prisma.slpZoomRecording.update({
+      where: { id: recordingRowId },
+      data: {
+        downloadStatus: "no_recording",
+        downloadError: "Zoom側に録画が存在しないか削除済みです",
+        chatFetchedAt: rec.chatFetchedAt ?? new Date(),
+      },
+    });
     return { ok: false, mp4: false, transcript: false, chat: false };
   }
 
@@ -373,8 +390,10 @@ export async function downloadAndSaveRecordingFiles(
     return { ok: false, mp4: false, transcript: false, chat: false };
   }
 
-  // DB更新
-  const updates: Record<string, unknown> = {};
+  // DB更新（チャット試行は録画ファイル一覧に CHAT が無くても「試行済み」として記録）
+  const updates: Record<string, unknown> = {
+    chatFetchedAt: new Date(),
+  };
   let mp4Saved = false;
   let transcriptSaved = false;
   let chatSaved = false;
@@ -393,13 +412,19 @@ export async function downloadAndSaveRecordingFiles(
   if (downloaded.chatRelPath) {
     updates.chatLogPath = downloaded.chatRelPath;
     updates.chatLogText = downloaded.chatText;
-    updates.chatFetchedAt = new Date();
     chatSaved = true;
   }
-  // 必要なファイル全部揃ったら downloadStatus=completed
-  // ただし transcript/chat は会議内容により存在しないこともあるので、mp4 取得を成功条件にする
-  const finalStatus =
-    rec.mp4Path || mp4Saved ? "completed" : "failed";
+  // payload に MP4 が含まれていれば（DL試行した）成功扱い、含まれない時は会議仕様（音声のみ等）として completed 扱い
+  const payloadHasMp4 = recordingPayload.recording_files.some(
+    (f) => f.file_type === "MP4"
+  );
+  let finalStatus: string;
+  if (payloadHasMp4) {
+    finalStatus = mp4Saved || rec.mp4Path ? "completed" : "failed";
+  } else {
+    // MP4 が無い会議（音声のみ等）→ DL試行は完了
+    finalStatus = "completed";
+  }
   updates.downloadStatus = finalStatus;
   updates.downloadError = null;
 
