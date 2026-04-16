@@ -21,7 +21,11 @@ export async function GET(req: NextRequest) {
     authorizeUrl = buildAuthorizeUrl(state);
   } catch (e) {
     // Zoom関連環境変数が未設定の場合は連携ページに戻して案内表示
-    const errUrl = new URL("/staff/me/integrations", req.nextUrl.origin);
+    // Docker + reverse proxy 環境では req.nextUrl.origin が内部ホスト名を返すため、
+    // NEXT_PUBLIC_APP_URL を優先（無ければ origin にフォールバック）
+    const publicBase =
+      process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || req.nextUrl.origin;
+    const errUrl = new URL("/staff/me/integrations", publicBase);
     errUrl.searchParams.set("zoomResult", "error");
     errUrl.searchParams.set(
       "reason",

@@ -5,6 +5,16 @@ import { logAutomationError } from "@/lib/automation-error";
 
 const OAUTH_STATE_COOKIE = "zoom_oauth_state";
 
+/**
+ * リダイレクト先の公開URLを返す。
+ * Docker + reverse proxy 環境では req.nextUrl.origin が内部ホスト名
+ * （例: http://da7bfde075c0:3000）を返してしまうため、
+ * 必ず NEXT_PUBLIC_APP_URL を優先する。
+ */
+function getPublicBaseUrl(req: NextRequest): string {
+  return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || req.nextUrl.origin;
+}
+
 function redirectToIntegrations(
   baseUrl: string,
   params: Record<string, string>
@@ -28,7 +38,7 @@ function redirectToIntegrations(
  * Zoom認可画面からのコールバック。OAuthコード → トークン交換 → DB保存。
  */
 export async function GET(req: NextRequest) {
-  const baseUrl = req.nextUrl.origin;
+  const baseUrl = getPublicBaseUrl(req);
   const user = await requireStaff();
 
   const { searchParams } = req.nextUrl;
