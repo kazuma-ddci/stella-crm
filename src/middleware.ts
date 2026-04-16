@@ -214,6 +214,8 @@ const CUSTOMER_DOMAIN_ALLOWED_PATHS = [
   "/api/public/slp",
   // 静的アセット等（Next.js 内部）
   "/_next",
+  // PDF.js worker（/form/slp-document の PDFビューアが /public から読み込む）
+  "/pdf.worker.min.mjs",
 ];
 
 function isCustomerDomainAllowedPath(pathname: string): boolean {
