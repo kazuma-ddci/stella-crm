@@ -162,49 +162,115 @@ export async function deleteZoomRecordingFile(input: {
 }
 
 /**
- * Zoom会議の参加者一覧を取得（report API、有料プラン必要）。
- * host含む全参加者。先方参加者抽出時にスタッフ除外に使う。
+ * 過去の会議の参加者情報を取得（user-level scope）。
+ * scope: meeting:read:list_past_participants
+ *
+ * 取れる項目: 名前、Email、user_id、入退室時刻、参加時間（duration秒）
+ * デバイス情報は取れない（取得には dashboard_meetings:read:admin が必要）。
+ *
+ * UUID が "/" を含む場合や "==" で終わる場合は二重エンコード必要。
+ */
+export type ZoomPastParticipant = {
+  id: string;
+  name: string;
+  user_email: string | null;
+  user_id: string | null;
+  join_time: string | null;
+  leave_time: string | null;
+  duration: number; // 秒
+  registrant_id: string | null;
+  failover: boolean | null;
+  status: string | null;
+};
+
+export async function getPastMeetingParticipants(input: {
+  hostStaffId: number;
+  meetingUuid: string;
+}): Promise<ZoomPastParticipant[]> {
+  const ctx = await requireStaffZoomContext(input.hostStaffId);
+  const uuid = encodeZoomUuid(input.meetingUuid);
+  const allParticipants: ZoomPastParticipant[] = [];
+  let nextPageToken: string | undefined = undefined;
+  try {
+    do {
+      const url: string = `/past_meetings/${uuid}/participants?page_size=300${
+        nextPageToken
+          ? `&next_page_token=${encodeURIComponent(nextPageToken)}`
+          : ""
+      }`;
+      const resp: {
+        participants?: Array<Partial<ZoomPastParticipant>>;
+        next_page_token?: string;
+      } = await zoomFetchJson(ctx.accessToken, url);
+
+      for (const p of resp.participants ?? []) {
+        allParticipants.push({
+          id: p.id ?? "",
+          name: p.name ?? "",
+          user_email: p.user_email ?? null,
+          user_id: p.user_id ?? null,
+          join_time: p.join_time ?? null,
+          leave_time: p.leave_time ?? null,
+          duration: typeof p.duration === "number" ? p.duration : 0,
+          registrant_id: p.registrant_id ?? null,
+          failover: p.failover ?? null,
+          status: p.status ?? null,
+        });
+      }
+      nextPageToken = resp.next_page_token || undefined;
+    } while (nextPageToken);
+  } catch (err) {
+    if (
+      err instanceof ZoomApiError &&
+      (err.status === 404 || err.status === 400 || err.status === 403)
+    ) {
+      // 404/400 = 会議未終了 or UUID間違い
+      // 403 = scope 不足
+      return [];
+    }
+    throw err;
+  }
+  return allParticipants;
+}
+
+/**
+ * 旧名互換（先方参加者抽出機能で使用）。
+ * 内部で getPastMeetingParticipants を呼ぶラッパー。
  */
 export async function getZoomMeetingParticipants(input: {
   hostStaffId: number;
   meetingUuid: string;
-}): Promise<
-  Array<{ id: string; name: string; user_email?: string | null }>
-> {
-  const ctx = await requireStaffZoomContext(input.hostStaffId);
-  const uuid = encodeZoomUuid(input.meetingUuid);
-  try {
-    const resp = await zoomFetchJson<{
-      participants?: Array<{ id: string; name: string; user_email?: string }>;
-    }>(
-      ctx.accessToken,
-      `/report/meetings/${uuid}/participants?page_size=300`
-    );
-    return (resp.participants ?? []).map((p) => ({
-      id: p.id,
-      name: p.name,
-      user_email: p.user_email ?? null,
-    }));
-  } catch {
-    // report APIはPro+（無料だと403）。無視して空配列
-    return [];
-  }
+}): Promise<Array<{ id: string; name: string; user_email?: string | null }>> {
+  const list = await getPastMeetingParticipants(input);
+  return list.map((p) => ({
+    id: p.id,
+    name: p.name,
+    user_email: p.user_email,
+  }));
 }
 
 /**
  * Zoom AI Companion 要約の取得（Meeting Summary）。
  * Zoom側設定で有効化されている場合のみ結果が返る。
+ * next_steps（アクションアイテム）も別途返す。
  */
+export type ZoomMeetingSummary = {
+  summaryText: string | null; // overview + details を整形済みテキスト
+  nextSteps: string | null; // アクションアイテム
+  raw: unknown;
+};
+
 export async function getZoomMeetingSummary(input: {
   hostStaffId: number;
   meetingUuid: string;
-}): Promise<string | null> {
+}): Promise<ZoomMeetingSummary> {
   const ctx = await requireStaffZoomContext(input.hostStaffId);
   const uuid = encodeZoomUuid(input.meetingUuid);
   try {
     const resp = await zoomFetchJson<{
       summary_details?: Array<{ label?: string; summary?: string }>;
       summary_overview?: string;
+      next_steps?: Array<string | { description?: string; assignee?: string }>;
     }>(ctx.accessToken, `/meetings/${uuid}/meeting_summary`);
     const parts: string[] = [];
     if (resp.summary_overview) parts.push(resp.summary_overview);
@@ -213,10 +279,29 @@ export async function getZoomMeetingSummary(input: {
         if (d.summary) parts.push(`【${d.label ?? ""}】\n${d.summary}`);
       }
     }
-    return parts.length > 0 ? parts.join("\n\n") : null;
+    const summaryText = parts.length > 0 ? parts.join("\n\n") : null;
+
+    let nextSteps: string | null = null;
+    if (resp.next_steps?.length) {
+      const items = resp.next_steps.map((s) => {
+        if (typeof s === "string") return `・${s}`;
+        if (s.description) {
+          return s.assignee
+            ? `・[${s.assignee}] ${s.description}`
+            : `・${s.description}`;
+        }
+        return "";
+      }).filter(Boolean);
+      if (items.length > 0) nextSteps = items.join("\n");
+    }
+
+    return { summaryText, nextSteps, raw: resp };
   } catch (err) {
-    if (err instanceof ZoomApiError && (err.status === 404 || err.status === 400)) {
-      return null;
+    if (
+      err instanceof ZoomApiError &&
+      (err.status === 404 || err.status === 400)
+    ) {
+      return { summaryText: null, nextSteps: null, raw: null };
     }
     throw err;
   }

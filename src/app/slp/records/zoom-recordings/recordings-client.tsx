@@ -10,7 +10,20 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Sparkles, Copy, CheckCircle2 } from "lucide-react";
+import {
+  Loader2,
+  Sparkles,
+  Copy,
+  CheckCircle2,
+  Download,
+  FileText,
+  Video,
+  MessageCircle,
+  Users,
+  Brain,
+  ListChecks,
+  Circle,
+} from "lucide-react";
 
 export type RecordingRow = {
   id: number;
@@ -18,24 +31,97 @@ export type RecordingRow = {
   companyName: string | null;
   contactDate: string | null;
   hostName: string | null;
+  // 取得状態フラグ
+  hasAiSummary: boolean;
   hasMp4: boolean;
   hasTranscript: boolean;
+  hasChat: boolean;
+  hasParticipants: boolean;
+  hasNextSteps: boolean;
+  allFetched: boolean;
+  // 内容（クリックで詳細表示用）
   aiCompanionSummary: string | null;
+  summaryNextSteps: string | null;
   claudeSummary: string | null;
   claudeSummaryGeneratedAt: string | null;
   claudeSummaryModel: string | null;
+  transcriptText: string | null;
+  chatLogText: string | null;
+  participantsJson: string | null;
+  mp4Path: string | null;
   downloadStatus: string;
   companyRecordId: number | null;
   prolineUid: string | null;
 };
 
+type ParticipantInfo = {
+  id: string;
+  name: string;
+  user_email: string | null;
+  user_id: string | null;
+  join_time: string | null;
+  leave_time: string | null;
+  duration: number;
+};
+
+function formatJstDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return new Intl.DateTimeFormat("ja-JP", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(d);
+  } catch {
+    return iso;
+  }
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}秒`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s === 0 ? `${m}分` : `${m}分${s}秒`;
+}
+
+function StatusIcon({
+  fetched,
+  Icon,
+  label,
+}: {
+  fetched: boolean;
+  Icon: typeof Video;
+  label: string;
+}) {
+  return (
+    <div
+      title={`${label}: ${fetched ? "取得済" : "未取得"}`}
+      className={`flex items-center gap-0.5 text-xs ${
+        fetched ? "text-green-600" : "text-muted-foreground/50"
+      }`}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {fetched ? (
+        <CheckCircle2 className="h-3 w-3" />
+      ) : (
+        <Circle className="h-3 w-3" />
+      )}
+    </div>
+  );
+}
+
 export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
   const [busyId, setBusyId] = useState<number | null>(null);
-  const [currentSummary, setCurrentSummary] = useState<{
-    recordingId: number;
-    claude: string | null;
-    aiCompanion: string | null;
-  } | null>(null);
+  const [localRows, setLocalRows] = useState<RecordingRow[]>(rows);
+  const [currentSummary, setCurrentSummary] = useState<RecordingRow | null>(null);
+  const [currentTranscript, setCurrentTranscript] = useState<RecordingRow | null>(null);
+  const [currentChat, setCurrentChat] = useState<RecordingRow | null>(null);
+  const [currentParticipants, setCurrentParticipants] = useState<RecordingRow | null>(null);
   const [thankYou, setThankYou] = useState<{
     recordingId: number;
     suggested: string;
@@ -43,7 +129,50 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
   } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const handleRegenerate = async (row: RecordingRow) => {
+  const handleFetchAll = async (row: RecordingRow) => {
+    setBusyId(row.id);
+    try {
+      const res = await fetch(
+        `/api/slp/zoom-recordings/${row.id}/fetch-all`,
+        { method: "POST" }
+      );
+      const data = await res.json();
+      if (data.ok) {
+        const r = data.result as {
+          aiSummary: { ok: boolean; updated: boolean };
+          files: { mp4: boolean; transcript: boolean; chat: boolean };
+          participants: { count: number };
+          participantsAi: { count: number };
+        };
+        const messages: string[] = [];
+        if (r.aiSummary.updated) messages.push("AI要約取得");
+        if (r.files.mp4) messages.push("動画DL");
+        if (r.files.transcript) messages.push("文字起こしDL");
+        if (r.files.chat) messages.push("チャットDL");
+        if (r.participants.count > 0)
+          messages.push(`参加者${r.participants.count}名`);
+        if (messages.length > 0) {
+          toast.success(`取得完了: ${messages.join(" / ")}`);
+        } else {
+          toast.info("追加で取得できる情報はありませんでした");
+        }
+        // ページリロードして最新状態を反映
+        window.location.reload();
+      } else {
+        toast.error(`失敗: ${data.message}`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "予期しないエラー");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleRegenerateClaude = async (row: RecordingRow) => {
+    if (!row.transcriptText) {
+      toast.error("文字起こしがまだ取得されていません");
+      return;
+    }
     setBusyId(row.id);
     try {
       const res = await fetch(
@@ -53,11 +182,11 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
       const data = await res.json();
       if (data.ok) {
         toast.success("Claude要約を再生成しました");
-        setCurrentSummary({
-          recordingId: row.id,
-          claude: data.summary,
-          aiCompanion: row.aiCompanionSummary,
-        });
+        const updated = localRows.map((r) =>
+          r.id === row.id ? { ...r, claudeSummary: data.summary } : r
+        );
+        setLocalRows(updated);
+        setCurrentSummary({ ...row, claudeSummary: data.summary });
       } else {
         toast.error(`失敗: ${data.message}`);
       }
@@ -102,6 +231,16 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
     }
   };
 
+  const parseParticipants = (json: string | null): ParticipantInfo[] => {
+    if (!json) return [];
+    try {
+      const parsed = JSON.parse(json);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div className="rounded-lg border">
@@ -112,85 +251,118 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
               <th className="text-left p-3">種別</th>
               <th className="text-left p-3">事業者名</th>
               <th className="text-left p-3">担当</th>
-              <th className="text-left p-3">DL</th>
-              <th className="text-left p-3">要約</th>
+              <th className="text-left p-3">取得状況</th>
               <th className="text-left p-3">操作</th>
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && (
+            {localRows.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-4 text-center text-muted-foreground">
+                <td
+                  colSpan={6}
+                  className="p-4 text-center text-muted-foreground"
+                >
                   録画データはまだありません
                 </td>
               </tr>
             )}
-            {rows.map((r) => (
+            {localRows.map((r) => (
               <tr key={r.id} className="border-t">
-                <td className="p-3">{r.contactDate ?? "—"}</td>
-                <td className="p-3">
+                <td className="p-3 whitespace-nowrap">{r.contactDate ?? "—"}</td>
+                <td className="p-3 whitespace-nowrap">
                   {r.category === "briefing" ? "概要案内" : "導入希望商談"}
                 </td>
                 <td className="p-3">{r.companyName ?? "—"}</td>
-                <td className="p-3">{r.hostName ?? "—"}</td>
+                <td className="p-3 whitespace-nowrap">{r.hostName ?? "—"}</td>
                 <td className="p-3">
-                  <span
-                    className={
-                      r.downloadStatus === "completed"
-                        ? "text-green-700"
-                        : r.downloadStatus === "failed"
-                        ? "text-red-700"
-                        : "text-muted-foreground"
-                    }
-                  >
-                    {r.downloadStatus}
-                  </span>
-                </td>
-                <td className="p-3">
-                  <div className="flex flex-col gap-1 text-xs">
-                    {r.aiCompanionSummary && (
-                      <span className="text-blue-700">Zoom AI要約: あり</span>
-                    )}
-                    {r.claudeSummary && (
-                      <span className="text-purple-700">
-                        Claude要約: あり{r.claudeSummaryGeneratedAt && ` (${r.claudeSummaryGeneratedAt})`}
-                      </span>
-                    )}
-                    {!r.aiCompanionSummary && !r.claudeSummary && (
-                      <span className="text-muted-foreground">—</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <StatusIcon fetched={r.hasAiSummary} Icon={Brain} label="AI要約" />
+                    <StatusIcon fetched={r.hasMp4} Icon={Video} label="動画" />
+                    <StatusIcon fetched={r.hasTranscript} Icon={FileText} label="文字起こし" />
+                    <StatusIcon fetched={r.hasChat} Icon={MessageCircle} label="チャット" />
+                    <StatusIcon fetched={r.hasParticipants} Icon={Users} label="参加者" />
+                    {r.hasNextSteps && (
+                      <StatusIcon
+                        fetched={true}
+                        Icon={ListChecks}
+                        label="アクション"
+                      />
                     )}
                   </div>
+                  {r.allFetched && (
+                    <div className="text-xs text-green-600 mt-1">
+                      ✓ 取得済み
+                    </div>
+                  )}
                 </td>
                 <td className="p-3">
-                  <div className="flex gap-2 flex-wrap">
-                    {(r.aiCompanionSummary || r.claudeSummary) && (
+                  <div className="flex gap-1.5 flex-wrap">
+                    {!r.allFetched && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => handleFetchAll(r)}
+                        disabled={busyId === r.id}
+                      >
+                        {busyId === r.id ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : (
+                          <Download className="h-3 w-3 mr-1" />
+                        )}
+                        取得
+                      </Button>
+                    )}
+                    {(r.hasAiSummary || r.claudeSummary) && (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() =>
-                          setCurrentSummary({
-                            recordingId: r.id,
-                            claude: r.claudeSummary,
-                            aiCompanion: r.aiCompanionSummary,
-                          })
-                        }
+                        onClick={() => setCurrentSummary(r)}
                       >
-                        要約を見る
+                        要約
                       </Button>
                     )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleRegenerate(r)}
-                      disabled={busyId === r.id || !r.hasTranscript}
-                    >
-                      {busyId === r.id ? (
-                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-3 w-3 mr-1" />
-                      )}
-                      Claude生成
-                    </Button>
+                    {r.hasTranscript && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentTranscript(r)}
+                      >
+                        文字起こし
+                      </Button>
+                    )}
+                    {r.hasChat && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentChat(r)}
+                      >
+                        チャット
+                      </Button>
+                    )}
+                    {r.hasParticipants && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentParticipants(r)}
+                      >
+                        参加者
+                      </Button>
+                    )}
+                    {r.hasTranscript && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRegenerateClaude(r)}
+                        disabled={busyId === r.id}
+                      >
+                        {busyId === r.id ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-3 w-3 mr-1" />
+                        )}
+                        Claude生成
+                      </Button>
+                    )}
                     {r.prolineUid && (
                       <Button
                         variant="outline"
@@ -201,17 +373,13 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
                         お礼文案
                       </Button>
                     )}
-                    {r.companyRecordId ? (
+                    {r.companyRecordId && (
                       <a
                         href={`/slp/companies/${r.companyRecordId}`}
-                        className="text-xs text-blue-600 underline self-center"
+                        className="text-xs text-blue-600 underline self-center px-1"
                       >
                         事業者へ
                       </a>
-                    ) : (
-                      <span className="text-xs text-muted-foreground self-center">
-                        （事業者削除済）
-                      </span>
                     )}
                   </div>
                 </td>
@@ -221,35 +389,49 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
         </table>
       </div>
 
-      {/* 要約ビューダイアログ */}
+      {/* 要約ビュー */}
       <Dialog open={!!currentSummary} onOpenChange={(o) => !o && setCurrentSummary(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>商談要約</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 max-h-[60vh] overflow-auto">
-            {currentSummary?.claude && (
+            {currentSummary?.claudeSummary && (
               <div>
-                <div className="text-sm font-semibold mb-1 text-purple-800">Claude要約</div>
+                <div className="text-sm font-semibold mb-1 text-purple-800">
+                  Claude要約 {currentSummary.claudeSummaryGeneratedAt && `(${currentSummary.claudeSummaryGeneratedAt})`}
+                </div>
                 <div className="whitespace-pre-wrap text-sm bg-purple-50 border rounded-md p-3">
-                  {currentSummary.claude}
+                  {currentSummary.claudeSummary}
                 </div>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="mt-1"
-                  onClick={() => handleCopy(currentSummary.claude!)}
+                  onClick={() => handleCopy(currentSummary.claudeSummary!)}
                 >
                   <Copy className="h-3 w-3 mr-1" />
                   {copied ? "コピー済" : "コピー"}
                 </Button>
               </div>
             )}
-            {currentSummary?.aiCompanion && (
+            {currentSummary?.aiCompanionSummary && (
               <div>
-                <div className="text-sm font-semibold mb-1 text-blue-800">Zoom AI Companion 要約</div>
+                <div className="text-sm font-semibold mb-1 text-blue-800">
+                  Zoom AI Companion 要約
+                </div>
                 <div className="whitespace-pre-wrap text-sm bg-blue-50 border rounded-md p-3">
-                  {currentSummary.aiCompanion}
+                  {currentSummary.aiCompanionSummary}
+                </div>
+              </div>
+            )}
+            {currentSummary?.summaryNextSteps && (
+              <div>
+                <div className="text-sm font-semibold mb-1 text-orange-800">
+                  ネクストステップ / アクションアイテム
+                </div>
+                <div className="whitespace-pre-wrap text-sm bg-orange-50 border rounded-md p-3">
+                  {currentSummary.summaryNextSteps}
                 </div>
               </div>
             )}
@@ -262,7 +444,113 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
         </DialogContent>
       </Dialog>
 
-      {/* お礼文案ダイアログ */}
+      {/* 文字起こしビュー */}
+      <Dialog open={!!currentTranscript} onOpenChange={(o) => !o && setCurrentTranscript(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>全文書き起こし</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto">
+            <div className="whitespace-pre-wrap text-xs bg-gray-50 border rounded-md p-3 font-mono">
+              {currentTranscript?.transcriptText ?? "（文字起こしなし）"}
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            {currentTranscript?.transcriptText && (
+              <Button
+                variant="outline"
+                onClick={() => handleCopy(currentTranscript.transcriptText!)}
+              >
+                <Copy className="h-3 w-3 mr-1" />
+                {copied ? "コピー済" : "全文コピー"}
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setCurrentTranscript(null)}>
+              閉じる
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* チャットログビュー */}
+      <Dialog open={!!currentChat} onOpenChange={(o) => !o && setCurrentChat(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>会議中チャットログ</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto">
+            <div className="whitespace-pre-wrap text-sm bg-gray-50 border rounded-md p-3 font-mono">
+              {currentChat?.chatLogText ?? "（チャットなし）"}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCurrentChat(null)}>
+              閉じる
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 参加者ビュー */}
+      <Dialog open={!!currentParticipants} onOpenChange={(o) => !o && setCurrentParticipants(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>参加者一覧</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto">
+            {(() => {
+              const list = parseParticipants(currentParticipants?.participantsJson ?? null);
+              if (list.length === 0) {
+                return (
+                  <p className="text-sm text-muted-foreground">参加者情報なし</p>
+                );
+              }
+              return (
+                <table className="w-full text-sm border">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left p-2">名前</th>
+                      <th className="text-left p-2">メール</th>
+                      <th className="text-left p-2">入室時刻</th>
+                      <th className="text-left p-2">退室時刻</th>
+                      <th className="text-left p-2">参加時間</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {list.map((p, i) => (
+                      <tr key={`${p.id}-${i}`} className="border-t">
+                        <td className="p-2">{p.name || "—"}</td>
+                        <td className="p-2 text-xs text-muted-foreground">
+                          {p.user_email || "—"}
+                        </td>
+                        <td className="p-2 text-xs">
+                          {formatJstDateTime(p.join_time)}
+                        </td>
+                        <td className="p-2 text-xs">
+                          {formatJstDateTime(p.leave_time)}
+                        </td>
+                        <td className="p-2 whitespace-nowrap">
+                          {formatDuration(p.duration)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              );
+            })()}
+            <p className="text-xs text-muted-foreground mt-3">
+              ※ 接続デバイス情報は Zoom Dashboard API（管理者権限）が必要なため取得していません。
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCurrentParticipants(null)}>
+              閉じる
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* お礼文案 */}
       <Dialog open={!!thankYou} onOpenChange={(o) => !o && setThankYou(null)}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -276,7 +564,9 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
               className="w-full h-40 rounded-md border p-2 text-sm"
               value={thankYou?.editing ?? ""}
               onChange={(e) =>
-                setThankYou((prev) => (prev ? { ...prev, editing: e.target.value } : prev))
+                setThankYou((prev) =>
+                  prev ? { ...prev, editing: e.target.value } : prev
+                )
               }
             />
             <div className="flex items-center gap-2">

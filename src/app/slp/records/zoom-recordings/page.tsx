@@ -38,18 +38,37 @@ export default async function ZoomRecordingsPage() {
     const contactDate = isBriefing
       ? r.contactHistory?.companyRecord?.briefingDate
       : r.contactHistory?.companyRecord?.consultationDate;
+
+    const hasAiSummary = !!r.aiCompanionSummary;
+    const hasMp4 = !!r.mp4Path;
+    const hasTranscript = !!r.transcriptText;
+    const hasChat = !!r.chatLogText;
+    const hasParticipants = !!r.participantsFetchedAt;
+    const allFetched =
+      hasAiSummary && hasMp4 && hasTranscript && hasParticipants;
+
     return {
       id: r.id,
       category: r.category as "briefing" | "consultation",
       companyName: r.contactHistory?.companyRecord?.companyName ?? null,
       contactDate: toJstDisplay(contactDate),
       hostName: r.hostStaff?.name ?? null,
-      hasMp4: !!r.mp4Path,
-      hasTranscript: !!r.transcriptText,
+      hasAiSummary,
+      hasMp4,
+      hasTranscript,
+      hasChat,
+      hasParticipants,
+      hasNextSteps: !!r.summaryNextSteps,
+      allFetched,
       aiCompanionSummary: r.aiCompanionSummary,
+      summaryNextSteps: r.summaryNextSteps,
       claudeSummary: r.claudeSummary,
       claudeSummaryGeneratedAt: toJstDisplay(r.claudeSummaryGeneratedAt),
       claudeSummaryModel: r.claudeSummaryModel,
+      transcriptText: r.transcriptText,
+      chatLogText: r.chatLogText,
+      participantsJson: r.participantsJson,
+      mp4Path: r.mp4Path,
       downloadStatus: r.downloadStatus,
       companyRecordId: r.contactHistory?.companyRecord?.id ?? null,
       prolineUid: r.contactHistory?.companyRecord?.prolineUid ?? null,
@@ -65,8 +84,8 @@ export default async function ZoomRecordingsPage() {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground mb-4">
-            Zoom商談の録画と自動生成された要約の一覧です。
-            「Claude生成」でAI議事録を生成・再生成でき、「お礼文案」で送信用メッセージの下書きを作成できます。
+            Zoom商談の録画と自動取得された議事録の一覧です。
+            各行のアイコンで取得状況が確認できます。「取得」ボタンで未取得分をまとめて取りに行きます。
           </p>
           <RecordingsClient rows={clientRows} />
         </CardContent>

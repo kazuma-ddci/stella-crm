@@ -3,7 +3,10 @@ import {
   verifyZoomWebhookSignature,
   generateUrlValidationResponse,
 } from "@/lib/zoom/webhook";
-import { processZoomRecordingCompleted } from "@/lib/slp/zoom-recording-processor";
+import {
+  processZoomRecordingCompleted,
+  processMeetingSummaryCompleted,
+} from "@/lib/slp/zoom-recording-processor";
 import type { ZoomRecordingPayload } from "@/lib/zoom/recording";
 import { logAutomationError } from "@/lib/automation-error";
 
@@ -87,6 +90,35 @@ export async function POST(request: Request) {
           },
         });
       });
+      return NextResponse.json({ ok: true });
+    }
+
+    // ============================================
+    // meeting.summary_completed: AI Companion 要約が出来た（数分後）
+    // この時点で議事録を早期生成する
+    // ============================================
+    if (body.event === "meeting.summary_completed") {
+      const obj = body.payload?.object as
+        | { meeting_id?: string | number; meeting_uuid?: string }
+        | undefined;
+      const meetingIdRaw = obj?.meeting_id;
+      const meetingUuid = obj?.meeting_uuid;
+      if (!meetingIdRaw || !meetingUuid) {
+        return NextResponse.json({ ok: true, ignored: "missing fields" });
+      }
+      const meetingId =
+        typeof meetingIdRaw === "string"
+          ? BigInt(meetingIdRaw)
+          : BigInt(meetingIdRaw);
+      processMeetingSummaryCompleted({ meetingId, meetingUuid }).catch(
+        async (err) => {
+          await logAutomationError({
+            source: "zoom-webhook-summary-completed",
+            message: `AI要約処理失敗: ${err instanceof Error ? err.message : String(err)}`,
+            detail: { meetingId: meetingId.toString(), meetingUuid },
+          });
+        }
+      );
       return NextResponse.json({ ok: true });
     }
 

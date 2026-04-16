@@ -1,9 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import type { ZoomRecordingPayload } from "@/lib/zoom/recording";
-import { downloadZoomRecordingFiles } from "@/lib/zoom/recording";
+import {
+  downloadZoomRecordingFiles,
+  fetchRecordingMetadata,
+} from "@/lib/zoom/recording";
 import {
   deleteZoomRecordingFile,
   getZoomMeetingSummary,
+  getPastMeetingParticipants,
 } from "@/lib/zoom/meeting";
 import { getCustomerTypeIdByCode } from "@/lib/customer-type";
 import { logAutomationError } from "@/lib/automation-error";
@@ -14,23 +18,40 @@ const CATEGORY_NAME_BRIEFING = "概要案内";
 const CATEGORY_NAME_CONSULTATION = "導入希望商談";
 const CONTACT_METHOD_NAME_WEB_MEETING = "Web会議";
 
-/**
- * recording.completed / recording.transcript_completed Webhook 受信時に呼ばれる処理。
- * 1. meeting_id で該当のSlpCompanyRecord（briefing/consultation）を特定
- * 2. 既存 SlpZoomRecording があれば update、無ければ create
- * 3. SlpContactHistory を新規作成（まだなければ）
- * 4. mp4/vttをVPSに保存、transcriptTextを格納
- * 5. Zoom AI Companion要約を取得
- * 6. 成功すればZoom側のクラウド録画を削除
- */
-export async function processZoomRecordingCompleted(
-  payload: ZoomRecordingPayload
-): Promise<void> {
-  const meetingIdNum = typeof payload.id === "string" ? BigInt(payload.id) : BigInt(payload.id);
+// ============================================
+// 型定義
+// ============================================
 
-  // 該当SlpCompanyRecordを検索（briefing/consultationの両方を確認）
+type RecordingContext = {
+  recordingRowId: number;
+  contactHistoryId: number;
+  category: "briefing" | "consultation";
+  hostStaffId: number;
+  meetingId: bigint;
+  meetingUuid: string | null;
+  companyRecordId: number;
+  companyName: string | null;
+  contactDate: Date | null;
+};
+
+type CompanyMatch = {
+  category: "briefing" | "consultation";
+  companyRecordId: number;
+  companyName: string | null;
+  hostStaffId: number | null;
+  contactDate: Date | null;
+  masterCompanyId: number | null;
+};
+
+// ============================================
+// SlpCompanyRecord 検索（meeting_id で briefing/consultation を判別）
+// ============================================
+
+async function findCompanyByMeetingId(
+  meetingId: bigint
+): Promise<CompanyMatch | null> {
   const briefingRecord = await prisma.slpCompanyRecord.findFirst({
-    where: { briefingZoomMeetingId: meetingIdNum },
+    where: { briefingZoomMeetingId: meetingId },
     select: {
       id: true,
       companyName: true,
@@ -39,53 +60,86 @@ export async function processZoomRecordingCompleted(
       masterCompanyId: true,
     },
   });
-  const consultationRecord = briefingRecord
-    ? null
-    : await prisma.slpCompanyRecord.findFirst({
-        where: { consultationZoomMeetingId: meetingIdNum },
-        select: {
-          id: true,
-          companyName: true,
-          consultationDate: true,
-          consultationZoomHostStaffId: true,
-          masterCompanyId: true,
-        },
-      });
+  if (briefingRecord) {
+    return {
+      category: "briefing",
+      companyRecordId: briefingRecord.id,
+      companyName: briefingRecord.companyName,
+      hostStaffId: briefingRecord.briefingZoomHostStaffId,
+      contactDate: briefingRecord.briefingDate,
+      masterCompanyId: briefingRecord.masterCompanyId,
+    };
+  }
+  const consultationRecord = await prisma.slpCompanyRecord.findFirst({
+    where: { consultationZoomMeetingId: meetingId },
+    select: {
+      id: true,
+      companyName: true,
+      consultationDate: true,
+      consultationZoomHostStaffId: true,
+      masterCompanyId: true,
+    },
+  });
+  if (consultationRecord) {
+    return {
+      category: "consultation",
+      companyRecordId: consultationRecord.id,
+      companyName: consultationRecord.companyName,
+      hostStaffId: consultationRecord.consultationZoomHostStaffId,
+      contactDate: consultationRecord.consultationDate,
+      masterCompanyId: consultationRecord.masterCompanyId,
+    };
+  }
+  return null;
+}
 
-  if (!briefingRecord && !consultationRecord) {
-    // CRM無関係の会議 → 何もしない（エラーログも不要）
-    return;
+// ============================================
+// 接触履歴 + Zoom録画レコードの作成（既存があれば返すだけ）
+// 同時呼び出し時の race を unique制約 (zoomMeetingId) で防ぐ
+// ============================================
+
+async function ensureRecordingRow(params: {
+  meetingId: bigint;
+  meetingUuid: string | null;
+  companyMatch: CompanyMatch;
+}): Promise<RecordingContext | null> {
+  // 既存のSlpZoomRecordingがあればそれを返す
+  const existing = await prisma.slpZoomRecording.findUnique({
+    where: { zoomMeetingId: params.meetingId },
+  });
+  if (existing) {
+    return {
+      recordingRowId: existing.id,
+      contactHistoryId: existing.contactHistoryId,
+      category: existing.category as "briefing" | "consultation",
+      hostStaffId: existing.hostStaffId ?? params.companyMatch.hostStaffId ?? 0,
+      meetingId: existing.zoomMeetingId,
+      meetingUuid: existing.zoomMeetingUuid ?? params.meetingUuid,
+      companyRecordId: params.companyMatch.companyRecordId,
+      companyName: params.companyMatch.companyName,
+      contactDate: params.companyMatch.contactDate,
+    };
   }
 
-  const category: "briefing" | "consultation" = briefingRecord
-    ? "briefing"
-    : "consultation";
-  const record = briefingRecord ?? consultationRecord!;
-  const hostStaffId = (
-    briefingRecord
-      ? briefingRecord.briefingZoomHostStaffId
-      : consultationRecord!.consultationZoomHostStaffId
-  ) as number | null;
-  const contactDate = (
-    briefingRecord ? briefingRecord.briefingDate : consultationRecord!.consultationDate
-  ) as Date | null;
-
-  if (!hostStaffId) {
+  // 新規作成
+  if (!params.companyMatch.hostStaffId) {
     await logAutomationError({
       source: "slp-zoom-recording-processor",
-      message: `録画処理: hostStaffIdが未設定のため中断`,
+      message: "録画処理: hostStaffIdが未設定のため中断",
       detail: {
-        meetingId: meetingIdNum.toString(),
-        companyRecordId: record.id,
-        category,
+        meetingId: params.meetingId.toString(),
+        companyRecordId: params.companyMatch.companyRecordId,
+        category: params.companyMatch.category,
       },
     });
-    return;
+    return null;
   }
 
-  // マスタID取得
+  // 接触種別・接触方法マスタ
   const categoryName =
-    category === "briefing" ? CATEGORY_NAME_BRIEFING : CATEGORY_NAME_CONSULTATION;
+    params.companyMatch.category === "briefing"
+      ? CATEGORY_NAME_BRIEFING
+      : CATEGORY_NAME_CONSULTATION;
   const contactCategory = await prisma.contactCategory.findFirst({
     where: { name: categoryName },
     select: { id: true },
@@ -94,129 +148,275 @@ export async function processZoomRecordingCompleted(
     where: { name: CONTACT_METHOD_NAME_WEB_MEETING },
     select: { id: true },
   });
-  const slpCompanyCustomerTypeId = await getCustomerTypeIdByCode(
-    "slp_company"
-  );
+  const slpCompanyCustomerTypeId = await getCustomerTypeIdByCode("slp_company");
 
-  // SlpContactHistory + SlpZoomRecording をトランザクションで作成/更新
-  const existing = await prisma.slpZoomRecording.findFirst({
-    where: { zoomMeetingId: meetingIdNum },
+  // SlpContactHistory を作成
+  const history = await prisma.slpContactHistory.create({
+    data: {
+      contactDate: params.companyMatch.contactDate ?? new Date(),
+      contactMethodId: contactMethod?.id ?? null,
+      contactCategoryId: contactCategory?.id ?? null,
+      assignedTo: String(params.companyMatch.hostStaffId),
+      staffId: params.companyMatch.hostStaffId,
+      targetType: "company_record",
+      companyRecordId: params.companyMatch.companyRecordId,
+      masterCompanyId: params.companyMatch.masterCompanyId,
+    },
+  });
+  if (slpCompanyCustomerTypeId) {
+    await prisma.slpContactHistoryTag.create({
+      data: {
+        contactHistoryId: history.id,
+        customerTypeId: slpCompanyCustomerTypeId,
+      },
+    });
+  }
+
+  // SlpZoomRecording を作成（unique zoomMeetingId で race時に最初の1件のみ成功）
+  let recording;
+  try {
+    recording = await prisma.slpZoomRecording.create({
+      data: {
+        contactHistoryId: history.id,
+        zoomMeetingId: params.meetingId,
+        zoomMeetingUuid: params.meetingUuid,
+        category: params.companyMatch.category,
+        hostStaffId: params.companyMatch.hostStaffId,
+        downloadStatus: "pending",
+      },
+    });
+  } catch {
+    // race で別実行が先に作成した → 既存を取得
+    const existing2 = await prisma.slpZoomRecording.findUnique({
+      where: { zoomMeetingId: params.meetingId },
+    });
+    if (!existing2) throw new Error("SlpZoomRecording作成race解決失敗");
+    // 自分が作った history は孤児になる（小さい問題）
+    return {
+      recordingRowId: existing2.id,
+      contactHistoryId: existing2.contactHistoryId,
+      category: existing2.category as "briefing" | "consultation",
+      hostStaffId: existing2.hostStaffId ?? params.companyMatch.hostStaffId,
+      meetingId: existing2.zoomMeetingId,
+      meetingUuid: existing2.zoomMeetingUuid ?? params.meetingUuid,
+      companyRecordId: params.companyMatch.companyRecordId,
+      companyName: params.companyMatch.companyName,
+      contactDate: params.companyMatch.contactDate,
+    };
+  }
+
+  return {
+    recordingRowId: recording.id,
+    contactHistoryId: history.id,
+    category: params.companyMatch.category,
+    hostStaffId: params.companyMatch.hostStaffId,
+    meetingId: params.meetingId,
+    meetingUuid: params.meetingUuid,
+    companyRecordId: params.companyMatch.companyRecordId,
+    companyName: params.companyMatch.companyName,
+    contactDate: params.companyMatch.contactDate,
+  };
+}
+
+// ============================================
+// AI Companion 要約取得 + DB保存
+// ============================================
+
+export async function fetchAndSaveAiSummary(
+  recordingRowId: number
+): Promise<{ ok: boolean; updated: boolean }> {
+  const rec = await prisma.slpZoomRecording.findUnique({
+    where: { id: recordingRowId },
     include: { contactHistory: true },
   });
+  if (!rec) return { ok: false, updated: false };
+  if (!rec.hostStaffId || !rec.zoomMeetingUuid) {
+    return { ok: false, updated: false };
+  }
+  // 既に取得済みかつ next_steps もある → スキップ
+  if (rec.aiCompanionSummary && rec.summaryNextSteps !== null) {
+    return { ok: true, updated: false };
+  }
 
-  const contactHistoryId = existing
-    ? existing.contactHistoryId
-    : await createContactHistoryForZoom({
-        companyRecordId: record.id,
-        masterCompanyId: record.masterCompanyId,
-        staffId: hostStaffId,
-        contactDate: contactDate ?? new Date(),
-        contactMethodId: contactMethod?.id ?? null,
-        contactCategoryId: contactCategory?.id ?? null,
-        customerTypeId: slpCompanyCustomerTypeId,
-      });
-
-  // Zoom AI Companion 要約取得（任意・失敗しても続行）
-  let aiCompanionSummary: string | null = null;
+  let summaryResult: Awaited<ReturnType<typeof getZoomMeetingSummary>>;
   try {
-    aiCompanionSummary = await getZoomMeetingSummary({
-      hostStaffId,
-      meetingUuid: payload.uuid,
+    summaryResult = await getZoomMeetingSummary({
+      hostStaffId: rec.hostStaffId,
+      meetingUuid: rec.zoomMeetingUuid,
     });
   } catch (err) {
     await logAutomationError({
       source: "slp-zoom-ai-companion-summary",
-      message: "Zoom AI Companion要約取得失敗（続行）",
+      message: "AI Companion要約取得失敗",
       detail: {
+        recordingId: recordingRowId,
         error: err instanceof Error ? err.message : String(err),
-        meetingId: meetingIdNum.toString(),
       },
+    });
+    return { ok: false, updated: false };
+  }
+
+  const updates: {
+    aiCompanionSummary?: string | null;
+    aiCompanionFetchedAt?: Date;
+    summaryNextSteps?: string | null;
+  } = {};
+  let changed = false;
+  if (summaryResult.summaryText && !rec.aiCompanionSummary) {
+    updates.aiCompanionSummary = summaryResult.summaryText;
+    updates.aiCompanionFetchedAt = new Date();
+    changed = true;
+  }
+  if (summaryResult.nextSteps && !rec.summaryNextSteps) {
+    updates.summaryNextSteps = summaryResult.nextSteps;
+    changed = true;
+  }
+  if (!changed) return { ok: true, updated: false };
+
+  await prisma.slpZoomRecording.update({
+    where: { id: recordingRowId },
+    data: updates,
+  });
+
+  // meetingMinutes に未入力なら反映
+  if (
+    rec.contactHistory &&
+    (!rec.contactHistory.meetingMinutes ||
+      rec.contactHistory.meetingMinutes.trim().length === 0) &&
+    summaryResult.summaryText
+  ) {
+    await prisma.slpContactHistory.update({
+      where: { id: rec.contactHistoryId },
+      data: { meetingMinutes: summaryResult.summaryText },
     });
   }
 
-  // 録画DL（時間がかかるので丁寧に）
-  let downloaded: Awaited<
-    ReturnType<typeof downloadZoomRecordingFiles>
-  > | null = null;
+  return { ok: true, updated: true };
+}
+
+// ============================================
+// 録画ファイル DL + DB保存
+// ============================================
+
+export async function downloadAndSaveRecordingFiles(
+  recordingRowId: number,
+  payload?: ZoomRecordingPayload
+): Promise<{
+  ok: boolean;
+  mp4: boolean;
+  transcript: boolean;
+  chat: boolean;
+}> {
+  const rec = await prisma.slpZoomRecording.findUnique({
+    where: { id: recordingRowId },
+  });
+  if (!rec) return { ok: false, mp4: false, transcript: false, chat: false };
+  if (!rec.hostStaffId) {
+    return { ok: false, mp4: false, transcript: false, chat: false };
+  }
+
+  // payload無ければZoom APIから取得
+  let recordingPayload = payload;
+  if (!recordingPayload) {
+    try {
+      const fetched = await fetchRecordingMetadata({
+        hostStaffId: rec.hostStaffId,
+        meetingId: rec.zoomMeetingId,
+      });
+      recordingPayload = fetched ?? undefined;
+    } catch (err) {
+      await logAutomationError({
+        source: "slp-zoom-recording-metadata",
+        message: "録画メタデータ取得失敗",
+        detail: {
+          recordingId: recordingRowId,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
+    }
+  }
+  if (!recordingPayload) {
+    return { ok: false, mp4: false, transcript: false, chat: false };
+  }
+
+  await prisma.slpZoomRecording.update({
+    where: { id: recordingRowId },
+    data: { downloadStatus: "in_progress" },
+  });
+
+  let downloaded;
   try {
     downloaded = await downloadZoomRecordingFiles({
-      hostStaffId,
-      contactHistoryId,
-      recording: payload,
+      hostStaffId: rec.hostStaffId,
+      contactHistoryId: rec.contactHistoryId,
+      recording: recordingPayload,
+      skipMp4: !!rec.mp4Path,
+      skipTranscript: !!rec.transcriptText,
+      skipChat: !!rec.chatLogText,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    await prisma.slpZoomRecording.update({
+      where: { id: recordingRowId },
+      data: {
+        downloadStatus: "failed",
+        downloadError: err instanceof Error ? err.message : String(err),
+      },
+    });
     await logAutomationError({
       source: "slp-zoom-recording-download",
-      message: `録画DL失敗: ${msg}`,
+      message: "録画DL失敗",
       detail: {
-        meetingId: meetingIdNum.toString(),
-        contactHistoryId,
+        recordingId: recordingRowId,
+        error: err instanceof Error ? err.message : String(err),
       },
     });
-    // DL失敗してもレコードは作る（後で手動リトライできるように）
+    return { ok: false, mp4: false, transcript: false, chat: false };
   }
 
-  // SlpZoomRecording作成/更新（後続処理で使うため id を必ず取る）
-  let recordingRowId: number;
-  if (existing) {
-    await prisma.slpZoomRecording.update({
-      where: { id: existing.id },
-      data: {
-        mp4Path: downloaded?.mp4RelPath ?? existing.mp4Path,
-        mp4SizeBytes:
-          downloaded?.mp4Size !== undefined && downloaded?.mp4Size !== null
-            ? BigInt(downloaded.mp4Size)
-            : existing.mp4SizeBytes,
-        transcriptPath: downloaded?.transcriptRelPath ?? existing.transcriptPath,
-        transcriptText: downloaded?.transcriptText ?? existing.transcriptText,
-        aiCompanionSummary: aiCompanionSummary ?? existing.aiCompanionSummary,
-        aiCompanionFetchedAt: aiCompanionSummary ? new Date() : existing.aiCompanionFetchedAt,
-        downloadStatus: downloaded ? "completed" : "failed",
-        downloadError: downloaded ? null : "録画DL失敗（ログ参照）",
-      },
-    });
-    recordingRowId = existing.id;
-  } else {
-    const created = await prisma.slpZoomRecording.create({
-      data: {
-        contactHistoryId,
-        zoomMeetingId: meetingIdNum,
-        zoomMeetingUuid: payload.uuid ?? null,
-        category,
-        hostStaffId,
-        recordingStartAt: payload.recording_files[0]?.recording_start
-          ? new Date(payload.recording_files[0].recording_start)
-          : null,
-        recordingEndAt: payload.recording_files[0]?.recording_end
-          ? new Date(payload.recording_files[0].recording_end)
-          : null,
-        mp4Path: downloaded?.mp4RelPath ?? null,
-        mp4SizeBytes:
-          downloaded?.mp4Size !== undefined && downloaded?.mp4Size !== null
-            ? BigInt(downloaded.mp4Size)
-            : null,
-        transcriptPath: downloaded?.transcriptRelPath ?? null,
-        transcriptText: downloaded?.transcriptText ?? null,
-        aiCompanionSummary,
-        aiCompanionFetchedAt: aiCompanionSummary ? new Date() : null,
-        downloadStatus: downloaded ? "completed" : "failed",
-        downloadError: downloaded ? null : "録画DL失敗（ログ参照）",
-      },
-    });
-    recordingRowId = created.id;
+  // DB更新
+  const updates: Record<string, unknown> = {};
+  let mp4Saved = false;
+  let transcriptSaved = false;
+  let chatSaved = false;
+  if (downloaded.mp4RelPath) {
+    updates.mp4Path = downloaded.mp4RelPath;
+    if (downloaded.mp4Size !== null) {
+      updates.mp4SizeBytes = BigInt(downloaded.mp4Size);
+    }
+    mp4Saved = true;
   }
+  if (downloaded.transcriptRelPath) {
+    updates.transcriptPath = downloaded.transcriptRelPath;
+    updates.transcriptText = downloaded.transcriptText;
+    transcriptSaved = true;
+  }
+  if (downloaded.chatRelPath) {
+    updates.chatLogPath = downloaded.chatRelPath;
+    updates.chatLogText = downloaded.chatText;
+    updates.chatFetchedAt = new Date();
+    chatSaved = true;
+  }
+  // 必要なファイル全部揃ったら downloadStatus=completed
+  // ただし transcript/chat は会議内容により存在しないこともあるので、mp4 取得を成功条件にする
+  const finalStatus =
+    rec.mp4Path || mp4Saved ? "completed" : "failed";
+  updates.downloadStatus = finalStatus;
+  updates.downloadError = null;
 
-  // 添付ファイルとしてSlpContactHistoryFileを作成（mp4/vtt）。
-  // SlpContactHistoryFile にユニーク制約がないので findFirst + create パターンで重複を回避。
-  if (downloaded?.mp4RelPath) {
-    const existsMp4 = await prisma.slpContactHistoryFile.findFirst({
-      where: { contactHistoryId, fileName: "商談録画.mp4" },
+  await prisma.slpZoomRecording.update({
+    where: { id: recordingRowId },
+    data: updates,
+  });
+
+  // 添付ファイル登録（contact_history_files）
+  if (mp4Saved && downloaded.mp4RelPath) {
+    const exists = await prisma.slpContactHistoryFile.findFirst({
+      where: { contactHistoryId: rec.contactHistoryId, fileName: "商談録画.mp4" },
     });
-    if (!existsMp4) {
+    if (!exists) {
       await prisma.slpContactHistoryFile.create({
         data: {
-          contactHistoryId,
+          contactHistoryId: rec.contactHistoryId,
           fileName: "商談録画.mp4",
           filePath: downloaded.mp4RelPath,
           fileSize: downloaded.mp4Size,
@@ -225,49 +425,252 @@ export async function processZoomRecordingCompleted(
       });
     }
   }
-  if (downloaded?.transcriptRelPath) {
-    const existsTxt = await prisma.slpContactHistoryFile.findFirst({
-      where: { contactHistoryId, fileName: "文字起こし.vtt" },
+  if (transcriptSaved && downloaded.transcriptRelPath) {
+    const exists = await prisma.slpContactHistoryFile.findFirst({
+      where: { contactHistoryId: rec.contactHistoryId, fileName: "文字起こし.vtt" },
     });
-    if (!existsTxt) {
+    if (!exists) {
       await prisma.slpContactHistoryFile.create({
         data: {
-          contactHistoryId,
+          contactHistoryId: rec.contactHistoryId,
           fileName: "文字起こし.vtt",
-          filePath: downloaded.transcriptRelPath,
           mimeType: "text/vtt",
+          filePath: downloaded.transcriptRelPath,
+        },
+      });
+    }
+  }
+  if (chatSaved && downloaded.chatRelPath) {
+    const exists = await prisma.slpContactHistoryFile.findFirst({
+      where: { contactHistoryId: rec.contactHistoryId, fileName: "チャットログ.txt" },
+    });
+    if (!exists) {
+      await prisma.slpContactHistoryFile.create({
+        data: {
+          contactHistoryId: rec.contactHistoryId,
+          fileName: "チャットログ.txt",
+          mimeType: "text/plain",
+          filePath: downloaded.chatRelPath,
         },
       });
     }
   }
 
-  // 議事録本文初期化: Zoom AI要約があれば入れる、無ければ文字起こし先頭を使う
-  if (aiCompanionSummary || downloaded?.transcriptText) {
+  // meetingMinutes が空で transcript が取れていれば、フォールバックとして transcript 先頭を使う
+  if (transcriptSaved && downloaded.transcriptText) {
     const ch = await prisma.slpContactHistory.findUnique({
-      where: { id: contactHistoryId },
+      where: { id: rec.contactHistoryId },
       select: { meetingMinutes: true },
     });
     if (ch && (!ch.meetingMinutes || ch.meetingMinutes.trim().length === 0)) {
       await prisma.slpContactHistory.update({
-        where: { id: contactHistoryId },
-        data: {
-          meetingMinutes:
-            aiCompanionSummary ??
-            (downloaded?.transcriptText ?? "").slice(0, 10000),
+        where: { id: rec.contactHistoryId },
+        data: { meetingMinutes: downloaded.transcriptText.slice(0, 10000) },
+      });
+    }
+  }
+
+  // Zoom側の録画ファイルを削除（DL成功分のみ）
+  await deleteFetchedZoomFiles(recordingPayload, rec.hostStaffId, rec.zoomMeetingId, rec.zoomMeetingUuid, downloaded);
+
+  return { ok: true, mp4: mp4Saved, transcript: transcriptSaved, chat: chatSaved };
+}
+
+async function deleteFetchedZoomFiles(
+  payload: ZoomRecordingPayload,
+  hostStaffId: number,
+  meetingId: bigint,
+  meetingUuid: string | null,
+  downloaded: Awaited<ReturnType<typeof downloadZoomRecordingFiles>>
+): Promise<void> {
+  const fileIdsToDelete = [
+    downloaded.mp4FileId,
+    downloaded.transcriptFileId,
+    downloaded.chatFileId,
+  ].filter((id): id is string => !!id);
+
+  const meetingKey = meetingUuid || meetingId;
+  let deletedAll = fileIdsToDelete.length > 0;
+  for (const fileId of fileIdsToDelete) {
+    try {
+      await deleteZoomRecordingFile({
+        hostStaffId,
+        meetingId: meetingKey,
+        recordingId: fileId,
+        action: "delete",
+      });
+    } catch (err) {
+      deletedAll = false;
+      await logAutomationError({
+        source: "slp-zoom-recording-file-delete",
+        message: "Zoom側録画ファイル削除失敗",
+        detail: {
+          error: err instanceof Error ? err.message : String(err),
+          meetingId: meetingId.toString(),
+          recordingFileId: fileId,
+        },
+      });
+    }
+  }
+  if (deletedAll) {
+    const r = await prisma.slpZoomRecording.findUnique({
+      where: { zoomMeetingId: meetingId },
+      select: { id: true },
+    });
+    if (r) {
+      await prisma.slpZoomRecording.update({
+        where: { id: r.id },
+        data: { zoomCloudDeletedAt: new Date() },
+      });
+    }
+  }
+  // 不要パラメータ警告抑制
+  void payload;
+}
+
+// ============================================
+// 参加者情報の取得 + DB保存
+// ============================================
+
+export async function fetchAndSaveParticipants(
+  recordingRowId: number
+): Promise<{ ok: boolean; count: number }> {
+  const rec = await prisma.slpZoomRecording.findUnique({
+    where: { id: recordingRowId },
+  });
+  if (!rec) return { ok: false, count: 0 };
+  if (!rec.hostStaffId || !rec.zoomMeetingUuid) {
+    return { ok: false, count: 0 };
+  }
+  if (rec.participantsFetchedAt) {
+    // 既取得 → スキップ
+    return { ok: true, count: 0 };
+  }
+
+  let participants;
+  try {
+    participants = await getPastMeetingParticipants({
+      hostStaffId: rec.hostStaffId,
+      meetingUuid: rec.zoomMeetingUuid,
+    });
+  } catch (err) {
+    await logAutomationError({
+      source: "slp-zoom-participants-fetch",
+      message: "参加者情報取得失敗",
+      detail: {
+        recordingId: recordingRowId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
+    return { ok: false, count: 0 };
+  }
+
+  await prisma.slpZoomRecording.update({
+    where: { id: recordingRowId },
+    data: {
+      participantsJson: JSON.stringify(participants),
+      participantsFetchedAt: new Date(),
+    },
+  });
+
+  return { ok: true, count: participants.length };
+}
+
+// ============================================
+// 全部まとめて取得（手動取得ボタンから呼ばれる）
+// ============================================
+
+export async function fetchAllForRecording(recordingRowId: number): Promise<{
+  aiSummary: { ok: boolean; updated: boolean };
+  files: { ok: boolean; mp4: boolean; transcript: boolean; chat: boolean };
+  participants: { ok: boolean; count: number };
+  participantsAi: { ok: boolean; count: number };
+}> {
+  // 1. AI 要約（軽い・先に実施）
+  const aiSummary = await fetchAndSaveAiSummary(recordingRowId);
+
+  // 2. 録画ファイル（重い）
+  const files = await downloadAndSaveRecordingFiles(recordingRowId);
+
+  // 3. 参加者情報
+  const participants = await fetchAndSaveParticipants(recordingRowId);
+
+  // 4. AI による先方参加者抽出（transcript があれば）
+  let participantsAi = { ok: false, count: 0 };
+  const rec = await prisma.slpZoomRecording.findUnique({
+    where: { id: recordingRowId },
+    include: { contactHistory: true },
+  });
+  if (rec?.transcriptText && !rec.participantsExtracted) {
+    try {
+      const names = await extractParticipantsForRecording({
+        recordingId: recordingRowId,
+      });
+      if (names.length > 0 && rec.contactHistory) {
+        await prisma.slpContactHistory.update({
+          where: { id: rec.contactHistoryId },
+          data: { customerParticipants: names.join(", ").slice(0, 500) },
+        });
+      }
+      participantsAi = { ok: true, count: names.length };
+    } catch (err) {
+      await logAutomationError({
+        source: "slp-zoom-participants-extract",
+        message: "先方参加者抽出失敗",
+        detail: {
+          recordingId: recordingRowId,
+          error: err instanceof Error ? err.message : String(err),
         },
       });
     }
   }
 
-  // 先方参加者をAIで抽出して SlpContactHistory.customerParticipants に格納
-  if (downloaded?.transcriptText) {
+  return { aiSummary, files, participants, participantsAi };
+}
+
+// ============================================
+// Webhook エントリポイント1: recording.completed / recording.transcript_completed
+// 録画ファイルが届いた段階で、ファイルDL + 参加者取得 + AI要約取得を実行
+// ============================================
+
+export async function processZoomRecordingCompleted(
+  payload: ZoomRecordingPayload
+): Promise<void> {
+  const meetingIdNum =
+    typeof payload.id === "string" ? BigInt(payload.id) : BigInt(payload.id);
+
+  const companyMatch = await findCompanyByMeetingId(meetingIdNum);
+  if (!companyMatch) {
+    // CRM無関係の会議 → 黙ってスルー
+    return;
+  }
+
+  const ctx = await ensureRecordingRow({
+    meetingId: meetingIdNum,
+    meetingUuid: payload.uuid ?? null,
+    companyMatch,
+  });
+  if (!ctx) return;
+
+  // recording.completed の payload には全ファイル情報があるので渡す
+  await downloadAndSaveRecordingFiles(ctx.recordingRowId, payload);
+  // 参加者情報取得
+  await fetchAndSaveParticipants(ctx.recordingRowId);
+  // AI 要約も取りに行く（既に取得済なら no-op）
+  await fetchAndSaveAiSummary(ctx.recordingRowId);
+
+  // 先方参加者AI抽出（transcript が今回取れた場合のみ意味あり）
+  const rec = await prisma.slpZoomRecording.findUnique({
+    where: { id: ctx.recordingRowId },
+  });
+  if (rec?.transcriptText && !rec.participantsExtracted) {
     try {
       const names = await extractParticipantsForRecording({
-        recordingId: recordingRowId,
+        recordingId: ctx.recordingRowId,
       });
       if (names.length > 0) {
         await prisma.slpContactHistory.update({
-          where: { id: contactHistoryId },
+          where: { id: ctx.contactHistoryId },
           data: { customerParticipants: names.join(", ").slice(0, 500) },
         });
       }
@@ -277,78 +680,41 @@ export async function processZoomRecordingCompleted(
         message: "先方参加者抽出失敗（続行）",
         detail: {
           error: err instanceof Error ? err.message : String(err),
-          recordingId: recordingRowId,
+          recordingId: ctx.recordingRowId,
         },
-      });
-    }
-  }
-
-  // Zoom側クラウド録画を削除（DL成功時のみ、ファイル単位で個別削除）
-  // cloud_recording:delete:recording_file スコープを使用
-  if (downloaded?.mp4RelPath) {
-    const deleteTargets = payload.recording_files.filter(
-      (f) => f.id && (f.file_type === "MP4" || f.file_type === "TRANSCRIPT")
-    );
-    let deletedAll = true;
-    for (const file of deleteTargets) {
-      if (!file.id) continue;
-      try {
-        await deleteZoomRecordingFile({
-          hostStaffId,
-          meetingId: payload.uuid || meetingIdNum,
-          recordingId: file.id,
-          action: "delete",
-        });
-      } catch (err) {
-        deletedAll = false;
-        await logAutomationError({
-          source: "slp-zoom-recording-file-delete",
-          message: `Zoom側録画ファイル削除失敗 (file_type=${file.file_type})`,
-          detail: {
-            error: err instanceof Error ? err.message : String(err),
-            meetingId: meetingIdNum.toString(),
-            recordingFileId: file.id,
-          },
-        });
-      }
-    }
-    if (deletedAll && deleteTargets.length > 0) {
-      await prisma.slpZoomRecording.update({
-        where: { id: recordingRowId },
-        data: { zoomCloudDeletedAt: new Date() },
       });
     }
   }
 }
 
-async function createContactHistoryForZoom(params: {
-  companyRecordId: number;
-  masterCompanyId: number | null;
-  staffId: number;
-  contactDate: Date;
-  contactMethodId: number | null;
-  contactCategoryId: number | null;
-  customerTypeId: number | null;
-}): Promise<number> {
-  const history = await prisma.slpContactHistory.create({
-    data: {
-      contactDate: params.contactDate,
-      contactMethodId: params.contactMethodId,
-      contactCategoryId: params.contactCategoryId,
-      assignedTo: String(params.staffId),
-      staffId: params.staffId,
-      targetType: "company_record",
-      companyRecordId: params.companyRecordId,
-      masterCompanyId: params.masterCompanyId,
-    },
+// ============================================
+// Webhook エントリポイント2: meeting.summary_completed
+// AI Companion 要約が出来た時点（数分後）に呼ばれる
+// SlpContactHistory + SlpZoomRecording の stub を作って早期に議事録化
+// ============================================
+
+export async function processMeetingSummaryCompleted(payload: {
+  meetingId: bigint;
+  meetingUuid: string;
+}): Promise<void> {
+  const companyMatch = await findCompanyByMeetingId(payload.meetingId);
+  if (!companyMatch) return;
+
+  const ctx = await ensureRecordingRow({
+    meetingId: payload.meetingId,
+    meetingUuid: payload.meetingUuid,
+    companyMatch,
   });
-  if (params.customerTypeId) {
-    await prisma.slpContactHistoryTag.create({
-      data: {
-        contactHistoryId: history.id,
-        customerTypeId: params.customerTypeId,
-      },
+  if (!ctx) return;
+
+  // meeting_uuid を反映（後で参加者取得・録画削除に必要）
+  if (payload.meetingUuid) {
+    await prisma.slpZoomRecording.update({
+      where: { id: ctx.recordingRowId },
+      data: { zoomMeetingUuid: payload.meetingUuid },
     });
   }
-  return history.id;
+
+  // 要約のみ取得して保存
+  await fetchAndSaveAiSummary(ctx.recordingRowId);
 }

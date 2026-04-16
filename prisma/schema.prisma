@@ -6351,6 +6351,12 @@ model SlpZoomRecording {
   transcriptText              String?   @map("transcript_text") @db.Text
   aiCompanionSummary          String?   @map("ai_companion_summary") @db.Text
   aiCompanionFetchedAt        DateTime? @map("ai_companion_fetched_at")
+  summaryNextSteps            String?   @map("summary_next_steps") @db.Text
+  chatLogPath                 String?   @map("chat_log_path") @db.VarChar(1000)
+  chatLogText                 String?   @map("chat_log_text") @db.Text
+  chatFetchedAt               DateTime? @map("chat_fetched_at")
+  participantsJson            String?   @map("participants_json") @db.Text
+  participantsFetchedAt       DateTime? @map("participants_fetched_at")
   claudeSummary               String?   @map("claude_summary") @db.Text
   claudeSummaryGeneratedAt    DateTime? @map("claude_summary_generated_at")
   claudeSummaryPromptSnapshot String?   @map("claude_summary_prompt_snapshot") @db.Text

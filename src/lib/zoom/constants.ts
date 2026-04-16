@@ -14,6 +14,7 @@ export const ZOOM_SCOPES = [
   "cloud_recording:read:recording",
   "cloud_recording:delete:recording_file",
   "meeting:read:summary",
+  "meeting:read:list_past_participants",
   "user:read:user",
 ].join(" ");
 
