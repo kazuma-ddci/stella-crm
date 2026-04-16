@@ -8,10 +8,10 @@ import dynamic from "next/dynamic";
 const ReactPdfDocument = dynamic(
   () =>
     import("react-pdf").then((mod) => {
-      mod.pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-        "pdfjs-dist/build/pdf.worker.min.mjs",
-        import.meta.url
-      ).toString();
+      // worker は /public/pdf.worker.min.mjs を配置（pdfjs-dist 5.x 同期）
+      // new URL(..., import.meta.url) 方式は Next.js ビルド時に worker が
+      // 出力されず「PDFの読み込みに失敗しました」になるため静的パスに統一
+      mod.pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
       return { default: mod.Document };
     }),
   { ssr: false }
