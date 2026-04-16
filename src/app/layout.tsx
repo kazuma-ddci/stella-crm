@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { SessionProvider } from "@/components/providers/session-provider";
@@ -19,10 +20,19 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: process.env.NEXT_PUBLIC_APP_TITLE || "Stella 基幹OS",
-  description: "社内CRMシステム",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const host = (await headers()).get("host") ?? "";
+  if (host.endsWith("koutekiseido-japan.com")) {
+    return {
+      title: "公的制度教育推進協会",
+      description: "公的制度教育推進協会の公式フォーム",
+    };
+  }
+  return {
+    title: process.env.NEXT_PUBLIC_APP_TITLE || "Stella 基幹OS",
+    description: "社内CRMシステム",
+  };
+}
 
 export default async function RootLayout({
   children,
