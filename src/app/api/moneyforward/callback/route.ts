@@ -4,7 +4,20 @@ import { prisma } from "@/lib/prisma";
 
 const SETTINGS_URL = "/accounting/settings/moneyforward";
 
+/**
+ * リダイレクト先の公開URLを返す。
+ * Docker + reverse proxy 環境では request.url が内部ホスト名
+ * （例: http://da7bfde075c0:3000）を返してしまうため、必ず NEXT_PUBLIC_APP_URL を優先する。
+ */
+function getPublicBaseUrl(request: NextRequest): string {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+    new URL(request.url).origin
+  );
+}
+
 export async function GET(request: NextRequest) {
+  const publicBase = getPublicBaseUrl(request);
   try {
     const { searchParams } = new URL(request.url);
     const code = searchParams.get("code");
@@ -12,7 +25,7 @@ export async function GET(request: NextRequest) {
 
     if (!code || !stateRaw) {
       return NextResponse.redirect(
-        new URL(`${SETTINGS_URL}?error=認可コードまたはstateが不足しています`, request.url)
+        new URL(`${SETTINGS_URL}?error=認可コードまたはstateが不足しています`, publicBase)
       );
     }
 
@@ -22,13 +35,13 @@ export async function GET(request: NextRequest) {
       state = JSON.parse(stateRaw);
     } catch {
       return NextResponse.redirect(
-        new URL(`${SETTINGS_URL}?error=不正なstateパラメータです`, request.url)
+        new URL(`${SETTINGS_URL}?error=不正なstateパラメータです`, publicBase)
       );
     }
 
     if (!state.operatingCompanyId) {
       return NextResponse.redirect(
-        new URL(`${SETTINGS_URL}?error=法人IDが指定されていません`, request.url)
+        new URL(`${SETTINGS_URL}?error=法人IDが指定されていません`, publicBase)
       );
     }
 
@@ -68,7 +81,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.redirect(
-      new URL(`${SETTINGS_URL}?connected=true`, request.url)
+      new URL(`${SETTINGS_URL}?connected=true`, publicBase)
     );
   } catch (error) {
     console.error("MoneyForward OAuth callback error:", error);
@@ -77,7 +90,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       new URL(
         `${SETTINGS_URL}?error=${encodeURIComponent(message)}`,
-        request.url
+        publicBase
       )
     );
   }
