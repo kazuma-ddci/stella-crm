@@ -70,7 +70,7 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
   const [
     record,
     lineFriends,
-    slpStaffPermissions,
+    slpStaffAssignments,
     industries,
     flowSources,
     status1List,
@@ -123,11 +123,8 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
       orderBy: { id: "asc" },
     }),
     slpProject
-      ? prisma.staffPermission.findMany({
-          where: {
-            projectId: slpProject.id,
-            permissionLevel: { in: ["view", "edit", "manager"] },
-          },
+      ? prisma.staffProjectAssignment.findMany({
+          where: { projectId: slpProject.id },
           select: {
             staff: {
               select: { id: true, name: true, isActive: true, isSystemUser: true },
@@ -398,9 +395,9 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
     label: `${f.id} ${f.snsname ?? ""}`.trim(),
   }));
 
-  const staffOptions = slpStaffPermissions
-    .filter((p) => p.staff.isActive && !p.staff.isSystemUser)
-    .map((p) => ({ id: p.staff.id, name: p.staff.name }));
+  const staffOptions = slpStaffAssignments
+    .filter((a) => a.staff.isActive && !a.staff.isSystemUser)
+    .map((a) => ({ id: a.staff.id, name: a.staff.name }));
 
   // 解決結果を JSON-friendly な形に変換（Date を ISO に）
   const asResolutions = resolution.perContact.as.map((a) => ({

@@ -37,21 +37,18 @@ export async function loadContactHistoryMasters() {
       }),
     ]);
 
-  // SLPプロジェクトの編集権限以上を持つスタッフ
+  // SLPプロジェクトタグがついているスタッフ
   const slpStaff = slpProject
-    ? await prisma.staffPermission.findMany({
-        where: {
-          projectId: slpProject.id,
-          permissionLevel: { in: ["view", "edit", "manager"] },
-        },
+    ? await prisma.staffProjectAssignment.findMany({
+        where: { projectId: slpProject.id },
         select: {
           staff: { select: { id: true, name: true, isActive: true, isSystemUser: true } },
         },
       })
     : [];
   const staffList = slpStaff
-    .filter((p) => p.staff.isActive && !p.staff.isSystemUser)
-    .map((p) => ({ id: p.staff.id, name: p.staff.name }));
+    .filter((a) => a.staff.isActive && !a.staff.isSystemUser)
+    .map((a) => ({ id: a.staff.id, name: a.staff.name }));
   const staffOptions = staffList.map((s) => ({ value: String(s.id), label: s.name }));
 
   const contactMethodOptions = contactMethods.map((m) => ({
@@ -59,18 +56,18 @@ export async function loadContactHistoryMasters() {
     label: m.name,
   }));
 
-  // プロジェクトIDごとの担当者候補（クロスプロジェクト対応）
+  // プロジェクトIDごとの担当者候補（クロスプロジェクト対応: プロジェクトタグベース）
   const staffByProject: Record<number, { value: string; label: string }[]> = {};
   for (const p of allProjects) {
-    const perms = await prisma.staffPermission.findMany({
-      where: { projectId: p.id, permissionLevel: { in: ["view", "edit", "manager"] } },
+    const assignments = await prisma.staffProjectAssignment.findMany({
+      where: { projectId: p.id },
       select: {
         staff: { select: { id: true, name: true, isActive: true, isSystemUser: true } },
       },
     });
-    staffByProject[p.id] = perms
-      .filter((s) => s.staff.isActive && !s.staff.isSystemUser)
-      .map((s) => ({ value: String(s.staff.id), label: s.staff.name }));
+    staffByProject[p.id] = assignments
+      .filter((a) => a.staff.isActive && !a.staff.isSystemUser)
+      .map((a) => ({ value: String(a.staff.id), label: a.staff.name }));
   }
 
   const [slpCompanyCustomerTypeId, slpAgencyCustomerTypeId] = await Promise.all([

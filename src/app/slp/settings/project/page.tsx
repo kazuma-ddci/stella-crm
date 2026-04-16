@@ -68,13 +68,17 @@ export default async function SlpProjectSettingsPage() {
 
   const isSystemAdmin = user?.loginId === "admin";
 
-  const approverPermissions = await prisma.staffPermission.findMany({
-    where: { projectId: slpProject.id, canApprove: true },
-    select: { staff: { select: { id: true, name: true, isActive: true, isSystemUser: true } } },
+  // 承認者はファウンダーのみ選択可能
+  const founderStaff = await prisma.masterStaff.findMany({
+    where: {
+      organizationRole: "founder",
+      isActive: true,
+      isSystemUser: false,
+    },
+    select: { id: true, name: true },
+    orderBy: { id: "asc" },
   });
-  const approverOptions = approverPermissions
-    .filter((p) => p.staff.isActive && !p.staff.isSystemUser)
-    .map((p) => ({ id: p.staff.id, name: p.staff.name }));
+  const approverOptions = founderStaff.map((s) => ({ id: s.id, name: s.name }));
 
   const projectData = {
     id: slpProject.id,

@@ -35,7 +35,7 @@ export default async function SlpCompanyMergePage({ searchParams }: Props) {
     flowSources,
     status1List,
     status2List,
-    slpStaffPermissions,
+    slpStaffAssignments,
   ] = await Promise.all([
     prisma.slpCompanyRecord.findFirst({
       where: { id: aId, deletedAt: null },
@@ -74,11 +74,8 @@ export default async function SlpCompanyMergePage({ searchParams }: Props) {
       select: { id: true, name: true },
     }),
     slpProject
-      ? prisma.staffPermission.findMany({
-          where: {
-            projectId: slpProject.id,
-            permissionLevel: { in: ["view", "edit", "manager"] },
-          },
+      ? prisma.staffProjectAssignment.findMany({
+          where: { projectId: slpProject.id },
           select: {
             staff: {
               select: {
@@ -144,9 +141,9 @@ export default async function SlpCompanyMergePage({ searchParams }: Props) {
     documentCount: r.submittedDocuments.length,
   });
 
-  const staffOptions = slpStaffPermissions
-    .filter((p) => p.staff.isActive && !p.staff.isSystemUser)
-    .map((p) => ({ id: p.staff.id, name: p.staff.name }));
+  const staffOptions = slpStaffAssignments
+    .filter((a) => a.staff.isActive && !a.staff.isSystemUser)
+    .map((a) => ({ id: a.staff.id, name: a.staff.name }));
 
   return (
     <div className="space-y-6">
