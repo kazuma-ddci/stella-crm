@@ -57,17 +57,30 @@ export async function runSlpZoomReminderJob(now: Date = new Date()): Promise<{
         prolineUid: { not: null },
       },
       include: {
-        briefingZoomHost: { select: { name: true } },
+        briefingZoomHost: {
+          select: {
+            name: true,
+            slpProlineStaffMappings: {
+              select: { prolineStaffName: true },
+              orderBy: { id: "asc" },
+              take: 1,
+            },
+          },
+        },
       },
     });
     for (const r of briefingRows) {
+      const prolineName =
+        r.briefingZoomHost?.slpProlineStaffMappings?.[0]?.prolineStaffName?.trim() ||
+        null;
       await processReminder({
         companyRecordId: r.id,
         uid: r.prolineUid!,
         category: "briefing",
         trigger: "remind_day_before",
         companyName: r.companyName,
-        staffName: r.briefingZoomHost?.name ?? r.briefingStaff ?? null,
+        staffName:
+          prolineName ?? r.briefingStaff ?? r.briefingZoomHost?.name ?? null,
         dateJst: r.briefingDate,
         url: r.briefingZoomJoinUrl,
         updateField: "briefingZoomRemindDaySentAt",
@@ -86,17 +99,33 @@ export async function runSlpZoomReminderJob(now: Date = new Date()): Promise<{
         prolineUid: { not: null },
       },
       include: {
-        consultationZoomHost: { select: { name: true } },
+        consultationZoomHost: {
+          select: {
+            name: true,
+            slpProlineStaffMappings: {
+              select: { prolineStaffName: true },
+              orderBy: { id: "asc" },
+              take: 1,
+            },
+          },
+        },
       },
     });
     for (const r of consultRows) {
+      const prolineName =
+        r.consultationZoomHost?.slpProlineStaffMappings?.[0]?.prolineStaffName?.trim() ||
+        null;
       await processReminder({
         companyRecordId: r.id,
         uid: r.prolineUid!,
         category: "consultation",
         trigger: "remind_day_before",
         companyName: r.companyName,
-        staffName: r.consultationZoomHost?.name ?? r.consultationStaff ?? null,
+        staffName:
+          prolineName ??
+          r.consultationStaff ??
+          r.consultationZoomHost?.name ??
+          null,
         dateJst: r.consultationDate,
         url: r.consultationZoomJoinUrl,
         updateField: "consultationZoomRemindDaySentAt",
@@ -123,17 +152,30 @@ export async function runSlpZoomReminderJob(now: Date = new Date()): Promise<{
       prolineUid: { not: null },
     },
     include: {
-      briefingZoomHost: { select: { name: true } },
+      briefingZoomHost: {
+        select: {
+          name: true,
+          slpProlineStaffMappings: {
+            select: { prolineStaffName: true },
+            orderBy: { id: "asc" },
+            take: 1,
+          },
+        },
+      },
     },
   });
   for (const r of briefingHourRows) {
+    const prolineName =
+      r.briefingZoomHost?.slpProlineStaffMappings?.[0]?.prolineStaffName?.trim() ||
+      null;
     await processReminder({
       companyRecordId: r.id,
       uid: r.prolineUid!,
       category: "briefing",
       trigger: "remind_hour_before",
       companyName: r.companyName,
-      staffName: r.briefingZoomHost?.name ?? r.briefingStaff ?? null,
+      staffName:
+        prolineName ?? r.briefingStaff ?? r.briefingZoomHost?.name ?? null,
       dateJst: r.briefingDate,
       url: r.briefingZoomJoinUrl,
       updateField: "briefingZoomRemindHourSentAt",
@@ -151,17 +193,33 @@ export async function runSlpZoomReminderJob(now: Date = new Date()): Promise<{
       prolineUid: { not: null },
     },
     include: {
-      consultationZoomHost: { select: { name: true } },
+      consultationZoomHost: {
+        select: {
+          name: true,
+          slpProlineStaffMappings: {
+            select: { prolineStaffName: true },
+            orderBy: { id: "asc" },
+            take: 1,
+          },
+        },
+      },
     },
   });
   for (const r of consultHourRows) {
+    const prolineName =
+      r.consultationZoomHost?.slpProlineStaffMappings?.[0]?.prolineStaffName?.trim() ||
+      null;
     await processReminder({
       companyRecordId: r.id,
       uid: r.prolineUid!,
       category: "consultation",
       trigger: "remind_hour_before",
       companyName: r.companyName,
-      staffName: r.consultationZoomHost?.name ?? r.consultationStaff ?? null,
+      staffName:
+        prolineName ??
+        r.consultationStaff ??
+        r.consultationZoomHost?.name ??
+        null,
       dateJst: r.consultationDate,
       url: r.consultationZoomJoinUrl,
       updateField: "consultationZoomRemindHourSentAt",

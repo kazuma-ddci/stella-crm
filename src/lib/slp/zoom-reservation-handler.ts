@@ -7,6 +7,7 @@ import {
 import { logAutomationError } from "@/lib/automation-error";
 import { sendZoomMessageViaProline } from "./zoom-proline-sender";
 import type { ZoomCategory } from "./zoom-proline-sender";
+import { resolveProlineStaffName } from "./proline-staff-name";
 
 type RecordFields = {
   id: number;
@@ -62,13 +63,6 @@ async function loadRecord(id: number): Promise<RecordFields | null> {
   return r as RecordFields | null;
 }
 
-async function loadStaffName(staffId: number): Promise<string | null> {
-  const s = await prisma.masterStaff.findUnique({
-    where: { id: staffId },
-    select: { name: true },
-  });
-  return s?.name ?? null;
-}
 
 function categoryCol(category: ZoomCategory) {
   const prefix = category;
@@ -215,7 +209,14 @@ export async function ensureZoomMeetingForReservation(params: {
 
     // お客様LINE送信（プロラインUIDがあれば）
     if (record.prolineUid) {
-      const staffName = await loadStaffName(currentStaffId);
+      const webhookFallback =
+        params.category === "briefing"
+          ? record.briefingStaff
+          : record.consultationStaff;
+      const staffName = await resolveProlineStaffName({
+        staffId: currentStaffId,
+        webhookFallback,
+      });
       const trigger =
         params.triggerReason === "confirm" ? "confirm" : "change";
       const sendResult = await sendZoomMessageViaProline({
@@ -254,7 +255,14 @@ export async function ensureZoomMeetingForReservation(params: {
 
     // Zoom作成失敗時でもURL未発行用テンプレートで通知を送信
     if (record.prolineUid && currentStaffId) {
-      const staffName = await loadStaffName(currentStaffId);
+      const webhookFallback =
+        params.category === "briefing"
+          ? record.briefingStaff
+          : record.consultationStaff;
+      const staffName = await resolveProlineStaffName({
+        staffId: currentStaffId,
+        webhookFallback,
+      });
       const noUrlTrigger =
         params.triggerReason === "confirm"
           ? ("confirm_no_url" as const)
