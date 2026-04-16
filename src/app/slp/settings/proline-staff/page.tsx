@@ -17,7 +17,7 @@ export default async function SlpProlineStaffPage() {
     select: { id: true },
   });
 
-  const [mappings, lineFriends, slpStaffPermissions] = await Promise.all([
+  const [mappings, lineFriends, slpStaffAssignments] = await Promise.all([
     prisma.slpProlineStaffMapping.findMany({
       include: {
         lineFriend: { select: { id: true, snsname: true } },
@@ -31,11 +31,8 @@ export default async function SlpProlineStaffPage() {
       orderBy: { id: "asc" },
     }),
     slpProject
-      ? prisma.staffPermission.findMany({
-          where: {
-            projectId: slpProject.id,
-            permissionLevel: { in: ["view", "edit", "manager"] },
-          },
+      ? prisma.staffProjectAssignment.findMany({
+          where: { projectId: slpProject.id },
           select: {
             staff: {
               select: { id: true, name: true, isActive: true, isSystemUser: true },
@@ -61,9 +58,9 @@ export default async function SlpProlineStaffPage() {
     label: `${f.id} ${f.snsname ?? ""}`.trim(),
   }));
 
-  const staffOptions = slpStaffPermissions
-    .filter((p) => p.staff.isActive && !p.staff.isSystemUser)
-    .map((p) => ({ id: p.staff.id, name: p.staff.name }));
+  const staffOptions = slpStaffAssignments
+    .filter((a) => a.staff.isActive && !a.staff.isSystemUser)
+    .map((a) => ({ id: a.staff.id, name: a.staff.name }));
 
   return (
     <div className="space-y-6">

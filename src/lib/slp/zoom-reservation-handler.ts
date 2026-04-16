@@ -251,6 +251,39 @@ export async function ensureZoomMeetingForReservation(params: {
         date: currentDate?.toISOString(),
       },
     });
+
+    // Zoom作成失敗時でもURL未発行用テンプレートで通知を送信
+    if (record.prolineUid && currentStaffId) {
+      const staffName = await loadStaffName(currentStaffId);
+      const noUrlTrigger =
+        params.triggerReason === "confirm"
+          ? ("confirm_no_url" as const)
+          : ("change_no_url" as const);
+      try {
+        await sendZoomMessageViaProline({
+          companyRecordId: params.companyRecordId,
+          uid: record.prolineUid,
+          category: params.category,
+          trigger: noUrlTrigger,
+          ctx: {
+            companyName: record.companyName,
+            staffName,
+            dateJst: currentDate,
+            url: null,
+          },
+        });
+      } catch (sendErr) {
+        await logAutomationError({
+          source: `slp-zoom-${params.category}-no-url-fallback`,
+          message: `URL未発行通知の送信も失敗`,
+          detail: {
+            companyRecordId: params.companyRecordId,
+            error:
+              sendErr instanceof Error ? sendErr.message : String(sendErr),
+          },
+        });
+      }
+    }
   }
 }
 

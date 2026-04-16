@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { ZoomRecordingPayload } from "@/lib/zoom/recording";
 import { downloadZoomRecordingFiles } from "@/lib/zoom/recording";
 import {
-  deleteZoomRecording,
+  deleteZoomRecordingFile,
   getZoomMeetingSummary,
 } from "@/lib/zoom/meeting";
 import { getCustomerTypeIdByCode } from "@/lib/customer-type";
@@ -283,26 +283,39 @@ export async function processZoomRecordingCompleted(
     }
   }
 
-  // Zoom側クラウド録画を削除（成功時のみ）
+  // Zoom側クラウド録画を削除（DL成功時のみ、ファイル単位で個別削除）
+  // cloud_recording:delete:recording_file スコープを使用
   if (downloaded?.mp4RelPath) {
-    try {
-      await deleteZoomRecording({
-        hostStaffId,
-        meetingId: payload.uuid || meetingIdNum,
-        action: "delete",
-      });
+    const deleteTargets = payload.recording_files.filter(
+      (f) => f.id && (f.file_type === "MP4" || f.file_type === "TRANSCRIPT")
+    );
+    let deletedAll = true;
+    for (const file of deleteTargets) {
+      if (!file.id) continue;
+      try {
+        await deleteZoomRecordingFile({
+          hostStaffId,
+          meetingId: payload.uuid || meetingIdNum,
+          recordingId: file.id,
+          action: "delete",
+        });
+      } catch (err) {
+        deletedAll = false;
+        await logAutomationError({
+          source: "slp-zoom-recording-file-delete",
+          message: `Zoom側録画ファイル削除失敗 (file_type=${file.file_type})`,
+          detail: {
+            error: err instanceof Error ? err.message : String(err),
+            meetingId: meetingIdNum.toString(),
+            recordingFileId: file.id,
+          },
+        });
+      }
+    }
+    if (deletedAll && deleteTargets.length > 0) {
       await prisma.slpZoomRecording.update({
         where: { id: recordingRowId },
         data: { zoomCloudDeletedAt: new Date() },
-      });
-    } catch (err) {
-      await logAutomationError({
-        source: "slp-zoom-recording-delete",
-        message: "Zoom側録画削除失敗（VPS保存はOK、手動で削除してください）",
-        detail: {
-          error: err instanceof Error ? err.message : String(err),
-          meetingId: meetingIdNum.toString(),
-        },
       });
     }
   }

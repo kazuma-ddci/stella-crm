@@ -12,6 +12,8 @@ export type ZoomCategory = "briefing" | "consultation";
 export type ZoomTrigger =
   | "confirm"
   | "change"
+  | "confirm_no_url"
+  | "change_no_url"
   | "remind_day_before"
   | "remind_hour_before"
   | "regenerated_manual_notice";

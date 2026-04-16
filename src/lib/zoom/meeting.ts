@@ -131,12 +131,14 @@ export async function deleteZoomMeeting(input: {
 }
 
 /**
- * Zoom Cloud Recording をゴミ箱に移動 or 完全削除。
- * action=trash（ゴミ箱） or delete（完全削除）
+ * Zoom Cloud Recording の特定ファイルを削除する。
+ * cloud_recording:delete:recording_file スコープを使用。
+ * action=trash（ゴミ箱） or delete（完全削除、デフォルト）
  */
-export async function deleteZoomRecording(input: {
+export async function deleteZoomRecordingFile(input: {
   hostStaffId: number;
-  meetingId: bigint | number | string; // UUIDも可
+  meetingId: bigint | number | string;
+  recordingId: string;
   action?: "trash" | "delete";
 }): Promise<void> {
   const ctx = await requireStaffZoomContext(input.hostStaffId);
@@ -148,7 +150,9 @@ export async function deleteZoomRecording(input: {
   try {
     await zoomFetchJson<void>(
       ctx.accessToken,
-      `/meetings/${meetingKey}/recordings?action=${action}`,
+      `/meetings/${meetingKey}/recordings/${encodeURIComponent(
+        input.recordingId
+      )}?action=${action}`,
       { method: "DELETE" }
     );
   } catch (err) {
