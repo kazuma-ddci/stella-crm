@@ -417,6 +417,14 @@ export function InvoiceGroupsTable({
                           <span className="ml-1 text-green-700 text-xs font-medium">(完了)</span>
                         )}
                       </span>
+                    ) : row.manualPaymentStatus === "completed" ? (
+                      <span className="whitespace-nowrap text-muted-foreground">
+                        日付記録なし<span className="ml-1 text-green-700 text-xs font-medium">(完了)</span>
+                      </span>
+                    ) : row.manualPaymentStatus === "partial" ? (
+                      <span className="whitespace-nowrap text-muted-foreground">
+                        日付記録なし<span className="ml-1 text-red-600 text-xs font-medium">(一部入金)</span>
+                      </span>
                     ) : row.status === "corrected" ? (
                       "—"
                     ) : (
