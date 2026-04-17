@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -36,7 +36,6 @@ import type {
   SessionSummaryForUI,
   CompanySessionAlerts,
   StaffOption,
-  SessionZoomForUI,
   CompanyContactForCompletion,
 } from "./meeting-sessions-section";
 import type { SessionCategory, SessionStatus } from "@/lib/slp/session-helper";
@@ -47,13 +46,10 @@ import { PromoteToReservedModal } from "./promote-to-reserved-modal";
 import { SessionEditModal } from "./session-edit-modal";
 import { DeleteConfirmModal } from "./delete-confirm-modal";
 import { SessionHistoryModal } from "./session-history-modal";
-import { AddZoomModal } from "./add-zoom-modal";
-import { EditZoomModal } from "./edit-zoom-modal";
-import { DeleteZoomModal } from "./delete-zoom-modal";
 import { SessionContactHistoriesModal } from "./session-contact-histories-modal";
-import { SessionZoomPanel } from "./session-zoom-panel";
 import { CompletionModal } from "./completion-modal";
 import { NoShowModal } from "./no-show-modal";
+import { SessionZoomIssuePanel } from "./session-zoom-issue-panel";
 import { formatRoundNumber } from "./round-label";
 import { updateSessionDetail } from "../session-actions";
 
@@ -129,9 +125,8 @@ function CategoryBlock({
   contacts,
   onDataChange,
 }: CategoryBlockProps) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
+  // useSearchParams はサーバ/クライアントでタイミング差を招きハイドレーションミスマッチの原因になるため、
+  // マウント後に window.location から読み取る方式に変更。
   const sortedSessions = useMemo(
     () =>
       [...sessions].sort((a, b) => {
@@ -142,19 +137,22 @@ function CategoryBlock({
   );
 
   const latestSession = sortedSessions[sortedSessions.length - 1];
-  const urlSessionId = searchParams.get(`${category}SessionId`);
+
+  // 初期値はサーバ/クライアント共通で決定論的に（最新セッション or 空）。
+  // URL query からの復元はマウント後の useEffect で行う。
   const [selectedSessionId, setSelectedSessionId] = useState<string>(
-    urlSessionId && sortedSessions.some((s) => String(s.id) === urlSessionId)
-      ? urlSessionId
-      : latestSession ? String(latestSession.id) : ""
+    latestSession ? String(latestSession.id) : ""
   );
 
-  // URL query に新規追加セッションIDが入ったら切替
+  // マウント後に URL query からセッション指定を拾って反映
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const urlSessionId = params.get(`${category}SessionId`);
     if (urlSessionId && sortedSessions.some((s) => String(s.id) === urlSessionId)) {
       setSelectedSessionId(urlSessionId);
     }
-  }, [urlSessionId, sortedSessions]);
+  }, [category, sortedSessions]);
 
   // 選択中セッションが削除された等で消えた場合、最新にフォールバック
   useEffect(() => {
@@ -176,10 +174,8 @@ function CategoryBlock({
 
   const handleCreated = (newSessionId?: number) => {
     if (newSessionId) {
-      // URL に新セッションID を付与してリフレッシュすることで、自動選択
-      const params = new URLSearchParams(searchParams.toString());
-      params.set(`${category}SessionId`, String(newSessionId));
-      router.push(`?${params.toString()}`, { scroll: false });
+      // 新規追加後は Select を直接切り替える（URLは現在のものを維持）
+      setSelectedSessionId(String(newSessionId));
     }
     onDataChange();
   };
@@ -333,12 +329,7 @@ function SessionForm({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [contactHistOpen, setContactHistOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
-  const [addZoomOpen, setAddZoomOpen] = useState(false);
-  const [editZoomTarget, setEditZoomTarget] = useState<SessionZoomForUI | null>(null);
-  const [deleteZoomTarget, setDeleteZoomTarget] = useState<SessionZoomForUI | null>(null);
-
-  const primaryZoom = session.zooms.find((z) => z.isPrimary) ?? null;
-  const additionalZooms = session.zooms.filter((z) => !z.isPrimary);
+  // Zoom URL / 議事録取得は接触履歴画面に移管（「接触履歴を見る」から操作）
 
   // ステータス直接変更ハンドラ
   const handleStatusChange = (value: string) => {
@@ -511,19 +502,17 @@ function SessionForm({
         </div>
       </div>
 
-      {/* Zoom パネル */}
-      <SessionZoomPanel
-        sessionId={session.id}
-        categoryLabel={categoryLabel}
-        primaryZoom={primaryZoom}
-        additionalZooms={additionalZooms}
-        zoomError={primaryZoom?.zoomError ?? null}
-        zoomErrorAt={primaryZoom?.zoomErrorAt ?? null}
-        onAddAdditionalZoom={() => setAddZoomOpen(true)}
-        onEditZoom={setEditZoomTarget}
-        onDeleteZoom={setDeleteZoomTarget}
-        onDataChange={onDataChange}
-      />
+      {/* 各商談の primary Zoom 管理（手動発行 / 再発行 / URL表示） */}
+      {session.status !== "キャンセル" && session.status !== "飛び" && (
+        <SessionZoomIssuePanel
+          sessionId={session.id}
+          categoryLabel={categoryLabel}
+          primary={session.zooms.find((z) => z.isPrimary) ?? null}
+          zoomError={session.zooms.find((z) => z.isPrimary)?.zoomError ?? null}
+          zoomErrorAt={session.zooms.find((z) => z.isPrimary)?.zoomErrorAt ?? null}
+        />
+      )}
+      {/* 追加Zoom・議事録は接触履歴画面で管理（「接触履歴を見る」ボタン参照） */}
 
       {/* メモ */}
       <div>
@@ -654,46 +643,12 @@ function SessionForm({
         sessionId={session.id}
         roundNumber={session.roundNumber}
       />
-      <AddZoomModal
-        open={addZoomOpen}
-        onOpenChange={setAddZoomOpen}
-        sessionId={session.id}
-        roundNumber={session.roundNumber}
-        onDone={onDataChange}
-      />
-      {editZoomTarget && (
-        <EditZoomModal
-          open={!!editZoomTarget}
-          onOpenChange={(o) => !o && setEditZoomTarget(null)}
-          zoomId={editZoomTarget.id}
-          currentJoinUrl={editZoomTarget.joinUrl}
-          currentScheduledAt={editZoomTarget.scheduledAt}
-          currentLabel={editZoomTarget.label}
-          hasRecording={editZoomTarget.hasRecording}
-          onDone={() => {
-            setEditZoomTarget(null);
-            onDataChange();
-          }}
-        />
-      )}
-      {deleteZoomTarget && (
-        <DeleteZoomModal
-          open={!!deleteZoomTarget}
-          onOpenChange={(o) => !o && setDeleteZoomTarget(null)}
-          zoomId={deleteZoomTarget.id}
-          zoomLabel={deleteZoomTarget.label}
-          hasRecording={deleteZoomTarget.hasRecording}
-          onDone={() => {
-            setDeleteZoomTarget(null);
-            onDataChange();
-          }}
-        />
-      )}
       <SessionContactHistoriesModal
         open={contactHistOpen}
         onOpenChange={setContactHistOpen}
         sessionId={session.id}
         titleLabel={`${formatRoundNumber(session.roundNumber)} ${categoryLabel}`}
+        staffOptions={staffOptions}
       />
       <CompletionModal
         open={completionOpen}

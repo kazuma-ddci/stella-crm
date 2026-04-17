@@ -141,12 +141,18 @@ export async function getSessionDetail(
       include: {
         assignedStaff: { select: { id: true, name: true } },
         createdByStaff: { select: { id: true, name: true } },
-        zoomRecords: {
+        contactHistories: {
           where: { deletedAt: null },
-          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+          orderBy: { createdAt: "asc" },
+          take: 1,
           include: {
-            hostStaff: { select: { id: true, name: true } },
-            recordings: { select: { id: true } },
+            zoomRecordings: {
+              where: { deletedAt: null },
+              orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+              include: {
+                hostStaff: { select: { id: true, name: true } },
+              },
+            },
           },
         },
       },
@@ -155,6 +161,8 @@ export async function getSessionDetail(
     if (!session || session.deletedAt) {
       return err("セッションが見つかりません");
     }
+
+    const recordings = session.contactHistories[0]?.zoomRecordings ?? [];
 
     return ok({
       id: session.id,
@@ -176,7 +184,7 @@ export async function getSessionDetail(
       createdByStaffId: session.createdByStaffId,
       createdByStaffName: session.createdByStaff?.name ?? null,
       createdAt: session.createdAt,
-      zoomRecords: session.zoomRecords.map(z => ({
+      zoomRecords: recordings.map(z => ({
         id: z.id,
         zoomMeetingId: z.zoomMeetingId.toString(),
         joinUrl: z.joinUrl,
@@ -186,7 +194,12 @@ export async function getSessionDetail(
         label: z.label,
         hostStaffId: z.hostStaffId,
         hostStaffName: z.hostStaff?.name ?? null,
-        hasRecording: z.recordings.length > 0,
+        // 議事録が「取れている」判定: state=完了 or 何らかの取得物あり
+        hasRecording:
+          z.state === "完了" ||
+          !!z.aiCompanionSummary ||
+          !!z.transcriptText ||
+          !!z.mp4Path,
         createdAt: z.createdAt,
       })),
     });
@@ -813,159 +826,9 @@ export async function deleteSession(params: {
 }
 
 // ============================================
-// 追加Zoom管理
+// 追加Zoom管理は新設計で接触履歴側に移行（zoom-actions.ts）
+// 以前の addSessionZoom / updateSessionZoom / deleteSessionZoom は廃止
 // ============================================
-
-/**
- * セッションに追加Zoom記録を登録
- *
- * Sub 4時点では手動でZoomミーティング情報を渡す想定（Phase 3で自動発行連携）
- */
-export async function addSessionZoom(params: {
-  sessionId: number;
-  zoomMeetingId: string; // BigInt文字列
-  joinUrl: string;
-  startUrl?: string | null;
-  scheduledAt?: Date | null;
-  label?: string;
-  hostStaffId?: number | null;
-}): Promise<ActionResult<{ zoomId: number }>> {
-  try {
-    const user = await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
-
-    const session = await prisma.slpMeetingSession.findUnique({
-      where: { id: params.sessionId },
-    });
-    if (!session || session.deletedAt) return err("セッションが見つかりません");
-
-    const created = await prisma.slpMeetingSessionZoom.create({
-      data: {
-        sessionId: params.sessionId,
-        zoomMeetingId: BigInt(params.zoomMeetingId),
-        joinUrl: params.joinUrl,
-        startUrl: params.startUrl ?? null,
-        scheduledAt: params.scheduledAt ?? null,
-        isPrimary: false, // 追加Zoomはデフォルト非プライマリ
-        label: params.label ?? "追加Zoom",
-        hostStaffId: params.hostStaffId ?? null,
-      },
-    });
-
-    await prisma.slpMeetingSessionHistory.create({
-      data: {
-        sessionId: params.sessionId,
-        changedByStaffId: user.id,
-        changeType: "field_edit",
-        fieldName: "zoom_added",
-        newValue: JSON.stringify({ zoomId: created.id, label: params.label ?? "追加Zoom" }),
-        reason: "追加Zoom登録",
-      },
-    });
-
-    revalidatePath(`/slp/companies/${session.companyRecordId}`);
-    return ok({ zoomId: created.id });
-  } catch (e) {
-    return err(e instanceof Error ? e.message : "Zoom追加に失敗しました");
-  }
-}
-
-/**
- * 追加Zoom編集（日時・ラベル変更等）
- */
-export async function updateSessionZoom(params: {
-  zoomId: number;
-  scheduledAt?: Date | null;
-  label?: string | null;
-  joinUrl?: string;
-  reason: string;
-}): Promise<ActionResult<{ zoomId: number }>> {
-  try {
-    const user = await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
-
-    if (!params.reason.trim()) {
-      return err("変更理由の記載は必須です");
-    }
-
-    const current = await prisma.slpMeetingSessionZoom.findUnique({
-      where: { id: params.zoomId },
-      include: { session: { select: { id: true, companyRecordId: true } } },
-    });
-    if (!current || current.deletedAt) return err("Zoom記録が見つかりません");
-
-    const updateData: Record<string, unknown> = {};
-    if (params.scheduledAt !== undefined) updateData.scheduledAt = params.scheduledAt;
-    if (params.label !== undefined) updateData.label = params.label;
-    if (params.joinUrl !== undefined) updateData.joinUrl = params.joinUrl;
-
-    await prisma.slpMeetingSessionZoom.update({
-      where: { id: params.zoomId },
-      data: updateData,
-    });
-
-    await prisma.slpMeetingSessionHistory.create({
-      data: {
-        sessionId: current.sessionId,
-        changedByStaffId: user.id,
-        changeType: "field_edit",
-        fieldName: "zoom_updated",
-        oldValue: JSON.stringify({
-          scheduledAt: current.scheduledAt,
-          label: current.label,
-        }),
-        newValue: JSON.stringify(updateData),
-        reason: params.reason,
-      },
-    });
-
-    revalidatePath(`/slp/companies/${current.session.companyRecordId}`);
-    return ok({ zoomId: params.zoomId });
-  } catch (e) {
-    return err(e instanceof Error ? e.message : "Zoom編集に失敗しました");
-  }
-}
-
-/**
- * 追加Zoom論理削除
- */
-export async function deleteSessionZoom(params: {
-  zoomId: number;
-  reason: string;
-}): Promise<ActionResult<{ zoomId: number }>> {
-  try {
-    const user = await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
-
-    if (!params.reason.trim()) {
-      return err("削除理由の記載は必須です");
-    }
-
-    const current = await prisma.slpMeetingSessionZoom.findUnique({
-      where: { id: params.zoomId },
-      include: { session: { select: { id: true, companyRecordId: true } } },
-    });
-    if (!current) return err("Zoom記録が見つかりません");
-
-    await prisma.slpMeetingSessionZoom.update({
-      where: { id: params.zoomId },
-      data: { deletedAt: new Date() },
-    });
-
-    await prisma.slpMeetingSessionHistory.create({
-      data: {
-        sessionId: current.sessionId,
-        changedByStaffId: user.id,
-        changeType: "field_edit",
-        fieldName: "zoom_deleted",
-        oldValue: String(params.zoomId),
-        reason: params.reason,
-      },
-    });
-
-    revalidatePath(`/slp/companies/${current.session.companyRecordId}`);
-    return ok({ zoomId: params.zoomId });
-  } catch (e) {
-    return err(e instanceof Error ? e.message : "Zoom削除に失敗しました");
-  }
-}
 
 /**
  * 次の打ち合わせ番号をプレビュー（UI表示用）

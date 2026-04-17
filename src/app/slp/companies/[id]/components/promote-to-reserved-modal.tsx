@@ -70,7 +70,8 @@ export function PromoteToReservedModal({
     if (!canSubmit) return;
     setSubmitting(true);
     try {
-      const scheduledDate = new Date(scheduledAt);
+      // DateTimePicker の値 "YYYY-MM-DDTHH:mm" は JST として解釈（タイムゾーン明示）
+      const scheduledDate = new Date(`${scheduledAt}:00+09:00`);
       if (isNaN(scheduledDate.getTime())) {
         toast.error("日時が不正です");
         return;

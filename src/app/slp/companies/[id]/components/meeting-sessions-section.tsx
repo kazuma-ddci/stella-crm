@@ -78,12 +78,19 @@ export async function MeetingSessionsSection({
       include: {
         assignedStaff: { select: { name: true } },
         createdByStaff: { select: { name: true } },
-        zoomRecords: {
+        // 新設計: Zoom情報は ContactHistory 配下の ZoomRecording に集約
+        contactHistories: {
           where: { deletedAt: null },
-          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+          orderBy: { createdAt: "asc" },
+          take: 1,
           include: {
-            hostStaff: { select: { name: true } },
-            recordings: { select: { id: true } },
+            zoomRecordings: {
+              where: { deletedAt: null },
+              orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+              include: {
+                hostStaff: { select: { name: true } },
+              },
+            },
           },
         },
         _count: {
@@ -147,7 +154,8 @@ export async function MeetingSessionsSection({
   const consultation: SessionSummaryForUI[] = [];
 
   for (const s of sessions) {
-    const zooms: SessionZoomForUI[] = s.zoomRecords.map((z) => ({
+    const recordings = s.contactHistories[0]?.zoomRecordings ?? [];
+    const zooms: SessionZoomForUI[] = recordings.map((z) => ({
       id: z.id,
       zoomMeetingId: z.zoomMeetingId.toString(),
       joinUrl: z.joinUrl,
@@ -156,9 +164,13 @@ export async function MeetingSessionsSection({
       isPrimary: z.isPrimary,
       label: z.label,
       hostStaffName: z.hostStaff?.name ?? null,
-      hasRecording: z.recordings.length > 0,
-      zoomError: z.zoomError ?? null,
-      zoomErrorAt: z.zoomErrorAt?.toISOString() ?? null,
+      hasRecording:
+        z.state === "完了" ||
+        !!z.aiCompanionSummary ||
+        !!z.transcriptText ||
+        !!z.mp4Path,
+      zoomError: z.zoomApiError ?? null,
+      zoomErrorAt: z.zoomApiErrorAt?.toISOString() ?? null,
     }));
     const summary: SessionSummaryForUI = {
       id: s.id,

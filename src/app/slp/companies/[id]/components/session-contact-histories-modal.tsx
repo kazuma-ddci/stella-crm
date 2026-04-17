@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -8,15 +8,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Loader2, ExternalLink } from "lucide-react";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FileDisplay } from "@/components/multi-file-upload";
 import { getSlpContactHistoriesBySession } from "@/app/slp/contact-histories/actions";
 
 type ContactHistoryRow = Awaited<
@@ -39,7 +39,8 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   sessionId: number;
-  titleLabel: string; // 「初回 概要案内」等
+  titleLabel: string;
+  staffOptions: { id: number; name: string }[];
 };
 
 export function SessionContactHistoriesModal({
@@ -47,19 +48,24 @@ export function SessionContactHistoriesModal({
   onOpenChange,
   sessionId,
   titleLabel,
+  staffOptions,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [histories, setHistories] = useState<ContactHistoryRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string>("");
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setSelectedId("");
     getSlpContactHistoriesBySession(sessionId)
       .then((rows) => {
-        if (!cancelled) setHistories(rows);
+        if (cancelled) return;
+        setHistories(rows);
+        if (rows.length > 0) setSelectedId(String(rows[0].id));
       })
       .catch((e) => {
         if (!cancelled)
@@ -73,91 +79,158 @@ export function SessionContactHistoriesModal({
     };
   }, [open, sessionId]);
 
+  const current = useMemo(
+    () => histories.find((h) => String(h.id) === selectedId) ?? null,
+    [histories, selectedId]
+  );
+
+  const staffNameMap = useMemo(() => {
+    const m = new Map<string, string>();
+    staffOptions.forEach((s) => m.set(String(s.id), s.name));
+    return m;
+  }, [staffOptions]);
+
+  const assignedNames = (csv: string | null): string => {
+    if (!csv) return "—";
+    return csv
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .map((id) => staffNameMap.get(id) ?? `#${id}`)
+      .join("、");
+  };
+
+  const customerTypeNames = (h: ContactHistoryRow): string =>
+    (h.customerTypes ?? [])
+      .map((ct) => ct.name)
+      .filter(Boolean)
+      .join("、") || "—";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl">
-        <DialogHeader>
-          <DialogTitle>
-            {titleLabel} の接触履歴
-          </DialogTitle>
+      <DialogContent
+        size="fullwidth"
+        className="sm:!max-w-[1100px] max-h-[92vh] overflow-hidden flex flex-col"
+      >
+        <DialogHeader className="shrink-0">
+          <DialogTitle>{titleLabel} の接触履歴</DialogTitle>
         </DialogHeader>
 
-        {loading && (
-          <div className="flex items-center justify-center py-6 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            読み込み中...
-          </div>
-        )}
-
-        {error && (
-          <div className="text-sm text-red-600 py-2">{error}</div>
-        )}
-
-        {!loading && !error && histories.length === 0 && (
-          <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-            この打ち合わせに紐づく接触履歴はまだありません。
-            <div className="mt-2 text-xs">
-              ※ Zoom議事録が自動取得されると、この打ち合わせに自動で紐づけされます。
-            </div>
-          </div>
-        )}
-
-        {!loading && !error && histories.length > 0 && (
-          <div className="max-h-[60vh] overflow-y-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[140px] whitespace-nowrap">接触日時</TableHead>
-                  <TableHead className="w-[90px] whitespace-nowrap">接触方法</TableHead>
-                  <TableHead className="w-[90px] whitespace-nowrap">接触種別</TableHead>
-                  <TableHead className="min-w-[220px]">議事録（先頭抜粋）</TableHead>
-                  <TableHead className="w-[60px] text-right">詳細</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+        {/* プルダウン（複数ある場合） */}
+        {histories.length > 1 && (
+          <div className="flex items-center gap-2 pb-2 shrink-0">
+            <span className="text-sm text-muted-foreground whitespace-nowrap">
+              履歴を切り替え:
+            </span>
+            <Select value={selectedId} onValueChange={setSelectedId}>
+              <SelectTrigger className="w-[360px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
                 {histories.map((h) => (
-                  <TableRow key={h.id}>
-                    <TableCell className="whitespace-nowrap text-xs">
-                      {formatJstDateTime(h.contactDate)}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {h.contactMethodName ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {h.contactCategoryName ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <div className="line-clamp-2 whitespace-pre-wrap">
-                        {h.meetingMinutes?.slice(0, 160) ?? "—"}
-                        {h.meetingMinutes && h.meetingMinutes.length > 160 ? "…" : ""}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        asChild
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-2"
-                      >
-                        <a
-                          href={`/slp/records/contact-histories?highlight=${h.id}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="接触履歴一覧で詳細を見る"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </a>
-                      </Button>
-                    </TableCell>
-                  </TableRow>
+                  <SelectItem key={h.id} value={String(h.id)}>
+                    {formatJstDateTime(h.contactDate)} /{" "}
+                    {h.contactMethodName ?? "—"} / {h.contactCategoryName ?? "—"}
+                  </SelectItem>
                 ))}
-              </TableBody>
-            </Table>
+              </SelectContent>
+            </Select>
+            <span className="text-xs text-muted-foreground ml-auto">
+              全 {histories.length} 件
+            </span>
           </div>
         )}
 
-        <div className="text-[11px] text-muted-foreground pt-2 border-t">
-          編集は「接触履歴」タブから行ってください。
+        {/* 本文 */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {loading && (
+            <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              読み込み中...
+            </div>
+          )}
+
+          {error && (
+            <div className="text-sm text-red-600 py-2">{error}</div>
+          )}
+
+          {!loading && !error && histories.length === 0 && (
+            <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+              この打ち合わせに紐づく接触履歴はまだありません。
+              <div className="mt-2 text-xs">
+                ※ Zoom議事録が自動取得されると、この打ち合わせに自動で紐づけされます。
+              </div>
+            </div>
+          )}
+
+          {!loading && !error && current && (
+            <div className="space-y-3 border rounded-lg p-4 bg-muted/30">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">接触日時:</span>
+                  <span className="ml-2 font-medium">
+                    {formatJstDateTime(current.contactDate)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">接触方法:</span>
+                  <span className="ml-2">{current.contactMethodName ?? "—"}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">プロジェクト・顧客種別:</span>
+                  <span className="ml-2">{customerTypeNames(current)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">接触種別:</span>
+                  <span className="ml-2">{current.contactCategoryName ?? "—"}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">担当者:</span>
+                  <span className="ml-2">{assignedNames(current.assignedTo)}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">先方参加者:</span>
+                  <span className="ml-2">
+                    {current.customerParticipants ?? "—"}
+                  </span>
+                </div>
+              </div>
+
+              {current.meetingMinutes && (
+                <div className="text-sm">
+                  <div className="text-muted-foreground mb-1">議事録:</div>
+                  <pre className="whitespace-pre-wrap bg-white border rounded p-3 text-sm leading-relaxed font-[inherit]">
+                    {current.meetingMinutes}
+                  </pre>
+                </div>
+              )}
+
+              {current.note && (
+                <div className="text-sm">
+                  <div className="text-muted-foreground mb-1">備考:</div>
+                  <pre className="whitespace-pre-wrap bg-white border rounded p-3 text-sm leading-relaxed font-[inherit]">
+                    {current.note}
+                  </pre>
+                </div>
+              )}
+
+              {current.files && current.files.length > 0 && (
+                <div className="text-sm">
+                  <div className="text-muted-foreground mb-1">添付ファイル:</div>
+                  <FileDisplay files={current.files} />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between pt-3 border-t shrink-0">
+          <div className="text-[11px] text-muted-foreground">
+            編集は「接触履歴」タブから行ってください。
+          </div>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+            閉じる
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
