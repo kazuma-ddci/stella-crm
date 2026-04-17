@@ -15,10 +15,13 @@ function toDateString(d: Date | null | undefined): string {
 
 type Props = {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ from?: string }>;
 };
 
-export default async function SlpAgencyDetailPage({ params }: Props) {
+export default async function SlpAgencyDetailPage({ params, searchParams }: Props) {
   const { id: idStr } = await params;
+  const sp = searchParams ? await searchParams : {};
+  const cameFromParent = sp.from === "parent";
   const id = parseInt(idStr, 10);
   if (isNaN(id)) notFound();
 
@@ -140,23 +143,24 @@ export default async function SlpAgencyDetailPage({ params }: Props) {
   ]);
 
   return (
-    <>
-      <AgencyDetail
-        agency={data}
-        lineFriendOptions={lineFriendOptions}
-        contractStatusOptions={contractStatusOptions}
-      />
-      <SlpAgencyContactHistorySection
-        agencyId={agency.id}
-        agencyName={agency.name}
-        contactHistories={agencyContactHistories}
-        contactMethodOptions={contactMasters.contactMethodOptions}
-        staffOptions={contactMasters.staffOptions}
-        customerTypes={contactMasters.customerTypes}
-        staffByProject={contactMasters.staffByProject}
-        contactCategories={contactMasters.contactCategories}
-        requiredCustomerTypeId={contactMasters.slpAgencyCustomerTypeId}
-      />
-    </>
+    <AgencyDetail
+      agency={data}
+      lineFriendOptions={lineFriendOptions}
+      contractStatusOptions={contractStatusOptions}
+      cameFromParent={cameFromParent}
+      contactHistoriesSlot={
+        <SlpAgencyContactHistorySection
+          agencyId={agency.id}
+          agencyName={agency.name}
+          contactHistories={agencyContactHistories}
+          contactMethodOptions={contactMasters.contactMethodOptions}
+          staffOptions={contactMasters.staffOptions}
+          customerTypes={contactMasters.customerTypes}
+          staffByProject={contactMasters.staffByProject}
+          contactCategories={contactMasters.contactCategories}
+          requiredCustomerTypeId={contactMasters.slpAgencyCustomerTypeId}
+        />
+      }
+    />
   );
 }

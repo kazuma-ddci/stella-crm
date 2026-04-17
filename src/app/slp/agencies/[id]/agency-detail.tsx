@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -108,14 +109,19 @@ type Props = {
   agency: AgencyData;
   lineFriendOptions: { id: number; label: string }[];
   contractStatusOptions: { id: number; name: string }[];
+  cameFromParent?: boolean;
+  contactHistoriesSlot?: React.ReactNode;
 };
 
 export function AgencyDetail({
   agency,
   lineFriendOptions,
   contractStatusOptions,
+  cameFromParent = false,
+  contactHistoriesSlot,
 }: Props) {
   const router = useRouter();
+  const [tab, setTab] = useState("basic");
 
   // 基本情報フォーム
   const [name, setName] = useState(agency.name);
@@ -310,7 +316,7 @@ export function AgencyDetail({
         parentId: agency.id,
       });
       setChildDialogOpen(false);
-      router.push(`/slp/agencies/${child.id}`);
+      router.push(`/slp/agencies/${child.id}?from=parent`);
     } finally {
       setCreatingChild(false);
     }
@@ -349,7 +355,13 @@ export function AgencyDetail({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" asChild>
-            <Link href={isChild ? `/slp/agencies/${agency.parentId}` : "/slp/agencies"}>
+            <Link
+              href={
+                isChild && cameFromParent
+                  ? `/slp/agencies/${agency.parentId}`
+                  : "/slp/agencies"
+              }
+            >
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
@@ -387,7 +399,17 @@ export function AgencyDetail({
         </div>
       </div>
 
-      {/* 基本情報 */}
+      {/* タブ */}
+      <Tabs value={tab} onValueChange={setTab} className="space-y-4">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="basic">基本情報</TabsTrigger>
+          <TabsTrigger value="contacts">担当者</TabsTrigger>
+          <TabsTrigger value="contact-histories">接触履歴</TabsTrigger>
+          <TabsTrigger value="children">子代理店</TabsTrigger>
+        </TabsList>
+
+        {/* 基本情報タブ */}
+        <TabsContent value="basic">
       <Card>
         <CardHeader>
           <CardTitle>基本情報</CardTitle>
@@ -558,8 +580,10 @@ export function AgencyDetail({
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
 
-      {/* 担当者管理 */}
+        {/* 担当者タブ */}
+        <TabsContent value="contacts">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>担当者</CardTitle>
@@ -637,8 +661,15 @@ export function AgencyDetail({
           )}
         </CardContent>
       </Card>
+        </TabsContent>
 
-      {/* 子代理店 */}
+        {/* 接触履歴タブ */}
+        <TabsContent value="contact-histories">
+          {contactHistoriesSlot}
+        </TabsContent>
+
+        {/* 子代理店タブ */}
+        <TabsContent value="children">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>子代理店</CardTitle>
@@ -662,7 +693,7 @@ export function AgencyDetail({
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <Link
-                        href={`/slp/agencies/${child.id}`}
+                        href={`/slp/agencies/${child.id}?from=parent`}
                         className="text-blue-600 hover:underline font-medium"
                       >
                         ID {child.id}: {child.name}
@@ -688,7 +719,9 @@ export function AgencyDetail({
                   </div>
                   <div className="flex items-center gap-1 ml-2">
                     <Button size="sm" variant="outline" asChild>
-                      <Link href={`/slp/agencies/${child.id}`}>編集</Link>
+                      <Link href={`/slp/agencies/${child.id}?from=parent`}>
+                        編集
+                      </Link>
                     </Button>
                     <Button
                       size="icon"
@@ -705,6 +738,8 @@ export function AgencyDetail({
           )}
         </CardContent>
       </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* 担当者ダイアログ */}
       <Dialog open={contactDialogOpen} onOpenChange={setContactDialogOpen}>
