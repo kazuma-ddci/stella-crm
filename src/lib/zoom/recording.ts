@@ -65,6 +65,8 @@ export type DownloadedRecording = {
 export async function downloadZoomRecordingFiles(params: {
   hostStaffId: number;
   contactHistoryId: number;
+  /** Recording ID（1つの接触履歴に複数Recording紐付き得るので、ID毎のサブディレクトリに保存する） */
+  recordingId: number;
   recording: ZoomRecordingPayload;
   /** 既にDL済みのファイルはスキップ（再実行時のため） */
   skipMp4?: boolean;
@@ -75,10 +77,13 @@ export async function downloadZoomRecordingFiles(params: {
 
   const now = new Date();
   const yyyyMm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  // 1接触履歴に複数Recording紐付くケースに備えて Recording ID サブディレクトリを追加し
+  // ファイルパス衝突（同名で別Recordingの録画が上書きされる事故）を防止する
   const relDir = path.posix.join(
     STORAGE_ROOT_REL,
     yyyyMm,
-    String(params.contactHistoryId)
+    String(params.contactHistoryId),
+    `rec_${params.recordingId}`
   );
   const absDir = path.join(process.cwd(), "public", relDir);
   await fs.mkdir(absDir, { recursive: true });

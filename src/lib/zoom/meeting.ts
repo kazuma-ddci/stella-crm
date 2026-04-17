@@ -33,9 +33,36 @@ export type ZoomMeetingCreateResponse = {
 export type CreateMeetingInput = {
   hostStaffId: number;
   topic: string;
-  startAtJst: Date; // 開始日時（JST想定・UTCに変換して送信）
+  startAtJst: Date; // 開始日時（UTC instant、JST wall-clockでZoomに送信される）
   durationMinutes?: number; // デフォルト60
 };
+
+/**
+ * Date instant を "YYYY-MM-DDTHH:mm:ss"（Zなし JST wall-clock）形式に変換
+ *
+ * Zoom API 仕様:
+ *   - start_time が "Z" 付き → UTC として処理、timezone 無視
+ *   - start_time が "Z" なし → timezone field で解釈
+ * そのため `"Asia/Tokyo"` の wall-clock を Zなし形式で送ると、Zoom管理画面で
+ * JSTの壁時計時刻として正しく表示される。
+ *
+ * 実装: "sv-SE" ロケールは常に "YYYY-MM-DD HH:mm:ss" を返し、深夜0時も
+ * "24:00" ではなく "00:00" として扱うため、安定して JST 壁時計文字列を生成できる。
+ */
+function toJstWallClockIso(d: Date): string {
+  const jstStr = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(d);
+  // sv-SE の戻り値 "2026-04-23 10:00:00" → ISO風 "2026-04-23T10:00:00"
+  return jstStr.replace(" ", "T");
+}
 
 /**
  * Zoom会議を作成。hostStaffIdのZoomアカウントで発行する。
@@ -45,11 +72,12 @@ export async function createZoomMeeting(
   input: CreateMeetingInput
 ): Promise<ZoomMeetingCreateResponse> {
   const ctx = await requireStaffZoomContext(input.hostStaffId);
-  const startTimeIso = input.startAtJst.toISOString(); // UTC ISO
+  // JST wall-clock（"Z"なし）+ timezone:Asia/Tokyo で送信 → Zoomが JST として処理
+  const startTimeStr = toJstWallClockIso(input.startAtJst);
   const body = {
     topic: input.topic,
     type: 2, // scheduled
-    start_time: startTimeIso,
+    start_time: startTimeStr,
     timezone: "Asia/Tokyo",
     duration: input.durationMinutes ?? 60,
     settings: {
@@ -92,7 +120,8 @@ export async function updateZoomMeeting(
   const body: Record<string, unknown> = {};
   if (input.topic !== undefined) body.topic = input.topic;
   if (input.startAtJst) {
-    body.start_time = input.startAtJst.toISOString();
+    // JST wall-clock（"Z"なし）+ timezone:Asia/Tokyo で送信
+    body.start_time = toJstWallClockIso(input.startAtJst);
     body.timezone = "Asia/Tokyo";
   }
   if (input.durationMinutes !== undefined) body.duration = input.durationMinutes;
