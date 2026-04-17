@@ -53,10 +53,11 @@ export default async function SlpReserveBriefingPage({ searchParams }: Props) {
             recordId: c.recordId,
             companyName: c.companyName,
             businessType: c.businessType,
-            briefingStatus: c.briefingStatus,
-            briefingDate: c.briefingDate?.toISOString() ?? null,
-            briefingHasReservation: c.briefingHasReservation,
-            briefingCompleted: c.briefingCompleted,
+            briefingHasActiveReservation: c.briefingHasActiveReservation,
+            briefingCompletedOnce: c.briefingCompletedOnce,
+            briefingActiveScheduledAt:
+              c.briefingActiveScheduledAt?.toISOString() ?? null,
+            briefingActiveSource: c.briefingActiveSource,
           }))}
           bookingHistoryUrl={bookingHistoryUrl}
         />

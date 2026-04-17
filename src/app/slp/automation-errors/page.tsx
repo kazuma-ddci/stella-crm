@@ -33,18 +33,12 @@ function sourceLabel(source: string): string {
     "slp-briefing-cancel-form9": "概要案内キャンセル通知（form9）",
     "slp-briefing-complete-form10": "概要案内完了 紹介者通知（form10）",
     "slp-briefing-complete-form11": "概要案内完了 お礼メッセージ（form11）",
-    // 概要案内タグ
-    "slp-tag-briefing-complete-add": "概要案内完了タグ付与",
-    "slp-tag-briefing-complete-remove": "概要案内完了タグ削除",
     // 導入希望商談Webhook
     "slp-consultation-reservation": "導入希望商談予約 Webhook",
     "slp-consultation-change": "導入希望商談変更 Webhook",
     "slp-consultation-cancel": "導入希望商談キャンセル Webhook",
     // 導入希望商談 完了処理
     "slp-consultation-complete-form13": "導入希望商談完了 お礼メッセージ（form13）",
-    // 導入希望商談タグ
-    "slp-tag-consultation-complete-add": "導入希望商談完了タグ付与",
-    "slp-tag-consultation-complete-remove": "導入希望商談完了タグ削除",
     // 契約書リマインド
     "cron/remind-slp-members/form12": "契約書リマインドLINE（form12）",
     "members/remind/form12": "契約書リマインドLINE 手動（form12）",

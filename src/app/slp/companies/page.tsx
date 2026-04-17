@@ -48,12 +48,6 @@ export default async function SlpCompaniesPage() {
       id: true,
       companyName: true,
       businessType: true,
-      briefingStatus: true,
-      briefingDate: true,
-      briefingStaffId: true,
-      consultationStatus: true,
-      consultationDate: true,
-      consultationStaffId: true,
       salesStaff: { select: { id: true, name: true } },
       status1: { select: { id: true, name: true } },
       status2: { select: { id: true, name: true } },
@@ -78,9 +72,57 @@ export default async function SlpCompaniesPage() {
         },
         orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
       },
+      // 商談セッション（アクティブなもののみ、一覧表示用の最新ラウンド）
+      meetingSessions: {
+        where: {
+          deletedAt: null,
+          status: { in: ["未予約", "予約中"] },
+        },
+        orderBy: [{ roundNumber: "desc" }, { createdAt: "desc" }],
+        select: {
+          category: true,
+          status: true,
+          scheduledAt: true,
+          assignedStaffId: true,
+        },
+      },
     },
     orderBy: { id: "asc" },
   });
+
+  // 商談セッションのアラート集計（飛び・重複予約）
+  const recordIds = records.map((r) => r.id);
+  const [noShowGroups, activeGroups] = await Promise.all([
+    prisma.slpMeetingSession.groupBy({
+      by: ["companyRecordId"],
+      where: {
+        companyRecordId: { in: recordIds },
+        status: "飛び",
+        deletedAt: null,
+      },
+      _count: { _all: true },
+    }),
+    prisma.slpMeetingSession.groupBy({
+      by: ["companyRecordId", "category"],
+      where: {
+        companyRecordId: { in: recordIds },
+        status: { in: ["未予約", "予約中"] },
+        deletedAt: null,
+      },
+      _count: { _all: true },
+    }),
+  ]);
+  const noShowCountMap = new Map<number, number>();
+  for (const g of noShowGroups) noShowCountMap.set(g.companyRecordId, g._count._all);
+  const activeBriefingMap = new Map<number, number>();
+  const activeConsultationMap = new Map<number, number>();
+  for (const g of activeGroups) {
+    if (g.category === "briefing") {
+      activeBriefingMap.set(g.companyRecordId, g._count._all);
+    } else if (g.category === "consultation") {
+      activeConsultationMap.set(g.companyRecordId, g._count._all);
+    }
+  }
 
   // 解決ロジックに渡す形に整形
   const companiesForResolution = records.map((r) => ({
@@ -110,33 +152,42 @@ export default async function SlpCompaniesPage() {
       ? `${primaryContact.lineFriend.id} ${primaryContact.lineFriend.snsname ?? ""}`.trim()
       : null;
 
-    // 商談バッジ用の事前計算
-    const briefingDateOnly = toJstDate(r.briefingDate);
-    const consultationDateOnly = toJstDate(r.consultationDate);
-    // 今日商談あり (概要案内 or 導入希望商談 のどちらか・種別不問)
+    // アクティブセッションからバッジ用の事前計算
+    const activeBriefingSession = r.meetingSessions.find(
+      (s) => s.category === "briefing"
+    );
+    const activeConsultationSession = r.meetingSessions.find(
+      (s) => s.category === "consultation"
+    );
+    const briefingDateOnly = toJstDate(
+      activeBriefingSession?.scheduledAt ?? null
+    );
+    const consultationDateOnly = toJstDate(
+      activeConsultationSession?.scheduledAt ?? null
+    );
+    // 「予約中」のアクティブセッションで今日が商談日
     const briefingIsToday =
-      briefingDateOnly === todayJst && r.briefingStatus !== "完了" && r.briefingStatus !== "キャンセル";
+      briefingDateOnly === todayJst && activeBriefingSession?.status === "予約中";
     const consultationIsToday =
       consultationDateOnly === todayJst &&
-      r.consultationStatus !== "完了" &&
-      r.consultationStatus !== "キャンセル";
+      activeConsultationSession?.status === "予約中";
     const hasMeetingToday = briefingIsToday || consultationIsToday;
-    // 自分が今日の担当か（current staffId === briefing/consultation staffId）
+    // 自分が今日の担当か
     const assignedToCurrentUserToday =
       currentStaffIdNum !== null &&
-      ((briefingIsToday && r.briefingStaffId === currentStaffIdNum) ||
-        (consultationIsToday && r.consultationStaffId === currentStaffIdNum));
-    // 過去の商談日が「完了」になっていない（昨日以前）
+      ((briefingIsToday &&
+        activeBriefingSession?.assignedStaffId === currentStaffIdNum) ||
+        (consultationIsToday &&
+          activeConsultationSession?.assignedStaffId === currentStaffIdNum));
+    // 過去の商談日が「予約中」のまま未完了（昨日以前）
     const hasOverdueBriefing =
       briefingDateOnly !== null &&
       briefingDateOnly < todayJst &&
-      r.briefingStatus !== "完了" &&
-      r.briefingStatus !== "キャンセル";
+      activeBriefingSession?.status === "予約中";
     const hasOverdueConsultation =
       consultationDateOnly !== null &&
       consultationDateOnly < todayJst &&
-      r.consultationStatus !== "完了" &&
-      r.consultationStatus !== "キャンセル";
+      activeConsultationSession?.status === "予約中";
     const hasOverdueUnfinished = hasOverdueBriefing || hasOverdueConsultation;
 
     return {
@@ -145,11 +196,13 @@ export default async function SlpCompaniesPage() {
       companyName: r.companyName,
       businessType: r.businessType,
       primaryContactLineLabel,
-      briefingStatus: r.briefingStatus,
-      briefingDate: toJstDisplay(r.briefingDate),
+      briefingStatus: activeBriefingSession?.status ?? null,
+      briefingDate: toJstDisplay(activeBriefingSession?.scheduledAt ?? null),
       briefingDateOnly,
-      consultationStatus: r.consultationStatus,
-      consultationDate: toJstDisplay(r.consultationDate),
+      consultationStatus: activeConsultationSession?.status ?? null,
+      consultationDate: toJstDisplay(
+        activeConsultationSession?.scheduledAt ?? null
+      ),
       consultationDateOnly,
       hasMeetingToday,
       assignedToCurrentUserToday,
@@ -177,6 +230,10 @@ export default async function SlpCompaniesPage() {
         })) ?? [],
       multipleAgencyWarnings:
         resolution?.aggregated.multipleAgencyWarnings ?? [],
+      // 商談セッションアラート
+      noShowCount: noShowCountMap.get(r.id) ?? 0,
+      activeBriefingCount: activeBriefingMap.get(r.id) ?? 0,
+      activeConsultationCount: activeConsultationMap.get(r.id) ?? 0,
     };
   });
 
@@ -191,7 +248,12 @@ export default async function SlpCompaniesPage() {
             companyPhone: true,
             prefecture: true,
             address: true,
-            briefingStatus: true,
+            meetingSessions: {
+              where: { deletedAt: null, category: "briefing" },
+              orderBy: [{ roundNumber: "desc" }, { createdAt: "desc" }],
+              select: { status: true },
+              take: 1,
+            },
           },
         },
         recordB: {
@@ -201,7 +263,12 @@ export default async function SlpCompaniesPage() {
             companyPhone: true,
             prefecture: true,
             address: true,
-            briefingStatus: true,
+            meetingSessions: {
+              where: { deletedAt: null, category: "briefing" },
+              orderBy: [{ roundNumber: "desc" }, { createdAt: "desc" }],
+              select: { status: true },
+              take: 1,
+            },
           },
         },
       },
@@ -219,7 +286,7 @@ export default async function SlpCompaniesPage() {
       address: [c.recordA.prefecture, c.recordA.address]
         .filter(Boolean)
         .join(""),
-      briefingStatus: c.recordA.briefingStatus,
+      briefingStatus: c.recordA.meetingSessions[0]?.status ?? null,
     },
     recordB: {
       id: c.recordB.id,
@@ -228,7 +295,7 @@ export default async function SlpCompaniesPage() {
       address: [c.recordB.prefecture, c.recordB.address]
         .filter(Boolean)
         .join(""),
-      briefingStatus: c.recordB.briefingStatus,
+      briefingStatus: c.recordB.meetingSessions[0]?.status ?? null,
     },
   }));
 

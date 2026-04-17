@@ -414,14 +414,15 @@ const checkDefinitions: CheckDefinition[] = [
   // SLP Zoom連携
   // ========================================
   {
-    id: "slp-zoom-message-templates",
+    id: "slp-notification-templates",
     category: "SLP",
-    name: "Zoom通知メッセージテンプレ",
-    description: "予約確定・変更・リマインドの文面（9〜10個の初期セットが投入済み）",
-    required: 9,
-    href: "/slp/settings/zoom-templates",
+    name: "通知テンプレート設定",
+    description:
+      "予約確定・変更・キャンセル・完了お礼・リマインドの文面（お客様/紹介者向け、1回目/2回目以降、プロライン/手動セット別）",
+    required: 40,
+    href: "/slp/settings/notification-templates",
     countFn: () =>
-      prisma.slpZoomMessageTemplate.count({ where: { isActive: true } }),
+      prisma.slpNotificationTemplate.count({ where: { isActive: true } }),
   },
   {
     id: "slp-zoom-ai-prompts",

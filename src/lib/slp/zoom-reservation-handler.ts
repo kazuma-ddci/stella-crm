@@ -5,120 +5,69 @@ import {
   deleteZoomMeeting,
 } from "@/lib/zoom/meeting";
 import { logAutomationError } from "@/lib/automation-error";
-import { sendZoomMessageViaProline } from "./zoom-proline-sender";
-import type { ZoomCategory } from "./zoom-proline-sender";
-import { resolveProlineStaffName } from "./proline-staff-name";
+import { sendSessionNotification } from "./slp-session-notification";
+import type { SessionCategory } from "./session-helper";
 
-type RecordFields = {
-  id: number;
-  prolineUid: string | null;
-  companyName: string | null;
-  briefingDate: Date | null;
-  briefingStaffId: number | null;
-  briefingStaff: string | null;
-  briefingZoomMeetingId: bigint | null;
-  briefingZoomHostStaffId: number | null;
-  briefingZoomJoinUrl: string | null;
-  briefingZoomStartUrl: string | null;
-  briefingZoomPassword: string | null;
-  briefingZoomConfirmSentAt: Date | null;
-  consultationDate: Date | null;
-  consultationStaffId: number | null;
-  consultationStaff: string | null;
-  consultationZoomMeetingId: bigint | null;
-  consultationZoomHostStaffId: number | null;
-  consultationZoomJoinUrl: string | null;
-  consultationZoomStartUrl: string | null;
-  consultationZoomPassword: string | null;
-  consultationZoomConfirmSentAt: Date | null;
-};
+type ZoomCategory = SessionCategory;
 
-async function loadRecord(id: number): Promise<RecordFields | null> {
-  const r = await prisma.slpCompanyRecord.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      prolineUid: true,
-      companyName: true,
-      briefingDate: true,
-      briefingStaffId: true,
-      briefingStaff: true,
-      briefingZoomMeetingId: true,
-      briefingZoomHostStaffId: true,
-      briefingZoomJoinUrl: true,
-      briefingZoomStartUrl: true,
-      briefingZoomPassword: true,
-      briefingZoomConfirmSentAt: true,
-      consultationDate: true,
-      consultationStaffId: true,
-      consultationStaff: true,
-      consultationZoomMeetingId: true,
-      consultationZoomHostStaffId: true,
-      consultationZoomJoinUrl: true,
-      consultationZoomStartUrl: true,
-      consultationZoomPassword: true,
-      consultationZoomConfirmSentAt: true,
-    },
-  });
-  return r as RecordFields | null;
-}
-
-
-function categoryCol(category: ZoomCategory) {
-  const prefix = category;
-  return {
-    zoomMeetingIdKey: `${prefix}ZoomMeetingId` as const,
-    zoomJoinUrlKey: `${prefix}ZoomJoinUrl` as const,
-    zoomStartUrlKey: `${prefix}ZoomStartUrl` as const,
-    zoomPasswordKey: `${prefix}ZoomPassword` as const,
-    zoomHostStaffIdKey: `${prefix}ZoomHostStaffId` as const,
-    zoomCreatedAtKey: `${prefix}ZoomCreatedAt` as const,
-    zoomErrorKey: `${prefix}ZoomError` as const,
-    zoomErrorAtKey: `${prefix}ZoomErrorAt` as const,
-    zoomConfirmSentAtKey: `${prefix}ZoomConfirmSentAt` as const,
-    zoomRemindDaySentAtKey: `${prefix}ZoomRemindDaySentAt` as const,
-    zoomRemindHourSentAtKey: `${prefix}ZoomRemindHourSentAt` as const,
-    dateKey: `${prefix}Date` as const,
-    staffIdKey: `${prefix}StaffId` as const,
-  };
-}
+// ============================================
+// セッションベース Zoom 管理関数
+// SlpMeetingSession + SlpMeetingSessionZoom に対して Zoom API を呼び出す
+// ============================================
 
 /**
- * 予約確定/変更/担当者変更時のZoom会議発行フロー。
- * - 担当者・日時が揃っていなければ何もしない（発行不可）
- * - 既存 meeting があり担当者変更 or 日時変更あり → 適切にUPDATE or DELETE+CREATE
- * - 発行成功 → DB更新 + お客様LINEへURL案内送信
- * - 発行失敗 → エラーDB保存 + automation_errors記録
+ * セッションベースでZoom会議を発行/更新する。
+ * - primary Zoom がなければ新規発行
+ * - primary Zoom があり担当者変更 → 削除+新規作成
+ * - primary Zoom があり日時のみ変更 → Zoom API の update
+ * - 発行情報は SlpMeetingSessionZoom の primary レコードに保存
  *
- * category: "briefing" or "consultation"
- * triggerReason: "confirm" | "change" — 送信メッセージ種別決定用
+ * skipCustomerNotification=false の場合、成功時に新通知システム(sendSessionNotification)でLINE通知を送る。
  */
-export async function ensureZoomMeetingForReservation(params: {
-  companyRecordId: number;
-  category: ZoomCategory;
+export async function ensureZoomMeetingForSession(params: {
+  sessionId: number;
   triggerReason: "confirm" | "change";
+  skipCustomerNotification?: boolean;
 }): Promise<void> {
-  const record = await loadRecord(params.companyRecordId);
-  if (!record) return;
-  const cols = categoryCol(params.category);
+  const session = await prisma.slpMeetingSession.findUnique({
+    where: { id: params.sessionId },
+    include: {
+      companyRecord: {
+        select: {
+          id: true,
+          companyName: true,
+          prolineUid: true,
+        },
+      },
+      zoomRecords: {
+        where: { isPrimary: true, deletedAt: null },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+    },
+  });
 
-  const currentStaffId = record[cols.staffIdKey] as number | null;
-  const currentDate = record[cols.dateKey] as Date | null;
-  const currentMeetingId = record[cols.zoomMeetingIdKey] as bigint | null;
-  const currentHostStaffId = record[cols.zoomHostStaffIdKey] as number | null;
+  if (!session) return;
 
-  const topicCompanyName = record.companyName ?? "（企業名未設定）";
-  const categoryJp =
-    params.category === "briefing" ? "概要案内" : "導入希望商談";
+  const category = session.category as ZoomCategory;
+  const categoryJp = category === "briefing" ? "概要案内" : "導入希望商談";
+  const topicCompanyName = session.companyRecord.companyName ?? "（企業名未設定）";
   const topic = `${topicCompanyName}様 ${categoryJp}`;
 
-  // 発行不可条件
-  if (!currentStaffId || !currentDate) {
-    await saveZoomError(
-      params.companyRecordId,
-      params.category,
-      "担当者または日時が未設定のためZoom発行できません"
-    );
+  const staffId = session.assignedStaffId;
+  const date = session.scheduledAt;
+  const primaryZoom = session.zoomRecords[0] ?? null;
+
+  if (!staffId || !date) {
+    if (primaryZoom) {
+      await prisma.slpMeetingSessionZoom.update({
+        where: { id: primaryZoom.id },
+        data: {
+          zoomError: "担当者または日時が未設定のためZoom発行できません",
+          zoomErrorAt: new Date(),
+        },
+      });
+    }
     return;
   }
 
@@ -128,320 +77,229 @@ export async function ensureZoomMeetingForReservation(params: {
     let newStartUrl: string | null = null;
     let newPassword: string | null = null;
 
-    if (!currentMeetingId) {
+    if (!primaryZoom) {
       // 初回発行
       const resp = await createZoomMeeting({
-        hostStaffId: currentStaffId,
+        hostStaffId: staffId,
         topic,
-        startAtJst: currentDate,
+        startAtJst: date,
         durationMinutes: 60,
       });
       newMeetingId = BigInt(resp.id);
       newJoinUrl = resp.join_url;
       newStartUrl = resp.start_url ?? null;
       newPassword = resp.password ?? null;
+
+      await prisma.slpMeetingSessionZoom.create({
+        data: {
+          sessionId: session.id,
+          zoomMeetingId: newMeetingId,
+          joinUrl: newJoinUrl,
+          startUrl: newStartUrl,
+          password: newPassword,
+          hostStaffId: staffId,
+          scheduledAt: date,
+          isPrimary: true,
+        },
+      });
     } else {
-      // 既存meetingあり
-      const hostChanged = currentHostStaffId !== currentStaffId;
+      const hostChanged = primaryZoom.hostStaffId !== staffId;
       if (hostChanged) {
-        // 担当者変更 → 旧Zoomを削除して新Zoomを作成（Zoomはホスト変更APIがないため）
-        if (currentHostStaffId) {
+        // 担当者変更: 旧Zoomを削除して新規作成
+        if (primaryZoom.hostStaffId) {
           try {
             await deleteZoomMeeting({
-              hostStaffId: currentHostStaffId,
-              meetingId: currentMeetingId,
+              hostStaffId: primaryZoom.hostStaffId,
+              meetingId: primaryZoom.zoomMeetingId,
             });
           } catch (err) {
             await logAutomationError({
-              source: "slp-zoom-delete-on-host-change",
+              source: "slp-zoom-session-delete-on-host-change",
               message: "担当者変更時の旧Zoom削除失敗（続行）",
               detail: {
-                companyRecordId: params.companyRecordId,
-                category: params.category,
+                sessionId: session.id,
                 error: err instanceof Error ? err.message : String(err),
               },
             });
           }
         }
         const resp = await createZoomMeeting({
-          hostStaffId: currentStaffId,
+          hostStaffId: staffId,
           topic,
-          startAtJst: currentDate,
+          startAtJst: date,
           durationMinutes: 60,
         });
         newMeetingId = BigInt(resp.id);
         newJoinUrl = resp.join_url;
         newStartUrl = resp.start_url ?? null;
         newPassword = resp.password ?? null;
+
+        // 旧primaryを論理削除して新規primary作成
+        await prisma.slpMeetingSessionZoom.update({
+          where: { id: primaryZoom.id },
+          data: { deletedAt: new Date() },
+        });
+        await prisma.slpMeetingSessionZoom.create({
+          data: {
+            sessionId: session.id,
+            zoomMeetingId: newMeetingId,
+            joinUrl: newJoinUrl,
+            startUrl: newStartUrl,
+            password: newPassword,
+            hostStaffId: staffId,
+            scheduledAt: date,
+            isPrimary: true,
+          },
+        });
       } else {
-        // 日時やタイトルだけの更新 → update API（URL/パスワードは不変）
+        // 日時等だけの更新（Zoom API のupdateで対応）
         await updateZoomMeeting({
-          hostStaffId: currentStaffId,
-          meetingId: currentMeetingId,
+          hostStaffId: staffId,
+          meetingId: primaryZoom.zoomMeetingId,
           topic,
-          startAtJst: currentDate,
+          startAtJst: date,
           durationMinutes: 60,
         });
-        // URL・meetingId・start_url・password は既存値を保持
-        newMeetingId = currentMeetingId;
-        newJoinUrl = (record[cols.zoomJoinUrlKey] as string | null) ?? "";
-        newStartUrl = record[cols.zoomStartUrlKey] as string | null;
-        newPassword = record[cols.zoomPasswordKey] as string | null;
+        newMeetingId = primaryZoom.zoomMeetingId;
+        newJoinUrl = primaryZoom.joinUrl;
+        newStartUrl = primaryZoom.startUrl;
+        newPassword = primaryZoom.password;
+
+        await prisma.slpMeetingSessionZoom.update({
+          where: { id: primaryZoom.id },
+          data: {
+            scheduledAt: date,
+            zoomError: null,
+            zoomErrorAt: null,
+          },
+        });
       }
     }
 
-    // DB更新（update パスでは zoomCreatedAt を触らない・既存値を保つ）
-    const isNewMeeting = !currentMeetingId;
-    const updateData: Record<string, unknown> = {
-      [cols.zoomMeetingIdKey]: newMeetingId,
-      [cols.zoomJoinUrlKey]: newJoinUrl,
-      [cols.zoomStartUrlKey]: newStartUrl,
-      [cols.zoomPasswordKey]: newPassword,
-      [cols.zoomHostStaffIdKey]: currentStaffId,
-      [cols.zoomErrorKey]: null,
-      [cols.zoomErrorAtKey]: null,
-      ...(isNewMeeting ? { [cols.zoomCreatedAtKey]: new Date() } : {}),
-    };
-    await prisma.slpCompanyRecord.update({
-      where: { id: params.companyRecordId },
-      data: updateData,
-    });
-
-    // お客様LINE送信（プロラインUIDがあれば）
-    if (record.prolineUid) {
-      const webhookFallback =
-        params.category === "briefing"
-          ? record.briefingStaff
-          : record.consultationStaff;
-      const staffName = await resolveProlineStaffName({
-        staffId: currentStaffId,
-        webhookFallback,
+    // お客様LINE通知（新システム）
+    if (!params.skipCustomerNotification && session.companyRecord.prolineUid) {
+      const result = await sendSessionNotification({
+        sessionId: session.id,
+        recipient: "customer",
+        trigger: params.triggerReason,
       });
-      const trigger =
-        params.triggerReason === "confirm" ? "confirm" : "change";
-      const sendResult = await sendZoomMessageViaProline({
-        companyRecordId: params.companyRecordId,
-        uid: record.prolineUid,
-        category: params.category,
-        trigger,
-        ctx: {
-          companyName: record.companyName,
-          staffName,
-          dateJst: currentDate,
-          url: newJoinUrl,
-        },
-      });
-      if (sendResult.ok && trigger === "confirm") {
-        await prisma.slpCompanyRecord.update({
-          where: { id: params.companyRecordId },
-          data: {
-            [cols.zoomConfirmSentAtKey]: new Date(),
+      if (result.ok && params.triggerReason === "confirm") {
+        // 送信済みフラグを primary zoom に立てる
+        await prisma.slpMeetingSessionZoom.updateMany({
+          where: {
+            sessionId: session.id,
+            isPrimary: true,
+            deletedAt: null,
           },
+          data: { confirmSentAt: new Date() },
         });
       }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await saveZoomError(params.companyRecordId, params.category, msg);
     await logAutomationError({
-      source: `slp-zoom-${params.category}-${params.triggerReason}`,
+      source: `slp-zoom-session-${category}-${params.triggerReason}`,
       message: `Zoom発行失敗: ${msg}`,
       detail: {
-        companyRecordId: params.companyRecordId,
-        staffId: currentStaffId,
-        date: currentDate?.toISOString(),
+        sessionId: session.id,
+        staffId,
+        date: date.toISOString(),
       },
     });
 
-    // Zoom作成失敗時でもURL未発行用テンプレートで通知を送信
-    if (record.prolineUid && currentStaffId) {
-      const webhookFallback =
-        params.category === "briefing"
-          ? record.briefingStaff
-          : record.consultationStaff;
-      const staffName = await resolveProlineStaffName({
-        staffId: currentStaffId,
-        webhookFallback,
+    // primary Zoom があればエラーを記録（なければ新規作成してエラーだけ持たせる）
+    const primary = await prisma.slpMeetingSessionZoom.findFirst({
+      where: { sessionId: session.id, isPrimary: true, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+    if (primary) {
+      await prisma.slpMeetingSessionZoom.update({
+        where: { id: primary.id },
+        data: {
+          zoomError: msg.slice(0, 2000),
+          zoomErrorAt: new Date(),
+        },
       });
-      const noUrlTrigger =
-        params.triggerReason === "confirm"
-          ? ("confirm_no_url" as const)
-          : ("change_no_url" as const);
-      try {
-        await sendZoomMessageViaProline({
-          companyRecordId: params.companyRecordId,
-          uid: record.prolineUid,
-          category: params.category,
-          trigger: noUrlTrigger,
-          ctx: {
-            companyName: record.companyName,
-            staffName,
-            dateJst: currentDate,
-            url: null,
-          },
-        });
-      } catch (sendErr) {
-        await logAutomationError({
-          source: `slp-zoom-${params.category}-no-url-fallback`,
-          message: `URL未発行通知の送信も失敗`,
-          detail: {
-            companyRecordId: params.companyRecordId,
-            error:
-              sendErr instanceof Error ? sendErr.message : String(sendErr),
-          },
-        });
-      }
     }
   }
 }
 
 /**
- * キャンセル時: 既存Zoom会議を削除してDBをクリア。
+ * セッションの primary Zoom を削除する（キャンセル時）。
+ * Zoom API の delete を試み、成功/失敗に関わらず DB 上は論理削除する。
  */
-export async function cancelZoomMeetingForReservation(params: {
-  companyRecordId: number;
-  category: ZoomCategory;
+export async function cancelZoomMeetingForSession(params: {
+  sessionId: number;
 }): Promise<void> {
-  const record = await loadRecord(params.companyRecordId);
-  if (!record) return;
-  const cols = categoryCol(params.category);
-  const currentMeetingId = record[cols.zoomMeetingIdKey] as bigint | null;
-  const currentHostStaffId = record[cols.zoomHostStaffIdKey] as number | null;
+  const primaryZoom = await prisma.slpMeetingSessionZoom.findFirst({
+    where: {
+      sessionId: params.sessionId,
+      isPrimary: true,
+      deletedAt: null,
+    },
+    orderBy: { createdAt: "desc" },
+  });
 
-  if (currentMeetingId && currentHostStaffId) {
+  if (!primaryZoom) return;
+
+  if (primaryZoom.hostStaffId) {
     try {
       await deleteZoomMeeting({
-        hostStaffId: currentHostStaffId,
-        meetingId: currentMeetingId,
+        hostStaffId: primaryZoom.hostStaffId,
+        meetingId: primaryZoom.zoomMeetingId,
       });
     } catch (err) {
       await logAutomationError({
-        source: `slp-zoom-${params.category}-cancel-delete`,
-        message: "Zoom会議削除失敗（続行・DBは初期化）",
+        source: "slp-zoom-session-cancel-delete",
+        message: "Zoom会議削除失敗（続行・DBは論理削除）",
         detail: {
-          companyRecordId: params.companyRecordId,
+          sessionId: params.sessionId,
           error: err instanceof Error ? err.message : String(err),
         },
       });
     }
   }
 
-  await prisma.slpCompanyRecord.update({
-    where: { id: params.companyRecordId },
-    data: {
-      [cols.zoomMeetingIdKey]: null,
-      [cols.zoomJoinUrlKey]: null,
-      [cols.zoomStartUrlKey]: null,
-      [cols.zoomPasswordKey]: null,
-      [cols.zoomHostStaffIdKey]: null,
-      [cols.zoomCreatedAtKey]: null,
-      [cols.zoomErrorKey]: null,
-      [cols.zoomErrorAtKey]: null,
-      [cols.zoomConfirmSentAtKey]: null,
-      [cols.zoomRemindDaySentAtKey]: null,
-      [cols.zoomRemindHourSentAtKey]: null,
-    },
-  });
-}
-
-async function saveZoomError(
-  companyRecordId: number,
-  category: ZoomCategory,
-  errorMsg: string
-): Promise<void> {
-  const cols = categoryCol(category);
-  await prisma.slpCompanyRecord.update({
-    where: { id: companyRecordId },
-    data: {
-      [cols.zoomErrorKey]: errorMsg.slice(0, 2000),
-      [cols.zoomErrorAtKey]: new Date(),
-    },
+  await prisma.slpMeetingSessionZoom.update({
+    where: { id: primaryZoom.id },
+    data: { deletedAt: new Date() },
   });
 }
 
 /**
- * 商談タブからスタッフが「再発行」ボタンを押した時用（権限チェックは呼び出し側）
- * 既存meetingIdをクリアして強制的に作り直す。
+ * セッションの Zoom を再発行する（UIの「再発行」ボタン用）。
+ * 既存 primary Zoom を削除してから ensureZoomMeetingForSession で新規発行。
+ * 送信は行わない（スタッフが手動でURLを送付する運用想定）。
  */
-export async function regenerateZoomForReservation(params: {
-  companyRecordId: number;
-  category: ZoomCategory;
+export async function regenerateZoomForSession(params: {
+  sessionId: number;
 }): Promise<{ ok: boolean; url: string | null; errorMessage?: string }> {
-  const cols = categoryCol(params.category);
-  // 既存のmeetingId/hostをクリア（→ 初回発行として扱う）
-  // ただし既存Zoomがあるなら先に削除を試みる
-  const record = await loadRecord(params.companyRecordId);
-  if (!record) return { ok: false, url: null, errorMessage: "レコードなし" };
-  const currentMeetingId = record[cols.zoomMeetingIdKey] as bigint | null;
-  const currentHostStaffId = record[cols.zoomHostStaffIdKey] as number | null;
-  if (currentMeetingId && currentHostStaffId) {
-    try {
-      await deleteZoomMeeting({
-        hostStaffId: currentHostStaffId,
-        meetingId: currentMeetingId,
-      });
-    } catch {
-      // ignore
-    }
-  }
-  await prisma.slpCompanyRecord.update({
-    where: { id: params.companyRecordId },
-    data: {
-      [cols.zoomMeetingIdKey]: null,
-      [cols.zoomJoinUrlKey]: null,
-      [cols.zoomStartUrlKey]: null,
-      [cols.zoomPasswordKey]: null,
-      [cols.zoomHostStaffIdKey]: null,
-      [cols.zoomCreatedAtKey]: null,
-      [cols.zoomErrorKey]: null,
-      [cols.zoomErrorAtKey]: null,
-    },
+  await cancelZoomMeetingForSession({ sessionId: params.sessionId });
+  await ensureZoomMeetingForSession({
+    sessionId: params.sessionId,
+    triggerReason: "change",
+    skipCustomerNotification: true,
   });
 
-  // 再作成（送信まで走らせない — 再発行時はスタッフが手動で送付する仕様）
-  try {
-    const record2 = await loadRecord(params.companyRecordId);
-    if (!record2) return { ok: false, url: null, errorMessage: "レコードなし" };
-    const staffId = record2[cols.staffIdKey] as number | null;
-    const date = record2[cols.dateKey] as Date | null;
-    if (!staffId || !date) {
-      return {
-        ok: false,
-        url: null,
-        errorMessage: "担当者または日時が未設定です",
-      };
-    }
-    const topic = `${record2.companyName ?? "（企業名未設定）"}様 ${
-      params.category === "briefing" ? "概要案内" : "導入希望商談"
-    }`;
-    const resp = await createZoomMeeting({
-      hostStaffId: staffId,
-      topic,
-      startAtJst: date,
-      durationMinutes: 60,
-    });
+  const newPrimary = await prisma.slpMeetingSessionZoom.findFirst({
+    where: {
+      sessionId: params.sessionId,
+      isPrimary: true,
+      deletedAt: null,
+    },
+    orderBy: { createdAt: "desc" },
+  });
 
-    await prisma.slpCompanyRecord.update({
-      where: { id: params.companyRecordId },
-      data: {
-        [cols.zoomMeetingIdKey]: BigInt(resp.id),
-        [cols.zoomJoinUrlKey]: resp.join_url,
-        [cols.zoomStartUrlKey]: resp.start_url ?? null,
-        [cols.zoomPasswordKey]: resp.password ?? null,
-        [cols.zoomHostStaffIdKey]: staffId,
-        [cols.zoomCreatedAtKey]: new Date(),
-        // 再発行なので自動送信フラグはリセットしない（既に送信済みの履歴を尊重）
-      },
-    });
-    return { ok: true, url: resp.join_url };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await saveZoomError(params.companyRecordId, params.category, msg);
-    await logAutomationError({
-      source: `slp-zoom-${params.category}-regenerate`,
-      message: `Zoom再発行失敗: ${msg}`,
-      detail: { companyRecordId: params.companyRecordId },
-    });
-    return { ok: false, url: null, errorMessage: msg };
+  if (!newPrimary) {
+    return { ok: false, url: null, errorMessage: "Zoom発行に失敗しました" };
   }
+  if (newPrimary.zoomError) {
+    return {
+      ok: false,
+      url: newPrimary.joinUrl || null,
+      errorMessage: newPrimary.zoomError,
+    };
+  }
+  return { ok: true, url: newPrimary.joinUrl };
 }
+

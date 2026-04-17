@@ -11,6 +11,7 @@ export const contactHistoryIncludeForDisplay = {
   staff: { select: { id: true, name: true } },
   companyRecord: { select: { id: true, companyName: true } },
   agency: { select: { id: true, name: true } },
+  session: { select: { id: true, category: true, roundNumber: true } },
   tags: {
     include: {
       customerType: {
@@ -55,6 +56,9 @@ export function formatSlpContactHistory(history: SlpContactHistoryWithRelations)
     agencyId: history.agencyId,
     agencyName: history.agency?.name ?? null,
     masterCompanyId: history.masterCompanyId,
+    sessionId: history.sessionId,
+    sessionCategory: history.session?.category ?? null,
+    sessionRoundNumber: history.session?.roundNumber ?? null,
     createdAt: history.createdAt.toISOString(),
     updatedAt: history.updatedAt.toISOString(),
     customerTypeIds: history.tags.map((t) => t.customerTypeId),

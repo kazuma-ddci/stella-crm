@@ -87,6 +87,7 @@ export type ContactHistory = {
   note: string | null;
   customerTypeIds?: number[];
   files?: FileInfo[];
+  sessionId?: number | null;
 };
 
 export type ContactCategoryOption = {
@@ -126,6 +127,12 @@ export type BaseProps = {
   customerTypes: CustomerType[];
   staffByProject: Record<number, { value: string; label: string }[]>;
   contactCategories: ContactCategoryOption[];
+  // 任意: SLP事業者詳細で「打ち合わせに紐付ける」UIを出したい場合に渡す
+  sessionSelect?: {
+    options: { value: string; label: string }[]; // 各打ち合わせを表す選択肢
+    label?: string; // デフォルト「打ち合わせに紐付け（任意）」
+    hint?: string; // フォーム下部に出す補足
+  };
 };
 
 function formatDateTime(dateString: string): string {
@@ -151,6 +158,7 @@ export function ContactHistoryModalBase({
   customerTypes,
   staffByProject,
   contactCategories,
+  sessionSelect,
 }: BaseProps) {
   const isActive = open || !!renderInline;
   const {
@@ -317,6 +325,7 @@ export function ContactHistoryModalBase({
         note: formData.note,
         customerTypeIds: formData.customerTypeIds,
         files: formData.files,
+        sessionId: formData.sessionId ?? null,
       });
       const historyWithNames = {
         ...newHistory,
@@ -359,6 +368,7 @@ export function ContactHistoryModalBase({
         note: pendingEditData.note,
         customerTypeIds: pendingEditData.customerTypeIds,
         files: pendingEditData.files,
+        sessionId: pendingEditData.sessionId ?? null,
       });
       const updatedWithNames = {
         ...updated,
@@ -731,6 +741,35 @@ export function ContactHistoryModalBase({
           placeholder="備考"
         />
       </div>
+      {sessionSelect && (
+        <div className="space-y-2">
+          <Label>{sessionSelect.label ?? "打ち合わせに紐付け（任意）"}</Label>
+          <Select
+            value={formData.sessionId ? String(formData.sessionId) : "__none__"}
+            onValueChange={(v) =>
+              setFormData({
+                ...formData,
+                sessionId: v === "__none__" ? null : Number(v),
+              })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="紐付けなし" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">紐付けなし</SelectItem>
+              {sessionSelect.options.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {sessionSelect.hint && (
+            <p className="text-xs text-muted-foreground">{sessionSelect.hint}</p>
+          )}
+        </div>
+      )}
       <div className="space-y-2">
         <Label>添付ファイル</Label>
         <MultiFileUpload

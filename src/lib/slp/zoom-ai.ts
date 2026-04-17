@@ -31,18 +31,16 @@ export async function generateClaudeSummaryForRecording(params: {
     include: {
       contactHistory: {
         include: {
-          companyRecord: {
-            select: {
-              companyName: true,
-              briefingDate: true,
-              consultationDate: true,
-              briefingZoomHost: { select: { name: true } },
-              consultationZoomHost: { select: { name: true } },
-            },
-          },
+          companyRecord: { select: { companyName: true } },
         },
       },
       hostStaff: { select: { name: true } },
+      sessionZoom: {
+        select: {
+          scheduledAt: true,
+          session: { select: { scheduledAt: true } },
+        },
+      },
     },
   });
   if (!recording) throw new Error("録画レコードが見つかりません");
@@ -55,9 +53,9 @@ export async function generateClaudeSummaryForRecording(params: {
   const companyName =
     recording.contactHistory?.companyRecord?.companyName ?? "";
   const dateJst =
-    recording.contactHistory?.companyRecord?.[
-      isBriefing ? "briefingDate" : "consultationDate"
-    ] ?? null;
+    recording.sessionZoom?.scheduledAt ??
+    recording.sessionZoom?.session?.scheduledAt ??
+    null;
   const hostName = recording.hostStaff?.name ?? "";
 
   const systemPrompt = renderTemplate(tpl.promptBody, {

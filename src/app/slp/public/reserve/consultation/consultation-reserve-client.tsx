@@ -20,11 +20,11 @@ type CompanyRow = {
   recordId: number;
   companyName: string | null;
   businessType: string | null;
-  briefingStatus: string | null;
-  briefingCompleted: boolean;
-  consultationStatus: string | null;
-  consultationDate: string | null;
-  consultationHasReservation: boolean;
+  briefingCompletedOnce: boolean;
+  consultationHasActiveReservation: boolean;
+  consultationCompletedOnce: boolean;
+  consultationActiveScheduledAt: string | null;
+  consultationActiveSource: "proline" | "manual" | null;
 };
 
 type Props = {
@@ -58,25 +58,23 @@ export function ConsultationReserveClient({
 }: Props) {
   const [step, setStep] = useState<Step>({ type: "select" });
 
-  // 概要案内が完了 + 導入希望商談が未予約の企業（予約可能）
+  // 概要案内完了実績あり + 導入希望商談アクティブなし → 予約可能（追加予約含む）
   const reservableCompanies = useMemo(
     () =>
       companies.filter(
-        (c) => c.briefingCompleted && !c.consultationHasReservation
+        (c) => c.briefingCompletedOnce && !c.consultationHasActiveReservation
       ),
     [companies]
   );
 
-  // 概要案内未完了 or 導入希望商談予約済み（参考表示）
+  // 概要案内未完了（過去に1度も実施していない）
   const briefingNotCompletedCompanies = useMemo(
-    () => companies.filter((c) => !c.briefingCompleted),
+    () => companies.filter((c) => !c.briefingCompletedOnce),
     [companies]
   );
+  // 導入希望商談アクティブ予約あり
   const consultationReservedCompanies = useMemo(
-    () =>
-      companies.filter(
-        (c) => c.briefingCompleted && c.consultationHasReservation
-      ),
+    () => companies.filter((c) => c.consultationHasActiveReservation),
     [companies]
   );
 
@@ -191,7 +189,7 @@ export function ConsultationReserveClient({
                 <KoutekiCardContent className="p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-medium text-slate-900">
                           {c.companyName ?? "(事業者名未登録)"}
                         </p>
@@ -200,17 +198,28 @@ export function ConsultationReserveClient({
                             {c.businessType === "sole_proprietor" ? "個人事業主" : "法人"}
                           </span>
                         )}
+                        {c.consultationCompletedOnce && (
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 whitespace-nowrap">
+                            実施済み
+                          </span>
+                        )}
                       </div>
                       <div className="mt-1 space-y-0.5 text-xs text-slate-500">
                         <p>概要案内: 完了 ✓</p>
-                        <p>導入希望商談: 未予約</p>
+                        <p>
+                          {c.consultationCompletedOnce
+                            ? "導入希望商談: 実施済み（追加予約可）"
+                            : "導入希望商談: 未予約"}
+                        </p>
                       </div>
                     </div>
                     <KoutekiButton
                       size="sm"
                       onClick={() => handleSelect(c.recordId)}
                     >
-                      この事業者で予約する
+                      {c.consultationCompletedOnce
+                        ? "追加で予約する"
+                        : "この事業者で予約する"}
                     </KoutekiButton>
                   </div>
                 </KoutekiCardContent>
@@ -247,13 +256,20 @@ export function ConsultationReserveClient({
                   )}
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {c.consultationDate
-                    ? `導入希望商談: ${formatDate(c.consultationDate)} で予約中`
-                    : "導入希望商談: 予約中"}
+                  {c.consultationActiveScheduledAt
+                    ? `導入希望商談: ${formatDate(c.consultationActiveScheduledAt)} で予約中`
+                    : "導入希望商談: 予約中（日時未確定）"}
                 </p>
-                <p className="text-xs text-slate-400 mt-1">
-                  変更・キャンセルは上記の予約履歴から
-                </p>
+                {c.consultationActiveSource === "manual" ? (
+                  <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                    ※ こちらの予約は担当者が直接お取りしたものです。変更・キャンセルは
+                    <strong>公式LINEへ直接ご連絡</strong>ください。
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-400 mt-1">
+                    変更・キャンセルは上記の予約履歴から
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -282,9 +298,6 @@ export function ConsultationReserveClient({
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  概要案内: {c.briefingStatus ?? "未予約"}
-                </p>
                 <p className="text-xs text-amber-700 mt-1">
                   ↳ 概要案内を完了してから予約できます
                 </p>

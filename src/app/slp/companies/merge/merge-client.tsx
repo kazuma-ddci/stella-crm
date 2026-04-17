@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ArrowLeftRight, Save, AlertTriangle } from "lucide-react";
 import {
   AlertDialog,
@@ -58,10 +57,6 @@ type CompanyData = {
   confirmedOurRevenue: string;
   confirmedAgentPayment: string;
   paymentReceivedDate: string;
-  briefingStatus: string | null;
-  consultationStatus: string | null;
-  reservationId: string | null;
-  consultationReservationId: string | null;
   contactCount: number;
   historyCount: number;
   documentCount: number;
@@ -299,14 +294,7 @@ export function MergeClient({
             <Card key={rec.id} className="cursor-pointer hover:border-blue-400">
               <CardHeader>
                 <CardTitle className="text-base flex items-center justify-between">
-                  <span>
-                    企業ID: {rec.id}
-                    {rec.briefingStatus && (
-                      <Badge variant="outline" className="ml-2">
-                        {rec.briefingStatus}
-                      </Badge>
-                    )}
-                  </span>
+                  <span>企業ID: {rec.id}</span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
@@ -336,10 +324,6 @@ export function MergeClient({
                 <div>
                   <span className="text-muted-foreground">提出書類: </span>
                   {rec.documentCount}件
-                </div>
-                <div>
-                  <span className="text-muted-foreground">予約ID: </span>
-                  {rec.reservationId ?? "-"}
                 </div>
                 <Button
                   className="w-full mt-4"
@@ -502,11 +486,8 @@ export function MergeClient({
             {sub.documentCount}件 → 統合
           </p>
           <p>
-            ✓ 予約ID: 両方の予約ID（メイン・統合元）が追跡可能な形で引き継がれます
-            {sub.reservationId &&
-              ` (取り込まれる概要案内予約ID: ${sub.reservationId})`}
-            {sub.consultationReservationId &&
-              ` (取り込まれる導入希望商談予約ID: ${sub.consultationReservationId})`}
+            ✓ 商談セッション: 統合元の全ての商談セッション（予約中・完了・キャンセル・飛び）が
+            メインに付け替えられ、履歴として保持されます
           </p>
         </CardContent>
       </Card>

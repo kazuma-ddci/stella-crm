@@ -16,11 +16,12 @@ type Props = {
   staffByProject: Record<number, { value: string; label: string }[]>;
   contactCategories: ContactCategoryOption[];
   requiredCustomerTypeId: number;
+  sessionOptions?: { value: string; label: string }[];
 };
 
 export function SlpCompanyContactHistorySection(props: Props) {
   return (
-    <section className="mt-6 rounded-lg border bg-white p-4">
+    <section className="rounded-lg border bg-white p-4">
       <h2 className="text-lg font-semibold mb-3">接触履歴</h2>
       <SlpCompanyContactHistoryModal
         open={true}
@@ -35,6 +36,15 @@ export function SlpCompanyContactHistorySection(props: Props) {
         staffByProject={props.staffByProject}
         contactCategories={props.contactCategories}
         requiredCustomerTypeId={props.requiredCustomerTypeId}
+        sessionSelect={
+          props.sessionOptions && props.sessionOptions.length > 0
+            ? {
+                options: props.sessionOptions,
+                label: "打ち合わせに紐付け（任意）",
+                hint: "商談タブの該当打ち合わせからこの接触履歴を確認できるようになります。",
+              }
+            : undefined
+        }
       />
     </section>
   );

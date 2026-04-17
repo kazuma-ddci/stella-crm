@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireStaff } from "@/lib/auth/staff-action";
 import Link from "next/link";
@@ -85,10 +86,19 @@ export default async function ZoomIntegrationGuidePage() {
           <section>
             <h3 className="font-semibold mb-1">STEP 3: Zoomで「Allow」を押して承認</h3>
             <p>
-              Zoomの画面で「This app would like to...」と表示されるので、内容を確認して「Allow」ボタンを押してください。
+              Zoomの画面で以下のような許可確認が表示されます。内容を確認して、下部の青い「Allow」ボタンを押してください。
             </p>
+            <div className="my-3 rounded-lg border overflow-hidden">
+              <Image
+                src="/guide/zoom/step3-allow.png"
+                alt="Zoom認可画面: Stella OS would like permission to..."
+                width={600}
+                height={750}
+                className="w-full max-w-[500px] mx-auto"
+              />
+            </div>
             <p className="text-xs text-muted-foreground mt-1">
-              要求される権限: 会議作成・更新・削除、録画データの読み取り、文字起こし読み取り、ユーザー情報の読み取り
+              要求される権限: 会議の作成・更新・削除、録画の閲覧、参加者の取得、AI要約の閲覧、ユーザー情報の読み取り
             </p>
           </section>
 

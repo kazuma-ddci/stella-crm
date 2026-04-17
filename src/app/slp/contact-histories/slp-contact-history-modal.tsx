@@ -32,6 +32,11 @@ type BaseProps = {
     entityId: number,
     data: Record<string, unknown>
   ) => Promise<Record<string, unknown>>;
+  sessionSelect?: {
+    options: { value: string; label: string }[];
+    label?: string;
+    hint?: string;
+  };
 };
 
 function BaseWrapper(props: BaseProps) {
@@ -64,6 +69,7 @@ function BaseWrapper(props: BaseProps) {
       customerTypes={props.customerTypes}
       staffByProject={props.staffByProject}
       contactCategories={props.contactCategories}
+      sessionSelect={props.sessionSelect}
     />
   );
 }
@@ -77,6 +83,7 @@ type CompanyProps = Omit<
 > & {
   slpCompanyRecordId: number;
   requiredCustomerTypeId: number; // slp_company の解決済みID（Serverで取得）
+  sessionSelect?: BaseProps["sessionSelect"];
 };
 
 export function SlpCompanyContactHistoryModal({

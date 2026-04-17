@@ -80,6 +80,7 @@ export function AdDetailView({
       fetchDetail();
     } else if (mode === "7d") {
       const to = new Date();
+      to.setDate(to.getDate() - 1);
       const from = new Date();
       from.setDate(from.getDate() - 7);
       const fromStr = from.toISOString().split("T")[0];

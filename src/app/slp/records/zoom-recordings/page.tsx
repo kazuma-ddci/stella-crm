@@ -23,21 +23,24 @@ export default async function ZoomRecordingsPage() {
               id: true,
               companyName: true,
               prolineUid: true,
-              briefingDate: true,
-              consultationDate: true,
             },
           },
         },
       },
       hostStaff: { select: { name: true } },
+      sessionZoom: {
+        select: {
+          scheduledAt: true,
+          session: { select: { scheduledAt: true } },
+        },
+      },
     },
   });
 
   const clientRows: RecordingRow[] = rows.map((r) => {
-    const isBriefing = r.category === "briefing";
-    const contactDate = isBriefing
-      ? r.contactHistory?.companyRecord?.briefingDate
-      : r.contactHistory?.companyRecord?.consultationDate;
+    // セッションZoom経由で商談日時を取得（Phase 1c 以降）
+    const contactDate =
+      r.sessionZoom?.scheduledAt ?? r.sessionZoom?.session?.scheduledAt ?? null;
 
     // 「試行済み」フラグ（取得を試みて完了した）
     const aiSummaryAttempted = !!r.aiCompanionFetchedAt;

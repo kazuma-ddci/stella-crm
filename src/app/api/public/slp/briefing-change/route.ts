@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
-import { submitForm7BriefingChange } from "@/lib/proline-form";
 import { parseReservationDate } from "@/lib/slp/parse-reservation-date";
-import { ensureZoomMeetingForReservation } from "@/lib/slp/zoom-reservation-handler";
 import { applyProlineChangeToSession } from "@/lib/slp/session-helper";
+import { handleSessionReservationSideEffects } from "@/lib/slp/session-lifecycle";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -98,65 +97,31 @@ export async function GET(request: Request) {
       });
     }
 
-    // LINE友達情報（紹介者通知用に共通取得）
-    const lineFriend = await prisma.slpLineFriend.findUnique({
-      where: { uid },
-      select: { id: true, snsname: true, phone: true, free1: true },
-    });
-
-    // 共通の更新データ
-    const updateData = {
-      briefingStatus: "予約中" as const,
-      briefingBookedAt:
-        briefingBookedAt && !isNaN(briefingBookedAt.getTime())
-          ? briefingBookedAt
-          : undefined,
-      briefingDate:
-        briefingDateParsed && !isNaN(briefingDateParsed.getTime())
-          ? briefingDateParsed
-          : undefined,
-      briefingStaff: briefingStaff || undefined,
-      briefingStaffId: briefingStaff ? resolvedStaffId : undefined,
-      briefingChangedAt: new Date(),
-      // 再予約時のキャンセルクリア
-      briefingCanceledAt: null,
-    };
-
     let updatedCount = 0;
     const changedRecordIds: number[] = [];
 
-    // 1. bookingId で予約ID一致のレコードを優先的に検索
-    // メインの reservationId だけでなく、マージで取り込まれた配列も検索対象に
+    // bookingId でセッションを検索してcompanyRecordIdを特定
     if (bookingId) {
-      const targets = await prisma.slpCompanyRecord.findMany({
+      const targetSessions = await prisma.slpMeetingSession.findMany({
         where: {
-          OR: [
-            { reservationId: bookingId },
-            { mergedBriefingReservationIds: { has: bookingId } },
-          ],
+          prolineReservationId: bookingId,
+          category: "briefing",
           deletedAt: null,
         },
-        select: { id: true },
+        select: { companyRecordId: true },
       });
-      if (targets.length > 0) {
-        const ids = targets.map((t) => t.id);
-        const result = await prisma.slpCompanyRecord.updateMany({
-          where: { id: { in: ids } },
-          data: updateData,
-        });
-        updatedCount = result.count;
-        changedRecordIds.push(...ids);
+      const uniqueRecordIds = [...new Set(targetSessions.map((s) => s.companyRecordId))];
+      if (uniqueRecordIds.length > 0) {
+        changedRecordIds.push(...uniqueRecordIds);
+        updatedCount = uniqueRecordIds.length;
       }
     }
 
-    // 2. 見つからなかった場合はログだけ残して終了
-    // （uidベースのフォールバック／新規作成は撤去: Webhook到着順逆転時に
-    //  別の新規予約を古い変更データで上書きする事故が発生していたため。
-    //  予約Webhookが先に届いていないケースは automation_errors から手動復旧する）
+    // 見つからなかった場合はログだけ残して終了
     if (updatedCount === 0) {
       await logAutomationError({
         source: "slp-briefing-change",
-        message: `bookingId=${bookingId} に該当する予約レコードが見つかりません（uidフォールバック／新規作成は実行せず）`,
+        message: `bookingId=${bookingId} に該当する予約レコードが見つかりません`,
         detail: { bookingId, uid },
       });
       return NextResponse.json(
@@ -181,21 +146,37 @@ export async function GET(request: Request) {
       });
     }
 
-    // 並列書き込み: SlpMeetingSession にも記録（セッション再設計Phase 1）
+    // セッションテーブル更新 → 副作用処理（Zoom更新 + LINE通知 + 紹介者通知）
     for (const recordId of changedRecordIds) {
       try {
-        await prisma.$transaction(async (tx) => {
-          await applyProlineChangeToSession(
+        const updatedSession = await prisma.$transaction(async (tx) => {
+          return applyProlineChangeToSession(
             recordId,
             "briefing",
             {
               scheduledAt: briefingDateParsed,
               assignedStaffId: resolvedStaffId,
               prolineReservationId: bookingId ?? null,
+              prolineStaffName: briefingStaff || null,
               bookedAt: briefingBookedAt,
             },
             tx
           );
+        });
+
+        handleSessionReservationSideEffects({
+          sessionId: updatedSession.id,
+          companyRecordId: recordId,
+          category: "briefing",
+          triggerReason: "change",
+          roundNumber: updatedSession.roundNumber,
+          notifyReferrer: true,
+        }).catch(async (err) => {
+          await logAutomationError({
+            source: "slp-briefing-change-side-effects",
+            message: `変更副作用処理失敗: sessionId=${updatedSession.id}`,
+            detail: { error: err instanceof Error ? err.message : String(err) },
+          });
         });
       } catch (err) {
         await logAutomationError({
@@ -204,44 +185,6 @@ export async function GET(request: Request) {
           detail: { error: err instanceof Error ? err.message : String(err) },
         });
       }
-    }
-
-    // Zoom会議を更新 → プロライン経由でお客様に変更通知LINE送信（fire-and-forget）
-    for (const recordId of changedRecordIds) {
-      ensureZoomMeetingForReservation({
-        companyRecordId: recordId,
-        category: "briefing",
-        triggerReason: "change",
-      }).catch(async (err) => {
-        await logAutomationError({
-          source: "slp-briefing-change-zoom",
-          message: `Zoom更新フロー失敗: companyRecordId=${recordId}`,
-          detail: { error: err instanceof Error ? err.message : String(err) },
-        });
-      });
-    }
-
-    // 紹介者通知（form7）— 紹介者がいれば fire-and-forget で送信
-    const referrerUid = lineFriend?.free1?.trim();
-    const snsname = lineFriend?.snsname;
-    if (referrerUid && snsname) {
-      submitForm7BriefingChange(
-        referrerUid,
-        snsname,
-        briefingDate ?? ""
-      ).catch(async (err) => {
-        await logAutomationError({
-          source: "slp-briefing-change-form7",
-          message: `概要案内変更通知（form7）送信失敗: referrerUid=${referrerUid}, snsname=${snsname}`,
-          detail: {
-            error: err instanceof Error ? err.message : String(err),
-            referrerUid,
-            snsname,
-            briefingDate: briefingDate ?? "",
-            retryAction: "form7-briefing-change",
-          },
-        });
-      });
     }
 
     return NextResponse.json({

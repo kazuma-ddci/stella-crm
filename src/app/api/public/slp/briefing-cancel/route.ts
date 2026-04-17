@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
-import { submitForm9BriefingCancel } from "@/lib/proline-form";
-import { cancelZoomMeetingForReservation } from "@/lib/slp/zoom-reservation-handler";
 import { applyProlineCancelToSession } from "@/lib/slp/session-helper";
+import { handleSessionStatusChangeSideEffects } from "@/lib/slp/session-lifecycle";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -44,70 +43,49 @@ export async function GET(request: Request) {
     let canceledCount = 0;
     const canceledRecordIds: number[] = [];
 
-    // 1. bookingId で予約ID一致のレコードを優先的にキャンセル
-    // メインの reservationId だけでなく、マージで取り込まれた配列も検索対象に
+    // bookingId でセッションを検索してcompanyRecordId一覧を取得
     if (bookingId) {
-      // 履歴記録用に、クリア前の値を取得
-      const targets = await prisma.slpCompanyRecord.findMany({
+      const targetSessions = await prisma.slpMeetingSession.findMany({
         where: {
-          OR: [
-            { reservationId: bookingId },
-            { mergedBriefingReservationIds: { has: bookingId } },
-          ],
+          prolineReservationId: bookingId,
+          category: "briefing",
           deletedAt: null,
         },
         select: {
-          id: true,
-          reservationId: true,
-          briefingDate: true,
-          briefingBookedAt: true,
-          briefingStaff: true,
-          briefingStaffId: true,
+          companyRecordId: true,
+          scheduledAt: true,
+          bookedAt: true,
+          assignedStaffId: true,
+          assignedStaff: { select: { name: true } },
         },
       });
+      const uniqueRecordIds = [...new Set(targetSessions.map((s) => s.companyRecordId))];
 
-      if (targets.length > 0) {
-        const ids = targets.map((t) => t.id);
-        const result = await prisma.slpCompanyRecord.updateMany({
-          where: { id: { in: ids } },
-          data: {
-            briefingStatus: "キャンセル",
-            briefingCanceledAt: new Date(),
-            // 予約日時・案内日時・担当者・予約IDをクリア（履歴は別テーブルに残す）
-            briefingBookedAt: null,
-            briefingDate: null,
-            briefingStaff: null,
-            briefingStaffId: null,
-            reservationId: null,
-          },
-        });
-        canceledCount = result.count;
-        canceledRecordIds.push(...ids);
+      if (uniqueRecordIds.length > 0) {
+        canceledRecordIds.push(...uniqueRecordIds);
+        canceledCount = uniqueRecordIds.length;
 
-        // 履歴記録: 各レコードについてキャンセル前の値を残す
+        // 履歴記録: 各レコード（キャンセル前の値をスナップショット）
         await prisma.slpReservationHistory.createMany({
-          data: targets.map((t) => ({
-            companyRecordId: t.id,
+          data: targetSessions.map((s) => ({
+            companyRecordId: s.companyRecordId,
             reservationType: "briefing",
             actionType: "キャンセル",
-            reservationId: t.reservationId ?? bookingId,
-            reservedAt: t.briefingDate,
-            bookedAt: t.briefingBookedAt,
-            staffName: t.briefingStaff,
-            staffId: t.briefingStaffId,
-            formAnswers: undefined,
+            reservationId: bookingId,
+            reservedAt: s.scheduledAt,
+            bookedAt: s.bookedAt,
+            staffName: s.assignedStaff?.name ?? null,
+            staffId: s.assignedStaffId,
           })),
         });
       }
     }
 
-    // 2. 見つからなかった場合はログだけ残して終了
-    // （uidベースのフォールバックは撤去: Webhook到着順逆転時に別の新規予約を
-    //  誤ってキャンセルする事故が発生していたため）
+    // 見つからなかった場合はログだけ残して終了
     if (canceledCount === 0) {
       await logAutomationError({
         source: "slp-briefing-cancel",
-        message: `bookingId=${bookingId} に該当する予約レコードが見つかりません（uidフォールバックは実行せず）`,
+        message: `bookingId=${bookingId} に該当する予約レコードが見つかりません`,
         detail: { bookingId, uid },
       });
       return NextResponse.json(
@@ -116,11 +94,11 @@ export async function GET(request: Request) {
       );
     }
 
-    // 並列書き込み: SlpMeetingSession にもキャンセル記録（セッション再設計Phase 1）
+    // セッションテーブル更新 → 副作用処理（キャンセル通知 + 紹介者通知）
     for (const recordId of canceledRecordIds) {
       try {
-        await prisma.$transaction(async (tx) => {
-          await applyProlineCancelToSession(
+        const cancelledSession = await prisma.$transaction(async (tx) => {
+          return applyProlineCancelToSession(
             recordId,
             "briefing",
             bookingId ?? null,
@@ -128,6 +106,21 @@ export async function GET(request: Request) {
             tx
           );
         });
+
+        if (cancelledSession) {
+          // 副作用処理（内部でZoom削除 + キャンセル通知 + 紹介者通知）
+          handleSessionStatusChangeSideEffects({
+            sessionId: cancelledSession.id,
+            newStatus: "キャンセル",
+            category: "briefing",
+          }).catch(async (err) => {
+            await logAutomationError({
+              source: "slp-briefing-cancel-side-effects",
+              message: `キャンセル副作用処理失敗: sessionId=${cancelledSession.id}`,
+              detail: { error: err instanceof Error ? err.message : String(err) },
+            });
+          });
+        }
       } catch (err) {
         await logAutomationError({
           source: "slp-briefing-cancel-session",
@@ -135,42 +128,6 @@ export async function GET(request: Request) {
           detail: { error: err instanceof Error ? err.message : String(err) },
         });
       }
-    }
-
-    // Zoom会議を削除（fire-and-forget、既存通知はプロライン側既存設定で送られる）
-    for (const recordId of canceledRecordIds) {
-      cancelZoomMeetingForReservation({
-        companyRecordId: recordId,
-        category: "briefing",
-      }).catch(async (err) => {
-        await logAutomationError({
-          source: "slp-briefing-cancel-zoom",
-          message: `Zoomキャンセルフロー失敗: companyRecordId=${recordId}`,
-          detail: { error: err instanceof Error ? err.message : String(err) },
-        });
-      });
-    }
-
-    // 紹介者通知（form9）— 紹介者がいれば fire-and-forget で送信
-    const lineFriend = await prisma.slpLineFriend.findUnique({
-      where: { uid },
-      select: { snsname: true, free1: true },
-    });
-    const referrerUid = lineFriend?.free1?.trim();
-    const snsname = lineFriend?.snsname;
-    if (referrerUid && snsname) {
-      submitForm9BriefingCancel(referrerUid, snsname).catch(async (err) => {
-        await logAutomationError({
-          source: "slp-briefing-cancel-form9",
-          message: `概要案内キャンセル通知（form9）送信失敗: referrerUid=${referrerUid}, snsname=${snsname}`,
-          detail: {
-            error: err instanceof Error ? err.message : String(err),
-            referrerUid,
-            snsname,
-            retryAction: "form9-briefing-cancel",
-          },
-        });
-      });
     }
 
     return NextResponse.json({

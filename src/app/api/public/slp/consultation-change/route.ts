@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
 import { parseReservationDate } from "@/lib/slp/parse-reservation-date";
-import { ensureZoomMeetingForReservation } from "@/lib/slp/zoom-reservation-handler";
 import { applyProlineChangeToSession } from "@/lib/slp/session-helper";
+import { handleSessionReservationSideEffects } from "@/lib/slp/session-lifecycle";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -93,51 +93,31 @@ export async function GET(request: Request) {
       });
     }
 
-    const updateData = {
-      consultationStatus: "予約中" as const,
-      consultationBookedAt: consultationBookedAt ?? undefined,
-      consultationDate: consultationDateParsed ?? undefined,
-      consultationStaff: consultationStaff || undefined,
-      consultationStaffId: consultationStaff ? resolvedStaffId : undefined,
-      consultationChangedAt: new Date(),
-      consultationCanceledAt: null,
-    };
-
     let updatedCount = 0;
     const changedRecordIds: number[] = [];
 
-    // 1. bookingId で予約ID一致のレコードを優先的に検索
-    // メインの consultationReservationId だけでなく、マージで取り込まれた配列も検索対象に
+    // bookingId でセッションを検索してcompanyRecordIdを特定
     if (bookingId) {
-      const targets = await prisma.slpCompanyRecord.findMany({
+      const targetSessions = await prisma.slpMeetingSession.findMany({
         where: {
-          OR: [
-            { consultationReservationId: bookingId },
-            { mergedConsultationReservationIds: { has: bookingId } },
-          ],
+          prolineReservationId: bookingId,
+          category: "consultation",
           deletedAt: null,
         },
-        select: { id: true },
+        select: { companyRecordId: true },
       });
-      if (targets.length > 0) {
-        const ids = targets.map((t) => t.id);
-        const result = await prisma.slpCompanyRecord.updateMany({
-          where: { id: { in: ids } },
-          data: updateData,
-        });
-        updatedCount = result.count;
-        changedRecordIds.push(...ids);
+      const uniqueRecordIds = [...new Set(targetSessions.map((s) => s.companyRecordId))];
+      if (uniqueRecordIds.length > 0) {
+        changedRecordIds.push(...uniqueRecordIds);
+        updatedCount = uniqueRecordIds.length;
       }
     }
 
-    // 2. 見つからなかった場合はログだけ残して終了
-    // （uidベースのフォールバック／新規作成は撤去: Webhook到着順逆転時に
-    //  別の新規予約を古い変更データで上書きする事故が発生していたため。
-    //  予約Webhookが先に届いていないケースは automation_errors から手動復旧する）
+    // 見つからなかった場合はログだけ残して終了
     if (updatedCount === 0) {
       await logAutomationError({
         source: "slp-consultation-change",
-        message: `bookingId=${bookingId} に該当する導入希望商談予約レコードが見つかりません（uidフォールバック／新規作成は実行せず）`,
+        message: `bookingId=${bookingId} に該当する導入希望商談予約レコードが見つかりません`,
         detail: { bookingId, uid },
       });
       return NextResponse.json(
@@ -162,21 +142,38 @@ export async function GET(request: Request) {
       });
     }
 
-    // 並列書き込み: SlpMeetingSession にも記録（セッション再設計Phase 1）
+    // セッションテーブル更新 → 副作用処理（Zoom更新 + LINE通知）
+    // 導入希望商談では紹介者通知は送らない
     for (const recordId of changedRecordIds) {
       try {
-        await prisma.$transaction(async (tx) => {
-          await applyProlineChangeToSession(
+        const updatedSession = await prisma.$transaction(async (tx) => {
+          return applyProlineChangeToSession(
             recordId,
             "consultation",
             {
               scheduledAt: consultationDateParsed,
               assignedStaffId: resolvedStaffId,
               prolineReservationId: bookingId ?? null,
+              prolineStaffName: consultationStaff || null,
               bookedAt: consultationBookedAt,
             },
             tx
           );
+        });
+
+        handleSessionReservationSideEffects({
+          sessionId: updatedSession.id,
+          companyRecordId: recordId,
+          category: "consultation",
+          triggerReason: "change",
+          roundNumber: updatedSession.roundNumber,
+          notifyReferrer: false,
+        }).catch(async (err) => {
+          await logAutomationError({
+            source: "slp-consultation-change-side-effects",
+            message: `変更副作用処理失敗: sessionId=${updatedSession.id}`,
+            detail: { error: err instanceof Error ? err.message : String(err) },
+          });
         });
       } catch (err) {
         await logAutomationError({
@@ -185,21 +182,6 @@ export async function GET(request: Request) {
           detail: { error: err instanceof Error ? err.message : String(err) },
         });
       }
-    }
-
-    // Zoom会議を更新 → プロライン経由でお客様に変更通知LINE送信（fire-and-forget）
-    for (const recordId of changedRecordIds) {
-      ensureZoomMeetingForReservation({
-        companyRecordId: recordId,
-        category: "consultation",
-        triggerReason: "change",
-      }).catch(async (err) => {
-        await logAutomationError({
-          source: "slp-consultation-change-zoom",
-          message: `Zoom更新フロー失敗: companyRecordId=${recordId}`,
-          detail: { error: err instanceof Error ? err.message : String(err) },
-        });
-      });
     }
 
     return NextResponse.json({

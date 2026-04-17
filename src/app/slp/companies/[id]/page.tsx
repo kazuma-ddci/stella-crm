@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { CompanyDetail } from "./company-detail";
+import { MeetingSessionsSection } from "./components/meeting-sessions-section";
 import {
   resolveCompanyData,
   type ContactForResolution,
@@ -11,13 +12,6 @@ import {
   loadContactHistoriesForCompanyRecord,
 } from "@/app/slp/contact-histories/loaders";
 import { SlpCompanyContactHistorySection } from "@/app/slp/contact-histories/company-contact-history-section";
-
-// 今日のJST日付文字列
-function getTodayJstString(): string {
-  const now = new Date();
-  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  return jst.toISOString().slice(0, 10);
-}
 
 // JST(UTC+9)の日付・時刻文字列を返す
 function toJstDate(d: Date | null | undefined): string | null {
@@ -54,13 +48,8 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
   const id = parseInt(idStr, 10);
   if (isNaN(id)) notFound();
 
-  const session = await auth();
-  const currentStaffId = (session?.user as { id?: number | string } | undefined)?.id;
-  const currentStaffIdNum =
-    typeof currentStaffId === "string"
-      ? parseInt(currentStaffId, 10)
-      : (currentStaffId ?? null);
-  const todayJst = getTodayJstString();
+  // 認証チェックのみ（ユーザーIDはCompanyDetail内で必要時に取得）
+  await auth();
 
   const slpProject = await prisma.masterProject.findFirst({
     where: { code: "slp" },
@@ -89,10 +78,6 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
           },
           orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
         },
-        briefingStaffUser: { select: { id: true, name: true } },
-        consultationStaffUser: { select: { id: true, name: true } },
-        briefingZoomHost: { select: { id: true, name: true } },
-        consultationZoomHost: { select: { id: true, name: true } },
         salesStaff: { select: { id: true, name: true } },
         industry: { select: { id: true, name: true } },
         flowSource: { select: { id: true, name: true } },
@@ -212,52 +197,7 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
         : null,
       isPrimary: c.isPrimary,
     })),
-    // 概要案内
-    briefingStatus: record.briefingStatus,
-    briefingBookedAt: toJstDisplay(record.briefingBookedAt),
-    briefingBookedDate: toJstDate(record.briefingBookedAt),
-    briefingBookedTime: toJstTime(record.briefingBookedAt),
-    briefingDate: toJstDisplay(record.briefingDate),
-    briefingDateOnly: toJstDate(record.briefingDate),
-    briefingTimeOnly: toJstTime(record.briefingDate),
-    briefingStaff: record.briefingStaff,
-    briefingStaffId: record.briefingStaffId,
-    briefingStaffName: record.briefingStaffUser?.name ?? null,
-    briefingChangedAt: toJstDisplay(record.briefingChangedAt),
-    briefingCanceledAt: toJstDisplay(record.briefingCanceledAt),
-    // 概要案内 Zoom
-    briefingZoomMeetingId: record.briefingZoomMeetingId?.toString() ?? null,
-    briefingZoomJoinUrl: record.briefingZoomJoinUrl,
-    briefingZoomHostName: record.briefingZoomHost?.name ?? null,
-    briefingZoomCreatedAt: toJstDisplay(record.briefingZoomCreatedAt),
-    briefingZoomError: record.briefingZoomError,
-    briefingZoomErrorAt: toJstDisplay(record.briefingZoomErrorAt),
-    // 導入希望商談
-    consultationStatus: record.consultationStatus,
-    consultationBookedAt: toJstDisplay(record.consultationBookedAt),
-    consultationBookedDate: toJstDate(record.consultationBookedAt),
-    consultationBookedTime: toJstTime(record.consultationBookedAt),
-    consultationDate: toJstDisplay(record.consultationDate),
-    consultationDateOnly: toJstDate(record.consultationDate),
-    consultationTimeOnly: toJstTime(record.consultationDate),
-    consultationStaff: record.consultationStaff,
-    consultationStaffId: record.consultationStaffId,
-    consultationStaffName: record.consultationStaffUser?.name ?? null,
-    consultationChangedAt: toJstDisplay(record.consultationChangedAt),
-    consultationCanceledAt: toJstDisplay(record.consultationCanceledAt),
-    // 導入希望商談 Zoom
-    consultationZoomMeetingId: record.consultationZoomMeetingId?.toString() ?? null,
-    consultationZoomJoinUrl: record.consultationZoomJoinUrl,
-    consultationZoomHostName: record.consultationZoomHost?.name ?? null,
-    consultationZoomCreatedAt: toJstDisplay(record.consultationZoomCreatedAt),
-    consultationZoomError: record.consultationZoomError,
-    consultationZoomErrorAt: toJstDisplay(record.consultationZoomErrorAt),
-    // 予約ID（メイン + マージで取り込まれた配列）
-    reservationId: record.reservationId,
-    consultationReservationId: record.consultationReservationId,
-    mergedBriefingReservationIds: record.mergedBriefingReservationIds,
-    mergedConsultationReservationIds: record.mergedConsultationReservationIds,
-    // 予約履歴（概要案内・導入希望商談 共通テーブル、新しい順）
+    // 予約履歴（監査用、SlpMeetingSessionHistory とは別の予約変更スナップショット）
     reservationHistories: record.reservationHistories.map((h) => ({
       id: h.id,
       reservationType: h.reservationType,
@@ -269,51 +209,6 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
       formAnswers: h.formAnswers as Record<string, string | null> | null,
       createdAt: toJstDisplay(h.createdAt),
     })),
-    // 商談バッジ用フラグ
-    hasMeetingToday: (() => {
-      const briefingDateOnly = toJstDate(record.briefingDate);
-      const consultationDateOnly = toJstDate(record.consultationDate);
-      const briefingIsToday =
-        briefingDateOnly === todayJst &&
-        record.briefingStatus !== "完了" &&
-        record.briefingStatus !== "キャンセル";
-      const consultationIsToday =
-        consultationDateOnly === todayJst &&
-        record.consultationStatus !== "完了" &&
-        record.consultationStatus !== "キャンセル";
-      return briefingIsToday || consultationIsToday;
-    })(),
-    assignedToCurrentUserToday: (() => {
-      if (currentStaffIdNum === null) return false;
-      const briefingDateOnly = toJstDate(record.briefingDate);
-      const consultationDateOnly = toJstDate(record.consultationDate);
-      const briefingIsTodayMine =
-        briefingDateOnly === todayJst &&
-        record.briefingStatus !== "完了" &&
-        record.briefingStatus !== "キャンセル" &&
-        record.briefingStaffId === currentStaffIdNum;
-      const consultationIsTodayMine =
-        consultationDateOnly === todayJst &&
-        record.consultationStatus !== "完了" &&
-        record.consultationStatus !== "キャンセル" &&
-        record.consultationStaffId === currentStaffIdNum;
-      return briefingIsTodayMine || consultationIsTodayMine;
-    })(),
-    hasOverdueUnfinished: (() => {
-      const briefingDateOnly = toJstDate(record.briefingDate);
-      const consultationDateOnly = toJstDate(record.consultationDate);
-      const briefingOverdue =
-        briefingDateOnly !== null &&
-        briefingDateOnly < todayJst &&
-        record.briefingStatus !== "完了" &&
-        record.briefingStatus !== "キャンセル";
-      const consultationOverdue =
-        consultationDateOnly !== null &&
-        consultationDateOnly < todayJst &&
-        record.consultationStatus !== "完了" &&
-        record.consultationStatus !== "キャンセル";
-      return briefingOverdue || consultationOverdue;
-    })(),
     // 基本情報
     companyName: record.companyName,
     representativeName: record.representativeName,
@@ -433,10 +328,29 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
   }));
 
   // 接触履歴セクション用データ
-  const [contactMasters, companyContactHistories] = await Promise.all([
-    loadContactHistoryMasters(),
-    loadContactHistoriesForCompanyRecord(record.id),
-  ]);
+  const [contactMasters, companyContactHistories, meetingSessionsForSelect] =
+    await Promise.all([
+      loadContactHistoryMasters(),
+      loadContactHistoriesForCompanyRecord(record.id),
+      prisma.slpMeetingSession.findMany({
+        where: { companyRecordId: record.id, deletedAt: null },
+        select: { id: true, category: true, roundNumber: true },
+        orderBy: [
+          { category: "asc" },
+          { roundNumber: "asc" },
+          { createdAt: "asc" },
+        ],
+      }),
+    ]);
+
+  const sessionOptionsForContactHistory = meetingSessionsForSelect.map((s) => {
+    const categoryLabel = s.category === "briefing" ? "概要案内" : "導入希望商談";
+    const roundLabel = s.roundNumber === 1 ? "初回" : `${s.roundNumber}回目`;
+    return {
+      value: String(s.id),
+      label: `${categoryLabel} ${roundLabel}`,
+    };
+  });
 
   return (
     <>
@@ -454,17 +368,23 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
         agencyResolutions={agencyResolutions}
         multipleAgencyWarnings={resolution.aggregated.multipleAgencyWarnings}
         duplicateCandidates={duplicateCandidatesData}
-      />
-      <SlpCompanyContactHistorySection
-        companyRecordId={record.id}
-        companyName={record.companyName ?? `事業者#${record.id}`}
-        contactHistories={companyContactHistories}
-        contactMethodOptions={contactMasters.contactMethodOptions}
-        staffOptions={contactMasters.staffOptions}
-        customerTypes={contactMasters.customerTypes}
-        staffByProject={contactMasters.staffByProject}
-        contactCategories={contactMasters.contactCategories}
-        requiredCustomerTypeId={contactMasters.slpCompanyCustomerTypeId}
+        meetingSessionsSlot={
+          <MeetingSessionsSection companyRecordId={record.id} />
+        }
+        contactHistoriesSlot={
+          <SlpCompanyContactHistorySection
+            companyRecordId={record.id}
+            companyName={record.companyName ?? `事業者#${record.id}`}
+            contactHistories={companyContactHistories}
+            contactMethodOptions={contactMasters.contactMethodOptions}
+            staffOptions={contactMasters.staffOptions}
+            customerTypes={contactMasters.customerTypes}
+            staffByProject={contactMasters.staffByProject}
+            contactCategories={contactMasters.contactCategories}
+            requiredCustomerTypeId={contactMasters.slpCompanyCustomerTypeId}
+            sessionOptions={sessionOptionsForContactHistory}
+          />
+        }
       />
     </>
   );

@@ -52,11 +52,12 @@ export default async function SlpReserveConsultationPage({ searchParams }: Props
             recordId: c.recordId,
             companyName: c.companyName,
             businessType: c.businessType,
-            briefingStatus: c.briefingStatus,
-            briefingCompleted: c.briefingCompleted,
-            consultationStatus: c.consultationStatus,
-            consultationDate: c.consultationDate?.toISOString() ?? null,
-            consultationHasReservation: c.consultationHasReservation,
+            briefingCompletedOnce: c.briefingCompletedOnce,
+            consultationHasActiveReservation: c.consultationHasActiveReservation,
+            consultationCompletedOnce: c.consultationCompletedOnce,
+            consultationActiveScheduledAt:
+              c.consultationActiveScheduledAt?.toISOString() ?? null,
+            consultationActiveSource: c.consultationActiveSource,
           }))}
           bookingHistoryUrl={bookingHistoryUrl}
         />

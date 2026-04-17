@@ -300,7 +300,7 @@ const navigation: NavItem[] = [
               { name: "資料管理", href: "/slp/settings/documents", icon: FileText },
               { name: "プロライン担当者", href: "/slp/settings/proline-staff", icon: Users },
               { name: "プロライン情報", href: "/slp/settings/proline", icon: UserCog },
-              { name: "Zoom通知文面", href: "/slp/settings/zoom-templates", icon: Video },
+              { name: "通知テンプレート設定", href: "/slp/settings/notification-templates", icon: Video },
               { name: "Zoom AIプロンプト", href: "/slp/settings/zoom-ai-prompts", icon: Sparkles },
             ],
           },

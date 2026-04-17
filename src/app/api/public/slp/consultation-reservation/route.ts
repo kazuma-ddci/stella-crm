@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
 import { recomputeDuplicateCandidatesForRecord } from "@/lib/slp/duplicate-detector";
 import { parseReservationDate } from "@/lib/slp/parse-reservation-date";
-import { ensureZoomMeetingForReservation } from "@/lib/slp/zoom-reservation-handler";
+import { applyProlineReservationToSession } from "@/lib/slp/session-helper";
+import { handleSessionReservationSideEffects } from "@/lib/slp/session-lifecycle";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -52,23 +53,21 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 冪等性チェック: この bookingId が既に処理済みなら何もしない
+    // 冪等性チェック: この bookingId が既にセッションとして処理済みなら何もしない
     if (bookingId) {
-      const existing = await prisma.slpCompanyRecord.findFirst({
+      const existingSession = await prisma.slpMeetingSession.findFirst({
         where: {
-          OR: [
-            { consultationReservationId: bookingId },
-            { mergedConsultationReservationIds: { has: bookingId } },
-          ],
+          prolineReservationId: bookingId,
+          category: "consultation",
           deletedAt: null,
         },
-        select: { id: true },
+        select: { companyRecordId: true },
       });
-      if (existing) {
+      if (existingSession) {
         return NextResponse.json({
           success: true,
           alreadyProcessed: true,
-          companyRecordId: existing.id,
+          companyRecordId: existingSession.companyRecordId,
         });
       }
     }
@@ -188,30 +187,13 @@ export async function GET(request: Request) {
       });
     }
 
-    // 共通の更新データ
-    const baseData = {
-      consultationReservationId: bookingId ?? null,
-      consultationStatus: "予約中" as const,
-      consultationBookedAt,
-      consultationDate: consultationDateParsed,
-      consultationStaff: consultationStaff || null,
-      consultationStaffId: resolvedStaffId,
-      // 再予約時のキャンセルクリア
-      consultationCanceledAt: null,
-    };
-
     let updatedRecordIds: number[] = [];
 
     if (pending && pending.companyRecordIds.length > 0) {
-      // 既存企業: ペンディングの companyRecordIds に更新
-      const ids = pending.companyRecordIds;
-      await prisma.slpCompanyRecord.updateMany({
-        where: { id: { in: ids }, deletedAt: null },
-        data: baseData,
-      });
-      updatedRecordIds = ids;
+      // 既存企業: 基本情報は既にあるので企業レコードは更新しない（商談はセッションで管理）
+      updatedRecordIds = pending.companyRecordIds;
     } else {
-      // フォールバック: prolineUid 一致の直近のアクティブなレコードを更新
+      // フォールバック: prolineUid 一致の直近のアクティブなレコードを使用
       const target = await prisma.slpCompanyRecord.findFirst({
         where: {
           prolineUid: uid,
@@ -222,13 +204,9 @@ export async function GET(request: Request) {
       });
 
       if (target) {
-        await prisma.slpCompanyRecord.update({
-          where: { id: target.id },
-          data: baseData,
-        });
         updatedRecordIds = [target.id];
       } else {
-        // それでも見つからない場合は新規作成（最終フォールバック）
+        // それでも見つからない場合は新規作成（最終フォールバック、企業基本情報のみ）
         const lineFriend = await prisma.slpLineFriend.findUnique({
           where: { uid },
           select: { id: true, snsname: true, phone: true },
@@ -240,7 +218,6 @@ export async function GET(request: Request) {
 
         const created = await prisma.slpCompanyRecord.create({
           data: {
-            ...baseData,
             prolineUid: uid,
             companyName: pending?.expectedCompanyName ?? formCompanyName ?? null,
             contacts: {
@@ -301,19 +278,46 @@ export async function GET(request: Request) {
       });
     }
 
-    // Zoom会議を自動発行 → プロライン経由でお客様にURL案内LINE送信（fire-and-forget）
+    // セッションテーブルに記録 → 副作用処理（Zoom発行 + LINE通知）
+    // 導入希望商談では紹介者通知は送らない
     for (const recordId of updatedRecordIds) {
-      ensureZoomMeetingForReservation({
-        companyRecordId: recordId,
-        category: "consultation",
-        triggerReason: "confirm",
-      }).catch(async (err) => {
+      try {
+        const createdSession = await prisma.$transaction(async (tx) => {
+          return applyProlineReservationToSession(
+            recordId,
+            "consultation",
+            {
+              scheduledAt: consultationDateParsed,
+              assignedStaffId: resolvedStaffId,
+              prolineReservationId: bookingId ?? null,
+              prolineStaffName: consultationStaff || null,
+              bookedAt: consultationBookedAt,
+            },
+            tx
+          );
+        });
+
+        handleSessionReservationSideEffects({
+          sessionId: createdSession.id,
+          companyRecordId: recordId,
+          category: "consultation",
+          triggerReason: "confirm",
+          roundNumber: createdSession.roundNumber,
+          notifyReferrer: false,
+        }).catch(async (err) => {
+          await logAutomationError({
+            source: "slp-consultation-reservation-side-effects",
+            message: `予約副作用処理失敗: sessionId=${createdSession.id}`,
+            detail: { error: err instanceof Error ? err.message : String(err) },
+          });
+        });
+      } catch (err) {
         await logAutomationError({
-          source: "slp-consultation-reservation-zoom",
-          message: `Zoom発行フロー失敗: companyRecordId=${recordId}`,
+          source: "slp-consultation-reservation-session",
+          message: `セッション並列書き込み失敗: companyRecordId=${recordId}`,
           detail: { error: err instanceof Error ? err.message : String(err) },
         });
-      });
+      }
     }
 
     // 新規作成・更新されたレコードについて重複候補を再計算（fire-and-forget）

@@ -4,8 +4,6 @@ import { useState, useMemo } from "react";
 import {
   KoutekiCard,
   KoutekiCardContent,
-  KoutekiCardHeader,
-  KoutekiCardTitle,
   KoutekiButton,
   KoutekiInput,
   KoutekiSectionHeader,
@@ -17,10 +15,14 @@ type CompanyRow = {
   recordId: number;
   companyName: string | null;
   businessType: string | null;
-  briefingStatus: string | null;
-  briefingDate: string | null;
-  briefingHasReservation: boolean;
-  briefingCompleted: boolean;
+  /** 予約中 or 未予約セッションがある（新規予約不可） */
+  briefingHasActiveReservation: boolean;
+  /** 過去に完了セッションがある（再予約可） */
+  briefingCompletedOnce: boolean;
+  /** アクティブセッションの日時（ISO） */
+  briefingActiveScheduledAt: string | null;
+  /** アクティブセッションのソース（手動セットは変更不可表示） */
+  briefingActiveSource: "proline" | "manual" | null;
 };
 
 type Props = {
@@ -57,13 +59,14 @@ export function BriefingReserveClient({
   const [showNewForm, setShowNewForm] = useState(false);
   const [newBusinessType, setNewBusinessType] = useState("corporation");
 
-  // 既に予約中の企業を上に、予約可能な企業を下に
+  // アクティブ予約がない = 予約可能（「完了済み + 追加予約」も含む）
   const reservableCompanies = useMemo(
-    () => companies.filter((c) => !c.briefingHasReservation && !c.briefingCompleted),
+    () => companies.filter((c) => !c.briefingHasActiveReservation),
     [companies]
   );
+  // アクティブ予約がある = 予約済み（別途表示）
   const reservedCompanies = useMemo(
-    () => companies.filter((c) => c.briefingHasReservation || c.briefingCompleted),
+    () => companies.filter((c) => c.briefingHasActiveReservation),
     [companies]
   );
 
@@ -215,16 +218,23 @@ export function BriefingReserveClient({
                               {c.businessType === "sole_proprietor" ? "個人事業主" : "法人"}
                             </span>
                           )}
+                          {c.briefingCompletedOnce && (
+                            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 whitespace-nowrap">
+                              実施済み
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          概要案内: 未予約
+                          {c.briefingCompletedOnce
+                            ? "概要案内: 実施済み（追加予約可）"
+                            : "概要案内: 未予約"}
                         </p>
                       </div>
                       <KoutekiButton
                         size="sm"
                         onClick={() => handleSelectExisting(c.recordId)}
                       >
-                        この事業者で予約する
+                        {c.briefingCompletedOnce ? "追加で予約する" : "この事業者で予約する"}
                       </KoutekiButton>
                     </div>
                   </KoutekiCardContent>
@@ -235,7 +245,7 @@ export function BriefingReserveClient({
 
           {reservedCompanies.length > 0 && (
             <div className="space-y-2 mt-3">
-              <p className="text-xs text-slate-500">予約済み・完了済みの事業者</p>
+              <p className="text-xs text-slate-500">予約済みの事業者</p>
               {reservedCompanies.map((c) => (
                 <div
                   key={c.recordId}
@@ -252,13 +262,16 @@ export function BriefingReserveClient({
                     )}
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {c.briefingCompleted
-                      ? "概要案内: 完了"
-                      : c.briefingDate
-                        ? `概要案内: ${formatDate(c.briefingDate)} で予約中`
-                        : "概要案内: 予約中"}
+                    {c.briefingActiveScheduledAt
+                      ? `概要案内: ${formatDate(c.briefingActiveScheduledAt)} で予約中`
+                      : "概要案内: 予約中（日時未確定）"}
                   </p>
-                  {c.briefingHasReservation && (
+                  {c.briefingActiveSource === "manual" ? (
+                    <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                      ※ こちらの予約は担当者が直接お取りしたものです。変更・キャンセルは
+                      <strong>公式LINEへ直接ご連絡</strong>ください。
+                    </p>
+                  ) : (
                     <p className="text-xs text-slate-400 mt-1">
                       変更・キャンセルは上記の予約履歴から
                     </p>

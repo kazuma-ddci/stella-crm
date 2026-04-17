@@ -95,6 +95,10 @@ type RecordRow = {
     contactDisplay: string;
     agencyLabels: string[];
   }>;
+  // 商談セッションアラート
+  noShowCount: number;
+  activeBriefingCount: number;
+  activeConsultationCount: number;
 };
 
 type Props = {
@@ -522,6 +526,36 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
                         <span className="text-muted-foreground text-xs italic">(未登録)</span>
                       )}
                     </Link>
+                    {/* 商談セッションアラート */}
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {row.noShowCount > 0 && (
+                        <span
+                          className="inline-flex items-center gap-0.5 rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-700"
+                          title={`過去に飛びが ${row.noShowCount} 件`}
+                        >
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          飛び{row.noShowCount}
+                        </span>
+                      )}
+                      {row.activeBriefingCount >= 2 && (
+                        <span
+                          className="inline-flex items-center gap-0.5 rounded border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[10px] font-medium text-orange-700"
+                          title="概要案内で予約中/未予約が2件以上あります"
+                        >
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          概要案内重複{row.activeBriefingCount}
+                        </span>
+                      )}
+                      {row.activeConsultationCount >= 2 && (
+                        <span
+                          className="inline-flex items-center gap-0.5 rounded border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[10px] font-medium text-orange-700"
+                          title="導入希望商談で予約中/未予約が2件以上あります"
+                        >
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          導入希望商談重複{row.activeConsultationCount}
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-sm">
                     {row.status1Name ? (

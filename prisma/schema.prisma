@@ -522,6 +522,11 @@ model SlpContactHistory {
   companyRecordId Int?   @map("company_record_id")
   agencyId        Int?   @map("agency_id")
 
+  // 商談セッション（打ち合わせ）紐付け（任意）
+  // - Zoom議事録から自動作成される接触履歴は対応する打ち合わせに自動紐付け
+  // - スタッフ手動作成時はオプションで打ち合わせを選択可能
+  sessionId Int? @map("session_id")
+
   // 全顧客マスタ集約用（事業者/代理店に紐づく場合の denormalize）
   masterCompanyId Int? @map("master_company_id")
 
@@ -536,6 +541,7 @@ model SlpContactHistory {
   companyRecord   SlpCompanyRecord?    @relation("SlpContactHistoryCompanyRecord", fields: [companyRecordId], references: [id])
   agency          SlpAgency?           @relation("SlpContactHistoryAgency", fields: [agencyId], references: [id])
   masterCompany   MasterStellaCompany? @relation("SlpContactHistoryMasterCompany", fields: [masterCompanyId], references: [id])
+  session         SlpMeetingSession?   @relation("SlpContactHistorySession", fields: [sessionId], references: [id])
 
   tags          SlpContactHistoryTag[]
   lineFriends   SlpContactHistoryLineFriend[]
@@ -545,6 +551,7 @@ model SlpContactHistory {
   @@index([targetType, deletedAt])
   @@index([companyRecordId, deletedAt])
   @@index([agencyId, deletedAt])
+  @@index([sessionId])
   @@index([contactDate])
   @@index([contactMethodId])
   @@index([contactCategoryId])
@@ -859,8 +866,6 @@ model MasterStaff {
   lenderAccountApprovals           HojoLenderAccount[]
   vendorAccountApprovals           HojoVendorAccount[]
   slpProlineStaffMappings          SlpProlineStaffMapping[]
-  slpBriefingCompanyRecords        SlpCompanyRecord[]              @relation("SlpCompanyBriefingStaff")
-  slpConsultationCompanyRecords    SlpCompanyRecord[]              @relation("SlpCompanyConsultationStaff")
   slpSalesCompanyRecords           SlpCompanyRecord[]              @relation("SlpCompanySalesStaff")
   slpStatusChanges                 SlpCompanyRecordStatusHistory[] @relation("SlpCompanyRecordStatusChanger")
   slpCompanyContactManualAsChanges SlpCompanyContact[]             @relation("SlpCompanyContactManualAsChangedBy")
@@ -881,11 +886,15 @@ model MasterStaff {
   // ミーティング連携（Zoom / 将来のGoogle Meet等）
   meetingIntegrations                StaffMeetingIntegration[] @relation("StaffMeetingIntegrations")
   disconnectedMeetingIntegrations    StaffMeetingIntegration[] @relation("StaffMeetingIntegrationsDisconnectedBy")
-  slpBriefingZoomHostRecords         SlpCompanyRecord[]        @relation("SlpBriefingZoomHost")
-  slpConsultationZoomHostRecords     SlpCompanyRecord[]        @relation("SlpConsultationZoomHost")
   slpZoomRecordingsHosted            SlpZoomRecording[]        @relation("SlpZoomRecordingHost")
-  slpZoomMessageTemplatesUpdated     SlpZoomMessageTemplate[]  @relation("SlpZoomMessageTemplateUpdater")
   slpZoomAiPromptTemplatesUpdated    SlpZoomAiPromptTemplate[] @relation("SlpZoomAiPromptTemplateUpdater")
+
+  // SLP 商談セッション関連
+  slpSessionAssigned              SlpMeetingSession[]        @relation("SlpSessionAssignedStaff")
+  slpSessionCreated               SlpMeetingSession[]        @relation("SlpSessionCreatedBy")
+  slpSessionZoomHosted            SlpMeetingSessionZoom[]    @relation("SlpSessionZoomHost")
+  slpSessionHistoriesChanged      SlpMeetingSessionHistory[] @relation("SlpSessionHistoryChangedBy")
+  slpNotificationTemplatesUpdated SlpNotificationTemplate[]  @relation("SlpNotificationTemplateUpdater")
 
   @@map("master_staff")
 }
@@ -4252,72 +4261,11 @@ model SlpLineFriend {
 // ============================================
 
 model SlpCompanyRecord {
-  id                 Int       @id @default(autoincrement())
-  prolineUid         String?   @map("proline_uid") @db.VarChar(100) // プロライン側のUID（変更/キャンセル時の検索キー）
-  briefingStatus     String?   @map("briefing_status") @db.VarChar(50) // 概要案内ステータス（予約中/キャンセル/完了）
-  briefingBookedAt   DateTime? @map("briefing_booked_at") // 概要案内予約日（予約が作成された日）
-  briefingDate       DateTime? @map("briefing_date") // 概要案内日（実際の案内日時）
-  briefingStaff      String?   @map("briefing_staff") @db.VarChar(100) // 概要案内担当者（生テキスト・マッピング未解決時のフォールバック）
-  briefingStaffId    Int?      @map("briefing_staff_id") // 概要案内担当者マッピングで解決したスタッフID
-  briefingChangedAt  DateTime? @map("briefing_changed_at") // 概要案内予約が変更された日時
-  briefingCanceledAt DateTime? @map("briefing_canceled_at") // 概要案内予約がキャンセルされた日時
+  id         Int     @id @default(autoincrement())
+  prolineUid String? @map("proline_uid") @db.VarChar(100) // プロライン側のUID（変更/キャンセル時の検索キー）
 
-  // ============================================
-  // 予約ID (プロライン側で発行される予約ID)
-  // 中継URL方式: 予約変更・キャンセル時にこのIDで該当レコードを一括特定する
-  // 同じ予約IDが複数レコードに紐付く場合は全て一括更新（複製対応）
-  // ============================================
-  reservationId             String? @map("reservation_id") @db.VarChar(100) // 概要案内の予約ID ([[cl1-booking-id]])
-  consultationReservationId String? @map("consultation_reservation_id") @db.VarChar(100) // 導入希望商談の予約ID ([[cl2-booking-id]])
-
-  // 重複統合で取り込まれた予約IDたち（マージ元の予約も追跡できるように配列で保持）
-  // メインのreservationIdとは別に、過去にマージされた予約IDをここに格納する
-  // 変更・キャンセルwebhookではメインID + この配列の両方を検索対象にする
-  mergedBriefingReservationIds     String[] @default([]) @map("merged_briefing_reservation_ids")
-  mergedConsultationReservationIds String[] @default([]) @map("merged_consultation_reservation_ids")
-
-  // ============================================
-  // 導入希望商談 (cl2) — 概要案内と並列で管理
-  // ============================================
-  consultationStatus     String?   @map("consultation_status") @db.VarChar(50) // 導入希望商談ステータス（予約中/キャンセル/完了）
-  consultationBookedAt   DateTime? @map("consultation_booked_at") // 導入希望商談予約日（予約が作成された日）
-  consultationDate       DateTime? @map("consultation_date") // 導入希望商談日（実際の商談日時）
-  consultationStaff      String?   @map("consultation_staff") @db.VarChar(100) // 導入希望商談担当者（生テキスト・マッピング未解決時のフォールバック）
-  consultationStaffId    Int?      @map("consultation_staff_id") // 導入希望商談担当者（SlpProlineStaffMappingで解決したスタッフID）
-  consultationChangedAt  DateTime? @map("consultation_changed_at") // 導入希望商談予約が変更された日時
-  consultationCanceledAt DateTime? @map("consultation_canceled_at") // 導入希望商談予約がキャンセルされた日時
-
-  // ============================================
-  // Zoom会議情報（概要案内）
-  // 予約確定時に担当者のZoomアカウントで会議を発行し、結果を保存する。
-  // 担当者変更・日時変更・キャンセル時にZoom会議も同期して更新/削除される。
-  // ============================================
-  briefingZoomMeetingId        BigInt?   @map("briefing_zoom_meeting_id") // Zoom会議ID（recording.completed webhookで照合）
-  briefingZoomJoinUrl          String?   @map("briefing_zoom_join_url") @db.VarChar(1000) // お客様向けURL
-  briefingZoomStartUrl         String?   @map("briefing_zoom_start_url") @db.VarChar(2000) // 主催者用URL（有効期限あり・念のため保持）
-  briefingZoomPassword         String?   @map("briefing_zoom_password") @db.VarChar(100) // 参加パスワード（今回は無しだが将来用）
-  briefingZoomHostStaffId      Int?      @map("briefing_zoom_host_staff_id") // 会議主催者（Zoom発行時のbriefingStaffIdを固定記録）
-  briefingZoomCreatedAt        DateTime? @map("briefing_zoom_created_at") // Zoom会議発行日時
-  briefingZoomError            String?   @map("briefing_zoom_error") @db.Text // 発行失敗理由（成功時はnull）
-  briefingZoomErrorAt          DateTime? @map("briefing_zoom_error_at") // 失敗日時
-  briefingZoomConfirmSentAt    DateTime? @map("briefing_zoom_confirm_sent_at") // 予約完了通知（URL案内）送信済み日時
-  briefingZoomRemindDaySentAt  DateTime? @map("briefing_zoom_remind_day_sent_at") // 前日10:00リマインド送信済み日時
-  briefingZoomRemindHourSentAt DateTime? @map("briefing_zoom_remind_hour_sent_at") // 1時間前リマインド送信済み日時
-
-  // ============================================
-  // Zoom会議情報（導入希望商談）
-  // ============================================
-  consultationZoomMeetingId        BigInt?   @map("consultation_zoom_meeting_id")
-  consultationZoomJoinUrl          String?   @map("consultation_zoom_join_url") @db.VarChar(1000)
-  consultationZoomStartUrl         String?   @map("consultation_zoom_start_url") @db.VarChar(2000)
-  consultationZoomPassword         String?   @map("consultation_zoom_password") @db.VarChar(100)
-  consultationZoomHostStaffId      Int?      @map("consultation_zoom_host_staff_id")
-  consultationZoomCreatedAt        DateTime? @map("consultation_zoom_created_at")
-  consultationZoomError            String?   @map("consultation_zoom_error") @db.Text
-  consultationZoomErrorAt          DateTime? @map("consultation_zoom_error_at")
-  consultationZoomConfirmSentAt    DateTime? @map("consultation_zoom_confirm_sent_at")
-  consultationZoomRemindDaySentAt  DateTime? @map("consultation_zoom_remind_day_sent_at")
-  consultationZoomRemindHourSentAt DateTime? @map("consultation_zoom_remind_hour_sent_at")
+  // 商談情報（ステータス・日時・担当者・Zoom・予約ID等）は SlpMeetingSession + SlpMeetingSessionZoom に移行済み
+  // Phase 1c で旧カラム briefing_* / consultation_* / reservation_id / merged_*_reservation_ids を削除
 
   // ============================================
   // 企業基本情報（Phase 1 で追加）
@@ -4389,8 +4337,6 @@ model SlpCompanyRecord {
 
   contacts              SlpCompanyContact[]
   primaryContact        SlpCompanyContact?              @relation("PrimaryContact", fields: [primaryContactId], references: [id])
-  briefingStaffUser     MasterStaff?                    @relation("SlpCompanyBriefingStaff", fields: [briefingStaffId], references: [id])
-  consultationStaffUser MasterStaff?                    @relation("SlpCompanyConsultationStaff", fields: [consultationStaffId], references: [id])
   salesStaff            MasterStaff?                    @relation("SlpCompanySalesStaff", fields: [salesStaffId], references: [id])
   industry              SlpIndustryMaster?              @relation(fields: [industryId], references: [id])
   flowSource            SlpFlowSourceMaster?            @relation(fields: [flowSourceId], references: [id])
@@ -4408,22 +4354,19 @@ model SlpCompanyRecord {
   duplicateExclusionsA SlpCompanyDuplicateExclusion[] @relation("DuplicateExclusionA")
   duplicateExclusionsB SlpCompanyDuplicateExclusion[] @relation("DuplicateExclusionB")
 
-  // Zoom連携リレーション
-  briefingZoomHost     MasterStaff?       @relation("SlpBriefingZoomHost", fields: [briefingZoomHostStaffId], references: [id])
-  consultationZoomHost MasterStaff?       @relation("SlpConsultationZoomHost", fields: [consultationZoomHostStaffId], references: [id])
-  zoomSendLogs         SlpZoomSendLog[]   @relation("SlpZoomSendLogsForCompany")
+  // Zoom送信ログ（SlpMeetingSession と紐付くが、企業側からも辿れるよう保持）
+  zoomSendLogs SlpZoomSendLog[] @relation("SlpZoomSendLogsForCompany")
+
+  // 商談セッション
+  meetingSessions SlpMeetingSession[] @relation("SlpCompanyRecordSessions")
 
   @@index([prolineUid])
-  @@index([reservationId])
-  @@index([consultationReservationId])
   @@index([industryId])
   @@index([flowSourceId])
   @@index([salesStaffId])
   @@index([status1Id])
   @@index([status2Id])
   @@index([masterCompanyId])
-  @@index([briefingZoomMeetingId])
-  @@index([consultationZoomMeetingId])
   @@map("slp_company_records")
 }
 
@@ -4493,9 +4436,15 @@ model SlpReservationHistory {
   formAnswers     Json?     @map("form_answers") // 新規予約時のフォーム回答（年間人件費・従業員数等）。将来のフォーム拡張に備えてJSON
   createdAt       DateTime  @default(now()) @map("created_at")
 
-  companyRecord SlpCompanyRecord @relation(fields: [companyRecordId], references: [id], onDelete: Cascade)
+  // 商談セッション紐付け（Phase 1で追加 — nullable、段階移行）
+  sessionId   Int? @map("session_id")
+  roundNumber Int? @map("round_number")
+
+  companyRecord SlpCompanyRecord   @relation(fields: [companyRecordId], references: [id], onDelete: Cascade)
+  session       SlpMeetingSession? @relation("SlpReservationHistorySession", fields: [sessionId], references: [id])
 
   @@index([companyRecordId, reservationType, createdAt(sort: Desc)])
+  @@index([sessionId])
   @@map("slp_reservation_history")
 }
 
@@ -6259,28 +6208,7 @@ model StaffMeetingIntegration {
   @@map("staff_meeting_integrations")
 }
 
-// ============================================
-// SLP Zoom 送信メッセージテンプレート
-// 予約確定通知・変更通知・前日/1時間前リマインド用の文面。
-// 変数プレースホルダー例: {{事業者名}} {{商談種別}} {{日時}} {{担当者}} {{url}}
-// ============================================
-model SlpZoomMessageTemplate {
-  id               Int      @id @default(autoincrement())
-  templateKey      String   @unique @map("template_key") @db.VarChar(100)
-  category         String   @db.VarChar(30) // "briefing" | "consultation"
-  trigger          String   @db.VarChar(30) // "confirm" | "change" | "remind_day_before" | "remind_hour_before" | "regenerated_manual_notice"
-  label            String   @db.VarChar(200)
-  body             String   @db.Text
-  isActive         Boolean  @default(true) @map("is_active")
-  updatedByStaffId Int?     @map("updated_by_staff_id")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-
-  updatedBy MasterStaff? @relation("SlpZoomMessageTemplateUpdater", fields: [updatedByStaffId], references: [id])
-
-  @@index([category, trigger])
-  @@map("slp_zoom_message_templates")
-}
+// SlpZoomMessageTemplate は SlpNotificationTemplate に統合、Phase 1c で削除
 
 // ============================================
 // SLP Zoom AI プロンプトテンプレート
@@ -6322,11 +6250,17 @@ model SlpZoomSendLog {
   httpStatus      Int?     @map("http_status")
   sentAt          DateTime @default(now()) @map("sent_at")
 
-  companyRecord SlpCompanyRecord @relation("SlpZoomSendLogsForCompany", fields: [companyRecordId], references: [id], onDelete: Cascade)
+  // 商談セッション紐付け（Phase 1で追加 — nullable、段階移行）
+  sessionId   Int?    @map("session_id")
+  recipient   String? @db.VarChar(20) // "customer" | "referrer"
+
+  companyRecord SlpCompanyRecord   @relation("SlpZoomSendLogsForCompany", fields: [companyRecordId], references: [id], onDelete: Cascade)
+  session       SlpMeetingSession? @relation("SlpZoomSendLogSession", fields: [sessionId], references: [id])
 
   @@index([companyRecordId])
   @@index([sentAt])
   @@index([status])
+  @@index([sessionId])
   @@map("slp_zoom_send_logs")
 }
 
@@ -6370,9 +6304,159 @@ model SlpZoomRecording {
 
   contactHistory SlpContactHistory @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
   hostStaff      MasterStaff?      @relation("SlpZoomRecordingHost", fields: [hostStaffId], references: [id])
+  sessionZoom    SlpMeetingSessionZoom? @relation(fields: [sessionZoomId], references: [id])
+
+  sessionZoomId Int? @map("session_zoom_id")
 
   @@unique([zoomMeetingId])
   @@index([downloadStatus])
   @@index([createdAt])
+  @@index([sessionZoomId])
   @@map("slp_zoom_recordings")
+}
+
+// ============================================
+// SLP 商談セッション (SLP Meeting Session)
+// 概要案内・導入希望商談のラウンド毎のセッションを記録する。
+// ラウンド番号 = 完了回数ベース（キャンセル/飛び/論理削除は番号消費しない）。
+// 1ラウンドに複数試行あり得る（予約→キャンセル→再予約→完了）。
+// 並列「予約中」は原則1つだが、プロラインwebhook重複時は複数許容（アプリで警告）。
+// ============================================
+model SlpMeetingSession {
+  id              Int    @id @default(autoincrement())
+  companyRecordId Int    @map("company_record_id")
+  category        String @db.VarChar(20) // "briefing" | "consultation"
+  roundNumber     Int    @map("round_number") // 1, 2, 3, ...
+  status          String @db.VarChar(20) // "未予約" | "予約中" | "完了" | "キャンセル" | "飛び"
+  source          String @db.VarChar(20) // "proline" | "manual"
+
+  scheduledAt          DateTime? @map("scheduled_at") // 商談日時（status=未予約時はnull）
+  assignedStaffId      Int?      @map("assigned_staff_id")
+  prolineReservationId String?   @map("proline_reservation_id") @db.VarChar(100) // プロライン予約ID（webhook紐付け、manual時はnull）
+  prolineStaffName     String?   @map("proline_staff_name") @db.VarChar(200)      // プロラインWebhookから受信した担当者名（生テキスト）。マッピング未登録時の警告UI用
+
+  bookedAt     DateTime? @map("booked_at") // 予約発生日時（予約中になった時点）
+  completedAt  DateTime? @map("completed_at")
+  cancelledAt  DateTime? @map("cancelled_at")
+  noShowAt     DateTime? @map("no_show_at")
+  cancelReason String?   @map("cancel_reason") @db.Text
+  noShowReason String?   @map("no_show_reason") @db.Text
+
+  notes String? @db.Text // スタッフメモ
+
+  createdByStaffId Int?      @map("created_by_staff_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  companyRecord        SlpCompanyRecord           @relation("SlpCompanyRecordSessions", fields: [companyRecordId], references: [id], onDelete: Cascade)
+  assignedStaff        MasterStaff?               @relation("SlpSessionAssignedStaff", fields: [assignedStaffId], references: [id])
+  createdByStaff       MasterStaff?               @relation("SlpSessionCreatedBy", fields: [createdByStaffId], references: [id])
+  zoomRecords          SlpMeetingSessionZoom[]
+  histories            SlpMeetingSessionHistory[]
+  reservationHistories SlpReservationHistory[]    @relation("SlpReservationHistorySession")
+  zoomSendLogs         SlpZoomSendLog[]           @relation("SlpZoomSendLogSession")
+  contactHistories     SlpContactHistory[]        @relation("SlpContactHistorySession")
+
+  @@index([companyRecordId, category, roundNumber])
+  @@index([companyRecordId, category, status])
+  @@index([prolineReservationId])
+  @@index([scheduledAt])
+  @@map("slp_meeting_sessions")
+}
+
+// ============================================
+// SLP 商談セッション Zoom記録 (SLP Meeting Session Zoom)
+// 1セッションに複数Zoom記録を紐付け可能（追加Zoom機能）。
+// 通常は1つ（isPrimary=true）、分割実施等で追加Zoomが発生した場合は複数。
+// ============================================
+model SlpMeetingSessionZoom {
+  id        Int @id @default(autoincrement())
+  sessionId Int @map("session_id")
+
+  zoomMeetingId   BigInt    @map("zoom_meeting_id")
+  zoomMeetingUuid String?   @map("zoom_meeting_uuid") @db.VarChar(200)
+  joinUrl         String    @map("join_url") @db.VarChar(1000)
+  startUrl        String?   @map("start_url") @db.VarChar(2000)
+  password        String?   @db.VarChar(100)
+  hostStaffId     Int?      @map("host_staff_id")
+  scheduledAt     DateTime? @map("scheduled_at")
+
+  isPrimary Boolean @default(true) @map("is_primary")
+  label     String? @db.VarChar(100) // "延長分", "再実施" 等
+
+  confirmSentAt    DateTime? @map("confirm_sent_at") // 予約確定通知送信済み
+  remindDaySentAt  DateTime? @map("remind_day_sent_at") // 前日リマインド送信済み
+  remindHourSentAt DateTime? @map("remind_hour_sent_at") // 1時間前リマインド送信済み
+
+  zoomError   String?   @map("zoom_error") @db.Text
+  zoomErrorAt DateTime? @map("zoom_error_at")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  session    SlpMeetingSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  hostStaff  MasterStaff?       @relation("SlpSessionZoomHost", fields: [hostStaffId], references: [id])
+  recordings SlpZoomRecording[]
+
+  @@index([sessionId])
+  @@index([zoomMeetingId])
+  @@map("slp_meeting_session_zooms")
+}
+
+// ============================================
+// SLP 商談セッション 変更履歴 (SLP Meeting Session History)
+// セッション作成・フィールド編集・ステータス変更・削除の全履歴を記録。
+// ステータス変更時は理由の記載を必須とする（アプリレベル）。
+// ============================================
+model SlpMeetingSessionHistory {
+  id        Int @id @default(autoincrement())
+  sessionId Int @map("session_id")
+
+  changedByStaffId Int?    @map("changed_by_staff_id")
+  changeType       String  @map("change_type") @db.VarChar(30) // "created" | "field_edit" | "status_change" | "deleted" | "restored"
+  fieldName        String? @map("field_name") @db.VarChar(100)
+  oldValue         String? @map("old_value") @db.Text
+  newValue         String? @map("new_value") @db.Text
+  reason           String? @db.Text // 変更理由（status_change時は必須）
+
+  changedAt DateTime @default(now()) @map("changed_at")
+
+  session        SlpMeetingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  changedByStaff MasterStaff?      @relation("SlpSessionHistoryChangedBy", fields: [changedByStaffId], references: [id])
+
+  @@index([sessionId, changedAt(sort: Desc)])
+  @@map("slp_meeting_session_histories")
+}
+
+// ============================================
+// SLP 通知テンプレート (SLP Notification Template)
+// お客様・紹介者への全通知文面を一元管理。
+// recipient × category × roundType × source × trigger の組み合わせでテンプレートを保存。
+// 旧 SlpZoomMessageTemplate はこのテーブルに統合される。
+// ============================================
+model SlpNotificationTemplate {
+  id Int @id @default(autoincrement())
+
+  recipient String  @db.VarChar(20) // "customer" | "referrer"
+  category  String  @db.VarChar(20) // "briefing" | "consultation"
+  roundType String? @map("round_type") @db.VarChar(20) // "first" | "continuous"（referrerはnull）
+  source    String? @db.VarChar(20) // "proline" | "manual"（referrerはnull）
+  trigger   String  @db.VarChar(40) // "confirm" | "change" | "cancel" | "complete" | "remind_day_before" | "remind_hour_before" | "confirm_no_url" | "change_no_url" | "regenerated_manual_notice"
+
+  formId String  @map("form_id") @db.VarChar(20) // "form16" | "form17" | "form18" | "form11" | "form13"
+  label  String  @db.VarChar(200)
+  body   String  @db.Text
+  isActive Boolean @default(true) @map("is_active")
+
+  updatedByStaffId Int?     @map("updated_by_staff_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  updatedBy MasterStaff? @relation("SlpNotificationTemplateUpdater", fields: [updatedByStaffId], references: [id])
+
+  @@unique([recipient, category, roundType, source, trigger])
+  @@index([recipient, category])
+  @@map("slp_notification_templates")
 }

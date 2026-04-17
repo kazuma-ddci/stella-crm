@@ -3,6 +3,10 @@
  *
  * uid → SlpLineFriend → 担当者として紐付く企業レコード一覧 を取得する。
  * 概要案内・導入希望商談どちらの中継ページからも参照される。
+ *
+ * Phase 4 でセッションベース (SlpMeetingSession) に対応。
+ * 過去に「完了」しているが現在「予約中/未予約」がない状態でも、
+ * 顧客は追加の予約を作成できる（ユーザー仕様: 「完了済み」でも再度予約可能）。
  */
 
 import { prisma } from "@/lib/prisma";
@@ -12,27 +16,26 @@ export type CandidateCompany = {
   recordId: number;
   companyName: string | null;
   businessType: string | null;
-  briefingStatus: string | null;
-  briefingDate: Date | null;
-  consultationStatus: string | null;
-  consultationDate: Date | null;
-  /** 既に予約済みかどうか（briefing用判定） */
-  briefingHasReservation: boolean;
-  /** 既に予約済みかどうか（consultation用判定） */
-  consultationHasReservation: boolean;
-  /** 概要案内が完了しているか */
-  briefingCompleted: boolean;
+  // 概要案内の現状
+  briefingHasActiveReservation: boolean; // 予約中 or 未予約セッションがある
+  briefingCompletedOnce: boolean; // 過去に完了しているセッションが1つ以上ある
+  briefingActiveScheduledAt: Date | null; // アクティブセッションの日時（あれば）
+  briefingActiveSource: "proline" | "manual" | null; // アクティブセッションのソース
+  // 導入希望商談の現状
+  consultationHasActiveReservation: boolean;
+  consultationCompletedOnce: boolean;
+  consultationActiveScheduledAt: Date | null;
+  consultationActiveSource: "proline" | "manual" | null;
 };
 
-export type ResolveResult = {
-  found: true;
-  lineFriendId: number;
-  snsname: string | null;
-  companies: CandidateCompany[];
-} | {
-  found: false;
-  reason: "uid_missing" | "line_friend_not_found";
-};
+export type ResolveResult =
+  | {
+      found: true;
+      lineFriendId: number;
+      snsname: string | null;
+      companies: CandidateCompany[];
+    }
+  | { found: false; reason: "uid_missing" | "line_friend_not_found" };
 
 /**
  * uidから担当者情報と担当企業を解決する
@@ -44,10 +47,7 @@ export async function resolveContactCompanies(
 
   const lineFriend = await prisma.slpLineFriend.findUnique({
     where: { uid },
-    select: {
-      id: true,
-      snsname: true,
-    },
+    select: { id: true, snsname: true },
   });
 
   if (!lineFriend) {
@@ -66,19 +66,24 @@ export async function resolveContactCompanies(
           id: true,
           companyName: true,
           businessType: true,
-          briefingStatus: true,
-          briefingDate: true,
-          briefingCanceledAt: true,
-          consultationStatus: true,
-          consultationDate: true,
-          consultationCanceledAt: true,
+          meetingSessions: {
+            where: { deletedAt: null },
+            select: {
+              category: true,
+              status: true,
+              source: true,
+              scheduledAt: true,
+              createdAt: true,
+              roundNumber: true,
+            },
+            orderBy: [{ roundNumber: "desc" }, { createdAt: "desc" }],
+          },
         },
       },
     },
     orderBy: { id: "asc" },
   });
 
-  // 重複排除（同じ企業に複数の担当者が登録されているケース）
   const seen = new Set<number>();
   const companies: CandidateCompany[] = [];
   for (const c of contacts) {
@@ -87,28 +92,43 @@ export async function resolveContactCompanies(
     if (seen.has(r.id)) continue;
     seen.add(r.id);
 
-    // 概要案内: 「予約中」状態 = キャンセルされていない予約あり
-    const briefingHasReservation =
-      r.briefingStatus === "予約中" && r.briefingCanceledAt === null;
+    const briefingSessions = r.meetingSessions.filter(
+      (s) => s.category === "briefing"
+    );
+    const consultationSessions = r.meetingSessions.filter(
+      (s) => s.category === "consultation"
+    );
 
-    // 概要案内が完了しているか
-    const briefingCompleted = r.briefingStatus === "完了";
+    const briefingActive = briefingSessions.find(
+      (s) => s.status === "予約中" || s.status === "未予約"
+    );
+    const briefingCompletedOnce = briefingSessions.some(
+      (s) => s.status === "完了"
+    );
 
-    // 導入希望商談: 「予約中」状態 = キャンセルされていない予約あり
-    const consultationHasReservation =
-      r.consultationStatus === "予約中" && r.consultationCanceledAt === null;
+    const consultationActive = consultationSessions.find(
+      (s) => s.status === "予約中" || s.status === "未予約"
+    );
+    const consultationCompletedOnce = consultationSessions.some(
+      (s) => s.status === "完了"
+    );
 
     companies.push({
       recordId: r.id,
       companyName: r.companyName,
       businessType: r.businessType,
-      briefingStatus: r.briefingStatus,
-      briefingDate: r.briefingDate,
-      consultationStatus: r.consultationStatus,
-      consultationDate: r.consultationDate,
-      briefingHasReservation,
-      consultationHasReservation,
-      briefingCompleted,
+      briefingHasActiveReservation: !!briefingActive,
+      briefingCompletedOnce,
+      briefingActiveScheduledAt: briefingActive?.scheduledAt ?? null,
+      briefingActiveSource:
+        (briefingActive?.source as "proline" | "manual" | null | undefined) ??
+        null,
+      consultationHasActiveReservation: !!consultationActive,
+      consultationCompletedOnce,
+      consultationActiveScheduledAt: consultationActive?.scheduledAt ?? null,
+      consultationActiveSource:
+        (consultationActive?.source as "proline" | "manual" | null | undefined) ??
+        null,
     });
   }
 

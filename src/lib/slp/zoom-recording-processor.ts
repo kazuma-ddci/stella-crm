@@ -41,56 +41,55 @@ type CompanyMatch = {
   hostStaffId: number | null;
   contactDate: Date | null;
   masterCompanyId: number | null;
+  /** セッションZoom ID（SlpZoomRecording の sessionZoomId に紐付け用） */
+  sessionZoomId: number;
+  /** 商談セッションID（SlpContactHistory.sessionId への紐付け用） */
+  sessionId: number;
 };
 
 // ============================================
-// SlpCompanyRecord 検索（meeting_id で briefing/consultation を判別）
+// SlpMeetingSessionZoom 検索（meeting_id で session を特定し、category / host / date を解決）
 // ============================================
 
 async function findCompanyByMeetingId(
   meetingId: bigint
 ): Promise<CompanyMatch | null> {
-  const briefingRecord = await prisma.slpCompanyRecord.findFirst({
-    where: { briefingZoomMeetingId: meetingId },
-    select: {
-      id: true,
-      companyName: true,
-      briefingDate: true,
-      briefingZoomHostStaffId: true,
-      masterCompanyId: true,
+  const sessionZoom = await prisma.slpMeetingSessionZoom.findFirst({
+    where: { zoomMeetingId: meetingId, deletedAt: null },
+    include: {
+      session: {
+        select: {
+          id: true,
+          category: true,
+          assignedStaffId: true,
+          scheduledAt: true,
+          companyRecord: {
+            select: {
+              id: true,
+              companyName: true,
+              masterCompanyId: true,
+            },
+          },
+        },
+      },
     },
   });
-  if (briefingRecord) {
-    return {
-      category: "briefing",
-      companyRecordId: briefingRecord.id,
-      companyName: briefingRecord.companyName,
-      hostStaffId: briefingRecord.briefingZoomHostStaffId,
-      contactDate: briefingRecord.briefingDate,
-      masterCompanyId: briefingRecord.masterCompanyId,
-    };
-  }
-  const consultationRecord = await prisma.slpCompanyRecord.findFirst({
-    where: { consultationZoomMeetingId: meetingId },
-    select: {
-      id: true,
-      companyName: true,
-      consultationDate: true,
-      consultationZoomHostStaffId: true,
-      masterCompanyId: true,
-    },
-  });
-  if (consultationRecord) {
-    return {
-      category: "consultation",
-      companyRecordId: consultationRecord.id,
-      companyName: consultationRecord.companyName,
-      hostStaffId: consultationRecord.consultationZoomHostStaffId,
-      contactDate: consultationRecord.consultationDate,
-      masterCompanyId: consultationRecord.masterCompanyId,
-    };
-  }
-  return null;
+  if (!sessionZoom || !sessionZoom.session) return null;
+
+  const category = sessionZoom.session.category as "briefing" | "consultation";
+  const hostStaffId =
+    sessionZoom.hostStaffId ?? sessionZoom.session.assignedStaffId ?? null;
+
+  return {
+    category,
+    companyRecordId: sessionZoom.session.companyRecord.id,
+    companyName: sessionZoom.session.companyRecord.companyName,
+    hostStaffId,
+    contactDate: sessionZoom.scheduledAt ?? sessionZoom.session.scheduledAt,
+    masterCompanyId: sessionZoom.session.companyRecord.masterCompanyId,
+    sessionZoomId: sessionZoom.id,
+    sessionId: sessionZoom.session.id,
+  };
 }
 
 // ============================================
@@ -161,6 +160,7 @@ async function ensureRecordingRow(params: {
       targetType: "company_record",
       companyRecordId: params.companyMatch.companyRecordId,
       masterCompanyId: params.companyMatch.masterCompanyId,
+      sessionId: params.companyMatch.sessionId, // 打ち合わせに自動紐付け
     },
   });
   if (slpCompanyCustomerTypeId) {
@@ -182,6 +182,7 @@ async function ensureRecordingRow(params: {
         zoomMeetingUuid: params.meetingUuid,
         category: params.companyMatch.category,
         hostStaffId: params.companyMatch.hostStaffId,
+        sessionZoomId: params.companyMatch.sessionZoomId,
         downloadStatus: "pending",
       },
     });

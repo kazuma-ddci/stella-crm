@@ -33,7 +33,7 @@ export async function createConsultationPendingAction(params: {
     return { success: false, error: "uidが指定されていません" };
   }
 
-  // 対象企業を取得 + 概要案内完了チェック
+  // 対象企業を取得
   const record = await prisma.slpCompanyRecord.findFirst({
     where: {
       id: companyRecordId,
@@ -42,7 +42,6 @@ export async function createConsultationPendingAction(params: {
     select: {
       id: true,
       companyName: true,
-      briefingStatus: true,
     },
   });
 
@@ -50,10 +49,39 @@ export async function createConsultationPendingAction(params: {
     return { success: false, error: "選択した企業が見つかりません" };
   }
 
-  if (record.briefingStatus !== "完了") {
+  // セッションベースで「過去に概要案内が1度でも完了しているか」をチェック
+  const briefingCompletedSession = await prisma.slpMeetingSession.findFirst({
+    where: {
+      companyRecordId: record.id,
+      category: "briefing",
+      status: "完了",
+      deletedAt: null,
+    },
+    select: { id: true },
+  });
+
+  if (!briefingCompletedSession) {
     return {
       success: false,
       error: "この事業者の概要案内が完了していないため、導入希望商談の予約はできません",
+    };
+  }
+
+  // 既にアクティブな導入希望商談予約がある場合は重複予約を防ぐ
+  const activeConsultation = await prisma.slpMeetingSession.findFirst({
+    where: {
+      companyRecordId: record.id,
+      category: "consultation",
+      status: { in: ["予約中", "未予約"] },
+      deletedAt: null,
+    },
+    select: { id: true },
+  });
+
+  if (activeConsultation) {
+    return {
+      success: false,
+      error: "この事業者の導入希望商談は既に予約中です。変更・キャンセルは予約履歴からお願いします",
     };
   }
 

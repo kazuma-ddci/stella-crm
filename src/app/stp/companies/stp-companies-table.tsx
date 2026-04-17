@@ -194,6 +194,17 @@ export function StpCompaniesTable({
     { key: "companyId", header: "企業ID", type: "select", options: companyOptions, required: true, searchable: true, simpleMode: true, editableOnCreate: true, editableOnUpdate: false, hidden: true },
     // 企業名
     { key: "companyName", header: "企業名", editable: false },
+    // 契約状態（契約履歴から自動判定、編集不可、フィルタ可能）
+    {
+      key: "contractStatus",
+      header: "契約状態",
+      editable: false,
+      type: "select",
+      options: [
+        { value: "契約中", label: "契約中" },
+        { value: "リード", label: "リード" },
+      ],
+    },
     // 案件有無
     { key: "hasDeal", header: "案件有無", type: "select", options: [{ value: "有り", label: "有り" }, { value: "無し", label: "無し" }], inlineEditable: true },
     // 提案中の商材（複数選択）
@@ -376,6 +387,22 @@ export function StpCompaniesTable({
             </span>
           )}
         </div>
+      );
+    },
+    // 契約状態をバッジ表示
+    contractStatus: (value) => {
+      const isActive = value === "契約中";
+      return (
+        <span
+          className={
+            "inline-flex items-center px-2 py-0.5 rounded text-xs font-medium " +
+            (isActive
+              ? "bg-emerald-100 text-emerald-800"
+              : "bg-gray-100 text-gray-700")
+          }
+        >
+          {String(value)}
+        </span>
       );
     },
     // 代理店名をクリックで全顧客マスタの詳細ページへ

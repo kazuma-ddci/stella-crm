@@ -28,15 +28,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
-import { ZoomMeetingPanel } from "./zoom-meeting-panel";
 import {
   ArrowLeft,
   Plus,
@@ -46,25 +39,18 @@ import {
   Mail,
   Phone,
   MessageSquare,
-  History,
   Settings,
   Save,
   Loader2,
-  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  updateCompanyRecord,
   updateCompanyBasicInfo,
   deleteCompanyRecord,
   addContact,
   updateContact,
   deleteContact,
   setPrimaryContact,
-  completeBriefingAndNotify,
-  completeConsultationAndNotify,
-  changeBriefingStatusWithReason,
-  changeConsultationStatusWithReason,
   setManualContactAs,
   clearManualContactAs,
   markAsNotDuplicate,
@@ -94,21 +80,6 @@ const PREFECTURES = [
 
 const UNSET = "__unset__";
 
-const briefingStatusOptions = [
-  { value: "予約中", label: "予約中" },
-  { value: "キャンセル", label: "キャンセル" },
-  { value: "完了", label: "完了" },
-];
-
-const consultationStatusOptions = briefingStatusOptions;
-
-type FlowKind = "briefing" | "consultation";
-
-const FLOW_LABELS: Record<FlowKind, string> = {
-  briefing: "概要案内",
-  consultation: "導入希望商談",
-};
-
 // ----------------------------------------------------------------
 // 型
 // ----------------------------------------------------------------
@@ -137,51 +108,6 @@ export type CompanyDetailRecord = {
   id: number;
   companyNo: number;
   contacts: ContactData[];
-  // 概要案内
-  briefingStatus: string | null;
-  briefingBookedAt: string | null;
-  briefingBookedDate: string | null;
-  briefingBookedTime: string | null;
-  briefingDate: string | null;
-  briefingDateOnly: string | null;
-  briefingTimeOnly: string | null;
-  briefingStaff: string | null;
-  briefingStaffId: number | null;
-  briefingStaffName: string | null;
-  briefingChangedAt: string | null;
-  briefingCanceledAt: string | null;
-  // 概要案内 Zoom
-  briefingZoomMeetingId: string | null;
-  briefingZoomJoinUrl: string | null;
-  briefingZoomHostName: string | null;
-  briefingZoomCreatedAt: string | null;
-  briefingZoomError: string | null;
-  briefingZoomErrorAt: string | null;
-  // 予約ID（メイン + マージで取り込まれた配列）
-  reservationId: string | null;
-  consultationReservationId: string | null;
-  mergedBriefingReservationIds: string[];
-  mergedConsultationReservationIds: string[];
-  // 導入希望商談
-  consultationStatus: string | null;
-  consultationBookedAt: string | null;
-  consultationBookedDate: string | null;
-  consultationBookedTime: string | null;
-  consultationDate: string | null;
-  consultationDateOnly: string | null;
-  consultationTimeOnly: string | null;
-  consultationStaff: string | null;
-  consultationStaffId: number | null;
-  consultationStaffName: string | null;
-  consultationChangedAt: string | null;
-  consultationCanceledAt: string | null;
-  // 導入希望商談 Zoom
-  consultationZoomMeetingId: string | null;
-  consultationZoomJoinUrl: string | null;
-  consultationZoomHostName: string | null;
-  consultationZoomCreatedAt: string | null;
-  consultationZoomError: string | null;
-  consultationZoomErrorAt: string | null;
   // 基本情報
   companyName: string | null;
   representativeName: string | null;
@@ -237,10 +163,6 @@ export type CompanyDetailRecord = {
   statusHistories: StatusHistoryEntry[];
   submittedDocuments: CompanyDocumentEntry[];
   reservationHistories: ReservationHistoryEntry[];
-  // 商談バッジ用フラグ
-  hasMeetingToday: boolean;
-  assignedToCurrentUserToday: boolean;
-  hasOverdueUnfinished: boolean;
 };
 
 export type ReservationHistoryEntry = {
@@ -312,6 +234,10 @@ type Props = {
     agencyLabels: string[];
   }>;
   duplicateCandidates: DuplicateCandidateInfo[];
+  /** 「商談」タブ内に表示する Server Component（MeetingSessionsSection） */
+  meetingSessionsSlot?: React.ReactNode;
+  /** 「接触履歴」タブ内に表示する Server Component（SlpCompanyContactHistorySection） */
+  contactHistoriesSlot?: React.ReactNode;
 };
 
 // ----------------------------------------------------------------
@@ -331,6 +257,8 @@ export function CompanyDetail({
   agencyResolutions,
   multipleAgencyWarnings,
   duplicateCandidates,
+  meetingSessionsSlot,
+  contactHistoriesSlot,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -397,24 +325,6 @@ export function CompanyDetail({
   const [confirmedAgentPayment, setConfirmedAgentPayment] = useState(record.confirmedAgentPayment ?? "");
   const [paymentReceivedDate, setPaymentReceivedDate] = useState(record.paymentReceivedDate ?? "");
 
-  // --- 概要案内 日時・担当 ---
-  const [briefingBookedDate, setBriefingBookedDate] = useState(record.briefingBookedDate ?? "");
-  const [briefingBookedTime, setBriefingBookedTime] = useState(record.briefingBookedTime ?? "");
-  const [briefingDateOnly, setBriefingDateOnly] = useState(record.briefingDateOnly ?? "");
-  const [briefingTimeOnly, setBriefingTimeOnly] = useState(record.briefingTimeOnly ?? "");
-  const [briefingStaffIdState, setBriefingStaffIdState] = useState<string>(
-    record.briefingStaffId?.toString() ?? UNSET
-  );
-
-  // --- 導入希望商談 日時・担当 ---
-  const [consultationBookedDate, setConsultationBookedDate] = useState(record.consultationBookedDate ?? "");
-  const [consultationBookedTime, setConsultationBookedTime] = useState(record.consultationBookedTime ?? "");
-  const [consultationDateOnly, setConsultationDateOnly] = useState(record.consultationDateOnly ?? "");
-  const [consultationTimeOnly, setConsultationTimeOnly] = useState(record.consultationTimeOnly ?? "");
-  const [consultationStaffIdState, setConsultationStaffIdState] = useState<string>(
-    record.consultationStaffId?.toString() ?? UNSET
-  );
-
   // ============================================
   // Dirty detection（未保存変更の検出）
   // ============================================
@@ -461,16 +371,6 @@ export function CompanyDetail({
         confirmedOurRevenue,
         confirmedAgentPayment,
         paymentReceivedDate,
-        briefingBookedDate,
-        briefingBookedTime,
-        briefingDateOnly,
-        briefingTimeOnly,
-        briefingStaffIdState,
-        consultationBookedDate,
-        consultationBookedTime,
-        consultationDateOnly,
-        consultationTimeOnly,
-        consultationStaffIdState,
       }),
     [
       companyName, representativeName, employeeCount, prefecture, address, companyPhone,
@@ -483,8 +383,6 @@ export function CompanyDetail({
       estMaxRefundPeople, estMaxRefundAmount, estOurRevenue, estAgentPayment,
       confirmedRefundPeople, confirmedRefundAmount, confirmedOurRevenue, confirmedAgentPayment,
       paymentReceivedDate,
-      briefingBookedDate, briefingBookedTime, briefingDateOnly, briefingTimeOnly, briefingStaffIdState,
-      consultationBookedDate, consultationBookedTime, consultationDateOnly, consultationTimeOnly, consultationStaffIdState,
     ]
   );
 
@@ -573,17 +471,7 @@ export function CompanyDetail({
         };
         await updateCompanyBasicInfo(record.id, patch);
 
-        // 概要案内・導入希望商談（日時・担当者）を保存
-        const combine = (d: string, t: string) =>
-          d ? `${d}T${t || "00:00"}:00` : null;
-        await updateCompanyRecord(record.id, {
-          briefingBookedAt: combine(briefingBookedDate, briefingBookedTime),
-          briefingDate: combine(briefingDateOnly, briefingTimeOnly),
-          briefingStaffId: briefingStaffIdState !== UNSET ? parseInt(briefingStaffIdState) : null,
-          consultationBookedAt: combine(consultationBookedDate, consultationBookedTime),
-          consultationDate: combine(consultationDateOnly, consultationTimeOnly),
-          consultationStaffId: consultationStaffIdState !== UNSET ? parseInt(consultationStaffIdState) : null,
-        });
+        // 商談情報は新「商談セッション管理」カードからセッションベースで更新される
 
         setSavedValues(currentValues);
         toast.success("保存しました");
@@ -716,9 +604,8 @@ export function CompanyDetail({
           : formRoleSelect;
 
     try {
-      let result: { tagResults: Array<{ success: boolean; error?: string }> };
       if (editingContact) {
-        result = await updateContact(editingContact.id, {
+        await updateContact(editingContact.id, {
           name: formName,
           role,
           email: formEmail,
@@ -726,7 +613,7 @@ export function CompanyDetail({
           lineFriendId: formLineFriendId !== UNSET ? parseInt(formLineFriendId) : null,
         });
       } else {
-        result = await addContact({
+        await addContact({
           companyRecordId: record.id,
           name: formName,
           role,
@@ -736,19 +623,7 @@ export function CompanyDetail({
         });
       }
 
-      const baseMsg = editingContact ? "担当者を更新しました" : "担当者を追加しました";
-      const tagFails = result.tagResults.filter((r) => !r.success);
-      if (result.tagResults.length === 0) {
-        toast.success(baseMsg);
-      } else if (tagFails.length === 0) {
-        toast.success(`${baseMsg}（完了タグを付与: ${result.tagResults.length}件）`);
-      } else {
-        toast.error(`${baseMsg}が、タグ付与に失敗しました`, {
-          description: tagFails.map((f) => f.error).filter(Boolean).join(" / "),
-          duration: 10000,
-        });
-      }
-
+      toast.success(editingContact ? "担当者を更新しました" : "担当者を追加しました");
       setContactDialogOpen(false);
       router.refresh();
     } catch {
@@ -761,18 +636,8 @@ export function CompanyDetail({
   const handleDeleteContact = async (contactId: number) => {
     if (!confirm("この担当者を削除しますか？")) return;
     try {
-      const result = await deleteContact(contactId);
-      const tagFails = result.tagResults.filter((r) => !r.success);
-      if (result.tagResults.length === 0) {
-        toast.success("担当者を削除しました");
-      } else if (tagFails.length === 0) {
-        toast.success(`担当者を削除しました（完了タグを削除: ${result.tagResults.length}件）`);
-      } else {
-        toast.error("担当者を削除しましたが、タグ削除に失敗しました", {
-          description: tagFails.map((f) => f.error).filter(Boolean).join(" / "),
-          duration: 10000,
-        });
-      }
+      await deleteContact(contactId);
+      toast.success("担当者を削除しました");
       router.refresh();
     } catch {
       toast.error("削除に失敗しました");
@@ -789,194 +654,7 @@ export function CompanyDetail({
     }
   };
 
-  // ============================================
-  // 商談（概要案内 / 導入希望商談）ステータス変更（理由・完了モーダル）
-  // ============================================
-  const [reasonDialogOpen, setReasonDialogOpen] = useState(false);
-  const [reasonTargetStatus, setReasonTargetStatus] = useState<string>("");
-  const [reasonText, setReasonText] = useState("");
-  const [reasonPending, setReasonPending] = useState(false);
-  const [reasonNextAction, setReasonNextAction] = useState<"status_only" | "completion">("status_only");
-  const [activeFlow, setActiveFlow] = useState<FlowKind>("briefing");
-
-  const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
-  const [completeMessage, setCompleteMessage] = useState("");
-  const [completeSelectedContactIds, setCompleteSelectedContactIds] = useState<Set<number>>(new Set());
-  const [completePending, setCompletePending] = useState(false);
-  const [pendingCompletionReason, setPendingCompletionReason] = useState<string | null>(null);
-
-  const makeStatusChangeHandler = (flow: FlowKind) => (value: string) => {
-    setActiveFlow(flow);
-    const currentStatus =
-      flow === "briefing" ? record.briefingStatus : record.consultationStatus;
-
-    if (currentStatus === "予約中" && value === "完了") {
-      setPendingCompletionReason(null);
-      setCompleteMessage("");
-      setCompleteSelectedContactIds(new Set());
-      setCompleteDialogOpen(true);
-      return;
-    }
-
-    if (currentStatus === "キャンセル" && value === "完了") {
-      setReasonTargetStatus("完了");
-      setReasonText("");
-      setReasonNextAction("completion");
-      setReasonDialogOpen(true);
-      return;
-    }
-
-    setReasonTargetStatus(value);
-    setReasonText("");
-    setReasonNextAction("status_only");
-    setReasonDialogOpen(true);
-  };
-
-  const handleReasonSubmit = async () => {
-    if (!reasonText.trim()) {
-      toast.error("変更理由を入力してください");
-      return;
-    }
-
-    if (reasonNextAction === "completion") {
-      setPendingCompletionReason(reasonText);
-      setCompleteMessage("");
-      setCompleteSelectedContactIds(new Set());
-      setReasonDialogOpen(false);
-      setCompleteDialogOpen(true);
-      return;
-    }
-
-    setReasonPending(true);
-    try {
-      const changeFn =
-        activeFlow === "briefing"
-          ? changeBriefingStatusWithReason
-          : changeConsultationStatusWithReason;
-      const actionResult = await changeFn(record.id, reasonTargetStatus, reasonText);
-      if (!actionResult.ok) {
-        toast.error(actionResult.error);
-        return;
-      }
-      const { tagResults } = actionResult.data;
-
-      const tagFails = tagResults.filter((r) => !r.success);
-      const tagSuccess = tagResults.filter((r) => r.success);
-      if (tagResults.length === 0) {
-        toast.success("ステータスを更新しました");
-      } else if (tagFails.length === 0) {
-        toast.success(
-          `ステータスを更新しました（タグ${
-            reasonTargetStatus === "完了" ? "付与" : "削除"
-          }: ${tagSuccess.length}件）`
-        );
-      } else {
-        toast.error(
-          `ステータス更新済 / タグ操作エラーあり（成功 ${tagSuccess.length}/${tagResults.length}）`,
-          {
-            description: tagFails.map((f) => `${f.name}: ${f.error}`).join(" / "),
-            duration: 10000,
-          }
-        );
-      }
-
-      setReasonDialogOpen(false);
-      router.refresh();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "更新に失敗しました");
-    } finally {
-      setReasonPending(false);
-    }
-  };
-
-  const toggleCompleteContact = (contactId: number) => {
-    setCompleteSelectedContactIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(contactId)) next.delete(contactId);
-      else next.add(contactId);
-      return next;
-    });
-  };
-
-  const handleCompleteSubmit = async () => {
-    setCompletePending(true);
-    try {
-      if (activeFlow === "briefing") {
-        const result = await completeBriefingAndNotify(
-          record.id,
-          Array.from(completeSelectedContactIds),
-          completeMessage,
-          pendingCompletionReason
-        );
-
-        const attendeeFails = result.attendeeResults.filter((r) => !r.success);
-        const referrerFails = result.referrerResults.filter((r) => !r.success);
-        const tagFails = result.tagResults.filter((r) => !r.success);
-        const attendeeSuccess = result.attendeeResults.filter((r) => r.success);
-        const referrerSuccess = result.referrerResults.filter((r) => r.success);
-        const tagSuccess = result.tagResults.filter((r) => r.success);
-
-        const totalFailures = attendeeFails.length + referrerFails.length + tagFails.length;
-
-        if (totalFailures === 0) {
-          toast.success(
-            `概要案内 完了処理しました（お礼: ${attendeeSuccess.length}件、紹介者通知: ${referrerSuccess.length}件、タグ付与: ${tagSuccess.length}件）`
-          );
-        } else {
-          toast.error(
-            `送信/タグエラーあり — お礼 ${attendeeSuccess.length}/${result.attendeeResults.length}、紹介者通知 ${referrerSuccess.length}/${result.referrerResults.length}、タグ付与 ${tagSuccess.length}/${result.tagResults.length}`,
-            {
-              description: [
-                ...attendeeFails.map((f) => `お礼[${f.name}]: ${f.error ?? "失敗"}`),
-                ...referrerFails.map((f) => `紹介者通知[${f.referrerUid}]: ${f.error ?? "失敗"}`),
-                ...tagFails.map((f) => `タグ[${f.name}]: ${f.error ?? "失敗"}`),
-              ].join(" / "),
-              duration: 15000,
-            }
-          );
-        }
-      } else {
-        const result = await completeConsultationAndNotify(
-          record.id,
-          Array.from(completeSelectedContactIds),
-          completeMessage,
-          pendingCompletionReason
-        );
-
-        const attendeeFails = result.attendeeResults.filter((r) => !r.success);
-        const tagFails = result.tagResults.filter((r) => !r.success);
-        const attendeeSuccess = result.attendeeResults.filter((r) => r.success);
-        const tagSuccess = result.tagResults.filter((r) => r.success);
-
-        const totalFailures = attendeeFails.length + tagFails.length;
-
-        if (totalFailures === 0) {
-          toast.success(
-            `導入希望商談 完了処理しました（お礼: ${attendeeSuccess.length}件、タグ付与: ${tagSuccess.length}件）`
-          );
-        } else {
-          toast.error(
-            `送信/タグエラーあり — お礼 ${attendeeSuccess.length}/${result.attendeeResults.length}、タグ付与 ${tagSuccess.length}/${result.tagResults.length}`,
-            {
-              description: [
-                ...attendeeFails.map((f) => `お礼[${f.name}]: ${f.error ?? "失敗"}`),
-                ...tagFails.map((f) => `タグ[${f.name}]: ${f.error ?? "失敗"}`),
-              ].join(" / "),
-              duration: 15000,
-            }
-          );
-        }
-      }
-
-      setCompleteDialogOpen(false);
-      setPendingCompletionReason(null);
-      router.refresh();
-    } catch {
-      toast.error("完了処理に失敗しました");
-    } finally {
-      setCompletePending(false);
-    }
-  };
+  // 商談ステータス変更・完了処理は「商談セッション管理」カード側へ移行済み
 
   // ============================================
   // 削除
@@ -1027,33 +705,7 @@ export function CompanyDetail({
             <span className="text-sm text-muted-foreground flex-shrink-0">
               (No. {record.companyNo})
             </span>
-            {record.hasMeetingToday && (
-              <Badge
-                variant="default"
-                className={`text-xs flex-shrink-0 ${
-                  record.assignedToCurrentUserToday
-                    ? "bg-red-600 hover:bg-red-700"
-                    : "bg-green-600 hover:bg-green-700"
-                }`}
-                title={
-                  record.assignedToCurrentUserToday
-                    ? "本日商談あり（あなたが担当）"
-                    : "本日商談あり"
-                }
-              >
-                本日商談
-              </Badge>
-            )}
-            {record.hasOverdueUnfinished && (
-              <Badge
-                variant="outline"
-                className="text-xs flex-shrink-0 border-amber-500 text-amber-700 bg-amber-50"
-                title="商談日が過ぎているのに完了していません"
-              >
-                <AlertTriangle className="h-3 w-3 mr-1" />
-                商談未完了
-              </Badge>
-            )}
+            {/* 本日商談バッジ・商談未完了バッジは「商談セッション管理」カード側に集約 */}
             {isDirty && (
               <Badge variant="outline" className="text-orange-600 border-orange-300 bg-orange-50 flex-shrink-0">
                 未保存の変更あり
@@ -1148,12 +800,13 @@ export function CompanyDetail({
           タブ
           ============================================ */}
       <Tabs value={tab} onValueChange={setTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="basic">基本情報</TabsTrigger>
           <TabsTrigger value="finance">金額・契約</TabsTrigger>
           <TabsTrigger value="briefing">商談</TabsTrigger>
           <TabsTrigger value="contacts">担当者</TabsTrigger>
           <TabsTrigger value="documents">提出書類</TabsTrigger>
+          <TabsTrigger value="contact-histories">接触履歴</TabsTrigger>
         </TabsList>
 
         {/* ============================================
@@ -1661,478 +1314,10 @@ export function CompanyDetail({
         </TabsContent>
 
         {/* ============================================
-            タブ3: 商談（概要案内 + 導入希望商談）
+            タブ3: 商談（概要案内・導入希望商談のセッション管理）
             ============================================ */}
-        <TabsContent value="briefing" className="space-y-4">
-          {/* ----- 概要案内セクション ----- */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">概要案内</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {/* ステータス */}
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Label>ステータス</Label>
-                    {(record.briefingChangedAt ||
-                      record.briefingCanceledAt ||
-                      record.statusHistories.some((h) => h.flow === "briefing")) && (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-muted-foreground"
-                            title="変更履歴"
-                          >
-                            <History className="h-3.5 w-3.5" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[360px] p-3 max-h-[400px] overflow-auto" align="start">
-                          {(record.briefingChangedAt || record.briefingCanceledAt) && (
-                            <div className="space-y-1.5 text-xs mb-3">
-                              <div className="font-semibold text-muted-foreground border-b pb-1">
-                                プロラインからの自動更新
-                              </div>
-                              {record.briefingChangedAt && (
-                                <div>
-                                  <span className="text-muted-foreground">変更日時: </span>
-                                  <span className="font-medium">{record.briefingChangedAt}</span>
-                                </div>
-                              )}
-                              {record.briefingCanceledAt && (
-                                <div>
-                                  <span className="text-muted-foreground">キャンセル日時: </span>
-                                  <span className="font-medium">{record.briefingCanceledAt}</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          {record.statusHistories.filter((h) => h.flow === "briefing").length > 0 && (
-                            <div className="space-y-2 text-xs">
-                              <div className="font-semibold text-muted-foreground border-b pb-1">
-                                手動ステータス変更履歴
-                              </div>
-                              {record.statusHistories
-                                .filter((h) => h.flow === "briefing")
-                                .map((h) => (
-                                  <div key={h.id} className="border-l-2 border-muted pl-2">
-                                    <div className="font-medium">
-                                      {h.fromStatus ?? "未設定"} → {h.toStatus ?? "未設定"}
-                                    </div>
-                                    <div className="text-muted-foreground">
-                                      {h.createdAt}
-                                      {h.changedByName && ` / ${h.changedByName}`}
-                                    </div>
-                                    {h.reason && (
-                                      <div className="mt-0.5 whitespace-pre-wrap">
-                                        理由: {h.reason}
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                            </div>
-                          )}
-                        </PopoverContent>
-                      </Popover>
-                    )}
-                  </div>
-                  <Select
-                    value={record.briefingStatus ?? ""}
-                    onValueChange={makeStatusChangeHandler("briefing")}
-                  >
-                    <SelectTrigger className="w-[200px]">
-                      <SelectValue placeholder="未設定" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {briefingStatusOptions.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    ※ ステータス変更は即座に反映されます（保存ボタン不要）
-                  </p>
-                </div>
-
-                <hr />
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label>予約日</Label>
-                    <div className="flex gap-2">
-                      <DatePicker
-                        value={briefingBookedDate}
-                        onChange={setBriefingBookedDate}
-                        className="flex-1"
-                      />
-                      <Input
-                        type="time"
-                        value={briefingBookedTime}
-                        onChange={(e) => setBriefingBookedTime(e.target.value)}
-                        className="w-[120px]"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label>案内日</Label>
-                    <div className="flex gap-2">
-                      <DatePicker
-                        value={briefingDateOnly}
-                        onChange={setBriefingDateOnly}
-                        className="flex-1"
-                      />
-                      <Input
-                        type="time"
-                        value={briefingTimeOnly}
-                        onChange={(e) => setBriefingTimeOnly(e.target.value)}
-                        className="w-[120px]"
-                      />
-                    </div>
-                  </div>
-                  <div className="md:col-span-2">
-                    <Label>案内担当者</Label>
-                    {!record.briefingStaffId && record.briefingStaff && (
-                      <div className="mb-1.5 rounded border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
-                        プロラインからの担当者名: <strong>{record.briefingStaff}</strong>
-                        <span className="text-amber-600 ml-1">（マッピング未登録）</span>
-                      </div>
-                    )}
-                    <Select value={briefingStaffIdState} onValueChange={setBriefingStaffIdState}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="選択してください" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={UNSET}>未選択</SelectItem>
-                        {staffOptions.map((opt) => (
-                          <SelectItem key={opt.id} value={opt.id.toString()}>
-                            {opt.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      公的(SLP)に閲覧以上の権限を持つスタッフのみ表示
-                    </p>
-                  </div>
-                </div>
-
-                {/* ----- 概要案内 Zoom 会議パネル ----- */}
-                <ZoomMeetingPanel
-                  companyRecordId={record.id}
-                  category="briefing"
-                  joinUrl={record.briefingZoomJoinUrl}
-                  meetingId={record.briefingZoomMeetingId}
-                  hostName={record.briefingZoomHostName}
-                  createdAt={record.briefingZoomCreatedAt}
-                  error={record.briefingZoomError}
-                  errorAt={record.briefingZoomErrorAt}
-                />
-
-                {/* ----- 概要案内の予約ID一覧 ----- */}
-                <hr />
-                <div>
-                  <Label className="mb-2 block">概要案内の予約ID</Label>
-                  {!record.reservationId &&
-                  record.mergedBriefingReservationIds.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      予約はありません
-                    </p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {record.reservationId && (
-                        <div className="flex items-center gap-2 text-sm">
-                          <Badge variant="default" className="text-xs">
-                            メイン
-                          </Badge>
-                          <code className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">
-                            {record.reservationId}
-                          </code>
-                          {record.briefingDate && (
-                            <span className="text-xs text-muted-foreground">
-                              {record.briefingDate}
-                            </span>
-                          )}
-                          {record.briefingStatus && (
-                            <Badge variant="outline" className="text-xs">
-                              {record.briefingStatus}
-                            </Badge>
-                          )}
-                        </div>
-                      )}
-                      {record.mergedBriefingReservationIds.map((rid) => (
-                        <div key={rid} className="flex items-center gap-2 text-sm">
-                          <Badge
-                            variant="secondary"
-                            className="text-xs bg-amber-100 text-amber-800"
-                          >
-                            取り込み
-                          </Badge>
-                          <code className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">
-                            {rid}
-                          </code>
-                          <span className="text-xs text-muted-foreground">
-                            （統合で取り込まれた予約 / 詳細はプロライン側で確認）
-                          </span>
-                        </div>
-                      ))}
-                      {(record.reservationId !== null ? 1 : 0) +
-                        record.mergedBriefingReservationIds.length >
-                        1 && (
-                        <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
-                          ⚠️
-                          1企業に対して複数の概要案内予約が紐付いています。お客様にご確認の上、不要な予約はキャンセルするなど対応してください。
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {/* 概要案内の履歴（予約・変更・キャンセル） */}
-                  <ReservationHistorySection
-                    histories={record.reservationHistories}
-                    type="briefing"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ----- 導入希望商談セクション ----- */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">導入希望商談</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {/* ステータス */}
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Label>ステータス</Label>
-                    {(record.consultationChangedAt ||
-                      record.consultationCanceledAt ||
-                      record.statusHistories.some((h) => h.flow === "consultation")) && (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-muted-foreground"
-                            title="変更履歴"
-                          >
-                            <History className="h-3.5 w-3.5" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[360px] p-3 max-h-[400px] overflow-auto" align="start">
-                          {(record.consultationChangedAt || record.consultationCanceledAt) && (
-                            <div className="space-y-1.5 text-xs mb-3">
-                              <div className="font-semibold text-muted-foreground border-b pb-1">
-                                プロラインからの自動更新
-                              </div>
-                              {record.consultationChangedAt && (
-                                <div>
-                                  <span className="text-muted-foreground">変更日時: </span>
-                                  <span className="font-medium">{record.consultationChangedAt}</span>
-                                </div>
-                              )}
-                              {record.consultationCanceledAt && (
-                                <div>
-                                  <span className="text-muted-foreground">キャンセル日時: </span>
-                                  <span className="font-medium">{record.consultationCanceledAt}</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          {record.statusHistories.filter((h) => h.flow === "consultation").length > 0 && (
-                            <div className="space-y-2 text-xs">
-                              <div className="font-semibold text-muted-foreground border-b pb-1">
-                                手動ステータス変更履歴
-                              </div>
-                              {record.statusHistories
-                                .filter((h) => h.flow === "consultation")
-                                .map((h) => (
-                                  <div key={h.id} className="border-l-2 border-muted pl-2">
-                                    <div className="font-medium">
-                                      {h.fromStatus ?? "未設定"} → {h.toStatus ?? "未設定"}
-                                    </div>
-                                    <div className="text-muted-foreground">
-                                      {h.createdAt}
-                                      {h.changedByName && ` / ${h.changedByName}`}
-                                    </div>
-                                    {h.reason && (
-                                      <div className="mt-0.5 whitespace-pre-wrap">
-                                        理由: {h.reason}
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                            </div>
-                          )}
-                        </PopoverContent>
-                      </Popover>
-                    )}
-                  </div>
-                  <Select
-                    value={record.consultationStatus ?? ""}
-                    onValueChange={makeStatusChangeHandler("consultation")}
-                  >
-                    <SelectTrigger className="w-[200px]">
-                      <SelectValue placeholder="未設定" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {consultationStatusOptions.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    ※ ステータス変更は即座に反映されます（保存ボタン不要）
-                  </p>
-                </div>
-
-                <hr />
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label>予約日</Label>
-                    <div className="flex gap-2">
-                      <DatePicker
-                        value={consultationBookedDate}
-                        onChange={setConsultationBookedDate}
-                        className="flex-1"
-                      />
-                      <Input
-                        type="time"
-                        value={consultationBookedTime}
-                        onChange={(e) => setConsultationBookedTime(e.target.value)}
-                        className="w-[120px]"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label>商談日</Label>
-                    <div className="flex gap-2">
-                      <DatePicker
-                        value={consultationDateOnly}
-                        onChange={setConsultationDateOnly}
-                        className="flex-1"
-                      />
-                      <Input
-                        type="time"
-                        value={consultationTimeOnly}
-                        onChange={(e) => setConsultationTimeOnly(e.target.value)}
-                        className="w-[120px]"
-                      />
-                    </div>
-                  </div>
-                  <div className="md:col-span-2">
-                    <Label>商談担当者</Label>
-                    {!record.consultationStaffId && record.consultationStaff && (
-                      <div className="mb-1.5 rounded border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
-                        プロラインからの担当者名: <strong>{record.consultationStaff}</strong>
-                        <span className="text-amber-600 ml-1">（マッピング未登録）</span>
-                      </div>
-                    )}
-                    <Select value={consultationStaffIdState} onValueChange={setConsultationStaffIdState}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="選択してください" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={UNSET}>未選択</SelectItem>
-                        {staffOptions.map((opt) => (
-                          <SelectItem key={opt.id} value={opt.id.toString()}>
-                            {opt.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      公的(SLP)に閲覧以上の権限を持つスタッフのみ表示
-                    </p>
-                  </div>
-                </div>
-
-                {/* ----- 導入希望商談 Zoom 会議パネル ----- */}
-                <ZoomMeetingPanel
-                  companyRecordId={record.id}
-                  category="consultation"
-                  joinUrl={record.consultationZoomJoinUrl}
-                  meetingId={record.consultationZoomMeetingId}
-                  hostName={record.consultationZoomHostName}
-                  createdAt={record.consultationZoomCreatedAt}
-                  error={record.consultationZoomError}
-                  errorAt={record.consultationZoomErrorAt}
-                />
-
-                {/* ----- 導入希望商談の予約ID一覧 ----- */}
-                <hr />
-                <div>
-                  <Label className="mb-2 block">導入希望商談の予約ID</Label>
-                  {!record.consultationReservationId &&
-                  record.mergedConsultationReservationIds.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      予約はありません
-                    </p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {record.consultationReservationId && (
-                        <div className="flex items-center gap-2 text-sm">
-                          <Badge variant="default" className="text-xs">
-                            メイン
-                          </Badge>
-                          <code className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">
-                            {record.consultationReservationId}
-                          </code>
-                          {record.consultationDate && (
-                            <span className="text-xs text-muted-foreground">
-                              {record.consultationDate}
-                            </span>
-                          )}
-                          {record.consultationStatus && (
-                            <Badge variant="outline" className="text-xs">
-                              {record.consultationStatus}
-                            </Badge>
-                          )}
-                        </div>
-                      )}
-                      {record.mergedConsultationReservationIds.map((rid) => (
-                        <div key={rid} className="flex items-center gap-2 text-sm">
-                          <Badge
-                            variant="secondary"
-                            className="text-xs bg-amber-100 text-amber-800"
-                          >
-                            取り込み
-                          </Badge>
-                          <code className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">
-                            {rid}
-                          </code>
-                          <span className="text-xs text-muted-foreground">
-                            （統合で取り込まれた予約 / 詳細はプロライン側で確認）
-                          </span>
-                        </div>
-                      ))}
-                      {(record.consultationReservationId !== null ? 1 : 0) +
-                        record.mergedConsultationReservationIds.length >
-                        1 && (
-                        <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
-                          ⚠️
-                          1企業に対して複数の導入希望商談予約が紐付いています。お客様にご確認の上、不要な予約はキャンセルするなど対応してください。
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {/* 導入希望商談の履歴（予約・変更・キャンセル） */}
-                  <ReservationHistorySection
-                    histories={record.reservationHistories}
-                    type="consultation"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        <TabsContent value="briefing">
+          {meetingSessionsSlot}
         </TabsContent>
 
         {/* ============================================
@@ -2409,6 +1594,13 @@ export function CompanyDetail({
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ============================================
+            タブ6: 接触履歴（企業単位の全接触履歴 + 商談打ち合わせ紐付け）
+            ============================================ */}
+        <TabsContent value="contact-histories">
+          {contactHistoriesSlot}
+        </TabsContent>
       </Tabs>
 
       {/* ============================================
@@ -2560,114 +1752,6 @@ export function CompanyDetail({
         </DialogContent>
       </Dialog>
 
-      {/* 完了モーダル（概要案内 / 導入希望商談 共通） */}
-      <Dialog
-        open={completeDialogOpen}
-        onOpenChange={(open) => {
-          setCompleteDialogOpen(open);
-          if (!open) setPendingCompletionReason(null);
-        }}
-      >
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>{FLOW_LABELS[activeFlow]}完了お礼メッセージを送信</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>お礼メッセージ</Label>
-              <Textarea
-                value={completeMessage}
-                onChange={(e) => setCompleteMessage(e.target.value)}
-                rows={5}
-                placeholder={
-                  activeFlow === "briefing"
-                    ? "概要案内後に送信するお礼メッセージを入力してください"
-                    : "導入希望商談後に送信するお礼メッセージを入力してください"
-                }
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                チェックを入れた担当者にこのメッセージが送信されます。チェックなしで保存するとステータス変更のみ実行されます。
-              </p>
-            </div>
-            <div>
-              <Label>送信先担当者</Label>
-              <div className="space-y-2 mt-2 border rounded-lg p-3 max-h-[300px] overflow-auto">
-                {record.contacts.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-2">
-                    担当者が登録されていません
-                  </p>
-                ) : (
-                  record.contacts.map((c) => {
-                    const hasLine = c.lineFriendId !== null;
-                    return (
-                      <label
-                        key={c.id}
-                        className={`flex items-center gap-2 p-2 rounded ${
-                          hasLine
-                            ? "hover:bg-muted cursor-pointer"
-                            : "opacity-50 cursor-not-allowed"
-                        }`}
-                      >
-                        <Checkbox
-                          checked={completeSelectedContactIds.has(c.id)}
-                          onCheckedChange={() => hasLine && toggleCompleteContact(c.id)}
-                          disabled={!hasLine}
-                        />
-                        <div className="flex-1">
-                          <div className="text-sm font-medium">{c.name ?? "(名前なし)"}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {hasLine ? c.lineFriendLabel : "公式LINE未紐付け（送信不可）"}
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCompleteDialogOpen(false)}>
-              キャンセル
-            </Button>
-            <Button onClick={handleCompleteSubmit} disabled={completePending}>
-              {completePending ? "送信中..." : "保存して送信"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ステータス変更（理由入力）モーダル */}
-      <Dialog open={reasonDialogOpen} onOpenChange={setReasonDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{FLOW_LABELS[activeFlow]} ステータスを「{reasonTargetStatus}」に変更</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-xs text-muted-foreground">
-              プロライン側ではすでに変更されていますか？同期されていない場合の手動更新としてそのまま記録します。理由は必須です。
-            </p>
-            <div>
-              <Label>変更理由 *</Label>
-              <Textarea
-                value={reasonText}
-                onChange={(e) => setReasonText(e.target.value)}
-                rows={4}
-                placeholder="変更理由を入力してください"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReasonDialogOpen(false)}>
-              キャンセル
-            </Button>
-            <Button onClick={handleReasonSubmit} disabled={reasonPending}>
-              {reasonPending ? "保存中..." : "保存"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* マスタ管理モーダル */}
       {masterModalKind !== null && (
         <MasterManagementModal
@@ -2682,92 +1766,4 @@ export function CompanyDetail({
   );
 }
 
-/**
- * 予約履歴の折りたたみ表示
- * 概要案内 / 導入希望商談 それぞれの予約IDの下に折りたたみ式で表示する
- */
-function ReservationHistorySection({
-  histories,
-  type,
-}: {
-  histories: ReservationHistoryEntry[];
-  type: "briefing" | "consultation";
-}) {
-  const [open, setOpen] = useState(false);
-  const filtered = histories.filter((h) => h.reservationType === type);
-  if (filtered.length === 0) return null;
-
-  const actionBadgeVariant = (
-    actionType: string,
-  ): "default" | "secondary" | "destructive" | "outline" => {
-    if (actionType === "予約") return "default";
-    if (actionType === "変更") return "secondary";
-    if (actionType === "キャンセル") return "destructive";
-    return "outline";
-  };
-
-  return (
-    <div className="mt-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="text-xs text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
-      >
-        <span>{open ? "▼" : "▶"}</span>
-        履歴を表示 ({filtered.length}件)
-      </button>
-      {open && (
-        <div className="mt-2 space-y-2 border-l-2 border-slate-200 pl-3">
-          {filtered.map((h) => (
-            <div key={h.id} className="text-xs space-y-0.5">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-muted-foreground">{h.createdAt}</span>
-                <Badge
-                  variant={actionBadgeVariant(h.actionType)}
-                  className="text-[10px] px-1.5 py-0"
-                >
-                  {h.actionType}
-                </Badge>
-                {h.reservationId && (
-                  <code className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">
-                    {h.reservationId}
-                  </code>
-                )}
-              </div>
-              {(h.reservedAt || h.staffName) && (
-                <div className="text-muted-foreground pl-4">
-                  {h.reservedAt && (
-                    <span>
-                      {type === "briefing" ? "案内日" : "商談日"}: {h.reservedAt}
-                    </span>
-                  )}
-                  {h.reservedAt && h.staffName && <span> / </span>}
-                  {h.staffName && <span>担当: {h.staffName}</span>}
-                </div>
-              )}
-              {h.formAnswers && (
-                <div className="text-muted-foreground pl-4 text-[10px]">
-                  {h.formAnswers.annualLaborCostExecutive && (
-                    <span>
-                      役員人件費: {h.formAnswers.annualLaborCostExecutive}
-                    </span>
-                  )}
-                  {h.formAnswers.annualLaborCostEmployee && (
-                    <span className="ml-2">
-                      従業員人件費: {h.formAnswers.annualLaborCostEmployee}
-                    </span>
-                  )}
-                  {h.formAnswers.employeeCount && (
-                    <span className="ml-2">
-                      従業員数: {h.formAnswers.employeeCount}
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+// ReservationHistorySection は新「商談セッション管理」カード側の変更履歴モーダルへ移行済み

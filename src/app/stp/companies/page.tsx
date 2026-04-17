@@ -102,11 +102,15 @@ export default async function StpCompaniesPage() {
         { displayOrder: "asc" },
       ],
     }),
-    // 契約履歴（契約終了日がnullのアクティブな契約のみ）
+    // 契約履歴（今日時点で稼働中の契約: 開始日<=今日 かつ (終了日null or 終了日>=今日)）
     prisma.stpContractHistory.findMany({
       where: {
         deletedAt: null,
-        contractEndDate: null, // アクティブな契約のみ
+        contractStartDate: { lte: new Date() },
+        OR: [
+          { contractEndDate: null },
+          { contractEndDate: { gte: new Date() } },
+        ],
       },
       include: {
         salesStaff: true,
@@ -201,6 +205,7 @@ export default async function StpCompaniesPage() {
     companyId: c.companyId,
     companyCode: c.company.companyCode,
     companyName: c.company.name,
+    contractStatus: companyContractHistories.length > 0 ? "契約中" : "リード",
     note: c.note,
     leadAcquiredDate: c.leadAcquiredDate?.toISOString(),
     leadValidity: c.leadValidity,

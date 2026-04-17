@@ -35,6 +35,7 @@ type ContactHistoryInput = {
   customerTypeIds?: number[]; // 顧客種別ID配列
   lineFriendIds?: number[];   // LINEユーザー（複数選択）
   files?: FileInput[];        // 添付ファイル
+  sessionId?: number | null;  // 打ち合わせ(SlpMeetingSession)への紐付け（任意）
 };
 
 // ============================================
@@ -73,6 +74,7 @@ export async function addSlpCompanyRecordContactHistory(
         targetType: "company_record",
         companyRecordId,
         masterCompanyId: record.masterCompanyId,
+        sessionId: await resolveSessionId(tx, data.sessionId, companyRecordId),
       },
     });
     await tx.slpContactHistoryTag.createMany({
@@ -240,6 +242,20 @@ export async function updateSlpContactHistory(
 ) {
   await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   const result = await prisma.$transaction(async (tx) => {
+    // sessionId が指定されている場合は同一 companyRecord に属するか検証
+    let sessionIdToWrite: number | null | undefined = undefined;
+    if (data.sessionId !== undefined) {
+      const existing = await tx.slpContactHistory.findUnique({
+        where: { id },
+        select: { companyRecordId: true },
+      });
+      sessionIdToWrite = await resolveSessionId(
+        tx,
+        data.sessionId,
+        existing?.companyRecordId ?? null
+      );
+    }
+
     const history = await tx.slpContactHistory.update({
       where: { id },
       data: {
@@ -253,6 +269,9 @@ export async function updateSlpContactHistory(
         customerParticipants: data.customerParticipants ?? null,
         meetingMinutes: data.meetingMinutes ?? null,
         note: data.note ?? null,
+        ...(sessionIdToWrite !== undefined
+          ? { sessionId: sessionIdToWrite }
+          : {}),
       },
     });
 
@@ -371,6 +390,17 @@ export async function getSlpContactHistoriesByAgency(agencyId: number) {
   return rows.map(formatSlpContactHistory);
 }
 
+// 特定の打ち合わせ（SlpMeetingSession）に紐づく接触履歴を取得
+export async function getSlpContactHistoriesBySession(sessionId: number) {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "view" }]);
+  const rows = await prisma.slpContactHistory.findMany({
+    where: { sessionId, deletedAt: null },
+    include: contactHistoryIncludeForDisplay,
+    orderBy: { contactDate: "desc" },
+  });
+  return rows.map(formatSlpContactHistory);
+}
+
 // 集約ページ用。フィルタ対応
 export async function listSlpContactHistories(filters?: {
   targetType?: SlpContactTargetType | "unlinked";
@@ -440,6 +470,25 @@ function ensureCustomerType(
 }
 
 type PrismaTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+// 接触履歴に指定される sessionId が、対象事業者の打ち合わせか検証する。
+// 事業者に紐付かない場合や不正なIDは null を返す。
+async function resolveSessionId(
+  tx: PrismaTx,
+  sessionId: number | null | undefined,
+  companyRecordId: number | null
+): Promise<number | null> {
+  if (!sessionId) return null;
+  if (!companyRecordId) return null;
+  const s = await tx.slpMeetingSession.findUnique({
+    where: { id: sessionId },
+    select: { companyRecordId: true, deletedAt: true },
+  });
+  if (!s) return null;
+  if (s.deletedAt) return null;
+  if (s.companyRecordId !== companyRecordId) return null;
+  return sessionId;
+}
 
 async function loadHistory(tx: PrismaTx, id: number) {
   return await tx.slpContactHistory.findUnique({

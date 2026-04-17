@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
-import { submitForm6BriefingReservation } from "@/lib/proline-form";
 import { recomputeDuplicateCandidatesForRecord } from "@/lib/slp/duplicate-detector";
 import { parseReservationDate } from "@/lib/slp/parse-reservation-date";
-import { ensureZoomMeetingForReservation } from "@/lib/slp/zoom-reservation-handler";
+import { applyProlineReservationToSession } from "@/lib/slp/session-helper";
+import { handleSessionReservationSideEffects } from "@/lib/slp/session-lifecycle";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -60,24 +60,21 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 冪等性チェック: この bookingId が既に処理済みなら何もしない
-    // （プロライン側のリトライや重複呼び出しによる重複レコード作成を防ぐ）
+    // 冪等性チェック: この bookingId が既にセッションとして処理済みなら何もしない
     if (bookingId) {
-      const existing = await prisma.slpCompanyRecord.findFirst({
+      const existingSession = await prisma.slpMeetingSession.findFirst({
         where: {
-          OR: [
-            { reservationId: bookingId },
-            { mergedBriefingReservationIds: { has: bookingId } },
-          ],
+          prolineReservationId: bookingId,
+          category: "briefing",
           deletedAt: null,
         },
-        select: { id: true },
+        select: { companyRecordId: true },
       });
-      if (existing) {
+      if (existingSession) {
         return NextResponse.json({
           success: true,
           alreadyProcessed: true,
-          companyRecordId: existing.id,
+          companyRecordId: existingSession.companyRecordId,
         });
       }
     }
@@ -248,33 +245,20 @@ export async function GET(request: Request) {
       // トークンを優先するので処理は続行
     }
 
-    // 共通の更新データ
-    const baseData = {
-      reservationId: bookingId ?? null,
-      briefingStatus: "予約中" as const,
-      briefingBookedAt,
-      briefingDate: briefingDateParsed,
-      briefingStaff: briefingStaff || null,
-      briefingStaffId: resolvedStaffId,
+    // 企業基本情報のみ更新（商談情報は SlpMeetingSession 側で管理）
+    const baseCompanyData = {
       businessType: pending?.businessType ?? null,
-      // 再予約時にキャンセル記録をクリア。
-      // キャンセル→再予約フローでは briefingStatus は "予約中" に戻るが、
-      // briefingCanceledAt が古い値のまま残ると resolver.ts の
-      // `status === "予約中" && canceledAt === null` 判定で
-      // 「未予約」扱いになってしまうバグを防ぐ。
-      // consultation-reservation / briefing-change と挙動を揃える。
-      briefingCanceledAt: null,
     };
 
     let createdOrUpdatedRecordIds: number[] = [];
 
     if (pending && pending.companyRecordIds.length > 0) {
-      // 既存企業の予約: ペンディング情報の companyRecordIds に該当するレコードを更新
+      // 既存企業の予約: ペンディング情報の companyRecordIds のフォーム回答等のみ更新
       const ids = pending.companyRecordIds;
       await prisma.slpCompanyRecord.updateMany({
         where: { id: { in: ids }, deletedAt: null },
         data: {
-          ...baseData,
+          ...baseCompanyData,
           // 生テキスト（フォーム回答）はユーザーが入力した時のみ上書き（監査用）
           ...(annualLaborCostExecutiveFormAnswer !== null && {
             annualLaborCostExecutiveFormAnswer,
@@ -283,8 +267,6 @@ export async function GET(request: Request) {
             annualLaborCostEmployeeFormAnswer,
           }),
           ...(employeeCountFormAnswer !== null && { employeeCountFormAnswer }),
-          // 数値カラムは「純粋な数字で書かれた時だけ」自動保存
-          // （「5000万」等はスタッフが画面上のサジェストを見て手動で入れる）
           ...(annualLaborCostExecutive !== null && {
             annualLaborCostExecutive,
           }),
@@ -297,13 +279,12 @@ export async function GET(request: Request) {
       createdOrUpdatedRecordIds = ids;
     } else {
       // 新規企業の予約 or フォールバック
-      // ペンディングがあれば newCompanyName、なければ form3-1 を使用、それもなければ null
       const companyName =
         pending?.newCompanyName ?? formCompanyName ?? null;
 
       const created = await prisma.slpCompanyRecord.create({
         data: {
-          ...baseData,
+          ...baseCompanyData,
           prolineUid: uid,
           companyName,
           annualLaborCostExecutive,
@@ -391,6 +372,48 @@ export async function GET(request: Request) {
       });
     }
 
+    // セッションテーブルに記録 → 副作用処理（Zoom発行 + LINE通知 + 紹介者通知）
+    for (const recordId of createdOrUpdatedRecordIds) {
+      try {
+        const createdSession = await prisma.$transaction(async (tx) => {
+          return applyProlineReservationToSession(
+            recordId,
+            "briefing",
+            {
+              scheduledAt: briefingDateParsed,
+              assignedStaffId: resolvedStaffId,
+              prolineReservationId: bookingId ?? null,
+              prolineStaffName: briefingStaff || null,
+              bookedAt: briefingBookedAt,
+            },
+            tx
+          );
+        });
+
+        // fire-and-forget でZoom発行 + 通知（紹介者通知は1回目概要案内のみ）
+        handleSessionReservationSideEffects({
+          sessionId: createdSession.id,
+          companyRecordId: recordId,
+          category: "briefing",
+          triggerReason: "confirm",
+          roundNumber: createdSession.roundNumber,
+          notifyReferrer: true,
+        }).catch(async (err) => {
+          await logAutomationError({
+            source: "slp-briefing-reservation-side-effects",
+            message: `予約副作用処理失敗: sessionId=${createdSession.id}`,
+            detail: { error: err instanceof Error ? err.message : String(err) },
+          });
+        });
+      } catch (err) {
+        await logAutomationError({
+          source: "slp-briefing-reservation-session",
+          message: `セッション並列書き込み失敗: companyRecordId=${recordId}`,
+          detail: { error: err instanceof Error ? err.message : String(err) },
+        });
+      }
+    }
+
     // 新規作成された場合は重複候補を再計算（fire-and-forget）
     for (const newId of createdOrUpdatedRecordIds) {
       recomputeDuplicateCandidatesForRecord(newId).catch(async (err) => {
@@ -398,46 +421,6 @@ export async function GET(request: Request) {
           source: "slp-recompute-duplicates",
           message: `重複候補の再計算に失敗: recordId=${newId}`,
           detail: { error: err instanceof Error ? err.message : String(err) },
-        });
-      });
-    }
-
-    // Zoom会議を自動発行 → プロライン経由でお客様にURL案内LINE送信（fire-and-forget）
-    for (const recordId of createdOrUpdatedRecordIds) {
-      ensureZoomMeetingForReservation({
-        companyRecordId: recordId,
-        category: "briefing",
-        triggerReason: "confirm",
-      }).catch(async (err) => {
-        await logAutomationError({
-          source: "slp-briefing-reservation-zoom",
-          message: `Zoom発行フロー失敗: companyRecordId=${recordId}`,
-          detail: {
-            error: err instanceof Error ? err.message : String(err),
-          },
-        });
-      });
-    }
-
-    // 紹介者通知（form6）— 紹介者がいれば fire-and-forget で送信
-    const referrerUid = lineFriend?.free1?.trim();
-    const snsname = lineFriend?.snsname;
-    if (referrerUid && snsname) {
-      submitForm6BriefingReservation(
-        referrerUid,
-        snsname,
-        briefingDate ?? ""
-      ).catch(async (err) => {
-        await logAutomationError({
-          source: "slp-briefing-reservation-form6",
-          message: `概要案内予約通知（form6）送信失敗: referrerUid=${referrerUid}, snsname=${snsname}`,
-          detail: {
-            error: err instanceof Error ? err.message : String(err),
-            referrerUid,
-            snsname,
-            briefingDate: briefingDate ?? "",
-            retryAction: "form6-briefing-reservation",
-          },
         });
       });
     }
