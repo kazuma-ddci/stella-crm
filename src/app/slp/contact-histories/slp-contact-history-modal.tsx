@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { toast } from "sonner";
 import {
   ContactHistoryModalBase,
   type CustomerType,
@@ -11,6 +13,9 @@ import {
   updateSlpContactHistory,
   deleteSlpContactHistory,
 } from "./actions";
+import { ZoomRecordingSection } from "./zoom-recording-section";
+import { ZoomEntriesForAdd, type ZoomAddEntry } from "./zoom-entries-for-add";
+import { addManualZoomToContactHistory } from "./zoom-actions";
 
 type BaseProps = {
   open: boolean;
@@ -40,10 +45,70 @@ type BaseProps = {
 };
 
 function BaseWrapper(props: BaseProps) {
+  // 新規追加時の Zoom議事録連携エントリ（複数可）
+  const [zoomEntries, setZoomEntries] = useState<ZoomAddEntry[]>([]);
+
+  // いずれかのエントリに「何か入力されている」なら未保存扱い
+  const hasZoomEntryInput = zoomEntries.some(
+    (e) =>
+      e.zoomUrl.trim() !== "" ||
+      e.label.trim() !== "" ||
+      e.hostStaffId !== ""
+  );
+
+  // モーダルクローズ時にエントリをリセット（次回開いたときに前回の入力が残らないように）
+  // onOpenChange のラッパーで対応（useEffect 内 setState を避ける）
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && !props.renderInline) {
+      setZoomEntries([]);
+    }
+    props.onOpenChange(nextOpen);
+  };
+
+  const processZoomEntries = async (contactHistoryId: number) => {
+    // 入力されているエントリのみ処理
+    const validEntries = zoomEntries.filter((e) => e.zoomUrl.trim() !== "");
+    if (validEntries.length === 0) {
+      setZoomEntries([]);
+      return;
+    }
+    let successCount = 0;
+    let failCount = 0;
+    for (const entry of validEntries) {
+      if (!entry.hostStaffId) {
+        toast.error(
+          `Zoom URL "${entry.zoomUrl.slice(0, 40)}..." のホストスタッフが未選択のためスキップ`
+        );
+        failCount++;
+        continue;
+      }
+      const r = await addManualZoomToContactHistory({
+        contactHistoryId,
+        zoomUrl: entry.zoomUrl,
+        hostStaffId: parseInt(entry.hostStaffId, 10),
+        label: entry.label.trim() || undefined,
+        mode: entry.mode,
+      });
+      if (r.ok) {
+        successCount++;
+      } else {
+        failCount++;
+        toast.error(`Zoom連携失敗: ${r.error}`);
+      }
+    }
+    if (successCount > 0) {
+      toast.success(`Zoom議事録連携を ${successCount}件 追加しました`);
+    }
+    if (failCount > 0 && successCount === 0) {
+      toast.warning("Zoom連携に失敗しました。接触履歴は作成済みです。");
+    }
+    setZoomEntries([]);
+  };
+
   return (
     <ContactHistoryModalBase
       open={props.open}
-      onOpenChange={props.onOpenChange}
+      onOpenChange={handleOpenChange}
       renderInline={props.renderInline}
       config={{
         entityId: props.entityId,
@@ -70,6 +135,21 @@ function BaseWrapper(props: BaseProps) {
       staffByProject={props.staffByProject}
       contactCategories={props.contactCategories}
       sessionSelect={props.sessionSelect}
+      renderZoomSection={(contactHistoryId) => (
+        <ZoomRecordingSection contactHistoryId={contactHistoryId} />
+      )}
+      renderZoomSectionForView={(contactHistoryId) => (
+        <ZoomRecordingSection contactHistoryId={contactHistoryId} readOnly />
+      )}
+      autoEnterEditAfterAdd
+      renderAddExtraSection={() => (
+        <ZoomEntriesForAdd entries={zoomEntries} onChange={setZoomEntries} />
+      )}
+      onAfterAdd={async (created) => {
+        await processZoomEntries(created.id);
+      }}
+      extraIsDirty={hasZoomEntryInput}
+      onDiscard={() => setZoomEntries([])}
     />
   );
 }

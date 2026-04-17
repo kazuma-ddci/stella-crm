@@ -20,7 +20,7 @@ type Props = {
 
 export function SlpAgencyContactHistorySection(props: Props) {
   return (
-    <section className="mt-6 rounded-lg border bg-white p-4">
+    <section className="rounded-lg border bg-white p-4">
       <h2 className="text-lg font-semibold mb-3">接触履歴</h2>
       <SlpAgencyContactHistoryModal
         open={true}

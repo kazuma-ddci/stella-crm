@@ -27,6 +27,10 @@ export const contactHistoryIncludeForDisplay = {
     },
   },
   files: true,
+  zoomRecordings: {
+    where: { deletedAt: null },
+    select: { id: true, state: true },
+  },
 } satisfies Prisma.SlpContactHistoryInclude;
 
 export type SlpContactHistoryWithRelations = Prisma.SlpContactHistoryGetPayload<{
@@ -83,5 +87,9 @@ export function formatSlpContactHistory(history: SlpContactHistoryWithRelations)
       mimeType: f.mimeType,
       url: f.url,
     })),
+    // Zoom情報（一覧表示のバッジ/フィルタ用）
+    zoomRecordingCount: history.zoomRecordings.length,
+    hasScheduledZoom: history.zoomRecordings.some((z) => z.state === "予定"),
+    hasFailedZoom: history.zoomRecordings.some((z) => z.state === "失敗"),
   };
 }

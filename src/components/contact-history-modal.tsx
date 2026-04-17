@@ -88,6 +88,10 @@ export type ContactHistory = {
   customerTypeIds?: number[];
   files?: FileInfo[];
   sessionId?: number | null;
+  // Zoom情報（SLP用、その他プロジェクトは undefined）
+  zoomRecordingCount?: number;
+  hasScheduledZoom?: boolean;
+  hasFailedZoom?: boolean;
 };
 
 export type ContactCategoryOption = {
@@ -133,6 +137,43 @@ export type BaseProps = {
     label?: string; // デフォルト「打ち合わせに紐付け（任意）」
     hint?: string; // フォーム下部に出す補足
   };
+  /**
+   * 編集モード時に「Zoom情報」セクションを任意でレンダリングするためのフック。
+   * SLPで手動Zoom議事録連携を接触履歴に紐付けるUIを差し込むために使用。
+   * - 引数: 編集対象の接触履歴ID（必ず既存レコード）
+   */
+  renderZoomSection?: (contactHistoryId: number) => React.ReactNode;
+  /**
+   * 閲覧モード時に「Zoom情報」セクションを任意でレンダリングするためのフック。
+   * SLPで読み取り専用のZoom情報一覧＋詳細ボタンを表示するために使用。
+   */
+  renderZoomSectionForView?: (contactHistoryId: number) => React.ReactNode;
+  /**
+   * true の場合、接触履歴を新規追加した直後に編集モードに自動遷移する。
+   * SLP では追加後にそのまま「Zoom議事録連携を追加」できるようにするために有効化。
+   * 他プロジェクト（STP/HOJO等）は false（既存挙動：一覧に戻る）。
+   */
+  autoEnterEditAfterAdd?: boolean;
+  /**
+   * 追加フォームの下に差し込む任意セクション（SLPの Zoom議事録連携エントリ等）
+   */
+  renderAddExtraSection?: () => React.ReactNode;
+  /**
+   * 接触履歴を新規追加した直後に呼ばれるフック。
+   * SLP ではここで Zoom エントリを addManualZoomToContactHistory に流し込む。
+   * 失敗は内部で toast 等でハンドリングすることを想定。
+   */
+  onAfterAdd?: (created: ContactHistory) => Promise<void> | void;
+  /**
+   * 親側で保持している追加セクションの未保存状態。true の場合、formData が
+   * 変更されていなくてもダーティ扱いにする（例: SLP の Zoom URL 入力）。
+   */
+  extraIsDirty?: boolean;
+  /**
+   * ユーザーが未保存変更を「破棄して閉じる」で確定した時に呼ばれるフック。
+   * 親側で保持している状態（Zoom エントリ等）をクリアするために使用。
+   */
+  onDiscard?: () => void;
 };
 
 function formatDateTime(dateString: string): string {
@@ -159,6 +200,13 @@ export function ContactHistoryModalBase({
   staffByProject,
   contactCategories,
   sessionSelect,
+  renderZoomSection,
+  renderZoomSectionForView,
+  autoEnterEditAfterAdd,
+  renderAddExtraSection,
+  onAfterAdd,
+  extraIsDirty,
+  onDiscard,
 }: BaseProps) {
   const isActive = open || !!renderInline;
   const {
@@ -185,6 +233,25 @@ export function ContactHistoryModalBase({
   const [loading, setLoading] = useState(false);
   const [staffPopoverOpen, setStaffPopoverOpen] = useState(false);
   const [requiredWarning, setRequiredWarning] = useState(false);
+  // 破棄確認ダイアログ。pendingに「続行時の処理」を保持する
+  const [discardConfirm, setDiscardConfirm] = useState<{ proceed: () => void } | null>(null);
+
+  // フォーム開始時点のスナップショットを保持（ダーティ判定の基準）
+  const initialSnapshotRef = useRef<string>("");
+
+  const snapshotFormData = (data: Partial<ContactHistory>): string =>
+    JSON.stringify({
+      contactDate: data.contactDate ?? null,
+      contactMethodId: data.contactMethodId ?? null,
+      contactCategoryId: data.contactCategoryId ?? null,
+      assignedTo: data.assignedTo ?? "",
+      customerParticipants: data.customerParticipants ?? "",
+      meetingMinutes: data.meetingMinutes ?? "",
+      note: data.note ?? "",
+      customerTypeIds: [...(data.customerTypeIds ?? [])].sort((a, b) => a - b),
+      files: data.files ?? [],
+      sessionId: data.sessionId ?? null,
+    });
 
   // 別のエンティティが選択された場合に履歴データを更新
   useEffect(() => {
@@ -196,7 +263,7 @@ export function ContactHistoryModalBase({
     isAddMode: boolean;
     editHistory: ContactHistory | null;
   };
-  const { restore, save } = useTimedFormCache<CachedState>(
+  const { restore, save, clear: clearFormCache } = useTimedFormCache<CachedState>(
     `${cacheKeyPrefix}-${entityId}`
   );
   const formStateRef = useRef<CachedState>({
@@ -221,10 +288,28 @@ export function ContactHistoryModalBase({
         setFormData(cached.formData);
         setIsAddMode(cached.isAddMode);
         setEditHistory(cached.editHistory);
+        // ダーティ判定の基準を復元元のモードに応じてセット
+        if (cached.isAddMode) {
+          initialSnapshotRef.current = snapshotFormData({
+            customerTypeIds: [requiredCustomerTypeId],
+            files: [],
+          });
+        } else if (cached.editHistory) {
+          initialSnapshotRef.current = snapshotFormData({
+            ...cached.editHistory,
+            contactCategoryId: cached.editHistory.contactCategoryId || null,
+            customerTypeIds:
+              cached.editHistory.customerTypeIds || [requiredCustomerTypeId],
+            files: cached.editHistory.files || [],
+          });
+        } else {
+          initialSnapshotRef.current = "";
+        }
       } else {
         setFormData({});
         setIsAddMode(false);
         setEditHistory(null);
+        initialSnapshotRef.current = "";
       }
       // 一時的なUI状態は常にリセット
       setDeleteConfirm(null);
@@ -232,8 +317,9 @@ export function ContactHistoryModalBase({
       setPendingEditData(null);
       setStaffPopoverOpen(false);
       setRequiredWarning(false);
+      setDiscardConfirm(null);
     }
-  }, [isActive, restore]);
+  }, [isActive, restore, requiredCustomerTypeId]);
 
   // スタッフIDからスタッフ名を取得するヘルパー
   const getStaffNames = (assignedTo: string | null): string => {
@@ -247,7 +333,7 @@ export function ContactHistoryModalBase({
   };
 
   const openAddForm = () => {
-    setFormData({
+    const initial: Partial<ContactHistory> = {
       contactDate: undefined,
       contactMethodId: null,
       contactCategoryId: null,
@@ -257,18 +343,22 @@ export function ContactHistoryModalBase({
       note: "",
       customerTypeIds: [requiredCustomerTypeId],
       files: [],
-    });
+    };
+    setFormData(initial);
+    initialSnapshotRef.current = snapshotFormData(initial);
     setRequiredWarning(false);
     setIsAddMode(true);
   };
 
   const openEditForm = (history: ContactHistory) => {
-    setFormData({
+    const initial: Partial<ContactHistory> = {
       ...history,
       contactCategoryId: history.contactCategoryId || null,
       customerTypeIds: history.customerTypeIds || [requiredCustomerTypeId],
       files: history.files || [],
-    });
+    };
+    setFormData(initial);
+    initialSnapshotRef.current = snapshotFormData(initial);
     setRequiredWarning(false);
     setEditHistory(history);
   };
@@ -333,8 +423,34 @@ export function ContactHistoryModalBase({
       } as unknown as ContactHistory;
       setHistories([historyWithNames, ...histories]);
       toast.success("接触履歴を追加しました");
+
+      // 追加後のフック（SLPではZoomエントリ処理）
+      if (onAfterAdd) {
+        try {
+          await onAfterAdd(historyWithNames);
+        } catch (e) {
+          console.error("[contact-history-modal] onAfterAdd failed:", e);
+        }
+      }
+
       setIsAddMode(false);
-      setFormData({});
+      if (autoEnterEditAfterAdd) {
+        // 追加直後に編集モードへ遷移（Zoom議事録連携などを続けて行う用途）
+        setEditHistory(historyWithNames);
+        const nextFormData: Partial<ContactHistory> = {
+          ...historyWithNames,
+          contactCategoryId: historyWithNames.contactCategoryId || null,
+          customerTypeIds:
+            historyWithNames.customerTypeIds || [requiredCustomerTypeId],
+          files: historyWithNames.files || [],
+        };
+        setFormData(nextFormData);
+        initialSnapshotRef.current = snapshotFormData(nextFormData);
+      } else {
+        setFormData({});
+        initialSnapshotRef.current = "";
+      }
+      clearFormCache();
     } catch {
       toast.error("追加に失敗しました");
     } finally {
@@ -382,6 +498,8 @@ export function ContactHistoryModalBase({
       toast.success("接触履歴を更新しました");
       setEditHistory(null);
       setFormData({});
+      initialSnapshotRef.current = "";
+      clearFormCache();
       setEditConfirm(false);
       setPendingEditData(null);
     } catch {
@@ -507,12 +625,19 @@ export function ContactHistoryModalBase({
             </div>
           </div>
         )}
+        {/* 閲覧モードのZoom情報（読み取り専用） */}
+        {renderZoomSectionForView && (
+          <div className="rounded border bg-white p-3">
+            {renderZoomSectionForView(history.id)}
+          </div>
+        )}
       </div>
     );
   };
 
   const renderForm = () => (
-    <div className="space-y-4 border rounded-lg p-4 bg-muted/50">
+    <div className="flex flex-col border rounded-lg bg-muted/50 max-h-[60vh] overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>
@@ -778,14 +903,34 @@ export function ContactHistoryModalBase({
           contactHistoryId={editHistory?.id}
         />
       </div>
-      <div className="flex gap-2 justify-end">
+      {/* Zoom情報セクション（編集モード・既存レコードのみ） */}
+      {editHistory && renderZoomSection && (
+        <div className="rounded border p-3 bg-muted/20">
+          {renderZoomSection(editHistory.id)}
+        </div>
+      )}
+      {/* 追加モードのみ: 拡張セクション（SLP の Zoom議事録連携エントリ） */}
+      {isAddMode && renderAddExtraSection && (
+        <div className="rounded border p-3 bg-muted/20">
+          {renderAddExtraSection()}
+        </div>
+      )}
+      </div>
+      {/* sticky footer: スクロール領域の外に固定 */}
+      <div className="shrink-0 flex gap-2 justify-end border-t bg-white/80 px-4 py-3">
         <Button
           variant="outline"
-          onClick={() => {
-            setIsAddMode(false);
-            setEditHistory(null);
-            setFormData({});
-          }}
+          disabled={loading}
+          onClick={() =>
+            requestClose(() => {
+              setIsAddMode(false);
+              setEditHistory(null);
+              setFormData({});
+              initialSnapshotRef.current = "";
+              clearFormCache();
+              onDiscard?.();
+            })
+          }
         >
           キャンセル
         </Button>
@@ -800,9 +945,45 @@ export function ContactHistoryModalBase({
   );
 
   // 日付でソート（降順）
-  const sortedHistories = [...histories].sort(
-    (a, b) => new Date(b.contactDate).getTime() - new Date(a.contactDate).getTime()
-  );
+  // 「予定のZoomあり」フィルタ（SLP固有、hasScheduledZoom が undefined のプロジェクトはそもそも何も起こらない）
+  const [filterPendingZoom, setFilterPendingZoom] = useState(false);
+
+  const hasAnyScheduledZoom = histories.some((h) => h.hasScheduledZoom);
+
+  const sortedHistories = [...histories]
+    .filter((h) => (filterPendingZoom ? h.hasScheduledZoom === true : true))
+    .sort(
+      (a, b) => new Date(b.contactDate).getTime() - new Date(a.contactDate).getTime()
+    );
+
+  // 追加/編集モード中は操作列を非表示（参照専用にしてUI混乱を解消）
+  const isFormActive = isAddMode || !!editHistory;
+
+  // 未保存変更の有無（formDataの変更 or 親が extraIsDirty で通知した拡張セクションの変更）
+  const isDirty =
+    isFormActive &&
+    (snapshotFormData(formData) !== initialSnapshotRef.current ||
+      !!extraIsDirty);
+
+  // 破棄確認が必要な場面で使うヘルパー（確認してから proceed を実行）
+  const requestClose = (proceed: () => void) => {
+    if (isDirty) {
+      setDiscardConfirm({ proceed });
+    } else {
+      proceed();
+    }
+  };
+
+  // ブラウザ離脱時（リロード、タブ閉じ等）に警告
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
 
   const content = (
     <>
@@ -813,9 +994,21 @@ export function ContactHistoryModalBase({
       )}
 
       <div className={renderInline ? "flex flex-col gap-2 flex-1 min-h-0" : "px-4 py-3 flex flex-col gap-2 flex-1 min-h-0"}>
-        {/* 追加ボタン */}
+        {/* 追加ボタン + フィルタ */}
         {!isAddMode && !editHistory && !viewHistory && (
-          <div className="flex justify-end shrink-0">
+          <div className="flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-2">
+              {hasAnyScheduledZoom && (
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={filterPendingZoom}
+                    onChange={(e) => setFilterPendingZoom(e.target.checked)}
+                  />
+                  <span>📌 予定のZoomあり のみ表示</span>
+                </label>
+              )}
+            </div>
             <Button size="sm" onClick={openAddForm}>
               <Plus className="mr-1 h-3.5 w-3.5" />
               接触履歴を追加
@@ -830,11 +1023,9 @@ export function ContactHistoryModalBase({
           </div>
         )}
 
-        {/* 追加/編集フォーム */}
+        {/* 追加/編集フォーム（フォーム内部で overflow/stickyを管理） */}
         {(isAddMode || editHistory) && (
-          <div className="shrink-0 max-h-[50vh] overflow-y-auto">
-            {renderForm()}
-          </div>
+          <div className="shrink-0">{renderForm()}</div>
         )}
 
         {/* 接触履歴一覧 */}
@@ -843,6 +1034,12 @@ export function ContactHistoryModalBase({
             接触履歴が登録されていません
           </div>
         ) : (
+          <>
+            {isFormActive && (
+              <p className="text-xs text-muted-foreground shrink-0">
+                ※ 入力中は過去の接触履歴は参照のみです（{isAddMode ? "追加" : "更新"}後に操作できます）
+              </p>
+            )}
           <Table containerClassName="border rounded-lg flex-1 min-h-0" containerStyle={{ overflow: 'auto' }}>
             <TableHeader>
               <TableRow>
@@ -854,14 +1051,34 @@ export function ContactHistoryModalBase({
                 <TableHead className="min-w-[120px] whitespace-nowrap">議事録</TableHead>
                 <TableHead className="min-w-[100px] whitespace-nowrap">備考</TableHead>
                 <TableHead className="w-[48px] whitespace-nowrap">添付</TableHead>
-                <TableHead className="w-[130px] whitespace-nowrap sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
+                {!isFormActive && (
+                  <TableHead className="w-[130px] whitespace-nowrap sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
               {sortedHistories.map((history) => (
                 <TableRow key={history.id}>
                   <TableCell className="whitespace-nowrap">
-                    {formatDateTime(history.contactDate)}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span>{formatDateTime(history.contactDate)}</span>
+                      {history.hasScheduledZoom && (
+                        <span
+                          className="inline-flex items-center rounded bg-amber-100 text-amber-900 border border-amber-200 px-1 py-0 text-[10px]"
+                          title="予定のZoomあり"
+                        >
+                          🕐 予定Zoom
+                        </span>
+                      )}
+                      {history.hasFailedZoom && (
+                        <span
+                          className="inline-flex items-center rounded bg-red-100 text-red-900 border border-red-200 px-1 py-0 text-[10px]"
+                          title="取得失敗のZoomあり"
+                        >
+                          ⚠️ 取得失敗
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>{history.contactMethodName || "-"}</TableCell>
                   <TableCell>{history.contactCategoryName || "-"}</TableCell>
@@ -876,45 +1093,45 @@ export function ContactHistoryModalBase({
                   <TableCell>
                     <FileDisplay files={history.files || []} />
                   </TableCell>
-                  <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setViewHistory(history);
-                          setEditHistory(null);
-                          setIsAddMode(false);
-                        }}
-                        disabled={isAddMode || !!editHistory}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setViewHistory(null);
-                          openEditForm(history);
-                        }}
-                        disabled={isAddMode || !!editHistory}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setDeleteConfirm(history)}
-                        disabled={isAddMode || !!editHistory}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </TableCell>
+                  {!isFormActive && (
+                    <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setViewHistory(history);
+                            setEditHistory(null);
+                            setIsAddMode(false);
+                          }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setViewHistory(null);
+                            openEditForm(history);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setDeleteConfirm(history)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+          </>
         )}
       </div>
     </>
@@ -973,13 +1190,60 @@ export function ContactHistoryModalBase({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* 未保存変更の破棄確認ダイアログ */}
+        <AlertDialog
+          open={!!discardConfirm}
+          onOpenChange={(open) => !open && setDiscardConfirm(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>保存していない内容があります</AlertDialogTitle>
+              <AlertDialogDescription>
+                入力中の内容は破棄されます。よろしいですか？
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setDiscardConfirm(null)}>
+                入力に戻る
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  const p = discardConfirm?.proceed;
+                  setDiscardConfirm(null);
+                  p?.();
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                破棄して閉じる
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </>
     );
   }
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) {
+            requestClose(() => {
+              setIsAddMode(false);
+              setEditHistory(null);
+              setFormData({});
+              initialSnapshotRef.current = "";
+              clearFormCache();
+              onDiscard?.();
+              onOpenChange(false);
+            });
+          } else {
+            onOpenChange(true);
+          }
+        }}
+      >
         <DialogContent
           size="datagrid-cw"
           className="p-0 overflow-hidden flex flex-col"
@@ -1033,6 +1297,36 @@ export function ContactHistoryModalBase({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {loading ? "削除中..." : "はい"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 未保存変更の破棄確認ダイアログ */}
+      <AlertDialog
+        open={!!discardConfirm}
+        onOpenChange={(open) => !open && setDiscardConfirm(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>保存していない内容があります</AlertDialogTitle>
+            <AlertDialogDescription>
+              入力中の内容は破棄されます。よろしいですか？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDiscardConfirm(null)}>
+              入力に戻る
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const p = discardConfirm?.proceed;
+                setDiscardConfirm(null);
+                p?.();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              破棄して閉じる
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
