@@ -643,3 +643,121 @@ export async function applyProlineCancelToSession(
   });
   return updated;
 }
+
+// ============================================
+// 接触履歴（SlpContactHistory）の取得・確保
+// ============================================
+
+/**
+ * セッションに紐付く接触履歴を取得（最新1件）
+ * 同一 session に複数紐付く可能性があるが、通常は1件のみ想定
+ */
+export async function findContactHistoryForSession(
+  sessionId: number,
+  tx: Prisma.TransactionClient | typeof prisma = prisma
+) {
+  return tx.slpContactHistory.findFirst({
+    where: { sessionId, deletedAt: null },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/**
+ * セッションに紐付く接触履歴が無ければ作成して返す（あれば既存を返す）
+ *
+ * Zoom URL 発行・webhook受信時に議事録保存先として必要。
+ */
+export async function ensureContactHistoryForSession(
+  sessionId: number,
+  tx: Prisma.TransactionClient | typeof prisma = prisma
+) {
+  const existing = await findContactHistoryForSession(sessionId, tx);
+  if (existing) return existing;
+
+  const session = await tx.slpMeetingSession.findUnique({
+    where: { id: sessionId },
+    include: {
+      companyRecord: {
+        select: {
+          id: true,
+          masterCompanyId: true,
+        },
+      },
+    },
+  });
+  if (!session) {
+    throw new Error(`セッションが見つかりません: sessionId=${sessionId}`);
+  }
+
+  const categoryName = session.category === "briefing" ? "概要案内" : "導入希望商談";
+  const contactCategory = await tx.contactCategory.findFirst({
+    where: { name: categoryName },
+    select: { id: true },
+  });
+  const contactMethod = await tx.contactMethod.findFirst({
+    where: { name: "Web会議" },
+    select: { id: true },
+  });
+
+  const staffIdStr = session.assignedStaffId ? String(session.assignedStaffId) : null;
+
+  const history = await tx.slpContactHistory.create({
+    data: {
+      contactDate: session.scheduledAt ?? new Date(),
+      contactMethodId: contactMethod?.id ?? null,
+      contactCategoryId: contactCategory?.id ?? null,
+      assignedTo: staffIdStr,
+      staffId: session.assignedStaffId,
+      targetType: "company_record",
+      companyRecordId: session.companyRecord.id,
+      masterCompanyId: session.companyRecord.masterCompanyId,
+      sessionId: session.id,
+    },
+  });
+
+  // 顧客種別タグ（slp_company）を付与
+  const slpCompanyType = await tx.customerType.findFirst({
+    where: { code: "slp_company" },
+    select: { id: true },
+  });
+  if (slpCompanyType) {
+    await tx.slpContactHistoryTag.create({
+      data: {
+        contactHistoryId: history.id,
+        customerTypeId: slpCompanyType.id,
+      },
+    });
+  }
+
+  return history;
+}
+
+/**
+ * 接触履歴に紐付く primary Recording を取得（URL管理の中心レコード）
+ * なければ null
+ */
+export async function findPrimaryRecording(
+  contactHistoryId: number,
+  tx: Prisma.TransactionClient | typeof prisma = prisma
+) {
+  return tx.slpZoomRecording.findFirst({
+    where: {
+      contactHistoryId,
+      isPrimary: true,
+      deletedAt: null,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+/**
+ * セッションの primary Recording を取得（session→contactHistory→recording経由）
+ */
+export async function findPrimaryRecordingForSession(
+  sessionId: number,
+  tx: Prisma.TransactionClient | typeof prisma = prisma
+) {
+  const ch = await findContactHistoryForSession(sessionId, tx);
+  if (!ch) return null;
+  return findPrimaryRecording(ch.id, tx);
+}

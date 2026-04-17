@@ -32,15 +32,10 @@ export async function generateClaudeSummaryForRecording(params: {
       contactHistory: {
         include: {
           companyRecord: { select: { companyName: true } },
-        },
-      },
-      hostStaff: { select: { name: true } },
-      sessionZoom: {
-        select: {
-          scheduledAt: true,
           session: { select: { scheduledAt: true } },
         },
       },
+      hostStaff: { select: { name: true } },
     },
   });
   if (!recording) throw new Error("録画レコードが見つかりません");
@@ -52,9 +47,10 @@ export async function generateClaudeSummaryForRecording(params: {
   const isBriefing = recording.category === "briefing";
   const companyName =
     recording.contactHistory?.companyRecord?.companyName ?? "";
+  // 日時は Recording.scheduledAt > Session.scheduledAt の順で採用
   const dateJst =
-    recording.sessionZoom?.scheduledAt ??
-    recording.sessionZoom?.session?.scheduledAt ??
+    recording.scheduledAt ??
+    recording.contactHistory?.session?.scheduledAt ??
     null;
   const hostName = recording.hostStaff?.name ?? "";
 

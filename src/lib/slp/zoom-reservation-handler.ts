@@ -6,21 +6,28 @@ import {
 } from "@/lib/zoom/meeting";
 import { logAutomationError } from "@/lib/automation-error";
 import { sendSessionNotification } from "./slp-session-notification";
-import type { SessionCategory } from "./session-helper";
+import {
+  ensureContactHistoryForSession,
+  findPrimaryRecordingForSession,
+  type SessionCategory,
+} from "./session-helper";
 
 type ZoomCategory = SessionCategory;
 
 // ============================================
-// セッションベース Zoom 管理関数
-// SlpMeetingSession + SlpMeetingSessionZoom に対して Zoom API を呼び出す
+// セッションベース Zoom 管理関数（新構造: SlpZoomRecording に統合）
+//
+// URL情報（joinUrl / zoomMeetingId / scheduledAt / isPrimary / label 等）は
+// 全て SlpZoomRecording に乗る。セッション → 接触履歴 → 接触履歴配下の
+// primary Recording、という階層で管理する。
 // ============================================
 
 /**
  * セッションベースでZoom会議を発行/更新する。
- * - primary Zoom がなければ新規発行
- * - primary Zoom があり担当者変更 → 削除+新規作成
- * - primary Zoom があり日時のみ変更 → Zoom API の update
- * - 発行情報は SlpMeetingSessionZoom の primary レコードに保存
+ * - 接触履歴が無ければ作成
+ * - primary Recording がなければ新規発行
+ * - primary Recording があり担当者変更 → 削除+新規作成（旧primaryは論理削除）
+ * - primary Recording があり日時のみ変更 → Zoom API の update
  *
  * skipCustomerNotification=false の場合、成功時に新通知システム(sendSessionNotification)でLINE通知を送る。
  */
@@ -39,11 +46,6 @@ export async function ensureZoomMeetingForSession(params: {
           prolineUid: true,
         },
       },
-      zoomRecords: {
-        where: { isPrimary: true, deletedAt: null },
-        orderBy: { createdAt: "desc" },
-        take: 1,
-      },
     },
   });
 
@@ -56,15 +58,27 @@ export async function ensureZoomMeetingForSession(params: {
 
   const staffId = session.assignedStaffId;
   const date = session.scheduledAt;
-  const primaryZoom = session.zoomRecords[0] ?? null;
+
+  // 接触履歴確保（無ければ作成）
+  const contactHistory = await ensureContactHistoryForSession(session.id);
+
+  // 現在の primary Recording を取得
+  const primary = await prisma.slpZoomRecording.findFirst({
+    where: {
+      contactHistoryId: contactHistory.id,
+      isPrimary: true,
+      deletedAt: null,
+    },
+    orderBy: { createdAt: "desc" },
+  });
 
   if (!staffId || !date) {
-    if (primaryZoom) {
-      await prisma.slpMeetingSessionZoom.update({
-        where: { id: primaryZoom.id },
+    if (primary) {
+      await prisma.slpZoomRecording.update({
+        where: { id: primary.id },
         data: {
-          zoomError: "担当者または日時が未設定のためZoom発行できません",
-          zoomErrorAt: new Date(),
+          zoomApiError: "担当者または日時が未設定のためZoom発行できません",
+          zoomApiErrorAt: new Date(),
         },
       });
     }
@@ -77,7 +91,7 @@ export async function ensureZoomMeetingForSession(params: {
     let newStartUrl: string | null = null;
     let newPassword: string | null = null;
 
-    if (!primaryZoom) {
+    if (!primary) {
       // 初回発行
       const resp = await createZoomMeeting({
         hostStaffId: staffId,
@@ -90,27 +104,29 @@ export async function ensureZoomMeetingForSession(params: {
       newStartUrl = resp.start_url ?? null;
       newPassword = resp.password ?? null;
 
-      await prisma.slpMeetingSessionZoom.create({
+      await prisma.slpZoomRecording.create({
         data: {
-          sessionId: session.id,
+          contactHistoryId: contactHistory.id,
           zoomMeetingId: newMeetingId,
+          category,
+          hostStaffId: staffId,
           joinUrl: newJoinUrl,
           startUrl: newStartUrl,
           password: newPassword,
-          hostStaffId: staffId,
           scheduledAt: date,
           isPrimary: true,
+          state: "予定",
         },
       });
     } else {
-      const hostChanged = primaryZoom.hostStaffId !== staffId;
+      const hostChanged = primary.hostStaffId !== staffId;
       if (hostChanged) {
         // 担当者変更: 旧Zoomを削除して新規作成
-        if (primaryZoom.hostStaffId) {
+        if (primary.hostStaffId) {
           try {
             await deleteZoomMeeting({
-              hostStaffId: primaryZoom.hostStaffId,
-              meetingId: primaryZoom.zoomMeetingId,
+              hostStaffId: primary.hostStaffId,
+              meetingId: primary.zoomMeetingId,
             });
           } catch (err) {
             await logAutomationError({
@@ -135,42 +151,44 @@ export async function ensureZoomMeetingForSession(params: {
         newPassword = resp.password ?? null;
 
         // 旧primaryを論理削除して新規primary作成
-        await prisma.slpMeetingSessionZoom.update({
-          where: { id: primaryZoom.id },
+        await prisma.slpZoomRecording.update({
+          where: { id: primary.id },
           data: { deletedAt: new Date() },
         });
-        await prisma.slpMeetingSessionZoom.create({
+        await prisma.slpZoomRecording.create({
           data: {
-            sessionId: session.id,
+            contactHistoryId: contactHistory.id,
             zoomMeetingId: newMeetingId,
+            category,
+            hostStaffId: staffId,
             joinUrl: newJoinUrl,
             startUrl: newStartUrl,
             password: newPassword,
-            hostStaffId: staffId,
             scheduledAt: date,
             isPrimary: true,
+            state: "予定",
           },
         });
       } else {
         // 日時等だけの更新（Zoom API のupdateで対応）
         await updateZoomMeeting({
           hostStaffId: staffId,
-          meetingId: primaryZoom.zoomMeetingId,
+          meetingId: primary.zoomMeetingId,
           topic,
           startAtJst: date,
           durationMinutes: 60,
         });
-        newMeetingId = primaryZoom.zoomMeetingId;
-        newJoinUrl = primaryZoom.joinUrl;
-        newStartUrl = primaryZoom.startUrl;
-        newPassword = primaryZoom.password;
+        newMeetingId = primary.zoomMeetingId;
+        newJoinUrl = primary.joinUrl;
+        newStartUrl = primary.startUrl;
+        newPassword = primary.password;
 
-        await prisma.slpMeetingSessionZoom.update({
-          where: { id: primaryZoom.id },
+        await prisma.slpZoomRecording.update({
+          where: { id: primary.id },
           data: {
             scheduledAt: date,
-            zoomError: null,
-            zoomErrorAt: null,
+            zoomApiError: null,
+            zoomApiErrorAt: null,
           },
         });
       }
@@ -184,10 +202,10 @@ export async function ensureZoomMeetingForSession(params: {
         trigger: params.triggerReason,
       });
       if (result.ok && params.triggerReason === "confirm") {
-        // 送信済みフラグを primary zoom に立てる
-        await prisma.slpMeetingSessionZoom.updateMany({
+        // 送信済みフラグを primary Recording に立てる
+        await prisma.slpZoomRecording.updateMany({
           where: {
-            sessionId: session.id,
+            contactHistoryId: contactHistory.id,
             isPrimary: true,
             deletedAt: null,
           },
@@ -207,17 +225,21 @@ export async function ensureZoomMeetingForSession(params: {
       },
     });
 
-    // primary Zoom があればエラーを記録（なければ新規作成してエラーだけ持たせる）
-    const primary = await prisma.slpMeetingSessionZoom.findFirst({
-      where: { sessionId: session.id, isPrimary: true, deletedAt: null },
+    // primary Recording があればエラーを記録
+    const primaryNow = await prisma.slpZoomRecording.findFirst({
+      where: {
+        contactHistoryId: contactHistory.id,
+        isPrimary: true,
+        deletedAt: null,
+      },
       orderBy: { createdAt: "desc" },
     });
-    if (primary) {
-      await prisma.slpMeetingSessionZoom.update({
-        where: { id: primary.id },
+    if (primaryNow) {
+      await prisma.slpZoomRecording.update({
+        where: { id: primaryNow.id },
         data: {
-          zoomError: msg.slice(0, 2000),
-          zoomErrorAt: new Date(),
+          zoomApiError: msg.slice(0, 2000),
+          zoomApiErrorAt: new Date(),
         },
       });
     }
@@ -225,28 +247,20 @@ export async function ensureZoomMeetingForSession(params: {
 }
 
 /**
- * セッションの primary Zoom を削除する（キャンセル時）。
+ * セッションの primary Recording を削除する（キャンセル時）。
  * Zoom API の delete を試み、成功/失敗に関わらず DB 上は論理削除する。
  */
 export async function cancelZoomMeetingForSession(params: {
   sessionId: number;
 }): Promise<void> {
-  const primaryZoom = await prisma.slpMeetingSessionZoom.findFirst({
-    where: {
-      sessionId: params.sessionId,
-      isPrimary: true,
-      deletedAt: null,
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const primary = await findPrimaryRecordingForSession(params.sessionId);
+  if (!primary) return;
 
-  if (!primaryZoom) return;
-
-  if (primaryZoom.hostStaffId) {
+  if (primary.hostStaffId) {
     try {
       await deleteZoomMeeting({
-        hostStaffId: primaryZoom.hostStaffId,
-        meetingId: primaryZoom.zoomMeetingId,
+        hostStaffId: primary.hostStaffId,
+        meetingId: primary.zoomMeetingId,
       });
     } catch (err) {
       await logAutomationError({
@@ -260,15 +274,15 @@ export async function cancelZoomMeetingForSession(params: {
     }
   }
 
-  await prisma.slpMeetingSessionZoom.update({
-    where: { id: primaryZoom.id },
+  await prisma.slpZoomRecording.update({
+    where: { id: primary.id },
     data: { deletedAt: new Date() },
   });
 }
 
 /**
  * セッションの Zoom を再発行する（UIの「再発行」ボタン用）。
- * 既存 primary Zoom を削除してから ensureZoomMeetingForSession で新規発行。
+ * 既存 primary Recording を削除してから ensureZoomMeetingForSession で新規発行。
  * 送信は行わない（スタッフが手動でURLを送付する運用想定）。
  */
 export async function regenerateZoomForSession(params: {
@@ -281,25 +295,17 @@ export async function regenerateZoomForSession(params: {
     skipCustomerNotification: true,
   });
 
-  const newPrimary = await prisma.slpMeetingSessionZoom.findFirst({
-    where: {
-      sessionId: params.sessionId,
-      isPrimary: true,
-      deletedAt: null,
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const newPrimary = await findPrimaryRecordingForSession(params.sessionId);
 
   if (!newPrimary) {
     return { ok: false, url: null, errorMessage: "Zoom発行に失敗しました" };
   }
-  if (newPrimary.zoomError) {
+  if (newPrimary.zoomApiError) {
     return {
       ok: false,
       url: newPrimary.joinUrl || null,
-      errorMessage: newPrimary.zoomError,
+      errorMessage: newPrimary.zoomApiError,
     };
   }
   return { ok: true, url: newPrimary.joinUrl };
 }
-

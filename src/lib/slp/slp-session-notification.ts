@@ -89,11 +89,19 @@ export async function sendSessionNotification(
         },
       },
       assignedStaff: { select: { name: true } },
-      zoomRecords: {
-        where: { deletedAt: null, isPrimary: true },
-        orderBy: { createdAt: "desc" },
+      contactHistories: {
+        where: { deletedAt: null },
+        orderBy: { createdAt: "asc" },
         take: 1,
-        select: { joinUrl: true },
+        select: {
+          id: true,
+          zoomRecordings: {
+            where: { deletedAt: null, isPrimary: true },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { joinUrl: true },
+          },
+        },
       },
     },
   });
@@ -148,11 +156,12 @@ export async function sendSessionNotification(
   }
 
   // 変数準備
+  const primaryRecording = session.contactHistories[0]?.zoomRecordings[0];
   const vars: NotificationRenderVars = {
     companyName: session.companyRecord.companyName ?? "（事業者名未登録）",
     scheduledAt: session.scheduledAt ? formatJstDateTime(session.scheduledAt) : "",
     staffName: session.assignedStaff?.name ?? "",
-    zoomUrl: session.zoomRecords[0]?.joinUrl ?? "",
+    zoomUrl: primaryRecording?.joinUrl ?? "",
     referrerName: primaryContact?.name ?? lineFriend?.snsname ?? "",
     roundNumber: String(session.roundNumber),
   };

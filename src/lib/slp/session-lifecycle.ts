@@ -55,7 +55,7 @@ export async function handleSessionReservationSideEffects(
 ): Promise<void> {
   const issueZoom = params.issueZoom ?? true;
 
-  // 1. Zoom発行（セッション内の SlpMeetingSessionZoom に直接書き込み）
+  // 1. Zoom発行（接触履歴配下の primary SlpZoomRecording に URL情報を保存）
   // お客様通知は後続のステップ2で送るため、ここではskip
   if (issueZoom) {
     try {
