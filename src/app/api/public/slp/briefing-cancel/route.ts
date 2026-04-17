@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
 import { submitForm9BriefingCancel } from "@/lib/proline-form";
 import { cancelZoomMeetingForReservation } from "@/lib/slp/zoom-reservation-handler";
+import { applyProlineCancelToSession } from "@/lib/slp/session-helper";
 
 function verifySecret(request: Request): boolean {
   const { searchParams } = new URL(request.url);
@@ -22,7 +23,9 @@ function verifySecret(request: Request): boolean {
  * 動作:
  *   1. bookingId で reservationId が一致する全レコードを検索
  *   2. 見つかった全レコードを updateMany で一括キャンセル（複製対応）
- *   3. 見つからない場合は uid ベースのフォールバック
+ *   3. 見つからない場合は automation_errors にログを残して終了
+ *      （過去に存在した uid ベースのフォールバックは、Webhook到着順逆転時に
+ *       別の新規予約を誤キャンセルする事故を起こしたため撤去）
  */
 export async function GET(request: Request) {
   if (!verifySecret(request)) {
@@ -39,7 +42,6 @@ export async function GET(request: Request) {
 
   try {
     let canceledCount = 0;
-    let action: "canceled_by_id" | "canceled_by_uid" = "canceled_by_uid";
     const canceledRecordIds: number[] = [];
 
     // 1. bookingId で予約ID一致のレコードを優先的にキャンセル
@@ -80,7 +82,6 @@ export async function GET(request: Request) {
           },
         });
         canceledCount = result.count;
-        action = "canceled_by_id";
         canceledRecordIds.push(...ids);
 
         // 履歴記録: 各レコードについてキャンセル前の値を残す
@@ -100,67 +101,40 @@ export async function GET(request: Request) {
       }
     }
 
-    // 2. フォールバック: uid + 直近のアクティブレコード
+    // 2. 見つからなかった場合はログだけ残して終了
+    // （uidベースのフォールバックは撤去: Webhook到着順逆転時に別の新規予約を
+    //  誤ってキャンセルする事故が発生していたため）
     if (canceledCount === 0) {
-      const target = await prisma.slpCompanyRecord.findFirst({
-        where: {
-          prolineUid: uid,
-          briefingCanceledAt: null,
-          deletedAt: null,
-        },
-        orderBy: { id: "desc" },
-        select: {
-          id: true,
-          reservationId: true,
-          briefingDate: true,
-          briefingBookedAt: true,
-          briefingStaff: true,
-          briefingStaffId: true,
-        },
-      });
-
-      if (!target) {
-        return NextResponse.json(
-          { success: false, error: "対象の予約レコードが見つかりません" },
-          { status: 404 }
-        );
-      }
-
-      await prisma.slpCompanyRecord.update({
-        where: { id: target.id },
-        data: {
-          briefingStatus: "キャンセル",
-          briefingCanceledAt: new Date(),
-          briefingBookedAt: null,
-          briefingDate: null,
-          briefingStaff: null,
-          briefingStaffId: null,
-          reservationId: null,
-        },
-      });
-      canceledCount = 1;
-      action = "canceled_by_uid";
-      canceledRecordIds.push(target.id);
-
-      // 履歴記録（フォールバック側）
-      await prisma.slpReservationHistory.create({
-        data: {
-          companyRecordId: target.id,
-          reservationType: "briefing",
-          actionType: "キャンセル",
-          reservationId: target.reservationId ?? bookingId,
-          reservedAt: target.briefingDate,
-          bookedAt: target.briefingBookedAt,
-          staffName: target.briefingStaff,
-          staffId: target.briefingStaffId,
-        },
-      });
-
       await logAutomationError({
         source: "slp-briefing-cancel",
-        message: `予約IDで一致するレコードが見つからずuidベースでキャンセル: bookingId=${bookingId}, uid=${uid}`,
-        detail: { bookingId, uid, targetId: target.id },
+        message: `bookingId=${bookingId} に該当する予約レコードが見つかりません（uidフォールバックは実行せず）`,
+        detail: { bookingId, uid },
       });
+      return NextResponse.json(
+        { success: false, error: "対象の予約レコードが見つかりません" },
+        { status: 404 }
+      );
+    }
+
+    // 並列書き込み: SlpMeetingSession にもキャンセル記録（セッション再設計Phase 1）
+    for (const recordId of canceledRecordIds) {
+      try {
+        await prisma.$transaction(async (tx) => {
+          await applyProlineCancelToSession(
+            recordId,
+            "briefing",
+            bookingId ?? null,
+            "プロラインwebhookによるキャンセル",
+            tx
+          );
+        });
+      } catch (err) {
+        await logAutomationError({
+          source: "slp-briefing-cancel-session",
+          message: `セッション並列書き込み失敗: companyRecordId=${recordId}`,
+          detail: { error: err instanceof Error ? err.message : String(err) },
+        });
+      }
     }
 
     // Zoom会議を削除（fire-and-forget、既存通知はプロライン側既存設定で送られる）
@@ -201,7 +175,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       success: true,
-      action,
+      action: "canceled_by_id",
       canceledCount,
     });
   } catch (error) {
