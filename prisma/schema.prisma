@@ -543,10 +543,10 @@ model SlpContactHistory {
   masterCompany   MasterStellaCompany? @relation("SlpContactHistoryMasterCompany", fields: [masterCompanyId], references: [id])
   session         SlpMeetingSession?   @relation("SlpContactHistorySession", fields: [sessionId], references: [id])
 
-  tags          SlpContactHistoryTag[]
-  lineFriends   SlpContactHistoryLineFriend[]
-  files         SlpContactHistoryFile[]
-  zoomRecording SlpZoomRecording?
+  tags           SlpContactHistoryTag[]
+  lineFriends    SlpContactHistoryLineFriend[]
+  files          SlpContactHistoryFile[]
+  zoomRecordings SlpZoomRecording[]
 
   @@index([targetType, deletedAt])
   @@index([companyRecordId, deletedAt])
@@ -892,7 +892,6 @@ model MasterStaff {
   // SLP 商談セッション関連
   slpSessionAssigned              SlpMeetingSession[]        @relation("SlpSessionAssignedStaff")
   slpSessionCreated               SlpMeetingSession[]        @relation("SlpSessionCreatedBy")
-  slpSessionZoomHosted            SlpMeetingSessionZoom[]    @relation("SlpSessionZoomHost")
   slpSessionHistoriesChanged      SlpMeetingSessionHistory[] @relation("SlpSessionHistoryChangedBy")
   slpNotificationTemplatesUpdated SlpNotificationTemplate[]  @relation("SlpNotificationTemplateUpdater")
 
@@ -6265,18 +6264,44 @@ model SlpZoomSendLog {
 }
 
 // ============================================
-// SLP Zoom 録画メタ情報
-// recording.completed Webhookで作成される1対1レコード。
-// mp4/vtt のVPS保存パス、要約（Zoom AI / Claude）を保持。
-// SlpContactHistory とは1:1関係（議事録自動作成時に同時に作られる）。
+// SLP Zoom 録画・議事録（Zoom URL情報を含む）
+// 1つの接触履歴に複数のZoom記録を紐付け可能（1:N、途中切れ+再開時等）。
+// URL情報(joinUrl/zoomMeetingId/scheduledAt等) も含み、旧 SlpMeetingSessionZoom を吸収。
+// state: "予定" | "取得中" | "完了" | "失敗" — ユーザー視点のステータス。
 // ============================================
 model SlpZoomRecording {
   id                          Int       @id @default(autoincrement())
-  contactHistoryId            Int       @unique @map("contact_history_id")
-  zoomMeetingId               BigInt    @map("zoom_meeting_id")
+  contactHistoryId            Int       @map("contact_history_id") // 1:N — UNIQUE 削除済み
+  zoomMeetingId               BigInt    @unique @map("zoom_meeting_id") // Zoom Meeting IDはシステム全体でユニーク
   zoomMeetingUuid             String?   @map("zoom_meeting_uuid") @db.VarChar(200)
   category                    String    @db.VarChar(30) // "briefing" | "consultation"
   hostStaffId                 Int?      @map("host_staff_id")
+
+  // ============================================
+  // Zoom URL情報（旧 SlpMeetingSessionZoom から吸収）
+  // ============================================
+  joinUrl                     String    @default("") @map("join_url") @db.VarChar(1000)
+  startUrl                    String?   @map("start_url") @db.VarChar(2000)
+  password                    String?   @db.VarChar(100)
+  scheduledAt                 DateTime? @map("scheduled_at")
+  isPrimary                   Boolean   @default(true) @map("is_primary")
+  label                       String?   @db.VarChar(100) // "延長分", "再実施" 等
+
+  // ユーザー視点のステータス: "予定" | "取得中" | "完了" | "失敗"
+  state                       String    @default("予定") @db.VarChar(20)
+
+  // 通知送信済みフラグ（旧 SlpMeetingSessionZoom から移行、isPrimary=true のプライマリZoomでのみ使用）
+  confirmSentAt               DateTime? @map("confirm_sent_at")
+  remindDaySentAt             DateTime? @map("remind_day_sent_at")
+  remindHourSentAt            DateTime? @map("remind_hour_sent_at")
+
+  // Zoom API発行エラー（発行失敗時）
+  zoomApiError                String?   @map("zoom_api_error") @db.Text
+  zoomApiErrorAt              DateTime? @map("zoom_api_error_at")
+
+  // ============================================
+  // 録画・議事録データ（既存）
+  // ============================================
   recordingStartAt            DateTime? @map("recording_start_at")
   recordingEndAt              DateTime? @map("recording_end_at")
   mp4Path                     String?   @map("mp4_path") @db.VarChar(1000)
@@ -6296,22 +6321,26 @@ model SlpZoomRecording {
   claudeSummaryPromptSnapshot String?   @map("claude_summary_prompt_snapshot") @db.Text
   claudeSummaryModel          String?   @map("claude_summary_model") @db.VarChar(80)
   participantsExtracted       String?   @map("participants_extracted") @db.Text
-  downloadStatus              String    @default("pending") @map("download_status") @db.VarChar(30) // "pending" | "in_progress" | "completed" | "failed"
+  downloadStatus              String    @default("pending") @map("download_status") @db.VarChar(30) // "pending" | "in_progress" | "completed" | "failed" | "no_recording"
   downloadError               String?   @map("download_error") @db.Text
   zoomCloudDeletedAt          DateTime? @map("zoom_cloud_deleted_at")
+
+  // 議事録を ContactHistory.meetingMinutes に追記済みかの判定用（二重追記防止）
+  minutesAppendedAt           DateTime? @map("minutes_appended_at")
+  // Claude生成議事録を ContactHistory.meetingMinutes に反映済みかの判定用
+  claudeMinutesAppendedAt     DateTime? @map("claude_minutes_appended_at")
+
   createdAt                   DateTime  @default(now()) @map("created_at")
   updatedAt                   DateTime  @updatedAt @map("updated_at")
+  deletedAt                   DateTime? @map("deleted_at")
 
   contactHistory SlpContactHistory @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
   hostStaff      MasterStaff?      @relation("SlpZoomRecordingHost", fields: [hostStaffId], references: [id])
-  sessionZoom    SlpMeetingSessionZoom? @relation(fields: [sessionZoomId], references: [id])
 
-  sessionZoomId Int? @map("session_zoom_id")
-
-  @@unique([zoomMeetingId])
+  @@index([contactHistoryId])
+  @@index([state])
   @@index([downloadStatus])
   @@index([createdAt])
-  @@index([sessionZoomId])
   @@map("slp_zoom_recordings")
 }
 
@@ -6352,7 +6381,6 @@ model SlpMeetingSession {
   companyRecord        SlpCompanyRecord           @relation("SlpCompanyRecordSessions", fields: [companyRecordId], references: [id], onDelete: Cascade)
   assignedStaff        MasterStaff?               @relation("SlpSessionAssignedStaff", fields: [assignedStaffId], references: [id])
   createdByStaff       MasterStaff?               @relation("SlpSessionCreatedBy", fields: [createdByStaffId], references: [id])
-  zoomRecords          SlpMeetingSessionZoom[]
   histories            SlpMeetingSessionHistory[]
   reservationHistories SlpReservationHistory[]    @relation("SlpReservationHistorySession")
   zoomSendLogs         SlpZoomSendLog[]           @relation("SlpZoomSendLogSession")
@@ -6363,46 +6391,6 @@ model SlpMeetingSession {
   @@index([prolineReservationId])
   @@index([scheduledAt])
   @@map("slp_meeting_sessions")
-}
-
-// ============================================
-// SLP 商談セッション Zoom記録 (SLP Meeting Session Zoom)
-// 1セッションに複数Zoom記録を紐付け可能（追加Zoom機能）。
-// 通常は1つ（isPrimary=true）、分割実施等で追加Zoomが発生した場合は複数。
-// ============================================
-model SlpMeetingSessionZoom {
-  id        Int @id @default(autoincrement())
-  sessionId Int @map("session_id")
-
-  zoomMeetingId   BigInt    @map("zoom_meeting_id")
-  zoomMeetingUuid String?   @map("zoom_meeting_uuid") @db.VarChar(200)
-  joinUrl         String    @map("join_url") @db.VarChar(1000)
-  startUrl        String?   @map("start_url") @db.VarChar(2000)
-  password        String?   @db.VarChar(100)
-  hostStaffId     Int?      @map("host_staff_id")
-  scheduledAt     DateTime? @map("scheduled_at")
-
-  isPrimary Boolean @default(true) @map("is_primary")
-  label     String? @db.VarChar(100) // "延長分", "再実施" 等
-
-  confirmSentAt    DateTime? @map("confirm_sent_at") // 予約確定通知送信済み
-  remindDaySentAt  DateTime? @map("remind_day_sent_at") // 前日リマインド送信済み
-  remindHourSentAt DateTime? @map("remind_hour_sent_at") // 1時間前リマインド送信済み
-
-  zoomError   String?   @map("zoom_error") @db.Text
-  zoomErrorAt DateTime? @map("zoom_error_at")
-
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
-
-  session    SlpMeetingSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  hostStaff  MasterStaff?       @relation("SlpSessionZoomHost", fields: [hostStaffId], references: [id])
-  recordings SlpZoomRecording[]
-
-  @@index([sessionId])
-  @@index([zoomMeetingId])
-  @@map("slp_meeting_session_zooms")
 }
 
 // ============================================
