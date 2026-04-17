@@ -13,6 +13,7 @@ export default async function ZoomRecordingsPage() {
   await requireStaffWithProjectPermission([{ project: "slp", level: "view" }]);
 
   const rows = await prisma.slpZoomRecording.findMany({
+    where: { deletedAt: null },
     orderBy: [{ createdAt: "desc" }],
     take: 100,
     include: {
@@ -25,22 +26,17 @@ export default async function ZoomRecordingsPage() {
               prolineUid: true,
             },
           },
-        },
-      },
-      hostStaff: { select: { name: true } },
-      sessionZoom: {
-        select: {
-          scheduledAt: true,
           session: { select: { scheduledAt: true } },
         },
       },
+      hostStaff: { select: { name: true } },
     },
   });
 
   const clientRows: RecordingRow[] = rows.map((r) => {
-    // セッションZoom経由で商談日時を取得（Phase 1c 以降）
+    // Recording.scheduledAt > ContactHistory.session.scheduledAt の順で商談日時を取得
     const contactDate =
-      r.sessionZoom?.scheduledAt ?? r.sessionZoom?.session?.scheduledAt ?? null;
+      r.scheduledAt ?? r.contactHistory?.session?.scheduledAt ?? null;
 
     // 「試行済み」フラグ（取得を試みて完了した）
     const aiSummaryAttempted = !!r.aiCompanionFetchedAt;

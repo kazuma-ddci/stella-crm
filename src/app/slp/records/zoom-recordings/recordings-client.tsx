@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -10,6 +11,10 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  updateClaudeSummary,
+  reflectClaudeSummaryToMinutes,
+} from "@/app/slp/contact-histories/zoom-actions";
 import {
   Loader2,
   Sparkles,
@@ -22,7 +27,6 @@ import {
   Users,
   Brain,
   ListChecks,
-  Circle,
 } from "lucide-react";
 
 export type RecordingRow = {
@@ -95,7 +99,7 @@ function formatDuration(seconds: number): string {
 }
 
 /**
- * 取得状態アイコン
+ * 取得状態バッジ（アイコン + テキストラベル併記）
  *  - 緑: データあり（取得成功）
  *  - 灰色: 試行済みだがデータなし（その会議には存在しない情報）
  *  - 黄: 未試行（取得ボタンで取りに行ける）
@@ -111,26 +115,189 @@ function StatusIcon({
   Icon: typeof Video;
   label: string;
 }) {
-  let cls: string;
+  let containerCls: string;
   let title: string;
-  let RightIcon: typeof CheckCircle2;
+  let stateText: string;
   if (exists) {
-    cls = "text-green-600";
-    title = `${label}: あり`;
-    RightIcon = CheckCircle2;
+    containerCls = "bg-green-50 text-green-800 border-green-200";
+    title = `${label}: 取得済み`;
+    stateText = "✓";
   } else if (attempted) {
-    cls = "text-muted-foreground/40";
-    title = `${label}: この会議には存在しません`;
-    RightIcon = Circle;
+    containerCls = "bg-muted text-muted-foreground border-muted-foreground/20";
+    title = `${label}: 該当なし（試行済）`;
+    stateText = "―";
   } else {
-    cls = "text-amber-500";
+    containerCls = "bg-amber-50 text-amber-800 border-amber-200";
     title = `${label}: 未取得`;
-    RightIcon = Circle;
+    stateText = "○";
   }
   return (
-    <div title={title} className={`flex items-center gap-0.5 text-xs ${cls}`}>
-      <Icon className="h-3.5 w-3.5" />
-      <RightIcon className="h-3 w-3" />
+    <div
+      title={title}
+      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] ${containerCls}`}
+    >
+      <Icon className="h-3 w-3 shrink-0" />
+      <span className="font-medium">{label}</span>
+      <span className="ml-0.5 font-bold">{stateText}</span>
+    </div>
+  );
+}
+
+/**
+ * Claude要約の編集＋メイン議事録反映機能付きセクション
+ */
+function ClaudeSummarySection({
+  recordingId,
+  initialText,
+  generatedAt,
+  onLocalUpdate,
+  onCopy,
+  copied,
+}: {
+  recordingId: number;
+  initialText: string;
+  generatedAt: string | null;
+  onLocalUpdate: (newText: string) => void;
+  onCopy: (text: string) => void;
+  copied: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(initialText);
+  const [saving, setSaving] = useState(false);
+  const [reflecting, setReflecting] = useState(false);
+
+  // 他の Recording に切り替わったら draft を再セット
+  useEffect(() => {
+    setDraft(initialText);
+    setEditing(false);
+  }, [initialText, recordingId]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const r = await updateClaudeSummary(recordingId, draft);
+      if (r.ok) {
+        toast.success("Claude議事録を保存しました");
+        onLocalUpdate(draft);
+        setEditing(false);
+      } else {
+        toast.error(r.error);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReflect = async () => {
+    setReflecting(true);
+    try {
+      // まず上書きなしで試行
+      const r = await reflectClaudeSummaryToMinutes(recordingId, false);
+      if (r.ok) {
+        if (r.data.alreadyAppended && !r.data.appended) {
+          // 既に反映済み → 上書き確認
+          const confirmed = window.confirm(
+            "既に反映済みです。上書きしますか？"
+          );
+          if (!confirmed) return;
+          const r2 = await reflectClaudeSummaryToMinutes(recordingId, true);
+          if (r2.ok && r2.data.appended) {
+            toast.success("メイン議事録に上書き反映しました");
+          } else if (!r2.ok) {
+            toast.error(r2.error);
+          }
+        } else if (r.data.appended) {
+          toast.success("メイン議事録に反映しました");
+        }
+      } else {
+        toast.error(r.error);
+      }
+    } finally {
+      setReflecting(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-sm font-semibold text-purple-800">
+          Claude生成議事録 {generatedAt && `(${generatedAt})`}
+        </div>
+        <div className="flex gap-1">
+          {!editing ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-[11px]"
+              onClick={() => setEditing(true)}
+            >
+              編集
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[11px]"
+                onClick={() => {
+                  setDraft(initialText);
+                  setEditing(false);
+                }}
+                disabled={saving}
+              >
+                破棄
+              </Button>
+              <Button
+                size="sm"
+                className="h-7 text-[11px]"
+                onClick={handleSave}
+                disabled={saving}
+              >
+                {saving && (
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                )}
+                保存
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+      {editing ? (
+        <Textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={10}
+          className="text-sm font-mono bg-purple-50"
+        />
+      ) : (
+        <div className="whitespace-pre-wrap text-sm bg-purple-50 border rounded-md p-3">
+          {initialText}
+        </div>
+      )}
+      <div className="flex gap-2 mt-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onCopy(initialText)}
+          disabled={editing}
+        >
+          <Copy className="h-3 w-3 mr-1" />
+          {copied ? "コピー済" : "コピー"}
+        </Button>
+        <Button
+          size="sm"
+          variant="default"
+          onClick={handleReflect}
+          disabled={editing || reflecting}
+        >
+          {reflecting ? (
+            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+          ) : (
+            <Sparkles className="h-3 w-3 mr-1" />
+          )}
+          メイン議事録に反映
+        </Button>
+      </div>
     </div>
   );
 }
@@ -443,23 +610,25 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
           </DialogHeader>
           <div className="space-y-4 max-h-[60vh] overflow-auto">
             {currentSummary?.claudeSummary && (
-              <div>
-                <div className="text-sm font-semibold mb-1 text-purple-800">
-                  Claude要約 {currentSummary.claudeSummaryGeneratedAt && `(${currentSummary.claudeSummaryGeneratedAt})`}
-                </div>
-                <div className="whitespace-pre-wrap text-sm bg-purple-50 border rounded-md p-3">
-                  {currentSummary.claudeSummary}
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="mt-1"
-                  onClick={() => handleCopy(currentSummary.claudeSummary!)}
-                >
-                  <Copy className="h-3 w-3 mr-1" />
-                  {copied ? "コピー済" : "コピー"}
-                </Button>
-              </div>
+              <ClaudeSummarySection
+                recordingId={currentSummary.id}
+                initialText={currentSummary.claudeSummary}
+                generatedAt={currentSummary.claudeSummaryGeneratedAt}
+                onLocalUpdate={(newText) => {
+                  const updated = localRows.map((r) =>
+                    r.id === currentSummary.id
+                      ? { ...r, claudeSummary: newText }
+                      : r
+                  );
+                  setLocalRows(updated);
+                  setCurrentSummary({
+                    ...currentSummary,
+                    claudeSummary: newText,
+                  });
+                }}
+                onCopy={handleCopy}
+                copied={copied}
+              />
             )}
             {currentSummary?.aiCompanionSummary && (
               <div>
