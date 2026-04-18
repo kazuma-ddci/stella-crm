@@ -223,7 +223,7 @@ export function TemplatesEditor({ rows }: { rows: TemplateRow[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border bg-blue-50/50 p-3 text-sm space-y-1">
+      <div className="rounded-lg border bg-blue-50/50 p-3 text-sm space-y-2">
         <div className="font-semibold flex items-center gap-1.5">
           <Info className="h-4 w-4" />
           利用可能な変数（本文中に書くと送信時に置換）
@@ -234,8 +234,96 @@ export function TemplatesEditor({ rows }: { rows: TemplateRow[] }) {
           <li><code className="bg-white px-1 rounded">{"{{staffName}}"}</code> 担当者名</li>
           <li><code className="bg-white px-1 rounded">{"{{zoomUrl}}"}</code> Zoom URL</li>
           <li><code className="bg-white px-1 rounded">{"{{referrerName}}"}</code> 紹介者名</li>
-          <li><code className="bg-white px-1 rounded">{"{{roundNumber}}"}</code> ラウンド番号</li>
         </ul>
+        <p className="text-[11px] text-blue-900/80">
+          ※ いずれの変数も、値が取得できなかった場合は「(データの取得に失敗しました)」という文字列に置き換わります。
+        </p>
+
+        <details className="group mt-1">
+          <summary className="flex items-center gap-1 cursor-pointer text-xs font-medium text-blue-900 hover:underline select-none">
+            <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+            各変数の中身・取得ルートの詳細を見る
+          </summary>
+          <div className="mt-3 space-y-3 text-xs leading-relaxed bg-white/70 rounded-md border border-blue-200 p-3">
+            <div>
+              <div className="font-semibold text-blue-900 mb-1">
+                {"{{companyName}}"} — 事業者名
+              </div>
+              <ul className="list-disc pl-5 space-y-0.5 text-neutral-700">
+                <li>画面で言うと: 事業者名簿ページ → 該当事業者 → 「事業者名」欄</li>
+                <li>表示例: 株式会社サンプル</li>
+                <li>空のとき: <code className="bg-neutral-100 px-1 rounded">(データの取得に失敗しました)</code></li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="font-semibold text-blue-900 mb-1">
+                {"{{scheduledAt}}"} — 商談日時
+              </div>
+              <ul className="list-disc pl-5 space-y-0.5 text-neutral-700">
+                <li>画面で言うと: 事業者名簿ページ → 該当事業者の「商談」タブ → 該当商談カードの「案内日 / 商談日」</li>
+                <li>表示例: 2026/04/25(金) 14:00（曜日付き、JSTで整形）</li>
+                <li>空のとき: <code className="bg-neutral-100 px-1 rounded">(データの取得に失敗しました)</code></li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="font-semibold text-blue-900 mb-1">
+                {"{{staffName}}"} — 担当者名
+              </div>
+              <ul className="list-disc pl-5 space-y-0.5 text-neutral-700">
+                <li>画面で言うと: 事業者詳細の「商談」タブ → 「担当者」プルダウンで選んだスタッフが、プロライン担当者ページに登録されている場合の「プロライン担当者名」</li>
+                <li>取得ロジック（フォールバック3段階）:
+                  <ol className="list-decimal pl-5 space-y-0.5 mt-0.5">
+                    <li>プロラインからの予約データに記録されている担当者名（プロラインWebhookで送られてきた生テキスト）</li>
+                    <li>①が空（手動セットなど） → スタッフ管理の「氏名」</li>
+                    <li>どちらも取得できなければ「(データの取得に失敗しました)」</li>
+                  </ol>
+                </li>
+                <li>表示例: 田中</li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="font-semibold text-blue-900 mb-1">
+                {"{{zoomUrl}}"} — Zoom URL
+              </div>
+              <ul className="list-disc pl-5 space-y-0.5 text-neutral-700">
+                <li>画面で言うと: 事業者名簿ページ → 該当事業者の「商談」タブ → 該当商談に紐づく Zoom会議のURL（「Zoomを発行する」ボタンで作られるURL（Zoom側の参加用URL））</li>
+                <li>取得ロジック: セッション → 接触履歴（最も古いもの） → Zoom録画（isPrimary=true、最新）</li>
+                <li>空のとき: <code className="bg-neutral-100 px-1 rounded">(データの取得に失敗しました)</code>（Zoom未発行・キャンセル済み・既に削除されたセッションなど）</li>
+                <li>⚠️ 1つの商談に追加で発行された延長Zoomは入りません（メインのみ）</li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="font-semibold text-blue-900 mb-1">
+                {"{{referrerName}}"} — 紹介者名
+              </div>
+              <ul className="list-disc pl-5 space-y-0.5 text-neutral-700">
+                <li>どこから？ 紹介者本人の、公式LINEに登録されている表示名（SNS表示名）</li>
+                <li>画面で言うと: 事業者詳細のメイン担当者のLINE友達情報の「紹介者UID（free1欄）」が指している人のLINE表示名。または商談モーダルで「紹介者通知」にチェックを入れた紹介者本人のLINE表示名。</li>
+                <li>取得ロジック（送信ルートに関わらず「紹介者本人のLINE表示名」で統一）:
+                  <ol className="list-decimal pl-5 space-y-0.5 mt-0.5">
+                    <li>手動セット / 予約中昇格 / 飛び モーダルから送信 → チェックを入れた紹介者のLINE SNS表示名</li>
+                    <li>プロラインWebhook等の自動送信 → メイン担当者のLINE友達情報の「紹介者UID（free1欄）」が指す紹介者本人のLINE SNS表示名</li>
+                  </ol>
+                </li>
+                <li>表示例: 田中太郎</li>
+                <li>空のとき: <code className="bg-neutral-100 px-1 rounded">(データの取得に失敗しました)</code>（紹介者UIDが未設定・解決できない場合）</li>
+              </ul>
+            </div>
+
+            <div className="border-t border-blue-200 pt-2">
+              <div className="font-semibold text-blue-900 mb-1">補足: 通知の送信先（変数とは別）</div>
+              <ul className="list-disc pl-5 space-y-0.5 text-neutral-700">
+                <li><strong>お客様向け</strong>: 事業者の「担当者」タブで「商談通知を受け取る」ONの人、および各商談を予約した本人（必ず通知）。商談ごとに「通知対象を個別設定」でその商談だけ対象を変更可能。</li>
+                <li><strong>紹介者向け</strong>: 事業者のメイン担当者のLINE友達情報の <code>free1</code>欄（紹介者UID）、または手動モーダルでチェックした紹介者のLINE UID。</li>
+                <li>必要なLINE紐付けが欠けていると「LINE UIDが取得できません」エラーで送信されません。</li>
+              </ul>
+            </div>
+          </div>
+        </details>
       </div>
 
       <Tabs defaultValue="customer_briefing" className="w-full">
