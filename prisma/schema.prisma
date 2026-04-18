@@ -4518,6 +4518,9 @@ model SlpCompanyContact {
   phone           String?  @db.VarChar(50) // 電話番号
   lineFriendId    Int?     @map("line_friend_id") // 公式LINE友達
   isPrimary       Boolean  @default(false) @map("is_primary")
+  /// 商談の確定・変更・リマインド等をLINEで受け取るか。デフォルトON。
+  /// 予約者（SlpMeetingSession.bookerContactId）の場合はこのフラグに関わらず必ず送信される。
+  receivesSessionNotifications Boolean @default(true) @map("receives_session_notifications")
   createdAt       DateTime @default(now()) @map("created_at")
 
   // AS担当の手動上書き（自動解決値を上書きする場合のみ設定）
@@ -4526,11 +4529,13 @@ model SlpCompanyContact {
   manualAsChangedAt   DateTime? @map("manual_as_changed_at") // 手動上書きした日時
   manualAsChangedById Int?      @map("manual_as_changed_by_id") // 手動上書きしたスタッフID
 
-  companyRecord     SlpCompanyRecord   @relation(fields: [companyRecordId], references: [id], onDelete: Cascade)
-  primaryOf         SlpCompanyRecord[] @relation("PrimaryContact")
-  lineFriend        SlpLineFriend?     @relation(fields: [lineFriendId], references: [id])
-  manualAs          SlpAs?             @relation("SlpCompanyContactManualAs", fields: [manualAsId], references: [id])
-  manualAsChangedBy MasterStaff?       @relation("SlpCompanyContactManualAsChangedBy", fields: [manualAsChangedById], references: [id])
+  companyRecord     SlpCompanyRecord           @relation(fields: [companyRecordId], references: [id], onDelete: Cascade)
+  primaryOf         SlpCompanyRecord[]         @relation("PrimaryContact")
+  lineFriend        SlpLineFriend?             @relation(fields: [lineFriendId], references: [id])
+  manualAs          SlpAs?                     @relation("SlpCompanyContactManualAs", fields: [manualAsId], references: [id])
+  manualAsChangedBy MasterStaff?               @relation("SlpCompanyContactManualAsChangedBy", fields: [manualAsChangedById], references: [id])
+  bookedSessions    SlpMeetingSession[]        @relation("SessionBooker")
+  notifyOverrides   SlpSessionNotifyContact[]
 
   @@map("slp_company_contacts")
 }
@@ -6363,6 +6368,9 @@ model SlpMeetingSession {
   assignedStaffId      Int?      @map("assigned_staff_id")
   prolineReservationId String?   @map("proline_reservation_id") @db.VarChar(100) // プロライン予約ID（webhook紐付け、manual時はnull）
   prolineStaffName     String?   @map("proline_staff_name") @db.VarChar(200)      // プロラインWebhookから受信した担当者名（生テキスト）。マッピング未登録時の警告UI用
+  /// この商談を予約した担当者（SlpCompanyContact.id）。プロライン経由で予約された場合に webhook の LINE UID から解決して記録。
+  /// 手動セットの場合は null。この担当者は receivesSessionNotifications フラグに関わらず必ず通知を受ける。
+  bookerContactId      Int?      @map("booker_contact_id")
 
   bookedAt     DateTime? @map("booked_at") // 予約発生日時（予約中になった時点）
   completedAt  DateTime? @map("completed_at")
@@ -6381,16 +6389,39 @@ model SlpMeetingSession {
   companyRecord        SlpCompanyRecord           @relation("SlpCompanyRecordSessions", fields: [companyRecordId], references: [id], onDelete: Cascade)
   assignedStaff        MasterStaff?               @relation("SlpSessionAssignedStaff", fields: [assignedStaffId], references: [id])
   createdByStaff       MasterStaff?               @relation("SlpSessionCreatedBy", fields: [createdByStaffId], references: [id])
+  bookerContact        SlpCompanyContact?         @relation("SessionBooker", fields: [bookerContactId], references: [id], onDelete: SetNull)
   histories            SlpMeetingSessionHistory[]
   reservationHistories SlpReservationHistory[]    @relation("SlpReservationHistorySession")
   zoomSendLogs         SlpZoomSendLog[]           @relation("SlpZoomSendLogSession")
   contactHistories     SlpContactHistory[]        @relation("SlpContactHistorySession")
+  notifyOverrides      SlpSessionNotifyContact[]
 
   @@index([companyRecordId, category, roundNumber])
   @@index([companyRecordId, category, status])
   @@index([prolineReservationId])
   @@index([scheduledAt])
+  @@index([bookerContactId])
   @@map("slp_meeting_sessions")
+}
+
+// ============================================
+// SLP 商談セッション 通知対象 個別設定 (Session Notify Override)
+// 各商談カードの「通知対象を個別設定」モーダルで設定する、この商談だけの通知対象リスト。
+// 行が存在する → 個別モード（行のcontactだけに通知）
+// 行が存在しない → デフォルトモード（予約者 + receivesSessionNotifications=true の担当者）
+// キャンセル時・セッション削除時にクリア。
+// ============================================
+model SlpSessionNotifyContact {
+  sessionId Int @map("session_id")
+  contactId Int @map("contact_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  session SlpMeetingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  contact SlpCompanyContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, contactId])
+  @@index([contactId])
+  @@map("slp_session_notify_contacts")
 }
 
 // ============================================
