@@ -583,3 +583,80 @@ function resolveCompanyDataWithContext(
     },
   };
 }
+
+// ============================================
+// 公開ヘルパー: 1事業者の紹介者LINE友達一覧を取得
+// （紹介者通知UIなど、紹介者だけ欲しい用途向けの軽量版）
+// ============================================
+
+export type ReferrerForCompanyOption = {
+  lineFriendId: number;
+  uid: string;
+  snsname: string | null;
+  /** "{lineFriendId} {snsname}" 形式の表示用ラベル */
+  label: string;
+};
+
+/**
+ * 事業者単位で紹介者を一覧化して返す。
+ * 仕組みは事業者名簿の「紹介者」列と同じ：
+ *   担当者ごとに free1 チェーンを辿り、自社外の LineFriend に到達した人を
+ *   重複排除して全列挙する。
+ *
+ * 紹介者通知モーダル（手動セット/予約中昇格/飛び）でチェックリスト表示するために使用。
+ */
+export async function resolveReferrersForCompany(
+  companyRecordId: number
+): Promise<ReferrerForCompanyOption[]> {
+  // 担当者と LINE 友達情報を取得
+  const contacts = await prisma.slpCompanyContact.findMany({
+    where: { companyRecordId },
+    include: {
+      lineFriend: {
+        select: { id: true, uid: true, snsname: true, free1: true },
+      },
+    },
+  });
+
+  const ownContactLineFriendIds = new Set<number>(
+    contacts
+      .map((c) => c.lineFriendId)
+      .filter((v): v is number => v !== null)
+  );
+  const ctx = await buildResolverContext(ownContactLineFriendIds);
+
+  // 全担当者から紹介者解決を実行して LineFriendId で重複排除
+  const found = new Map<number, ReferrerForCompanyOption>();
+  for (const c of contacts) {
+    const contactInput: ContactForResolution = {
+      id: c.id,
+      name: c.name,
+      lineFriendId: c.lineFriendId,
+      manualAsId: null,
+      manualAsReason: null,
+      manualAsChangedAt: null,
+      manualAsChangedByName: null,
+      manualAs: null,
+      lineFriend: c.lineFriend,
+    };
+    const referrers = resolveReferrerForContact(contactInput, ctx);
+    for (const r of referrers) {
+      if (found.has(r.lineFriendId)) continue;
+      const friendInfo = Array.from(ctx.uidToFriend.entries()).find(
+        ([, f]) => f.id === r.lineFriendId
+      );
+      if (!friendInfo) continue;
+      const [uid, friend] = friendInfo;
+      found.set(r.lineFriendId, {
+        lineFriendId: r.lineFriendId,
+        uid,
+        snsname: friend.snsname,
+        label: r.label,
+      });
+    }
+  }
+
+  return Array.from(found.values()).sort(
+    (a, b) => a.lineFriendId - b.lineFriendId
+  );
+}

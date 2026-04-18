@@ -23,7 +23,10 @@ import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import type { StaffOption } from "./meeting-sessions-section";
+import type {
+  StaffOption,
+  ReferrerOptionForUI,
+} from "./meeting-sessions-section";
 import type { SessionCategory } from "@/lib/slp/session-helper";
 import { promotePendingToReserved } from "../session-actions";
 import { formatRoundNumber } from "./round-label";
@@ -35,6 +38,7 @@ interface PromoteToReservedModalProps {
   category: SessionCategory;
   roundNumber: number;
   staffOptions: StaffOption[];
+  referrerOptions: ReferrerOptionForUI[];
   onDone?: () => void;
 }
 
@@ -45,24 +49,37 @@ export function PromoteToReservedModal({
   category,
   roundNumber,
   staffOptions,
+  referrerOptions,
   onDone,
 }: PromoteToReservedModalProps) {
   const categoryLabel = category === "briefing" ? "概要案内" : "導入希望商談";
 
   const [scheduledAt, setScheduledAt] = useState("");
   const [staffId, setStaffId] = useState<string>("");
-  const [notifyReferrer, setNotifyReferrer] = useState(false);
+  const [selectedReferrerIds, setSelectedReferrerIds] = useState<Set<number>>(
+    new Set()
+  );
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setScheduledAt("");
     setStaffId("");
-    setNotifyReferrer(false);
-  }, [open]);
+    setSelectedReferrerIds(new Set(referrerOptions.map((r) => r.lineFriendId)));
+  }, [open, referrerOptions]);
 
-  // 紹介者通知チェックボックス: 概要案内 × 初回 のみ
-  const showReferrerCheckbox = category === "briefing" && roundNumber === 1;
+  const toggleReferrer = (lineFriendId: number) => {
+    setSelectedReferrerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(lineFriendId)) next.delete(lineFriendId);
+      else next.add(lineFriendId);
+      return next;
+    });
+  };
+
+  // 紹介者チェックリスト表示条件: 概要案内 × 初回 × 紹介者1人以上
+  const showReferrerSection =
+    category === "briefing" && roundNumber === 1 && referrerOptions.length > 0;
 
   const canSubmit = !submitting && scheduledAt !== "" && staffId !== "";
 
@@ -80,7 +97,9 @@ export function PromoteToReservedModal({
         sessionId,
         scheduledAt: scheduledDate,
         assignedStaffId: parseInt(staffId, 10),
-        notifyReferrer: showReferrerCheckbox ? notifyReferrer : false,
+        selectedReferrerLineFriendIds: showReferrerSection
+          ? Array.from(selectedReferrerIds)
+          : undefined,
       });
       if (r.ok) {
         toast.success(`${formatRoundNumber(roundNumber)} ${categoryLabel} を予約中にしました`);
@@ -135,20 +154,28 @@ export function PromoteToReservedModal({
             </Select>
           </div>
 
-          {showReferrerCheckbox && (
-            <div className="flex items-start gap-2 rounded border p-3 bg-muted/30">
-              <Checkbox
-                id="notifyReferrer"
-                checked={notifyReferrer}
-                onCheckedChange={(v) => setNotifyReferrer(v === true)}
-              />
-              <div className="space-y-1">
-                <Label htmlFor="notifyReferrer" className="text-sm font-normal">
-                  紹介者にも予約通知を送信する
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  初回概要案内のみ、紹介者への通知を送信できます
-                </p>
+          {showReferrerSection && (
+            <div className="space-y-2 rounded border p-3 bg-muted/30">
+              <Label className="text-sm font-normal">
+                紹介者への予約通知（送信したい紹介者にチェック）
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                初回概要案内のみ、紹介者への通知を送信できます。
+                チェックを外した紹介者には送信されません。
+              </p>
+              <div className="space-y-1.5 mt-1">
+                {referrerOptions.map((r) => (
+                  <label
+                    key={r.lineFriendId}
+                    className="flex items-center gap-2 p-1.5 rounded hover:bg-muted cursor-pointer"
+                  >
+                    <Checkbox
+                      checked={selectedReferrerIds.has(r.lineFriendId)}
+                      onCheckedChange={() => toggleReferrer(r.lineFriendId)}
+                    />
+                    <span className="text-sm">{r.label}</span>
+                  </label>
+                ))}
               </div>
             </div>
           )}

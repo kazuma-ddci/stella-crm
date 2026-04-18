@@ -26,6 +26,7 @@ import { Loader2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import type { SessionCategory } from "@/lib/slp/session-helper";
 import { changeStatusToNoShow } from "../session-actions";
+import type { ReferrerOptionForUI } from "./meeting-sessions-section";
 
 interface NoShowModalProps {
   open: boolean;
@@ -34,6 +35,7 @@ interface NoShowModalProps {
   category: SessionCategory;
   roundNumber: number;
   source: "proline" | "manual";
+  referrerOptions: ReferrerOptionForUI[];
   onDone?: () => void;
 }
 
@@ -49,20 +51,39 @@ export function NoShowModal({
   category,
   roundNumber,
   source,
+  referrerOptions,
   onDone,
 }: NoShowModalProps) {
-  const canNotifyReferrer = category === "briefing" && roundNumber === 1;
+  // 紹介者チェックリスト表示条件: 概要案内 × 初回 × 紹介者1人以上
+  const showReferrerSection =
+    category === "briefing" && roundNumber === 1 && referrerOptions.length > 0;
 
-  const [notifyReferrer, setNotifyReferrer] = useState(canNotifyReferrer);
+  const [selectedReferrerIds, setSelectedReferrerIds] = useState<Set<number>>(
+    new Set()
+  );
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [prolineCancelDialogOpen, setProlineCancelDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setNotifyReferrer(canNotifyReferrer); // デフォルトON
+    // 全員チェック済みでスタート（外したい人だけ外す運用）
+    setSelectedReferrerIds(
+      showReferrerSection
+        ? new Set(referrerOptions.map((r) => r.lineFriendId))
+        : new Set()
+    );
     setReason("");
-  }, [open, canNotifyReferrer]);
+  }, [open, showReferrerSection, referrerOptions]);
+
+  const toggleReferrer = (lineFriendId: number) => {
+    setSelectedReferrerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(lineFriendId)) next.delete(lineFriendId);
+      else next.add(lineFriendId);
+      return next;
+    });
+  };
 
   const categoryLabel = CATEGORY_LABEL[category];
   const roundLabel = roundNumber === 1 ? "初回" : `${roundNumber}回目`;
@@ -72,19 +93,29 @@ export function NoShowModal({
     try {
       const r = await changeStatusToNoShow({
         sessionId,
-        notifyReferrer,
+        selectedReferrerLineFriendIds: showReferrerSection
+          ? Array.from(selectedReferrerIds)
+          : undefined,
         reason: reason.trim() || null,
       });
       if (!r.ok) {
         toast.error(r.error);
         return;
       }
-      if (r.data.referrerError) {
-        toast.error(`飛びに変更しましたが、紹介者通知に失敗: ${r.data.referrerError}`, {
-          duration: 10000,
-        });
-      } else if (r.data.referrerNotified) {
-        toast.success("飛びに変更し、紹介者に不参加通知を送信しました");
+      if (r.data.referrerErrors.length > 0) {
+        toast.error(
+          `飛びに変更しましたが、紹介者通知の一部に失敗（成功 ${r.data.referrerSentCount} 件 / 失敗 ${r.data.referrerErrors.length} 件）`,
+          {
+            description: r.data.referrerErrors
+              .map((e) => `LineFriend ${e.lineFriendId}: ${e.error}`)
+              .join(" / "),
+            duration: 10000,
+          }
+        );
+      } else if (r.data.referrerSentCount > 0) {
+        toast.success(
+          `飛びに変更し、紹介者 ${r.data.referrerSentCount} 名に不参加通知を送信しました`
+        );
       } else {
         toast.success("飛びに変更しました");
       }
@@ -127,20 +158,28 @@ export function NoShowModal({
                 placeholder="例: 当日ノーショー、連絡なし"
               />
             </div>
-            {canNotifyReferrer && (
-              <div className="flex items-start gap-2 rounded border p-3 bg-muted/30">
-                <Checkbox
-                  id="notifyReferrer"
-                  checked={notifyReferrer}
-                  onCheckedChange={(v) => setNotifyReferrer(v === true)}
-                />
-                <div className="space-y-1">
-                  <Label htmlFor="notifyReferrer" className="text-sm font-normal">
-                    紹介者に不参加通知を送信する
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    初回の概要案内のみ、紹介者に不参加の通知を送信できます（通知テンプレートに基づく）。
-                  </p>
+            {showReferrerSection && (
+              <div className="space-y-2 rounded border p-3 bg-muted/30">
+                <Label className="text-sm font-normal">
+                  紹介者への不参加通知（送信したい紹介者にチェック）
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  初回概要案内のみ、紹介者に不参加の通知を送信できます。
+                  チェックを外した紹介者には送信されません。
+                </p>
+                <div className="space-y-1.5 mt-1">
+                  {referrerOptions.map((r) => (
+                    <label
+                      key={r.lineFriendId}
+                      className="flex items-center gap-2 p-1.5 rounded hover:bg-muted cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={selectedReferrerIds.has(r.lineFriendId)}
+                        onCheckedChange={() => toggleReferrer(r.lineFriendId)}
+                      />
+                      <span className="text-sm">{r.label}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
             )}

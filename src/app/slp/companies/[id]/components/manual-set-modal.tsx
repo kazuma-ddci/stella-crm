@@ -24,7 +24,10 @@ import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import type { StaffOption } from "./meeting-sessions-section";
+import type {
+  StaffOption,
+  ReferrerOptionForUI,
+} from "./meeting-sessions-section";
 import type { SessionCategory } from "@/lib/slp/session-helper";
 import { createManualSession, previewNextRoundNumber } from "../session-actions";
 import { formatRoundNumber } from "./round-label";
@@ -35,6 +38,7 @@ interface ManualSetModalProps {
   companyRecordId: number;
   category: SessionCategory;
   staffOptions: StaffOption[];
+  referrerOptions: ReferrerOptionForUI[];
   onCreated?: (newSessionId?: number) => void;
 }
 
@@ -44,6 +48,7 @@ export function ManualSetModal({
   companyRecordId,
   category,
   staffOptions,
+  referrerOptions,
   onCreated,
 }: ManualSetModalProps) {
   const categoryLabel = category === "briefing" ? "概要案内" : "導入希望商談";
@@ -51,7 +56,9 @@ export function ManualSetModal({
   const [scheduledAt, setScheduledAt] = useState("");
   const [staffId, setStaffId] = useState<string>("");
   const [notes, setNotes] = useState("");
-  const [notifyReferrer, setNotifyReferrer] = useState(false);
+  const [selectedReferrerIds, setSelectedReferrerIds] = useState<Set<number>>(
+    new Set()
+  );
   const [submitting, setSubmitting] = useState(false);
 
   const [nextRoundPreview, setNextRoundPreview] = useState<{
@@ -67,7 +74,8 @@ export function ManualSetModal({
     setScheduledAt("");
     setStaffId("");
     setNotes("");
-    setNotifyReferrer(false);
+    // 紹介者は全員チェック済みでスタート（外したい人だけ外す運用）
+    setSelectedReferrerIds(new Set(referrerOptions.map((r) => r.lineFriendId)));
     setNextRoundPreview(null);
     setLoadingPreview(true);
     previewNextRoundNumber({ companyRecordId, category })
@@ -76,12 +84,23 @@ export function ManualSetModal({
         else toast.error(r.error);
       })
       .finally(() => setLoadingPreview(false));
-  }, [open, companyRecordId, category]);
+  }, [open, companyRecordId, category, referrerOptions]);
 
-  // 紹介者通知チェックボックス表示条件:
-  // 概要案内 × 初回のみ（ユーザー指定: 「1回目の概要案内」のみ）
-  const showReferrerCheckbox =
-    category === "briefing" && nextRoundPreview?.roundNumber === 1;
+  const toggleReferrer = (lineFriendId: number) => {
+    setSelectedReferrerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(lineFriendId)) next.delete(lineFriendId);
+      else next.add(lineFriendId);
+      return next;
+    });
+  };
+
+  // 紹介者チェックリスト表示条件:
+  // 概要案内 × 初回 × 紹介者が1人以上いる
+  const showReferrerSection =
+    category === "briefing" &&
+    nextRoundPreview?.roundNumber === 1 &&
+    referrerOptions.length > 0;
 
   const canSubmit =
     !submitting &&
@@ -105,7 +124,9 @@ export function ManualSetModal({
         scheduledAt: scheduledDate,
         assignedStaffId: parseInt(staffId, 10),
         notes: notes.trim() || undefined,
-        notifyReferrer: showReferrerCheckbox ? notifyReferrer : false,
+        selectedReferrerLineFriendIds: showReferrerSection
+          ? Array.from(selectedReferrerIds)
+          : undefined,
       });
       if (r.ok) {
         toast.success(`${formatRoundNumber(r.data.roundNumber)} ${categoryLabel} を予約中としてセットしました`);
@@ -189,20 +210,28 @@ export function ManualSetModal({
               />
             </div>
 
-            {showReferrerCheckbox && (
-              <div className="flex items-start gap-2 rounded border p-3 bg-muted/30">
-                <Checkbox
-                  id="notifyReferrer"
-                  checked={notifyReferrer}
-                  onCheckedChange={(v) => setNotifyReferrer(v === true)}
-                />
-                <div className="space-y-1">
-                  <Label htmlFor="notifyReferrer" className="text-sm font-normal">
-                    紹介者にも予約通知を送信する
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    初回概要案内のみ、紹介者への通知を送信できます
-                  </p>
+            {showReferrerSection && (
+              <div className="space-y-2 rounded border p-3 bg-muted/30">
+                <Label className="text-sm font-normal">
+                  紹介者への予約通知（送信したい紹介者にチェック）
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  初回概要案内のみ、紹介者への通知を送信できます。
+                  チェックを外した紹介者には送信されません。
+                </p>
+                <div className="space-y-1.5 mt-1">
+                  {referrerOptions.map((r) => (
+                    <label
+                      key={r.lineFriendId}
+                      className="flex items-center gap-2 p-1.5 rounded hover:bg-muted cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={selectedReferrerIds.has(r.lineFriendId)}
+                        onCheckedChange={() => toggleReferrer(r.lineFriendId)}
+                      />
+                      <span className="text-sm">{r.label}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
             )}
