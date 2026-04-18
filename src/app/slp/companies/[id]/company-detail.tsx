@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   ArrowLeft,
   Plus,
@@ -42,6 +43,8 @@ import {
   Settings,
   Save,
   Loader2,
+  BellOff,
+  BellRing,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -92,6 +95,7 @@ type ContactData = {
   lineFriendId: number | null;
   lineFriendLabel: string | null;
   isPrimary: boolean;
+  receivesSessionNotifications: boolean;
 };
 
 type StatusHistoryEntry = {
@@ -499,6 +503,8 @@ export function CompanyDetail({
   const [formEmail, setFormEmail] = useState("");
   const [formPhone, setFormPhone] = useState("");
   const [formLineFriendId, setFormLineFriendId] = useState(UNSET);
+  const [formReceivesSessionNotifications, setFormReceivesSessionNotifications] =
+    useState(true);
 
   // ============================================
   // AS手動上書き用ダイアログ
@@ -572,6 +578,7 @@ export function CompanyDetail({
     setFormEmail("");
     setFormPhone("");
     setFormLineFriendId(UNSET);
+    setFormReceivesSessionNotifications(true); // デフォルトON
     setContactDialogOpen(true);
   };
 
@@ -591,6 +598,7 @@ export function CompanyDetail({
     setFormEmail(contact.email ?? "");
     setFormPhone(contact.phone ?? "");
     setFormLineFriendId(contact.lineFriendId?.toString() ?? UNSET);
+    setFormReceivesSessionNotifications(contact.receivesSessionNotifications);
     setContactDialogOpen(true);
   };
 
@@ -611,6 +619,7 @@ export function CompanyDetail({
           email: formEmail,
           phone: formPhone,
           lineFriendId: formLineFriendId !== UNSET ? parseInt(formLineFriendId) : null,
+          receivesSessionNotifications: formReceivesSessionNotifications,
         });
       } else {
         await addContact({
@@ -620,6 +629,7 @@ export function CompanyDetail({
           email: formEmail,
           phone: formPhone,
           lineFriendId: formLineFriendId !== UNSET ? parseInt(formLineFriendId) : null,
+          receivesSessionNotifications: formReceivesSessionNotifications,
         });
       }
 
@@ -1396,6 +1406,15 @@ export function CompanyDetail({
                             <MessageSquare className="h-3 w-3" /> {c.lineFriendLabel}
                           </span>
                         )}
+                        {c.receivesSessionNotifications ? (
+                          <span className="flex items-center gap-1 text-emerald-700">
+                            <BellRing className="h-3 w-3" /> 商談通知ON
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-muted-foreground">
+                            <BellOff className="h-3 w-3" /> 商談通知OFF
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -1740,6 +1759,24 @@ export function CompanyDetail({
                 </SelectContent>
               </Select>
             </div>
+            <label className="flex items-start gap-2 rounded border p-3 bg-muted/30 cursor-pointer">
+              <Checkbox
+                checked={formReceivesSessionNotifications}
+                onCheckedChange={(v) =>
+                  setFormReceivesSessionNotifications(v === true)
+                }
+                className="mt-0.5"
+              />
+              <div className="space-y-1">
+                <div className="text-sm font-medium">
+                  商談の通知をLINEで受け取る
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  ONにすると、この担当者が紐づく事業者の商談について、確定・変更・キャンセル・前日/1時間前リマインドなどの通知がこの方のLINEに届きます。
+                  予約を自分自身が取った商談については、この設定に関わらず必ず通知が届きます。
+                </p>
+              </div>
+            </label>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setContactDialogOpen(false)}>

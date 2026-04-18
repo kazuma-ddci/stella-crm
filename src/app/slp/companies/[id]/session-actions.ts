@@ -311,8 +311,14 @@ export async function createManualSession(params: {
   scheduledAt: Date;
   assignedStaffId: number;
   notes?: string;
-  /** 紹介者通知チェックボックス。1回目の概要案内で有効 */
-  notifyReferrer?: boolean;
+  /**
+   * 通知送信する紹介者の LineFriend ID リスト。
+   * - undefined: 紹介者通知なし
+   * - 空配列: スタッフが全員チェックを外した（送信なし）
+   * - 1件以上: 各紹介者へ送信
+   * 1回目の概要案内のみ有効。
+   */
+  selectedReferrerLineFriendIds?: number[];
 }): Promise<ActionResult<{ sessionId: number; roundNumber: number }>> {
   try {
     const user = await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
@@ -356,7 +362,9 @@ export async function createManualSession(params: {
       category: params.category,
       triggerReason: "confirm",
       roundNumber: result.roundNumber,
-      notifyReferrer: params.notifyReferrer ?? false,
+      notifyReferrer:
+        (params.selectedReferrerLineFriendIds?.length ?? 0) > 0,
+      selectedReferrerLineFriendIds: params.selectedReferrerLineFriendIds,
     });
 
     revalidatePath(`/slp/companies/${params.companyRecordId}`);
@@ -419,7 +427,8 @@ export async function promotePendingToReserved(params: {
   sessionId: number;
   scheduledAt: Date;
   assignedStaffId: number;
-  notifyReferrer?: boolean;
+  /** 通知送信する紹介者の LineFriend ID リスト（createManualSession 同仕様）*/
+  selectedReferrerLineFriendIds?: number[];
 }): Promise<ActionResult<{ sessionId: number }>> {
   try {
     const user = await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
@@ -461,7 +470,9 @@ export async function promotePendingToReserved(params: {
       category: current.category as SessionCategory,
       triggerReason: "confirm",
       roundNumber: current.roundNumber,
-      notifyReferrer: params.notifyReferrer ?? false,
+      notifyReferrer:
+        (params.selectedReferrerLineFriendIds?.length ?? 0) > 0,
+      selectedReferrerLineFriendIds: params.selectedReferrerLineFriendIds,
     });
 
     revalidatePath(`/slp/companies/${current.companyRecordId}`);
@@ -675,13 +686,19 @@ export async function completeSessionAndNotify(params: {
  */
 export async function changeStatusToNoShow(params: {
   sessionId: number;
-  notifyReferrer: boolean;
+  /**
+   * 通知送信する紹介者の LineFriend ID リスト
+   * - undefined / 空配列: 紹介者通知なし
+   * - 1件以上: 各紹介者へ form18 (no_show テンプレート) を送信
+   * 1回目の概要案内のみ有効。
+   */
+  selectedReferrerLineFriendIds?: number[];
   reason?: string | null;
 }): Promise<
   ActionResult<{
     sessionId: number;
-    referrerNotified: boolean;
-    referrerError: string | null;
+    referrerSentCount: number;
+    referrerErrors: Array<{ lineFriendId: number; error: string }>;
     needsProlineCancel: boolean;
   }>
 > {
@@ -715,31 +732,38 @@ export async function changeStatusToNoShow(params: {
       });
     }
 
-    // 紹介者に不参加通知（briefing 1回目 & 明示選択時のみ）
-    let referrerNotified = false;
-    let referrerError: string | null = null;
+    // 紹介者に不参加通知（briefing 1回目 & 1人以上選択時のみ）
+    let referrerSentCount = 0;
+    const referrerErrors: Array<{ lineFriendId: number; error: string }> = [];
+    const ids = params.selectedReferrerLineFriendIds ?? [];
     if (
-      params.notifyReferrer &&
+      ids.length > 0 &&
       current.category === "briefing" &&
       current.roundNumber === 1
     ) {
-      const r = await sendSessionNotification({
-        sessionId: params.sessionId,
-        recipient: "referrer",
-        trigger: "no_show",
-      });
-      if (r.ok && !r.skipped) {
-        referrerNotified = true;
-      } else if (!r.ok) {
-        referrerError = r.errorMessage ?? "送信失敗";
+      for (const lineFriendId of ids) {
+        const r = await sendSessionNotification({
+          sessionId: params.sessionId,
+          recipient: "referrer",
+          trigger: "no_show",
+          referrerLineFriendId: lineFriendId,
+        });
+        if (r.ok && !r.skipped) {
+          referrerSentCount++;
+        } else if (!r.ok) {
+          referrerErrors.push({
+            lineFriendId,
+            error: r.errorMessage ?? "送信失敗",
+          });
+        }
       }
     }
 
     revalidatePath(`/slp/companies/${current.companyRecordId}`);
     return ok({
       sessionId: params.sessionId,
-      referrerNotified,
-      referrerError,
+      referrerSentCount,
+      referrerErrors,
       needsProlineCancel: current.source === "proline",
     });
   } catch (e) {
@@ -862,5 +886,115 @@ export async function previewNextRoundNumber(params: {
     return ok({ roundNumber, canAdd: true });
   } catch (e) {
     return err(e instanceof Error ? e.message : "次の打ち合わせ番号の計算に失敗しました");
+  }
+}
+
+// ============================================
+// 商談ごとの通知対象 個別設定
+// ============================================
+
+/**
+ * セッションの「通知対象 個別設定」の一覧を返す。
+ * 行が存在すれば個別モード、存在しなければデフォルトモード。
+ */
+export async function getSessionNotifyOverrides(
+  sessionId: number
+): Promise<ActionResult<{ isOverridden: boolean; contactIds: number[] }>> {
+  try {
+    await requireStaffWithProjectPermission([{ project: "slp", level: "view" }]);
+    const rows = await prisma.slpSessionNotifyContact.findMany({
+      where: { sessionId },
+      select: { contactId: true },
+    });
+    return ok({
+      isOverridden: rows.length > 0,
+      contactIds: rows.map((r) => r.contactId),
+    });
+  } catch (e) {
+    return err(
+      e instanceof Error ? e.message : "個別通知設定の取得に失敗しました"
+    );
+  }
+}
+
+/**
+ * セッションの「通知対象 個別設定」を保存する。
+ * contactIds を渡したリストで置き換え（既存削除 + 新規作成をトランザクションで実行）。
+ * 空配列を渡すと「個別モードで誰にも送らない」状態になる。
+ */
+export async function setSessionNotifyOverrides(params: {
+  sessionId: number;
+  contactIds: number[];
+}): Promise<ActionResult<{ sessionId: number; count: number }>> {
+  try {
+    await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
+
+    const session = await prisma.slpMeetingSession.findUnique({
+      where: { id: params.sessionId },
+      select: { id: true, companyRecordId: true, deletedAt: true },
+    });
+    if (!session || session.deletedAt) return err("セッションが見つかりません");
+
+    if (params.contactIds.length > 0) {
+      const validContacts = await prisma.slpCompanyContact.findMany({
+        where: {
+          id: { in: params.contactIds },
+          companyRecordId: session.companyRecordId,
+        },
+        select: { id: true },
+      });
+      if (validContacts.length !== params.contactIds.length) {
+        return err("一部の担当者IDが不正です");
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.slpSessionNotifyContact.deleteMany({
+        where: { sessionId: params.sessionId },
+      });
+      if (params.contactIds.length > 0) {
+        await tx.slpSessionNotifyContact.createMany({
+          data: params.contactIds.map((contactId) => ({
+            sessionId: params.sessionId,
+            contactId,
+          })),
+        });
+      }
+    });
+
+    revalidatePath(`/slp/companies/${session.companyRecordId}`);
+    return ok({
+      sessionId: params.sessionId,
+      count: params.contactIds.length,
+    });
+  } catch (e) {
+    return err(
+      e instanceof Error ? e.message : "個別通知設定の保存に失敗しました"
+    );
+  }
+}
+
+/**
+ * セッションの「通知対象 個別設定」をすべて削除 → デフォルトモードへ戻す
+ */
+export async function clearSessionNotifyOverrides(
+  sessionId: number
+): Promise<ActionResult<{ sessionId: number }>> {
+  try {
+    await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
+
+    const session = await prisma.slpMeetingSession.findUnique({
+      where: { id: sessionId },
+      select: { companyRecordId: true, deletedAt: true },
+    });
+    if (!session || session.deletedAt) return err("セッションが見つかりません");
+
+    await prisma.slpSessionNotifyContact.deleteMany({ where: { sessionId } });
+    revalidatePath(`/slp/companies/${session.companyRecordId}`);
+    return ok({ sessionId });
+  } catch (e) {
+    return err(
+      e instanceof Error ? e.message : "個別通知設定のリセットに失敗しました"
+    );
   }
 }

@@ -37,6 +37,8 @@ import type {
   CompanySessionAlerts,
   StaffOption,
   CompanyContactForCompletion,
+  CompanyContactForNotify,
+  ReferrerOptionForUI,
 } from "./meeting-sessions-section";
 import type { SessionCategory, SessionStatus } from "@/lib/slp/session-helper";
 import { ManualSetModal } from "./manual-set-modal";
@@ -50,8 +52,10 @@ import { SessionContactHistoriesModal } from "./session-contact-histories-modal"
 import { CompletionModal } from "./completion-modal";
 import { NoShowModal } from "./no-show-modal";
 import { SessionZoomIssuePanel } from "./session-zoom-issue-panel";
+import { SessionNotifyOverrideModal } from "./session-notify-override-modal";
 import { formatRoundNumber } from "./round-label";
 import { updateSessionDetail } from "../session-actions";
+import { BellRing } from "lucide-react";
 
 // 予約日/案内日を日付+時刻に分解/結合
 function splitIso(iso: string | null): { date: string; time: string } {
@@ -112,6 +116,8 @@ interface CategoryBlockProps {
   companyRecordId: number;
   staffOptions: StaffOption[];
   contacts: CompanyContactForCompletion[];
+  contactsForNotify: CompanyContactForNotify[];
+  referrerOptions: ReferrerOptionForUI[];
   onDataChange: () => void;
 }
 
@@ -123,6 +129,8 @@ function CategoryBlock({
   companyRecordId,
   staffOptions,
   contacts,
+  contactsForNotify,
+  referrerOptions,
   onDataChange,
 }: CategoryBlockProps) {
   // useSearchParams はサーバ/クライアントでタイミング差を招きハイドレーションミスマッチの原因になるため、
@@ -227,6 +235,7 @@ function CategoryBlock({
           companyRecordId={companyRecordId}
           category={category}
           staffOptions={staffOptions}
+          referrerOptions={referrerOptions}
           onCreated={handleCreated}
         />
         <PendingCreateModal
@@ -257,6 +266,8 @@ function CategoryBlock({
             categoryLabel={title}
             staffOptions={staffOptions}
             contacts={contacts}
+            contactsForNotify={contactsForNotify}
+            referrerOptions={referrerOptions}
             onDataChange={onDataChange}
           />
         ) : null}
@@ -275,6 +286,8 @@ interface SessionFormProps {
   categoryLabel: string;
   staffOptions: StaffOption[];
   contacts: CompanyContactForCompletion[];
+  contactsForNotify: CompanyContactForNotify[];
+  referrerOptions: ReferrerOptionForUI[];
   onDataChange: () => void;
 }
 
@@ -292,6 +305,8 @@ function SessionForm({
   categoryLabel,
   staffOptions,
   contacts,
+  contactsForNotify,
+  referrerOptions,
   onDataChange,
 }: SessionFormProps) {
   const bookedSplit = splitIso(session.bookedAt);
@@ -329,6 +344,7 @@ function SessionForm({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [contactHistOpen, setContactHistOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [notifyOverrideOpen, setNotifyOverrideOpen] = useState(false);
   // Zoom URL / 議事録取得は接触履歴画面に移管（「接触履歴を見る」から操作）
 
   // ステータス直接変更ハンドラ
@@ -427,6 +443,47 @@ function SessionForm({
               <Badge variant="outline" className="text-[10px]">手動セット</Badge>
             )}
           </span>
+        </div>
+
+        {/* 予約者 + 通知対象個別設定ボタン */}
+        <div className="mt-1 flex items-center gap-2 flex-wrap">
+          {session.bookerContactId !== null && (() => {
+            const bookerIncluded =
+              !session.hasNotifyOverride ||
+              session.notifyOverrideContactIds.includes(session.bookerContactId);
+            return (
+              <div className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-900">
+                <span className="font-medium">予約した人:</span>
+                <span>{session.bookerContactName ?? "(名前なし)"}</span>
+                {!session.hasNotifyOverride && (
+                  <span className="text-[10px] text-emerald-700">（必ず通知）</span>
+                )}
+                {session.hasNotifyOverride && bookerIncluded && (
+                  <span className="text-[10px] text-emerald-700">（個別設定に含まれる）</span>
+                )}
+                {session.hasNotifyOverride && !bookerIncluded && (
+                  <span className="text-[10px] text-amber-700">（個別設定で通知対象外）</span>
+                )}
+              </div>
+            );
+          })()}
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs h-7"
+            onClick={() => setNotifyOverrideOpen(true)}
+          >
+            <BellRing className="h-3 w-3 mr-1" />
+            通知対象を個別設定
+            {session.hasNotifyOverride && (
+              <Badge
+                variant="outline"
+                className="ml-1.5 text-[10px] bg-amber-50 border-amber-300 text-amber-800"
+              >
+                設定中 ({session.notifyOverrideContactIds.length}名)
+              </Badge>
+            )}
+          </Button>
         </div>
         <Select value={session.status} onValueChange={handleStatusChange}>
           <SelectTrigger className="w-[200px]">
@@ -607,6 +664,7 @@ function SessionForm({
         category={category}
         roundNumber={session.roundNumber}
         staffOptions={staffOptions}
+        referrerOptions={referrerOptions}
         onDone={onDataChange}
       />
       <SessionEditModal
@@ -667,6 +725,18 @@ function SessionForm({
         category={category}
         roundNumber={session.roundNumber}
         source={session.source}
+        referrerOptions={referrerOptions}
+        onDone={onDataChange}
+      />
+      <SessionNotifyOverrideModal
+        open={notifyOverrideOpen}
+        onOpenChange={setNotifyOverrideOpen}
+        sessionId={session.id}
+        sessionLabel={`${formatRoundNumber(session.roundNumber)} ${categoryLabel}`}
+        contacts={contactsForNotify}
+        bookerContactId={session.bookerContactId}
+        hasOverride={session.hasNotifyOverride}
+        overrideContactIds={session.notifyOverrideContactIds}
         onDone={onDataChange}
       />
     </div>
@@ -684,6 +754,8 @@ export function MeetingSessionsCard({
   alerts,
   staffOptions,
   contacts,
+  contactsForNotify,
+  referrerOptions,
 }: {
   companyRecordId: number;
   briefingSessions: SessionSummaryForUI[];
@@ -691,6 +763,8 @@ export function MeetingSessionsCard({
   alerts: CompanySessionAlerts;
   staffOptions: StaffOption[];
   contacts: CompanyContactForCompletion[];
+  contactsForNotify: CompanyContactForNotify[];
+  referrerOptions: ReferrerOptionForUI[];
 }) {
   const router = useRouter();
   const handleDataChange = () => {
@@ -717,6 +791,8 @@ export function MeetingSessionsCard({
         companyRecordId={companyRecordId}
         staffOptions={staffOptions}
         contacts={contacts}
+        contactsForNotify={contactsForNotify}
+        referrerOptions={referrerOptions}
         onDataChange={handleDataChange}
       />
       <CategoryBlock
@@ -727,6 +803,8 @@ export function MeetingSessionsCard({
         companyRecordId={companyRecordId}
         staffOptions={staffOptions}
         contacts={contacts}
+        contactsForNotify={contactsForNotify}
+        referrerOptions={referrerOptions}
         onDataChange={handleDataChange}
       />
     </div>

@@ -282,6 +282,16 @@ export async function GET(request: Request) {
     // 導入希望商談では紹介者通知は送らない
     for (const recordId of updatedRecordIds) {
       try {
+        // 予約を行った担当者（LINE UIDから逆引き）
+        let bookerContactId: number | null = null;
+        if (uid) {
+          const c = await prisma.slpCompanyContact.findFirst({
+            where: { companyRecordId: recordId, lineFriend: { uid } },
+            select: { id: true },
+          });
+          bookerContactId = c?.id ?? null;
+        }
+
         const createdSession = await prisma.$transaction(async (tx) => {
           return applyProlineReservationToSession(
             recordId,
@@ -292,6 +302,7 @@ export async function GET(request: Request) {
               prolineReservationId: bookingId ?? null,
               prolineStaffName: consultationStaff || null,
               bookedAt: consultationBookedAt,
+              bookerContactId,
             },
             tx
           );

@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { sendSessionNotification } from "./slp-session-notification";
+import { getNotifiableCustomerLineFriendIds } from "./session-helper";
+import { logAutomationError } from "@/lib/automation-error";
 
 // 前日10:00 JSTリマインド判定: 「予約日時が明日（JST）かつ 現在JST時刻が10:00-10:59」
 // 1時間前リマインド判定: 「予約日時まで 30-89分 の範囲」
@@ -57,6 +59,63 @@ async function findPrimaryRecordingsForReminder(params: {
 }
 
 /**
+ * 1セッションに対し、getNotifiableCustomerLineFriendIds で解決した全対象へ
+ * リマインド通知を送信する。1件でも成功（or skipped）があれば sent=true を返す。
+ */
+async function sendReminderToAllCustomers(
+  sessionId: number,
+  trigger: "remind_day_before" | "remind_hour_before"
+): Promise<{ sent: boolean }> {
+  const lineFriendIds = await getNotifiableCustomerLineFriendIds(sessionId);
+
+  if (lineFriendIds.length === 0) {
+    await logAutomationError({
+      source: `slp-reminder-${trigger}`,
+      message: `リマインド送信対象ゼロ件: sessionId=${sessionId}`,
+      detail: {
+        reason:
+          "予約者未設定、かつ receivesSessionNotifications=true の担当者もLINE紐付けなし。",
+      },
+    });
+    return { sent: false };
+  }
+
+  let anySucceeded = false;
+  for (const lineFriendId of lineFriendIds) {
+    try {
+      const r = await sendSessionNotification({
+        sessionId,
+        recipient: "customer",
+        trigger,
+        customerLineFriendId: lineFriendId,
+      });
+      if (r.ok || r.skipped === true) {
+        anySucceeded = true;
+      } else {
+        await logAutomationError({
+          source: `slp-reminder-${trigger}`,
+          message: `リマインド送信失敗: sessionId=${sessionId}`,
+          detail: {
+            errorMessage: r.errorMessage,
+            customerLineFriendId: lineFriendId,
+          },
+        });
+      }
+    } catch (e) {
+      await logAutomationError({
+        source: `slp-reminder-${trigger}`,
+        message: `リマインド呼び出し失敗: sessionId=${sessionId}`,
+        detail: {
+          error: e instanceof Error ? e.message : String(e),
+          customerLineFriendId: lineFriendId,
+        },
+      });
+    }
+  }
+  return { sent: anySucceeded };
+}
+
+/**
  * 1回のcron実行で:
  *  1) 「前日10:00」リマインド対象を抽出して送信
  *  2) 「開始1時間前」リマインド対象を抽出して送信
@@ -87,12 +146,11 @@ export async function runSlpZoomReminderJob(now: Date = new Date()): Promise<{
     for (const r of recordings) {
       const sessionId = r.contactHistory?.sessionId;
       if (!sessionId) continue;
-      const result = await sendSessionNotification({
+      const { sent } = await sendReminderToAllCustomers(
         sessionId,
-        recipient: "customer",
-        trigger: "remind_day_before",
-      });
-      if (result.ok || result.skipped === true) {
+        "remind_day_before"
+      );
+      if (sent) {
         await prisma.slpZoomRecording.update({
           where: { id: r.id },
           data: { remindDaySentAt: new Date() },
@@ -118,12 +176,11 @@ export async function runSlpZoomReminderJob(now: Date = new Date()): Promise<{
   for (const r of hourRecordings) {
     const sessionId = r.contactHistory?.sessionId;
     if (!sessionId) continue;
-    const result = await sendSessionNotification({
+    const { sent } = await sendReminderToAllCustomers(
       sessionId,
-      recipient: "customer",
-      trigger: "remind_hour_before",
-    });
-    if (result.ok || result.skipped === true) {
+      "remind_hour_before"
+    );
+    if (sent) {
       await prisma.slpZoomRecording.update({
         where: { id: r.id },
         data: { remindHourSentAt: new Date() },

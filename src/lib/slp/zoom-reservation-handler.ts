@@ -9,6 +9,7 @@ import { sendSessionNotification } from "./slp-session-notification";
 import {
   ensureContactHistoryForSession,
   findPrimaryRecordingForSession,
+  getNotifiableCustomerLineFriendIds,
   type SessionCategory,
 } from "./session-helper";
 
@@ -194,14 +195,20 @@ export async function ensureZoomMeetingForSession(params: {
       }
     }
 
-    // お客様LINE通知（新システム）
+    // お客様LINE通知（新システム: 予約者 + フラグONの全担当者に送信）
     if (!params.skipCustomerNotification && session.companyRecord.prolineUid) {
-      const result = await sendSessionNotification({
-        sessionId: session.id,
-        recipient: "customer",
-        trigger: params.triggerReason,
-      });
-      if (result.ok && params.triggerReason === "confirm") {
+      const lineFriendIds = await getNotifiableCustomerLineFriendIds(session.id);
+      let anySucceeded = false;
+      for (const lineFriendId of lineFriendIds) {
+        const result = await sendSessionNotification({
+          sessionId: session.id,
+          recipient: "customer",
+          trigger: params.triggerReason,
+          customerLineFriendId: lineFriendId,
+        });
+        if (result.ok) anySucceeded = true;
+      }
+      if (anySucceeded && params.triggerReason === "confirm") {
         // 送信済みフラグを primary Recording に立てる
         await prisma.slpZoomRecording.updateMany({
           where: {

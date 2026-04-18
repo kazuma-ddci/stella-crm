@@ -547,6 +547,7 @@ export async function addContact(data: {
   email: string;
   phone: string;
   lineFriendId: number | null;
+  receivesSessionNotifications?: boolean;
 }): Promise<{ ok: true }> {
   // 既存担当者がなければ isPrimary=true
   const existingCount = await prisma.slpCompanyContact.count({
@@ -562,6 +563,7 @@ export async function addContact(data: {
       phone: data.phone || null,
       lineFriendId: data.lineFriendId,
       isPrimary: existingCount === 0,
+      receivesSessionNotifications: data.receivesSessionNotifications ?? true,
     },
   });
 
@@ -577,6 +579,7 @@ export async function updateContact(
     email: string;
     phone: string;
     lineFriendId: number | null;
+    receivesSessionNotifications?: boolean;
   }
 ): Promise<{ ok: true }> {
   await prisma.slpCompanyContact.update({
@@ -587,6 +590,9 @@ export async function updateContact(
       email: data.email || null,
       phone: data.phone || null,
       lineFriendId: data.lineFriendId,
+      ...(data.receivesSessionNotifications !== undefined && {
+        receivesSessionNotifications: data.receivesSessionNotifications,
+      }),
     },
   });
 

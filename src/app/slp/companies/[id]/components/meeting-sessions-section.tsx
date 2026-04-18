@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { MeetingSessionsCard } from "./meeting-sessions-card";
 import type { SessionCategory, SessionStatus } from "@/lib/slp/session-helper";
+import { resolveReferrersForCompany } from "@/lib/slp/company-resolution";
 
 export interface StaffOption {
   id: number;
@@ -44,12 +45,33 @@ export interface SessionSummaryForUI {
   zooms: SessionZoomForUI[];
   hasRecording: boolean;
   contactHistoriesCount: number;
+  /** 予約を行った担当者（SlpCompanyContact.id）— プロライン経由予約時のみ値あり */
+  bookerContactId: number | null;
+  bookerContactName: string | null;
+  /** この商談の通知対象 個別設定が存在するか */
+  hasNotifyOverride: boolean;
+  /** 個別設定の対象コンタクトID群（UIで初期値として使う） */
+  notifyOverrideContactIds: number[];
+}
+
+/** 通知対象設定に使う事業者の担当者一覧（商談カードのモーダル用） */
+export interface CompanyContactForNotify {
+  id: number;
+  name: string | null;
+  lineFriendLabel: string | null;
+  isPrimary: boolean;
+  receivesSessionNotifications: boolean;
 }
 
 export interface CompanyContactForCompletion {
   id: number;
   name: string | null;
   lineFriendLabel: string | null;
+}
+
+export interface ReferrerOptionForUI {
+  lineFriendId: number;
+  label: string; // "{lineFriendId} {snsname}"
 }
 
 export interface CompanySessionAlerts {
@@ -71,13 +93,15 @@ export async function MeetingSessionsSection({
     select: { id: true },
   });
 
-  const [sessions, activeBriefing, activeConsultation, noShowTotal, staffAssignments, companyContacts] = await Promise.all([
+  const [sessions, activeBriefing, activeConsultation, noShowTotal, staffAssignments, companyContacts, referrers] = await Promise.all([
     prisma.slpMeetingSession.findMany({
       where: { companyRecordId, deletedAt: null },
       orderBy: [{ category: "asc" }, { roundNumber: "asc" }, { createdAt: "asc" }],
       include: {
         assignedStaff: { select: { name: true } },
         createdByStaff: { select: { name: true } },
+        bookerContact: { select: { id: true, name: true } },
+        notifyOverrides: { select: { contactId: true } },
         // 新設計: Zoom情報は ContactHistory 配下の ZoomRecording に集約
         contactHistories: {
           where: { deletedAt: null },
@@ -136,6 +160,7 @@ export async function MeetingSessionsSection({
       },
       orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
     }),
+    resolveReferrersForCompany(companyRecordId),
   ]);
 
   const staffOptions: StaffOption[] = staffAssignments
@@ -148,6 +173,21 @@ export async function MeetingSessionsSection({
     lineFriendLabel: c.lineFriend
       ? `${c.lineFriend.id} ${c.lineFriend.snsname ?? ""}`.trim()
       : null,
+  }));
+
+  const contactsForNotify: CompanyContactForNotify[] = companyContacts.map((c) => ({
+    id: c.id,
+    name: c.name,
+    lineFriendLabel: c.lineFriend
+      ? `${c.lineFriend.id} ${c.lineFriend.snsname ?? ""}`.trim()
+      : null,
+    isPrimary: c.isPrimary,
+    receivesSessionNotifications: c.receivesSessionNotifications,
+  }));
+
+  const referrerOptions: ReferrerOptionForUI[] = referrers.map((r) => ({
+    lineFriendId: r.lineFriendId,
+    label: r.label,
   }));
 
   const briefing: SessionSummaryForUI[] = [];
@@ -195,6 +235,10 @@ export async function MeetingSessionsSection({
       zooms,
       hasRecording: zooms.some((z) => z.hasRecording),
       contactHistoriesCount: s._count.contactHistories,
+      bookerContactId: s.bookerContact?.id ?? null,
+      bookerContactName: s.bookerContact?.name ?? null,
+      hasNotifyOverride: s.notifyOverrides.length > 0,
+      notifyOverrideContactIds: s.notifyOverrides.map((o) => o.contactId),
     };
     if (s.category === "briefing") briefing.push(summary);
     else if (s.category === "consultation") consultation.push(summary);
@@ -214,6 +258,8 @@ export async function MeetingSessionsSection({
       alerts={alerts}
       staffOptions={staffOptions}
       contacts={contactsForCompletion}
+      contactsForNotify={contactsForNotify}
+      referrerOptions={referrerOptions}
     />
   );
 }

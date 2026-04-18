@@ -375,6 +375,16 @@ export async function GET(request: Request) {
     // セッションテーブルに記録 → 副作用処理（Zoom発行 + LINE通知 + 紹介者通知）
     for (const recordId of createdOrUpdatedRecordIds) {
       try {
+        // 予約を行った担当者（LINE UIDから逆引き）
+        let bookerContactId: number | null = null;
+        if (lineFriend?.id) {
+          const c = await prisma.slpCompanyContact.findFirst({
+            where: { companyRecordId: recordId, lineFriendId: lineFriend.id },
+            select: { id: true },
+          });
+          bookerContactId = c?.id ?? null;
+        }
+
         const createdSession = await prisma.$transaction(async (tx) => {
           return applyProlineReservationToSession(
             recordId,
@@ -385,6 +395,7 @@ export async function GET(request: Request) {
               prolineReservationId: bookingId ?? null,
               prolineStaffName: briefingStaff || null,
               bookedAt: briefingBookedAt,
+              bookerContactId,
             },
             tx
           );

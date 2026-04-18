@@ -22,6 +22,7 @@ import {
 import { formatJstDateTime } from "@/lib/zoom/templates";
 import { logAutomationError } from "@/lib/automation-error";
 import { roundTypeOf } from "@/lib/slp/session-helper";
+import { resolveProlineStaffName } from "@/lib/slp/proline-staff-name";
 import type { SessionCategory } from "@/lib/slp/session-helper";
 
 export type NotificationRecipient = "customer" | "referrer";
@@ -38,6 +39,29 @@ export interface SendSessionNotificationParams {
   sessionId: number;
   recipient: NotificationRecipient;
   trigger: NotificationTrigger;
+  /**
+   * お客様通知の送信先を明示指定したい場合の LineFriend ID
+   * （1事業者に複数担当者がいるケースで呼び出し側が解決した1人を指定するため）
+   * 未指定 + recipient=customer の場合は従来通りメイン担当者を引く
+   */
+  customerLineFriendId?: number;
+  /**
+   * 紹介者通知の送信先を明示指定したい場合の LineFriend ID
+   * （複数紹介者がいるケースでスタッフが選択した1人を指定するため）
+   * 未指定 + recipient=referrer の場合は従来通りメイン担当者の free1 を引く
+   */
+  referrerLineFriendId?: number;
+}
+
+/**
+ * 空白値のフォールバック文字列。
+ * テンプレ本文で {{xxx}} が空で「様」だけ残る、などの文字列破綻を防ぐ。
+ */
+const MISSING_DATA_FALLBACK = "(データの取得に失敗しました)";
+
+function orFallback(v: string | null | undefined): string {
+  const t = v?.trim();
+  return t && t.length > 0 ? t : MISSING_DATA_FALLBACK;
 }
 
 export interface NotificationRenderVars {
@@ -88,7 +112,7 @@ export async function sendSessionNotification(
           },
         },
       },
-      assignedStaff: { select: { name: true } },
+      assignedStaff: { select: { id: true, name: true } },
       contactHistories: {
         where: { deletedAt: null },
         orderBy: { createdAt: "asc" },
@@ -113,8 +137,30 @@ export async function sendSessionNotification(
   // 基本変数の準備
   const primaryContact = session.companyRecord.contacts[0];
   const lineFriend = primaryContact?.lineFriend;
-  const customerUid = lineFriend?.uid ?? null;
+  const primaryCustomerUid = lineFriend?.uid ?? null;
   const referrerUid = lineFriend?.free1?.trim() || null;
+
+  // お客様向けに LineFriend が明示指定されていればそちらの UID を優先。
+  // 重要: 指定された LineFriend が存在しない/uid空 の場合は、プライマリへのサイレントフォールバックは絶対にしない。
+  // （指定した人以外に誤って通知が飛ぶのを防ぐため、明示的にエラーで返す）
+  let overrideCustomerUid: string | null = null;
+  if (params.recipient === "customer" && params.customerLineFriendId) {
+    const lf = await prisma.slpLineFriend.findUnique({
+      where: { id: params.customerLineFriendId },
+      select: { uid: true, deletedAt: true },
+    });
+    if (!lf || lf.deletedAt || !lf.uid?.trim()) {
+      return {
+        ok: false,
+        errorMessage: `指定のお客様LineFriend(id=${params.customerLineFriendId})が見つからないか無効です（送信中止）`,
+      };
+    }
+    overrideCustomerUid = lf.uid;
+  }
+  const customerUid =
+    params.recipient === "customer" && params.customerLineFriendId
+      ? overrideCustomerUid
+      : primaryCustomerUid;
 
   const roundType = roundTypeOf(session.roundNumber);
   const category = session.category as SessionCategory;
@@ -155,21 +201,66 @@ export async function sendSessionNotification(
     return { ok: true, skipped: true };
   }
 
-  // 変数準備
+  // 担当者名解決: プロライン受信生テキスト > MasterStaff.name > "未登録"
+  const resolvedStaffName = await resolveProlineStaffName({
+    staffId: session.assignedStaffId,
+    webhookFallback: session.prolineStaffName,
+  });
+
+  // 紹介者LineFriendが明示指定されていればそちらの情報で上書き。
+  // 重要: 指定された紹介者が見つからない場合、サイレントフォールバックはせず明示エラー。
+  let overrideReferrerUid: string | null = null;
+  let overrideReferrerName: string | null = null;
+  if (params.recipient === "referrer" && params.referrerLineFriendId) {
+    const lf = await prisma.slpLineFriend.findUnique({
+      where: { id: params.referrerLineFriendId },
+      select: { uid: true, snsname: true, deletedAt: true },
+    });
+    if (!lf || lf.deletedAt || !lf.uid?.trim()) {
+      return {
+        ok: false,
+        errorMessage: `指定の紹介者LineFriend(id=${params.referrerLineFriendId})が見つからないか無効です（送信中止）`,
+      };
+    }
+    overrideReferrerUid = lf.uid;
+    overrideReferrerName = lf.snsname;
+  }
+
+  // {{referrerName}} は「紹介者本人のSNS表示名」を意味するので、
+  // override 指定がない場合も referrerUid (= primary.free1) から LineFriend を逆引きして解決する。
+  // （従来は primaryContact.name にフォールバックしていたため「顧客名」が入って意味が食い違っていた）
+  let resolvedReferrerName: string | null = overrideReferrerName;
+  if (!resolvedReferrerName && referrerUid) {
+    const ref = await prisma.slpLineFriend.findUnique({
+      where: { uid: referrerUid },
+      select: { snsname: true },
+    });
+    resolvedReferrerName = ref?.snsname ?? null;
+  }
+
+  // 変数準備（空白時は一律「(データの取得に失敗しました)」に置換）
   const primaryRecording = session.contactHistories[0]?.zoomRecordings[0];
   const vars: NotificationRenderVars = {
-    companyName: session.companyRecord.companyName ?? "（事業者名未登録）",
-    scheduledAt: session.scheduledAt ? formatJstDateTime(session.scheduledAt) : "",
-    staffName: session.assignedStaff?.name ?? "",
-    zoomUrl: primaryRecording?.joinUrl ?? "",
-    referrerName: primaryContact?.name ?? lineFriend?.snsname ?? "",
+    companyName: orFallback(session.companyRecord.companyName),
+    scheduledAt: orFallback(
+      session.scheduledAt ? formatJstDateTime(session.scheduledAt) : null
+    ),
+    staffName: orFallback(resolvedStaffName),
+    zoomUrl: orFallback(primaryRecording?.joinUrl),
+    referrerName: orFallback(resolvedReferrerName),
     roundNumber: String(session.roundNumber),
   };
 
   const bodyText = renderTemplateBody(template.body, vars);
 
   // 送信先 UID
-  const targetUid = params.recipient === "customer" ? customerUid : referrerUid;
+  // 明示指定(customer/referrer LineFriendId)がある場合は、必ずそのLineFriendへ送る（フォールバックしない）
+  const targetUid =
+    params.recipient === "customer"
+      ? customerUid
+      : params.referrerLineFriendId
+        ? overrideReferrerUid
+        : referrerUid;
   if (!targetUid) {
     return {
       ok: false,

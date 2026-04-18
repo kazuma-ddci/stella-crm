@@ -17,7 +17,11 @@ import {
   type NotificationRecipient,
   type NotificationTrigger,
 } from "@/lib/slp/slp-session-notification";
-import type { SessionCategory, SessionStatus } from "@/lib/slp/session-helper";
+import {
+  getNotifiableCustomerLineFriendIds,
+  type SessionCategory,
+  type SessionStatus,
+} from "@/lib/slp/session-helper";
 
 // ============================================
 // 予約時の副作用処理（手動セット / 未予約→予約中昇格 / プロラインwebhook 共通）
@@ -35,6 +39,12 @@ export interface SessionReservationSideEffectsParams {
    * - プロラインwebhook: 概要案内1回目の場合は常に true
    */
   notifyReferrer: boolean;
+  /**
+   * notifyReferrer=true 時に明示指定したい紹介者LineFriendIDのリスト。
+   * - 手動モーダル: スタッフが選択した紹介者のIDリスト
+   * - 未指定（webhook等）: 従来通りメイン担当者のfree1の1人だけ
+   */
+  selectedReferrerLineFriendIds?: number[];
   /**
    * Zoom発行を試みるか（fallback やキャンセル時は false）
    * デフォルト true
@@ -73,8 +83,8 @@ export async function handleSessionReservationSideEffects(
     }
   }
 
-  // 2. お客様通知
-  await safeNotify(params.sessionId, "customer", params.triggerReason);
+  // 2. お客様通知（予約者 + フラグONの担当者 or 個別設定のコンタクトに全員送信）
+  await safeNotifyAllCustomers(params.sessionId, params.triggerReason);
 
   // 3. 紹介者通知（概要案内1回目 × notifyReferrer=true の場合のみ）
   if (
@@ -82,7 +92,22 @@ export async function handleSessionReservationSideEffects(
     params.category === "briefing" &&
     params.roundNumber === 1
   ) {
-    await safeNotify(params.sessionId, "referrer", params.triggerReason);
+    const ids = params.selectedReferrerLineFriendIds;
+    if (ids && ids.length > 0) {
+      // 明示指定された複数の紹介者へ順次送信
+      for (const lineFriendId of ids) {
+        await safeNotify(
+          params.sessionId,
+          "referrer",
+          params.triggerReason,
+          lineFriendId
+        );
+      }
+    } else if (!ids) {
+      // 未指定（webhook等）→ 従来のメイン担当者free1経由の単一送信
+      await safeNotify(params.sessionId, "referrer", params.triggerReason);
+    }
+    // ids が定義済みかつ空配列の場合 = スタッフが全員チェック外した → 何も送らない
   }
 }
 
@@ -139,10 +164,23 @@ export async function handleSessionStatusChangeSideEffects(
         detail: { error: e instanceof Error ? e.message : String(e) },
       });
     }
-    await safeNotify(params.sessionId, "customer", "cancel");
+    // 重要な順序:
+    //   1. キャンセル通知を送信（この商談に紐づいていた個別設定を尊重）
+    //   2. その後に個別設定を削除（再活性化時はフレッシュスタート）
+    //   ↑逆にすると、個別設定していたセッションのキャンセル通知が意図と違う担当者に飛んでしまう
+    await safeNotifyAllCustomers(params.sessionId, "cancel");
     if (params.category === "briefing" && session.roundNumber === 1) {
       await safeNotify(params.sessionId, "referrer", "cancel");
     }
+    await prisma.slpSessionNotifyContact
+      .deleteMany({ where: { sessionId: params.sessionId } })
+      .catch(async (e) => {
+        await logAutomationError({
+          source: "slp-session-cancel-clear-notify-override",
+          message: `キャンセル時の個別通知設定削除失敗: sessionId=${params.sessionId}`,
+          detail: { error: e instanceof Error ? e.message : String(e) },
+        });
+      });
     return;
   }
 
@@ -151,33 +189,99 @@ export async function handleSessionStatusChangeSideEffects(
   // UIから「予約中へ昇格」は未予約からのみで、ステータスロールバック時は
   // スタッフが明示的にZoom再発行ボタンを使う運用前提のため、ここでは通知のみ
   if (params.newStatus === "予約中") {
-    await safeNotify(params.sessionId, "customer", "change");
+    await safeNotifyAllCustomers(params.sessionId, "change");
     return;
   }
 }
 
 /**
  * 通知送信（エラーは自動ログ、例外は throw しない）
+ * 紹介者通知向け。顧客通知は safeNotifyAllCustomers を使うこと。
  */
 export async function safeNotify(
   sessionId: number,
   recipient: NotificationRecipient,
-  trigger: NotificationTrigger
+  trigger: NotificationTrigger,
+  referrerLineFriendId?: number
 ): Promise<void> {
   try {
-    const r = await sendSessionNotification({ sessionId, recipient, trigger });
+    const r = await sendSessionNotification({
+      sessionId,
+      recipient,
+      trigger,
+      referrerLineFriendId,
+    });
     if (!r.ok && !r.skipped) {
       await logAutomationError({
         source: `slp-session-notify-${recipient}-${trigger}`,
         message: `通知送信失敗: sessionId=${sessionId}`,
-        detail: { errorMessage: r.errorMessage },
+        detail: {
+          errorMessage: r.errorMessage,
+          referrerLineFriendId: referrerLineFriendId ?? null,
+        },
       });
     }
   } catch (e) {
     await logAutomationError({
       source: `slp-session-notify-${recipient}-${trigger}`,
       message: `通知呼び出し失敗: sessionId=${sessionId}`,
-      detail: { error: e instanceof Error ? e.message : String(e) },
+      detail: {
+        error: e instanceof Error ? e.message : String(e),
+        referrerLineFriendId: referrerLineFriendId ?? null,
+      },
     });
+  }
+}
+
+/**
+ * 商談セッションの通知対象（予約者 + フラグONの担当者 or 個別設定のコンタクト）全員へ
+ * お客様通知を順次送信する。エラーは automation_errors に記録して続行。
+ */
+export async function safeNotifyAllCustomers(
+  sessionId: number,
+  trigger: NotificationTrigger
+): Promise<void> {
+  const lineFriendIds = await getNotifiableCustomerLineFriendIds(sessionId);
+
+  if (lineFriendIds.length === 0) {
+    await logAutomationError({
+      source: `slp-session-notify-customer-${trigger}`,
+      message: `お客様通知の送信対象がゼロ件: sessionId=${sessionId}`,
+      detail: {
+        reason:
+          "予約者未設定、かつ receivesSessionNotifications=true の担当者もLINE紐付けなし。",
+      },
+    });
+    return;
+  }
+
+  for (const lineFriendId of lineFriendIds) {
+    try {
+      const r = await sendSessionNotification({
+        sessionId,
+        recipient: "customer",
+        trigger,
+        customerLineFriendId: lineFriendId,
+      });
+      if (!r.ok && !r.skipped) {
+        await logAutomationError({
+          source: `slp-session-notify-customer-${trigger}`,
+          message: `お客様通知送信失敗: sessionId=${sessionId}`,
+          detail: {
+            errorMessage: r.errorMessage,
+            customerLineFriendId: lineFriendId,
+          },
+        });
+      }
+    } catch (e) {
+      await logAutomationError({
+        source: `slp-session-notify-customer-${trigger}`,
+        message: `お客様通知呼び出し失敗: sessionId=${sessionId}`,
+        detail: {
+          error: e instanceof Error ? e.message : String(e),
+          customerLineFriendId: lineFriendId,
+        },
+      });
+    }
   }
 }

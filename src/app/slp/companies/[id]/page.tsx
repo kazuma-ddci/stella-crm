@@ -196,6 +196,7 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
         ? `${c.lineFriend.id} ${c.lineFriend.snsname ?? ""}`.trim()
         : null,
       isPrimary: c.isPrimary,
+      receivesSessionNotifications: c.receivesSessionNotifications,
     })),
     // 予約履歴（監査用、SlpMeetingSessionHistory とは別の予約変更スナップショット）
     reservationHistories: record.reservationHistories.map((h) => ({

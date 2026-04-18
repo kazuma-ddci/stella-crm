@@ -180,6 +180,8 @@ export interface CreateSessionInput {
   bookedAt?: Date | null;
   notes?: string | null;
   createdByStaffId?: number | null;
+  /** 予約を行った担当者のID（SlpCompanyContact.id）。Webhook経由予約時に記録。手動セット時はnull */
+  bookerContactId?: number | null;
   /** 明示指定された roundNumber。省略時は自動計算 */
   roundNumber?: number;
 }
@@ -210,6 +212,7 @@ export async function createSession(
       bookedAt: input.bookedAt ?? (input.status === "予約中" ? new Date() : null),
       notes: input.notes ?? null,
       createdByStaffId: input.createdByStaffId ?? null,
+      bookerContactId: input.bookerContactId ?? null,
     },
   });
 
@@ -419,6 +422,11 @@ interface ProlineReservationParams {
   prolineReservationId: string | null;
   prolineStaffName: string | null;
   bookedAt: Date | null;
+  /**
+   * 予約を行った担当者のID（SlpCompanyContact.id）。
+   * Webhook受信時にLINE UIDから解決して渡す。解決できなければnull。
+   */
+  bookerContactId?: number | null;
 }
 
 /**
@@ -461,6 +469,7 @@ export async function applyProlineReservationToSession(
         prolineReservationId: params.prolineReservationId,
         prolineStaffName: params.prolineStaffName,
         bookedAt: params.bookedAt ?? new Date(),
+        bookerContactId: params.bookerContactId ?? null,
       },
     });
     await tx.slpMeetingSessionHistory.create({
@@ -488,6 +497,7 @@ export async function applyProlineReservationToSession(
       prolineReservationId: params.prolineReservationId,
       prolineStaffName: params.prolineStaffName,
       bookedAt: params.bookedAt ?? new Date(),
+      bookerContactId: params.bookerContactId ?? null,
     },
     tx
   );
@@ -543,6 +553,11 @@ export async function applyProlineChangeToSession(
         prolineReservationId: params.prolineReservationId ?? target.prolineReservationId,
         prolineStaffName: params.prolineStaffName ?? target.prolineStaffName,
         bookedAt: params.bookedAt ?? target.bookedAt,
+        // 既存の予約者は保護:
+        //   - params.bookerContactId に数値が入っていれば更新
+        //   - null や undefined の場合は既存の値を保持
+        //   （change webhookでLINE UID解決に失敗した際、既存の予約者が消えないように）
+        bookerContactId: params.bookerContactId ?? target.bookerContactId,
         cancelledAt: null,
         cancelReason: null,
       },
@@ -578,6 +593,7 @@ export async function applyProlineChangeToSession(
       prolineReservationId: params.prolineReservationId,
       prolineStaffName: params.prolineStaffName,
       bookedAt: params.bookedAt ?? new Date(),
+      bookerContactId: params.bookerContactId ?? null,
     },
     tx
   );
@@ -760,4 +776,93 @@ export async function findPrimaryRecordingForSession(
   const ch = await findContactHistoryForSession(sessionId, tx);
   if (!ch) return null;
   return findPrimaryRecording(ch.id, tx);
+}
+
+// ============================================
+// 商談セッションの通知対象（お客様側）を解決
+// ============================================
+
+/**
+ * 商談セッションのお客様通知の送信対象 LineFriend ID 一覧を返す。
+ *
+ * 判定ロジック:
+ *  1. セッションに個別設定（SlpSessionNotifyContact 行）がある → 個別モード
+ *     → その行のコンタクトのうち LINE紐付けありのものだけ
+ *  2. 個別設定が無ければデフォルトモード
+ *     → bookerContactId の担当者（必ず含める）
+ *     + receivesSessionNotifications=true の担当者全員
+ *     のうち LINE紐付けありのもの
+ *
+ * 返り値は LineFriend ID で重複排除済み。
+ */
+export async function getNotifiableCustomerLineFriendIds(
+  sessionId: number,
+  tx: Prisma.TransactionClient | typeof prisma = prisma
+): Promise<number[]> {
+  const session = await tx.slpMeetingSession.findUnique({
+    where: { id: sessionId },
+    select: {
+      id: true,
+      companyRecordId: true,
+      bookerContactId: true,
+      notifyOverrides: { select: { contactId: true } },
+    },
+  });
+  if (!session) return [];
+
+  const seen = new Set<number>();
+  const result: number[] = [];
+
+  if (session.notifyOverrides.length > 0) {
+    // 個別モード: 指定されたコンタクトだけ（LINE紐付けありに限る）
+    // 防御的に companyRecordId もフィルタに入れて、
+    // 万一 override 行が他社のコンタクトを指していた場合でも他社へ送信が漏れないようにする。
+    // さらに LineFriend の deletedAt もチェック、論理削除済の友達に送らない。
+    const overrideContactIds = session.notifyOverrides.map((o) => o.contactId);
+    const contacts = await tx.slpCompanyContact.findMany({
+      where: {
+        id: { in: overrideContactIds },
+        companyRecordId: session.companyRecordId,
+        lineFriendId: { not: null },
+        lineFriend: { deletedAt: null },
+      },
+      select: { lineFriendId: true },
+    });
+    for (const c of contacts) {
+      if (c.lineFriendId && !seen.has(c.lineFriendId)) {
+        seen.add(c.lineFriendId);
+        result.push(c.lineFriendId);
+      }
+    }
+    return result;
+  }
+
+  // デフォルトモード: 予約者 + フラグONの担当者
+  // 注: Prisma の OR に `{}` を入れると「全件マッチ」になるため、
+  //     bookerContactId が null のときは OR に含めない。
+  const orClauses: Prisma.SlpCompanyContactWhereInput[] = [
+    { receivesSessionNotifications: true },
+  ];
+  if (session.bookerContactId !== null) {
+    orClauses.push({ id: session.bookerContactId });
+  }
+
+  const contacts = await tx.slpCompanyContact.findMany({
+    where: {
+      companyRecordId: session.companyRecordId,
+      lineFriendId: { not: null },
+      // 論理削除済の LineFriend は送信対象外
+      lineFriend: { deletedAt: null },
+      OR: orClauses,
+    },
+    select: { lineFriendId: true },
+  });
+
+  for (const c of contacts) {
+    if (c.lineFriendId && !seen.has(c.lineFriendId)) {
+      seen.add(c.lineFriendId);
+      result.push(c.lineFriendId);
+    }
+  }
+  return result;
 }
