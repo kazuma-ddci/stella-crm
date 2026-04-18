@@ -108,6 +108,23 @@ interface Props {
   companyName?: string | null;
 }
 
+/**
+ * Zoom Meeting ID をハイフン区切り表記にする。
+ * 右から4桁ずつグループ化するため、10/11桁のZoom標準IDも特殊な桁数も対応。
+ * 例: "83407437317" → "834-0743-7317"
+ *     "900000000001" → "9000-0000-0001"
+ */
+function formatMeetingId(id: string | null | undefined): string {
+  if (!id) return "—";
+  const digits = id.replace(/\D/g, "");
+  if (!digits) return id;
+  const groups: string[] = [];
+  for (let i = digits.length; i > 0; i -= 4) {
+    groups.unshift(digits.slice(Math.max(0, i - 4), i));
+  }
+  return groups.join("-");
+}
+
 function formatJstDateTime(iso: string | null): string {
   if (!iso) return "—";
   try {
@@ -469,7 +486,7 @@ export function UnifiedDetailModal({
                   {/* 基本情報 */}
                   <InfoBar
                     items={[
-                      { label: "Meeting ID", value: data.zoomMeetingId },
+                      { label: "Meeting ID", value: formatMeetingId(data.zoomMeetingId) },
                       { label: "ホスト", value: data.hostStaffName ?? "—" },
                       {
                         label: "状態",

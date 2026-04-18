@@ -43,6 +43,23 @@ export type RecordingRow = {
 };
 
 /**
+ * Zoom Meeting ID をハイフン区切り表記にする。
+ * 右から4桁ずつグループ化するため、10/11桁のZoom標準IDも特殊な桁数も対応。
+ * 例: "83407437317" → "834-0743-7317"
+ *     "900000000001" → "9000-0000-0001"
+ */
+function formatMeetingId(id: string | null): string {
+  if (!id) return "—";
+  const digits = id.replace(/\D/g, "");
+  if (!digits) return id;
+  const groups: string[] = [];
+  for (let i = digits.length; i > 0; i -= 4) {
+    groups.unshift(digits.slice(Math.max(0, i - 4), i));
+  }
+  return groups.join("-");
+}
+
+/**
  * 取得状況を固定6スロットで表示するためのアイコン。
  * 位置をレコード毎に揃えることでページ全体のごちゃつきを無くす。
  */
@@ -143,7 +160,7 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
                 <td className="p-3">{r.companyName ?? "—"}</td>
                 <td className="p-3 whitespace-nowrap pr-8">{r.hostName ?? "—"}</td>
                 <td className="p-3 whitespace-nowrap font-mono text-xs">
-                  {r.zoomMeetingId ?? "—"}
+                  {formatMeetingId(r.zoomMeetingId)}
                 </td>
                 <td className="p-3 whitespace-nowrap">
                   {r.state ? (
