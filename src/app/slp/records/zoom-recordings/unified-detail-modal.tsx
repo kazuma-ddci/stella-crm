@@ -386,7 +386,8 @@ export function UnifiedDetailModal({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          className="overflow-hidden flex flex-col !w-[min(90vw,1000px)] !max-w-[1000px] !h-[85vh] !max-h-[85vh]"
+          size="fullwidth"
+          className="sm:!max-w-[880px] max-h-[74vh] h-[74vh] overflow-hidden flex flex-col"
         >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 flex-wrap">

@@ -21,6 +21,8 @@ export type RecordingRow = {
   companyName: string | null;
   contactDate: string | null;
   hostName: string | null;
+  zoomMeetingId: string | null;
+  state: string | null;
   // 試行状態
   aiSummaryAttempted: boolean;
   chatAttempted: boolean;
@@ -78,7 +80,7 @@ function StatusCell({
   return (
     <div
       title={title}
-      className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] bg-white ${containerCls} w-[110px] justify-between`}
+      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] bg-white ${containerCls} w-[88px] justify-between shrink-0`}
     >
       <span className="inline-flex items-center gap-1 truncate">
         <Icon className="h-3 w-3 shrink-0" />
@@ -109,7 +111,9 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
               <th className="text-left p-3 whitespace-nowrap">日時</th>
               <th className="text-left p-3 whitespace-nowrap">種別</th>
               <th className="text-left p-3 min-w-[16em]">事業者名</th>
-              <th className="text-left p-3 whitespace-nowrap">担当</th>
+              <th className="text-left p-3 whitespace-nowrap pr-8">担当</th>
+              <th className="text-left p-3 whitespace-nowrap">Meeting ID</th>
+              <th className="text-left p-3 whitespace-nowrap">状態</th>
               <th className="text-left p-3">取得状況</th>
             </tr>
           </thead>
@@ -117,7 +121,7 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
             {localRows.length === 0 && (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={7}
                   className="p-4 text-center text-muted-foreground"
                 >
                   録画データはまだありません
@@ -137,7 +141,29 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
                   {r.category === "briefing" ? "概要案内" : "導入希望商談"}
                 </td>
                 <td className="p-3">{r.companyName ?? "—"}</td>
-                <td className="p-3 whitespace-nowrap">{r.hostName ?? "—"}</td>
+                <td className="p-3 whitespace-nowrap pr-8">{r.hostName ?? "—"}</td>
+                <td className="p-3 whitespace-nowrap font-mono text-xs">
+                  {r.zoomMeetingId ?? "—"}
+                </td>
+                <td className="p-3 whitespace-nowrap">
+                  {r.state ? (
+                    <span
+                      className={`inline-flex items-center rounded px-2 py-0.5 text-xs ${
+                        r.state === "完了"
+                          ? "bg-green-100 text-green-800"
+                          : r.state === "予定"
+                            ? "bg-blue-100 text-blue-800"
+                            : r.state === "失敗"
+                              ? "bg-red-100 text-red-800"
+                              : "bg-gray-100 text-gray-800"
+                      }`}
+                    >
+                      {r.state}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 <td className="p-3">
                   {/* 6スロットを常に固定位置でレンダリング */}
                   <div className="flex flex-wrap gap-1.5">

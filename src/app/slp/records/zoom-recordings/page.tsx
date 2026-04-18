@@ -67,6 +67,8 @@ export default async function ZoomRecordingsPage() {
       companyName: r.contactHistory?.companyRecord?.companyName ?? null,
       contactDate: toJstDisplay(contactDate),
       hostName: r.hostStaff?.name ?? null,
+      zoomMeetingId: r.zoomMeetingId.toString(),
+      state: r.state ?? null,
       aiSummaryAttempted,
       chatAttempted,
       participantsAttempted,
