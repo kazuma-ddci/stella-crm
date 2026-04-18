@@ -76,6 +76,7 @@ type HistoryRow = {
   }[];
   zoomRecordings: {
     id: number;
+    zoomMeetingId: string;
     label: string | null;
     isPrimary: boolean;
     state: string;
@@ -319,30 +320,58 @@ export function ContactHistoriesClient({
                       {h.zoomRecordings.length === 0 ? (
                         <span className="text-gray-400 text-xs">—</span>
                       ) : (
-                        <div className="flex flex-col gap-1">
-                          {h.zoomRecordings.map((zr) => (
-                            <Button
-                              key={zr.id}
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-xs"
-                              onClick={() =>
-                                setZoomModalTarget({
-                                  recordingId: zr.id,
-                                  companyName: h.companyRecordName,
-                                  hasRetryable: !zr.allFetched,
-                                })
-                              }
-                            >
-                              <Video className="h-3 w-3 mr-1" />
-                              {zr.label ?? (zr.isPrimary ? "録画" : `録画#${zr.id}`)}
-                              {zr.allFetched ? (
-                                <span className="ml-1 text-green-700">✓</span>
-                              ) : (
-                                <span className="ml-1 text-amber-700">○</span>
-                              )}
-                            </Button>
-                          ))}
+                        <div className="flex flex-col gap-1.5">
+                          {h.zoomRecordings.map((zr) => {
+                            const stateClass =
+                              zr.state === "完了"
+                                ? "bg-green-100 text-green-800"
+                                : zr.state === "予定"
+                                  ? "bg-blue-100 text-blue-800"
+                                  : zr.state === "失敗"
+                                    ? "bg-red-100 text-red-800"
+                                    : "bg-gray-100 text-gray-800";
+                            return (
+                              <button
+                                key={zr.id}
+                                type="button"
+                                className="flex flex-col items-start gap-0.5 rounded border px-2 py-1 text-xs hover:bg-muted/50 transition-colors"
+                                onClick={() =>
+                                  setZoomModalTarget({
+                                    recordingId: zr.id,
+                                    companyName: h.companyRecordName,
+                                    hasRetryable: !zr.allFetched,
+                                  })
+                                }
+                              >
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <Video className="h-3 w-3" />
+                                  <span className="font-mono text-[11px]">
+                                    {zr.zoomMeetingId}
+                                  </span>
+                                  <span
+                                    className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] ${stateClass}`}
+                                  >
+                                    {zr.state}
+                                  </span>
+                                  {zr.allFetched ? (
+                                    <span className="text-green-700 font-bold">
+                                      ✓
+                                    </span>
+                                  ) : (
+                                    <span className="text-amber-700 font-bold">
+                                      ○
+                                    </span>
+                                  )}
+                                </div>
+                                {zr.label && (
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {zr.label}
+                                    {!zr.isPrimary && "（追加）"}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
                         </div>
                       )}
                     </TableCell>

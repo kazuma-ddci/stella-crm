@@ -32,6 +32,7 @@ export const contactHistoryIncludeForDisplay = {
     orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
     select: {
       id: true,
+      zoomMeetingId: true,
       state: true,
       label: true,
       isPrimary: true,
@@ -127,6 +128,7 @@ export function formatSlpContactHistory(history: SlpContactHistoryWithRelations)
         recordingAttempted;
       return {
         id: z.id,
+        zoomMeetingId: z.zoomMeetingId.toString(),
         label: z.label,
         isPrimary: z.isPrimary,
         state: z.state,
