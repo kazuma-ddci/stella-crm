@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
@@ -303,8 +304,14 @@ function ClaudeSummarySection({
 }
 
 export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
+  const router = useRouter();
   const [busyId, setBusyId] = useState<number | null>(null);
   const [localRows, setLocalRows] = useState<RecordingRow[]>(rows);
+
+  // Server Componentから新しいrowsが来たらlocalRowsに反映（router.refresh後など）
+  useEffect(() => {
+    setLocalRows(rows);
+  }, [rows]);
   const [currentSummary, setCurrentSummary] = useState<RecordingRow | null>(null);
   const [currentTranscript, setCurrentTranscript] = useState<RecordingRow | null>(null);
   const [currentChat, setCurrentChat] = useState<RecordingRow | null>(null);
@@ -341,10 +348,12 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
         if (messages.length > 0) {
           toast.success(`取得完了: ${messages.join(" / ")}`);
         } else {
-          toast.info("追加で取得できる情報はありませんでした");
+          toast.info(
+            "追加で取得できる情報はありませんでした（Zoom側で録画処理が完了していない可能性があります）"
+          );
         }
-        // ページリロードして最新状態を反映
-        window.location.reload();
+        // Server Componentを再取得して最新状態を反映（ページ全体はリロードしない）
+        router.refresh();
       } else {
         toast.error(`失敗: ${data.message}`);
       }
@@ -503,26 +512,43 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
                     )}
                   </div>
                   {r.allFetched && (
-                    <div className="text-xs text-green-600 mt-1">
-                      ✓ 取得済み
+                    <div className="text-xs text-green-700 mt-1 font-medium">
+                      ✓ 取得できる情報はすべて取得しました
                     </div>
                   )}
                 </td>
                 <td className="p-3">
                   <div className="flex gap-1.5 flex-wrap">
-                    {!r.allFetched && (
+                    {r.allFetched ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled
+                        className="cursor-not-allowed opacity-70"
+                        title="これ以上取得できる情報はありません"
+                      >
+                        <CheckCircle2 className="h-3 w-3 mr-1 text-green-600" />
+                        全取得完了
+                      </Button>
+                    ) : (
                       <Button
                         variant="default"
                         size="sm"
                         onClick={() => handleFetchAll(r)}
                         disabled={busyId === r.id}
+                        title="未取得の項目を取りに行きます（Zoom側がまだ準備中なら再度押してください）"
                       >
                         {busyId === r.id ? (
-                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          <>
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            取得中...
+                          </>
                         ) : (
-                          <Download className="h-3 w-3 mr-1" />
+                          <>
+                            <Download className="h-3 w-3 mr-1" />
+                            取得
+                          </>
                         )}
-                        取得
                       </Button>
                     )}
                     {(r.hasAiSummary || r.claudeSummary) && (

@@ -38,13 +38,13 @@ export default async function ZoomRecordingsPage() {
     const contactDate =
       r.scheduledAt ?? r.contactHistory?.session?.scheduledAt ?? null;
 
-    // 「試行済み」フラグ（取得を試みて完了した）
+    // 「試行済み」フラグ（取得を試みて、それ以上は取得できないことが確定した状態）
+    // failed は「再試行可能な未取得」扱いにする（一時エラー・スコープ不足等）。
     const aiSummaryAttempted = !!r.aiCompanionFetchedAt;
     const chatAttempted = !!r.chatFetchedAt;
     const participantsAttempted = !!r.participantsFetchedAt;
     const recordingAttempted =
       r.downloadStatus === "completed" ||
-      r.downloadStatus === "failed" ||
       r.downloadStatus === "no_recording";
 
     // 「データが存在する」フラグ
@@ -104,10 +104,25 @@ export default async function ZoomRecordingsPage() {
           <CardTitle>録画・議事録一覧（直近100件）</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground mb-4">
-            Zoom商談の録画と自動取得された議事録の一覧です。
-            各行のアイコンで取得状況が確認できます。「取得」ボタンで未取得分をまとめて取りに行きます。
-          </p>
+          <div className="text-sm text-muted-foreground mb-4 space-y-1">
+            <p>
+              Zoom商談の録画と自動取得された議事録の一覧です。各行のアイコンで取得状況が確認できます。
+            </p>
+            <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              <span>
+                <span className="inline-block w-4 text-center font-bold text-green-700">✓</span>{" "}
+                取得済み
+              </span>
+              <span>
+                <span className="inline-block w-4 text-center font-bold text-muted-foreground">―</span>{" "}
+                該当なし（Zoom側に元々存在しない・確定）
+              </span>
+              <span>
+                <span className="inline-block w-4 text-center font-bold text-amber-700">○</span>{" "}
+                未取得（「取得」ボタンで取得できます・Zoom側が処理中なら少し時間を置いて再度）
+              </span>
+            </p>
+          </div>
           <RecordingsClient rows={clientRows} />
         </CardContent>
       </Card>
