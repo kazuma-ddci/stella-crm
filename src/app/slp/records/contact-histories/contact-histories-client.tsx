@@ -23,7 +23,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, ExternalLink, Trash2, Pencil, Eye, FileText, Link as LinkIcon } from "lucide-react";
+import { Plus, ExternalLink, Trash2, Pencil, Eye, FileText, Link as LinkIcon, Video } from "lucide-react";
+import { UnifiedDetailModal } from "@/app/slp/records/zoom-recordings/unified-detail-modal";
 import {
   Dialog,
   DialogContent,
@@ -73,6 +74,19 @@ type HistoryRow = {
     mimeType: string | null;
     url: string | null;
   }[];
+  zoomRecordings: {
+    id: number;
+    label: string | null;
+    isPrimary: boolean;
+    state: string;
+    downloadStatus: string;
+    allFetched: boolean;
+    hasAiSummary: boolean;
+    hasMp4: boolean;
+    hasTranscript: boolean;
+    hasChat: boolean;
+    hasParticipants: boolean;
+  }[];
 };
 
 type Props = {
@@ -103,6 +117,11 @@ export function ContactHistoriesClient({
   const [isModalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<HistoryRow | null>(null);
   const [viewTarget, setViewTarget] = useState<HistoryRow | null>(null);
+  const [zoomModalTarget, setZoomModalTarget] = useState<{
+    recordingId: number;
+    companyName: string | null;
+    hasRetryable: boolean;
+  } | null>(null);
 
   const filtered = useMemo(() => {
     return histories.filter((h) => {
@@ -212,6 +231,7 @@ export function ContactHistoriesClient({
               <TableHead>接触種別</TableHead>
               <TableHead>担当者</TableHead>
               <TableHead>顧客種別タグ</TableHead>
+              <TableHead>Zoom</TableHead>
               <TableHead>備考</TableHead>
               <TableHead className="w-[120px]"></TableHead>
             </TableRow>
@@ -219,7 +239,7 @@ export function ContactHistoriesClient({
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center text-gray-500 py-6">
+                <TableCell colSpan={10} className="text-center text-gray-500 py-6">
                   該当する接触履歴はありません
                 </TableCell>
               </TableRow>
@@ -295,6 +315,37 @@ export function ContactHistoriesClient({
                         ))}
                       </div>
                     </TableCell>
+                    <TableCell>
+                      {h.zoomRecordings.length === 0 ? (
+                        <span className="text-gray-400 text-xs">—</span>
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          {h.zoomRecordings.map((zr) => (
+                            <Button
+                              key={zr.id}
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() =>
+                                setZoomModalTarget({
+                                  recordingId: zr.id,
+                                  companyName: h.companyRecordName,
+                                  hasRetryable: !zr.allFetched,
+                                })
+                              }
+                            >
+                              <Video className="h-3 w-3 mr-1" />
+                              {zr.label ?? (zr.isPrimary ? "録画" : `録画#${zr.id}`)}
+                              {zr.allFetched ? (
+                                <span className="ml-1 text-green-700">✓</span>
+                              ) : (
+                                <span className="ml-1 text-amber-700">○</span>
+                              )}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell className="max-w-xs truncate">{h.note ?? "-"}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-0.5">
@@ -343,6 +394,17 @@ export function ContactHistoriesClient({
         contactCategories={contactCategories}
         editTarget={editTarget}
       />
+
+      {/* Zoom統合モーダル（Zoom商談録画ページと同じもの） */}
+      {zoomModalTarget && (
+        <UnifiedDetailModal
+          open={!!zoomModalTarget}
+          onOpenChange={(o) => !o && setZoomModalTarget(null)}
+          recordingId={zoomModalTarget.recordingId}
+          hasRetryable={zoomModalTarget.hasRetryable}
+          companyName={zoomModalTarget.companyName}
+        />
+      )}
 
       {/* 詳細表示ダイアログ */}
       <Dialog open={!!viewTarget} onOpenChange={(o) => !o && setViewTarget(null)}>

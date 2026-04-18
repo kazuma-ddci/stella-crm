@@ -34,18 +34,16 @@ export default async function ZoomRecordingsPage() {
   });
 
   const clientRows: RecordingRow[] = rows.map((r) => {
-    // Recording.scheduledAt > ContactHistory.session.scheduledAt の順で商談日時を取得
     const contactDate =
       r.scheduledAt ?? r.contactHistory?.session?.scheduledAt ?? null;
 
-    // 「試行済み」フラグ（取得を試みて、それ以上は取得できないことが確定した状態）
-    // failed は「再試行可能な未取得」扱いにする（一時エラー・スコープ不足等）。
+    // 「試行済み」フラグ（取得を試みて結果確定した状態）
+    // failed は再試行可能な未取得として扱う。
     const aiSummaryAttempted = !!r.aiCompanionFetchedAt;
     const chatAttempted = !!r.chatFetchedAt;
     const participantsAttempted = !!r.participantsFetchedAt;
     const recordingAttempted =
-      r.downloadStatus === "completed" ||
-      r.downloadStatus === "no_recording";
+      r.downloadStatus === "completed" || r.downloadStatus === "no_recording";
 
     // 「データが存在する」フラグ
     const hasAiSummary = !!r.aiCompanionSummary;
@@ -54,8 +52,9 @@ export default async function ZoomRecordingsPage() {
     const hasChat = !!r.chatLogText;
     const hasParticipants =
       !!r.participantsJson && r.participantsJson !== "[]";
+    const hasNextSteps = !!r.summaryNextSteps;
 
-    // 全項目が「試行済み」なら「取得済み」とみなす（その会議に存在しない情報があっても OK）
+    // 全項目が「試行済み」なら「取得済み」とみなす
     const allFetched =
       aiSummaryAttempted &&
       chatAttempted &&
@@ -68,28 +67,17 @@ export default async function ZoomRecordingsPage() {
       companyName: r.contactHistory?.companyRecord?.companyName ?? null,
       contactDate: toJstDisplay(contactDate),
       hostName: r.hostStaff?.name ?? null,
-      // 試行状態
       aiSummaryAttempted,
       chatAttempted,
       participantsAttempted,
       recordingAttempted,
-      // データ存在
       hasAiSummary,
       hasMp4,
       hasTranscript,
       hasChat,
       hasParticipants,
-      hasNextSteps: !!r.summaryNextSteps,
+      hasNextSteps,
       allFetched,
-      aiCompanionSummary: r.aiCompanionSummary,
-      summaryNextSteps: r.summaryNextSteps,
-      claudeSummary: r.claudeSummary,
-      claudeSummaryGeneratedAt: toJstDisplay(r.claudeSummaryGeneratedAt),
-      claudeSummaryModel: r.claudeSummaryModel,
-      transcriptText: r.transcriptText,
-      chatLogText: r.chatLogText,
-      participantsJson: r.participantsJson,
-      mp4Path: r.mp4Path,
       downloadStatus: r.downloadStatus,
       companyRecordId: r.contactHistory?.companyRecord?.id ?? null,
       prolineUid: r.contactHistory?.companyRecord?.prolineUid ?? null,
@@ -106,7 +94,7 @@ export default async function ZoomRecordingsPage() {
         <CardContent>
           <div className="text-sm text-muted-foreground mb-4 space-y-1">
             <p>
-              Zoom商談の録画と自動取得された議事録の一覧です。各行のアイコンで取得状況が確認できます。
+              Zoom商談の録画と自動取得された議事録の一覧です。行をクリックすると詳細モーダルが開き、取得・要約・文字起こし・チャット・参加者・接触履歴・お礼文案などを確認・操作できます。
             </p>
             <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
               <span>
@@ -119,7 +107,7 @@ export default async function ZoomRecordingsPage() {
               </span>
               <span>
                 <span className="inline-block w-4 text-center font-bold text-amber-700">○</span>{" "}
-                未取得（「取得」ボタンで取得できます・Zoom側が処理中なら少し時間を置いて再度）
+                未取得（「未取得分を取得」ボタンまたは詳細モーダルから取得）
               </span>
             </p>
           </div>

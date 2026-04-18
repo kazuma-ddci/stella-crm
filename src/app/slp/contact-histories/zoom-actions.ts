@@ -453,3 +453,106 @@ export async function getContactHistoryZoomRecordings(
     );
   }
 }
+
+// ============================================
+// Zoom Recording に紐づく接触履歴の情報（統合モーダル「接触履歴」タブ用）
+// ============================================
+export async function getContactHistoryForZoomRecording(
+  recordingId: number
+): Promise<
+  ActionResult<{
+    contactHistoryId: number;
+    contactDate: string;
+    staffId: number | null;
+    staffName: string | null;
+    contactMethodId: number | null;
+    contactMethodName: string | null;
+    contactCategoryId: number | null;
+    contactCategoryName: string | null;
+    customerParticipants: string | null;
+    meetingMinutes: string | null;
+    note: string | null;
+    targetType: string;
+    companyRecordId: number | null;
+    companyRecordName: string | null;
+  }>
+> {
+  try {
+    await requireStaffWithProjectPermission([{ project: "slp", level: "view" }]);
+    const rec = await prisma.slpZoomRecording.findUnique({
+      where: { id: recordingId },
+      select: { contactHistoryId: true },
+    });
+    if (!rec) return err("Recording が見つかりません");
+
+    const ch = await prisma.slpContactHistory.findUnique({
+      where: { id: rec.contactHistoryId },
+      include: {
+        staff: { select: { id: true, name: true } },
+        contactMethod: { select: { id: true, name: true } },
+        contactCategory: { select: { id: true, name: true } },
+        companyRecord: { select: { id: true, companyName: true } },
+      },
+    });
+    if (!ch) return err("接触履歴が見つかりません");
+
+    return ok({
+      contactHistoryId: ch.id,
+      contactDate: ch.contactDate.toISOString(),
+      staffId: ch.staffId,
+      staffName: ch.staff?.name ?? null,
+      contactMethodId: ch.contactMethodId,
+      contactMethodName: ch.contactMethod?.name ?? null,
+      contactCategoryId: ch.contactCategoryId,
+      contactCategoryName: ch.contactCategory?.name ?? null,
+      customerParticipants: ch.customerParticipants,
+      meetingMinutes: ch.meetingMinutes,
+      note: ch.note,
+      targetType: ch.targetType,
+      companyRecordId: ch.companyRecord?.id ?? null,
+      companyRecordName: ch.companyRecord?.companyName ?? null,
+    });
+  } catch (e) {
+    return err(
+      e instanceof Error ? e.message : "接触履歴の取得に失敗しました"
+    );
+  }
+}
+
+// ============================================
+// 統合モーダルから接触履歴を簡易編集する（議事録・メモ・顧客参加者）
+// 接触日時・担当者などの核となる項目は接触履歴ページに誘導するためここでは扱わない
+// ============================================
+export async function updateContactHistoryFromZoomModal(
+  recordingId: number,
+  data: {
+    meetingMinutes: string | null;
+    note: string | null;
+    customerParticipants: string | null;
+  }
+): Promise<ActionResult<{ contactHistoryId: number }>> {
+  try {
+    await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
+    const rec = await prisma.slpZoomRecording.findUnique({
+      where: { id: recordingId },
+      select: { contactHistoryId: true },
+    });
+    if (!rec) return err("Recording が見つかりません");
+
+    await prisma.slpContactHistory.update({
+      where: { id: rec.contactHistoryId },
+      data: {
+        meetingMinutes: data.meetingMinutes?.trim() || null,
+        note: data.note?.trim() || null,
+        customerParticipants: data.customerParticipants?.trim() || null,
+      },
+    });
+
+    await revalidatePathsForContactHistory(rec.contactHistoryId);
+    return ok({ contactHistoryId: rec.contactHistoryId });
+  } catch (e) {
+    return err(
+      e instanceof Error ? e.message : "接触履歴の更新に失敗しました"
+    );
+  }
+}

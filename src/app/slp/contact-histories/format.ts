@@ -29,7 +29,22 @@ export const contactHistoryIncludeForDisplay = {
   files: true,
   zoomRecordings: {
     where: { deletedAt: null },
-    select: { id: true, state: true },
+    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    select: {
+      id: true,
+      state: true,
+      label: true,
+      isPrimary: true,
+      downloadStatus: true,
+      aiCompanionFetchedAt: true,
+      chatFetchedAt: true,
+      participantsFetchedAt: true,
+      aiCompanionSummary: true,
+      mp4Path: true,
+      transcriptText: true,
+      chatLogText: true,
+      participantsJson: true,
+    },
   },
 } satisfies Prisma.SlpContactHistoryInclude;
 
@@ -91,5 +106,38 @@ export function formatSlpContactHistory(history: SlpContactHistoryWithRelations)
     zoomRecordingCount: history.zoomRecordings.length,
     hasScheduledZoom: history.zoomRecordings.some((z) => z.state === "予定"),
     hasFailedZoom: history.zoomRecordings.some((z) => z.state === "失敗"),
+    // 統合モーダルで表示するための各録画サマリ
+    zoomRecordings: history.zoomRecordings.map((z) => {
+      const aiSummaryAttempted = !!z.aiCompanionFetchedAt;
+      const chatAttempted = !!z.chatFetchedAt;
+      const participantsAttempted = !!z.participantsFetchedAt;
+      const recordingAttempted =
+        z.downloadStatus === "completed" ||
+        z.downloadStatus === "no_recording";
+      const hasAiSummary = !!z.aiCompanionSummary;
+      const hasMp4 = !!z.mp4Path;
+      const hasTranscript = !!z.transcriptText;
+      const hasChat = !!z.chatLogText;
+      const hasParticipants =
+        !!z.participantsJson && z.participantsJson !== "[]";
+      const allFetched =
+        aiSummaryAttempted &&
+        chatAttempted &&
+        participantsAttempted &&
+        recordingAttempted;
+      return {
+        id: z.id,
+        label: z.label,
+        isPrimary: z.isPrimary,
+        state: z.state,
+        downloadStatus: z.downloadStatus,
+        allFetched,
+        hasAiSummary,
+        hasMp4,
+        hasTranscript,
+        hasChat,
+        hasParticipants,
+      };
+    }),
   };
 }
