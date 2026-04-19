@@ -500,7 +500,7 @@ export function UnifiedDetailModal({
                       { label: "ホスト", value: data.hostStaffName ?? "—" },
                       {
                         label: "状態",
-                        value: `${data.state} / ${data.downloadStatus}`,
+                        value: data.state,
                       },
                     ]}
                   />

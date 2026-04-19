@@ -409,7 +409,7 @@ export function ContactHistoriesClient({
 
       {/* 詳細表示ダイアログ */}
       <Dialog open={!!viewTarget} onOpenChange={(o) => !o && setViewTarget(null)}>
-        <DialogContent className="max-w-4xl w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col overflow-hidden p-0 gap-0">
+        <DialogContent className="max-w-6xl w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col overflow-hidden p-0 gap-0">
           <DialogHeader className="px-6 pt-6 pb-3 border-b flex-shrink-0">
             <DialogTitle>接触履歴の詳細</DialogTitle>
           </DialogHeader>
