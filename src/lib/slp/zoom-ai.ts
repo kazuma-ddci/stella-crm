@@ -168,10 +168,12 @@ export async function generateThankYouSuggestion(params: {
   });
   if (!recording) throw new Error("録画レコードが見つかりません");
 
+  // 精度順: Claude生成議事録 > 全文書き起こし > Zoom AI Companion要約
+  // （Zoom AI Companion 要約は精度が低めのため最終フォールバック）
   const summaryText =
     recording.claudeSummary ||
+    recording.transcriptText?.slice(0, 5000) ||
     recording.aiCompanionSummary ||
-    recording.transcriptText?.slice(0, 3000) ||
     "";
   if (!summaryText.trim()) {
     throw new Error("要約または文字起こしがないのでお礼文を生成できません");
@@ -197,4 +199,102 @@ export async function generateThankYouSuggestion(params: {
   });
 
   return { text, model: tpl.model };
+}
+
+/**
+ * セッションに紐付く全ての Zoom 録画の議事録を集約して、Claude でお礼メッセージ文案を生成。
+ * 商談完了モーダルから呼ばれる。
+ *
+ * 精度の優先順位（録画単位）:
+ *   Claude生成議事録 > 全文書き起こし（5000字まで） > Zoom AI Companion 要約
+ *
+ * 複数録画がある場合は全て結合して一つのお礼文に。
+ */
+export async function generateThankYouSuggestionForSession(params: {
+  sessionId: number;
+}): Promise<
+  | { ok: true; text: string; model: string; recordingCount: number }
+  | { ok: false; reason: "no_recording" | "no_data"; message: string }
+> {
+  const recordings = await prisma.slpZoomRecording.findMany({
+    where: {
+      contactHistory: { sessionId: params.sessionId },
+      deletedAt: null,
+    },
+    include: {
+      contactHistory: {
+        include: {
+          companyRecord: {
+            select: { companyName: true },
+          },
+        },
+      },
+    },
+    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+  });
+
+  if (recordings.length === 0) {
+    return {
+      ok: false,
+      reason: "no_recording",
+      message: "このセッションに紐付くZoom録画がまだありません。",
+    };
+  }
+
+  // 各録画について最良データを抽出
+  const summaryParts: string[] = [];
+  for (const r of recordings) {
+    const best =
+      r.claudeSummary ||
+      r.transcriptText?.slice(0, 5000) ||
+      r.aiCompanionSummary ||
+      "";
+    if (!best.trim()) continue;
+    const label = r.label
+      ? r.label
+      : r.isPrimary
+        ? "メイン録画"
+        : `追加録画 #${r.id}`;
+    summaryParts.push(`【${label}】\n${best}`);
+  }
+
+  if (summaryParts.length === 0) {
+    return {
+      ok: false,
+      reason: "no_data",
+      message:
+        "Zoom録画の議事録・文字起こし・要約のいずれもまだ生成されていません。会議終了から時間を置いて再度お試しください。",
+    };
+  }
+
+  const combined = summaryParts.join("\n\n---\n\n");
+
+  // カテゴリは最初の録画（プライマリまたは最古）を採用
+  const firstCategory = recordings[0].category;
+  const templateKey =
+    firstCategory === "briefing"
+      ? "thankyou_briefing"
+      : "thankyou_consultation";
+  const tpl = await getPrompt(templateKey);
+  const companyName =
+    recordings[0].contactHistory?.companyRecord?.companyName ?? "";
+  const systemPrompt = renderTemplate(tpl.promptBody, {
+    事業者名: companyName,
+    要約: combined,
+  });
+
+  const { text } = await callClaude({
+    model: tpl.model,
+    systemPrompt,
+    userMessage: `上記の要約を踏まえてお礼メッセージを作成してください。`,
+    maxTokens: tpl.maxTokens,
+    temperature: 0.6,
+  });
+
+  return {
+    ok: true,
+    text,
+    model: tpl.model,
+    recordingCount: recordings.length,
+  };
 }

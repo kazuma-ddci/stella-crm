@@ -25,6 +25,7 @@ import {
 import { logAutomationError } from "@/lib/automation-error";
 import { sendSessionNotification } from "@/lib/slp/slp-session-notification";
 import { cancelZoomMeetingForSession } from "@/lib/slp/zoom-reservation-handler";
+import { generateThankYouSuggestionForSession } from "@/lib/slp/zoom-ai";
 
 // ============================================
 // Type definitions
@@ -995,6 +996,96 @@ export async function clearSessionNotifyOverrides(
   } catch (e) {
     return err(
       e instanceof Error ? e.message : "個別通知設定のリセットに失敗しました"
+    );
+  }
+}
+
+// ============================================
+// お礼メッセージ文案生成（完了モーダル用）
+// - 対象セッションに紐付く全Zoom録画の議事録から集約して生成
+// - 優先順位: Claude議事録 > 全文書き起こし > Zoom AI Companion
+// ============================================
+
+/**
+ * セッションからお礼メッセージ生成が可能かチェック。
+ * 完了モーダル側で「生成ボタンのactive/disabled」を判断するために使う。
+ */
+export async function checkSessionThankyouAvailability(
+  sessionId: number
+): Promise<
+  ActionResult<{ canGenerate: boolean; reason: string | null }>
+> {
+  try {
+    await requireStaffWithProjectPermission([
+      { project: "slp", level: "view" },
+    ]);
+
+    const recordings = await prisma.slpZoomRecording.findMany({
+      where: {
+        contactHistory: { sessionId },
+        deletedAt: null,
+      },
+      select: {
+        claudeSummary: true,
+        transcriptText: true,
+        aiCompanionSummary: true,
+      },
+    });
+
+    if (recordings.length === 0) {
+      return ok({
+        canGenerate: false,
+        reason: "このセッションに紐付くZoom録画がまだありません。",
+      });
+    }
+
+    const hasAnyData = recordings.some(
+      (r) =>
+        !!r.claudeSummary ||
+        !!r.transcriptText ||
+        !!r.aiCompanionSummary
+    );
+    if (!hasAnyData) {
+      return ok({
+        canGenerate: false,
+        reason:
+          "Zoom録画の議事録・文字起こし・要約のいずれもまだ生成されていません。会議終了から時間を置いてから再度お試しください。",
+      });
+    }
+
+    return ok({ canGenerate: true, reason: null });
+  } catch (e) {
+    return err(
+      e instanceof Error ? e.message : "お礼文案可用性チェックに失敗しました"
+    );
+  }
+}
+
+/**
+ * セッションに紐付く全議事録からお礼メッセージを生成。
+ */
+export async function generateSessionThankyou(
+  sessionId: number
+): Promise<
+  ActionResult<{ text: string; model: string; recordingCount: number }>
+> {
+  try {
+    await requireStaffWithProjectPermission([
+      { project: "slp", level: "edit" },
+    ]);
+
+    const result = await generateThankYouSuggestionForSession({ sessionId });
+    if (!result.ok) {
+      return err(result.message);
+    }
+    return ok({
+      text: result.text,
+      model: result.model,
+      recordingCount: result.recordingCount,
+    });
+  } catch (e) {
+    return err(
+      e instanceof Error ? e.message : "お礼文案の生成に失敗しました"
     );
   }
 }

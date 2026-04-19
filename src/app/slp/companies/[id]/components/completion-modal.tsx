@@ -8,14 +8,28 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2 } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import type { SessionCategory } from "@/lib/slp/session-helper";
-import { completeSessionAndNotify } from "../session-actions";
+import {
+  completeSessionAndNotify,
+  checkSessionThankyouAvailability,
+  generateSessionThankyou,
+} from "../session-actions";
 
 export type CompletionTargetContact = {
   id: number;
@@ -54,6 +68,16 @@ export function CompletionModal({
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // 議事録から生成ボタン関連
+  const [availability, setAvailability] = useState<{
+    canGenerate: boolean;
+    reason: string | null;
+  } | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [confirmOverwriteOpen, setConfirmOverwriteOpen] = useState(false);
+  const [confirmGenerateOpen, setConfirmGenerateOpen] = useState(false);
+  const [cantGenerateOpen, setCantGenerateOpen] = useState(false);
+
   const categoryLabel = CATEGORY_LABEL[category];
   const needsReason = fromStatus === "キャンセル"; // キャンセルからの完了戻しのみ理由必須
 
@@ -62,7 +86,48 @@ export function CompletionModal({
     setMessage("");
     setSelectedIds(new Set());
     setReason("");
-  }, [open]);
+    setAvailability(null);
+    // 可用性チェック
+    checkSessionThankyouAvailability(sessionId).then((r) => {
+      if (r.ok) {
+        setAvailability(r.data);
+      } else {
+        setAvailability({ canGenerate: false, reason: r.error });
+      }
+    });
+  }, [open, sessionId]);
+
+  const runGeneration = async () => {
+    setGenerating(true);
+    try {
+      const r = await generateSessionThankyou(sessionId);
+      if (r.ok) {
+        setMessage(r.data.text);
+        toast.success(
+          `お礼メッセージを生成しました（${r.data.recordingCount}件の録画から集約）`
+        );
+      } else {
+        toast.error(`生成に失敗しました: ${r.error}`);
+      }
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleGenerateClick = () => {
+    if (!availability) return;
+    if (!availability.canGenerate) {
+      setCantGenerateOpen(true);
+      return;
+    }
+    if (message.trim()) {
+      // 既存テキストあり → 上書き確認
+      setConfirmOverwriteOpen(true);
+      return;
+    }
+    // 直接 Claude API 確認へ
+    setConfirmGenerateOpen(true);
+  };
 
   const toggleContact = (contactId: number) => {
     setSelectedIds((prev) => {
@@ -143,7 +208,33 @@ export function CompletionModal({
             </div>
           )}
           <div>
-            <Label>お礼メッセージ</Label>
+            <div className="flex items-center justify-between mb-1">
+              <Label>お礼メッセージ</Label>
+              <Button
+                type="button"
+                variant={availability?.canGenerate ? "default" : "outline"}
+                size="sm"
+                onClick={handleGenerateClick}
+                disabled={generating || availability === null}
+                className={
+                  availability?.canGenerate
+                    ? "bg-indigo-600 hover:bg-indigo-700 text-white"
+                    : "text-muted-foreground"
+                }
+              >
+                {generating ? (
+                  <>
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    生成中...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-3 w-3 mr-1" />
+                    議事録からお礼メッセージを生成
+                  </>
+                )}
+              </Button>
+            </div>
             <Textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
@@ -215,6 +306,77 @@ export function CompletionModal({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* 生成不可: 理由をダイアログで説明 */}
+      <AlertDialog
+        open={cantGenerateOpen}
+        onOpenChange={setCantGenerateOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>お礼メッセージを生成できません</AlertDialogTitle>
+            <AlertDialogDescription>
+              {availability?.reason ??
+                "現在の状態では生成できません。"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 既存テキスト上書き確認 */}
+      <AlertDialog
+        open={confirmOverwriteOpen}
+        onOpenChange={setConfirmOverwriteOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>入力内容を上書きしますか？</AlertDialogTitle>
+            <AlertDialogDescription>
+              お礼メッセージ欄に既に入力があります。生成結果で上書きしてよろしいですか？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>キャンセル</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmOverwriteOpen(false);
+                setConfirmGenerateOpen(true);
+              }}
+            >
+              上書きする
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Claude API 利用確認 */}
+      <AlertDialog
+        open={confirmGenerateOpen}
+        onOpenChange={setConfirmGenerateOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>お礼メッセージを生成しますか？</AlertDialogTitle>
+            <AlertDialogDescription>
+              Claude APIを利用してお礼文案を生成します。APIの利用料金が発生します。よろしいですか？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>キャンセル</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                setConfirmGenerateOpen(false);
+                await runGeneration();
+              }}
+            >
+              実行する
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
