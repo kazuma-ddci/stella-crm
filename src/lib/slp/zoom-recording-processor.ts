@@ -232,6 +232,28 @@ export async function downloadAndSaveRecordingFiles(
     updates.chatLogText = downloaded.chatText;
     chatSaved = true;
   }
+
+  // 録画開始・終了時刻を recording_files の各ファイルから抽出
+  // （複数ファイルがある場合は最小startと最大endを全体の録画時間とみなす）
+  const starts: number[] = [];
+  const ends: number[] = [];
+  for (const f of recordingPayload.recording_files) {
+    if (f.recording_start) {
+      const t = new Date(f.recording_start);
+      if (!isNaN(t.getTime())) starts.push(t.getTime());
+    }
+    if (f.recording_end) {
+      const t = new Date(f.recording_end);
+      if (!isNaN(t.getTime())) ends.push(t.getTime());
+    }
+  }
+  if (starts.length > 0) {
+    updates.recordingStartAt = new Date(Math.min(...starts));
+  }
+  if (ends.length > 0) {
+    updates.recordingEndAt = new Date(Math.max(...ends));
+  }
+
   // payload に MP4 が含まれていれば（DL試行した）成功扱い、含まれない時は会議仕様（音声のみ等）として completed 扱い
   const payloadHasMp4 = recordingPayload.recording_files.some(
     (f) => f.file_type === "MP4"

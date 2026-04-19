@@ -43,20 +43,28 @@ export type RecordingRow = {
 };
 
 /**
- * Zoom Meeting ID をハイフン区切り表記にする。
- * 右から4桁ずつグループ化するため、10/11桁のZoom標準IDも特殊な桁数も対応。
- * 例: "83407437317" → "834-0743-7317"
- *     "900000000001" → "9000-0000-0001"
+ * Zoom Meeting ID をハイフン区切り表記にしつつ、iOS Safariの
+ * 電話番号自動検出を避けるために各グループを別spanでレンダリング。
+ * 単純な文字列連結より堅牢で、安全。
  */
-function formatMeetingId(id: string | null): string {
-  if (!id) return "—";
+function MeetingIdText({ id }: { id: string | null }) {
+  if (!id) return <>—</>;
   const digits = id.replace(/\D/g, "");
-  if (!digits) return id;
+  if (!digits) return <>{id}</>;
   const groups: string[] = [];
   for (let i = digits.length; i > 0; i -= 4) {
     groups.unshift(digits.slice(Math.max(0, i - 4), i));
   }
-  return groups.join("-");
+  return (
+    <span>
+      {groups.map((g, i) => (
+        <span key={i}>
+          {i > 0 && <span>-</span>}
+          <span>{g}</span>
+        </span>
+      ))}
+    </span>
+  );
 }
 
 /**
@@ -160,7 +168,7 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
                 <td className="p-3">{r.companyName ?? "—"}</td>
                 <td className="p-3 whitespace-nowrap pr-8">{r.hostName ?? "—"}</td>
                 <td className="p-3 whitespace-nowrap font-mono text-xs">
-                  {formatMeetingId(r.zoomMeetingId)}
+                  <MeetingIdText id={r.zoomMeetingId} />
                 </td>
                 <td className="p-3 whitespace-nowrap">
                   {r.state ? (

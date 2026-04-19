@@ -109,20 +109,27 @@ interface Props {
 }
 
 /**
- * Zoom Meeting ID をハイフン区切り表記にする。
- * 右から4桁ずつグループ化するため、10/11桁のZoom標準IDも特殊な桁数も対応。
- * 例: "83407437317" → "834-0743-7317"
- *     "900000000001" → "9000-0000-0001"
+ * Zoom Meeting ID をハイフン区切り表記にしつつ、iOS Safariの
+ * 電話番号自動検出を避けるために各グループを別spanでレンダリング。
  */
-function formatMeetingId(id: string | null | undefined): string {
-  if (!id) return "—";
+function MeetingIdText({ id }: { id: string | null | undefined }) {
+  if (!id) return <>—</>;
   const digits = id.replace(/\D/g, "");
-  if (!digits) return id;
+  if (!digits) return <>{id}</>;
   const groups: string[] = [];
   for (let i = digits.length; i > 0; i -= 4) {
     groups.unshift(digits.slice(Math.max(0, i - 4), i));
   }
-  return groups.join("-");
+  return (
+    <span>
+      {groups.map((g, i) => (
+        <span key={i}>
+          {i > 0 && <span>-</span>}
+          <span>{g}</span>
+        </span>
+      ))}
+    </span>
+  );
 }
 
 function formatJstDateTime(iso: string | null): string {
@@ -486,7 +493,10 @@ export function UnifiedDetailModal({
                   {/* 基本情報 */}
                   <InfoBar
                     items={[
-                      { label: "Meeting ID", value: formatMeetingId(data.zoomMeetingId) },
+                      {
+                        label: "Meeting ID",
+                        value: <MeetingIdText id={data.zoomMeetingId} />,
+                      },
                       { label: "ホスト", value: data.hostStaffName ?? "—" },
                       {
                         label: "状態",
@@ -1056,7 +1066,7 @@ function SectionCard({
 function InfoBar({
   items,
 }: {
-  items: { label: string; value: string }[];
+  items: { label: string; value: React.ReactNode }[];
 }) {
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs bg-muted/30 border rounded px-3 py-2">

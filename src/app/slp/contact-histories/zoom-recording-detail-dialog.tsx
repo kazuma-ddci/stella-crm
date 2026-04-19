@@ -462,7 +462,7 @@ export function ZoomRecordingDetailDialog({
                 color="red"
               >
                 <a
-                  href={`/${data.mp4Path}`}
+                  href={data.mp4Path}
                   target="_blank"
                   rel="noreferrer"
                   className="text-xs text-blue-600 underline break-all"
