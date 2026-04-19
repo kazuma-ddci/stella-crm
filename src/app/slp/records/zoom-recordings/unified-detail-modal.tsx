@@ -42,7 +42,6 @@ import {
   Download,
   ListChecks,
   History,
-  Mail,
   ExternalLink,
 } from "lucide-react";
 import {
@@ -186,14 +185,9 @@ export function UnifiedDetailModal({
   const [chCustomerParticipants, setChCustomerParticipants] = useState("");
   const [savingCh, setSavingCh] = useState(false);
 
-  // お礼文案
-  const [generatingThankyou, setGeneratingThankyou] = useState(false);
-  const [thankyouText, setThankyouText] = useState("");
-
   // 確認ダイアログ状態
   const [confirmDialog, setConfirmDialog] = useState<
     | { kind: "claude-generate"; label: string }
-    | { kind: "thankyou-generate" }
     | null
   >(null);
 
@@ -230,7 +224,6 @@ export function UnifiedDetailModal({
       setActiveTab("summary");
       setEditingClaude(false);
       setEditingCh(false);
-      setThankyouText("");
       load();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -372,25 +365,6 @@ export function UnifiedDetailModal({
     }
   };
 
-  const doThankyouGenerate = async () => {
-    setGeneratingThankyou(true);
-    try {
-      const res = await fetch(
-        `/api/slp/zoom-recordings/${recordingId}/thankyou-suggest`,
-        { method: "POST" }
-      );
-      const resp = await res.json();
-      if (resp.ok) {
-        setThankyouText(resp.text as string);
-        toast.success("お礼文案を生成しました");
-      } else {
-        toast.error(`失敗: ${resp.message}`);
-      }
-    } finally {
-      setGeneratingThankyou(false);
-    }
-  };
-
   // 参加者パース
   const participants: Participant[] = (() => {
     if (!data?.participantsJson) return [];
@@ -481,9 +455,6 @@ export function UnifiedDetailModal({
                 </TabsTrigger>
                 <TabsTrigger value="contact">
                   <History className="h-3 w-3 mr-1" /> 接触履歴
-                </TabsTrigger>
-                <TabsTrigger value="thankyou">
-                  <Mail className="h-3 w-3 mr-1" /> お礼文案
                 </TabsTrigger>
               </TabsList>
 
@@ -914,63 +885,6 @@ export function UnifiedDetailModal({
                     />
                   )}
                 </TabsContent>
-
-                {/* ============ お礼文案タブ ============ */}
-                <TabsContent value="thankyou" className="mt-0">
-                  <SectionCard
-                    title="お礼文案（Claude生成）"
-                    icon={<Mail className="h-4 w-4 text-pink-600" />}
-                    rightAction={
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-[11px]"
-                        onClick={() =>
-                          setConfirmDialog({ kind: "thankyou-generate" })
-                        }
-                        disabled={generatingThankyou}
-                      >
-                        {generatingThankyou ? (
-                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                        ) : (
-                          <Sparkles className="h-3 w-3 mr-1" />
-                        )}
-                        {thankyouText ? "再生成" : "生成"}
-                      </Button>
-                    }
-                  >
-                    {thankyouText ? (
-                      <>
-                        <Textarea
-                          value={thankyouText}
-                          onChange={(e) => setThankyouText(e.target.value)}
-                          rows={10}
-                          className="text-sm"
-                        />
-                        <div className="flex gap-2 mt-2">
-                          <Button
-                            variant="default"
-                            size="sm"
-                            onClick={() => handleCopy(thankyouText, "thankyou")}
-                          >
-                            <Copy className="h-3 w-3 mr-1" />
-                            {copiedFor === "thankyou"
-                              ? "コピー済"
-                              : "クリップボードにコピー"}
-                          </Button>
-                          <span className="text-xs text-muted-foreground self-center">
-                            （送信はプロライン画面から手動で行ってください）
-                          </span>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        「生成」ボタンでClaude APIによるお礼文案を作成します。
-                        AI要約と顧客情報を元に下書きを生成します。
-                      </p>
-                    )}
-                  </SectionCard>
-                </TabsContent>
               </div>
             </Tabs>
           )}
@@ -1009,31 +923,6 @@ export function UnifiedDetailModal({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* お礼文案生成 確認ダイアログ */}
-      <AlertDialog
-        open={confirmDialog?.kind === "thankyou-generate"}
-        onOpenChange={(o) => !o && setConfirmDialog(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>お礼文案を生成しますか？</AlertDialogTitle>
-            <AlertDialogDescription>
-              Claude APIを利用してお礼文案を生成します。APIの利用料金が発生します。よろしいですか？
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>キャンセル</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                setConfirmDialog(null);
-                await doThankyouGenerate();
-              }}
-            >
-              実行する
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }
