@@ -314,6 +314,7 @@ export async function getZoomRecordingDetail(recordingId: number): Promise<
     chatLogText: string | null;
     participantsJson: string | null;
     mp4Path: string | null;
+    mp4SizeBytes: number | null;
     aiCompanionSummary: string | null;
     aiCompanionFetchedAt: string | null;
     summaryNextSteps: string | null;
@@ -347,6 +348,7 @@ export async function getZoomRecordingDetail(recordingId: number): Promise<
       chatLogText: r.chatLogText,
       participantsJson: r.participantsJson,
       mp4Path: r.mp4Path,
+      mp4SizeBytes: r.mp4SizeBytes != null ? Number(r.mp4SizeBytes) : null,
       aiCompanionSummary: r.aiCompanionSummary,
       aiCompanionFetchedAt: r.aiCompanionFetchedAt?.toISOString() ?? null,
       summaryNextSteps: r.summaryNextSteps,

@@ -75,6 +75,7 @@ type DetailData = {
   chatLogText: string | null;
   participantsJson: string | null;
   mp4Path: string | null;
+  mp4SizeBytes: number | null;
   aiCompanionSummary: string | null;
   summaryNextSteps: string | null;
   claudeSummary: string | null;
@@ -470,6 +471,9 @@ export function UnifiedDetailModal({
                 <TabsTrigger value="summary">
                   <Brain className="h-3 w-3 mr-1" /> 要約
                 </TabsTrigger>
+                <TabsTrigger value="recording">
+                  <Video className="h-3 w-3 mr-1" /> レコーディング
+                </TabsTrigger>
                 <TabsTrigger value="transcript">
                   <FileText className="h-3 w-3 mr-1" /> 文字起こし
                 </TabsTrigger>
@@ -659,6 +663,79 @@ export function UnifiedDetailModal({
                       </p>
                     )}
                   </SectionCard>
+                </TabsContent>
+
+                {/* ============ レコーディングタブ ============ */}
+                <TabsContent value="recording" className="mt-0">
+                  {data.mp4Path ? (
+                    <SectionCard
+                      title="レコーディング動画"
+                      icon={<Video className="h-4 w-4 text-indigo-600" />}
+                      rightAction={
+                        <Button
+                          asChild
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px]"
+                        >
+                          <a href={data.mp4Path} download>
+                            <Download className="h-3 w-3 mr-1" />
+                            ダウンロード
+                          </a>
+                        </Button>
+                      }
+                    >
+                      <video
+                        src={data.mp4Path}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        className="w-full rounded-lg bg-black"
+                      />
+                      <div className="mt-2 text-[11px] text-muted-foreground flex flex-wrap gap-x-4 gap-y-0.5">
+                        {data.recordingStartAt && (
+                          <span>
+                            収録開始: {formatJstDateTime(data.recordingStartAt)}
+                          </span>
+                        )}
+                        {data.recordingEndAt && (
+                          <span>
+                            収録終了: {formatJstDateTime(data.recordingEndAt)}
+                          </span>
+                        )}
+                        {data.mp4SizeBytes != null && (
+                          <span>サイズ: {formatBytes(data.mp4SizeBytes)}</span>
+                        )}
+                      </div>
+                    </SectionCard>
+                  ) : data.downloadStatus === "in_progress" ||
+                    data.state === "取得中" ? (
+                    <EmptyState
+                      icon={
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      }
+                      message="Zoomから録画を取得中です。完了後にこのタブを再度開いてください。"
+                    />
+                  ) : data.downloadStatus === "no_recording" ? (
+                    <EmptyState
+                      icon={<Video className="h-6 w-6 text-muted-foreground" />}
+                      message="この会議には録画データがありません。"
+                    />
+                  ) : data.downloadStatus === "failed" ? (
+                    <EmptyState
+                      icon={<Video className="h-6 w-6 text-red-400" />}
+                      message={
+                        data.downloadError
+                          ? `取得に失敗しました: ${data.downloadError}`
+                          : "取得に失敗しました。上部の「再取得」ボタンから再試行できます。"
+                      }
+                    />
+                  ) : (
+                    <EmptyState
+                      icon={<Video className="h-6 w-6 text-muted-foreground" />}
+                      message="録画はまだ取得されていません。上部の「未取得分を取得」ボタンから取得できます。"
+                    />
+                  )}
                 </TabsContent>
 
                 {/* ============ 文字起こしタブ ============ */}
@@ -1012,6 +1089,14 @@ function InfoRow({ label, value }: { label: string; value: string | null }) {
       <div className="text-sm">{value || "—"}</div>
     </div>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 function EmptyState({
