@@ -65,21 +65,39 @@ function BaseWrapper(props: BaseProps) {
     props.onOpenChange(nextOpen);
   };
 
-  const processZoomEntries = async (contactHistoryId: number) => {
+  const processZoomEntries = async (
+    contactHistoryId: number,
+    toastId: string | number
+  ) => {
     // 入力されているエントリのみ処理
     const validEntries = zoomEntries.filter((e) => e.zoomUrl.trim() !== "");
     if (validEntries.length === 0) {
+      toast.success("接触履歴を追加しました", { id: toastId });
       setZoomEntries([]);
       return;
     }
+
+    toast.loading(
+      `Zoom議事録を連携中... (0/${validEntries.length})`,
+      { id: toastId }
+    );
+
     let successCount = 0;
     let failCount = 0;
-    for (const entry of validEntries) {
+    const failureReasons: string[] = [];
+
+    for (let i = 0; i < validEntries.length; i++) {
+      const entry = validEntries[i];
+      // 進捗更新
+      toast.loading(
+        `Zoom議事録を連携中... (${i + 1}/${validEntries.length})`,
+        { id: toastId }
+      );
       if (!entry.hostStaffId) {
-        toast.error(
-          `Zoom URL "${entry.zoomUrl.slice(0, 40)}..." のホストスタッフが未選択のためスキップ`
-        );
         failCount++;
+        failureReasons.push(
+          `"${entry.zoomUrl.slice(0, 40)}..." ホストスタッフ未選択`
+        );
         continue;
       }
       const r = await addManualZoomToContactHistory({
@@ -93,14 +111,34 @@ function BaseWrapper(props: BaseProps) {
         successCount++;
       } else {
         failCount++;
-        toast.error(`Zoom連携失敗: ${r.error}`);
+        failureReasons.push(r.error);
       }
     }
-    if (successCount > 0) {
-      toast.success(`Zoom議事録連携を ${successCount}件 追加しました`);
-    }
-    if (failCount > 0 && successCount === 0) {
-      toast.warning("Zoom連携に失敗しました。接触履歴は作成済みです。");
+
+    // 最終結果を1件のトーストにまとめて確定
+    if (failCount === 0) {
+      toast.success(
+        `接触履歴を追加しました（Zoom議事録${successCount}件連携）`,
+        { id: toastId }
+      );
+    } else if (successCount > 0) {
+      toast.warning(
+        `接触履歴を追加しました（Zoom連携: 成功${successCount}件・失敗${failCount}件）`,
+        {
+          id: toastId,
+          description: failureReasons.slice(0, 3).join(" / "),
+          duration: 10000,
+        }
+      );
+    } else {
+      toast.warning(
+        "接触履歴は追加しましたが、Zoom議事録連携に失敗しました",
+        {
+          id: toastId,
+          description: failureReasons.slice(0, 3).join(" / "),
+          duration: 10000,
+        }
+      );
     }
     setZoomEntries([]);
   };
@@ -145,8 +183,8 @@ function BaseWrapper(props: BaseProps) {
       renderAddExtraSection={() => (
         <ZoomEntriesForAdd entries={zoomEntries} onChange={setZoomEntries} />
       )}
-      onAfterAdd={async (created) => {
-        await processZoomEntries(created.id);
+      onAfterAdd={async (created, ctx) => {
+        await processZoomEntries(created.id, ctx.toastId);
       }}
       extraIsDirty={hasZoomEntryInput}
       onDiscard={() => setZoomEntries([])}

@@ -161,9 +161,14 @@ export type BaseProps = {
   /**
    * 接触履歴を新規追加した直後に呼ばれるフック。
    * SLP ではここで Zoom エントリを addManualZoomToContactHistory に流し込む。
-   * 失敗は内部で toast 等でハンドリングすることを想定。
+   * `ctx.toastId` を渡すので、追加処理全体で単一のトーストを使って
+   * ローディング→完了の状態遷移を表現できる。呼び出し側が最終的に
+   * `toast.success/error({ id: toastId })` でトーストを確定する責務を持つ。
    */
-  onAfterAdd?: (created: ContactHistory) => Promise<void> | void;
+  onAfterAdd?: (
+    created: ContactHistory,
+    ctx: { toastId: string | number }
+  ) => Promise<void> | void;
   /**
    * 親側で保持している追加セクションの未保存状態。true の場合、formData が
    * 変更されていなくてもダーティ扱いにする（例: SLP の Zoom URL 入力）。
@@ -404,6 +409,8 @@ export function ContactHistoryModalBase({
       return;
     }
     setLoading(true);
+    // 追加全体で単一のトーストを使う（onAfterAdd 有りの場合は呼び出し側が最終確定する）
+    const toastId = toast.loading("接触履歴を追加中...");
     try {
       const newHistory = await actions.add(entityId, {
         contactDate: formData.contactDate,
@@ -422,15 +429,18 @@ export function ContactHistoryModalBase({
         assignedToNames: getStaffNames(newHistory.assignedTo as string | null),
       } as unknown as ContactHistory;
       setHistories([historyWithNames, ...histories]);
-      toast.success("接触履歴を追加しました");
 
-      // 追加後のフック（SLPではZoomエントリ処理）
+      // 追加後のフック（SLPではZoomエントリ処理）。
+      // onAfterAdd が toast を最終確定する責務を持つ。
       if (onAfterAdd) {
         try {
-          await onAfterAdd(historyWithNames);
+          await onAfterAdd(historyWithNames, { toastId });
         } catch (e) {
           console.error("[contact-history-modal] onAfterAdd failed:", e);
+          toast.error("追加後の処理に失敗しました", { id: toastId });
         }
+      } else {
+        toast.success("接触履歴を追加しました", { id: toastId });
       }
 
       setIsAddMode(false);
@@ -452,7 +462,7 @@ export function ContactHistoryModalBase({
       }
       clearFormCache();
     } catch {
-      toast.error("追加に失敗しました");
+      toast.error("追加に失敗しました", { id: toastId });
     } finally {
       setLoading(false);
     }
@@ -568,66 +578,60 @@ export function ContactHistoryModalBase({
       .join(", ");
 
     return (
-      <div className="space-y-3 border rounded-lg p-4 bg-muted/50">
-        <div className="flex justify-between items-center">
-          <h3 className="text-sm font-medium">接触履歴の詳細</h3>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setViewHistory(null)}
-          >
-            閉じる
-          </Button>
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <DetailField label="接触日時">
+            {formatDateTime(history.contactDate)}
+          </DetailField>
+          <DetailField label="接触方法">
+            {history.contactMethodName || <EmptyText />}
+          </DetailField>
         </div>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-          <div>
-            <span className="text-muted-foreground">接触日時:</span>
-            <span className="ml-2">{formatDateTime(history.contactDate)}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">接触方法:</span>
-            <span className="ml-2">{history.contactMethodName || "-"}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">プロジェクト・顧客種別:</span>
-            <span className="ml-2">{customerTypeNames || "-"}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">接触種別:</span>
-            <span className="ml-2">{history.contactCategoryName || "-"}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">担当者:</span>
-            <span className="ml-2">{history.assignedToNames || getStaffNames(history.assignedTo)}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">先方参加者:</span>
-            <span className="ml-2">{history.customerParticipants || "-"}</span>
-          </div>
+
+        <DetailField label="プロジェクト・顧客種別">
+          {customerTypeNames || <EmptyText />}
+        </DetailField>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <DetailField label="接触種別">
+            {history.contactCategoryName || <EmptyText />}
+          </DetailField>
+          <DetailField label="担当者">
+            {history.assignedToNames || getStaffNames(history.assignedTo) || <EmptyText />}
+          </DetailField>
         </div>
-        {history.meetingMinutes && (
-          <div className="text-sm">
-            <span className="text-muted-foreground">議事録:</span>
-            <pre className="mt-1 whitespace-pre-wrap bg-white border rounded p-2 text-sm">{history.meetingMinutes}</pre>
-          </div>
-        )}
-        {history.note && (
-          <div className="text-sm">
-            <span className="text-muted-foreground">備考:</span>
-            <pre className="mt-1 whitespace-pre-wrap bg-white border rounded p-2 text-sm">{history.note}</pre>
-          </div>
-        )}
-        {history.files && history.files.length > 0 && (
-          <div className="text-sm">
-            <span className="text-muted-foreground">添付ファイル:</span>
-            <div className="mt-1">
-              <FileDisplay files={history.files} />
-            </div>
-          </div>
-        )}
-        {/* 閲覧モードのZoom情報（読み取り専用） */}
+
+        <DetailField label="先方参加者">
+          {history.customerParticipants || <EmptyText />}
+        </DetailField>
+
+        <DetailField label="議事録" variant="textarea">
+          {history.meetingMinutes ? (
+            <div className="whitespace-pre-wrap">{history.meetingMinutes}</div>
+          ) : (
+            <EmptyText />
+          )}
+        </DetailField>
+
+        <DetailField label="備考" variant="textarea">
+          {history.note ? (
+            <div className="whitespace-pre-wrap">{history.note}</div>
+          ) : (
+            <EmptyText />
+          )}
+        </DetailField>
+
+        <DetailField label="添付ファイル" variant="tags">
+          {history.files && history.files.length > 0 ? (
+            <FileDisplay files={history.files} />
+          ) : (
+            <EmptyText />
+          )}
+        </DetailField>
+
+        {/* 閲覧モードのZoom情報（読み取り専用。詳細押下でZoom商談詳細モーダル起動） */}
         {renderZoomSectionForView && (
-          <div className="rounded border bg-white p-3">
+          <div className="rounded-md border border-input bg-muted/30 p-3">
             {renderZoomSectionForView(history.id)}
           </div>
         )}
@@ -995,7 +999,7 @@ export function ContactHistoryModalBase({
 
       <div className={renderInline ? "flex flex-col gap-2 flex-1 min-h-0" : "px-4 py-3 flex flex-col gap-2 flex-1 min-h-0"}>
         {/* 追加ボタン + フィルタ */}
-        {!isAddMode && !editHistory && !viewHistory && (
+        {!isAddMode && !editHistory && (
           <div className="flex items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2">
               {hasAnyScheduledZoom && (
@@ -1013,13 +1017,6 @@ export function ContactHistoryModalBase({
               <Plus className="mr-1 h-3.5 w-3.5" />
               接触履歴を追加
             </Button>
-          </div>
-        )}
-
-        {/* 閲覧モード */}
-        {viewHistory && (
-          <div className="shrink-0 max-h-[50vh] overflow-y-auto">
-            {renderViewDetail(viewHistory)}
           </div>
         )}
 
@@ -1137,10 +1134,30 @@ export function ContactHistoryModalBase({
     </>
   );
 
+  const viewDetailDialog = (
+    <Dialog open={!!viewHistory} onOpenChange={(o) => !o && setViewHistory(null)}>
+      <DialogContent
+        size="fullwidth"
+        className="sm:!max-w-[880px] max-h-[74vh] h-[74vh] flex flex-col overflow-hidden p-0 gap-0"
+      >
+        <DialogHeader className="px-6 pt-6 pb-3 border-b flex-shrink-0">
+          <DialogTitle>接触履歴の詳細</DialogTitle>
+        </DialogHeader>
+        {viewHistory && (
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+            {renderViewDetail(viewHistory)}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+
   if (renderInline) {
     return (
       <>
         <div className="flex flex-col flex-1 min-h-0">{content}</div>
+
+        {viewDetailDialog}
 
         {/* 編集確認ダイアログ */}
         <AlertDialog open={editConfirm} onOpenChange={setEditConfirm}>
@@ -1253,6 +1270,8 @@ export function ContactHistoryModalBase({
         </DialogContent>
       </Dialog>
 
+      {viewDetailDialog}
+
       {/* 編集確認ダイアログ */}
       <AlertDialog open={editConfirm} onOpenChange={setEditConfirm}>
         <AlertDialogContent>
@@ -1333,4 +1352,31 @@ export function ContactHistoryModalBase({
       </AlertDialog>
     </>
   );
+}
+
+function DetailField({
+  label,
+  children,
+  variant = "default",
+}: {
+  label: string;
+  children: React.ReactNode;
+  variant?: "default" | "textarea" | "tags";
+}) {
+  const boxClass =
+    variant === "textarea"
+      ? "min-h-[96px] w-full rounded-md border border-input bg-muted/30 px-3 py-2 text-sm"
+      : variant === "tags"
+        ? "min-h-10 w-full rounded-md border border-input bg-muted/30 px-3 py-2 text-sm"
+        : "flex min-h-10 w-full items-center rounded-md border border-input bg-muted/30 px-3 py-2 text-sm";
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className={boxClass}>{children}</div>
+    </div>
+  );
+}
+
+function EmptyText() {
+  return <span className="text-gray-400">-</span>;
 }
