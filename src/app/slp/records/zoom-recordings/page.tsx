@@ -33,17 +33,34 @@ export default async function ZoomRecordingsPage() {
     },
   });
 
+  // 猶予期間: 会議終了から6時間経過でZoom処理が完了しているとみなす
+  const GRACE_PERIOD_MS = 6 * 60 * 60 * 1000;
+  const now = Date.now();
+
   const clientRows: RecordingRow[] = rows.map((r) => {
     const contactDate =
       r.scheduledAt ?? r.contactHistory?.session?.scheduledAt ?? null;
 
-    // 「試行済み」フラグ（取得を試みて結果確定した状態）
-    // failed は再試行可能な未取得として扱う。
-    const aiSummaryAttempted = !!r.aiCompanionFetchedAt;
-    const chatAttempted = !!r.chatFetchedAt;
-    const participantsAttempted = !!r.participantsFetchedAt;
-    const recordingAttempted =
+    // 会議終了時刻（優先順位: recordingEndAt > scheduledAt > createdAt）
+    const meetingEndReference =
+      r.recordingEndAt ?? r.scheduledAt ?? r.createdAt;
+    const pastGracePeriod =
+      now - meetingEndReference.getTime() > GRACE_PERIOD_MS;
+
+    // 実際に取得を試みたかどうか（API結果に基づく厳密な試行済みフラグ）
+    const aiSummaryActuallyAttempted = !!r.aiCompanionFetchedAt;
+    const chatActuallyAttempted = !!r.chatFetchedAt;
+    const participantsActuallyAttempted = !!r.participantsFetchedAt;
+    const recordingActuallyAttempted =
       r.downloadStatus === "completed" || r.downloadStatus === "no_recording";
+
+    // 表示用「試行済み」（猶予期間超過で "該当なし確定" とみなす）
+    const aiSummaryAttempted = aiSummaryActuallyAttempted || pastGracePeriod;
+    const chatAttempted = chatActuallyAttempted || pastGracePeriod;
+    const participantsAttempted =
+      participantsActuallyAttempted || pastGracePeriod;
+    const recordingAttempted =
+      recordingActuallyAttempted || pastGracePeriod;
 
     // 「データが存在する」フラグ
     const hasAiSummary = !!r.aiCompanionSummary;
@@ -54,12 +71,19 @@ export default async function ZoomRecordingsPage() {
       !!r.participantsJson && r.participantsJson !== "[]";
     const hasNextSteps = !!r.summaryNextSteps;
 
-    // 全項目が「試行済み」なら「取得済み」とみなす
+    // 全項目が試行済みなら「取得済み」とみなす（グレー含む）
     const allFetched =
       aiSummaryAttempted &&
       chatAttempted &&
       participantsAttempted &&
       recordingAttempted;
+
+    // 実際に全項目が試行済みか（再取得ボタン非表示の判定用）
+    const actuallyAllFetched =
+      aiSummaryActuallyAttempted &&
+      chatActuallyAttempted &&
+      participantsActuallyAttempted &&
+      recordingActuallyAttempted;
 
     return {
       id: r.id,
@@ -80,6 +104,8 @@ export default async function ZoomRecordingsPage() {
       hasParticipants,
       hasNextSteps,
       allFetched,
+      actuallyAllFetched,
+      pastGracePeriod,
       downloadStatus: r.downloadStatus,
       companyRecordId: r.contactHistory?.companyRecord?.id ?? null,
       prolineUid: r.contactHistory?.companyRecord?.prolineUid ?? null,

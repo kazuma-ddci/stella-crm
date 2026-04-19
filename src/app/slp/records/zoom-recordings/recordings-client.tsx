@@ -23,7 +23,7 @@ export type RecordingRow = {
   hostName: string | null;
   zoomMeetingId: string | null;
   state: string | null;
-  // 試行状態
+  // 試行状態（猶予期間6時間超過で自動的にtrue扱い）
   aiSummaryAttempted: boolean;
   chatAttempted: boolean;
   participantsAttempted: boolean;
@@ -35,7 +35,12 @@ export type RecordingRow = {
   hasChat: boolean;
   hasParticipants: boolean;
   hasNextSteps: boolean;
+  // 表示上「すべて試行済み」(実試行 or 猶予期間でのみなし)
   allFetched: boolean;
+  // 実際にAPI試行済みか（猶予期間考慮なし、ボタン非表示判定用）
+  actuallyAllFetched: boolean;
+  // 猶予期間(6時間)を超えているか
+  pastGracePeriod: boolean;
   // コンパニオン情報（モーダル側へ渡す用）
   downloadStatus: string;
   companyRecordId: number | null;
@@ -230,7 +235,7 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
                     />
                   </div>
                   <div className="mt-2 text-xs flex items-center gap-2 flex-wrap">
-                    {r.allFetched ? (
+                    {r.actuallyAllFetched ? (
                       <span className="inline-flex items-center gap-1 text-green-700 font-medium">
                         <CheckCircle2 className="h-3 w-3" />
                         取得できる情報はすべて取得しました
@@ -239,8 +244,17 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
                       <>
                         <button
                           type="button"
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-900 hover:bg-amber-200 font-medium disabled:opacity-60"
+                          className={
+                            r.pastGracePeriod
+                              ? "inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 font-medium disabled:opacity-60"
+                              : "inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-900 hover:bg-amber-200 font-medium disabled:opacity-60"
+                          }
                           disabled={bulkBusy === r.id}
+                          title={
+                            r.pastGracePeriod
+                              ? "会議終了から6時間超過しているため、Zoom側の処理は完了済みの可能性が高いです。念のため再取得する場合はこのボタン"
+                              : "未取得の情報を取得"
+                          }
                           onClick={async (e) => {
                             e.stopPropagation();
                             setBulkBusy(r.id);
@@ -288,7 +302,7 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
           open={!!openRecord}
           onOpenChange={(o) => !o && setOpenRecord(null)}
           recordingId={openRecord.id}
-          hasRetryable={!openRecord.allFetched}
+          hasRetryable={!openRecord.actuallyAllFetched}
           companyName={openRecord.companyName}
         />
       )}

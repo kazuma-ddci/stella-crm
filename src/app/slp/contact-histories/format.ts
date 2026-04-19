@@ -45,6 +45,9 @@ export const contactHistoryIncludeForDisplay = {
       transcriptText: true,
       chatLogText: true,
       participantsJson: true,
+      recordingEndAt: true,
+      scheduledAt: true,
+      createdAt: true,
     },
   },
 } satisfies Prisma.SlpContactHistoryInclude;
@@ -108,24 +111,46 @@ export function formatSlpContactHistory(history: SlpContactHistoryWithRelations)
     hasScheduledZoom: history.zoomRecordings.some((z) => z.state === "予定"),
     hasFailedZoom: history.zoomRecordings.some((z) => z.state === "失敗"),
     // 統合モーダルで表示するための各録画サマリ
+    // 猶予期間: 会議終了から6時間経過でZoom処理が完了しているとみなす
     zoomRecordings: history.zoomRecordings.map((z) => {
-      const aiSummaryAttempted = !!z.aiCompanionFetchedAt;
-      const chatAttempted = !!z.chatFetchedAt;
-      const participantsAttempted = !!z.participantsFetchedAt;
-      const recordingAttempted =
+      const GRACE_PERIOD_MS = 6 * 60 * 60 * 1000;
+      const meetingEndReference =
+        z.recordingEndAt ?? z.scheduledAt ?? z.createdAt;
+      const pastGracePeriod =
+        Date.now() - meetingEndReference.getTime() > GRACE_PERIOD_MS;
+
+      const aiSummaryActuallyAttempted = !!z.aiCompanionFetchedAt;
+      const chatActuallyAttempted = !!z.chatFetchedAt;
+      const participantsActuallyAttempted = !!z.participantsFetchedAt;
+      const recordingActuallyAttempted =
         z.downloadStatus === "completed" ||
         z.downloadStatus === "no_recording";
+
+      const aiSummaryAttempted = aiSummaryActuallyAttempted || pastGracePeriod;
+      const chatAttempted = chatActuallyAttempted || pastGracePeriod;
+      const participantsAttempted =
+        participantsActuallyAttempted || pastGracePeriod;
+      const recordingAttempted =
+        recordingActuallyAttempted || pastGracePeriod;
+
       const hasAiSummary = !!z.aiCompanionSummary;
       const hasMp4 = !!z.mp4Path;
       const hasTranscript = !!z.transcriptText;
       const hasChat = !!z.chatLogText;
       const hasParticipants =
         !!z.participantsJson && z.participantsJson !== "[]";
+
       const allFetched =
         aiSummaryAttempted &&
         chatAttempted &&
         participantsAttempted &&
         recordingAttempted;
+      const actuallyAllFetched =
+        aiSummaryActuallyAttempted &&
+        chatActuallyAttempted &&
+        participantsActuallyAttempted &&
+        recordingActuallyAttempted;
+
       return {
         id: z.id,
         zoomMeetingId: z.zoomMeetingId.toString(),
@@ -134,6 +159,8 @@ export function formatSlpContactHistory(history: SlpContactHistoryWithRelations)
         state: z.state,
         downloadStatus: z.downloadStatus,
         allFetched,
+        actuallyAllFetched,
+        pastGracePeriod,
         hasAiSummary,
         hasMp4,
         hasTranscript,
