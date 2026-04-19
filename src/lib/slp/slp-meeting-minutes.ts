@@ -152,9 +152,11 @@ export async function appendClaudeSummaryMinutes(params: {
  *
  * 呼び出し元:
  *   - fetchAndSaveAiSummary（AI要約取得後）
- *   - downloadAndSaveRecordingFiles（文字起こしDL後）
  *
- * 優先順位は「AI要約 > 文字起こし本文」。両方なければ何もしない。
+ * 議事録本体は「Zoom AI Companion 要約 + ネクストステップ」。
+ * 文字起こしは議事録欄には入れない（長文すぎて可読性を下げるため。
+ * 全文は商談詳細モーダルの「文字起こし」タブで参照できる）。
+ * どちらも無ければ何もしない。
  */
 export async function appendRecordingMinutes(params: {
   recordingId: number;
@@ -169,7 +171,7 @@ export async function appendRecordingMinutes(params: {
         id: true,
         contactHistoryId: true,
         aiCompanionSummary: true,
-        transcriptText: true,
+        summaryNextSteps: true,
         label: true,
         isPrimary: true,
         scheduledAt: true,
@@ -180,10 +182,14 @@ export async function appendRecordingMinutes(params: {
     if (!rec) return { appended: false };
     if (rec.minutesAppendedAt) return { appended: false };
 
-    // 優先順位: AI要約 > 文字起こし
-    const source =
-      rec.aiCompanionSummary?.trim() || rec.transcriptText?.trim() || null;
-    if (!source) return { appended: false };
+    const summary = rec.aiCompanionSummary?.trim();
+    const nextSteps = rec.summaryNextSteps?.trim();
+    if (!summary && !nextSteps) return { appended: false };
+
+    const sections: string[] = [];
+    if (summary) sections.push(summary);
+    if (nextSteps) sections.push(`【ネクストステップ】\n${nextSteps}`);
+    const source = sections.join("\n\n");
 
     const separator = buildMinutesSeparator({
       label: rec.label,

@@ -113,7 +113,7 @@ export async function fetchAndSaveAiSummary(
   });
   if (!changed) return { ok: true, updated: false };
 
-  // 議事録を区切り線付きで接触履歴に追記（AI要約優先、二重追記は minutesAppendedAt で防止）
+  // AI要約 + ネクストステップを議事録欄に追記（二重追記は minutesAppendedAt で防止）
   await appendRecordingMinutes({ recordingId: recordingRowId });
 
   return { ok: true, updated: true };
@@ -363,11 +363,8 @@ export async function downloadAndSaveRecordingFiles(
     }
   }
 
-  // 議事録を区切り線付きで接触履歴に追記（文字起こしも対象、AI要約が優先される）
-  // 二重追記は minutesAppendedAt で防止
-  if (transcriptSaved) {
-    await appendRecordingMinutes({ recordingId: recordingRowId });
-  }
+  // 議事録欄への追記は AI要約取得後にのみ行う（fetchAndSaveAiSummary 経由）。
+  // 文字起こしは議事録欄には入れない（詳細モーダルの「文字起こし」タブで参照可能）。
 
   // Zoom側の録画ファイルを削除（DL成功分のみ）
   await deleteFetchedZoomFiles(recordingPayload, rec.hostStaffId, rec.zoomMeetingId, rec.zoomMeetingUuid, downloaded);
