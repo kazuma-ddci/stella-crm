@@ -979,11 +979,11 @@ function InfoBar({
   items: { label: string; value: React.ReactNode }[];
 }) {
   return (
-    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs bg-muted/30 border rounded px-3 py-2">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs bg-muted/30 border rounded px-3 py-2">
       {items.map((it, i) => (
-        <div key={i}>
-          <span className="text-muted-foreground">{it.label}:</span>{" "}
-          <span className="font-mono">{it.value}</span>
+        <div key={i} className="flex items-center gap-1">
+          <span className="text-muted-foreground">{it.label}:</span>
+          <span className="font-mono flex items-center">{it.value}</span>
         </div>
       ))}
     </div>
@@ -1028,6 +1028,7 @@ function StateEditor({
   currentState: string;
   onUpdated: () => Promise<void> | void;
 }) {
+  const router = useRouter();
   const [saving, setSaving] = useState(false);
 
   const handleChange = async (next: string) => {
@@ -1042,6 +1043,8 @@ function StateEditor({
       if (r.ok) {
         toast.success(`商談状況を「${next}」に変更しました`);
         await onUpdated();
+        // 一覧ページのバッジも即時更新されるように Server Components を再取得
+        router.refresh();
       } else {
         toast.error(r.error);
       }
