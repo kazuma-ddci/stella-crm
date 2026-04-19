@@ -156,28 +156,89 @@ export async function downloadZoomRecordingFiles(params: {
  * Zoom Cloud Recording API から指定会議の recording_files 一覧を再取得する。
  * 手動取得時に Webhook ペイロードを失っている場合や、まだ取得していないファイルを後追いで処理する用途。
  *
- * Note: meeting_id (numeric) で /meetings/{id}/recordings を呼ぶ。UUID 形式は別エンドポイント。
+ * 挙動:
+ * 1) まず Numeric ID（または渡された ID そのもの）で /meetings/{id}/recordings を呼ぶ
+ * 2) 返ってきた payload に MP4 or TRANSCRIPT が無く、UUID が取れている場合は
+ *    UUID で再度 /meetings/{UUID}/recordings を呼んで上書き取得
+ *    （Zoom の挙動: 過去の会議では Numeric ID が別インスタンスを指してしまい、
+ *     file_type "MP4"/"TRANSCRIPT" が payload に出ないケースがあるため、
+ *     UUID による特定インスタンス参照で補完する）
+ *
+ * UUID のURLエンコード:
+ *   UUID が "/" で始まる or "//" を含む場合、Zoom API の仕様上 **二重 URL encode** が必要。
  */
 export async function fetchRecordingMetadata(input: {
   hostStaffId: number;
   meetingId: bigint | number | string;
 }): Promise<ZoomRecordingPayload | null> {
   const ctx = await requireStaffZoomContext(input.hostStaffId);
-  const meetingKey =
+
+  const callByKey = async (
+    key: string
+  ): Promise<ZoomRecordingPayload | null> => {
+    const resp = await fetch(
+      `https://api.zoom.us/v2/meetings/${key}/recordings`,
+      {
+        headers: { Authorization: `Bearer ${ctx.accessToken}` },
+        signal: AbortSignal.timeout(30000),
+      }
+    );
+    if (resp.status === 404) return null;
+    if (!resp.ok) {
+      throw new Error(`Zoom recording metadata 取得失敗: ${resp.status}`);
+    }
+    return (await resp.json()) as ZoomRecordingPayload;
+  };
+
+  const hasEssentialFiles = (p: ZoomRecordingPayload): boolean => {
+    return p.recording_files.some(
+      (f) => f.file_type === "MP4" || f.file_type === "TRANSCRIPT"
+    );
+  };
+
+  const encodeUuidForZoom = (uuid: string): string => {
+    // "/" で始まる or "//" を含む UUID は二重 URL encode が必要（Zoom API仕様）
+    const needsDoubleEncode = uuid.startsWith("/") || uuid.includes("//");
+    return needsDoubleEncode
+      ? encodeURIComponent(encodeURIComponent(uuid))
+      : encodeURIComponent(uuid);
+  };
+
+  // Numeric ID 側のキー（または string そのまま）
+  const primaryKey =
     typeof input.meetingId === "string"
       ? encodeURIComponent(input.meetingId)
       : input.meetingId.toString();
+
   try {
-    const resp = await fetch(`https://api.zoom.us/v2/meetings/${meetingKey}/recordings`, {
-      headers: { Authorization: `Bearer ${ctx.accessToken}` },
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!resp.ok) {
-      if (resp.status === 404) return null;
-      throw new Error(`Zoom recording metadata 取得失敗: ${resp.status}`);
+    const primary = await callByKey(primaryKey);
+    if (!primary) return null;
+
+    // 1回目で必須ファイル（MP4 or TRANSCRIPT）が揃っていればそれを返す
+    if (hasEssentialFiles(primary)) {
+      return primary;
     }
-    const data = (await resp.json()) as ZoomRecordingPayload;
-    return data;
+
+    // 欠損 → UUID で再試行（Zoom の過去会議対策）
+    if (primary.uuid) {
+      try {
+        const byUuid = await callByKey(encodeUuidForZoom(primary.uuid));
+        if (byUuid && hasEssentialFiles(byUuid)) {
+          return byUuid;
+        }
+        // UUID でも不完全ならとりあえず UUID 側を返す（recording_times 等含むほうが多い）
+        if (byUuid) return byUuid;
+      } catch (uuidErr) {
+        // UUID fallback 失敗でも primary は有効なので投げない
+        console.error(
+          "[fetchRecordingMetadata] UUID fallback failed:",
+          uuidErr
+        );
+      }
+    }
+
+    // fallback 不可 → 不完全でも primary を返す（呼び出し側が "no_recording" 等で処理）
+    return primary;
   } catch (err) {
     if (err instanceof Error && err.message.includes("404")) return null;
     throw err;

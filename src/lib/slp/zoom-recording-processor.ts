@@ -173,9 +173,20 @@ export async function downloadAndSaveRecordingFiles(
     return { ok: false, mp4: false, transcript: false, chat: false };
   }
 
+  // payload から取得した UUID を DB に保存（未保存の場合）
+  // AI要約・参加者取得は UUID が必要なので、ここで埋めておくと後続処理が動くようになる
+  const progressData: {
+    downloadStatus: string;
+    zoomMeetingUuid?: string;
+  } = {
+    downloadStatus: "in_progress",
+  };
+  if (recordingPayload.uuid && !rec.zoomMeetingUuid) {
+    progressData.zoomMeetingUuid = recordingPayload.uuid;
+  }
   await prisma.slpZoomRecording.update({
     where: { id: recordingRowId },
-    data: { downloadStatus: "in_progress" },
+    data: progressData,
   });
 
   let downloaded;
@@ -459,13 +470,16 @@ export async function fetchAllForRecording(recordingRowId: number): Promise<{
   });
 
   try {
-    // 1. AI 要約（軽い・先に実施）
-    const aiSummary = await fetchAndSaveAiSummary(recordingRowId);
-
-    // 2. 録画ファイル（重い）
+    // 1. 録画ファイル（重い）を先に実施
+    //    - この過程で payload から zoomMeetingUuid を DB に保存する
+    //    - 後続の AI要約・参加者取得は UUID が必須のため、これが先でないと動かない
+    //      （Webhook経由の場合は summary_completed が先に UUID を埋めることもある）
     const files = await downloadAndSaveRecordingFiles(recordingRowId);
 
-    // 3. 参加者情報
+    // 2. AI 要約（UUID 必須）
+    const aiSummary = await fetchAndSaveAiSummary(recordingRowId);
+
+    // 3. 参加者情報（UUID 必須）
     const participants = await fetchAndSaveParticipants(recordingRowId);
 
     // 4. AI による先方参加者抽出（transcript があれば）
