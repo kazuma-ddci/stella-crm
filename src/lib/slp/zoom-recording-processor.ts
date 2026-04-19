@@ -556,6 +556,9 @@ async function finalizeRecordingState(recordingRowId: number): Promise<"予定" 
       mp4Path: true,
       chatLogText: true,
       participantsJson: true,
+      recordingEndAt: true,
+      scheduledAt: true,
+      createdAt: true,
     },
   });
   if (!rec) return "失敗";
@@ -568,15 +571,26 @@ async function finalizeRecordingState(recordingRowId: number): Promise<"予定" 
     !!rec.chatLogText ||
     (!!rec.participantsJson && rec.participantsJson !== "[]");
 
+  // 会議終了時刻からの経過時間を計算（6時間以上なら、Zoom側の処理は完了済みと推定）
+  // 優先順位: recordingEndAt > scheduledAt > createdAt
+  const meetingEndRef =
+    rec.recordingEndAt ?? rec.scheduledAt ?? rec.createdAt;
+  const GRACE_PERIOD_MS = 6 * 60 * 60 * 1000;
+  const pastGracePeriod =
+    Date.now() - meetingEndRef.getTime() > GRACE_PERIOD_MS;
+
   let newState: "予定" | "完了" | "失敗";
   if (hasAnyData) {
     newState = "完了";
-  } else if (rec.downloadStatus === "no_recording") {
-    newState = "予定";
   } else if (rec.downloadStatus === "failed") {
     newState = "失敗";
+  } else if (pastGracePeriod) {
+    // データは無いが会議終了から6時間以上経過 → 会議は実施済みとみなして「完了」
+    // （データ取得失敗 ≠ 会議未実施 のため、時間経過で推定）
+    // もし実際には会議が実施されなかった場合は、スタッフが手動で「予定」に戻す想定
+    newState = "完了";
   } else {
-    // pending / in_progress なのに何も取れていない稀なケース
+    // まだ Zoom 側で処理中の可能性がある → 予定 のまま
     newState = "予定";
   }
 

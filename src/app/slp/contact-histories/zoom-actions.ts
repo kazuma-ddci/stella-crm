@@ -224,6 +224,45 @@ export async function retryZoomRecording(
 }
 
 // ============================================
+// Recording の商談状況（state）をスタッフが手動変更
+// ============================================
+export async function updateZoomRecordingState(
+  recordingId: number,
+  newState: "予定" | "完了" | "失敗"
+): Promise<ActionResult<{ recordingId: number; state: string }>> {
+  try {
+    await requireStaffWithProjectPermission([
+      { project: "slp", level: "edit" },
+    ]);
+
+    if (!["予定", "完了", "失敗"].includes(newState)) {
+      return err("不正な状態値です");
+    }
+
+    const rec = await prisma.slpZoomRecording.findUnique({
+      where: { id: recordingId },
+      select: { id: true, contactHistoryId: true, state: true },
+    });
+    if (!rec) return err("録画レコードが見つかりません");
+    if (rec.state === newState) {
+      return ok({ recordingId, state: newState });
+    }
+
+    await prisma.slpZoomRecording.update({
+      where: { id: recordingId },
+      data: { state: newState },
+    });
+
+    await revalidatePathsForContactHistory(rec.contactHistoryId);
+    return ok({ recordingId, state: newState });
+  } catch (e) {
+    return err(
+      e instanceof Error ? e.message : "商談状況の更新に失敗しました"
+    );
+  }
+}
+
+// ============================================
 // Recording 論理削除
 // ============================================
 export async function deleteZoomRecordingManual(

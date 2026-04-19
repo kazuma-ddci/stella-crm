@@ -31,6 +31,13 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Loader2,
   Sparkles,
   Copy,
@@ -50,6 +57,7 @@ import {
   reflectClaudeSummaryToMinutes,
   getContactHistoryForZoomRecording,
   updateContactHistoryFromZoomModal,
+  updateZoomRecordingState,
 } from "@/app/slp/contact-histories/zoom-actions";
 
 type DetailData = {
@@ -476,7 +484,13 @@ export function UnifiedDetailModal({
                       { label: "ホスト", value: data.hostStaffName ?? "—" },
                       {
                         label: "商談状況",
-                        value: data.state,
+                        value: (
+                          <StateEditor
+                            recordingId={data.id}
+                            currentState={data.state}
+                            onUpdated={load}
+                          />
+                        ),
                       },
                     ]}
                   />
@@ -997,5 +1011,62 @@ function EmptyState({
       {icon}
       <p className="text-sm">{message}</p>
     </div>
+  );
+}
+
+/**
+ * 商談状況（state）のインライン編集コンポーネント。
+ * プルダウンで 予定 / 完了 / 失敗 を切り替えられる。
+ * サーバ側では 6時間猶予で自動推定も働くが、手動変更は随時可能。
+ */
+function StateEditor({
+  recordingId,
+  currentState,
+  onUpdated,
+}: {
+  recordingId: number;
+  currentState: string;
+  onUpdated: () => Promise<void> | void;
+}) {
+  const [saving, setSaving] = useState(false);
+
+  const handleChange = async (next: string) => {
+    if (next === currentState) return;
+    if (!["予定", "完了", "失敗"].includes(next)) return;
+    setSaving(true);
+    try {
+      const r = await updateZoomRecordingState(
+        recordingId,
+        next as "予定" | "完了" | "失敗"
+      );
+      if (r.ok) {
+        toast.success(`商談状況を「${next}」に変更しました`);
+        await onUpdated();
+      } else {
+        toast.error(r.error);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      <Select
+        value={currentState}
+        onValueChange={handleChange}
+        disabled={saving}
+      >
+        <SelectTrigger className="h-6 w-20 text-xs py-0 px-2">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="予定">予定</SelectItem>
+          <SelectItem value="完了">完了</SelectItem>
+          <SelectItem value="失敗">失敗</SelectItem>
+        </SelectContent>
+      </Select>
+      {saving && <Loader2 className="h-3 w-3 animate-spin" />}
+    </span>
   );
 }
