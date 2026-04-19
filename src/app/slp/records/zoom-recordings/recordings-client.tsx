@@ -235,59 +235,68 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
                     />
                   </div>
                   <div className="mt-2 text-xs flex items-center gap-2 flex-wrap">
+                    {/*
+                      取得ボタンは常に表示する（ユーザー要件）。
+                      - 全取得済み → グレー disabled風、ラベル「再取得」
+                      - 6時間超過 未取得あり → グレー、ラベル「未取得分を取得」
+                      - 6時間以内 未取得あり → amber（目立つ）、ラベル「未取得分を取得」
+                      どのパターンでもクリックは可能で、fetchAllForRecording が走る。
+                    */}
+                    <button
+                      type="button"
+                      className={
+                        r.actuallyAllFetched
+                          ? "inline-flex items-center gap-1 px-2 py-0.5 rounded border bg-white text-gray-500 hover:bg-gray-50 font-medium disabled:opacity-60"
+                          : r.pastGracePeriod
+                            ? "inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 font-medium disabled:opacity-60"
+                            : "inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-900 hover:bg-amber-200 font-medium disabled:opacity-60"
+                      }
+                      disabled={bulkBusy === r.id}
+                      title={
+                        r.actuallyAllFetched
+                          ? "全て取得済みですが、もう一度取りに行く場合はこのボタン"
+                          : r.pastGracePeriod
+                            ? "会議終了から6時間超過しているため、Zoom側の処理は完了済みの可能性が高いです。念のため再取得する場合はこのボタン"
+                            : "未取得の情報を取得"
+                      }
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        setBulkBusy(r.id);
+                        try {
+                          const res = await fetch(
+                            `/api/slp/zoom-recordings/${r.id}/fetch-all`,
+                            { method: "POST" }
+                          );
+                          const data = await res.json();
+                          if (data.ok) {
+                            router.refresh();
+                          }
+                        } finally {
+                          setBulkBusy(null);
+                        }
+                      }}
+                    >
+                      {bulkBusy === r.id ? (
+                        <>
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          取得中...
+                        </>
+                      ) : (
+                        <>
+                          <Download className="h-3 w-3" />
+                          {r.actuallyAllFetched ? "再取得" : "未取得分を取得"}
+                        </>
+                      )}
+                    </button>
                     {r.actuallyAllFetched ? (
                       <span className="inline-flex items-center gap-1 text-teal-700 font-medium">
                         <CheckCircle2 className="h-3 w-3" />
                         取得できる情報はすべて取得しました
                       </span>
                     ) : (
-                      <>
-                        <button
-                          type="button"
-                          className={
-                            r.pastGracePeriod
-                              ? "inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 font-medium disabled:opacity-60"
-                              : "inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-900 hover:bg-amber-200 font-medium disabled:opacity-60"
-                          }
-                          disabled={bulkBusy === r.id}
-                          title={
-                            r.pastGracePeriod
-                              ? "会議終了から6時間超過しているため、Zoom側の処理は完了済みの可能性が高いです。念のため再取得する場合はこのボタン"
-                              : "未取得の情報を取得"
-                          }
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            setBulkBusy(r.id);
-                            try {
-                              const res = await fetch(
-                                `/api/slp/zoom-recordings/${r.id}/fetch-all`,
-                                { method: "POST" }
-                              );
-                              const data = await res.json();
-                              if (data.ok) {
-                                router.refresh();
-                              }
-                            } finally {
-                              setBulkBusy(null);
-                            }
-                          }}
-                        >
-                          {bulkBusy === r.id ? (
-                            <>
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                              取得中...
-                            </>
-                          ) : (
-                            <>
-                              <Download className="h-3 w-3" />
-                              未取得分を取得
-                            </>
-                          )}
-                        </button>
-                        <span className="text-muted-foreground">
-                          クリックで詳細
-                        </span>
-                      </>
+                      <span className="text-muted-foreground">
+                        クリックで詳細
+                      </span>
                     )}
                   </div>
                 </td>

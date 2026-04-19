@@ -410,14 +410,29 @@ export function UnifiedDetailModal({
             </DialogTitle>
           </DialogHeader>
 
-          {/* ヘッダの取得ボタン */}
-          {!loading && data && hasRetryable && (
-            <div className="flex items-center justify-between rounded-md border bg-amber-50 border-amber-200 px-3 py-2">
-              <span className="text-xs text-amber-900">
-                未取得の情報があります。Zoom側で準備できていれば取得できます。
+          {/* ヘッダの取得ボタン（常に表示。未取得ありならamber、全取得済ならグレー） */}
+          {!loading && data && (
+            <div
+              className={
+                hasRetryable
+                  ? "flex items-center justify-between rounded-md border bg-amber-50 border-amber-200 px-3 py-2"
+                  : "flex items-center justify-between rounded-md border bg-gray-50 border-gray-200 px-3 py-2"
+              }
+            >
+              <span
+                className={
+                  hasRetryable
+                    ? "text-xs text-amber-900"
+                    : "text-xs text-gray-600"
+                }
+              >
+                {hasRetryable
+                  ? "未取得の情報があります。Zoom側で準備できていれば取得できます。"
+                  : "全て取得済みですが、再取得が必要な場合はボタンから。"}
               </span>
               <Button
                 size="sm"
+                variant={hasRetryable ? "default" : "outline"}
                 onClick={handleFetchAll}
                 disabled={fetching}
                 className="shrink-0"
@@ -430,7 +445,7 @@ export function UnifiedDetailModal({
                 ) : (
                   <>
                     <Download className="h-3 w-3 mr-1" />
-                    未取得分を取得
+                    {hasRetryable ? "未取得分を取得" : "再取得"}
                   </>
                 )}
               </Button>
