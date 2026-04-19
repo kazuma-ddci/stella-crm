@@ -105,6 +105,8 @@ interface Props {
   hasRetryable: boolean;
   /** 一覧で表示している事業者名（タイトル表示用） */
   companyName?: string | null;
+  /** true の場合、6タブ構成から「接触履歴」タブを非表示にする（接触履歴詳細から開かれたとき用） */
+  hideContactTab?: boolean;
 }
 
 /**
@@ -162,6 +164,7 @@ export function UnifiedDetailModal({
   recordingId,
   hasRetryable,
   companyName,
+  hideContactTab = false,
 }: Props) {
   const router = useRouter();
 
@@ -453,9 +456,11 @@ export function UnifiedDetailModal({
                 <TabsTrigger value="participants">
                   <Users className="h-3 w-3 mr-1" /> 参加者
                 </TabsTrigger>
-                <TabsTrigger value="contact">
-                  <History className="h-3 w-3 mr-1" /> 接触履歴
-                </TabsTrigger>
+                {!hideContactTab && (
+                  <TabsTrigger value="contact">
+                    <History className="h-3 w-3 mr-1" /> 接触履歴
+                  </TabsTrigger>
+                )}
               </TabsList>
 
               <div className="flex-1 overflow-y-scroll mt-3 pr-1">
@@ -740,6 +745,7 @@ export function UnifiedDetailModal({
                 </TabsContent>
 
                 {/* ============ 接触履歴タブ ============ */}
+                {!hideContactTab && (
                 <TabsContent value="contact" className="mt-0">
                   {ch ? (
                     <SectionCard
@@ -885,6 +891,7 @@ export function UnifiedDetailModal({
                     />
                   )}
                 </TabsContent>
+                )}
               </div>
             </Tabs>
           )}

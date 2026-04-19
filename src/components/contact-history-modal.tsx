@@ -1250,6 +1250,7 @@ export function ContactHistoryModalBase({
             requestClose(() => {
               setIsAddMode(false);
               setEditHistory(null);
+              setViewHistory(null);
               setFormData({});
               initialSnapshotRef.current = "";
               clearFormCache();
