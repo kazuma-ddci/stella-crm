@@ -139,6 +139,45 @@ export async function downloadZoomRecordingFiles(params: {
     }
   }
 
+  // TRANSCRIPTフォールバック: /recordings の recording_files から TRANSCRIPT が取れなかった場合、
+  // 新API /meetings/{id}/transcript を叩く。AI Companion連携会議で recording_files から
+  // TRANSCRIPTが除外されるZoom挙動への対応。UUID → Numeric ID の順で試す。
+  if (!transcriptRelPath && !params.skipTranscript) {
+    const keys: string[] = [];
+    if (params.recording.uuid) keys.push(params.recording.uuid);
+    if (params.recording.id !== undefined && params.recording.id !== null) {
+      keys.push(String(params.recording.id));
+    }
+    for (const key of keys) {
+      try {
+        const r = await fetchMeetingTranscript({
+          hostStaffId: params.hostStaffId,
+          meetingKey: key,
+        });
+        if (r.status === "downloaded") {
+          const filename = `transcript.vtt`;
+          const absPath = path.join(absDir, filename);
+          await fs.writeFile(absPath, r.vtt, "utf8");
+          transcriptRelPath = path.posix.join("/", relDir, filename);
+          transcriptText = r.text;
+          break;
+        }
+        if (
+          r.status === "no_data" ||
+          r.status === "deleted" ||
+          r.status === "unsupported"
+        ) {
+          // 確定的に取れない → 次のキーで試しても無駄
+          break;
+        }
+        // not_ready / not_found は次のキーで再試行
+      } catch {
+        // 個別キーの失敗は握りつぶして次のキーへ（片方のキーが壊れていても
+        // もう片方で取れる可能性がある）
+      }
+    }
+  }
+
   return {
     mp4RelPath,
     mp4Size,
@@ -276,6 +315,92 @@ async function downloadToBuffer(
   }
   const ab = await res.arrayBuffer();
   return Buffer.from(ab);
+}
+
+/**
+ * /meetings/{id}/transcript の応答型（Zoom 2026-04 時点の新API）
+ *
+ * AI Companion 連携が進んだ会議では /recordings の recording_files から
+ * TRANSCRIPT が除外されるケースがあるため、この専用APIで補完取得する。
+ */
+export type MeetingTranscriptResult =
+  | {
+      status: "downloaded";
+      vtt: string;
+      text: string;
+      transcriptCreatedTime: string | null;
+    }
+  | { status: "not_ready" } // 処理中。後でリトライすれば取れる
+  | { status: "no_data" } // そもそも文字起こしデータなし（確定）
+  | { status: "deleted" } // 削除済み or ゴミ箱（確定）
+  | { status: "unsupported" } // 非対応（確定）
+  | { status: "not_found" }; // 404（meeting自体が無い）
+
+/**
+ * Zoom 文字起こし専用APIを叩いて transcript 本文を取得する。
+ *
+ * 既存の /meetings/{id}/recordings の recording_files に TRANSCRIPT が
+ * 含まれない場合のフォールバックとして使う。
+ */
+export async function fetchMeetingTranscript(input: {
+  hostStaffId: number;
+  /** Numeric Meeting ID または UUID */
+  meetingKey: string;
+}): Promise<MeetingTranscriptResult> {
+  const ctx = await requireStaffZoomContext(input.hostStaffId);
+
+  // UUID "/" 始まり or "//" 含みは二重URLエンコード必須（/recordings と同じ仕様）
+  const encodeKey = (k: string): string => {
+    if (/^\d+$/.test(k)) return k; // numeric meeting id はそのまま
+    const needsDoubleEncode = k.startsWith("/") || k.includes("//");
+    return needsDoubleEncode
+      ? encodeURIComponent(encodeURIComponent(k))
+      : encodeURIComponent(k);
+  };
+
+  const url = `https://api.zoom.us/v2/meetings/${encodeKey(input.meetingKey)}/transcript`;
+  const resp = await fetch(url, {
+    headers: { Authorization: `Bearer ${ctx.accessToken}` },
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (resp.status === 404) return { status: "not_found" };
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    throw new Error(
+      `Zoom transcript API 失敗: ${resp.status} ${text.slice(0, 200)}`
+    );
+  }
+
+  const payload = (await resp.json()) as {
+    transcript_created_time?: string;
+    can_download?: boolean;
+    download_url?: string | null;
+    download_restriction_reason?:
+      | "DELETED_OR_TRASHED"
+      | "UNSUPPORTED"
+      | "NO_TRANSCRIPT_DATA"
+      | "NOT_READY"
+      | null;
+  };
+
+  if (!payload.can_download || !payload.download_url) {
+    const reason = payload.download_restriction_reason;
+    if (reason === "NOT_READY") return { status: "not_ready" };
+    if (reason === "NO_TRANSCRIPT_DATA") return { status: "no_data" };
+    if (reason === "DELETED_OR_TRASHED") return { status: "deleted" };
+    if (reason === "UNSUPPORTED") return { status: "unsupported" };
+    return { status: "no_data" };
+  }
+
+  const buf = await downloadToBuffer(payload.download_url, ctx.accessToken);
+  const vtt = buf.toString("utf8");
+  return {
+    status: "downloaded",
+    vtt,
+    text: vttToPlainText(vtt),
+    transcriptCreatedTime: payload.transcript_created_time ?? null,
+  };
 }
 
 /** VTT形式の字幕をプレーンテキスト（時刻・タグ除去）に変換 */
