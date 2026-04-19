@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LineFriendsTable } from "./line-friends-table";
 import { UserInfoTable } from "./user-info-table";
 import { AsTable } from "./as-table";
+import type { AgencyTreeNode } from "@/lib/slp/company-resolution";
 
 type AsRow = {
   id: number;
@@ -21,6 +22,10 @@ type Props = {
     displayNo: number;
     snsname: string | null;
     referrer: string;
+    agencyPrimary: string;
+    agencyTrees: AgencyTreeNode[];
+    agencyClickable: boolean;
+    agencyWarning: boolean;
     memberStatus: string;
   }[];
   lastSyncAt: string | null;

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { resolveLineFriendAgencyHierarchies } from "@/lib/slp/company-resolution";
 import { LineFriendsPageTabs } from "./line-friends-page-tabs";
 
 export default async function SlpLineFriendsPage() {
@@ -120,6 +121,10 @@ export default async function SlpLineFriendsPage() {
     }
   }
 
+  const agencyResolutions = await resolveLineFriendAgencyHierarchies(
+    friends.map((f) => f.id)
+  );
+
   const userData = friends.map((f) => {
     // 紹介者: free1にuidが入っている → そのuidのLINE友達を検索
     let referrerDisplay = "";
@@ -130,11 +135,19 @@ export default async function SlpLineFriendsPage() {
       }
     }
 
+    const agencyRes = agencyResolutions.get(f.id);
+    const agencyPrimary =
+      agencyRes?.primaryAgencies.map((a) => a.name).join(", ") ?? "";
+
     return {
       id: f.id,
       displayNo: f.id,
       snsname: f.snsname,
       referrer: referrerDisplay,
+      agencyPrimary,
+      agencyTrees: agencyRes?.trees ?? [],
+      agencyClickable: agencyRes?.hasDeepHierarchy ?? false,
+      agencyWarning: agencyRes?.hasMultiplePrimaries ?? false,
       memberStatus: memberStatusMap.get(f.uid) ?? "",
     };
   });

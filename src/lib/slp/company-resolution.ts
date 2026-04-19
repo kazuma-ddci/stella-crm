@@ -660,3 +660,218 @@ export async function resolveReferrersForCompany(
     (a, b) => a.lineFriendId - b.lineFriendId
   );
 }
+
+// ============================================
+// LINE友達単位の代理店階層解決（公式LINE友達情報ページ用）
+// ============================================
+
+export type AgencyTreeNode = {
+  id: number;
+  name: string;
+  isHit: boolean;
+  children: AgencyTreeNode[];
+};
+
+export type LineFriendAgencyResolution = {
+  primaryAgencies: Array<{ id: number; name: string }>;
+  trees: AgencyTreeNode[];
+  hasDeepHierarchy: boolean;
+  hasMultiplePrimaries: boolean;
+};
+
+/**
+ * LINE友達ごとの代理店階層解決（バッチ）
+ * 既存の resolveAgencyForContact との違い:
+ *   - 1次代理店フィルタを外し、free1チェーン上で全段の代理店ヒットを検出
+ *   - ヒット代理店から parentId を辿って 1次代理店までのツリーを構築
+ *
+ * 用途: /slp/line-friends ページの「ユーザー情報」タブで
+ *       1次代理店表示 + 2次以降があれば階層モーダル表示
+ */
+export async function resolveLineFriendAgencyHierarchies(
+  lineFriendIds: number[]
+): Promise<Map<number, LineFriendAgencyResolution>> {
+  const [allAgencies, allContacts, allFriends] = await Promise.all([
+    prisma.slpAgency.findMany({
+      where: { deletedAt: null },
+      select: { id: true, name: true, parentId: true },
+    }),
+    prisma.slpAgencyContact.findMany({
+      where: { agency: { deletedAt: null } },
+      select: {
+        agency: { select: { id: true, name: true, parentId: true } },
+        lineFriend: { select: { uid: true } },
+      },
+    }),
+    prisma.slpLineFriend.findMany({
+      where: { deletedAt: null },
+      select: { id: true, uid: true, free1: true },
+    }),
+  ]);
+
+  const agencyById = new Map<
+    number,
+    { id: number; name: string; parentId: number | null }
+  >();
+  for (const a of allAgencies) {
+    agencyById.set(a.id, { id: a.id, name: a.name, parentId: a.parentId });
+  }
+
+  // uid → そのLINE友達が担当者になっている代理店の配列（全段対応）
+  const uidToAgencies = new Map<
+    string,
+    Array<{ agencyId: number; agencyName: string; parentId: number | null }>
+  >();
+  for (const c of allContacts) {
+    if (!c.lineFriend?.uid) continue;
+    const list = uidToAgencies.get(c.lineFriend.uid) ?? [];
+    if (!list.some((a) => a.agencyId === c.agency.id)) {
+      list.push({
+        agencyId: c.agency.id,
+        agencyName: c.agency.name,
+        parentId: c.agency.parentId,
+      });
+    }
+    uidToAgencies.set(c.lineFriend.uid, list);
+  }
+
+  const uidToFriend = new Map<string, { id: number; free1: string | null }>();
+  const idToFriend = new Map<number, { uid: string; free1: string | null }>();
+  for (const f of allFriends) {
+    uidToFriend.set(f.uid, { id: f.id, free1: f.free1 });
+    idToFriend.set(f.id, { uid: f.uid, free1: f.free1 });
+  }
+
+  // 代理店IDから祖先チェーンを取得（root → ... → 自分）
+  function getAncestorChain(
+    agencyId: number
+  ): Array<{ id: number; name: string }> {
+    const chain: Array<{ id: number; name: string }> = [];
+    const seen = new Set<number>();
+    let current: number | null = agencyId;
+    while (current !== null && !seen.has(current)) {
+      seen.add(current);
+      const ag = agencyById.get(current);
+      if (!ag) break;
+      chain.push({ id: ag.id, name: ag.name });
+      current = ag.parentId;
+    }
+    return chain.reverse();
+  }
+
+  const result = new Map<number, LineFriendAgencyResolution>();
+
+  for (const lineFriendId of lineFriendIds) {
+    const startFriend = idToFriend.get(lineFriendId);
+    if (!startFriend) {
+      result.set(lineFriendId, {
+        primaryAgencies: [],
+        trees: [],
+        hasDeepHierarchy: false,
+        hasMultiplePrimaries: false,
+      });
+      continue;
+    }
+
+    // free1から開始（本人は対象外）
+    let currentUid: string | null = startFriend.free1;
+    const visited = new Set<string>();
+    const hits = new Map<
+      number,
+      { agencyId: number; agencyName: string; parentId: number | null }
+    >();
+
+    for (let depth = 0; depth < MAX_DEPTH && currentUid; depth++) {
+      if (visited.has(currentUid)) break;
+      visited.add(currentUid);
+
+      const agencies = uidToAgencies.get(currentUid);
+      if (agencies) {
+        for (const a of agencies) {
+          if (!hits.has(a.agencyId)) {
+            hits.set(a.agencyId, a);
+          }
+        }
+      }
+
+      const friend = uidToFriend.get(currentUid);
+      currentUid = friend?.free1 ?? null;
+    }
+
+    if (hits.size === 0) {
+      result.set(lineFriendId, {
+        primaryAgencies: [],
+        trees: [],
+        hasDeepHierarchy: false,
+        hasMultiplePrimaries: false,
+      });
+      continue;
+    }
+
+    // 各ヒットの祖先チェーンを構築
+    const chainsByHit = new Map<
+      number,
+      Array<{ id: number; name: string }>
+    >();
+    const rootIds = new Set<number>();
+    let hasDeepHierarchy = false;
+
+    for (const hit of hits.values()) {
+      const chain = getAncestorChain(hit.agencyId);
+      chainsByHit.set(hit.agencyId, chain);
+      if (chain.length > 0) rootIds.add(chain[0].id);
+      if (hit.parentId !== null) hasDeepHierarchy = true;
+    }
+
+    const primaryAgencies = Array.from(rootIds)
+      .map((rid) => {
+        const ag = agencyById.get(rid);
+        return ag ? { id: ag.id, name: ag.name } : null;
+      })
+      .filter((v): v is { id: number; name: string } => v !== null);
+
+    // 1次代理店ごとにツリー構築（ヒット系統のみ含む）
+    const trees: AgencyTreeNode[] = [];
+    for (const rootId of rootIds) {
+      const root = agencyById.get(rootId);
+      if (!root) continue;
+      const nodes = new Map<number, AgencyTreeNode>();
+      const rootNode: AgencyTreeNode = {
+        id: root.id,
+        name: root.name,
+        isHit: hits.has(root.id),
+        children: [],
+      };
+      nodes.set(rootId, rootNode);
+
+      for (const chain of chainsByHit.values()) {
+        if (chain.length === 0 || chain[0].id !== rootId) continue;
+        for (let i = 1; i < chain.length; i++) {
+          const cur = chain[i];
+          if (!nodes.has(cur.id)) {
+            const newNode: AgencyTreeNode = {
+              id: cur.id,
+              name: cur.name,
+              isHit: hits.has(cur.id),
+              children: [],
+            };
+            nodes.set(cur.id, newNode);
+            const parent = nodes.get(chain[i - 1].id);
+            parent?.children.push(newNode);
+          }
+        }
+      }
+
+      trees.push(rootNode);
+    }
+
+    result.set(lineFriendId, {
+      primaryAgencies,
+      trees,
+      hasDeepHierarchy,
+      hasMultiplePrimaries: rootIds.size > 1,
+    });
+  }
+
+  return result;
+}

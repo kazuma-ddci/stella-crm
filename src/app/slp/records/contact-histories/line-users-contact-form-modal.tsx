@@ -50,6 +50,12 @@ import {
   addSlpLineUsersContactHistory,
   updateSlpContactHistory,
 } from "@/app/slp/contact-histories/actions";
+import {
+  ZoomEntriesForAdd,
+  type ZoomAddEntry,
+} from "@/app/slp/contact-histories/zoom-entries-for-add";
+import { ZoomRecordingSection } from "@/app/slp/contact-histories/zoom-recording-section";
+import { addManualZoomToContactHistory } from "@/app/slp/contact-histories/zoom-actions";
 
 registerLocale("ja", ja);
 
@@ -112,6 +118,7 @@ export function LineUsersContactFormModal({
   const [assignedTo, setAssignedTo] = useState<string[]>([]);
   const [customerTypeIds, setCustomerTypeIds] = useState<number[]>([]);
   const [files, setFiles] = useState<FileInfo[]>([]);
+  const [zoomEntries, setZoomEntries] = useState<ZoomAddEntry[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -137,6 +144,7 @@ export function LineUsersContactFormModal({
         );
         setCustomerTypeIds(editTarget.customerTypeIds);
         setFiles(editTarget.files ?? []);
+        setZoomEntries([]);
       } else {
         setTarget("line_users");
         setContactDate(new Date());
@@ -149,6 +157,7 @@ export function LineUsersContactFormModal({
         setAssignedTo([]);
         setCustomerTypeIds([]);
         setFiles([]);
+        setZoomEntries([]);
       }
     }
   }, [open, editTarget]);
@@ -171,12 +180,81 @@ export function LineUsersContactFormModal({
       prev.includes(value) ? prev.filter((x) => x !== value) : [...prev, value]
     );
 
+  const processZoomEntries = async (
+    contactHistoryId: number,
+    toastId: string | number
+  ) => {
+    const validEntries = zoomEntries.filter((e) => e.zoomUrl.trim() !== "");
+    if (validEntries.length === 0) {
+      toast.success("接触履歴を登録しました", { id: toastId });
+      return;
+    }
+    toast.loading(`Zoom議事録を連携中... (0/${validEntries.length})`, {
+      id: toastId,
+    });
+    let successCount = 0;
+    let failCount = 0;
+    const failureReasons: string[] = [];
+    for (let i = 0; i < validEntries.length; i++) {
+      const entry = validEntries[i];
+      toast.loading(
+        `Zoom議事録を連携中... (${i + 1}/${validEntries.length})`,
+        { id: toastId }
+      );
+      if (!entry.hostStaffId) {
+        failCount++;
+        failureReasons.push(
+          `"${entry.zoomUrl.slice(0, 40)}..." ホストスタッフ未選択`
+        );
+        continue;
+      }
+      const r = await addManualZoomToContactHistory({
+        contactHistoryId,
+        zoomUrl: entry.zoomUrl,
+        hostStaffId: parseInt(entry.hostStaffId, 10),
+        label: entry.label.trim() || undefined,
+        mode: entry.mode,
+      });
+      if (r.ok) {
+        successCount++;
+      } else {
+        failCount++;
+        failureReasons.push(r.error);
+      }
+    }
+    if (failCount === 0) {
+      toast.success(
+        `接触履歴を登録しました（Zoom議事録${successCount}件連携）`,
+        { id: toastId }
+      );
+    } else if (successCount > 0) {
+      toast.warning(
+        `接触履歴を登録しました（Zoom連携: 成功${successCount}件・失敗${failCount}件）`,
+        {
+          id: toastId,
+          description: failureReasons.slice(0, 3).join(" / "),
+          duration: 10000,
+        }
+      );
+    } else {
+      toast.warning(
+        "接触履歴は登録しましたが、Zoom議事録連携に失敗しました",
+        {
+          id: toastId,
+          description: failureReasons.slice(0, 3).join(" / "),
+          duration: 10000,
+        }
+      );
+    }
+  };
+
   const handleSubmit = async () => {
     if (!contactDate) {
       toast.error("接触日時を入力してください");
       return;
     }
     setSaving(true);
+    const toastId = toast.loading(isEdit ? "更新中..." : "登録中...");
     try {
       const payload = {
         contactDate: contactDate.toISOString(),
@@ -193,19 +271,29 @@ export function LineUsersContactFormModal({
 
       if (isEdit && editTarget) {
         await updateSlpContactHistory(editTarget.id, payload);
-        toast.success("接触履歴を更新しました");
+        toast.success("接触履歴を更新しました", { id: toastId });
       } else {
         const result = await addSlpLineUsersContactHistory(0, payload);
         if (!result.ok) {
-          toast.error(result.error);
+          toast.error(result.error, { id: toastId });
           return;
         }
-        toast.success("接触履歴を登録しました");
+        const createdId = Number(
+          (result.data as { id?: number | string } | undefined)?.id ?? 0
+        );
+        if (createdId > 0) {
+          await processZoomEntries(createdId, toastId);
+        } else {
+          toast.success("接触履歴を登録しました", { id: toastId });
+        }
+        setZoomEntries([]);
       }
       onOpenChange(false);
       router.refresh();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "保存に失敗しました");
+      toast.error(e instanceof Error ? e.message : "保存に失敗しました", {
+        id: toastId,
+      });
     } finally {
       setSaving(false);
     }
@@ -556,6 +644,17 @@ export function LineUsersContactFormModal({
                 <Label>添付ファイル・URL</Label>
                 <MultiFileUpload value={files} onChange={setFiles} />
               </div>
+
+              {/* Zoom議事録連携 */}
+              {!isEdit && (
+                <ZoomEntriesForAdd
+                  entries={zoomEntries}
+                  onChange={setZoomEntries}
+                />
+              )}
+              {isEdit && editTarget && (
+                <ZoomRecordingSection contactHistoryId={editTarget.id} />
+              )}
             </>
           )}
         </div>
