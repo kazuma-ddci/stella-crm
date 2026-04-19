@@ -216,13 +216,30 @@ export async function fetchRecordingMetadata(input: {
 
     // 1回目で必須ファイル（MP4 or TRANSCRIPT）が揃っていればそれを返す
     if (hasEssentialFiles(primary)) {
+      console.info(
+        `[fetchRecordingMetadata] primary has essential files. files=${primary.recording_files
+          .map((f) => f.file_type)
+          .join(",")}`
+      );
       return primary;
     }
 
     // 欠損 → UUID で再試行（Zoom の過去会議対策）
+    console.warn(
+      `[fetchRecordingMetadata] primary missing MP4/TRANSCRIPT. types=${primary.recording_files
+        .map((f) => f.file_type)
+        .join(",")}; trying UUID fallback: ${primary.uuid}`
+    );
     if (primary.uuid) {
       try {
         const byUuid = await callByKey(encodeUuidForZoom(primary.uuid));
+        if (byUuid) {
+          console.info(
+            `[fetchRecordingMetadata] UUID fallback returned. hasEssentialFiles=${hasEssentialFiles(
+              byUuid
+            )}, types=${byUuid.recording_files.map((f) => f.file_type).join(",")}`
+          );
+        }
         if (byUuid && hasEssentialFiles(byUuid)) {
           return byUuid;
         }

@@ -189,6 +189,29 @@ export async function downloadAndSaveRecordingFiles(
     data: progressData,
   });
 
+  // デバッグ: Zoom API が返した payload の file_type 一覧を記録
+  // （文字起こし・MP4 が取得できない原因を特定するため一時ログ）
+  const fileSummary = recordingPayload.recording_files.map((f) => ({
+    id: f.id ?? null,
+    file_type: f.file_type,
+    file_extension: f.file_extension ?? null,
+    recording_type: (f as unknown as { recording_type?: string }).recording_type ?? null,
+    has_download_url: !!f.download_url,
+    recording_start: f.recording_start ?? null,
+    recording_end: f.recording_end ?? null,
+  }));
+  await logAutomationError({
+    source: "slp-zoom-debug-payload",
+    message: `Zoom payload files: ${fileSummary.length}件`,
+    detail: {
+      recordingId: recordingRowId,
+      meetingId: rec.zoomMeetingId.toString(),
+      meetingUuid: recordingPayload.uuid ?? null,
+      fileCount: fileSummary.length,
+      files: fileSummary,
+    },
+  });
+
   let downloaded;
   try {
     downloaded = await downloadZoomRecordingFiles({
