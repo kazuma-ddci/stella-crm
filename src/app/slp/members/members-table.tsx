@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CrudTable, ColumnDef, CustomRenderers, CustomAction } from "@/components/crud-table";
 import { addMember, updateMember, deleteMember, remindMember, sendContractToMember, clearResubmitted, sendForm5Notification, bulkSendContracts, batchSyncCloudsignStatus } from "./actions";
-import { Bell, Send, ScrollText, AlertTriangle, Loader2, Settings, Users, UserCheck, History, RefreshCw } from "lucide-react";
+import { Bell, Send, ScrollText, AlertTriangle, Loader2, Settings, Users, UserCheck, History, RefreshCw, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { SlpContractModal } from "./slp-contract-modal";
 import { ContractAttemptModal } from "./contract-attempt-modal";
 import { LineLinkModal } from "./line-link-modal";
+import { CsvImportDialog } from "./csv-import-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -90,6 +91,9 @@ export function MembersTable({ data: allData, memberOptions, contractStatusOptio
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ succeeded: number; failed: number; results: { id: number; name: string; success: boolean; error?: string }[] } | null>(null);
+
+  // CSVインポート
+  const [csvImportOpen, setCsvImportOpen] = useState(false);
 
   // クラウドサイン一斉同期
   const [syncingCloudsign, setSyncingCloudsign] = useState(false);
@@ -581,6 +585,14 @@ export function MembersTable({ data: allData, memberOptions, contractStatusOptio
         <Button
           variant="outline"
           size="sm"
+          onClick={() => setCsvImportOpen(true)}
+        >
+          <Upload className="h-4 w-4 mr-1" />
+          CSVインポート
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
           onClick={handleBatchSync}
           disabled={syncingCloudsign}
         >
@@ -592,6 +604,8 @@ export function MembersTable({ data: allData, memberOptions, contractStatusOptio
           {syncingCloudsign ? "同期中..." : "クラウドサイン同期"}
         </Button>
       </div>
+
+      <CsvImportDialog open={csvImportOpen} onOpenChange={setCsvImportOpen} />
 
       {syncResult && (
         <div className="mb-4 rounded-lg border p-3 text-sm">
