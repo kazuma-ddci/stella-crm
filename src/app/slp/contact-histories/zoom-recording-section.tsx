@@ -32,7 +32,7 @@ import {
   deleteZoomRecordingManual,
 } from "./zoom-actions";
 import { AddZoomUrlModal } from "./add-zoom-url-modal";
-import { ZoomRecordingDetailDialog } from "./zoom-recording-detail-dialog";
+import { UnifiedDetailModal } from "@/app/slp/records/zoom-recordings/unified-detail-modal";
 
 type ZoomRow = {
   id: number;
@@ -272,13 +272,14 @@ export function ZoomRecordingSection({
       />
 
       {detailId !== null && (
-        <ZoomRecordingDetailDialog
+        <UnifiedDetailModal
           open={detailId !== null}
           onOpenChange={(o) => {
             if (!o) setDetailId(null);
           }}
           recordingId={detailId}
-          readOnly={readOnly}
+          hasRetryable={rows.find((r) => r.id === detailId)?.state !== "完了"}
+          hideContactTab
         />
       )}
 
