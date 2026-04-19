@@ -227,7 +227,7 @@ export function LineUsersContactFormModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col overflow-hidden p-0 gap-0">
+      <DialogContent size="fullwidth" className="sm:!max-w-[880px] max-h-[74vh] h-[74vh] flex flex-col overflow-hidden p-0 gap-0">
         <DialogHeader className="px-6 pt-6 pb-3 border-b flex-shrink-0">
           <DialogTitle>
             {isEdit ? "接触履歴を編集" : "接触履歴を追加"}

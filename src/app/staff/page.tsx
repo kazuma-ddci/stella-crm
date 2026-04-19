@@ -5,7 +5,7 @@ import { getEditableProjects } from "./actions";
 import { auth } from "@/auth";
 import type { UserPermission } from "@/types/auth";
 import Link from "next/link";
-import { Video, CheckCircle2, AlertCircle } from "lucide-react";
+import { Video, CheckCircle2, AlertCircle, ChevronRight } from "lucide-react";
 
 export default async function StaffPage() {
   const session = await auth();
@@ -244,18 +244,24 @@ export default async function StaffPage() {
       <Card>
         <CardHeader>
           <CardTitle>スタッフ一覧</CardTitle>
-          <div className="mt-2 space-y-2">
-            <p className="text-sm text-muted-foreground">{descriptionSummary}</p>
-            {descriptionItems.length > 0 && (
-              <ul className="text-sm text-muted-foreground space-y-1">
-                {descriptionItems.map((item) => (
-                  <li key={item.label}>
-                    <span className="font-medium text-foreground">{item.label}</span>: {item.text}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <details className="group mt-2">
+            <summary className="flex cursor-pointer items-center gap-1 text-sm text-muted-foreground hover:text-foreground list-none [&::-webkit-details-marker]:hidden">
+              <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
+              <span>使い方・項目の説明を表示</span>
+            </summary>
+            <div className="mt-2 space-y-2 pl-5">
+              <p className="text-sm text-muted-foreground">{descriptionSummary}</p>
+              {descriptionItems.length > 0 && (
+                <ul className="text-sm text-muted-foreground space-y-1">
+                  {descriptionItems.map((item) => (
+                    <li key={item.label}>
+                      <span className="font-medium text-foreground">{item.label}</span>: {item.text}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </details>
         </CardHeader>
         <CardContent>
           <StaffTable

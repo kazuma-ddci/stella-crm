@@ -234,7 +234,7 @@ export function ContactHistoriesClient({
               <TableHead>顧客種別タグ</TableHead>
               <TableHead>Zoom</TableHead>
               <TableHead>備考</TableHead>
-              <TableHead className="w-[120px]"></TableHead>
+              <TableHead className="w-[120px] sticky right-0 z-20 bg-white shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] text-center">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -348,8 +348,8 @@ export function ContactHistoriesClient({
                       )}
                     </TableCell>
                     <TableCell className="max-w-xs truncate">{h.note ?? "-"}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-0.5">
+                    <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]">
+                      <div className="flex items-center justify-center gap-0.5">
                         <Button
                           variant="ghost"
                           size="sm"
@@ -409,46 +409,47 @@ export function ContactHistoriesClient({
 
       {/* 詳細表示ダイアログ */}
       <Dialog open={!!viewTarget} onOpenChange={(o) => !o && setViewTarget(null)}>
-        <DialogContent className="max-w-6xl w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col overflow-hidden p-0 gap-0">
+        <DialogContent size="fullwidth" className="sm:!max-w-[880px] max-h-[74vh] h-[74vh] flex flex-col overflow-hidden p-0 gap-0">
           <DialogHeader className="px-6 pt-6 pb-3 border-b flex-shrink-0">
             <DialogTitle>接触履歴の詳細</DialogTitle>
           </DialogHeader>
           {viewTarget && (
-            <div className="space-y-3 text-sm flex-1 min-h-0 overflow-y-auto px-6 py-4">
-              <DetailRow label="日時">
-                {new Date(viewTarget.contactDate).toLocaleString("ja-JP", {
-                  year: "numeric", month: "2-digit", day: "2-digit",
-                  hour: "2-digit", minute: "2-digit",
-                })}
-              </DetailRow>
-              <DetailRow label="相手種別">
-                {viewTarget.targetType === "company_record" && "事業者"}
-                {viewTarget.targetType === "agency" && "代理店"}
-                {viewTarget.targetType === "line_users" &&
-                  (viewTarget.lineFriends.length === 0 ? "紐付けなし" : "LINEユーザー")}
-              </DetailRow>
-              <DetailRow label="相手">
-                {viewTarget.targetType === "company_record" && viewTarget.companyRecordId && (
+            <div className="space-y-4 flex-1 min-h-0 overflow-y-auto px-6 py-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <DetailField label="日時">
+                  {new Date(viewTarget.contactDate).toLocaleString("ja-JP", {
+                    year: "numeric", month: "2-digit", day: "2-digit",
+                    hour: "2-digit", minute: "2-digit",
+                  })}
+                </DetailField>
+                <DetailField label="相手種別">
+                  {viewTarget.targetType === "company_record" && "事業者"}
+                  {viewTarget.targetType === "agency" && "代理店"}
+                  {viewTarget.targetType === "line_users" &&
+                    (viewTarget.lineFriends.length === 0 ? "紐付けなし" : "LINEユーザー")}
+                </DetailField>
+              </div>
+
+              <DetailField label="相手">
+                {viewTarget.targetType === "company_record" && viewTarget.companyRecordId ? (
                   <Link
                     href={`/slp/companies/${viewTarget.companyRecordId}`}
-                    className="text-blue-600 hover:underline"
+                    className="text-blue-600 hover:underline inline-flex items-center"
                   >
                     {viewTarget.companyRecordName ?? `事業者#${viewTarget.companyRecordId}`}
                     <ExternalLink className="inline h-3 w-3 ml-1" />
                   </Link>
-                )}
-                {viewTarget.targetType === "agency" && viewTarget.agencyId && (
+                ) : viewTarget.targetType === "agency" && viewTarget.agencyId ? (
                   <Link
                     href={`/slp/agencies/${viewTarget.agencyId}`}
-                    className="text-blue-600 hover:underline"
+                    className="text-blue-600 hover:underline inline-flex items-center"
                   >
                     {viewTarget.agencyName ?? `代理店#${viewTarget.agencyId}`}
                     <ExternalLink className="inline h-3 w-3 ml-1" />
                   </Link>
-                )}
-                {viewTarget.targetType === "line_users" &&
-                  (viewTarget.lineFriends.length === 0 ? (
-                    <span className="text-gray-400">-</span>
+                ) : viewTarget.targetType === "line_users" ? (
+                  viewTarget.lineFriends.length === 0 ? (
+                    <EmptyText />
                   ) : (
                     <div className="space-y-0.5">
                       {viewTarget.lineFriends.map((lf) => (
@@ -457,51 +458,69 @@ export function ContactHistoriesClient({
                         </div>
                       ))}
                     </div>
-                  ))}
-              </DetailRow>
-              <DetailRow label="接触方法">{viewTarget.contactMethodName ?? "-"}</DetailRow>
-              <DetailRow label="接触種別">{viewTarget.contactCategoryName ?? "-"}</DetailRow>
-              <DetailRow label="担当者">
-                {(viewTarget.assignedTo ?? "")
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean)
-                  .map((id) => staffMap.get(id) ?? id)
-                  .join(", ") || "-"}
-              </DetailRow>
-              <DetailRow label="顧客種別タグ">
-                <div className="flex flex-wrap gap-1">
-                  {viewTarget.customerTypes.length === 0 ? (
-                    <span className="text-gray-400">-</span>
-                  ) : (
-                    viewTarget.customerTypes.map((ct) => (
+                  )
+                ) : (
+                  <EmptyText />
+                )}
+              </DetailField>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <DetailField label="接触方法">
+                  {viewTarget.contactMethodName ?? <EmptyText />}
+                </DetailField>
+                <DetailField label="接触種別">
+                  {viewTarget.contactCategoryName ?? <EmptyText />}
+                </DetailField>
+              </div>
+
+              <DetailField label="担当者">
+                {(() => {
+                  const names = (viewTarget.assignedTo ?? "")
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                    .map((id) => staffMap.get(id) ?? id);
+                  return names.length === 0 ? <EmptyText /> : names.join(", ");
+                })()}
+              </DetailField>
+
+              <DetailField label="顧客種別タグ" variant="tags">
+                {viewTarget.customerTypes.length === 0 ? (
+                  <EmptyText />
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {viewTarget.customerTypes.map((ct) => (
                       <Badge key={ct.id} variant="outline" className="text-xs">
                         {ct.projectName ? `${ct.projectName}:` : ""}{ct.name}
                       </Badge>
-                    ))
-                  )}
-                </div>
-              </DetailRow>
-              <DetailRow label="先方参加者">
-                {viewTarget.customerParticipants || "-"}
-              </DetailRow>
-              <DetailRow label="議事録">
+                    ))}
+                  </div>
+                )}
+              </DetailField>
+
+              <DetailField label="先方参加者">
+                {viewTarget.customerParticipants || <EmptyText />}
+              </DetailField>
+
+              <DetailField label="議事録" variant="textarea">
                 {viewTarget.meetingMinutes ? (
-                  <div className="whitespace-pre-wrap bg-gray-50 border rounded p-2">
-                    {viewTarget.meetingMinutes}
-                  </div>
-                ) : "-"}
-              </DetailRow>
-              <DetailRow label="備考">
+                  <div className="whitespace-pre-wrap">{viewTarget.meetingMinutes}</div>
+                ) : (
+                  <EmptyText />
+                )}
+              </DetailField>
+
+              <DetailField label="備考" variant="textarea">
                 {viewTarget.note ? (
-                  <div className="whitespace-pre-wrap bg-gray-50 border rounded p-2">
-                    {viewTarget.note}
-                  </div>
-                ) : "-"}
-              </DetailRow>
-              <DetailRow label="添付">
+                  <div className="whitespace-pre-wrap">{viewTarget.note}</div>
+                ) : (
+                  <EmptyText />
+                )}
+              </DetailField>
+
+              <DetailField label="添付" variant="tags">
                 {viewTarget.files.length === 0 ? (
-                  <span className="text-gray-400">-</span>
+                  <EmptyText />
                 ) : (
                   <div className="space-y-1">
                     {viewTarget.files.map((f) => {
@@ -523,7 +542,7 @@ export function ContactHistoriesClient({
                     })}
                   </div>
                 )}
-              </DetailRow>
+              </DetailField>
             </div>
           )}
         </DialogContent>
@@ -532,11 +551,29 @@ export function ContactHistoriesClient({
   );
 }
 
-function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+function DetailField({
+  label,
+  children,
+  variant = "default",
+}: {
+  label: string;
+  children: React.ReactNode;
+  variant?: "default" | "textarea" | "tags";
+}) {
+  const boxClass =
+    variant === "textarea"
+      ? "min-h-[96px] w-full rounded-md border border-input bg-muted/30 px-3 py-2 text-sm"
+      : variant === "tags"
+        ? "min-h-10 w-full rounded-md border border-input bg-muted/30 px-3 py-2 text-sm"
+        : "flex min-h-10 w-full items-center rounded-md border border-input bg-muted/30 px-3 py-2 text-sm";
   return (
-    <div className="grid grid-cols-[120px_1fr] gap-2">
-      <div className="text-gray-500 font-medium">{label}</div>
-      <div>{children}</div>
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className={boxClass}>{children}</div>
     </div>
   );
+}
+
+function EmptyText() {
+  return <span className="text-gray-400">-</span>;
 }
