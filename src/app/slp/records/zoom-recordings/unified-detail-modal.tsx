@@ -499,7 +499,7 @@ export function UnifiedDetailModal({
                       },
                       { label: "ホスト", value: data.hostStaffName ?? "—" },
                       {
-                        label: "状態",
+                        label: "商談状況",
                         value: data.state,
                       },
                     ]}

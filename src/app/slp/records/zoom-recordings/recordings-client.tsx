@@ -92,8 +92,8 @@ function StatusCell({
   let mark: string;
   let title: string;
   if (exists) {
-    containerCls = "border-green-300 text-green-800";
-    markCls = "text-green-600";
+    containerCls = "border-indigo-300 text-indigo-800 bg-indigo-50/50";
+    markCls = "text-indigo-600";
     mark = "✓";
     title = `${label}: 取得済み`;
   } else if (attempted) {
@@ -143,7 +143,7 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
               <th className="text-left p-3 min-w-[16em]">事業者名</th>
               <th className="text-left p-3 whitespace-nowrap pr-8">担当</th>
               <th className="text-left p-3 whitespace-nowrap">Meeting ID</th>
-              <th className="text-left p-3 whitespace-nowrap">状態</th>
+              <th className="text-left p-3 whitespace-nowrap">商談状況</th>
               <th className="text-left p-3">取得状況</th>
             </tr>
           </thead>
@@ -236,7 +236,7 @@ export function RecordingsClient({ rows }: { rows: RecordingRow[] }) {
                   </div>
                   <div className="mt-2 text-xs flex items-center gap-2 flex-wrap">
                     {r.actuallyAllFetched ? (
-                      <span className="inline-flex items-center gap-1 text-green-700 font-medium">
+                      <span className="inline-flex items-center gap-1 text-teal-700 font-medium">
                         <CheckCircle2 className="h-3 w-3" />
                         取得できる情報はすべて取得しました
                       </span>
