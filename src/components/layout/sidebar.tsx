@@ -398,6 +398,7 @@ const navigation: NavItem[] = [
           { name: "プロライン情報", href: "/hojo/settings/proline", icon: UserCog },
           { name: "接触種別", href: "/settings/contact-categories?project=hojo", icon: Tag },
           { name: "AIプロンプト", href: "/hojo/settings/prompts", icon: Sparkles },
+          { name: "Claude API費用", href: "/hojo/settings/api-usage", icon: DollarSign },
           { name: "Telegram通知設定", href: "/hojo/settings/telegram-notifications", icon: Bell },
         ],
       },
