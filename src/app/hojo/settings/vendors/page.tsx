@@ -71,27 +71,27 @@ export default async function VendorsPage() {
     prisma.hojoVendorScWholesaleStatus.findMany({
       where: { isActive: true },
       orderBy: { displayOrder: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, color: true },
     }),
     prisma.hojoVendorConsultingPlanStatus.findMany({
       where: { isActive: true },
       orderBy: { displayOrder: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, color: true },
     }),
     prisma.hojoVendorContractStatus.findMany({
       where: { isActive: true },
       orderBy: { displayOrder: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, isCompleted: true },
     }),
     prisma.hojoVendorRegistrationStatus.findMany({
       where: { isActive: true },
       orderBy: { displayOrder: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, isCompleted: true },
     }),
     prisma.hojoVendorToolRegistrationStatus.findMany({
       where: { isActive: true },
       orderBy: { displayOrder: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, isCompleted: true },
     }),
   ]);
 
@@ -146,6 +146,8 @@ export default async function VendorsPage() {
       subsidyConsulting: v.subsidyConsulting,
       vendorRegistrationStatusName: v.vendorRegistrationStatus?.name ?? "",
       toolRegistrationStatusName: v.toolRegistrationStatus?.name ?? "",
+      nextContactDateWholesale: v.nextContactDateWholesale ? v.nextContactDateWholesale.toISOString().split("T")[0] : "",
+      nextContactDateConsulting: v.nextContactDateConsulting ? v.nextContactDateConsulting.toISOString().split("T")[0] : "",
       memo: v.memo ?? "",
       displayOrder: v.displayOrder,
       isActive: v.isActive,
@@ -172,6 +174,23 @@ export default async function VendorsPage() {
     value: s.name,
     label: s.name,
   }));
+
+  // ステータス名→メタ情報（色・完了フラグ）マップ
+  const scWholesaleStatusMeta = Object.fromEntries(
+    scWholesaleStatuses.map((s) => [s.name, { color: s.color }])
+  );
+  const consultingPlanStatusMeta = Object.fromEntries(
+    consultingPlanStatuses.map((s) => [s.name, { color: s.color }])
+  );
+  const contractStatusMeta = Object.fromEntries(
+    contractStatuses.map((s) => [s.name, { isCompleted: s.isCompleted }])
+  );
+  const vendorRegistrationStatusMeta = Object.fromEntries(
+    vendorRegistrationStatuses.map((s) => [s.name, { isCompleted: s.isCompleted }])
+  );
+  const toolRegistrationStatusMeta = Object.fromEntries(
+    toolRegistrationStatuses.map((s) => [s.name, { isCompleted: s.isCompleted }])
+  );
 
   // フォーム回答データ取得
   const formResponses = await prisma.hojoFormSubmission.findMany({
@@ -222,6 +241,11 @@ export default async function VendorsPage() {
                 contractStatusOptions={contractStatusOptions}
                 vendorRegistrationStatusOptions={vendorRegistrationStatusOptions}
                 toolRegistrationStatusOptions={toolRegistrationStatusOptions}
+                scWholesaleStatusMeta={scWholesaleStatusMeta}
+                consultingPlanStatusMeta={consultingPlanStatusMeta}
+                contractStatusMeta={contractStatusMeta}
+                vendorRegistrationStatusMeta={vendorRegistrationStatusMeta}
+                toolRegistrationStatusMeta={toolRegistrationStatusMeta}
               />
             </CardContent>
           </Card>

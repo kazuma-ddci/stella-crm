@@ -55,6 +55,7 @@ export async function addLineFriend(data: Record<string, unknown>): Promise<Acti
       scenarioPos3: data.scenarioPos3 ? String(data.scenarioPos3).trim() : null,
       scenarioPos4: data.scenarioPos4 ? String(data.scenarioPos4).trim() : null,
       scenarioPos5: data.scenarioPos5 ? String(data.scenarioPos5).trim() : null,
+      nextContactDate: data.nextContactDate ? new Date(String(data.nextContactDate)) : null,
     },
   });
 
@@ -87,6 +88,10 @@ export async function updateLineFriend(id: number, data: Record<string, unknown>
 
   if (data.friendAddedDate !== undefined) {
     updateData.friendAddedDate = data.friendAddedDate ? new Date(String(data.friendAddedDate)) : null;
+  }
+
+  if (data.nextContactDate !== undefined) {
+    updateData.nextContactDate = data.nextContactDate ? new Date(String(data.nextContactDate)) : null;
   }
 
   if (data.uid !== undefined) {

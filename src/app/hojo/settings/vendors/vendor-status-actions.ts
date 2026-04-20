@@ -19,6 +19,7 @@ export async function getAllScWholesaleStatuses() {
     name: s.name,
     displayOrder: s.displayOrder,
     isActive: s.isActive,
+    color: s.color,
   }));
 }
 
@@ -36,6 +37,7 @@ export async function addScWholesaleStatus(data: Record<string, unknown>): Promi
         name: String(data.name).trim(),
         displayOrder,
         isActive: toBoolean(data.isActive),
+        ...(typeof data.color === "string" && data.color && { color: data.color }),
       },
     });
     revalidatePath("/hojo/settings/vendors");
@@ -52,6 +54,7 @@ export async function updateScWholesaleStatus(id: number, data: Record<string, u
     const updateData: Record<string, unknown> = {};
     if ("name" in data) updateData.name = String(data.name).trim();
     if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
+    if ("color" in data && typeof data.color === "string" && data.color) updateData.color = data.color;
 
     if (Object.keys(updateData).length > 0) {
       await prisma.hojoVendorScWholesaleStatus.update({
@@ -121,6 +124,7 @@ export async function getAllConsultingPlanStatuses() {
     name: s.name,
     displayOrder: s.displayOrder,
     isActive: s.isActive,
+    color: s.color,
   }));
 }
 
@@ -138,6 +142,7 @@ export async function addConsultingPlanStatus(data: Record<string, unknown>): Pr
         name: String(data.name).trim(),
         displayOrder,
         isActive: toBoolean(data.isActive),
+        ...(typeof data.color === "string" && data.color && { color: data.color }),
       },
     });
     revalidatePath("/hojo/settings/vendors");
@@ -154,6 +159,7 @@ export async function updateConsultingPlanStatus(id: number, data: Record<string
     const updateData: Record<string, unknown> = {};
     if ("name" in data) updateData.name = String(data.name).trim();
     if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
+    if ("color" in data && typeof data.color === "string" && data.color) updateData.color = data.color;
 
     if (Object.keys(updateData).length > 0) {
       await prisma.hojoVendorConsultingPlanStatus.update({
@@ -223,6 +229,7 @@ export async function getAllVendorRegistrationStatuses() {
     name: s.name,
     displayOrder: s.displayOrder,
     isActive: s.isActive,
+    isCompleted: s.isCompleted,
   }));
 }
 
@@ -240,6 +247,7 @@ export async function addVendorRegistrationStatus(data: Record<string, unknown>)
         name: String(data.name).trim(),
         displayOrder,
         isActive: toBoolean(data.isActive),
+        ...("isCompleted" in data && { isCompleted: toBoolean(data.isCompleted) }),
       },
     });
     revalidatePath("/hojo/settings/vendors");
@@ -256,6 +264,7 @@ export async function updateVendorRegistrationStatus(id: number, data: Record<st
     const updateData: Record<string, unknown> = {};
     if ("name" in data) updateData.name = String(data.name).trim();
     if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
+    if ("isCompleted" in data) updateData.isCompleted = toBoolean(data.isCompleted);
 
     if (Object.keys(updateData).length > 0) {
       await prisma.hojoVendorRegistrationStatus.update({
@@ -317,9 +326,16 @@ export async function reorderVendorRegistrationStatuses(orderedIds: number[]): P
 // ============================================
 
 export async function getAllToolRegistrationStatuses() {
-  return prisma.hojoVendorToolRegistrationStatus.findMany({
+  const statuses = await prisma.hojoVendorToolRegistrationStatus.findMany({
     orderBy: { displayOrder: "asc" },
   });
+  return statuses.map((s) => ({
+    id: s.id,
+    name: s.name,
+    displayOrder: s.displayOrder,
+    isActive: s.isActive,
+    isCompleted: s.isCompleted,
+  }));
 }
 
 export async function addToolRegistrationStatus(data: Record<string, unknown>): Promise<ActionResult> {
@@ -331,6 +347,7 @@ export async function addToolRegistrationStatus(data: Record<string, unknown>): 
         name: String(data.name),
         isActive: data.isActive !== false,
         displayOrder: (maxOrder._max.displayOrder ?? 0) + 1,
+        ...("isCompleted" in data && { isCompleted: toBoolean(data.isCompleted) }),
       },
     });
     revalidatePath("/hojo/settings/vendors");
@@ -349,6 +366,7 @@ export async function updateToolRegistrationStatus(id: number, data: Record<stri
       data: {
         ...(data.name !== undefined && { name: String(data.name) }),
         ...(data.isActive !== undefined && { isActive: Boolean(data.isActive) }),
+        ...("isCompleted" in data && { isCompleted: toBoolean(data.isCompleted) }),
       },
     });
     revalidatePath("/hojo/settings/vendors");
@@ -411,6 +429,7 @@ export async function getAllContractStatuses() {
     name: s.name,
     displayOrder: s.displayOrder,
     isActive: s.isActive,
+    isCompleted: s.isCompleted,
   }));
 }
 
@@ -428,6 +447,7 @@ export async function addContractStatus(data: Record<string, unknown>): Promise<
         name: String(data.name).trim(),
         displayOrder,
         isActive: toBoolean(data.isActive),
+        ...("isCompleted" in data && { isCompleted: toBoolean(data.isCompleted) }),
       },
     });
     revalidatePath("/hojo/settings/vendors");
@@ -444,6 +464,7 @@ export async function updateContractStatus(id: number, data: Record<string, unkn
     const updateData: Record<string, unknown> = {};
     if ("name" in data) updateData.name = String(data.name).trim();
     if ("isActive" in data) updateData.isActive = toBoolean(data.isActive);
+    if ("isCompleted" in data) updateData.isCompleted = toBoolean(data.isCompleted);
 
     if (Object.keys(updateData).length > 0) {
       await prisma.hojoVendorContractStatus.update({

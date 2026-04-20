@@ -4751,6 +4751,7 @@ model HojoLineFriendJoseiSupport {
   userType         String    @default("顧客") @map("user_type") @db.VarChar(20)
   sortOrder        Int       @default(0) @map("sort_order")
   form4NotifyCount Int       @default(0)
+  nextContactDate  DateTime? @map("next_contact_date")
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
@@ -4884,6 +4885,13 @@ model HojoVendor {
 
   // 全体の初回MTG（旧キックオフMTG位置）
   kickoffMtg DateTime? @map("kickoff_mtg")
+
+  // 次の連絡日（全体用: 基本情報タブに表示）
+  nextContactDate DateTime? @map("next_contact_date")
+  // 次の連絡日（卸用: ベンダー一覧の卸関連カラムに表示）
+  nextContactDateWholesale DateTime? @map("next_contact_date_wholesale")
+  // 次の連絡日（コンサル用: ベンダー一覧のコンサル関連カラムに表示）
+  nextContactDateConsulting DateTime? @map("next_contact_date_consulting")
 
   // セキュリティクラウド卸
   scWholesaleStatusId         Int?      @map("sc_wholesale_status_id")
@@ -5580,6 +5588,7 @@ model HojoVendorScWholesaleStatus {
   name         String   @db.VarChar(200)
   displayOrder Int      @default(0) @map("display_order")
   isActive     Boolean  @default(true) @map("is_active")
+  color        String   @default("gray") @db.VarChar(20)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -5593,6 +5602,7 @@ model HojoVendorConsultingPlanStatus {
   name         String   @db.VarChar(200)
   displayOrder Int      @default(0) @map("display_order")
   isActive     Boolean  @default(true) @map("is_active")
+  color        String   @default("gray") @db.VarChar(20)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -5606,6 +5616,7 @@ model HojoVendorRegistrationStatus {
   name         String   @db.VarChar(200)
   displayOrder Int      @default(0) @map("display_order")
   isActive     Boolean  @default(true) @map("is_active")
+  isCompleted  Boolean  @default(false) @map("is_completed")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -5619,6 +5630,7 @@ model HojoVendorToolRegistrationStatus {
   name         String   @db.VarChar(200)
   displayOrder Int      @default(0) @map("display_order")
   isActive     Boolean  @default(true) @map("is_active")
+  isCompleted  Boolean  @default(false) @map("is_completed")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -5637,6 +5649,7 @@ model HojoVendorContractStatus {
   name         String   @db.VarChar(200)
   displayOrder Int      @default(0) @map("display_order")
   isActive     Boolean  @default(true) @map("is_active")
+  isCompleted  Boolean  @default(false) @map("is_completed")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

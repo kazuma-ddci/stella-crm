@@ -57,6 +57,9 @@ type Props = {
     email: string;
     phone: string;
     kickoffMtg: string;
+    nextContactDate: string;
+    nextContactDateWholesale: string;
+    nextContactDateConsulting: string;
     scWholesaleStatusId: number | null;
     scWholesaleContractStatusId: number | null;
     scWholesaleKickoffMtg: string;

@@ -61,29 +61,59 @@ export function MultiUrlField({ value, onChange }: Props) {
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" style={{ width: "100%", maxWidth: "100%", minWidth: 0, overflow: "hidden" }}>
       {/* 既存のURL一覧 */}
       {urls.length > 0 && (
-        <ul className="space-y-1.5">
+        <ul className="space-y-1.5" style={{ width: "100%", maxWidth: "100%", minWidth: 0 }}>
           {urls.map((url, idx) => (
             <li
               key={idx}
-              className="flex items-center gap-2 px-3 py-2 border rounded-md bg-gray-50"
+              className="px-3 py-2 border rounded-md bg-gray-50"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1fr) auto",
+                gap: "0.5rem",
+                alignItems: "center",
+                width: "100%",
+                maxWidth: "100%",
+                minWidth: 0,
+                overflow: "hidden",
+              }}
             >
               <a
                 href={url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1 flex-1 text-sm text-blue-600 hover:underline truncate"
+                className="text-sm text-blue-600 hover:underline"
+                title={url}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.25rem",
+                  minWidth: 0,
+                  maxWidth: "100%",
+                  overflow: "hidden",
+                }}
               >
                 <ExternalLink className="h-3 w-3 shrink-0" />
-                <span className="truncate">{getDisplayName(url)}</span>
+                <span
+                  style={{
+                    display: "block",
+                    minWidth: 0,
+                    maxWidth: "100%",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {getDisplayName(url)}
+                </span>
               </a>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-7 w-7 p-0 text-red-500 hover:text-red-700"
+                className="h-7 w-7 p-0 text-red-500 hover:text-red-700 shrink-0"
                 onClick={() => handleRemove(idx)}
               >
                 <Trash2 className="h-3 w-3" />
@@ -94,7 +124,7 @@ export function MultiUrlField({ value, onChange }: Props) {
       )}
 
       {/* URL入力 + 追加 */}
-      <div className="flex gap-2">
+      <div className="flex gap-2" style={{ width: "100%", minWidth: 0 }}>
         <Input
           type="url"
           placeholder="URLを直接入力..."
@@ -106,9 +136,9 @@ export function MultiUrlField({ value, onChange }: Props) {
               handleAddUrl();
             }
           }}
-          className="flex-1"
+          className="flex-1 min-w-0"
         />
-        <Button type="button" variant="outline" size="sm" onClick={handleAddUrl}>
+        <Button type="button" variant="outline" size="sm" onClick={handleAddUrl} className="shrink-0">
           <Plus className="h-4 w-4" />
         </Button>
       </div>

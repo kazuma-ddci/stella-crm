@@ -35,6 +35,7 @@ function formatLineFriend(f: {
   scenarioPos3: string | null;
   scenarioPos4: string | null;
   scenarioPos5: string | null;
+  nextContactDate: Date | null;
   updatedAt: Date;
 }) {
   return {
@@ -72,6 +73,7 @@ function formatLineFriend(f: {
     scenarioPos3: f.scenarioPos3,
     scenarioPos4: f.scenarioPos4,
     scenarioPos5: f.scenarioPos5,
+    nextContactDate: f.nextContactDate ? f.nextContactDate.toISOString().split("T")[0] : null,
   };
 }
 
@@ -173,6 +175,7 @@ export default async function ApplicantInfoPage() {
       userType: displayUserType,
       isVendor,
       vendorName: vendorNames.length > 0 ? vendorNames.join(", ") : null,
+      nextContactDate: f.nextContactDate ? f.nextContactDate.toISOString().split("T")[0] : null,
       hasError,
     };
   });

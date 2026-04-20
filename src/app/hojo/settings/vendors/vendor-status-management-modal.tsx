@@ -21,6 +21,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Plus, Pencil, Trash2, GripVertical, Loader2, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -67,12 +74,15 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { PRESET_COLOR_OPTIONS, getBadgeClasses, type BadgeColor } from "@/lib/badge-color";
 
 type StatusItem = {
   id: number;
   name: string;
   displayOrder: number;
   isActive: boolean;
+  color?: string;
+  isCompleted?: boolean;
 };
 
 type RenameContext = {
@@ -97,6 +107,8 @@ const CONFIG = {
     update: updateScWholesaleStatus,
     remove: deleteScWholesaleStatus,
     reorder: reorderScWholesaleStatuses,
+    hasColor: true,
+    hasCompleted: false,
   },
   consultingPlan: {
     title: "コンサルティングプランステータス管理",
@@ -105,6 +117,8 @@ const CONFIG = {
     update: updateConsultingPlanStatus,
     remove: deleteConsultingPlanStatus,
     reorder: reorderConsultingPlanStatuses,
+    hasColor: true,
+    hasCompleted: false,
   },
   vendorRegistration: {
     title: "ベンダー登録ステータス管理",
@@ -113,6 +127,8 @@ const CONFIG = {
     update: updateVendorRegistrationStatus,
     remove: deleteVendorRegistrationStatus,
     reorder: reorderVendorRegistrationStatuses,
+    hasColor: false,
+    hasCompleted: true,
   },
   toolRegistration: {
     title: "ツール登録ステータス管理",
@@ -121,6 +137,8 @@ const CONFIG = {
     update: updateToolRegistrationStatus,
     remove: deleteToolRegistrationStatus,
     reorder: reorderToolRegistrationStatuses,
+    hasColor: false,
+    hasCompleted: true,
   },
   contractStatus: {
     title: "契約状況管理（共通）",
@@ -129,8 +147,18 @@ const CONFIG = {
     update: updateContractStatus,
     remove: deleteContractStatus,
     reorder: reorderContractStatuses,
+    hasColor: false,
+    hasCompleted: true,
   },
 } as const;
+
+function ColorPreview({ color, label }: { color: string; label: string }) {
+  return (
+    <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${getBadgeClasses(color as BadgeColor)}`}>
+      {label}
+    </span>
+  );
+}
 
 function SortableStatusRow({
   status,
@@ -141,8 +169,12 @@ function SortableStatusRow({
   onSaveEdit,
   onCancelEdit,
   onToggleActive,
+  onChangeColor,
+  onToggleCompleted,
   onDelete,
   loading,
+  hasColor,
+  hasCompleted,
 }: {
   status: StatusItem;
   editingId: number | null;
@@ -152,8 +184,12 @@ function SortableStatusRow({
   onSaveEdit: () => void;
   onCancelEdit: () => void;
   onToggleActive: (status: StatusItem) => void;
+  onChangeColor: (status: StatusItem, color: string) => void;
+  onToggleCompleted: (status: StatusItem) => void;
   onDelete: (status: StatusItem) => void;
   loading: boolean;
+  hasColor: boolean;
+  hasCompleted: boolean;
 }) {
   const {
     attributes,
@@ -207,10 +243,50 @@ function SortableStatusRow({
         </div>
       ) : (
         <>
-          <span className={`flex-1 text-sm ${!status.isActive ? "text-gray-400 line-through" : ""}`}>
-            {status.name}
-          </span>
+          {hasColor ? (
+            <span className={`flex-1 text-sm ${!status.isActive ? "opacity-40" : ""}`}>
+              <ColorPreview color={status.color || "gray"} label={status.name} />
+            </span>
+          ) : (
+            <span className={`flex-1 text-sm ${!status.isActive ? "text-gray-400 line-through" : ""}`}>
+              {status.name}
+            </span>
+          )}
           <div className="flex items-center gap-2">
+            {hasColor && (
+              <Select
+                value={status.color || "gray"}
+                onValueChange={(v) => onChangeColor(status, v)}
+                disabled={loading}
+              >
+                <SelectTrigger className="h-7 w-[110px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRESET_COLOR_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-block h-3 w-3 rounded ${getBadgeClasses(opt.value as BadgeColor)}`} />
+                        {opt.label}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {hasCompleted && (
+              <>
+                <Label htmlFor={`completed-${status.id}`} className="text-xs text-gray-500">
+                  完了
+                </Label>
+                <Switch
+                  id={`completed-${status.id}`}
+                  checked={!!status.isCompleted}
+                  onCheckedChange={() => onToggleCompleted(status)}
+                  disabled={loading}
+                />
+              </>
+            )}
             <Label htmlFor={`active-${status.id}`} className="text-xs text-gray-500">
               有効
             </Label>
@@ -241,6 +317,8 @@ export function VendorStatusManagementModal({ open, onOpenChange, type }: Props)
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
   const [newName, setNewName] = useState("");
+  const [newColor, setNewColor] = useState<string>("gray");
+  const [newCompleted, setNewCompleted] = useState(false);
   const [addingNew, setAddingNew] = useState(false);
 
   // 名前変更確認ダイアログ
@@ -270,6 +348,8 @@ export function VendorStatusManagementModal({ open, onOpenChange, type }: Props)
       setEditingId(null);
       setAddingNew(false);
       setNewName("");
+      setNewColor("gray");
+      setNewCompleted(false);
       router.refresh();
     }
     onOpenChange(isOpen);
@@ -280,8 +360,13 @@ export function VendorStatusManagementModal({ open, onOpenChange, type }: Props)
     if (!newName.trim()) return;
     setLoading(true);
     try {
-      await config.add({ name: newName.trim(), isActive: true });
+      const payload: Record<string, unknown> = { name: newName.trim(), isActive: true };
+      if (config.hasColor) payload.color = newColor;
+      if (config.hasCompleted) payload.isCompleted = newCompleted;
+      await config.add(payload);
       setNewName("");
+      setNewColor("gray");
+      setNewCompleted(false);
       setAddingNew(false);
       await loadStatuses();
       toast.success("ステータスを追加しました");
@@ -357,6 +442,33 @@ export function VendorStatusManagementModal({ open, onOpenChange, type }: Props)
     }
   };
 
+  // 色変更
+  const handleChangeColor = async (status: StatusItem, color: string) => {
+    setLoading(true);
+    try {
+      await config.update(status.id, { color });
+      await loadStatuses();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "色の変更に失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 完了フラグ切り替え
+  const handleToggleCompleted = async (status: StatusItem) => {
+    setLoading(true);
+    try {
+      await config.update(status.id, { isCompleted: !status.isCompleted });
+      await loadStatuses();
+      toast.success(`完了フラグを${status.isCompleted ? "オフ" : "オン"}にしました`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "更新に失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 削除
   const handleDeleteClick = (status: StatusItem) => {
     setDeleteConfirm(status);
@@ -398,7 +510,7 @@ export function VendorStatusManagementModal({ open, onOpenChange, type }: Props)
   return (
     <>
       <Dialog open={open} onOpenChange={handleClose}>
-        <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-md">
+        <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>{config.title}</DialogTitle>
           </DialogHeader>
@@ -424,8 +536,12 @@ export function VendorStatusManagementModal({ open, onOpenChange, type }: Props)
                     onSaveEdit={handleSaveEdit}
                     onCancelEdit={() => setEditingId(null)}
                     onToggleActive={handleToggleActive}
+                    onChangeColor={handleChangeColor}
+                    onToggleCompleted={handleToggleCompleted}
                     onDelete={handleDeleteClick}
                     loading={loading}
+                    hasColor={config.hasColor}
+                    hasCompleted={config.hasCompleted}
                   />
                 ))}
               </SortableContext>
@@ -438,20 +554,45 @@ export function VendorStatusManagementModal({ open, onOpenChange, type }: Props)
             )}
 
             {addingNew ? (
-              <div className="flex items-center gap-2 p-2 border rounded-lg border-dashed">
+              <div className="flex flex-wrap items-center gap-2 p-2 border rounded-lg border-dashed">
                 <Input
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="ステータス名"
-                  className="h-8"
+                  className="h-8 flex-1 min-w-[120px]"
                   autoFocus
                   onKeyDown={(e) => {
                     if (e.key === "Escape") {
                       setAddingNew(false);
                       setNewName("");
+                      setNewColor("gray");
+                      setNewCompleted(false);
                     }
                   }}
                 />
+                {config.hasColor && (
+                  <Select value={newColor} onValueChange={setNewColor}>
+                    <SelectTrigger className="h-8 w-[110px] text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PRESET_COLOR_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-block h-3 w-3 rounded ${getBadgeClasses(opt.value as BadgeColor)}`} />
+                            {opt.label}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {config.hasCompleted && (
+                  <div className="flex items-center gap-1">
+                    <Label className="text-xs text-gray-500">完了</Label>
+                    <Switch checked={newCompleted} onCheckedChange={setNewCompleted} />
+                  </div>
+                )}
                 <Button size="sm" onClick={handleAdd} disabled={loading || !newName.trim()}>
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                 </Button>
@@ -461,6 +602,8 @@ export function VendorStatusManagementModal({ open, onOpenChange, type }: Props)
                   onClick={() => {
                     setAddingNew(false);
                     setNewName("");
+                    setNewColor("gray");
+                    setNewCompleted(false);
                   }}
                 >
                   <X className="h-4 w-4" />

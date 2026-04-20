@@ -3,10 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ExternalLink, ListChecks } from "lucide-react";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { CrudTable, type ColumnDef, type CustomRenderers } from "@/components/crud-table";
 import { TaskManagementDialog, type TaskRecord } from "./task-management-dialog";
 
 type ActivityRow = {
@@ -43,6 +41,7 @@ function UrlListCell({ urls }: { urls: string[] }) {
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs"
+          onClick={(e) => e.stopPropagation()}
         >
           <ExternalLink className="h-3 w-3 shrink-0" />
           <span className="truncate max-w-[100px]">
@@ -54,84 +53,108 @@ function UrlListCell({ urls }: { urls: string[] }) {
   );
 }
 
+const contactMethodOptions = [
+  { value: "LINE", label: "LINE" },
+  { value: "電話", label: "電話" },
+  { value: "メール", label: "メール" },
+  { value: "zoom", label: "zoom" },
+];
+
 export function ActivityListTable({ data }: Props) {
-  const [taskDialog, setTaskDialog] = useState<{ activityId: number; tasks: TaskRecord[]; label: string } | null>(null);
+  const [taskDialog, setTaskDialog] = useState<{
+    activityId: number;
+    tasks: TaskRecord[];
+    label: string;
+  } | null>(null);
+
+  const vendorOptions = Array.from(new Set(data.map((r) => r.vendorName).filter(Boolean)))
+    .map((name) => ({ value: name, label: name }));
+
+  const columns: ColumnDef[] = [
+    { key: "id", header: "ID", editable: false, hidden: true },
+    { key: "vendorId", header: "vendorId", editable: false, hidden: true },
+    { key: "vendorName", header: "ベンダー名", type: "select", options: vendorOptions, editable: false, filterable: true, searchable: true },
+    { key: "activityDate", header: "対応日", type: "date", editable: false, filterable: true },
+    { key: "contactMethod", header: "対応手段", type: "select", options: contactMethodOptions, editable: false, filterable: true },
+    { key: "vendorIssue", header: "課題/ご相談内容", type: "textarea", editable: false, filterable: true },
+    { key: "hearingContent", header: "ヒアリング内容", type: "textarea", editable: false, filterable: true },
+    { key: "responseContent", header: "回答内容", type: "textarea", editable: false, filterable: true },
+    { key: "proposalContent", header: "提案内容", type: "textarea", editable: false, filterable: true },
+    { key: "vendorNextAction", header: "次回アクション", type: "textarea", editable: false, filterable: true },
+    { key: "nextDeadline", header: "次回期限", type: "date", editable: false, filterable: true },
+    { key: "tasks", header: "タスク", editable: false },
+    { key: "attachmentUrls", header: "添付資料", editable: false },
+    { key: "recordingUrls", header: "録画", editable: false },
+    { key: "screenshotUrls", header: "スクショ", editable: false },
+    { key: "notes", header: "備考", type: "textarea", editable: false, filterable: true },
+  ];
+
+  const truncateCell = (value: unknown) => (
+    <span className="text-sm whitespace-pre-wrap line-clamp-2 max-w-[200px] block">{value ? String(value) : "-"}</span>
+  );
+
+  const customRenderers: CustomRenderers = {
+    vendorName: (value, row) => {
+      const vendorId = row.vendorId as number;
+      const name = value ? String(value) : "-";
+      return (
+        <Link
+          href={`/hojo/settings/vendors/${vendorId}`}
+          className="text-blue-600 hover:text-blue-800 hover:underline font-medium whitespace-nowrap"
+        >
+          {name}
+        </Link>
+      );
+    },
+    contactMethod: (value) =>
+      value ? (
+        <span className="px-1.5 py-0.5 rounded bg-gray-100 text-xs whitespace-nowrap">{String(value)}</span>
+      ) : (
+        <span className="text-gray-300">-</span>
+      ),
+    vendorIssue: truncateCell,
+    hearingContent: truncateCell,
+    responseContent: truncateCell,
+    proposalContent: truncateCell,
+    vendorNextAction: truncateCell,
+    notes: (value) => (
+      <span className="text-sm truncate block max-w-[150px]">{value ? String(value) : "-"}</span>
+    ),
+    tasks: (_value, row) => {
+      const r = row as unknown as ActivityRow;
+      const vendorCount = r.tasks.filter((t) => t.taskType === "vendor").length;
+      const teamCount = r.tasks.filter((t) => t.taskType === "consulting_team").length;
+      return (
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1 h-8 whitespace-nowrap"
+          onClick={() =>
+            setTaskDialog({
+              activityId: r.id,
+              tasks: r.tasks,
+              label: `${r.activityDate} - ${r.vendorName}`,
+            })
+          }
+        >
+          <ListChecks className="h-3 w-3" />
+          ベ:{vendorCount}/チ:{teamCount}
+        </Button>
+      );
+    },
+    attachmentUrls: (value) => <UrlListCell urls={(value as string[]) ?? []} />,
+    recordingUrls: (value) => <UrlListCell urls={(value as string[]) ?? []} />,
+    screenshotUrls: (value) => <UrlListCell urls={(value as string[]) ?? []} />,
+  };
 
   return (
     <>
-      <div className="overflow-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ベンダー名</TableHead>
-              <TableHead>対応日</TableHead>
-              <TableHead>対応手段</TableHead>
-              <TableHead>課題/ご相談内容</TableHead>
-              <TableHead>ヒアリング内容</TableHead>
-              <TableHead>回答内容</TableHead>
-              <TableHead>提案内容</TableHead>
-              <TableHead>次回アクション</TableHead>
-              <TableHead>次回期限</TableHead>
-              <TableHead>タスク</TableHead>
-              <TableHead>添付資料</TableHead>
-              <TableHead>録画</TableHead>
-              <TableHead>スクショ</TableHead>
-              <TableHead>備考</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={14} className="text-center text-gray-500 py-8">
-                  コンサル履歴がありません
-                </TableCell>
-              </TableRow>
-            ) : (
-              data.map((r) => {
-                const vendorCount = r.tasks.filter((t) => t.taskType === "vendor").length;
-                const teamCount = r.tasks.filter((t) => t.taskType === "consulting_team").length;
-                return (
-                  <TableRow key={r.id}>
-                    <TableCell className="whitespace-nowrap">
-                      <Link
-                        href={`/hojo/settings/vendors/${r.vendorId}`}
-                        className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
-                      >
-                        {r.vendorName}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap font-medium">{r.activityDate}</TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {r.contactMethod ? <span className="px-1.5 py-0.5 rounded bg-gray-100 text-xs">{r.contactMethod}</span> : "-"}
-                    </TableCell>
-                    <TableCell className="max-w-[200px]"><p className="text-sm whitespace-pre-wrap line-clamp-2">{r.vendorIssue || "-"}</p></TableCell>
-                    <TableCell className="max-w-[200px]"><p className="text-sm whitespace-pre-wrap line-clamp-2">{r.hearingContent || "-"}</p></TableCell>
-                    <TableCell className="max-w-[200px]"><p className="text-sm whitespace-pre-wrap line-clamp-2">{r.responseContent || "-"}</p></TableCell>
-                    <TableCell className="max-w-[200px]"><p className="text-sm whitespace-pre-wrap line-clamp-2">{r.proposalContent || "-"}</p></TableCell>
-                    <TableCell className="max-w-[180px]"><p className="text-sm whitespace-pre-wrap line-clamp-2">{r.vendorNextAction || "-"}</p></TableCell>
-                    <TableCell className="whitespace-nowrap text-sm">{r.nextDeadline || "-"}</TableCell>
-                    <TableCell>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-1 h-8 whitespace-nowrap"
-                        onClick={() => setTaskDialog({ activityId: r.id, tasks: r.tasks, label: `${r.activityDate} - ${r.vendorName}` })}
-                      >
-                        <ListChecks className="h-3 w-3" />
-                        ベ:{vendorCount}/チ:{teamCount}
-                      </Button>
-                    </TableCell>
-                    <TableCell><UrlListCell urls={r.attachmentUrls} /></TableCell>
-                    <TableCell><UrlListCell urls={r.recordingUrls} /></TableCell>
-                    <TableCell><UrlListCell urls={r.screenshotUrls} /></TableCell>
-                    <TableCell className="max-w-[150px] truncate text-sm">{r.notes || "-"}</TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <CrudTable
+        data={data as unknown as Record<string, unknown>[]}
+        columns={columns}
+        emptyMessage="コンサル履歴がありません"
+        customRenderers={customRenderers}
+      />
 
       {taskDialog && (
         <TaskManagementDialog

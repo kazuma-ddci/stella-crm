@@ -24,6 +24,7 @@ type ApplicantRow = {
   userType: string;
   isVendor: boolean;
   vendorName: string | null;
+  nextContactDate: string | null;
   hasError: boolean;
 };
 
@@ -51,6 +52,7 @@ const applicantColumns: ColumnDef[] = [
   { key: "uid", header: "UID", type: "text", editable: false, filterable: true },
   { key: "userType", header: "ユーザー種別", editable: false, filterable: true },
   { key: "vendorName", header: "紹介元ベンダー", editable: false, filterable: true },
+  { key: "nextContactDate", header: "次の連絡日", type: "date", editable: false, filterable: true },
 ];
 
 // --- 助成金申請サポートタブ用 ---
@@ -94,6 +96,7 @@ const lineFriendColumns: ColumnDef[] = [
   { key: "scenarioPos3", header: "現在の場所3", type: "text" },
   { key: "scenarioPos4", header: "現在の場所4", type: "text" },
   { key: "scenarioPos5", header: "現在の場所5", type: "text" },
+  { key: "nextContactDate", header: "次の連絡日", type: "date", filterable: true },
 ];
 
 // --- メインコンポーネント ---

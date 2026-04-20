@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,6 +45,7 @@ import {
   Link as LinkIcon,
   Upload,
   Building2,
+  ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { updateVendorDetail, updateVendorConsultingStaff, updateVendorAssignedAs, updateVendorContractDocuments } from "./actions";
@@ -86,6 +88,9 @@ type Props = {
     email: string;
     phone: string;
     kickoffMtg: string;
+    nextContactDate: string;
+    nextContactDateWholesale: string;
+    nextContactDateConsulting: string;
     scWholesaleStatusId: number | null;
     scWholesaleContractStatusId: number | null;
     scWholesaleKickoffMtg: string;
@@ -183,8 +188,9 @@ export function VendorDetailForm({
   const [vendorEmail, setVendorEmail] = useState(vendor.email);
   const [vendorPhone, setVendorPhone] = useState(vendor.phone);
 
-  // 全体の初回MTG
+  // 全体の初回MTG + 次の連絡日（全体用）
   const [kickoffMtg, setKickoffMtg] = useState(vendor.kickoffMtg);
+  const [nextContactDate, setNextContactDate] = useState(vendor.nextContactDate);
 
   // セキュリティクラウド卸
   const [scWholesaleStatusId, setScWholesaleStatusId] = useState<string>(
@@ -197,6 +203,7 @@ export function VendorDetailForm({
   const [scWholesaleContractDate, setScWholesaleContractDate] = useState(vendor.scWholesaleContractDate);
   const [scWholesaleEndDate, setScWholesaleEndDate] = useState(vendor.scWholesaleEndDate);
   const [scWholesaleMemo, setScWholesaleMemo] = useState(vendor.scWholesaleMemo);
+  const [nextContactDateWholesale, setNextContactDateWholesale] = useState(vendor.nextContactDateWholesale);
   const [scWholesaleDocs, setScWholesaleDocs] = useState<ContractDocumentItem[]>(
     contractDocsByService.scWholesale || []
   );
@@ -212,6 +219,7 @@ export function VendorDetailForm({
   const [consultingPlanContractDate, setConsultingPlanContractDate] = useState(vendor.consultingPlanContractDate);
   const [consultingPlanEndDate, setConsultingPlanEndDate] = useState(vendor.consultingPlanEndDate);
   const [consultingPlanMemo, setConsultingPlanMemo] = useState(vendor.consultingPlanMemo);
+  const [nextContactDateConsulting, setNextContactDateConsulting] = useState(vendor.nextContactDateConsulting);
   const [consultingPlanDocs, setConsultingPlanDocs] = useState<ContractDocumentItem[]>(
     contractDocsByService.consultingPlan || []
   );
@@ -277,9 +285,9 @@ export function VendorDetailForm({
 
   // 未保存変更の検出
   const currentValues = useMemo(() => JSON.stringify({
-    vendorEmail, vendorPhone, kickoffMtg,
-    scWholesaleStatusId, scWholesaleContractStatusId, scWholesaleKickoffMtg, scWholesaleContractDate, scWholesaleEndDate, scWholesaleMemo, scWholesaleDocs,
-    consultingPlanStatusId, consultingPlanContractStatusId, consultingPlanKickoffMtg, consultingPlanContractDate, consultingPlanEndDate, consultingPlanMemo, consultingPlanDocs,
+    vendorEmail, vendorPhone, kickoffMtg, nextContactDate,
+    scWholesaleStatusId, scWholesaleContractStatusId, scWholesaleKickoffMtg, scWholesaleContractDate, scWholesaleEndDate, scWholesaleMemo, scWholesaleDocs, nextContactDateWholesale,
+    consultingPlanStatusId, consultingPlanContractStatusId, consultingPlanKickoffMtg, consultingPlanContractDate, consultingPlanEndDate, consultingPlanMemo, consultingPlanDocs, nextContactDateConsulting,
     grantApplicationBpo, grantApplicationBpoContractStatusId, grantApplicationBpoKickoffMtg, grantApplicationBpoContractDate, grantApplicationBpoMemo, grantApplicationBpoDocs,
     subsidyConsulting, subsidyConsultingKickoffMtg, subsidyConsultingMemo,
     loanUsage, loanUsageKickoffMtg, loanUsageMemo,
@@ -289,9 +297,9 @@ export function VendorDetailForm({
     consultingStaffIds: [...consultingStaffIds].sort(),
     asLineFriendId,
   }), [
-    vendorEmail, vendorPhone, kickoffMtg,
-    scWholesaleStatusId, scWholesaleContractStatusId, scWholesaleKickoffMtg, scWholesaleContractDate, scWholesaleEndDate, scWholesaleMemo, scWholesaleDocs,
-    consultingPlanStatusId, consultingPlanContractStatusId, consultingPlanKickoffMtg, consultingPlanContractDate, consultingPlanEndDate, consultingPlanMemo, consultingPlanDocs,
+    vendorEmail, vendorPhone, kickoffMtg, nextContactDate,
+    scWholesaleStatusId, scWholesaleContractStatusId, scWholesaleKickoffMtg, scWholesaleContractDate, scWholesaleEndDate, scWholesaleMemo, scWholesaleDocs, nextContactDateWholesale,
+    consultingPlanStatusId, consultingPlanContractStatusId, consultingPlanKickoffMtg, consultingPlanContractDate, consultingPlanEndDate, consultingPlanMemo, consultingPlanDocs, nextContactDateConsulting,
     grantApplicationBpo, grantApplicationBpoContractStatusId, grantApplicationBpoKickoffMtg, grantApplicationBpoContractDate, grantApplicationBpoMemo, grantApplicationBpoDocs,
     subsidyConsulting, subsidyConsultingKickoffMtg, subsidyConsultingMemo,
     loanUsage, loanUsageKickoffMtg, loanUsageMemo,
@@ -511,6 +519,9 @@ export function VendorDetailForm({
           email: vendorEmail,
           phone: vendorPhone,
           kickoffMtg: kickoffMtg || null,
+          nextContactDate: nextContactDate || null,
+          nextContactDateWholesale: nextContactDateWholesale || null,
+          nextContactDateConsulting: nextContactDateConsulting || null,
           scWholesaleStatusId: scWholesaleStatusId ? Number(scWholesaleStatusId) : null,
           scWholesaleContractStatusId: scWholesaleContractStatusId ? Number(scWholesaleContractStatusId) : null,
           scWholesaleKickoffMtg: scWholesaleKickoffMtg || null,
@@ -928,7 +939,7 @@ export function VendorDetailForm({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 lg:grid-cols-3 md:grid-cols-2">
+          <div className="grid gap-3 lg:grid-cols-4 md:grid-cols-2">
             <FieldBlock label="メールアドレス">
               <Input
                 type="email"
@@ -948,6 +959,9 @@ export function VendorDetailForm({
             <FieldBlock label="キックオフMTG">
               <DateTimePicker value={kickoffMtg} onChange={setKickoffMtg} placeholder="キックオフMTGの日時" />
             </FieldBlock>
+            <FieldBlock label="次の連絡日">
+              <DatePicker value={nextContactDate} onChange={setNextContactDate} placeholder="次の連絡日" />
+            </FieldBlock>
           </div>
         </CardContent>
       </Card>
@@ -964,7 +978,7 @@ export function VendorDetailForm({
             title="セキュリティクラウド卸"
             onPlanSettingsClick={() => openStatusModal("scWholesale")}
           >
-            <div className="grid gap-3 lg:grid-cols-5 md:grid-cols-2">
+            <div className="grid gap-3 lg:grid-cols-2 md:grid-cols-2">
               <FieldBlock label="プラン">
                 <Select
                   value={scWholesaleStatusId || UNSET_VALUE}
@@ -1004,6 +1018,8 @@ export function VendorDetailForm({
                   </SelectContent>
                 </Select>
               </FieldBlock>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-4 md:grid-cols-2">
               <FieldBlock label="契約日">
                 <DatePicker value={scWholesaleContractDate} onChange={setScWholesaleContractDate} placeholder="契約日" />
               </FieldBlock>
@@ -1012,6 +1028,9 @@ export function VendorDetailForm({
               </FieldBlock>
               <FieldBlock label="初回MTG">
                 <DateTimePicker value={scWholesaleKickoffMtg} onChange={setScWholesaleKickoffMtg} placeholder="初回MTG" />
+              </FieldBlock>
+              <FieldBlock label="次の連絡日">
+                <DatePicker value={nextContactDateWholesale} onChange={setNextContactDateWholesale} placeholder="次の連絡日" />
               </FieldBlock>
             </div>
             <FieldBlock label="契約書">
@@ -1034,7 +1053,7 @@ export function VendorDetailForm({
             title="コンサルティングプラン"
             onPlanSettingsClick={() => openStatusModal("consultingPlan")}
           >
-            <div className="grid gap-3 lg:grid-cols-5 md:grid-cols-2">
+            <div className="grid gap-3 lg:grid-cols-2 md:grid-cols-2">
               <FieldBlock label="プラン">
                 <Select
                   value={consultingPlanStatusId || UNSET_VALUE}
@@ -1074,6 +1093,8 @@ export function VendorDetailForm({
                   </SelectContent>
                 </Select>
               </FieldBlock>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-4 md:grid-cols-2">
               <FieldBlock label="契約日">
                 <DatePicker value={consultingPlanContractDate} onChange={setConsultingPlanContractDate} placeholder="契約日" />
               </FieldBlock>
@@ -1082,6 +1103,9 @@ export function VendorDetailForm({
               </FieldBlock>
               <FieldBlock label="初回MTG">
                 <DateTimePicker value={consultingPlanKickoffMtg} onChange={setConsultingPlanKickoffMtg} placeholder="初回MTG" />
+              </FieldBlock>
+              <FieldBlock label="次の連絡日">
+                <DatePicker value={nextContactDateConsulting} onChange={setNextContactDateConsulting} placeholder="次の連絡日" />
               </FieldBlock>
             </div>
             <FieldBlock label="契約書">
@@ -1300,8 +1324,15 @@ export function VendorDetailForm({
         </CardContent>
       </Card>
 
-      {/* 保存ボタン */}
-      <div className="flex justify-end">
+      {/* 保存ボタン + ベンダー一覧に戻るリンク（下部sticky） */}
+      <div className="sticky bottom-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75 border-t py-3 flex justify-between items-center">
+        <Link
+          href="/hojo/settings/vendors"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          ベンダー一覧に戻る
+        </Link>
         <Button onClick={handleSave} disabled={isPending}>
           {isPending ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />

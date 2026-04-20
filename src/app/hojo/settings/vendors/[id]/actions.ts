@@ -39,6 +39,11 @@ export async function updateVendorDetail(
   // 全体の初回MTG
   const kickoffMtg = parseDateTime(data.kickoffMtg);
 
+  // 次の連絡日（全体用 + 卸用 + コンサル用）
+  const nextContactDate = parseDateTime(data.nextContactDate);
+  const nextContactDateWholesale = parseDateTime(data.nextContactDateWholesale);
+  const nextContactDateConsulting = parseDateTime(data.nextContactDateConsulting);
+
   // ヘルパー: 文字列フィールドを取り出してtrim、空文字はnullに
   const trimOrNull = (v: unknown): string | null => {
     if (v === null || v === undefined) return null;
@@ -102,6 +107,9 @@ export async function updateVendorDetail(
       email,
       phone,
       kickoffMtg,
+      nextContactDate,
+      nextContactDateWholesale,
+      nextContactDateConsulting,
       scWholesaleStatus: scWholesaleStatusId
         ? { connect: { id: scWholesaleStatusId } }
         : { disconnect: true },

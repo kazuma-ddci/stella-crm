@@ -5,6 +5,12 @@ import { SortableItem } from "@/components/sortable-list-modal";
 import { addVendor, updateVendor, deleteVendor, reorderVendors } from "./actions";
 import { Check, Copy, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
+import {
+  getBadgeClasses,
+  COMPLETED_BADGE_CLASSES,
+  INCOMPLETE_BADGE_CLASSES,
+  type BadgeColor,
+} from "@/lib/badge-color";
 
 type Props = {
   data: Record<string, unknown>[];
@@ -16,6 +22,11 @@ type Props = {
   contractStatusOptions: { value: string; label: string }[];
   vendorRegistrationStatusOptions: { value: string; label: string }[];
   toolRegistrationStatusOptions: { value: string; label: string }[];
+  scWholesaleStatusMeta: Record<string, { color: string }>;
+  consultingPlanStatusMeta: Record<string, { color: string }>;
+  contractStatusMeta: Record<string, { isCompleted: boolean }>;
+  vendorRegistrationStatusMeta: Record<string, { isCompleted: boolean }>;
+  toolRegistrationStatusMeta: Record<string, { isCompleted: boolean }>;
 };
 
 export function VendorsTable({
@@ -28,6 +39,11 @@ export function VendorsTable({
   contractStatusOptions,
   vendorRegistrationStatusOptions,
   toolRegistrationStatusOptions,
+  scWholesaleStatusMeta,
+  consultingPlanStatusMeta,
+  contractStatusMeta,
+  vendorRegistrationStatusMeta,
+  toolRegistrationStatusMeta,
 }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
@@ -40,8 +56,10 @@ export function VendorsTable({
     // 絞り込み用カラム（テーブル表示・絞り込み可能）
     { key: "scWholesaleStatusName", header: "卸プラン", type: "select", options: scWholesaleStatusOptions, editable: false, filterable: true },
     { key: "scWholesaleContractStatusName", header: "卸契約状況", type: "select", options: contractStatusOptions, editable: false, filterable: true },
+    { key: "nextContactDateWholesale", header: "卸 次の連絡日", type: "date", editable: false, filterable: true },
     { key: "consultingPlanStatusName", header: "コンサルプラン", type: "select", options: consultingPlanStatusOptions, editable: false, filterable: true },
     { key: "consultingPlanContractStatusName", header: "コンサル契約状況", type: "select", options: contractStatusOptions, editable: false, filterable: true },
+    { key: "nextContactDateConsulting", header: "コンサル 次の連絡日", type: "date", editable: false, filterable: true },
     { key: "grantApplicationBpo", header: "BPO利用", type: "boolean", editable: false, filterable: true },
     { key: "grantApplicationBpoContractStatusName", header: "BPO契約状況", type: "select", options: contractStatusOptions, editable: false, filterable: true },
     { key: "loanUsage", header: "貸金利用", type: "boolean", editable: false, filterable: true },
@@ -58,6 +76,30 @@ export function VendorsTable({
       <Check className="h-4 w-4 text-green-600" />
     ) : (
       <span className="text-gray-300">—</span>
+    );
+  };
+
+  // プラン色バッジ（マスタで設定された色で表示）
+  const renderPlanBadge = (meta: Record<string, { color: string }>) => (value: unknown) => {
+    const name = value ? String(value) : "";
+    if (!name) return <span className="text-gray-300">—</span>;
+    const color = (meta[name]?.color ?? "gray") as BadgeColor;
+    return (
+      <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${getBadgeClasses(color)}`}>
+        {name}
+      </span>
+    );
+  };
+
+  // 完了/未完了バッジ（緑=完了 / 赤=未完了）
+  const renderCompletionBadge = (meta: Record<string, { isCompleted: boolean }>) => (value: unknown) => {
+    const name = value ? String(value) : "";
+    if (!name) return <span className="text-gray-300">—</span>;
+    const completed = meta[name]?.isCompleted ?? false;
+    return (
+      <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${completed ? COMPLETED_BADGE_CLASSES : INCOMPLETE_BADGE_CLASSES}`}>
+        {name}
+      </span>
     );
   };
 
@@ -116,6 +158,13 @@ export function VendorsTable({
       if (!value || value === "-") return <span className="text-gray-400">-</span>;
       return <span className="text-sm">{String(value)}</span>;
     },
+    scWholesaleStatusName: renderPlanBadge(scWholesaleStatusMeta),
+    consultingPlanStatusName: renderPlanBadge(consultingPlanStatusMeta),
+    scWholesaleContractStatusName: renderCompletionBadge(contractStatusMeta),
+    consultingPlanContractStatusName: renderCompletionBadge(contractStatusMeta),
+    grantApplicationBpoContractStatusName: renderCompletionBadge(contractStatusMeta),
+    vendorRegistrationStatusName: renderCompletionBadge(vendorRegistrationStatusMeta),
+    toolRegistrationStatusName: renderCompletionBadge(toolRegistrationStatusMeta),
     grantApplicationBpo: boolCheck,
     loanUsage: boolCheck,
     subsidyConsulting: boolCheck,
