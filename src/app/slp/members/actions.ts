@@ -3,11 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { sendSlpContract, sendSlpRemind } from "@/lib/slp-cloudsign";
-import { submitForm5ContractNotification } from "@/lib/proline-form";
+import { sendReferralNotification } from "@/lib/slp/slp-referral-notification";
 import { cloudsignClient } from "@/lib/cloudsign";
 import { syncContractStatus as doSyncContractStatus } from "@/lib/cloudsign-sync";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { triggerLinkBeaconForStaff } from "@/lib/slp-link-recovery";
 
 export async function addMember(data: Record<string, unknown>): Promise<ActionResult> {
   // 認証: SLPプロジェクトの編集権限以上
@@ -54,6 +55,12 @@ export async function addMember(data: Record<string, unknown>): Promise<ActionRe
 export async function updateMember(id: number, data: Record<string, unknown>): Promise<ActionResult> {
   await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
+    const current = await prisma.slpMember.findUnique({
+      where: { id },
+      select: { uid: true, status: true },
+    });
+    if (!current) return err("組合員が見つかりません");
+
     const updateData: Record<string, unknown> = {};
 
     if (data.name !== undefined) updateData.name = String(data.name).trim();
@@ -77,8 +84,7 @@ export async function updateMember(id: number, data: Record<string, unknown>): P
     // uid変更時は重複チェック
     if (data.uid !== undefined) {
       const newUid = String(data.uid).trim();
-      const current = await prisma.slpMember.findUnique({ where: { id } });
-      if (current && current.uid !== newUid) {
+      if (current.uid !== newUid) {
         const existing = await prisma.slpMember.findUnique({ where: { uid: newUid } });
         if (existing) return err(`UID「${newUid}」は既に使用されています`);
         updateData.uid = newUid;
@@ -87,6 +93,13 @@ export async function updateMember(id: number, data: Record<string, unknown>): P
 
     if (Object.keys(updateData).length > 0) {
       await prisma.slpMember.update({ where: { id }, data: updateData });
+    }
+
+    const uidChanged = updateData.uid !== undefined && updateData.uid !== current.uid;
+    const statusChanged =
+      updateData.status !== undefined && updateData.status !== current.status;
+    if (uidChanged || statusChanged) {
+      await triggerLinkBeaconForStaff({ memberId: id, uidChanged });
     }
 
     revalidatePath("/slp/members");
@@ -156,7 +169,8 @@ export async function sendContractToMember(id: number): Promise<ActionResult> {
 /**
  * CloudSignリマインドを送付（組合員名簿の再送付ボタンから）
  * MasterContract経由でリマインドし、旧カラムも更新
- * 同時に Form12 で公式LINEメッセージも送信する（fire-and-forget）
+ * 同時に Form15 (組合員向け契約書通知統合フォーム) 経由で
+ * テンプレベースの公式LINEリマインドメッセージも送信する（fire-and-forget）
  */
 export async function remindMember(id: number): Promise<ActionResult> {
   await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
@@ -194,7 +208,7 @@ export async function remindMember(id: number): Promise<ActionResult> {
       },
     });
 
-    // Form12: 公式LINEで契約書リマインドメッセージを送信（fire-and-forget）
+    // 契約書リマインド通知を公式LINEで送信（Form15統合・テンプレベース）fire-and-forget
     if (member.uid && member.email) {
       const sentDateSrc = member.contractSentDate ?? contract?.cloudsignSentAt ?? null;
       const sentDate = sentDateSrc
@@ -203,24 +217,49 @@ export async function remindMember(id: number): Promise<ActionResult> {
             return `${jst.getUTCFullYear()}年${jst.getUTCMonth() + 1}月${jst.getUTCDate()}日`;
           })()
         : "";
-      const { submitForm12ContractReminder } = await import("@/lib/proline-form");
+      const { sendMemberNotification } = await import(
+        "@/lib/slp/slp-member-notification"
+      );
       const { logAutomationError } = await import("@/lib/automation-error");
-      submitForm12ContractReminder(member.uid, sentDate, member.email).catch(
-        async (e2) => {
+      sendMemberNotification({
+        trigger: "contract_reminder",
+        memberUid: member.uid,
+        context: {
+          memberName: member.name,
+          contractSentDate: sentDate,
+          contractSentEmail: member.email,
+        },
+      })
+        .then(async (r) => {
+          if (!r.ok) {
+            await logAutomationError({
+              source: "members/remind/contract_reminder",
+              message: `契約書リマインドLINE送信失敗: ${member.name} (uid=${member.uid})`,
+              detail: {
+                memberId: member.id,
+                uid: member.uid,
+                sentDate,
+                email: member.email,
+                errorMessage: r.errorMessage,
+                retryAction: "contract-reminder",
+              },
+            });
+          }
+        })
+        .catch(async (e2) => {
           await logAutomationError({
-            source: "members/remind/form12",
-            message: `Form12契約書リマインドLINE送信失敗: ${member.name} (uid=${member.uid})`,
+            source: "members/remind/contract_reminder",
+            message: `契約書リマインドLINE呼び出し失敗: ${member.name} (uid=${member.uid})`,
             detail: {
               memberId: member.id,
               uid: member.uid,
               sentDate,
               email: member.email,
               error: e2 instanceof Error ? e2.message : String(e2),
-              retryAction: "form12-contract-reminder",
+              retryAction: "contract-reminder",
             },
           });
-        }
-      );
+        });
     }
 
     revalidatePath("/slp/members");
@@ -233,7 +272,7 @@ export async function remindMember(id: number): Promise<ActionResult> {
 }
 
 /**
- * Form5: 紹介者に契約締結通知を手動送信
+ * 契約締結通知を紹介者に手動送信（Form18経由・テンプレベース）
  * 送信成功時に form5NotifiedReferrerUid に現在のfree1を保存し、
  * 「現在の紹介者に通知済み」状態にする
  */
@@ -250,11 +289,21 @@ export async function sendForm5Notification(id: number): Promise<ActionResult> {
     const referrerUid = lineFriend?.free1;
     if (!referrerUid) return err("紹介者UIDが見つかりません");
 
-    await submitForm5ContractNotification(
+    const r = await sendReferralNotification({
+      trigger: "contract_signed",
       referrerUid,
-      member.lineName || "",
-      member.name
-    );
+      context: {
+        memberName: member.name,
+        memberLineName: member.lineName ?? undefined,
+      },
+      relatedCompanyRecordId: null,
+    });
+    if (!r.ok) {
+      return err(r.errorMessage ?? "契約締結通知の送信に失敗しました");
+    }
+    if (r.skipped) {
+      return err("テンプレートが無効化されているため送信されませんでした");
+    }
 
     await prisma.slpMember.update({
       where: { id },
@@ -314,6 +363,12 @@ export async function relinkMemberLineFriend(
 ): Promise<ActionResult> {
   await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
   try {
+    const current = await prisma.slpMember.findUnique({
+      where: { id: memberId },
+      select: { uid: true },
+    });
+    if (!current) return err("組合員が見つかりません");
+
     const friend = await prisma.slpLineFriend.findUnique({
       where: { uid: newUid },
       select: { uid: true, snsname: true },
@@ -329,6 +384,8 @@ export async function relinkMemberLineFriend(
       return err(`UID「${newUid}」は既に別の組合員に紐付けられています`);
     }
 
+    const uidChanged = current.uid !== newUid;
+
     await prisma.slpMember.update({
       where: { id: memberId },
       data: {
@@ -336,6 +393,10 @@ export async function relinkMemberLineFriend(
         lineName: friend.snsname,
       },
     });
+
+    if (uidChanged) {
+      await triggerLinkBeaconForStaff({ memberId, uidChanged: true });
+    }
 
     revalidatePath("/slp/members");
     return ok();

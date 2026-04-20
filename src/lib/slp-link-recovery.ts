@@ -355,6 +355,47 @@ async function fireBeaconAndMarkFlag(
 }
 
 // ====================================================================
+// スタッフ手動の uid/ステータス変更に伴うビーコン発火
+//
+// 呼び出し元:
+//   - relinkMemberLineFriend（組合員詳細の「LINE紐付けの確認・修正」）
+//   - updateMember（組合員テーブルの uid / status 編集）
+//
+// 挙動:
+//   - 現在の uid が空なら何もしない
+//   - 現在の status が beaconTypeFromStatus で null なら何もしない
+//   - uidChanged=true なら richmenuBeaconCalled / postLinkSentBeaconCalled
+//     を両方 false にリセット（別LINEに付け替え扱い）してから発火
+//   - uidChanged=false（ステータス変更のみ）はフラグを尊重して発火
+// ====================================================================
+export async function triggerLinkBeaconForStaff(params: {
+  memberId: number;
+  uidChanged: boolean;
+}): Promise<void> {
+  const member = await prisma.slpMember.findUnique({
+    where: { id: params.memberId },
+    select: { id: true, uid: true, status: true },
+  });
+  if (!member) return;
+  if (!member.uid) return;
+
+  const beaconType = beaconTypeFromStatus(member.status);
+  if (!beaconType) return;
+
+  if (params.uidChanged) {
+    await prisma.slpMember.update({
+      where: { id: params.memberId },
+      data: {
+        richmenuBeaconCalled: false,
+        postLinkSentBeaconCalled: false,
+      },
+    });
+  }
+
+  await fireBeaconSafe(params.memberId, member.uid, beaconType);
+}
+
+// ====================================================================
 // SlpLineLinkRequest を outcome に基づいて upsert
 // ====================================================================
 export async function persistLinkRequestOutcome(params: {
