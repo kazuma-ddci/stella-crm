@@ -14,7 +14,7 @@
  *   重い include が必要な場合は `src/app/finance/{module}/loaders.ts` の loader Server Action を使う
  * - **typed error**: 未存在は `FinanceRecordNotFoundError`、権限なしは `FinanceForbiddenError` を throw
  *   呼び出し元（page loader / Server Action / API route / client wrapper）で個別に変換する
- *   詳細パターンは docs/finance-accounting-refactor-plan.md §4.3.3 参照
+ *   詳細パターンは docs/plans/archive/finance-accounting-refactor-plan.md §4.3.3 参照
  *
  * ## 使い方
  *

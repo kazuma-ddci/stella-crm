@@ -133,7 +133,7 @@ export async function updateXxx(id: number, data: Record<string, unknown>) {
 }
 ```
 
-> **関連**: `docs/troubleshooting.md` の「update関数の部分更新未対応でフィールドがnull/falseに上書きされる」も参照。
+> **関連**: `docs/ops/troubleshooting.md` の「update関数の部分更新未対応でフィールドがnull/falseに上書きされる」も参照。
 
 ---
 
@@ -144,7 +144,7 @@ CrudTableのselectは自動で「-」（値=`null`）オプションを先頭に
 - **optionsに「未選択」相当がある場合**（`value: "none"` 等）→ CrudTableが自動で「-」を非表示にする
 - **optionsに「未選択」相当がない場合** → CrudTableが「-」を自動追加する（従来の動作）
 
-> **関連**: `docs/troubleshooting.md` の「CrudTableのselectで「-」(null)オプションが「なし」(none)と重複し意図しない変更が発生する」も参照。
+> **関連**: `docs/ops/troubleshooting.md` の「CrudTableのselectで「-」(null)オプションが「なし」(none)と重複し意図しない変更が発生する」も参照。
 
 ---
 

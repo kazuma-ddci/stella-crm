@@ -138,16 +138,40 @@ stella-crm/
 │   └── middleware.ts                       # ミドルウェア（認証チェック等）
 │
 ├── docs/
-│   ├── REQUIREMENTS.md
-│   ├── SETUP.md
+│   ├── requirements-summary.md             # 現行要件定義（運用中）
 │   ├── DATABASE.md
+│   ├── database-dictionary.md              # 非技術者向けDB項目辞書
 │   ├── architecture.md                     # このファイル
 │   ├── business-logic.md
+│   ├── business-rules.md
+│   ├── business-rules-diagram.md
+│   ├── master-data.md
+│   ├── stella-crm-feature-overview.md
+│   ├── slp-feature-overview.md
+│   ├── slp-staff-guide.md
+│   ├── slp-reserve-relay-system.md
+│   ├── cloudsign-integration-spec.md
+│   ├── dashboard-custom-vs-saas.md
+│   ├── claude/                             # CLAUDE.md から分離された詳細ガイド
+│   │   ├── file-lock-protocol.md
+│   │   ├── finance-module-structure.md
+│   │   ├── setup-status-check.md
+│   │   └── dev-server-and-prisma.md
+│   ├── ops/                                # 運用・セットアップ手順
+│   │   ├── SETUP.md
+│   │   ├── troubleshooting.md
+│   │   ├── VPS-SETUP-PROLINE.md
+│   │   ├── deploy-slp-member-form.md
+│   │   └── email-setup-guide.txt
+│   ├── plans/                              # 進行中の実装計画
+│   │   ├── slp-meeting-session-refactor-plan.md
+│   │   ├── slp-contact-history-zoom-refactor-plan.md
+│   │   └── archive/                        # 完了済みリファクタ計画・一過性レポート
+│   ├── specs/                              # SPEC-xxx 形式の機能仕様書
 │   ├── components/
 │   │   ├── crud-table.md
 │   │   └── inline-edit.md
-│   ├── troubleshooting.md
-│   └── master-data.md
+│   └── gas-standalone/                     # Google Apps Script スライド生成
 └── CLAUDE.md
 ```
 

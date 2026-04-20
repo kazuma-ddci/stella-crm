@@ -2,7 +2,7 @@
 
 ## 概要
 Docker環境で社内CRMシステムを構築します。
-詳細な要件は `docs/REQUIREMENTS.md` を参照してください。
+詳細な要件は `docs/requirements-summary.md` を参照してください。
 
 ---
 
@@ -431,4 +431,4 @@ npm run dev
 4. **接触履歴** - 一覧・登録
 5. **ステージ変更履歴** - 一覧表示
 
-詳細な要件は `docs/REQUIREMENTS.md` を参照してください。
+詳細な要件は `docs/requirements-summary.md` を参照してください。

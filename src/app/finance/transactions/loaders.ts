@@ -13,7 +13,7 @@
  *  - レコード未存在 → FinanceRecordNotFoundError
  *  - 権限不足 → FinanceForbiddenError
  *
- * 詳細: docs/finance-accounting-refactor-plan.md §4.3.4・§4.3.6
+ * 詳細: docs/plans/archive/finance-accounting-refactor-plan.md §4.3.4・§4.3.6
  */
 
 import { prisma } from "@/lib/prisma";

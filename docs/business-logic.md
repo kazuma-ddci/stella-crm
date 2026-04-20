@@ -228,7 +228,7 @@ signOut() → /login?reason=permissions_changed にリダイレクト
 1. **ポーリングはバックグラウンド通信**: 30秒ごとの`refetchInterval`はAJAX通信であり、ページリロードは発生しない。入力中のフォームデータにも影響なし
 2. **権限変更されたユーザーのみログアウト**: 他のユーザーのポーリングは正常なセッションデータを返すだけで何も起きない
 3. **Edge Runtimeの制約**: Next.jsのMiddlewareはEdge Runtimeで動作するためPrismaが使えない。DB権限チェックはJWT callback（Node.jsランタイム）で実行
-4. **タイミング**: JWT callbackのチェック間隔（`>= 10秒`）はrefetchInterval（30秒）より短くする必要がある（詳細は`docs/troubleshooting.md`参照）
+4. **タイミング**: JWT callbackのチェック間隔（`>= 10秒`）はrefetchInterval（30秒）より短くする必要がある（詳細は`docs/ops/troubleshooting.md`参照）
 
 #### 権限比較ロジック
 
