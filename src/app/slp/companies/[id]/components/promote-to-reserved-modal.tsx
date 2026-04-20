@@ -39,7 +39,22 @@ interface PromoteToReservedModalProps {
   roundNumber: number;
   staffOptions: StaffOption[];
   referrerOptions: ReferrerOptionForUI[];
+  currentScheduledAt: string | null;
+  currentAssignedStaffId: number | null;
   onDone?: () => void;
+}
+
+function isoToDateTimePickerValue(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  const y = jst.getUTCFullYear();
+  const m = String(jst.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(jst.getUTCDate()).padStart(2, "0");
+  const h = String(jst.getUTCHours()).padStart(2, "0");
+  const min = String(jst.getUTCMinutes()).padStart(2, "0");
+  return `${y}-${m}-${day}T${h}:${min}`;
 }
 
 export function PromoteToReservedModal({
@@ -50,6 +65,8 @@ export function PromoteToReservedModal({
   roundNumber,
   staffOptions,
   referrerOptions,
+  currentScheduledAt,
+  currentAssignedStaffId,
   onDone,
 }: PromoteToReservedModalProps) {
   const categoryLabel = category === "briefing" ? "概要案内" : "導入希望商談";
@@ -63,10 +80,10 @@ export function PromoteToReservedModal({
 
   useEffect(() => {
     if (!open) return;
-    setScheduledAt("");
-    setStaffId("");
+    setScheduledAt(isoToDateTimePickerValue(currentScheduledAt));
+    setStaffId(currentAssignedStaffId != null ? String(currentAssignedStaffId) : "");
     setSelectedReferrerIds(new Set(referrerOptions.map((r) => r.lineFriendId)));
-  }, [open, referrerOptions]);
+  }, [open, referrerOptions, currentScheduledAt, currentAssignedStaffId]);
 
   const toggleReferrer = (lineFriendId: number) => {
     setSelectedReferrerIds((prev) => {

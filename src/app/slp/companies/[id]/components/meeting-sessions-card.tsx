@@ -665,6 +665,8 @@ function SessionForm({
         roundNumber={session.roundNumber}
         staffOptions={staffOptions}
         referrerOptions={referrerOptions}
+        currentScheduledAt={session.scheduledAt}
+        currentAssignedStaffId={session.assignedStaffId}
         onDone={onDataChange}
       />
       <SessionEditModal
