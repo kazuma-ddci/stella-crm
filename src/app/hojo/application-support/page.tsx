@@ -62,18 +62,19 @@ export default async function ApplicationSupportPage() {
   // 顧客のみ抽出
   const joseiLineFriends = allJoseiFriends.filter((f) => f.userType === "顧客");
 
-  // ステータス一覧
-  const statuses = await prisma.hojoApplicationStatus.findMany({
-    where: { isActive: true },
-    orderBy: { displayOrder: "asc" },
-  });
-
-  // 既存の申請管理レコードを取得
-  let existingRecords = await prisma.hojoApplicationSupport.findMany({
-    where: { deletedAt: null },
-    include: { vendor: true, status: true, bbsStatusRef: true, documents: true },
-  });
-  const existingLineFriendIds = new Set(existingRecords.map((r) => r.lineFriendId));
+  // ステータス一覧（軽量クエリなので直列でOK）と、既存レコードの
+  // lineFriendId だけの軽量チェックを並列化
+  const [statuses, existingLineFriendIdRows] = await Promise.all([
+    prisma.hojoApplicationStatus.findMany({
+      where: { isActive: true },
+      orderBy: { displayOrder: "asc" },
+    }),
+    prisma.hojoApplicationSupport.findMany({
+      where: { deletedAt: null },
+      select: { lineFriendId: true },
+    }),
+  ]);
+  const existingLineFriendIds = new Set(existingLineFriendIdRows.map((r) => r.lineFriendId));
 
   // 顧客のLINE友達に対応するレコードがなければ自動作成（初回1レコード）
   const missingFriends = joseiLineFriends.filter(
@@ -89,8 +90,8 @@ export default async function ApplicationSupportPage() {
   // free1→vendorIdを同期（初回自動設定のみ）+ 不一致情報取得
   const { mismatches } = await syncVendorIdFromFree1();
 
-  // 同期後のデータを再取得
-  existingRecords = await prisma.hojoApplicationSupport.findMany({
+  // 本番データを1回だけ取得（include込みの重クエリはここだけ）
+  const existingRecords = await prisma.hojoApplicationSupport.findMany({
     where: { deletedAt: null },
     include: { vendor: true, status: true, bbsStatusRef: true, documents: true },
     orderBy: [{ lineFriendId: "asc" }, { id: "asc" }],
@@ -104,47 +105,28 @@ export default async function ApplicationSupportPage() {
     recordsByLineFriendId.set(r.lineFriendId, arr);
   }
 
-  // ベンダーの選択肢（編集フォーム用）
-  const activeVendors = await prisma.hojoVendor.findMany({
-    where: { isActive: true },
-    orderBy: { displayOrder: "asc" },
-  });
-  const vendorOptions = activeVendors.map((v) => ({
-    value: String(v.id),
-    label: v.name,
-  }));
-
-  // ステータスの選択肢
-  const statusOptions = statuses.map((s) => ({
-    value: String(s.id),
-    label: s.name,
-  }));
-
-  // 全ステータス（非アクティブ含む）
-  const allStatuses = await prisma.hojoApplicationStatus.findMany({
-    orderBy: { displayOrder: "asc" },
-  });
-  const allStatusOptions = allStatuses.map((s) => ({
-    value: String(s.id),
-    label: s.name,
-  }));
-
-  // BBSステータス
-  const bbsStatuses = await prisma.hojoBbsStatus.findMany({
-    where: { isActive: true },
-    orderBy: { displayOrder: "asc" },
-  });
-  const bbsStatusOptions = bbsStatuses.map((s) => ({
-    value: String(s.id),
-    label: s.name,
-  }));
-  const allBbsStatuses = await prisma.hojoBbsStatus.findMany({
-    orderBy: { displayOrder: "asc" },
-  });
-  const allBbsStatusOptions = allBbsStatuses.map((s) => ({
-    value: String(s.id),
-    label: s.name,
-  }));
+  // 選択肢系のクエリは互いに独立なので並列化
+  const [activeVendors, allStatuses, bbsStatuses, allBbsStatuses] = await Promise.all([
+    prisma.hojoVendor.findMany({
+      where: { isActive: true },
+      orderBy: { displayOrder: "asc" },
+    }),
+    prisma.hojoApplicationStatus.findMany({
+      orderBy: { displayOrder: "asc" },
+    }),
+    prisma.hojoBbsStatus.findMany({
+      where: { isActive: true },
+      orderBy: { displayOrder: "asc" },
+    }),
+    prisma.hojoBbsStatus.findMany({
+      orderBy: { displayOrder: "asc" },
+    }),
+  ]);
+  const vendorOptions = activeVendors.map((v) => ({ value: String(v.id), label: v.name }));
+  const statusOptions = statuses.map((s) => ({ value: String(s.id), label: s.name }));
+  const allStatusOptions = allStatuses.map((s) => ({ value: String(s.id), label: s.name }));
+  const bbsStatusOptions = bbsStatuses.map((s) => ({ value: String(s.id), label: s.name }));
+  const allBbsStatusOptions = allBbsStatuses.map((s) => ({ value: String(s.id), label: s.name }));
 
   // BBS No.を計算
   const bbsRecords = existingRecords

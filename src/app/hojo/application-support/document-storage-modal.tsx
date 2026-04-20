@@ -133,20 +133,56 @@ export function DocumentStorageModal({
 
   const hasAnyDocument = documents.length > 0;
 
-  // サーバー側生成中状態
-  const runningKey = docTypeValueToKey(runningDocType);
+  // サーバー側生成中状態（props初期値を live stateとして保持しつつ軽量APIで更新）
+  const [liveRunningDocType, setLiveRunningDocType] = useState<string | null>(runningDocType);
+  const [liveRunningStartedAt, setLiveRunningStartedAt] = useState<string | null>(runningStartedAt);
+
+  // props 更新時（別operation発火や手動reload後）に live state を同期
+  useEffect(() => {
+    setLiveRunningDocType(runningDocType);
+    setLiveRunningStartedAt(runningStartedAt);
+  }, [runningDocType, runningStartedAt]);
+
+  const runningKey = docTypeValueToKey(liveRunningDocType);
   const isTrainingRunning = generating || runningKey === "trainingReport";
   const isSupportRunning = generatingSupport || runningKey === "supportApplication";
   const isPlanRunning = generatingPlan || runningKey === "businessPlan";
 
-  // 生成中なら5秒ごとに router.refresh() で状態同期
+  // 生成中は5秒ごとに軽量APIで状態だけ取得（page全体のSSRを避ける）。
+  // 完了検知時のみ router.refresh() で最新データ（PDF/cost/etc）を取得。
   useEffect(() => {
     if (!runningKey) return;
-    const id = setInterval(() => router.refresh(), 5000);
-    return () => clearInterval(id);
-  }, [runningKey, router]);
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(
+          `/api/hojo/application-support/${applicationSupportId}/running-status`,
+          { cache: "no-store" },
+        );
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          runningDocType: string | null;
+          runningStartedAt: string | null;
+        };
+        if (cancelled) return;
+        setLiveRunningDocType(data.runningDocType);
+        setLiveRunningStartedAt(data.runningStartedAt);
+        if (!data.runningDocType) {
+          // 完了 → 最新の documents を取得するために1回だけ refresh
+          router.refresh();
+        }
+      } catch {
+        // ネットワーク一時エラーは無視（次のtickで再試行）
+      }
+    };
+    const id = setInterval(tick, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [runningKey, applicationSupportId, router]);
 
-  // 完了検知: runningDocType が前回あって今回 null に変化したら完了トースト
+  // 完了検知: runningKey が前回あって今回 null に変化したら完了トースト
   const prevRunningKeyRef = useRef<RpaDocKey | null>(runningKey);
   useEffect(() => {
     const prev = prevRunningKeyRef.current;
@@ -326,7 +362,7 @@ export function DocumentStorageModal({
 
           <TabsContent value="training_report" className="flex-1 flex flex-col min-h-0 mt-4">
             {isTrainingRunning ? (
-              <GeneratingPanel docKey="trainingReport" startedAt={runningStartedAt} />
+              <GeneratingPanel docKey="trainingReport" startedAt={liveRunningStartedAt} />
             ) : trainingReport ? (
               <>
                 <div className="flex items-center justify-between mb-3">
@@ -388,7 +424,7 @@ export function DocumentStorageModal({
 
           <TabsContent value="support_application" className="flex-1 flex flex-col min-h-0 mt-4">
             {isSupportRunning ? (
-              <GeneratingPanel docKey="supportApplication" startedAt={runningStartedAt} />
+              <GeneratingPanel docKey="supportApplication" startedAt={liveRunningStartedAt} />
             ) : supportApplication ? (
               <>
                 <div className="flex items-center justify-between mb-3">
@@ -453,7 +489,7 @@ export function DocumentStorageModal({
 
           <TabsContent value="business_plan" className="flex-1 flex flex-col min-h-0 mt-4">
             {isPlanRunning ? (
-              <GeneratingPanel docKey="businessPlan" startedAt={runningStartedAt} />
+              <GeneratingPanel docKey="businessPlan" startedAt={liveRunningStartedAt} />
             ) : businessPlan ? (
               editingPlan ? (
                 <BusinessPlanEditor
