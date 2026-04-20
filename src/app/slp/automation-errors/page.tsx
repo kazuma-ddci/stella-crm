@@ -7,7 +7,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Info } from "lucide-react";
 import { ErrorActions } from "./error-actions";
 
 /** source を日本語ラベルに変換 */
@@ -54,6 +54,199 @@ function sourceLabel(source: string): string {
 
 function formatDateTime(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * エラーソース別の「わかりやすい説明・想定原因・対処法」。
+ * source の完全一致 or プレフィックス一致で返す。null のとき説明ブロックは出さない。
+ */
+type ErrorGuidance = {
+  description: string; // 何がどうして記録されたか
+  likelyCauses: string[]; // 想定される原因（0件なら表示しない）
+  actions: string[]; // スタッフの次のアクション（0件なら表示しない）
+};
+
+function getErrorGuidance(source: string, message: string): ErrorGuidance | null {
+  // ---- 紹介者へのLINE通知失敗 ----
+  if (
+    source.startsWith("slp-session-notify-referrer-") ||
+    source.startsWith("slp-session-notification-referrer-")
+  ) {
+    return {
+      description:
+        "商談の予約確定・変更・キャンセル・完了などのタイミングで、紹介者の公式LINEにお知らせを送る処理が失敗しました。",
+      likelyCauses: [
+        "メイン担当者のLINE友達情報で「紹介者UID(free1欄)」が設定されていない",
+        "紹介者向けテンプレートが無効化されている、または文面がない",
+        "プロライン送信APIの一時的な障害",
+      ],
+      actions: [
+        "詳細を開いて errorMessage を確認（UID未取得 or テンプレ未存在など、具体的な失敗理由が書いてあります）",
+        "事業者詳細の「担当者」タブでメイン担当者の紹介者設定を確認",
+        "必要なら商談の「通知対象を個別設定」から手動再送",
+      ],
+    };
+  }
+
+  // ---- お客様向けLINE通知失敗 ----
+  if (
+    source.startsWith("slp-session-notify-customer-") ||
+    source.startsWith("slp-session-notification-customer-")
+  ) {
+    return {
+      description:
+        "商談の予約確定・変更・キャンセル・リマインドなどで、事業者の担当者にお知らせを送る処理が失敗しました。",
+      likelyCauses: [
+        "担当者のLINE友達が紐付いていない（公式LINE追加前）",
+        "該当テンプレートが無効化されている",
+        "プロライン送信APIの一時的な障害",
+      ],
+      actions: [
+        "詳細を開いて errorMessage を確認",
+        "事業者詳細の「担当者」タブで LINE 紐付け状況をチェック",
+        "「商談通知を受け取る」チェックや個別通知設定を見直し",
+      ],
+    };
+  }
+
+  // ---- Zoom発行失敗（担当者の連携未完了） ----
+  if (source.startsWith("slp-zoom-session-")) {
+    return {
+      description:
+        "商談予約が入ったため担当者のZoomアカウントで会議URLを自動発行しようとしましたが、Zoom連携が未完了のため失敗しました。",
+      likelyCauses: [
+        "担当者スタッフがCRMの「スタッフ設定」でZoom連携(OAuth)をしていない",
+        "Zoom連携はしたが期限切れ or 手動切断された",
+        "Zoomアカウント側の制限（会議数上限など）",
+      ],
+      actions: [
+        "詳細からスタッフIDを確認し、そのスタッフ本人に「スタッフ設定 → Zoom連携」を実行してもらう",
+        "または商談の担当者を、すでにZoom連携済みの別スタッフに変更",
+        "連携後は商談詳細の「Zoom再発行」ボタンで手動再発行",
+      ],
+    };
+  }
+
+  // ---- 予約Webhookの CRMトークン無効（フォールバック処理済み） ----
+  if (
+    (source === "slp-briefing-reservation" ||
+      source === "slp-consultation-reservation") &&
+    message.includes("CRMトークン")
+  ) {
+    return {
+      description:
+        "予約フォームに埋め込まれていたCRMトークンが、DBに見つかりませんでした。ただし自動的にフォールバック処理が走り、予約自体は新規企業として正しく取り込まれています。監査用に記録されているだけで、基本的には業務影響なしです。",
+      likelyCauses: [
+        "予約フォームのトークン有効期限切れ（発行から時間が経ってから予約）",
+        "同じ予約フォームURLを何度も使って2回目以降のトークンが消費済み",
+        "ユーザーが古いブックマークから予約ページを開いた",
+      ],
+      actions: [
+        "事業者名簿に該当企業のレコードが正しく作られていることを確認",
+        "問題なければ「解決済みにする」で閉じてOK",
+        "大量に発生する場合はトークン発行ロジックに問題の可能性あり",
+      ],
+    };
+  }
+
+  // ---- CloudSignメール不達（組合員なし） ----
+  if (source === "cloudsign-bounce") {
+    return {
+      description:
+        "CloudSignからメール不達Webhookが届きましたが、その書類IDに対応する組合員が組合員名簿に見つかりませんでした。『未照合バウンス』として別テーブルに保存され、後からスタッフが手動で照合できる状態です。",
+      likelyCauses: [
+        "CRMを経由せずCloudSignで直接送信した契約書のバウンス",
+        "組合員データを削除した後にバウンス通知が来た",
+        "自社用の受信メールアドレス(support@等)がバウンスしている（受信設定の問題）",
+      ],
+      actions: [
+        "詳細のdocumentIDをCloudSign管理画面で検索し、何の書類か特定",
+        "自社アドレスのバウンスが繰り返し発生しているなら、メールサーバー設定を確認",
+        "特定できて対応済みなら「解決済みにする」で閉じる",
+      ],
+    };
+  }
+
+  // ---- CloudSignメール不達LINE通知（組合員はいた、LINE送信失敗） ----
+  if (source === "cloudsign-webhook-bounced-notify") {
+    return {
+      description:
+        "CloudSignからのメール不達を検知し、組合員本人に「メールが届きませんでした」とLINEで通知しようとしましたが、LINE送信自体が失敗しました。",
+      likelyCauses: [
+        "組合員のLINE友達連携が切れている",
+        "テンプレート(contract_bounced)が無効化されている",
+        "プロライン送信APIの一時的な障害",
+      ],
+      actions: [
+        "詳細のuidから組合員を特定",
+        "組合員名簿で公式LINE紐付けを確認・再リンク",
+        "「再送」ボタンで手動再送",
+      ],
+    };
+  }
+
+  // ---- 契約書リマインドLINE（新・旧） ----
+  if (
+    source === "cron/remind-slp-members/contract_reminder" ||
+    source === "members/remind/contract_reminder" ||
+    source === "cron/remind-slp-members/form12" ||
+    source === "members/remind/form12"
+  ) {
+    return {
+      description:
+        "契約書送付後、N日経過しても締結されていない組合員に契約書リマインドLINEを送ろうとしましたが失敗しました。",
+      likelyCauses: [
+        "組合員のLINE友達連携が切れている",
+        "テンプレート(contract_reminder)が無効化されている",
+        "プロライン送信APIの一時的な障害",
+      ],
+      actions: [
+        "詳細のuid/emailで組合員を特定",
+        "組合員名簿で公式LINE紐付けを確認",
+        "「再送」ボタンで手動再送",
+      ],
+    };
+  }
+
+  // ---- 紹介者への契約締結通知失敗 ----
+  if (
+    source === "webhook/line-friend/contract_signed" ||
+    source === "cloudsign-webhook/contract_signed"
+  ) {
+    return {
+      description:
+        "契約が締結されたタイミングで紹介者に「ご紹介いただいた方が組合員契約まで完了しました」というお礼LINEを送ろうとしましたが失敗しました。",
+      likelyCauses: [
+        "紹介者UIDが取得できない（組合員のLINE友達情報のfree1欄が空）",
+        "テンプレート(contract_signed)が無効化されている",
+        "プロライン送信APIの一時的な障害",
+      ],
+      actions: [
+        "詳細のmemberIdから組合員を特定し、紹介者情報を見直し",
+        "手動で組合員名簿の「紹介者通知(form5)」ボタンから再送も可能",
+      ],
+    };
+  }
+
+  // ---- 自動リマインド本体（sendSlpRemind側のエラー） ----
+  if (source === "cron/remind-slp-members") {
+    return {
+      description:
+        "自動リマインド処理の本体（CloudSignリマインド送付処理など）が失敗しました。LINEの失敗は別エラー(.../contract_reminder)で記録されます。",
+      likelyCauses: [
+        "CloudSign API の一時的な障害",
+        "対象組合員のdocumentIDが不正",
+        "プロジェクト設定でリマインド日数が未設定",
+      ],
+      actions: [
+        "詳細のエラー内容を確認",
+        "必要ならCloudSign管理画面で該当書類の状態を確認",
+      ],
+    };
+  }
+
+  // 該当なし
+  return null;
 }
 
 /** detailのキーを日本語ラベルに変換 */
@@ -194,6 +387,7 @@ export default async function AutomationErrorsPage({
                 const { retryAction, entries, raw } = parseDetail(
                   error.detail
                 );
+                const guidance = getErrorGuidance(error.source, error.message);
                 return (
                   <div
                     key={error.id}
@@ -215,10 +409,46 @@ export default async function AutomationErrorsPage({
                           </span>
                         </div>
                         <p className="text-sm font-medium">{error.message}</p>
+
+                        {guidance && (
+                          <div className="mt-2 rounded-md border border-blue-200 bg-blue-50/60 p-3 text-xs text-blue-950 space-y-2">
+                            <div className="flex gap-2">
+                              <Info className="h-4 w-4 flex-none text-blue-600 mt-0.5" />
+                              <p className="leading-relaxed">
+                                {guidance.description}
+                              </p>
+                            </div>
+                            {guidance.likelyCauses.length > 0 && (
+                              <div className="pl-6">
+                                <div className="font-semibold text-blue-900 mb-0.5">
+                                  想定される原因
+                                </div>
+                                <ul className="list-disc pl-4 space-y-0.5 text-blue-950/80">
+                                  {guidance.likelyCauses.map((c, i) => (
+                                    <li key={i}>{c}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {guidance.actions.length > 0 && (
+                              <div className="pl-6">
+                                <div className="font-semibold text-blue-900 mb-0.5">
+                                  対処の手順
+                                </div>
+                                <ol className="list-decimal pl-4 space-y-0.5 text-blue-950/80">
+                                  {guidance.actions.map((a, i) => (
+                                    <li key={i}>{a}</li>
+                                  ))}
+                                </ol>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         {(entries.length > 0 || raw) && (
-                          <details className="text-xs text-muted-foreground">
+                          <details className="text-xs text-muted-foreground mt-1">
                             <summary className="cursor-pointer hover:text-foreground">
-                              詳細を表示
+                              詳細を表示（生データ）
                             </summary>
                             {entries.length > 0 ? (
                               <dl className="mt-1 p-2 bg-muted rounded grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 max-h-40 overflow-auto">
