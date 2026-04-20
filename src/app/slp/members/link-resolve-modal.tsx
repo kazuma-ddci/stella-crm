@@ -148,7 +148,7 @@ export function LinkResolveModal({ open, onOpenChange, request }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-auto">
+      <DialogContent size="wide" className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>LINE紐付け申請の対応</DialogTitle>
         </DialogHeader>
