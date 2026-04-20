@@ -100,33 +100,39 @@
 ### 起こること
 1. 毎日10:00（VPSのcrontab）に CRM が「契約書送付済 かつ N日経過 かつ 未リマインド」の組合員を抽出します。
 2. クラウドサインの **リマインドAPI** を実行 → お客様に再度クラウドサインのメールが届きます。
-3. 同時に、お客様の **公式LINEにも契約書リマインドメッセージが届きます**（form12）。
+3. 同時に、お客様の **公式LINEにも契約書リマインドメッセージが届きます**（Form15 組合員向け契約書通知統合フォーム / `trigger=contract_reminder`）。
 
-### LINE通知の文面（form12）
+### LINE通知の文面
+本文は `/slp/settings/notification-templates` の「組合員向け」タブ → 「契約書関連」で編集可能（デフォルトは下記）。
+
 ```
 【組合員契約書のお手続きについて】
 
 いつもお世話になっております。
 
-[送付日]にお送りいたしました組合員契約書につきまして、現時点でお手続きが完了していないようでございます。
+{{contractSentDate}}にお送りいたしました組合員契約書につきまして、現時点でお手続きが完了していないようでございます。
 
 下記メールアドレス宛にクラウドサインよりご案内をお送りしておりますので、お手数ですが内容をご確認いただき、お手続きをお願いいたします。
 
-送付先：[メールアドレス]
+送付先：{{contractSentEmail}}
 
 ご不明な点がございましたら、お気軽にお問い合わせください。
 何卒よろしくお願いいたします。
 ```
+
+変数: `{{memberName}}` / `{{contractSentDate}}` / `{{contractSentEmail}}` が利用可能。
 
 ### スタッフが気にする点
 - リマインド対象から **特定の組合員を除外** したい場合は、組合員名簿で「リマインド除外」フラグをONにします。
 - 自動リマインドは **1組合員につき1回のみ**。期限切れ後に再フォーム送信されたら再度対象になります。
 - リマインド日数（何日経過後にリマインドするか）は **プロジェクト設定** で変更できます。
 - 組合員名簿の **リマインド送付ボタン** から**手動でも実行可能**です。手動実行時もLINE通知は同時に送信されます。
+- 文面を変更したい場合は通知テンプレ設定ページから編集してください（開発不要）。
 
 ### 関連URL
 - **自動Cron**: `GET /api/cron/remind-slp-members`（VPS crontabで毎日10時実行）
-- **CRMから実行（LINE通知）**: `POST https://zcr5z7pk.autosns.app/fm/WCBa6uIxM2?uid=[組合員のuid]`（form12-1: 送付日, form12-2: メールアドレス）
+- **CRMから実行（LINE通知）**: `POST https://zcr5z7pk.autosns.app/fm/q4KYTVil9N?uid=[組合員のuid]`（Form15 統合フォーム / `form15-1` にテンプレレンダリング後の完成文面を送信）
+- **送信経路**: `src/lib/slp/slp-member-notification.ts` の `sendMemberNotification({ trigger: "contract_reminder", ... })`
 
 ---
 
@@ -294,7 +300,7 @@
 - 新規メンバー追加（手動）
 - 「契約管理」ボタン: 個別の契約書管理モーダル
 - 「新規契約書送付」ボタン: 個別にクラウドサイン送付
-- 「リマインド送付」ボタン: クラウドサインリマインド + LINE通知（form12）
+- 「リマインド送付」ボタン: クラウドサインリマインド + LINE通知（Form15 / trigger=contract_reminder）
 - 「紹介者通知」ボタン: form5 を手動送信
 - 一括契約書送付（複数選択）
 
@@ -354,7 +360,7 @@
 - 概要案内予約/変更/キャンセル通知（form6/7/9）
 - 概要案内完了通知（form10）
 - 概要案内お礼メッセージ（form11）
-- 契約書リマインドLINE（form12）
+- 契約書リマインドLINE（Form15 統合・trigger=contract_reminder）
 
 ---
 
@@ -440,7 +446,8 @@
 | form9 | `https://zcr5z7pk.autosns.app/fm/MmAiXC8uOh` | 概要案内キャンセル通知（紹介者） | uid + form9-1: snsname |
 | form10 | `https://zcr5z7pk.autosns.app/fm/IAsRa82wNF` | 概要案内完了通知（紹介者） | uid + form10-1: snsname（カンマ区切り可） |
 | form11 | `https://zcr5z7pk.autosns.app/fm/YjNCxOyln8` | 概要案内完了お礼メッセージ（受講者） | uid + form11-1: フリーテキスト |
-| form12 | `https://zcr5z7pk.autosns.app/fm/WCBa6uIxM2` | 契約書リマインド（組合員） | uid + form12-1: 送付日, form12-2: メールアドレス |
+| ~~form12~~ | ~~`WCBa6uIxM2`~~ | 2026-04-20 に Form15 統合フォームへ移行、廃止 | — |
+| form15 | `https://zcr5z7pk.autosns.app/fm/q4KYTVil9N` | 組合員向け契約書通知統合フォーム（リマインド + メール不達） | uid + form15-1: テンプレレンダリング後の本文 |
 
 ### ビーコンURL（タグ付与・リッチメニュー切替）
 
