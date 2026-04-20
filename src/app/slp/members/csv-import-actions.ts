@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 import { normalizeEmail } from "@/lib/slp-link-recovery";
+import { parseReservationDate } from "@/lib/slp/parse-reservation-date";
 
 export type MemberImportSummary = {
   total: number;
@@ -37,20 +38,14 @@ function cleanCell(v: unknown): string {
 function parseDateCell(raw: string): Date | null {
   const s = raw.trim();
   if (!s) return null;
-  const normalized = s
+  const halfWidth = s
     .replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
-    .replace(/年|月/g, "/")
-    .replace(/日/g, "")
-    .replace(/\./g, "/")
-    .replace(/-/g, "/");
-  const m = normalized.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
-  if (!m) return null;
-  const [, y, mo, d] = m;
-  const yr = parseInt(y, 10);
-  const mn = parseInt(mo, 10);
-  const dy = parseInt(d, 10);
-  if (yr < 1900 || yr > 2100 || mn < 1 || mn > 12 || dy < 1 || dy > 31) return null;
-  return new Date(yr, mn - 1, dy);
+    .replace(/\./g, "/");
+  const date = parseReservationDate(halfWidth);
+  if (!date) return null;
+  const yr = date.getFullYear();
+  if (yr < 1900 || yr > 2100) return null;
+  return date;
 }
 
 function parseIntCell(raw: string): number | null {
@@ -181,14 +176,14 @@ export async function importMembersFromCsv(
       if (contractSentRaw && !contractSentDate) {
         summary.errors.push({
           row: rowNum,
-          reason: `契約書送付日「${contractSentRaw}」の形式が不正です（YYYY-MM-DD）`,
+          reason: `契約書送付日「${contractSentRaw}」の形式が不正です（例: 2026/3/25 または 2026/3/25 19:23）`,
         });
         continue;
       }
       if (contractSignedRaw && !contractSignedDate) {
         summary.errors.push({
           row: rowNum,
-          reason: `契約締結日「${contractSignedRaw}」の形式が不正です（YYYY-MM-DD）`,
+          reason: `契約締結日「${contractSignedRaw}」の形式が不正です（例: 2026/3/25 または 2026/3/25 19:23）`,
         });
         continue;
       }
