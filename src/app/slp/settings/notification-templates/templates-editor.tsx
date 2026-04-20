@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -90,13 +90,17 @@ function sortByTrigger(a: TemplateRow, b: TemplateRow): number {
 interface TemplateCardProps {
   row: TemplateRow;
   edit: { body: string; isActive: boolean };
+  saved: { body: string; isActive: boolean };
   onEditChange: (id: number, patch: Partial<{ body: string; isActive: boolean }>) => void;
   busy: boolean;
   onSave: (id: number) => void;
 }
 
-function TemplateCard({ row, edit, onEditChange, busy, onSave }: TemplateCardProps) {
-  const changed = edit.body !== row.body || edit.isActive !== row.isActive;
+function TemplateCard({ row, edit, saved, onEditChange, busy, onSave }: TemplateCardProps) {
+  // 保存ボタンは「入力中の値 ≠ 最後に保存した値」の時だけアクティブ色になる。
+  // saved は props の row ではなく親でキャッシュしている値を使うことで、
+  // 保存直後に router.refresh() の反映を待たずに即座にグレーに戻せる。
+  const changed = edit.body !== saved.body || edit.isActive !== saved.isActive;
   const triggerLabel = TRIGGER_LABELS[row.trigger] ?? row.trigger;
 
   return (
@@ -141,6 +145,10 @@ export function TemplatesEditor({ rows }: { rows: TemplateRow[] }) {
   const [edits, setEdits] = useState<Record<number, { body: string; isActive: boolean }>>(
     () => Object.fromEntries(rows.map((r) => [r.id, { body: r.body, isActive: r.isActive }]))
   );
+  // 「最後に保存した値」のキャッシュ。保存ボタンの色制御に使う（props の row を直接比較するとrefreshのタイムラグで色が残る問題の対策）
+  const [savedValues, setSavedValues] = useState<Record<number, { body: string; isActive: boolean }>>(
+    () => Object.fromEntries(rows.map((r) => [r.id, { body: r.body, isActive: r.isActive }]))
+  );
   const [busyId, setBusyId] = useState<number | null>(null);
 
   const handleEditChange = (
@@ -149,6 +157,48 @@ export function TemplatesEditor({ rows }: { rows: TemplateRow[] }) {
   ) => {
     setEdits((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   };
+
+  // どこか1件でも未保存の変更があるか（ブラウザ離脱警告 / 遷移ガード用）
+  const isDirty = useMemo(() => {
+    for (const r of rows) {
+      const e = edits[r.id];
+      const s = savedValues[r.id] ?? { body: r.body, isActive: r.isActive };
+      if (!e) continue;
+      if (e.body !== s.body || e.isActive !== s.isActive) return true;
+    }
+    return false;
+  }, [rows, edits, savedValues]);
+
+  // ブラウザを閉じる / リロード / URL直接変更 時の警告（ブラウザ標準ダイアログ）
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
+  // <a>クリックによる遷移をインターセプト（Next.js Link 含む）
+  const guardNavigation = useCallback(
+    (e: MouseEvent) => {
+      if (!isDirty) return;
+      const target = (e.target as HTMLElement).closest("a");
+      if (!target) return;
+      const href = target.getAttribute("href");
+      if (!href || href.startsWith("#") || href.startsWith("javascript")) return;
+      if (!confirm("編集したテンプレートが保存されていませんがよろしいですか？")) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    [isDirty]
+  );
+
+  useEffect(() => {
+    document.addEventListener("click", guardNavigation, true);
+    return () => document.removeEventListener("click", guardNavigation, true);
+  }, [guardNavigation]);
 
   const handleSave = async (id: number) => {
     setBusyId(id);
@@ -160,6 +210,11 @@ export function TemplatesEditor({ rows }: { rows: TemplateRow[] }) {
       });
       if (r.ok) {
         toast.success("テンプレートを保存しました");
+        // 楽観的に「保存済み値」キャッシュを入力値で更新 → 保存ボタンが即座にグレーへ戻る
+        setSavedValues((prev) => ({
+          ...prev,
+          [id]: { body: edits[id].body, isActive: edits[id].isActive },
+        }));
         router.refresh();
       } else {
         toast.error(r.error);
@@ -235,6 +290,7 @@ export function TemplatesEditor({ rows }: { rows: TemplateRow[] }) {
                     key={r.id}
                     row={r}
                     edit={edits[r.id]}
+                    saved={savedValues[r.id] ?? { body: r.body, isActive: r.isActive }}
                     onEditChange={handleEditChange}
                     busy={busyId === r.id}
                     onSave={handleSave}
