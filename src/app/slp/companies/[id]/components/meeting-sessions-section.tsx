@@ -16,7 +16,10 @@ export interface SessionZoomForUI {
   scheduledAt: string | null;
   isPrimary: boolean;
   label: string | null;
+  hostStaffId: number | null;
   hostStaffName: string | null;
+  /** ホスト担当者のZoom連携が有効か（null→無効=API連携なし扱い） */
+  hostIntegrationActive: boolean;
   hasRecording: boolean;
   zoomError: string | null;
   zoomErrorAt: string | null;
@@ -112,7 +115,16 @@ export async function MeetingSessionsSection({
               where: { deletedAt: null },
               orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
               include: {
-                hostStaff: { select: { name: true } },
+                hostStaff: {
+                  select: {
+                    id: true,
+                    name: true,
+                    meetingIntegrations: {
+                      where: { provider: "zoom", disconnectedAt: null },
+                      select: { id: true },
+                    },
+                  },
+                },
               },
             },
           },
@@ -203,7 +215,10 @@ export async function MeetingSessionsSection({
       scheduledAt: z.scheduledAt?.toISOString() ?? null,
       isPrimary: z.isPrimary,
       label: z.label,
+      hostStaffId: z.hostStaff?.id ?? null,
       hostStaffName: z.hostStaff?.name ?? null,
+      hostIntegrationActive:
+        !!z.hostStaff && (z.hostStaff.meetingIntegrations?.length ?? 0) > 0,
       hasRecording:
         z.state === "完了" ||
         !!z.aiCompanionSummary ||

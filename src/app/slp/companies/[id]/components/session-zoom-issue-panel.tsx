@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,10 +21,16 @@ import {
   Copy,
   CheckCircle2,
   AlertCircle,
+  Link2,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { SessionZoomForUI } from "./meeting-sessions-section";
-import { regenerateZoomMeetingBySession } from "../zoom-meeting-actions";
+import {
+  regenerateZoomMeetingBySession,
+  deleteZoomForSession,
+} from "../zoom-meeting-actions";
+import { SessionManualZoomModal } from "./session-manual-zoom-modal";
 
 type Props = {
   sessionId: number;
@@ -38,12 +45,10 @@ type Props = {
  * セッション毎の primary Zoom 管理パネル（商談カード内のラウンド詳細に配置）
  *
  * 表示:
- *   - primary あり → URL表示、コピー、再発行
- *   - primary なし → 「手動で発行する」ボタン（担当者・日時が未設定の場合はメッセージ表示）
+ *   - primary あり → URL表示、コピー、再発行、削除
+ *   - primary あり + ホスト非連携/未設定 → 「API連携なし」バッジ表示
+ *   - primary なし → 「手動で発行する」「手動URLを入力する」ボタン
  *   - zoomError あり → エラー表示＋再発行ボタン
- *
- * 発行成功時に「新しいZoom URLをお客様へ送付してください」のAlertDialogを表示する
- * （お客様への自動送信はしないので、スタッフが手動で送付する運用前提）。
  */
 export function SessionZoomIssuePanel({
   sessionId,
@@ -56,6 +61,9 @@ export function SessionZoomIssuePanel({
   const [working, setWorking] = useState(false);
   const [manualSendUrl, setManualSendUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [manualModalOpen, setManualModalOpen] = useState(false);
+
+  const isApiLess = primary ? !primary.hostIntegrationActive : false;
 
   const handleCopy = async (text: string) => {
     try {
@@ -91,11 +99,41 @@ export function SessionZoomIssuePanel({
     }
   };
 
+  const handleDelete = async () => {
+    if (
+      !confirm(
+        "このZoom URLを削除しますか？\n削除すると未発行状態に戻り、自動発行または手動入力で再度登録できます。"
+      )
+    ) {
+      return;
+    }
+    setWorking(true);
+    try {
+      const r = await deleteZoomForSession(sessionId);
+      if (r.ok) {
+        toast.success("Zoom URLを削除しました");
+        router.refresh();
+      } else {
+        toast.error(r.message);
+      }
+    } finally {
+      setWorking(false);
+    }
+  };
+
   return (
     <div className="rounded-lg border p-3 space-y-2 bg-muted/20">
       <div className="flex items-center gap-2">
         <Video className="h-4 w-4 text-blue-500" />
         <h4 className="font-semibold text-sm">Zoom 会議（{categoryLabel}）</h4>
+        {primary && isApiLess && (
+          <Badge
+            variant="outline"
+            className="text-[10px] bg-amber-50 text-amber-800 border-amber-300"
+          >
+            API連携なし
+          </Badge>
+        )}
       </div>
 
       {zoomError ? (
@@ -112,7 +150,7 @@ export function SessionZoomIssuePanel({
               )}
             </div>
           </div>
-          <div className="flex gap-2 pt-1">
+          <div className="flex flex-wrap gap-2 pt-1">
             <Button
               variant="outline"
               size="sm"
@@ -126,6 +164,22 @@ export function SessionZoomIssuePanel({
               )}
               再発行する
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDelete}
+              disabled={working}
+            >
+              {working ? (
+                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-3 w-3 mr-1.5" />
+              )}
+              削除
+            </Button>
+          </div>
+          <div className="text-[11px] text-red-700 pt-1">
+            ※ 手動URLを入力したい場合は、先に「削除」してから入力してください。
           </div>
         </div>
       ) : primary && primary.joinUrl ? (
@@ -137,6 +191,9 @@ export function SessionZoomIssuePanel({
               <span className="text-muted-foreground">
                 （主催: {primary.hostStaffName}）
               </span>
+            )}
+            {!primary.hostStaffName && isApiLess && (
+              <span className="text-muted-foreground">（主催: 未設定）</span>
             )}
           </div>
           <div className="flex gap-2 items-center">
@@ -159,27 +216,48 @@ export function SessionZoomIssuePanel({
               {copied ? "コピー済" : "コピー"}
             </Button>
           </div>
-          <div className="flex justify-end pt-0.5">
+          {isApiLess && (
+            <div className="text-[11px] text-amber-700 bg-amber-50 rounded px-2 py-1">
+              ※ API連携なしのため、録画・議事録の自動取得はできません。Zoom連携済み担当者のURLに切り替える場合は「削除」してから再発行してください。
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-0.5">
             <Button
               variant="outline"
               size="sm"
               className="h-7 text-[11px]"
-              onClick={() => handleIssue(true)}
+              onClick={handleDelete}
               disabled={working}
             >
               {working ? (
                 <Loader2 className="h-3 w-3 mr-1 animate-spin" />
               ) : (
-                <RefreshCw className="h-3 w-3 mr-1" />
+                <Trash2 className="h-3 w-3 mr-1" />
               )}
-              再発行
+              削除
             </Button>
+            {!isApiLess && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[11px]"
+                onClick={() => handleIssue(true)}
+                disabled={working}
+              >
+                {working ? (
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                )}
+                再発行
+              </Button>
+            )}
           </div>
         </div>
       ) : (
         <div className="text-xs text-muted-foreground space-y-1.5">
           <div>担当者・日時が設定されると自動でZoom URLが発行されます。</div>
-          <div>
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -194,9 +272,29 @@ export function SessionZoomIssuePanel({
               )}
               手動で発行する
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-[11px]"
+              onClick={() => setManualModalOpen(true)}
+              disabled={working}
+            >
+              <Link2 className="h-3 w-3 mr-1" />
+              手動URLを入力
+            </Button>
           </div>
         </div>
       )}
+
+      {/* 手動Zoom URL入力モーダル */}
+      <SessionManualZoomModal
+        open={manualModalOpen}
+        onOpenChange={setManualModalOpen}
+        sessionId={sessionId}
+        onDone={() => {
+          router.refresh();
+        }}
+      />
 
       {/* 発行/再発行成功直後の手動送信アナウンス */}
       <AlertDialog

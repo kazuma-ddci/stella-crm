@@ -52,6 +52,53 @@ export async function listZoomLinkedStaffs(): Promise<
 }
 
 // ============================================
+// SLP全スタッフ一覧（Zoom連携済みフラグ付き）
+// - 手動Zoom URL入力モーダルのホスト担当者ドロップダウン用
+// - 未連携スタッフも「API連携なし」として選択肢に出す
+// ============================================
+export async function listAllSlpStaffsForZoomHost(): Promise<
+  ActionResult<{ id: number; name: string; zoomIntegrated: boolean }[]>
+> {
+  try {
+    await requireStaffWithProjectPermission([{ project: "slp", level: "view" }]);
+    const slpProject = await prisma.masterProject.findFirst({
+      where: { code: "slp" },
+      select: { id: true },
+    });
+    if (!slpProject) return ok([]);
+
+    const staffs = await prisma.masterStaff.findMany({
+      where: {
+        isActive: true,
+        isSystemUser: false,
+        projectAssignments: { some: { projectId: slpProject.id } },
+      },
+      select: {
+        id: true,
+        name: true,
+        meetingIntegrations: {
+          where: { provider: "zoom", disconnectedAt: null },
+          select: { id: true },
+        },
+      },
+      orderBy: { name: "asc" },
+    });
+
+    return ok(
+      staffs.map((s) => ({
+        id: s.id,
+        name: s.name,
+        zoomIntegrated: s.meetingIntegrations.length > 0,
+      }))
+    );
+  } catch (e) {
+    return err(
+      e instanceof Error ? e.message : "スタッフ一覧の取得に失敗しました"
+    );
+  }
+}
+
+// ============================================
 // 手動 Zoom URL 追加 → 議事録連携
 // ============================================
 
@@ -64,7 +111,8 @@ type AddZoomResult = {
 export async function addManualZoomToContactHistory(params: {
   contactHistoryId: number;
   zoomUrl: string;
-  hostStaffId: number;
+  /** null の場合は「ホスト未選択」扱い（API連携なしレコードとして保存、即取得は不可） */
+  hostStaffId: number | null;
   label?: string;
   mode: "fetch_now" | "scheduled";
 }): Promise<ActionResult<AddZoomResult>> {
@@ -110,18 +158,26 @@ export async function addManualZoomToContactHistory(params: {
       );
     }
 
-    // ホストスタッフがZoom連携済みか確認
-    const integration = await prisma.staffMeetingIntegration.findUnique({
-      where: {
-        staffId_provider: {
-          staffId: params.hostStaffId,
-          provider: "zoom",
+    // ホストスタッフがZoom連携済みか確認（未指定 or 未連携なら「API連携なし」レコードとして扱う）
+    let hostIntegrationActive = false;
+    if (params.hostStaffId != null) {
+      const integration = await prisma.staffMeetingIntegration.findUnique({
+        where: {
+          staffId_provider: {
+            staffId: params.hostStaffId,
+            provider: "zoom",
+          },
         },
-      },
-      select: { disconnectedAt: true },
-    });
-    if (!integration || integration.disconnectedAt) {
-      return err("指定されたホストスタッフはZoom連携が未完了です");
+        select: { disconnectedAt: true },
+      });
+      hostIntegrationActive = !!integration && !integration.disconnectedAt;
+    }
+
+    // 即取得モードは API連携が生きている場合のみ可能
+    if (params.mode === "fetch_now" && !hostIntegrationActive) {
+      return err(
+        "ホスト担当者のZoom連携が無いため即取得はできません。scheduledモード（手動追加のみ）で登録してください。"
+      );
     }
 
     // Recording を「追加Zoom」として作成（isPrimary=false, state="予定"）
@@ -149,7 +205,7 @@ export async function addManualZoomToContactHistory(params: {
         contactHistoryId: params.contactHistoryId,
         zoomMeetingId: meetingIdBig,
         category,
-        hostStaffId: params.hostStaffId,
+        hostStaffId: params.hostStaffId ?? null,
         joinUrl: parsed.cleanUrl,
         isPrimary: !hasPrimary, // primary 未設定なら primary に、既にあれば 追加Zoom
         label: hasPrimary ? params.label ?? "追加Zoom" : params.label ?? null,
