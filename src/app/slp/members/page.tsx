@@ -68,11 +68,13 @@ export default async function SlpMembersPage() {
     //   - LINE紐付き済み
     //   - free1（紹介者UID）が存在する
     //   - 現在のfree1 と form5NotifiedReferrerUid が一致しない
+    //   - 現在のfree1 と form5NotifySkippedReferrerUid も一致しない（送信不要判断済みは除外）
     //   - 締結済み（締結前は通知不要）
     const referrerUnnotified =
       lineLinked &&
       !!currentFree1 &&
       m.form5NotifiedReferrerUid !== currentFree1 &&
+      m.form5NotifySkippedReferrerUid !== currentFree1 &&
       m.status === "組合員契約書締結";
 
     return {

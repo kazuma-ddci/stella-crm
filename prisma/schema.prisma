@@ -4075,6 +4075,7 @@ model SlpMember {
   watermarkCode            String?   @unique @db.VarChar(9) // ウォーターマーク用固定コード（XXXX-XXXX形式、変更不可）
   form5NotifyCount         Int       @default(0) // Form5（契約締結通知）送信回数
   form5NotifiedReferrerUid String?   @map("form5_notified_referrer_uid") @db.VarChar(100) // 最後にForm5通知を送信した紹介者UID（free1と比較して未通知判定に使用）
+  form5NotifySkippedReferrerUid String? @map("form5_notify_skipped_referrer_uid") @db.VarChar(100) // Form5通知「送信不要」と判断した紹介者UID（free1と比較して未通知判定から除外）
   reminderExcluded         Boolean   @default(false) // 自動リマインド除外フラグ
   richmenuBeaconCalled     Boolean   @default(false) @map("richmenu_beacon_called") // リッチメニュー切り替えビーコンを呼び出し済みか（締結済み / 締結ビーコン D6DJAb2MNC・xZugEszbhx 共通）
   postLinkSentBeaconCalled Boolean   @default(false) @map("post_link_sent_beacon_called") // 後追い紐付け時の「契約書送付済」案内ビーコン（G0JqiTyQx9）呼び出し済みフラグ

@@ -4,7 +4,7 @@ import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CrudTable, ColumnDef, CustomRenderers, CustomAction } from "@/components/crud-table";
-import { addMember, updateMember, deleteMember, remindMember, sendContractToMember, clearResubmitted, sendForm5Notification, bulkSendContracts, batchSyncCloudsignStatus } from "./actions";
+import { addMember, updateMember, deleteMember, remindMember, sendContractToMember, clearResubmitted, sendForm5Notification, skipForm5Notification, bulkSendContracts, batchSyncCloudsignStatus } from "./actions";
 import { Bell, Send, ScrollText, AlertTriangle, Loader2, Settings, Users, UserCheck, History, RefreshCw, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { SlpContractModal } from "./slp-contract-modal";
@@ -120,6 +120,7 @@ export function MembersTable({ data: allData, memberOptions, contractStatusOptio
   const [notifyDialogOpen, setNotifyDialogOpen] = useState(false);
   const [notifyTarget, setNotifyTarget] = useState<{ id: number; name: string } | null>(null);
   const [notifying, setNotifying] = useState(false);
+  const [skipping, setSkipping] = useState(false);
 
   const handleSendForm5 = async () => {
     if (!notifyTarget) return;
@@ -139,6 +140,27 @@ export function MembersTable({ data: allData, memberOptions, contractStatusOptio
       toast.error(msg);
     } finally {
       setNotifying(false);
+    }
+  };
+
+  const handleSkipForm5 = async () => {
+    if (!notifyTarget) return;
+    setSkipping(true);
+    try {
+      const result = await skipForm5Notification(notifyTarget.id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${notifyTarget.name}さんを送信不要にしました`);
+      setNotifyDialogOpen(false);
+      setNotifyTarget(null);
+      router.refresh();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "送信不要の処理に失敗しました";
+      toast.error(msg);
+    } finally {
+      setSkipping(false);
     }
   };
 
@@ -494,6 +516,13 @@ export function MembersTable({ data: allData, memberOptions, contractStatusOptio
         } else {
           toast.success("紹介者に契約締結通知を送信しました");
         }
+      } else {
+        // 「いいえ（通知なし）」押下時は送信不要として記録し、以降の黄色警告を抑制
+        const rSkip = await skipForm5Notification(pending.id);
+        if (!rSkip.ok) {
+          // 紹介者UIDが無いケース等は握り潰してOK（警告表示ロジックで自然に扱われる）
+          console.warn("[form5Skip] skip failed:", rSkip.error);
+        }
       }
       router.refresh();
     } catch (err) {
@@ -821,16 +850,35 @@ export function MembersTable({ data: allData, memberOptions, contractStatusOptio
             <AlertDialogTitle>紹介者に契約締結通知を送信</AlertDialogTitle>
             <AlertDialogDescription>
               {notifyTarget?.name}さんの現在の紹介者にForm5（契約締結完了）通知を送信します。よろしいですか？
+              <br />
+              通知不要の場合は「送信不要」を選ぶと、この紹介者に対するハイライト表示が消えます。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={notifying}>キャンセル</AlertDialogCancel>
+            <AlertDialogCancel disabled={notifying || skipping}>キャンセル</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleSkipForm5();
+              }}
+              disabled={notifying || skipping}
+              className="bg-secondary text-secondary-foreground hover:bg-secondary/80"
+            >
+              {skipping ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  処理中...
+                </>
+              ) : (
+                "送信不要"
+              )}
+            </AlertDialogAction>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
                 handleSendForm5();
               }}
-              disabled={notifying}
+              disabled={notifying || skipping}
             >
               {notifying ? (
                 <>

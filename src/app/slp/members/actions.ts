@@ -322,6 +322,37 @@ export async function sendForm5Notification(id: number): Promise<ActionResult> {
 }
 
 /**
+ * 紹介者通知を「送信不要」と判断して黄色表示を消す
+ * 現在の紹介者UID（free1）を form5NotifySkippedReferrerUid に保存する。
+ * 紹介者が変わったら自動的に再度未通知判定になる。
+ */
+export async function skipForm5Notification(id: number): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
+  try {
+    const member = await prisma.slpMember.findUnique({ where: { id } });
+    if (!member) return err("メンバーが見つかりません");
+
+    const lineFriend = await prisma.slpLineFriend.findUnique({
+      where: { uid: member.uid },
+      select: { free1: true },
+    });
+    const referrerUid = lineFriend?.free1;
+    if (!referrerUid) return err("紹介者UIDが見つかりません");
+
+    await prisma.slpMember.update({
+      where: { id },
+      data: { form5NotifySkippedReferrerUid: referrerUid },
+    });
+
+    revalidatePath("/slp/members");
+    return ok();
+  } catch (e) {
+    console.error("[skipForm5Notification] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+/**
  * 紐付けモーダル用: LINE友だち候補一覧を取得（id降順、検索付き、上限50件）
  */
 export async function searchLineFriendsForLink(
