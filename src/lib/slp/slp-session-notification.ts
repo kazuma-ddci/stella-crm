@@ -25,7 +25,7 @@ import { roundTypeOf } from "@/lib/slp/session-helper";
 import { resolveProlineStaffName } from "@/lib/slp/proline-staff-name";
 import type { SessionCategory } from "@/lib/slp/session-helper";
 
-export type NotificationRecipient = "customer" | "referrer";
+export type NotificationRecipient = "customer" | "referrer" | "member";
 export type NotificationTrigger =
   | "confirm"
   | "change"
@@ -33,7 +33,13 @@ export type NotificationTrigger =
   | "complete"
   | "no_show"
   | "remind_day_before"
-  | "remind_hour_before";
+  | "remind_hour_before"
+  // 紹介ライフサイクル系（セッション非依存、紹介者通知専用）
+  | "friend_added"
+  | "contract_signed"
+  // 契約書関連（組合員本人向け通知）
+  | "contract_reminder"
+  | "contract_bounced";
 
 export interface SendSessionNotificationParams {
   sessionId: number;
@@ -57,9 +63,9 @@ export interface SendSessionNotificationParams {
  * 空白値のフォールバック文字列。
  * テンプレ本文で {{xxx}} が空で「様」だけ残る、などの文字列破綻を防ぐ。
  */
-const MISSING_DATA_FALLBACK = "(データの取得に失敗しました)";
+export const MISSING_DATA_FALLBACK = "(データの取得に失敗しました)";
 
-function orFallback(v: string | null | undefined): string {
+export function orFallback(v: string | null | undefined): string {
   const t = v?.trim();
   return t && t.length > 0 ? t : MISSING_DATA_FALLBACK;
 }
@@ -71,13 +77,23 @@ export interface NotificationRenderVars {
   zoomUrl: string;
   referrerName: string;
   roundNumber: string;
-  [key: string]: string;
+  // 紹介ライフサイクル系（session非依存通知で使用）
+  addedFriendLineName?: string;
+  memberName?: string;
+  memberLineName?: string;
+  // 契約書関連（組合員本人向け通知で使用）
+  contractSentDate?: string;
+  contractSentEmail?: string;
+  [key: string]: string | undefined;
 }
 
 /**
  * {{key}} 形式の変数を置換する（未定義変数はそのまま残す）
  */
-function renderTemplateBody(body: string, vars: NotificationRenderVars): string {
+export function renderTemplateBody(
+  body: string,
+  vars: NotificationRenderVars
+): string {
   return body.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, keyRaw: string) => {
     const key = keyRaw.trim();
     const v = vars[key];

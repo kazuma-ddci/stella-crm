@@ -4,9 +4,9 @@ import { prisma } from "@/lib/prisma";
 import {
   submitProlineForm,
   submitForm11BriefingThankYou,
-  submitForm12ContractReminder,
   submitForm13ConsultationThankYou,
 } from "@/lib/proline-form";
+import { sendMemberNotification } from "@/lib/slp/slp-member-notification";
 import { sendSlpContract } from "@/lib/slp-cloudsign";
 import type { ProlineFormData } from "@/lib/proline-form";
 import { getOptionalSession } from "@/lib/auth/session";
@@ -59,8 +59,15 @@ export async function retryAutomationError(
   if (retryAction === "form11-briefing-thank-you") {
     return retryForm11(errorId, detail);
   }
-  if (retryAction === "form12-contract-reminder") {
-    return retryForm12(errorId, detail);
+  if (
+    retryAction === "form12-contract-reminder" ||
+    retryAction === "contract-reminder"
+  ) {
+    // 旧retryAction("form12-contract-reminder") と 新("contract-reminder") の両方を受ける
+    return retryContractReminder(errorId, detail);
+  }
+  if (retryAction === "contract-bounced") {
+    return retryContractBounced(errorId, detail);
   }
   if (retryAction === "form13-consultation-thank-you") {
     return retryForm13(errorId, detail);
@@ -103,7 +110,7 @@ async function retryForm11(
   }
 }
 
-async function retryForm12(
+async function retryContractReminder(
   errorId: number,
   detail: Record<string, unknown>
 ): Promise<{ success: boolean; message: string }> {
@@ -112,9 +119,54 @@ async function retryForm12(
   const email = detail.email as string | undefined;
   if (!uid || !email) return { success: false, message: "必要情報が不足しています" };
   try {
-    await submitForm12ContractReminder(uid, sentDate, email);
+    // memberName を再取得して最新情報で送る（旧エラーには含まれない場合あり）
+    const member = await prisma.slpMember.findUnique({
+      where: { uid },
+      select: { name: true },
+    });
+    const r = await sendMemberNotification({
+      trigger: "contract_reminder",
+      memberUid: uid,
+      context: {
+        memberName: member?.name,
+        contractSentDate: sentDate,
+        contractSentEmail: email,
+      },
+    });
+    if (!r.ok) return fail("再送に失敗しました", r.errorMessage);
+    if (r.skipped)
+      return { success: false, message: "テンプレートが無効化されているため送信されませんでした" };
     await markResolved(errorId);
     return { success: true, message: "契約書リマインドLINEの再送に成功しました" };
+  } catch (e) {
+    return fail("再送に失敗しました", e);
+  }
+}
+
+async function retryContractBounced(
+  errorId: number,
+  detail: Record<string, unknown>
+): Promise<{ success: boolean; message: string }> {
+  const uid = detail.uid as string | undefined;
+  if (!uid) return { success: false, message: "必要情報が不足しています" };
+  try {
+    const member = await prisma.slpMember.findUnique({
+      where: { uid },
+      select: { name: true, email: true, cloudsignBouncedEmail: true },
+    });
+    const r = await sendMemberNotification({
+      trigger: "contract_bounced",
+      memberUid: uid,
+      context: {
+        memberName: member?.name,
+        contractSentEmail: member?.cloudsignBouncedEmail ?? member?.email ?? undefined,
+      },
+    });
+    if (!r.ok) return fail("再送に失敗しました", r.errorMessage);
+    if (r.skipped)
+      return { success: false, message: "テンプレートが無効化されているため送信されませんでした" };
+    await markResolved(errorId);
+    return { success: true, message: "メール不達通知LINEの再送に成功しました" };
   } catch (e) {
     return fail("再送に失敗しました", e);
   }

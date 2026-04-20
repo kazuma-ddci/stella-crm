@@ -36,6 +36,12 @@ const TRIGGER_ORDER = [
   "confirm_no_url",
   "change_no_url",
   "regenerated_manual_notice",
+  // 紹介ライフサイクル
+  "friend_added",
+  "contract_signed",
+  // 契約書関連（組合員向け）
+  "contract_reminder",
+  "contract_bounced",
 ];
 
 const TRIGGER_LABELS: Record<string, string> = {
@@ -49,6 +55,10 @@ const TRIGGER_LABELS: Record<string, string> = {
   confirm_no_url: "予約確定（URLなし）",
   change_no_url: "予約変更（URLなし）",
   regenerated_manual_notice: "Zoom再発行のお知らせ",
+  friend_added: "友達追加通知",
+  contract_signed: "契約締結通知",
+  contract_reminder: "契約書リマインド",
+  contract_bounced: "メール不達通知",
 };
 
 const ROUND_TYPE_LABELS: Record<string, string> = {
@@ -159,7 +169,8 @@ export function TemplatesEditor({ rows }: { rows: TemplateRow[] }) {
     }
   };
 
-  // タブ: お客様-概要案内、お客様-導入希望商談、紹介者
+  // タブ: お客様-概要案内、お客様-導入希望商談、紹介者向け、組合員向け
+  // 紹介者向けは さらに「商談まわり(category=briefing)」と「紹介ライフサイクル(category=referral)」に分割
   const tabs = useMemo(() => {
     const customerBriefing = rows.filter(
       (r) => r.recipient === "customer" && r.category === "briefing"
@@ -167,8 +178,24 @@ export function TemplatesEditor({ rows }: { rows: TemplateRow[] }) {
     const customerConsultation = rows.filter(
       (r) => r.recipient === "customer" && r.category === "consultation"
     );
-    const referrer = rows.filter((r) => r.recipient === "referrer");
-    return { customerBriefing, customerConsultation, referrer };
+    const referrerBriefing = rows.filter(
+      (r) => r.recipient === "referrer" && r.category === "briefing"
+    );
+    const referrerReferral = rows.filter(
+      (r) => r.recipient === "referrer" && r.category === "referral"
+    );
+    const memberContract = rows.filter(
+      (r) => r.recipient === "member" && r.category === "contract"
+    );
+    return {
+      customerBriefing,
+      customerConsultation,
+      referrerBriefing,
+      referrerReferral,
+      referrerTotal: referrerBriefing.length + referrerReferral.length,
+      memberContract,
+      memberTotal: memberContract.length,
+    };
   }, [rows]);
 
   const renderGrouped = (list: TemplateRow[]) => {
@@ -234,6 +261,11 @@ export function TemplatesEditor({ rows }: { rows: TemplateRow[] }) {
           <li><code className="bg-white px-1 rounded">{"{{staffName}}"}</code> 担当者名</li>
           <li><code className="bg-white px-1 rounded">{"{{zoomUrl}}"}</code> Zoom URL</li>
           <li><code className="bg-white px-1 rounded">{"{{referrerName}}"}</code> 紹介者名</li>
+          <li><code className="bg-white px-1 rounded">{"{{addedFriendLineName}}"}</code> 友達追加通知: 追加された人のLINE名</li>
+          <li><code className="bg-white px-1 rounded">{"{{memberName}}"}</code> 組合員氏名（契約締結通知・契約書関連通知）</li>
+          <li><code className="bg-white px-1 rounded">{"{{memberLineName}}"}</code> 契約締結通知: 組合員LINE名</li>
+          <li><code className="bg-white px-1 rounded">{"{{contractSentDate}}"}</code> 契約書リマインド: 送付日</li>
+          <li><code className="bg-white px-1 rounded">{"{{contractSentEmail}}"}</code> 契約書関連通知: 送付先メールアドレス</li>
         </ul>
         <p className="text-[11px] text-blue-900/80">
           ※ いずれの変数も、値が取得できなかった場合は「(データの取得に失敗しました)」という文字列に置き換わります。
@@ -315,10 +347,72 @@ export function TemplatesEditor({ rows }: { rows: TemplateRow[] }) {
             </div>
 
             <div className="border-t border-blue-200 pt-2">
+              <div className="font-semibold text-blue-900 mb-1">
+                {"{{addedFriendLineName}}"} — 友達追加通知（紹介ライフサイクル）
+              </div>
+              <ul className="list-disc pl-5 space-y-0.5 text-neutral-700">
+                <li>どこから？ 公式LINEを新しく友達追加した本人のLINE SNS表示名</li>
+                <li>発火タイミング: LINE友だち追加webhookが来て、追加した人の <code>free1</code> に紹介者UIDが入っているときのみ、その紹介者に送信</li>
+                <li>表示例: 山田花子</li>
+                <li>空のとき: <code className="bg-neutral-100 px-1 rounded">(データの取得に失敗しました)</code></li>
+                <li>⚠️ 友達追加通知テンプレでのみ使用。他テンプレではこの変数を書かないでください（常に「(データの取得に失敗しました)」になります）</li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="font-semibold text-blue-900 mb-1">
+                {"{{memberName}}"} — 契約締結通知: 組合員の氏名
+              </div>
+              <ul className="list-disc pl-5 space-y-0.5 text-neutral-700">
+                <li>画面で言うと: 組合員名簿ページ → 該当組合員 → 「氏名」欄</li>
+                <li>発火タイミング: CloudSignで契約書締結完了 or LINE後紐付け成立 のとき、組合員の <code>free1</code> にある紹介者UIDに送信</li>
+                <li>表示例: 田中太郎</li>
+                <li>空のとき: <code className="bg-neutral-100 px-1 rounded">(データの取得に失敗しました)</code></li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="font-semibold text-blue-900 mb-1">
+                {"{{memberLineName}}"} — 契約締結通知: 組合員のLINE名
+              </div>
+              <ul className="list-disc pl-5 space-y-0.5 text-neutral-700">
+                <li>画面で言うと: 組合員名簿ページ → 該当組合員 → 「LINE名」欄（公式LINEで表示される名前）</li>
+                <li>表示例: たなか</li>
+                <li>空のとき: <code className="bg-neutral-100 px-1 rounded">(データの取得に失敗しました)</code></li>
+              </ul>
+            </div>
+
+            <div className="border-t border-blue-200 pt-2">
+              <div className="font-semibold text-blue-900 mb-1">
+                {"{{contractSentDate}}"} — 契約書リマインド: 送付日
+              </div>
+              <ul className="list-disc pl-5 space-y-0.5 text-neutral-700">
+                <li>画面で言うと: 組合員名簿ページ → 該当組合員 → 「契約書送付日」</li>
+                <li>表示例: 2026年4月1日（日本語形式）</li>
+                <li>空のとき: <code className="bg-neutral-100 px-1 rounded">(データの取得に失敗しました)</code></li>
+                <li>⚠️ 契約書リマインドテンプレでのみ使用。メール不達通知では値が入らないので書かないでください</li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="font-semibold text-blue-900 mb-1">
+                {"{{contractSentEmail}}"} — 契約書関連通知: 送付先メールアドレス
+              </div>
+              <ul className="list-disc pl-5 space-y-0.5 text-neutral-700">
+                <li>画面で言うと: 組合員名簿ページ → 該当組合員 → 「メールアドレス」（クラウドサイン送付先）</li>
+                <li>バウンス通知では、実際に不達になったメールアドレスが入ります</li>
+                <li>表示例: tanaka@example.com</li>
+                <li>空のとき: <code className="bg-neutral-100 px-1 rounded">(データの取得に失敗しました)</code></li>
+              </ul>
+            </div>
+
+            <div className="border-t border-blue-200 pt-2">
               <div className="font-semibold text-blue-900 mb-1">補足: 通知の送信先（変数とは別）</div>
               <ul className="list-disc pl-5 space-y-0.5 text-neutral-700">
                 <li><strong>お客様向け</strong>: 事業者の「担当者」タブで「商談通知を受け取る」ONの人、および各商談を予約した本人（必ず通知）。商談ごとに「通知対象を個別設定」でその商談だけ対象を変更可能。</li>
-                <li><strong>紹介者向け</strong>: 事業者のメイン担当者のLINE友達情報の <code>free1</code>欄（紹介者UID）、または手動モーダルでチェックした紹介者のLINE UID。</li>
+                <li><strong>紹介者向け（商談まわり）</strong>: 事業者のメイン担当者のLINE友達情報の <code>free1</code>欄（紹介者UID）、または手動モーダルでチェックした紹介者のLINE UID。</li>
+                <li><strong>紹介者向け（紹介ライフサイクル）</strong>: 友達追加通知は「追加された人の <code>free1</code>」、契約締結通知は「組合員の <code>free1</code>」に入っている紹介者UIDに直接送信。</li>
+                <li><strong>組合員向け（契約書関連）</strong>: 組合員本人のLINE UIDに直接送信（契約書リマインドは cron 自動発火、メール不達通知は CloudSign webhook 起点）。</li>
                 <li>必要なLINE紐付けが欠けていると「LINE UIDが取得できません」エラーで送信されません。</li>
               </ul>
             </div>
@@ -335,7 +429,10 @@ export function TemplatesEditor({ rows }: { rows: TemplateRow[] }) {
             お客様 / 導入希望商談 ({tabs.customerConsultation.length})
           </TabsTrigger>
           <TabsTrigger value="referrer">
-            紹介者向け ({tabs.referrer.length})
+            紹介者向け ({tabs.referrerTotal})
+          </TabsTrigger>
+          <TabsTrigger value="member">
+            組合員向け ({tabs.memberTotal})
           </TabsTrigger>
         </TabsList>
         <TabsContent value="customer_briefing" className="pt-4">
@@ -344,11 +441,53 @@ export function TemplatesEditor({ rows }: { rows: TemplateRow[] }) {
         <TabsContent value="customer_consultation" className="pt-4">
           {renderGrouped(tabs.customerConsultation)}
         </TabsContent>
-        <TabsContent value="referrer" className="pt-4">
-          <Label className="text-xs text-muted-foreground mb-2 block">
-            紹介者通知は概要案内1回目のみ送信されます（手動セット時は「紹介者にも通知を送信する」チェックON時のみ）。
-          </Label>
-          {renderGrouped(tabs.referrer)}
+        <TabsContent value="referrer" className="pt-4 space-y-6">
+          {/* 商談まわり */}
+          <section className="space-y-2">
+            <div className="flex items-baseline gap-2 pb-1 border-b">
+              <h3 className="font-semibold text-sm">商談まわり</h3>
+              <span className="text-xs text-muted-foreground">
+                ({tabs.referrerBriefing.length}件・商談の予約確定/変更/キャンセル/完了/不参加を紹介者に通知)
+              </span>
+            </div>
+            <Label className="text-xs text-muted-foreground mb-2 block">
+              紹介者通知は概要案内1回目のみ送信されます（手動セット時は「紹介者にも通知を送信する」チェックON時のみ）。
+            </Label>
+            {renderGrouped(tabs.referrerBriefing)}
+          </section>
+
+          {/* 紹介ライフサイクル */}
+          <section className="space-y-2">
+            <div className="flex items-baseline gap-2 pb-1 border-b">
+              <h3 className="font-semibold text-sm">紹介ライフサイクル</h3>
+              <span className="text-xs text-muted-foreground">
+                ({tabs.referrerReferral.length}件・友達追加/契約締結のタイミングで紹介者に通知)
+              </span>
+            </div>
+            <Label className="text-xs text-muted-foreground mb-2 block">
+              友達追加通知は新しく公式LINEが追加された時（追加した人の <code>free1</code> にある紹介者宛）、
+              契約締結通知は組合員契約完了時（組合員の <code>free1</code> にある紹介者宛）に自動送信されます。
+            </Label>
+            {renderGrouped(tabs.referrerReferral)}
+          </section>
+        </TabsContent>
+
+        <TabsContent value="member" className="pt-4 space-y-6">
+          {/* 契約書関連 */}
+          <section className="space-y-2">
+            <div className="flex items-baseline gap-2 pb-1 border-b">
+              <h3 className="font-semibold text-sm">契約書関連</h3>
+              <span className="text-xs text-muted-foreground">
+                ({tabs.memberContract.length}件・組合員本人へのリマインド/メール不達通知)
+              </span>
+            </div>
+            <Label className="text-xs text-muted-foreground mb-2 block">
+              契約書リマインドは cron（毎日10時）で送付後 reminderDays 日経過した未締結メンバーに自動送信、
+              メール不達通知は CloudSign バウンス検知時に自動送信されます。手動リマインドも
+              組合員名簿のリマインドボタンから同じテンプレで送られます。
+            </Label>
+            {renderGrouped(tabs.memberContract)}
+          </section>
         </TabsContent>
       </Tabs>
     </div>

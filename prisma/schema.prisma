@@ -6242,9 +6242,11 @@ model SlpZoomAiPromptTemplate {
 // ============================================
 model SlpZoomSendLog {
   id              Int      @id @default(autoincrement())
-  companyRecordId Int      @map("company_record_id")
-  category        String   @db.VarChar(30) // "briefing" | "consultation"
-  trigger         String   @db.VarChar(50) // "confirm" | "change" | "remind_day_before" | "remind_hour_before"
+  /// セッション非依存の紹介者通知（friend_added / contract_signed など）では null。
+  /// 商談関連（briefing / consultation）では事業者IDが入る。
+  companyRecordId Int?     @map("company_record_id")
+  category        String   @db.VarChar(30) // "briefing" | "consultation" | "referral"
+  trigger         String   @db.VarChar(50) // "confirm" | "change" | "remind_day_before" | "remind_hour_before" | "friend_added" | "contract_signed" 等
   uid             String   @db.VarChar(100)
   formId          String   @map("form_id") @db.VarChar(100)
   fieldKey        String   @map("field_key") @db.VarChar(50) // "form16-1" 等
@@ -6258,7 +6260,7 @@ model SlpZoomSendLog {
   sessionId   Int?    @map("session_id")
   recipient   String? @db.VarChar(20) // "customer" | "referrer"
 
-  companyRecord SlpCompanyRecord   @relation("SlpZoomSendLogsForCompany", fields: [companyRecordId], references: [id], onDelete: Cascade)
+  companyRecord SlpCompanyRecord?  @relation("SlpZoomSendLogsForCompany", fields: [companyRecordId], references: [id], onDelete: Cascade)
   session       SlpMeetingSession? @relation("SlpZoomSendLogSession", fields: [sessionId], references: [id])
 
   @@index([companyRecordId])

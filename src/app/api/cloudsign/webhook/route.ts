@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { syncContractStatus } from "@/lib/cloudsign-sync";
 import { logAutomationError } from "@/lib/automation-error";
-import { submitForm5ContractNotification, submitForm15BounceNotification } from "@/lib/proline-form";
+import { sendReferralNotification } from "@/lib/slp/slp-referral-notification";
+import { sendMemberNotification } from "@/lib/slp/slp-member-notification";
 import { declineSlpContract, resolveRelatedAutomationErrors } from "@/lib/slp-cloudsign";
 
 /**
@@ -247,21 +248,41 @@ export async function POST(request: NextRequest) {
         });
 
         // 契約書メール不達をお客様にLINE通知（最新契約のバウンスのみ、fire-and-forget）
+        // Form15統合：テンプレベースで送信、本文はスタッフが設定画面で編集可能
         const bouncedMemberUid = bouncedMember.uid;
         if (isLatestContract && bouncedMemberUid) {
-          submitForm15BounceNotification(
-            bouncedMemberUid,
-            "組合員入会の契約書をメールでお送りしましたが、メールが送信できませんでした。\nお手数ですが、再度入会フォームを開いてメールアドレスをご確認ください。"
-          ).catch(async (err) => {
-            await logAutomationError({
-              source: "cloudsign-webhook-bounced-notify",
-              message: "契約書メール不達のLINE通知送信に失敗しました",
-              detail: {
-                uid: bouncedMemberUid,
-                error: err instanceof Error ? err.message : String(err),
-              },
+          sendMemberNotification({
+            trigger: "contract_bounced",
+            memberUid: bouncedMemberUid,
+            context: {
+              memberName: bouncedMember.name,
+              contractSentEmail: bouncedEmail ?? bouncedMember.email ?? undefined,
+            },
+          })
+            .then(async (r) => {
+              if (!r.ok) {
+                await logAutomationError({
+                  source: "cloudsign-webhook-bounced-notify",
+                  message: "契約書メール不達のLINE通知送信に失敗しました",
+                  detail: {
+                    uid: bouncedMemberUid,
+                    errorMessage: r.errorMessage,
+                    retryAction: "contract-bounced",
+                  },
+                });
+              }
+            })
+            .catch(async (err) => {
+              await logAutomationError({
+                source: "cloudsign-webhook-bounced-notify",
+                message: "契約書メール不達のLINE通知呼び出しに失敗しました",
+                detail: {
+                  uid: bouncedMemberUid,
+                  error: err instanceof Error ? err.message : String(err),
+                  retryAction: "contract-bounced",
+                },
+              });
             });
-          });
         }
       } else {
         // 該当組合員なし → 未照合バウンスとして保存（後でスタッフが照合可能に）
@@ -541,30 +562,39 @@ async function syncSlpMemberFromContract(
       const referrerUid = lineFriend?.free1;
 
       if (referrerUid && member.form5NotifiedReferrerUid !== referrerUid) {
-        await submitForm5ContractNotification(
+        const r = await sendReferralNotification({
+          trigger: "contract_signed",
           referrerUid,
-          member.lineName || "",
-          member.name
-        );
-        await prisma.slpMember.update({
-          where: { id: member.id },
-          data: {
-            form5NotifyCount: { increment: 1 },
-            form5NotifiedReferrerUid: referrerUid,
+          context: {
+            memberName: member.name,
+            memberLineName: member.lineName ?? undefined,
           },
+          // SlpMemberは事業者と直接リレーションを持たないためnull
+          relatedCompanyRecordId: null,
         });
-        console.log(
-          `[CloudSign Webhook] Form5 notification sent for member #${member.id}, referrer=${referrerUid}`
-        );
+        if (r.ok && !r.skipped) {
+          await prisma.slpMember.update({
+            where: { id: member.id },
+            data: {
+              form5NotifyCount: { increment: 1 },
+              form5NotifiedReferrerUid: referrerUid,
+            },
+          });
+          console.log(
+            `[CloudSign Webhook] contract_signed notification sent for member #${member.id}, referrer=${referrerUid}`
+          );
+        } else if (!r.ok) {
+          throw new Error(r.errorMessage ?? "契約締結通知失敗");
+        }
       }
     } catch (form5Err) {
       console.error(
-        `[CloudSign Webhook] Form5 notification failed for member #${member.id}:`,
+        `[CloudSign Webhook] contract_signed notification failed for member #${member.id}:`,
         form5Err
       );
       await logAutomationError({
-        source: "cloudsign-webhook/form5",
-        message: `Form5契約締結通知失敗 (memberId=${member.id})`,
+        source: "cloudsign-webhook/contract_signed",
+        message: `契約締結通知失敗 (memberId=${member.id})`,
         detail: { memberId: member.id, uid: member.uid, error: String(form5Err) },
       });
     }
@@ -659,23 +689,31 @@ async function handleSlpMemberWebhookLegacy(
       const referrerUid = lineFriend?.free1;
 
       if (referrerUid && member.form5NotifiedReferrerUid !== referrerUid) {
-        await submitForm5ContractNotification(
+        const r = await sendReferralNotification({
+          trigger: "contract_signed",
           referrerUid,
-          member.lineName || "",
-          member.name
-        );
-        await prisma.slpMember.update({
-          where: { id: member.id },
-          data: {
-            form5NotifyCount: { increment: 1 },
-            form5NotifiedReferrerUid: referrerUid,
+          context: {
+            memberName: member.name,
+            memberLineName: member.lineName ?? undefined,
           },
+          relatedCompanyRecordId: null,
         });
+        if (r.ok && !r.skipped) {
+          await prisma.slpMember.update({
+            where: { id: member.id },
+            data: {
+              form5NotifyCount: { increment: 1 },
+              form5NotifiedReferrerUid: referrerUid,
+            },
+          });
+        } else if (!r.ok) {
+          throw new Error(r.errorMessage ?? "契約締結通知失敗");
+        }
       }
     } catch (form5Err) {
       await logAutomationError({
-        source: "cloudsign-webhook/form5",
-        message: `Form5契約締結通知失敗 (memberId=${member.id})`,
+        source: "cloudsign-webhook/contract_signed",
+        message: `契約締結通知失敗 (memberId=${member.id}, legacy)`,
         detail: { memberId: member.id, uid: member.uid, error: String(form5Err) },
       });
     }

@@ -39,9 +39,15 @@ function sourceLabel(source: string): string {
     "slp-consultation-cancel": "導入希望商談キャンセル Webhook",
     // 導入希望商談 完了処理
     "slp-consultation-complete-form13": "導入希望商談完了 お礼メッセージ（form13）",
-    // 契約書リマインド
-    "cron/remind-slp-members/form12": "契約書リマインドLINE（form12）",
-    "members/remind/form12": "契約書リマインドLINE 手動（form12）",
+    // 契約書リマインド（旧Form12・後方互換）
+    "cron/remind-slp-members/form12": "契約書リマインドLINE（旧form12）",
+    "members/remind/form12": "契約書リマインドLINE 手動（旧form12）",
+    // 契約書リマインド・メール不達（Form15統合後）
+    "cron/remind-slp-members/contract_reminder": "契約書リマインドLINE（自動）",
+    "members/remind/contract_reminder": "契約書リマインドLINE（手動）",
+    "webhook/line-friend/contract_signed": "契約締結通知（LINE後紐付け時）",
+    "cloudsign-webhook/contract_signed": "契約締結通知（CloudSign完了時）",
+    "cloudsign-webhook-bounced-notify": "メール不達通知LINE",
   };
   return map[source] || source;
 }

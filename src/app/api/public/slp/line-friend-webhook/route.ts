@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
-import {
-  submitForm4FriendNotification,
-  submitForm5ContractNotification,
-} from "@/lib/proline-form";
+import { sendReferralNotification } from "@/lib/slp/slp-referral-notification";
 import { extractWebhookData } from "@/lib/hojo/webhook-params";
 
 function verifySecret(request: Request): boolean {
@@ -42,20 +39,28 @@ export async function GET(request: Request) {
       update: { ...data, isManuallyAdded: false },
     });
 
-    // Form4: 紹介者に友だち追加通知を送信（fire-and-forget）
+    // 友達追加通知（Form18統合・テンプレベース）を紹介者に送信（fire-and-forget）
     if (data.free1) {
       try {
-        await submitForm4FriendNotification(data.free1, data.snsname || "");
-        await prisma.slpLineFriend.update({
-          where: { uid },
-          data: { form4NotifyCount: { increment: 1 } },
+        const r = await sendReferralNotification({
+          trigger: "friend_added",
+          referrerUid: data.free1,
+          context: { addedFriendLineName: data.snsname || "" },
         });
-        console.log(`[Webhook] Form4 notification sent for uid=${uid}, referrer=${data.free1}`);
+        if (r.ok && !r.skipped) {
+          await prisma.slpLineFriend.update({
+            where: { uid },
+            data: { form4NotifyCount: { increment: 1 } },
+          });
+          console.log(`[Webhook] friend_added notification sent for uid=${uid}, referrer=${data.free1}`);
+        } else if (!r.ok) {
+          throw new Error(r.errorMessage ?? "友達追加通知失敗");
+        }
       } catch (form4Err) {
-        console.error(`[Webhook] Form4 notification failed for uid=${uid}:`, form4Err);
+        console.error(`[Webhook] friend_added notification failed for uid=${uid}:`, form4Err);
         await logAutomationError({
-          source: "webhook/line-friend/form4",
-          message: `Form4友だち追加通知失敗 (uid=${uid}, referrer=${data.free1})`,
+          source: "webhook/line-friend/friend_added",
+          message: `友達追加通知失敗 (uid=${uid}, referrer=${data.free1})`,
           detail: { uid, referrerUid: data.free1, error: String(form4Err) },
         });
       }
@@ -124,31 +129,38 @@ export async function GET(request: Request) {
           });
           if (slpProject?.slpForm5AutoSendOnLink) {
             try {
-              await submitForm5ContractNotification(
+              const r = await sendReferralNotification({
+                trigger: "contract_signed",
                 referrerUid,
-                member.lineName || "",
-                member.name
-              );
-              await prisma.slpMember.update({
-                where: { id: member.id },
-                data: {
-                  form5NotifyCount: { increment: 1 },
-                  form5NotifiedReferrerUid: referrerUid,
+                context: {
+                  memberName: member.name,
+                  memberLineName: member.lineName ?? undefined,
                 },
               });
-              console.log(
-                `[Webhook] Form5 notification sent (delayed) for memberId=${member.id}, referrer=${referrerUid}`
-              );
+              if (r.ok && !r.skipped) {
+                await prisma.slpMember.update({
+                  where: { id: member.id },
+                  data: {
+                    form5NotifyCount: { increment: 1 },
+                    form5NotifiedReferrerUid: referrerUid,
+                  },
+                });
+                console.log(
+                  `[Webhook] contract_signed notification sent (delayed) for memberId=${member.id}, referrer=${referrerUid}`
+                );
+              } else if (!r.ok) {
+                throw new Error(r.errorMessage ?? "契約締結通知失敗");
+              }
             } catch (form5Err) {
               await logAutomationError({
-                source: "webhook/line-friend/form5",
-                message: `LINE後紐付け時のForm5契約締結通知失敗 (memberId=${member.id})`,
+                source: "webhook/line-friend/contract_signed",
+                message: `LINE後紐付け時の契約締結通知失敗 (memberId=${member.id})`,
                 detail: {
                   memberId: member.id,
                   uid,
                   referrerUid,
                   error: String(form5Err),
-                  retryAction: "form5-contract-notification",
+                  retryAction: "contract-signed-notification",
                 },
               });
             }

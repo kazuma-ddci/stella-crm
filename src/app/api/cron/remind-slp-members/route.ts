@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendSlpRemind } from "@/lib/slp-cloudsign";
 import { logAutomationError } from "@/lib/automation-error";
-import { submitForm12ContractReminder } from "@/lib/proline-form";
+import { sendMemberNotification } from "@/lib/slp/slp-member-notification";
 import { verifyCronAuth } from "@/lib/cron-auth";
 
 /** 日付を「2026年4月1日」形式でフォーマット */
@@ -99,30 +99,51 @@ export async function GET(request: NextRequest) {
           });
         }
 
-        // Form12: 公式LINEで契約書リマインドメッセージを送信（fire-and-forget）
+        // 契約書リマインド通知を公式LINEで送信（Form15統合・テンプレベース）fire-and-forget
         const memberInfo = contract.slpMember;
         if (memberInfo?.uid && memberInfo?.email) {
           const sentDate = formatJpDate(
             memberInfo.contractSentDate ?? contract.cloudsignSentAt
           );
-          submitForm12ContractReminder(
-            memberInfo.uid,
-            sentDate,
-            memberInfo.email
-          ).catch(async (err) => {
-            await logAutomationError({
-              source: "cron/remind-slp-members/form12",
-              message: `Form12契約書リマインドLINE送信失敗: ${memberName} (uid=${memberInfo.uid})`,
-              detail: {
-                memberId: memberInfo.id,
-                uid: memberInfo.uid,
-                sentDate,
-                email: memberInfo.email,
-                error: err instanceof Error ? err.message : String(err),
-                retryAction: "form12-contract-reminder",
-              },
+          sendMemberNotification({
+            trigger: "contract_reminder",
+            memberUid: memberInfo.uid,
+            context: {
+              memberName: memberInfo.name,
+              contractSentDate: sentDate,
+              contractSentEmail: memberInfo.email,
+            },
+          })
+            .then(async (r) => {
+              if (!r.ok) {
+                await logAutomationError({
+                  source: "cron/remind-slp-members/contract_reminder",
+                  message: `契約書リマインドLINE送信失敗: ${memberName} (uid=${memberInfo.uid})`,
+                  detail: {
+                    memberId: memberInfo.id,
+                    uid: memberInfo.uid,
+                    sentDate,
+                    email: memberInfo.email,
+                    errorMessage: r.errorMessage,
+                    retryAction: "contract-reminder",
+                  },
+                });
+              }
+            })
+            .catch(async (err) => {
+              await logAutomationError({
+                source: "cron/remind-slp-members/contract_reminder",
+                message: `契約書リマインドLINE呼び出し失敗: ${memberName} (uid=${memberInfo.uid})`,
+                detail: {
+                  memberId: memberInfo.id,
+                  uid: memberInfo.uid,
+                  sentDate,
+                  email: memberInfo.email,
+                  error: err instanceof Error ? err.message : String(err),
+                  retryAction: "contract-reminder",
+                },
+              });
             });
-          });
         }
 
         results.push({ id: contract.id, name: memberName, success: true });
