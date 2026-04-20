@@ -52,6 +52,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Pencil, Trash2, ChevronsUpDown, Check, AlertCircle, Eye } from "lucide-react";
 import { toast } from "sonner";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
@@ -978,16 +979,7 @@ export function ContactHistoryModalBase({
     }
   };
 
-  // ブラウザ離脱時（リロード、タブ閉じ等）に警告
-  useEffect(() => {
-    if (!isDirty) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
+  useNavigationGuard(isDirty);
 
   const content = (
     <>

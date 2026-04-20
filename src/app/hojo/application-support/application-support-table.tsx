@@ -10,7 +10,8 @@ import {
   resolveVendorMismatch,
 } from "./actions";
 import { StatusManagementModal } from "./status-management-modal";
-import { ExternalLink, Copy, Check, Settings, Plus, Trash2, AlertTriangle, Eye } from "lucide-react";
+import { ExternalLink, Copy, Check, Settings, Plus, Trash2, AlertTriangle, Eye, FolderOpen, Loader2 } from "lucide-react";
+import { RPA_DOC_LABELS, type RpaDocKey } from "@/lib/hojo/rpa-document-config";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -28,18 +29,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-
-type FormSubmissionData = {
-  id: number;
-  submittedAt: string;
-  answers: Record<string, unknown>;
-};
+import { FormAnswerEditModal, type FormSubmissionDataForModal } from "./form-answer-edit-modal";
+import { DocumentStorageModal, type DocumentInfo } from "./document-storage-modal";
 
 type DataRow = Record<string, unknown> & {
   id: number;
   lineFriendId: number;
   lineFriendUid: string;
   lineName: string;
+  applicantName: string;
   vendorName: string;
   vendorId: string;
   vendorIdManual: boolean;
@@ -48,7 +46,13 @@ type DataRow = Record<string, unknown> & {
   hasMismatch: boolean;
   mismatchResolvedVendorName: string | null;
   mismatchResolvedVendorId: number | null;
-  formSubmission: FormSubmissionData | null;
+  formSubmission: FormSubmissionDataForModal | null;
+  documents: DocumentInfo[];
+  subsidyAmount: number | null;
+  formTranscriptDate: string | null;
+  existingDocTypes: { trainingReport: boolean; supportApplication: boolean; businessPlan: boolean };
+  pdfGenerationRunningDocType: string | null;
+  pdfGenerationRunningAt: string | null;
 };
 
 type Props = {
@@ -58,7 +62,16 @@ type Props = {
   allStatusOptions: { value: string; label: string }[];
   bbsStatusOptions: { value: string; label: string }[];
   allBbsStatusOptions: { value: string; label: string }[];
+  canEditAnswers?: boolean;
 };
+
+// docType 文字列（DB値）を RpaDocKey に変換
+function docTypeToKey(docType: string | null): RpaDocKey | null {
+  if (docType === "training_report") return "trainingReport";
+  if (docType === "support_application") return "supportApplication";
+  if (docType === "business_plan") return "businessPlan";
+  return null;
+}
 
 function BbsUrlButton() {
   const [copied, setCopied] = useState(false);
@@ -87,47 +100,6 @@ function BbsUrlButton() {
   );
 }
 
-// --- 回答データ表示用のセクション定義 ---
-const ANSWER_SECTIONS = [
-  { title: "基本情報", path: "basic", fields: [
-    ["tradeName", "屋号"], ["openingDate", "開業年月日"], ["fullName", "氏名"],
-    ["officeAddress", "事業所所在地"], ["phone", "電話番号"], ["email", "メールアドレス"],
-    ["employeeCount", "従業員数"], ["homepageUrl", "ホームページURL"],
-  ]},
-  { title: "口座情報", path: "bankAccount", fields: [
-    ["bankType", "金融機関"], ["yuchoSymbol", "記号"], ["yuchoPassbookNumber", "通帳番号"],
-    ["yuchoAccountHolder", "口座名義人"], ["yuchoAccountHolderKana", "フリガナ"],
-    ["otherBankName", "金融機関名"], ["otherBankCode", "金融機関コード"],
-    ["otherBranchName", "支店名"], ["otherBranchCode", "支店コード"],
-    ["otherAccountType", "口座種別"], ["otherAccountNumber", "口座番号"],
-    ["otherAccountHolder", "口座名義人"], ["otherAccountHolderKana", "フリガナ"],
-  ]},
-  { title: "事業概要", path: "businessOverview", fields: [
-    ["businessContent", "事業内容"], ["mainProductService", "主力商品・サービス"],
-    ["businessStrength", "特徴・強み"], ["openingBackground", "開業の経緯"],
-    ["businessScale", "事業規模"],
-  ]},
-  { title: "市場・競合情報", path: "marketCompetition", fields: [
-    ["targetMarket", "ターゲット市場"], ["targetCustomerProfile", "ターゲット顧客層"],
-    ["competitors", "競合"], ["strengthsAndChallenges", "強みと課題"],
-  ]},
-  { title: "支援制度申請関連", path: "supportApplication", fields: [
-    ["supportPurpose", "目的"], ["supportGoal", "実現したいこと"],
-    ["investmentPlan", "具体的計画"], ["expectedOutcome", "期待される成果"],
-  ]},
-  { title: "事業体制とご経歴", path: "businessStructure", fields: [
-    ["ownerCareer", "経歴・スキル"], ["staffRoles", "スタッフの役割"],
-    ["futureHiring", "必要な人材"],
-  ]},
-  { title: "事業計画", path: "businessPlan", fields: [
-    ["shortTermGoal", "短期目標(1年)"], ["midTermGoal", "中期目標(3年)"],
-    ["longTermGoal", "長期目標(5年)"], ["salesStrategy", "販売戦略・PR計画"],
-  ]},
-  { title: "財務情報", path: "financial", fields: [
-    ["futureInvestmentPlan", "投資計画と必要資金"], ["debtInfo", "借入状況"],
-  ]},
-];
-
 // --- フォームURLコピーボタン ---
 function FormUrlCopyBtn({ uid }: { uid: string }) {
   const [copied, setCopied] = useState(false);
@@ -147,48 +119,6 @@ function FormUrlCopyBtn({ uid }: { uid: string }) {
   );
 }
 
-// --- 回答データモーダル ---
-function FormAnswerModal({ data, open, onClose }: { data: FormSubmissionData; open: boolean; onClose: () => void }) {
-  const answers = data.answers;
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>フォーム回答データ</DialogTitle>
-          <DialogDescription>
-            回答日時: {new Date(data.submittedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-6 mt-2">
-          {ANSWER_SECTIONS.map((section) => {
-            const sectionData = answers[section.path] as Record<string, string> | undefined;
-            if (!sectionData) return null;
-            const hasValue = section.fields.some(([key]) => sectionData[key]);
-            if (!hasValue) return null;
-            return (
-              <div key={section.path}>
-                <h3 className="text-sm font-bold text-gray-900 border-b pb-1 mb-3">{section.title}</h3>
-                <dl className="space-y-2">
-                  {section.fields.map(([key, label]) => {
-                    const v = sectionData[key];
-                    if (!v) return null;
-                    return (
-                      <div key={key}>
-                        <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-                        <dd className="text-sm whitespace-pre-wrap bg-gray-50 rounded p-2 mt-0.5">{v}</dd>
-                      </div>
-                    );
-                  })}
-                </dl>
-              </div>
-            );
-          })}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export function ApplicationSupportTable({
   data,
   vendorOptions,
@@ -196,12 +126,22 @@ export function ApplicationSupportTable({
   allStatusOptions,
   bbsStatusOptions,
   allBbsStatusOptions,
+  canEditAnswers,
 }: Props) {
   const router = useRouter();
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [bbsStatusModalOpen, setBbsStatusModalOpen] = useState(false);
   const [mismatchDialog, setMismatchDialog] = useState<DataRow | null>(null);
-  const [viewSubmission, setViewSubmission] = useState<FormSubmissionData | null>(null);
+  const [viewSubmission, setViewSubmission] = useState<{
+    data: FormSubmissionDataForModal;
+    applicationSupportId: number;
+  } | null>(null);
+  const [documentRowId, setDocumentRowId] = useState<number | null>(null);
+  // 再生成などで documents が更新されたとき、モーダルに最新の行を渡すため毎レンダリング参照し直す
+  const documentRow =
+    documentRowId != null
+      ? (data as DataRow[]).find((r) => r.id === documentRowId) ?? null
+      : null;
 
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
@@ -279,14 +219,25 @@ export function ApplicationSupportTable({
     },
     {
       key: "formUrl",
-      header: "フォームURL",
+      header: "情報回収フォームURL",
       editable: false,
     },
     {
       key: "formAnswerDate",
-      header: "フォーム回答日",
+      header: "情報回収フォーム回答日",
       type: "date",
       inlineEditable: true,
+    },
+    {
+      key: "formTranscriptDate",
+      header: "フォーム内容確定日",
+      type: "date",
+      inlineEditable: true,
+    },
+    {
+      key: "documentStorageUrl",
+      header: "資料保管",
+      editable: false,
     },
     {
       key: "formAnswerData",
@@ -294,22 +245,9 @@ export function ApplicationSupportTable({
       editable: false,
     },
     {
-      key: "formTranscriptDate",
-      header: "フォーム転記日",
-      type: "date",
-      inlineEditable: true,
-    },
-    {
       key: "applicationFormDate",
-      header: "申請フォーム入力",
-      type: "date",
-      inlineEditable: true,
-    },
-    {
-      key: "documentStorageUrl",
-      header: "資料保管",
-      type: "text",
-      inlineEditable: true,
+      header: "支援制度申請フォーム回答日",
+      editable: false,
     },
     {
       key: "subsidyDesiredDate",
@@ -461,12 +399,22 @@ export function ApplicationSupportTable({
     formAnswerData: (_value, row) => {
       const r = row as unknown as DataRow;
       if (!r.formSubmission) return <span className="text-gray-400">-</span>;
+      const sub = r.formSubmission;
+      const isConfirmed = !!sub.confirmedAt;
       return (
         <button
-          onClick={(e) => { e.stopPropagation(); setViewSubmission(r.formSubmission); }}
-          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
+          onClick={(e) => {
+            e.stopPropagation();
+            setViewSubmission({ data: sub, applicationSupportId: r.id });
+          }}
+          className={`inline-flex items-center gap-1 text-xs whitespace-nowrap ${
+            isConfirmed
+              ? "text-green-700 hover:text-green-900"
+              : "text-blue-600 hover:text-blue-800"
+          }`}
         >
-          <Eye className="h-3 w-3" />回答を見る
+          <Eye className="h-3 w-3" />
+          {isConfirmed ? "確定済・編集" : "回答を編集"}
         </button>
       );
     },
@@ -474,20 +422,56 @@ export function ApplicationSupportTable({
       const r = row as unknown as DataRow;
       return <FormUrlCopyBtn uid={r.lineFriendUid} />;
     },
-    documentStorageUrl: (value) => {
-      if (!value) return "-";
-      const url = String(value);
+    documentStorageUrl: (value, row) => {
+      const r = row as unknown as DataRow;
+      const url = value ? String(value) : "";
+      const hasDocuments = r.documents.length > 0;
+      const runningKey = docTypeToKey(r.pdfGenerationRunningDocType);
+      const runningLabel = runningKey ? RPA_DOC_LABELS[runningKey] : null;
       return (
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-blue-600 hover:underline"
-          onClick={(e) => e.stopPropagation()}
-        >
-          リンク
-          <ExternalLink className="h-3 w-3" />
-        </a>
+        <div className="flex items-center gap-2 whitespace-nowrap">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setDocumentRowId(r.id);
+            }}
+            className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
+          >
+            <FolderOpen className="h-3 w-3" />
+            資料保管
+            {hasDocuments && (
+              <span className="ml-0.5 text-[10px] bg-blue-100 text-blue-800 px-1 rounded">
+                {r.documents.length}
+              </span>
+            )}
+          </button>
+          {runningLabel && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-700 bg-amber-50 px-1 py-0.5 rounded">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    生成中
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{runningLabel}を生成中です</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
+              onClick={(e) => e.stopPropagation()}
+            >
+              外部URL
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
       );
     },
     _actions: (_value, row) => {
@@ -685,11 +669,37 @@ export function ApplicationSupportTable({
         type="bbs"
       />
 
-      {viewSubmission && (
-        <FormAnswerModal
-          data={viewSubmission}
-          open={true}
-          onClose={() => setViewSubmission(null)}
+      {viewSubmission && (() => {
+        const row = (data as DataRow[]).find((r) => r.id === viewSubmission.applicationSupportId);
+        return (
+          <FormAnswerEditModal
+            data={viewSubmission.data}
+            thisApplicationSupportId={viewSubmission.applicationSupportId}
+            canEdit={!!canEditAnswers}
+            open={true}
+            onClose={() => setViewSubmission(null)}
+            subsidyAmount={row?.subsidyAmount ?? null}
+            existingDocTypes={
+              row?.existingDocTypes ?? {
+                trainingReport: false,
+                supportApplication: false,
+                businessPlan: false,
+              }
+            }
+          />
+        );
+      })()}
+
+      {documentRow && (
+        <DocumentStorageModal
+          open
+          onClose={() => setDocumentRowId(null)}
+          applicationSupportId={documentRow.id}
+          applicantName={documentRow.applicantName || documentRow.lineName}
+          documents={documentRow.documents}
+          currentSharedDate={documentRow.formTranscriptDate}
+          runningDocType={documentRow.pdfGenerationRunningDocType}
+          runningStartedAt={documentRow.pdfGenerationRunningAt}
         />
       )}
     </>

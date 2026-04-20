@@ -3,6 +3,10 @@ import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-p
 import { VendorDetailTabs } from "./vendor-detail-tabs";
 import { notFound } from "next/navigation";
 import { formatLineFriendLabel } from "@/lib/hojo/format-line-friend-label";
+import {
+  loadHojoContactHistoryMasters,
+  loadContactHistoriesForVendor,
+} from "@/app/hojo/contact-histories/loaders";
 
 export default async function VendorDetailPage({
   params,
@@ -100,6 +104,13 @@ export default async function VendorDetailPage({
         select: { id: true, name: true },
       })
     : [];
+
+  // Load contact history masters and data
+  const contactMasters = await loadHojoContactHistoryMasters();
+  const contactHistoriesData = (await loadContactHistoriesForVendor(id)) as unknown as Record<
+    string,
+    unknown
+  >[];
 
   // Fetch additional data for tabs
   const [activities, preApplicationRecords, postApplicationRecords, contractsForDropdown] =
@@ -388,6 +399,13 @@ export default async function VendorDetailPage({
       autoDetectedAsLineFriendId={autoDetectedAsLineFriendId}
       scLineFriendsForAs={scLineFriendsForAs}
       accessToken={vendor.accessToken}
+      contactHistoriesData={contactHistoriesData}
+      contactMethodOptions={contactMasters.contactMethodOptions}
+      contactStaffOptions={contactMasters.staffOptions}
+      customerTypes={contactMasters.customerTypes}
+      contactStaffByProject={contactMasters.staffByProject}
+      contactCategories={contactMasters.contactCategories}
+      hojoVendorCustomerTypeId={contactMasters.hojoVendorCustomerTypeId}
     />
   );
 }

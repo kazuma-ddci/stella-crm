@@ -51,6 +51,7 @@ export async function callClaude(params: {
   userMessage: string; // キャッシュ非対象
   maxTokens?: number;
   temperature?: number;
+  timeoutMs?: number;
 }): Promise<{ text: string; raw: ClaudeMessageResponse }> {
   const system: ContentBlock[] = [
     {
@@ -79,7 +80,7 @@ export async function callClaude(params: {
       "content-type": "application/json",
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(params.timeoutMs ?? 120_000),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");

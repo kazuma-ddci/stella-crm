@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -441,13 +442,7 @@ export function OverviewTab({
   const [savedValues, setSavedValues] = useState(currentValues);
   const isDirty = currentValues !== savedValues;
 
-  // ブラウザのタブ閉じ・リロード防止
-  useEffect(() => {
-    if (!isDirty) return;
-    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
+  useNavigationGuard(isDirty);
 
   // リンククリック時の離脱防止
   const guardNavigation = useCallback((e: MouseEvent) => {

@@ -273,8 +273,9 @@ model ContactMethod {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   // Relations
-  contactHistories    ContactHistory[]
-  slpContactHistories SlpContactHistory[]
+  contactHistories     ContactHistory[]
+  slpContactHistories  SlpContactHistory[]
+  hojoContactHistories HojoContactHistory[]
 
   @@map("contact_methods")
 }
@@ -294,9 +295,10 @@ model ContactCategory {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   // Relations
-  project             MasterProject       @relation(fields: [projectId], references: [id])
-  contactHistories    ContactHistory[]
-  slpContactHistories SlpContactHistory[]
+  project              MasterProject        @relation(fields: [projectId], references: [id])
+  contactHistories     ContactHistory[]
+  slpContactHistories  SlpContactHistory[]
+  hojoContactHistories HojoContactHistory[]
 
   @@unique([projectId, name])
   @@index([projectId], map: "idx_contact_categories_project_id")
@@ -689,9 +691,10 @@ model CustomerType {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   // Relations
-  project               MasterProject          @relation(fields: [projectId], references: [id])
-  roles                 ContactHistoryRole[]
-  slpContactHistoryTags SlpContactHistoryTag[]
+  project                MasterProject           @relation(fields: [projectId], references: [id])
+  roles                  ContactHistoryRole[]
+  slpContactHistoryTags  SlpContactHistoryTag[]
+  hojoContactHistoryTags HojoContactHistoryTag[] @relation("HojoContactHistoryTagCustomerType")
 
   @@unique([projectId, name])
   @@unique([projectId, code])
@@ -775,6 +778,7 @@ model MasterStaff {
   adminAgents                StpAgent[]               @relation("AdminStaffAgents")
   contactHistories           ContactHistory[]
   slpContactHistories        SlpContactHistory[]
+  hojoContactHistories       HojoContactHistory[]     @relation("HojoContactHistoryStaff")
   approvedExternalUsers      ExternalUser[]
   issuedRegistrationTokens   RegistrationToken[]
   processedLeadSubmissions   StpLeadFormSubmission[]
@@ -888,6 +892,9 @@ model MasterStaff {
   disconnectedMeetingIntegrations    StaffMeetingIntegration[] @relation("StaffMeetingIntegrationsDisconnectedBy")
   slpZoomRecordingsHosted            SlpZoomRecording[]        @relation("SlpZoomRecordingHost")
   slpZoomAiPromptTemplatesUpdated    SlpZoomAiPromptTemplate[] @relation("SlpZoomAiPromptTemplateUpdater")
+  hojoZoomRecordingsHosted           HojoZoomRecording[]       @relation("HojoZoomRecordingHost")
+  hojoBusinessPlanPromptsUpdated     HojoBusinessPlanPrompt[]  @relation("HojoBusinessPlanPromptUpdater")
+  hojoDailyApiCostOverrides          HojoDailyApiCostOverride[]
 
   // SLP 商談セッション関連
   slpSessionAssigned              SlpMeetingSession[]        @relation("SlpSessionAssignedStaff")
@@ -4641,26 +4648,32 @@ model SlpCompanyStatus2Master {
 // ============================================
 
 model HojoFormSubmission {
-  id              Int       @id @default(autoincrement())
-  formType        String    @db.VarChar(100) // フォーム種別（例: "digital-promotion"）
-  companyName     String?   @db.VarChar(255) // 会社名／屋号
-  representName   String?   @db.VarChar(255) // 代表者氏名
-  email           String?   @db.VarChar(255) // メールアドレス
-  phone           String?   @db.VarChar(50) // 電話番号
-  answers         Json // 元の回答データ（JSON・不変）
-  modifiedAnswers Json? // 変更後の回答データ（JSON・編集時のみ）
-  changeHistory   Json? // 変更履歴（JSON配列: [{changedAt, changedBy, changes: [{field, oldValue, newValue}]}]）
-  fileUrls        Json? // アップロードファイルURL群（JSON配列）
-  vendorMemo      String?   @map("vendor_memo") @db.Text // ベンダー備考
-  lenderMemo      String?   @map("lender_memo") @db.Text // 貸金業社備考
-  staffMemo       String?   @map("staff_memo") @db.Text // 弊社備考
-  submittedAt     DateTime  @default(now())
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  deletedAt       DateTime?
+  id                         Int       @id @default(autoincrement())
+  formType                   String    @db.VarChar(100) // フォーム種別（例: "digital-promotion"）
+  companyName                String?   @db.VarChar(255) // 会社名／屋号
+  representName              String?   @db.VarChar(255) // 代表者氏名
+  email                      String?   @db.VarChar(255) // メールアドレス
+  phone                      String?   @db.VarChar(50) // 電話番号
+  answers                    Json // 元の回答データ（JSON・不変）
+  modifiedAnswers            Json? // 変更後の回答データ（JSON・編集時のみ）
+  changeHistory              Json? // 変更履歴（JSON配列: [{changedAt, changedBy, changes: [{field, oldValue, newValue}]}]）
+  fileUrls                   Json? // アップロードファイルURL群（JSON配列）
+  vendorMemo                 String?   @map("vendor_memo") @db.Text // ベンダー備考
+  lenderMemo                 String?   @map("lender_memo") @db.Text // 貸金業社備考
+  staffMemo                  String?   @map("staff_memo") @db.Text // 弊社備考
+  linkedApplicationSupportId Int?      @map("linked_application_support_id") // 確定紐付け先の申請者レコードID
+  linkedAt                   DateTime? @map("linked_at") // 紐付け日時
+  confirmedAt                DateTime? @map("confirmed_at") // 確定日時（スタッフが「確定」ボタンを押した日時）
+  rpaRunningAt               DateTime? @map("rpa_running_at") // RPA実行中の排他フラグ。10分以上前のものは stale として無視して再実行可
+  submittedAt                DateTime  @default(now())
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+  deletedAt                  DateTime?
 
-  loanProgress HojoLoanProgress?
+  loanProgress             HojoLoanProgress?
+  linkedApplicationSupport HojoApplicationSupport? @relation("FormSubmissionLink", fields: [linkedApplicationSupportId], references: [id], onDelete: SetNull)
 
+  @@index([linkedApplicationSupportId])
   @@map("hojo_form_submissions")
 }
 
@@ -4966,6 +4979,7 @@ model HojoVendor {
   grantCustomerPreApps              HojoGrantCustomerPreApplication[]
   grantCustomerPostApps             HojoGrantCustomerPostApplication[]
   loanProgresses                    HojoLoanProgress[]
+  contactHistories                  HojoContactHistory[]               @relation("HojoContactHistoryVendor")
 
   @@map("hojo_vendors")
 }
@@ -5053,17 +5067,69 @@ model HojoApplicationSupport {
   bbsStatus             String?   @map("bbs_status") @db.VarChar(50) // BBSステータス（旧・文字列）
   bbsStatusId           Int?      @map("bbs_status_id") // BBSステータス（新・FK）
   vendorMemo            String?   @map("vendor_memo") @db.Text // ベンダー備考
+  pdfGenerationRunningAt     DateTime? @map("pdf_generation_running_at") // 資料PDF生成中の排他フラグ。10分以上前は stale として無視
+  pdfGenerationRunningDocType String?  @map("pdf_generation_running_doc_type") @db.VarChar(50) // 現在生成中の資料種別（training_report / support_application / business_plan）
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
   deletedAt             DateTime?
 
-  lineFriend           HojoLineFriendJoseiSupport        @relation(fields: [lineFriendId], references: [id], onDelete: Cascade)
-  vendor               HojoVendor?                       @relation(fields: [vendorId], references: [id], onDelete: SetNull)
-  status               HojoApplicationStatus?            @relation(fields: [statusId], references: [id], onDelete: SetNull)
-  bbsStatusRef         HojoBbsStatus?                    @relation(fields: [bbsStatusId], references: [id], onDelete: SetNull)
-  grantCustomerPreApps HojoGrantCustomerPreApplication[]
+  lineFriend            HojoLineFriendJoseiSupport        @relation(fields: [lineFriendId], references: [id], onDelete: Cascade)
+  vendor                HojoVendor?                       @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  status                HojoApplicationStatus?            @relation(fields: [statusId], references: [id], onDelete: SetNull)
+  bbsStatusRef          HojoBbsStatus?                    @relation(fields: [bbsStatusId], references: [id], onDelete: SetNull)
+  grantCustomerPreApps  HojoGrantCustomerPreApplication[]
+  linkedFormSubmissions HojoFormSubmission[]              @relation("FormSubmissionLink")
+  documents             HojoApplicationSupportDocument[]
 
   @@map("hojo_application_supports")
+}
+
+// API費用日次上限の解除記録。1日1行のみ作成される（date ユニーク）。
+// 管理者が「制限解除」ボタンを押すと当日分のレコードが作成され、
+// その日は上限チェックがスキップされる。翌日 (JST 0時) 以降は再び上限有効。
+model HojoDailyApiCostOverride {
+  id                  Int      @id @default(autoincrement())
+  date                DateTime @db.Date // JST日付（UTCでの0時起算、ユニーク）
+  overriddenAt        DateTime @default(now()) @map("overridden_at")
+  overriddenByStaffId Int?     @map("overridden_by_staff_id")
+  reason              String?  @db.Text
+
+  overriddenByStaff MasterStaff? @relation(fields: [overriddenByStaffId], references: [id], onDelete: SetNull)
+
+  @@unique([date])
+  @@map("hojo_daily_api_cost_overrides")
+}
+
+model HojoApplicationSupportDocument {
+  id                   Int      @id @default(autoincrement())
+  applicationSupportId Int      @map("application_support_id")
+  docType              String   @map("doc_type") @db.VarChar(50)
+  filePath             String   @map("file_path") @db.VarChar(500)
+  fileName             String   @map("file_name") @db.VarChar(255)
+  generatedAt          DateTime @default(now()) @map("generated_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  // AI生成系（docType = "business_plan" のみで使用。他 docType では NULL）
+  generatedSections   Json?    @map("generated_sections")
+  editedSections      Json?    @map("edited_sections")
+  modelName           String?  @map("model_name") @db.VarChar(50)
+  inputTokens         Int?     @map("input_tokens")
+  outputTokens        Int?     @map("output_tokens")
+  cacheReadTokens     Int?     @map("cache_read_tokens")
+  cacheCreationTokens Int?     @map("cache_creation_tokens")
+  costUsd             Decimal? @map("cost_usd") @db.Decimal(10, 6)
+
+  // 再生成直前の編集内容＆PDFファイルのバックアップ（1世代のみ保持）
+  previousEditedSections Json?    @map("previous_edited_sections")
+  previousFilePath       String?  @map("previous_file_path") @db.VarChar(500)
+  previousFileName       String?  @map("previous_file_name") @db.VarChar(255)
+
+  applicationSupport HojoApplicationSupport @relation(fields: [applicationSupportId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationSupportId, docType])
+  @@index([applicationSupportId])
+  @@map("hojo_application_support_documents")
 }
 
 // ============================================
@@ -6494,4 +6560,169 @@ model SlpNotificationTemplate {
   @@unique([recipient, category, roundType, source, trigger])
   @@index([recipient, category])
   @@map("slp_notification_templates")
+}
+
+// ============================================
+// HOJO 接触履歴 (Hojo Contact Histories)
+// 顧客種別: ベンダー / BBS / 貸金業社 / その他
+// targetType で相手種別を識別し、各FKに紐付ける（otherは全てnull）
+// ============================================
+model HojoContactHistory {
+  id                   Int      @id @default(autoincrement())
+  contactDate          DateTime @map("contact_date")
+  contactMethodId      Int?     @map("contact_method_id")
+  contactCategoryId    Int?     @map("contact_category_id")
+  assignedTo           String?  @map("assigned_to") @db.VarChar(500) // スタッフIDカンマ区切り
+  customerParticipants String?  @map("customer_participants") @db.VarChar(500)
+  meetingMinutes       String?  @map("meeting_minutes") @db.Text
+  note                 String?  @db.Text
+  staffId              Int?     @map("staff_id") // 作成スタッフ
+
+  // ターゲット識別: "vendor" | "bbs" | "lender" | "other"
+  // ベンダーのみ FK で紐付け、BBS/貸金業社/その他は顧客種別タグで分類
+  targetType String @map("target_type") @db.VarChar(20)
+  vendorId   Int?   @map("vendor_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  contactMethod   ContactMethod?   @relation(fields: [contactMethodId], references: [id])
+  contactCategory ContactCategory? @relation(fields: [contactCategoryId], references: [id])
+  staff           MasterStaff?     @relation("HojoContactHistoryStaff", fields: [staffId], references: [id])
+  vendor          HojoVendor?      @relation("HojoContactHistoryVendor", fields: [vendorId], references: [id], onDelete: SetNull)
+
+  tags           HojoContactHistoryTag[]
+  files          HojoContactHistoryFile[]
+  zoomRecordings HojoZoomRecording[]
+
+  @@index([targetType, deletedAt])
+  @@index([vendorId, deletedAt])
+  @@index([contactDate])
+  @@index([contactMethodId])
+  @@index([contactCategoryId])
+  @@index([staffId])
+  @@map("hojo_contact_histories")
+}
+
+// ============================================
+// HOJO 接触履歴 - 顧客種別タグ (中間テーブル)
+// ============================================
+model HojoContactHistoryTag {
+  contactHistoryId Int      @map("contact_history_id")
+  customerTypeId   Int      @map("customer_type_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  contactHistory HojoContactHistory @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
+  customerType   CustomerType       @relation("HojoContactHistoryTagCustomerType", fields: [customerTypeId], references: [id])
+
+  @@id([contactHistoryId, customerTypeId])
+  @@index([customerTypeId])
+  @@map("hojo_contact_history_tags")
+}
+
+// ============================================
+// HOJO 接触履歴 - 添付ファイル
+// ============================================
+model HojoContactHistoryFile {
+  id               Int      @id @default(autoincrement())
+  contactHistoryId Int      @map("contact_history_id")
+  filePath         String?  @map("file_path") @db.VarChar(500) // ローカル保存パス
+  fileName         String   @map("file_name") @db.VarChar(200)
+  fileSize         Int?     @map("file_size")
+  mimeType         String?  @map("mime_type") @db.VarChar(100)
+  url              String?  @db.VarChar(1000) // 外部URL（Google Drive等）
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  contactHistory HojoContactHistory @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
+
+  @@index([contactHistoryId])
+  @@map("hojo_contact_history_files")
+}
+
+// ============================================
+// HOJO Zoom 録画・議事録
+// SLP側のSlpZoomRecording構造を踏襲。category/通知フラグは廃止。
+// ============================================
+model HojoZoomRecording {
+  id                          Int       @id @default(autoincrement())
+  contactHistoryId            Int       @map("contact_history_id")
+  zoomMeetingId               BigInt    @unique @map("zoom_meeting_id")
+  zoomMeetingUuid             String?   @map("zoom_meeting_uuid") @db.VarChar(200)
+  hostStaffId                 Int?      @map("host_staff_id")
+
+  // Zoom URL情報
+  joinUrl                     String    @default("") @map("join_url") @db.VarChar(1000)
+  startUrl                    String?   @map("start_url") @db.VarChar(2000)
+  password                    String?   @db.VarChar(100)
+  scheduledAt                 DateTime? @map("scheduled_at")
+  isPrimary                   Boolean   @default(true) @map("is_primary")
+  label                       String?   @db.VarChar(100)
+
+  state                       String    @default("予定") @db.VarChar(20) // "予定" | "取得中" | "完了" | "失敗"
+
+  // Zoom API発行エラー
+  zoomApiError                String?   @map("zoom_api_error") @db.Text
+  zoomApiErrorAt              DateTime? @map("zoom_api_error_at")
+
+  // 録画・議事録データ
+  recordingStartAt            DateTime? @map("recording_start_at")
+  recordingEndAt              DateTime? @map("recording_end_at")
+  mp4Path                     String?   @map("mp4_path") @db.VarChar(1000)
+  mp4SizeBytes                BigInt?   @map("mp4_size_bytes")
+  transcriptPath              String?   @map("transcript_path") @db.VarChar(1000)
+  transcriptText              String?   @map("transcript_text") @db.Text
+  aiCompanionSummary          String?   @map("ai_companion_summary") @db.Text
+  aiCompanionFetchedAt        DateTime? @map("ai_companion_fetched_at")
+  summaryNextSteps            String?   @map("summary_next_steps") @db.Text
+  chatLogPath                 String?   @map("chat_log_path") @db.VarChar(1000)
+  chatLogText                 String?   @map("chat_log_text") @db.Text
+  chatFetchedAt               DateTime? @map("chat_fetched_at")
+  participantsJson            String?   @map("participants_json") @db.Text
+  participantsFetchedAt       DateTime? @map("participants_fetched_at")
+  claudeSummary               String?   @map("claude_summary") @db.Text
+  claudeSummaryGeneratedAt    DateTime? @map("claude_summary_generated_at")
+  claudeSummaryPromptSnapshot String?   @map("claude_summary_prompt_snapshot") @db.Text
+  claudeSummaryModel          String?   @map("claude_summary_model") @db.VarChar(80)
+  participantsExtracted       String?   @map("participants_extracted") @db.Text
+  downloadStatus              String    @default("pending") @map("download_status") @db.VarChar(30)
+  downloadError               String?   @map("download_error") @db.Text
+  zoomCloudDeletedAt          DateTime? @map("zoom_cloud_deleted_at")
+
+  // 議事録追記済みフラグ（二重追記防止）
+  minutesAppendedAt           DateTime? @map("minutes_appended_at")
+  claudeMinutesAppendedAt     DateTime? @map("claude_minutes_appended_at")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  contactHistory HojoContactHistory @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
+  hostStaff      MasterStaff?       @relation("HojoZoomRecordingHost", fields: [hostStaffId], references: [id])
+
+  @@index([contactHistoryId])
+  @@index([state])
+  @@index([downloadStatus])
+  @@index([createdAt])
+  @@map("hojo_zoom_recordings")
+}
+
+// ============================================
+// HOJO 事業計画書生成プロンプト
+// Claude に渡すSystemプロンプトをスタッフが編集できるようDB化
+// {{sectionSpec}} / {{totalChars}} プレースホルダーをコード側で置換
+// 単一レコード（id=1）運用
+// ============================================
+model HojoBusinessPlanPrompt {
+  id               Int      @id @default(autoincrement())
+  promptBody       String   @map("prompt_body") @db.Text
+  model            String   @default("claude-sonnet-4-6") @db.VarChar(80)
+  maxTokens        Int      @default(32000) @map("max_tokens")
+  updatedByStaffId Int?     @map("updated_by_staff_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  updatedBy MasterStaff? @relation("HojoBusinessPlanPromptUpdater", fields: [updatedByStaffId], references: [id])
+
+  @@map("hojo_business_plan_prompts")
 }

@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 import {
   Dialog,
   DialogContent,
@@ -394,14 +395,7 @@ export function CompanyDetail({
   const isDirty = currentValues !== savedValues;
 
   // ブラウザを閉じる/リロード時の警告
-  useEffect(() => {
-    if (!isDirty) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
+  useNavigationGuard(isDirty);
 
   // <a>クリックによる遷移をインターセプト（Next.js Link 含む）
   const guardNavigation = useCallback(

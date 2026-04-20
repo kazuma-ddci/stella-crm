@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -203,14 +204,7 @@ export function AgencyDetail({
   const [savedValues, setSavedValues] = useState(currentValues);
   const isDirty = currentValues !== savedValues;
 
-  useEffect(() => {
-    if (!isDirty) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
+  useNavigationGuard(isDirty);
 
   const guardNavigation = useCallback(
     (e: MouseEvent) => {

@@ -1,0 +1,149 @@
+import type { Prisma } from "@prisma/client";
+
+export type HojoContactTargetType = "vendor" | "bbs" | "lender" | "other";
+
+/**
+ * 接触履歴取得用のincludeオブジェクト（表示・レスポンス整形で共通利用）
+ */
+export const contactHistoryIncludeForDisplay = {
+  contactMethod: true,
+  contactCategory: true,
+  staff: { select: { id: true, name: true } },
+  vendor: { select: { id: true, name: true } },
+  tags: {
+    include: {
+      customerType: {
+        include: { project: { select: { id: true, code: true, name: true } } },
+      },
+    },
+  },
+  files: true,
+  zoomRecordings: {
+    where: { deletedAt: null },
+    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    select: {
+      id: true,
+      zoomMeetingId: true,
+      state: true,
+      label: true,
+      isPrimary: true,
+      downloadStatus: true,
+      aiCompanionFetchedAt: true,
+      chatFetchedAt: true,
+      participantsFetchedAt: true,
+      aiCompanionSummary: true,
+      mp4Path: true,
+      transcriptText: true,
+      chatLogText: true,
+      participantsJson: true,
+      recordingEndAt: true,
+      scheduledAt: true,
+      createdAt: true,
+    },
+  },
+} satisfies Prisma.HojoContactHistoryInclude;
+
+export type HojoContactHistoryWithRelations = Prisma.HojoContactHistoryGetPayload<{
+  include: typeof contactHistoryIncludeForDisplay;
+}>;
+
+/**
+ * 接触履歴をクライアント表示用の JSON 形式に整形する。
+ */
+export function formatHojoContactHistory(history: HojoContactHistoryWithRelations) {
+  return {
+    id: history.id,
+    contactDate: history.contactDate.toISOString(),
+    contactMethodId: history.contactMethodId,
+    contactMethodName: history.contactMethod?.name ?? null,
+    contactCategoryId: history.contactCategoryId,
+    contactCategoryName: history.contactCategory?.name ?? null,
+    assignedTo: history.assignedTo,
+    customerParticipants: history.customerParticipants,
+    meetingMinutes: history.meetingMinutes,
+    note: history.note,
+    staffId: history.staffId,
+    targetType: history.targetType as HojoContactTargetType,
+    vendorId: history.vendorId,
+    vendorName: history.vendor?.name ?? null,
+    createdAt: history.createdAt.toISOString(),
+    updatedAt: history.updatedAt.toISOString(),
+    customerTypeIds: history.tags.map((t) => t.customerTypeId),
+    customerTypes: history.tags.map((t) => ({
+      id: t.customerType.id,
+      name: t.customerType.name,
+      code: t.customerType.code,
+      projectId: t.customerType.projectId,
+      projectName: t.customerType.project?.name ?? null,
+      projectCode: t.customerType.project?.code ?? null,
+    })),
+    files: history.files.map((f) => ({
+      id: f.id,
+      filePath: f.filePath,
+      fileName: f.fileName,
+      fileSize: f.fileSize,
+      mimeType: f.mimeType,
+      url: f.url,
+    })),
+    // Zoom情報（一覧表示のバッジ/フィルタ用）
+    zoomRecordingCount: history.zoomRecordings.length,
+    hasScheduledZoom: history.zoomRecordings.some((z) => z.state === "予定"),
+    hasFailedZoom: history.zoomRecordings.some((z) => z.state === "失敗"),
+    zoomRecordings: history.zoomRecordings.map((z) => {
+      const GRACE_PERIOD_MS = 6 * 60 * 60 * 1000;
+      const meetingEndReference =
+        z.recordingEndAt ?? z.scheduledAt ?? z.createdAt;
+      const pastGracePeriod =
+        Date.now() - meetingEndReference.getTime() > GRACE_PERIOD_MS;
+
+      const aiSummaryActuallyAttempted = !!z.aiCompanionFetchedAt;
+      const chatActuallyAttempted = !!z.chatFetchedAt;
+      const participantsActuallyAttempted = !!z.participantsFetchedAt;
+      const recordingActuallyAttempted =
+        z.downloadStatus === "completed" ||
+        z.downloadStatus === "no_recording";
+
+      const aiSummaryAttempted = aiSummaryActuallyAttempted || pastGracePeriod;
+      const chatAttempted = chatActuallyAttempted || pastGracePeriod;
+      const participantsAttempted =
+        participantsActuallyAttempted || pastGracePeriod;
+      const recordingAttempted =
+        recordingActuallyAttempted || pastGracePeriod;
+
+      const hasAiSummary = !!z.aiCompanionSummary;
+      const hasMp4 = !!z.mp4Path;
+      const hasTranscript = !!z.transcriptText;
+      const hasChat = !!z.chatLogText;
+      const hasParticipants =
+        !!z.participantsJson && z.participantsJson !== "[]";
+
+      const allFetched =
+        aiSummaryAttempted &&
+        chatAttempted &&
+        participantsAttempted &&
+        recordingAttempted;
+      const actuallyAllFetched =
+        aiSummaryActuallyAttempted &&
+        chatActuallyAttempted &&
+        participantsActuallyAttempted &&
+        recordingActuallyAttempted;
+
+      return {
+        id: z.id,
+        zoomMeetingId: z.zoomMeetingId.toString(),
+        label: z.label,
+        isPrimary: z.isPrimary,
+        state: z.state,
+        downloadStatus: z.downloadStatus,
+        allFetched,
+        actuallyAllFetched,
+        pastGracePeriod,
+        hasAiSummary,
+        hasMp4,
+        hasTranscript,
+        hasChat,
+        hasParticipants,
+      };
+    }),
+  };
+}

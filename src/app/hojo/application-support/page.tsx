@@ -1,8 +1,15 @@
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
 import { ApplicationSupportTable } from "./application-support-table";
 import { syncVendorIdFromFree1, VendorMismatch } from "@/lib/hojo/sync-vendor-id";
+import { canEdit as canEditProject } from "@/lib/auth/permissions";
+import type { UserPermission } from "@/types/auth";
 
 export default async function ApplicationSupportPage() {
+  const session = await auth();
+  const userPermissions = (session?.user?.permissions ?? []) as UserPermission[];
+  const canEditAnswers =
+    session?.user?.userType === "staff" && canEditProject(userPermissions, "hojo");
   // 助成金申請サポートのLINE友達を全件取得
   const [allJoseiFriends, formSubmissions] = await Promise.all([
     prisma.hojoLineFriendJoseiSupport.findMany({
@@ -17,7 +24,18 @@ export default async function ApplicationSupportPage() {
   ]);
 
   // uid → フォーム回答データ（最新のもの）
-  const formSubmissionByUid = new Map<string, { id: number; submittedAt: string; answers: Record<string, unknown> }>();
+  const formSubmissionByUid = new Map<
+    string,
+    {
+      id: number;
+      submittedAt: string;
+      confirmedAt: string | null;
+      linkedApplicationSupportId: number | null;
+      answers: Record<string, unknown>;
+      modifiedAnswers: Record<string, Record<string, string | null>> | null;
+      fileUrls: Record<string, unknown> | null;
+    }
+  >();
   for (const s of formSubmissions) {
     const meta = (s.answers as Record<string, unknown>)?._meta as Record<string, unknown> | undefined;
     const uid = meta?.uid as string | null;
@@ -25,7 +43,12 @@ export default async function ApplicationSupportPage() {
       formSubmissionByUid.set(uid, {
         id: s.id,
         submittedAt: s.submittedAt.toISOString(),
+        confirmedAt: s.confirmedAt?.toISOString() ?? null,
+        linkedApplicationSupportId: s.linkedApplicationSupportId,
         answers: s.answers as Record<string, unknown>,
+        modifiedAnswers:
+          (s.modifiedAnswers as Record<string, Record<string, string | null>> | null) ?? null,
+        fileUrls: (s.fileUrls as Record<string, unknown> | null) ?? null,
       });
     }
   }
@@ -48,7 +71,7 @@ export default async function ApplicationSupportPage() {
   // 既存の申請管理レコードを取得
   let existingRecords = await prisma.hojoApplicationSupport.findMany({
     where: { deletedAt: null },
-    include: { vendor: true, status: true, bbsStatusRef: true },
+    include: { vendor: true, status: true, bbsStatusRef: true, documents: true },
   });
   const existingLineFriendIds = new Set(existingRecords.map((r) => r.lineFriendId));
 
@@ -69,7 +92,7 @@ export default async function ApplicationSupportPage() {
   // 同期後のデータを再取得
   existingRecords = await prisma.hojoApplicationSupport.findMany({
     where: { deletedAt: null },
-    include: { vendor: true, status: true, bbsStatusRef: true },
+    include: { vendor: true, status: true, bbsStatusRef: true, documents: true },
     orderBy: [{ lineFriendId: "asc" }, { id: "asc" }],
   });
 
@@ -187,8 +210,34 @@ export default async function ApplicationSupportPage() {
         formSubmission: submission ? {
           id: submission.id,
           submittedAt: submission.submittedAt,
+          confirmedAt: submission.confirmedAt,
+          linkedApplicationSupportId: submission.linkedApplicationSupportId,
           answers: submission.answers,
+          modifiedAnswers: submission.modifiedAnswers,
+          fileUrls: submission.fileUrls,
         } : null,
+        documents: record.documents.map((d) => ({
+          docType: d.docType,
+          filePath: d.filePath,
+          fileName: d.fileName,
+          generatedAt: d.generatedAt.toISOString(),
+          generatedSections: (d.generatedSections as Record<string, string> | null) ?? null,
+          editedSections: (d.editedSections as Record<string, string> | null) ?? null,
+          modelName: d.modelName,
+          inputTokens: d.inputTokens,
+          outputTokens: d.outputTokens,
+          cacheReadTokens: d.cacheReadTokens,
+          cacheCreationTokens: d.cacheCreationTokens,
+          costUsd: d.costUsd ? d.costUsd.toString() : null,
+          hasPreviousBackup: !!d.previousFilePath,
+        })),
+        existingDocTypes: {
+          trainingReport: record.documents.some((d) => d.docType === "training_report"),
+          supportApplication: record.documents.some((d) => d.docType === "support_application"),
+          businessPlan: record.documents.some((d) => d.docType === "business_plan"),
+        },
+        pdfGenerationRunningDocType: record.pdfGenerationRunningDocType ?? null,
+        pdfGenerationRunningAt: record.pdfGenerationRunningAt?.toISOString() ?? null,
       };
     });
   });
@@ -203,6 +252,7 @@ export default async function ApplicationSupportPage() {
         allStatusOptions={allStatusOptions}
         bbsStatusOptions={bbsStatusOptions}
         allBbsStatusOptions={allBbsStatusOptions}
+        canEditAnswers={canEditAnswers}
       />
     </div>
   );

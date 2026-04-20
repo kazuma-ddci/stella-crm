@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import {
   verifyZoomWebhookSignature,
   generateUrlValidationResponse,
@@ -7,8 +8,32 @@ import {
   processZoomRecordingCompleted,
   processMeetingSummaryCompleted,
 } from "@/lib/slp/zoom-recording-processor";
+import {
+  processHojoZoomRecordingCompleted,
+  processHojoMeetingSummaryCompleted,
+} from "@/lib/hojo/zoom-recording-processor";
 import type { ZoomRecordingPayload } from "@/lib/zoom/recording";
 import { logAutomationError } from "@/lib/automation-error";
+
+/**
+ * meetingId から SLP / HOJO のどちらにヒットするかを判定。
+ * SLPファースト（既存挙動維持）。どちらにもなければ null。
+ */
+async function resolveRecordingScope(
+  meetingId: bigint
+): Promise<"slp" | "hojo" | null> {
+  const slp = await prisma.slpZoomRecording.findUnique({
+    where: { zoomMeetingId: meetingId },
+    select: { id: true },
+  });
+  if (slp) return "slp";
+  const hojo = await prisma.hojoZoomRecording.findUnique({
+    where: { zoomMeetingId: meetingId },
+    select: { id: true },
+  });
+  if (hojo) return "hojo";
+  return null;
+}
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -80,16 +105,27 @@ export async function POST(request: Request) {
           (obj as unknown as { recording_files?: unknown[] }).recording_files as ZoomRecordingPayload["recording_files"] ??
           [],
       };
-      processZoomRecordingCompleted(payload).catch(async (err) => {
-        await logAutomationError({
-          source: "zoom-webhook-recording-completed",
-          message: `録画処理失敗: ${err instanceof Error ? err.message : String(err)}`,
-          detail: {
-            meetingId: String(payload.id),
-            event: body.event,
-          },
+      const meetingIdForPayload =
+        typeof payload.id === "string" ? BigInt(payload.id) : BigInt(payload.id);
+      const scope = await resolveRecordingScope(meetingIdForPayload);
+      if (scope === "slp") {
+        processZoomRecordingCompleted(payload).catch(async (err) => {
+          await logAutomationError({
+            source: "zoom-webhook-recording-completed",
+            message: `SLP録画処理失敗: ${err instanceof Error ? err.message : String(err)}`,
+            detail: { meetingId: String(payload.id), event: body.event },
+          });
         });
-      });
+      } else if (scope === "hojo") {
+        processHojoZoomRecordingCompleted(payload).catch(async (err) => {
+          await logAutomationError({
+            source: "zoom-webhook-recording-completed",
+            message: `HOJO録画処理失敗: ${err instanceof Error ? err.message : String(err)}`,
+            detail: { meetingId: String(payload.id), event: body.event },
+          });
+        });
+      }
+      // scope=null(CRM管理外の会議) → スルー
       return NextResponse.json({ ok: true });
     }
 
@@ -110,15 +146,28 @@ export async function POST(request: Request) {
         typeof meetingIdRaw === "string"
           ? BigInt(meetingIdRaw)
           : BigInt(meetingIdRaw);
-      processMeetingSummaryCompleted({ meetingId, meetingUuid }).catch(
-        async (err) => {
-          await logAutomationError({
-            source: "zoom-webhook-summary-completed",
-            message: `AI要約処理失敗: ${err instanceof Error ? err.message : String(err)}`,
-            detail: { meetingId: meetingId.toString(), meetingUuid },
-          });
-        }
-      );
+      const summaryScope = await resolveRecordingScope(meetingId);
+      if (summaryScope === "slp") {
+        processMeetingSummaryCompleted({ meetingId, meetingUuid }).catch(
+          async (err) => {
+            await logAutomationError({
+              source: "zoom-webhook-summary-completed",
+              message: `SLP AI要約処理失敗: ${err instanceof Error ? err.message : String(err)}`,
+              detail: { meetingId: meetingId.toString(), meetingUuid },
+            });
+          }
+        );
+      } else if (summaryScope === "hojo") {
+        processHojoMeetingSummaryCompleted({ meetingId, meetingUuid }).catch(
+          async (err) => {
+            await logAutomationError({
+              source: "zoom-webhook-summary-completed",
+              message: `HOJO AI要約処理失敗: ${err instanceof Error ? err.message : String(err)}`,
+              detail: { meetingId: meetingId.toString(), meetingUuid },
+            });
+          }
+        );
+      }
       return NextResponse.json({ ok: true });
     }
 

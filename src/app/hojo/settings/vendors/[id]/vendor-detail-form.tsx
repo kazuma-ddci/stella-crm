@@ -57,6 +57,7 @@ import {
 } from "../actions";
 import type { StatusType } from "../vendor-status-management-modal";
 import type { ContractDocumentItem } from "./vendor-detail-tabs";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 
 /** ベンダーメモからフォーム回答のLINE名を抽出する */
 function extractFormLineNames(memo: string): { representative: string | null; contact: string | null } {
@@ -312,12 +313,7 @@ export function VendorDetailForm({
   const [savedValues, setSavedValues] = useState(currentValues);
   const isDirty = currentValues !== savedValues;
 
-  useEffect(() => {
-    if (!isDirty) return;
-    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
+  useNavigationGuard(isDirty);
 
   const guardNavigation = useCallback((e: MouseEvent) => {
     if (!isDirty) return;

@@ -66,7 +66,7 @@ function DialogOverlay({
   )
 }
 
-type DialogSize = "default" | "form" | "mixed" | "datagrid" | "datagrid-cw" | "wide" | "fullwidth" | "cloudsign"
+export type DialogSize = "default" | "form" | "mixed" | "datagrid" | "datagrid-cw" | "wide" | "fullwidth" | "cloudsign"
 
 function DialogContent({
   className,

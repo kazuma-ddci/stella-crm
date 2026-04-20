@@ -340,6 +340,7 @@ const navigation: NavItem[] = [
           { name: "申請者管理", href: "/hojo/application-support", icon: ClipboardList },
           { name: "概要案内フェーズ", href: "/hojo/grant-customers/pre-application", icon: ClipboardList },
           { name: "交付申請フェーズ", href: "/hojo/grant-customers/post-application", icon: FileCheck },
+          { name: "BBS接触履歴", href: "/hojo/contact-histories/bbs", icon: History },
         ],
       },
       {
@@ -349,6 +350,7 @@ const navigation: NavItem[] = [
         children: [
           { name: "借入申込フォーム回答", href: "/hojo/loan-submissions", icon: ClipboardList },
           { name: "顧客進捗状況", href: "/hojo/loan-progress", icon: ListChecks },
+          { name: "貸金業社接触履歴", href: "/hojo/contact-histories/lender", icon: History },
         ],
       },
       {
@@ -370,6 +372,15 @@ const navigation: NavItem[] = [
       },
       { name: "経費申請", href: "/hojo/expenses/new", icon: Plus },
       {
+        name: "活動記録",
+        icon: Phone,
+        sectionLabel: true,
+        children: [
+          { name: "接触履歴", href: "/hojo/records/contact-histories", icon: History },
+          { name: "Zoom商談録画", href: "/hojo/records/zoom-recordings", icon: Video },
+        ],
+      },
+      {
         name: "管理",
         icon: Settings,
         sectionLabel: true,
@@ -385,6 +396,8 @@ const navigation: NavItem[] = [
         children: [
           { name: "他社アカウント管理", href: "/hojo/settings/partner-accounts", icon: UserCog },
           { name: "プロライン情報", href: "/hojo/settings/proline", icon: UserCog },
+          { name: "接触種別", href: "/settings/contact-categories?project=hojo", icon: Tag },
+          { name: "AIプロンプト", href: "/hojo/settings/prompts", icon: Sparkles },
           { name: "Telegram通知設定", href: "/hojo/settings/telegram-notifications", icon: Bell },
         ],
       },

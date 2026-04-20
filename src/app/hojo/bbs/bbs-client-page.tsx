@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { signIn, signOut } from "next-auth/react";
+import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,29 +9,45 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { InlineCell } from "@/components/inline-cell";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Pencil } from "lucide-react";
-import { recordPasswordResetRequest, updateBbsFields } from "./actions";
+import { recordPasswordResetRequest, updateBbsFields, type BbsEditableFields } from "./actions";
 import Link from "next/link";
 import {
-  PortalHeader,
-  PortalUserMenu,
-  PortalSimpleLayout,
   PortalLoginWrapper,
   PortalCard,
 } from "@/components/alkes-portal";
+import { BbsPortalLayout } from "@/components/hojo/bbs-portal-layout";
+import type { ModifiedAnswers, FileInfo } from "@/components/hojo/form-answer-editor";
+import { FormAnswerViewerModal } from "@/components/hojo/form-answer-viewer-modal";
+
+type SubmissionSummary = {
+  id: number;
+  answers: Record<string, unknown>;
+  modifiedAnswers: ModifiedAnswers | null;
+  fileUrls: Record<string, FileInfo> | null;
+};
 
 type BbsRecord = {
   id: number;
   applicantName: string;
-  formAnswerDate: string;
+  formTranscriptDate: string;
+  applicationFormDate: string;
   bbsStatusId: number | null;
   bbsTransferAmount: number | null;
   bbsTransferDate: string;
   subsidyReceivedDate: string;
   alkesMemo: string;
   bbsMemo: string;
+  submission: SubmissionSummary | null;
 };
 
 type StatusOption = { value: string; label: string };
@@ -106,8 +122,13 @@ function LoginForm() {
 
 function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecord[]; canEdit: boolean; bbsStatusOptions: StatusOption[] }) {
   const [editRecord, setEditRecord] = useState<BbsRecord | null>(null);
-  const [editData, setEditData] = useState({ bbsStatusId: "" as string, bbsMemo: "" });
+  const [editData, setEditData] = useState({
+    bbsStatusId: "" as string,
+    bbsMemo: "",
+    applicationFormDate: "",
+  });
   const [saving, setSaving] = useState(false);
+  const [viewRecord, setViewRecord] = useState<BbsRecord | null>(null);
   const router = useRouter();
 
   const getStatusLabel = (statusId: number | null) => {
@@ -118,7 +139,11 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
 
   const openEdit = (r: BbsRecord) => {
     setEditRecord(r);
-    setEditData({ bbsStatusId: r.bbsStatusId ? String(r.bbsStatusId) : "", bbsMemo: r.bbsMemo });
+    setEditData({
+      bbsStatusId: r.bbsStatusId ? String(r.bbsStatusId) : "",
+      bbsMemo: r.bbsMemo,
+      applicationFormDate: r.applicationFormDate,
+    });
   };
 
   const saveModal = async () => {
@@ -128,6 +153,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
       const result = await updateBbsFields(editRecord.id, {
         bbsStatusId: editData.bbsStatusId ? Number(editData.bbsStatusId) : null,
         bbsMemo: editData.bbsMemo,
+        applicationFormDate: editData.applicationFormDate || null,
       });
       if (!result.ok) { alert(result.error); return; }
       setEditRecord(null);
@@ -135,17 +161,29 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
     } finally { setSaving(false); }
   };
 
-  const inlineSave = async (id: number, field: string, value: string) => {
+  // 変更前後の値が同じなら DB 書き込みをスキップするための比較。__empty は null 相当。
+  const isSameValue = (record: BbsRecord, field: keyof BbsEditableFields, raw: string): boolean => {
     if (field === "bbsStatusId") {
-      const bbsStatusId = value === "__empty" ? null : Number(value);
-      const result = await updateBbsFields(id, { bbsStatusId });
-      if (!result.ok) { alert(result.error); return; }
-      router.refresh();
-    } else if (field === "bbsMemo") {
-      const result = await updateBbsFields(id, { bbsMemo: value });
-      if (!result.ok) { alert(result.error); return; }
-      router.refresh();
+      const incoming = raw === "__empty" ? null : Number(raw);
+      return (record.bbsStatusId ?? null) === incoming;
     }
+    if (field === "bbsMemo") return (record.bbsMemo ?? "") === raw;
+    if (field === "applicationFormDate") return (record.applicationFormDate ?? "") === raw;
+    return false;
+  };
+
+  const buildPayload = (field: keyof BbsEditableFields, raw: string): BbsEditableFields => {
+    if (field === "bbsStatusId") return { bbsStatusId: raw === "__empty" ? null : Number(raw) };
+    if (field === "bbsMemo") return { bbsMemo: raw };
+    return { applicationFormDate: raw || null };
+  };
+
+  const inlineSave = async (id: number, field: keyof BbsEditableFields, value: string) => {
+    const current = data.find((r) => r.id === id);
+    if (current && isSameValue(current, field, value)) return;
+    const result = await updateBbsFields(id, buildPayload(field, value));
+    if (!result.ok) { alert(result.error); return; }
+    router.refresh();
   };
 
   const formatCurrency = (amount: number | null) => amount == null ? "-" : `\u00a5${amount.toLocaleString()}`;
@@ -164,7 +202,8 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
               <TableRow>
                 <TableHead className="w-16">No.</TableHead>
                 <TableHead>申請者名</TableHead>
-                <TableHead>支援制度申請フォーム入力日</TableHead>
+                <TableHead>情報回収フォーム回答共有日</TableHead>
+                <TableHead>支援制度申請フォーム回答日</TableHead>
                 <TableHead>ステータス</TableHead>
                 <TableHead>支援枠</TableHead>
                 <TableHead>BBSへの振込日</TableHead>
@@ -177,7 +216,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
             <TableBody>
               {data.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={canEdit ? 10 : 9} className="text-center text-gray-500 py-8">
+                  <TableCell colSpan={canEdit ? 11 : 10} className="text-center text-gray-500 py-8">
                     データがありません
                   </TableCell>
                 </TableRow>
@@ -186,7 +225,27 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
                   <TableRow key={record.id} className="group/row">
                     <TableCell className="text-gray-500">{index + 1}</TableCell>
                     <TableCell className="whitespace-nowrap">{record.applicantName}</TableCell>
-                    <TableCell className="whitespace-nowrap">{record.formAnswerDate}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {record.submission ? (
+                        <button
+                          onClick={() => setViewRecord(record)}
+                          className="text-blue-600 hover:text-blue-800 underline underline-offset-2"
+                        >
+                          {record.formTranscriptDate}
+                        </button>
+                      ) : (
+                        record.formTranscriptDate
+                      )}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {canEdit ? (
+                        <InlineCell value={record.applicationFormDate} onSave={(v) => inlineSave(record.id, "applicationFormDate", v)} type="date">
+                          <span className="whitespace-nowrap">{record.applicationFormDate || "-"}</span>
+                        </InlineCell>
+                      ) : (
+                        <span className="whitespace-nowrap">{record.applicationFormDate || "-"}</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {canEdit ? (
                         <InlineCell value={record.bbsStatusId ? String(record.bbsStatusId) : "__empty"} onSave={(v) => inlineSave(record.id, "bbsStatusId", v)} type="select" options={statusOptions}>
@@ -229,8 +288,15 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
           <DialogHeader><DialogTitle>編集</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
+              <Label>支援制度申請フォーム回答日</Label>
+              <DatePicker
+                value={editData.applicationFormDate}
+                onChange={(v) => setEditData((prev) => ({ ...prev, applicationFormDate: v }))}
+              />
+            </div>
+            <div className="space-y-1">
               <Label>ステータス</Label>
-              <Select value={editData.bbsStatusId || "__empty"} onValueChange={(v) => setEditData({ ...editData, bbsStatusId: v === "__empty" ? "" : v })}>
+              <Select value={editData.bbsStatusId || "__empty"} onValueChange={(v) => setEditData((prev) => ({ ...prev, bbsStatusId: v === "__empty" ? "" : v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {statusOptions.map((opt) => (
@@ -241,7 +307,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
             </div>
             <div className="space-y-1">
               <Label>BBS備考</Label>
-              <Textarea value={editData.bbsMemo} onChange={(e) => setEditData({ ...editData, bbsMemo: e.target.value })} rows={3} />
+              <Textarea value={editData.bbsMemo} onChange={(e) => setEditData((prev) => ({ ...prev, bbsMemo: e.target.value }))} rows={3} />
             </div>
           </div>
           <DialogFooter>
@@ -250,6 +316,19 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {viewRecord?.submission && (
+        <FormAnswerViewerModal
+          answers={viewRecord.submission.answers}
+          modifiedAnswers={viewRecord.submission.modifiedAnswers}
+          fileUrls={viewRecord.submission.fileUrls}
+          open
+          onClose={() => setViewRecord(null)}
+          title="支援制度申請フォーム 回答内容（閲覧専用）"
+          description={`申請者: ${viewRecord.applicantName} / 共有日: ${viewRecord.formTranscriptDate}`}
+          hideOriginalToggle
+        />
+      )}
     </>
   );
 }
@@ -257,23 +336,9 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
 export function BbsClientPage({ authenticated, isBbs, canEdit = false, data, userName, bbsStatusOptions = [] }: Props) {
   if (!authenticated) return <LoginForm />;
 
-  const header = (
-    <PortalHeader
-      title="BBS社様専用_支援金管理ページ"
-      rightContent={
-        isBbs && userName ? (
-          <PortalUserMenu
-            userName={userName}
-            onLogout={() => signOut({ callbackUrl: "/hojo/bbs" })}
-          />
-        ) : undefined
-      }
-    />
-  );
-
   return (
-    <PortalSimpleLayout header={header}>
+    <BbsPortalLayout userName={userName} isBbs={isBbs} pageTitle="支援金管理ページ">
       <BbsDataTable data={data} canEdit={canEdit} bbsStatusOptions={bbsStatusOptions} />
-    </PortalSimpleLayout>
+    </BbsPortalLayout>
   );
 }

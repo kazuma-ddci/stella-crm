@@ -25,16 +25,22 @@ import { VendorLoanSection } from "./vendor-loan-section";
 import type { LoanSubmissionRow } from "./vendor-loan-section";
 import { VendorProgressSection } from "./vendor-progress-section";
 import type { ProgressRow } from "./vendor-progress-section";
+import { FormAnswerViewerModal } from "@/components/hojo/form-answer-viewer-modal";
+import type { FileInfo } from "@/components/hojo/form-answer-editor";
 
 type FormSubmissionData = {
   id: number;
   submittedAt: string;
+  confirmedAt: string | null;
   answers: Record<string, unknown>;
+  modifiedAnswers: Record<string, Record<string, string | null>> | null;
+  fileUrls: Record<string, unknown> | null;
 };
 
 type ApplicantRecord = {
   id: number; lineFriendUid: string; lineName: string; applicantName: string; statusName: string;
-  formAnswerDate: string; subsidyDesiredDate: string; subsidyAmount: number | null;
+  formAnswerDate: string; formTranscriptDate: string; applicationFormDate: string;
+  subsidyDesiredDate: string; subsidyAmount: number | null;
   paymentReceivedAmount: number | null; paymentReceivedDate: string;
   subsidyReceivedDate: string; vendorMemo: string;
   formSubmission: FormSubmissionData | null;
@@ -203,84 +209,26 @@ function FormUrlCopyButton({ uid }: { uid: string }) {
   );
 }
 
-// ========== 回答データモーダル ==========
-const ANSWER_SECTIONS = [
-  { title: "基本情報", path: "basic", fields: [
-    ["tradeName", "屋号"], ["openingDate", "開業年月日"], ["fullName", "氏名"],
-    ["officeAddress", "事業所所在地"], ["phone", "電話番号"], ["email", "メールアドレス"],
-    ["employeeCount", "従業員数"], ["homepageUrl", "ホームページURL"],
-  ]},
-  { title: "口座情報", path: "bankAccount", fields: [
-    ["bankType", "金融機関"], ["yuchoSymbol", "記号"], ["yuchoPassbookNumber", "通帳番号"],
-    ["yuchoAccountHolder", "口座名義人"], ["yuchoAccountHolderKana", "フリガナ"],
-    ["otherBankName", "金融機関名"], ["otherBankCode", "金融機関コード"],
-    ["otherBranchName", "支店名"], ["otherBranchCode", "支店コード"],
-    ["otherAccountType", "口座種別"], ["otherAccountNumber", "口座番号"],
-    ["otherAccountHolder", "口座名義人"], ["otherAccountHolderKana", "フリガナ"],
-  ]},
-  { title: "事業概要", path: "businessOverview", fields: [
-    ["businessContent", "事業内容"], ["mainProductService", "主力商品・サービス"],
-    ["businessStrength", "特徴・強み"], ["openingBackground", "開業の経緯"],
-    ["businessScale", "事業規模"],
-  ]},
-  { title: "市場・競合情報", path: "marketCompetition", fields: [
-    ["targetMarket", "ターゲット市場"], ["targetCustomerProfile", "ターゲット顧客層"],
-    ["competitors", "競合"], ["strengthsAndChallenges", "強みと課題"],
-  ]},
-  { title: "支援制度申請関連", path: "supportApplication", fields: [
-    ["supportPurpose", "目的"], ["supportGoal", "実現したいこと"],
-    ["investmentPlan", "具体的計画"], ["expectedOutcome", "期待される成果"],
-  ]},
-  { title: "事業体制とご経歴", path: "businessStructure", fields: [
-    ["ownerCareer", "経歴・スキル"], ["staffRoles", "スタッフの役割"],
-    ["futureHiring", "必要な人材"],
-  ]},
-  { title: "事業計画", path: "businessPlan", fields: [
-    ["shortTermGoal", "短期目標(1年)"], ["midTermGoal", "中期目標(3年)"],
-    ["longTermGoal", "長期目標(5年)"], ["salesStrategy", "販売戦略・PR計画"],
-  ]},
-  { title: "財務情報", path: "financial", fields: [
-    ["futureInvestmentPlan", "投資計画と必要資金"], ["debtInfo", "借入状況"],
-  ]},
-];
-
 function FormAnswerModal({ data, open, onClose }: { data: FormSubmissionData; open: boolean; onClose: () => void }) {
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>フォーム回答データ</DialogTitle>
-          <p className="text-sm text-muted-foreground">
-            回答日時: {new Date(data.submittedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
-          </p>
-        </DialogHeader>
-        <div className="space-y-6 mt-2">
-          {ANSWER_SECTIONS.map((section) => {
-            const sectionData = data.answers[section.path] as Record<string, string> | undefined;
-            if (!sectionData) return null;
-            const hasValue = section.fields.some(([key]) => sectionData[key]);
-            if (!hasValue) return null;
-            return (
-              <div key={section.path}>
-                <h3 className="text-sm font-bold text-gray-900 border-b pb-1 mb-3">{section.title}</h3>
-                <dl className="space-y-2">
-                  {section.fields.map(([key, label]) => {
-                    const v = sectionData[key];
-                    if (!v) return null;
-                    return (
-                      <div key={key}>
-                        <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-                        <dd className="text-sm whitespace-pre-wrap bg-gray-50 rounded p-2 mt-0.5">{v}</dd>
-                      </div>
-                    );
-                  })}
-                </dl>
-              </div>
-            );
-          })}
-        </div>
-      </DialogContent>
-    </Dialog>
+    <FormAnswerViewerModal
+      open={open}
+      onClose={onClose}
+      size="form"
+      answers={data.answers}
+      modifiedAnswers={(data.modifiedAnswers as Record<string, Record<string, string | null>> | null) ?? null}
+      fileUrls={data.fileUrls as Record<string, FileInfo> | null}
+      description={
+        <>
+          回答日時: {new Date(data.submittedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
+          {data.confirmedAt && (
+            <>
+              {" / "}確定: {new Date(data.confirmedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
+            </>
+          )}
+        </>
+      }
+    />
   );
 }
 
@@ -325,18 +273,21 @@ function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; ca
       <div className="overflow-auto">
         <Table>
           <TableHeader><TableRow>
-            <TableHead>LINE名</TableHead><TableHead>申請者名</TableHead><TableHead>ステータス</TableHead><TableHead>フォームURL</TableHead><TableHead>フォーム回答日</TableHead><TableHead>回答データ</TableHead>
+            <TableHead>LINE名</TableHead><TableHead>申請者名</TableHead><TableHead>ステータス</TableHead>
+            <TableHead>情報回収フォームURL</TableHead><TableHead>情報回収フォーム回答日</TableHead>
+            <TableHead>フォーム内容確定日</TableHead><TableHead>回答データ</TableHead><TableHead>支援制度申請フォーム回答日</TableHead>
             <TableHead>助成金着金希望日</TableHead><TableHead>助成金額</TableHead><TableHead>原資金額</TableHead><TableHead>原資着金日</TableHead>
             <TableHead>助成金着金日</TableHead><TableHead>備考</TableHead>
             {canEdit && <TableHead className="w-[60px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
           </TableRow></TableHeader>
           <TableBody>
-            {data.length === 0 ? <TableRow><TableCell colSpan={canEdit ? 13 : 12} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
+            {data.length === 0 ? <TableRow><TableCell colSpan={canEdit ? 15 : 14} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
             : data.map((r) => (
               <TableRow key={r.id} className="group/row">
                 <TableCell className="whitespace-nowrap">{r.lineName}</TableCell><TableCell className="whitespace-nowrap">{r.applicantName}</TableCell><TableCell className="whitespace-nowrap">{r.statusName}</TableCell>
                 <TableCell><FormUrlCopyButton uid={r.lineFriendUid} /></TableCell>
                 <TableCell className="whitespace-nowrap">{r.formAnswerDate}</TableCell>
+                <TableCell className="whitespace-nowrap">{r.formTranscriptDate}</TableCell>
                 <TableCell>
                   {r.formSubmission ? (
                     <button onClick={() => setViewSubmission(r.formSubmission)} className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap">
@@ -344,6 +295,7 @@ function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; ca
                     </button>
                   ) : <span className="text-gray-400">-</span>}
                 </TableCell>
+                <TableCell className="whitespace-nowrap">{r.applicationFormDate}</TableCell>
                 <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.subsidyDesiredDate} onSave={(v) => inlineSave(r.id, "subsidyDesiredDate", v)} type="date">{r.subsidyDesiredDate || "-"}</InlineCell> : r.subsidyDesiredDate || "-"}</TableCell>
                 <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.subsidyAmount != null ? String(r.subsidyAmount) : ""} onSave={(v) => inlineSave(r.id, "subsidyAmount", v)} type="number">{fmt(r.subsidyAmount)}</InlineCell> : fmt(r.subsidyAmount)}</TableCell>
                 <TableCell className="whitespace-nowrap">{fmt(r.paymentReceivedAmount)}</TableCell><TableCell className="whitespace-nowrap">{r.paymentReceivedDate}</TableCell><TableCell className="whitespace-nowrap">{r.subsidyReceivedDate}</TableCell>

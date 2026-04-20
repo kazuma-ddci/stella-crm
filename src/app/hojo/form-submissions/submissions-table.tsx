@@ -6,7 +6,10 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Eye, Copy, Check } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Pencil, Copy, Check, AlertTriangle, CheckCircle2, Link2 } from "lucide-react";
+
+type LinkStatus = "linked" | "multi-unlinked" | "no-candidate";
 
 type RowData = {
   id: number;
@@ -18,9 +21,43 @@ type RowData = {
   bankType: string;
   uid: string;
   submittedAt: string;
+  confirmedAt: string | null;
+  linkStatus: LinkStatus;
 };
 
 type Props = { data: RowData[] };
+
+function LinkStatusBadge({ status, confirmed }: { status: LinkStatus; confirmed: boolean }) {
+  if (confirmed) {
+    return (
+      <Badge className="bg-green-100 text-green-800 hover:bg-green-100 whitespace-nowrap">
+        <CheckCircle2 className="h-3 w-3 mr-1" />
+        確定済
+      </Badge>
+    );
+  }
+  if (status === "multi-unlinked") {
+    return (
+      <Badge variant="outline" className="border-amber-400 text-amber-800 bg-amber-50 whitespace-nowrap">
+        <AlertTriangle className="h-3 w-3 mr-1" />
+        紐付け選択必要
+      </Badge>
+    );
+  }
+  if (status === "no-candidate") {
+    return (
+      <Badge variant="outline" className="border-gray-300 text-gray-500 whitespace-nowrap">
+        候補なし
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="border-blue-300 text-blue-700 bg-blue-50 whitespace-nowrap">
+      <Link2 className="h-3 w-3 mr-1" />
+      紐付け済
+    </Badge>
+  );
+}
 
 export function SubmissionsTable({ data }: Props) {
   const router = useRouter();
@@ -59,6 +96,7 @@ export function SubmissionsTable({ data }: Props) {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-14">No.</TableHead>
+                <TableHead>状態</TableHead>
                 <TableHead>屋号</TableHead>
                 <TableHead>氏名</TableHead>
                 <TableHead>電話番号</TableHead>
@@ -74,6 +112,9 @@ export function SubmissionsTable({ data }: Props) {
               {data.map((r, i) => (
                 <TableRow key={r.id} className="group/row">
                   <TableCell>{i + 1}</TableCell>
+                  <TableCell>
+                    <LinkStatusBadge status={r.linkStatus} confirmed={!!r.confirmedAt} />
+                  </TableCell>
                   <TableCell className="font-medium">{r.tradeName}</TableCell>
                   <TableCell>{r.fullName || "-"}</TableCell>
                   <TableCell>{r.phone || "-"}</TableCell>
@@ -86,7 +127,7 @@ export function SubmissionsTable({ data }: Props) {
                   </TableCell>
                   <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                     <Button variant="ghost" size="sm" onClick={() => router.push(`/hojo/form-submissions/${r.id}`)}>
-                      <Eye className="h-4 w-4" />
+                      <Pencil className="h-4 w-4" />
                     </Button>
                   </TableCell>
                 </TableRow>

@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { updateNotificationTemplate } from "./actions";
 import { useRouter } from "next/navigation";
 import { Loader2, Info, ChevronDown } from "lucide-react";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 
 type TemplateRow = {
   id: number;
@@ -170,14 +171,7 @@ export function TemplatesEditor({ rows }: { rows: TemplateRow[] }) {
   }, [rows, edits, savedValues]);
 
   // ブラウザを閉じる / リロード / URL直接変更 時の警告（ブラウザ標準ダイアログ）
-  useEffect(() => {
-    if (!isDirty) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
+  useNavigationGuard(isDirty);
 
   // <a>クリックによる遷移をインターセプト（Next.js Link 含む）
   const guardNavigation = useCallback(

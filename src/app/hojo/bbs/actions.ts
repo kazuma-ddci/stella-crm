@@ -7,6 +7,7 @@ import { canEdit as canEditProject } from "@/lib/auth/permissions";
 import type { UserPermission } from "@/types/auth";
 import bcrypt from "bcryptjs";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { parseYmdDate } from "@/lib/hojo/parse-date";
 
 const REVALIDATE_PATH = "/hojo/bbs";
 
@@ -99,28 +100,44 @@ export async function recordPasswordResetRequest(email: string) {
   }
 }
 
+export type BbsEditableFields = {
+  bbsStatusId?: number | null;
+  bbsMemo?: string;
+  applicationFormDate?: string | null;
+};
+
+// 各フィールドの Prisma への変換ロジック。追加時はここに1行足すだけ。
+const BBS_FIELD_CONVERTERS: {
+  [K in keyof BbsEditableFields]: (v: NonNullable<BbsEditableFields[K]>) => unknown;
+} = {
+  bbsStatusId: (v) => v || null,
+  bbsMemo: (v) => v || null,
+  applicationFormDate: (v) => parseYmdDate(v as string | null),
+};
+
 export async function updateBbsFields(
   applicationSupportId: number,
-  data: { bbsStatusId?: number | null; bbsMemo?: string }
+  data: BbsEditableFields
 ): Promise<ActionResult> {
   try {
     await requireBbsEditPermission();
     const updateData: Record<string, unknown> = {};
 
-    if (data.bbsStatusId !== undefined) {
-      updateData.bbsStatusId = data.bbsStatusId || null;
-    }
-    if (data.bbsMemo !== undefined) {
-      updateData.bbsMemo = data.bbsMemo || null;
-    }
-
-    if (Object.keys(updateData).length > 0) {
-      await prisma.hojoApplicationSupport.update({
-        where: { id: applicationSupportId },
-        data: updateData,
-      });
+    for (const key of Object.keys(BBS_FIELD_CONVERTERS) as (keyof BbsEditableFields)[]) {
+      const value = data[key];
+      if (value === undefined) continue;
+      const converter = BBS_FIELD_CONVERTERS[key] as (v: unknown) => unknown;
+      updateData[key] = converter(value);
     }
 
+    if (Object.keys(updateData).length === 0) return ok();
+
+    await prisma.hojoApplicationSupport.update({
+      where: { id: applicationSupportId },
+      data: updateData,
+    });
+
+    // BBSが編集した applicationFormDate は社内申請者管理にも表示されるため両方を revalidate
     revalidatePath(REVALIDATE_PATH);
     revalidatePath("/hojo/application-support");
     return ok();
@@ -170,45 +187,3 @@ export async function changeBbsPassword(
   }
 }
 
-export async function getBbsPageData() {
-  // 認証: BBSユーザー本人 または 補助金プロジェクトの編集権限以上のスタッフのみ
-  // データのスコープは設計通り「全レコード共有」のため where 句は変更しない
-  const session = await auth();
-  if (!session?.user) {
-    throw new Error("認証が必要です");
-  }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const userType = (session.user as any).userType;
-  if (userType !== "bbs") {
-    if (userType !== "staff") {
-      throw new Error("権限がありません");
-    }
-    // スタッフの場合は hojo の閲覧以上を要求
-    const { hasPermission } = await import("@/lib/auth/permissions");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const permissions = ((session.user as any).permissions ?? []) as import("@/types/auth").UserPermission[];
-    if (!hasPermission(permissions, "hojo", "view")) {
-      throw new Error("補助金プロジェクトの閲覧権限が必要です");
-    }
-  }
-
-  const records = await prisma.hojoApplicationSupport.findMany({
-    where: { deletedAt: null },
-    include: {
-      lineFriend: true,
-    },
-    orderBy: { id: "asc" },
-  });
-
-  return records.map((r) => ({
-    id: r.id,
-    applicantName: r.applicantName || "-",
-    formAnswerDate: r.formAnswerDate?.toISOString().slice(0, 10) ?? "-",
-    bbsStatusId: r.bbsStatusId,
-    bbsTransferAmount: r.bbsTransferAmount,
-    bbsTransferDate: r.bbsTransferDate?.toISOString().slice(0, 10) ?? "-",
-    subsidyReceivedDate: r.subsidyReceivedDate?.toISOString().slice(0, 10) ?? "-",
-    alkesMemo: r.alkesMemo || "",
-    bbsMemo: r.bbsMemo || "",
-  }));
-}

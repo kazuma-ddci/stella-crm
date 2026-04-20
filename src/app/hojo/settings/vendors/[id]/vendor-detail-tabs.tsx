@@ -14,6 +14,11 @@ const VendorDetailForm = dynamic(() => import("./vendor-detail-form").then((mod)
 import { ActivitiesCrudTable } from "@/app/hojo/consulting/activities/activities-crud-table";
 import { PreApplicationTable } from "@/app/hojo/grant-customers/pre-application/pre-application-table";
 import { PostApplicationTable } from "@/app/hojo/grant-customers/post-application/post-application-table";
+import { VendorContactHistorySection } from "@/app/hojo/contact-histories/vendor-contact-history-section";
+import type {
+  CustomerType,
+  ContactCategoryOption,
+} from "@/components/contact-history-modal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   addActivityForVendor,
@@ -114,6 +119,13 @@ type Props = {
   autoDetectedAsLineFriendId: number | null;
   scLineFriendsForAs: { value: string; label: string }[];
   accessToken: string;
+  contactHistoriesData: Record<string, unknown>[];
+  contactMethodOptions: { value: string; label: string }[];
+  contactStaffOptions: { value: string; label: string }[];
+  customerTypes: CustomerType[];
+  contactStaffByProject: Record<number, { value: string; label: string }[]>;
+  contactCategories: ContactCategoryOption[];
+  hojoVendorCustomerTypeId: number;
 };
 
 export function VendorDetailTabs({
@@ -141,6 +153,13 @@ export function VendorDetailTabs({
   autoDetectedAsLineFriendId,
   scLineFriendsForAs,
   accessToken,
+  contactHistoriesData,
+  contactMethodOptions,
+  contactStaffOptions,
+  customerTypes,
+  contactStaffByProject,
+  contactCategories,
+  hojoVendorCustomerTypeId,
 }: Props) {
   const vendorOptions = [
     { value: String(vendor.id), label: vendor.name },
@@ -179,6 +198,7 @@ export function VendorDetailTabs({
           <TabsTrigger value="activities">コンサル履歴</TabsTrigger>
           <TabsTrigger value="customers">顧客管理</TabsTrigger>
           <TabsTrigger value="loan">貸金業社</TabsTrigger>
+          <TabsTrigger value="contact-histories">接触履歴</TabsTrigger>
         </TabsList>
 
       <TabsContent value="basic">
@@ -292,6 +312,20 @@ export function VendorDetailTabs({
             </div>
           </CardContent>
         </Card>
+      </TabsContent>
+
+      <TabsContent value="contact-histories">
+        <VendorContactHistorySection
+          vendorId={vendor.id}
+          vendorName={vendor.name}
+          contactHistories={contactHistoriesData}
+          contactMethodOptions={contactMethodOptions}
+          staffOptions={contactStaffOptions}
+          customerTypes={customerTypes}
+          staffByProject={contactStaffByProject}
+          contactCategories={contactCategories}
+          requiredCustomerTypeId={hojoVendorCustomerTypeId}
+        />
       </TabsContent>
     </Tabs>
     </div>

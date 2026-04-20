@@ -5,6 +5,8 @@ import { VendorClientPage } from "./vendor-client-page";
 import { canEdit as canEditProject } from "@/lib/auth/permissions";
 import type { UserPermission } from "@/types/auth";
 import type { Metadata } from "next";
+import { extractSubmissionMeta } from "@/lib/hojo/form-answer-sections";
+import type { FileInfo } from "@/components/hojo/form-answer-editor";
 
 export const metadata: Metadata = {
   title: "ベンダー様専用",
@@ -127,26 +129,42 @@ export default async function VendorPage({
     orderBy: { lineFriendId: "asc" },
   });
 
-  // 各申請者のUIDでフォーム回答を取得
-  const applicantUids = records.map((r) => r.lineFriend.uid);
-  const formSubmissions = await prisma.hojoFormSubmission.findMany({
-    where: {
-      deletedAt: null,
-      formType: "business-plan",
-    },
-    orderBy: { submittedAt: "desc" },
-  });
-  const formByUid = new Map<string, { id: number; submittedAt: string; answers: Record<string, unknown> }>();
+  const applicantUids = records.map((r) => r.lineFriend.uid).filter(Boolean);
+  const formSubmissions = applicantUids.length
+    ? await prisma.hojoFormSubmission.findMany({
+        where: {
+          deletedAt: null,
+          formType: "business-plan",
+          OR: [
+            { linkedApplicationSupportId: { in: records.map((r) => r.id) } },
+            ...applicantUids.map((uid) => ({
+              answers: { path: ["_meta", "uid"], equals: uid },
+            })),
+          ],
+        },
+        orderBy: { submittedAt: "desc" },
+      })
+    : [];
+  const formByUid = new Map<string, {
+    id: number;
+    submittedAt: string;
+    confirmedAt: string | null;
+    answers: Record<string, unknown>;
+    modifiedAnswers: Record<string, Record<string, string | null>> | null;
+    fileUrls: Record<string, FileInfo> | null;
+  }>();
   for (const s of formSubmissions) {
-    const meta = (s.answers as Record<string, unknown>)?._meta as Record<string, unknown> | undefined;
-    const uid = meta?.uid as string | null;
-    if (uid && applicantUids.includes(uid) && !formByUid.has(uid)) {
-      formByUid.set(uid, {
-        id: s.id,
-        submittedAt: s.submittedAt.toISOString(),
-        answers: s.answers as Record<string, unknown>,
-      });
-    }
+    const { uid } = extractSubmissionMeta(s.answers as Record<string, unknown>);
+    if (!uid || formByUid.has(uid)) continue;
+    formByUid.set(uid, {
+      id: s.id,
+      submittedAt: s.submittedAt.toISOString(),
+      confirmedAt: s.confirmedAt?.toISOString() ?? null,
+      answers: s.answers as Record<string, unknown>,
+      modifiedAnswers:
+        (s.modifiedAnswers as Record<string, Record<string, string | null>> | null) ?? null,
+      fileUrls: (s.fileUrls as Record<string, FileInfo> | null) ?? null,
+    });
   }
 
   const applicantData = records.map((r) => ({
@@ -156,6 +174,8 @@ export default async function VendorPage({
     applicantName: r.applicantName || "-",
     statusName: r.status?.name || "-",
     formAnswerDate: r.formAnswerDate?.toISOString().slice(0, 10) ?? "-",
+    formTranscriptDate: r.formTranscriptDate?.toISOString().slice(0, 10) ?? "-",
+    applicationFormDate: r.applicationFormDate?.toISOString().slice(0, 10) ?? "-",
     subsidyDesiredDate: r.subsidyDesiredDate?.toISOString().slice(0, 10) ?? "",
     subsidyAmount: r.subsidyAmount,
     paymentReceivedAmount: r.paymentReceivedAmount,
