@@ -338,6 +338,7 @@ const navigation: NavItem[] = [
         sectionLabel: true,
         children: [
           { name: "申請者管理", href: "/hojo/application-support", icon: ClipboardList },
+          { name: "情報回収フォーム回答", href: "/hojo/form-submissions", icon: ClipboardList },
           { name: "概要案内フェーズ", href: "/hojo/grant-customers/pre-application", icon: ClipboardList },
           { name: "交付申請フェーズ", href: "/hojo/grant-customers/post-application", icon: FileCheck },
           { name: "BBS接触履歴", href: "/hojo/contact-histories/bbs", icon: History },
@@ -360,14 +361,6 @@ const navigation: NavItem[] = [
         children: [
           { name: "顧客情報", href: "/hojo/user-info", icon: UserSearch },
           { name: "申請者情報", href: "/hojo/applicant-info", icon: UserSearch },
-        ],
-      },
-      {
-        name: "申請サポートセンター(仮)",
-        icon: ClipboardList,
-        sectionLabel: true,
-        children: [
-          { name: "情報回収フォーム回答", href: "/hojo/form-submissions", icon: ClipboardList },
         ],
       },
       { name: "経費申請", href: "/hojo/expenses/new", icon: Plus },
