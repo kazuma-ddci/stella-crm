@@ -363,7 +363,14 @@ const navigation: NavItem[] = [
           { name: "申請者情報", href: "/hojo/applicant-info", icon: UserSearch },
         ],
       },
-      { name: "経費申請", href: "/hojo/expenses/new", icon: Plus },
+      {
+        name: "売上・経費",
+        icon: TrendingUp,
+        sectionLabel: true,
+        children: [
+          { name: "経費申請", href: "/hojo/expenses/new", icon: Plus },
+        ],
+      },
       {
         name: "活動記録",
         icon: Phone,
