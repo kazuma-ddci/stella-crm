@@ -1,5 +1,12 @@
 // 事業計画書（Claude API 生成 PDF）のセクション定義とプロンプト組み立て。
 // 日本語15〜20ページ相当（合計 約 20,000〜25,000 字）を目標にする。
+//
+// ## 設計方針
+// - セクションkey（下記の union 型）・順序・個数は**コード固定**。
+//   型安全性と PDF/エディタの多数箇所の参照を壊さないため。
+// - title / targetChars / instruction は**DB管理**（HojoBusinessPlanSection テーブル）。
+//   スタッフが画面から編集してClaude応答のトーン・長さを調整できる。
+// - DB 未セットアップ時は下記の DEFAULT_SECTIONS_FALLBACK を使う。
 
 export type BusinessPlanSectionKey =
   | "executiveSummary"
@@ -23,6 +30,30 @@ export type BusinessPlanSectionKey =
   | "financialPlan"
   | "conclusion";
 
+/** 固定順序（PDFページ構成・JSON出力ともこの順） */
+export const BUSINESS_PLAN_SECTION_KEYS: readonly BusinessPlanSectionKey[] = [
+  "executiveSummary",
+  "companyProfile",
+  "businessContent",
+  "mainProductService",
+  "businessStrength",
+  "openingBackground",
+  "businessScale",
+  "targetMarket",
+  "targetCustomerProfile",
+  "competitors",
+  "strengthsAndChallenges",
+  "supportPurpose",
+  "supportGoal",
+  "investmentPlan",
+  "expectedOutcome",
+  "businessStructure",
+  "goalsShortMidLong",
+  "salesStrategy",
+  "financialPlan",
+  "conclusion",
+] as const;
+
 export type BusinessPlanSectionDef = {
   key: BusinessPlanSectionKey;
   title: string;
@@ -30,7 +61,12 @@ export type BusinessPlanSectionDef = {
   instruction: string;
 };
 
-export const BUSINESS_PLAN_SECTIONS: BusinessPlanSectionDef[] = [
+/**
+ * DB 未セットアップ / 新規作成時のフォールバック値。
+ * マイグレーションでこの値が初期投入されている。
+ * 画面で編集するとDB側が更新され、以降はコード側は参照されない。
+ */
+export const DEFAULT_SECTIONS_FALLBACK: BusinessPlanSectionDef[] = [
   {
     key: "executiveSummary",
     title: "1. エグゼクティブサマリー",
@@ -173,35 +209,67 @@ export const BUSINESS_PLAN_SECTIONS: BusinessPlanSectionDef[] = [
   },
 ];
 
-export const TOTAL_TARGET_CHARS = BUSINESS_PLAN_SECTIONS.reduce((s, v) => s + v.targetChars, 0);
-
-// セクション定義文字列を組み立て（プロンプト本文のプレースホルダー展開用）
-export function buildSectionSpec(): string {
-  return BUSINESS_PLAN_SECTIONS.map(
-    (s) => `  - key: "${s.key}" / タイトル: "${s.title}" / 目安: ${s.targetChars}字\n    指示: ${s.instruction}`,
-  ).join("\n");
+/**
+ * DB からセクション定義を読み込む（存在しない key はフォールバックで補完）。
+ * 順序は BUSINESS_PLAN_SECTION_KEYS で固定。
+ */
+export async function loadBusinessPlanSections(): Promise<BusinessPlanSectionDef[]> {
+  const { prisma } = await import("@/lib/prisma");
+  const rows = await prisma.hojoBusinessPlanSection.findMany();
+  const byKey = new Map(rows.map((r) => [r.sectionKey, r]));
+  return BUSINESS_PLAN_SECTION_KEYS.map((key) => {
+    const row = byKey.get(key);
+    if (row) {
+      return {
+        key,
+        title: row.title,
+        targetChars: row.targetChars,
+        instruction: row.instruction,
+      };
+    }
+    // DB行が無ければフォールバック（通常は起きない。migration で全行投入済み）
+    const fallback = DEFAULT_SECTIONS_FALLBACK.find((d) => d.key === key)!;
+    return fallback;
+  });
 }
 
-// プレースホルダー置換（ {{sectionSpec}} と {{totalChars}} を展開）
-export function applyPromptPlaceholders(template: string): string {
-  const sectionSpec = buildSectionSpec();
+/** DB を参照せず、フォールバック値（コード側）から直接 BUSINESS_PLAN_SECTIONS を取得。 */
+export const BUSINESS_PLAN_SECTIONS: BusinessPlanSectionDef[] = DEFAULT_SECTIONS_FALLBACK;
+
+/** セクション定義文字列を組み立て（プロンプト本文のプレースホルダー展開用） */
+export function buildSectionSpec(sections: BusinessPlanSectionDef[] = DEFAULT_SECTIONS_FALLBACK): string {
+  return sections
+    .map(
+      (s) => `  - key: "${s.key}" / タイトル: "${s.title}" / 目安: ${s.targetChars}字\n    指示: ${s.instruction}`,
+    )
+    .join("\n");
+}
+
+/** プレースホルダー置換（{{sectionSpec}} と {{totalChars}} を展開） */
+export function applyPromptPlaceholders(
+  template: string,
+  sections: BusinessPlanSectionDef[] = DEFAULT_SECTIONS_FALLBACK,
+): string {
+  const sectionSpec = buildSectionSpec(sections);
+  const totalChars = sections.reduce((s, v) => s + v.targetChars, 0);
   return template
     .replace(/\{\{sectionSpec\}\}/g, sectionSpec)
-    .replace(/\{\{totalChars\}\}/g, String(TOTAL_TARGET_CHARS));
+    .replace(/\{\{totalChars\}\}/g, String(totalChars));
 }
 
 /**
- * Claude の System プロンプトを DB から読み込んでプレースホルダーを展開して返す。
- * HojoBusinessPlanPrompt テーブルに保存されたテンプレートを使用。
- * DB に未保存（ありえないが）の場合はフォールバックで既定値を使う。
+ * Claude の System プロンプトをDBから組み立てて返す。
+ * - HojoBusinessPlanPrompt の promptBody をベースに
+ * - HojoBusinessPlanSection の title/targetChars/instruction を展開
  */
 export async function buildSystemPrompt(): Promise<string> {
   const { prisma } = await import("@/lib/prisma");
-  const tpl = await prisma.hojoBusinessPlanPrompt.findFirst({
-    orderBy: { id: "asc" },
-  });
+  const [tpl, sections] = await Promise.all([
+    prisma.hojoBusinessPlanPrompt.findFirst({ orderBy: { id: "asc" } }),
+    loadBusinessPlanSections(),
+  ]);
   const body = tpl?.promptBody ?? DEFAULT_BUSINESS_PLAN_PROMPT_BODY;
-  return applyPromptPlaceholders(body);
+  return applyPromptPlaceholders(body, sections);
 }
 
 // マイグレーションで DB に投入するデフォルトプロンプト本文と同じ（フォールバック用）
@@ -311,13 +379,13 @@ export function parseSectionsJson(
   const sections = parsed.sections ?? {};
   const missing: string[] = [];
   const result: Record<string, string> = {};
-  for (const def of BUSINESS_PLAN_SECTIONS) {
-    const body = sections[def.key];
+  for (const key of BUSINESS_PLAN_SECTION_KEYS) {
+    const body = sections[key];
     if (typeof body !== "string" || !body.trim()) {
-      missing.push(def.key);
+      missing.push(key);
       continue;
     }
-    result[def.key] = body.trim();
+    result[key] = body.trim();
   }
   if (missing.length > 0) {
     throw new Error(`Claude応答のセクションが不足しています: ${missing.join(", ")}`);

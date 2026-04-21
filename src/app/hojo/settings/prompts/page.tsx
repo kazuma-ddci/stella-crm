@@ -1,11 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { listZoomAiPromptTemplates, getBusinessPlanPrompt } from "./actions";
+import { listZoomAiPromptTemplates, getBusinessPlanPrompt, listBusinessPlanSections } from "./actions";
 import { PromptsEditor } from "./prompts-editor";
 
 export default async function HojoPromptsSettingsPage() {
-  const [zoomRows, bp] = await Promise.all([
+  const [zoomRows, bp, sectionRows] = await Promise.all([
     listZoomAiPromptTemplates(),
     getBusinessPlanPrompt(),
+    listBusinessPlanSections(),
   ]);
 
   const zoomTemplates = zoomRows.map((r) => ({
@@ -42,6 +43,16 @@ export default async function HojoPromptsSettingsPage() {
           <PromptsEditor
             zoomTemplates={zoomTemplates}
             businessPlan={businessPlan}
+            sections={sectionRows.map((r) => ({
+              id: r.id,
+              sectionKey: r.sectionKey,
+              title: r.title,
+              targetChars: r.targetChars,
+              instruction: r.instruction,
+              displayOrder: r.displayOrder,
+              updatedAt: r.updatedAt,
+              updatedBy: r.updatedBy ? { name: r.updatedBy.name } : null,
+            }))}
           />
         </CardContent>
       </Card>

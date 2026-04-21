@@ -3,9 +3,10 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { Prisma } from "@prisma/client";
 import { callClaude } from "@/lib/anthropic/client";
 import {
-  BUSINESS_PLAN_SECTIONS,
+  BUSINESS_PLAN_SECTION_KEYS,
   buildSystemPrompt,
   buildUserMessage,
+  loadBusinessPlanSections,
   parseSectionsJson,
   type BusinessPlanSectionKey,
 } from "./business-plan-sections";
@@ -94,6 +95,7 @@ export async function generateBusinessPlanPdf(applicationSupportId: number): Pro
   }
 
   const sections = parseSectionsJson(text);
+  const sectionDefs = await loadBusinessPlanSections();
 
   const tradeName = applicantData.tradeName;
   const fullName = applicantData.fullName;
@@ -103,6 +105,7 @@ export async function generateBusinessPlanPdf(applicationSupportId: number): Pro
     fullName,
     generatedAt: new Date(),
     sections,
+    sectionDefs,
   };
   const buffer = await renderToBuffer(
     React.createElement(BusinessPlanPdf, { data }) as React.ReactElement<Record<string, unknown>>,
@@ -147,4 +150,4 @@ export async function generateBusinessPlanPdf(applicationSupportId: number): Pro
   return { filePath, fileName, costUsd };
 }
 
-export const EXPECTED_SECTION_KEYS: BusinessPlanSectionKey[] = BUSINESS_PLAN_SECTIONS.map((s) => s.key);
+export const EXPECTED_SECTION_KEYS: readonly BusinessPlanSectionKey[] = BUSINESS_PLAN_SECTION_KEYS;

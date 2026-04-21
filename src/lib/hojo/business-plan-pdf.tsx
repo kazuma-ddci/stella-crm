@@ -1,7 +1,11 @@
 import React from "react";
 import { Document, Page, View, Text, Font, StyleSheet } from "@react-pdf/renderer";
 import path from "path";
-import { BUSINESS_PLAN_SECTIONS, type BusinessPlanSectionKey } from "./business-plan-sections";
+import {
+  type BusinessPlanSectionDef,
+  type BusinessPlanSectionKey,
+  DEFAULT_SECTIONS_FALLBACK,
+} from "./business-plan-sections";
 
 Font.register({
   family: "NotoSansJP",
@@ -22,6 +26,8 @@ export type BusinessPlanPdfData = {
   fullName: string;
   generatedAt: Date;
   sections: Record<BusinessPlanSectionKey, string>;
+  /** 目次・セクション見出しに使う定義。未指定時はフォールバック値を使う。 */
+  sectionDefs?: BusinessPlanSectionDef[];
 };
 
 const styles = StyleSheet.create({
@@ -120,11 +126,11 @@ function CoverPage({ data }: { data: BusinessPlanPdfData }) {
   );
 }
 
-function TableOfContents() {
+function TableOfContents({ defs }: { defs: BusinessPlanSectionDef[] }) {
   return (
     <Page size="A4" style={styles.page}>
       <Text style={styles.tocTitle}>目次</Text>
-      {BUSINESS_PLAN_SECTIONS.map((s) => (
+      {defs.map((s) => (
         <Text key={s.key} style={styles.tocItem}>
           {s.title}
         </Text>
@@ -138,10 +144,16 @@ function TableOfContents() {
   );
 }
 
-function ContentPages({ sections }: { sections: Record<BusinessPlanSectionKey, string> }) {
+function ContentPages({
+  sections,
+  defs,
+}: {
+  sections: Record<BusinessPlanSectionKey, string>;
+  defs: BusinessPlanSectionDef[];
+}) {
   return (
     <>
-      {BUSINESS_PLAN_SECTIONS.map((def) => (
+      {defs.map((def) => (
         <Page key={def.key} size="A4" style={styles.page}>
           <Text style={styles.sectionTitle}>{def.title}</Text>
           <Text style={styles.sectionBody}>{sections[def.key] ?? ""}</Text>
@@ -157,11 +169,12 @@ function ContentPages({ sections }: { sections: Record<BusinessPlanSectionKey, s
 }
 
 export function BusinessPlanPdf({ data }: { data: BusinessPlanPdfData }) {
+  const defs = data.sectionDefs ?? DEFAULT_SECTIONS_FALLBACK;
   return (
     <Document>
       <CoverPage data={data} />
-      <TableOfContents />
-      <ContentPages sections={data.sections} />
+      <TableOfContents defs={defs} />
+      <ContentPages sections={data.sections} defs={defs} />
     </Document>
   );
 }

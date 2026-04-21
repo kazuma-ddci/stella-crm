@@ -895,6 +895,7 @@ model MasterStaff {
   slpZoomAiPromptTemplatesUpdated    SlpZoomAiPromptTemplate[] @relation("SlpZoomAiPromptTemplateUpdater")
   hojoZoomRecordingsHosted           HojoZoomRecording[]       @relation("HojoZoomRecordingHost")
   hojoBusinessPlanPromptsUpdated     HojoBusinessPlanPrompt[]  @relation("HojoBusinessPlanPromptUpdater")
+  hojoBusinessPlanSectionsUpdated    HojoBusinessPlanSection[] @relation("HojoBusinessPlanSectionUpdater")
   hojoDailyApiCostOverrides          HojoDailyApiCostOverride[]
 
   // SLP 商談セッション関連
@@ -6733,4 +6734,24 @@ model HojoBusinessPlanPrompt {
   updatedBy MasterStaff? @relation("HojoBusinessPlanPromptUpdater", fields: [updatedByStaffId], references: [id])
 
   @@map("hojo_business_plan_prompts")
+}
+
+// 事業計画書の20セクション定義（スタッフが編集可能にするためDB化）。
+// sectionKey は TypeScript の BusinessPlanSectionKey 型と一対一対応し
+// コード側でハードコード管理。title / targetChars / instruction のみ
+// プロンプト設定画面から編集できる。
+model HojoBusinessPlanSection {
+  id               Int      @id @default(autoincrement())
+  sectionKey       String   @unique @map("section_key") @db.VarChar(60)
+  title            String   @db.VarChar(200)
+  targetChars      Int      @map("target_chars")
+  instruction      String   @db.Text
+  displayOrder     Int      @map("display_order")
+  updatedByStaffId Int?     @map("updated_by_staff_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  updatedBy MasterStaff? @relation("HojoBusinessPlanSectionUpdater", fields: [updatedByStaffId], references: [id])
+
+  @@map("hojo_business_plan_sections")
 }
