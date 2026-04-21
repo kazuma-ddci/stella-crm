@@ -48,7 +48,7 @@ type RunningByDocType = {
 const ESTIMATE_BY_DOC: Record<RpaDocKey, string> = {
   trainingReport: "5〜15秒",
   supportApplication: "5〜15秒",
-  businessPlan: "3〜5分",
+  businessPlan: "5〜10分",
 };
 
 function formatElapsed(ms: number): string {
@@ -138,6 +138,33 @@ export function DocumentStorageModal({
   useEffect(() => {
     setDocuments(initialDocuments);
   }, [initialDocuments]);
+
+  // モーダルを開いた瞬間に必ず1回 API で最新状態を取る。
+  // （SSR prop が古い場合でも、開き直しで最新が反映される）
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/hojo/application-support/${applicationSupportId}/running-status`,
+          { cache: "no-store" },
+        );
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          runningByDocType: RunningByDocType;
+          documents: DocumentInfo[];
+        };
+        if (cancelled) return;
+        setLiveRunningByDocType(data.runningByDocType);
+        setDocuments(data.documents);
+      } catch {
+        // 初回fetchエラーは無視（SSR値でfallback）
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationSupportId]);
 
   const hasAnyDocument = documents.length > 0;
 
