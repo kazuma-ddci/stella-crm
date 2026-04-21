@@ -632,6 +632,7 @@ export function ContractsTable({
       </Tabs>
 
       <CrudTable
+        tableId="stp.contracts"
         data={filteredData as unknown as Record<string, unknown>[]}
         columns={columns}
         customRenderers={customRenderers}

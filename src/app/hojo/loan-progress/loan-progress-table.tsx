@@ -185,6 +185,7 @@ export function LoanProgressTable({
   return (
     <>
       <CrudTable
+        tableId="hojo.loan-progress"
         data={data as unknown as Record<string, unknown>[]}
         columns={columns}
         emptyMessage="進捗データがまだありません"

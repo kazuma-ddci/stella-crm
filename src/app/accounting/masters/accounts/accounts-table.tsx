@@ -76,6 +76,7 @@ export function AccountsTable({ data }: Props) {
 
   return (
     <CrudTable
+      tableId="accounting.accounts"
       data={data}
       columns={columns}
       title="勘定科目"

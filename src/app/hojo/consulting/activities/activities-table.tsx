@@ -150,6 +150,7 @@ export function ActivityListTable({ data }: Props) {
   return (
     <>
       <CrudTable
+        tableId="hojo.consulting.activities"
         data={data as unknown as Record<string, unknown>[]}
         columns={columns}
         emptyMessage="コンサル履歴がありません"

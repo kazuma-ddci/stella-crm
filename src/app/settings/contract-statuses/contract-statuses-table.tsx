@@ -29,6 +29,7 @@ export function ContractStatusesTable({ data, canEdit }: Props) {
 
   return (
     <CrudTable
+      tableId="settings.contract-statuses"
       data={data}
       columns={columns}
       title="契約ステータス"

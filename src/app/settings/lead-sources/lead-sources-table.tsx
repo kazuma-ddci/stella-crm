@@ -23,6 +23,7 @@ export function LeadSourcesTable({ data, canEdit }: Props) {
 
   return (
     <CrudTable
+      tableId="settings.lead-sources"
       data={data}
       columns={columns}
       title="流入経路"

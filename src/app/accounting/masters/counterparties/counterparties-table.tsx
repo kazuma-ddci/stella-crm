@@ -179,6 +179,7 @@ export function CounterpartiesTable({ data }: Props) {
   return (
     <>
       <CrudTable
+        tableId="accounting.counterparties"
         data={data}
         columns={columns}
         title="その他取引先"

@@ -23,6 +23,7 @@ export function ContactMethodsTable({ data, canEdit }: Props) {
 
   return (
     <CrudTable
+      tableId="settings.contact-methods"
       data={data}
       columns={columns}
       title="接触方法"

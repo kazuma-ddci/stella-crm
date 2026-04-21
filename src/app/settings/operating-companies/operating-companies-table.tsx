@@ -204,6 +204,7 @@ export function OperatingCompaniesTable({ data, canEdit }: Props) {
   return (
     <>
       <CrudTable
+        tableId="settings.operating-companies"
         data={data}
         columns={columns}
         title="運営法人"

@@ -113,6 +113,8 @@ export type CrudTableProps = {
   isEditDisabled?: (item: Record<string, unknown>) => boolean;
   // 左側から固定する列数（可視列のみカウント）
   stickyLeftCount?: number;
+  // テーブル識別子（指定するとスタッフごとに固定列設定をDBに保存）。ユーザー設定があれば stickyLeftCount より優先される
+  tableId?: string;
   // 行ごとのカスタムクラス名
   rowClassName?: (item: Record<string, unknown>) => string | undefined;
   // カスタムヘッダーレンダラー（ヘッダーセルの中身をカスタマイズ）

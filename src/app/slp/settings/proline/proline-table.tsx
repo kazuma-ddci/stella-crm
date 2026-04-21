@@ -19,6 +19,7 @@ export function ProlineTable({ data, canEdit }: Props) {
 
   return (
     <CrudTable
+      tableId="slp.settings.proline"
       data={data}
       columns={columns}
       title="プロラインアカウント"

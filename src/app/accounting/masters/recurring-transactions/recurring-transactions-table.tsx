@@ -321,6 +321,7 @@ export function RecurringTransactionsTable({
 
   return (
     <CrudTable
+      tableId="accounting.recurring-transactions"
       data={data}
       columns={columns}
       title="定期取引"

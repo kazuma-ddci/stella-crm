@@ -49,6 +49,7 @@ export function CostCentersTable({ data, projectOptions }: Props) {
 
   return (
     <CrudTable
+      tableId="accounting.cost-centers"
       data={data}
       columns={columns}
       title="按分先"

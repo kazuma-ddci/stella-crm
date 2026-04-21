@@ -838,6 +838,7 @@ export function StpCompaniesTable({
   return (
     <>
       <CrudTable
+        tableId="stp.companies"
         data={data}
         columns={columns}
         title="STP企業"

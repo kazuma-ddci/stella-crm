@@ -761,6 +761,7 @@ model MasterStaff {
   isSystemUser         Boolean   @default(false) @map("is_system_user") // システムユーザーフラグ（UI非表示）
   canEditMasterData    Boolean   @default(false) // 固定データ編集権限
   organizationRole     String    @default("member") @map("organization_role") @db.VarChar(20) // "founder" | "member"
+  tableSettings        Json?     @map("table_settings") // テーブルUI設定（{ [tableId]: { stickyLeftCount: number } }）
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 

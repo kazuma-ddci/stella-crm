@@ -30,6 +30,7 @@ export function DisplayViewsTable({ data, canEdit, projectOptions, filterProject
 
   return (
     <CrudTable
+      tableId="settings.display-views"
       data={data}
       columns={columns}
       title="表示区分"

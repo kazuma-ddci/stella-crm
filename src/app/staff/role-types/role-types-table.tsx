@@ -38,6 +38,7 @@ export function RoleTypesTable({ data, canEdit, projectOptions, filterProjectId 
 
   return (
     <CrudTable
+      tableId="staff.role-types"
       data={data}
       columns={columns}
       title="役割種別"

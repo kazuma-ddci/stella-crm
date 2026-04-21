@@ -173,6 +173,7 @@ export function ApplicantPageClient({
 
       <TabsContent value="applicant">
         <CrudTable
+          tableId="hojo.applicant-info.applicant"
           data={applicantData as unknown as Record<string, unknown>[]}
           columns={applicantColumns}
           title="申請者情報"
@@ -248,6 +249,7 @@ export function ApplicantPageClient({
             </Button>
           </div>
           <CrudTable
+            tableId="hojo.applicant-info.josei"
             data={joseiData}
             columns={lineFriendColumns}
             title="LINE友達"

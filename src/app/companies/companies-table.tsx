@@ -531,6 +531,7 @@ export function CompaniesTable({ data, staffOptions }: Props) {
   return (
     <>
       <CrudTable
+        tableId="companies"
         data={data}
         columns={columns}
         title="顧客"

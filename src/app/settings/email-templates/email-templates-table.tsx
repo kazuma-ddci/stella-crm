@@ -789,6 +789,7 @@ export function EmailTemplatesTable({ data, companyOptions, projectOptions, filt
 
   return (
     <CrudTable
+      tableId="settings.email-templates"
       data={data}
       columns={columns}
       title="テンプレート"

@@ -700,6 +700,7 @@ export function AllocationTemplatesTable({
   return (
     <>
       <CrudTable
+        tableId="accounting.allocation-templates"
         data={data}
         columns={columns}
         title="按分テンプレート"

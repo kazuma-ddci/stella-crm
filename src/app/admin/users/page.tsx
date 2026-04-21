@@ -465,6 +465,7 @@ export default function ExternalUsersPage() {
           </CardHeader>
           <CardContent>
             <CrudTable
+              tableId="admin.users"
               data={displayViewsData}
               columns={displayViewColumns}
               onUpdate={handleDisplayViewUpdate}

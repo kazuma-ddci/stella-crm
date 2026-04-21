@@ -27,9 +27,10 @@ type Props = {
   hideVendorColumn?: boolean;
   notesReadOnly?: boolean;
   defaultVendorId?: string;
+  tableId?: string;
 };
 
-export function ActivitiesCrudTable({ data, canEdit, vendorOptions, contractOptions, onAddOverride, onUpdateOverride, onDeleteOverride, hideVendorColumn, notesReadOnly, defaultVendorId }: Props) {
+export function ActivitiesCrudTable({ data, canEdit, vendorOptions, contractOptions, onAddOverride, onUpdateOverride, onDeleteOverride, hideVendorColumn, notesReadOnly, defaultVendorId, tableId = "hojo.consulting.activities-crud" }: Props) {
   const [taskDialogState, setTaskDialogState] = useState<{ activityId: number; tasks: TaskRecord[]; label: string } | null>(null);
 
   const columns: ColumnDef[] = [
@@ -146,6 +147,7 @@ export function ActivitiesCrudTable({ data, canEdit, vendorOptions, contractOpti
   return (
     <>
       <CrudTable
+        tableId={tableId}
         data={data}
         columns={columns}
         title="コンサル履歴"

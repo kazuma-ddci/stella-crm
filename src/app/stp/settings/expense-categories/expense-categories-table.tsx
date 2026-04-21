@@ -63,6 +63,7 @@ export function ExpenseCategoriesTable({ data, canEdit }: Props) {
 
   return (
     <CrudTable
+      tableId="stp.settings.expense-categories"
       data={data}
       columns={columns}
       title="費目"

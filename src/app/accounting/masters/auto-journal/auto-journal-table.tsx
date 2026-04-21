@@ -355,6 +355,7 @@ export function AutoJournalTable({
   return (
     <>
       <CrudTable
+        tableId="accounting.auto-journal"
         data={data}
         columns={columns}
         title="自動仕訳ルール"

@@ -433,6 +433,7 @@ export function CandidatesTable({ data, stpCompanyOptions, contractOptionsByStpC
       </div>
 
       <CrudTable
+        tableId="stp.candidates"
         data={filteredData}
         columns={columns}
         onAdd={handleAdd}

@@ -115,6 +115,7 @@ export function ProjectsTable({
   return (
     <>
       <CrudTable
+        tableId="settings.projects"
         data={data}
         columns={columns}
         title="プロジェクト"

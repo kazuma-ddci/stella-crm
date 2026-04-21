@@ -137,6 +137,7 @@ function LineFriendTab({
   onUpdate,
   onDelete,
   onSync,
+  tableId,
 }: {
   data: Record<string, unknown>[];
   lastSyncAt: string | null;
@@ -146,6 +147,7 @@ function LineFriendTab({
   onUpdate: (id: number, formData: Record<string, unknown>) => Promise<import("@/lib/action-result").ActionResult | void>;
   onDelete: (id: number) => Promise<import("@/lib/action-result").ActionResult | void>;
   onSync: () => Promise<{ success: boolean; created?: number; updated?: number; total?: number; error?: string }>;
+  tableId: string;
 }) {
   const invalidIdSet = new Set(invalidIds);
   const duplicateIdSet = new Set(duplicateIds);
@@ -226,6 +228,7 @@ function LineFriendTab({
         </Button>
       </div>
       <CrudTable
+        tableId={tableId}
         data={data}
         columns={lineFriendColumns}
         title="LINE友達"
@@ -306,6 +309,7 @@ export function CustomerPageClient({
 
       <TabsContent value="customer">
         <CrudTable
+          tableId="hojo.user-info.customer"
           data={customerData}
           columns={getCustomerColumns(shinseiLabel, alkesLabel)}
           title="顧客情報"
@@ -347,6 +351,7 @@ export function CustomerPageClient({
           onUpdate={updateSC}
           onDelete={deleteSC}
           onSync={syncSC}
+          tableId="hojo.user-info.security-cloud"
         />
       </TabsContent>
 
@@ -360,6 +365,7 @@ export function CustomerPageClient({
           onUpdate={updateAlkes}
           onDelete={deleteAlkes}
           onSync={syncAlkes}
+          tableId="hojo.user-info.alkes"
         />
       </TabsContent>
 
@@ -373,6 +379,7 @@ export function CustomerPageClient({
           onUpdate={updateShinsei}
           onDelete={deleteShinsei}
           onSync={syncShinsei}
+          tableId="hojo.user-info.shinsei"
         />
       </TabsContent>
     </Tabs>

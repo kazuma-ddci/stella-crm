@@ -718,6 +718,7 @@ export function AgentsTable({
   return (
     <>
       <CrudTable
+        tableId="stp.agents"
         data={data}
         columns={columns}
         title="代理店"

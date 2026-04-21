@@ -26,6 +26,7 @@ const columns: ColumnDef[] = [
 export function StagesTable({ data, canEdit }: Props) {
   return (
     <CrudTable
+      tableId="stp.settings.stages"
       data={data}
       columns={columns}
       title="パイプライン"

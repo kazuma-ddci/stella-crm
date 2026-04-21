@@ -25,10 +25,12 @@ function SubmissionTable({
   data,
   vendorOptions,
   canEdit,
+  tableId,
 }: {
   data: RowData[];
   vendorOptions: { value: string; label: string }[];
   canEdit: boolean;
+  tableId: string;
 }) {
   const router = useRouter();
 
@@ -97,6 +99,7 @@ function SubmissionTable({
 
   return (
     <CrudTable
+      tableId={tableId}
       data={data as unknown as Record<string, unknown>[]}
       columns={columns}
       emptyMessage="フォーム回答がまだありません"
@@ -131,10 +134,10 @@ export function LoanSubmissionsClient({
           </TabsTrigger>
         </TabsList>
         <TabsContent value="corporate" className="mt-4">
-          <SubmissionTable data={corporateData} vendorOptions={vendorOptions} canEdit={canEdit} />
+          <SubmissionTable data={corporateData} vendorOptions={vendorOptions} canEdit={canEdit} tableId="hojo.loan-submissions.corporate" />
         </TabsContent>
         <TabsContent value="individual" className="mt-4">
-          <SubmissionTable data={individualData} vendorOptions={vendorOptions} canEdit={canEdit} />
+          <SubmissionTable data={individualData} vendorOptions={vendorOptions} canEdit={canEdit} tableId="hojo.loan-submissions.individual" />
         </TabsContent>
       </Tabs>
     </div>

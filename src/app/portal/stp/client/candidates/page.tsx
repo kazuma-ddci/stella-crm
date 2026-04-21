@@ -374,6 +374,7 @@ export default function PortalCandidatesPage() {
           </CardHeader>
           <CardContent>
             <CrudTable
+              tableId="portal.stp.client.candidates"
               data={tableData}
               columns={columns}
               onAdd={handleAdd}

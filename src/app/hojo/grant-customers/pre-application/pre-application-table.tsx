@@ -12,9 +12,10 @@ type Props = {
   onAddOverride?: (data: Record<string, unknown>) => Promise<void | import("@/lib/action-result").ActionResult>;
   onUpdateOverride?: (id: number, data: Record<string, unknown>) => Promise<void | import("@/lib/action-result").ActionResult>;
   onDeleteOverride?: (id: number) => Promise<void | import("@/lib/action-result").ActionResult>;
+  tableId?: string;
 };
 
-export function PreApplicationTable({ data, canEdit, vendorOptions, onAddOverride, onUpdateOverride, onDeleteOverride }: Props) {
+export function PreApplicationTable({ data, canEdit, vendorOptions, onAddOverride, onUpdateOverride, onDeleteOverride, tableId = "hojo.grant-customers.pre-application" }: Props) {
   const router = useRouter();
 
   const columns: ColumnDef[] = [
@@ -32,6 +33,7 @@ export function PreApplicationTable({ data, canEdit, vendorOptions, onAddOverrid
 
   return (
     <CrudTable
+      tableId={tableId}
       data={data}
       columns={columns}
       title="概要案内"

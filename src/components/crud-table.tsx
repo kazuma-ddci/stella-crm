@@ -42,7 +42,8 @@ import {
 } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Pencil, Trash2, ChevronsUpDown, X, Check, ArrowUpDown, ChevronDown, Loader2, Filter } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronsUpDown, X, Check, ArrowUpDown, ChevronDown, Loader2, Filter, Pin } from "lucide-react";
+import { useTableSettings } from "@/components/providers/table-settings-provider";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -113,11 +114,37 @@ export function CrudTable({
   isDeleteDisabled,
   isEditDisabled,
   stickyLeftCount = 0,
+  tableId,
   rowClassName,
   customHeaderRenderers,
   groupByKey,
   groupedColumns = [],
 }: CrudTableProps) {
+  // ユーザー個別設定（DB保存）を取得。tableId があれば Context 優先、なければ props.stickyLeftCount
+  const tableSettingsCtx = useTableSettings();
+  const userStickyLeftCount = tableId
+    ? tableSettingsCtx?.getSetting(tableId)?.stickyLeftCount
+    : undefined;
+  const rawStickyLeftCount =
+    typeof userStickyLeftCount === "number" ? userStickyLeftCount : stickyLeftCount;
+  // 可視列数でクランプ（列数が減った後でもロックアウトしないため）
+  const visibleColumnCount = columns.filter((col) => col.hidden !== true).length;
+  const effectiveStickyLeftCount = Math.max(
+    0,
+    Math.min(rawStickyLeftCount, visibleColumnCount),
+  );
+  // 列固定UIを表示する条件: tableId 指定あり + Context 有効 + ログイン中が社内スタッフ
+  // mounted フラグで Hydration 後のみ表示（Radix useId の SSR/Client ズレ回避）
+  const [mountedForPinUi, setMountedForPinUi] = useState(false);
+  useEffect(() => {
+    setMountedForPinUi(true);
+  }, []);
+  const canManageStickyColumns =
+    mountedForPinUi &&
+    !!tableId &&
+    !!tableSettingsCtx &&
+    tableSettingsCtx.isStaff;
+
   const router = useRouter();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editItem, setEditItem] = useState<Record<string, unknown> | null>(null);
@@ -157,11 +184,11 @@ export function CrudTable({
   const [stickyLeftOffsets, setStickyLeftOffsets] = useState<number[]>([]);
 
   useEffect(() => {
-    if (stickyLeftCount <= 0) return;
+    if (effectiveStickyLeftCount <= 0) return;
     const calcOffsets = () => {
       const offsets: number[] = [];
       let cumulative = 0;
-      for (let i = 0; i < stickyLeftCount; i++) {
+      for (let i = 0; i < effectiveStickyLeftCount; i++) {
         offsets.push(cumulative);
         const el = stickyHeaderRefs.current[i];
         if (el) cumulative += el.offsetWidth;
@@ -175,7 +202,7 @@ export function CrudTable({
       clearTimeout(timer);
       window.removeEventListener('resize', calcOffsets);
     };
-  }, [stickyLeftCount, data]);
+  }, [effectiveStickyLeftCount, data]);
 
   // インライン編集用の状態
   const [editingCell, setEditingCell] = useState<{ rowId: number; columnKey: string } | null>(null);
@@ -221,6 +248,21 @@ export function CrudTable({
   const visibleColumnsForUpdate = enableInputModeToggle && isSimpleMode
     ? editableColumnsForUpdate.filter((col) => col.simpleMode === true)
     : editableColumnsForUpdate;
+
+  // 列固定ハンドラ（Pin UI から呼び出し）
+  const handlePinColumn = useCallback(
+    async (colIdx: number) => {
+      if (!tableId || !tableSettingsCtx) return;
+      // colIdx は 0-based、固定列数 = colIdx + 1
+      await tableSettingsCtx.updateStickyLeftCount(tableId, colIdx + 1);
+    },
+    [tableId, tableSettingsCtx],
+  );
+
+  const handleUnpinColumn = useCallback(async () => {
+    if (!tableId || !tableSettingsCtx) return;
+    await tableSettingsCtx.updateStickyLeftCount(tableId, 0);
+  }, [tableId, tableSettingsCtx]);
 
   // カラムがインライン編集可能かチェック
   const isColumnInlineEditable = useCallback(
@@ -1429,8 +1471,8 @@ export function CrudTable({
           <TableHeader>
             <TableRow>
               {visibleColumns.map((col, colIdx) => {
-                const isSticky = colIdx < stickyLeftCount;
-                const isLastSticky = colIdx === stickyLeftCount - 1;
+                const isSticky = colIdx < effectiveStickyLeftCount;
+                const isLastSticky = colIdx === effectiveStickyLeftCount - 1;
                 const colType = col.type || "text";
                 const isFilterable = col.filterable !== false && col.key !== "id" &&
                   (["text", "number", "select", "boolean", "textarea", "multiselect", "date", "datetime", "month"].includes(colType));
@@ -1462,7 +1504,7 @@ export function CrudTable({
                       if (isSticky) stickyHeaderRefs.current[colIdx] = el;
                     }}
                     className={cn(
-                      "whitespace-nowrap",
+                      "whitespace-nowrap group/header",
                       isSticky && "sticky z-30 bg-white",
                       isLastSticky && "shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]",
                       col.cellClassName
@@ -1475,6 +1517,33 @@ export function CrudTable({
                   >
                     <div className="flex items-center gap-1">
                       {customHeaderRenderers?.[col.key]?.() ?? col.header}
+                      {canManageStickyColumns && (!isSticky || isLastSticky) && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isLastSticky) {
+                              handleUnpinColumn();
+                            } else {
+                              handlePinColumn(colIdx);
+                            }
+                          }}
+                          className={cn(
+                            "inline-flex items-center justify-center rounded p-0.5 hover:bg-muted transition-colors",
+                            isLastSticky
+                              ? "text-blue-600"
+                              : "opacity-0 group-hover/header:opacity-100 focus:opacity-100",
+                          )}
+                          title={isLastSticky ? "クリックで固定を解除" : "クリックでこの列まで固定"}
+                        >
+                          <Pin
+                            className={cn(
+                              "h-3.5 w-3.5",
+                              isLastSticky && "fill-blue-600",
+                            )}
+                          />
+                        </button>
+                      )}
                       {isFilterable && (
                         <Popover
                           open={openFilterColumn === col.key}
@@ -1757,8 +1826,8 @@ export function CrudTable({
                       ? columns.find((c) => c.key === editColumnKey)
                       : col;
 
-                    const isStickyLeft = colIdx < stickyLeftCount;
-                    const isLastStickyLeft = colIdx === stickyLeftCount - 1;
+                    const isStickyLeft = colIdx < effectiveStickyLeftCount;
+                    const isLastStickyLeft = colIdx === effectiveStickyLeftCount - 1;
 
                     return (
                       <TableCell

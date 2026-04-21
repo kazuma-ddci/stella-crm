@@ -50,6 +50,7 @@ export function ContactCategoriesTable({ data, projectOptions, canEdit, filterPr
 
   return (
     <CrudTable
+      tableId="settings.contact-categories"
       data={data}
       columns={columns}
       title="接触種別"

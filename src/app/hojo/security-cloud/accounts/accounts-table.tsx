@@ -93,6 +93,7 @@ export function AccountsTable({ data }: Props) {
 
   return (
     <CrudTable
+      tableId="hojo.security-cloud.accounts"
       data={data}
       columns={columns}
       title="アカウント管理"

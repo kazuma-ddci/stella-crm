@@ -28,6 +28,7 @@ export function ProductsTable({ data, canEdit }: Props) {
 
   return (
     <CrudTable
+      tableId="stp.settings.products"
       data={data}
       columns={columns}
       title="商材"

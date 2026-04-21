@@ -242,6 +242,7 @@ export function VendorDetailTabs({
               hideVendorColumn={true}
               notesReadOnly={true}
               defaultVendorId={String(vendor.id)}
+              tableId="hojo.vendor-detail.activities"
             />
           </CardContent>
         </Card>
@@ -266,6 +267,7 @@ export function VendorDetailTabs({
                   onAddOverride={addPreApplicationForVendor}
                   onUpdateOverride={updatePreApplicationForVendor}
                   onDeleteOverride={(id) => deletePreApplicationForVendor(id, String(vendor.id))}
+                  tableId="hojo.vendor-detail.pre-application"
                 />
               </CardContent>
             </Card>
@@ -283,6 +285,7 @@ export function VendorDetailTabs({
                   onAddOverride={addPostApplicationForVendor}
                   onUpdateOverride={updatePostApplicationForVendor}
                   onDeleteOverride={(id) => deletePostApplicationForVendor(id, String(vendor.id))}
+                  tableId="hojo.vendor-detail.post-application"
                 />
               </CardContent>
             </Card>

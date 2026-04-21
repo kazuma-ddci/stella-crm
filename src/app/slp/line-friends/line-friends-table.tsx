@@ -214,6 +214,7 @@ export function LineFriendsTable({ data, lastSyncAt }: Props) {
         </Button>
       </div>
       <CrudTable
+        tableId="slp.line-friends"
         data={data}
         columns={columns}
         title="LINE友達"

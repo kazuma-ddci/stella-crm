@@ -569,6 +569,7 @@ export function ApplicationSupportTable({
   return (
     <>
       <CrudTable
+        tableId="hojo.application-support"
         data={data}
         columns={columns}
         title="申請者管理"

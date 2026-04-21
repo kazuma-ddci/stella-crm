@@ -178,9 +178,11 @@ export function VendorsTable({
 
   return (
     <CrudTable
+      tableId="hojo.vendors"
       data={data}
       columns={columns}
       title="ベンダー"
+      stickyLeftCount={1}
       onAdd={canEdit ? addVendor : undefined}
       onUpdate={canEdit ? updateVendor : undefined}
       onDelete={canEdit ? deleteVendor : undefined}

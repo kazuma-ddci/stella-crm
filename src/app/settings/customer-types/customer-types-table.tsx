@@ -50,6 +50,7 @@ export function CustomerTypesTable({ data, projectOptions, canEdit, filterProjec
 
   return (
     <CrudTable
+      tableId="settings.customer-types"
       data={data}
       columns={columns}
       title="顧客種別"

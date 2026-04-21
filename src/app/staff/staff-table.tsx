@@ -395,6 +395,7 @@ export function StaffTable({ data, projectOptions, permissionProjects, editableP
 
   return (
     <CrudTable
+      tableId="staff"
       data={data}
       columns={columns}
       title="スタッフ"

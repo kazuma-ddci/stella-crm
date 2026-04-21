@@ -670,6 +670,7 @@ export function MembersTable({ data: allData, memberOptions, contractStatusOptio
       )}
 
       <CrudTable
+        tableId="slp.members"
         data={data}
         columns={columns}
         title="組合員"

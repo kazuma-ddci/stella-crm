@@ -99,6 +99,7 @@ export function ExpenseCategoriesTable({ data, accountOptions, projectOptions }:
 
   return (
     <CrudTable
+      tableId="accounting.expense-categories"
       data={data}
       columns={columns}
       title="費目"

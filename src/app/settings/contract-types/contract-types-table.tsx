@@ -100,6 +100,7 @@ export function ContractTypesTable({ data, projectOptions, canEdit, filterProjec
   return (
     <>
       <CrudTable
+        tableId="settings.contract-types"
         data={data}
         columns={columns}
         title="契約種別"

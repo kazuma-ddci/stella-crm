@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { SessionProvider } from "@/components/providers/session-provider";
+import { TableSettingsProvider, type TableSettingsMap } from "@/components/providers/table-settings-provider";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { PermissionGuard } from "@/components/auth/permission-guard";
@@ -47,13 +48,14 @@ export default async function RootLayout({
   let projectNames: Record<string, string> = {};
   let bbsPendingCount = 0;
   let expenseApprovalCounts: Record<string, number> = {};
+  let tableSettings: TableSettingsMap = {};
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userId = (user as any)?.id as number | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userType = (user as any)?.userType;
   if (userId && userType === "staff") {
     try {
-      const [pref, projects, bbsPending, vendorPending, lenderPending, expenseApprovals] = await Promise.all([
+      const [pref, projects, bbsPending, vendorPending, lenderPending, expenseApprovals, staffMeta] = await Promise.all([
         prisma.staffSidebarPreference.findUnique({
           where: { staffId: userId },
           select: { hiddenItems: true },
@@ -81,7 +83,13 @@ export default async function RootLayout({
           },
           _count: true,
         }),
+        // スタッフのテーブルUI設定
+        prisma.masterStaff.findUnique({
+          where: { id: userId },
+          select: { tableSettings: true },
+        }),
       ]);
+      tableSettings = (staffMeta?.tableSettings as TableSettingsMap | null) ?? {};
       hiddenItems = pref?.hiddenItems ?? [];
       bbsPendingCount = bbsPending + vendorPending + lenderPending;
       projectNames = Object.fromEntries(projects.map((p) => [p.code, p.name]));
@@ -118,13 +126,15 @@ export default async function RootLayout({
         <SessionProvider refetchInterval={30}>
           <BuildVersionChecker />
           <PermissionGuard />
-          {user ? (
-            <AuthenticatedLayout serverUser={user} hiddenItems={hiddenItems} projectNames={projectNames} bbsPendingCount={bbsPendingCount} expenseApprovalCounts={expenseApprovalCounts}>
-              {children}
-            </AuthenticatedLayout>
-          ) : (
-            <main className="min-h-screen bg-gray-100">{children}</main>
-          )}
+          <TableSettingsProvider initial={tableSettings} isStaff={userType === "staff"}>
+            {user ? (
+              <AuthenticatedLayout serverUser={user} hiddenItems={hiddenItems} projectNames={projectNames} bbsPendingCount={bbsPendingCount} expenseApprovalCounts={expenseApprovalCounts}>
+                {children}
+              </AuthenticatedLayout>
+            ) : (
+              <main className="min-h-screen bg-gray-100">{children}</main>
+            )}
+          </TableSettingsProvider>
           <Toaster />
         </SessionProvider>
       </body>

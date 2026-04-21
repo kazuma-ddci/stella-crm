@@ -207,6 +207,7 @@ export function PaymentMethodsTable({
 
   return (
     <CrudTable
+      tableId="accounting.payment-methods"
       data={data}
       columns={columns}
       title="決済手段"
