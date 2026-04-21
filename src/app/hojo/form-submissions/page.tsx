@@ -109,7 +109,7 @@ export default async function HojoFormSubmissionsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">フォーム回答一覧</h1>
+      <h1 className="text-2xl font-bold">情報回収フォーム回答</h1>
       <LinkSelectorBanner unlinked={unlinked} canEdit={canEdit} />
       <SubmissionsTable data={data} />
     </div>

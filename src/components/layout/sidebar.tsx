@@ -367,7 +367,7 @@ const navigation: NavItem[] = [
         icon: ClipboardList,
         sectionLabel: true,
         children: [
-          { name: "フォーム回答一覧(仮)", href: "/hojo/form-submissions", icon: ClipboardList },
+          { name: "情報回収フォーム回答", href: "/hojo/form-submissions", icon: ClipboardList },
         ],
       },
       { name: "経費申請", href: "/hojo/expenses/new", icon: Plus },
