@@ -44,6 +44,11 @@ export function VendorDocumentStorageModal({
   const businessPlan = documents.find((d) => d.docType === "business_plan");
   const hasAnyDocument = documents.length > 0;
 
+  // ベンダーは /uploads/ への直接アクセスを middleware で 403 にされるため、
+  // 必ずこの認可付きエンドポイント経由で PDF を取得する。
+  const buildPdfUrl = (docType: string, forceDownload = false) =>
+    `/api/hojo/application-support/${applicationSupportId}/documents/${docType}/pdf${forceDownload ? "?dl=1" : ""}`;
+
   const renderTab = (
     doc: VendorDocumentInfo | undefined,
     title: string,
@@ -58,6 +63,7 @@ export function VendorDocumentStorageModal({
       );
     }
     const downloadName = buildDisplayFileName(docType, applicantName, doc.generatedAt);
+    const pdfUrl = buildPdfUrl(docType);
     return (
       <>
         <div className="flex items-center justify-between mb-3">
@@ -65,7 +71,7 @@ export function VendorDocumentStorageModal({
             生成日時:{" "}
             {new Date(doc.generatedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
           </div>
-          <a href={doc.filePath} download={downloadName}>
+          <a href={buildPdfUrl(docType, true)} download={downloadName}>
             <Button size="sm">
               <Download className="h-4 w-4 mr-1" />
               ダウンロード
@@ -73,8 +79,8 @@ export function VendorDocumentStorageModal({
           </a>
         </div>
         <iframe
-          key={doc.filePath}
-          src={`${doc.filePath}?t=${encodeURIComponent(doc.generatedAt)}`}
+          key={pdfUrl + doc.generatedAt}
+          src={`${pdfUrl}#t=${encodeURIComponent(doc.generatedAt)}`}
           className="flex-1 w-full border rounded"
           title={`${title}プレビュー`}
         />
