@@ -224,10 +224,9 @@ export function ApplicationSupportTable({
       inlineEditable: true,
     },
     {
-      key: "formTranscriptDate",
-      header: "フォーム内容確定日",
-      type: "date",
-      inlineEditable: true,
+      key: "formAnswerData",
+      header: "回答データ",
+      editable: false,
     },
     {
       key: "documentStorageUrl",
@@ -235,9 +234,10 @@ export function ApplicationSupportTable({
       editable: false,
     },
     {
-      key: "formAnswerData",
-      header: "回答データ",
-      editable: false,
+      key: "formTranscriptDate",
+      header: "フォーム内容確定日",
+      type: "date",
+      inlineEditable: true,
     },
     {
       key: "applicationFormDate",

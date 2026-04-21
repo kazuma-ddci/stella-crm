@@ -13,7 +13,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { DatePicker } from "@/components/ui/date-picker";
 import { recordVendorPasswordResetRequest, updateVendorFields, addWholesaleAccount, updateWholesaleAccountByVendor, deleteWholesaleAccountByVendor } from "./actions";
-import { Trash2, Plus, Pencil, FileText, ClipboardList, Banknote, Copy, Check, Eye } from "lucide-react";
+import { Trash2, Plus, Pencil, FileText, ClipboardList, Banknote, Copy, Check, Eye, FolderOpen } from "lucide-react";
+import { VendorDocumentStorageModal, type VendorDocumentInfo } from "./vendor-document-storage-modal";
 import Link from "next/link";
 import { VendorPortalLayout } from "./vendor-portal-layout";
 import { PortalLoginWrapper } from "@/components/alkes-portal";
@@ -44,6 +45,7 @@ type ApplicantRecord = {
   paymentReceivedAmount: number | null; paymentReceivedDate: string;
   subsidyReceivedDate: string; vendorMemo: string;
   formSubmission: FormSubmissionData | null;
+  documents: VendorDocumentInfo[];
 };
 
 type WholesaleRecord = {
@@ -238,6 +240,7 @@ function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; ca
   const [editData, setEditData] = useState({ subsidyDesiredDate: "", subsidyAmount: "", vendorMemo: "" });
   const [saving, setSaving] = useState(false);
   const [viewSubmission, setViewSubmission] = useState<FormSubmissionData | null>(null);
+  const [docRecord, setDocRecord] = useState<ApplicantRecord | null>(null);
   const router = useRouter();
 
   const openEdit = (r: ApplicantRecord) => {
@@ -275,23 +278,31 @@ function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; ca
           <TableHeader><TableRow>
             <TableHead>LINE名</TableHead><TableHead>申請者名</TableHead><TableHead>ステータス</TableHead>
             <TableHead>情報回収フォームURL</TableHead><TableHead>情報回収フォーム回答日</TableHead>
-            <TableHead>フォーム内容確定日</TableHead><TableHead>回答データ</TableHead><TableHead>支援制度申請フォーム回答日</TableHead>
+            <TableHead>回答データ</TableHead><TableHead>フォーム内容確定日</TableHead><TableHead>資料保管</TableHead><TableHead>支援制度申請フォーム回答日</TableHead>
             <TableHead>助成金着金希望日</TableHead><TableHead>助成金額</TableHead><TableHead>原資金額</TableHead><TableHead>原資着金日</TableHead>
             <TableHead>助成金着金日</TableHead><TableHead>備考</TableHead>
             {canEdit && <TableHead className="w-[60px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
           </TableRow></TableHeader>
           <TableBody>
-            {data.length === 0 ? <TableRow><TableCell colSpan={canEdit ? 15 : 14} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
+            {data.length === 0 ? <TableRow><TableCell colSpan={canEdit ? 16 : 15} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
             : data.map((r) => (
               <TableRow key={r.id} className="group/row">
                 <TableCell className="whitespace-nowrap">{r.lineName}</TableCell><TableCell className="whitespace-nowrap">{r.applicantName}</TableCell><TableCell className="whitespace-nowrap">{r.statusName}</TableCell>
                 <TableCell><FormUrlCopyButton uid={r.lineFriendUid} /></TableCell>
                 <TableCell className="whitespace-nowrap">{r.formAnswerDate}</TableCell>
-                <TableCell className="whitespace-nowrap">{r.formTranscriptDate}</TableCell>
                 <TableCell>
                   {r.formSubmission ? (
                     <button onClick={() => setViewSubmission(r.formSubmission)} className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap">
                       <Eye className="h-3 w-3" />回答を見る
+                    </button>
+                  ) : <span className="text-gray-400">-</span>}
+                </TableCell>
+                <TableCell className="whitespace-nowrap">{r.formTranscriptDate}</TableCell>
+                <TableCell className="whitespace-nowrap">
+                  {r.documents.length > 0 ? (
+                    <button onClick={() => setDocRecord(r)} className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800">
+                      <FolderOpen className="h-3 w-3" />資料保管
+                      <span className="ml-0.5 text-[10px] bg-blue-100 text-blue-800 px-1 rounded">{r.documents.length}</span>
                     </button>
                   ) : <span className="text-gray-400">-</span>}
                 </TableCell>
@@ -321,6 +332,16 @@ function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; ca
 
       {viewSubmission && (
         <FormAnswerModal data={viewSubmission} open={true} onClose={() => setViewSubmission(null)} />
+      )}
+
+      {docRecord && (
+        <VendorDocumentStorageModal
+          open={true}
+          onClose={() => setDocRecord(null)}
+          applicationSupportId={docRecord.id}
+          applicantName={docRecord.applicantName !== "-" ? docRecord.applicantName : docRecord.lineName}
+          documents={docRecord.documents}
+        />
       )}
     </>
   );

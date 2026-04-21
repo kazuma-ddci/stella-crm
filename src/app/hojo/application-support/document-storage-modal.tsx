@@ -37,6 +37,7 @@ import {
   type BusinessPlanSectionKey,
 } from "@/lib/hojo/business-plan-sections";
 import { RPA_DOC_LABELS, type RpaDocKey } from "@/lib/hojo/rpa-document-config";
+import { buildDisplayFileName } from "@/lib/hojo/document-filename";
 
 type RunningByDocType = {
   trainingReport: string | null;
@@ -375,19 +376,34 @@ export function DocumentStorageModal({
             </DialogDescription>
           </div>
           <div className="flex flex-col items-end gap-1 shrink-0">
-            <Button
-              size="sm"
-              onClick={handleShare}
-              disabled={sharing || !hasAnyDocument}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              <Share2 className="h-4 w-4 mr-1" />
-              {sharing
-                ? "共有中..."
-                : currentSharedDate
-                  ? "再共有（BBS社に）"
-                  : "BBS社に共有確定"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <a
+                href={`/api/hojo/application-support/${applicationSupportId}/documents-zip`}
+                download
+              >
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!hasAnyDocument}
+                >
+                  <Download className="h-4 w-4 mr-1" />
+                  一括ダウンロード
+                </Button>
+              </a>
+              <Button
+                size="sm"
+                onClick={handleShare}
+                disabled={sharing || !hasAnyDocument}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Share2 className="h-4 w-4 mr-1" />
+                {sharing
+                  ? "共有中..."
+                  : currentSharedDate
+                    ? "再共有（BBS社に）"
+                    : "BBS社に共有確定"}
+              </Button>
+            </div>
             {currentSharedDate && (
               <span className="text-xs text-gray-600">共有済み: {currentSharedDate}</span>
             )}
@@ -423,7 +439,7 @@ export function DocumentStorageModal({
                       <RefreshCw className="h-4 w-4 mr-1" />
                       再生成
                     </Button>
-                    <a href={trainingReport.filePath} download={trainingReport.fileName}>
+                    <a href={trainingReport.filePath} download={buildDisplayFileName("training_report", applicantName, trainingReport.generatedAt)}>
                       <Button size="sm">
                         <Download className="h-4 w-4 mr-1" />
                         ダウンロード
@@ -487,7 +503,7 @@ export function DocumentStorageModal({
                     </Button>
                     <a
                       href={supportApplication.filePath}
-                      download={supportApplication.fileName}
+                      download={buildDisplayFileName("support_application", applicantName, supportApplication.generatedAt)}
                     >
                       <Button size="sm">
                         <Download className="h-4 w-4 mr-1" />
@@ -587,7 +603,7 @@ export function DocumentStorageModal({
                         <RefreshCw className="h-4 w-4 mr-1" />
                         再生成(Claude)
                       </Button>
-                      <a href={businessPlan.filePath} download={businessPlan.fileName}>
+                      <a href={businessPlan.filePath} download={buildDisplayFileName("business_plan", applicantName, businessPlan.generatedAt)}>
                         <Button size="sm">
                           <Download className="h-4 w-4 mr-1" />
                           ダウンロード

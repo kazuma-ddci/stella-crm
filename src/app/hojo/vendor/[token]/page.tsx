@@ -125,7 +125,7 @@ export default async function VendorPage({
   // 助成金申請者管理データ（vendorIdで直接フィルタ。申請者管理ページがfree1→vendorIdを自動同期済み）
   const records = await prisma.hojoApplicationSupport.findMany({
     where: { vendorId: vendor.id, deletedAt: null },
-    include: { lineFriend: true, status: true },
+    include: { lineFriend: true, status: true, documents: true },
     orderBy: { lineFriendId: "asc" },
   });
 
@@ -183,6 +183,12 @@ export default async function VendorPage({
     subsidyReceivedDate: r.subsidyReceivedDate?.toISOString().slice(0, 10) ?? "-",
     vendorMemo: r.vendorMemo || "",
     formSubmission: formByUid.get(r.lineFriend.uid) ?? null,
+    documents: r.documents.map((d) => ({
+      docType: d.docType,
+      filePath: d.filePath,
+      fileName: d.fileName,
+      generatedAt: d.generatedAt.toISOString(),
+    })),
   }));
 
   // 卸アカウント管理データ（ベンダー側削除されたものは非表示）
