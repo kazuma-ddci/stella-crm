@@ -6305,7 +6305,10 @@ model StaffMeetingIntegration {
 // ============================================
 model SlpZoomAiPromptTemplate {
   id               Int      @id @default(autoincrement())
-  templateKey      String   @unique @map("template_key") @db.VarChar(100)
+  templateKey      String   @map("template_key") @db.VarChar(100)
+  // プロジェクト別のプロンプト（null = 全プロジェクト共通）。
+  // 議事録要約など、プロジェクトごとに表現を変えたいものは project_code を設定する。
+  projectCode      String?  @map("project_code") @db.VarChar(20)
   label            String   @db.VarChar(200)
   promptBody       String   @map("prompt_body") @db.Text
   model            String   @default("claude-sonnet-4-6") @db.VarChar(80)
@@ -6316,6 +6319,7 @@ model SlpZoomAiPromptTemplate {
 
   updatedBy MasterStaff? @relation("SlpZoomAiPromptTemplateUpdater", fields: [updatedByStaffId], references: [id])
 
+  @@unique([projectCode, templateKey])
   @@map("slp_zoom_ai_prompt_templates")
 }
 

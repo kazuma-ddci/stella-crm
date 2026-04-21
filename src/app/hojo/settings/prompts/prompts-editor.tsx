@@ -33,6 +33,7 @@ type ZoomTemplate = {
   promptBody: string;
   model: string;
   maxTokens: number;
+  projectCode: string | null;
   updatedAt: Date;
   updatedBy: { name: string } | null;
 };
@@ -147,7 +148,12 @@ export function PromptsEditor({
           <div key={r.id} className="rounded-lg border bg-white p-4 space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
-                <div className="font-semibold">{r.label}</div>
+                <div className="font-semibold">
+                  {r.label}
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    {r.projectCode === "hojo" ? "（補助金プロジェクト用）" : "（全プロジェクト共通）"}
+                  </span>
+                </div>
                 <div className="text-xs text-muted-foreground font-mono">
                   {r.templateKey}
                 </div>

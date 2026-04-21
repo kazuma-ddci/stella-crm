@@ -10,9 +10,19 @@ async function requireSlpEdit() {
   ]);
 }
 
+// SLP 側では以下を編集対象とする:
+// - summary: projectCode=slp の専用行
+// - participants_extract / thankyou_* : projectCode=null の共通行
+// HOJO 専用の summary (projectCode=hojo) は除外。
 export async function listZoomAiPromptTemplates() {
   await requireSlpEdit();
   return prisma.slpZoomAiPromptTemplate.findMany({
+    where: {
+      OR: [
+        { templateKey: "summary", projectCode: "slp" },
+        { projectCode: null },
+      ],
+    },
     orderBy: { id: "asc" },
     include: { updatedBy: { select: { name: true } } },
   });

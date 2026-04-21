@@ -25,6 +25,7 @@ export default async function ZoomAiPromptsPage() {
               promptBody: r.promptBody,
               model: r.model,
               maxTokens: r.maxTokens,
+              projectCode: r.projectCode,
               updatedAt: r.updatedAt,
               updatedBy: r.updatedBy ? { name: r.updatedBy.name } : null,
             }))}

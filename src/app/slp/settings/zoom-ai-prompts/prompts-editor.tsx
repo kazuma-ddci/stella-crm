@@ -22,6 +22,7 @@ type TemplateRow = {
   promptBody: string;
   model: string;
   maxTokens: number;
+  projectCode: string | null;
   updatedAt: Date;
   updatedBy: { name: string } | null;
 };
@@ -90,7 +91,12 @@ export function PromptsEditor({ rows }: { rows: TemplateRow[] }) {
         return (
           <div key={r.id} className="rounded-lg border p-4 space-y-3">
             <div>
-              <div className="font-semibold">{r.label}</div>
+              <div className="font-semibold">
+                {r.label}
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  {r.projectCode === "slp" ? "（SLPプロジェクト用）" : "（全プロジェクト共通）"}
+                </span>
+              </div>
               <div className="text-xs text-muted-foreground">
                 key: <code>{r.templateKey}</code>
                 {r.updatedBy && (

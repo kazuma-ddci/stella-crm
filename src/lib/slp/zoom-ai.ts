@@ -9,14 +9,27 @@ import { logAutomationError } from "@/lib/automation-error";
 // プロンプトは slp_zoom_ai_prompt_templates に保存（編集可能）
 // ============================================
 
-async function getPrompt(templateKey: string) {
-  const tpl = await prisma.slpZoomAiPromptTemplate.findUnique({
-    where: { templateKey },
-  });
-  if (!tpl) {
-    throw new Error(`AIプロンプトテンプレートが存在しません: ${templateKey}`);
+/**
+ * プロジェクト別プロンプトを取得する。
+ * 指定 projectCode の専用行があればそれを返し、なければ共通行 (projectCode=null) を返す。
+ */
+async function getPrompt(templateKey: string, projectCode?: "slp" | "hojo") {
+  // プロジェクト別を優先、なければ共通
+  if (projectCode) {
+    const projectSpecific = await prisma.slpZoomAiPromptTemplate.findUnique({
+      where: { projectCode_templateKey: { projectCode, templateKey } },
+    });
+    if (projectSpecific) return projectSpecific;
   }
-  return tpl;
+  const shared = await prisma.slpZoomAiPromptTemplate.findFirst({
+    where: { projectCode: null, templateKey },
+  });
+  if (!shared) {
+    throw new Error(
+      `AIプロンプトテンプレートが存在しません: ${templateKey} (projectCode=${projectCode ?? "null"})`,
+    );
+  }
+  return shared;
 }
 
 /**
@@ -43,7 +56,7 @@ export async function generateClaudeSummaryForRecording(params: {
     throw new Error("文字起こしテキストがありません");
   }
 
-  const tpl = await getPrompt("summary");
+  const tpl = await getPrompt("summary", "slp");
   const isBriefing = recording.category === "briefing";
   const companyName =
     recording.contactHistory?.companyRecord?.companyName ?? "";
