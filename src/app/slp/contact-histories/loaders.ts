@@ -70,9 +70,16 @@ export async function loadContactHistoryMasters() {
       .map((a) => ({ value: String(a.staff.id), label: a.staff.name }));
   }
 
-  const [slpCompanyCustomerTypeId, slpAgencyCustomerTypeId] = await Promise.all([
+  const [
+    slpCompanyCustomerTypeId,
+    slpAgencyCustomerTypeId,
+    slpLineUsersCustomerTypeId,
+    slpOtherCustomerTypeId,
+  ] = await Promise.all([
     getCustomerTypeIdByCode("slp_company").catch(() => 0),
     getCustomerTypeIdByCode("slp_agency").catch(() => 0),
+    getCustomerTypeIdByCode("slp_line_users").catch(() => 0),
+    getCustomerTypeIdByCode("slp_other").catch(() => 0),
   ]);
 
   return {
@@ -103,6 +110,8 @@ export async function loadContactHistoryMasters() {
     })),
     slpCompanyCustomerTypeId,
     slpAgencyCustomerTypeId,
+    slpLineUsersCustomerTypeId,
+    slpOtherCustomerTypeId,
   };
 }
 

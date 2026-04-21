@@ -35,7 +35,8 @@ import type {
   CustomerType,
   ContactCategoryOption,
 } from "@/components/contact-history-modal";
-import { LineUsersContactFormModal } from "./line-users-contact-form-modal";
+import type { FileInfo } from "@/components/multi-file-upload";
+import { ActivityContactForm, type EditTarget } from "./activity-contact-form-modal";
 import { deleteSlpContactHistory } from "@/app/slp/contact-histories/actions";
 
 type LineFriendOption = { id: number; label: string };
@@ -51,11 +52,12 @@ type HistoryRow = {
   customerParticipants: string | null;
   meetingMinutes: string | null;
   note: string | null;
-  targetType: "company_record" | "agency" | "line_users";
+  targetType: string;
   companyRecordId: number | null;
   companyRecordName: string | null;
   agencyId: number | null;
   agencyName: string | null;
+  sessionId: number | null;
   customerTypeIds: number[];
   customerTypes: {
     id: number;
@@ -96,10 +98,16 @@ type Props = {
   contactMethodOptions: { value: string; label: string }[];
   staffOptions: { value: string; label: string }[];
   customerTypes: CustomerType[];
+  staffByProject: Record<number, { value: string; label: string }[]>;
   contactCategories: ContactCategoryOption[];
+  companyRecordOptions: { value: string; label: string }[];
+  agencyOptions: { value: string; label: string }[];
+  sessionOptionsByCompany: Record<number, { value: string; label: string }[]>;
+  slpCompanyCustomerTypeId: number;
+  slpAgencyCustomerTypeId: number;
+  slpLineUsersCustomerTypeId: number;
+  slpOtherCustomerTypeId: number;
 };
-
-type TargetFilter = "all" | "company_record" | "agency" | "line_users" | "unlinked";
 
 export function ContactHistoriesClient({
   histories,
@@ -107,15 +115,24 @@ export function ContactHistoriesClient({
   contactMethodOptions,
   staffOptions,
   customerTypes,
+  staffByProject,
   contactCategories,
+  companyRecordOptions,
+  agencyOptions,
+  sessionOptionsByCompany,
+  slpCompanyCustomerTypeId,
+  slpAgencyCustomerTypeId,
+  slpLineUsersCustomerTypeId,
+  slpOtherCustomerTypeId,
 }: Props) {
   const router = useRouter();
-  const [targetFilter, setTargetFilter] = useState<TargetFilter>("all");
+  const [customerTypeFilter, setCustomerTypeFilter] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [methodFilter, setMethodFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [staffFilter, setStaffFilter] = useState<string>("all");
-  const [isModalOpen, setModalOpen] = useState(false);
+  const [isFormOpen, setFormOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<HistoryRow | null>(null);
   const [viewTarget, setViewTarget] = useState<HistoryRow | null>(null);
   const [zoomModalTarget, setZoomModalTarget] = useState<{
@@ -124,25 +141,28 @@ export function ContactHistoriesClient({
     hasRetryable: boolean;
   } | null>(null);
 
+  const slpCustomerTypes = useMemo(
+    () => customerTypes.filter((ct) => ct.project.name && (ct.projectId === customerTypes.find((x) => x.id === slpCompanyCustomerTypeId)?.projectId)),
+    [customerTypes, slpCompanyCustomerTypeId]
+  );
+
   const filtered = useMemo(() => {
     return histories.filter((h) => {
-      if (targetFilter !== "all") {
-        if (targetFilter === "unlinked") {
-          if (!(h.targetType === "line_users" && h.lineFriends.length === 0)) return false;
-        } else if (h.targetType !== targetFilter) {
-          return false;
-        }
+      if (customerTypeFilter !== "all") {
+        const ctId = parseInt(customerTypeFilter, 10);
+        if (!h.customerTypeIds.includes(ctId)) return false;
       }
       if (dateFrom && h.contactDate < dateFrom) return false;
       if (dateTo && h.contactDate > dateTo + "T23:59:59") return false;
       if (methodFilter !== "all" && String(h.contactMethodId) !== methodFilter) return false;
+      if (categoryFilter !== "all" && String(h.contactCategoryId) !== categoryFilter) return false;
       if (staffFilter !== "all") {
         const ids = (h.assignedTo ?? "").split(",").map((s) => s.trim());
         if (!ids.includes(staffFilter)) return false;
       }
       return true;
     });
-  }, [histories, targetFilter, dateFrom, dateTo, methodFilter, staffFilter]);
+  }, [histories, customerTypeFilter, dateFrom, dateTo, methodFilter, categoryFilter, staffFilter]);
 
   const staffMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -161,20 +181,37 @@ export function ContactHistoriesClient({
     }
   };
 
+  const toEditTarget = (h: HistoryRow): EditTarget => ({
+    id: h.id,
+    contactDate: h.contactDate,
+    contactMethodId: h.contactMethodId,
+    contactCategoryId: h.contactCategoryId,
+    assignedTo: h.assignedTo,
+    customerParticipants: h.customerParticipants,
+    meetingMinutes: h.meetingMinutes,
+    note: h.note,
+    targetType: h.targetType,
+    companyRecordId: h.companyRecordId,
+    agencyId: h.agencyId,
+    sessionId: h.sessionId,
+    customerTypeIds: h.customerTypeIds,
+    lineFriends: h.lineFriends,
+    files: h.files as unknown as FileInfo[],
+  });
+
   return (
     <div className="space-y-4">
       {/* フィルタ */}
-      <div className="rounded-lg border bg-white p-4 grid grid-cols-1 md:grid-cols-5 gap-3">
+      <div className="rounded-lg border bg-white p-4 grid grid-cols-1 md:grid-cols-6 gap-3">
         <div>
-          <Label className="text-xs">相手種別</Label>
-          <Select value={targetFilter} onValueChange={(v) => setTargetFilter(v as TargetFilter)}>
+          <Label className="text-xs">顧客種別</Label>
+          <Select value={customerTypeFilter} onValueChange={setCustomerTypeFilter}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">すべて</SelectItem>
-              <SelectItem value="company_record">事業者</SelectItem>
-              <SelectItem value="agency">代理店</SelectItem>
-              <SelectItem value="line_users">LINEユーザー</SelectItem>
-              <SelectItem value="unlinked">紐付けなし</SelectItem>
+              {slpCustomerTypes.map((ct) => (
+                <SelectItem key={ct.id} value={String(ct.id)}>{ct.name}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -186,6 +223,18 @@ export function ContactHistoriesClient({
               <SelectItem value="all">すべて</SelectItem>
               {contactMethodOptions.map((o) => (
                 <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs">接触種別</Label>
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">すべて</SelectItem>
+              {contactCategories.map((c) => (
+                <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -212,13 +261,39 @@ export function ContactHistoriesClient({
         </div>
       </div>
 
-      {/* 新規登録ボタン */}
-      <div className="flex justify-end">
-        <Button onClick={() => { setEditTarget(null); setModalOpen(true); }}>
-          <Plus className="h-4 w-4 mr-1" />
-          接触履歴を追加
-        </Button>
+      {/* 新規登録ボタン / インラインフォーム */}
+      <div className="flex justify-between items-center">
+        <span className="text-sm text-muted-foreground">
+          {filtered.length} 件 / 全 {histories.length} 件
+        </span>
+        {!isFormOpen && (
+          <Button onClick={() => { setEditTarget(null); setFormOpen(true); }}>
+            <Plus className="h-4 w-4 mr-1" />
+            接触履歴を追加
+          </Button>
+        )}
       </div>
+
+      {/* インラインフォーム（事業者詳細タブと同じUI） */}
+      <ActivityContactForm
+        open={isFormOpen}
+        onClose={() => { setFormOpen(false); setEditTarget(null); }}
+        editTarget={editTarget ? toEditTarget(editTarget) : null}
+        contactMethodOptions={contactMethodOptions}
+        staffOptions={staffOptions}
+        customerTypes={customerTypes}
+        staffByProject={staffByProject}
+        contactCategories={contactCategories}
+        companyRecordOptions={companyRecordOptions}
+        agencyOptions={agencyOptions}
+        lineFriendOptions={lineFriendOptions}
+        sessionOptionsByCompany={sessionOptionsByCompany}
+        slpCompanyCustomerTypeId={slpCompanyCustomerTypeId}
+        slpAgencyCustomerTypeId={slpAgencyCustomerTypeId}
+        slpLineUsersCustomerTypeId={slpLineUsersCustomerTypeId}
+        slpOtherCustomerTypeId={slpOtherCustomerTypeId}
+        onSaved={() => router.refresh()}
+      />
 
       {/* 一覧 */}
       <div className="rounded-lg border bg-white overflow-x-auto">
@@ -226,7 +301,6 @@ export function ContactHistoriesClient({
           <TableHeader>
             <TableRow>
               <TableHead>日時</TableHead>
-              <TableHead>相手種別</TableHead>
               <TableHead>相手</TableHead>
               <TableHead>接触方法</TableHead>
               <TableHead>接触種別</TableHead>
@@ -240,7 +314,7 @@ export function ContactHistoriesClient({
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="text-center text-gray-500 py-6">
+                <TableCell colSpan={9} className="text-center text-gray-500 py-6">
                   該当する接触履歴はありません
                 </TableCell>
               </TableRow>
@@ -255,54 +329,41 @@ export function ContactHistoriesClient({
                   <TableRow key={h.id}>
                     <TableCell className="whitespace-nowrap">
                       {new Date(h.contactDate).toLocaleString("ja-JP", {
-                        year: "numeric",
-                        month: "2-digit",
-                        day: "2-digit",
-                        hour: "2-digit",
-                        minute: "2-digit",
+                        year: "numeric", month: "2-digit", day: "2-digit",
+                        hour: "2-digit", minute: "2-digit",
                       })}
                     </TableCell>
                     <TableCell>
-                      {h.targetType === "company_record" && <Badge variant="secondary">事業者</Badge>}
-                      {h.targetType === "agency" && <Badge variant="secondary">代理店</Badge>}
-                      {h.targetType === "line_users" && (
-                        h.lineFriends.length === 0
-                          ? <Badge variant="outline">紐付けなし</Badge>
-                          : <Badge variant="secondary">LINEユーザー</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {h.targetType === "company_record" && h.companyRecordId && (
-                        <Link
-                          href={`/slp/companies/${h.companyRecordId}`}
-                          className="text-blue-600 hover:underline"
-                        >
-                          {h.companyRecordName ?? `事業者#${h.companyRecordId}`}
-                          <ExternalLink className="inline h-3 w-3 ml-1" />
-                        </Link>
-                      )}
-                      {h.targetType === "agency" && h.agencyId && (
-                        <Link
-                          href={`/slp/agencies/${h.agencyId}`}
-                          className="text-blue-600 hover:underline"
-                        >
-                          {h.agencyName ?? `代理店#${h.agencyId}`}
-                          <ExternalLink className="inline h-3 w-3 ml-1" />
-                        </Link>
-                      )}
-                      {h.targetType === "line_users" && (
-                        h.lineFriends.length === 0
-                          ? <span className="text-gray-400">-</span>
-                          : (
-                            <div className="space-y-0.5">
-                              {h.lineFriends.map((lf) => (
-                                <div key={lf.id} className="text-sm">
-                                  {lf.id} {lf.snsname ?? ""}
-                                </div>
-                              ))}
-                            </div>
-                          )
-                      )}
+                      <div className="space-y-0.5">
+                        {h.companyRecordId && (
+                          <Link
+                            href={`/slp/companies/${h.companyRecordId}`}
+                            className="text-blue-600 hover:underline inline-flex items-center gap-1 text-sm"
+                          >
+                            {h.companyRecordName ?? `事業者#${h.companyRecordId}`}
+                            <ExternalLink className="h-3 w-3" />
+                          </Link>
+                        )}
+                        {h.agencyId && (
+                          <Link
+                            href={`/slp/agencies/${h.agencyId}`}
+                            className="text-blue-600 hover:underline inline-flex items-center gap-1 text-sm"
+                          >
+                            {h.agencyName ?? `代理店#${h.agencyId}`}
+                            <ExternalLink className="h-3 w-3" />
+                          </Link>
+                        )}
+                        {h.lineFriends.length > 0 && (
+                          <div className="text-sm">
+                            {h.lineFriends.map((lf) => `${lf.id} ${lf.snsname ?? ""}`).join(", ")}
+                          </div>
+                        )}
+                        {!h.companyRecordId && !h.agencyId && h.lineFriends.length === 0 && (
+                          <span className="text-sm text-muted-foreground">
+                            {h.customerParticipants || "-"}
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>{h.contactMethodName ?? "-"}</TableCell>
                     <TableCell>{h.contactCategoryName ?? "-"}</TableCell>
@@ -348,7 +409,7 @@ export function ContactHistoriesClient({
                       )}
                     </TableCell>
                     <TableCell className="max-w-xs truncate">{h.note ?? "-"}</TableCell>
-                    <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]">
+                    <TableCell className="sticky right-0 z-10 bg-white shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]">
                       <div className="flex items-center justify-center gap-0.5">
                         <Button
                           variant="ghost"
@@ -362,7 +423,7 @@ export function ContactHistoriesClient({
                           variant="ghost"
                           size="sm"
                           title="編集"
-                          onClick={() => { setEditTarget(h); setModalOpen(true); }}
+                          onClick={() => { setEditTarget(h); setFormOpen(true); }}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -384,18 +445,6 @@ export function ContactHistoriesClient({
         </Table>
       </div>
 
-      {/* 登録モーダル */}
-      <LineUsersContactFormModal
-        open={isModalOpen}
-        onOpenChange={setModalOpen}
-        lineFriendOptions={lineFriendOptions}
-        contactMethodOptions={contactMethodOptions}
-        staffOptions={staffOptions}
-        customerTypes={customerTypes}
-        contactCategories={contactCategories}
-        editTarget={editTarget}
-      />
-
       {/* Zoom統合モーダル（Zoom商談録画ページと同じもの） */}
       {zoomModalTarget && (
         <UnifiedDetailModal
@@ -415,53 +464,48 @@ export function ContactHistoriesClient({
           </DialogHeader>
           {viewTarget && (
             <div className="space-y-4 flex-1 min-h-0 overflow-y-auto px-6 py-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <DetailField label="日時">
-                  {new Date(viewTarget.contactDate).toLocaleString("ja-JP", {
-                    year: "numeric", month: "2-digit", day: "2-digit",
-                    hour: "2-digit", minute: "2-digit",
-                  })}
-                </DetailField>
-                <DetailField label="相手種別">
-                  {viewTarget.targetType === "company_record" && "事業者"}
-                  {viewTarget.targetType === "agency" && "代理店"}
-                  {viewTarget.targetType === "line_users" &&
-                    (viewTarget.lineFriends.length === 0 ? "紐付けなし" : "LINEユーザー")}
-                </DetailField>
-              </div>
+              <DetailField label="日時">
+                {new Date(viewTarget.contactDate).toLocaleString("ja-JP", {
+                  year: "numeric", month: "2-digit", day: "2-digit",
+                  hour: "2-digit", minute: "2-digit",
+                })}
+              </DetailField>
 
               <DetailField label="相手">
-                {viewTarget.targetType === "company_record" && viewTarget.companyRecordId ? (
-                  <Link
-                    href={`/slp/companies/${viewTarget.companyRecordId}`}
-                    className="text-blue-600 hover:underline inline-flex items-center"
-                  >
-                    {viewTarget.companyRecordName ?? `事業者#${viewTarget.companyRecordId}`}
-                    <ExternalLink className="inline h-3 w-3 ml-1" />
-                  </Link>
-                ) : viewTarget.targetType === "agency" && viewTarget.agencyId ? (
-                  <Link
-                    href={`/slp/agencies/${viewTarget.agencyId}`}
-                    className="text-blue-600 hover:underline inline-flex items-center"
-                  >
-                    {viewTarget.agencyName ?? `代理店#${viewTarget.agencyId}`}
-                    <ExternalLink className="inline h-3 w-3 ml-1" />
-                  </Link>
-                ) : viewTarget.targetType === "line_users" ? (
-                  viewTarget.lineFriends.length === 0 ? (
-                    <EmptyText />
-                  ) : (
-                    <div className="space-y-0.5">
-                      {viewTarget.lineFriends.map((lf) => (
-                        <div key={lf.id}>
-                          {lf.id} {lf.snsname ?? ""}
-                        </div>
-                      ))}
+                <div className="space-y-1">
+                  {viewTarget.companyRecordId && (
+                    <Link
+                      href={`/slp/companies/${viewTarget.companyRecordId}`}
+                      className="text-blue-600 hover:underline inline-flex items-center gap-1"
+                    >
+                      事業者: {viewTarget.companyRecordName ?? `#${viewTarget.companyRecordId}`}
+                      <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  )}
+                  {viewTarget.agencyId && (
+                    <Link
+                      href={`/slp/agencies/${viewTarget.agencyId}`}
+                      className="text-blue-600 hover:underline inline-flex items-center gap-1"
+                    >
+                      代理店: {viewTarget.agencyName ?? `#${viewTarget.agencyId}`}
+                      <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  )}
+                  {viewTarget.lineFriends.length > 0 && (
+                    <div>
+                      LINEユーザー:{" "}
+                      {viewTarget.lineFriends.map((lf) => `${lf.id} ${lf.snsname ?? ""}`).join(", ")}
                     </div>
-                  )
-                ) : (
-                  <EmptyText />
-                )}
+                  )}
+                  {!viewTarget.companyRecordId &&
+                    !viewTarget.agencyId &&
+                    viewTarget.lineFriends.length === 0 &&
+                    (viewTarget.customerParticipants ? (
+                      <span>{viewTarget.customerParticipants}</span>
+                    ) : (
+                      <EmptyText />
+                    ))}
+                </div>
               </DetailField>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

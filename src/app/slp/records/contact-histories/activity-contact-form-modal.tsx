@@ -28,7 +28,8 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { ChevronsUpDown, Check, Loader2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { ChevronsUpDown, Check, Loader2, X } from "lucide-react";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { ja } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
@@ -38,19 +39,21 @@ import type {
 } from "@/components/contact-history-modal";
 import { MultiFileUpload, type FileInfo } from "@/components/multi-file-upload";
 import {
-  addHojoContactHistoryUnified,
-  updateHojoContactHistory,
-} from "@/app/hojo/contact-histories/actions";
+  addSlpContactHistoryUnified,
+  updateSlpContactHistory,
+} from "@/app/slp/contact-histories/actions";
 import {
   ZoomEntriesForAdd,
   type ZoomAddEntry,
-} from "@/app/hojo/contact-histories/zoom-entries-for-add";
-import { ZoomRecordingSection } from "@/app/hojo/contact-histories/zoom-recording-section";
-import { addManualZoomToHojoContactHistory } from "@/app/hojo/contact-histories/zoom-actions";
+} from "@/app/slp/contact-histories/zoom-entries-for-add";
+import { ZoomRecordingSection } from "@/app/slp/contact-histories/zoom-recording-section";
+import { addManualZoomToContactHistory } from "@/app/slp/contact-histories/zoom-actions";
 
 registerLocale("ja", ja);
 
-export type HojoEditTarget = {
+type LineFriendOption = { id: number; label: string };
+
+export type EditTarget = {
   id: number;
   contactDate: string;
   contactMethodId: number | null;
@@ -60,25 +63,31 @@ export type HojoEditTarget = {
   meetingMinutes: string | null;
   note: string | null;
   targetType: string;
-  vendorId: number | null;
+  companyRecordId: number | null;
+  agencyId: number | null;
+  sessionId: number | null;
   customerTypeIds: number[];
+  lineFriends: { id: number; snsname: string | null; uid: string }[];
   files?: FileInfo[];
 };
 
 type Props = {
   open: boolean;
   onClose: () => void;
-  editTarget?: HojoEditTarget | null;
+  editTarget?: EditTarget | null;
   contactMethodOptions: { value: string; label: string }[];
   staffOptions: { value: string; label: string }[];
   customerTypes: CustomerType[];
   staffByProject: Record<number, { value: string; label: string }[]>;
   contactCategories: ContactCategoryOption[];
-  vendorOptions: { value: string; label: string }[];
-  hojoVendorCustomerTypeId: number;
-  hojoBbsCustomerTypeId: number;
-  hojoLenderCustomerTypeId: number;
-  hojoOtherCustomerTypeId: number;
+  companyRecordOptions: { value: string; label: string }[];
+  agencyOptions: { value: string; label: string }[];
+  lineFriendOptions: LineFriendOption[];
+  sessionOptionsByCompany: Record<number, { value: string; label: string }[]>;
+  slpCompanyCustomerTypeId: number;
+  slpAgencyCustomerTypeId: number;
+  slpLineUsersCustomerTypeId: number;
+  slpOtherCustomerTypeId: number;
   onSaved?: () => void;
 };
 
@@ -91,17 +100,21 @@ export function ActivityContactForm({
   customerTypes,
   staffByProject,
   contactCategories,
-  vendorOptions,
-  hojoVendorCustomerTypeId,
-  hojoBbsCustomerTypeId,
-  hojoLenderCustomerTypeId,
-  hojoOtherCustomerTypeId,
+  companyRecordOptions,
+  agencyOptions,
+  lineFriendOptions,
+  sessionOptionsByCompany,
+  slpCompanyCustomerTypeId,
+  slpAgencyCustomerTypeId,
+  slpLineUsersCustomerTypeId,
+  slpOtherCustomerTypeId,
   onSaved,
 }: Props) {
   const router = useRouter();
 
   // 新規作成直後に自動編集モードへ切り替えるための内部 state
-  const [localNewTarget, setLocalNewTarget] = useState<HojoEditTarget | null>(null);
+  // 親から渡される editTarget が優先、無ければ localNewTarget が使われる
+  const [localNewTarget, setLocalNewTarget] = useState<EditTarget | null>(null);
   const effectiveEditTarget = editTarget ?? localNewTarget;
   const isEdit = !!effectiveEditTarget;
 
@@ -114,16 +127,30 @@ export function ActivityContactForm({
   const [meetingMinutes, setMeetingMinutes] = useState("");
   const [note, setNote] = useState("");
   const [files, setFiles] = useState<FileInfo[]>([]);
-  const [vendorId, setVendorId] = useState<string>("");
+  // エンティティ選択
+  const [companyRecordId, setCompanyRecordId] = useState<string>("");
+  const [agencyId, setAgencyId] = useState<string>("");
+  const [lineFriendIds, setLineFriendIds] = useState<number[]>([]);
+  const [sessionId, setSessionId] = useState<string>("__none__");
+  // Popover状態
   const [staffPopoverOpen, setStaffPopoverOpen] = useState(false);
+  const [lineFriendPopoverOpen, setLineFriendPopoverOpen] = useState(false);
+  // Zoom議事録連携
   const [zoomEntries, setZoomEntries] = useState<ZoomAddEntry[]>([]);
   const [submitting, setSubmitting] = useState(false);
+
+  const lineFriendLabelById = useMemo(() => {
+    const m = new Map<number, string>();
+    lineFriendOptions.forEach((o) => m.set(o.id, o.label));
+    return m;
+  }, [lineFriendOptions]);
 
   // フォームが閉じたら localNewTarget をリセット
   useEffect(() => {
     if (!open) setLocalNewTarget(null);
   }, [open]);
 
+  // 編集時の初期値ロード（effectiveEditTarget を参照）
   useEffect(() => {
     if (!open) return;
     if (effectiveEditTarget) {
@@ -140,7 +167,10 @@ export function ActivityContactForm({
       setMeetingMinutes(effectiveEditTarget.meetingMinutes ?? "");
       setNote(effectiveEditTarget.note ?? "");
       setFiles(effectiveEditTarget.files ?? []);
-      setVendorId(effectiveEditTarget.vendorId ? String(effectiveEditTarget.vendorId) : "");
+      setCompanyRecordId(effectiveEditTarget.companyRecordId ? String(effectiveEditTarget.companyRecordId) : "");
+      setAgencyId(effectiveEditTarget.agencyId ? String(effectiveEditTarget.agencyId) : "");
+      setLineFriendIds(effectiveEditTarget.lineFriends.map((lf) => lf.id));
+      setSessionId(effectiveEditTarget.sessionId ? String(effectiveEditTarget.sessionId) : "__none__");
       setZoomEntries([]);
     } else {
       setContactDate(new Date());
@@ -152,7 +182,10 @@ export function ActivityContactForm({
       setMeetingMinutes("");
       setNote("");
       setFiles([]);
-      setVendorId("");
+      setCompanyRecordId("");
+      setAgencyId("");
+      setLineFriendIds([]);
+      setSessionId("__none__");
       setZoomEntries([]);
     }
   }, [open, effectiveEditTarget]);
@@ -169,6 +202,13 @@ export function ActivityContactForm({
     );
   };
 
+  const toggleLineFriend = (id: number) => {
+    setLineFriendIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  // プロジェクトごとにグループ化
   const projectGroups = useMemo(() => {
     const groups: Record<string, { projectId: number; displayOrder: number; types: CustomerType[] }> = {};
     customerTypes.forEach((ct) => {
@@ -181,6 +221,7 @@ export function ActivityContactForm({
     return Object.entries(groups).sort(([, a], [, b]) => a.displayOrder - b.displayOrder);
   }, [customerTypes]);
 
+  // 選択中のプロジェクトIDから担当者候補を絞る
   const availableStaffOptions = useMemo(() => {
     if (customerTypeIds.length === 0) return staffOptions;
     const projectIds = new Set<number>();
@@ -198,6 +239,7 @@ export function ActivityContactForm({
     return list.length > 0 ? list : staffOptions;
   }, [customerTypeIds, customerTypes, staffByProject, staffOptions]);
 
+  // 選択中のプロジェクトIDから接触種別を絞る
   const availableCategories = useMemo(() => {
     if (customerTypeIds.length === 0) return contactCategories;
     const projectIds = new Set<number>();
@@ -208,8 +250,18 @@ export function ActivityContactForm({
     return contactCategories.filter((cc) => projectIds.has(cc.projectId));
   }, [customerTypeIds, customerTypes, contactCategories]);
 
-  const showVendorSelector = customerTypeIds.includes(hojoVendorCustomerTypeId);
+  const showCompanySelector = customerTypeIds.includes(slpCompanyCustomerTypeId);
+  const showAgencySelector = customerTypeIds.includes(slpAgencyCustomerTypeId);
+  const showLineUsersSelector = customerTypeIds.includes(slpLineUsersCustomerTypeId);
+  const showSessionSelector = showCompanySelector && companyRecordId !== "";
 
+  const sessionOptions = useMemo(() => {
+    if (!showSessionSelector) return [];
+    const cid = parseInt(companyRecordId, 10);
+    return sessionOptionsByCompany[cid] ?? [];
+  }, [showSessionSelector, companyRecordId, sessionOptionsByCompany]);
+
+  // Zoomエントリ処理（新規追加時のみ）
   const processZoomEntries = async (
     contactHistoryId: number,
     toastId: string | number
@@ -231,7 +283,7 @@ export function ActivityContactForm({
         failReasons.push(`"${entry.zoomUrl.slice(0, 40)}..." ホストスタッフ未選択`);
         continue;
       }
-      const r = await addManualZoomToHojoContactHistory({
+      const r = await addManualZoomToContactHistory({
         contactHistoryId,
         zoomUrl: entry.zoomUrl,
         hostStaffId: parseInt(entry.hostStaffId, 10),
@@ -269,19 +321,27 @@ export function ActivityContactForm({
       toast.error("顧客種別を1つ以上選択してください");
       return;
     }
-    // 補助金顧客種別の必須チェック
-    const hasHojoType =
-      customerTypeIds.includes(hojoVendorCustomerTypeId) ||
-      customerTypeIds.includes(hojoBbsCustomerTypeId) ||
-      customerTypeIds.includes(hojoLenderCustomerTypeId) ||
-      customerTypeIds.includes(hojoOtherCustomerTypeId);
-    if (!hasHojoType) {
-      toast.error("補助金の顧客種別（ベンダー・BBS・貸金業社・その他）を1つ以上選択してください");
+    // SLP顧客種別の必須チェック
+    const hasSlpType =
+      customerTypeIds.includes(slpCompanyCustomerTypeId) ||
+      customerTypeIds.includes(slpAgencyCustomerTypeId) ||
+      customerTypeIds.includes(slpLineUsersCustomerTypeId) ||
+      customerTypeIds.includes(slpOtherCustomerTypeId);
+    if (!hasSlpType) {
+      toast.error("SLPの顧客種別（事業者・代理店・LINEユーザー・その他）を1つ以上選択してください");
       return;
     }
-    // ベンダー選択必須
-    if (showVendorSelector && !vendorId) {
-      toast.error("ベンダーを選択してください");
+    // エンティティ必須チェック
+    if (showCompanySelector && !companyRecordId) {
+      toast.error("事業者を選択してください");
+      return;
+    }
+    if (showAgencySelector && !agencyId) {
+      toast.error("代理店を選択してください");
+      return;
+    }
+    if (showLineUsersSelector && lineFriendIds.length === 0) {
+      toast.error("LINE友達を1名以上選択してください");
       return;
     }
     setSubmitting(true);
@@ -297,17 +357,20 @@ export function ActivityContactForm({
         note: note.trim() || null,
         customerTypeIds,
         files,
-        vendorId: showVendorSelector && vendorId ? parseInt(vendorId, 10) : null,
+        companyRecordId: showCompanySelector && companyRecordId ? parseInt(companyRecordId, 10) : null,
+        agencyId: showAgencySelector && agencyId ? parseInt(agencyId, 10) : null,
+        lineFriendIds: showLineUsersSelector ? lineFriendIds : [],
+        sessionId: showSessionSelector && sessionId !== "__none__" ? parseInt(sessionId, 10) : null,
       };
 
       if (isEdit && effectiveEditTarget) {
-        await updateHojoContactHistory(effectiveEditTarget.id, payload);
+        await updateSlpContactHistory(effectiveEditTarget.id, payload);
         toast.success("接触履歴を更新しました", { id: toastId });
         onClose();
         onSaved?.();
         router.refresh();
       } else {
-        const r = await addHojoContactHistoryUnified(payload);
+        const r = await addSlpContactHistoryUnified(payload);
         if (!r.ok) {
           toast.error(r.error, { id: toastId });
           setSubmitting(false);
@@ -323,13 +386,16 @@ export function ActivityContactForm({
           meetingMinutes: string | null;
           note: string | null;
           targetType: string;
-          vendorId: number | null;
+          companyRecordId: number | null;
+          agencyId: number | null;
+          sessionId: number | null;
           customerTypeIds: number[];
+          lineFriends: { id: number; snsname: string | null; uid: string }[];
           files: FileInfo[];
         };
         await processZoomEntries(created.id, toastId);
 
-        // 新規成功後は自動で編集モードへ遷移
+        // 新規成功後は自動で編集モードへ遷移（Zoom追加やメタデータ微調整を続けて可能に）
         setLocalNewTarget({
           id: created.id,
           contactDate: created.contactDate,
@@ -340,8 +406,11 @@ export function ActivityContactForm({
           meetingMinutes: created.meetingMinutes,
           note: created.note,
           targetType: created.targetType,
-          vendorId: created.vendorId,
+          companyRecordId: created.companyRecordId,
+          agencyId: created.agencyId,
+          sessionId: created.sessionId,
           customerTypeIds: created.customerTypeIds,
+          lineFriends: created.lineFriends,
           files: created.files,
         });
         onSaved?.();
@@ -363,6 +432,7 @@ export function ActivityContactForm({
       </h3>
       <div className="space-y-4">
         <div className="space-y-4">
+          {/* 日時 / 接触方法 */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>
@@ -396,6 +466,7 @@ export function ActivityContactForm({
             </div>
           </div>
 
+          {/* プロジェクト・顧客種別（相手種別を兼ねる） */}
           <div className="space-y-2">
             <Label>
               プロジェクト・顧客種別 <span className="text-destructive">*</span>
@@ -432,17 +503,18 @@ export function ActivityContactForm({
             )}
           </div>
 
-          {showVendorSelector && (
+          {/* エンティティ選択UI（顧客種別チェックに連動） */}
+          {showCompanySelector && (
             <div className="space-y-2">
               <Label>
-                ベンダー <span className="text-destructive">*</span>
+                事業者 <span className="text-destructive">*</span>
               </Label>
-              <Select value={vendorId} onValueChange={setVendorId} disabled={isEdit}>
+              <Select value={companyRecordId} onValueChange={setCompanyRecordId} disabled={isEdit}>
                 <SelectTrigger>
-                  <SelectValue placeholder="ベンダーを選択" />
+                  <SelectValue placeholder="事業者を選択" />
                 </SelectTrigger>
                 <SelectContent>
-                  {vendorOptions.map((o) => (
+                  {companyRecordOptions.map((o) => (
                     <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -450,6 +522,74 @@ export function ActivityContactForm({
             </div>
           )}
 
+          {showAgencySelector && (
+            <div className="space-y-2">
+              <Label>
+                代理店 <span className="text-destructive">*</span>
+              </Label>
+              <Select value={agencyId} onValueChange={setAgencyId} disabled={isEdit}>
+                <SelectTrigger>
+                  <SelectValue placeholder="代理店を選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  {agencyOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {showLineUsersSelector && (
+            <div className="space-y-2">
+              <Label>LINEユーザー（複数選択可）</Label>
+              <Popover open={lineFriendPopoverOpen} onOpenChange={setLineFriendPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox" className="w-full justify-between" disabled={isEdit}>
+                    {lineFriendIds.length === 0
+                      ? "選択してください"
+                      : `${lineFriendIds.length}名を選択中`}
+                    <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[500px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="IDまたは名前で検索..." />
+                    <CommandList>
+                      <CommandEmpty>候補なし</CommandEmpty>
+                      <CommandGroup>
+                        {lineFriendOptions.map((opt) => {
+                          const checked = lineFriendIds.includes(opt.id);
+                          return (
+                            <CommandItem key={opt.id} onSelect={() => toggleLineFriend(opt.id)}>
+                              <Check className={`mr-2 h-4 w-4 ${checked ? "opacity-100" : "opacity-0"}`} />
+                              {opt.label}
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {lineFriendIds.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {lineFriendIds.map((id) => (
+                    <Badge key={id} variant="secondary" className="gap-1">
+                      {lineFriendLabelById.get(id) ?? `#${id}`}
+                      {!isEdit && (
+                        <button onClick={() => toggleLineFriend(id)} className="ml-1">
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 接触種別 */}
           <div className="space-y-2">
             <Label>接触種別</Label>
             <Select value={contactCategoryId} onValueChange={setContactCategoryId}>
@@ -464,6 +604,7 @@ export function ActivityContactForm({
             </Select>
           </div>
 
+          {/* 担当者（複数選択可） */}
           <div className="space-y-2">
             <Label>担当者（複数選択可）</Label>
             <Popover open={staffPopoverOpen} onOpenChange={setStaffPopoverOpen}>
@@ -515,6 +656,7 @@ export function ActivityContactForm({
             </Popover>
           </div>
 
+          {/* 先方参加者 */}
           <div className="space-y-2">
             <Label>先方参加者</Label>
             <Input
@@ -524,6 +666,7 @@ export function ActivityContactForm({
             />
           </div>
 
+          {/* 議事録 */}
           <div className="space-y-2">
             <Label>議事録</Label>
             <Textarea
@@ -534,6 +677,7 @@ export function ActivityContactForm({
             />
           </div>
 
+          {/* 備考 */}
           <div className="space-y-2">
             <Label>備考</Label>
             <Textarea
@@ -544,6 +688,28 @@ export function ActivityContactForm({
             />
           </div>
 
+          {/* 打ち合わせに紐付け（事業者選択+SLPのみ） */}
+          {showSessionSelector && (
+            <div className="space-y-2">
+              <Label>打ち合わせに紐付け（任意）</Label>
+              <Select value={sessionId} onValueChange={setSessionId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">紐付けなし</SelectItem>
+                  {sessionOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                商談タブの該当打ち合わせからこの接触履歴を確認できるようになります。
+              </p>
+            </div>
+          )}
+
+          {/* 添付ファイル */}
           <div className="space-y-2">
             <Label>添付ファイル</Label>
             <MultiFileUpload
@@ -553,12 +719,14 @@ export function ActivityContactForm({
             />
           </div>
 
+          {/* 編集時: Zoom録画一覧（自動遷移後の新規作成直後もここで追加可能） */}
           {isEdit && effectiveEditTarget && (
             <div className="rounded border p-3 bg-muted/20">
               <ZoomRecordingSection contactHistoryId={effectiveEditTarget.id} />
             </div>
           )}
 
+          {/* 新規追加時: Zoom議事録連携エントリ */}
           {!isEdit && (
             <div className="rounded border p-3 bg-muted/20">
               <ZoomEntriesForAdd entries={zoomEntries} onChange={setZoomEntries} />

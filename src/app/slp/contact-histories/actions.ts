@@ -14,6 +14,7 @@ import {
 // SLPの顧客種別システムコード
 const CUSTOMER_TYPE_SLP_COMPANY_CODE = "slp_company";
 const CUSTOMER_TYPE_SLP_AGENCY_CODE = "slp_agency";
+const CUSTOMER_TYPE_SLP_OTHER_CODE = "slp_other";
 
 type FileInput = {
   id?: number;
@@ -36,6 +37,12 @@ type ContactHistoryInput = {
   lineFriendIds?: number[];   // LINEユーザー（複数選択）
   files?: FileInput[];        // 添付ファイル
   sessionId?: number | null;  // 打ち合わせ(SlpMeetingSession)への紐付け（任意）
+};
+
+// 活動記録ページ用 unified 入力（複数エンティティ紐付け対応）
+type UnifiedContactHistoryInput = ContactHistoryInput & {
+  companyRecordId?: number | null;
+  agencyId?: number | null;
 };
 
 // ============================================
@@ -233,6 +240,164 @@ export async function addSlpLineUsersContactHistory(
 }
 
 // ============================================
+// 活動記録ページ用 unified 追加
+// 複数エンティティ（事業者 + 代理店等）同時紐付け対応
+// targetType は priority 順で自動決定: company_record > agency > line_users > other
+// ============================================
+
+export async function addSlpContactHistoryUnified(
+  data: UnifiedContactHistoryInput
+): Promise<ActionResult<Record<string, unknown>>> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
+  try {
+    if (!data.contactDate) {
+      return err("接触日時は必須です");
+    }
+    if (!data.customerTypeIds || data.customerTypeIds.length === 0) {
+      return err("顧客種別を1つ以上選択してください");
+    }
+
+    // priority順で targetType 自動決定
+    // seed必須の顧客種別なので、取得失敗時はマスターデータ不整合として明示的にエラー
+    let slpCompanyId: number;
+    let slpAgencyId: number;
+    let slpOtherId: number;
+    let slpLineUsersId: number;
+    try {
+      [slpCompanyId, slpAgencyId, slpOtherId, slpLineUsersId] = await Promise.all([
+        getCustomerTypeIdByCode(CUSTOMER_TYPE_SLP_COMPANY_CODE),
+        getCustomerTypeIdByCode(CUSTOMER_TYPE_SLP_AGENCY_CODE),
+        getCustomerTypeIdByCode(CUSTOMER_TYPE_SLP_OTHER_CODE),
+        getCustomerTypeIdByCode("slp_line_users"),
+      ]);
+    } catch (e) {
+      console.error("[addSlpContactHistoryUnified] customer type master lookup failed", e);
+      return err("SLP顧客種別マスターが不正です。管理者にお問い合わせください。");
+    }
+
+    const tagSet = new Set(data.customerTypeIds);
+
+    // SLP顧客種別が最低1つ選択されているかチェック
+    const hasSlpType =
+      tagSet.has(slpCompanyId) ||
+      tagSet.has(slpAgencyId) ||
+      tagSet.has(slpLineUsersId) ||
+      tagSet.has(slpOtherId);
+    if (!hasSlpType) {
+      return err(
+        "SLPの顧客種別（事業者・代理店・LINEユーザー・その他）を1つ以上選択してください"
+      );
+    }
+
+    // エンティティ選択のバリデーション
+    if (tagSet.has(slpCompanyId) && !data.companyRecordId) {
+      return err("「事業者」を選択した場合は事業者を選んでください");
+    }
+    if (tagSet.has(slpAgencyId) && !data.agencyId) {
+      return err("「代理店」を選択した場合は代理店を選んでください");
+    }
+    if (
+      tagSet.has(slpLineUsersId) &&
+      (!data.lineFriendIds || data.lineFriendIds.length === 0)
+    ) {
+      return err("「LINEユーザー」を選択した場合は1名以上のLINE友達を選んでください");
+    }
+
+    let targetType: string;
+    if (tagSet.has(slpCompanyId) && data.companyRecordId) {
+      targetType = "company_record";
+    } else if (tagSet.has(slpAgencyId) && data.agencyId) {
+      targetType = "agency";
+    } else if (tagSet.has(slpLineUsersId)) {
+      targetType = "line_users";
+    } else {
+      targetType = "other";
+    }
+
+    // 事業者/代理店の masterCompanyId 解決
+    let masterCompanyId: number | null = null;
+    if (data.companyRecordId) {
+      const rec = await prisma.slpCompanyRecord.findUnique({
+        where: { id: data.companyRecordId },
+        select: { masterCompanyId: true },
+      });
+      masterCompanyId = rec?.masterCompanyId ?? null;
+    } else if (data.agencyId) {
+      const agency = await prisma.slpAgency.findUnique({
+        where: { id: data.agencyId },
+        select: { masterCompanyId: true },
+      });
+      masterCompanyId = agency?.masterCompanyId ?? null;
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      // sessionId は companyRecord に紐付く場合のみ有効
+      const sessionIdToSave = data.companyRecordId
+        ? await resolveSessionId(tx, data.sessionId, data.companyRecordId)
+        : null;
+
+      const history = await tx.slpContactHistory.create({
+        data: {
+          contactDate: new Date(data.contactDate!),
+          contactMethodId: data.contactMethodId || null,
+          contactCategoryId: data.contactCategoryId || null,
+          assignedTo: data.assignedTo || null,
+          customerParticipants: data.customerParticipants || null,
+          meetingMinutes: data.meetingMinutes || null,
+          note: data.note || null,
+          targetType,
+          companyRecordId: data.companyRecordId ?? null,
+          agencyId: data.agencyId ?? null,
+          masterCompanyId,
+          sessionId: sessionIdToSave,
+        },
+      });
+      if (data.customerTypeIds!.length > 0) {
+        await tx.slpContactHistoryTag.createMany({
+          data: data.customerTypeIds!.map((customerTypeId) => ({
+            contactHistoryId: history.id,
+            customerTypeId,
+          })),
+        });
+      }
+      if (data.lineFriendIds && data.lineFriendIds.length > 0) {
+        await tx.slpContactHistoryLineFriend.createMany({
+          data: data.lineFriendIds.map((lineFriendId) => ({
+            contactHistoryId: history.id,
+            lineFriendId,
+          })),
+        });
+      }
+      if (data.files && data.files.length > 0) {
+        await tx.slpContactHistoryFile.createMany({
+          data: data.files.map((f) => ({
+            contactHistoryId: history.id,
+            filePath: f.filePath ?? null,
+            fileName: f.fileName,
+            fileSize: f.fileSize ?? null,
+            mimeType: f.mimeType ?? null,
+            url: f.url ?? null,
+          })),
+        });
+      }
+      return loadHistory(tx, history.id);
+    });
+
+    revalidatePath("/slp/records/contact-histories");
+    if (data.companyRecordId) {
+      revalidatePath(`/slp/companies/${data.companyRecordId}`);
+    }
+    if (data.agencyId) {
+      revalidatePath(`/slp/agencies/${data.agencyId}`);
+    }
+    return ok(formatSlpContactHistory(result!));
+  } catch (e) {
+    console.error("[addSlpContactHistoryUnified]", e);
+    return err(e instanceof Error ? e.message : "登録に失敗しました");
+  }
+}
+
+// ============================================
 // 共通 更新 / 削除
 // ============================================
 
@@ -403,7 +568,8 @@ export async function getSlpContactHistoriesBySession(sessionId: number) {
 
 // 集約ページ用。フィルタ対応
 export async function listSlpContactHistories(filters?: {
-  targetType?: SlpContactTargetType | "unlinked";
+  targetType?: SlpContactTargetType;
+  customerTypeId?: number; // 顧客種別タグフィルタ
   dateFrom?: string;
   dateTo?: string;
   staffId?: number;
@@ -413,8 +579,11 @@ export async function listSlpContactHistories(filters?: {
   await requireStaffWithProjectPermission([{ project: "slp", level: "view" }]);
 
   const where: Record<string, unknown> = { deletedAt: null };
-  if (filters?.targetType && filters.targetType !== "unlinked") {
+  if (filters?.targetType) {
     where.targetType = filters.targetType;
+  }
+  if (filters?.customerTypeId) {
+    where.tags = { some: { customerTypeId: filters.customerTypeId } };
   }
   if (filters?.dateFrom || filters?.dateTo) {
     where.contactDate = {
@@ -443,13 +612,6 @@ export async function listSlpContactHistories(filters?: {
       (r) =>
         r.assignedTo &&
         r.assignedTo.split(",").map((s) => s.trim()).includes(sid)
-    );
-  }
-
-  // 「紐付けなし」フィルタ: line_users でLINEユーザー0件
-  if (filters?.targetType === "unlinked") {
-    result = result.filter(
-      (r) => r.targetType === "line_users" && r.lineFriends.length === 0
     );
   }
 

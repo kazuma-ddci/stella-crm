@@ -38,6 +38,11 @@ type ContactHistoryInput = {
   files?: FileInput[];
 };
 
+// 活動記録ページ用 unified 入力（ベンダーFK同時紐付け対応）
+type UnifiedContactHistoryInput = ContactHistoryInput & {
+  vendorId?: number | null;
+};
+
 // ============================================
 // ベンダー接触履歴
 // ============================================
@@ -277,6 +282,125 @@ export async function addHojoOtherContactHistory(
 }
 
 // ============================================
+// 活動記録ページ用 unified 追加
+// 顧客種別タグ駆動。targetType は priority 順で自動決定
+// vendor > bbs > lender > other
+// ============================================
+
+export async function addHojoContactHistoryUnified(
+  data: UnifiedContactHistoryInput
+): Promise<ActionResult<Record<string, unknown>>> {
+  await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
+  try {
+    if (!data.contactDate) {
+      return err("接触日時は必須です");
+    }
+    if (!data.customerTypeIds || data.customerTypeIds.length === 0) {
+      return err("顧客種別を1つ以上選択してください");
+    }
+
+    // seed必須の顧客種別なので、取得失敗時はマスターデータ不整合として明示的にエラー
+    let vendorTypeId: number;
+    let bbsId: number;
+    let lenderId: number;
+    let otherId: number;
+    try {
+      [vendorTypeId, bbsId, lenderId, otherId] = await Promise.all([
+        getCustomerTypeIdByCode(CUSTOMER_TYPE_HOJO_VENDOR_CODE),
+        getCustomerTypeIdByCode(CUSTOMER_TYPE_HOJO_BBS_CODE),
+        getCustomerTypeIdByCode(CUSTOMER_TYPE_HOJO_LENDER_CODE),
+        getCustomerTypeIdByCode(CUSTOMER_TYPE_HOJO_OTHER_CODE),
+      ]);
+    } catch (e) {
+      console.error("[addHojoContactHistoryUnified] customer type master lookup failed", e);
+      return err("補助金顧客種別マスターが不正です。管理者にお問い合わせください。");
+    }
+
+    const tagSet = new Set(data.customerTypeIds);
+
+    // HOJO顧客種別が最低1つ選択されているかチェック
+    const hasHojoType =
+      tagSet.has(vendorTypeId) ||
+      tagSet.has(bbsId) ||
+      tagSet.has(lenderId) ||
+      tagSet.has(otherId);
+    if (!hasHojoType) {
+      return err(
+        "補助金の顧客種別（ベンダー・BBS・貸金業社・その他）を1つ以上選択してください"
+      );
+    }
+
+    // エンティティ選択のバリデーション
+    if (tagSet.has(vendorTypeId) && !data.vendorId) {
+      return err("「ベンダー」を選択した場合はベンダーを選んでください");
+    }
+
+    let targetType: string;
+    if (tagSet.has(vendorTypeId) && data.vendorId) {
+      targetType = "vendor";
+    } else if (tagSet.has(bbsId)) {
+      targetType = "bbs";
+    } else if (tagSet.has(lenderId)) {
+      targetType = "lender";
+    } else {
+      targetType = "other";
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const history = await tx.hojoContactHistory.create({
+        data: {
+          contactDate: new Date(data.contactDate!),
+          contactMethodId: data.contactMethodId || null,
+          contactCategoryId: data.contactCategoryId || null,
+          assignedTo: data.assignedTo || null,
+          customerParticipants: data.customerParticipants || null,
+          meetingMinutes: data.meetingMinutes || null,
+          note: data.note || null,
+          targetType,
+          vendorId: data.vendorId ?? null,
+        },
+      });
+      if (data.customerTypeIds!.length > 0) {
+        await tx.hojoContactHistoryTag.createMany({
+          data: data.customerTypeIds!.map((customerTypeId) => ({
+            contactHistoryId: history.id,
+            customerTypeId,
+          })),
+        });
+      }
+      if (data.files && data.files.length > 0) {
+        await tx.hojoContactHistoryFile.createMany({
+          data: data.files.map((f) => ({
+            contactHistoryId: history.id,
+            filePath: f.filePath ?? null,
+            fileName: f.fileName,
+            fileSize: f.fileSize ?? null,
+            mimeType: f.mimeType ?? null,
+            url: f.url ?? null,
+          })),
+        });
+      }
+      return loadHistory(tx, history.id);
+    });
+
+    revalidatePath("/hojo/records/contact-histories");
+    if (data.vendorId) {
+      revalidatePath(`/hojo/settings/vendors/${data.vendorId}`);
+    }
+    if (targetType === "bbs") {
+      revalidatePath("/hojo/contact-histories/bbs");
+    }
+    if (targetType === "lender") {
+      revalidatePath("/hojo/contact-histories/lender");
+    }
+    return ok(formatHojoContactHistory(result!));
+  } catch (e) {
+    console.error("[addHojoContactHistoryUnified]", e);
+    return err(e instanceof Error ? e.message : "登録に失敗しました");
+  }
+}
+
+// ============================================
 // 共通 更新 / 削除
 // ============================================
 
@@ -417,6 +541,7 @@ export async function getHojoContactHistoriesByLender() {
 
 export async function listHojoContactHistories(filters?: {
   targetType?: HojoContactTargetType;
+  customerTypeId?: number; // 顧客種別タグフィルタ（新規）
   dateFrom?: string;
   dateTo?: string;
   staffId?: number;
@@ -428,6 +553,9 @@ export async function listHojoContactHistories(filters?: {
   const where: Record<string, unknown> = { deletedAt: null };
   if (filters?.targetType) {
     where.targetType = filters.targetType;
+  }
+  if (filters?.customerTypeId) {
+    where.tags = { some: { customerTypeId: filters.customerTypeId } };
   }
   if (filters?.dateFrom || filters?.dateTo) {
     where.contactDate = {
