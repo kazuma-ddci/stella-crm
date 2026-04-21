@@ -396,6 +396,7 @@ const navigation: NavItem[] = [
         children: [
           { name: "他社アカウント管理", href: "/hojo/settings/partner-accounts", icon: UserCog },
           { name: "プロライン情報", href: "/hojo/settings/proline", icon: UserCog },
+          { name: "顧客種別", href: "/settings/customer-types?project=hojo", icon: UserSquare2 },
           { name: "接触種別", href: "/settings/contact-categories?project=hojo", icon: Tag },
           { name: "AIプロンプト", href: "/hojo/settings/prompts", icon: Sparkles },
           { name: "Claude API費用", href: "/hojo/settings/api-usage", icon: DollarSign },
