@@ -29,7 +29,7 @@ type Props = {
   // RPA 関連
   subsidyAmount: number | null;
   existingDocTypes: { trainingReport: boolean; supportApplication: boolean; businessPlan: boolean };
-  appSupportRunningDocType: string | null; // 同一申請者で別資料生成中なら RPA実行不可
+  appSupportAnyRunning: boolean; // 同一申請者で何らかの資料が生成中なら RPA実行不可
 };
 
 export function FormSubmissionEditClient({
@@ -46,7 +46,7 @@ export function FormSubmissionEditClient({
   canEdit,
   subsidyAmount,
   existingDocTypes,
-  appSupportRunningDocType,
+  appSupportAnyRunning,
 }: Props) {
   const [selectedLinkId, setSelectedLinkId] = useState<string>(
     linkedApplicationSupportId ? String(linkedApplicationSupportId) : "",
@@ -62,7 +62,7 @@ export function FormSubmissionEditClient({
   const linkClickGuard = createInternalLinkGuard(editor.hasChanges);
 
   const rpa = useRpaRunner(editor, {
-    canRun: () => !!linkedApplicationSupportId && !appSupportRunningDocType,
+    canRun: () => !!linkedApplicationSupportId && !appSupportAnyRunning,
     notLinkedMessage: !linkedApplicationSupportId
       ? "申請者レコードの紐付けが必要です"
       : "この申請者の資料生成中です。完了してからお試しください。",
@@ -183,13 +183,13 @@ export function FormSubmissionEditClient({
             </Button>
             <Button
               onClick={rpa.openDialog}
-              disabled={editor.running || editor.saving || !linkedApplicationSupportId || !!appSupportRunningDocType}
+              disabled={editor.running || editor.saving || !linkedApplicationSupportId || !!appSupportAnyRunning}
               className="bg-green-600 hover:bg-green-700"
             >
               <PlayCircle className="h-4 w-4 mr-1" />
               {editor.running
                 ? "実行中..."
-                : appSupportRunningDocType
+                : appSupportAnyRunning
                   ? "他の資料生成中..."
                   : "RPA実行"}
             </Button>

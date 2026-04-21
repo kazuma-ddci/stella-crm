@@ -13,11 +13,11 @@ import { renderBusinessPlanPdfOnly } from "@/lib/hojo/business-plan-pdf-renderer
 import { BUSINESS_PLAN_SECTIONS, type BusinessPlanSectionKey } from "@/lib/hojo/business-plan-sections";
 import { getCurrentAnswer } from "@/lib/hojo/form-answer-sections";
 import { parseYmdDate } from "@/lib/hojo/parse-date";
-import { HOJO_DOC_TYPES, type RpaDocKey } from "@/lib/hojo/rpa-document-config";
+import { type RpaDocKey } from "@/lib/hojo/rpa-document-config";
 import { checkDailyApiCostLimit } from "@/lib/hojo/api-cost-limit";
+import { acquirePdfGenerationLock, releasePdfGenerationLock } from "@/lib/hojo/pdf-generation-lock";
 
 const REVALIDATE_PATH = "/hojo/application-support";
-const PDF_GEN_STALE_MS = 10 * 60 * 1000; // 10分以上前のフラグは stale として無視
 
 async function runRegenerator<T>(
   logLabel: string,
@@ -37,21 +37,13 @@ async function runRegenerator<T>(
     }
   }
 
-  // 排他制御：pdfGenerationRunningAt が null か stale のときだけセット（アトミック）
-  const staleBefore = new Date(Date.now() - PDF_GEN_STALE_MS);
-  const docTypeValue = HOJO_DOC_TYPES[docType];
-  const acquired = await prisma.hojoApplicationSupport.updateMany({
-    where: {
-      id: applicationSupportId,
-      OR: [{ pdfGenerationRunningAt: null }, { pdfGenerationRunningAt: { lt: staleBefore } }],
-    },
-    data: { pdfGenerationRunningAt: new Date(), pdfGenerationRunningDocType: docTypeValue },
-  });
-  if (acquired.count === 0) {
-    return err("この申請者の資料生成中です。完了してからお試しください。");
+  // 資料種別ごとの独立ロック（他の資料と並列実行OK、同じ資料の重複はブロック）
+  const acquired = await acquirePdfGenerationLock(applicationSupportId, docType);
+  if (!acquired) {
+    return err("この資料は生成中です。完了してからお試しください。");
   }
 
-  // ポーリング中の他セッションが「生成中」表示を即座に検知できるように即時 revalidate
+  // ポーリング中の他セッションが即座に「生成中」検知できるよう即時 revalidate
   revalidatePath(REVALIDATE_PATH);
 
   try {
@@ -62,12 +54,7 @@ async function runRegenerator<T>(
     console.error(`[${logLabel}] error:`, e);
     return err(e instanceof Error ? e.message : "PDFの生成に失敗しました");
   } finally {
-    await prisma.hojoApplicationSupport
-      .update({
-        where: { id: applicationSupportId },
-        data: { pdfGenerationRunningAt: null, pdfGenerationRunningDocType: null },
-      })
-      .catch((e) => console.error(`[${logLabel}] pdfGenerationRunningAt クリア失敗:`, e));
+    await releasePdfGenerationLock(applicationSupportId, docType);
     revalidatePath(REVALIDATE_PATH);
   }
 }

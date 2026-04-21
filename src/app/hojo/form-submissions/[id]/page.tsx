@@ -24,7 +24,9 @@ export default async function HojoFormSubmissionDetailPage({
         select: {
           formTranscriptDate: true,
           subsidyAmount: true,
-          pdfGenerationRunningDocType: true,
+          trainingReportRunningAt: true,
+          supportApplicationRunningAt: true,
+          businessPlanRunningAt: true,
           documents: { select: { docType: true } },
         },
       },
@@ -99,7 +101,11 @@ export default async function HojoFormSubmissionDetailPage({
       canEdit={canEdit}
       subsidyAmount={submission.linkedApplicationSupport?.subsidyAmount ?? null}
       existingDocTypes={existingDocTypes}
-      appSupportRunningDocType={submission.linkedApplicationSupport?.pdfGenerationRunningDocType ?? null}
+      appSupportAnyRunning={
+        !!submission.linkedApplicationSupport?.trainingReportRunningAt ||
+        !!submission.linkedApplicationSupport?.supportApplicationRunningAt ||
+        !!submission.linkedApplicationSupport?.businessPlanRunningAt
+      }
     />
   );
 }

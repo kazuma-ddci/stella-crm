@@ -11,7 +11,7 @@ import {
 } from "./actions";
 import { StatusManagementModal } from "./status-management-modal";
 import { ExternalLink, Copy, Check, Settings, Plus, Trash2, AlertTriangle, Eye, FolderOpen, Loader2 } from "lucide-react";
-import { RPA_DOC_LABELS, type RpaDocKey } from "@/lib/hojo/rpa-document-config";
+import { RPA_DOC_LABELS } from "@/lib/hojo/rpa-document-config";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -51,8 +51,11 @@ type DataRow = Record<string, unknown> & {
   subsidyAmount: number | null;
   formTranscriptDate: string | null;
   existingDocTypes: { trainingReport: boolean; supportApplication: boolean; businessPlan: boolean };
-  pdfGenerationRunningDocType: string | null;
-  pdfGenerationRunningAt: string | null;
+  runningByDocType: {
+    trainingReport: string | null;
+    supportApplication: string | null;
+    businessPlan: string | null;
+  };
 };
 
 type Props = {
@@ -64,14 +67,6 @@ type Props = {
   allBbsStatusOptions: { value: string; label: string }[];
   canEditAnswers?: boolean;
 };
-
-// docType 文字列（DB値）を RpaDocKey に変換
-function docTypeToKey(docType: string | null): RpaDocKey | null {
-  if (docType === "training_report") return "trainingReport";
-  if (docType === "support_application") return "supportApplication";
-  if (docType === "business_plan") return "businessPlan";
-  return null;
-}
 
 function BbsUrlButton() {
   const [copied, setCopied] = useState(false);
@@ -426,8 +421,12 @@ export function ApplicationSupportTable({
       const r = row as unknown as DataRow;
       const url = value ? String(value) : "";
       const hasDocuments = r.documents.length > 0;
-      const runningKey = docTypeToKey(r.pdfGenerationRunningDocType);
-      const runningLabel = runningKey ? RPA_DOC_LABELS[runningKey] : null;
+      // 走っている資料を全部ピックアップ（複数同時実行対応）
+      const runningLabels: string[] = [];
+      if (r.runningByDocType.trainingReport) runningLabels.push(RPA_DOC_LABELS.trainingReport);
+      if (r.runningByDocType.supportApplication) runningLabels.push(RPA_DOC_LABELS.supportApplication);
+      if (r.runningByDocType.businessPlan) runningLabels.push(RPA_DOC_LABELS.businessPlan);
+      const runningLabel = runningLabels.length > 0 ? runningLabels.join("・") : null;
       return (
         <div className="flex items-center gap-2 whitespace-nowrap">
           <button
@@ -698,8 +697,7 @@ export function ApplicationSupportTable({
           applicantName={documentRow.applicantName || documentRow.lineName}
           documents={documentRow.documents}
           currentSharedDate={documentRow.formTranscriptDate}
-          runningDocType={documentRow.pdfGenerationRunningDocType}
-          runningStartedAt={documentRow.pdfGenerationRunningAt}
+          runningByDocType={documentRow.runningByDocType}
         />
       )}
     </>

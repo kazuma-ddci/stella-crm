@@ -5067,8 +5067,11 @@ model HojoApplicationSupport {
   bbsStatus             String?   @map("bbs_status") @db.VarChar(50) // BBSステータス（旧・文字列）
   bbsStatusId           Int?      @map("bbs_status_id") // BBSステータス（新・FK）
   vendorMemo            String?   @map("vendor_memo") @db.Text // ベンダー備考
-  pdfGenerationRunningAt     DateTime? @map("pdf_generation_running_at") // 資料PDF生成中の排他フラグ。10分以上前は stale として無視
-  pdfGenerationRunningDocType String?  @map("pdf_generation_running_doc_type") @db.VarChar(50) // 現在生成中の資料種別（training_report / support_application / business_plan）
+  // 資料PDF生成中フラグ（資料種別ごとに独立）。10分以上前は stale として無視。
+  // 旧 pdfGenerationRunningAt / pdfGenerationRunningDocType は廃止（並列3件対応のため分離）。
+  trainingReportRunningAt     DateTime? @map("training_report_running_at")
+  supportApplicationRunningAt DateTime? @map("support_application_running_at")
+  businessPlanRunningAt       DateTime? @map("business_plan_running_at")
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
   deletedAt             DateTime?

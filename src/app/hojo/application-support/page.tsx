@@ -218,8 +218,11 @@ export default async function ApplicationSupportPage() {
           supportApplication: record.documents.some((d) => d.docType === "support_application"),
           businessPlan: record.documents.some((d) => d.docType === "business_plan"),
         },
-        pdfGenerationRunningDocType: record.pdfGenerationRunningDocType ?? null,
-        pdfGenerationRunningAt: record.pdfGenerationRunningAt?.toISOString() ?? null,
+        runningByDocType: {
+          trainingReport: record.trainingReportRunningAt?.toISOString() ?? null,
+          supportApplication: record.supportApplicationRunningAt?.toISOString() ?? null,
+          businessPlan: record.businessPlanRunningAt?.toISOString() ?? null,
+        },
       };
     });
   });

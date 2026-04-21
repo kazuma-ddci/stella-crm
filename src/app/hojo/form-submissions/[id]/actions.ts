@@ -11,6 +11,8 @@ import { generateTrainingReportPdf } from "@/lib/hojo/training-report-generator"
 import { generateSupportApplicationPdf } from "@/lib/hojo/support-application-generator";
 import { generateBusinessPlanPdf } from "@/lib/hojo/business-plan-generator";
 import { checkDailyApiCostLimit } from "@/lib/hojo/api-cost-limit";
+import { acquirePdfGenerationLock, releasePdfGenerationLock } from "@/lib/hojo/pdf-generation-lock";
+import type { RpaDocKey } from "@/lib/hojo/rpa-document-config";
 
 const ModifiedAnswersSchema = z.record(
   z.string(),
@@ -182,7 +184,7 @@ export async function confirmSubmission(
       }
     }
 
-    const pdfTasks: Array<{ key: keyof SelectedDocs; label: string; run: () => Promise<unknown> }> = [
+    const pdfTasks: Array<{ key: RpaDocKey; label: string; run: () => Promise<unknown> }> = [
       { key: "trainingReport", label: "研修終了報告書", run: () => generateTrainingReportPdf(linkedId) },
       { key: "supportApplication", label: "支援制度申請書", run: () => generateSupportApplicationPdf(linkedId) },
       ...(businessPlanBlocked
@@ -197,7 +199,25 @@ export async function confirmSubmission(
     };
 
     const targets = pdfTasks.filter((t) => selectedDocs[t.key]);
-    const settled = await Promise.allSettled(targets.map((t) => t.run()));
+
+    // 各 task に資料種別ロック + 完了ごとの revalidate を乗せて並列実行。
+    // 先に終わった資料はその時点で一覧・モーダルに反映される。
+    const settled = await Promise.allSettled(
+      targets.map(async (task) => {
+        const locked = await acquirePdfGenerationLock(linkedId, task.key);
+        if (!locked) {
+          throw new Error(`${task.label}は既に生成中です`);
+        }
+        revalidateConfirmPaths(); // 他セッションへ「生成中」を即通知
+        try {
+          const result = await task.run();
+          return result;
+        } finally {
+          await releasePdfGenerationLock(linkedId, task.key);
+          revalidateConfirmPaths(); // 完了（成功/失敗問わず）も即通知
+        }
+      }),
+    );
     let anyOk = false;
     settled.forEach((r, i) => {
       const task = targets[i];
