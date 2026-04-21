@@ -11,7 +11,7 @@ import { generateTrainingReportPdf } from "@/lib/hojo/training-report-generator"
 import { generateSupportApplicationPdf } from "@/lib/hojo/support-application-generator";
 import { generateBusinessPlanPdf } from "@/lib/hojo/business-plan-generator";
 import { checkDailyApiCostLimit } from "@/lib/hojo/api-cost-limit";
-import { acquirePdfGenerationLock, releasePdfGenerationLock } from "@/lib/hojo/pdf-generation-lock";
+import { acquirePdfGenerationLock, releasePdfGenerationLock, RPA_STALE_MS } from "@/lib/hojo/pdf-generation-lock";
 import type { RpaDocKey } from "@/lib/hojo/rpa-document-config";
 
 const ModifiedAnswersSchema = z.record(
@@ -107,8 +107,6 @@ type DocResults = Record<keyof SelectedDocs, DocResultStatus>;
  * 旧「確定」挙動のうち、formTranscriptDate 設定（BBS共有）は別アクション shareWithBbs に分離。
  * ここでは confirmedAt（RPA実行日時）のみ更新する。
  */
-const RPA_STALE_MS = 10 * 60 * 1000; // 10分以上前のフラグは stale として無視
-
 export async function confirmSubmission(
   submissionId: number,
   pendingModifiedAnswers?: unknown,
