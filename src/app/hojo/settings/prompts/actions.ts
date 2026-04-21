@@ -13,9 +13,15 @@ async function requireHojoEdit() {
 // ============================================
 // Zoom AI プロンプト（SLP と共用）
 // ============================================
+// HOJO側では「議事録要約」「先方参加者抽出」のみ編集対象とする。
+// お礼メッセージ系 (thankyou_*) は SLP専用機能なので HOJO 設定画面からは除外する
+// （DBからは削除しない。SLP が現役で使用中）。
+const HOJO_VISIBLE_ZOOM_PROMPT_KEYS = ["summary", "participants_extract"];
+
 export async function listZoomAiPromptTemplates() {
   await requireStaffWithProjectPermission([{ project: "hojo", level: "view" }]);
   return prisma.slpZoomAiPromptTemplate.findMany({
+    where: { templateKey: { in: HOJO_VISIBLE_ZOOM_PROMPT_KEYS } },
     orderBy: { id: "asc" },
     include: { updatedBy: { select: { name: true } } },
   });
