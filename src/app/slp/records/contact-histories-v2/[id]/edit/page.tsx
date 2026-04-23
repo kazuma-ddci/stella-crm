@@ -42,6 +42,14 @@ export default async function EditSlpContactHistoryV2Page({ params }: Props) {
     })),
     staffIds: history.staffParticipants.map((p) => p.staffId),
     hostStaffId: hostStaff?.staffId ?? null,
+    files: history.files.map((f) => ({
+      id: f.id,
+      filePath: f.filePath,
+      fileName: f.fileName,
+      fileSize: f.fileSize,
+      mimeType: f.mimeType,
+      url: f.url,
+    })),
   };
 
   const existingMeetings: ExistingMeetingInfo[] = history.meetings.map((m) => ({

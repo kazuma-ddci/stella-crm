@@ -22,8 +22,10 @@ import {
   type ContactHistoryV2Input,
   type CustomerParticipantInput,
   type MeetingInput,
+  type FileInput,
 } from "./actions";
 import type { SlpContactHistoryV2Masters } from "./load-masters";
+import { MultiFileUpload, type FileInfo } from "@/components/multi-file-upload";
 
 export type ContactHistoryFormInitial = {
   id?: number;
@@ -42,6 +44,7 @@ export type ContactHistoryFormInitial = {
   }>;
   staffIds?: number[];
   hostStaffId?: number | null;
+  files?: FileInfo[];
 };
 
 /** 編集画面に読み取り専用で表示する既存会議 */
@@ -169,6 +172,7 @@ export function ContactHistoryV2Form({
   const [meetingMinutes, setMeetingMinutes] = useState(initial?.meetingMinutes ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
   const [newMeetings, setNewMeetings] = useState<MeetingFormRow[]>([]);
+  const [files, setFiles] = useState<FileInfo[]>(initial?.files ?? []);
 
   // ---- customer ops ----
   const updateCustomer = (idx: number, patch: Partial<CustomerFormRow>) => {
@@ -284,6 +288,15 @@ export function ContactHistoryV2Form({
         state: m.state || "予定",
       }));
 
+    const filesPayload: FileInput[] = files.map((f) => ({
+      id: f.id,
+      filePath: f.filePath ?? null,
+      fileName: f.fileName,
+      fileSize: f.fileSize ?? null,
+      mimeType: f.mimeType ?? null,
+      url: f.url ?? null,
+    }));
+
     const input: ContactHistoryV2Input = {
       title: title || null,
       status,
@@ -306,6 +319,7 @@ export function ContactHistoryV2Form({
       staffIds,
       hostStaffId: hostStaffId ? parseInt(hostStaffId, 10) : null,
       meetings: meetingsPayload.length > 0 ? meetingsPayload : undefined,
+      files: filesPayload.length > 0 ? filesPayload : undefined,
     };
 
     startTransition(async () => {
@@ -590,6 +604,23 @@ export function ContactHistoryV2Form({
             rows={4}
           />
         </div>
+      </section>
+
+      {/* 添付ファイル */}
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold border-b pb-2">添付ファイル</h2>
+        <MultiFileUpload
+          value={files}
+          onChange={setFiles}
+          entityId={initial?.id}
+          entityIdKey="contactHistoryId"
+          uploadUrl="/api/contact-histories/upload"
+          disabled={pending}
+          allowUrl={true}
+        />
+        <p className="text-xs text-gray-500">
+          最大10MBまで。PDF/Word/Excel/画像/テキストに対応。Googleドライブ等の外部URLも追加可能。
+        </p>
       </section>
 
       {/* アクション */}

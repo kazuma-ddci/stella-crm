@@ -22,6 +22,15 @@ export type CustomerParticipantInput = {
   attendees?: AttendeeInput[];
 };
 
+export type FileInput = {
+  id?: number; // 編集時に既存ファイルを識別
+  filePath?: string | null;
+  fileName: string;
+  fileSize?: number | null;
+  mimeType?: string | null;
+  url?: string | null;
+};
+
 export type MeetingInput = {
   id?: number; // 編集時: 既存の会議ID (更新判定用)
   provider: string; // "zoom" | "google_meet" | "teams" | "other"
@@ -52,6 +61,9 @@ export type ContactHistoryV2Input = {
   hostStaffId?: number | null;
   // オンライン会議（複数可、1件目を主会議 isPrimary=true として扱う）
   meetings?: MeetingInput[];
+  // 添付ファイル（ファイル実体 or 外部URL）
+  // 編集時は既存ファイルを id で識別し、差分更新する
+  files?: FileInput[];
 };
 
 async function resolveSlpProjectId(): Promise<number> {
@@ -199,6 +211,19 @@ export async function createContactHistoryV2(
                 })),
               }
             : undefined,
+        files:
+          input.files && input.files.length > 0
+            ? {
+                create: input.files.map((f) => ({
+                  filePath: f.filePath ?? null,
+                  fileName: f.fileName,
+                  fileSize: f.fileSize ?? null,
+                  mimeType: f.mimeType ?? null,
+                  url: f.url ?? null,
+                  uploadedByStaffId: session.id,
+                })),
+              }
+            : undefined,
       },
       select: { id: true },
     });
@@ -299,6 +324,34 @@ export async function updateContactHistoryV2(
             contactHistoryId: id,
             staffId,
             isHost: staffId === hostId,
+          })),
+        });
+      }
+
+      // ファイル: id を持つ既存は保持、id がない新規は追加、既存で input に無いものは削除
+      const inputFiles = input.files ?? [];
+      const keepFileIds = new Set(
+        inputFiles.filter((f) => f.id !== undefined).map((f) => f.id!),
+      );
+      // 削除: 既存にあるが input に無い
+      await tx.contactHistoryFileV2.deleteMany({
+        where: {
+          contactHistoryId: id,
+          id: keepFileIds.size > 0 ? { notIn: Array.from(keepFileIds) } : undefined,
+        },
+      });
+      // 新規追加: id がない
+      const newFiles = inputFiles.filter((f) => !f.id);
+      if (newFiles.length > 0) {
+        await tx.contactHistoryFileV2.createMany({
+          data: newFiles.map((f) => ({
+            contactHistoryId: id,
+            filePath: f.filePath ?? null,
+            fileName: f.fileName,
+            fileSize: f.fileSize ?? null,
+            mimeType: f.mimeType ?? null,
+            url: f.url ?? null,
+            uploadedByStaffId: session.id,
           })),
         });
       }
