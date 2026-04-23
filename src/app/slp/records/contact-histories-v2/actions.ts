@@ -11,6 +11,17 @@ import type { Prisma } from "@prisma/client";
  * プロジェクトスコープ: slp (edit権限以上)。
  */
 
+export type AttendeeInput = {
+  name: string;
+  title?: string | null;
+};
+
+export type CustomerParticipantInput = {
+  targetType: string;
+  targetId?: number | null;
+  attendees?: AttendeeInput[];
+};
+
 export type ContactHistoryV2Input = {
   title?: string | null;
   status: string; // "scheduled" | "completed" | "cancelled" | "rescheduled"
@@ -20,9 +31,9 @@ export type ContactHistoryV2Input = {
   contactCategoryId?: number | null;
   meetingMinutes?: string | null;
   note?: string | null;
-  // 顧客側（単一エンティティ構成、複数はPhase2以降）
-  targetType: string; // targetType 値
-  targetId?: number | null;
+  // 顧客側（複数エンティティ対応）
+  // 1件目を主顧客 (isPrimary=true) として扱う
+  customers: CustomerParticipantInput[];
   // 弊社スタッフ（ホスト1名含む）
   staffIds: number[];
   hostStaffId?: number | null;
@@ -43,8 +54,40 @@ function validateInput(input: ContactHistoryV2Input): string | null {
   if (!["scheduled", "completed", "cancelled", "rescheduled"].includes(input.status)) {
     return "不正なステータス値です";
   }
-  if (!input.targetType) return "顧客種別は必須です";
+  if (!input.customers || input.customers.length === 0) {
+    return "顧客を1件以上設定してください";
+  }
+  for (const c of input.customers) {
+    if (!c.targetType) return "顧客種別は必須です";
+  }
   return null;
+}
+
+/**
+ * customers 配列から CustomerParticipant の create ペイロード配列を構築。
+ * 1件目を isPrimary=true、以降は false。各顧客にぶら下げる attendees も組み立てる。
+ */
+function buildCustomerParticipantsCreateData(
+  customers: CustomerParticipantInput[],
+) {
+  return customers.map((c, idx) => ({
+    targetType: c.targetType,
+    targetId: c.targetId ?? null,
+    isPrimary: idx === 0,
+    displayOrder: idx,
+    attendees:
+      c.attendees && c.attendees.length > 0
+        ? {
+            create: c.attendees.map((a, aIdx) => ({
+              name: a.name.slice(0, 100),
+              title: a.title?.slice(0, 100) ?? null,
+              sourceType: "manual",
+              savedToMaster: false,
+              displayOrder: aIdx,
+            })),
+          }
+        : undefined,
+  }));
 }
 
 export async function createContactHistoryV2(
@@ -87,14 +130,7 @@ export async function createContactHistoryV2(
         sourceType: "manual",
         createdByStaffId: session.id,
         customerParticipants: {
-          create: [
-            {
-              targetType: input.targetType,
-              targetId: input.targetId ?? null,
-              isPrimary: true,
-              displayOrder: 0,
-            },
-          ],
+          create: buildCustomerParticipantsCreateData(input.customers),
         },
         staffParticipants:
           uniqueStaffIds.length > 0
@@ -166,19 +202,34 @@ export async function updateContactHistoryV2(
         },
       });
 
-      // 顧客エンティティ: 単一構成の前提で全削除→再作成
+      // 顧客エンティティ + 先方参加者: 全削除→再作成
+      // (参加者はカスケード削除される)
       await tx.contactCustomerParticipant.deleteMany({
         where: { contactHistoryId: id },
       });
-      await tx.contactCustomerParticipant.create({
-        data: {
-          contactHistoryId: id,
-          targetType: input.targetType,
-          targetId: input.targetId ?? null,
-          isPrimary: true,
-          displayOrder: 0,
-        },
-      });
+      for (const [idx, c] of input.customers.entries()) {
+        await tx.contactCustomerParticipant.create({
+          data: {
+            contactHistoryId: id,
+            targetType: c.targetType,
+            targetId: c.targetId ?? null,
+            isPrimary: idx === 0,
+            displayOrder: idx,
+            attendees:
+              c.attendees && c.attendees.length > 0
+                ? {
+                    create: c.attendees.map((a, aIdx) => ({
+                      name: a.name.slice(0, 100),
+                      title: a.title?.slice(0, 100) ?? null,
+                      sourceType: "manual",
+                      savedToMaster: false,
+                      displayOrder: aIdx,
+                    })),
+                  }
+                : undefined,
+          },
+        });
+      }
 
       // スタッフ: 全削除→再作成
       await tx.contactStaffParticipant.deleteMany({

@@ -19,9 +19,6 @@ export default async function EditSlpContactHistoryV2Page({ params }: Props) {
   if (!masters || !history) notFound();
 
   // フォームの initial を構築
-  const primaryCustomer =
-    history.customerParticipants.find((p) => p.isPrimary) ??
-    history.customerParticipants[0];
   const hostStaff = history.staffParticipants.find((p) => p.isHost);
 
   const initial: ContactHistoryFormInitial = {
@@ -34,8 +31,11 @@ export default async function EditSlpContactHistoryV2Page({ params }: Props) {
     contactCategoryId: history.contactCategoryId,
     meetingMinutes: history.meetingMinutes,
     note: history.note,
-    targetType: primaryCustomer?.targetType ?? "slp_other",
-    targetId: primaryCustomer?.targetId ?? null,
+    customers: history.customerParticipants.map((cp) => ({
+      targetType: cp.targetType,
+      targetId: cp.targetId,
+      attendees: cp.attendees.map((a) => ({ name: a.name, title: a.title })),
+    })),
     staffIds: history.staffParticipants.map((p) => p.staffId),
     hostStaffId: hostStaff?.staffId ?? null,
   };

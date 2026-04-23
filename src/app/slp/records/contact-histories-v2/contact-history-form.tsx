@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -14,17 +15,32 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { X, Plus } from "lucide-react";
 import {
   createContactHistoryV2,
   updateContactHistoryV2,
   type ContactHistoryV2Input,
+  type CustomerParticipantInput,
 } from "./actions";
 import type { SlpContactHistoryV2Masters } from "./load-masters";
 
-export type ContactHistoryFormInitial = Partial<
-  Omit<ContactHistoryV2Input, "staffIds"> & { staffIds: number[] }
-> & {
+export type ContactHistoryFormInitial = {
   id?: number;
+  title?: string | null;
+  status?: string;
+  scheduledStartAt?: string | null;
+  scheduledEndAt?: string | null;
+  contactMethodId?: number | null;
+  contactCategoryId?: number | null;
+  meetingMinutes?: string | null;
+  note?: string | null;
+  customers?: Array<{
+    targetType: string;
+    targetId: number | null;
+    attendees: Array<{ name: string; title: string | null }>;
+  }>;
+  staffIds?: number[];
+  hostStaffId?: number | null;
 };
 
 type Props = {
@@ -53,13 +69,29 @@ const STATUS_OPTIONS = [
   { value: "rescheduled", label: "リスケ" },
 ];
 
+type CustomerFormRow = {
+  targetType: TargetType;
+  targetId: string; // "" or string numeric
+  attendees: Array<{ name: string; title: string }>;
+};
+
 function toDatetimeLocal(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
-  // datetime-local の value は秒以下を含まないローカル時刻 "YYYY-MM-DDTHH:mm"
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function initialCustomers(initial: ContactHistoryFormInitial | undefined): CustomerFormRow[] {
+  if (initial?.customers && initial.customers.length > 0) {
+    return initial.customers.map((c) => ({
+      targetType: c.targetType as TargetType,
+      targetId: c.targetId !== null ? String(c.targetId) : "",
+      attendees: c.attendees.map((a) => ({ name: a.name, title: a.title ?? "" })),
+    }));
+  }
+  return [{ targetType: "slp_company_record", targetId: "", attendees: [] }];
 }
 
 export function ContactHistoryV2Form({ mode, masters, initial }: Props) {
@@ -80,11 +112,8 @@ export function ContactHistoryV2Form({ mode, masters, initial }: Props) {
   const [contactCategoryId, setContactCategoryId] = useState<string>(
     initial?.contactCategoryId ? String(initial.contactCategoryId) : "",
   );
-  const [targetType, setTargetType] = useState<TargetType>(
-    (initial?.targetType as TargetType) ?? "slp_company_record",
-  );
-  const [targetId, setTargetId] = useState<string>(
-    initial?.targetId ? String(initial.targetId) : "",
+  const [customers, setCustomers] = useState<CustomerFormRow[]>(() =>
+    initialCustomers(initial),
   );
   const [staffIds, setStaffIds] = useState<number[]>(initial?.staffIds ?? []);
   const [hostStaffId, setHostStaffId] = useState<string>(
@@ -93,8 +122,50 @@ export function ContactHistoryV2Form({ mode, masters, initial }: Props) {
   const [meetingMinutes, setMeetingMinutes] = useState(initial?.meetingMinutes ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
 
-  const needsTargetId = targetType !== "slp_other";
-  const targetIdOptions =
+  // ---- customer ops ----
+  const updateCustomer = (idx: number, patch: Partial<CustomerFormRow>) => {
+    setCustomers((prev) => prev.map((c, i) => (i === idx ? { ...c, ...patch } : c)));
+  };
+  const addCustomer = () => {
+    setCustomers((prev) => [
+      ...prev,
+      { targetType: "slp_company_record", targetId: "", attendees: [] },
+    ]);
+  };
+  const removeCustomer = (idx: number) => {
+    setCustomers((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // ---- attendee ops ----
+  const addAttendee = (customerIdx: number, name: string, title: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setCustomers((prev) =>
+      prev.map((c, i) =>
+        i === customerIdx
+          ? { ...c, attendees: [...c.attendees, { name: trimmed, title: title.trim() }] }
+          : c,
+      ),
+    );
+  };
+  const removeAttendee = (customerIdx: number, attendeeIdx: number) => {
+    setCustomers((prev) =>
+      prev.map((c, i) =>
+        i === customerIdx
+          ? { ...c, attendees: c.attendees.filter((_, j) => j !== attendeeIdx) }
+          : c,
+      ),
+    );
+  };
+
+  // ---- staff ops ----
+  const handleStaffToggle = (staffId: number) => {
+    setStaffIds((prev) =>
+      prev.includes(staffId) ? prev.filter((id) => id !== staffId) : [...prev, staffId],
+    );
+  };
+
+  const getTargetIdOptions = (targetType: TargetType) =>
     targetType === "slp_company_record"
       ? masters.companyRecords
       : targetType === "slp_agency"
@@ -103,14 +174,6 @@ export function ContactHistoryV2Form({ mode, masters, initial }: Props) {
           ? masters.lineFriends
           : [];
 
-  const handleStaffToggle = (staffId: number) => {
-    setStaffIds((prev) =>
-      prev.includes(staffId)
-        ? prev.filter((id) => id !== staffId)
-        : [...prev, staffId],
-    );
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -118,9 +181,16 @@ export function ContactHistoryV2Form({ mode, masters, initial }: Props) {
       toast.error("予定開始日時を入力してください");
       return;
     }
-    if (needsTargetId && !targetId) {
-      toast.error("顧客を選択してください");
+    if (customers.length === 0) {
+      toast.error("顧客を1件以上設定してください");
       return;
+    }
+    // targetId必須チェック (slp_other以外)
+    for (const [idx, c] of customers.entries()) {
+      if (c.targetType !== "slp_other" && !c.targetId) {
+        toast.error(`${idx + 1}番目の顧客を選択してください`);
+        return;
+      }
     }
 
     const input: ContactHistoryV2Input = {
@@ -132,8 +202,16 @@ export function ContactHistoryV2Form({ mode, masters, initial }: Props) {
       contactCategoryId: contactCategoryId ? parseInt(contactCategoryId, 10) : null,
       meetingMinutes: meetingMinutes || null,
       note: note || null,
-      targetType,
-      targetId: needsTargetId && targetId ? parseInt(targetId, 10) : null,
+      customers: customers.map<CustomerParticipantInput>((c) => ({
+        targetType: c.targetType,
+        targetId: c.targetType !== "slp_other" && c.targetId
+          ? parseInt(c.targetId, 10)
+          : null,
+        attendees: c.attendees.map((a) => ({
+          name: a.name,
+          title: a.title || null,
+        })),
+      })),
       staffIds,
       hostStaffId: hostStaffId ? parseInt(hostStaffId, 10) : null,
     };
@@ -252,49 +330,27 @@ export function ContactHistoryV2Form({ mode, masters, initial }: Props) {
         </div>
       </section>
 
-      {/* 顧客 */}
+      {/* 顧客 (複数対応) */}
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold border-b pb-2">顧客</h2>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label htmlFor="target-type">顧客種別 *</Label>
-            <Select
-              value={targetType}
-              onValueChange={(v) => {
-                setTargetType(v as TargetType);
-                setTargetId("");
-              }}
-            >
-              <SelectTrigger id="target-type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TARGET_TYPE_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {needsTargetId && (
-            <div>
-              <Label htmlFor="target-id">顧客名 *</Label>
-              <Select value={targetId} onValueChange={setTargetId}>
-                <SelectTrigger id="target-id">
-                  <SelectValue placeholder="選択" />
-                </SelectTrigger>
-                <SelectContent>
-                  {targetIdOptions.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+        <div className="flex items-center justify-between border-b pb-2">
+          <h2 className="text-lg font-semibold">顧客</h2>
+          <Button type="button" variant="outline" size="sm" onClick={addCustomer}>
+            <Plus className="h-4 w-4 mr-1" /> 顧客を追加
+          </Button>
         </div>
+        {customers.map((c, idx) => (
+          <CustomerSection
+            key={idx}
+            index={idx}
+            customer={c}
+            canRemove={customers.length > 1}
+            targetIdOptions={getTargetIdOptions(c.targetType)}
+            onChange={(patch) => updateCustomer(idx, patch)}
+            onRemove={() => removeCustomer(idx)}
+            onAddAttendee={(name, title) => addAttendee(idx, name, title)}
+            onRemoveAttendee={(attendeeIdx) => removeAttendee(idx, attendeeIdx)}
+          />
+        ))}
       </section>
 
       {/* 弊社スタッフ */}
@@ -387,5 +443,161 @@ export function ContactHistoryV2Form({ mode, masters, initial }: Props) {
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * 顧客セクション (1顧客単位)
+ * - 顧客種別・顧客選択 + 先方参加者のタグ編集UI
+ */
+function CustomerSection({
+  index,
+  customer,
+  canRemove,
+  targetIdOptions,
+  onChange,
+  onRemove,
+  onAddAttendee,
+  onRemoveAttendee,
+}: {
+  index: number;
+  customer: CustomerFormRow;
+  canRemove: boolean;
+  targetIdOptions: { value: string; label: string }[];
+  onChange: (patch: Partial<CustomerFormRow>) => void;
+  onRemove: () => void;
+  onAddAttendee: (name: string, title: string) => void;
+  onRemoveAttendee: (attendeeIdx: number) => void;
+}) {
+  const [nameInput, setNameInput] = useState("");
+  const [titleInput, setTitleInput] = useState("");
+  const needsTargetId = customer.targetType !== "slp_other";
+
+  const handleAttendeeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      onAddAttendee(nameInput, titleInput);
+      setNameInput("");
+      setTitleInput("");
+    }
+  };
+
+  const handleAttendeeAdd = () => {
+    onAddAttendee(nameInput, titleInput);
+    setNameInput("");
+    setTitleInput("");
+  };
+
+  return (
+    <div className="rounded border p-4 space-y-3">
+      <div className="flex items-start justify-between">
+        <div className="text-sm font-medium text-gray-700">
+          顧客 #{index + 1}
+          {index === 0 && <Badge className="ml-2">主顧客</Badge>}
+        </div>
+        {canRemove && (
+          <Button type="button" variant="ghost" size="sm" onClick={onRemove}>
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label>顧客種別 *</Label>
+          <Select
+            value={customer.targetType}
+            onValueChange={(v) =>
+              onChange({ targetType: v as TargetType, targetId: "" })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TARGET_TYPE_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {needsTargetId && (
+          <div>
+            <Label>顧客名 *</Label>
+            <Select
+              value={customer.targetId}
+              onValueChange={(v) => onChange({ targetId: v })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="選択" />
+              </SelectTrigger>
+              <SelectContent>
+                {targetIdOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+
+      <div>
+        <Label>先方参加者</Label>
+        <div className="mt-2 flex flex-wrap gap-1 min-h-[32px]">
+          {customer.attendees.map((a, aIdx) => (
+            <Badge key={aIdx} variant="secondary" className="gap-1 pr-1">
+              <span>
+                {a.name}
+                {a.title && <span className="ml-1 text-gray-500">（{a.title}）</span>}
+              </span>
+              <button
+                type="button"
+                onClick={() => onRemoveAttendee(aIdx)}
+                className="hover:bg-gray-300 rounded p-0.5"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))}
+          {customer.attendees.length === 0 && (
+            <span className="text-xs text-gray-400 py-1">
+              （まだ登録されていません）
+            </span>
+          )}
+        </div>
+        <div className="mt-2 flex gap-2">
+          <Input
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            onKeyDown={handleAttendeeKeyDown}
+            placeholder="氏名"
+            className="flex-1"
+          />
+          <Input
+            value={titleInput}
+            onChange={(e) => setTitleInput(e.target.value)}
+            onKeyDown={handleAttendeeKeyDown}
+            placeholder="役職（任意）"
+            className="flex-1"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleAttendeeAdd}
+            disabled={!nameInput.trim()}
+          >
+            追加
+          </Button>
+        </div>
+        <p className="mt-1 text-xs text-gray-500">
+          氏名を入力して Enter または「追加」ボタン
+        </p>
+      </div>
+    </div>
   );
 }
