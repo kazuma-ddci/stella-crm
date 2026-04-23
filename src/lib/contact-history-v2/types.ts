@@ -93,6 +93,25 @@ export const contactHistoryV2DisplayInclude = {
   files: {
     orderBy: { createdAt: "desc" },
   },
+  meetings: {
+    where: { deletedAt: null },
+    orderBy: [{ isPrimary: "desc" }, { displayOrder: "asc" }, { id: "asc" }],
+    include: {
+      hostStaff: { select: { id: true, name: true } },
+      record: {
+        select: {
+          id: true,
+          aiSummary: true,
+          aiSummarySource: true,
+          aiSummaryGeneratedAt: true,
+          minutesAppendedAt: true,
+          recordingPath: true,
+          recordingUrl: true,
+          downloadStatus: true,
+        },
+      },
+    },
+  },
 } as const satisfies Prisma.ContactHistoryV2Include;
 
 /**
@@ -114,6 +133,27 @@ export type ContactCustomerParticipantWithAttendees =
  */
 export type ContactStaffParticipantWithStaff =
   ContactHistoryV2WithRelations["staffParticipants"][number];
+
+/**
+ * 会議情報（hostStaff・record情報を含む）
+ */
+export type ContactMeetingWithRecord =
+  ContactHistoryV2WithRelations["meetings"][number];
+
+export function getProviderLabel(provider: string): string {
+  switch (provider) {
+    case "zoom":
+      return "Zoom";
+    case "google_meet":
+      return "Google Meet";
+    case "teams":
+      return "Teams";
+    case "other":
+      return "その他";
+    default:
+      return provider;
+  }
+}
 
 /**
  * 表示用ラベル取得ヘルパー

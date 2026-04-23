@@ -12,6 +12,7 @@ import {
 import {
   getStatusLabel,
   getTargetTypeLabel,
+  getProviderLabel,
   type ContactHistoryV2WithRelations,
 } from "@/lib/contact-history-v2/types";
 
@@ -43,6 +44,7 @@ export function ContactHistoriesV2Client({ histories }: Props) {
             <TableHead>担当スタッフ</TableHead>
             <TableHead>接触方法</TableHead>
             <TableHead>接触種別</TableHead>
+            <TableHead>会議</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -66,6 +68,9 @@ export function ContactHistoriesV2Client({ histories }: Props) {
               </TableCell>
               <TableCell>{h.contactMethod?.name ?? "—"}</TableCell>
               <TableCell>{h.contactCategory?.name ?? "—"}</TableCell>
+              <TableCell>
+                <MeetingsList meetings={h.meetings} />
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -123,6 +128,40 @@ function AttendeesList({
           {a.title && <span className="ml-1 text-gray-500">（{a.title}）</span>}
         </Badge>
       ))}
+    </div>
+  );
+}
+
+function MeetingsList({
+  meetings,
+}: {
+  meetings: ContactHistoryV2WithRelations["meetings"];
+}) {
+  if (meetings.length === 0) {
+    return <span className="text-gray-400">—</span>;
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      {meetings.map((m) => {
+        const hasRecord = m.record !== null;
+        const hasAiSummary = hasRecord && m.record?.aiSummary !== null;
+        const hasRecording = hasRecord && (m.record?.recordingPath !== null || m.record?.recordingUrl !== null);
+        return (
+          <div key={m.id} className="flex flex-wrap items-center gap-1 text-xs">
+            <Badge variant={m.isPrimary ? "default" : "outline"}>
+              {getProviderLabel(m.provider)}
+            </Badge>
+            <span className="text-gray-600">{m.state}</span>
+            {m.label && <span className="text-gray-500">（{m.label}）</span>}
+            {hasRecording && <Badge variant="secondary">録画</Badge>}
+            {hasAiSummary && (
+              <Badge variant="secondary">
+                AI要約({m.record?.aiSummarySource ?? ""})
+              </Badge>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
