@@ -22,6 +22,7 @@ export const CONTACT_TARGET_TYPES = [
   "slp_company_record",
   "slp_agency",
   "slp_line_friend",
+  "slp_other",
 ] as const;
 
 export type ContactTargetType = (typeof CONTACT_TARGET_TYPES)[number];
@@ -137,6 +138,8 @@ export function getTargetTypeLabel(targetType: string): string {
       return "代理店";
     case "slp_line_friend":
       return "LINE友達";
+    case "slp_other":
+      return "その他（SLP）";
     default:
       return targetType;
   }

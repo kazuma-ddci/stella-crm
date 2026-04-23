@@ -171,6 +171,7 @@
 - `slp_company_record` : SLP事業者レコード
 - `slp_agency` : SLP代理店
 - `slp_line_friend` : SLP LINE友達
+- `slp_other` : SLPその他（特定マスタに紐づかない接触、targetId=null 可）
 - （今後のプロジェクト追加に応じて拡張）
 
 **インデックス**
