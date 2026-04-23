@@ -296,11 +296,12 @@ model ContactCategory {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   // Relations
-  project              MasterProject        @relation(fields: [projectId], references: [id])
-  contactHistories     ContactHistory[]
-  slpContactHistories  SlpContactHistory[]
-  hojoContactHistories HojoContactHistory[]
-  contactHistoriesV2   ContactHistoryV2[]
+  project                    MasterProject            @relation(fields: [projectId], references: [id])
+  contactHistories           ContactHistory[]
+  slpContactHistories        SlpContactHistory[]
+  hojoContactHistories       HojoContactHistory[]
+  contactHistoriesV2         ContactHistoryV2[]
+  calendarProjectMappings    CalendarProjectMapping[]
 
   @@unique([projectId, name])
   @@index([projectId], map: "idx_contact_categories_project_id")
@@ -916,6 +917,19 @@ model MasterStaff {
   contactHistoryMeetingsHosted   ContactHistoryMeeting[]   @relation("ContactHistoryMeetingHost")
   meetingRecordSummariesEdited   MeetingRecordSummary[]    @relation("MeetingRecordSummaryEditor")
 
+  // 接触履歴統一版 Phase 3（通知）
+  contactHistoryNotifications    ContactHistoryNotification[]
+
+  // 接触履歴統一版 Phase 3（カレンダー連携）
+  createdCalendarProjectMappings CalendarProjectMapping[] @relation("CalendarProjectMappingCreator")
+  ownedCalendarProjectMappings   CalendarProjectMapping[] @relation("CalendarProjectMappingOwner")
+
+  // 接触履歴統一版 Phase 4（スタッフ連携 OAuth）
+  googleAuth    StaffGoogleAuth?
+  zoomAuth      StaffZoomAuth?
+  slackLink     StaffSlackLink?
+  telegramLink  StaffTelegramLink?
+
   @@map("master_staff")
 }
 
@@ -1146,6 +1160,9 @@ model MasterProject {
 
   // 接触履歴統一版（Phase 1〜）
   contactHistoriesV2       ContactHistoryV2[]
+
+  // 接触履歴統一版 Phase 3（カレンダー連携）
+  calendarProjectMappings  CalendarProjectMapping[]
 
   @@map("master_projects")
 }
@@ -6831,6 +6848,11 @@ model ContactHistoryV2 {
   files                ContactHistoryFileV2[]
   meetings             ContactHistoryMeeting[]
 
+  // Phase 3: 通知・外部連携・リトライキュー
+  notifications        ContactHistoryNotification[]
+  externalEvents       ContactHistoryExternalEvent[]
+  syncQueue            ContactHistorySyncQueue[]
+
   @@index([projectId, status])
   @@index([scheduledStartAt])
   @@index([status, scheduledStartAt])
@@ -6977,6 +6999,7 @@ model ContactHistoryMeeting {
   contactHistory ContactHistoryV2             @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
   hostStaff      MasterStaff?                 @relation("ContactHistoryMeetingHost", fields: [hostStaffId], references: [id])
   record         ContactHistoryMeetingRecord?
+  syncQueue      ContactHistorySyncQueue[]
 
   @@unique([provider, externalMeetingId])
   @@index([contactHistoryId])
@@ -7044,4 +7067,231 @@ model MeetingRecordSummary {
   @@unique([meetingRecordId, version])
   @@index([meetingRecordId, isCurrent])
   @@map("meeting_record_summaries")
+}
+
+// ============================================================================
+// 【統一版】接触履歴 Phase 3: 通知・外部連携・リトライキュー (2026-04-23 追加)
+//
+// Slack/Telegram/Meet/Googleカレンダーとの連携時に必要な周辺インフラを提供。
+// 各テーブルは接触履歴と1:Nで紐づく独立した責務を持つ。
+//
+// 設計書: docs/plans/contact-history-unification-plan.md §6
+// ============================================================================
+
+// リマインダー・確認通知の送信管理。二重送信防止と状態追跡。
+model ContactHistoryNotification {
+  id                  Int       @id @default(autoincrement())
+  contactHistoryId    Int       @map("contact_history_id")
+  type                String    @db.VarChar(30)
+  // ^ "confirm" | "day_before" | "hour_before" | "cancel" | "reschedule" | "after"
+  channel             String    @db.VarChar(30)
+  // ^ "slack" | "telegram" | "email" | "line"
+  recipientStaffId    Int?      @map("recipient_staff_id")
+  recipientExternalId String?   @map("recipient_external_id") @db.VarChar(200)
+  scheduledAt         DateTime  @map("scheduled_at")
+  sentAt              DateTime? @map("sent_at")
+  status              String    @default("pending") @db.VarChar(30)
+  // ^ "pending" | "sent" | "failed" | "cancelled"
+  error               String?   @db.Text
+  externalMessageId   String?   @map("external_message_id") @db.VarChar(200)
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  contactHistory  ContactHistoryV2 @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
+  recipientStaff  MasterStaff?     @relation(fields: [recipientStaffId], references: [id])
+
+  @@index([contactHistoryId])
+  @@index([status, scheduledAt])
+  @@index([recipientStaffId])
+  @@map("contact_history_notifications")
+}
+
+// 外部イベント紐付け (Googleカレンダー等の双方向同期に使用)。
+// provider + externalEventId でユニーク制約しループ防止の要とする。
+model ContactHistoryExternalEvent {
+  id                  Int       @id @default(autoincrement())
+  contactHistoryId    Int       @map("contact_history_id")
+  provider            String    @db.VarChar(30)
+  // ^ "google_calendar" | "zoom" | "google_meet" | "slack_thread" ...
+  externalEventId     String    @map("external_event_id") @db.VarChar(200)
+  externalCalendarId  String?   @map("external_calendar_id") @db.VarChar(200)
+  syncDirection       String    @map("sync_direction") @db.VarChar(20)
+  // ^ "inbound" | "outbound" | "bidirectional"
+  lastSyncedAt        DateTime? @map("last_synced_at")
+  syncStatus          String    @default("pending") @map("sync_status") @db.VarChar(30)
+  // ^ "pending" | "synced" | "failed"
+  syncError           String?   @map("sync_error") @db.Text
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  contactHistory ContactHistoryV2 @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, externalEventId])
+  @@index([contactHistoryId])
+  @@index([provider, syncStatus])
+  @@map("contact_history_external_events")
+}
+
+// Googleカレンダーとプロジェクトの紐付け。
+// 「このカレンダーに "接触" タイトルで追加された予定はHOJOの接触履歴」のような
+// ルールを定義する。
+model CalendarProjectMapping {
+  id                         Int       @id @default(autoincrement())
+  googleCalendarId           String    @map("google_calendar_id") @db.VarChar(200)
+  calendarDisplayName        String?   @map("calendar_display_name") @db.VarChar(200)
+  ownerStaffId               Int?      @map("owner_staff_id")
+  projectId                  Int       @map("project_id")
+  defaultContactCategoryId   Int?      @map("default_contact_category_id")
+  titleKeyword               String?   @map("title_keyword") @db.VarChar(100)
+  isActive                   Boolean   @default(true) @map("is_active")
+  createdByStaffId           Int?      @map("created_by_staff_id")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+
+  project                 MasterProject    @relation(fields: [projectId], references: [id])
+  owner                   MasterStaff?     @relation("CalendarProjectMappingOwner", fields: [ownerStaffId], references: [id])
+  createdBy               MasterStaff?     @relation("CalendarProjectMappingCreator", fields: [createdByStaffId], references: [id])
+  defaultContactCategory  ContactCategory? @relation(fields: [defaultContactCategoryId], references: [id])
+
+  @@unique([googleCalendarId, titleKeyword])
+  @@index([projectId])
+  @@index([ownerStaffId])
+  @@index([isActive])
+  @@map("calendar_project_mapping")
+}
+
+// Googleカレンダー Push Notification 購読情報。
+// 購読は数日で期限切れするため、システムが自動更新する管理テーブル。
+model GoogleCalendarSubscription {
+  id                Int       @id @default(autoincrement())
+  googleCalendarId  String    @map("google_calendar_id") @db.VarChar(200)
+  channelId         String    @unique @map("channel_id") @db.VarChar(200)
+  resourceId        String    @map("resource_id") @db.VarChar(200)
+  expiration        DateTime
+  syncToken         String?   @map("sync_token") @db.VarChar(500)
+  isActive          Boolean   @default(true) @map("is_active")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([googleCalendarId])
+  @@index([isActive, expiration])
+  @@map("google_calendar_subscriptions")
+}
+
+// 部分失敗リトライキュー。
+// 「Zoom作成成功したがカレンダー作成失敗」のような場合、残作業を自動リトライ。
+model ContactHistorySyncQueue {
+  id                Int       @id @default(autoincrement())
+  contactHistoryId  Int?      @map("contact_history_id")
+  meetingId         Int?      @map("meeting_id")
+  jobType           String    @map("job_type") @db.VarChar(50)
+  // ^ "create_zoom" | "create_meet" | "sync_calendar" | "fetch_recording" | "notify_slack" ...
+  payload           Json?
+  status            String    @default("pending") @db.VarChar(30)
+  // ^ "pending" | "running" | "completed" | "failed"
+  attemptCount      Int       @default(0) @map("attempt_count")
+  maxAttempts       Int       @default(5) @map("max_attempts")
+  nextAttemptAt     DateTime? @map("next_attempt_at")
+  lastError         String?   @map("last_error") @db.Text
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  contactHistory ContactHistoryV2?      @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
+  meeting        ContactHistoryMeeting? @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([contactHistoryId])
+  @@index([meetingId])
+  @@map("contact_history_sync_queue")
+}
+
+// ============================================================================
+// 【統一版】接触履歴 Phase 4: スタッフ連携 OAuth (2026-04-23 追加)
+//
+// 各スタッフが自分の Google / Zoom / Slack / Telegram アカウントを連携する
+// ための認証情報保管テーブル。アクセストークン・リフレッシュトークンは
+// アプリ層で暗号化して保存する方針 (実装は OAuth 機能追加時)。
+//
+// 各テーブルは MasterStaff と 1:1 (staffId に UNIQUE 制約)。
+// 解除時は revokedAt を立てて履歴として残す。
+//
+// 設計書: docs/plans/contact-history-unification-plan.md §7
+// ============================================================================
+
+// スタッフの Google アカウント (Googleカレンダー + Google Meet 兼用)
+model StaffGoogleAuth {
+  id                  Int       @id @default(autoincrement())
+  staffId             Int       @unique @map("staff_id")
+  googleAccountId     String    @map("google_account_id") @db.VarChar(200)
+  googleEmail         String?   @map("google_email") @db.VarChar(255)
+  accessToken         String    @map("access_token") @db.Text    // 暗号化保存
+  refreshToken        String    @map("refresh_token") @db.Text   // 暗号化保存
+  scope               String    @db.VarChar(1000)
+  expiresAt           DateTime  @map("expires_at")
+  primaryCalendarId   String?   @map("primary_calendar_id") @db.VarChar(200)
+  linkedAt            DateTime  @map("linked_at")
+  lastRefreshedAt     DateTime? @map("last_refreshed_at")
+  revokedAt           DateTime? @map("revoked_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  staff MasterStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@map("staff_google_auth")
+}
+
+// スタッフの Zoom アカウント (Zoom未連携スタッフは Meet 利用)
+model StaffZoomAuth {
+  id              Int       @id @default(autoincrement())
+  staffId         Int       @unique @map("staff_id")
+  zoomUserId      String    @map("zoom_user_id") @db.VarChar(200)
+  zoomEmail       String?   @map("zoom_email") @db.VarChar(255)
+  accessToken     String    @map("access_token") @db.Text      // 暗号化保存
+  refreshToken    String    @map("refresh_token") @db.Text     // 暗号化保存
+  scope           String    @db.VarChar(1000)
+  expiresAt       DateTime  @map("expires_at")
+  linkedAt        DateTime  @map("linked_at")
+  lastRefreshedAt DateTime? @map("last_refreshed_at")
+  revokedAt       DateTime? @map("revoked_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  staff MasterStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@map("staff_zoom_auth")
+}
+
+// Slack ユーザー ↔ スタッフ紐付け (ボット用)
+model StaffSlackLink {
+  id               Int       @id @default(autoincrement())
+  staffId          Int       @unique @map("staff_id")
+  slackUserId      String    @unique @map("slack_user_id") @db.VarChar(50)
+  slackTeamId      String    @map("slack_team_id") @db.VarChar(50)
+  slackDisplayName String?   @map("slack_display_name") @db.VarChar(200)
+  slackEmail       String?   @map("slack_email") @db.VarChar(255)
+  linkedAt         DateTime  @map("linked_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  staff MasterStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@map("staff_slack_link")
+}
+
+// Telegram ユーザー ↔ スタッフ紐付け (ボット用)
+model StaffTelegramLink {
+  id               Int       @id @default(autoincrement())
+  staffId          Int       @unique @map("staff_id")
+  telegramUserId   BigInt    @unique @map("telegram_user_id")
+  telegramUsername String?   @map("telegram_username") @db.VarChar(200)
+  telegramChatId   BigInt?   @map("telegram_chat_id")
+  linkedAt         DateTime  @map("linked_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  staff MasterStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@map("staff_telegram_link")
 }
