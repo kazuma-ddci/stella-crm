@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -49,14 +50,22 @@ export function ContactHistoriesV2Client({ histories }: Props) {
         </TableHeader>
         <TableBody>
           {histories.map((h) => (
-            <TableRow key={h.id}>
+            <TableRow key={h.id} className="cursor-pointer hover:bg-gray-50">
               <TableCell>
-                <StatusBadge status={h.status} />
+                <Link href={`/slp/records/contact-histories-v2/${h.id}`} className="block">
+                  <StatusBadge status={h.status} />
+                </Link>
               </TableCell>
               <TableCell className="whitespace-nowrap">
-                {formatDateTime(h.scheduledStartAt, h.displayTimezone)}
+                <Link href={`/slp/records/contact-histories-v2/${h.id}`} className="block">
+                  {formatDateTime(h.scheduledStartAt, h.displayTimezone)}
+                </Link>
               </TableCell>
-              <TableCell>{h.title ?? <span className="text-gray-400">—</span>}</TableCell>
+              <TableCell>
+                <Link href={`/slp/records/contact-histories-v2/${h.id}`} className="block hover:underline">
+                  {h.title ?? <span className="text-gray-400">—</span>}
+                </Link>
+              </TableCell>
               <TableCell>
                 <CustomerParticipantsList participants={h.customerParticipants} />
               </TableCell>

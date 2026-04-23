@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import {
   listContactHistoriesV2,
   countContactHistoriesV2,
@@ -21,12 +23,16 @@ export default async function SlpContactHistoriesV2Page() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold">接触履歴（統一版 v2）</h1>
-        <p className="mt-1 text-sm text-gray-600">
-          新しい統一接触履歴テーブルのプレビューページ。旧ページ（接触履歴）は従来通り動作しています。
-          データ移行スクリプト実行後に、既存データがここに表示されるようになります。
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">接触履歴（統一版 v2）</h1>
+          <p className="mt-1 text-sm text-gray-600">
+            新しい統一接触履歴テーブル。既存SLPデータは移行済み。旧ページ（接触履歴）は従来通り動作しています。
+          </p>
+        </div>
+        <Link href="/slp/records/contact-histories-v2/new">
+          <Button>新規作成</Button>
+        </Link>
       </div>
 
       <div className="flex gap-4">
