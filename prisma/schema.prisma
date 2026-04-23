@@ -276,6 +276,7 @@ model ContactMethod {
   contactHistories     ContactHistory[]
   slpContactHistories  SlpContactHistory[]
   hojoContactHistories HojoContactHistory[]
+  contactHistoriesV2   ContactHistoryV2[]
 
   @@map("contact_methods")
 }
@@ -299,6 +300,7 @@ model ContactCategory {
   contactHistories     ContactHistory[]
   slpContactHistories  SlpContactHistory[]
   hojoContactHistories HojoContactHistory[]
+  contactHistoriesV2   ContactHistoryV2[]
 
   @@unique([projectId, name])
   @@index([projectId], map: "idx_contact_categories_project_id")
@@ -904,6 +906,12 @@ model MasterStaff {
   slpSessionHistoriesChanged      SlpMeetingSessionHistory[] @relation("SlpSessionHistoryChangedBy")
   slpNotificationTemplatesUpdated SlpNotificationTemplate[]  @relation("SlpNotificationTemplateUpdater")
 
+  // 接触履歴統一版（Phase 1〜）
+  contactHistoriesV2Created  ContactHistoryV2[]        @relation("ContactHistoryV2Creator")
+  contactHistoriesV2Updated  ContactHistoryV2[]        @relation("ContactHistoryV2Updater")
+  contactStaffParticipations ContactStaffParticipant[]
+  uploadedContactFilesV2     ContactHistoryFileV2[]
+
   @@map("master_staff")
 }
 
@@ -1131,6 +1139,9 @@ model MasterProject {
   expenseCategories        ExpenseCategory[]
   journalEntries           JournalEntry[]
   billingRules             StpBillingRule[]
+
+  // 接触履歴統一版（Phase 1〜）
+  contactHistoriesV2       ContactHistoryV2[]
 
   @@map("master_projects")
 }
@@ -6754,4 +6765,160 @@ model HojoBusinessPlanSection {
   updatedBy MasterStaff? @relation("HojoBusinessPlanSectionUpdater", fields: [updatedByStaffId], references: [id])
 
   @@map("hojo_business_plan_sections")
+}
+
+// ============================================================================
+// 【統一版】接触履歴 (Unified Contact History) — 2026-04-23 導入
+//
+// 旧 contact_histories (STP) / slp_contact_histories / hojo_contact_histories を
+// 1つの背骨にまとめる。移行期間中は `_v2` サフィックスで並行稼働。
+// Phase 7（旧テーブル削除後）にサフィックスを外す予定。
+//
+// 設計書: docs/plans/contact-history-unification-plan.md
+//
+// 構成:
+//   ContactHistoryV2            … 接触1件の本体（予定/実績を status で区別）
+//     ├─ ContactCustomerParticipant  … 顧客側の参加エンティティ（複数社OK）
+//     │    └─ ContactCustomerAttendee … 各エンティティごとの先方参加者（個人）
+//     ├─ ContactStaffParticipant     … 弊社スタッフ参加者（ホスト指定・カレンダー同期）
+//     └─ ContactHistoryFileV2        … 添付ファイル
+// ============================================================================
+
+model ContactHistoryV2 {
+  id                     Int       @id @default(autoincrement())
+  projectId              Int       @map("project_id")
+  status                 String    @default("scheduled") @db.VarChar(20) // "scheduled" | "completed" | "cancelled" | "rescheduled"
+  title                  String?   @db.VarChar(200)
+  scheduledStartAt       DateTime  @map("scheduled_start_at") @db.Timestamptz(6)
+  scheduledEndAt         DateTime? @map("scheduled_end_at") @db.Timestamptz(6)
+  actualStartAt          DateTime? @map("actual_start_at") @db.Timestamptz(6)
+  actualEndAt            DateTime? @map("actual_end_at") @db.Timestamptz(6)
+  displayTimezone        String    @default("Asia/Tokyo") @map("display_timezone") @db.VarChar(50)
+  contactMethodId        Int?      @map("contact_method_id")
+  contactCategoryId      Int?      @map("contact_category_id")
+  meetingMinutes         String?   @map("meeting_minutes") @db.Text
+  note                   String?   @db.Text
+  sourceType             String?   @map("source_type") @db.VarChar(30) // "manual"|"slack"|"telegram"|"google_calendar"|"api"
+  sourceRefId            String?   @map("source_ref_id") @db.VarChar(200)
+  rescheduledFromAt      DateTime? @map("rescheduled_from_at") @db.Timestamptz(6)
+  rescheduledCount       Int       @default(0) @map("rescheduled_count")
+  rescheduledReason      String?   @map("rescheduled_reason") @db.Text
+  cancelledAt            DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  cancelledReason        String?   @map("cancelled_reason") @db.Text
+  recurringSeriesId      String?   @map("recurring_series_id") @db.VarChar(100)
+  parentContactHistoryId Int?      @map("parent_contact_history_id")
+  createdByStaffId       Int?      @map("created_by_staff_id")
+  updatedByStaffId       Int?      @map("updated_by_staff_id")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+  deletedAt              DateTime? @map("deleted_at")
+
+  // Relations
+  project         MasterProject      @relation(fields: [projectId], references: [id])
+  contactMethod   ContactMethod?     @relation(fields: [contactMethodId], references: [id])
+  contactCategory ContactCategory?   @relation(fields: [contactCategoryId], references: [id])
+  parent          ContactHistoryV2?  @relation("ContactHistoryV2Series", fields: [parentContactHistoryId], references: [id])
+  children        ContactHistoryV2[] @relation("ContactHistoryV2Series")
+  createdBy       MasterStaff?       @relation("ContactHistoryV2Creator", fields: [createdByStaffId], references: [id])
+  updatedBy       MasterStaff?       @relation("ContactHistoryV2Updater", fields: [updatedByStaffId], references: [id])
+
+  customerParticipants ContactCustomerParticipant[]
+  staffParticipants    ContactStaffParticipant[]
+  files                ContactHistoryFileV2[]
+
+  @@index([projectId, status])
+  @@index([scheduledStartAt])
+  @@index([status, scheduledStartAt])
+  @@index([contactCategoryId])
+  @@index([contactMethodId])
+  @@index([createdByStaffId])
+  @@index([deletedAt])
+  @@index([recurringSeriesId])
+  @@index([parentContactHistoryId])
+  @@map("contact_histories_v2")
+}
+
+// 顧客側の参加エンティティ（企業/代理店/ベンダー/LINE友達 等）
+// 1つの接触に複数社・複数エンティティを紐付け可能。
+// targetType でプロジェクト横断の多態参照を表現。
+model ContactCustomerParticipant {
+  id               Int      @id @default(autoincrement())
+  contactHistoryId Int      @map("contact_history_id")
+  targetType       String   @map("target_type") @db.VarChar(30)
+  // ^ stp_company | stp_agent | hojo_vendor | hojo_bbs | hojo_lender | hojo_other
+  //   | slp_company_record | slp_agency | slp_line_friend
+  targetId         Int?     @map("target_id")
+  isPrimary        Boolean  @default(false) @map("is_primary")
+  displayOrder     Int      @default(0) @map("display_order")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  contactHistory ContactHistoryV2          @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
+  attendees      ContactCustomerAttendee[]
+
+  @@unique([contactHistoryId, targetType, targetId])
+  @@index([contactHistoryId])
+  @@index([targetType, targetId])
+  @@map("contact_customer_participants")
+}
+
+// 顧客側の参加個人（先方参加者）。各顧客エンティティにぶら下がる。
+// 追加型UI（タグ入力）対応。既存担当者マスタと連携 or 手入力。
+model ContactCustomerAttendee {
+  id                    Int      @id @default(autoincrement())
+  customerParticipantId Int      @map("customer_participant_id")
+  name                  String   @db.VarChar(100)
+  title                 String?  @db.VarChar(100)
+  sourceType            String   @default("manual") @map("source_type") @db.VarChar(30)
+  // ^ stella_contact | slp_company_contact | slp_agency_contact | hojo_vendor_contact | manual
+  sourceId              Int?     @map("source_id")
+  savedToMaster         Boolean  @default(false) @map("saved_to_master")
+  attended              Boolean?
+  displayOrder          Int      @default(0) @map("display_order")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  customerParticipant ContactCustomerParticipant @relation(fields: [customerParticipantId], references: [id], onDelete: Cascade)
+
+  @@index([customerParticipantId])
+  @@index([sourceType, sourceId])
+  @@map("contact_customer_attendees")
+}
+
+// 弊社スタッフの参加者。Zoom/Meetホスト指定、Googleカレンダー同期情報を保持。
+model ContactStaffParticipant {
+  id                      Int       @id @default(autoincrement())
+  contactHistoryId        Int       @map("contact_history_id")
+  staffId                 Int       @map("staff_id")
+  isHost                  Boolean   @default(false) @map("is_host")
+  attended                Boolean?
+  googleCalendarEventId   String?   @map("google_calendar_event_id") @db.VarChar(200)
+  googleCalendarSyncedAt  DateTime? @map("google_calendar_synced_at")
+  googleCalendarSyncError String?   @map("google_calendar_sync_error") @db.Text
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  contactHistory ContactHistoryV2 @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
+  staff          MasterStaff      @relation(fields: [staffId], references: [id])
+
+  @@unique([contactHistoryId, staffId])
+  @@index([staffId])
+  @@map("contact_staff_participants")
+}
+
+// 接触履歴 添付ファイル（統一版）。ファイル実体 or 外部URL を両対応。
+model ContactHistoryFileV2 {
+  id                Int      @id @default(autoincrement())
+  contactHistoryId  Int      @map("contact_history_id")
+  filePath          String?  @map("file_path") @db.VarChar(500)
+  fileName          String   @map("file_name") @db.VarChar(200)
+  fileSize          Int?     @map("file_size")
+  mimeType          String?  @map("mime_type") @db.VarChar(100)
+  url               String?  @db.VarChar(1000)
+  uploadedByStaffId Int?     @map("uploaded_by_staff_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  contactHistory ContactHistoryV2 @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
+  uploadedBy     MasterStaff?     @relation(fields: [uploadedByStaffId], references: [id])
+
+  @@index([contactHistoryId])
+  @@map("contact_history_files_v2")
 }
