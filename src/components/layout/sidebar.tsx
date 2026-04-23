@@ -185,6 +185,7 @@ const navigation: NavItem[] = [
           { name: "契約書進捗", href: "/stp/contracts", icon: FileCheck },
           { name: "企業接触履歴", href: "/stp/records/company-contacts", icon: Phone },
           { name: "代理店接触履歴", href: "/stp/records/agent-contacts", icon: Phone },
+          { name: "接触履歴 v2 (プレビュー)", href: "/stp/records/contact-histories-v2", icon: Phone },
           { name: "商談パイプライン履歴", href: "/stp/records/stage-histories", icon: History },
         ],
       },
