@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 import { ok, err, type ActionResult } from "@/lib/action-result";
-import type { Prisma } from "@prisma/client";
 
 /**
  * SLP 新接触履歴 (V2) の CRUD サーバーアクション。
@@ -435,5 +434,3 @@ export async function deleteContactHistoryV2(
   }
 }
 
-// 型エクスポート（他ファイルで参照）
-export type { Prisma };
