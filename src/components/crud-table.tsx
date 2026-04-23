@@ -1517,7 +1517,7 @@ export function CrudTable({
                   >
                     <div className="flex items-center gap-1">
                       {customHeaderRenderers?.[col.key]?.() ?? col.header}
-                      {canManageStickyColumns && (!isSticky || isLastSticky) && (
+                      {canManageStickyColumns && (
                         <button
                           type="button"
                           onClick={(e) => {
@@ -1534,7 +1534,13 @@ export function CrudTable({
                               ? "text-blue-600"
                               : "opacity-0 group-hover/header:opacity-100 focus:opacity-100",
                           )}
-                          title={isLastSticky ? "クリックで固定を解除" : "クリックでこの列まで固定"}
+                          title={
+                            isLastSticky
+                              ? "クリックで固定を解除"
+                              : isSticky
+                                ? "クリックでこの列までに固定範囲を縮める"
+                                : "クリックでこの列まで固定"
+                          }
                         >
                           <Pin
                             className={cn(
