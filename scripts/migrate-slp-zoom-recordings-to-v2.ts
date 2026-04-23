@@ -132,7 +132,7 @@ async function main() {
 }
 
 async function migrateOne(
-  legacy: Prisma.SlpZoomRecordingGetPayload<{}>,
+  legacy: Prisma.SlpZoomRecordingGetPayload<Record<string, never>>,
   legacyToV2Map: Map<number, number>,
   validStaffIds: Set<number>,
 ) {
