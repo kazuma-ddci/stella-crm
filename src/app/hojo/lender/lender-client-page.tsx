@@ -237,11 +237,11 @@ function getAllSections(submission: LoanSubmissionRow) {
 
 function ShareableUrlCard() {
   const [copied, setCopied] = useState(false);
+  const [portalUrl, setPortalUrl] = useState("/hojo/lender");
 
-  const portalUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/hojo/lender`
-      : "/hojo/lender";
+  useEffect(() => {
+    setPortalUrl(`${window.location.origin}/hojo/lender`);
+  }, []);
 
   const handleCopy = async () => {
     try {
