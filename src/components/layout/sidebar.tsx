@@ -270,6 +270,7 @@ const navigation: NavItem[] = [
         children: [
           { name: "契約書", href: "/slp/contracts", icon: FileText },
           { name: "接触履歴", href: "/slp/records/contact-histories", icon: Phone },
+          { name: "接触履歴 v2 (プレビュー)", href: "/slp/records/contact-histories-v2", icon: Phone },
           { name: "Zoom商談録画", href: "/slp/records/zoom-recordings", icon: Video },
         ],
       },

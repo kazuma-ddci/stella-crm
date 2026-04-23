@@ -912,6 +912,10 @@ model MasterStaff {
   contactStaffParticipations ContactStaffParticipant[]
   uploadedContactFilesV2     ContactHistoryFileV2[]
 
+  // 接触履歴統一版 Phase 2（会議関連）
+  contactHistoryMeetingsHosted   ContactHistoryMeeting[]   @relation("ContactHistoryMeetingHost")
+  meetingRecordSummariesEdited   MeetingRecordSummary[]    @relation("MeetingRecordSummaryEditor")
+
   @@map("master_staff")
 }
 
@@ -6825,6 +6829,7 @@ model ContactHistoryV2 {
   customerParticipants ContactCustomerParticipant[]
   staffParticipants    ContactStaffParticipant[]
   files                ContactHistoryFileV2[]
+  meetings             ContactHistoryMeeting[]
 
   @@index([projectId, status])
   @@index([scheduledStartAt])
@@ -6921,4 +6926,122 @@ model ContactHistoryFileV2 {
 
   @@index([contactHistoryId])
   @@map("contact_history_files_v2")
+}
+
+// ============================================================================
+// 【統一版】接触履歴 会議関連 — Phase 2 (2026-04-23 追加)
+//
+// 1接触に複数のオンライン会議（Zoom / Meet / Teams 等）を紐付け可能。
+// 予定段階の情報(URL等)と実施後データ(録画・議事録・AI要約)を分離。
+//
+// 構成:
+//   ContactHistoryMeeting      … 会議カード(予定情報)。1接触:N 会議
+//     └─ ContactHistoryMeetingRecord … 実施後データ(録画・議事録・AI要約)。1:1
+//           └─ MeetingRecordSummary   … AI要約のバージョン履歴
+//
+// API連携の自動判定(apiIntegrationStatus)はアプリ層で計算しキャッシュ。
+// ホスト変更時の警告フロー用フィールド hostUrlConsistencyConfirmedAt も持つ。
+// ============================================================================
+
+model ContactHistoryMeeting {
+  id                             Int       @id @default(autoincrement())
+  contactHistoryId               Int       @map("contact_history_id")
+  provider                       String    @db.VarChar(30) // "zoom" | "google_meet" | "teams" | "other"
+  isPrimary                      Boolean   @default(false) @map("is_primary")
+  label                          String?   @db.VarChar(100) // "延長分" | "再実施" | "2回目" など
+  displayOrder                   Int       @default(0) @map("display_order")
+  externalMeetingId              String?   @map("external_meeting_id") @db.VarChar(200)
+  externalMeetingUuid            String?   @map("external_meeting_uuid") @db.VarChar(200)
+  joinUrl                        String?   @map("join_url") @db.VarChar(1000)
+  startUrl                       String?   @map("start_url") @db.VarChar(2000)
+  passcode                       String?   @db.VarChar(100)
+  hostStaffId                    Int?      @map("host_staff_id")
+  hostExternalAccountId          String?   @map("host_external_account_id") @db.VarChar(200)
+  urlSource                      String    @default("empty") @map("url_source") @db.VarChar(20)
+  // ^ "auto_generated" | "manual_entry" | "empty"
+  urlSetAt                       DateTime? @map("url_set_at")
+  apiIntegrationStatus           String    @default("no_url_yet") @map("api_integration_status") @db.VarChar(30)
+  // ^ "available" | "unavailable_unlinked_host" | "no_url_yet" | "not_applicable"
+  hostUrlConsistencyConfirmedAt  DateTime? @map("host_url_consistency_confirmed_at")
+  scheduledStartAt               DateTime? @map("scheduled_start_at") @db.Timestamptz(6)
+  scheduledEndAt                 DateTime? @map("scheduled_end_at") @db.Timestamptz(6)
+  state                          String    @default("予定") @db.VarChar(20)
+  // ^ "予定" | "進行中" | "完了" | "失敗" | "取得中"
+  apiError                       String?   @map("api_error") @db.Text
+  apiErrorAt                     DateTime? @map("api_error_at")
+  providerMetadata               Json?     @map("provider_metadata")
+  createdAt                      DateTime  @default(now()) @map("created_at")
+  updatedAt                      DateTime  @updatedAt @map("updated_at")
+  deletedAt                      DateTime? @map("deleted_at")
+
+  contactHistory ContactHistoryV2             @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
+  hostStaff      MasterStaff?                 @relation("ContactHistoryMeetingHost", fields: [hostStaffId], references: [id])
+  record         ContactHistoryMeetingRecord?
+
+  @@unique([provider, externalMeetingId])
+  @@index([contactHistoryId])
+  @@index([state])
+  @@index([apiIntegrationStatus])
+  @@index([scheduledStartAt])
+  @@map("contact_history_meetings")
+}
+
+// 会議終了後の実データ(録画・議事録・AI要約)。プロバイダに依存しない共通構造。
+// プロバイダ固有の生レスポンスは providerRawData に JSON で保存。
+model ContactHistoryMeetingRecord {
+  id                    Int       @id @default(autoincrement())
+  meetingId             Int       @unique @map("meeting_id")
+  recordingStartAt      DateTime? @map("recording_start_at")
+  recordingEndAt        DateTime? @map("recording_end_at")
+  recordingUrl          String?   @map("recording_url") @db.VarChar(1000)
+  recordingPath         String?   @map("recording_path") @db.VarChar(1000)
+  recordingSizeBytes    BigInt?   @map("recording_size_bytes")
+  transcriptUrl         String?   @map("transcript_url") @db.VarChar(1000)
+  transcriptText        String?   @map("transcript_text") @db.Text
+  chatLogUrl            String?   @map("chat_log_url") @db.VarChar(1000)
+  chatLogText           String?   @map("chat_log_text") @db.Text
+  attendanceJson        Json?     @map("attendance_json")
+  aiSummary             String?   @map("ai_summary") @db.Text
+  aiSummarySource       String?   @map("ai_summary_source") @db.VarChar(30)
+  // ^ "zoom_ai_companion" | "gemini" | "claude" | "manual"
+  aiSummaryModel        String?   @map("ai_summary_model") @db.VarChar(80)
+  aiSummaryGeneratedAt  DateTime? @map("ai_summary_generated_at")
+  minutesAppendedAt     DateTime? @map("minutes_appended_at")
+  downloadStatus        String    @default("pending") @map("download_status") @db.VarChar(30)
+  // ^ "pending" | "in_progress" | "completed" | "failed" | "no_recording"
+  downloadError         String?   @map("download_error") @db.Text
+  providerRawData       Json?     @map("provider_raw_data")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  meeting   ContactHistoryMeeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  summaries MeetingRecordSummary[]
+
+  @@index([downloadStatus])
+  @@index([aiSummaryGeneratedAt])
+  @@map("contact_history_meeting_records")
+}
+
+// AI要約のバージョン履歴。再生成・手動編集のたびに行を追加し、
+// 現行版は meeting_records.aiSummary にキャッシュされる (isCurrent=true と対応)。
+model MeetingRecordSummary {
+  id                   Int      @id @default(autoincrement())
+  meetingRecordId      Int      @map("meeting_record_id")
+  version              Int
+  summaryText          String   @map("summary_text") @db.Text
+  source               String   @db.VarChar(30)
+  // ^ "zoom_ai_companion" | "gemini" | "claude" | "manual"
+  model                String?  @db.VarChar(80)
+  promptSnapshot       String?  @map("prompt_snapshot") @db.Text
+  generatedAt          DateTime @map("generated_at")
+  generatedByStaffId   Int?     @map("generated_by_staff_id")
+  isCurrent            Boolean  @default(false) @map("is_current")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  meetingRecord ContactHistoryMeetingRecord @relation(fields: [meetingRecordId], references: [id], onDelete: Cascade)
+  generatedBy   MasterStaff?                @relation("MeetingRecordSummaryEditor", fields: [generatedByStaffId], references: [id])
+
+  @@unique([meetingRecordId, version])
+  @@index([meetingRecordId, isCurrent])
+  @@map("meeting_record_summaries")
 }
