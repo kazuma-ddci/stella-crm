@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CrudTable, ColumnDef, CustomAction, CustomRenderers, DynamicOptionsMap, CustomFormFields, InlineEditConfig } from "@/components/crud-table";
@@ -98,6 +98,35 @@ export function StpCompaniesTable({
   // 企業ID重複チェック用の状態
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
   const [companyPopoverOpen, setCompanyPopoverOpen] = useState(false);
+
+  // 契約期間フィルタ（"all" = 全件、"active" = 契約中のみ、"expired" = 契約期間外のみ）
+  const [contractFilter, setContractFilter] = useState<"all" | "active" | "expired">("all");
+
+  // フィルタ適用後のデータ
+  // - "all": 全企業・全契約履歴をそのまま表示
+  // - "active": 今日稼働中の契約履歴がある企業のみ、かつ稼働中の契約履歴のみに絞る
+  // - "expired": 契約期間外（未来開始 or 終了済み）の契約履歴がある企業のみ、かつ該当履歴のみに絞る
+  const filteredData = useMemo(() => {
+    if (contractFilter === "all") return data;
+    return data.reduce<Record<string, unknown>[]>((acc, row) => {
+      const histories = (row.contractHistories as { state: "active" | "future" | "expired" }[] | undefined) ?? [];
+      const matched = histories.filter((h) =>
+        contractFilter === "active" ? h.state === "active" : h.state !== "active"
+      );
+      if (matched.length === 0) return acc;
+      // 絞り込み後の契約履歴で契約状態ラベルを再計算（契約中 > 契約中(未来) > 契約終了 > 空白）
+      const hasActive = matched.some((h) => h.state === "active");
+      const hasFuture = matched.some((h) => h.state === "future");
+      const hasExpired = matched.some((h) => h.state === "expired");
+      const label = hasActive ? "契約中" : hasFuture ? "契約中(未来)" : hasExpired ? "契約終了" : "";
+      acc.push({
+        ...row,
+        contractHistories: matched,
+        contractStatus: label,
+      });
+      return acc;
+    }, []);
+  }, [data, contractFilter]);
 
   // 動的選択肢のマッピング
   const dynamicOptions: DynamicOptionsMap = {
@@ -202,7 +231,8 @@ export function StpCompaniesTable({
       type: "select",
       options: [
         { value: "契約中", label: "契約中" },
-        { value: "リード", label: "リード" },
+        { value: "契約中(未来)", label: "契約中(未来)" },
+        { value: "契約終了", label: "契約終了" },
       ],
     },
     // 案件有無
@@ -389,19 +419,21 @@ export function StpCompaniesTable({
         </div>
       );
     },
-    // 契約状態をバッジ表示
+    // 契約状態をバッジ表示（空文字は何も表示しない）
     contractStatus: (value) => {
-      const isActive = value === "契約中";
+      const label = typeof value === "string" ? value : "";
+      if (!label) return null;
+      const color =
+        label === "契約中"
+          ? "bg-emerald-100 text-emerald-800"
+          : label === "契約中(未来)"
+            ? "bg-blue-100 text-blue-800"
+            : label === "契約終了"
+              ? "bg-gray-100 text-gray-700"
+              : "bg-gray-100 text-gray-700";
       return (
-        <span
-          className={
-            "inline-flex items-center px-2 py-0.5 rounded text-xs font-medium " +
-            (isActive
-              ? "bg-emerald-100 text-emerald-800"
-              : "bg-gray-100 text-gray-700")
-          }
-        >
-          {String(value)}
+        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${color}`}>
+          {label}
         </span>
       );
     },
@@ -503,7 +535,7 @@ export function StpCompaniesTable({
     },
     // 契約履歴 - 業種区分：縦並びで表示
     contractIndustryType: (_value, row) => {
-      const histories = row.activeContractHistories as { industryType: string }[] | undefined;
+      const histories = row.contractHistories as { industryType: string }[] | undefined;
       if (!histories || histories.length === 0) return "-";
 
       return (
@@ -518,7 +550,7 @@ export function StpCompaniesTable({
     },
     // 契約履歴 - 求人媒体：縦並びで表示（旧値は赤字警告）
     contractJobMedia: (_value, row) => {
-      const histories = row.activeContractHistories as { jobMedia: string | null }[] | undefined;
+      const histories = row.contractHistories as { jobMedia: string | null }[] | undefined;
       if (!histories || histories.length === 0) return "-";
 
       return (
@@ -537,7 +569,7 @@ export function StpCompaniesTable({
     },
     // 契約履歴 - 契約プラン：縦並びで表示
     contractPlan: (_value, row) => {
-      const histories = row.activeContractHistories as { contractPlan: string }[] | undefined;
+      const histories = row.contractHistories as { contractPlan: string }[] | undefined;
       if (!histories || histories.length === 0) return "-";
 
       return (
@@ -552,7 +584,7 @@ export function StpCompaniesTable({
     },
     // 契約履歴 - 金額（契約プランに応じて月額または成果報酬）：縦並びで表示
     contractAmount: (_value, row) => {
-      const histories = row.activeContractHistories as { contractPlan: string; monthlyFee: number; performanceFee: number }[] | undefined;
+      const histories = row.contractHistories as { contractPlan: string; monthlyFee: number; performanceFee: number }[] | undefined;
       if (!histories || histories.length === 0) return "-";
 
       return (
@@ -571,7 +603,7 @@ export function StpCompaniesTable({
     },
     // 契約履歴 - 初期費用：縦並びで表示
     contractInitialFee: (_value, row) => {
-      const histories = row.activeContractHistories as { initialFee: number }[] | undefined;
+      const histories = row.contractHistories as { initialFee: number }[] | undefined;
       if (!histories || histories.length === 0) return "-";
 
       return (
@@ -584,7 +616,7 @@ export function StpCompaniesTable({
     },
     // 契約履歴 - 契約開始日：縦並びで表示
     contractStartDate: (_value, row) => {
-      const histories = row.activeContractHistories as { contractStartDate: string }[] | undefined;
+      const histories = row.contractHistories as { contractStartDate: string }[] | undefined;
       if (!histories || histories.length === 0) return "-";
 
       return (
@@ -599,7 +631,7 @@ export function StpCompaniesTable({
     },
     // 契約履歴 - 契約メモ（備考）：縦並びで表示
     contractNote: (_value, row) => {
-      const histories = row.activeContractHistories as { note: string | null }[] | undefined;
+      const histories = row.contractHistories as { note: string | null }[] | undefined;
       if (!histories || histories.length === 0) return "-";
 
       return (
@@ -612,7 +644,7 @@ export function StpCompaniesTable({
     },
     // 契約履歴 - 担当運用：縦並びで表示
     contractOperationStaff: (_value, row) => {
-      const histories = row.activeContractHistories as { operationStaffName: string | null }[] | undefined;
+      const histories = row.contractHistories as { operationStaffName: string | null }[] | undefined;
       if (!histories || histories.length === 0) return "-";
 
       return (
@@ -625,7 +657,7 @@ export function StpCompaniesTable({
     },
     // 契約履歴 - 運用ステータス：縦並びで表示
     contractOperationStatus: (_value, row) => {
-      const histories = row.activeContractHistories as { operationStatus: string | null }[] | undefined;
+      const histories = row.contractHistories as { operationStatus: string | null }[] | undefined;
       if (!histories || histories.length === 0) return "-";
 
       return (
@@ -638,7 +670,7 @@ export function StpCompaniesTable({
     },
     // 契約履歴 - アカウントID：縦並びで表示
     contractAccountId: (_value, row) => {
-      const histories = row.activeContractHistories as { accountId: string | null }[] | undefined;
+      const histories = row.contractHistories as { accountId: string | null }[] | undefined;
       if (!histories || histories.length === 0) return "-";
 
       return (
@@ -651,7 +683,7 @@ export function StpCompaniesTable({
     },
     // 契約履歴 - アカウントPASS：縦並びで表示
     contractAccountPass: (_value, row) => {
-      const histories = row.activeContractHistories as { accountPass: string | null }[] | undefined;
+      const histories = row.contractHistories as { accountPass: string | null }[] | undefined;
       if (!histories || histories.length === 0) return "-";
 
       return (
@@ -837,9 +869,36 @@ export function StpCompaniesTable({
 
   return (
     <>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span className="text-sm text-muted-foreground">契約期間フィルタ:</span>
+        <Button
+          type="button"
+          size="sm"
+          variant={contractFilter === "all" ? "default" : "outline"}
+          onClick={() => setContractFilter("all")}
+        >
+          すべて
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={contractFilter === "active" ? "default" : "outline"}
+          onClick={() => setContractFilter("active")}
+        >
+          契約中のみ
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={contractFilter === "expired" ? "default" : "outline"}
+          onClick={() => setContractFilter("expired")}
+        >
+          契約期間外のみ
+        </Button>
+      </div>
       <CrudTable
         tableId="stp.companies"
-        data={data}
+        data={filteredData}
         columns={columns}
         title="STP企業"
         onAdd={addStpCompany}

@@ -102,15 +102,10 @@ export default async function StpCompaniesPage() {
         { displayOrder: "asc" },
       ],
     }),
-    // 契約履歴（今日時点で稼働中の契約: 開始日<=今日 かつ (終了日null or 終了日>=今日)）
+    // 契約履歴（全件取得 - 期間内/期間外のフィルタはクライアントで行う）
     prisma.stpContractHistory.findMany({
       where: {
         deletedAt: null,
-        contractStartDate: { lte: new Date() },
-        OR: [
-          { contractEndDate: null },
-          { contractEndDate: { gte: new Date() } },
-        ],
       },
       include: {
         salesStaff: true,
@@ -192,11 +187,37 @@ export default async function StpCompaniesPage() {
     companyIdCounts[c.companyId] = (companyIdCounts[c.companyId] || 0) + 1;
   });
 
+  // 契約履歴の状態を判定:
+  //   "active"  = 今日時点で稼働中（開始日<=今日 かつ 終了日null or 終了日>=今日）
+  //   "future"  = 未来開始（開始日>今日）
+  //   "expired" = 終了済み（終了日<今日）
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const getContractState = (ch: { contractStartDate: Date; contractEndDate: Date | null }): "active" | "future" | "expired" => {
+    const start = new Date(ch.contractStartDate);
+    start.setHours(0, 0, 0, 0);
+    if (start > today) return "future";
+    if (ch.contractEndDate) {
+      const end = new Date(ch.contractEndDate);
+      end.setHours(0, 0, 0, 0);
+      if (end < today) return "expired";
+    }
+    return "active";
+  };
+  // 企業単位の契約状態ラベル（優先順: 契約中 > 契約中(未来) > 契約終了 > 空白）
+  const computeContractStatusLabel = (states: ("active" | "future" | "expired")[]): string => {
+    if (states.includes("active")) return "契約中";
+    if (states.includes("future")) return "契約中(未来)";
+    if (states.includes("expired")) return "契約終了";
+    return "";
+  };
+
   const data = companies.map((c) => {
     // この企業の接触履歴を取得
     const companyContactHistories = contactHistoriesByCompanyId[c.companyId] || [];
-    // この企業のアクティブな契約履歴を取得
+    // この企業の契約履歴を取得（全件）
     const companyContractHistories = contractHistoriesByCompanyId[c.companyId] || [];
+    const contractStates = companyContractHistories.map(getContractState);
 
     return {
     hasDuplicateCompanyWarning: (companyIdCounts[c.companyId] || 0) > 1,
@@ -205,7 +226,7 @@ export default async function StpCompaniesPage() {
     companyId: c.companyId,
     companyCode: c.company.companyCode,
     companyName: c.company.name,
-    contractStatus: companyContractHistories.length > 0 ? "契約中" : "リード",
+    contractStatus: computeContractStatusLabel(contractStates),
     note: c.note,
     leadAcquiredDate: c.leadAcquiredDate?.toISOString(),
     leadValidity: c.leadValidity,
@@ -303,13 +324,14 @@ export default async function StpCompaniesPage() {
       assignedTo: mc.assignedTo,
       note: mc.note,
     })),
-    // 契約履歴（アクティブな契約のみ）- 契約関連データ用
-    activeContractHistories: companyContractHistories.map((ch) => ({
+    // 契約履歴（全件、stateフラグ付き）- 契約関連データ用
+    contractHistories: companyContractHistories.map((ch, i) => ({
       id: ch.id,
       industryType: ch.industryType,
       contractPlan: ch.contractPlan,
       jobMedia: ch.jobMedia,
       contractStartDate: ch.contractStartDate.toISOString(),
+      contractEndDate: ch.contractEndDate?.toISOString() ?? null,
       initialFee: ch.initialFee,
       monthlyFee: ch.monthlyFee,
       performanceFee: ch.performanceFee,
@@ -319,6 +341,7 @@ export default async function StpCompaniesPage() {
       operationStatus: ch.operationStatus,
       accountId: ch.accountId,
       accountPass: ch.accountPass,
+      state: contractStates[i], // "active" | "future" | "expired"
     })),
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
