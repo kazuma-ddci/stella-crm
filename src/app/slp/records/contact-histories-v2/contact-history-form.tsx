@@ -21,6 +21,7 @@ import {
   updateContactHistoryV2,
   type ContactHistoryV2Input,
   type CustomerParticipantInput,
+  type MeetingInput,
 } from "./actions";
 import type { SlpContactHistoryV2Masters } from "./load-masters";
 
@@ -43,10 +44,24 @@ export type ContactHistoryFormInitial = {
   hostStaffId?: number | null;
 };
 
+/** 編集画面に読み取り専用で表示する既存会議 */
+export type ExistingMeetingInfo = {
+  id: number;
+  provider: string;
+  label: string | null;
+  isPrimary: boolean;
+  state: string;
+  joinUrl: string | null;
+  hostStaffName: string | null;
+  hasRecord: boolean;
+  hasAiSummary: boolean;
+};
+
 type Props = {
   mode: "create" | "edit";
   masters: SlpContactHistoryV2Masters;
   initial?: ContactHistoryFormInitial;
+  existingMeetings?: ExistingMeetingInfo[];
 };
 
 type TargetType =
@@ -75,6 +90,33 @@ type CustomerFormRow = {
   attendees: Array<{ name: string; title: string }>;
 };
 
+type MeetingFormRow = {
+  provider: "zoom" | "google_meet" | "teams" | "other";
+  label: string;
+  joinUrl: string;
+  startUrl: string;
+  passcode: string;
+  hostStaffId: string; // "" or numeric
+  scheduledStartAt: string; // datetime-local 形式
+  scheduledEndAt: string;
+  state: string;
+};
+
+const PROVIDER_OPTIONS: Array<{ value: MeetingFormRow["provider"]; label: string }> = [
+  { value: "zoom", label: "Zoom" },
+  { value: "google_meet", label: "Google Meet" },
+  { value: "teams", label: "Teams" },
+  { value: "other", label: "その他" },
+];
+
+const MEETING_STATE_OPTIONS = [
+  { value: "予定", label: "予定" },
+  { value: "進行中", label: "進行中" },
+  { value: "完了", label: "完了" },
+  { value: "失敗", label: "失敗" },
+  { value: "取得中", label: "取得中" },
+];
+
 function toDatetimeLocal(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -94,7 +136,12 @@ function initialCustomers(initial: ContactHistoryFormInitial | undefined): Custo
   return [{ targetType: "slp_company_record", targetId: "", attendees: [] }];
 }
 
-export function ContactHistoryV2Form({ mode, masters, initial }: Props) {
+export function ContactHistoryV2Form({
+  mode,
+  masters,
+  initial,
+  existingMeetings = [],
+}: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
@@ -121,6 +168,7 @@ export function ContactHistoryV2Form({ mode, masters, initial }: Props) {
   );
   const [meetingMinutes, setMeetingMinutes] = useState(initial?.meetingMinutes ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
+  const [newMeetings, setNewMeetings] = useState<MeetingFormRow[]>([]);
 
   // ---- customer ops ----
   const updateCustomer = (idx: number, patch: Partial<CustomerFormRow>) => {
@@ -158,6 +206,30 @@ export function ContactHistoryV2Form({ mode, masters, initial }: Props) {
     );
   };
 
+  // ---- meeting ops (新規追加用) ----
+  const addMeeting = () => {
+    setNewMeetings((prev) => [
+      ...prev,
+      {
+        provider: "zoom",
+        label: "",
+        joinUrl: "",
+        startUrl: "",
+        passcode: "",
+        hostStaffId: "",
+        scheduledStartAt: "",
+        scheduledEndAt: "",
+        state: "予定",
+      },
+    ]);
+  };
+  const updateMeeting = (idx: number, patch: Partial<MeetingFormRow>) => {
+    setNewMeetings((prev) => prev.map((m, i) => (i === idx ? { ...m, ...patch } : m)));
+  };
+  const removeMeeting = (idx: number) => {
+    setNewMeetings((prev) => prev.filter((_, i) => i !== idx));
+  };
+
   // ---- staff ops ----
   const handleStaffToggle = (staffId: number) => {
     setStaffIds((prev) =>
@@ -193,6 +265,25 @@ export function ContactHistoryV2Form({ mode, masters, initial }: Props) {
       }
     }
 
+    // 会議: joinUrl or provider=other が埋まっているものだけ送信
+    const meetingsPayload: MeetingInput[] = newMeetings
+      .filter((m) => m.provider && (m.joinUrl || m.provider === "other" || m.label))
+      .map((m) => ({
+        provider: m.provider,
+        label: m.label || null,
+        joinUrl: m.joinUrl || null,
+        startUrl: m.startUrl || null,
+        passcode: m.passcode || null,
+        hostStaffId: m.hostStaffId ? parseInt(m.hostStaffId, 10) : null,
+        scheduledStartAt: m.scheduledStartAt
+          ? new Date(m.scheduledStartAt).toISOString()
+          : null,
+        scheduledEndAt: m.scheduledEndAt
+          ? new Date(m.scheduledEndAt).toISOString()
+          : null,
+        state: m.state || "予定",
+      }));
+
     const input: ContactHistoryV2Input = {
       title: title || null,
       status,
@@ -214,6 +305,7 @@ export function ContactHistoryV2Form({ mode, masters, initial }: Props) {
       })),
       staffIds,
       hostStaffId: hostStaffId ? parseInt(hostStaffId, 10) : null,
+      meetings: meetingsPayload.length > 0 ? meetingsPayload : undefined,
     };
 
     startTransition(async () => {
@@ -402,6 +494,78 @@ export function ContactHistoryV2Form({ mode, masters, initial }: Props) {
               </SelectContent>
             </Select>
           </div>
+        )}
+      </section>
+
+      {/* 会議 (Zoom/Meet等) */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between border-b pb-2">
+          <h2 className="text-lg font-semibold">オンライン会議</h2>
+          <Button type="button" variant="outline" size="sm" onClick={addMeeting}>
+            <Plus className="h-4 w-4 mr-1" /> 会議を追加
+          </Button>
+        </div>
+
+        {/* 既存会議 (編集モード時のみ、読み取り専用) */}
+        {existingMeetings.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-sm text-gray-500">
+              既存の会議（このフォームでは編集できません）
+            </div>
+            {existingMeetings.map((m) => (
+              <div
+                key={m.id}
+                className="rounded border bg-gray-50 p-3 flex flex-wrap items-center gap-2 text-sm"
+              >
+                <Badge>{providerLabel(m.provider)}</Badge>
+                <span>{m.state}</span>
+                {m.label && <span className="text-gray-500">（{m.label}）</span>}
+                {m.isPrimary && <Badge variant="outline">主会議</Badge>}
+                {m.hasRecord && <Badge variant="secondary">記録あり</Badge>}
+                {m.hasAiSummary && <Badge variant="secondary">AI要約</Badge>}
+                {m.hostStaffName && (
+                  <span className="text-gray-500">ホスト: {m.hostStaffName}</span>
+                )}
+                {m.joinUrl && (
+                  <a
+                    href={m.joinUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline truncate max-w-xs"
+                  >
+                    URL
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 新規追加する会議 */}
+        {newMeetings.length > 0 && (
+          <div className="space-y-3">
+            {existingMeetings.length > 0 && (
+              <div className="text-sm text-gray-500">追加する会議</div>
+            )}
+            {newMeetings.map((m, idx) => (
+              <MeetingSection
+                key={idx}
+                index={idx}
+                meeting={m}
+                staffOptions={masters.staffOptions.filter((s) =>
+                  staffIds.includes(parseInt(s.value, 10)),
+                )}
+                onChange={(patch) => updateMeeting(idx, patch)}
+                onRemove={() => removeMeeting(idx)}
+              />
+            ))}
+          </div>
+        )}
+
+        {newMeetings.length === 0 && existingMeetings.length === 0 && (
+          <p className="text-sm text-gray-400">
+            オンライン会議が登録されていません。「会議を追加」ボタンから追加できます。
+          </p>
         )}
       </section>
 
@@ -600,4 +764,173 @@ function CustomerSection({
       </div>
     </div>
   );
+}
+
+/**
+ * 会議セクション (新規追加用、1会議単位)
+ */
+function MeetingSection({
+  index,
+  meeting,
+  staffOptions,
+  onChange,
+  onRemove,
+}: {
+  index: number;
+  meeting: MeetingFormRow;
+  staffOptions: { value: string; label: string }[];
+  onChange: (patch: Partial<MeetingFormRow>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="rounded border p-4 space-y-3">
+      <div className="flex items-start justify-between">
+        <div className="text-sm font-medium text-gray-700">新規会議 #{index + 1}</div>
+        <Button type="button" variant="ghost" size="sm" onClick={onRemove}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>プロバイダ *</Label>
+          <Select
+            value={meeting.provider}
+            onValueChange={(v) =>
+              onChange({ provider: v as MeetingFormRow["provider"] })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PROVIDER_OPTIONS.map((p) => (
+                <SelectItem key={p.value} value={p.value}>
+                  {p.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>状態</Label>
+          <Select
+            value={meeting.state}
+            onValueChange={(v) => onChange({ state: v })}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MEETING_STATE_OPTIONS.map((s) => (
+                <SelectItem key={s.value} value={s.value}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div>
+        <Label>ラベル（例: 延長分 / 再実施）</Label>
+        <Input
+          value={meeting.label}
+          onChange={(e) => onChange({ label: e.target.value })}
+          placeholder="任意"
+        />
+      </div>
+
+      <div>
+        <Label>参加URL</Label>
+        <Input
+          value={meeting.joinUrl}
+          onChange={(e) => onChange({ joinUrl: e.target.value })}
+          placeholder="https://..."
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          手動で既存URLを入力。後からAPI連携で自動生成に切替も可能（Phase 4）。
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>ホスト用URL（Zoomのみ）</Label>
+          <Input
+            value={meeting.startUrl}
+            onChange={(e) => onChange({ startUrl: e.target.value })}
+            placeholder="任意"
+          />
+        </div>
+        <div>
+          <Label>パスコード</Label>
+          <Input
+            value={meeting.passcode}
+            onChange={(e) => onChange({ passcode: e.target.value })}
+            placeholder="任意"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>予定開始</Label>
+          <Input
+            type="datetime-local"
+            value={meeting.scheduledStartAt}
+            onChange={(e) => onChange({ scheduledStartAt: e.target.value })}
+          />
+        </div>
+        <div>
+          <Label>予定終了</Label>
+          <Input
+            type="datetime-local"
+            value={meeting.scheduledEndAt}
+            onChange={(e) => onChange({ scheduledEndAt: e.target.value })}
+          />
+        </div>
+      </div>
+
+      <div>
+        <Label>ホスト（参加スタッフから選択）</Label>
+        {staffOptions.length === 0 ? (
+          <p className="text-xs text-gray-500 mt-1">
+            先に「弊社スタッフ」セクションで参加者を選んでください
+          </p>
+        ) : (
+          <Select
+            value={meeting.hostStaffId || "none"}
+            onValueChange={(v) => onChange({ hostStaffId: v === "none" ? "" : v })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="未指定" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">未指定</SelectItem>
+              {staffOptions.map((s) => (
+                <SelectItem key={s.value} value={s.value}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function providerLabel(provider: string): string {
+  switch (provider) {
+    case "zoom":
+      return "Zoom";
+    case "google_meet":
+      return "Google Meet";
+    case "teams":
+      return "Teams";
+    case "other":
+      return "その他";
+    default:
+      return provider;
+  }
 }

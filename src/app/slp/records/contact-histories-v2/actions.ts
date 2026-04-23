@@ -22,6 +22,19 @@ export type CustomerParticipantInput = {
   attendees?: AttendeeInput[];
 };
 
+export type MeetingInput = {
+  id?: number; // 編集時: 既存の会議ID (更新判定用)
+  provider: string; // "zoom" | "google_meet" | "teams" | "other"
+  label?: string | null;
+  scheduledStartAt?: string | null;
+  scheduledEndAt?: string | null;
+  joinUrl?: string | null;
+  startUrl?: string | null;
+  passcode?: string | null;
+  hostStaffId?: number | null;
+  state?: string; // "予定" | "進行中" | "完了" | "失敗" | "取得中"
+};
+
 export type ContactHistoryV2Input = {
   title?: string | null;
   status: string; // "scheduled" | "completed" | "cancelled" | "rescheduled"
@@ -37,6 +50,8 @@ export type ContactHistoryV2Input = {
   // 弊社スタッフ（ホスト1名含む）
   staffIds: number[];
   hostStaffId?: number | null;
+  // オンライン会議（複数可、1件目を主会議 isPrimary=true として扱う）
+  meetings?: MeetingInput[];
 };
 
 async function resolveSlpProjectId(): Promise<number> {
@@ -61,6 +76,21 @@ function validateInput(input: ContactHistoryV2Input): string | null {
     if (!c.targetType) return "顧客種別は必須です";
   }
   return null;
+}
+
+/**
+ * 会議のURL / ホスト状態から apiIntegrationStatus を計算する。
+ * Phase 4 で staff_zoom_auth / staff_google_auth が導入されたら、そこで
+ * ホストの連携状態もチェックする。現状は URL の有無のみで判定。
+ */
+function computeApiIntegrationStatus(
+  provider: string,
+  joinUrl: string | null | undefined,
+): string {
+  if (provider === "other") return "not_applicable";
+  if (!joinUrl) return "no_url_yet";
+  // staff_zoom_auth / staff_google_auth 未実装のため暫定で available
+  return "available";
 }
 
 /**
@@ -138,6 +168,34 @@ export async function createContactHistoryV2(
                 create: uniqueStaffIds.map((staffId) => ({
                   staffId,
                   isHost: staffId === hostId,
+                })),
+              }
+            : undefined,
+        meetings:
+          input.meetings && input.meetings.length > 0
+            ? {
+                create: input.meetings.map((m, idx) => ({
+                  provider: m.provider,
+                  isPrimary: idx === 0,
+                  label: m.label ?? null,
+                  displayOrder: idx,
+                  joinUrl: m.joinUrl ?? null,
+                  startUrl: m.startUrl ?? null,
+                  passcode: m.passcode ?? null,
+                  hostStaffId: m.hostStaffId ?? null,
+                  urlSource: m.joinUrl ? "manual_entry" : "empty",
+                  urlSetAt: m.joinUrl ? new Date() : null,
+                  apiIntegrationStatus: computeApiIntegrationStatus(
+                    m.provider,
+                    m.joinUrl,
+                  ),
+                  scheduledStartAt: m.scheduledStartAt
+                    ? new Date(m.scheduledStartAt)
+                    : null,
+                  scheduledEndAt: m.scheduledEndAt
+                    ? new Date(m.scheduledEndAt)
+                    : null,
+                  state: m.state ?? "予定",
                 })),
               }
             : undefined,
@@ -243,6 +301,49 @@ export async function updateContactHistoryV2(
             isHost: staffId === hostId,
           })),
         });
+      }
+
+      // 会議: 新規追加のみ対応 (id 未指定のもの)
+      // 既存会議の編集・削除は別UIで扱う (録画/議事録データが cascade 削除されるリスク回避)
+      const newMeetings = (input.meetings ?? []).filter((m) => !m.id);
+      if (newMeetings.length > 0) {
+        const existing = await tx.contactHistoryMeeting.findMany({
+          where: { contactHistoryId: id, deletedAt: null },
+          select: { displayOrder: true, isPrimary: true },
+        });
+        const maxOrder = existing.length > 0
+          ? Math.max(...existing.map((e) => e.displayOrder))
+          : -1;
+        const hasPrimary = existing.some((e) => e.isPrimary);
+
+        for (const [idx, m] of newMeetings.entries()) {
+          await tx.contactHistoryMeeting.create({
+            data: {
+              contactHistoryId: id,
+              provider: m.provider,
+              isPrimary: !hasPrimary && idx === 0,
+              label: m.label ?? null,
+              displayOrder: maxOrder + 1 + idx,
+              joinUrl: m.joinUrl ?? null,
+              startUrl: m.startUrl ?? null,
+              passcode: m.passcode ?? null,
+              hostStaffId: m.hostStaffId ?? null,
+              urlSource: m.joinUrl ? "manual_entry" : "empty",
+              urlSetAt: m.joinUrl ? new Date() : null,
+              apiIntegrationStatus: computeApiIntegrationStatus(
+                m.provider,
+                m.joinUrl,
+              ),
+              scheduledStartAt: m.scheduledStartAt
+                ? new Date(m.scheduledStartAt)
+                : null,
+              scheduledEndAt: m.scheduledEndAt
+                ? new Date(m.scheduledEndAt)
+                : null,
+              state: m.state ?? "予定",
+            },
+          });
+        }
       }
     });
 

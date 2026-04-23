@@ -1,7 +1,11 @@
 import { notFound } from "next/navigation";
 import { loadSlpContactHistoryV2Masters } from "../../load-masters";
 import { getContactHistoryV2ById } from "@/lib/contact-history-v2/loaders";
-import { ContactHistoryV2Form, type ContactHistoryFormInitial } from "../../contact-history-form";
+import {
+  ContactHistoryV2Form,
+  type ContactHistoryFormInitial,
+  type ExistingMeetingInfo,
+} from "../../contact-history-form";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -40,6 +44,18 @@ export default async function EditSlpContactHistoryV2Page({ params }: Props) {
     hostStaffId: hostStaff?.staffId ?? null,
   };
 
+  const existingMeetings: ExistingMeetingInfo[] = history.meetings.map((m) => ({
+    id: m.id,
+    provider: m.provider,
+    label: m.label,
+    isPrimary: m.isPrimary,
+    state: m.state,
+    joinUrl: m.joinUrl,
+    hostStaffName: m.hostStaff?.name ?? null,
+    hasRecord: m.record !== null,
+    hasAiSummary: m.record !== null && m.record.aiSummary !== null,
+  }));
+
   return (
     <div className="space-y-4">
       <div>
@@ -47,7 +63,12 @@ export default async function EditSlpContactHistoryV2Page({ params }: Props) {
         <p className="mt-1 text-sm text-gray-600">ID: {history.id}</p>
       </div>
 
-      <ContactHistoryV2Form mode="edit" masters={masters} initial={initial} />
+      <ContactHistoryV2Form
+        mode="edit"
+        masters={masters}
+        initial={initial}
+        existingMeetings={existingMeetings}
+      />
     </div>
   );
 }
