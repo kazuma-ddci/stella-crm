@@ -184,6 +184,7 @@ const navigation: NavItem[] = [
         children: [
           { name: "契約書進捗", href: "/stp/contracts", icon: FileCheck },
           { name: "接触履歴", href: "/stp/records/contact-histories-v2", icon: Phone },
+          { name: "会議録画・議事録", href: "/stp/records/meeting-records", icon: Video },
           { name: "商談パイプライン履歴", href: "/stp/records/stage-histories", icon: History },
         ],
       },
@@ -269,7 +270,7 @@ const navigation: NavItem[] = [
         children: [
           { name: "契約書", href: "/slp/contracts", icon: FileText },
           { name: "接触履歴", href: "/slp/records/contact-histories-v2", icon: Phone },
-          { name: "Zoom商談録画", href: "/slp/records/zoom-recordings", icon: Video },
+          { name: "会議録画・議事録", href: "/slp/records/meeting-records", icon: Video },
         ],
       },
       {
@@ -376,7 +377,7 @@ const navigation: NavItem[] = [
         sectionLabel: true,
         children: [
           { name: "接触履歴", href: "/hojo/records/contact-histories-v2", icon: History },
-          { name: "Zoom商談録画", href: "/hojo/records/zoom-recordings", icon: Video },
+          { name: "会議録画・議事録", href: "/hojo/records/meeting-records", icon: Video },
         ],
       },
       {
