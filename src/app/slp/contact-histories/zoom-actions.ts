@@ -6,6 +6,7 @@ import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 import { parseZoomJoinUrl } from "@/lib/zoom/url-parser";
 import { fetchAllForRecording } from "@/lib/slp/zoom-recording-processor";
+import { syncMeetingRecordFromV1 } from "@/lib/contact-history-v2/zoom/sync-from-v1";
 import { appendClaudeSummaryMinutes } from "@/lib/slp/slp-meeting-minutes";
 
 // ============================================
@@ -216,6 +217,7 @@ export async function addManualZoomToContactHistory(params: {
     // mode=fetch_now の場合、即取得を試みる
     if (params.mode === "fetch_now") {
       const result = await fetchAllForRecording(recording.id);
+      await syncMeetingRecordFromV1({ scope: "slp", legacyRecordingId: recording.id });
       revalidatePathsForContactHistory(params.contactHistoryId);
       if (result.state === "予定") {
         return ok({
@@ -272,6 +274,7 @@ export async function retryZoomRecording(
     if (!rec) return err("Recording が見つかりません");
 
     const result = await fetchAllForRecording(recordingId);
+    await syncMeetingRecordFromV1({ scope: "slp", legacyRecordingId: recordingId });
     await revalidatePathsForContactHistory(rec.contactHistoryId);
     return ok({ state: result.state });
   } catch (e) {

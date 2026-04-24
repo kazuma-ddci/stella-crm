@@ -7,6 +7,7 @@ import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 import { parseZoomJoinUrl } from "@/lib/zoom/url-parser";
 import { fetchAllForRecording } from "@/lib/hojo/zoom-recording-processor";
 import { appendClaudeSummaryMinutesHojo } from "@/lib/hojo/hojo-meeting-minutes";
+import { syncMeetingRecordFromV1 } from "@/lib/contact-history-v2/zoom/sync-from-v1";
 
 // ============================================
 // Zoom連携済みスタッフ一覧取得（ホスト選択プルダウン用）
@@ -202,6 +203,7 @@ export async function addManualZoomToHojoContactHistory(params: {
 
     if (params.mode === "fetch_now") {
       const result = await fetchAllForRecording(recording.id);
+      await syncMeetingRecordFromV1({ scope: "hojo", legacyRecordingId: recording.id });
       await revalidatePathsForContactHistory(params.contactHistoryId);
       if (result.state === "予定") {
         return ok({
@@ -253,6 +255,7 @@ export async function retryHojoZoomRecording(
     });
     if (!rec) return err("Recording が見つかりません");
     const result = await fetchAllForRecording(recordingId);
+    await syncMeetingRecordFromV1({ scope: "hojo", legacyRecordingId: recordingId });
     await revalidatePathsForContactHistory(rec.contactHistoryId);
     return ok({ state: result.state });
   } catch (e) {

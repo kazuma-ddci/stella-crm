@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 import { generateClaudeSummaryForHojoRecording } from "@/lib/hojo/zoom-ai";
+import { syncMeetingRecordFromV1 } from "@/lib/contact-history-v2/zoom/sync-from-v1";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
@@ -16,6 +17,7 @@ export async function POST(_req: Request, { params }: Params) {
   }
   try {
     const result = await generateClaudeSummaryForHojoRecording({ recordingId: id });
+    await syncMeetingRecordFromV1({ scope: "hojo", legacyRecordingId: id });
     return NextResponse.json({
       ok: true,
       summary: result.summary,

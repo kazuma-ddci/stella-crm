@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 import { fetchAllForRecording } from "@/lib/slp/zoom-recording-processor";
+import { syncMeetingRecordFromV1 } from "@/lib/contact-history-v2/zoom/sync-from-v1";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 録画DLが入るので5分まで許容
@@ -25,6 +26,8 @@ export async function POST(_req: Request, { params }: Params) {
   }
   try {
     const result = await fetchAllForRecording(id);
+    // V2 ContactHistoryMeetingRecord/MeetingRecordSummary へ同期 (併走期間)
+    await syncMeetingRecordFromV1({ scope: "slp", legacyRecordingId: id });
     return NextResponse.json({
       ok: true,
       result,
