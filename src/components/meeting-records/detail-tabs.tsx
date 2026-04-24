@@ -15,6 +15,9 @@ import {
   Copy,
   Loader2,
   AlertCircle,
+  Save,
+  ClipboardCheck,
+  Edit3,
 } from "lucide-react";
 import type { MeetingRecordDetail } from "@/lib/contact-history-v2/meeting-records/loaders";
 
@@ -81,6 +84,25 @@ export function MeetingRecordDetailTabs({
   const [activeTab, setActiveTab] = useState<TabId>("summary");
   const [fetching, setFetching] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [stateBusy, setStateBusy] = useState(false);
+
+  async function updateState(newState: "予定" | "完了" | "失敗") {
+    if (stateBusy || newState === detail.state) return;
+    setStateBusy(true);
+    try {
+      const res = await fetch(
+        `/api/contact-history-v2/meeting-records/${detail.recordId}/state`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ state: newState }),
+        },
+      );
+      if (res.ok) router.refresh();
+    } finally {
+      setStateBusy(false);
+    }
+  }
 
   const canFetch = detail.provider === "zoom" && !!detail.host;
   const canRegenerate =
@@ -131,25 +153,39 @@ export function MeetingRecordDetailTabs({
       <div className="rounded-lg border bg-white p-4 space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 text-xs">
                 {detail.providerLabel}
               </span>
-              <span
-                className={`inline-flex items-center rounded px-2 py-0.5 text-xs ${
-                  detail.state === "完了"
-                    ? "bg-green-100 text-green-800"
-                    : detail.state === "予定"
-                      ? "bg-blue-100 text-blue-800"
-                      : detail.state === "取得中"
-                        ? "bg-amber-100 text-amber-800"
-                        : detail.state === "失敗"
-                          ? "bg-red-100 text-red-800"
-                          : "bg-gray-100 text-gray-800"
-                }`}
-              >
-                {detail.state}
-              </span>
+              {detail.state === "取得中" ? (
+                <span className="inline-flex items-center rounded bg-amber-100 text-amber-800 px-2 py-0.5 text-xs">
+                  取得中
+                </span>
+              ) : (
+                <label className="inline-flex items-center gap-1 text-xs">
+                  <span className="text-muted-foreground">状況:</span>
+                  <select
+                    className={`rounded border px-2 py-0.5 text-xs font-medium ${
+                      detail.state === "完了"
+                        ? "bg-green-50 border-green-300 text-green-800"
+                        : detail.state === "予定"
+                          ? "bg-blue-50 border-blue-300 text-blue-800"
+                          : detail.state === "失敗"
+                            ? "bg-red-50 border-red-300 text-red-800"
+                            : "bg-gray-50 border-gray-300 text-gray-800"
+                    }`}
+                    disabled={stateBusy}
+                    value={detail.state}
+                    onChange={(e) =>
+                      updateState(e.target.value as "予定" | "完了" | "失敗")
+                    }
+                  >
+                    <option value="予定">予定</option>
+                    <option value="完了">完了</option>
+                    <option value="失敗">失敗</option>
+                  </select>
+                </label>
+              )}
               {detail.externalMeetingId && (
                 <span className="font-mono text-xs text-muted-foreground">
                   ID: {detail.externalMeetingId}
@@ -256,9 +292,16 @@ export function MeetingRecordDetailTabs({
 }
 
 function SummaryTab({ detail }: { detail: MeetingRecordDetail }) {
+  const router = useRouter();
   const current =
     detail.summaries.find((s) => s.isCurrent) ??
     detail.summaries[detail.summaries.length - 1];
+
+  const currentText = current?.summaryText ?? detail.record.aiSummary ?? "";
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(currentText);
+  const [saving, setSaving] = useState(false);
+  const [reflecting, setReflecting] = useState(false);
 
   if (!current && !detail.record.aiSummary) {
     return (
@@ -268,10 +311,47 @@ function SummaryTab({ detail }: { detail: MeetingRecordDetail }) {
     );
   }
 
+  async function saveSummary() {
+    setSaving(true);
+    try {
+      const res = await fetch(
+        `/api/contact-history-v2/meeting-records/${detail.recordId}/summary`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ summaryText: draft }),
+        },
+      );
+      if (res.ok) {
+        setIsEditing(false);
+        router.refresh();
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function reflectToMinutes(mode: "append" | "replace") {
+    setReflecting(true);
+    try {
+      const res = await fetch(
+        `/api/contact-history-v2/meeting-records/${detail.recordId}/reflect-minutes`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode }),
+        },
+      );
+      if (res.ok) router.refresh();
+    } finally {
+      setReflecting(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div>
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>
               現行版:{" "}
@@ -285,13 +365,71 @@ function SummaryTab({ detail }: { detail: MeetingRecordDetail }) {
               <span>{formatJst(current.generatedAt)}</span>
             )}
           </div>
-          <CopyButton
-            text={current?.summaryText ?? detail.record.aiSummary ?? ""}
+          <div className="flex gap-2 flex-wrap">
+            <CopyButton text={currentText} />
+            {!isEditing ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setDraft(currentText);
+                  setIsEditing(true);
+                }}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded border hover:bg-muted text-xs"
+              >
+                <Edit3 className="h-3 w-3" />
+                編集
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={saveSummary}
+                  disabled={saving}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 text-xs disabled:opacity-60"
+                >
+                  {saving ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Save className="h-3 w-3" />
+                  )}
+                  保存
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded border hover:bg-muted text-xs"
+                >
+                  キャンセル
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => reflectToMinutes("append")}
+              disabled={reflecting || !currentText}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-teal-600 text-white hover:bg-teal-700 text-xs disabled:opacity-60"
+              title="接触履歴の議事録欄に追記します"
+            >
+              {reflecting ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <ClipboardCheck className="h-3 w-3" />
+              )}
+              議事録に反映
+            </button>
+          </div>
+        </div>
+        {isEditing ? (
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            className="w-full rounded border p-3 text-sm min-h-[40vh] font-sans"
           />
-        </div>
-        <div className="rounded border bg-gray-50 p-3 whitespace-pre-wrap text-sm max-h-[50vh] overflow-y-auto">
-          {current?.summaryText ?? detail.record.aiSummary ?? "—"}
-        </div>
+        ) : (
+          <div className="rounded border bg-gray-50 p-3 whitespace-pre-wrap text-sm max-h-[50vh] overflow-y-auto">
+            {currentText || "—"}
+          </div>
+        )}
       </div>
 
       {detail.summaries.length > 1 && (

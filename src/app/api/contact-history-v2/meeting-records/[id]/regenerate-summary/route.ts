@@ -4,6 +4,7 @@ import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 import { generateClaudeSummaryForRecording } from "@/lib/slp/zoom-ai";
 import { generateClaudeSummaryForHojoRecording } from "@/lib/hojo/zoom-ai";
 import { syncMeetingRecordFromV1 } from "@/lib/contact-history-v2/zoom/sync-from-v1";
+import { generateClaudeSummaryForV2Record } from "@/lib/contact-history-v2/zoom/claude-summary";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
@@ -92,15 +93,12 @@ export async function POST(_req: Request, { params }: Params) {
       return NextResponse.json({ ok: true, via: "v1_hojo", model: result.model });
     }
 
-    // V2 単独レコードの Claude 再要約は次フェーズで対応
-    return NextResponse.json(
-      {
-        ok: false,
-        message:
-          "V1 レコードが見つかりません。V2 単独レコードの Claude 再要約は次の実装で対応予定です。",
-      },
-      { status: 501 },
-    );
+    // V2 単独レコードの Claude 再要約
+    const result = await generateClaudeSummaryForV2Record({
+      meetingRecordId: id,
+      projectCode: projectCode as "stp" | "slp" | "hojo",
+    });
+    return NextResponse.json({ ok: true, via: "v2_direct", model: result.model });
   } catch (e) {
     return NextResponse.json(
       { ok: false, message: e instanceof Error ? e.message : "unknown" },
