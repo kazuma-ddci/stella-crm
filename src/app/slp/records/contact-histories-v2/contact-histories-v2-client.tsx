@@ -15,6 +15,7 @@ import {
   getTargetTypeLabel,
   getProviderLabel,
   type ContactHistoryV2WithRelations,
+  getMeetingStateBadge,
 } from "@/lib/contact-history-v2/types";
 
 type Props = {
@@ -160,7 +161,18 @@ function MeetingsList({
             <Badge variant={m.isPrimary ? "default" : "outline"}>
               {getProviderLabel(m.provider)}
             </Badge>
-            <span className="text-gray-600">{m.state}</span>
+            {(() => {
+              const b = getMeetingStateBadge(m.state);
+              return (
+                <Badge
+                  variant="outline"
+                  className={b.className}
+                  title={b.description}
+                >
+                  {b.label}
+                </Badge>
+              );
+            })()}
             {m.label && <span className="text-gray-500">（{m.label}）</span>}
             {hasRecording && <Badge variant="secondary">録画</Badge>}
             {hasAiSummary && (

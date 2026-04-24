@@ -16,6 +16,7 @@ import {
 import {
   getStatusLabel,
   getProviderLabel,
+  getMeetingStateBadge,
 } from "@/lib/contact-history-v2/types";
 
 /**
@@ -165,7 +166,18 @@ export async function EmbeddedContactHistoryV2Section({
                               <Badge variant={m.isPrimary ? "default" : "outline"}>
                                 {getProviderLabel(m.provider)}
                               </Badge>
-                              <span className="text-gray-500">{m.state}</span>
+                              {(() => {
+                                const b = getMeetingStateBadge(m.state);
+                                return (
+                                  <Badge
+                                    variant="outline"
+                                    className={b.className}
+                                    title={b.description}
+                                  >
+                                    {b.label}
+                                  </Badge>
+                                );
+                              })()}
                             </div>
                           ))}
                         </div>

@@ -7,6 +7,7 @@ import {
   getStatusLabel,
   getTargetTypeLabel,
   getProviderLabel,
+  getMeetingStateBadge,
 } from "@/lib/contact-history-v2/types";
 import { DeleteContactHistoryButton } from "./delete-button";
 
@@ -140,7 +141,18 @@ export default async function SlpContactHistoryV2DetailPage({ params }: Props) {
               <div key={m.id} className="rounded border p-3">
                 <div className="flex items-center gap-2">
                   <Badge>{getProviderLabel(m.provider)}</Badge>
-                  <span className="text-sm">{m.state}</span>
+                  {(() => {
+                    const b = getMeetingStateBadge(m.state);
+                    return (
+                      <Badge
+                        variant="outline"
+                        className={b.className}
+                        title={b.description}
+                      >
+                        {b.label}
+                      </Badge>
+                    );
+                  })()}
                   {m.label && <span className="text-xs text-gray-500">（{m.label}）</span>}
                   {m.isPrimary && <Badge variant="outline">主会議</Badge>}
                 </div>
