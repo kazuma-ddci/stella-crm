@@ -53,7 +53,6 @@ export default async function StpCompanyDetailPage({ params, searchParams }: Pro
     staffOptionsByField,
     masterContractStatuses,
     contractTypes,
-    contactHistoriesRaw,
   ] = await Promise.all([
     prisma.stpStage.findMany({ where: { isActive: true }, orderBy: { displayOrder: "asc" } }),
     prisma.masterStaff.findMany({ where: { isActive: true, isSystemUser: false }, orderBy: [{ displayOrder: "asc" }, { id: "asc" }] }),
@@ -69,26 +68,7 @@ export default async function StpCompanyDetailPage({ params, searchParams }: Pro
     getStaffOptionsByFields(["STP_COMPANY_SALES", "STP_COMPANY_ADMIN", "CONTRACT_ASSIGNED_TO", "CONTACT_HISTORY_STAFF"]),
     prisma.masterContractStatus.findMany({ where: { isActive: true }, orderBy: { displayOrder: "asc" } }),
     prisma.contractType.findMany({ where: { projectId: STP_PROJECT_ID, isActive: true }, orderBy: { displayOrder: "asc" } }),
-    // 接触履歴（この企業に紐づくもの）
-    prisma.contactHistory.findMany({
-      where: {
-        companyId: stpCompany.companyId,
-        deletedAt: null,
-        roles: {
-          some: {
-            customerType: {
-              projectId: STP_PROJECT_ID,
-              name: "企業",
-            },
-          },
-        },
-      },
-      include: {
-        contactMethod: true,
-        roles: { include: { customerType: true } },
-      },
-      orderBy: { contactDate: "desc" },
-    }),
+    // 接触履歴は V2 (EmbeddedContactHistoryV2Section) 経由で別途取得するためここでは読まない
   ]);
 
   // プロジェクトごとの担当者オプション（接触履歴用）
@@ -191,28 +171,6 @@ export default async function StpCompanyDetailPage({ params, searchParams }: Pro
         accountId: latestContract.accountId,
       }
     : null;
-
-  // 接触履歴シリアライズ
-  const contactHistoriesData = contactHistoriesRaw.map((h) => {
-    const assignedToNames = h.assignedTo
-      ? h.assignedTo.split(",").filter(Boolean).map((id) => {
-          const s = staff.find((st) => st.id === Number(id));
-          return s?.name || id;
-        }).join(", ")
-      : null;
-    return {
-      id: h.id,
-      contactDate: h.contactDate.toISOString(),
-      contactMethodId: h.contactMethodId,
-      contactMethodName: h.contactMethod?.name || null,
-      assignedTo: h.assignedTo,
-      assignedToNames,
-      customerParticipants: h.customerParticipants,
-      meetingMinutes: h.meetingMinutes,
-      note: h.note,
-      customerTypeIds: h.roles.map((r) => r.customerTypeId),
-    };
-  });
 
   // オプション
   const contactMethodOptions = contactMethods.map((m) => ({ value: String(m.id), label: m.name }));

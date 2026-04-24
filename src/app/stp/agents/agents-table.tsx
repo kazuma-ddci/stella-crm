@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CrudTable, ColumnDef, CustomAction, CustomRenderers, InlineEditConfig } from "@/components/crud-table";
 import { addAgent, updateAgent, deleteAgent } from "./actions";
-import { ContactHistoryModal } from "./contact-history-modal";
 import { MasterContractModal } from "@/components/master-contract-modal";
 import { ReferredCompaniesModal } from "./referred-companies-modal";
 import { FieldChangeLogModal } from "@/components/field-change-log-modal";
@@ -85,7 +84,6 @@ export function AgentsTable({
   contactCategories,
 }: Props) {
   const router = useRouter();
-  const [contactHistoryModalOpen, setContactHistoryModalOpen] = useState(false);
   const [masterContractModalOpen, setMasterContractModalOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<Record<string, unknown> | null>(null);
 
@@ -620,8 +618,15 @@ export function AgentsTable({
       icon: <MessageSquare className="h-4 w-4" />,
       label: "接触履歴",
       onClick: (item) => {
-        setSelectedAgent(item);
-        setContactHistoryModalOpen(true);
+        // V2 の一覧ページへ該当代理店で絞込んで遷移
+        const agentId = item.id as number;
+        const name = (item.companyName as string) ?? `代理店#${agentId}`;
+        const qs = new URLSearchParams({
+          targetType: "stp_agent",
+          targetId: String(agentId),
+          entityName: name,
+        });
+        router.push(`/stp/records/contact-histories-v2?${qs.toString()}`);
       },
     },
     {
@@ -736,18 +741,6 @@ export function AgentsTable({
 
       {selectedAgent && (
         <>
-          <ContactHistoryModal
-            open={contactHistoryModalOpen}
-            onOpenChange={setContactHistoryModalOpen}
-            agentId={selectedAgent.id as number}
-            agentName={selectedAgent.companyName as string}
-            contactHistories={(selectedAgent.contactHistories as Record<string, unknown>[]) || []}
-            contactMethodOptions={contactMethodOptions}
-            staffOptions={staffOptions}
-            customerTypes={customerTypes}
-            staffByProject={staffByProject}
-            contactCategories={contactCategories}
-          />
           <MasterContractModal
             open={masterContractModalOpen}
             onOpenChange={setMasterContractModalOpen}

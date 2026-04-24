@@ -70,28 +70,24 @@ export default async function StpCompaniesPage() {
       include: { currentStatus: true },
       orderBy: { createdAt: "desc" },
     }),
-    // 接触履歴（顧客種別「企業」のコンテキストを持つもの）
-    prisma.contactHistory.findMany({
+    // 最終接触日算出のため V2 から最新日時だけ取得 (行一覧表示用)
+    prisma.contactHistoryV2.findMany({
       where: {
+        projectId: STP_PROJECT_ID,
         deletedAt: null,
-        roles: {
-          some: {
-            customerType: {
-              projectId: STP_PROJECT_ID,
-              name: "企業",
-            },
-          },
+        customerParticipants: {
+          some: { targetType: "stp_company" },
         },
       },
-      include: {
-        contactMethod: true,
-        roles: {
-          include: {
-            customerType: true,
-          },
+      select: {
+        scheduledStartAt: true,
+        customerParticipants: {
+          where: { targetType: "stp_company" },
+          select: { targetId: true },
+          take: 1,
         },
       },
-      orderBy: { contactDate: "desc" },
+      orderBy: { scheduledStartAt: "desc" },
     }),
     // 顧客種別マスタ（全プロジェクト - 接触履歴で複数プロジェクト選択可能にするため）
     prisma.customerType.findMany({
@@ -151,14 +147,18 @@ export default async function StpCompaniesPage() {
     masterContractsByCompanyId[contract.companyId].push(contract);
   });
 
-  // companyIdで接触履歴をグループ化
-  const contactHistoriesByCompanyId: Record<number, typeof contactHistories> = {};
-  contactHistories.forEach((history) => {
-    if (!contactHistoriesByCompanyId[history.companyId]) {
-      contactHistoriesByCompanyId[history.companyId] = [];
+  // companyId ごとに最新接触日を算出 (V2 接触履歴から)
+  const latestContactDateByCompanyId: Record<number, Date> = {};
+  for (const h of contactHistories) {
+    const cid = h.customerParticipants[0]?.targetId;
+    if (cid === null || cid === undefined) continue;
+    if (
+      !latestContactDateByCompanyId[cid] ||
+      h.scheduledStartAt > latestContactDateByCompanyId[cid]
+    ) {
+      latestContactDateByCompanyId[cid] = h.scheduledStartAt;
     }
-    contactHistoriesByCompanyId[history.companyId].push(history);
-  });
+  }
 
   // companyIdで契約履歴をグループ化
   const contractHistoriesByCompanyId: Record<number, typeof contractHistoriesData> = {};
@@ -213,8 +213,6 @@ export default async function StpCompaniesPage() {
   };
 
   const data = companies.map((c) => {
-    // この企業の接触履歴を取得
-    const companyContactHistories = contactHistoriesByCompanyId[c.companyId] || [];
     // この企業の契約履歴を取得（全件）
     const companyContractHistories = contractHistoriesByCompanyId[c.companyId] || [];
     const contractStates = companyContractHistories.map(getContractState);
@@ -230,10 +228,8 @@ export default async function StpCompaniesPage() {
     note: c.note,
     leadAcquiredDate: c.leadAcquiredDate?.toISOString(),
     leadValidity: c.leadValidity,
-    // 最終接触日（接触履歴の最新日時）
-    latestContactDate: companyContactHistories.length > 0
-      ? companyContactHistories[0].contactDate.toISOString()
-      : null,
+    // 最終接触日（V2 接触履歴の最新 scheduledStartAt）
+    latestContactDate: latestContactDateByCompanyId[c.companyId]?.toISOString() ?? null,
     currentStageId: c.currentStageId,
     currentStageName: c.currentStage?.name,
     nextTargetStageId: c.nextTargetStageId,
@@ -283,29 +279,7 @@ export default async function StpCompaniesPage() {
     // 全顧客マスタの拠点・担当者（選択肢用）
     companyLocations: c.company.locations,
     companyContacts: c.company.contacts,
-    // 接触履歴
-    contactHistoryCount: companyContactHistories.length,
-    contactHistories: companyContactHistories.map((h) => {
-      // スタッフIDからスタッフ名を取得
-      const assignedToNames = h.assignedTo
-        ? h.assignedTo.split(",").filter(Boolean).map((id) => {
-            const s = staff.find((st) => st.id === Number(id));
-            return s?.name || id;
-          }).join(", ")
-        : null;
-      return {
-        id: h.id,
-        contactDate: h.contactDate.toISOString(),
-        contactMethodId: h.contactMethodId,
-        contactMethodName: h.contactMethod?.name || null,
-        assignedTo: h.assignedTo,
-        assignedToNames,
-        customerParticipants: h.customerParticipants,
-        meetingMinutes: h.meetingMinutes,
-        note: h.note,
-        customerTypeIds: h.roles.map((r) => r.customerTypeId),
-      };
-    }),
+    // 接触履歴は V2 ページで確認 (テーブル内モーダルは廃止)
     // MasterContract（契約書管理）
     masterContracts: (masterContractsByCompanyId[c.companyId] || []).map((mc) => ({
       id: mc.id,

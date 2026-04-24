@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CrudTable, ColumnDef, CustomAction, CustomRenderers, DynamicOptionsMap, CustomFormFields, InlineEditConfig } from "@/components/crud-table";
 import { StageManagementModal } from "@/components/stage-management";
-import { CompanyContactHistoryModal } from "./contact-history-modal";
 
 import { MasterContractModal } from "@/components/master-contract-modal";
 import { ProposalModal } from "@/components/proposal-modal";
@@ -87,7 +86,6 @@ export function StpCompaniesTable({
 }: Props) {
   const router = useRouter();
   const [stageModalOpen, setStageModalOpen] = useState(false);
-  const [contactHistoryModalOpen, setContactHistoryModalOpen] = useState(false);
 
   const [masterContractModalOpen, setMasterContractModalOpen] = useState(false);
   const [proposalModalOpen, setProposalModalOpen] = useState(false);
@@ -754,9 +752,16 @@ export function StpCompaniesTable({
     setStageModalOpen(true);
   };
 
-  const handleOpenContactHistoryModal = (item: Record<string, unknown>) => {
-    setSelectedCompany(item);
-    setContactHistoryModalOpen(true);
+  // 接触履歴はV2の専用ページへ遷移 (対象企業で絞込み表示)
+  const handleOpenContactHistory = (item: Record<string, unknown>) => {
+    const companyId = item.companyId as number;
+    const companyName = (item.companyName as string) ?? `企業#${companyId}`;
+    const qs = new URLSearchParams({
+      targetType: "stp_company",
+      targetId: String(companyId),
+      entityName: companyName,
+    });
+    router.push(`/stp/records/contact-histories-v2?${qs.toString()}`);
   };
 
 
@@ -773,7 +778,7 @@ export function StpCompaniesTable({
     {
       icon: <MessageSquare className="h-4 w-4" />,
       label: "接触履歴",
-      onClick: handleOpenContactHistoryModal,
+      onClick: handleOpenContactHistory,
     },
     {
       icon: <ScrollText className="h-4 w-4" />,
@@ -925,22 +930,6 @@ export function StpCompaniesTable({
         stpCompanyId={selectedCompanyId}
         onUpdateSuccess={handleUpdateSuccess}
       />
-
-      {selectedCompany && (
-        <CompanyContactHistoryModal
-          open={contactHistoryModalOpen}
-          onOpenChange={setContactHistoryModalOpen}
-          stpCompanyId={selectedCompany.id as number}
-          companyName={selectedCompany.companyName as string}
-          contactHistories={(selectedCompany.contactHistories as Record<string, unknown>[]) || []}
-          contactMethodOptions={contactMethodOptions}
-          staffOptions={staffOptions}
-          customerTypes={customerTypes}
-          staffByProject={staffByProject}
-          contactCategories={contactCategories}
-        />
-      )}
-
 
       {selectedCompany && (
         <MasterContractModal

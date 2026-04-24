@@ -101,29 +101,24 @@ export default async function StpAgentsPage() {
       include: { currentStatus: true },
       orderBy: { createdAt: "desc" },
     }),
-    // 接触履歴（顧客種別「代理店」のコンテキストを持つもの）
-    prisma.contactHistory.findMany({
+    // 代理店の最終接触日算出用 (V2 の stp_agent target のみ)
+    prisma.contactHistoryV2.findMany({
       where: {
+        projectId: STP_PROJECT_ID,
         deletedAt: null,
-        roles: {
-          some: {
-            customerType: {
-              projectId: STP_PROJECT_ID,
-              name: "代理店",
-            },
-          },
+        customerParticipants: {
+          some: { targetType: "stp_agent" },
         },
       },
-      include: {
-        contactMethod: true,
-        contactCategory: true,
-        roles: {
-          include: {
-            customerType: true,
-          },
+      select: {
+        scheduledStartAt: true,
+        customerParticipants: {
+          where: { targetType: "stp_agent" },
+          select: { targetId: true },
+          take: 1,
         },
       },
-      orderBy: { contactDate: "desc" },
+      orderBy: { scheduledStartAt: "desc" },
     }),
     // 顧客種別マスタ（全プロジェクト - 接触履歴で複数プロジェクト選択可能にするため）
     prisma.customerType.findMany({
@@ -157,14 +152,18 @@ export default async function StpAgentsPage() {
     masterContractsByCompanyId[contract.companyId].push(contract);
   });
 
-  // companyIdで接触履歴をグループ化
-  const contactHistoriesByCompanyId: Record<number, typeof contactHistories> = {};
-  contactHistories.forEach((history) => {
-    if (!contactHistoriesByCompanyId[history.companyId]) {
-      contactHistoriesByCompanyId[history.companyId] = [];
+  // StpAgent.id ごとに最新接触日を算出 (V2 接触履歴から)
+  const latestContactDateByAgentId: Record<number, Date> = {};
+  for (const h of contactHistories) {
+    const agentId = h.customerParticipants[0]?.targetId;
+    if (agentId === null || agentId === undefined) continue;
+    if (
+      !latestContactDateByAgentId[agentId] ||
+      h.scheduledStartAt > latestContactDateByAgentId[agentId]
+    ) {
+      latestContactDateByAgentId[agentId] = h.scheduledStartAt;
     }
-    contactHistoriesByCompanyId[history.companyId].push(history);
-  });
+  }
 
   // 契約ステータス計算用の今日の日付
   const today = new Date();
@@ -178,8 +177,6 @@ export default async function StpAgentsPage() {
 
   const data = agents.map((a) => {
     const primaryLocation = a.company.locations[0];
-    // この代理店の接触履歴を取得
-    const agentContactHistories = contactHistoriesByCompanyId[a.companyId] || [];
 
     // 紹介件数：この代理店が紹介したSTP企業の数
     const referralCount = a.stpCompanies.length;
@@ -260,35 +257,8 @@ export default async function StpAgentsPage() {
       status: c.status,
       note: c.note,
     })),
-    // 接触履歴
-    contactHistoryCount: agentContactHistories.length,
-    // 最終接触日（接触履歴の最新日時）
-    latestContactDate: agentContactHistories.length > 0
-      ? agentContactHistories[0].contactDate.toISOString()
-      : null,
-    contactHistories: agentContactHistories.map((h) => {
-      // スタッフIDからスタッフ名を取得
-      const assignedToNames = h.assignedTo
-        ? h.assignedTo.split(",").filter(Boolean).map((id) => {
-            const s = staff.find((st) => st.id === Number(id));
-            return s?.name || id;
-          }).join(", ")
-        : null;
-      return {
-        id: h.id,
-        contactDate: h.contactDate.toISOString(),
-        contactMethodId: h.contactMethodId,
-        contactMethodName: h.contactMethod?.name || null,
-        contactCategoryId: h.contactCategoryId,
-        contactCategoryName: h.contactCategory?.name || null,
-        assignedTo: h.assignedTo,
-        assignedToNames,
-        customerParticipants: h.customerParticipants,
-        meetingMinutes: h.meetingMinutes,
-        note: h.note,
-        customerTypeIds: h.roles.map((r) => r.customerTypeId),
-      };
-    }),
+    // 最終接触日（V2 接触履歴の最新 scheduledStartAt）
+    latestContactDate: latestContactDateByAgentId[a.id]?.toISOString() ?? null,
     // MasterContract（契約書管理）
     masterContracts: (masterContractsByCompanyId[a.companyId] || []).map((mc) => ({
       id: mc.id,
