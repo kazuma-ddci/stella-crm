@@ -146,25 +146,28 @@ export async function listContactHistoriesV2ForEntity(options: {
 
 /**
  * 指定した顧客エンティティ の接触履歴件数。
+ * status で追加絞込み可。
  */
 export async function countContactHistoriesV2ForEntity(options: {
   projectCode: string;
   targetType: string;
   targetId: number | null;
+  status?: string;
 }): Promise<number> {
   const projectId = await resolveProjectIdByCode(options.projectCode);
   if (projectId === null) return 0;
 
-  return prisma.contactHistoryV2.count({
-    where: {
-      projectId,
-      deletedAt: null,
-      customerParticipants: {
-        some: {
-          targetType: options.targetType,
-          ...(options.targetId !== null ? { targetId: options.targetId } : { targetId: null }),
-        },
+  const where: Prisma.ContactHistoryV2WhereInput = {
+    projectId,
+    deletedAt: null,
+    customerParticipants: {
+      some: {
+        targetType: options.targetType,
+        ...(options.targetId !== null ? { targetId: options.targetId } : { targetId: null }),
       },
     },
-  });
+  };
+  if (options.status) where.status = options.status;
+
+  return prisma.contactHistoryV2.count({ where });
 }
