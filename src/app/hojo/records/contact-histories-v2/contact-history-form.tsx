@@ -499,7 +499,7 @@ export function ContactHistoryV2Form({
                 return (
                   <label
                     key={s.value}
-                    className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 p-2 text-sm text-gray-600 hover:bg-white cursor-pointer transition-colors"
+                    className="flex items-center gap-2 rounded-md border border-gray-300 bg-white p-2.5 text-sm hover:bg-gray-50 hover:border-gray-400 cursor-pointer transition-colors"
                   >
                     <input
                       type="checkbox"
@@ -772,7 +772,7 @@ function CustomerSection({
       <div>
         <Label>先方参加者</Label>
         {/* 入力行 (先頭固定、「追加」ボタンで追加) */}
-        <div className="mt-2 flex gap-2 rounded-md border border-gray-200 bg-gray-50 p-3">
+        <div className="mt-2 flex gap-2 rounded-md border border-gray-200 bg-white p-3">
           <Input
             value={nameInput}
             onChange={(e) => setNameInput(e.target.value)}
