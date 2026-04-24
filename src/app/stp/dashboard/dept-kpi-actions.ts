@@ -160,20 +160,27 @@ export async function getDeptKpiData(
       ? Math.round((sqlizedCount / validLeadCount) * 1000) / 10
       : null;
 
-  // 商談数: 接触履歴で接触種別「商談」の当月ユニーク企業数
+  // 商談数: 接触履歴(V2)で接触種別「商談」の当月ユニーク企業数
   let meetingCount = 0;
   if (meetingCategory) {
-    const meetingContacts = await prisma.contactHistory.findMany({
+    const meetingParticipants = await prisma.contactCustomerParticipant.findMany({
       where: {
-        companyId: { in: allMasterCompanyIds },
-        contactCategoryId: meetingCategory.id,
-        contactDate: { gte: monthStart, lte: monthEnd },
-        deletedAt: null,
+        targetType: "stp_company",
+        targetId: { in: allMasterCompanyIds },
+        contactHistory: {
+          deletedAt: null,
+          projectId: 1,
+          status: "completed",
+          contactCategoryId: meetingCategory.id,
+          scheduledStartAt: { gte: monthStart, lte: monthEnd },
+        },
       },
-      select: { companyId: true },
-      distinct: ["companyId"],
+      select: { targetId: true },
     });
-    meetingCount = meetingContacts.length;
+    const uniqueIds = new Set(
+      meetingParticipants.map((p) => p.targetId).filter((id): id is number => id !== null)
+    );
+    meetingCount = uniqueIds.size;
   }
 
   // 代理店経由のSQL化率
@@ -248,20 +255,27 @@ export async function getDeptKpiData(
   // Sales部の計算
   // ============================================
 
-  // 成約率: 基本契約書締結企業数 ÷ 商談接触企業数（当月）
+  // 成約率: 基本契約書締結企業数 ÷ 商談接触企業数（当月）(V2)
   let salesMeetingCompanyCount = 0;
   if (meetingCategory) {
-    const meetingContacts = await prisma.contactHistory.findMany({
+    const meetingParticipants = await prisma.contactCustomerParticipant.findMany({
       where: {
-        companyId: { in: allMasterCompanyIds },
-        contactCategoryId: meetingCategory.id,
-        contactDate: { gte: monthStart, lte: monthEnd },
-        deletedAt: null,
+        targetType: "stp_company",
+        targetId: { in: allMasterCompanyIds },
+        contactHistory: {
+          deletedAt: null,
+          projectId: 1,
+          status: "completed",
+          contactCategoryId: meetingCategory.id,
+          scheduledStartAt: { gte: monthStart, lte: monthEnd },
+        },
       },
-      select: { companyId: true },
-      distinct: ["companyId"],
+      select: { targetId: true },
     });
-    salesMeetingCompanyCount = meetingContacts.length;
+    const uniqueIds = new Set(
+      meetingParticipants.map((p) => p.targetId).filter((id): id is number => id !== null)
+    );
+    salesMeetingCompanyCount = uniqueIds.size;
   }
 
   // 基本契約書の締結企業（当月）
@@ -314,19 +328,31 @@ export async function getDeptKpiData(
   if (meetingCategory && contractedCompaniesThisMonth.size > 0) {
     const masterCompanyIds = Array.from(contractedCompaniesThisMonth);
 
-    const firstMeetings = await prisma.contactHistory.groupBy({
-      by: ["companyId"],
+    // V2: customerParticipants 経由で企業ごとの最初の商談日を集計
+    const meetingParticipants = await prisma.contactCustomerParticipant.findMany({
       where: {
-        companyId: { in: masterCompanyIds },
-        contactCategoryId: meetingCategory.id,
-        deletedAt: null,
+        targetType: "stp_company",
+        targetId: { in: masterCompanyIds },
+        contactHistory: {
+          deletedAt: null,
+          projectId: 1,
+          status: "completed",
+          contactCategoryId: meetingCategory.id,
+        },
       },
-      _min: { contactDate: true },
+      select: {
+        targetId: true,
+        contactHistory: { select: { scheduledStartAt: true } },
+      },
     });
 
-    const firstMeetingMap = new Map(
-      firstMeetings.map((fm) => [fm.companyId, fm._min.contactDate])
-    );
+    const firstMeetingMap = new Map<number, Date>();
+    for (const p of meetingParticipants) {
+      if (p.targetId == null) continue;
+      const d = p.contactHistory.scheduledStartAt;
+      const existing = firstMeetingMap.get(p.targetId);
+      if (!existing || d < existing) firstMeetingMap.set(p.targetId, d);
+    }
 
     let totalDays = 0;
     let validCount = 0;
@@ -379,19 +405,31 @@ export async function getDeptKpiData(
         .map((stpId) => stpToMasterMap.get(stpId))
         .filter((id): id is number => id !== undefined);
 
-      const firstKickoffs = await prisma.contactHistory.groupBy({
-        by: ["companyId"],
+      // V2: customerParticipants 経由で企業ごとの最初のキックオフ日を集計
+      const koParticipants = await prisma.contactCustomerParticipant.findMany({
         where: {
-          companyId: { in: masterCompanyIdsForKo },
-          contactCategoryId: koCategory.id,
-          deletedAt: null,
+          targetType: "stp_company",
+          targetId: { in: masterCompanyIdsForKo },
+          contactHistory: {
+            deletedAt: null,
+            projectId: 1,
+            status: "completed",
+            contactCategoryId: koCategory.id,
+          },
         },
-        _min: { contactDate: true },
+        select: {
+          targetId: true,
+          contactHistory: { select: { scheduledStartAt: true } },
+        },
       });
 
-      const koMap = new Map(
-        firstKickoffs.map((fk) => [fk.companyId, fk._min.contactDate])
-      );
+      const koMap = new Map<number, Date>();
+      for (const p of koParticipants) {
+        if (p.targetId == null) continue;
+        const d = p.contactHistory.scheduledStartAt;
+        const existing = koMap.get(p.targetId);
+        if (!existing || d < existing) koMap.set(p.targetId, d);
+      }
 
       let totalDays = 0;
       let validCount = 0;

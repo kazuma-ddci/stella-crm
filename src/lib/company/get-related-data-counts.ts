@@ -23,7 +23,16 @@ export async function getRelatedDataCounts(companyId: number): Promise<CompanyRe
     prisma.stpCompany.count({ where: { companyId } }),
     prisma.stpAgent.count({ where: { companyId } }),
     prisma.stpContractHistory.count({ where: { companyId, deletedAt: null } }),
-    prisma.contactHistory.count({ where: { companyId, deletedAt: null } }),
+    // V2接触履歴: STP stp_company target (targetId = MasterStellaCompany.id) で突合
+    // ※ SLP/HOJO は中間マスタ経由の target なのでここでは除外 (企業マージ画面の件数表示用)
+    prisma.contactHistoryV2.count({
+      where: {
+        deletedAt: null,
+        customerParticipants: {
+          some: { targetType: "stp_company", targetId: companyId },
+        },
+      },
+    }),
     prisma.masterContract.count({ where: { companyId } }),
     prisma.externalUser.count({ where: { companyId } }),
     prisma.registrationToken.count({ where: { companyId } }),

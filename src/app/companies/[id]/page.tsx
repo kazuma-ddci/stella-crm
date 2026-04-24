@@ -12,7 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Star, UserCheck, UserX, Clock, Mail, ShieldCheck, ClipboardList } from "lucide-react";
-import { ContactHistorySection } from "./contact-history-section";
+import { EmbeddedContactHistoryV2Section } from "@/components/contact-history-v2/embedded-section";
 import { BackButton } from "./back-button";
 import { MergeCompanyModal } from "./merge-company-modal";
 
@@ -49,7 +49,7 @@ export default async function CompanyDetailPage({ params }: Props) {
   const { id } = await params;
   const companyId = parseInt(id);
 
-  const [company, contactHistories, staff, contractHistories, externalUsers, leadFormSubmissions] = await Promise.all([
+  const [company, contractHistories, externalUsers, leadFormSubmissions] = await Promise.all([
     prisma.masterStellaCompany.findUnique({
       where: { id: companyId },
       include: {
@@ -69,32 +69,6 @@ export default async function CompanyDetailPage({ params }: Props) {
           select: { id: true },
         },
       },
-    }),
-    // この企業の全接触履歴を取得（プロジェクト・顧客種別に関わらず）
-    prisma.contactHistory.findMany({
-      where: {
-        companyId: companyId,
-        deletedAt: null,
-      },
-      include: {
-        contactMethod: true,
-        contactCategory: true,
-        roles: {
-          include: {
-            customerType: {
-              include: {
-                project: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: { contactDate: "desc" },
-    }),
-    // スタッフマスタを取得（担当者名の変換用）
-    prisma.masterStaff.findMany({
-      where: { isActive: true, isSystemUser: false },
-      orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
     }),
     // 契約履歴を取得（deletedAt: null のみ）
     prisma.stpContractHistory.findMany({
@@ -152,41 +126,6 @@ export default async function CompanyDetailPage({ params }: Props) {
   if (company.mergedIntoId) {
     redirect(`/companies/${company.mergedIntoId}`);
   }
-
-  // 接触履歴データの整形（全プロジェクトをまとめて表示）
-  const formattedContactHistories = contactHistories.map((h) => {
-    // スタッフIDからスタッフ名を取得
-    const assignedToNames = h.assignedTo
-      ? h.assignedTo.split(",").filter(Boolean).map((staffId) => {
-          const s = staff.find((st) => st.id === Number(staffId));
-          return s?.name || staffId;
-        }).join(", ")
-      : null;
-
-    // プロジェクト・顧客種別のラベル
-    const projectLabels = h.roles.map((r) =>
-      `${r.customerType.project?.name || "不明"}:${r.customerType.name}`
-    ).join(", ");
-
-    return {
-      id: h.id,
-      contactDate: h.contactDate.toISOString(),
-      contactMethodName: h.contactMethod?.name || null,
-      contactCategoryName: h.contactCategory?.name || null,
-      assignedToNames,
-      customerParticipants: h.customerParticipants,
-      meetingMinutes: h.meetingMinutes,
-      note: h.note,
-      projectLabels,
-    };
-  });
-
-  // ContactHistorySection用のデータ形式に変換
-  const stpCompaniesWithHistory = [{
-    id: companyId,
-    companyName: company.name,
-    contactHistories: formattedContactHistories,
-  }];
 
   return (
     <div className="space-y-6">
@@ -455,10 +394,15 @@ export default async function CompanyDetailPage({ params }: Props) {
         </CardContent>
       </Card>
 
-      {/* STP接触履歴（読み取り専用） */}
-      {stpCompaniesWithHistory.length > 0 && (
-        <ContactHistorySection stpCompanies={stpCompaniesWithHistory} />
-      )}
+      {/* 接触履歴（V2・STPの stp_company target に紐づく分のみ） */}
+      <EmbeddedContactHistoryV2Section
+        projectCode="stp"
+        targetType="stp_company"
+        targetId={companyId}
+        entityName={company.name}
+        basePath="/stp/records/contact-histories-v2"
+      />
+
 
       {/* 契約履歴（読み取り専用・プロジェクトごと） */}
       <Card>

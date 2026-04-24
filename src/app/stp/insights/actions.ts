@@ -1741,21 +1741,23 @@ async function getContactCount(yearMonth: string): Promise<InsightResult> {
   const { monthStart: prevStart, monthEnd: prevEnd } = parseMonth(prev);
 
   const [contacts, prevContacts] = await Promise.all([
-    prisma.contactHistory.findMany({
+    prisma.contactHistoryV2.findMany({
       where: {
         deletedAt: null,
-        contactDate: { gte: monthStart, lte: monthEnd },
-        roles: { some: { customerType: { projectId: STP_PROJECT_ID } } },
+        projectId: STP_PROJECT_ID,
+        status: "completed",
+        scheduledStartAt: { gte: monthStart, lte: monthEnd },
       },
       select: {
         contactMethod: { select: { name: true } },
       },
     }),
-    prisma.contactHistory.count({
+    prisma.contactHistoryV2.count({
       where: {
         deletedAt: null,
-        contactDate: { gte: prevStart, lte: prevEnd },
-        roles: { some: { customerType: { projectId: STP_PROJECT_ID } } },
+        projectId: STP_PROJECT_ID,
+        status: "completed",
+        scheduledStartAt: { gte: prevStart, lte: prevEnd },
       },
     }),
     prisma.contactMethod.findMany({ select: { id: true, name: true } }),
@@ -1791,11 +1793,15 @@ async function getContactCount(yearMonth: string): Promise<InsightResult> {
 async function getContactRankingByStaff(yearMonth: string): Promise<InsightResult> {
   const { monthStart, monthEnd } = parseMonth(yearMonth);
 
-  const contacts = await prisma.contactHistory.findMany({
+  // V2: スタッフは参加者関係(ContactStaffParticipant)から集計
+  const participants = await prisma.contactStaffParticipant.findMany({
     where: {
-      deletedAt: null,
-      contactDate: { gte: monthStart, lte: monthEnd },
-      roles: { some: { customerType: { projectId: STP_PROJECT_ID } } },
+      contactHistory: {
+        deletedAt: null,
+        projectId: STP_PROJECT_ID,
+        status: "completed",
+        scheduledStartAt: { gte: monthStart, lte: monthEnd },
+      },
     },
     select: {
       staff: { select: { name: true } },
@@ -1803,8 +1809,8 @@ async function getContactRankingByStaff(yearMonth: string): Promise<InsightResul
   });
 
   const staffMap = new Map<string, number>();
-  for (const c of contacts) {
-    const name = c.staff?.name ?? "不明";
+  for (const p of participants) {
+    const name = p.staff?.name ?? "不明";
     staffMap.set(name, (staffMap.get(name) ?? 0) + 1);
   }
 
@@ -1844,17 +1850,22 @@ async function getInactiveCustomers(): Promise<InsightResult> {
   const results: { 企業名: string; 最終接触日: string; 未接触日数: number }[] = [];
 
   for (const contract of activeContracts) {
-    const latestContact = await prisma.contactHistory.findFirst({
+    // V2: customerParticipants (stp_company target) から企業ごとの最新接触を取得
+    const latestContact = await prisma.contactHistoryV2.findFirst({
       where: {
-        companyId: contract.companyId,
         deletedAt: null,
+        projectId: STP_PROJECT_ID,
+        status: "completed",
+        customerParticipants: {
+          some: { targetType: "stp_company", targetId: contract.companyId },
+        },
       },
-      orderBy: { contactDate: "desc" },
-      select: { contactDate: true },
+      orderBy: { scheduledStartAt: "desc" },
+      select: { scheduledStartAt: true },
     });
 
-    if (!latestContact || new Date(latestContact.contactDate) < thirtyDaysAgo) {
-      const lastDate = latestContact ? new Date(latestContact.contactDate) : null;
+    if (!latestContact || new Date(latestContact.scheduledStartAt) < thirtyDaysAgo) {
+      const lastDate = latestContact ? new Date(latestContact.scheduledStartAt) : null;
       const daysSince = lastDate
         ? Math.floor((new Date().getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24))
         : 999;
@@ -1885,11 +1896,12 @@ async function getInactiveCustomers(): Promise<InsightResult> {
 async function getContactMethodDistribution(yearMonth: string): Promise<InsightResult> {
   const { monthStart, monthEnd } = parseMonth(yearMonth);
 
-  const contacts = await prisma.contactHistory.findMany({
+  const contacts = await prisma.contactHistoryV2.findMany({
     where: {
       deletedAt: null,
-      contactDate: { gte: monthStart, lte: monthEnd },
-      roles: { some: { customerType: { projectId: STP_PROJECT_ID } } },
+      projectId: STP_PROJECT_ID,
+      status: "completed",
+      scheduledStartAt: { gte: monthStart, lte: monthEnd },
     },
     select: {
       contactMethod: { select: { name: true } },

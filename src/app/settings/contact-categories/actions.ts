@@ -65,9 +65,9 @@ export async function deleteContactCategory(id: number): Promise<ActionResult> {
   try {
     await requireProjectMasterDataEditPermission();
 
-    // 接触履歴で使用中の場合はエラー
-    const usageCount = await prisma.contactHistory.count({
-      where: { contactCategoryId: id },
+    // 接触履歴で使用中の場合はエラー (V2)
+    const usageCount = await prisma.contactHistoryV2.count({
+      where: { contactCategoryId: id, deletedAt: null },
     });
     if (usageCount > 0) {
       return err(

@@ -1,25 +1,31 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Building2, Briefcase, Phone, Users } from "lucide-react";
+import { getTargetTypeLabel } from "@/lib/contact-history-v2/types";
 
 export default async function DashboardPage() {
   const [companiesCount, stpCompaniesCount, contactsCount, agentsCount, recentContacts] =
     await Promise.all([
       prisma.masterStellaCompany.count({ where: { deletedAt: null } }),
       prisma.stpCompany.count(),
-      prisma.contactHistory.count({ where: { deletedAt: null } }),
+      // 全プロジェクト横断の接触履歴件数 (V2)
+      prisma.contactHistoryV2.count({ where: { deletedAt: null } }),
       prisma.stpAgent.count(),
-      prisma.contactHistory.findMany({
+      // 最近の接触履歴 5件 (V2)
+      prisma.contactHistoryV2.findMany({
         where: { deletedAt: null },
         take: 5,
-        orderBy: { contactDate: "desc" },
+        orderBy: { scheduledStartAt: "desc" },
         include: {
-          company: true,
-          contactMethod: true,
-          roles: {
-            include: {
-              customerType: true,
-            },
+          project: { select: { name: true } },
+          contactMethod: { select: { name: true } },
+          customerParticipants: {
+            orderBy: [{ isPrimary: "desc" }, { displayOrder: "asc" }],
+            take: 1,
+          },
+          staffParticipants: {
+            include: { staff: { select: { name: true } } },
+            take: 3,
           },
         },
       }),
@@ -81,9 +87,12 @@ export default async function DashboardPage() {
           ) : (
             <div className="space-y-4">
               {recentContacts.map((contact) => {
-                // 顧客種別のラベルを取得
-                const customerTypeLabels = contact.roles
-                  .map((r) => r.customerType.name)
+                const primary = contact.customerParticipants[0];
+                const customerLabel = primary
+                  ? getTargetTypeLabel(primary.targetType)
+                  : "—";
+                const staffNames = contact.staffParticipants
+                  .map((p) => p.staff.name)
                   .join(", ");
 
                 return (
@@ -92,13 +101,18 @@ export default async function DashboardPage() {
                     className="flex items-center justify-between border-b pb-4 last:border-0"
                   >
                     <div>
-                      <p className="font-medium">{contact.company.name}</p>
+                      <p className="font-medium">
+                        {contact.title ?? `${contact.project.name} 接触履歴 #${contact.id}`}
+                      </p>
                       <p className="text-sm text-muted-foreground">
-                        {customerTypeLabels || "-"} - {contact.contactMethod?.name || "-"} - {contact.assignedTo || "-"}
+                        {customerLabel} - {contact.contactMethod?.name || "-"} -{" "}
+                        {staffNames || "-"}
                       </p>
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {new Date(contact.contactDate).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })}
+                      {new Date(contact.scheduledStartAt).toLocaleDateString("ja-JP", {
+                        timeZone: "Asia/Tokyo",
+                      })}
                     </div>
                   </div>
                 );
