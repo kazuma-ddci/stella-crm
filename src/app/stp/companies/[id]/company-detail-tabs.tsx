@@ -27,18 +27,12 @@ import { KpiTab } from "./tabs/kpi-tab";
 import { ChangeLogTab } from "./tabs/change-log-tab";
 
 // 既存モーダルをインラインで使用
-import { CompanyContactHistoryModal } from "../contact-history-modal";
 import { StageManagementModal } from "@/components/stage-management/stage-management-modal";
 import { ProposalModal } from "@/components/proposal-modal";
 
 // ============================================
 // 型定義
 // ============================================
-
-import type {
-  CustomerType,
-  ContactCategoryOption,
-} from "@/components/contact-history-modal";
 
 type CompanyData = {
   id: number;
@@ -135,14 +129,11 @@ type Props = {
   masterCompany: MasterCompanyData;
   latestContract: LatestContract;
   initialTab: string;
-  contactHistories: Record<string, unknown>[];
-  contactMethodOptions: { value: string; label: string }[];
-  staffOptions: { value: string; label: string }[];
   contractStatusOptions: { value: string; label: string }[];
   contractTypeOptions: { value: string; label: string }[];
-  customerTypes: CustomerType[];
-  staffByProject: Record<number, { value: string; label: string }[]>;
-  contactCategories: ContactCategoryOption[];
+  staffOptions: { value: string; label: string }[];
+  /** V2 接触履歴セクションのスロット */
+  contactHistorySlot: React.ReactNode;
 };
 
 // ============================================
@@ -171,14 +162,10 @@ function CompanyDetailTabsInner(props: Props) {
     masterCompany,
     latestContract,
     initialTab,
-    contactHistories,
-    contactMethodOptions,
-    staffOptions,
     contractStatusOptions,
     contractTypeOptions,
-    customerTypes,
-    staffByProject,
-    contactCategories,
+    staffOptions,
+    contactHistorySlot,
   } = props;
 
   const router = useRouter();
@@ -258,21 +245,9 @@ function CompanyDetailTabsInner(props: Props) {
           />
         </TabsContent>
 
-        {/* 接触履歴 */}
+        {/* 接触履歴 (V2) */}
         <TabsContent value="contacts" className="mt-4">
-          <CompanyContactHistoryModal
-            open={true}
-            onOpenChange={() => {}}
-            renderInline={true}
-            stpCompanyId={stpCompanyId}
-            companyName={companyData.companyName}
-            contactHistories={contactHistories}
-            contactMethodOptions={contactMethodOptions}
-            staffOptions={staffOptions}
-            customerTypes={customerTypes}
-            staffByProject={staffByProject}
-            contactCategories={contactCategories}
-          />
+          {contactHistorySlot}
         </TabsContent>
 
         {/* パイプライン */}

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { toLocalDateString } from "@/lib/utils";
 import { getStaffOptionsByFields, getStaffOptionsByField } from "@/lib/staff/get-staff-by-field";
 import { CompanyDetailTabs } from "./company-detail-tabs";
+import { EmbeddedContactHistoryV2Section } from "@/components/contact-history-v2/embedded-section";
 
 const STP_PROJECT_ID = 1;
 
@@ -223,25 +224,18 @@ export default async function StpCompanyDetailPage({ params, searchParams }: Pro
       masterCompany={masterCompanyData}
       latestContract={latestContractData}
       initialTab={tab || "overview"}
-      contactMethodOptions={contactMethodOptions}
       staffOptions={staffOptions}
-      contactHistories={contactHistoriesData}
       contractStatusOptions={masterContractStatuses.map((s) => ({ value: String(s.id), label: s.name }))}
       contractTypeOptions={contractTypes.map((ct) => ({ value: ct.name, label: ct.name }))}
-      customerTypes={customerTypes.map((ct) => ({
-        id: ct.id,
-        name: ct.name,
-        projectId: ct.projectId,
-        displayOrder: ct.displayOrder,
-        project: ct.project ? { id: ct.project.id, name: ct.project.name, displayOrder: ct.project.displayOrder } : { id: 0, name: "", displayOrder: 0 },
-      }))}
-      staffByProject={staffByProject}
-      contactCategories={contactCategories.map((c) => ({
-        id: c.id,
-        name: c.name,
-        projectId: c.projectId,
-        project: c.project ? { id: c.project.id, name: c.project.name, displayOrder: c.project.displayOrder } : { id: 0, name: "", displayOrder: 0 },
-      }))}
+      contactHistorySlot={
+        <EmbeddedContactHistoryV2Section
+          projectCode="stp"
+          targetType="stp_company"
+          targetId={stpCompany.companyId}
+          entityName={companyData.companyName}
+          basePath="/stp/records/contact-histories-v2"
+        />
+      }
     />
   );
 }
