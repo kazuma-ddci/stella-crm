@@ -2,11 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import { AgencyDetail } from "./agency-detail";
 import { resolveAgencyAs } from "../actions";
-import {
-  loadContactHistoryMasters,
-  loadContactHistoriesForAgency,
-} from "@/app/slp/contact-histories/loaders";
-import { SlpAgencyContactHistorySection } from "@/app/slp/contact-histories/agency-contact-history-section";
+import { EmbeddedContactHistoryV2Section } from "@/components/contact-history-v2/embedded-section";
 
 function toDateString(d: Date | null | undefined): string {
   if (!d) return "";
@@ -137,11 +133,6 @@ export default async function SlpAgencyDetailPage({ params, searchParams }: Prop
     name: s.name,
   }));
 
-  const [contactMasters, agencyContactHistories] = await Promise.all([
-    loadContactHistoryMasters(),
-    loadContactHistoriesForAgency(agency.id),
-  ]);
-
   return (
     <AgencyDetail
       agency={data}
@@ -149,16 +140,12 @@ export default async function SlpAgencyDetailPage({ params, searchParams }: Prop
       contractStatusOptions={contractStatusOptions}
       cameFromParent={cameFromParent}
       contactHistoriesSlot={
-        <SlpAgencyContactHistorySection
-          agencyId={agency.id}
-          agencyName={agency.name}
-          contactHistories={agencyContactHistories}
-          contactMethodOptions={contactMasters.contactMethodOptions}
-          staffOptions={contactMasters.staffOptions}
-          customerTypes={contactMasters.customerTypes}
-          staffByProject={contactMasters.staffByProject}
-          contactCategories={contactMasters.contactCategories}
-          requiredCustomerTypeId={contactMasters.slpAgencyCustomerTypeId}
+        <EmbeddedContactHistoryV2Section
+          projectCode="slp"
+          targetType="slp_agency"
+          targetId={agency.id}
+          entityName={agency.name}
+          basePath="/slp/records/contact-histories-v2"
         />
       }
     />

@@ -7,11 +7,7 @@ import {
   resolveCompanyData,
   type ContactForResolution,
 } from "@/lib/slp/company-resolution";
-import {
-  loadContactHistoryMasters,
-  loadContactHistoriesForCompanyRecord,
-} from "@/app/slp/contact-histories/loaders";
-import { SlpCompanyContactHistorySection } from "@/app/slp/contact-histories/company-contact-history-section";
+import { EmbeddedContactHistoryV2Section } from "@/components/contact-history-v2/embedded-section";
 
 // JST(UTC+9)の日付・時刻文字列を返す
 function toJstDate(d: Date | null | undefined): string | null {
@@ -328,30 +324,8 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
     agencies: a.agencies,
   }));
 
-  // 接触履歴セクション用データ
-  const [contactMasters, companyContactHistories, meetingSessionsForSelect] =
-    await Promise.all([
-      loadContactHistoryMasters(),
-      loadContactHistoriesForCompanyRecord(record.id),
-      prisma.slpMeetingSession.findMany({
-        where: { companyRecordId: record.id, deletedAt: null },
-        select: { id: true, category: true, roundNumber: true },
-        orderBy: [
-          { category: "asc" },
-          { roundNumber: "asc" },
-          { createdAt: "asc" },
-        ],
-      }),
-    ]);
-
-  const sessionOptionsForContactHistory = meetingSessionsForSelect.map((s) => {
-    const categoryLabel = s.category === "briefing" ? "概要案内" : "導入希望商談";
-    const roundLabel = s.roundNumber === 1 ? "初回" : `${s.roundNumber}回目`;
-    return {
-      value: String(s.id),
-      label: `${categoryLabel} ${roundLabel}`,
-    };
-  });
+  // 接触履歴は V2 (埋め込みセクション経由) で取得・表示するためここでは事前ロード不要
+  // 商談セッション紐付けのための session options も V2 では別UIへ移行予定
 
   return (
     <>
@@ -373,17 +347,12 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
           <MeetingSessionsSection companyRecordId={record.id} />
         }
         contactHistoriesSlot={
-          <SlpCompanyContactHistorySection
-            companyRecordId={record.id}
-            companyName={record.companyName ?? `事業者#${record.id}`}
-            contactHistories={companyContactHistories}
-            contactMethodOptions={contactMasters.contactMethodOptions}
-            staffOptions={contactMasters.staffOptions}
-            customerTypes={contactMasters.customerTypes}
-            staffByProject={contactMasters.staffByProject}
-            contactCategories={contactMasters.contactCategories}
-            requiredCustomerTypeId={contactMasters.slpCompanyCustomerTypeId}
-            sessionOptions={sessionOptionsForContactHistory}
+          <EmbeddedContactHistoryV2Section
+            projectCode="slp"
+            targetType="slp_company_record"
+            targetId={record.id}
+            entityName={record.companyName ?? `事業者#${record.id}`}
+            basePath="/slp/records/contact-histories-v2"
           />
         }
       />
