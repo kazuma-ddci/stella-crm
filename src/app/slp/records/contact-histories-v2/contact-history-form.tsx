@@ -95,14 +95,9 @@ type CustomerFormRow = {
 
 type MeetingFormRow = {
   provider: "zoom" | "google_meet" | "teams" | "other";
-  label: string;
   joinUrl: string;
-  startUrl: string;
-  passcode: string;
   hostStaffId: string; // "" or numeric
-  scheduledStartAt: string; // datetime-local 形式
-  scheduledEndAt: string;
-  state: string;
+  label: string; // 2件目以降の会議を区別するためのラベル (任意)
 };
 
 const PROVIDER_OPTIONS: Array<{ value: MeetingFormRow["provider"]; label: string }> = [
@@ -110,14 +105,6 @@ const PROVIDER_OPTIONS: Array<{ value: MeetingFormRow["provider"]; label: string
   { value: "google_meet", label: "Google Meet" },
   { value: "teams", label: "Teams" },
   { value: "other", label: "その他" },
-];
-
-const MEETING_STATE_OPTIONS = [
-  { value: "予定", label: "予定" },
-  { value: "進行中", label: "進行中" },
-  { value: "完了", label: "完了" },
-  { value: "失敗", label: "失敗" },
-  { value: "取得中", label: "取得中" },
 ];
 
 function toDatetimeLocal(iso: string | null | undefined): string {
@@ -166,9 +153,6 @@ export function ContactHistoryV2Form({
     initialCustomers(initial),
   );
   const [staffIds, setStaffIds] = useState<number[]>(initial?.staffIds ?? []);
-  const [hostStaffId, setHostStaffId] = useState<string>(
-    initial?.hostStaffId ? String(initial.hostStaffId) : "",
-  );
   const [meetingMinutes, setMeetingMinutes] = useState(initial?.meetingMinutes ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
   const [newMeetings, setNewMeetings] = useState<MeetingFormRow[]>([]);
@@ -216,14 +200,9 @@ export function ContactHistoryV2Form({
       ...prev,
       {
         provider: "zoom",
-        label: "",
         joinUrl: "",
-        startUrl: "",
-        passcode: "",
         hostStaffId: "",
-        scheduledStartAt: "",
-        scheduledEndAt: "",
-        state: "予定",
+        label: "",
       },
     ]);
   };
@@ -276,16 +255,7 @@ export function ContactHistoryV2Form({
         provider: m.provider,
         label: m.label || null,
         joinUrl: m.joinUrl || null,
-        startUrl: m.startUrl || null,
-        passcode: m.passcode || null,
         hostStaffId: m.hostStaffId ? parseInt(m.hostStaffId, 10) : null,
-        scheduledStartAt: m.scheduledStartAt
-          ? new Date(m.scheduledStartAt).toISOString()
-          : null,
-        scheduledEndAt: m.scheduledEndAt
-          ? new Date(m.scheduledEndAt).toISOString()
-          : null,
-        state: m.state || "予定",
       }));
 
     const filesPayload: FileInput[] = files.map((f) => ({
@@ -317,7 +287,6 @@ export function ContactHistoryV2Form({
         })),
       })),
       staffIds,
-      hostStaffId: hostStaffId ? parseInt(hostStaffId, 10) : null,
       meetings: meetingsPayload.length > 0 ? meetingsPayload : undefined,
       files: filesPayload.length > 0 ? filesPayload : undefined,
     };
@@ -519,32 +488,6 @@ export function ContactHistoryV2Form({
           </details>
         )}
 
-        {staffIds.length > 0 && (
-          <div className="max-w-sm">
-            <Label htmlFor="host">ホスト（Zoom/Meet主催者）</Label>
-            <Select
-              value={hostStaffId || "none"}
-              onValueChange={(v) => setHostStaffId(v === "none" ? "" : v)}
-            >
-              <SelectTrigger id="host">
-                <SelectValue placeholder="未指定" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">未指定</SelectItem>
-                {staffIds.map((id) => {
-                  const opt =
-                    masters.projectStaffOptions.find((s) => s.value === String(id)) ??
-                    masters.otherStaffOptions.find((s) => s.value === String(id));
-                  return (
-                    <SelectItem key={id} value={String(id)}>
-                      {opt?.label ?? `スタッフ#${id}`}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
       </section>
 
       {/* 会議 (Zoom/Meet等) */}
@@ -854,7 +797,7 @@ function MeetingSection({
   onRemove: () => void;
 }) {
   return (
-    <div className="rounded border p-4 space-y-3">
+    <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-4 shadow-sm">
       <div className="flex items-start justify-between">
         <div className="text-sm font-medium text-gray-700">新規会議 #{index + 1}</div>
         <Button type="button" variant="ghost" size="sm" onClick={onRemove}>
@@ -862,104 +805,37 @@ function MeetingSection({
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>プロバイダ *</Label>
-          <Select
-            value={meeting.provider}
-            onValueChange={(v) =>
-              onChange({ provider: v as MeetingFormRow["provider"] })
-            }
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PROVIDER_OPTIONS.map((p) => (
-                <SelectItem key={p.value} value={p.value}>
-                  {p.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label>状態</Label>
-          <Select
-            value={meeting.state}
-            onValueChange={(v) => onChange({ state: v })}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MEETING_STATE_OPTIONS.map((s) => (
-                <SelectItem key={s.value} value={s.value}>
-                  {s.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      <div>
+        <Label>プロバイダ *</Label>
+        <Select
+          value={meeting.provider}
+          onValueChange={(v) =>
+            onChange({ provider: v as MeetingFormRow["provider"] })
+          }
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PROVIDER_OPTIONS.map((p) => (
+              <SelectItem key={p.value} value={p.value}>
+                {p.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div>
-        <Label>ラベル（例: 延長分 / 再実施）</Label>
-        <Input
-          value={meeting.label}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="任意"
-        />
-      </div>
-
-      <div>
-        <Label>参加URL</Label>
+        <Label>URL</Label>
         <Input
           value={meeting.joinUrl}
           onChange={(e) => onChange({ joinUrl: e.target.value })}
           placeholder="https://..."
         />
         <p className="mt-1 text-xs text-gray-500">
-          手動で既存URLを入力。後からAPI連携で自動生成に切替も可能（Phase 4）。
+          参加URL。手動入力 or 将来のAPI自動生成で埋まる (Phase 4)。
         </p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>ホスト用URL（Zoomのみ）</Label>
-          <Input
-            value={meeting.startUrl}
-            onChange={(e) => onChange({ startUrl: e.target.value })}
-            placeholder="任意"
-          />
-        </div>
-        <div>
-          <Label>パスコード</Label>
-          <Input
-            value={meeting.passcode}
-            onChange={(e) => onChange({ passcode: e.target.value })}
-            placeholder="任意"
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>予定開始</Label>
-          <Input
-            type="datetime-local"
-            value={meeting.scheduledStartAt}
-            onChange={(e) => onChange({ scheduledStartAt: e.target.value })}
-          />
-        </div>
-        <div>
-          <Label>予定終了</Label>
-          <Input
-            type="datetime-local"
-            value={meeting.scheduledEndAt}
-            onChange={(e) => onChange({ scheduledEndAt: e.target.value })}
-          />
-        </div>
       </div>
 
       <div>
@@ -986,6 +862,18 @@ function MeetingSection({
             </SelectContent>
           </Select>
         )}
+      </div>
+
+      <div>
+        <Label>ラベル</Label>
+        <Input
+          value={meeting.label}
+          onChange={(e) => onChange({ label: e.target.value })}
+          placeholder="通常は空欄 (例: 延長分 / 再実施)"
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          同じ接触履歴に複数の会議を追加する場合の区別用 (Zoom 途中切断での再リンク等)。
+        </p>
       </div>
     </div>
   );

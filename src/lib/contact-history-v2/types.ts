@@ -156,6 +156,62 @@ export function getProviderLabel(provider: string): string {
 }
 
 /**
+ * 会議の state (予定/進行中/完了/失敗/取得中) を色付きバッジ情報として返す。
+ * 詳細ページ・一覧ページ・埋め込みセクションで一貫した表示に使う。
+ *
+ * 設計:
+ *   予定    → 青 (これから)
+ *   進行中  → 紫グレー (今まさに)
+ *   完了    → 緑 (済み)
+ *   取得中  → 黄 (処理中、API取得中)
+ *   失敗    → 赤 (エラー、要対応)
+ */
+export function getMeetingStateBadge(state: string): {
+  label: string;
+  /** Tailwind クラス (bg/text/border) */
+  className: string;
+  description?: string;
+} {
+  switch (state) {
+    case "予定":
+      return {
+        label: "予定",
+        className: "bg-blue-100 text-blue-800 border-blue-200",
+        description: "まだ実施前",
+      };
+    case "進行中":
+      return {
+        label: "進行中",
+        className: "bg-purple-100 text-purple-800 border-purple-200",
+        description: "会議進行中",
+      };
+    case "完了":
+      return {
+        label: "完了",
+        className: "bg-green-100 text-green-800 border-green-200",
+        description: "実施完了",
+      };
+    case "取得中":
+      return {
+        label: "取得中",
+        className: "bg-yellow-100 text-yellow-800 border-yellow-200",
+        description: "録画・議事録をAPIで取得中",
+      };
+    case "失敗":
+      return {
+        label: "失敗",
+        className: "bg-red-100 text-red-800 border-red-200",
+        description: "取得失敗 (再試行可能)",
+      };
+    default:
+      return {
+        label: state,
+        className: "bg-gray-100 text-gray-800 border-gray-200",
+      };
+  }
+}
+
+/**
  * 表示用ラベル取得ヘルパー
  */
 export function getTargetTypeLabel(targetType: string): string {
