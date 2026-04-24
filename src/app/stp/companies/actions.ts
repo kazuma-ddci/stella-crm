@@ -11,6 +11,7 @@ import { createFieldChangeLogEntries, FieldChange } from "@/lib/field-change-log
 import { logActivity } from "@/lib/activity-log/log";
 import { calcChanges } from "@/lib/activity-log/utils";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { updateCounterpartyForCompany } from "@/lib/counterparty-sync";
 
 // 配列またはカンマ区切り文字列を文字列に変換するヘルパー関数
 function toCommaSeparatedString(value: unknown): string | null {
@@ -496,7 +497,7 @@ export async function updateMasterCompanyFromStp(
   data: Record<string, unknown>
 ): Promise<ActionResult> {
   try {
-    await requireEdit("stp");
+    const user = await requireEdit("stp");
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: Record<string, any> = {};
@@ -531,6 +532,15 @@ export async function updateMasterCompanyFromStp(
         where: { id: masterCompanyId },
         data: updateData,
       });
+    }
+
+    // 名称変更時、紐づく取引先マスタの名称も同期更新（請求書の社名に反映される）
+    if ("name" in data && data.name) {
+      try {
+        await updateCounterpartyForCompany(masterCompanyId, data.name as string, user.id);
+      } catch {
+        // 同期失敗時は無視
+      }
     }
 
     revalidatePath("/stp/companies", "layout");
