@@ -458,28 +458,60 @@ export function ContactHistoryV2Form({
       {/* 弊社スタッフ */}
       <section className="space-y-4 rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold border-b pb-2">弊社スタッフ</h2>
+
         <div>
-          <Label>参加スタッフ（複数選択可）</Label>
-          <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-3">
-            {masters.staffOptions.map((s) => {
-              const id = parseInt(s.value, 10);
-              const checked = staffIds.includes(id);
-              return (
-                <label
-                  key={s.value}
-                  className="flex items-center gap-2 rounded border p-2 text-sm hover:bg-gray-50 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => handleStaffToggle(id)}
-                  />
-                  {s.label}
-                </label>
-              );
-            })}
-          </div>
+          <Label>STPプロジェクトのスタッフ（複数選択可）</Label>
+          {masters.projectStaffOptions.length === 0 ? (
+            <p className="mt-2 text-sm text-gray-400">所属スタッフがいません</p>
+          ) : (
+            <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-3">
+              {masters.projectStaffOptions.map((s) => {
+                const id = parseInt(s.value, 10);
+                const checked = staffIds.includes(id);
+                return (
+                  <label
+                    key={s.value}
+                    className="flex items-center gap-2 rounded-md border border-gray-300 bg-white p-2.5 text-sm hover:bg-gray-50 hover:border-gray-400 cursor-pointer transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => handleStaffToggle(id)}
+                    />
+                    <span className="font-medium">{s.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
         </div>
+
+        {masters.otherStaffOptions.length > 0 && (
+          <details className="group">
+            <summary className="cursor-pointer text-sm text-gray-600 hover:text-gray-900 select-none py-1">
+              その他プロジェクトのスタッフを選択（{masters.otherStaffOptions.length}名）
+            </summary>
+            <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-3">
+              {masters.otherStaffOptions.map((s) => {
+                const id = parseInt(s.value, 10);
+                const checked = staffIds.includes(id);
+                return (
+                  <label
+                    key={s.value}
+                    className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 p-2 text-sm text-gray-600 hover:bg-white cursor-pointer transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => handleStaffToggle(id)}
+                    />
+                    {s.label}
+                  </label>
+                );
+              })}
+            </div>
+          </details>
+        )}
 
         {staffIds.length > 0 && (
           <div className="max-w-sm">
@@ -494,7 +526,9 @@ export function ContactHistoryV2Form({
               <SelectContent>
                 <SelectItem value="none">未指定</SelectItem>
                 {staffIds.map((id) => {
-                  const opt = masters.staffOptions.find((s) => s.value === String(id));
+                  const opt =
+                    masters.projectStaffOptions.find((s) => s.value === String(id)) ??
+                    masters.otherStaffOptions.find((s) => s.value === String(id));
                   return (
                     <SelectItem key={id} value={String(id)}>
                       {opt?.label ?? `スタッフ#${id}`}
@@ -562,9 +596,10 @@ export function ContactHistoryV2Form({
                 key={idx}
                 index={idx}
                 meeting={m}
-                staffOptions={masters.staffOptions.filter((s) =>
-                  staffIds.includes(parseInt(s.value, 10)),
-                )}
+                staffOptions={[
+                  ...masters.projectStaffOptions,
+                  ...masters.otherStaffOptions,
+                ].filter((s) => staffIds.includes(parseInt(s.value, 10)))}
                 onChange={(patch) => updateMeeting(idx, patch)}
                 onRemove={() => removeMeeting(idx)}
               />
@@ -683,7 +718,6 @@ function CustomerSection({
       <div className="flex items-start justify-between">
         <div className="text-sm font-medium text-gray-700">
           顧客 #{index + 1}
-          {index === 0 && <Badge className="ml-2">主顧客</Badge>}
         </div>
         {canRemove && (
           <Button type="button" variant="ghost" size="sm" onClick={onRemove}>
@@ -738,7 +772,7 @@ function CustomerSection({
       <div>
         <Label>先方参加者</Label>
         {/* 入力行 (先頭固定、「追加」ボタンで追加) */}
-        <div className="mt-2 flex gap-2 rounded-md border border-blue-200 bg-blue-50 p-3">
+        <div className="mt-2 flex gap-2 rounded-md border border-gray-200 bg-gray-50 p-3">
           <Input
             value={nameInput}
             onChange={(e) => setNameInput(e.target.value)}

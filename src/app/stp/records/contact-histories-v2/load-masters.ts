@@ -19,7 +19,7 @@ export async function loadStpContactHistoryV2Masters() {
   }
   const STP_PROJECT_ID = stpProject.id;
 
-  const [contactMethods, contactCategories, staffAssignments, companies, agents] =
+  const [contactMethods, contactCategories, stpStaffAssignments, allStaff, companies, agents] =
     await Promise.all([
       prisma.contactMethod.findMany({
         where: { isActive: true },
@@ -33,9 +33,12 @@ export async function loadStpContactHistoryV2Masters() {
       }),
       prisma.staffProjectAssignment.findMany({
         where: { projectId: STP_PROJECT_ID },
-        select: {
-          staff: { select: { id: true, name: true, isActive: true, isSystemUser: true } },
-        },
+        select: { staffId: true },
+      }),
+      prisma.masterStaff.findMany({
+        where: { isActive: true, isSystemUser: false },
+        orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+        select: { id: true, name: true },
       }),
       prisma.masterStellaCompany.findMany({
         where: { deletedAt: null, mergedIntoId: null },
@@ -52,16 +55,20 @@ export async function loadStpContactHistoryV2Masters() {
       }),
     ]);
 
-  const staffOptions = staffAssignments
-    .map((a) => a.staff)
-    .filter((s) => s.isActive && !s.isSystemUser)
+  const stpStaffIdSet = new Set<number>(stpStaffAssignments.map((a) => a.staffId));
+  const projectStaffOptions = allStaff
+    .filter((s) => stpStaffIdSet.has(s.id))
+    .map((s) => ({ value: String(s.id), label: s.name }));
+  const otherStaffOptions = allStaff
+    .filter((s) => !stpStaffIdSet.has(s.id))
     .map((s) => ({ value: String(s.id), label: s.name }));
 
   return {
     projectId: STP_PROJECT_ID,
     contactMethods: contactMethods.map((m) => ({ value: String(m.id), label: m.name })),
     contactCategories: contactCategories.map((c) => ({ value: String(c.id), label: c.name })),
-    staffOptions,
+    projectStaffOptions,
+    otherStaffOptions,
     companies: companies.map((c) => ({
       value: String(c.id),
       label: `${c.name}${c.companyCode ? ` (${c.companyCode})` : ""}`,

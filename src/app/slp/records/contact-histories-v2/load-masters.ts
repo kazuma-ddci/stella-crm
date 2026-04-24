@@ -14,51 +14,68 @@ export async function loadSlpContactHistoryV2Masters() {
   }
   const SLP_PROJECT_ID = slpProject.id;
 
-  const [contactMethods, contactCategories, staffAssignments, companyRecords, agencies, lineFriends] =
-    await Promise.all([
-      prisma.contactMethod.findMany({
-        where: { isActive: true },
-        orderBy: { displayOrder: "asc" },
-        select: { id: true, name: true },
-      }),
-      prisma.contactCategory.findMany({
-        where: { isActive: true, projectId: SLP_PROJECT_ID },
-        orderBy: { displayOrder: "asc" },
-        select: { id: true, name: true },
-      }),
-      prisma.staffProjectAssignment.findMany({
-        where: { projectId: SLP_PROJECT_ID },
-        select: {
-          staff: { select: { id: true, name: true, isActive: true, isSystemUser: true } },
-        },
-      }),
-      prisma.slpCompanyRecord.findMany({
-        where: { deletedAt: null },
-        orderBy: { id: "asc" },
-        select: { id: true, companyName: true },
-      }),
-      prisma.slpAgency.findMany({
-        where: { deletedAt: null },
-        orderBy: { id: "asc" },
-        select: { id: true, name: true },
-      }),
-      prisma.slpLineFriend.findMany({
-        where: { deletedAt: null },
-        orderBy: { id: "asc" },
-        select: { id: true, snsname: true },
-      }),
-    ]);
+  const [
+    contactMethods,
+    contactCategories,
+    slpStaffAssignments,
+    allStaff,
+    companyRecords,
+    agencies,
+    lineFriends,
+  ] = await Promise.all([
+    prisma.contactMethod.findMany({
+      where: { isActive: true },
+      orderBy: { displayOrder: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.contactCategory.findMany({
+      where: { isActive: true, projectId: SLP_PROJECT_ID },
+      orderBy: { displayOrder: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.staffProjectAssignment.findMany({
+      where: { projectId: SLP_PROJECT_ID },
+      select: { staffId: true },
+    }),
+    prisma.masterStaff.findMany({
+      where: { isActive: true, isSystemUser: false },
+      orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+      select: { id: true, name: true },
+    }),
+    prisma.slpCompanyRecord.findMany({
+      where: { deletedAt: null },
+      orderBy: { id: "asc" },
+      select: { id: true, companyName: true },
+    }),
+    prisma.slpAgency.findMany({
+      where: { deletedAt: null },
+      orderBy: { id: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.slpLineFriend.findMany({
+      where: { deletedAt: null },
+      orderBy: { id: "asc" },
+      select: { id: true, snsname: true },
+    }),
+  ]);
 
-  const staffOptions = staffAssignments
-    .map((a) => a.staff)
-    .filter((s) => s.isActive && !s.isSystemUser)
+  // プロジェクトに紐づくスタッフ ID セット (優先表示グループ)
+  const slpStaffIdSet = new Set<number>(slpStaffAssignments.map((a) => a.staffId));
+
+  // 全スタッフを「SLP所属」と「その他」に分割
+  const projectStaffOptions = allStaff
+    .filter((s) => slpStaffIdSet.has(s.id))
+    .map((s) => ({ value: String(s.id), label: s.name }));
+  const otherStaffOptions = allStaff
+    .filter((s) => !slpStaffIdSet.has(s.id))
     .map((s) => ({ value: String(s.id), label: s.name }));
 
   return {
     projectId: SLP_PROJECT_ID,
     contactMethods: contactMethods.map((m) => ({ value: String(m.id), label: m.name })),
     contactCategories: contactCategories.map((c) => ({ value: String(c.id), label: c.name })),
-    staffOptions,
+    projectStaffOptions,
+    otherStaffOptions,
     companyRecords: companyRecords.map((c) => ({
       value: String(c.id),
       label: c.companyName ?? `事業者#${c.id}`,

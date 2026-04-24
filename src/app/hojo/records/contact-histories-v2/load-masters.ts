@@ -18,7 +18,7 @@ export async function loadHojoContactHistoryV2Masters() {
   }
   const HOJO_PROJECT_ID = hojoProject.id;
 
-  const [contactMethods, contactCategories, staffAssignments, vendors] =
+  const [contactMethods, contactCategories, hojoStaffAssignments, allStaff, vendors] =
     await Promise.all([
       prisma.contactMethod.findMany({
         where: { isActive: true },
@@ -32,9 +32,12 @@ export async function loadHojoContactHistoryV2Masters() {
       }),
       prisma.staffProjectAssignment.findMany({
         where: { projectId: HOJO_PROJECT_ID },
-        select: {
-          staff: { select: { id: true, name: true, isActive: true, isSystemUser: true } },
-        },
+        select: { staffId: true },
+      }),
+      prisma.masterStaff.findMany({
+        where: { isActive: true, isSystemUser: false },
+        orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+        select: { id: true, name: true },
       }),
       prisma.hojoVendor.findMany({
         where: { isActive: true },
@@ -43,16 +46,20 @@ export async function loadHojoContactHistoryV2Masters() {
       }),
     ]);
 
-  const staffOptions = staffAssignments
-    .map((a) => a.staff)
-    .filter((s) => s.isActive && !s.isSystemUser)
+  const hojoStaffIdSet = new Set<number>(hojoStaffAssignments.map((a) => a.staffId));
+  const projectStaffOptions = allStaff
+    .filter((s) => hojoStaffIdSet.has(s.id))
+    .map((s) => ({ value: String(s.id), label: s.name }));
+  const otherStaffOptions = allStaff
+    .filter((s) => !hojoStaffIdSet.has(s.id))
     .map((s) => ({ value: String(s.id), label: s.name }));
 
   return {
     projectId: HOJO_PROJECT_ID,
     contactMethods: contactMethods.map((m) => ({ value: String(m.id), label: m.name })),
     contactCategories: contactCategories.map((c) => ({ value: String(c.id), label: c.name })),
-    staffOptions,
+    projectStaffOptions,
+    otherStaffOptions,
     vendors: vendors.map((v) => ({
       value: String(v.id),
       label: v.name ?? `ベンダー#${v.id}`,
