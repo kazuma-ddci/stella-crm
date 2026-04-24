@@ -15,6 +15,10 @@ import {
 import type { ZoomRecordingPayload } from "@/lib/zoom/recording";
 import { logAutomationError } from "@/lib/automation-error";
 import { syncMeetingRecordFromV1 } from "@/lib/contact-history-v2/zoom/sync-from-v1";
+import {
+  processZoomRecordingForV2,
+  processMeetingSummaryForV2,
+} from "@/lib/contact-history-v2/zoom/direct-processor";
 
 /**
  * meetingId から SLP / HOJO のどちらにヒットするかを判定。
@@ -165,8 +169,17 @@ export async function POST(request: Request) {
               detail: { meetingId: String(payload.id), event: body.event },
             });
           });
+      } else {
+        // V1 レコード無し → V2 単独の会議か CRM管理外。V2 meeting を探して
+        // 見つかれば V2 direct processor を起動。
+        processZoomRecordingForV2(payload).catch(async (err) => {
+          await logAutomationError({
+            source: "zoom-webhook-recording-completed-v2",
+            message: `V2 録画処理失敗: ${err instanceof Error ? err.message : String(err)}`,
+            detail: { meetingId: String(payload.id), event: body.event },
+          });
+        });
       }
-      // scope=null(CRM管理外の会議) → スルー
       return NextResponse.json({ ok: true });
     }
 
@@ -208,6 +221,14 @@ export async function POST(request: Request) {
               detail: { meetingId: meetingId.toString(), meetingUuid },
             });
           });
+      } else {
+        processMeetingSummaryForV2({ meetingId, meetingUuid }).catch(async (err) => {
+          await logAutomationError({
+            source: "zoom-webhook-summary-completed-v2",
+            message: `V2 AI要約処理失敗: ${err instanceof Error ? err.message : String(err)}`,
+            detail: { meetingId: meetingId.toString(), meetingUuid },
+          });
+        });
       }
       return NextResponse.json({ ok: true });
     }
