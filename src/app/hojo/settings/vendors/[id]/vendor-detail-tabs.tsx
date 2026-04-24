@@ -14,11 +14,6 @@ const VendorDetailForm = dynamic(() => import("./vendor-detail-form").then((mod)
 import { ActivitiesCrudTable } from "@/app/hojo/consulting/activities/activities-crud-table";
 import { PreApplicationTable } from "@/app/hojo/grant-customers/pre-application/pre-application-table";
 import { PostApplicationTable } from "@/app/hojo/grant-customers/post-application/post-application-table";
-import { VendorContactHistorySection } from "@/app/hojo/contact-histories/vendor-contact-history-section";
-import type {
-  CustomerType,
-  ContactCategoryOption,
-} from "@/components/contact-history-modal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   addActivityForVendor,
@@ -119,13 +114,12 @@ type Props = {
   autoDetectedAsLineFriendId: number | null;
   scLineFriendsForAs: { value: string; label: string }[];
   accessToken: string;
-  contactHistoriesData: Record<string, unknown>[];
-  contactMethodOptions: { value: string; label: string }[];
-  contactStaffOptions: { value: string; label: string }[];
-  customerTypes: CustomerType[];
-  contactStaffByProject: Record<number, { value: string; label: string }[]>;
-  contactCategories: ContactCategoryOption[];
-  hojoVendorCustomerTypeId: number;
+  /**
+   * V2 接触履歴セクションのスロット。
+   * ページ側(Server Component)で <EmbeddedContactHistoryV2Section /> を
+   * レンダリングして渡す。
+   */
+  contactHistorySlot: React.ReactNode;
 };
 
 export function VendorDetailTabs({
@@ -153,13 +147,7 @@ export function VendorDetailTabs({
   autoDetectedAsLineFriendId,
   scLineFriendsForAs,
   accessToken,
-  contactHistoriesData,
-  contactMethodOptions,
-  contactStaffOptions,
-  customerTypes,
-  contactStaffByProject,
-  contactCategories,
-  hojoVendorCustomerTypeId,
+  contactHistorySlot,
 }: Props) {
   const vendorOptions = [
     { value: String(vendor.id), label: vendor.name },
@@ -317,19 +305,7 @@ export function VendorDetailTabs({
         </Card>
       </TabsContent>
 
-      <TabsContent value="contact-histories">
-        <VendorContactHistorySection
-          vendorId={vendor.id}
-          vendorName={vendor.name}
-          contactHistories={contactHistoriesData}
-          contactMethodOptions={contactMethodOptions}
-          staffOptions={contactStaffOptions}
-          customerTypes={customerTypes}
-          staffByProject={contactStaffByProject}
-          contactCategories={contactCategories}
-          requiredCustomerTypeId={hojoVendorCustomerTypeId}
-        />
-      </TabsContent>
+      <TabsContent value="contact-histories">{contactHistorySlot}</TabsContent>
     </Tabs>
     </div>
   );

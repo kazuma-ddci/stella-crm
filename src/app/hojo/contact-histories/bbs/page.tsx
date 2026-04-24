@@ -1,17 +1,12 @@
 import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
-import {
-  loadHojoContactHistoryMasters,
-  loadContactHistoriesForBbs,
-} from "@/app/hojo/contact-histories/loaders";
-import { BbsContactHistorySection } from "@/app/hojo/contact-histories/bbs-contact-history-section";
+import { EmbeddedContactHistoryV2Section } from "@/components/contact-history-v2/embedded-section";
 
+/**
+ * BBS接触履歴ページ（V2）。
+ * hojo_bbs targetType (targetId=null) の接触履歴をまとめて表示・管理。
+ */
 export default async function BbsContactHistoriesPage() {
   await requireStaffWithProjectPermission([{ project: "hojo", level: "view" }]);
-
-  const [contactMasters, contactHistories] = await Promise.all([
-    loadHojoContactHistoryMasters(),
-    loadContactHistoriesForBbs(),
-  ]);
 
   return (
     <div className="space-y-4 p-4">
@@ -22,14 +17,13 @@ export default async function BbsContactHistoriesPage() {
         </p>
       </div>
 
-      <BbsContactHistorySection
-        contactHistories={contactHistories as unknown as Record<string, unknown>[]}
-        contactMethodOptions={contactMasters.contactMethodOptions}
-        staffOptions={contactMasters.staffOptions}
-        customerTypes={contactMasters.customerTypes}
-        staffByProject={contactMasters.staffByProject}
-        contactCategories={contactMasters.contactCategories}
-        requiredCustomerTypeId={contactMasters.hojoBbsCustomerTypeId}
+      <EmbeddedContactHistoryV2Section
+        projectCode="hojo"
+        targetType="hojo_bbs"
+        targetId={null}
+        entityName="BBS"
+        basePath="/hojo/records/contact-histories-v2"
+        limit={100}
       />
     </div>
   );

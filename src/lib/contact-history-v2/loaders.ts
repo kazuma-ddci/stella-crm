@@ -113,3 +113,58 @@ export async function countContactHistoriesV2(
 
   return prisma.contactHistoryV2.count({ where });
 }
+
+/**
+ * 指定した顧客エンティティ (targetType + targetId) に紐づく接触履歴を取得。
+ * 詳細ページ内の「接触履歴」セクションで使用。
+ */
+export async function listContactHistoriesV2ForEntity(options: {
+  projectCode: string;
+  targetType: string;
+  targetId: number | null;
+  limit?: number;
+}): Promise<ContactHistoryV2WithRelations[]> {
+  const projectId = await resolveProjectIdByCode(options.projectCode);
+  if (projectId === null) return [];
+
+  return prisma.contactHistoryV2.findMany({
+    where: {
+      projectId,
+      deletedAt: null,
+      customerParticipants: {
+        some: {
+          targetType: options.targetType,
+          ...(options.targetId !== null ? { targetId: options.targetId } : { targetId: null }),
+        },
+      },
+    },
+    include: contactHistoryV2DisplayInclude,
+    orderBy: [{ scheduledStartAt: "desc" }, { id: "desc" }],
+    take: options.limit,
+  });
+}
+
+/**
+ * 指定した顧客エンティティ の接触履歴件数。
+ */
+export async function countContactHistoriesV2ForEntity(options: {
+  projectCode: string;
+  targetType: string;
+  targetId: number | null;
+}): Promise<number> {
+  const projectId = await resolveProjectIdByCode(options.projectCode);
+  if (projectId === null) return 0;
+
+  return prisma.contactHistoryV2.count({
+    where: {
+      projectId,
+      deletedAt: null,
+      customerParticipants: {
+        some: {
+          targetType: options.targetType,
+          ...(options.targetId !== null ? { targetId: options.targetId } : { targetId: null }),
+        },
+      },
+    },
+  });
+}

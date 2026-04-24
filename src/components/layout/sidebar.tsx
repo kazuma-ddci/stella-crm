@@ -378,8 +378,7 @@ const navigation: NavItem[] = [
         icon: Phone,
         sectionLabel: true,
         children: [
-          { name: "接触履歴", href: "/hojo/records/contact-histories", icon: History },
-          { name: "接触履歴 v2 (プレビュー)", href: "/hojo/records/contact-histories-v2", icon: History },
+          { name: "接触履歴", href: "/hojo/records/contact-histories-v2", icon: History },
           { name: "Zoom商談録画", href: "/hojo/records/zoom-recordings", icon: Video },
         ],
       },
