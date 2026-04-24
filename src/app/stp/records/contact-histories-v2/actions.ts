@@ -16,6 +16,8 @@ import type {
   ContactHistoryV2Input,
   CustomerParticipantInput,
 } from "@/lib/contact-history-v2/input-types";
+import { extractExternalMeetingIds } from "@/lib/contact-history-v2/zoom/url-helpers";
+import { provisionZoomMeetingsForContactHistory } from "@/lib/contact-history-v2/zoom/provision";
 
 async function resolveStpProjectId(): Promise<number> {
   const stp = await prisma.masterProject.findFirst({
@@ -166,29 +168,37 @@ export async function createContactHistoryV2(
         meetings:
           input.meetings && input.meetings.length > 0
             ? {
-                create: input.meetings.map((m, idx) => ({
-                  provider: m.provider,
-                  isPrimary: idx === 0,
-                  label: m.label ?? null,
-                  displayOrder: idx,
-                  joinUrl: m.joinUrl ?? null,
-                  startUrl: m.startUrl ?? null,
-                  passcode: m.passcode ?? null,
-                  hostStaffId: m.hostStaffId ?? null,
-                  urlSource: m.joinUrl ? "manual_entry" : "empty",
-                  urlSetAt: m.joinUrl ? new Date() : null,
-                  apiIntegrationStatus: computeApiIntegrationStatus(
+                create: input.meetings.map((m, idx) => {
+                  const externalIds = extractExternalMeetingIds(
                     m.provider,
                     m.joinUrl,
-                  ),
-                  scheduledStartAt: m.scheduledStartAt
-                    ? new Date(m.scheduledStartAt)
-                    : null,
-                  scheduledEndAt: m.scheduledEndAt
-                    ? new Date(m.scheduledEndAt)
-                    : null,
-                  state: deriveMeetingState(status),
-                })),
+                  );
+                  return {
+                    provider: m.provider,
+                    isPrimary: idx === 0,
+                    label: m.label ?? null,
+                    displayOrder: idx,
+                    joinUrl: m.joinUrl ?? null,
+                    startUrl: m.startUrl ?? null,
+                    passcode: m.passcode ?? null,
+                    hostStaffId: m.hostStaffId ?? null,
+                    externalMeetingId: externalIds.externalMeetingId,
+                    externalMeetingUuid: externalIds.externalMeetingUuid,
+                    urlSource: m.joinUrl ? "manual_entry" : "empty",
+                    urlSetAt: m.joinUrl ? new Date() : null,
+                    apiIntegrationStatus: computeApiIntegrationStatus(
+                      m.provider,
+                      m.joinUrl,
+                    ),
+                    scheduledStartAt: m.scheduledStartAt
+                      ? new Date(m.scheduledStartAt)
+                      : null,
+                    scheduledEndAt: m.scheduledEndAt
+                      ? new Date(m.scheduledEndAt)
+                      : null,
+                    state: deriveMeetingState(status),
+                  };
+                }),
               }
             : undefined,
         files:
@@ -206,6 +216,12 @@ export async function createContactHistoryV2(
             : undefined,
       },
       select: { id: true },
+    });
+
+    // Zoom API 発行 (URL 未設定 + hostStaffId 設定済みの meeting)
+    await provisionZoomMeetingsForContactHistory({
+      contactHistoryId: created.id,
+      topic: input.title ?? null,
     });
 
     revalidatePath("/stp/records/contact-histories-v2");
@@ -364,6 +380,7 @@ export async function updateContactHistoryV2(
         const hasPrimary = existing.some((e) => e.isPrimary);
 
         for (const [idx, m] of newMeetings.entries()) {
+          const externalIds = extractExternalMeetingIds(m.provider, m.joinUrl);
           await tx.contactHistoryMeeting.create({
             data: {
               contactHistoryId: id,
@@ -375,6 +392,8 @@ export async function updateContactHistoryV2(
               startUrl: m.startUrl ?? null,
               passcode: m.passcode ?? null,
               hostStaffId: m.hostStaffId ?? null,
+              externalMeetingId: externalIds.externalMeetingId,
+              externalMeetingUuid: externalIds.externalMeetingUuid,
               urlSource: m.joinUrl ? "manual_entry" : "empty",
               urlSetAt: m.joinUrl ? new Date() : null,
               apiIntegrationStatus: computeApiIntegrationStatus(
@@ -392,6 +411,12 @@ export async function updateContactHistoryV2(
           });
         }
       }
+    });
+
+    // Zoom API 発行 (新規追加された URL 未設定 meeting があれば)
+    await provisionZoomMeetingsForContactHistory({
+      contactHistoryId: id,
+      topic: input.title ?? null,
     });
 
     revalidatePath("/stp/records/contact-histories-v2");
