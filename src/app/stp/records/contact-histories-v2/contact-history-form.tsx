@@ -337,7 +337,7 @@ export function ContactHistoryV2Form({
   return (
     <form onSubmit={handleSubmit} className="space-y-6 max-w-3xl">
       {/* 基本情報 */}
-      <section className="space-y-4">
+      <section className="space-y-4 rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold border-b pb-2">基本情報</h2>
 
         <div>
@@ -433,7 +433,7 @@ export function ContactHistoryV2Form({
       </section>
 
       {/* 顧客 (複数対応) */}
-      <section className="space-y-4">
+      <section className="space-y-4 rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between border-b pb-2">
           <h2 className="text-lg font-semibold">顧客</h2>
           <Button type="button" variant="outline" size="sm" onClick={addCustomer}>
@@ -456,7 +456,7 @@ export function ContactHistoryV2Form({
       </section>
 
       {/* 弊社スタッフ */}
-      <section className="space-y-4">
+      <section className="space-y-4 rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold border-b pb-2">弊社スタッフ</h2>
         <div>
           <Label>参加スタッフ（複数選択可）</Label>
@@ -508,7 +508,7 @@ export function ContactHistoryV2Form({
       </section>
 
       {/* 会議 (Zoom/Meet等) */}
-      <section className="space-y-4">
+      <section className="space-y-4 rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between border-b pb-2">
           <h2 className="text-lg font-semibold">オンライン会議</h2>
           <Button type="button" variant="outline" size="sm" onClick={addMeeting}>
@@ -580,7 +580,7 @@ export function ContactHistoryV2Form({
       </section>
 
       {/* 議事録 / メモ */}
-      <section className="space-y-4">
+      <section className="space-y-4 rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold border-b pb-2">議事録・メモ</h2>
         <div>
           <Label htmlFor="minutes">議事録</Label>
@@ -603,7 +603,7 @@ export function ContactHistoryV2Form({
       </section>
 
       {/* 添付ファイル */}
-      <section className="space-y-4">
+      <section className="space-y-4 rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold border-b pb-2">添付ファイル</h2>
         <MultiFileUpload
           value={files}
@@ -666,23 +666,20 @@ function CustomerSection({
   const needsTargetId =
     customer.targetType === "stp_company" || customer.targetType === "stp_agent";
 
-  const handleAttendeeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      onAddAttendee(nameInput, titleInput);
-      setNameInput("");
-      setTitleInput("");
-    }
-  };
-
   const handleAttendeeAdd = () => {
     onAddAttendee(nameInput, titleInput);
     setNameInput("");
     setTitleInput("");
   };
 
+  const preventEnterSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+    }
+  };
+
   return (
-    <div className="rounded border p-4 space-y-3">
+    <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-4 shadow-sm">
       <div className="flex items-start justify-between">
         <div className="text-sm font-medium text-gray-700">
           顧客 #{index + 1}
@@ -740,56 +737,62 @@ function CustomerSection({
 
       <div>
         <Label>先方参加者</Label>
-        <div className="mt-2 flex flex-wrap gap-1 min-h-[32px]">
-          {customer.attendees.map((a, aIdx) => (
-            <Badge key={aIdx} variant="secondary" className="gap-1 pr-1">
-              <span>
-                {a.name}
-                {a.title && <span className="ml-1 text-gray-500">（{a.title}）</span>}
-              </span>
-              <button
-                type="button"
-                onClick={() => onRemoveAttendee(aIdx)}
-                className="hover:bg-gray-300 rounded p-0.5"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </Badge>
-          ))}
-          {customer.attendees.length === 0 && (
-            <span className="text-xs text-gray-400 py-1">
-              （まだ登録されていません）
-            </span>
-          )}
-        </div>
-        <div className="mt-2 flex gap-2">
+        {/* 入力行 (先頭固定、「追加」ボタンで追加) */}
+        <div className="mt-2 flex gap-2 rounded-md border border-blue-200 bg-blue-50 p-3">
           <Input
             value={nameInput}
             onChange={(e) => setNameInput(e.target.value)}
-            onKeyDown={handleAttendeeKeyDown}
+            onKeyDown={preventEnterSubmit}
             placeholder="氏名"
-            className="flex-1"
+            className="flex-1 bg-white"
           />
           <Input
             value={titleInput}
             onChange={(e) => setTitleInput(e.target.value)}
-            onKeyDown={handleAttendeeKeyDown}
+            onKeyDown={preventEnterSubmit}
             placeholder="役職（任意）"
-            className="flex-1"
+            className="flex-1 bg-white"
           />
           <Button
             type="button"
-            variant="outline"
-            size="sm"
             onClick={handleAttendeeAdd}
             disabled={!nameInput.trim()}
           >
+            <Plus className="h-4 w-4 mr-1" />
             追加
           </Button>
         </div>
-        <p className="mt-1 text-xs text-gray-500">
-          氏名を入力して Enter または「追加」ボタン
-        </p>
+        {/* 追加された参加者リスト (入力行の下に積まれる) */}
+        {customer.attendees.length > 0 ? (
+          <div className="mt-3 space-y-2">
+            {customer.attendees.map((a, aIdx) => (
+              <div
+                key={aIdx}
+                className="flex items-center gap-3 rounded-md border border-gray-200 bg-white p-3 hover:border-gray-300 transition-colors"
+              >
+                <div className="flex-1">
+                  <div className="font-medium text-gray-900">{a.name}</div>
+                  {a.title && (
+                    <div className="mt-0.5 text-sm text-gray-500">{a.title}</div>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onRemoveAttendee(aIdx)}
+                  aria-label="参加者を削除"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-gray-400">
+            （まだ登録されていません）
+          </p>
+        )}
       </div>
     </div>
   );
