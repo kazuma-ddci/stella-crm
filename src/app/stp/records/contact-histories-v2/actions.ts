@@ -11,59 +11,20 @@ import { ok, err, type ActionResult } from "@/lib/action-result";
  * SLP版 src/app/slp/records/contact-histories-v2/actions.ts のSTP派生。
  */
 
-export type AttendeeInput = {
-  name: string;
-  title?: string | null;
-};
-
-export type CustomerParticipantInput = {
-  targetType: string;
-  targetId?: number | null;
-  attendees?: AttendeeInput[];
-};
-
-export type FileInput = {
-  id?: number; // 編集時に既存ファイルを識別
-  filePath?: string | null;
-  fileName: string;
-  fileSize?: number | null;
-  mimeType?: string | null;
-  url?: string | null;
-};
-
-export type MeetingInput = {
-  id?: number; // 編集時: 既存の会議ID (更新判定用)
-  provider: string; // "zoom" | "google_meet" | "teams" | "other"
-  label?: string | null;
-  scheduledStartAt?: string | null;
-  scheduledEndAt?: string | null;
-  joinUrl?: string | null;
-  startUrl?: string | null;
-  passcode?: string | null;
-  hostStaffId?: number | null;
-  state?: string; // "予定" | "進行中" | "完了" | "失敗" | "取得中"
-};
-
-export type ContactHistoryV2Input = {
-  title?: string | null;
-  status: string; // "scheduled" | "completed" | "cancelled" | "rescheduled"
-  scheduledStartAt: string; // ISO 文字列
-  scheduledEndAt?: string | null;
-  contactMethodId?: number | null;
-  contactCategoryId?: number | null;
-  meetingMinutes?: string | null;
-  note?: string | null;
-  // 顧客側（複数エンティティ対応）
-  // 1件目を主顧客 (isPrimary=true) として扱う
-  customers: CustomerParticipantInput[];
-  // 弊社スタッフ（ホスト1名含む）
-  staffIds: number[];
-  hostStaffId?: number | null;
-  // オンライン会議（複数可、1件目を主会議 isPrimary=true として扱う）
-  meetings?: MeetingInput[];
-  // 添付ファイル（ファイル実体 or 外部URL）
-  // 編集時は既存ファイルを id で識別し、差分更新する
-  files?: FileInput[];
+// 入力型は 3 プロジェクト共通
+import type {
+  AttendeeInput,
+  CustomerParticipantInput,
+  FileInput,
+  MeetingInput,
+  ContactHistoryV2Input,
+} from "@/lib/contact-history-v2/input-types";
+export type {
+  AttendeeInput,
+  CustomerParticipantInput,
+  FileInput,
+  MeetingInput,
+  ContactHistoryV2Input,
 };
 
 async function resolveStpProjectId(): Promise<number> {
