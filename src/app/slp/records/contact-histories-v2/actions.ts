@@ -89,6 +89,35 @@ function validateInput(input: ContactHistoryV2Input): string | null {
   return null;
 }
 
+
+/**
+ * 接触履歴の status から会議の state を導出する。
+ * status を変更したときに会議 state を連動させるためのマッピング。
+ *
+ *   scheduled / rescheduled → "予定"
+ *   completed               → "完了"
+ *   cancelled               → "完了" (API呼ばず、マークのみ)
+ *
+ * 注: 会議 state のうち "取得中" / "失敗" は API/webhook が制御する値なので
+ *     この関数では扱わない。呼び出し側で「既存 state が取得中/失敗なら上書き
+ *     しない」判定を別途行う。
+ */
+function deriveMeetingState(contactStatus: string): string {
+  switch (contactStatus) {
+    case "completed":
+      return "完了";
+    case "cancelled":
+      return "完了";
+    case "rescheduled":
+    case "scheduled":
+    default:
+      return "予定";
+  }
+}
+
+/** API駆動で上書き禁止の会議 state */
+const API_DRIVEN_MEETING_STATES = ["取得中", "失敗"];
+
 /**
  * 会議のURL / ホスト状態から apiIntegrationStatus を計算する。
  * Phase 4 で staff_zoom_auth / staff_google_auth が導入されたら、そこで
@@ -206,7 +235,7 @@ export async function createContactHistoryV2(
                   scheduledEndAt: m.scheduledEndAt
                     ? new Date(m.scheduledEndAt)
                     : null,
-                  state: m.state ?? "予定",
+                  state: deriveMeetingState(status),
                 })),
               }
             : undefined,
@@ -251,7 +280,7 @@ export async function updateContactHistoryV2(
   // 存在確認 + プロジェクトチェック
   const existing = await prisma.contactHistoryV2.findFirst({
     where: { id, projectId, deletedAt: null },
-    select: { id: true },
+    select: { id: true, status: true },
   });
   if (!existing) return err("対象の接触履歴が見つかりません");
 
@@ -283,6 +312,20 @@ export async function updateContactHistoryV2(
           updatedByStaffId: session.id,
         },
       });
+
+      // 接触履歴の status が変わったら、既存の会議 state を連動させる
+      // (API駆動の "取得中" / "失敗" は上書きしない)
+      if (existing.status !== status) {
+        const newMeetingState = deriveMeetingState(status);
+        await tx.contactHistoryMeeting.updateMany({
+          where: {
+            contactHistoryId: id,
+            deletedAt: null,
+            state: { notIn: API_DRIVEN_MEETING_STATES },
+          },
+          data: { state: newMeetingState },
+        });
+      }
 
       // 顧客エンティティ + 先方参加者: 全削除→再作成
       // (参加者はカスケード削除される)
@@ -392,7 +435,7 @@ export async function updateContactHistoryV2(
               scheduledEndAt: m.scheduledEndAt
                 ? new Date(m.scheduledEndAt)
                 : null,
-              state: m.state ?? "予定",
+              state: deriveMeetingState(status),
             },
           });
         }
@@ -416,7 +459,7 @@ export async function deleteContactHistoryV2(
   const projectId = await resolveSlpProjectId();
   const existing = await prisma.contactHistoryV2.findFirst({
     where: { id, projectId, deletedAt: null },
-    select: { id: true },
+    select: { id: true, status: true },
   });
   if (!existing) return err("対象の接触履歴が見つかりません");
 
