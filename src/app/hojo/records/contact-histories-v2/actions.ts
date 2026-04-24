@@ -11,21 +11,11 @@ import { ok, err, type ActionResult } from "@/lib/action-result";
  * SLP版 src/app/slp/records/contact-histories-v2/actions.ts のHOJO派生。
  */
 
-// 入力型は 3 プロジェクト共通
+// 入力型は 3 プロジェクト共通 (@/lib/contact-history-v2/input-types で一元管理)
 import type {
-  AttendeeInput,
-  CustomerParticipantInput,
-  FileInput,
-  MeetingInput,
   ContactHistoryV2Input,
+  CustomerParticipantInput,
 } from "@/lib/contact-history-v2/input-types";
-export type {
-  AttendeeInput,
-  CustomerParticipantInput,
-  FileInput,
-  MeetingInput,
-  ContactHistoryV2Input,
-};
 
 async function resolveHojoProjectId(): Promise<number> {
   const hojo = await prisma.masterProject.findFirst({

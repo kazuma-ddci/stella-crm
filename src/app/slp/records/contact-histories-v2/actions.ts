@@ -10,21 +10,11 @@ import { ok, err, type ActionResult } from "@/lib/action-result";
  * プロジェクトスコープ: slp (edit権限以上)。
  */
 
-// 入力型は 3 プロジェクト共通
+// 入力型は 3 プロジェクト共通 (@/lib/contact-history-v2/input-types で一元管理)
 import type {
-  AttendeeInput,
-  CustomerParticipantInput,
-  FileInput,
-  MeetingInput,
   ContactHistoryV2Input,
+  CustomerParticipantInput,
 } from "@/lib/contact-history-v2/input-types";
-export type {
-  AttendeeInput,
-  CustomerParticipantInput,
-  FileInput,
-  MeetingInput,
-  ContactHistoryV2Input,
-};
 
 async function resolveSlpProjectId(): Promise<number> {
   const slp = await prisma.masterProject.findFirst({
