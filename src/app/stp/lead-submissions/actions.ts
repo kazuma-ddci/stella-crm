@@ -5,7 +5,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireEdit, getSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activity-log/log";
-import { createCounterpartyForCompany } from "@/lib/counterparty-sync";
+import { createCounterpartyForCompany, updateCounterpartyForCompany } from "@/lib/counterparty-sync";
 import {
   getOrCreateCompanyFolder,
   moveSlideToFolder,
@@ -348,6 +348,8 @@ export async function processWithExistingCompany(
         where: { id: masterCompanyId },
         data: { name: companyName },
       });
+      // 紐づく取引先マスタの名称も同期更新（請求書の社名に反映される）
+      await updateCounterpartyForCompany(masterCompanyId, companyName, user.id, tx);
     }
 
     // フォーム回答を処理済みに更新
