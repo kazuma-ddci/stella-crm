@@ -17,7 +17,10 @@ import type {
   CustomerParticipantInput,
 } from "@/lib/contact-history-v2/input-types";
 import { extractExternalMeetingIds } from "@/lib/contact-history-v2/zoom/url-helpers";
-import { provisionZoomMeetingsForContactHistory } from "@/lib/contact-history-v2/zoom/provision";
+import {
+  provisionZoomMeetingsForContactHistory,
+  cancelZoomMeetingsForContactHistory,
+} from "@/lib/contact-history-v2/zoom/provision";
 
 async function resolveHojoProjectId(): Promise<number> {
   const hojo = await prisma.masterProject.findFirst({
@@ -61,7 +64,7 @@ function deriveMeetingState(contactStatus: string): string {
     case "completed":
       return "完了";
     case "cancelled":
-      return "完了";
+      return "キャンセル";
     case "rescheduled":
     case "scheduled":
     default:
@@ -417,6 +420,10 @@ export async function updateContactHistoryV2(
       topic: input.title ?? null,
     });
 
+    if (existing.status !== "cancelled" && status === "cancelled") {
+      await cancelZoomMeetingsForContactHistory({ contactHistoryId: id });
+    }
+
     revalidatePath("/hojo/records/contact-histories-v2");
     revalidatePath(`/hojo/records/contact-histories-v2/${id}`);
     return ok({ id });
@@ -439,6 +446,8 @@ export async function deleteContactHistoryV2(
   if (!existing) return err("対象の接触履歴が見つかりません");
 
   try {
+    await cancelZoomMeetingsForContactHistory({ contactHistoryId: id });
+
     await prisma.contactHistoryV2.update({
       where: { id },
       data: { deletedAt: new Date() },

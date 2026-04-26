@@ -161,6 +161,10 @@ export function MeetingRecordDetailTabs({
                 <span className="inline-flex items-center rounded bg-amber-100 text-amber-800 px-2 py-0.5 text-xs">
                   取得中
                 </span>
+              ) : detail.state === "キャンセル" ? (
+                <span className="inline-flex items-center rounded bg-gray-200 text-gray-700 px-2 py-0.5 text-xs line-through">
+                  キャンセル
+                </span>
               ) : (
                 <label className="inline-flex items-center gap-1 text-xs">
                   <span className="text-muted-foreground">状況:</span>

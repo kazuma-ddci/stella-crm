@@ -17,7 +17,10 @@ import type {
   CustomerParticipantInput,
 } from "@/lib/contact-history-v2/input-types";
 import { extractExternalMeetingIds } from "@/lib/contact-history-v2/zoom/url-helpers";
-import { provisionZoomMeetingsForContactHistory } from "@/lib/contact-history-v2/zoom/provision";
+import {
+  provisionZoomMeetingsForContactHistory,
+  cancelZoomMeetingsForContactHistory,
+} from "@/lib/contact-history-v2/zoom/provision";
 
 async function resolveStpProjectId(): Promise<number> {
   const stp = await prisma.masterProject.findFirst({
@@ -61,7 +64,7 @@ function deriveMeetingState(contactStatus: string): string {
     case "completed":
       return "完了";
     case "cancelled":
-      return "完了";
+      return "キャンセル";
     case "rescheduled":
     case "scheduled":
     default:
@@ -69,7 +72,7 @@ function deriveMeetingState(contactStatus: string): string {
   }
 }
 
-/** API駆動で上書き禁止の会議 state */
+/** API駆動で上書き禁止の会議 state (キャンセルは status から強制反映するため除外) */
 const API_DRIVEN_MEETING_STATES = ["取得中", "失敗"];
 
 /**
@@ -419,6 +422,11 @@ export async function updateContactHistoryV2(
       topic: input.title ?? null,
     });
 
+    // status が cancelled になった場合は Zoom 会議も削除 (V1 と同等の挙動)
+    if (existing.status !== "cancelled" && status === "cancelled") {
+      await cancelZoomMeetingsForContactHistory({ contactHistoryId: id });
+    }
+
     revalidatePath("/stp/records/contact-histories-v2");
     revalidatePath(`/stp/records/contact-histories-v2/${id}`);
     return ok({ id });
@@ -441,6 +449,9 @@ export async function deleteContactHistoryV2(
   if (!existing) return err("対象の接触履歴が見つかりません");
 
   try {
+    // 論理削除前に Zoom 会議も削除 (V1 と同等)
+    await cancelZoomMeetingsForContactHistory({ contactHistoryId: id });
+
     await prisma.contactHistoryV2.update({
       where: { id },
       data: { deletedAt: new Date() },

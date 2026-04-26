@@ -158,7 +158,9 @@ export function MeetingRecordsTable({ projectCode, rows }: Props) {
                           ? "bg-amber-100 text-amber-800"
                           : r.state === "失敗"
                             ? "bg-red-100 text-red-800"
-                            : "bg-gray-100 text-gray-800"
+                            : r.state === "キャンセル"
+                              ? "bg-gray-200 text-gray-700 line-through"
+                              : "bg-gray-100 text-gray-800"
                   }`}
                 >
                   {r.state}

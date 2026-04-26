@@ -62,6 +62,8 @@ export default async function EditSlpContactHistoryV2Page({ params }: Props) {
     hostStaffName: m.hostStaff?.name ?? null,
     hasRecord: m.record !== null,
     hasAiSummary: m.record !== null && m.record.aiSummary !== null,
+    urlSource: m.urlSource,
+    externalMeetingId: m.externalMeetingId,
   }));
 
   return (

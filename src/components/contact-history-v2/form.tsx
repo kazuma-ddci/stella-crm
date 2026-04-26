@@ -99,6 +99,10 @@ export type ExistingMeetingInfo = {
   hostStaffName: string | null;
   hasRecord: boolean;
   hasAiSummary: boolean;
+  /** Zoom 自動発行されたかどうか — 日時変更時に Zoom API 同期可能か判定 */
+  urlSource?: string;
+  /** Zoom Meeting ID — 同期 API 呼び出しの判定に使用 */
+  externalMeetingId?: string | null;
 };
 
 type Props = {
@@ -149,6 +153,71 @@ const PROVIDER_OPTIONS: Array<{ value: MeetingFormRow["provider"]; label: string
 // ============================================================================
 // ヘルパー
 // ============================================================================
+
+/**
+ * 編集保存後、接触履歴の予定日時が変わった場合に「Zoom 側の予定も更新するか」を
+ * ユーザーに確認し、Yes なら Zoom API 同期エンドポイントを呼ぶ。
+ * 対象は provider="zoom" + urlSource="auto_generated" + externalMeetingId あり
+ * の既存 meeting のみ。
+ */
+async function maybePromptZoomSchedule(params: {
+  initialScheduledStartAt: string | null;
+  newScheduledStartAt: string;
+  existingMeetings: Array<{
+    id: number;
+    provider: string;
+    urlSource?: string;
+    externalMeetingId?: string | null;
+    label: string | null;
+  }>;
+}): Promise<void> {
+  const { initialScheduledStartAt, newScheduledStartAt, existingMeetings } = params;
+  if (!initialScheduledStartAt) return;
+  const initialMs = new Date(initialScheduledStartAt).getTime();
+  const newMs = new Date(newScheduledStartAt).getTime();
+  if (initialMs === newMs) return;
+
+  const targets = existingMeetings.filter(
+    (m) =>
+      m.provider === "zoom" &&
+      m.urlSource === "auto_generated" &&
+      !!m.externalMeetingId,
+  );
+  if (targets.length === 0) return;
+
+  const labelDesc =
+    targets.length === 1
+      ? targets[0].label
+        ? `「${targets[0].label}」の Zoom 会議`
+        : "Zoom 会議"
+      : `${targets.length} 件の Zoom 会議`;
+
+  if (
+    !window.confirm(
+      `日時を変更しました。${labelDesc}の予定も同じ日時に更新しますか？\n（URL は変わりません）`,
+    )
+  ) {
+    return;
+  }
+
+  for (const m of targets) {
+    try {
+      const res = await fetch(
+        `/api/contact-history-v2/meetings/${m.id}/update-schedule`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { message?: string } | null;
+        toast.error(`Zoom 会議 #${m.id} の更新失敗: ${data?.message ?? res.status}`);
+      }
+    } catch (e) {
+      toast.error(
+        `Zoom 会議 #${m.id} の更新中にエラー: ${e instanceof Error ? e.message : "unknown"}`,
+      );
+    }
+  }
+  toast.success("Zoom 側の予定を更新しました");
+}
 
 function toDatetimeLocal(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -353,6 +422,16 @@ export function ContactHistoryV2Form({
         return;
       }
       toast.success(mode === "create" ? "作成しました" : "更新しました");
+
+      // 編集時の Zoom 同期確認 (V1 の zoom-reservation-handler と同等の挙動)
+      if (mode === "edit" && initial) {
+        await maybePromptZoomSchedule({
+          initialScheduledStartAt: initial.scheduledStartAt ?? null,
+          newScheduledStartAt: input.scheduledStartAt,
+          existingMeetings,
+        });
+      }
+
       router.push(`${basePath}/${result.data.id}`);
       router.refresh();
     });
