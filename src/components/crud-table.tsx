@@ -143,7 +143,7 @@ export function CrudTable({
     mountedForPinUi &&
     !!tableId &&
     !!tableSettingsCtx &&
-    tableSettingsCtx.isStaff;
+    tableSettingsCtx.canManagePinning;
 
   const router = useRouter();
   const [isAddOpen, setIsAddOpen] = useState(false);

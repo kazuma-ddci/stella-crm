@@ -90,8 +90,6 @@ type Props = {
     loanUsageMemo: string;
     vendorRegistrationStatusId: number | null;
     vendorRegistrationMemo: string;
-    toolRegistrationStatusId: number | null;
-    toolRegistrationMemo: string;
     memo: string;
     vendorSharedMemo: string;
     assignedAsLineFriendId: number | null;
@@ -103,7 +101,12 @@ type Props = {
   consultingPlanOptions: { value: string; label: string }[];
   contractStatusOptions: { value: string; label: string }[];
   vendorRegistrationOptions: { value: string; label: string }[];
-  toolRegistrationOptions: { value: string; label: string }[];
+  tools: {
+    id: number;
+    name: string;
+    statuses: { id: number; name: string; isCompleted: boolean }[];
+  }[];
+  toolRegistrations: { toolId: number; statusId: number | null; memo: string }[];
   contractDocsByService: Record<string, ContractDocumentItem[]>;
   activitiesData: Record<string, unknown>[];
   preApplicationData: Record<string, unknown>[];
@@ -137,7 +140,8 @@ export function VendorDetailTabs({
   consultingPlanOptions,
   contractStatusOptions,
   vendorRegistrationOptions,
-  toolRegistrationOptions,
+  tools,
+  toolRegistrations,
   contractDocsByService,
   activitiesData,
   preApplicationData,
@@ -211,7 +215,8 @@ export function VendorDetailTabs({
           consultingPlanOptions={consultingPlanOptions}
           contractStatusOptions={contractStatusOptions}
           vendorRegistrationOptions={vendorRegistrationOptions}
-          toolRegistrationOptions={toolRegistrationOptions}
+          tools={tools}
+          toolRegistrations={toolRegistrations}
           contractDocsByService={contractDocsByService}
           scLabel={scLabel}
           joseiLabel={joseiLabel}

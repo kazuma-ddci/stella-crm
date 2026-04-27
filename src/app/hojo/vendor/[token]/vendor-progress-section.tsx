@@ -28,6 +28,7 @@ export type ProgressRow = {
   memo: string;
   memorandum: string;
   funds: string;
+  redemptionScheduleIssuedAt: string;
   toolPurchasePrice: string;
   loanAmount: string;
   fundTransferDate: string;
@@ -184,6 +185,7 @@ export function VendorProgressSection({ data, vendorId, canEdit }: Props) {
             <TableHead className="whitespace-nowrap">備考</TableHead>
             <TableHead className="whitespace-nowrap">覚書</TableHead>
             <TableHead className="whitespace-nowrap">資金</TableHead>
+            <TableHead className="whitespace-nowrap">償還表発行日</TableHead>
             <TableHead className={canEdit ? "bg-blue-50 whitespace-nowrap" : "whitespace-nowrap"}>ツール購入代金</TableHead>
             <TableHead className="whitespace-nowrap">貸付金額</TableHead>
             <TableHead className={canEdit ? "bg-blue-50 whitespace-nowrap" : "whitespace-nowrap"}>資金移動日</TableHead>
@@ -207,7 +209,7 @@ export function VendorProgressSection({ data, vendorId, canEdit }: Props) {
         <TableBody>
           {data.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={canEdit ? 24 : 23} className="text-center text-gray-500 py-8">
+              <TableCell colSpan={canEdit ? 25 : 24} className="text-center text-gray-500 py-8">
                 データがありません
               </TableCell>
             </TableRow>
@@ -245,6 +247,7 @@ export function VendorProgressSection({ data, vendorId, canEdit }: Props) {
                 <TableCell className="max-w-[200px] truncate">{r.memo || "-"}</TableCell>
                 <TableCell className="max-w-[200px] truncate">{r.memorandum || "-"}</TableCell>
                 <TableCell className="max-w-[200px] truncate">{r.funds || "-"}</TableCell>
+                <TableCell className="whitespace-nowrap">{fmtDate(r.redemptionScheduleIssuedAt)}</TableCell>
                 <TableCell className={`whitespace-nowrap ${canEdit ? "bg-blue-50/50" : ""} ${!priceMatched && r.toolPurchasePrice ? "text-red-600 font-semibold" : ""}`}>
                   {canEdit ? (
                     <InlineCell

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Copy, Check, Link as LinkIcon } from "lucide-react";
@@ -11,13 +11,18 @@ import { Copy, Check, Link as LinkIcon } from "lucide-react";
  */
 export function LenderShareableUrlCard() {
   const [copied, setCopied] = useState(false);
-
-  // NEXT_PUBLIC_LENDER_DOMAIN が設定されていればそれを使用、なければフォールバック
+  // NEXT_PUBLIC_LENDER_DOMAIN が設定されていればそれを使用、なければクライアント側で window.origin にフォールバック。
   // 本番: https://loan.alkes.jp, stg: https://stg-loan.alkes.jp, ローカル: http://localhost:3000
-  const lenderDomain =
-    process.env.NEXT_PUBLIC_LENDER_DOMAIN ||
-    (typeof window !== "undefined" ? window.location.origin : "");
-  const portalUrl = `${lenderDomain}/hojo/lender`;
+  // SSR時とクライアント初回レンダーで値が変わるとhydration mismatchになるため、初期値はenv（または相対パス）に固定し、
+  // クライアント側で必要時のみ window.origin に書き換える。
+  const envDomain = process.env.NEXT_PUBLIC_LENDER_DOMAIN || "";
+  const [portalUrl, setPortalUrl] = useState(`${envDomain}/hojo/lender`);
+
+  useEffect(() => {
+    if (!process.env.NEXT_PUBLIC_LENDER_DOMAIN) {
+      setPortalUrl(`${window.location.origin}/hojo/lender`);
+    }
+  }, []);
 
   const handleCopy = async () => {
     try {

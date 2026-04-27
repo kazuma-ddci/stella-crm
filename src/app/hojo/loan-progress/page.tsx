@@ -49,6 +49,7 @@ export default async function HojoLoanProgressPage() {
     memo: p.memo ?? "",
     memorandum: p.memorandum ?? "",
     funds: p.funds ?? "",
+    redemptionScheduleIssuedAt: p.redemptionScheduleIssuedAt?.toISOString() ?? null,
     toolPurchasePrice: p.toolPurchasePrice?.toString() ?? null,
     loanAmount: p.loanAmount?.toString() ?? null,
     fundTransferDate: p.fundTransferDate?.toISOString() ?? null,

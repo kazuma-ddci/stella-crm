@@ -12,6 +12,13 @@ import {
   type BadgeColor,
 } from "@/lib/badge-color";
 
+type ToolColumnSpec = {
+  id: number;
+  name: string;
+  statusOptions: { value: string; label: string }[];
+  statusMeta: Record<string, { isCompleted: boolean }>;
+};
+
 type Props = {
   data: Record<string, unknown>[];
   canEdit: boolean;
@@ -21,12 +28,11 @@ type Props = {
   consultingPlanStatusOptions: { value: string; label: string }[];
   contractStatusOptions: { value: string; label: string }[];
   vendorRegistrationStatusOptions: { value: string; label: string }[];
-  toolRegistrationStatusOptions: { value: string; label: string }[];
   scWholesaleStatusMeta: Record<string, { color: string }>;
   consultingPlanStatusMeta: Record<string, { color: string }>;
   contractStatusMeta: Record<string, { isCompleted: boolean }>;
   vendorRegistrationStatusMeta: Record<string, { isCompleted: boolean }>;
-  toolRegistrationStatusMeta: Record<string, { isCompleted: boolean }>;
+  toolColumns: ToolColumnSpec[];
 };
 
 export function VendorsTable({
@@ -38,12 +44,11 @@ export function VendorsTable({
   consultingPlanStatusOptions,
   contractStatusOptions,
   vendorRegistrationStatusOptions,
-  toolRegistrationStatusOptions,
   scWholesaleStatusMeta,
   consultingPlanStatusMeta,
   contractStatusMeta,
   vendorRegistrationStatusMeta,
-  toolRegistrationStatusMeta,
+  toolColumns,
 }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
@@ -65,7 +70,15 @@ export function VendorsTable({
     { key: "loanUsage", header: "貸金利用", type: "boolean", editable: false, filterable: true },
     { key: "subsidyConsulting", header: "助成金利用", type: "boolean", editable: false, filterable: true },
     { key: "vendorRegistrationStatusName", header: "ベンダー登録状況", type: "select", options: vendorRegistrationStatusOptions, editable: false, filterable: true },
-    { key: "toolRegistrationStatusName", header: "ツール登録状況", type: "select", options: toolRegistrationStatusOptions, editable: false, filterable: true },
+    // ツール毎の動的列（ステータス選択肢・完了バッジはツール毎に異なる）
+    ...toolColumns.map((t): ColumnDef => ({
+      key: `toolStatus_${t.id}`,
+      header: `ツール:${t.name}`,
+      type: "select",
+      options: t.statusOptions,
+      editable: false,
+      filterable: true,
+    })),
     { key: "memo", header: "弊社備考", type: "textarea" },
     { key: "isActive", header: "有効", type: "boolean" },
   ];
@@ -164,7 +177,13 @@ export function VendorsTable({
     consultingPlanContractStatusName: renderCompletionBadge(contractStatusMeta),
     grantApplicationBpoContractStatusName: renderCompletionBadge(contractStatusMeta),
     vendorRegistrationStatusName: renderCompletionBadge(vendorRegistrationStatusMeta),
-    toolRegistrationStatusName: renderCompletionBadge(toolRegistrationStatusMeta),
+    // ツール毎の完了バッジ
+    ...Object.fromEntries(
+      toolColumns.map((t) => [
+        `toolStatus_${t.id}`,
+        renderCompletionBadge(t.statusMeta),
+      ])
+    ),
     grantApplicationBpo: boolCheck,
     loanUsage: boolCheck,
     subsidyConsulting: boolCheck,

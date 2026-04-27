@@ -19,7 +19,7 @@ export default async function VendorDetailPage({
   const id = Number(idParam);
   if (isNaN(id)) notFound();
 
-  const [vendor, lineFriends, joseiLineFriends, scWholesaleStatuses, consultingPlanStatuses, vendorRegistrationStatuses, toolRegistrationStatuses, prolineAccounts, contractStatuses, contractDocuments] =
+  const [vendor, lineFriends, joseiLineFriends, scWholesaleStatuses, consultingPlanStatuses, vendorRegistrationStatuses, tools, vendorToolRegistrations, prolineAccounts, contractStatuses, contractDocuments] =
     await Promise.all([
       prisma.hojoVendor.findUnique({
         where: { id },
@@ -27,7 +27,6 @@ export default async function VendorDetailPage({
           scWholesaleStatus: true,
           consultingPlanStatus: true,
           vendorRegistrationStatus: true,
-          toolRegistrationStatus: true,
           assignedAsLineFriend: { select: { id: true, snsname: true, sei: true, mei: true } },
           consultingStaff: { include: { staff: { select: { id: true, name: true } } } },
           contacts: {
@@ -61,9 +60,18 @@ export default async function VendorDetailPage({
         where: { isActive: true },
         orderBy: { displayOrder: "asc" },
       }),
-      prisma.hojoVendorToolRegistrationStatus.findMany({
+      prisma.hojoVendorTool.findMany({
         where: { isActive: true },
+        include: {
+          statuses: {
+            where: { isActive: true },
+            orderBy: { displayOrder: "asc" },
+          },
+        },
         orderBy: { displayOrder: "asc" },
+      }),
+      prisma.hojoVendorToolRegistration.findMany({
+        where: { vendorId: id },
       }),
       prisma.hojoProlineAccount.findMany({
         select: { lineType: true, label: true },
@@ -216,9 +224,22 @@ export default async function VendorDetailPage({
     label: s.name,
   }));
 
-  const toolRegistrationOptions = toolRegistrationStatuses.map((s) => ({
-    value: String(s.id),
-    label: s.name,
+  // ツール一覧（ベンダー詳細フォーム用）— activeなステータスをツール毎に保持
+  const toolsForForm = tools.map((t) => ({
+    id: t.id,
+    name: t.name,
+    statuses: t.statuses.map((s) => ({
+      id: s.id,
+      name: s.name,
+      isCompleted: s.isCompleted,
+    })),
+  }));
+
+  // 既存のベンダーx ツール登録（toolId をキーにマップ化）
+  const toolRegistrationsForForm = vendorToolRegistrations.map((r) => ({
+    toolId: r.toolId,
+    statusId: r.statusId,
+    memo: r.memo ?? "",
   }));
 
   const contractStatusOptions = contractStatuses.map((s) => ({
@@ -370,8 +391,6 @@ export default async function VendorDetailPage({
         loanUsageMemo: vendor.loanUsageMemo ?? "",
         vendorRegistrationStatusId: vendor.vendorRegistrationStatusId,
         vendorRegistrationMemo: vendor.vendorRegistrationMemo ?? "",
-        toolRegistrationStatusId: vendor.toolRegistrationStatusId,
-        toolRegistrationMemo: vendor.toolRegistrationMemo ?? "",
         memo: vendor.memo ?? "",
         vendorSharedMemo: vendor.vendorSharedMemo ?? "",
         assignedAsLineFriendId,
@@ -383,7 +402,8 @@ export default async function VendorDetailPage({
       consultingPlanOptions={consultingPlanOptions}
       contractStatusOptions={contractStatusOptions}
       vendorRegistrationOptions={vendorRegistrationOptions}
-      toolRegistrationOptions={toolRegistrationOptions}
+      tools={toolsForForm}
+      toolRegistrations={toolRegistrationsForForm}
       contractDocsByService={contractDocsByService}
       activitiesData={activitiesData}
       preApplicationData={preApplicationData}

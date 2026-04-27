@@ -91,11 +91,6 @@ export async function updateVendorDetail(
     : null;
   const vendorRegistrationMemo = trimOrNull(data.vendorRegistrationMemo);
 
-  const toolRegistrationStatusId = data.toolRegistrationStatusId
-    ? Number(data.toolRegistrationStatusId)
-    : null;
-  const toolRegistrationMemo = trimOrNull(data.toolRegistrationMemo);
-
   const memo = data.memo ? String(data.memo).trim() : null;
   const vendorSharedMemo = data.vendorSharedMemo
     ? String(data.vendorSharedMemo).trim()
@@ -147,10 +142,6 @@ export async function updateVendorDetail(
         ? { connect: { id: vendorRegistrationStatusId } }
         : { disconnect: true },
       vendorRegistrationMemo,
-      toolRegistrationStatus: toolRegistrationStatusId
-        ? { connect: { id: toolRegistrationStatusId } }
-        : { disconnect: true },
-      toolRegistrationMemo,
       memo,
       vendorSharedMemo,
     },

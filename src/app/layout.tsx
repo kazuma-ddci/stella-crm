@@ -53,6 +53,17 @@ export default async function RootLayout({
   const userId = (user as any)?.id as number | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userType = (user as any)?.userType;
+  if (userId && userType === "lender") {
+    try {
+      const lenderMeta = await prisma.hojoLenderAccount.findUnique({
+        where: { id: userId },
+        select: { tableSettings: true },
+      });
+      tableSettings = (lenderMeta?.tableSettings as TableSettingsMap | null) ?? {};
+    } catch {
+      // DBエラー時は空のまま
+    }
+  }
   if (userId && userType === "staff") {
     try {
       const [pref, projects, bbsPending, vendorPending, lenderPending, expenseApprovals, staffMeta] = await Promise.all([
@@ -126,7 +137,7 @@ export default async function RootLayout({
         <SessionProvider refetchInterval={30}>
           <BuildVersionChecker />
           <PermissionGuard />
-          <TableSettingsProvider initial={tableSettings} isStaff={userType === "staff"}>
+          <TableSettingsProvider initial={tableSettings} canManagePinning={userType === "staff" || userType === "lender"}>
             {user ? (
               <AuthenticatedLayout serverUser={user} hiddenItems={hiddenItems} projectNames={projectNames} bbsPendingCount={bbsPendingCount} expenseApprovalCounts={expenseApprovalCounts}>
                 {children}

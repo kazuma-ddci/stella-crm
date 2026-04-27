@@ -168,10 +168,31 @@ export async function updateLoanLenderMemo(
 // ========== 顧客進捗管理 貸金業社フィールド更新 ==========
 
 const LENDER_EDITABLE_FIELDS = [
-  "statusId", "memo", "memorandum", "funds",
+  "statusId", "memo", "memorandum", "funds", "redemptionScheduleIssuedAt",
   "repaymentDate", "repaymentAmount", "principalAmount", "interestAmount",
   "overshortAmount", "operationFee", "redemptionAmount", "redemptionDate", "endMemo",
 ];
+
+// ソース項目（変更時に派生5列を再計算する）
+const SOURCE_FIELDS_TRIGGERING_RECOMPUTE = new Set(["repaymentAmount", "repaymentDate"]);
+
+const DERIVED_FIELDS = ["principalAmount", "interestAmount", "overshortAmount", "operationFee", "redemptionAmount"] as const;
+
+async function loadRates() {
+  try {
+    if (!prisma.hojoLoanProgressRateConfig) {
+      return { interestRate: 0, feeRate: 0 };
+    }
+    const config = await prisma.hojoLoanProgressRateConfig.findFirst({ orderBy: { id: "asc" } });
+    return {
+      interestRate: config ? Number(config.interestRate) : 0,
+      feeRate: config ? Number(config.feeRate) : 0,
+    };
+  } catch (e) {
+    console.warn("[loadRates] failed (migration not applied?):", e);
+    return { interestRate: 0, feeRate: 0 };
+  }
+}
 
 export async function updateLenderProgress(
   progressId: number,
@@ -203,7 +224,7 @@ export async function updateLenderProgress(
 
     const updateData: Record<string, unknown> = {};
 
-    const dateFields = ["repaymentDate", "redemptionDate"];
+    const dateFields = ["repaymentDate", "redemptionDate", "redemptionScheduleIssuedAt"];
     const decimalFields = ["repaymentAmount", "principalAmount", "interestAmount", "overshortAmount", "operationFee", "redemptionAmount"];
 
     if (field === "statusId") {
@@ -216,6 +237,32 @@ export async function updateLenderProgress(
       updateData[field] = value || null;
     }
 
+    // ソース項目（返金額・返金日）が変更された場合、派生5列を再計算
+    if (SOURCE_FIELDS_TRIGGERING_RECOMPUTE.has(field)) {
+      const { computeDerivedFields } = await import("@/lib/hojo/loan-progress-calc");
+      const rates = await loadRates();
+
+      const repaymentAmount = field === "repaymentAmount"
+        ? (updateData.repaymentAmount as number | null)
+        : (progress.repaymentAmount === null ? null : Number(progress.repaymentAmount));
+      const repaymentDate = field === "repaymentDate"
+        ? (updateData.repaymentDate as Date | null)
+        : progress.repaymentDate;
+
+      const derived = computeDerivedFields(
+        {
+          loanAmount: progress.loanAmount === null ? null : Number(progress.loanAmount),
+          loanExecutionDate: progress.loanExecutionDate,
+          repaymentDate,
+          repaymentAmount,
+        },
+        rates,
+      );
+      for (const k of DERIVED_FIELDS) {
+        updateData[k] = derived[k];
+      }
+    }
+
     await prisma.hojoLoanProgress.update({ where: { id: progressId }, data: updateData });
     revalidatePath(REVALIDATE_PATH);
     revalidatePath("/hojo/loan-progress");
@@ -223,6 +270,91 @@ export async function updateLenderProgress(
     return ok();
   } catch (e) {
     console.error("[updateLenderProgress] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+// ========== 顧客進捗管理 利率/フィー率設定 ==========
+
+export async function updateHojoLoanProgressRates(
+  interestRatePercent: number,
+  feeRatePercent: number,
+): Promise<ActionResult> {
+  try {
+    const session = await auth();
+    const userType = session?.user?.userType;
+
+    if (userType !== "lender" && userType !== "staff") {
+      return err("権限がありません");
+    }
+    if (userType === "staff") {
+      const { canEdit: canEditProject } = await import("@/lib/auth/permissions");
+      const permissions = (session?.user?.permissions ?? []) as import("@/types/auth").UserPermission[];
+      if (!canEditProject(permissions, "hojo")) {
+        return err("権限がありません");
+      }
+    }
+
+    if (!Number.isFinite(interestRatePercent) || !Number.isFinite(feeRatePercent)) {
+      return err("利率は数値で入力してください");
+    }
+    if (interestRatePercent < 0 || feeRatePercent < 0) {
+      return err("利率は 0 以上の値を入力してください");
+    }
+
+    // % → 小数値に変換して保存（例: 5 → 0.05）
+    const interestRate = interestRatePercent / 100;
+    const feeRate = feeRatePercent / 100;
+
+    const updatedBy = session?.user?.name ?? session?.user?.email ?? null;
+
+    const { computeDerivedFields } = await import("@/lib/hojo/loan-progress-calc");
+
+    await prisma.$transaction(async (tx) => {
+      // シングルトン (id=1) を upsert
+      const existing = await tx.hojoLoanProgressRateConfig.findFirst({ orderBy: { id: "asc" } });
+      if (existing) {
+        await tx.hojoLoanProgressRateConfig.update({
+          where: { id: existing.id },
+          data: { interestRate, feeRate, updatedBy },
+        });
+      } else {
+        await tx.hojoLoanProgressRateConfig.create({
+          data: { interestRate, feeRate, updatedBy },
+        });
+      }
+
+      // 全レコードの派生 4 列を再計算（principalAmount は loanAmount 直貼りなので変動なし）
+      const records = await tx.hojoLoanProgress.findMany({ where: { deletedAt: null } });
+      for (const r of records) {
+        const derived = computeDerivedFields(
+          {
+            loanAmount: r.loanAmount === null ? null : Number(r.loanAmount),
+            loanExecutionDate: r.loanExecutionDate,
+            repaymentDate: r.repaymentDate,
+            repaymentAmount: r.repaymentAmount === null ? null : Number(r.repaymentAmount),
+          },
+          { interestRate, feeRate },
+        );
+        await tx.hojoLoanProgress.update({
+          where: { id: r.id },
+          data: {
+            principalAmount: derived.principalAmount,
+            interestAmount: derived.interestAmount,
+            overshortAmount: derived.overshortAmount,
+            operationFee: derived.operationFee,
+            redemptionAmount: derived.redemptionAmount,
+          },
+        });
+      }
+    });
+
+    revalidatePath(REVALIDATE_PATH);
+    revalidatePath("/hojo/loan-progress");
+    revalidatePath("/hojo/vendor");
+    return ok();
+  } catch (e) {
+    console.error("[updateHojoLoanProgressRates] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
 }

@@ -19,8 +19,8 @@ export type TableSettingsMap = Record<string, TableSetting | undefined>;
 
 type TableSettingsContextValue = {
   settings: TableSettingsMap;
-  /** 現在のユーザーが社内スタッフか（列固定設定の保存対象かどうか） */
-  isStaff: boolean;
+  /** 現在のユーザーが列固定設定（ピン留め）を保存できるか（スタッフ/貸金業社など） */
+  canManagePinning: boolean;
   getSetting: (tableId: string) => TableSetting | undefined;
   updateStickyLeftCount: (tableId: string, count: number) => Promise<void>;
 };
@@ -29,11 +29,11 @@ const TableSettingsContext = createContext<TableSettingsContextValue | null>(nul
 
 export function TableSettingsProvider({
   initial,
-  isStaff,
+  canManagePinning,
   children,
 }: {
   initial: TableSettingsMap;
-  isStaff: boolean;
+  canManagePinning: boolean;
   children: ReactNode;
 }) {
   const [settings, setSettings] = useState<TableSettingsMap>(initial ?? {});
@@ -87,8 +87,8 @@ export function TableSettingsProvider({
   );
 
   const value = useMemo<TableSettingsContextValue>(
-    () => ({ settings, isStaff, getSetting, updateStickyLeftCount }),
-    [settings, isStaff, getSetting, updateStickyLeftCount],
+    () => ({ settings, canManagePinning, getSetting, updateStickyLeftCount }),
+    [settings, canManagePinning, getSetting, updateStickyLeftCount],
   );
 
   return (

@@ -46,11 +46,6 @@ import {
   updateVendorRegistrationStatus,
   deleteVendorRegistrationStatus,
   reorderVendorRegistrationStatuses,
-  getAllToolRegistrationStatuses,
-  addToolRegistrationStatus,
-  updateToolRegistrationStatus,
-  deleteToolRegistrationStatus,
-  reorderToolRegistrationStatuses,
   getAllContractStatuses,
   addContractStatus,
   updateContractStatus,
@@ -91,7 +86,7 @@ type RenameContext = {
   newName: string;
 };
 
-export type StatusType = "scWholesale" | "consultingPlan" | "vendorRegistration" | "toolRegistration" | "contractStatus";
+export type StatusType = "scWholesale" | "consultingPlan" | "vendorRegistration" | "contractStatus";
 
 type Props = {
   open: boolean;
@@ -127,16 +122,6 @@ const CONFIG = {
     update: updateVendorRegistrationStatus,
     remove: deleteVendorRegistrationStatus,
     reorder: reorderVendorRegistrationStatuses,
-    hasColor: false,
-    hasCompleted: true,
-  },
-  toolRegistration: {
-    title: "ツール登録ステータス管理",
-    getAll: getAllToolRegistrationStatuses,
-    add: addToolRegistrationStatus,
-    update: updateToolRegistrationStatus,
-    remove: deleteToolRegistrationStatus,
-    reorder: reorderToolRegistrationStatuses,
     hasColor: false,
     hasCompleted: true,
   },

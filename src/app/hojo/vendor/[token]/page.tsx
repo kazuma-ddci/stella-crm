@@ -386,6 +386,7 @@ export default async function VendorPage({
     memo: r.memo ?? "",
     memorandum: r.memorandum ?? "",
     funds: r.funds ?? "",
+    redemptionScheduleIssuedAt: r.redemptionScheduleIssuedAt?.toISOString().split("T")[0] ?? "",
     toolPurchasePrice: r.toolPurchasePrice ? Number(r.toolPurchasePrice).toLocaleString() : "",
     loanAmount: r.loanAmount ? Number(r.loanAmount).toLocaleString() : "",
     fundTransferDate: r.fundTransferDate?.toISOString().split("T")[0] ?? "",

@@ -27,6 +27,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { DatePicker } from "@/components/ui/date-picker";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { VendorStatusManagementModal } from "../vendor-status-management-modal";
+import { VendorToolsManagementModal } from "../vendor-tools-management-modal";
+import { saveVendorToolRegistrations } from "../vendor-tools-actions";
 import {
   Settings,
   Save,
@@ -117,8 +119,6 @@ type Props = {
     loanUsageMemo: string;
     vendorRegistrationStatusId: number | null;
     vendorRegistrationMemo: string;
-    toolRegistrationStatusId: number | null;
-    toolRegistrationMemo: string;
     memo: string;
     vendorSharedMemo: string;
     assignedAsLineFriendId: number | null;
@@ -130,7 +130,12 @@ type Props = {
   consultingPlanOptions: { value: string; label: string }[];
   contractStatusOptions: { value: string; label: string }[];
   vendorRegistrationOptions: { value: string; label: string }[];
-  toolRegistrationOptions: { value: string; label: string }[];
+  tools: {
+    id: number;
+    name: string;
+    statuses: { id: number; name: string; isCompleted: boolean }[];
+  }[];
+  toolRegistrations: { toolId: number; statusId: number | null; memo: string }[];
   contractDocsByService: Record<string, ContractDocumentItem[]>;
   scLabel: string;
   joseiLabel: string;
@@ -168,7 +173,8 @@ export function VendorDetailForm({
   consultingPlanOptions,
   contractStatusOptions,
   vendorRegistrationOptions,
-  toolRegistrationOptions,
+  tools,
+  toolRegistrations,
   contractDocsByService,
   scLabel,
   joseiLabel,
@@ -258,14 +264,27 @@ export function VendorDetailForm({
   );
   const [vendorRegistrationMemo, setVendorRegistrationMemo] = useState(vendor.vendorRegistrationMemo);
 
-  const [toolRegistrationStatusId, setToolRegistrationStatusId] = useState<string>(
-    vendor.toolRegistrationStatusId ? String(vendor.toolRegistrationStatusId) : ""
-  );
-  const [toolRegistrationMemo, setToolRegistrationMemo] = useState(vendor.toolRegistrationMemo);
+  // ツール毎の登録（toolId → { statusId, memo }）
+  const initialToolEntries = useMemo<Record<number, { statusId: string; memo: string }>>(() => {
+    const map: Record<number, { statusId: string; memo: string }> = {};
+    for (const t of tools) {
+      const existing = toolRegistrations.find((r) => r.toolId === t.id);
+      map[t.id] = {
+        statusId: existing?.statusId ? String(existing.statusId) : "",
+        memo: existing?.memo ?? "",
+      };
+    }
+    return map;
+  }, [tools, toolRegistrations]);
+  const [toolEntries, setToolEntries] = useState<Record<number, { statusId: string; memo: string }>>(initialToolEntries);
+  useEffect(() => {
+    setToolEntries(initialToolEntries);
+  }, [initialToolEntries]);
 
   // ステータス管理モーダル
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [statusModalType, setStatusModalType] = useState<StatusType>("scWholesale");
+  const [toolsModalOpen, setToolsModalOpen] = useState(false);
 
   const openStatusModal = (type: StatusType) => {
     setStatusModalType(type);
@@ -293,7 +312,7 @@ export function VendorDetailForm({
     subsidyConsulting, subsidyConsultingKickoffMtg, subsidyConsultingMemo,
     loanUsage, loanUsageKickoffMtg, loanUsageMemo,
     vendorRegistrationStatusId, vendorRegistrationMemo,
-    toolRegistrationStatusId, toolRegistrationMemo,
+    toolEntries,
     memo, vendorSharedMemo,
     consultingStaffIds: [...consultingStaffIds].sort(),
     asLineFriendId,
@@ -305,7 +324,7 @@ export function VendorDetailForm({
     subsidyConsulting, subsidyConsultingKickoffMtg, subsidyConsultingMemo,
     loanUsage, loanUsageKickoffMtg, loanUsageMemo,
     vendorRegistrationStatusId, vendorRegistrationMemo,
-    toolRegistrationStatusId, toolRegistrationMemo,
+    toolEntries,
     memo, vendorSharedMemo,
     consultingStaffIds, asLineFriendId,
   ]);
@@ -547,10 +566,6 @@ export function VendorDetailForm({
             ? Number(vendorRegistrationStatusId)
             : null,
           vendorRegistrationMemo,
-          toolRegistrationStatusId: toolRegistrationStatusId
-            ? Number(toolRegistrationStatusId)
-            : null,
-          toolRegistrationMemo,
           memo,
           vendorSharedMemo,
       });
@@ -568,6 +583,22 @@ export function VendorDetailForm({
       if (failedDoc && !failedDoc.ok) {
         toast.error(failedDoc.error);
         return;
+      }
+      // ツール登録（ベンダー × ツール の中間）も更新
+      const toolItems = tools.map((t) => {
+        const entry = toolEntries[t.id] ?? { statusId: "", memo: "" };
+        return {
+          toolId: t.id,
+          statusId: entry.statusId ? Number(entry.statusId) : null,
+          memo: entry.memo,
+        };
+      });
+      if (toolItems.length > 0) {
+        const toolResult = await saveVendorToolRegistrations(vendor.id, toolItems);
+        if (!toolResult.ok) {
+          toast.error(toolResult.error);
+          return;
+        }
       }
       setSavedValues(currentValues);
       toast.success("保存しました");
@@ -1256,36 +1287,72 @@ export function VendorDetailForm({
 
             <ServiceSection
               title="ツール登録の有無"
-              onPlanSettingsClick={() => openStatusModal("toolRegistration")}
+              onPlanSettingsClick={() => setToolsModalOpen(true)}
             >
-              <FieldBlock label="ステータス">
-                <Select
-                  value={toolRegistrationStatusId || UNSET_VALUE}
-                  onValueChange={(v) =>
-                    setToolRegistrationStatusId(v === UNSET_VALUE ? "" : v)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="未選択" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={UNSET_VALUE}>未選択</SelectItem>
-                    {toolRegistrationOptions.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FieldBlock>
-              <FieldBlock label="備考">
-                <Textarea
-                  value={toolRegistrationMemo}
-                  onChange={(e) => setToolRegistrationMemo(e.target.value)}
-                  rows={2}
-                  placeholder="ツール登録に関するメモ"
-                />
-              </FieldBlock>
+              {tools.length === 0 ? (
+                <p className="text-xs text-gray-500">
+                  ツールが登録されていません。右上の歯車アイコンから追加してください。
+                </p>
+              ) : (
+                <div className="overflow-x-auto rounded border">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left px-2 py-1.5 font-medium text-gray-600 w-[180px]">ツール名</th>
+                        <th className="text-left px-2 py-1.5 font-medium text-gray-600 w-[200px]">ステータス</th>
+                        <th className="text-left px-2 py-1.5 font-medium text-gray-600">備考</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tools.map((t) => {
+                        const entry = toolEntries[t.id] ?? { statusId: "", memo: "" };
+                        return (
+                          <tr key={t.id} className="border-t">
+                            <td className="px-2 py-1.5 align-top text-gray-800">{t.name}</td>
+                            <td className="px-2 py-1.5 align-top">
+                              <Select
+                                value={entry.statusId || UNSET_VALUE}
+                                onValueChange={(v) =>
+                                  setToolEntries((prev) => ({
+                                    ...prev,
+                                    [t.id]: { ...entry, statusId: v === UNSET_VALUE ? "" : v },
+                                  }))
+                                }
+                              >
+                                <SelectTrigger className="h-8">
+                                  <SelectValue placeholder="未選択" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value={UNSET_VALUE}>未選択</SelectItem>
+                                  {t.statuses.map((s) => (
+                                    <SelectItem key={s.id} value={String(s.id)}>
+                                      {s.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </td>
+                            <td className="px-2 py-1.5 align-top">
+                              <Textarea
+                                value={entry.memo}
+                                onChange={(e) =>
+                                  setToolEntries((prev) => ({
+                                    ...prev,
+                                    [t.id]: { ...entry, memo: e.target.value },
+                                  }))
+                                }
+                                rows={2}
+                                placeholder="このツールに関するメモ"
+                                className="text-xs"
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </ServiceSection>
           </div>
         </CardContent>
@@ -1344,6 +1411,12 @@ export function VendorDetailForm({
         open={statusModalOpen}
         onOpenChange={setStatusModalOpen}
         type={statusModalType}
+      />
+
+      {/* ツール管理モーダル */}
+      <VendorToolsManagementModal
+        open={toolsModalOpen}
+        onOpenChange={setToolsModalOpen}
       />
     </div>
   );

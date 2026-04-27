@@ -4945,10 +4945,6 @@ model HojoVendor {
   vendorRegistrationStatusId Int?    @map("vendor_registration_status_id")
   vendorRegistrationMemo     String? @map("vendor_registration_memo") @db.Text
 
-  // ツール登録の有無
-  toolRegistrationStatusId Int?    @map("tool_registration_status_id")
-  toolRegistrationMemo     String? @map("tool_registration_memo") @db.Text
-
   // コンサルティングプラン金額情報
   consultingContractAmount Decimal? @map("consulting_contract_amount") @db.Decimal(12, 0)
   successFee               Decimal? @map("success_fee") @db.Decimal(12, 0)
@@ -4968,7 +4964,7 @@ model HojoVendor {
   consultingPlanContractStatus      HojoVendorContractStatus?          @relation("vendorConsultingPlanContractStatus", fields: [consultingPlanContractStatusId], references: [id], onDelete: SetNull)
   grantApplicationBpoContractStatus HojoVendorContractStatus?          @relation("vendorGrantApplicationBpoContractStatus", fields: [grantApplicationBpoContractStatusId], references: [id], onDelete: SetNull)
   vendorRegistrationStatus          HojoVendorRegistrationStatus?      @relation(fields: [vendorRegistrationStatusId], references: [id], onDelete: SetNull)
-  toolRegistrationStatus            HojoVendorToolRegistrationStatus?  @relation(fields: [toolRegistrationStatusId], references: [id], onDelete: SetNull)
+  toolRegistrations                 HojoVendorToolRegistration[]
   assignedAsLineFriend              HojoLineFriendSecurityCloud?       @relation("vendorAssignedAs", fields: [assignedAsLineFriendId], references: [id], onDelete: SetNull)
   consultingStaff                   HojoVendorConsultingStaff[]
   contacts                          HojoVendorContact[]
@@ -5175,6 +5171,7 @@ model HojoLenderAccount {
   approvedAt               DateTime? @map("approved_at") // 認証日時
   approvedBy               Int?      @map("approved_by") // 認証したスタッフID
   lastLoginAt              DateTime? @map("last_login_at") // 最終ログイン日時
+  tableSettings            Json?     @map("table_settings") // テーブルUI設定（{ [tableId]: { stickyLeftCount: number } }）
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @updatedAt @map("updated_at")
 
@@ -5696,18 +5693,65 @@ model HojoVendorRegistrationStatus {
   @@map("hojo_vendor_registration_statuses")
 }
 
-model HojoVendorToolRegistrationStatus {
+// ============================================
+// ベンダー ツール（マスタ）— "セキュリティクラウド" / "PFU" / "アクシス" 等
+// ============================================
+
+model HojoVendorTool {
   id           Int      @id @default(autoincrement())
   name         String   @db.VarChar(200)
-  displayOrder Int      @default(0) @map("display_order")
-  isActive     Boolean  @default(true) @map("is_active")
-  isCompleted  Boolean  @default(false) @map("is_completed")
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  vendors HojoVendor[]
+  statuses      HojoVendorToolStatus[]
+  registrations HojoVendorToolRegistration[]
 
-  @@map("hojo_vendor_tool_registration_statuses")
+  @@map("hojo_vendor_tools")
+}
+
+// ============================================
+// ベンダー ツール毎のステータスマスタ
+// ============================================
+
+model HojoVendorToolStatus {
+  id           Int      @id @default(autoincrement())
+  toolId       Int      @map("tool_id")
+  name         String   @db.VarChar(200)
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  isCompleted  Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tool          HojoVendorTool               @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  registrations HojoVendorToolRegistration[]
+
+  @@index([toolId])
+  @@map("hojo_vendor_tool_statuses")
+}
+
+// ============================================
+// ベンダー × ツール（中間: ステータス＋備考を保持）
+// ============================================
+
+model HojoVendorToolRegistration {
+  id        Int      @id @default(autoincrement())
+  vendorId  Int      @map("vendor_id")
+  toolId    Int      @map("tool_id")
+  statusId  Int?     @map("status_id")
+  memo      String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor HojoVendor            @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  tool   HojoVendorTool        @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  status HojoVendorToolStatus? @relation(fields: [statusId], references: [id], onDelete: SetNull)
+
+  @@unique([vendorId, toolId])
+  @@index([toolId])
+  @@map("hojo_vendor_tool_registrations")
 }
 
 // ============================================
@@ -6210,11 +6254,12 @@ model HojoLoanProgress {
   loanExecutionDate DateTime? // 貸付実行日（時刻含む）
 
   // 貸金業社入力
-  statusId         Int?
-  memo             String?   @db.Text // 備考
-  memorandum       String?   @db.Text // 覚書
-  funds            String?   @db.Text // 資金
-  repaymentDate    DateTime? // 返金日(着金日)
+  statusId                   Int?
+  memo                       String?   @db.Text // 備考
+  memorandum                 String?   @db.Text // 覚書
+  funds                      String?   @db.Text // 資金
+  redemptionScheduleIssuedAt DateTime? @map("redemption_schedule_issued_at") // 償還表発行日
+  repaymentDate              DateTime? // 返金日(着金日)
   repaymentAmount  Decimal?  @db.Decimal(14, 0) // 返金額(着金額)
   principalAmount  Decimal?  @db.Decimal(14, 0) // 元金分
   interestAmount   Decimal?  @db.Decimal(14, 0) // 利息分
@@ -6238,6 +6283,20 @@ model HojoLoanProgress {
 
   @@index([vendorId])
   @@map("hojo_loan_progresses")
+}
+
+// ============================================
+// 貸金 顧客進捗管理 利率設定（シングルトン: id=1）
+// ============================================
+
+model HojoLoanProgressRateConfig {
+  id           Int      @id @default(autoincrement())
+  interestRate Decimal  @default(0) @db.Decimal(8, 6) // 例: 0.05 = 5%
+  feeRate      Decimal  @default(0) @db.Decimal(8, 6)
+  updatedAt    DateTime @updatedAt
+  updatedBy    String?  @db.VarChar(255)
+
+  @@map("hojo_loan_progress_rate_config")
 }
 
 // ============================================

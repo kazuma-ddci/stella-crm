@@ -30,6 +30,7 @@ type RowData = {
   memo: string;
   memorandum: string;
   funds: string;
+  redemptionScheduleIssuedAt: string | null;
   toolPurchasePrice: string | null;
   loanAmount: string | null;
   fundTransferDate: string | null;
@@ -117,6 +118,7 @@ export function LoanProgressTable({
     { key: "memo", header: "貸金備考", type: "textarea", editable: false, filterable: true },
     { key: "memorandum", header: "覚書", type: "textarea", editable: false, filterable: true },
     { key: "funds", header: "資金", type: "textarea", editable: false, filterable: true },
+    { key: "redemptionScheduleIssuedAt", header: "償還表発行日", type: "date", editable: false, filterable: true },
     { key: "toolPurchasePrice", header: "ツール購入代金", editable: false, filterable: true },
     { key: "loanAmount", header: "貸付金額", editable: false, filterable: true },
     { key: "fundTransferDate", header: "資金移動日", type: "date", editable: false, filterable: true },

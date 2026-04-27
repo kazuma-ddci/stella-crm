@@ -37,7 +37,7 @@ export default async function VendorsPage() {
     consultingPlanStatuses,
     contractStatuses,
     vendorRegistrationStatuses,
-    toolRegistrationStatuses,
+    tools,
   ] = await Promise.all([
     prisma.hojoVendor.findMany({
       orderBy: { displayOrder: "asc" },
@@ -54,7 +54,11 @@ export default async function VendorsPage() {
         consultingPlanContractStatus: { select: { id: true, name: true } },
         grantApplicationBpoContractStatus: { select: { id: true, name: true } },
         vendorRegistrationStatus: { select: { id: true, name: true } },
-        toolRegistrationStatus: { select: { id: true, name: true } },
+        toolRegistrations: {
+          include: {
+            status: { select: { id: true, name: true, isCompleted: true } },
+          },
+        },
         contacts: {
           include: {
             lineFriend: { select: { id: true, uid: true, free1: true, snsname: true } },
@@ -88,10 +92,16 @@ export default async function VendorsPage() {
       orderBy: { displayOrder: "asc" },
       select: { id: true, name: true, isCompleted: true },
     }),
-    prisma.hojoVendorToolRegistrationStatus.findMany({
+    prisma.hojoVendorTool.findMany({
       where: { isActive: true },
+      include: {
+        statuses: {
+          where: { isActive: true },
+          orderBy: { displayOrder: "asc" },
+          select: { id: true, name: true, isCompleted: true },
+        },
+      },
       orderBy: { displayOrder: "asc" },
-      select: { id: true, name: true, isCompleted: true },
     }),
   ]);
 
@@ -127,6 +137,14 @@ export default async function VendorsPage() {
       }
     }
 
+    // ツール毎の登録状況を toolStatus_${toolId} キーで埋める
+    const toolStatusEntries: Record<string, string> = {};
+    const regByToolId = new Map(v.toolRegistrations.map((r) => [r.toolId, r]));
+    for (const t of tools) {
+      const reg = regByToolId.get(t.id);
+      toolStatusEntries[`toolStatus_${t.id}`] = reg?.status?.name ?? "";
+    }
+
     return {
       id: v.id,
       name: v.name,
@@ -145,7 +163,7 @@ export default async function VendorsPage() {
       loanUsage: v.loanUsage,
       subsidyConsulting: v.subsidyConsulting,
       vendorRegistrationStatusName: v.vendorRegistrationStatus?.name ?? "",
-      toolRegistrationStatusName: v.toolRegistrationStatus?.name ?? "",
+      ...toolStatusEntries,
       nextContactDateWholesale: v.nextContactDateWholesale ? v.nextContactDateWholesale.toISOString().split("T")[0] : "",
       nextContactDateConsulting: v.nextContactDateConsulting ? v.nextContactDateConsulting.toISOString().split("T")[0] : "",
       memo: v.memo ?? "",
@@ -170,10 +188,6 @@ export default async function VendorsPage() {
     value: s.name,
     label: s.name,
   }));
-  const toolRegistrationStatusOptions = toolRegistrationStatuses.map((s) => ({
-    value: s.name,
-    label: s.name,
-  }));
 
   // ステータス名→メタ情報（色・完了フラグ）マップ
   const scWholesaleStatusMeta = Object.fromEntries(
@@ -188,9 +202,14 @@ export default async function VendorsPage() {
   const vendorRegistrationStatusMeta = Object.fromEntries(
     vendorRegistrationStatuses.map((s) => [s.name, { isCompleted: s.isCompleted }])
   );
-  const toolRegistrationStatusMeta = Object.fromEntries(
-    toolRegistrationStatuses.map((s) => [s.name, { isCompleted: s.isCompleted }])
-  );
+
+  // ツール一覧（VendorsTable に動的列を生成させるため）
+  const toolColumns = tools.map((t) => ({
+    id: t.id,
+    name: t.name,
+    statusOptions: t.statuses.map((s) => ({ value: s.name, label: s.name })),
+    statusMeta: Object.fromEntries(t.statuses.map((s) => [s.name, { isCompleted: s.isCompleted }])),
+  }));
 
   // フォーム回答データ取得
   const formResponses = await prisma.hojoFormSubmission.findMany({
@@ -240,12 +259,11 @@ export default async function VendorsPage() {
                 consultingPlanStatusOptions={consultingPlanStatusOptions}
                 contractStatusOptions={contractStatusOptions}
                 vendorRegistrationStatusOptions={vendorRegistrationStatusOptions}
-                toolRegistrationStatusOptions={toolRegistrationStatusOptions}
                 scWholesaleStatusMeta={scWholesaleStatusMeta}
                 consultingPlanStatusMeta={consultingPlanStatusMeta}
                 contractStatusMeta={contractStatusMeta}
                 vendorRegistrationStatusMeta={vendorRegistrationStatusMeta}
-                toolRegistrationStatusMeta={toolRegistrationStatusMeta}
+                toolColumns={toolColumns}
               />
             </CardContent>
           </Card>

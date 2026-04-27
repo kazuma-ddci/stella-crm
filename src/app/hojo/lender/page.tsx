@@ -17,11 +17,11 @@ export default async function LenderPage() {
   const isAuthenticated = isStaff || isLender;
 
   if (!isAuthenticated) {
-    return <LenderClientPage authenticated={false} isLender={false} corporateData={[]} individualData={[]} vendors={[]} progressData={[]} statusOptions={[]} />;
+    return <LenderClientPage authenticated={false} isLender={false} corporateData={[]} individualData={[]} vendors={[]} progressData={[]} statusOptions={[]} rates={{ interestRate: 0, feeRate: 0 }} />;
   }
 
   if (isLender && session?.user?.mustChangePassword) {
-    return <LenderClientPage authenticated={false} isLender={false} corporateData={[]} individualData={[]} vendors={[]} progressData={[]} statusOptions={[]} />;
+    return <LenderClientPage authenticated={false} isLender={false} corporateData={[]} individualData={[]} vendors={[]} progressData={[]} statusOptions={[]} rates={{ interestRate: 0, feeRate: 0 }} />;
   }
 
   // 全ベンダーの借入申込フォーム回答を取得
@@ -105,6 +105,7 @@ export default async function LenderPage() {
     memo: r.memo ?? "",
     memorandum: r.memorandum ?? "",
     funds: r.funds ?? "",
+    redemptionScheduleIssuedAt: r.redemptionScheduleIssuedAt?.toISOString().split("T")[0] ?? "",
     toolPurchasePrice: r.toolPurchasePrice ? Number(r.toolPurchasePrice).toLocaleString() : "",
     loanAmount: r.loanAmount ? Number(r.loanAmount).toLocaleString() : "",
     fundTransferDate: r.fundTransferDate?.toISOString().split("T")[0] ?? "",
@@ -127,6 +128,23 @@ export default async function LenderPage() {
     orderBy: { displayOrder: "asc" },
   });
 
+  // 利率/フィー率（グローバル設定。シングルトン）
+  // マイグレーション未適用 / Prisma Client未再生成時は 0 にフォールバック
+  let rates = { interestRate: 0, feeRate: 0 };
+  try {
+    if (prisma.hojoLoanProgressRateConfig) {
+      const rateConfig = await prisma.hojoLoanProgressRateConfig.findFirst({ orderBy: { id: "asc" } });
+      if (rateConfig) {
+        rates = {
+          interestRate: Number(rateConfig.interestRate),
+          feeRate: Number(rateConfig.feeRate),
+        };
+      }
+    }
+  } catch (e) {
+    console.warn("[LenderPage] hojoLoanProgressRateConfig load failed (migration not applied?):", e);
+  }
+
   const userName = session?.user?.name || "";
 
   return (
@@ -139,6 +157,7 @@ export default async function LenderPage() {
       progressData={progressData}
       statusOptions={statuses.map((s) => ({ value: String(s.id), label: s.name }))}
       userName={userName}
+      rates={rates}
     />
   );
 }

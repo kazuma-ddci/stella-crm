@@ -34,8 +34,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Eye, History, Pencil, Copy, Check, Link as LinkIcon } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { InlineCell } from "@/components/inline-cell";
+import { CrudTable, type ColumnDef, type CustomAction, type CustomRenderers } from "@/components/crud-table";
 import Link from "next/link";
-import { recordLenderPasswordResetRequest, updateLoanLenderMemo, updateLenderProgress } from "./actions";
+import { recordLenderPasswordResetRequest, updateLoanLenderMemo, updateLenderProgress, updateHojoLoanProgressRates } from "./actions";
 import {
   PortalHeader,
   PortalUserMenu,
@@ -92,6 +93,7 @@ type LenderProgressRow = {
   memo: string;
   memorandum: string;
   funds: string;
+  redemptionScheduleIssuedAt: string;
   toolPurchasePrice: string;
   loanAmount: string;
   fundTransferDate: string;
@@ -108,6 +110,11 @@ type LenderProgressRow = {
   endMemo: string;
 };
 
+type ProgressRates = {
+  interestRate: number;
+  feeRate: number;
+};
+
 type Props = {
   authenticated: boolean;
   isLender: boolean;
@@ -116,6 +123,7 @@ type Props = {
   vendors: { id: number; name: string }[];
   progressData: LenderProgressRow[];
   statusOptions: { value: string; label: string }[];
+  rates: ProgressRates;
   userName?: string;
 };
 
@@ -717,15 +725,56 @@ function CustomerProgressSection({
   data,
   statusOptions,
   isLender,
+  rates,
 }: {
   data: LenderProgressRow[];
   statusOptions: { value: string; label: string }[];
   isLender: boolean;
+  rates: ProgressRates;
 }) {
   const router = useRouter();
   const [editRow, setEditRow] = useState<LenderProgressRow | null>(null);
   const [editData, setEditData] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [rateDialog, setRateDialog] = useState<null | "interest" | "fee">(null);
+  const [rateInput, setRateInput] = useState("");
+  const [rateSaving, setRateSaving] = useState(false);
+
+  const formatRatePercent = (rate: number) => {
+    // 0.05 → "5%", 0.0525 → "5.25%"
+    const pct = rate * 100;
+    return Number.isInteger(pct) ? `${pct}%` : `${pct.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}%`;
+  };
+
+  const openRateDialog = (which: "interest" | "fee") => {
+    const current = which === "interest" ? rates.interestRate : rates.feeRate;
+    const pct = current * 100;
+    setRateInput(Number.isFinite(pct) ? String(pct) : "0");
+    setRateDialog(which);
+  };
+
+  const handleRateSave = async () => {
+    if (!rateDialog) return;
+    const num = Number(rateInput);
+    if (!Number.isFinite(num) || num < 0) {
+      alert("0以上の数値を入力してください");
+      return;
+    }
+    setRateSaving(true);
+    try {
+      const interestPct = rateDialog === "interest" ? num : rates.interestRate * 100;
+      const feePct = rateDialog === "fee" ? num : rates.feeRate * 100;
+      const result = await updateHojoLoanProgressRates(interestPct, feePct);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
+      setRateDialog(null);
+      router.refresh();
+    } finally {
+      setRateSaving(false);
+    }
+  };
 
   const handleSave = async (id: number, field: string, value: string) => {
     const result = await updateLenderProgress(id, field, value);
@@ -736,13 +785,15 @@ function CustomerProgressSection({
     router.refresh();
   };
 
-  const openProgressEdit = (row: LenderProgressRow) => {
+  const openProgressEdit = (item: Record<string, unknown>) => {
+    const row = item as unknown as LenderProgressRow;
     setEditRow(row);
     setEditData({
       statusId: row.statusId,
       memo: row.memo,
       memorandum: row.memorandum,
       funds: row.funds,
+      redemptionScheduleIssuedAt: row.redemptionScheduleIssuedAt,
       repaymentDate: row.repaymentDate,
       repaymentAmount: row.repaymentAmount.replace(/,/g, ""),
       principalAmount: row.principalAmount.replace(/,/g, ""),
@@ -764,6 +815,7 @@ function CustomerProgressSection({
         memo: editRow.memo,
         memorandum: editRow.memorandum,
         funds: editRow.funds,
+        redemptionScheduleIssuedAt: editRow.redemptionScheduleIssuedAt,
         repaymentDate: editRow.repaymentDate,
         repaymentAmount: editRow.repaymentAmount.replace(/,/g, ""),
         principalAmount: editRow.principalAmount.replace(/,/g, ""),
@@ -788,190 +840,167 @@ function CustomerProgressSection({
     }
   };
 
-  if (data.length === 0) {
-    return (
-      <div className="space-y-4">
-        <ShareableUrlCard />
-        <div className="text-center py-12 text-muted-foreground text-sm">
-          進捗データはまだありません
-        </div>
-      </div>
-    );
-  }
-
   const fmtDateTime = (d: string, t: string) => {
     if (!d) return "-";
     return t ? `${d} ${t}` : d;
   };
 
-  const editableBg = isLender ? " bg-blue-50" : "";
-  const editableCellBg = isLender ? " bg-blue-50/50" : "";
+  // フィルタ用の選択肢（データから動的生成）
+  const vendorNameOptions = Array.from(new Set(data.map((r) => r.vendorName).filter(Boolean)))
+    .map((name) => ({ value: name, label: name }));
+  const statusNameOptions = Array.from(new Set(data.map((r) => r.statusName).filter(Boolean)))
+    .map((name) => ({ value: name, label: name }));
+  const applicantTypeOptions = Array.from(new Set(data.map((r) => r.applicantType).filter(Boolean)))
+    .map((name) => ({ value: name, label: name }));
+
+  const columns: ColumnDef[] = [
+    { key: "id", header: "ID", editable: false, hidden: true },
+    { key: "vendorName", header: "ベンダー", type: "select", options: vendorNameOptions, editable: false, filterable: true },
+    { key: "vendorNo", header: "ベンダーNo.", type: "number", editable: false, filterable: true, cellClassName: "text-center" },
+    { key: "requestDate", header: "依頼日", type: "date", editable: false, filterable: true },
+    { key: "companyName", header: "社名（屋号名）", type: "text", editable: false, filterable: true },
+    { key: "representName", header: "代表者(契約者)氏名", type: "text", editable: false, filterable: true },
+    { key: "statusName", header: "ステータス", type: "select", options: statusNameOptions, editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "applicantType", header: "法人/個人", type: "select", options: applicantTypeOptions, editable: false, filterable: true },
+    { key: "updatedAt", header: "最終更新日", type: "date", editable: false, filterable: true },
+    { key: "memo", header: "備考", type: "textarea", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "memorandum", header: "覚書", type: "textarea", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "funds", header: "資金", type: "textarea", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "redemptionScheduleIssuedAt", header: "償還表発行日", type: "date", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "toolPurchasePrice", header: "ツール購入代金", editable: false, filterable: true },
+    { key: "loanAmount", header: "貸付金額", editable: false, filterable: true },
+    { key: "fundTransferDate", header: "資金移動日", type: "date", editable: false, filterable: true },
+    { key: "loanExecutionDate", header: "貸付実行日", type: "date", editable: false, filterable: true },
+    { key: "repaymentDate", header: "返金日(着金日)", type: "date", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "repaymentAmount", header: "返金額(着金額)", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "principalAmount", header: "元金分", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "interestAmount", header: "利息分", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "overshortAmount", header: "過不足", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "operationFee", header: "運用フィー", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "redemptionAmount", header: "償還額", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "redemptionDate", header: "償還日", type: "date", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "endMemo", header: "返済備考", type: "textarea", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+  ];
+
+  const truncateCell = (value: unknown) => (
+    <span className="truncate block max-w-[180px]">{value ? String(value) : "-"}</span>
+  );
+
+  const inlineTextarea = (id: number, field: keyof LenderProgressRow, value: string) => (
+    <InlineCell value={value} onSave={(v) => handleSave(id, field as string, v)} type="textarea">
+      <span className="truncate block max-w-[180px]">{value || "-"}</span>
+    </InlineCell>
+  );
+
+  const inlineDate = (id: number, field: keyof LenderProgressRow, value: string) => (
+    <InlineCell value={value} onSave={(v) => handleSave(id, field as string, v)} type="date">
+      <span className="whitespace-nowrap">{value || "-"}</span>
+    </InlineCell>
+  );
+
+  const inlineNumber = (id: number, field: keyof LenderProgressRow, displayValue: string) => (
+    <InlineCell value={displayValue.replace(/,/g, "")} onSave={(v) => handleSave(id, field as string, v)} type="number">
+      <span className="whitespace-nowrap">{displayValue || "-"}</span>
+    </InlineCell>
+  );
+
+  const customRenderers: CustomRenderers = isLender
+    ? {
+        loanExecutionDate: (_, row) => (
+          <span className="whitespace-nowrap">
+            {fmtDateTime(row.loanExecutionDate as string, row.loanExecutionTime as string)}
+          </span>
+        ),
+        statusName: (_, row) => (
+          <Select
+            value={(row.statusId as string) || "none"}
+            onValueChange={(v) => handleSave(row.id as number, "statusId", v === "none" ? "" : v)}
+          >
+            <SelectTrigger className="w-[140px] h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">未設定</SelectItem>
+              {statusOptions.map((s) => (
+                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ),
+        memo: (_, row) => inlineTextarea(row.id as number, "memo", (row.memo as string) ?? ""),
+        memorandum: (_, row) => inlineTextarea(row.id as number, "memorandum", (row.memorandum as string) ?? ""),
+        funds: (_, row) => inlineTextarea(row.id as number, "funds", (row.funds as string) ?? ""),
+        redemptionScheduleIssuedAt: (_, row) =>
+          inlineDate(row.id as number, "redemptionScheduleIssuedAt", (row.redemptionScheduleIssuedAt as string) ?? ""),
+        repaymentDate: (_, row) => inlineDate(row.id as number, "repaymentDate", (row.repaymentDate as string) ?? ""),
+        repaymentAmount: (_, row) => inlineNumber(row.id as number, "repaymentAmount", (row.repaymentAmount as string) ?? ""),
+        principalAmount: (_, row) => inlineNumber(row.id as number, "principalAmount", (row.principalAmount as string) ?? ""),
+        interestAmount: (_, row) => inlineNumber(row.id as number, "interestAmount", (row.interestAmount as string) ?? ""),
+        overshortAmount: (_, row) => inlineNumber(row.id as number, "overshortAmount", (row.overshortAmount as string) ?? ""),
+        operationFee: (_, row) => inlineNumber(row.id as number, "operationFee", (row.operationFee as string) ?? ""),
+        redemptionAmount: (_, row) => inlineNumber(row.id as number, "redemptionAmount", (row.redemptionAmount as string) ?? ""),
+        redemptionDate: (_, row) => inlineDate(row.id as number, "redemptionDate", (row.redemptionDate as string) ?? ""),
+        endMemo: (_, row) => inlineTextarea(row.id as number, "endMemo", (row.endMemo as string) ?? ""),
+      }
+    : {
+        loanExecutionDate: (_, row) => (
+          <span className="whitespace-nowrap">
+            {fmtDateTime(row.loanExecutionDate as string, row.loanExecutionTime as string)}
+          </span>
+        ),
+        memo: truncateCell,
+        memorandum: truncateCell,
+        funds: truncateCell,
+        endMemo: truncateCell,
+      };
+
+  const customActions: CustomAction[] | undefined = isLender
+    ? [
+        {
+          icon: <Pencil className="h-4 w-4" />,
+          label: "進捗データを編集",
+          onClick: openProgressEdit,
+        },
+      ]
+    : undefined;
+
+  const customHeaderRenderers = isLender
+    ? {
+        interestAmount: () => (
+          <button
+            type="button"
+            onClick={() => openRateDialog("interest")}
+            className="hover:underline focus:outline-none"
+            title="クリックして利息%を編集"
+          >
+            利息分 <span className="text-xs text-gray-500">({formatRatePercent(rates.interestRate)})</span>
+          </button>
+        ),
+        operationFee: () => (
+          <button
+            type="button"
+            onClick={() => openRateDialog("fee")}
+            className="hover:underline focus:outline-none"
+            title="クリックしてフィー%を編集"
+          >
+            運用フィー <span className="text-xs text-gray-500">({formatRatePercent(rates.feeRate)})</span>
+          </button>
+        ),
+      }
+    : undefined;
 
   return (
     <div className="space-y-4">
       <ShareableUrlCard />
-      <div className="overflow-auto border rounded-lg">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12">No.</TableHead>
-              <TableHead>ベンダー</TableHead>
-              <TableHead className="w-12">ベンダーNo.</TableHead>
-              <TableHead>依頼日</TableHead>
-              <TableHead>社名（屋号名）</TableHead>
-              <TableHead>代表者(契約者)氏名</TableHead>
-              <TableHead className={editableBg}>ステータス</TableHead>
-              <TableHead>法人/個人</TableHead>
-              <TableHead>最終更新日</TableHead>
-              <TableHead className={editableBg}>備考</TableHead>
-              <TableHead className={editableBg}>覚書</TableHead>
-              <TableHead className={editableBg}>資金</TableHead>
-              <TableHead>ツール購入代金</TableHead>
-              <TableHead>貸付金額</TableHead>
-              <TableHead>資金移動日</TableHead>
-              <TableHead>貸付実行日</TableHead>
-              <TableHead className={editableBg}>返金日(着金日)</TableHead>
-              <TableHead className={editableBg}>返金額(着金額)</TableHead>
-              <TableHead className={editableBg}>元金分</TableHead>
-              <TableHead className={editableBg}>利息分</TableHead>
-              <TableHead className={editableBg}>過不足</TableHead>
-              <TableHead className={editableBg}>運用フィー</TableHead>
-              <TableHead className={editableBg}>償還額</TableHead>
-              <TableHead className={editableBg}>償還日</TableHead>
-              <TableHead className={editableBg}>返済備考</TableHead>
-              {isLender && (
-                <TableHead className="sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>
-              )}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.map((row, idx) => (
-              <TableRow key={row.id} className="group/row">
-                <TableCell>{idx + 1}</TableCell>
-                <TableCell className="whitespace-nowrap">{row.vendorName}</TableCell>
-                <TableCell>{row.vendorNo}</TableCell>
-                <TableCell className="whitespace-nowrap">{row.requestDate || "-"}</TableCell>
-                <TableCell className="whitespace-nowrap">{row.companyName || "-"}</TableCell>
-                <TableCell className="whitespace-nowrap">{row.representName || "-"}</TableCell>
-                <TableCell className={"whitespace-nowrap" + editableCellBg}>
-                  {isLender ? (
-                    <Select value={row.statusId || "none"} onValueChange={(v) => handleSave(row.id, "statusId", v === "none" ? "" : v)}>
-                      <SelectTrigger className="w-[140px] h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">未設定</SelectItem>
-                        {statusOptions.map((s) => (
-                          <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    row.statusName || "-"
-                  )}
-                </TableCell>
-                <TableCell className="whitespace-nowrap">{row.applicantType || "-"}</TableCell>
-                <TableCell className="whitespace-nowrap">{row.updatedAt}</TableCell>
-                <TableCell className={"max-w-[150px]" + editableCellBg}>
-                  {isLender ? (
-                    <InlineCell value={row.memo} onSave={(v) => handleSave(row.id, "memo", v)} type="textarea">
-                      <span className="truncate block">{row.memo || "-"}</span>
-                    </InlineCell>
-                  ) : row.memo || "-"}
-                </TableCell>
-                <TableCell className={"max-w-[150px]" + editableCellBg}>
-                  {isLender ? (
-                    <InlineCell value={row.memorandum} onSave={(v) => handleSave(row.id, "memorandum", v)} type="textarea">
-                      <span className="truncate block">{row.memorandum || "-"}</span>
-                    </InlineCell>
-                  ) : row.memorandum || "-"}
-                </TableCell>
-                <TableCell className={"max-w-[150px]" + editableCellBg}>
-                  {isLender ? (
-                    <InlineCell value={row.funds} onSave={(v) => handleSave(row.id, "funds", v)} type="textarea">
-                      <span className="truncate block">{row.funds || "-"}</span>
-                    </InlineCell>
-                  ) : row.funds || "-"}
-                </TableCell>
-                <TableCell className="whitespace-nowrap">{row.toolPurchasePrice || "-"}</TableCell>
-                <TableCell className="whitespace-nowrap">{row.loanAmount || "-"}</TableCell>
-                <TableCell className="whitespace-nowrap">{row.fundTransferDate || "-"}</TableCell>
-                <TableCell className="whitespace-nowrap">{fmtDateTime(row.loanExecutionDate, row.loanExecutionTime)}</TableCell>
-                <TableCell className={"whitespace-nowrap" + editableCellBg}>
-                  {isLender ? (
-                    <InlineCell value={row.repaymentDate} onSave={(v) => handleSave(row.id, "repaymentDate", v)} type="date">
-                      {row.repaymentDate || "-"}
-                    </InlineCell>
-                  ) : row.repaymentDate || "-"}
-                </TableCell>
-                <TableCell className={"whitespace-nowrap" + editableCellBg}>
-                  {isLender ? (
-                    <InlineCell value={row.repaymentAmount.replace(/,/g, "")} onSave={(v) => handleSave(row.id, "repaymentAmount", v)} type="number">
-                      {row.repaymentAmount || "-"}
-                    </InlineCell>
-                  ) : row.repaymentAmount || "-"}
-                </TableCell>
-                <TableCell className={"whitespace-nowrap" + editableCellBg}>
-                  {isLender ? (
-                    <InlineCell value={row.principalAmount.replace(/,/g, "")} onSave={(v) => handleSave(row.id, "principalAmount", v)} type="number">
-                      {row.principalAmount || "-"}
-                    </InlineCell>
-                  ) : row.principalAmount || "-"}
-                </TableCell>
-                <TableCell className={"whitespace-nowrap" + editableCellBg}>
-                  {isLender ? (
-                    <InlineCell value={row.interestAmount.replace(/,/g, "")} onSave={(v) => handleSave(row.id, "interestAmount", v)} type="number">
-                      {row.interestAmount || "-"}
-                    </InlineCell>
-                  ) : row.interestAmount || "-"}
-                </TableCell>
-                <TableCell className={"whitespace-nowrap" + editableCellBg}>
-                  {isLender ? (
-                    <InlineCell value={row.overshortAmount.replace(/,/g, "")} onSave={(v) => handleSave(row.id, "overshortAmount", v)} type="number">
-                      {row.overshortAmount || "-"}
-                    </InlineCell>
-                  ) : row.overshortAmount || "-"}
-                </TableCell>
-                <TableCell className={"whitespace-nowrap" + editableCellBg}>
-                  {isLender ? (
-                    <InlineCell value={row.operationFee.replace(/,/g, "")} onSave={(v) => handleSave(row.id, "operationFee", v)} type="number">
-                      {row.operationFee || "-"}
-                    </InlineCell>
-                  ) : row.operationFee || "-"}
-                </TableCell>
-                <TableCell className={"whitespace-nowrap" + editableCellBg}>
-                  {isLender ? (
-                    <InlineCell value={row.redemptionAmount.replace(/,/g, "")} onSave={(v) => handleSave(row.id, "redemptionAmount", v)} type="number">
-                      {row.redemptionAmount || "-"}
-                    </InlineCell>
-                  ) : row.redemptionAmount || "-"}
-                </TableCell>
-                <TableCell className={"whitespace-nowrap" + editableCellBg}>
-                  {isLender ? (
-                    <InlineCell value={row.redemptionDate} onSave={(v) => handleSave(row.id, "redemptionDate", v)} type="date">
-                      {row.redemptionDate || "-"}
-                    </InlineCell>
-                  ) : row.redemptionDate || "-"}
-                </TableCell>
-                <TableCell className={"max-w-[150px]" + editableCellBg}>
-                  {isLender ? (
-                    <InlineCell value={row.endMemo} onSave={(v) => handleSave(row.id, "endMemo", v)} type="textarea">
-                      <span className="truncate block">{row.endMemo || "-"}</span>
-                    </InlineCell>
-                  ) : row.endMemo || "-"}
-                </TableCell>
-                {isLender && (
-                  <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
-                    <Button variant="ghost" size="sm" onClick={() => openProgressEdit(row)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                )}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      <CrudTable
+        tableId="hojo.lender.customer-progress"
+        data={data as unknown as Record<string, unknown>[]}
+        columns={columns}
+        emptyMessage="進捗データはまだありません"
+        customRenderers={customRenderers}
+        customHeaderRenderers={customHeaderRenderers}
+        customActions={customActions}
+      />
 
       {/* 編集モーダル */}
       <Dialog open={!!editRow} onOpenChange={(open) => { if (!open) setEditRow(null); }}>
@@ -1005,6 +1034,10 @@ function CustomerProgressSection({
             <div className="space-y-2">
               <Label>資金</Label>
               <Textarea value={editData.funds ?? ""} onChange={(e) => setEditData((d) => ({ ...d, funds: e.target.value }))} rows={2} />
+            </div>
+            <div className="space-y-2">
+              <Label>償還表発行日</Label>
+              <Input type="date" value={editData.redemptionScheduleIssuedAt ?? ""} onChange={(e) => setEditData((d) => ({ ...d, redemptionScheduleIssuedAt: e.target.value }))} />
             </div>
             <div className="space-y-2">
               <Label>返金日(着金日)</Label>
@@ -1049,6 +1082,38 @@ function CustomerProgressSection({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 利率/フィー率 編集ダイアログ */}
+      <Dialog open={!!rateDialog} onOpenChange={(open) => { if (!open) setRateDialog(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{rateDialog === "interest" ? "利息% を編集" : "運用フィー% を編集"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-2">
+              <Label>{rateDialog === "interest" ? "利息率（%）" : "フィー率（%）"}</Label>
+              <Input
+                type="number"
+                step="0.0001"
+                min="0"
+                value={rateInput}
+                onChange={(e) => setRateInput(e.target.value)}
+                placeholder="例: 5"
+              />
+              <p className="text-xs text-gray-500">
+                例: 5 と入力すると 5% として保存されます。
+              </p>
+            </div>
+            <p className="text-xs text-amber-600">
+              ※ 既存レコードの該当項目（{rateDialog === "interest" ? "利息分・過不足" : "運用フィー・償還額"}）も新しい%で再計算され、手動上書き値は上書きされます。
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRateDialog(null)} disabled={rateSaving}>キャンセル</Button>
+            <Button onClick={handleRateSave} disabled={rateSaving}>{rateSaving ? "保存中..." : "保存"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1066,6 +1131,7 @@ function LenderDataPage({
   vendors,
   progressData,
   statusOptions,
+  rates,
   userName,
 }: Omit<Props, "authenticated">) {
   const [activeSection, setActiveSection] = useState<LenderSection>("loan-submissions");
@@ -1121,6 +1187,7 @@ function LenderDataPage({
             data={progressData}
             statusOptions={statusOptions}
             isLender={isLender}
+            rates={rates}
           />
         );
     }
@@ -1145,6 +1212,7 @@ export function LenderClientPage({
   vendors,
   progressData,
   statusOptions,
+  rates,
   userName,
 }: Props) {
   if (!authenticated) return <LoginForm />;
@@ -1157,6 +1225,7 @@ export function LenderClientPage({
         vendors={vendors}
         progressData={progressData}
         statusOptions={statusOptions}
+        rates={rates}
         userName={userName}
       />
     </div>
