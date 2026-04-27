@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -55,16 +55,20 @@ export function CsvExportDialog<T extends CsvExportItem>({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
   const [exporting, setExporting] = useState(false);
+  const wasOpenRef = useRef(false);
 
-  // ダイアログを開いた時に既定状態にリセット
+  // ダイアログを「開いた瞬間」だけ既定状態にリセット（false→true 遷移時のみ）。
+  // items は親で毎回 .map() するため毎レンダー新参照になり、依存に含めると親の再レンダーで選択が消えるため。
   useEffect(() => {
-    if (open) {
+    if (open && !wasOpenRef.current) {
       setFilter("");
       setSelected(
         defaultAllSelected ? new Set(items.map((i) => String(i.id))) : new Set(),
       );
     }
-  }, [open, items, defaultAllSelected]);
+    wasOpenRef.current = open;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const filteredItems = useMemo(() => {
     if (!filter.trim()) return items;

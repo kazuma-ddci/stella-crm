@@ -108,7 +108,6 @@ export function buildLoanSubmissionsCsv(
 
   // 行データ組み立て
   const data: string[][] = rows.map((r) => {
-    const current = r.modifiedAnswers ?? r.answers;
     const meta = [
       String(r.id),
       r.vendorName,
@@ -123,7 +122,6 @@ export function buildLoanSubmissionsCsv(
       r.staffMemo ?? "",
     ];
     const answers = fieldKeys.map((k) => pickAnswer(r.answers, r.modifiedAnswers, k));
-    void current;
     return [...meta, ...answers];
   });
 
