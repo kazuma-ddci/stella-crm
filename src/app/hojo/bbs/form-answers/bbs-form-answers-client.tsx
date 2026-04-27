@@ -40,7 +40,7 @@ function LoginStub() {
     <PortalLoginWrapper title="BBS社様専用ページ" subtitle="ログインが必要です">
       <div className="text-center text-sm text-gray-600 py-4">
         支援制度申請フォームのご確認には、
-        <a href="/hojo/bbs" className="text-[#3b9d9d] hover:underline">こちらからログイン</a>
+        <a href="/hojo/bbs" className="text-[#10b981] hover:underline">こちらからログイン</a>
         してください。
       </div>
     </PortalLoginWrapper>

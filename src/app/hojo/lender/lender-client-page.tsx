@@ -274,12 +274,12 @@ function LoginForm() {
             <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <Button type="submit" className="w-full bg-gradient-to-r from-[#3b9d9d] to-[#6fb789] hover:opacity-90 text-white" disabled={loading}>
+          <Button type="submit" className="w-full bg-gradient-to-r from-[#10b981] to-[#86efac] hover:opacity-90 text-white" disabled={loading}>
             {loading ? "ログイン中..." : "ログイン"}
           </Button>
           <div className="flex justify-between text-sm">
-            <button type="button" onClick={handleForgotPassword} className="text-[#3b9d9d] hover:underline">パスワードを忘れた方</button>
-            <Link href="/hojo/lender/register" className="text-[#3b9d9d] hover:underline">アカウント登録</Link>
+            <button type="button" onClick={handleForgotPassword} className="text-[#10b981] hover:underline">パスワードを忘れた方</button>
+            <Link href="/hojo/lender/register" className="text-[#10b981] hover:underline">アカウント登録</Link>
           </div>
         </form>
       )}

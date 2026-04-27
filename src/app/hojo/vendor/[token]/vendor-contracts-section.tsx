@@ -91,14 +91,14 @@ function VendorOverviewSection({ vendorInfo }: { vendorInfo: VendorInfo }) {
 
   return (
     <div className="rounded-xl border border-gray-200 overflow-hidden bg-white shadow-sm">
-      <div className="bg-gradient-to-r from-[#3b9d9d] to-[#6fb789] px-8 py-5">
+      <div className="bg-gradient-to-r from-[#10b981] to-[#86efac] px-8 py-5">
         <h3 className="font-bold text-white text-lg">契約情報</h3>
       </div>
 
       <div className="divide-y divide-gray-100">
         {/* 担当情報 */}
         <div className="px-8 py-6">
-          <h4 className="text-xs font-bold text-[#3b9d9d] uppercase tracking-widest mb-4 flex items-center gap-2">
+          <h4 className="text-xs font-bold text-[#10b981] uppercase tracking-widest mb-4 flex items-center gap-2">
             <Building2 className="h-4 w-4" />
             担当情報
           </h4>
@@ -115,7 +115,7 @@ function VendorOverviewSection({ vendorInfo }: { vendorInfo: VendorInfo }) {
         {/* ベンダー担当者 */}
         {vendorInfo.contacts.length > 0 && (
           <div className="px-8 py-6">
-            <h4 className="text-xs font-bold text-[#3b9d9d] uppercase tracking-widest mb-4 flex items-center gap-2">
+            <h4 className="text-xs font-bold text-[#10b981] uppercase tracking-widest mb-4 flex items-center gap-2">
               <Users className="h-4 w-4" />
               ベンダー担当者
             </h4>
@@ -137,7 +137,7 @@ function VendorOverviewSection({ vendorInfo }: { vendorInfo: VendorInfo }) {
 
         {/* 契約状況 */}
         <div className="px-8 py-6">
-          <h4 className="text-xs font-bold text-[#3b9d9d] uppercase tracking-widest mb-4 flex items-center gap-2">
+          <h4 className="text-xs font-bold text-[#10b981] uppercase tracking-widest mb-4 flex items-center gap-2">
             <ClipboardCheck className="h-4 w-4" />
             契約状況
           </h4>
@@ -177,7 +177,7 @@ function VendorOverviewSection({ vendorInfo }: { vendorInfo: VendorInfo }) {
         {/* 備考 */}
         {vendorInfo.vendorSharedMemo && (
           <div className="px-8 py-6">
-            <h4 className="text-xs font-bold text-[#3b9d9d] uppercase tracking-widest mb-3 flex items-center gap-2">
+            <h4 className="text-xs font-bold text-[#10b981] uppercase tracking-widest mb-3 flex items-center gap-2">
               <MessageSquare className="h-4 w-4" />
               備考
             </h4>
@@ -200,7 +200,7 @@ function InfoField({ label, value }: { label: string; value: string | null | und
 
 function BoolBadge({ value }: { value: boolean }) {
   return (
-    <Badge variant={value ? "default" : "secondary"} className={value ? "bg-[#e6f7f0] text-[#3b9d9d] hover:bg-[#e6f7f0] border-[#c5e8da]" : "bg-gray-100 text-gray-500 hover:bg-gray-100"}>
+    <Badge variant={value ? "default" : "secondary"} className={value ? "bg-[#d1fae5] text-[#10b981] hover:bg-[#d1fae5] border-[#a7f3d0]" : "bg-gray-100 text-gray-500 hover:bg-gray-100"}>
       {value ? "あり" : "なし"}
     </Badge>
   );
@@ -213,7 +213,7 @@ function ContactRow({ contact }: { contact: VendorContactInfo }) {
 
   return (
     <div className="flex items-center gap-3 py-1">
-      <Badge variant="outline" className="text-xs shrink-0 border-[#3b9d9d]/30 text-[#3b9d9d]">{roleLabel(contact.role)}</Badge>
+      <Badge variant="outline" className="text-xs shrink-0 border-[#10b981]/30 text-[#10b981]">{roleLabel(contact.role)}</Badge>
       <span className="text-sm text-gray-800 font-medium">{contact.name || "\u2014"}</span>
       {parts.length > 0 && (
         <span className="text-sm text-gray-400">{parts.join(" / ")}</span>

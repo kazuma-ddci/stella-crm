@@ -42,7 +42,7 @@ function UrlLinkList({ urls }: { urls: string[] }) {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-[#3b9d9d] hover:text-[#2d7a7a] text-xs transition-colors"
+          className="inline-flex items-center gap-1 text-[#10b981] hover:text-[#059669] text-xs transition-colors"
         >
           <ExternalLink className="h-3 w-3 shrink-0" />
           <span className="truncate max-w-[100px]">
@@ -68,7 +68,7 @@ export function VendorActivitiesSection({ data, vendorId, canEdit }: Props) {
         className="text-left w-full group/cell"
         title="クリックで全文表示"
       >
-        <p className="text-sm text-gray-600 whitespace-pre-wrap max-h-20 overflow-y-auto pr-1 group-hover/cell:text-[#3b9d9d] transition-colors">
+        <p className="text-sm text-gray-600 whitespace-pre-wrap max-h-20 overflow-y-auto pr-1 group-hover/cell:text-[#10b981] transition-colors">
           {content}
         </p>
       </button>
@@ -87,8 +87,8 @@ export function VendorActivitiesSection({ data, vendorId, canEdit }: Props) {
   if (data.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#3b9d9d]/10 to-[#6fb789]/10 flex items-center justify-center mb-4">
-          <ClipboardList className="h-8 w-8 text-[#3b9d9d]/60" />
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#10b981]/10 to-[#86efac]/10 flex items-center justify-center mb-4">
+          <ClipboardList className="h-8 w-8 text-[#10b981]/60" />
         </div>
         <p className="text-base font-medium mb-1">コンサル履歴がありません</p>
         <p className="text-sm">対応記録が追加されると、ここに表示されます</p>
@@ -102,17 +102,17 @@ export function VendorActivitiesSection({ data, vendorId, canEdit }: Props) {
         <div className="overflow-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-gradient-to-r from-[#3b9d9d]/5 to-[#6fb789]/5">
-                <TableHead className="text-xs font-semibold text-[#3b9d9d]">対応日</TableHead>
-                <TableHead className="text-xs font-semibold text-[#3b9d9d]">対応手段</TableHead>
-                <TableHead className="text-xs font-semibold text-[#3b9d9d]">課題/ご相談内容</TableHead>
-                <TableHead className="text-xs font-semibold text-[#3b9d9d]">次回アクション</TableHead>
-                <TableHead className="text-xs font-semibold text-[#3b9d9d]">次回期限</TableHead>
-                <TableHead className="text-xs font-semibold text-[#3b9d9d]">ベンダー様タスク</TableHead>
-                <TableHead className="text-xs font-semibold text-[#3b9d9d]">添付資料</TableHead>
-                <TableHead className="text-xs font-semibold text-[#3b9d9d]">録画</TableHead>
-                <TableHead className="text-xs font-semibold text-[#3b9d9d]">スクショ</TableHead>
-                <TableHead className="text-xs font-semibold text-[#3b9d9d]">備考</TableHead>
+              <TableRow className="bg-gradient-to-r from-[#10b981]/5 to-[#86efac]/5">
+                <TableHead className="text-xs font-semibold text-[#10b981]">対応日</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">対応手段</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">課題/ご相談内容</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">次回アクション</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">次回期限</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">ベンダー様タスク</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">添付資料</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">録画</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">スクショ</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">備考</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

@@ -206,7 +206,10 @@ const HOJO_DOMAIN_ALLOWED_PATHS: Record<HojoSubdomainRole, readonly string[]> = 
     "/_next",
   ],
   customer: [
-    "/form/hojo-",  // /form/hojo-loan-application, /form/hojo-business-plan, /form/hojo-contract-confirmation, /form/hojo-vendor
+    "/form/hojo-business-plan",
+    "/form/hojo-contract-confirmation",
+    "/form/hojo-loan-application",
+    "/form/hojo-vendor",
     "/api/public/hojo",
     "/_next",
   ],
@@ -227,7 +230,7 @@ function getHojoSubdomainRole(host: string): HojoSubdomainRole | null {
 
 function isHojoDomainAllowedPath(role: HojoSubdomainRole, pathname: string): boolean {
   return HOJO_DOMAIN_ALLOWED_PATHS[role].some(
-    (path) => pathname === path || pathname.startsWith(path)
+    (path) => pathname === path || pathname.startsWith(path + "/")
   );
 }
 

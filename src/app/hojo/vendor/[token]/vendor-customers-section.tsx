@@ -70,19 +70,19 @@ function FormGrid({ children }: { children: React.ReactNode }) {
 function ReferenceGuide({ content }: { content: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="mb-5 rounded-xl border border-[#c5e8da] bg-gradient-to-r from-[#e6f7f0]/80 to-[#f0faf5]/40 overflow-hidden">
+    <div className="mb-5 rounded-xl border border-[#a7f3d0] bg-gradient-to-r from-[#d1fae5]/80 to-[#ecfdf5]/40 overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2.5 w-full px-5 py-3 text-sm text-[#3b9d9d] font-medium hover:bg-[#d1ede2]/50 transition-colors"
+        className="flex items-center gap-2.5 w-full px-5 py-3 text-sm text-[#10b981] font-medium hover:bg-[#a7f3d0]/50 transition-colors"
       >
-        <div className="w-6 h-6 rounded-md bg-[#d1ede2] flex items-center justify-center shrink-0">
-          {open ? <ChevronUp className="h-3.5 w-3.5 text-[#3b9d9d]" /> : <ChevronDown className="h-3.5 w-3.5 text-[#3b9d9d]" />}
+        <div className="w-6 h-6 rounded-md bg-[#a7f3d0] flex items-center justify-center shrink-0">
+          {open ? <ChevronUp className="h-3.5 w-3.5 text-[#10b981]" /> : <ChevronDown className="h-3.5 w-3.5 text-[#10b981]" />}
         </div>
         記入例・書き方ガイドを見る
       </button>
       {open && (
-        <div className="px-5 pb-4 pt-1 border-t border-[#c5e8da]">
+        <div className="px-5 pb-4 pt-1 border-t border-[#a7f3d0]">
           <pre className="text-xs text-gray-600 whitespace-pre-wrap font-sans leading-relaxed bg-white/60 rounded-lg p-4">{content}</pre>
         </div>
       )}
@@ -172,20 +172,20 @@ function PreApplicationTab({ data, vendorId, canEdit }: { data: PreAppRecord[]; 
       <ReferenceGuide content={PRE_APP_GUIDE} />
       {canEdit && (
         <div className="flex justify-end mb-3">
-          <Button size="sm" onClick={openNew} className="gap-1.5 shadow-sm bg-gradient-to-r from-[#3b9d9d] to-[#6fb789] hover:opacity-90 text-white"><Plus className="h-4 w-4" />新規追加</Button>
+          <Button size="sm" onClick={openNew} className="gap-1.5 shadow-sm bg-gradient-to-r from-[#10b981] to-[#86efac] hover:opacity-90 text-white"><Plus className="h-4 w-4" />新規追加</Button>
         </div>
       )}
       <div className="overflow-auto rounded-xl border border-gray-200 shadow-sm">
         <Table>
           <TableHeader>
-            <TableRow className="bg-gradient-to-r from-[#3b9d9d]/5 to-[#6fb789]/5">
-              <TableHead className="text-[11px] uppercase tracking-wider text-[#3b9d9d] font-semibold">申請者名</TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wider text-[#3b9d9d] font-semibold">ステータス</TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wider text-[#3b9d9d] font-semibold">区分</TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wider text-[#3b9d9d] font-semibold">事業体</TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wider text-[#3b9d9d] font-semibold">業種</TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wider text-[#3b9d9d] font-semibold">売上帯</TableHead>
-              {canEdit && <TableHead className="text-[11px] uppercase tracking-wider text-[#3b9d9d] font-semibold sticky right-0 z-30 bg-slate-50/80 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.06)]">操作</TableHead>}
+            <TableRow className="bg-gradient-to-r from-[#10b981]/5 to-[#86efac]/5">
+              <TableHead className="text-[11px] uppercase tracking-wider text-[#10b981] font-semibold">申請者名</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-wider text-[#10b981] font-semibold">ステータス</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-wider text-[#10b981] font-semibold">区分</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-wider text-[#10b981] font-semibold">事業体</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-wider text-[#10b981] font-semibold">業種</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-wider text-[#10b981] font-semibold">売上帯</TableHead>
+              {canEdit && <TableHead className="text-[11px] uppercase tracking-wider text-[#10b981] font-semibold sticky right-0 z-30 bg-slate-50/80 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.06)]">操作</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -224,7 +224,7 @@ function PreApplicationTab({ data, vendorId, canEdit }: { data: PreAppRecord[]; 
           <div className="space-y-4">
             {/* 基本情報 */}
             <Card>
-              <CardHeader className="py-3 bg-[#f0faf5]/60"><CardTitle className="text-xs font-semibold text-[#3b9d9d] uppercase tracking-wider">基本情報</CardTitle></CardHeader>
+              <CardHeader className="py-3 bg-[#ecfdf5]/60"><CardTitle className="text-xs font-semibold text-[#10b981] uppercase tracking-wider">基本情報</CardTitle></CardHeader>
               <CardContent>
                 <FormGrid>
                   <FormField label="申請者名"><Input placeholder="例: 山田太郎" value={String(form.applicantName ?? "")} onChange={(e) => set("applicantName", e.target.value)} /></FormField>
@@ -242,7 +242,7 @@ function PreApplicationTab({ data, vendorId, canEdit }: { data: PreAppRecord[]; 
 
             {/* 対応状況 */}
             <Card>
-              <CardHeader className="py-3 bg-[#f0faf5]/60"><CardTitle className="text-xs font-semibold text-[#3b9d9d] uppercase tracking-wider">対応状況</CardTitle></CardHeader>
+              <CardHeader className="py-3 bg-[#ecfdf5]/60"><CardTitle className="text-xs font-semibold text-[#10b981] uppercase tracking-wider">対応状況</CardTitle></CardHeader>
               <CardContent>
                 <FormGrid>
                   <div className="sm:col-span-2 lg:col-span-3">
@@ -259,7 +259,7 @@ function PreApplicationTab({ data, vendorId, canEdit }: { data: PreAppRecord[]; 
 
             {/* 契約・報酬 */}
             <Card>
-              <CardHeader className="py-3 bg-[#f0faf5]/60"><CardTitle className="text-xs font-semibold text-[#3b9d9d] uppercase tracking-wider">契約・報酬</CardTitle></CardHeader>
+              <CardHeader className="py-3 bg-[#ecfdf5]/60"><CardTitle className="text-xs font-semibold text-[#10b981] uppercase tracking-wider">契約・報酬</CardTitle></CardHeader>
               <CardContent>
                 <FormGrid>
                   <FormField label="システム"><Input placeholder="例: セキュリティクラウド" value={String(form.systemType ?? "")} onChange={(e) => set("systemType", e.target.value)} /></FormField>
@@ -282,7 +282,7 @@ function PreApplicationTab({ data, vendorId, canEdit }: { data: PreAppRecord[]; 
 
             {/* 提出書類 */}
             <Card>
-              <CardHeader className="py-3 bg-[#f0faf5]/60"><CardTitle className="text-xs font-semibold text-[#3b9d9d] uppercase tracking-wider">提出書類</CardTitle></CardHeader>
+              <CardHeader className="py-3 bg-[#ecfdf5]/60"><CardTitle className="text-xs font-semibold text-[#10b981] uppercase tracking-wider">提出書類</CardTitle></CardHeader>
               <CardContent>
                 <FormGrid>
                   <FormField label="代理店契約URL"><Input placeholder="例: https://..." value={String(form.agentContractUrl ?? "")} onChange={(e) => set("agentContractUrl", e.target.value)} /></FormField>
@@ -306,7 +306,7 @@ function PreApplicationTab({ data, vendorId, canEdit }: { data: PreAppRecord[]; 
 
             {/* 企業財務 */}
             <Card>
-              <CardHeader className="py-3 bg-[#f0faf5]/60"><CardTitle className="text-xs font-semibold text-[#3b9d9d] uppercase tracking-wider">企業財務</CardTitle></CardHeader>
+              <CardHeader className="py-3 bg-[#ecfdf5]/60"><CardTitle className="text-xs font-semibold text-[#10b981] uppercase tracking-wider">企業財務</CardTitle></CardHeader>
               <CardContent>
                 <FormGrid>
                   <FormField label="設立日"><DatePicker value={String(form.establishmentDate ?? "")} onChange={(v) => set("establishmentDate", v)} /></FormField>
@@ -335,7 +335,7 @@ function PreApplicationTab({ data, vendorId, canEdit }: { data: PreAppRecord[]; 
 
             {/* 申請文書 */}
             <Card>
-              <CardHeader className="py-3 bg-[#f0faf5]/60"><CardTitle className="text-xs font-semibold text-[#3b9d9d] uppercase tracking-wider">申請文書</CardTitle></CardHeader>
+              <CardHeader className="py-3 bg-[#ecfdf5]/60"><CardTitle className="text-xs font-semibold text-[#10b981] uppercase tracking-wider">申請文書</CardTitle></CardHeader>
               <CardContent>
                 <FormGrid>
                   <FormField label="申請システム"><Input placeholder="例: セキュリティクラウド" value={String(form.applicationSystem ?? "")} onChange={(e) => set("applicationSystem", e.target.value)} /></FormField>
@@ -365,7 +365,7 @@ function PreApplicationTab({ data, vendorId, canEdit }: { data: PreAppRecord[]; 
 
             {/* 従業員・事業所 */}
             <Card>
-              <CardHeader className="py-3 bg-[#f0faf5]/60"><CardTitle className="text-xs font-semibold text-[#3b9d9d] uppercase tracking-wider">従業員・事業所</CardTitle></CardHeader>
+              <CardHeader className="py-3 bg-[#ecfdf5]/60"><CardTitle className="text-xs font-semibold text-[#10b981] uppercase tracking-wider">従業員・事業所</CardTitle></CardHeader>
               <CardContent>
                 <FormGrid>
                   <FormField label="業種コード"><Input value={String(form.industryCode ?? "")} onChange={(e) => set("industryCode", e.target.value)} /></FormField>
@@ -381,7 +381,7 @@ function PreApplicationTab({ data, vendorId, canEdit }: { data: PreAppRecord[]; 
 
             {/* 賃金テーブル */}
             <Card>
-              <CardHeader className="py-3 bg-[#f0faf5]/60"><CardTitle className="text-xs font-semibold text-[#3b9d9d] uppercase tracking-wider">賃金テーブル</CardTitle></CardHeader>
+              <CardHeader className="py-3 bg-[#ecfdf5]/60"><CardTitle className="text-xs font-semibold text-[#10b981] uppercase tracking-wider">賃金テーブル</CardTitle></CardHeader>
               <CardContent>
                 <FormGrid>
                   {[1,2,3,4,5,6,7,8,9,10].map((n) => (
@@ -470,20 +470,20 @@ function PostApplicationTab({ data, vendorId, canEdit }: { data: PostAppRecord[]
       <ReferenceGuide content={POST_APP_GUIDE} />
       {canEdit && (
         <div className="flex justify-end mb-3">
-          <Button size="sm" onClick={openNew} className="gap-1.5 shadow-sm bg-gradient-to-r from-[#3b9d9d] to-[#6fb789] hover:opacity-90 text-white"><Plus className="h-4 w-4" />新規追加</Button>
+          <Button size="sm" onClick={openNew} className="gap-1.5 shadow-sm bg-gradient-to-r from-[#10b981] to-[#86efac] hover:opacity-90 text-white"><Plus className="h-4 w-4" />新規追加</Button>
         </div>
       )}
       <div className="overflow-auto rounded-xl border border-gray-200 shadow-sm">
         <Table>
           <TableHeader>
-            <TableRow className="bg-gradient-to-r from-[#3b9d9d]/5 to-[#6fb789]/5">
-              <TableHead className="text-[11px] uppercase tracking-wider text-[#3b9d9d] font-semibold">BPO</TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wider text-[#3b9d9d] font-semibold">申請者名</TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wider text-[#3b9d9d] font-semibold">交付申請番号</TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wider text-[#3b9d9d] font-semibold">補助金ステータス</TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wider text-[#3b9d9d] font-semibold">貸付</TableHead>
-              <TableHead className="text-[11px] uppercase tracking-wider text-[#3b9d9d] font-semibold">完了日</TableHead>
-              {canEdit && <TableHead className="text-[11px] uppercase tracking-wider text-[#3b9d9d] font-semibold sticky right-0 z-30 bg-slate-50/80 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.06)]">操作</TableHead>}
+            <TableRow className="bg-gradient-to-r from-[#10b981]/5 to-[#86efac]/5">
+              <TableHead className="text-[11px] uppercase tracking-wider text-[#10b981] font-semibold">BPO</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-wider text-[#10b981] font-semibold">申請者名</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-wider text-[#10b981] font-semibold">交付申請番号</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-wider text-[#10b981] font-semibold">補助金ステータス</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-wider text-[#10b981] font-semibold">貸付</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-wider text-[#10b981] font-semibold">完了日</TableHead>
+              {canEdit && <TableHead className="text-[11px] uppercase tracking-wider text-[#10b981] font-semibold sticky right-0 z-30 bg-slate-50/80 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.06)]">操作</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -496,7 +496,7 @@ function PostApplicationTab({ data, vendorId, canEdit }: { data: PostAppRecord[]
                 <TableRow key={r.id} className="group/row hover:bg-slate-50/50 transition-colors">
                   <TableCell className="whitespace-nowrap">
                     {r.isBpo ? (
-                      <span className="inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#e6f7f0] text-[#3b9d9d] ring-1 ring-[#c5e8da]">BPO</span>
+                      <span className="inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#d1fae5] text-[#10b981] ring-1 ring-[#a7f3d0]">BPO</span>
                     ) : <span className="text-slate-300">-</span>}
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-sm font-medium text-slate-700">{r.applicantName || "-"}</TableCell>
@@ -526,7 +526,7 @@ function PostApplicationTab({ data, vendorId, canEdit }: { data: PostAppRecord[]
           <div className="space-y-4">
             {/* 基本情報 */}
             <Card>
-              <CardHeader className="py-3 bg-[#f0faf5]/60"><CardTitle className="text-xs font-semibold text-[#3b9d9d] uppercase tracking-wider">基本情報</CardTitle></CardHeader>
+              <CardHeader className="py-3 bg-[#ecfdf5]/60"><CardTitle className="text-xs font-semibold text-[#10b981] uppercase tracking-wider">基本情報</CardTitle></CardHeader>
               <CardContent>
                 <FormGrid>
                   <FormField label="BPO">
@@ -558,7 +558,7 @@ function PostApplicationTab({ data, vendorId, canEdit }: { data: PostAppRecord[]
 
             {/* 申請状況 */}
             <Card>
-              <CardHeader className="py-3 bg-[#f0faf5]/60"><CardTitle className="text-xs font-semibold text-[#3b9d9d] uppercase tracking-wider">申請状況</CardTitle></CardHeader>
+              <CardHeader className="py-3 bg-[#ecfdf5]/60"><CardTitle className="text-xs font-semibold text-[#10b981] uppercase tracking-wider">申請状況</CardTitle></CardHeader>
               <CardContent>
                 <FormGrid>
                   <FormField label="成長マッチングURL"><Input value={String(form.growthMatchingUrl ?? "")} onChange={(e) => set("growthMatchingUrl", e.target.value)} /></FormField>
@@ -573,7 +573,7 @@ function PostApplicationTab({ data, vendorId, canEdit }: { data: PostAppRecord[]
 
             {/* IT導入補助金 */}
             <Card>
-              <CardHeader className="py-3 bg-[#f0faf5]/60"><CardTitle className="text-xs font-semibold text-[#3b9d9d] uppercase tracking-wider">IT導入補助金</CardTitle></CardHeader>
+              <CardHeader className="py-3 bg-[#ecfdf5]/60"><CardTitle className="text-xs font-semibold text-[#10b981] uppercase tracking-wider">IT導入補助金</CardTitle></CardHeader>
               <CardContent>
                 <FormGrid>
                   <FormField label="補助金申請者名"><Input value={String(form.subsidyApplicantName ?? "")} onChange={(e) => set("subsidyApplicantName", e.target.value)} /></FormField>
@@ -596,7 +596,7 @@ function PostApplicationTab({ data, vendorId, canEdit }: { data: PostAppRecord[]
 
             {/* 貸付 */}
             <Card>
-              <CardHeader className="py-3 bg-[#f0faf5]/60"><CardTitle className="text-xs font-semibold text-[#3b9d9d] uppercase tracking-wider">貸付</CardTitle></CardHeader>
+              <CardHeader className="py-3 bg-[#ecfdf5]/60"><CardTitle className="text-xs font-semibold text-[#10b981] uppercase tracking-wider">貸付</CardTitle></CardHeader>
               <CardContent>
                 <FormGrid>
                   <FormField label="貸付">
@@ -615,7 +615,7 @@ function PostApplicationTab({ data, vendorId, canEdit }: { data: PostAppRecord[]
 
             {/* その他 */}
             <Card>
-              <CardHeader className="py-3 bg-[#f0faf5]/60"><CardTitle className="text-xs font-semibold text-[#3b9d9d] uppercase tracking-wider">その他</CardTitle></CardHeader>
+              <CardHeader className="py-3 bg-[#ecfdf5]/60"><CardTitle className="text-xs font-semibold text-[#10b981] uppercase tracking-wider">その他</CardTitle></CardHeader>
               <CardContent>
                 <FormGrid>
                   <FormField label="ベンダーパターン"><Input placeholder="例: 株式会社○○②" value={String(form.vendorPattern ?? "")} onChange={(e) => set("vendorPattern", e.target.value)} /></FormField>

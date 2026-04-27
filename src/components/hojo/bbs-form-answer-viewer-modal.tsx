@@ -69,7 +69,7 @@ export function BbsFormAnswerViewerModal({
               return (
                 <div
                   key={item.id}
-                  className="mt-6 first:mt-0 border-l-4 border-[#3b9d9d] pl-3 py-1 bg-[#3b9d9d]/5"
+                  className="mt-6 first:mt-0 border-l-4 border-[#10b981] pl-3 py-1 bg-[#10b981]/5"
                 >
                   <h3 className="text-base font-semibold text-gray-800">
                     {item.title.trim()}

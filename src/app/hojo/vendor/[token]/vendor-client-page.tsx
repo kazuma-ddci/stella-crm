@@ -181,7 +181,7 @@ function LoginForm({ vendorName, vendorToken }: { vendorName: string; vendorToke
               <div className="space-y-2"><Label htmlFor="email">メールアドレス</Label><Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
               <div className="space-y-2"><Label htmlFor="password">パスワード</Label><Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
               {error && <p className="text-sm text-red-600">{error}</p>}
-              <Button type="submit" className="w-full bg-gradient-to-r from-[#3b9d9d] to-[#6fb789] hover:opacity-90 text-white" disabled={loading}>{loading ? "ログイン中..." : "ログイン"}</Button>
+              <Button type="submit" className="w-full bg-gradient-to-r from-[#10b981] to-[#86efac] hover:opacity-90 text-white" disabled={loading}>{loading ? "ログイン中..." : "ログイン"}</Button>
               <div className="flex justify-between text-sm">
                 <button type="button" onClick={handleForgotPassword} className="text-blue-600 hover:underline">パスワードを忘れた方</button>
                 <Link href={`/hojo/vendor/${vendorToken}/register`} className="text-blue-600 hover:underline">アカウント登録</Link>
