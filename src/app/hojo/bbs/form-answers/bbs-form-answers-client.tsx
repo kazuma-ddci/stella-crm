@@ -11,10 +11,10 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Download, Eye } from "lucide-react";
-import { PortalCard, PortalLoginWrapper } from "@/components/alkes-portal";
+import { PortalCard, PortalLoginWrapper } from "@/components/hojo-portal";
 import { BbsPortalLayout } from "@/components/hojo/bbs-portal-layout";
 import type { FileInfo, ModifiedAnswers } from "@/components/hojo/form-answer-editor";
-import { FormAnswerViewerModal } from "@/components/hojo/form-answer-viewer-modal";
+import { BbsFormAnswerViewerModal } from "@/components/hojo/bbs-form-answer-viewer-modal";
 
 type Row = {
   id: number;
@@ -110,15 +110,13 @@ function FormAnswersTable({ data }: { data: Row[] }) {
       </PortalCard>
 
       {viewRow && (
-        <FormAnswerViewerModal
+        <BbsFormAnswerViewerModal
           open
           onClose={() => setViewRow(null)}
           answers={viewRow.answers}
           modifiedAnswers={viewRow.modifiedAnswers}
           fileUrls={viewRow.fileUrls}
-          title="支援制度申請フォーム 回答内容（閲覧専用）"
           description={`申請者: ${viewRow.applicantName} / 共有日: ${viewRow.formTranscriptDate}`}
-          hideOriginalToggle
         />
       )}
     </>

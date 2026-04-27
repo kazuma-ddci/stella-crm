@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { buildFormSubmissionsCsv, type FormSubmissionCsvRow } from "@/lib/hojo/form-answer-csv";
+import { buildBbsFormCsv, type BbsFormCsvRow } from "@/lib/hojo/bbs-form-csv";
 
 /**
  * BBS用 支援制度申請フォームの確定済み回答をCSVでダウンロード。
  *
  * 権限: BBS または スタッフのみ。
  * 対象: formTranscriptDate が入っている申請者レコードに紐付く確定済み回答。
+ * 形式: BBS社のGoogleフォーム→スプレッドシート互換（タイムスタンプ + 31問のtitle列）。
  */
 export async function GET() {
   const session = await auth();
@@ -37,29 +38,22 @@ export async function GET() {
     orderBy: { formTranscriptDate: "asc" },
   });
 
-  const rows: FormSubmissionCsvRow[] = appSupports
+  const rows: BbsFormCsvRow[] = appSupports
     .map((r) => {
       const submission = r.linkedFormSubmissions[0];
-      if (!submission) return null;
-      const answers = submission.answers as Record<string, unknown>;
-      const meta = (answers?._meta as Record<string, unknown> | undefined) ?? {};
+      if (!submission || !r.formTranscriptDate) return null;
       return {
-        id: submission.id,
-        submittedAt: submission.submittedAt,
-        confirmedAt: submission.confirmedAt,
         formTranscriptDate: r.formTranscriptDate,
-        applicantName: r.applicantName,
-        uid: typeof meta.uid === "string" ? meta.uid : null,
-        answers,
+        answers: submission.answers as Record<string, unknown>,
         modifiedAnswers:
           (submission.modifiedAnswers as Record<string, unknown> | null) ?? null,
         fileUrls:
           (submission.fileUrls as Record<string, { filePath?: string; fileName?: string }> | null) ?? null,
-      } satisfies FormSubmissionCsvRow;
+      } satisfies BbsFormCsvRow;
     })
-    .filter((x): x is FormSubmissionCsvRow => x !== null);
+    .filter((x): x is BbsFormCsvRow => x !== null);
 
-  const csv = buildFormSubmissionsCsv(rows);
+  const csv = buildBbsFormCsv(rows);
   const filename = `shien_form_answers_${new Date().toISOString().slice(0, 10)}.csv`;
 
   return new NextResponse(csv, {

@@ -204,25 +204,18 @@ export const FORM_SECTIONS: SectionDef[] = [
     ],
   },
   {
-    key: "financial-file",
-    path: "_file",
-    title: "財務情報（添付資料）",
-    fields: [
-      {
-        key: "pastBusinessRecord",
-        label: "①過去の事業実績（売上・経費・所得がわかるもの）",
-        required: true,
-        type: "file",
-        helpText: "【確定申告書の控えなどで構いません。過去1〜3年分】",
-        accept: "image/*,.pdf,.doc,.docx,.xls,.xlsx",
-      },
-    ],
-  },
-  {
     key: "financial",
     path: "financial",
     title: "財務情報",
     fields: [
+      {
+        key: "pastBusinessRecord",
+        label: "①過去の事業実績（売上・経費・所得などがわかるもの）",
+        required: true,
+        type: "textarea",
+        placeholder: "例）\n2023年度  売上：1億 / 利益：100万\n2024年度  売上：1.2億 / 利益：150万",
+        helpText: "【確定申告書の控えなどを参照のうえ、過去1〜3年分をご記入ください】",
+      },
       { key: "futureInvestmentPlan", label: "②今後の投資計画と必要な資金", required: true, type: "textarea", placeholder: "回答を入力" },
       { key: "debtInfo", label: "③借入状況・担保・保障情報", type: "textarea", placeholder: "回答を入力" },
     ],
@@ -271,7 +264,6 @@ export const ANSWER_GROUPS: AnswerGroupDef[] = (() => {
 
 export const FILE_FIELDS: Array<{ key: string; label: string }> = [
   { key: "bankAccountScreenshot", label: "口座情報スクリーンショット" },
-  { key: "pastBusinessRecord", label: "過去の事業実績資料" },
 ];
 
 export type SubmissionMeta = {

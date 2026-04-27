@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
         salesStrategy: answers.salesStrategy?.trim() || null,
       },
       financial: {
+        pastBusinessRecord: answers.pastBusinessRecord?.trim() || null,
         futureInvestmentPlan: answers.futureInvestmentPlan?.trim() || null,
         debtInfo: answers.debtInfo?.trim() || null,
       },

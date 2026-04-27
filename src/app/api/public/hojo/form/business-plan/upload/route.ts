@@ -29,7 +29,7 @@ function sanitizeFileName(name: string): string {
  *
  * FormData:
  *   - file: File
- *   - fieldKey: string (フォーム上のフィールドキー: "bankAccountScreenshot" | "pastBusinessRecord")
+ *   - fieldKey: string (フォーム上のフィールドキー: "bankAccountScreenshot")
  *
  * 戻り値:
  *   { success: true, filePath, fileName, fileSize, mimeType }

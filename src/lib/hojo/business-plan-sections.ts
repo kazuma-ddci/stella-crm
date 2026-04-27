@@ -347,6 +347,7 @@ export function buildUserMessage(applicantData: Record<string, string>): string 
 販売戦略・PR計画: ${safe("salesStrategy")}
 
 【財務情報】
+過去の事業実績（売上・経費・所得など）: ${safe("pastBusinessRecord")}
 今後の投資計画・必要資金: ${safe("futureInvestmentPlan")}
 借入状況・担保・保証情報: ${safe("debtInfo")}
 

@@ -52,6 +52,7 @@ const KEYS_MAP: Record<string, { path: string; key: string }> = {
   midTermGoal: { path: "businessPlan", key: "midTermGoal" },
   longTermGoal: { path: "businessPlan", key: "longTermGoal" },
   salesStrategy: { path: "businessPlan", key: "salesStrategy" },
+  pastBusinessRecord: { path: "financial", key: "pastBusinessRecord" },
   futureInvestmentPlan: { path: "financial", key: "futureInvestmentPlan" },
   debtInfo: { path: "financial", key: "debtInfo" },
 };
