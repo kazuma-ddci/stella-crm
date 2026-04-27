@@ -26,6 +26,7 @@ import { logAutomationError } from "@/lib/automation-error";
 import { sendSessionNotification } from "@/lib/slp/slp-session-notification";
 import { cancelZoomMeetingForSession } from "@/lib/slp/zoom-reservation-handler";
 import { generateThankYouSuggestionForSession } from "@/lib/slp/zoom-ai";
+import { completeV2ForSession } from "@/lib/slp/v2-session-sync";
 
 // ============================================
 // Type definitions
@@ -582,6 +583,9 @@ export async function completeSessionAndNotify(params: {
         tx
       );
     });
+
+    // V2 接触履歴も「completed」に同期
+    await completeV2ForSession(params.sessionId);
 
     // お礼メッセージ送信
     const attendeeResults: { contactId: number; name: string; success: boolean; error?: string }[] = [];

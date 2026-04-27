@@ -22,6 +22,10 @@ import {
   type SessionCategory,
   type SessionStatus,
 } from "@/lib/slp/session-helper";
+import {
+  completeV2ForSession,
+  ensureContactHistoryV2ForSession,
+} from "@/lib/slp/v2-session-sync";
 
 // ============================================
 // 予約時の副作用処理（手動セット / 未予約→予約中昇格 / プロラインwebhook 共通）
@@ -147,9 +151,10 @@ export async function handleSessionStatusChangeSideEffects(
   // 未予約への変更は通知しない
   if (params.newStatus === "未予約") return;
 
-  // 完了 → 通知は completeSessionAndNotify (manual modal) 側で実施するため、ここでは何もしない
-  // Zoom会議は残す（議事録紐付けのため）
+  // 完了 → 通知は completeSessionAndNotify (manual modal) 側で実施するため、ここでは通知を送らない
+  // Zoom会議は残す（議事録紐付けのため）。V2 接触履歴は status="completed" に同期する。
   if (params.newStatus === "完了") {
+    await completeV2ForSession(params.sessionId);
     return;
   }
 
@@ -189,6 +194,8 @@ export async function handleSessionStatusChangeSideEffects(
   // UIから「予約中へ昇格」は未予約からのみで、ステータスロールバック時は
   // スタッフが明示的にZoom再発行ボタンを使う運用前提のため、ここでは通知のみ
   if (params.newStatus === "予約中") {
+    // V2 接触履歴の status を "scheduled" に戻す（cancelled / completed からの巻き戻し対応）
+    await ensureContactHistoryV2ForSession(params.sessionId);
     await safeNotifyAllCustomers(params.sessionId, "change");
     return;
   }

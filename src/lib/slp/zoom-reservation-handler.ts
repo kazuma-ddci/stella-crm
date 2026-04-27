@@ -12,6 +12,11 @@ import {
   getNotifiableCustomerLineFriendIds,
   type SessionCategory,
 } from "./session-helper";
+import {
+  upsertV2MeetingForSession,
+  recordV2MeetingApiErrorForSession,
+  cancelV2ForSession,
+} from "./v2-session-sync";
 
 type ZoomCategory = SessionCategory;
 
@@ -195,6 +200,19 @@ export async function ensureZoomMeetingForSession(params: {
       }
     }
 
+    // V2 接触履歴 + ContactHistoryMeeting への同期
+    // V1 (slpZoomRecording) と並行して V2 側にも同等情報を反映する。
+    // sync-from-v1 が録画完了時に動くために externalMeetingId をここで保存しておく。
+    await upsertV2MeetingForSession({
+      sessionId: session.id,
+      zoomMeetingId: newMeetingId,
+      joinUrl: newJoinUrl,
+      startUrl: newStartUrl,
+      password: newPassword,
+      hostStaffId: staffId,
+      scheduledAt: date,
+    });
+
     // お客様LINE通知（新システム: 予約者 + フラグONの全担当者に送信）
     if (!params.skipCustomerNotification && session.companyRecord.prolineUid) {
       const lineFriendIds = await getNotifiableCustomerLineFriendIds(session.id);
@@ -250,6 +268,9 @@ export async function ensureZoomMeetingForSession(params: {
         },
       });
     }
+
+    // V2 側にもエラー反映
+    await recordV2MeetingApiErrorForSession(session.id, msg);
   }
 }
 
@@ -261,7 +282,11 @@ export async function cancelZoomMeetingForSession(params: {
   sessionId: number;
 }): Promise<void> {
   const primary = await findPrimaryRecordingForSession(params.sessionId);
-  if (!primary) return;
+  if (!primary) {
+    // primary Recording が無い場合でも V2 側のキャンセル反映は試みる
+    await cancelV2ForSession(params.sessionId);
+    return;
+  }
 
   if (primary.hostStaffId) {
     try {
@@ -285,6 +310,9 @@ export async function cancelZoomMeetingForSession(params: {
     where: { id: primary.id },
     data: { deletedAt: new Date() },
   });
+
+  // V2 接触履歴・meeting もキャンセル状態へ
+  await cancelV2ForSession(params.sessionId);
 }
 
 /**
