@@ -9,7 +9,7 @@ import {
   PortalUserMenu,
   PortalLayout,
   PortalSidebar,
-} from "@/components/alkes-portal";
+} from "@/components/hojo-portal";
 
 export type VendorSection =
   | "wholesale"

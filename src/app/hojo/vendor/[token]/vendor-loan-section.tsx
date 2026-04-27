@@ -26,6 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Copy, Check, Eye, Link as LinkIcon, Pencil, History } from "lucide-react";
 import { InlineCell } from "@/components/inline-cell";
 import { updateLoanSubmissionAnswers, updateLoanVendorMemo, toggleProgressExclusion } from "./actions";
+import { getHojoCustomerOrigin } from "@/lib/hojo/customer-domain";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -582,7 +583,7 @@ export function VendorLoanSection({
   const [formUrl, setFormUrl] = useState(`/form/hojo-loan-application?v=${vendorToken}`);
 
   useEffect(() => {
-    setFormUrl(`${window.location.origin}/form/hojo-loan-application?v=${vendorToken}`);
+    setFormUrl(`${getHojoCustomerOrigin()}/form/hojo-loan-application?v=${vendorToken}`);
   }, [vendorToken]);
 
   const handleCopy = async () => {

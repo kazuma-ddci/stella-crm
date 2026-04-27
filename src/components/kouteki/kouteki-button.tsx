@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
  * 公的制度教育推進協会ブランドのボタン。
  *
  * デザイン:
- * - default: 青グラデ塗りつぶし（ALKESの teal-green を青に置換した思想）
+ * - default: 青グラデ塗りつぶし
  * - outline: 白背景＋青枠
  * - subtle:  薄い青背景
  * - ghost:   無背景（テキストリンク）

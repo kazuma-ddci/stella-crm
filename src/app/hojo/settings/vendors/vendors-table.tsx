@@ -134,7 +134,7 @@ export function VendorsTable({
     accessToken: (value) => {
       if (!value) return "-";
       const path = `/hojo/vendor/${value}`;
-      const vendorDomain = process.env.NEXT_PUBLIC_VENDOR_DOMAIN || "https://vendor.alkes.jp";
+      const vendorDomain = process.env.NEXT_PUBLIC_VENDOR_DOMAIN || "https://vendor.support-hubs.com";
       const fullUrl = `${vendorDomain}${path}`;
       const handleCopy = (e: React.MouseEvent) => {
         e.stopPropagation();

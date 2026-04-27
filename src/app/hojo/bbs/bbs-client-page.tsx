@@ -24,7 +24,7 @@ import Link from "next/link";
 import {
   PortalLoginWrapper,
   PortalCard,
-} from "@/components/alkes-portal";
+} from "@/components/hojo-portal";
 import { BbsPortalLayout } from "@/components/hojo/bbs-portal-layout";
 import type { ModifiedAnswers, FileInfo } from "@/components/hojo/form-answer-editor";
 import { FormAnswerViewerModal } from "@/components/hojo/form-answer-viewer-modal";
@@ -93,7 +93,7 @@ function LoginForm() {
     <PortalLoginWrapper title="BBS社様専用ページ" subtitle="支援金管理ポータルにログイン">
       {showForgotPassword ? (
         <div className="text-center space-y-4">
-          <p className="text-gray-600">お手数ですが、ALKESスタッフへご連絡ください。</p>
+          <p className="text-gray-600">お手数ですが、サポートスタッフへご連絡ください。</p>
           <Button variant="outline" onClick={() => setShowForgotPassword(false)}>ログインに戻る</Button>
         </div>
       ) : (
@@ -208,7 +208,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
                 <TableHead>支援枠</TableHead>
                 <TableHead>BBSへの振込日</TableHead>
                 <TableHead>お客様着金希望日</TableHead>
-                <TableHead>ALKES備考</TableHead>
+                <TableHead>運営備考</TableHead>
                 <TableHead>BBS備考</TableHead>
                 {canEdit && <TableHead className="w-[60px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
               </TableRow>

@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
  * - その横にタイトル
  * - 任意で説明文
  *
- * ALKES の `PortalCard` の title 部分と思想は同じ。
+ * 補助金ポータルの `PortalCard` の title 部分と思想は同じ。
  */
 export function KoutekiSectionHeader({
   title,

@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
  * 公的制度教育推進協会（SLP）ブランドのフォーム用ページラッパー
  *
  * デザイン方針:
- * - ALKESポータル (`src/components/alkes-portal.tsx`) と同じ思想
+ * - 補助金ポータル (`src/components/hojo-portal.tsx`) と同じ思想
  *   - 上部にブランドカラーのグラデーションライン
  *   - 白カード（rounded-2xl border shadow）で囲う
  *   - 余計な装飾は持たない

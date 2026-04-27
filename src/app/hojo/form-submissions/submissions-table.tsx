@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Pencil, Copy, Check, AlertTriangle, CheckCircle2, Link2 } from "lucide-react";
+import { getHojoCustomerOrigin } from "@/lib/hojo/customer-domain";
 
 type LinkStatus = "linked" | "multi-unlinked" | "no-candidate";
 
@@ -63,9 +64,7 @@ export function SubmissionsTable({ data }: Props) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
 
-  const formUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/form/hojo-business-plan`
-    : "/form/hojo-business-plan";
+  const formUrl = `${getHojoCustomerOrigin()}/form/hojo-business-plan`;
 
   const handleCopy = async () => {
     try {

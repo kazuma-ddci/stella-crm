@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { FormAnswerEditModal, type FormSubmissionDataForModal } from "./form-answer-edit-modal";
 import { DocumentStorageModal, type DocumentInfo } from "./document-storage-modal";
+import { getHojoCustomerOrigin } from "@/lib/hojo/customer-domain";
 
 type DataRow = Record<string, unknown> & {
   id: number;
@@ -70,7 +71,7 @@ type Props = {
 
 function BbsUrlButton() {
   const [copied, setCopied] = useState(false);
-  const bbsDomain = process.env.NEXT_PUBLIC_BBS_DOMAIN || "https://bbs.alkes.jp";
+  const bbsDomain = process.env.NEXT_PUBLIC_BBS_DOMAIN || "https://bbs.support-hubs.com";
   const bbsUrl = `${bbsDomain}/hojo/bbs`;
 
   const handleCopy = () => {
@@ -98,9 +99,7 @@ function BbsUrlButton() {
 // --- フォームURLコピーボタン ---
 function FormUrlCopyBtn({ uid }: { uid: string }) {
   const [copied, setCopied] = useState(false);
-  const url = typeof window !== "undefined"
-    ? `${window.location.origin}/form/hojo-business-plan?uid=${uid}`
-    : `/form/hojo-business-plan?uid=${uid}`;
+  const url = `${getHojoCustomerOrigin()}/form/hojo-business-plan?uid=${uid}`;
   return (
     <button
       onClick={async (e) => {

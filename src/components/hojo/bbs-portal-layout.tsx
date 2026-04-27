@@ -7,7 +7,7 @@ import {
   PortalUserMenu,
   PortalSidebar,
   PortalLayout,
-} from "@/components/alkes-portal";
+} from "@/components/hojo-portal";
 
 type Props = {
   userName?: string;

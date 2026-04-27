@@ -14,7 +14,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CheckCircle, Loader2, Plus, Trash2 } from "lucide-react";
-import Image from "next/image";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -623,26 +622,13 @@ export default function HojoLoanApplicationPage() {
     }
   }
 
-  // ALKESロゴ
-  const alkesLogo = (
-    <Image
-      src="/images/alkes-logo-full.png"
-      alt="ALKES LLC"
-      width={160}
-      height={160}
-      priority
-      className="h-16 w-auto mx-auto mb-4 object-contain"
-    />
-  );
-
   // URL検証
   if (invalidUrl) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-[#f0faf5] p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-[#ecfdf5] p-4">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-[#3b9d9d] via-[#55a88f] to-[#6fb789]" />
+          <div className="h-1 bg-gradient-to-r from-[#10b981] via-[#34d399] to-[#86efac]" />
           <div className="px-8 py-12 text-center">
-            {alkesLogo}
             <p className="text-red-500 font-medium">
               URLが正しくありません。正しいURLからアクセスしてください。
             </p>
@@ -655,12 +641,12 @@ export default function HojoLoanApplicationPage() {
   // 送信完了
   if (submitted) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-[#f0faf5] p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-[#ecfdf5] p-4">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-[#3b9d9d] via-[#55a88f] to-[#6fb789]" />
+          <div className="h-1 bg-gradient-to-r from-[#10b981] via-[#34d399] to-[#86efac]" />
           <div className="px-8 py-12 text-center space-y-4">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#3b9d9d]/10 to-[#6fb789]/10 flex items-center justify-center mx-auto">
-              <CheckCircle className="h-8 w-8 text-[#3b9d9d]" />
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#10b981]/10 to-[#86efac]/10 flex items-center justify-center mx-auto">
+              <CheckCircle className="h-8 w-8 text-[#10b981]" />
             </div>
             <h2 className="text-xl font-bold text-gray-900">送信が完了しました</h2>
             <p className="text-sm text-gray-500">
@@ -675,23 +661,22 @@ export default function HojoLoanApplicationPage() {
   // フォームタイプ選択
   if (!formType) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-[#f0faf5] p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-[#ecfdf5] p-4">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-[#3b9d9d] via-[#55a88f] to-[#6fb789]" />
-          <div className="px-8 pt-8 pb-2 text-center">
-            {alkesLogo}
-            <h2 className="text-xl font-bold text-gray-900">借入申込フォーム</h2>
+          <div className="h-1 bg-gradient-to-r from-[#10b981] via-[#34d399] to-[#86efac]" />
+          <div className="px-8 pt-10 pb-2 text-center">
+            <h2 className="text-2xl font-bold text-gray-900">借入申込フォーム</h2>
             <p className="text-sm text-gray-400 mt-1">該当する申込区分を選択してください</p>
           </div>
           <div className="px-8 py-6 space-y-4">
             <button
-              className="w-full h-16 text-lg font-medium rounded-xl border-2 border-[#d1ede2] bg-[#f0faf5] text-[#3b9d9d] hover:bg-[#e6f7f0] hover:border-[#3b9d9d] transition-all duration-150"
+              className="w-full h-16 text-lg font-medium rounded-xl border-2 border-[#a7f3d0] bg-[#ecfdf5] text-[#10b981] hover:bg-[#d1fae5] hover:border-[#10b981] transition-all duration-150"
               onClick={() => setFormType("corporate")}
             >
               法人
             </button>
             <button
-              className="w-full h-16 text-lg font-medium rounded-xl border-2 border-[#d1ede2] bg-[#f0faf5] text-[#3b9d9d] hover:bg-[#e6f7f0] hover:border-[#3b9d9d] transition-all duration-150"
+              className="w-full h-16 text-lg font-medium rounded-xl border-2 border-[#a7f3d0] bg-[#ecfdf5] text-[#10b981] hover:bg-[#d1fae5] hover:border-[#10b981] transition-all duration-150"
               onClick={() => setFormType("individual")}
             >
               個人事業主
@@ -704,24 +689,15 @@ export default function HojoLoanApplicationPage() {
 
   // フォーム表示
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-[#f0faf5] py-8 px-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-[#ecfdf5] py-8 px-4">
       <div className="max-w-2xl mx-auto space-y-6">
         {/* ヘッダーカード */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-[#3b9d9d] via-[#55a88f] to-[#6fb789]" />
+          <div className="h-1 bg-gradient-to-r from-[#10b981] via-[#34d399] to-[#86efac]" />
           <div className="px-8 py-6">
-            <div className="flex items-center gap-4 mb-2">
-              <Image
-                src="/images/alkes-logo.png"
-                alt="ALKES"
-                width={36}
-                height={36}
-                className="w-9 h-9 shrink-0 object-contain"
-              />
-              <h1 className="text-xl font-bold text-gray-900">
-                借入申込({formType === "corporate" ? "法人" : "個人事業主"})
-              </h1>
-            </div>
+            <h1 className="text-xl font-bold text-gray-900 mb-2">
+              借入申込({formType === "corporate" ? "法人" : "個人事業主"})
+            </h1>
             <p className="text-sm text-gray-400">以下の質問にすべてお答えください</p>
             <p className="text-xs text-red-500 mt-2">* 必須の質問です</p>
           </div>
@@ -729,7 +705,7 @@ export default function HojoLoanApplicationPage() {
 
         {sections!.map((section) => (
           <div key={section.title} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="px-8 py-4 border-b border-gray-100 bg-gradient-to-r from-[#3b9d9d] via-[#55a88f] to-[#6fb789]">
+            <div className="px-8 py-4 border-b border-gray-100 bg-gradient-to-r from-[#10b981] via-[#34d399] to-[#86efac]">
               <h3 className="font-bold text-white text-base">{section.title}</h3>
             </div>
             {section.description && (
@@ -755,7 +731,7 @@ export default function HojoLoanApplicationPage() {
         {/* 法人の場合: 実質的支配者セクション（動的追加） */}
         {formType === "corporate" && (
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="px-8 py-4 border-b border-gray-100 bg-gradient-to-r from-[#3b9d9d] via-[#55a88f] to-[#6fb789]">
+            <div className="px-8 py-4 border-b border-gray-100 bg-gradient-to-r from-[#10b981] via-[#34d399] to-[#86efac]">
               <h3 className="font-bold text-white text-base">(5) 実質的支配者の申告のお願い</h3>
             </div>
             <div className="px-8 pt-4">
@@ -767,9 +743,9 @@ export default function HojoLoanApplicationPage() {
             </div>
             <div className="px-8 py-6 space-y-6">
               {Array.from({ length: boCount }, (_, i) => i + 1).map((n) => (
-                <div key={n} className="space-y-4 border border-[#d1ede2] rounded-xl p-5 bg-[#f0faf5]/30">
+                <div key={n} className="space-y-4 border border-[#a7f3d0] rounded-xl p-5 bg-[#ecfdf5]/30">
                   <div className="flex items-center justify-between">
-                    <h4 className="font-semibold text-sm text-[#3b9d9d]">
+                    <h4 className="font-semibold text-sm text-[#10b981]">
                       実質的支配者 {n}人目
                     </h4>
                     <Button
@@ -825,7 +801,7 @@ export default function HojoLoanApplicationPage() {
 
               <button
                 type="button"
-                className="w-full py-3 rounded-xl border-2 border-dashed border-[#d1ede2] text-[#3b9d9d] font-medium hover:bg-[#f0faf5] hover:border-[#3b9d9d] transition-all duration-150 flex items-center justify-center gap-2"
+                className="w-full py-3 rounded-xl border-2 border-dashed border-[#a7f3d0] text-[#10b981] font-medium hover:bg-[#ecfdf5] hover:border-[#10b981] transition-all duration-150 flex items-center justify-center gap-2"
                 onClick={() => setBoCount((prev) => prev + 1)}
               >
                 <Plus className="h-4 w-4" />
@@ -851,7 +827,7 @@ export default function HojoLoanApplicationPage() {
           <button
             onClick={handleSubmit}
             disabled={submitting}
-            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#3b9d9d] to-[#6fb789] hover:opacity-90 text-white font-medium transition-opacity disabled:opacity-50 flex items-center gap-2"
+            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#10b981] to-[#86efac] hover:opacity-90 text-white font-medium transition-opacity disabled:opacity-50 flex items-center gap-2"
           >
             {submitting ? (
               <>

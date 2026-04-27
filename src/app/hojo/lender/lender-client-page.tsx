@@ -260,7 +260,7 @@ function LoginForm() {
     <PortalLoginWrapper title="貸金業社様専用ページ" subtitle="ポータルにログイン">
       {showForgotPassword ? (
         <div className="text-center space-y-4">
-          <p className="text-gray-600">お手数ですが、ALKESスタッフへご連絡ください。</p>
+          <p className="text-gray-600">お手数ですが、サポートスタッフへご連絡ください。</p>
           <Button variant="outline" onClick={() => setShowForgotPassword(false)}>ログインに戻る</Button>
         </div>
       ) : (

@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { CheckCircle, Loader2 } from "lucide-react";
-import Image from "next/image";
 
 // ---------------------------------------------------------------------------
 // Types & Field Definitions
@@ -221,26 +220,15 @@ export default function ContractConfirmationPage() {
     }
   }
 
-  const alkesLogo = (
-    <Image
-      src="/images/alkes-logo-full.png"
-      alt="ALKES LLC"
-      width={160}
-      height={160}
-      priority
-      className="h-16 w-auto mx-auto mb-4 object-contain"
-    />
-  );
-
   // 送信完了
   if (submitted) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-[#f0faf5] p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-[#ecfdf5] p-4">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-[#3b9d9d] via-[#55a88f] to-[#6fb789]" />
+          <div className="h-1 bg-gradient-to-r from-[#10b981] via-[#34d399] to-[#86efac]" />
           <div className="px-8 py-12 text-center space-y-4">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#3b9d9d]/10 to-[#6fb789]/10 flex items-center justify-center mx-auto">
-              <CheckCircle className="h-8 w-8 text-[#3b9d9d]" />
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#10b981]/10 to-[#86efac]/10 flex items-center justify-center mx-auto">
+              <CheckCircle className="h-8 w-8 text-[#10b981]" />
             </div>
             <h2 className="text-xl font-bold text-gray-900">送信が完了しました</h2>
             <p className="text-sm text-gray-500">
@@ -254,14 +242,13 @@ export default function ContractConfirmationPage() {
 
   // フォーム表示
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-[#f0faf5] py-8 px-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-[#ecfdf5] py-8 px-4">
       <div className="max-w-2xl mx-auto space-y-6">
         {/* ヘッダーカード */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-[#3b9d9d] via-[#55a88f] to-[#6fb789]" />
-          <div className="px-8 py-6">
-            {alkesLogo}
-            <h1 className="text-xl font-bold text-gray-900 text-center">契約内容確認フォーム</h1>
+          <div className="h-1 bg-gradient-to-r from-[#10b981] via-[#34d399] to-[#86efac]" />
+          <div className="px-8 pt-10 pb-6">
+            <h1 className="text-2xl font-bold text-gray-900 text-center">契約内容確認フォーム</h1>
             <p className="text-sm text-gray-400 mt-2 text-center">以下の質問にお答えください</p>
             <p className="text-xs text-red-500 mt-2 text-center">* 必須の質問です</p>
           </div>
@@ -269,7 +256,7 @@ export default function ContractConfirmationPage() {
 
         {SECTIONS.map((section) => (
           <div key={section.title} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="px-8 py-4 border-b border-gray-100 bg-gradient-to-r from-[#3b9d9d] via-[#55a88f] to-[#6fb789]">
+            <div className="px-8 py-4 border-b border-gray-100 bg-gradient-to-r from-[#10b981] via-[#34d399] to-[#86efac]">
               <h3 className="font-bold text-white text-base">{section.title}</h3>
             </div>
             {section.description && (
@@ -297,7 +284,7 @@ export default function ContractConfirmationPage() {
           <Button
             onClick={handleSubmit}
             disabled={submitting}
-            className="w-full h-12 text-base bg-gradient-to-r from-[#3b9d9d] to-[#6fb789] hover:from-[#358d8d] hover:to-[#5f9a7a] text-white rounded-xl"
+            className="w-full h-12 text-base bg-gradient-to-r from-[#10b981] to-[#86efac] hover:from-[#358d8d] hover:to-[#5f9a7a] text-white rounded-xl"
           >
             {submitting ? (
               <>

@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
  * シンプルな白カード。フォーム内のグルーピング・サブカードに使う。
  *
  * variant:
- * - "default": 白背景・薄い境界線・柔らかい影（ALKES の `PortalCard` 相当）
+ * - "default": 白背景・薄い境界線・柔らかい影（補助金ポータルの `PortalCard` 相当）
  * - "ghost":   背景は淡い青、影なし（強調しすぎないサブカード）
  * - "outline": 影なし、境界線のみ（より控えめ）
  */

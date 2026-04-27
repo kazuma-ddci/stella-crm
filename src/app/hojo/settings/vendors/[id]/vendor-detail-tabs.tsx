@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { ArrowLeft, Copy, Check } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { getHojoCustomerOrigin } from "@/lib/hojo/customer-domain";
 
 const VendorDetailForm = dynamic(() => import("./vendor-detail-form").then((mod) => mod.VendorDetailForm), {
   ssr: false,
@@ -173,7 +174,7 @@ export function VendorDetailTabs({
   const [loanFormUrl, setLoanFormUrl] = useState(`/form/hojo-loan-application?v=${accessToken}`);
 
   useEffect(() => {
-    setLoanFormUrl(`${window.location.origin}/form/hojo-loan-application?v=${accessToken}`);
+    setLoanFormUrl(`${getHojoCustomerOrigin()}/form/hojo-loan-application?v=${accessToken}`);
   }, [accessToken]);
 
   const handleCopyUrl = async () => {

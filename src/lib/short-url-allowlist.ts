@@ -9,7 +9,7 @@
  *
  * 配下に新しい自社ドメインを追加する場合は、ALLOWED_HOSTNAMES 配列に
  * ホスト名(プロトコルなし)を追加する。サブドメインは個別に列挙すること
- * (例: `bbs.alkes.jp` と `stg-bbs.alkes.jp` を別々に書く)。
+ * (例: `bbs.support-hubs.com` と `stg-bbs.support-hubs.com` を別々に書く)。
  *
  * ## 動作
  *
@@ -24,13 +24,15 @@ const ALLOWED_HOSTNAMES = new Set<string>([
   "portal.stella-international.co.jp",
   "stg-portal.stella-international.co.jp",
   "crm.stella-international.co.jp",
-  // 補助金事業 (BBS / ベンダー / 貸金業社)
-  "bbs.alkes.jp",
-  "vendor.alkes.jp",
-  "loan.alkes.jp",
-  "stg-bbs.alkes.jp",
-  "stg-vendor.alkes.jp",
-  "stg-loan.alkes.jp",
+  // 補助金事業 (BBS / ベンダー / 貸金業社 / 顧客フォーム)
+  "bbs.support-hubs.com",
+  "vendor.support-hubs.com",
+  "loan.support-hubs.com",
+  "customer.support-hubs.com",
+  "stg-bbs.support-hubs.com",
+  "stg-vendor.support-hubs.com",
+  "stg-loan.support-hubs.com",
+  "stg-customer.support-hubs.com",
   // 公的制度教育推進協会(SLP 顧客向けドメイン)
   "customer.koutekiseido-japan.com",
   "stg-customer.koutekiseido-japan.com",

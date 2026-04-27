@@ -22,6 +22,7 @@ import {
 import { Plus, Eye, Loader2, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 import { createVendorFromFormSubmission } from "./actions";
+import { getHojoCustomerOrigin } from "@/lib/hojo/customer-domain";
 
 type FormResponse = {
   id: number;
@@ -63,9 +64,7 @@ export function FormResponsesTable({ data, canEdit }: Props) {
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const formUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/form/hojo-contract-confirmation`
-    : "/form/hojo-contract-confirmation";
+  const formUrl = `${getHojoCustomerOrigin()}/form/hojo-contract-confirmation`;
 
   const handleCopyUrl = async () => {
     try {

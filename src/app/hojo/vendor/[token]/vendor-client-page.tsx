@@ -17,7 +17,7 @@ import { Trash2, Plus, Pencil, FileText, ClipboardList, Banknote, Copy, Check, E
 import { VendorDocumentStorageModal, type VendorDocumentInfo } from "./vendor-document-storage-modal";
 import Link from "next/link";
 import { VendorPortalLayout } from "./vendor-portal-layout";
-import { PortalLoginWrapper } from "@/components/alkes-portal";
+import { PortalLoginWrapper } from "@/components/hojo-portal";
 import type { VendorSection } from "./vendor-portal-layout";
 import { VendorContractsSection } from "./vendor-contracts-section";
 import { VendorActivitiesSection } from "./vendor-activities-section";
@@ -28,6 +28,7 @@ import { VendorProgressSection } from "./vendor-progress-section";
 import type { ProgressRow } from "./vendor-progress-section";
 import { FormAnswerViewerModal } from "@/components/hojo/form-answer-viewer-modal";
 import type { FileInfo } from "@/components/hojo/form-answer-editor";
+import { getHojoCustomerOrigin } from "@/lib/hojo/customer-domain";
 
 type FormSubmissionData = {
   id: number;
@@ -194,9 +195,7 @@ function LoginForm({ vendorName, vendorToken }: { vendorName: string; vendorToke
 // ========== フォームURLコピーボタン ==========
 function FormUrlCopyButton({ uid }: { uid: string }) {
   const [copied, setCopied] = useState(false);
-  const url = typeof window !== "undefined"
-    ? `${window.location.origin}/form/hojo-business-plan?uid=${uid}`
-    : `/form/hojo-business-plan?uid=${uid}`;
+  const url = `${getHojoCustomerOrigin()}/form/hojo-business-plan?uid=${uid}`;
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(url);

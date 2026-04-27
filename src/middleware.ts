@@ -168,27 +168,67 @@ function hasAnyStpViewAccess(displayViews: DisplayViewPermission[]): boolean {
   return displayViews.some((view) => view.projectCode === "stp");
 }
 
-// 外部ドメイン（BBS・ベンダー・貸金業社用）で許可するパス
-const EXTERNAL_DOMAIN_ALLOWED_PATHS = [
-  "/hojo/bbs",
-  "/hojo/vendor",
-  "/hojo/lender",
-  "/login",
-  "/api/auth",
-  "/register",
-  "/api/public",
-  "/form",
-];
+// =====================================================================
+// 補助金 外部ドメイン（*.support-hubs.com）— サブドメインごとに役割を厳格に分離
+//
+//   bbs.support-hubs.com     / stg-bbs.support-hubs.com     → BBS社ポータル
+//   vendor.support-hubs.com  / stg-vendor.support-hubs.com  → ベンダーポータル
+//   loan.support-hubs.com    / stg-loan.support-hubs.com    → 貸金業社ポータル
+//   customer.support-hubs.com / stg-customer.support-hubs.com → 顧客回答フォーム
+//
+// 自分の役割のパス以外は 404 を返す（他のポータル・他のフォームには触れない）。
+// =====================================================================
 
-function isExternalDomainAllowedPath(pathname: string): boolean {
-  return EXTERNAL_DOMAIN_ALLOWED_PATHS.some(
-    (path) => pathname === path || pathname.startsWith(path + "/")
-  );
+type HojoSubdomainRole = "bbs" | "vendor" | "loan" | "customer";
+
+// 各役割で許可するパス（前方一致）
+const HOJO_DOMAIN_ALLOWED_PATHS: Record<HojoSubdomainRole, readonly string[]> = {
+  bbs: [
+    "/hojo/bbs",
+    "/login",
+    "/register",
+    "/api/auth",
+    "/api/public/hojo",
+    "/_next",
+  ],
+  vendor: [
+    "/hojo/vendor",
+    "/login",
+    "/api/auth",
+    "/api/public/hojo",
+    "/_next",
+  ],
+  loan: [
+    "/hojo/lender",
+    "/login",
+    "/api/auth",
+    "/api/public/hojo",
+    "/_next",
+  ],
+  customer: [
+    "/form/hojo-",  // /form/hojo-loan-application, /form/hojo-business-plan, /form/hojo-contract-confirmation, /form/hojo-vendor
+    "/api/public/hojo",
+    "/_next",
+  ],
+};
+
+function getHojoSubdomainRole(host: string): HojoSubdomainRole | null {
+  // ポート番号が付いているケースを考慮して切り落とす
+  const hostname = host.split(":")[0];
+  if (!hostname.endsWith(".support-hubs.com")) return null;
+  const sub = hostname.slice(0, -".support-hubs.com".length);
+  // stg-bbs → bbs にマッピング
+  const normalized = sub.startsWith("stg-") ? sub.slice(4) : sub;
+  if (normalized === "bbs" || normalized === "vendor" || normalized === "loan" || normalized === "customer") {
+    return normalized;
+  }
+  return null;
 }
 
-// 外部ドメインかどうか判定
-function isExternalDomain(host: string): boolean {
-  return host.endsWith(".alkes.jp");
+function isHojoDomainAllowedPath(role: HojoSubdomainRole, pathname: string): boolean {
+  return HOJO_DOMAIN_ALLOWED_PATHS[role].some(
+    (path) => pathname === path || pathname.startsWith(path)
+  );
 }
 
 // =====================================================================
@@ -263,9 +303,10 @@ export default auth((request) => {
     return NextResponse.next();
   }
 
-  // 外部ドメイン（*.alkes.jp）からのアクセス制限
-  if (isExternalDomain(host)) {
-    if (!isExternalDomainAllowedPath(pathname) && !pathname.startsWith("/_next/") && !pathname.startsWith("/api/auth")) {
+  // 補助金 外部ドメイン（*.support-hubs.com）— サブドメインごとに許可パスを厳格に分離
+  const hojoRole = getHojoSubdomainRole(host);
+  if (hojoRole) {
+    if (!isHojoDomainAllowedPath(hojoRole, pathname)) {
       return new NextResponse(null, { status: 404 });
     }
   }
