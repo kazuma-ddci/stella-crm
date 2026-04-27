@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Table,
@@ -63,8 +63,11 @@ export function FormResponsesTable({ data, canEdit }: Props) {
   const [selectedResponse, setSelectedResponse] = useState<FormResponse | null>(null);
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [formUrl, setFormUrl] = useState("/form/hojo-contract-confirmation");
 
-  const formUrl = `${getHojoCustomerOrigin()}/form/hojo-contract-confirmation`;
+  useEffect(() => {
+    setFormUrl(`${getHojoCustomerOrigin()}/form/hojo-contract-confirmation`);
+  }, []);
 
   const handleCopyUrl = async () => {
     try {

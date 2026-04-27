@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -63,8 +63,11 @@ function LinkStatusBadge({ status, confirmed }: { status: LinkStatus; confirmed:
 export function SubmissionsTable({ data }: Props) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
+  const [formUrl, setFormUrl] = useState("/form/hojo-business-plan");
 
-  const formUrl = `${getHojoCustomerOrigin()}/form/hojo-business-plan`;
+  useEffect(() => {
+    setFormUrl(`${getHojoCustomerOrigin()}/form/hojo-business-plan`);
+  }, []);
 
   const handleCopy = async () => {
     try {
