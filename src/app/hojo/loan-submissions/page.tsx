@@ -32,6 +32,8 @@ export default async function HojoLoanSubmissionsPage() {
       vendorMemo: s.vendorMemo || "",
       lenderMemo: s.lenderMemo || "",
       staffMemo: s.staffMemo || "",
+      answers: answers ?? {},
+      modifiedAnswers: (s.modifiedAnswers as Record<string, unknown> | null) ?? null,
     };
   };
 

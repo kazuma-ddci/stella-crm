@@ -1,11 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CrudTable, type ColumnDef, type CustomAction, type CustomRenderers } from "@/components/crud-table";
 import { InlineCell } from "@/components/inline-cell";
-import { Eye } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Download, Eye } from "lucide-react";
 import { updateLoanStaffMemo } from "./actions";
+import { CsvExportDialog } from "@/components/csv-export-dialog";
+import { buildLoanSubmissionsCsv, downloadCsv } from "@/lib/hojo/loan-submission-csv";
 
 type RowData = {
   id: number;
@@ -19,6 +23,8 @@ type RowData = {
   vendorMemo: string;
   lenderMemo: string;
   staffMemo: string;
+  answers: Record<string, unknown>;
+  modifiedAnswers: Record<string, unknown> | null;
 };
 
 function SubmissionTable({
@@ -121,10 +127,27 @@ export function LoanSubmissionsClient({
   canEdit: boolean;
 }) {
   const vendorOptions = vendors.map((v) => ({ value: v.name, label: v.name }));
+  const [activeTab, setActiveTab] = useState<"corporate" | "individual">("corporate");
+  const [csvDialogOpen, setCsvDialogOpen] = useState(false);
+
+  const csvSourceData = activeTab === "corporate" ? corporateData : individualData;
+  const csvFormType: "loan-corporate" | "loan-individual" =
+    activeTab === "corporate" ? "loan-corporate" : "loan-individual";
 
   return (
     <div className="space-y-4">
-      <Tabs defaultValue="corporate">
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setCsvDialogOpen(true)}
+          disabled={csvSourceData.length === 0}
+        >
+          <Download className="h-4 w-4 mr-1" />
+          CSV出力（{activeTab === "corporate" ? "法人" : "個人事業主"}）
+        </Button>
+      </div>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "corporate" | "individual")}>
         <TabsList>
           <TabsTrigger value="corporate">
             法人 ({corporateData.length})
@@ -140,6 +163,42 @@ export function LoanSubmissionsClient({
           <SubmissionTable data={individualData} vendorOptions={vendorOptions} canEdit={canEdit} tableId="hojo.loan-submissions.individual" />
         </TabsContent>
       </Tabs>
+
+      <CsvExportDialog
+        open={csvDialogOpen}
+        onOpenChange={setCsvDialogOpen}
+        title={`借入申込フォーム回答 CSV出力（${activeTab === "corporate" ? "法人" : "個人事業主"}）`}
+        items={csvSourceData.map((r) => ({
+          id: r.id,
+          primary: r.companyName || r.representName || `#${r.id}`,
+          secondary: [r.representName, r.vendorName, new Date(r.submittedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })]
+            .filter(Boolean)
+            .join(" / "),
+        }))}
+        onExport={(selected) => {
+          const selectedIds = new Set(selected.map((s) => s.id));
+          const rows = csvSourceData
+            .filter((r) => selectedIds.has(r.id))
+            .map((r) => ({
+              id: r.id,
+              formType: r.formType,
+              submittedAt: r.submittedAt,
+              vendorName: r.vendorName,
+              companyName: r.companyName,
+              representName: r.representName,
+              email: r.email,
+              phone: r.phone,
+              vendorMemo: r.vendorMemo,
+              lenderMemo: r.lenderMemo,
+              staffMemo: r.staffMemo,
+              answers: r.answers,
+              modifiedAnswers: r.modifiedAnswers,
+            }));
+          const csv = buildLoanSubmissionsCsv(csvFormType, rows);
+          const today = new Date().toISOString().slice(0, 10);
+          downloadCsv(`loan-submissions_${csvFormType === "loan-corporate" ? "corporate" : "individual"}_${today}.csv`, csv);
+        }}
+      />
     </div>
   );
 }

@@ -31,19 +31,26 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Eye, History, Pencil, Copy, Check, Link as LinkIcon } from "lucide-react";
+import { Eye, History, Pencil, Copy, Check, Link as LinkIcon, Download } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { InlineCell } from "@/components/inline-cell";
 import { CrudTable, type ColumnDef, type CustomAction, type CustomRenderers } from "@/components/crud-table";
 import Link from "next/link";
 import { recordLenderPasswordResetRequest, updateLoanLenderMemo, updateLenderProgress, updateHojoLoanProgressRates } from "./actions";
 import {
+  INDIVIDUAL_LOAN_SECTIONS,
+  CORPORATE_LOAN_SECTIONS,
+  getCorporateBOSections,
+} from "@/lib/hojo/loan-form-fields";
+import { buildLoanSubmissionsCsv, downloadCsv } from "@/lib/hojo/loan-submission-csv";
+import { CsvExportDialog } from "@/components/csv-export-dialog";
+import {
   PortalHeader,
   PortalUserMenu,
   PortalLayout,
   PortalSidebar,
   PortalLoginWrapper,
-} from "@/components/alkes-portal";
+} from "@/components/hojo-portal";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -128,114 +135,14 @@ type Props = {
 };
 
 // ---------------------------------------------------------------------------
-// セクション定義
+// セクション定義（共有: src/lib/hojo/loan-form-fields.ts）
 // ---------------------------------------------------------------------------
-
-const INDIVIDUAL_DISPLAY_SECTIONS = [
-  {
-    title: "ご契約者様の情報",
-    fields: [
-      { key: "ind_email", label: "メールアドレス" },
-      { key: "ind_name", label: "氏名(正式名称)" },
-      { key: "ind_name_kana", label: "氏名(カナ)" },
-      { key: "ind_postal_code", label: "郵便番号" },
-      { key: "ind_address", label: "住所" },
-      { key: "ind_phone", label: "電話番号" },
-      { key: "ind_birthday", label: "生年月日" },
-      { key: "ind_gender", label: "性別" },
-    ],
-  },
-  {
-    title: "事業者情報",
-    fields: [
-      { key: "ind_business_name", label: "屋号(正式名称)" },
-      { key: "ind_business_type", label: "事業内容" },
-      { key: "ind_business_start", label: "事業開始年月" },
-      { key: "ind_income_type", label: "所得区分" },
-      { key: "ind_office_address", label: "事業所住所" },
-      { key: "ind_office_phone", label: "事業所電話番号" },
-    ],
-  },
-  {
-    title: "借入希望金額",
-    fields: [{ key: "ind_loan_amount", label: "借入希望金額" }],
-  },
-  {
-    title: "口座情報",
-    fields: [
-      { key: "ind_bank_name", label: "金融機関名" },
-      { key: "ind_branch_name", label: "支店名" },
-      { key: "ind_account_type", label: "口座種別" },
-      { key: "ind_account_number", label: "口座番号" },
-      { key: "ind_account_holder", label: "口座名義人カナ" },
-    ],
-  },
-];
-
-const CORPORATE_DISPLAY_SECTIONS = [
-  {
-    title: "御社の情報",
-    fields: [
-      { key: "corp_email", label: "メールアドレス" },
-      { key: "corp_company_name", label: "法人名称(正式名称)" },
-      { key: "corp_company_name_kana", label: "法人名称(カナ)" },
-      { key: "corp_postal_code", label: "法人郵便番号" },
-      { key: "corp_address", label: "法人本店所在地" },
-      { key: "corp_phone", label: "法人電話番号" },
-    ],
-  },
-  {
-    title: "代表者の情報",
-    fields: [
-      { key: "corp_rep_name", label: "代表者氏名(正式名称)" },
-      { key: "corp_rep_name_kana", label: "代表者氏名(カナ)" },
-      { key: "corp_rep_birthday", label: "代表者生年月日" },
-      { key: "corp_rep_gender", label: "性別" },
-      { key: "corp_rep_postal_code", label: "代表者郵便番号" },
-      { key: "corp_rep_address", label: "代表者住所" },
-      { key: "corp_rep_phone", label: "代表者電話番号" },
-    ],
-  },
-  {
-    title: "借入希望金額",
-    fields: [{ key: "corp_loan_amount", label: "借入希望金額" }],
-  },
-  {
-    title: "口座情報",
-    fields: [
-      { key: "corp_bank_name", label: "金融機関名" },
-      { key: "corp_branch_name", label: "支店名" },
-      { key: "corp_account_type", label: "口座種別" },
-      { key: "corp_account_number", label: "口座番号" },
-      { key: "corp_account_holder", label: "口座名義人(カナ)" },
-    ],
-  },
-];
-
-function getBOSections(answers: Record<string, string>) {
-  const sections = [];
-  for (let i = 1; ; i++) {
-    if (!answers[`corp_bo${i}_name`]) break;
-    sections.push({
-      title: `実質的支配者 ${i}人目`,
-      fields: [
-        { key: `corp_bo${i}_name`, label: "氏名称" },
-        { key: `corp_bo${i}_name_kana`, label: "氏名称フリガナ" },
-        { key: `corp_bo${i}_address`, label: "住所" },
-        { key: `corp_bo${i}_share`, label: "議決権等保有割合" },
-        { key: `corp_bo${i}_birthday`, label: "生年月日" },
-        { key: `corp_bo${i}_gender`, label: "性別" },
-      ],
-    });
-  }
-  return sections;
-}
 
 function getAllSections(submission: LoanSubmissionRow) {
   const isCorporate = submission.formType === "loan-corporate";
   const currentAnswers = submission.modifiedAnswers ?? submission.answers;
-  const baseSections = isCorporate ? CORPORATE_DISPLAY_SECTIONS : INDIVIDUAL_DISPLAY_SECTIONS;
-  const boSections = isCorporate ? getBOSections(currentAnswers) : [];
+  const baseSections = isCorporate ? CORPORATE_LOAN_SECTIONS : INDIVIDUAL_LOAN_SECTIONS;
+  const boSections = isCorporate ? getCorporateBOSections(currentAnswers) : [];
   return [...baseSections, ...boSections];
 }
 
@@ -664,11 +571,25 @@ function LoanSubmissionsSection({
   isLender: boolean;
 }) {
   const [vendorFilter, setVendorFilter] = useState("");
+  const [activeTab, setActiveTab] = useState<"corporate" | "individual">("corporate");
+  const [csvDialogOpen, setCsvDialogOpen] = useState(false);
+
+  const effectiveVendor = vendorFilter && vendorFilter !== "all" ? vendorFilter : "";
+  const filteredCorporate = effectiveVendor
+    ? corporateData.filter((r) => r.vendorName === effectiveVendor)
+    : corporateData;
+  const filteredIndividual = effectiveVendor
+    ? individualData.filter((r) => r.vendorName === effectiveVendor)
+    : individualData;
+
+  const csvSourceData = activeTab === "corporate" ? filteredCorporate : filteredIndividual;
+  const csvFormType: "loan-corporate" | "loan-individual" =
+    activeTab === "corporate" ? "loan-corporate" : "loan-individual";
 
   return (
     <div className="space-y-4">
       <ShareableUrlCard />
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <span className="text-sm text-muted-foreground">ベンダー:</span>
         <Select value={vendorFilter} onValueChange={setVendorFilter}>
           <SelectTrigger className="w-[200px]">
@@ -683,36 +604,77 @@ function LoanSubmissionsSection({
             ))}
           </SelectContent>
         </Select>
+        <div className="ml-auto">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setCsvDialogOpen(true)}
+            disabled={csvSourceData.length === 0}
+          >
+            <Download className="h-4 w-4 mr-1" />
+            CSV出力（{activeTab === "corporate" ? "法人" : "個人事業主"}）
+          </Button>
+        </div>
       </div>
 
-      <Tabs defaultValue="corporate">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "corporate" | "individual")}>
         <TabsList>
           <TabsTrigger value="corporate">
-            法人 ({vendorFilter && vendorFilter !== "all"
-              ? corporateData.filter((r) => r.vendorName === vendorFilter).length
-              : corporateData.length})
+            法人 ({filteredCorporate.length})
           </TabsTrigger>
           <TabsTrigger value="individual">
-            個人事業主 ({vendorFilter && vendorFilter !== "all"
-              ? individualData.filter((r) => r.vendorName === vendorFilter).length
-              : individualData.length})
+            個人事業主 ({filteredIndividual.length})
           </TabsTrigger>
         </TabsList>
         <TabsContent value="corporate" className="mt-4">
           <SubmissionTable
             data={corporateData}
-            vendorFilter={vendorFilter === "all" ? "" : vendorFilter}
+            vendorFilter={effectiveVendor}
             isLender={isLender}
           />
         </TabsContent>
         <TabsContent value="individual" className="mt-4">
           <SubmissionTable
             data={individualData}
-            vendorFilter={vendorFilter === "all" ? "" : vendorFilter}
+            vendorFilter={effectiveVendor}
             isLender={isLender}
           />
         </TabsContent>
       </Tabs>
+
+      <CsvExportDialog
+        open={csvDialogOpen}
+        onOpenChange={setCsvDialogOpen}
+        title={`借入申込フォーム回答 CSV出力（${activeTab === "corporate" ? "法人" : "個人事業主"}）`}
+        items={csvSourceData.map((r) => ({
+          id: r.id,
+          primary: r.companyName || r.representName || `#${r.id}`,
+          secondary: [r.representName, r.vendorName, new Date(r.submittedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })]
+            .filter(Boolean)
+            .join(" / "),
+        }))}
+        onExport={(selected) => {
+          const selectedIds = new Set(selected.map((s) => s.id));
+          const rows = csvSourceData
+            .filter((r) => selectedIds.has(r.id))
+            .map((r) => ({
+              id: r.id,
+              formType: r.formType,
+              submittedAt: r.submittedAt,
+              vendorName: r.vendorName,
+              companyName: r.companyName,
+              representName: r.representName,
+              email: r.email,
+              phone: r.phone,
+              lenderMemo: r.lenderMemo,
+              answers: r.answers as Record<string, unknown>,
+              modifiedAnswers: r.modifiedAnswers as Record<string, unknown> | null,
+            }));
+          const csv = buildLoanSubmissionsCsv(csvFormType, rows);
+          const today = new Date().toISOString().slice(0, 10);
+          downloadCsv(`loan-submissions_${csvFormType === "loan-corporate" ? "corporate" : "individual"}_${today}.csv`, csv);
+        }}
+      />
     </div>
   );
 }
