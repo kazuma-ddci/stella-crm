@@ -21,7 +21,10 @@ import {
   type NotificationRenderVars,
 } from "@/lib/slp/slp-session-notification";
 
-export type MemberTrigger = "contract_reminder" | "contract_bounced";
+export type MemberTrigger =
+  | "contract_reminder"
+  | "contract_bounced"
+  | "contract_reminder_form_submitted";
 
 export interface SendMemberNotificationParams {
   trigger: MemberTrigger;
