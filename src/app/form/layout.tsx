@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
-  title: "採用ブースト【事前アンケート】",
-  description: "採用ブースト 事前アンケート",
+  title: "フォーム",
+  description: "フォーム",
 };
 
 export default function FormLayout({
