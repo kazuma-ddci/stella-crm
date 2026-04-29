@@ -64,6 +64,9 @@ next-env.d.ts
 CLAUDE.md
 **/CLAUDE.md
 
+# Local Codex worktrees
+.codex-worktrees/
+
 # Personal notes and temp files
 メモ/
 plan1.txt
