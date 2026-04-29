@@ -1,10 +1,10 @@
 /**
  * SLP 商談セッション ↔ V2 接触履歴 (ContactHistoryV2 + ContactHistoryMeeting) 同期。
  *
- * 商談タブのバックエンドは引き続き V1 (slp_meeting_sessions + slp_contact_histories +
- * slp_zoom_recordings) を真実のソースとして動かす。本モジュールは Zoom 発行・予約変更・
- * キャンセル・完了等のタイミングで V2 側にも同等情報を反映し、V2 接触履歴一覧やダッシュボード
- * から商談を閲覧できる状態に保つ。
+ * 商談タブのバックエンド (slp_meeting_sessions) は引き続き使い続けるが、接触履歴・録画は
+ * V2 階層 (ContactHistoryV2 → ContactHistoryMeeting → ContactHistoryMeetingRecord) に
+ * 完全移行済み。Zoom 発行・予約変更・キャンセル・完了等のタイミングで V2 接触履歴 + V2
+ * ContactHistoryMeeting を作成・更新する。
  *
  * 紐付け: ContactHistoryV2.sourceType = "slp_meeting_session", sourceRefId = String(sessionId)
  */
@@ -12,7 +12,7 @@
 import { prisma } from "@/lib/prisma";
 import { logAutomationError } from "@/lib/automation-error";
 
-const SOURCE_TYPE = "slp_meeting_session";
+export const SOURCE_TYPE = "slp_meeting_session";
 
 async function getSlpProjectId(): Promise<number | null> {
   const project = await prisma.masterProject.findFirst({
@@ -402,6 +402,69 @@ export async function completeV2ForSession(sessionId: number): Promise<void> {
     await logAutomationError({
       source: "slp-v2-sync-complete",
       message: `V2 接触履歴の完了反映失敗: sessionId=${sessionId}`,
+      detail: { error: e instanceof Error ? e.message : String(e) },
+    });
+  }
+}
+
+// ============================================================
+// セッション → V2 リソース 解決ヘルパー
+// V1 SlpZoomRecording / SlpContactHistory への依存を断つため、
+// 「sessionId 起点で V2 接触履歴 / V2 primary meeting を取得する」
+// 関数を提供する。
+// ============================================================
+
+/**
+ * セッションに対応する V2 接触履歴を取得（無ければ null）。
+ * 作成は伴わない。Zoom 発行のサイドエフェクト等で使う。
+ */
+export async function findV2ContactHistoryForSession(sessionId: number) {
+  return prisma.contactHistoryV2.findFirst({
+    where: {
+      sourceType: SOURCE_TYPE,
+      sourceRefId: String(sessionId),
+      deletedAt: null,
+    },
+  });
+}
+
+/**
+ * セッションに対応する V2 primary ContactHistoryMeeting を取得（無ければ null）。
+ * primary = isPrimary: true, provider: "zoom", deletedAt: null
+ */
+export async function findV2PrimaryMeetingForSession(sessionId: number) {
+  const ch = await findV2ContactHistoryForSession(sessionId);
+  if (!ch) return null;
+  return prisma.contactHistoryMeeting.findFirst({
+    where: {
+      contactHistoryId: ch.id,
+      isPrimary: true,
+      provider: "zoom",
+      deletedAt: null,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+/**
+ * 予約確定通知の送信済みフラグを V2 primary meeting に立てる。
+ */
+export async function markV2MeetingConfirmSentForSession(sessionId: number): Promise<void> {
+  try {
+    const ch = await findV2ContactHistoryForSession(sessionId);
+    if (!ch) return;
+    await prisma.contactHistoryMeeting.updateMany({
+      where: {
+        contactHistoryId: ch.id,
+        isPrimary: true,
+        deletedAt: null,
+      },
+      data: { confirmSentAt: new Date() },
+    });
+  } catch (e) {
+    await logAutomationError({
+      source: "slp-v2-sync-mark-confirm-sent",
+      message: `V2 meeting confirmSentAt 更新失敗: sessionId=${sessionId}`,
       detail: { error: e instanceof Error ? e.message : String(e) },
     });
   }

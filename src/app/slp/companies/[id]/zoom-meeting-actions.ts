@@ -7,9 +7,11 @@ import {
   regenerateZoomForSession,
   cancelZoomMeetingForSession,
 } from "@/lib/slp/zoom-reservation-handler";
-import { ensureContactHistoryForSession } from "@/lib/slp/session-helper";
+import {
+  ensureContactHistoryV2ForSession,
+  findV2PrimaryMeetingForSession,
+} from "@/lib/slp/v2-session-sync";
 import { parseZoomJoinUrl } from "@/lib/zoom/url-parser";
-import type { SessionCategory } from "@/lib/slp/session-helper";
 
 /**
  * セッションIDに対して Zoom URL を再発行する（旧「手動で発行する」ボタン相当）
@@ -54,7 +56,7 @@ export async function setManualZoomForSession(params: {
   joinUrl: string;
   hostStaffId: number | null;
   label?: string | null;
-}): Promise<{ ok: true; recordingId: number } | { ok: false; message: string }> {
+}): Promise<{ ok: true; meetingId: number } | { ok: false; message: string }> {
   await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
 
   try {
@@ -75,11 +77,14 @@ export async function setManualZoomForSession(params: {
     if (!parsed.ok) {
       return { ok: false, message: parsed.error };
     }
-    const meetingIdBig = BigInt(parsed.meetingId);
+    const externalMeetingId = parsed.meetingId;
 
-    // 同一 meeting_id の既存Recording確認（UNIQUE制約）
-    const existingByMeetingId = await prisma.slpZoomRecording.findUnique({
-      where: { zoomMeetingId: meetingIdBig },
+    // 同一 externalMeetingId の既存 ContactHistoryMeeting 確認 (UNIQUE 制約)
+    const existingByMeetingId = await prisma.contactHistoryMeeting.findFirst({
+      where: {
+        provider: "zoom",
+        externalMeetingId,
+      },
       select: { id: true, contactHistoryId: true, deletedAt: true },
     });
     if (existingByMeetingId) {
@@ -95,18 +100,18 @@ export async function setManualZoomForSession(params: {
       };
     }
 
-    // 接触履歴を確保（なければ作成）
-    const contactHistory = await ensureContactHistoryForSession(session.id);
+    // V2 接触履歴を確保（なければ作成）
+    const contactHistoryV2Id = await ensureContactHistoryV2ForSession(session.id);
+    if (!contactHistoryV2Id) {
+      return {
+        ok: false,
+        message:
+          "V2 接触履歴の確保に失敗しました（商談セッションに日時が未設定の可能性があります）",
+      };
+    }
 
-    // 既に primary Recording があるならエラー（運用的には削除してから再入力してもらう）
-    const existingPrimary = await prisma.slpZoomRecording.findFirst({
-      where: {
-        contactHistoryId: contactHistory.id,
-        isPrimary: true,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
+    // 既に primary meeting があるならエラー
+    const existingPrimary = await findV2PrimaryMeetingForSession(session.id);
     if (existingPrimary) {
       return {
         ok: false,
@@ -115,14 +120,28 @@ export async function setManualZoomForSession(params: {
       };
     }
 
-    const recording = await prisma.slpZoomRecording.create({
+    // hostStaffId が指定されていても、Zoom 連携 (StaffZoomAuth) が無ければ
+    // 「連携無しホスト」として扱う (録画自動取得の対象外)。
+    let apiIntegrationStatus: "available" | "unavailable_unlinked_host" = "unavailable_unlinked_host";
+    if (params.hostStaffId) {
+      const zoomAuth = await prisma.staffZoomAuth.findUnique({
+        where: { staffId: params.hostStaffId },
+        select: { id: true },
+      });
+      if (zoomAuth) apiIntegrationStatus = "available";
+    }
+
+    const meeting = await prisma.contactHistoryMeeting.create({
       data: {
-        contactHistoryId: contactHistory.id,
-        zoomMeetingId: meetingIdBig,
-        category: session.category as SessionCategory,
-        hostStaffId: params.hostStaffId,
-        joinUrl: parsed.cleanUrl,
+        contactHistoryId: contactHistoryV2Id,
+        provider: "zoom",
         isPrimary: true,
+        externalMeetingId,
+        joinUrl: parsed.cleanUrl,
+        hostStaffId: params.hostStaffId,
+        urlSource: "manual_entry",
+        urlSetAt: new Date(),
+        apiIntegrationStatus,
         label: params.label?.trim() || null,
         state: "予定",
       },
@@ -130,7 +149,7 @@ export async function setManualZoomForSession(params: {
     });
 
     revalidatePath(`/slp/companies/${session.companyRecordId}`);
-    return { ok: true, recordingId: recording.id };
+    return { ok: true, meetingId: meeting.id };
   } catch (e) {
     return {
       ok: false,

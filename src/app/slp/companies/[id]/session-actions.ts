@@ -143,20 +143,6 @@ export async function getSessionDetail(
       include: {
         assignedStaff: { select: { id: true, name: true } },
         createdByStaff: { select: { id: true, name: true } },
-        contactHistories: {
-          where: { deletedAt: null },
-          orderBy: { createdAt: "asc" },
-          take: 1,
-          include: {
-            zoomRecordings: {
-              where: { deletedAt: null },
-              orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-              include: {
-                hostStaff: { select: { id: true, name: true } },
-              },
-            },
-          },
-        },
       },
     });
 
@@ -164,7 +150,32 @@ export async function getSessionDetail(
       return err("セッションが見つかりません");
     }
 
-    const recordings = session.contactHistories[0]?.zoomRecordings ?? [];
+    // V2 ContactHistoryV2 → meetings 経由で Zoom 情報を取得
+    const ch = await prisma.contactHistoryV2.findFirst({
+      where: {
+        sourceType: "slp_meeting_session",
+        sourceRefId: String(sessionId),
+        deletedAt: null,
+      },
+      include: {
+        meetings: {
+          where: { deletedAt: null },
+          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+          include: {
+            hostStaff: { select: { id: true, name: true } },
+            record: {
+              select: {
+                aiSummary: true,
+                transcriptText: true,
+                recordingUrl: true,
+                recordingPath: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    const meetings = ch?.meetings ?? [];
 
     return ok({
       id: session.id,
@@ -186,23 +197,24 @@ export async function getSessionDetail(
       createdByStaffId: session.createdByStaffId,
       createdByStaffName: session.createdByStaff?.name ?? null,
       createdAt: session.createdAt,
-      zoomRecords: recordings.map(z => ({
-        id: z.id,
-        zoomMeetingId: z.zoomMeetingId.toString(),
-        joinUrl: z.joinUrl,
-        startUrl: z.startUrl,
-        scheduledAt: z.scheduledAt,
-        isPrimary: z.isPrimary,
-        label: z.label,
-        hostStaffId: z.hostStaffId,
-        hostStaffName: z.hostStaff?.name ?? null,
-        // 議事録が「取れている」判定: state=完了 or 何らかの取得物あり
+      zoomRecords: meetings.map((m) => ({
+        id: m.id,
+        zoomMeetingId: m.externalMeetingId ?? "",
+        joinUrl: m.joinUrl ?? "",
+        startUrl: m.startUrl,
+        scheduledAt: m.scheduledStartAt,
+        isPrimary: m.isPrimary,
+        label: m.label,
+        hostStaffId: m.hostStaffId,
+        hostStaffName: m.hostStaff?.name ?? null,
+        // 議事録が「取れている」判定: state=完了 or record の何らかの取得物あり
         hasRecording:
-          z.state === "完了" ||
-          !!z.aiCompanionSummary ||
-          !!z.transcriptText ||
-          !!z.mp4Path,
-        createdAt: z.createdAt,
+          m.state === "完了" ||
+          !!m.record?.aiSummary ||
+          !!m.record?.transcriptText ||
+          !!m.record?.recordingUrl ||
+          !!m.record?.recordingPath,
+        createdAt: m.createdAt,
       })),
     });
   } catch (e) {
@@ -1024,30 +1036,52 @@ export async function checkSessionThankyouAvailability(
       { project: "slp", level: "view" },
     ]);
 
-    const recordings = await prisma.slpZoomRecording.findMany({
+    // V2 ContactHistoryV2 → meetings → record → summaries 経路でチェック
+    const ch = await prisma.contactHistoryV2.findFirst({
       where: {
-        contactHistory: { sessionId },
+        sourceType: "slp_meeting_session",
+        sourceRefId: String(sessionId),
         deletedAt: null,
       },
-      select: {
-        claudeSummary: true,
-        transcriptText: true,
-        aiCompanionSummary: true,
+      include: {
+        meetings: {
+          where: { deletedAt: null },
+          include: {
+            record: {
+              select: {
+                transcriptText: true,
+                aiSummary: true,
+                summaries: {
+                  where: { source: "claude" },
+                  select: { summaryText: true },
+                  orderBy: { version: "desc" },
+                  take: 1,
+                },
+              },
+            },
+          },
+        },
       },
     });
 
-    if (recordings.length === 0) {
+    const records = (ch?.meetings ?? [])
+      .map((m) => m.record)
+      .filter(
+        (r): r is NonNullable<typeof r> => r !== null && r !== undefined,
+      );
+
+    if (records.length === 0) {
       return ok({
         canGenerate: false,
         reason: "このセッションに紐付くZoom録画がまだありません。",
       });
     }
 
-    const hasAnyData = recordings.some(
+    const hasAnyData = records.some(
       (r) =>
-        !!r.claudeSummary ||
+        !!r.summaries?.[0]?.summaryText ||
         !!r.transcriptText ||
-        !!r.aiCompanionSummary
+        !!r.aiSummary,
     );
     if (!hasAnyData) {
       return ok({

@@ -6989,10 +6989,15 @@ model ContactHistoryMeeting {
   scheduledStartAt               DateTime? @map("scheduled_start_at") @db.Timestamptz(6)
   scheduledEndAt                 DateTime? @map("scheduled_end_at") @db.Timestamptz(6)
   state                          String    @default("予定") @db.VarChar(20)
-  // ^ "予定" | "進行中" | "完了" | "失敗" | "取得中"
+  // ^ "予定" | "進行中" | "完了" | "失敗" | "取得中" | "キャンセル"
   apiError                       String?   @map("api_error") @db.Text
   apiErrorAt                     DateTime? @map("api_error_at")
   providerMetadata               Json?     @map("provider_metadata")
+  // SLP 商談セッション経由の通知送信フラグ (二重送信防止用)
+  // V1 SlpZoomRecording の confirmSentAt / remindDaySentAt / remindHourSentAt を V2 階層に持ち上げたもの
+  confirmSentAt                  DateTime? @map("confirm_sent_at")
+  reminderDaySentAt              DateTime? @map("reminder_day_sent_at")
+  reminderHourSentAt             DateTime? @map("reminder_hour_sent_at")
   createdAt                      DateTime  @default(now()) @map("created_at")
   updatedAt                      DateTime  @updatedAt @map("updated_at")
   deletedAt                      DateTime? @map("deleted_at")

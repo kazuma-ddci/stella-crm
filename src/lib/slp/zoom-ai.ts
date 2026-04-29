@@ -229,24 +229,33 @@ export async function generateThankYouSuggestionForSession(params: {
   | { ok: true; text: string; model: string; recordingCount: number }
   | { ok: false; reason: "no_recording" | "no_data"; message: string }
 > {
-  const recordings = await prisma.slpZoomRecording.findMany({
+  // V2 ContactHistoryV2 経由で session に紐付く meetings を取得 (sourceRefId で逆引き)
+  const ch = await prisma.contactHistoryV2.findFirst({
     where: {
-      contactHistory: { sessionId: params.sessionId },
+      sourceType: "slp_meeting_session",
+      sourceRefId: String(params.sessionId),
       deletedAt: null,
     },
     include: {
-      contactHistory: {
+      meetings: {
+        where: { deletedAt: null },
         include: {
-          companyRecord: {
-            select: { companyName: true },
+          record: {
+            include: {
+              summaries: {
+                where: { source: "claude" },
+                orderBy: { version: "desc" },
+                take: 1,
+              },
+            },
           },
         },
+        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
       },
     },
-    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
   });
 
-  if (recordings.length === 0) {
+  if (!ch || ch.meetings.length === 0) {
     return {
       ok: false,
       reason: "no_recording",
@@ -254,21 +263,44 @@ export async function generateThankYouSuggestionForSession(params: {
     };
   }
 
-  // 各録画について最良データを抽出
+  // 商談セッションから companyName / category を取得
+  const session = await prisma.slpMeetingSession.findUnique({
+    where: { id: params.sessionId },
+    include: { companyRecord: { select: { companyName: true } } },
+  });
+  if (!session) {
+    return {
+      ok: false,
+      reason: "no_recording",
+      message: "セッションが見つかりません。",
+    };
+  }
+
+  // 各 meeting について最良データを抽出
+  // 優先順位: Claude生成議事録 (MeetingRecordSummary source="claude")
+  //         > 全文書き起こし (transcriptText 5000字まで)
+  //         > 既存 aiSummary (AI Companion / fallback)
   const summaryParts: string[] = [];
-  for (const r of recordings) {
+  let recordingCount = 0;
+  for (const m of ch.meetings) {
+    if (!m.record) continue;
+    recordingCount++;
+    const claudeSummary = m.record.summaries?.[0]?.summaryText;
+    const aiSummary = m.record.aiSummary;
+    const transcriptText = m.record.transcriptText;
     const best =
-      r.claudeSummary ||
-      r.transcriptText?.slice(0, 5000) ||
-      r.aiCompanionSummary ||
-      "";
+      claudeSummary || transcriptText?.slice(0, 5000) || aiSummary || "";
     if (!best.trim()) continue;
-    const label = r.label
-      ? r.label
-      : r.isPrimary
-        ? "メイン録画"
-        : `追加録画 #${r.id}`;
+    const label = m.label ? m.label : m.isPrimary ? "メイン録画" : `追加録画 #${m.id}`;
     summaryParts.push(`【${label}】\n${best}`);
+  }
+
+  if (recordingCount === 0) {
+    return {
+      ok: false,
+      reason: "no_recording",
+      message: "このセッションに紐付くZoom録画がまだありません。",
+    };
   }
 
   if (summaryParts.length === 0) {
@@ -282,15 +314,12 @@ export async function generateThankYouSuggestionForSession(params: {
 
   const combined = summaryParts.join("\n\n---\n\n");
 
-  // カテゴリは最初の録画（プライマリまたは最古）を採用
-  const firstCategory = recordings[0].category;
   const templateKey =
-    firstCategory === "briefing"
+    session.category === "briefing"
       ? "thankyou_briefing"
       : "thankyou_consultation";
   const tpl = await getPrompt(templateKey);
-  const companyName =
-    recordings[0].contactHistory?.companyRecord?.companyName ?? "";
+  const companyName = session.companyRecord.companyName ?? "";
   const systemPrompt = renderTemplate(tpl.promptBody, {
     事業者名: companyName,
     要約: combined,
@@ -308,6 +337,6 @@ export async function generateThankYouSuggestionForSession(params: {
     ok: true,
     text,
     model: tpl.model,
-    recordingCount: recordings.length,
+    recordingCount,
   };
 }
