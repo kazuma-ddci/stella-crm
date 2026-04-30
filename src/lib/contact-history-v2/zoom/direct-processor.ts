@@ -34,6 +34,7 @@ export async function findV2MeetingByZoomId(
       provider: "zoom",
       externalMeetingId: meetingId.toString(),
       deletedAt: null,
+      contactHistory: { deletedAt: null },
     },
     select: {
       id: true,

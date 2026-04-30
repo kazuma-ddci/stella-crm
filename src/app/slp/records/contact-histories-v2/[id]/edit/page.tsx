@@ -1,4 +1,6 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { loadSlpContactHistoryV2Masters } from "../../load-masters";
 import { getContactHistoryV2ById } from "@/lib/contact-history-v2/loaders";
 import {
@@ -21,6 +23,34 @@ export default async function EditSlpContactHistoryV2Page({ params }: Props) {
     getContactHistoryV2ById(id, { projectCode: "slp" }),
   ]);
   if (!masters || !history) notFound();
+  if (history.sourceType === "slp_meeting_session") {
+    const linkedCompanyId =
+      history.customerParticipants.find((p) => p.targetType === "slp_company_record")
+        ?.targetId ?? null;
+    return (
+      <div className="max-w-2xl space-y-4">
+        <h1 className="text-2xl font-bold">商談連動の接触履歴です</h1>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          この接触履歴は企業詳細の商談タブから自動作成されています。
+          日時・担当者・削除は商談タブ側で操作してください。
+        </div>
+        <div className="flex gap-2">
+          {linkedCompanyId && (
+            <Button asChild>
+              <Link href={`/slp/companies/${linkedCompanyId}`}>
+                企業詳細の商談タブへ戻る
+              </Link>
+            </Button>
+          )}
+          <Button asChild variant="outline">
+            <Link href={`/slp/records/contact-histories-v2/${history.id}`}>
+              詳細へ戻る
+            </Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   // フォームの initial を構築
   const hostStaff = history.staffParticipants.find((p) => p.isHost);

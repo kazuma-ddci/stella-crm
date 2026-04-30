@@ -36,6 +36,8 @@ const TRIGGER_ORDER = [
   "remind_hour_before",
   "confirm_no_url",
   "change_no_url",
+  "remind_day_before_no_url",
+  "remind_hour_before_no_url",
   "regenerated_manual_notice",
   // 紹介ライフサイクル
   "friend_added",
@@ -55,6 +57,8 @@ const TRIGGER_LABELS: Record<string, string> = {
   remind_hour_before: "リマインド（1時間前）",
   confirm_no_url: "予約確定（URLなし）",
   change_no_url: "予約変更（URLなし）",
+  remind_day_before_no_url: "リマインド（前日・URLなし）",
+  remind_hour_before_no_url: "リマインド（1時間前・URLなし）",
   regenerated_manual_notice: "Zoom再発行のお知らせ",
   friend_added: "友達追加通知",
   contract_signed: "契約締結通知",

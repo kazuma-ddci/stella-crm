@@ -16,9 +16,9 @@ import { logAutomationError } from "@/lib/automation-error";
  * 失敗時は throw せず、meeting.apiError / apiErrorAt に記録してスキップする
  * (ユーザーは後で再発行ボタンから再試行できる)。
  *
- * SLP/HOJO の併走期間中は、発行成功した V2 meeting に対応する V1 Recording
- * (slpZoomRecording / hojoZoomRecording) も作成して、Webhook・cron・既存手動
- * 取得ボタン等の V1 経路も動き続けるようにする。
+ * HOJO の併走期間中は、発行成功した V2 meeting に対応する V1 Recording
+ * (hojoZoomRecording) も作成して、既存経路も動き続けるようにする。
+ * SLP は商談セッション周辺を V2 階層へ完全移行したため、V1 Recording は作成しない。
  */
 export async function provisionZoomMeetingsForContactHistory(params: {
   contactHistoryId: number;
@@ -88,21 +88,10 @@ export async function provisionZoomMeetingsForContactHistory(params: {
         },
       });
 
-      // V1 併走: SLP/HOJO の場合のみ V1 Recording も作成
+      // V1 併走: HOJO の場合のみ V1 Recording も作成。
+      // SLP は V1 SlpZoomRecording を新規作成しない。
       const projectCode = meeting.contactHistory.project.code;
-      if (projectCode === "slp") {
-        await createSlpZoomRecordingIfMissing({
-          contactHistoryId,
-          externalMeetingId: BigInt(resp.id),
-          hostStaffId,
-          joinUrl: resp.join_url,
-          startUrl: resp.start_url ?? null,
-          passcode: resp.password ?? null,
-          scheduledAt: scheduledStart,
-          isPrimary: meeting.isPrimary,
-          label: meeting.label,
-        });
-      } else if (projectCode === "hojo") {
+      if (projectCode === "hojo") {
         await createHojoZoomRecordingIfMissing({
           contactHistoryId,
           externalMeetingId: BigInt(resp.id),
@@ -140,59 +129,8 @@ export async function provisionZoomMeetingsForContactHistory(params: {
 }
 
 // ============================================================================
-// V1 併走: slpZoomRecording / hojoZoomRecording の並行作成
+// V1 併走: hojoZoomRecording の並行作成
 // ============================================================================
-
-async function createSlpZoomRecordingIfMissing(params: {
-  contactHistoryId: number;
-  externalMeetingId: bigint;
-  hostStaffId: number;
-  joinUrl: string;
-  startUrl: string | null;
-  passcode: string | null;
-  scheduledAt: Date | null;
-  isPrimary: boolean;
-  label: string | null;
-}): Promise<void> {
-  // V2 contactHistoryId から legacyId (SLP) を解決
-  // 移行元の SlpContactHistory は sourceRefId="slp:<id>" で紐付くが、ここでは新規発行
-  // なので V1 側にもセッション/接触履歴を作るのではなく、V1 recording のみを
-  // 作成する。zoomMeetingId ユニーク制約があるため upsert 相当の挙動にする。
-  const existing = await prisma.slpZoomRecording.findUnique({
-    where: { zoomMeetingId: params.externalMeetingId },
-    select: { id: true },
-  });
-  if (existing) return;
-
-  // V1 SlpContactHistory を特定 (ContactHistoryV2.sourceRefId="slp:<legacyId>")
-  const v2 = await prisma.contactHistoryV2.findUnique({
-    where: { id: params.contactHistoryId },
-    select: { sourceRefId: true },
-  });
-  const legacyMatch = v2?.sourceRefId?.match(/^slp:(\d+)$/);
-  if (!legacyMatch) {
-    // V2 新規作成時はまだ V1 連携を作らない。Phase B3.x で V1 レコードを
-    // V2→V1 方向に作る仕組みを追加する場合にここを拡張。
-    return;
-  }
-
-  const legacyId = parseInt(legacyMatch[1], 10);
-  await prisma.slpZoomRecording.create({
-    data: {
-      contactHistoryId: legacyId,
-      zoomMeetingId: params.externalMeetingId,
-      category: "briefing",
-      hostStaffId: params.hostStaffId,
-      joinUrl: params.joinUrl,
-      startUrl: params.startUrl,
-      password: params.passcode,
-      scheduledAt: params.scheduledAt,
-      isPrimary: params.isPrimary,
-      label: params.label,
-      state: "予定",
-    },
-  });
-}
 
 async function createHojoZoomRecordingIfMissing(params: {
   contactHistoryId: number;
@@ -329,27 +267,8 @@ export async function recreateZoomWithNewHostForV2Meeting(params: {
   if (meeting.deletedAt) return { ok: false, reason: "meeting_deleted" };
   if (meeting.provider !== "zoom") return { ok: false, reason: "not_zoom" };
 
-  // 1. 旧 Zoom を削除 (失敗してもログだけ残して続行)
-  if (meeting.externalMeetingId && meeting.hostStaffId) {
-    try {
-      await deleteZoomMeeting({
-        hostStaffId: meeting.hostStaffId,
-        meetingId: BigInt(meeting.externalMeetingId),
-      });
-    } catch (err) {
-      await logAutomationError({
-        source: "contact-history-v2-zoom-recreate-delete-old",
-        message: `旧 Zoom 削除失敗 (続行): meeting=${meeting.id}`,
-        detail: {
-          meetingId: meeting.id,
-          oldHostStaffId: meeting.hostStaffId,
-          error: err instanceof Error ? err.message : String(err),
-        },
-      });
-    }
-  }
-
-  // 2. 新 Zoom を発行
+  // 新 Zoom の発行に成功してから旧 Zoom を削除する。
+  // 新ホスト未連携などで失敗した場合、既存URLを壊さない。
   const scheduledStart =
     meeting.scheduledStartAt ?? meeting.contactHistory.scheduledStartAt;
   const topic = (
@@ -364,6 +283,26 @@ export async function recreateZoomWithNewHostForV2Meeting(params: {
       startAtJst: scheduledStart,
       durationMinutes: 60,
     });
+
+    if (meeting.externalMeetingId && meeting.hostStaffId) {
+      try {
+        await deleteZoomMeeting({
+          hostStaffId: meeting.hostStaffId,
+          meetingId: BigInt(meeting.externalMeetingId),
+        });
+      } catch (err) {
+        await logAutomationError({
+          source: "contact-history-v2-zoom-recreate-delete-old",
+          message: `旧 Zoom 削除失敗 (続行): meeting=${meeting.id}`,
+          detail: {
+            meetingId: meeting.id,
+            oldHostStaffId: meeting.hostStaffId,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        });
+      }
+    }
+
     await prisma.contactHistoryMeeting.update({
       where: { id: meeting.id },
       data: {
@@ -442,5 +381,20 @@ export async function cancelZoomMeetingsForContactHistory(params: {
         },
       });
     }
+  }
+
+  if (meetings.length > 0) {
+    await prisma.contactHistoryMeeting.updateMany({
+      where: {
+        id: { in: meetings.map((m) => m.id) },
+      },
+      data: {
+        state: "キャンセル",
+        externalMeetingId: null,
+        externalMeetingUuid: null,
+        apiError: "Zoom会議はキャンセル/削除処理で無効化されました",
+        apiErrorAt: new Date(),
+      },
+    });
   }
 }

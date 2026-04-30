@@ -39,7 +39,6 @@ async function findV2PrimaryMeetingsForReminder(params: {
       isPrimary: true,
       provider: "zoom",
       deletedAt: null,
-      joinUrl: { not: null },
       [params.field]: null,
       scheduledStartAt: { gte: params.scheduledFrom, lte: params.scheduledTo },
       contactHistory: {
@@ -50,6 +49,9 @@ async function findV2PrimaryMeetingsForReminder(params: {
     },
     select: {
       id: true,
+      joinUrl: true,
+      apiError: true,
+      scheduledStartAt: true,
       contactHistory: {
         select: {
           sourceRefId: true,
@@ -65,7 +67,11 @@ async function findV2PrimaryMeetingsForReminder(params: {
  */
 async function sendReminderToAllCustomers(
   sessionId: number,
-  trigger: "remind_day_before" | "remind_hour_before",
+  trigger:
+    | "remind_day_before"
+    | "remind_hour_before"
+    | "remind_day_before_no_url"
+    | "remind_hour_before_no_url",
 ): Promise<{ sent: boolean }> {
   const lineFriendIds = await getNotifiableCustomerLineFriendIds(sessionId);
 
@@ -116,6 +122,19 @@ async function sendReminderToAllCustomers(
   return { sent: anySucceeded };
 }
 
+async function isReminderSessionStillActive(
+  sessionId: number,
+  scheduledStartAt: Date | null,
+): Promise<boolean> {
+  const session = await prisma.slpMeetingSession.findUnique({
+    where: { id: sessionId },
+    select: { status: true, deletedAt: true, scheduledAt: true },
+  });
+  if (!session || session.deletedAt || session.status !== "予約中") return false;
+  if (!scheduledStartAt || !session.scheduledAt) return false;
+  return session.scheduledAt.getTime() === scheduledStartAt.getTime();
+}
+
 /**
  * sourceRefId (string) から sessionId (number) に変換。invalid なら null。
  */
@@ -133,7 +152,8 @@ function parseSessionId(sourceRefId: string | null | undefined): number | null {
  *  1) 「前日10:00」リマインド対象を抽出して送信
  *  2) 「開始1時間前」リマインド対象を抽出して送信
  *
- * 抽出対象: 「予約中」セッション × V2 primary ContactHistoryMeeting あり × join_url あり × 未送信
+   * 抽出対象: 「予約中」セッション × V2 primary ContactHistoryMeeting あり × 未送信
+   * joinUrl が未発行の場合は URLなしリマインド文面を使う。
  */
 export async function runSlpZoomReminderJob(now: Date = new Date()): Promise<{
   dayBeforeProcessed: number;
@@ -159,9 +179,12 @@ export async function runSlpZoomReminderJob(now: Date = new Date()): Promise<{
     for (const m of meetings) {
       const sessionId = parseSessionId(m.contactHistory?.sourceRefId);
       if (!sessionId) continue;
+      if (!(await isReminderSessionStillActive(sessionId, m.scheduledStartAt))) {
+        continue;
+      }
       const { sent } = await sendReminderToAllCustomers(
         sessionId,
-        "remind_day_before",
+        m.joinUrl && !m.apiError ? "remind_day_before" : "remind_day_before_no_url",
       );
       if (sent) {
         await prisma.contactHistoryMeeting.update({
@@ -189,9 +212,12 @@ export async function runSlpZoomReminderJob(now: Date = new Date()): Promise<{
   for (const m of hourMeetings) {
     const sessionId = parseSessionId(m.contactHistory?.sourceRefId);
     if (!sessionId) continue;
+    if (!(await isReminderSessionStillActive(sessionId, m.scheduledStartAt))) {
+      continue;
+    }
     const { sent } = await sendReminderToAllCustomers(
       sessionId,
-      "remind_hour_before",
+      m.joinUrl && !m.apiError ? "remind_hour_before" : "remind_hour_before_no_url",
     );
     if (sent) {
       await prisma.contactHistoryMeeting.update({

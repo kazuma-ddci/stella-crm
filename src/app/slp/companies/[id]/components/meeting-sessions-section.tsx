@@ -105,35 +105,6 @@ export async function MeetingSessionsSection({
         createdByStaff: { select: { name: true } },
         bookerContact: { select: { id: true, name: true } },
         notifyOverrides: { select: { contactId: true } },
-        // 新設計: Zoom情報は ContactHistory 配下の ZoomRecording に集約
-        contactHistories: {
-          where: { deletedAt: null },
-          orderBy: { createdAt: "asc" },
-          take: 1,
-          include: {
-            zoomRecordings: {
-              where: { deletedAt: null },
-              orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-              include: {
-                hostStaff: {
-                  select: {
-                    id: true,
-                    name: true,
-                    meetingIntegrations: {
-                      where: { provider: "zoom", disconnectedAt: null },
-                      select: { id: true },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-        _count: {
-          select: {
-            contactHistories: { where: { deletedAt: null } },
-          },
-        },
       },
     }),
     prisma.slpMeetingSession.count({
@@ -204,28 +175,74 @@ export async function MeetingSessionsSection({
 
   const briefing: SessionSummaryForUI[] = [];
   const consultation: SessionSummaryForUI[] = [];
+  const sessionIds = sessions.map((s) => String(s.id));
+  const v2ContactHistories =
+    sessionIds.length > 0
+      ? await prisma.contactHistoryV2.findMany({
+          where: {
+            sourceType: "slp_meeting_session",
+            sourceRefId: { in: sessionIds },
+            deletedAt: null,
+          },
+          include: {
+            meetings: {
+              where: { deletedAt: null },
+              orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+              include: {
+                hostStaff: {
+                  select: {
+                    id: true,
+                    name: true,
+                    meetingIntegrations: {
+                      where: { provider: "zoom", disconnectedAt: null },
+                      select: { id: true },
+                    },
+                  },
+                },
+                record: {
+                  select: {
+                    aiSummary: true,
+                    transcriptText: true,
+                    recordingUrl: true,
+                    recordingPath: true,
+                  },
+                },
+              },
+            },
+          },
+        })
+      : [];
+  const v2BySessionId = new Map<string, typeof v2ContactHistories>();
+  for (const ch of v2ContactHistories) {
+    if (!ch.sourceRefId) continue;
+    const rows = v2BySessionId.get(ch.sourceRefId) ?? [];
+    rows.push(ch);
+    v2BySessionId.set(ch.sourceRefId, rows);
+  }
 
   for (const s of sessions) {
-    const recordings = s.contactHistories[0]?.zoomRecordings ?? [];
-    const zooms: SessionZoomForUI[] = recordings.map((z) => ({
-      id: z.id,
-      zoomMeetingId: z.zoomMeetingId.toString(),
-      joinUrl: z.joinUrl,
-      startUrl: z.startUrl,
-      scheduledAt: z.scheduledAt?.toISOString() ?? null,
-      isPrimary: z.isPrimary,
-      label: z.label,
-      hostStaffId: z.hostStaff?.id ?? null,
-      hostStaffName: z.hostStaff?.name ?? null,
+    const linkedV2Histories = v2BySessionId.get(String(s.id)) ?? [];
+    const meetings = linkedV2Histories.flatMap((ch) => ch.meetings);
+    const zooms: SessionZoomForUI[] = meetings.map((m) => ({
+      id: m.id,
+      zoomMeetingId: m.externalMeetingId ?? "",
+      joinUrl: m.joinUrl ?? "",
+      startUrl: m.startUrl,
+      scheduledAt: m.scheduledStartAt?.toISOString() ?? null,
+      isPrimary: m.isPrimary,
+      label: m.label,
+      hostStaffId: m.hostStaffId,
+      hostStaffName: m.hostStaff?.name ?? null,
       hostIntegrationActive:
-        !!z.hostStaff && (z.hostStaff.meetingIntegrations?.length ?? 0) > 0,
+        !!m.hostStaff && (m.hostStaff.meetingIntegrations?.length ?? 0) > 0,
       hasRecording:
-        z.state === "完了" ||
-        !!z.aiCompanionSummary ||
-        !!z.transcriptText ||
-        !!z.mp4Path,
-      zoomError: z.zoomApiError ?? null,
-      zoomErrorAt: z.zoomApiErrorAt?.toISOString() ?? null,
+        m.state === "完了" ||
+        !!m.record?.aiSummary ||
+        !!m.record?.transcriptText ||
+        !!m.record?.recordingUrl ||
+        !!m.record?.recordingPath,
+      zoomError: m.apiError ?? null,
+      zoomErrorAt: m.apiErrorAt?.toISOString() ?? null,
     }));
     const summary: SessionSummaryForUI = {
       id: s.id,
@@ -249,7 +266,7 @@ export async function MeetingSessionsSection({
       createdAt: s.createdAt.toISOString(),
       zooms,
       hasRecording: zooms.some((z) => z.hasRecording),
-      contactHistoriesCount: s._count.contactHistories,
+      contactHistoriesCount: linkedV2Histories.length,
       bookerContactId: s.bookerContact?.id ?? null,
       bookerContactName: s.bookerContact?.name ?? null,
       hasNotifyOverride: s.notifyOverrides.length > 0,

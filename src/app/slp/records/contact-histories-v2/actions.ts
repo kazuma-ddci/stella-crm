@@ -249,9 +249,14 @@ export async function updateContactHistoryV2(
   // 存在確認 + プロジェクトチェック
   const existing = await prisma.contactHistoryV2.findFirst({
     where: { id, projectId, deletedAt: null },
-    select: { id: true, status: true },
+    select: { id: true, status: true, sourceType: true },
   });
   if (!existing) return err("対象の接触履歴が見つかりません");
+  if (existing.sourceType === "slp_meeting_session") {
+    return err(
+      "商談セッションに連動している接触履歴は、この画面から直接編集できません。企業詳細の商談タブから変更してください。"
+    );
+  }
 
   try {
     const scheduledStartAt = new Date(input.scheduledStartAt);
@@ -440,9 +445,14 @@ export async function deleteContactHistoryV2(
   const projectId = await resolveSlpProjectId();
   const existing = await prisma.contactHistoryV2.findFirst({
     where: { id, projectId, deletedAt: null },
-    select: { id: true, status: true },
+    select: { id: true, status: true, sourceType: true },
   });
   if (!existing) return err("対象の接触履歴が見つかりません");
+  if (existing.sourceType === "slp_meeting_session") {
+    return err(
+      "商談セッションに連動している接触履歴は、この画面から直接削除できません。企業詳細の商談タブから操作してください。"
+    );
+  }
 
   try {
     await cancelZoomMeetingsForContactHistory({ contactHistoryId: id });
@@ -459,4 +469,3 @@ export async function deleteContactHistoryV2(
     return err(e instanceof Error ? e.message : "削除に失敗しました");
   }
 }
-

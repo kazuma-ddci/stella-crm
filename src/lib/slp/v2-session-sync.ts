@@ -22,6 +22,13 @@ async function getSlpProjectId(): Promise<number | null> {
   return project?.id ?? null;
 }
 
+function contactStatusForSessionStatus(status: string): string | null {
+  if (status === "予約中") return "scheduled";
+  if (status === "完了") return "completed";
+  if (status === "キャンセル" || status === "飛び") return "cancelled";
+  return null;
+}
+
 function makeTitle(companyName: string | null, category: string, roundNumber: number): string {
   const categoryName = category === "briefing" ? "概要案内" : "導入希望商談";
   const company = companyName ?? "（企業名未設定）";
@@ -60,7 +67,6 @@ export async function ensureContactHistoryV2ForSession(sessionId: number): Promi
       where: {
         sourceType: SOURCE_TYPE,
         sourceRefId: String(sessionId),
-        deletedAt: null,
       },
       include: {
         staffParticipants: true,
@@ -103,7 +109,6 @@ export async function ensureContactHistoryV2ForSession(sessionId: number): Promi
           where: {
             sourceType: SOURCE_TYPE,
             sourceRefId: String(sessionId),
-            deletedAt: null,
           },
           select: { id: true },
         });
@@ -118,6 +123,9 @@ export async function ensureContactHistoryV2ForSession(sessionId: number): Promi
       scheduledStartAt?: Date;
       contactCategoryId?: number | null;
       status?: string;
+      deletedAt?: Date | null;
+      cancelledAt?: Date | null;
+      cancelledReason?: string | null;
     } = {};
     if (existing.title !== title) updates.title = title;
     if (existing.scheduledStartAt.getTime() !== session.scheduledAt.getTime()) {
@@ -126,10 +134,12 @@ export async function ensureContactHistoryV2ForSession(sessionId: number): Promi
     if (existing.contactCategoryId !== (category?.id ?? null)) {
       updates.contactCategoryId = category?.id ?? null;
     }
-    // セッションが予約中に戻ったときは V2 status も scheduled に戻す
-    const reactivating = existing.status === "cancelled" || existing.status === "completed";
-    if (reactivating) {
-      updates.status = "scheduled";
+    const nextStatus = contactStatusForSessionStatus(session.status);
+    if (nextStatus && existing.status !== nextStatus) {
+      updates.status = nextStatus;
+    }
+    if (existing.deletedAt) {
+      updates.deletedAt = null;
     }
     if (Object.keys(updates).length > 0) {
       await prisma.contactHistoryV2.update({
@@ -365,12 +375,61 @@ export async function cancelV2ForSession(sessionId: number, reason?: string): Pr
       data: {
         state: "キャンセル",
         deletedAt: new Date(),
+        externalMeetingId: null,
+        externalMeetingUuid: null,
       },
     });
   } catch (e) {
     await logAutomationError({
       source: "slp-v2-sync-cancel",
       message: `V2 接触履歴のキャンセル反映失敗: sessionId=${sessionId}`,
+      detail: { error: e instanceof Error ? e.message : String(e) },
+    });
+  }
+}
+
+/**
+ * 商談セッションの論理削除/未予約戻しに伴い、V2 接触履歴も画面・cron 対象から外す。
+ * 会議IDは一意制約再利用のため null 化し、親 V2 は deletedAt を立てる。
+ */
+export async function deleteV2ForSession(sessionId: number, reason?: string): Promise<void> {
+  try {
+    const ch = await prisma.contactHistoryV2.findFirst({
+      where: {
+        sourceType: SOURCE_TYPE,
+        sourceRefId: String(sessionId),
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!ch) return;
+
+    await prisma.contactHistoryMeeting.updateMany({
+      where: {
+        contactHistoryId: ch.id,
+        deletedAt: null,
+      },
+      data: {
+        state: "キャンセル",
+        deletedAt: new Date(),
+        externalMeetingId: null,
+        externalMeetingUuid: null,
+      },
+    });
+
+    await prisma.contactHistoryV2.update({
+      where: { id: ch.id },
+      data: {
+        status: "cancelled",
+        cancelledAt: new Date(),
+        cancelledReason: reason ?? null,
+        deletedAt: new Date(),
+      },
+    });
+  } catch (e) {
+    await logAutomationError({
+      source: "slp-v2-sync-delete",
+      message: `V2 接触履歴の削除反映失敗: sessionId=${sessionId}`,
       detail: { error: e instanceof Error ? e.message : String(e) },
     });
   }

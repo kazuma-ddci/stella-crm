@@ -23,17 +23,22 @@ import { formatJstDateTime } from "@/lib/zoom/templates";
 import { logAutomationError } from "@/lib/automation-error";
 import { roundTypeOf } from "@/lib/slp/session-helper";
 import { resolveProlineStaffName } from "@/lib/slp/proline-staff-name";
+import { findV2PrimaryMeetingForSession } from "@/lib/slp/v2-session-sync";
 import type { SessionCategory } from "@/lib/slp/session-helper";
 
 export type NotificationRecipient = "customer" | "referrer" | "member";
 export type NotificationTrigger =
   | "confirm"
+  | "confirm_no_url"
   | "change"
+  | "change_no_url"
   | "cancel"
   | "complete"
   | "no_show"
   | "remind_day_before"
+  | "remind_day_before_no_url"
   | "remind_hour_before"
+  | "remind_hour_before_no_url"
   // 紹介ライフサイクル系（セッション非依存、紹介者通知専用）
   | "friend_added"
   | "contract_signed"
@@ -129,20 +134,6 @@ export async function sendSessionNotification(
         },
       },
       assignedStaff: { select: { id: true, name: true } },
-      contactHistories: {
-        where: { deletedAt: null },
-        orderBy: { createdAt: "asc" },
-        take: 1,
-        select: {
-          id: true,
-          zoomRecordings: {
-            where: { deletedAt: null, isPrimary: true },
-            orderBy: { createdAt: "desc" },
-            take: 1,
-            select: { joinUrl: true },
-          },
-        },
-      },
     },
   });
 
@@ -255,14 +246,14 @@ export async function sendSessionNotification(
   }
 
   // 変数準備（空白時は一律「(データの取得に失敗しました)」に置換）
-  const primaryRecording = session.contactHistories[0]?.zoomRecordings[0];
+  const primaryMeeting = await findV2PrimaryMeetingForSession(session.id);
   const vars: NotificationRenderVars = {
     companyName: orFallback(session.companyRecord.companyName),
     scheduledAt: orFallback(
       session.scheduledAt ? formatJstDateTime(session.scheduledAt) : null
     ),
     staffName: orFallback(resolvedStaffName),
-    zoomUrl: orFallback(primaryRecording?.joinUrl),
+    zoomUrl: orFallback(primaryMeeting?.joinUrl),
     referrerName: orFallback(resolvedReferrerName),
     roundNumber: String(session.roundNumber),
   };

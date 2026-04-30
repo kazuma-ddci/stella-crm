@@ -22,6 +22,10 @@ export default async function SlpContactHistoryV2DetailPage({ params }: Props) {
 
   const history = await getContactHistoryV2ById(id, { projectCode: "slp" });
   if (!history) notFound();
+  const isSessionLinked = history.sourceType === "slp_meeting_session";
+  const linkedCompanyId =
+    history.customerParticipants.find((p) => p.targetType === "slp_company_record")
+      ?.targetId ?? null;
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -49,12 +53,32 @@ export default async function SlpContactHistoryV2DetailPage({ params }: Props) {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link href={`/slp/records/contact-histories-v2/${history.id}/edit`}>
-            <Button variant="outline">編集</Button>
-          </Link>
-          <DeleteContactHistoryButton id={history.id} />
+          {!isSessionLinked && (
+            <>
+              <Link href={`/slp/records/contact-histories-v2/${history.id}/edit`}>
+                <Button variant="outline">編集</Button>
+              </Link>
+              <DeleteContactHistoryButton id={history.id} />
+            </>
+          )}
         </div>
       </div>
+
+      {isSessionLinked && (
+        <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          この接触履歴は企業詳細の商談タブから自動作成されたものです。日時・担当者・削除は商談タブ側で操作してください。
+          {linkedCompanyId && (
+            <div className="mt-2">
+              <Link
+                href={`/slp/companies/${linkedCompanyId}`}
+                className="font-medium text-amber-950 underline"
+              >
+                企業詳細の商談タブへ戻る
+              </Link>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* 基本情報 */}
       <section className="rounded-lg border bg-white p-4 space-y-3">

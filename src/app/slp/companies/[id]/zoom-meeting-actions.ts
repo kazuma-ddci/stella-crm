@@ -66,6 +66,7 @@ export async function setManualZoomForSession(params: {
         id: true,
         companyRecordId: true,
         category: true,
+        scheduledAt: true,
         deletedAt: true,
       },
     });
@@ -124,11 +125,18 @@ export async function setManualZoomForSession(params: {
     // 「連携無しホスト」として扱う (録画自動取得の対象外)。
     let apiIntegrationStatus: "available" | "unavailable_unlinked_host" = "unavailable_unlinked_host";
     if (params.hostStaffId) {
-      const zoomAuth = await prisma.staffZoomAuth.findUnique({
-        where: { staffId: params.hostStaffId },
-        select: { id: true },
+      const integration = await prisma.staffMeetingIntegration.findUnique({
+        where: {
+          staffId_provider: {
+            staffId: params.hostStaffId,
+            provider: "zoom",
+          },
+        },
+        select: { disconnectedAt: true },
       });
-      if (zoomAuth) apiIntegrationStatus = "available";
+      if (integration && !integration.disconnectedAt) {
+        apiIntegrationStatus = "available";
+      }
     }
 
     const meeting = await prisma.contactHistoryMeeting.create({
@@ -143,6 +151,7 @@ export async function setManualZoomForSession(params: {
         urlSetAt: new Date(),
         apiIntegrationStatus,
         label: params.label?.trim() || null,
+        scheduledStartAt: session.scheduledAt,
         state: "予定",
       },
       select: { id: true },

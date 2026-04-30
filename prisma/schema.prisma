@@ -6862,6 +6862,7 @@ model ContactHistoryV2 {
   @@index([deletedAt])
   @@index([recurringSeriesId])
   @@index([parentContactHistoryId])
+  @@unique([sourceType, sourceRefId], map: "contact_histories_v2_source_type_source_ref_id_key")
   @@index([sourceType, sourceRefId], map: "idx_contact_histories_v2_source")
   @@map("contact_histories_v2")
 }

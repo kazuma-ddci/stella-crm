@@ -17,10 +17,11 @@ import {
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FileDisplay } from "@/components/multi-file-upload";
-import { getSlpContactHistoriesBySession } from "@/app/slp/contact-histories/actions";
+import Link from "next/link";
+import { getV2ContactHistoriesBySession } from "../session-actions";
 
 type ContactHistoryRow = Awaited<
-  ReturnType<typeof getSlpContactHistoriesBySession>
+  ReturnType<typeof getV2ContactHistoriesBySession>
 >[number];
 
 function formatJstDateTime(iso: string | null | undefined): string {
@@ -48,7 +49,6 @@ export function SessionContactHistoriesModal({
   onOpenChange,
   sessionId,
   titleLabel,
-  staffOptions,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [histories, setHistories] = useState<ContactHistoryRow[]>([]);
@@ -58,10 +58,13 @@ export function SessionContactHistoriesModal({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setSelectedId("");
-    getSlpContactHistoriesBySession(sessionId)
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setLoading(true);
+      setError(null);
+      setSelectedId("");
+    });
+    getV2ContactHistoriesBySession(sessionId)
       .then((rows) => {
         if (cancelled) return;
         setHistories(rows);
@@ -83,28 +86,6 @@ export function SessionContactHistoriesModal({
     () => histories.find((h) => String(h.id) === selectedId) ?? null,
     [histories, selectedId]
   );
-
-  const staffNameMap = useMemo(() => {
-    const m = new Map<string, string>();
-    staffOptions.forEach((s) => m.set(String(s.id), s.name));
-    return m;
-  }, [staffOptions]);
-
-  const assignedNames = (csv: string | null): string => {
-    if (!csv) return "—";
-    return csv
-      .split(",")
-      .map((id) => id.trim())
-      .filter(Boolean)
-      .map((id) => staffNameMap.get(id) ?? `#${id}`)
-      .join("、");
-  };
-
-  const customerTypeNames = (h: ContactHistoryRow): string =>
-    (h.customerTypes ?? [])
-      .map((ct) => ct.name)
-      .filter(Boolean)
-      .join("、") || "—";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -178,7 +159,11 @@ export function SessionContactHistoriesModal({
                 </div>
                 <div>
                   <span className="text-muted-foreground">プロジェクト・顧客種別:</span>
-                  <span className="ml-2">{customerTypeNames(current)}</span>
+                  <span className="ml-2">
+                    {current.customerLabels.length > 0
+                      ? current.customerLabels.join("、")
+                      : "—"}
+                  </span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">接触種別:</span>
@@ -186,12 +171,16 @@ export function SessionContactHistoriesModal({
                 </div>
                 <div>
                   <span className="text-muted-foreground">担当者:</span>
-                  <span className="ml-2">{assignedNames(current.assignedTo)}</span>
+                  <span className="ml-2">
+                    {current.staffNames.length > 0 ? current.staffNames.join("、") : "—"}
+                  </span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">先方参加者:</span>
                   <span className="ml-2">
-                    {current.customerParticipants ?? "—"}
+                    {current.customerLabels.length > 0
+                      ? current.customerLabels.join("、")
+                      : "—"}
                   </span>
                 </div>
               </div>
@@ -220,6 +209,14 @@ export function SessionContactHistoriesModal({
                   <FileDisplay files={current.files} />
                 </div>
               )}
+
+              <div className="pt-2">
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/slp/records/contact-histories-v2/${current.id}`}>
+                    V2接触履歴を開く
+                  </Link>
+                </Button>
+              </div>
             </div>
           )}
         </div>

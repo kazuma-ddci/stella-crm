@@ -24,6 +24,7 @@ import {
 } from "@/lib/slp/session-helper";
 import {
   completeV2ForSession,
+  deleteV2ForSession,
   ensureContactHistoryV2ForSession,
 } from "@/lib/slp/v2-session-sync";
 
@@ -68,17 +69,24 @@ export async function handleSessionReservationSideEffects(
   params: SessionReservationSideEffectsParams
 ): Promise<void> {
   const issueZoom = params.issueZoom ?? true;
+  let customerTrigger: NotificationTrigger = params.triggerReason;
 
-  // 1. Zoom発行（接触履歴配下の primary SlpZoomRecording に URL情報を保存）
+  // 1. Zoom発行（V2 ContactHistoryMeeting に URL情報を保存）
   // お客様通知は後続のステップ2で送るため、ここではskip
   if (issueZoom) {
     try {
-      await ensureZoomMeetingForSession({
+      const zoomResult = await ensureZoomMeetingForSession({
         sessionId: params.sessionId,
         triggerReason: params.triggerReason,
         skipCustomerNotification: true,
       });
+      if (!zoomResult.urlAvailable) {
+        customerTrigger =
+          params.triggerReason === "confirm" ? "confirm_no_url" : "change_no_url";
+      }
     } catch (e) {
+      customerTrigger =
+        params.triggerReason === "confirm" ? "confirm_no_url" : "change_no_url";
       await logAutomationError({
         source: "slp-session-reservation-zoom",
         message: `Zoom発行失敗: sessionId=${params.sessionId}`,
@@ -88,7 +96,7 @@ export async function handleSessionReservationSideEffects(
   }
 
   // 2. お客様通知（予約者 + フラグONの担当者 or 個別設定のコンタクトに全員送信）
-  await safeNotifyAllCustomers(params.sessionId, params.triggerReason);
+  await safeNotifyAllCustomers(params.sessionId, customerTrigger);
 
   // 3. 紹介者通知（概要案内1回目 × notifyReferrer=true の場合のみ）
   if (
@@ -139,7 +147,12 @@ export async function handleSessionStatusChangeSideEffects(
 ): Promise<void> {
   const session = await prisma.slpMeetingSession.findUnique({
     where: { id: params.sessionId },
-    select: { roundNumber: true },
+    select: {
+      companyRecordId: true,
+      category: true,
+      roundNumber: true,
+      source: true,
+    },
   });
   if (!session) return;
 
@@ -148,8 +161,20 @@ export async function handleSessionStatusChangeSideEffects(
     return;
   }
 
-  // 未予約への変更は通知しない
-  if (params.newStatus === "未予約") return;
+  // 未予約へ戻す: 予約済みの Zoom / V2 接触履歴は無効化し、通知は送らない
+  if (params.newStatus === "未予約") {
+    try {
+      await cancelZoomMeetingForSession({ sessionId: params.sessionId });
+      await deleteV2ForSession(params.sessionId, "未予約へ戻したため");
+    } catch (e) {
+      await logAutomationError({
+        source: "slp-session-pending-zoom-cancel",
+        message: `未予約戻し時のZoom/V2削除失敗: sessionId=${params.sessionId}`,
+        detail: { error: e instanceof Error ? e.message : String(e) },
+      });
+    }
+    return;
+  }
 
   // 完了 → 通知は completeSessionAndNotify (manual modal) 側で実施するため、ここでは通知を送らない
   // Zoom会議は残す（議事録紐付けのため）。V2 接触履歴は status="completed" に同期する。
@@ -190,13 +215,20 @@ export async function handleSessionStatusChangeSideEffects(
   }
 
   // 予約中へ戻した場合（完了/キャンセル/飛び → 予約中）
-  // Zoom会議は既存primary Zoomが論理削除されていれば再発行が必要
-  // UIから「予約中へ昇格」は未予約からのみで、ステータスロールバック時は
-  // スタッフが明示的にZoom再発行ボタンを使う運用前提のため、ここでは通知のみ
+  // キャンセル/飛びで無効化した Zoom URL は再利用せず、新しく発行してから通知する。
   if (params.newStatus === "予約中") {
-    // V2 接触履歴の status を "scheduled" に戻す（cancelled / completed からの巻き戻し対応）
     await ensureContactHistoryV2ForSession(params.sessionId);
-    await safeNotifyAllCustomers(params.sessionId, "change");
+    await handleSessionReservationSideEffects({
+      sessionId: params.sessionId,
+      companyRecordId: session.companyRecordId,
+      category: params.category,
+      triggerReason: "change",
+      roundNumber: session.roundNumber,
+      notifyReferrer:
+        session.source === "proline" &&
+        params.category === "briefing" &&
+        session.roundNumber === 1,
+    });
     return;
   }
 }

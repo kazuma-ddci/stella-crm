@@ -26,7 +26,11 @@ import { logAutomationError } from "@/lib/automation-error";
 import { sendSessionNotification } from "@/lib/slp/slp-session-notification";
 import { cancelZoomMeetingForSession } from "@/lib/slp/zoom-reservation-handler";
 import { generateThankYouSuggestionForSession } from "@/lib/slp/zoom-ai";
-import { completeV2ForSession } from "@/lib/slp/v2-session-sync";
+import {
+  completeV2ForSession,
+  deleteV2ForSession,
+  ensureContactHistoryV2ForSession,
+} from "@/lib/slp/v2-session-sync";
 
 // ============================================
 // Type definitions
@@ -83,6 +87,26 @@ export interface SessionHistoryEntry {
   changedByStaffId: number | null;
   changedByStaffName: string | null;
 }
+
+export type SessionContactHistoryV2Row = {
+  id: number;
+  title: string | null;
+  contactDate: string;
+  contactMethodName: string | null;
+  contactCategoryName: string | null;
+  staffNames: string[];
+  customerLabels: string[];
+  meetingMinutes: string | null;
+  note: string | null;
+  files: {
+    id: number;
+    filePath: string | null;
+    fileName: string;
+    fileSize: number | null;
+    mimeType: string | null;
+    url: string | null;
+  }[];
+};
 
 // ============================================
 // 読み取り系
@@ -305,6 +329,63 @@ export async function getSessionHistory(
   } catch (e) {
     return err(e instanceof Error ? e.message : "履歴取得に失敗しました");
   }
+}
+
+export async function getV2ContactHistoriesBySession(
+  sessionId: number
+): Promise<SessionContactHistoryV2Row[]> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "view" }]);
+
+  const rows = await prisma.contactHistoryV2.findMany({
+    where: {
+      sourceType: "slp_meeting_session",
+      sourceRefId: String(sessionId),
+      deletedAt: null,
+    },
+    include: {
+      contactMethod: { select: { name: true } },
+      contactCategory: { select: { name: true } },
+      staffParticipants: {
+        include: { staff: { select: { name: true } } },
+        orderBy: [{ isHost: "desc" }, { id: "asc" }],
+      },
+      customerParticipants: {
+        include: { attendees: { orderBy: { displayOrder: "asc" } } },
+        orderBy: { displayOrder: "asc" },
+      },
+      files: {
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          filePath: true,
+          fileName: true,
+          fileSize: true,
+          mimeType: true,
+          url: true,
+        },
+      },
+    },
+    orderBy: [{ scheduledStartAt: "desc" }, { id: "desc" }],
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    contactDate: row.scheduledStartAt.toISOString(),
+    contactMethodName: row.contactMethod?.name ?? null,
+    contactCategoryName: row.contactCategory?.name ?? null,
+    staffNames: row.staffParticipants.map((p) =>
+      p.isHost ? `${p.staff.name}（ホスト）` : p.staff.name
+    ),
+    customerLabels: row.customerParticipants.map((p) => {
+      const attendees = p.attendees.map((a) => a.name).filter(Boolean);
+      const base = `${p.targetType}${p.targetId ? ` #${p.targetId}` : ""}`;
+      return attendees.length > 0 ? `${base}: ${attendees.join("、")}` : base;
+    }),
+    meetingMinutes: row.meetingMinutes,
+    note: row.note,
+    files: row.files,
+  }));
 }
 
 // getCompanySessionAlerts は MeetingSessionsSection が直接 prisma で取得しているため削除
@@ -819,6 +900,19 @@ export async function updateSessionDetail(params: {
       );
     }
 
+    const sameInstant = (a: Date | null | undefined, b: Date | null | undefined) => {
+      if (!a && !b) return true;
+      if (!a || !b) return false;
+      return a.getTime() === b.getTime();
+    };
+    const scheduledAtChanged =
+      params.fields.scheduledAt !== undefined &&
+      !sameInstant(current.scheduledAt, params.fields.scheduledAt);
+    const assignedStaffChanged =
+      params.fields.assignedStaffId !== undefined &&
+      current.assignedStaffId !== params.fields.assignedStaffId;
+    const shouldSyncMeeting = scheduledAtChanged || assignedStaffChanged;
+
     await prisma.$transaction(async (tx) => {
       await helperUpdateSessionFields(
         params.sessionId,
@@ -828,6 +922,24 @@ export async function updateSessionDetail(params: {
         tx
       );
     });
+
+    if (shouldSyncMeeting) {
+      if (current.status === "予約中") {
+        await handleSessionReservationSideEffects({
+          sessionId: params.sessionId,
+          companyRecordId: current.companyRecordId,
+          category: current.category as SessionCategory,
+          triggerReason: "change",
+          roundNumber: current.roundNumber,
+          notifyReferrer:
+            current.source === "proline" &&
+            current.category === "briefing" &&
+            current.roundNumber === 1,
+        });
+      } else {
+        await ensureContactHistoryV2ForSession(params.sessionId);
+      }
+    }
 
     revalidatePath(`/slp/companies/${current.companyRecordId}`);
     return ok({ sessionId: params.sessionId });
@@ -858,6 +970,17 @@ export async function deleteSession(params: {
     await prisma.$transaction(async (tx) => {
       await helperSoftDeleteSession(params.sessionId, params.reason, user.id, tx);
     });
+
+    try {
+      await cancelZoomMeetingForSession({ sessionId: params.sessionId });
+      await deleteV2ForSession(params.sessionId, params.reason);
+    } catch (e) {
+      await logAutomationError({
+        source: "slp-session-delete-v2-zoom",
+        message: `商談削除時のZoom/V2削除失敗: sessionId=${params.sessionId}`,
+        detail: { error: e instanceof Error ? e.message : String(e) },
+      });
+    }
 
     revalidatePath(`/slp/companies/${current.companyRecordId}`);
     return ok({ sessionId: params.sessionId });
