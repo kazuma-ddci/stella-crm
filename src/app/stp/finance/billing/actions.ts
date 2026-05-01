@@ -42,7 +42,7 @@ export type LifecycleStatus =
 
 export type BillingLifecycleItem = {
   id: string;
-  feeType: "initial" | "monthly" | "performance";
+  feeType: "initial" | "monthly" | "performance" | "manual";
   companyName: string;
   stpCompanyId: number;
   contractHistoryId: number;
@@ -628,6 +628,102 @@ export async function getBillingLifecycleData(
         // confirmed but has invoiceGroupId without invoiceGroup loaded
         item.status = "confirmed";
       }
+    }
+  }
+
+  if (stpProjectId) {
+    const manualTransactions = await prisma.transaction.findMany({
+      where: {
+        projectId: stpProjectId,
+        type: "revenue",
+        sourceType: "manual",
+        deletedAt: null,
+        periodFrom: { gte: monthStart, lte: monthEnd },
+      },
+      include: {
+        counterparty: { select: { name: true } },
+        expenseCategory: { select: { name: true } },
+        invoiceGroup: {
+          include: { counterparty: { select: { name: true } } },
+        },
+      },
+      orderBy: [{ periodFrom: "asc" }, { id: "asc" }],
+    });
+
+    const now = new Date();
+
+    for (const tx of manualTransactions) {
+      let status: LifecycleStatus = "confirmed";
+      let invoiceGroupStatus: string | null = null;
+      let isOverdue = false;
+      let billingCounterpartyName: string | null = null;
+
+      if (tx.status === "unconfirmed") {
+        status = "unconfirmed";
+      } else if (
+        (tx.status === "confirmed" ||
+          tx.status === "awaiting_accounting" ||
+          tx.status === "returned" ||
+          tx.status === "resubmitted") &&
+        tx.invoiceGroupId == null
+      ) {
+        status = "confirmed";
+      } else if (tx.invoiceGroupId != null && tx.invoiceGroup) {
+        const ig = tx.invoiceGroup;
+        invoiceGroupStatus = ig.status;
+        if (ig.counterpartyId !== tx.counterpartyId) {
+          billingCounterpartyName = ig.counterparty?.name ?? null;
+        }
+
+        switch (ig.status) {
+          case "draft":
+            status = "in_invoice_draft";
+            break;
+          case "pdf_created":
+            status = "pdf_created";
+            break;
+          case "sent":
+          case "partially_received": {
+            const dueDate = ig.paymentDueDate ?? tx.paymentDueDate;
+            if (dueDate && new Date(dueDate) < now) {
+              status = "overdue";
+              isOverdue = true;
+            } else {
+              status = "sent";
+            }
+            break;
+          }
+          case "fully_received":
+          case "completed":
+            status = "received";
+            break;
+          default:
+            status = "confirmed";
+        }
+      }
+
+      items.push({
+        id: `manual-revenue-${tx.id}`,
+        feeType: "manual",
+        companyName: tx.counterparty.name,
+        stpCompanyId: 0,
+        contractHistoryId: 0,
+        amount: tx.amount,
+        periodFrom: formatDate(tx.periodFrom),
+        periodTo: formatDate(tx.periodTo),
+        description: tx.note ?? tx.expenseCategory?.name ?? "手動追加",
+        status,
+        transactionId: tx.id,
+        invoiceGroupId: tx.invoiceGroupId,
+        invoiceGroupStatus,
+        expectedInvoiceDate: null,
+        expectedPaymentDeadline: null,
+        paymentDueDate: tx.paymentDueDate ? formatDate(tx.paymentDueDate) : null,
+        isOverdue,
+        candidateId: null,
+        candidateName: null,
+        billingCounterpartyName,
+      });
     }
   }
 
@@ -1403,6 +1499,106 @@ export async function getExpenseLifecycleData(
       } else {
         item.status = "confirmed";
       }
+    }
+  }
+
+  const stpCtx = await getSystemProjectContext("stp");
+  const stpProjectId = stpCtx?.projectId ?? null;
+
+  if (stpProjectId) {
+    const manualTransactions = await prisma.transaction.findMany({
+      where: {
+        projectId: stpProjectId,
+        type: "expense",
+        sourceType: "manual",
+        deletedAt: null,
+        periodFrom: { gte: monthStart, lte: monthEnd },
+      },
+      include: {
+        counterparty: { select: { name: true } },
+        expenseCategory: { select: { name: true } },
+        paymentGroup: true,
+      },
+      orderBy: [{ periodFrom: "asc" }, { id: "asc" }],
+    });
+
+    const now = new Date();
+
+    for (const tx of manualTransactions) {
+      let status: ExpenseLifecycleStatus = "confirmed";
+      let paymentGroupStatus: string | null = null;
+      let isOverdue = false;
+
+      if (tx.status === "unconfirmed") {
+        status = "unconfirmed";
+      } else if (
+        (tx.status === "confirmed" ||
+          tx.status === "awaiting_accounting" ||
+          tx.status === "returned" ||
+          tx.status === "resubmitted") &&
+        tx.paymentGroupId == null
+      ) {
+        status = "confirmed";
+      } else if (tx.paymentGroupId != null && tx.paymentGroup) {
+        const pg = tx.paymentGroup;
+        paymentGroupStatus = pg.status;
+
+        switch (pg.status) {
+          case "before_request":
+          case "requested":
+            status = "in_payment_group";
+            break;
+          case "invoice_received":
+          case "rejected":
+          case "re_requested":
+            status = "invoice_received";
+            break;
+          case "confirmed":
+          case "awaiting_accounting":
+          case "returned": {
+            const dueDate = pg.paymentDueDate ?? tx.paymentDueDate;
+            if (dueDate && new Date(dueDate) < now) {
+              status = "overdue";
+              isOverdue = true;
+            } else {
+              status = "invoice_received";
+            }
+            break;
+          }
+          case "paid":
+            status = "paid";
+            break;
+          default:
+            status = "confirmed";
+        }
+      }
+
+      items.push({
+        id: `manual-expense-${tx.id}`,
+        expenseType: "manual",
+        agentName: tx.counterparty.name,
+        agentId: 0,
+        agentContractHistoryId: 0,
+        companyName: null,
+        stpCompanyId: null,
+        contractHistoryId: null,
+        amount: tx.amount,
+        netPaymentAmount: tx.netPaymentAmount,
+        withholdingTaxAmount: tx.withholdingTaxAmount,
+        periodFrom: formatDate(tx.periodFrom),
+        periodTo: formatDate(tx.periodTo),
+        description: tx.note ?? tx.expenseCategory?.name ?? "手動追加",
+        appliedCommissionRate: null,
+        appliedCommissionType: null,
+        status,
+        transactionId: tx.id,
+        paymentGroupId: tx.paymentGroupId,
+        paymentGroupStatus,
+        paymentDueDate: tx.paymentDueDate ? formatDate(tx.paymentDueDate) : null,
+        isOverdue,
+        candidateId: null,
+        candidateName: null,
+      });
     }
   }
 

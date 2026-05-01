@@ -80,6 +80,9 @@ import type {
 import { calcTax } from "@/lib/finance/tax-calc";
 
 type ExpenseCategoryOption = { id: number; name: string; type: string };
+type AutoBillingLifecycleItem = BillingLifecycleItem & {
+  feeType: "initial" | "monthly" | "performance";
+};
 
 // ============================================
 // 売上ステータス設定
@@ -269,6 +272,7 @@ const FEE_TYPE_LABELS: Record<string, string> = {
   initial: "初期費用",
   monthly: "月額",
   performance: "成果報酬",
+  manual: "手動追加",
 };
 
 const EXPENSE_TYPE_LABELS: Record<string, string> = {
@@ -277,6 +281,7 @@ const EXPENSE_TYPE_LABELS: Record<string, string> = {
   commission_initial: "初期費用紹介報酬",
   commission_monthly: "月額紹介報酬",
   commission_performance: "成果報酬紹介報酬",
+  manual: "手動追加",
 };
 
 // ============================================
@@ -1365,6 +1370,7 @@ export function BillingLifecycleView({
 
   // 売上: 確認用の取引を作成して編集モーダルを開く
   const handleCreateRevenueTransaction = async (item: BillingLifecycleItem) => {
+    if (item.feeType === "manual") return;
     setIsCreating(true);
     try {
       const input: BillingItemInput = {
@@ -1397,7 +1403,10 @@ export function BillingLifecycleView({
 
   const handleBulkCreateRevenue = async () => {
     if (!revenueData) return;
-    const notCreatedItems = revenueData.items.filter((i) => i.status === "not_created");
+    const notCreatedItems = revenueData.items.filter(
+      (i): i is AutoBillingLifecycleItem =>
+        i.status === "not_created" && i.feeType !== "manual"
+    );
     if (notCreatedItems.length === 0) return;
     if (!window.confirm(`${notCreatedItems.length}件の取引を一括作成します。よろしいですか？`)) return;
 
