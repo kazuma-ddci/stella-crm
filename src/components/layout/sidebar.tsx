@@ -194,8 +194,8 @@ const navigation: NavItem[] = [
         sectionLabel: true,
         children: [
           { name: "ダッシュボード", href: "/stp/finance/overview", icon: DollarSign },
-          { name: "取引管理", href: "/stp/finance/transactions", icon: Landmark },
           { name: "売上・支払トラッカー", href: "/stp/finance/billing", icon: ClipboardCheck },
+          { name: "取引台帳", href: "/stp/finance/transactions", icon: Landmark },
           { name: "請求管理（売上）", href: "/stp/finance/invoices", icon: Receipt },
           { name: "支払管理（経費）", href: "/stp/finance/payment-groups", icon: Wallet },
           { name: "経費申請", href: "/stp/expenses/new", icon: Plus },

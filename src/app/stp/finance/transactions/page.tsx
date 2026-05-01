@@ -34,7 +34,12 @@ export default async function TransactionsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">取引一覧</h1>
+      <div>
+        <h1 className="text-2xl font-bold">取引台帳</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          売上・支払トラッカーで作成した取引の検索、監査、例外修正、削除済み確認を行います。
+        </p>
+      </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
@@ -65,7 +70,7 @@ export default async function TransactionsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>取引一覧</CardTitle>
+          <CardTitle>取引台帳</CardTitle>
         </CardHeader>
         <CardContent>
           <TransactionsTable

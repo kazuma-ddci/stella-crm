@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { getSession, requireEdit } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { getSystemProjectContext } from "@/lib/project-context";
 import {
@@ -19,6 +19,12 @@ import {
   isWithholdingTarget,
 } from "@/lib/finance/withholding-tax";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { createInvoiceGroup } from "../invoices/actions";
+import { createPaymentGroup } from "../payment-groups/actions";
+import {
+  createTransaction,
+  confirmTransaction,
+} from "@/app/finance/transactions/actions";
 
 // ============================================
 // 型定義
@@ -86,12 +92,114 @@ export type BillingItemInput = {
   paymentDueDate?: string;
 };
 
+type GroupCreationResult = { groupId: number };
+
+export type TrackerGroupCandidate = {
+  id: number;
+  counterpartyId: number;
+  counterpartyName: string;
+  expenseCategoryName: string;
+  amount: number;
+  taxAmount: number;
+  taxRate: number;
+  taxType: string;
+  periodFrom: string;
+  periodTo: string;
+  paymentDueDate: string | null;
+  note: string | null;
+  isAnchor: boolean;
+  recommended: boolean;
+};
+
+export type TrackerGroupCandidateResult = {
+  anchorTransactionId: number;
+  counterpartyId: number;
+  counterpartyName: string;
+  paymentDueDate: string;
+  expectedPaymentDate: string;
+  candidates: TrackerGroupCandidate[];
+};
+
+export type ManualTrackerTransactionInput = {
+  type: "revenue" | "expense";
+  counterpartyId: number;
+  expenseCategoryId: number;
+  amount: number;
+  taxAmount: number;
+  taxRate: number;
+  taxType: "tax_included" | "tax_excluded";
+  periodFrom: string;
+  periodTo: string;
+  paymentDueDate?: string | null;
+  note?: string | null;
+  confirm: boolean;
+};
+
+export type TrackerExpenseCategoryInput = {
+  name: string;
+  type: "revenue" | "expense" | "both";
+};
+
 // ============================================
 // ユーティリティ
 // ============================================
 
 function formatDate(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+function todayString(): string {
+  return formatDate(new Date());
+}
+
+function monthKey(date: Date): string {
+  return formatDate(date).slice(0, 7);
+}
+
+function sameDateKey(a: Date | null, b: Date | null): boolean {
+  if (!a || !b) return false;
+  return formatDate(a) === formatDate(b);
+}
+
+async function getDefaultOperatingCompanyId(): Promise<number | null> {
+  const ctx = await getSystemProjectContext("stp");
+  if (ctx?.operatingCompanyId) return ctx.operatingCompanyId;
+
+  const company = await prisma.operatingCompany.findFirst({
+    where: { isActive: true },
+    orderBy: { id: "asc" },
+    select: { id: true },
+  });
+  return company?.id ?? null;
+}
+
+async function getDefaultBankAccountId(
+  projectId: number,
+  operatingCompanyId: number
+): Promise<number | null> {
+  const projectDefault = await prisma.projectBankAccount.findFirst({
+    where: {
+      projectId,
+      isDefault: true,
+      bankAccount: {
+        operatingCompanyId,
+        deletedAt: null,
+      },
+    },
+    select: { bankAccountId: true },
+  });
+  if (projectDefault) return projectDefault.bankAccountId;
+
+  const operatingDefault = await prisma.operatingCompanyBankAccount.findFirst({
+    where: {
+      operatingCompanyId,
+      deletedAt: null,
+      isDefault: true,
+    },
+    orderBy: { id: "asc" },
+    select: { id: true },
+  });
+  return operatingDefault?.id ?? null;
 }
 
 function startOfMonth(year: number, month: number): Date {
@@ -1492,6 +1600,450 @@ export async function bulkCreateTransactionsFromExpenses(
   console.error("[bulkCreateTransactionsFromExpenses] error:", e);
   return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
  }
+}
+
+// ============================================
+// トラッカーから請求/支払グループ作成
+// ============================================
+
+export async function createInvoiceGroupFromTracker(
+  transactionId: number
+): Promise<ActionResult<GroupCreationResult>> {
+  return createInvoiceGroupFromTrackerTransactions(transactionId, [transactionId]);
+}
+
+export async function getInvoiceGroupCandidatesFromTracker(
+  transactionId: number
+): Promise<ActionResult<TrackerGroupCandidateResult>> {
+  try {
+    await getSession();
+
+    const stpCtx = await getSystemProjectContext("stp");
+    if (!stpCtx) return err("STPプロジェクトのコンテキストが取得できません");
+
+    const transaction = await prisma.transaction.findFirst({
+      where: {
+        id: transactionId,
+        deletedAt: null,
+        type: "revenue",
+        status: "confirmed",
+        invoiceGroupId: null,
+        projectId: stpCtx.projectId,
+      },
+      select: {
+        id: true,
+        counterpartyId: true,
+        periodFrom: true,
+        paymentDueDate: true,
+        scheduledPaymentDate: true,
+        counterparty: { select: { name: true } },
+      },
+    });
+    if (!transaction) {
+      return err("請求にできる確定済み売上取引が見つかりません");
+    }
+
+    const candidates = await prisma.transaction.findMany({
+      where: {
+        deletedAt: null,
+        type: "revenue",
+        status: "confirmed",
+        invoiceGroupId: null,
+        allocationTemplateId: null,
+        projectId: stpCtx.projectId,
+        counterpartyId: transaction.counterpartyId,
+      },
+      include: {
+        counterparty: { select: { name: true } },
+        expenseCategory: { select: { name: true } },
+      },
+      orderBy: [{ periodFrom: "asc" }, { id: "asc" }],
+    });
+
+    const dueDate = transaction.paymentDueDate
+      ? formatDate(transaction.paymentDueDate)
+      : todayString();
+    const expectedPaymentDate = transaction.scheduledPaymentDate
+      ? formatDate(transaction.scheduledPaymentDate)
+      : dueDate;
+    const anchorMonth = monthKey(transaction.periodFrom);
+
+    return ok({
+      anchorTransactionId: transaction.id,
+      counterpartyId: transaction.counterpartyId,
+      counterpartyName: transaction.counterparty.name,
+      paymentDueDate: dueDate,
+      expectedPaymentDate,
+      candidates: candidates.map((candidate) => {
+        const isAnchor = candidate.id === transaction.id;
+        const recommended =
+          isAnchor ||
+          (sameDateKey(candidate.paymentDueDate, transaction.paymentDueDate) &&
+            monthKey(candidate.periodFrom) === anchorMonth);
+        return {
+          id: candidate.id,
+          counterpartyId: candidate.counterpartyId,
+          counterpartyName: candidate.counterparty.name,
+          expenseCategoryName: candidate.expenseCategory?.name ?? "（未設定）",
+          amount: candidate.amount,
+          taxAmount: candidate.taxAmount,
+          taxRate: candidate.taxRate,
+          taxType: candidate.taxType,
+          periodFrom: formatDate(candidate.periodFrom),
+          periodTo: formatDate(candidate.periodTo),
+          paymentDueDate: candidate.paymentDueDate ? formatDate(candidate.paymentDueDate) : null,
+          note: candidate.note,
+          isAnchor,
+          recommended,
+        };
+      }),
+    });
+  } catch (e) {
+    console.error("[getInvoiceGroupCandidatesFromTracker] error:", e);
+    return err(e instanceof Error ? e.message : "請求候補の取得に失敗しました");
+  }
+}
+
+export async function createInvoiceGroupFromTrackerTransactions(
+  anchorTransactionId: number,
+  transactionIds: number[]
+): Promise<ActionResult<GroupCreationResult>> {
+  try {
+    await requireEdit("stp");
+
+    if (!transactionIds.includes(anchorTransactionId)) {
+      return err("起点の取引は請求に含めてください");
+    }
+
+    const stpCtx = await getSystemProjectContext("stp");
+    if (!stpCtx) return err("STPプロジェクトのコンテキストが取得できません");
+
+    const transaction = await prisma.transaction.findFirst({
+      where: {
+        id: anchorTransactionId,
+        deletedAt: null,
+        type: "revenue",
+        status: "confirmed",
+        invoiceGroupId: null,
+        projectId: stpCtx.projectId,
+      },
+      select: {
+        id: true,
+        counterpartyId: true,
+        paymentDueDate: true,
+        scheduledPaymentDate: true,
+      },
+    });
+    if (!transaction) {
+      return err("請求にできる確定済み売上取引が見つかりません");
+    }
+
+    const operatingCompanyId = await getDefaultOperatingCompanyId();
+    if (!operatingCompanyId) {
+      return err("請求元法人が未設定です。STPプロジェクトまたは運営法人マスタを確認してください");
+    }
+
+    const bankAccountId = await getDefaultBankAccountId(
+      stpCtx.projectId,
+      operatingCompanyId
+    );
+    const dueDate = transaction.paymentDueDate
+      ? formatDate(transaction.paymentDueDate)
+      : todayString();
+    const expectedPaymentDate = transaction.scheduledPaymentDate
+      ? formatDate(transaction.scheduledPaymentDate)
+      : dueDate;
+
+    const result = await createInvoiceGroup({
+      counterpartyId: transaction.counterpartyId,
+      operatingCompanyId,
+      bankAccountId,
+      invoiceDate: todayString(),
+      paymentDueDate: dueDate,
+      expectedPaymentDate,
+      transactionIds,
+    });
+    if (!result.ok) return err(result.error);
+
+    revalidatePath("/stp/finance/billing");
+    return ok({ groupId: result.data.id });
+  } catch (e) {
+    console.error("[createInvoiceGroupFromTracker] error:", e);
+    return err(e instanceof Error ? e.message : "請求グループの作成に失敗しました");
+  }
+}
+
+export async function createPaymentGroupFromTracker(
+  transactionId: number
+): Promise<ActionResult<GroupCreationResult>> {
+  return createPaymentGroupFromTrackerTransactions(transactionId, [transactionId]);
+}
+
+export async function getPaymentGroupCandidatesFromTracker(
+  transactionId: number
+): Promise<ActionResult<TrackerGroupCandidateResult>> {
+  try {
+    await getSession();
+
+    const stpCtx = await getSystemProjectContext("stp");
+    if (!stpCtx) return err("STPプロジェクトのコンテキストが取得できません");
+
+    const transaction = await prisma.transaction.findFirst({
+      where: {
+        id: transactionId,
+        deletedAt: null,
+        type: "expense",
+        status: "confirmed",
+        paymentGroupId: null,
+        projectId: stpCtx.projectId,
+      },
+      select: {
+        id: true,
+        counterpartyId: true,
+        periodFrom: true,
+        paymentDueDate: true,
+        scheduledPaymentDate: true,
+        counterparty: { select: { name: true } },
+      },
+    });
+    if (!transaction) {
+      return err("支払にできる確定済み経費取引が見つかりません");
+    }
+
+    const candidates = await prisma.transaction.findMany({
+      where: {
+        deletedAt: null,
+        type: "expense",
+        status: "confirmed",
+        paymentGroupId: null,
+        allocationTemplateId: null,
+        projectId: stpCtx.projectId,
+        counterpartyId: transaction.counterpartyId,
+      },
+      include: {
+        counterparty: { select: { name: true } },
+        expenseCategory: { select: { name: true } },
+      },
+      orderBy: [{ periodFrom: "asc" }, { id: "asc" }],
+    });
+
+    const dueDate = transaction.paymentDueDate
+      ? formatDate(transaction.paymentDueDate)
+      : todayString();
+    const expectedPaymentDate = transaction.scheduledPaymentDate
+      ? formatDate(transaction.scheduledPaymentDate)
+      : dueDate;
+    const anchorMonth = monthKey(transaction.periodFrom);
+
+    return ok({
+      anchorTransactionId: transaction.id,
+      counterpartyId: transaction.counterpartyId,
+      counterpartyName: transaction.counterparty.name,
+      paymentDueDate: dueDate,
+      expectedPaymentDate,
+      candidates: candidates.map((candidate) => {
+        const isAnchor = candidate.id === transaction.id;
+        const recommended =
+          isAnchor ||
+          (sameDateKey(candidate.paymentDueDate, transaction.paymentDueDate) &&
+            monthKey(candidate.periodFrom) === anchorMonth);
+        return {
+          id: candidate.id,
+          counterpartyId: candidate.counterpartyId,
+          counterpartyName: candidate.counterparty.name,
+          expenseCategoryName: candidate.expenseCategory?.name ?? "（未設定）",
+          amount: candidate.amount,
+          taxAmount: candidate.taxAmount,
+          taxRate: candidate.taxRate,
+          taxType: candidate.taxType,
+          periodFrom: formatDate(candidate.periodFrom),
+          periodTo: formatDate(candidate.periodTo),
+          paymentDueDate: candidate.paymentDueDate ? formatDate(candidate.paymentDueDate) : null,
+          note: candidate.note,
+          isAnchor,
+          recommended,
+        };
+      }),
+    });
+  } catch (e) {
+    console.error("[getPaymentGroupCandidatesFromTracker] error:", e);
+    return err(e instanceof Error ? e.message : "支払候補の取得に失敗しました");
+  }
+}
+
+export async function createPaymentGroupFromTrackerTransactions(
+  anchorTransactionId: number,
+  transactionIds: number[]
+): Promise<ActionResult<GroupCreationResult>> {
+  try {
+    await requireEdit("stp");
+
+    if (!transactionIds.includes(anchorTransactionId)) {
+      return err("起点の取引は支払に含めてください");
+    }
+
+    const stpCtx = await getSystemProjectContext("stp");
+    if (!stpCtx) return err("STPプロジェクトのコンテキストが取得できません");
+
+    const transaction = await prisma.transaction.findFirst({
+      where: {
+        id: anchorTransactionId,
+        deletedAt: null,
+        type: "expense",
+        status: "confirmed",
+        paymentGroupId: null,
+        projectId: stpCtx.projectId,
+      },
+      select: {
+        id: true,
+        counterpartyId: true,
+        paymentDueDate: true,
+        scheduledPaymentDate: true,
+        isConfidential: true,
+      },
+    });
+    if (!transaction) {
+      return err("支払にできる確定済み経費取引が見つかりません");
+    }
+
+    const operatingCompanyId = await getDefaultOperatingCompanyId();
+    if (!operatingCompanyId) {
+      return err("支払元法人が未設定です。STPプロジェクトまたは運営法人マスタを確認してください");
+    }
+
+    const dueDate = transaction.paymentDueDate
+      ? formatDate(transaction.paymentDueDate)
+      : todayString();
+    const expectedPaymentDate = transaction.scheduledPaymentDate
+      ? formatDate(transaction.scheduledPaymentDate)
+      : dueDate;
+
+    const result = await createPaymentGroup({
+      counterpartyId: transaction.counterpartyId,
+      operatingCompanyId,
+      expectedPaymentDate,
+      paymentDueDate: dueDate,
+      transactionIds,
+      isConfidential: transaction.isConfidential,
+    });
+    if (!result.ok) return err(result.error);
+
+    revalidatePath("/stp/finance/billing");
+    return ok({ groupId: result.data.id });
+  } catch (e) {
+    console.error("[createPaymentGroupFromTracker] error:", e);
+    return err(e instanceof Error ? e.message : "支払グループの作成に失敗しました");
+  }
+}
+
+// ============================================
+// トラッカーから手動取引追加
+// ============================================
+
+export async function createManualTrackerTransaction(
+  input: ManualTrackerTransactionInput
+): Promise<ActionResult<{ transactionId: number; status: "unconfirmed" | "confirmed" }>> {
+  try {
+    await requireEdit("stp");
+
+    const stpCtx = await getSystemProjectContext("stp");
+    if (!stpCtx) return err("STPプロジェクトのコンテキストが取得できません");
+
+    const result = await createTransaction({
+      type: input.type,
+      counterpartyId: input.counterpartyId,
+      expenseCategoryId: input.expenseCategoryId,
+      amount: input.amount,
+      taxAmount: input.taxAmount,
+      taxRate: input.taxRate,
+      taxType: input.taxType,
+      periodFrom: input.periodFrom,
+      periodTo: input.periodTo,
+      allocationTemplateId: null,
+      costCenterId: null,
+      projectId: stpCtx.projectId,
+      paymentDueDate: input.paymentDueDate ?? null,
+      note: input.note ?? null,
+      hasExpenseOwner: false,
+      expenseOwners: [],
+      attachments: [],
+      isWithholdingTarget: false,
+      isConfidential: false,
+    });
+    if (!result.ok) return err(result.error);
+
+    if (input.confirm) {
+      const confirmResult = await confirmTransaction(result.data.id);
+      if (!confirmResult.ok) return err(confirmResult.error);
+    }
+
+    revalidatePath("/stp/finance/billing");
+    revalidatePath("/stp/finance/transactions");
+    return ok({
+      transactionId: result.data.id,
+      status: input.confirm ? "confirmed" : "unconfirmed",
+    });
+  } catch (e) {
+    console.error("[createManualTrackerTransaction] error:", e);
+    return err(e instanceof Error ? e.message : "手動取引の追加に失敗しました");
+  }
+}
+
+export async function createTrackerExpenseCategory(
+  input: TrackerExpenseCategoryInput
+): Promise<ActionResult<{ id: number; name: string; type: string }>> {
+  try {
+    const session = await requireEdit("stp");
+    const stpCtx = await getSystemProjectContext("stp");
+    if (!stpCtx) return err("STPプロジェクトのコンテキストが取得できません");
+
+    const name = input.name.trim();
+    if (!name) return err("費目名を入力してください");
+
+    if (!["revenue", "expense", "both"].includes(input.type)) {
+      return err("無効な種別です");
+    }
+
+    const existing = await prisma.expenseCategory.findFirst({
+      where: {
+        projectId: stpCtx.projectId,
+        deletedAt: null,
+        name,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      return err(`費目「${name}」は既に登録されています`);
+    }
+
+    const maxOrder = await prisma.expenseCategory.aggregate({
+      where: {
+        projectId: stpCtx.projectId,
+        deletedAt: null,
+      },
+      _max: { displayOrder: true },
+    });
+
+    const category = await prisma.expenseCategory.create({
+      data: {
+        name,
+        type: input.type,
+        projectId: stpCtx.projectId,
+        displayOrder: (maxOrder._max.displayOrder ?? 0) + 1,
+        isActive: true,
+        createdBy: session.id,
+      },
+      select: { id: true, name: true, type: true },
+    });
+
+    revalidatePath("/stp/finance/billing");
+    revalidatePath("/stp/finance/transactions");
+    revalidatePath("/stp/settings/expense-categories");
+    return ok(category);
+  } catch (e) {
+    console.error("[createTrackerExpenseCategory] error:", e);
+    return err(e instanceof Error ? e.message : "費目の追加に失敗しました");
+  }
 }
 
 // ============================================

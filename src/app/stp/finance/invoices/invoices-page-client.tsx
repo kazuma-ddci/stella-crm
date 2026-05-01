@@ -20,6 +20,7 @@ type Props = {
   expenseCategories: { id: number; name: string; type: string }[];
   unconfirmedTransactions: UngroupedTransaction[];
   projectId?: number;
+  initialGroupId?: number | null;
 };
 
 export function InvoicesPageClient({
@@ -34,8 +35,9 @@ export function InvoicesPageClient({
   expenseCategories,
   unconfirmedTransactions,
   projectId,
+  initialGroupId,
 }: Props) {
-  const [activeTab, setActiveTab] = useState("ungrouped");
+  const [activeTab, setActiveTab] = useState(initialGroupId ? "invoices" : "ungrouped");
 
   // サマリー
   const totalCount = data.length;
@@ -141,6 +143,7 @@ export function InvoicesPageClient({
               defaultBankAccountByCompany={defaultBankAccountByCompany}
               expenseCategories={expenseCategories}
               projectId={projectId}
+              initialGroupId={initialGroupId}
             />
           </div>
         </TabsContent>
