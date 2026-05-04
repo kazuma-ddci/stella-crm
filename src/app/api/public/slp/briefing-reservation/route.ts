@@ -345,22 +345,6 @@ export async function GET(request: Request) {
             employeeCount: employeeCountFormAnswer,
           }
         : undefined;
-    if (createdOrUpdatedRecordIds.length > 0) {
-      await prisma.slpReservationHistory.createMany({
-        data: createdOrUpdatedRecordIds.map((recordId) => ({
-          companyRecordId: recordId,
-          reservationType: "briefing",
-          actionType: "予約",
-          reservationId: bookingId ?? null,
-          reservedAt: briefingDateParsed,
-          bookedAt: briefingBookedAt,
-          staffName: briefingStaff || null,
-          staffId: resolvedStaffId,
-          formAnswers: formAnswersJson,
-        })),
-      });
-    }
-
     // ペンディング情報を消費済みに
     if (pending) {
       await prisma.slpReservationPending.update({
@@ -385,7 +369,7 @@ export async function GET(request: Request) {
           bookerContactId = c?.id ?? null;
         }
 
-        const createdSession = await prisma.$transaction(async (tx) => {
+        const applied = await prisma.$transaction(async (tx) => {
           return applyProlineReservationToSession(
             recordId,
             "briefing",
@@ -400,22 +384,39 @@ export async function GET(request: Request) {
             tx
           );
         });
+        const createdSession = applied.session;
 
-        // fire-and-forget でZoom発行 + 通知（紹介者通知は1回目概要案内のみ）
-        handleSessionReservationSideEffects({
-          sessionId: createdSession.id,
-          companyRecordId: recordId,
-          category: "briefing",
-          triggerReason: "confirm",
-          roundNumber: createdSession.roundNumber,
-          notifyReferrer: true,
-        }).catch(async (err) => {
-          await logAutomationError({
-            source: "slp-briefing-reservation-side-effects",
-            message: `予約副作用処理失敗: sessionId=${createdSession.id}`,
-            detail: { error: err instanceof Error ? err.message : String(err) },
+        if (applied.action !== "noop") {
+          await prisma.slpReservationHistory.create({
+            data: {
+              companyRecordId: recordId,
+              reservationType: "briefing",
+              actionType: "予約",
+              reservationId: bookingId ?? null,
+              reservedAt: briefingDateParsed,
+              bookedAt: briefingBookedAt,
+              staffName: briefingStaff || null,
+              staffId: resolvedStaffId,
+              formAnswers: formAnswersJson,
+            },
           });
-        });
+
+          // fire-and-forget でZoom発行 + 通知（紹介者通知は1回目概要案内のみ）
+          handleSessionReservationSideEffects({
+            sessionId: createdSession.id,
+            companyRecordId: recordId,
+            category: "briefing",
+            triggerReason: "confirm",
+            roundNumber: createdSession.roundNumber,
+            notifyReferrer: true,
+          }).catch(async (err) => {
+            await logAutomationError({
+              source: "slp-briefing-reservation-side-effects",
+              message: `予約副作用処理失敗: sessionId=${createdSession.id}`,
+              detail: { error: err instanceof Error ? err.message : String(err) },
+            });
+          });
+        }
       } catch (err) {
         await logAutomationError({
           source: "slp-briefing-reservation-session",

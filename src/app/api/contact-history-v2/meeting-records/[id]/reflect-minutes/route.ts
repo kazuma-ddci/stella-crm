@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
+import { appendMeetingRecordSummaryToMinutes } from "@/lib/contact-history-v2/meeting-minutes";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,6 @@ export async function POST(req: Request, { params }: Params) {
           contactHistory: {
             select: {
               id: true,
-              meetingMinutes: true,
               project: { select: { code: true } },
             },
           },
@@ -62,38 +62,11 @@ export async function POST(req: Request, { params }: Params) {
     );
   }
 
-  const existing = record.meeting.contactHistory.meetingMinutes ?? "";
-  const sourceLabel =
-    record.aiSummarySource === "claude"
-      ? "Claude 生成議事録"
-      : record.aiSummarySource === "zoom_ai_companion"
-        ? "Zoom AI Companion 要約"
-        : "AI要約";
-  const header = `--- ${sourceLabel} ---`;
+  const result = await appendMeetingRecordSummaryToMinutes({
+    meetingRecordId: record.id,
+    overwriteClaude: record.aiSummarySource === "claude",
+    replaceAll: mode === "replace",
+  });
 
-  let newMinutes: string;
-  if (mode === "replace") {
-    newMinutes = `${header}\n${record.aiSummary}`;
-  } else {
-    if (existing.includes(record.aiSummary)) {
-      // 既に同じ内容が追記済み → 何もしない
-      return NextResponse.json({ ok: true, alreadyAppended: true });
-    }
-    newMinutes = existing
-      ? `${existing}\n\n${header}\n${record.aiSummary}`
-      : `${header}\n${record.aiSummary}`;
-  }
-
-  await prisma.$transaction([
-    prisma.contactHistoryV2.update({
-      where: { id: record.meeting.contactHistory.id },
-      data: { meetingMinutes: newMinutes },
-    }),
-    prisma.contactHistoryMeetingRecord.update({
-      where: { id: record.id },
-      data: { minutesAppendedAt: new Date() },
-    }),
-  ]);
-
-  return NextResponse.json({ ok: true, mode });
+  return NextResponse.json({ ok: true, mode, ...result });
 }

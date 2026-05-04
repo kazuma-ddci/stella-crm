@@ -160,8 +160,8 @@ export function SessionContactHistoriesModal({
                 <div>
                   <span className="text-muted-foreground">プロジェクト・顧客種別:</span>
                   <span className="ml-2">
-                    {current.customerLabels.length > 0
-                      ? current.customerLabels.join("、")
+                    {current.customerTargetLabels.length > 0
+                      ? current.customerTargetLabels.join("、")
                       : "—"}
                   </span>
                 </div>
@@ -178,8 +178,8 @@ export function SessionContactHistoriesModal({
                 <div>
                   <span className="text-muted-foreground">先方参加者:</span>
                   <span className="ml-2">
-                    {current.customerLabels.length > 0
-                      ? current.customerLabels.join("、")
+                    {current.attendeeNames.length > 0
+                      ? current.attendeeNames.join("、")
                       : "—"}
                   </span>
                 </div>

@@ -6,6 +6,7 @@ import {
   getPastMeetingParticipants,
 } from "@/lib/zoom/meeting";
 import { logAutomationError } from "@/lib/automation-error";
+import { appendMeetingRecordSummaryToMinutes } from "@/lib/contact-history-v2/meeting-minutes";
 
 /**
  * V1 レコード (slpZoomRecording / hojoZoomRecording) を経由せず、V2
@@ -184,11 +185,14 @@ export async function processZoomRecordingForV2(
           meetingUuid: uuid,
         });
         if (summary.summaryText) {
-          await saveZoomAiCompanionSummary({
+          const currentUpdated = await saveZoomAiCompanionSummary({
             meetingRecordId,
             summaryText: summary.summaryText,
             nextSteps: summary.nextSteps ?? null,
           });
+          if (currentUpdated) {
+            await appendMeetingRecordSummaryToMinutes({ meetingRecordId });
+          }
         }
       } catch (err) {
         await logAutomationError({
@@ -266,11 +270,14 @@ export async function processMeetingSummaryForV2(payload: {
       meetingUuid: payload.meetingUuid,
     });
     if (summary.summaryText) {
-      await saveZoomAiCompanionSummary({
+      const currentUpdated = await saveZoomAiCompanionSummary({
         meetingRecordId,
         summaryText: summary.summaryText,
         nextSteps: summary.nextSteps ?? null,
       });
+      if (currentUpdated) {
+        await appendMeetingRecordSummaryToMinutes({ meetingRecordId });
+      }
     }
     return { ok: true, found: true };
   } catch (err) {
@@ -294,7 +301,7 @@ async function saveZoomAiCompanionSummary(params: {
   meetingRecordId: number;
   summaryText: string;
   nextSteps: string | null;
-}): Promise<void> {
+}): Promise<boolean> {
   const combined = params.nextSteps
     ? `${params.summaryText}\n\n【ネクストステップ】\n${params.nextSteps}`
     : params.summaryText;
@@ -339,7 +346,9 @@ async function saveZoomAiCompanionSummary(params: {
         aiSummaryGeneratedAt: new Date(),
       },
     });
+    return true;
   }
+  return false;
 }
 
 async function finalizeV2MeetingState(

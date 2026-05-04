@@ -5,15 +5,15 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Loader2,
   Video,
@@ -29,6 +29,10 @@ import type { SessionZoomForUI } from "./meeting-sessions-section";
 import {
   regenerateZoomMeetingBySession,
   deleteZoomForSession,
+  getZoomUrlNoticeDraft,
+  markZoomUrlNoticeSkippedForSession,
+  sendZoomUrlNoticeForSession,
+  type ZoomUrlNoticeRecipient,
 } from "../zoom-meeting-actions";
 import { SessionManualZoomModal } from "./session-manual-zoom-modal";
 
@@ -59,11 +63,35 @@ export function SessionZoomIssuePanel({
 }: Props) {
   const router = useRouter();
   const [working, setWorking] = useState(false);
-  const [manualSendUrl, setManualSendUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [manualModalOpen, setManualModalOpen] = useState(false);
+  const [noticeOpen, setNoticeOpen] = useState(false);
+  const [noticeLoading, setNoticeLoading] = useState(false);
+  const [noticeSending, setNoticeSending] = useState(false);
+  const [noticeBody, setNoticeBody] = useState("");
+  const [noticeJoinUrl, setNoticeJoinUrl] = useState<string | null>(null);
+  const [noticeRecipients, setNoticeRecipients] = useState<ZoomUrlNoticeRecipient[]>([]);
+  const [selectedRecipientIds, setSelectedRecipientIds] = useState<number[]>([]);
 
   const isApiLess = primary ? !primary.hostIntegrationActive : false;
+  const noticeStatusLabel =
+    primary?.urlNoticeStatus === "sent"
+      ? "URL送信済み"
+      : primary?.urlNoticeStatus === "failed"
+        ? "一部送信失敗"
+        : primary?.urlNoticeStatus === "skipped"
+          ? "スタッフ判断で未送信"
+          : primary?.urlNoticeStatus === "missing"
+            ? "URL未発行"
+            : "URL送信記録なし";
+  const noticeStatusClass =
+    primary?.urlNoticeStatus === "sent"
+      ? "bg-green-50 text-green-700 border-green-200"
+      : primary?.urlNoticeStatus === "failed"
+        ? "bg-red-50 text-red-700 border-red-200"
+        : primary?.urlNoticeStatus === "skipped"
+          ? "bg-slate-50 text-slate-700 border-slate-200"
+          : "bg-amber-50 text-amber-700 border-amber-200";
 
   const handleCopy = async (text: string) => {
     try {
@@ -89,13 +117,80 @@ export function SessionZoomIssuePanel({
         toast.success(
           isRegenerate ? "Zoom URLを再発行しました" : "Zoom URLを発行しました"
         );
-        if (r.url) setManualSendUrl(r.url);
+        if (r.url) await openZoomNoticeDialog();
         router.refresh();
       } else {
         toast.error(r.message);
       }
     } finally {
       setWorking(false);
+    }
+  };
+
+  const openZoomNoticeDialog = async () => {
+    setNoticeOpen(true);
+    setNoticeLoading(true);
+    try {
+      const draft = await getZoomUrlNoticeDraft(sessionId);
+      if (!draft.ok) {
+        toast.error(draft.message);
+        setNoticeOpen(false);
+        return;
+      }
+      setNoticeJoinUrl(draft.joinUrl);
+      setNoticeBody(draft.bodyText);
+      setNoticeRecipients(draft.recipients);
+      setSelectedRecipientIds(draft.recipients.map((r) => r.lineFriendId));
+    } finally {
+      setNoticeLoading(false);
+    }
+  };
+
+  const toggleRecipient = (lineFriendId: number, checked: boolean) => {
+    setSelectedRecipientIds((prev) =>
+      checked
+        ? Array.from(new Set([...prev, lineFriendId]))
+        : prev.filter((id) => id !== lineFriendId)
+    );
+  };
+
+  const handleSendNotice = async () => {
+    setNoticeSending(true);
+    try {
+      const result = await sendZoomUrlNoticeForSession({
+        sessionId,
+        bodyText: noticeBody,
+        targetLineFriendIds: selectedRecipientIds,
+      });
+      if (result.ok) {
+        toast.success(`${result.sentCount}件にZoom URLを送信しました`);
+        setNoticeOpen(false);
+        router.refresh();
+      } else {
+        toast.error(
+          result.message ??
+            `送信成功 ${result.sentCount}件 / 失敗 ${result.failedCount}件`
+        );
+        router.refresh();
+      }
+    } finally {
+      setNoticeSending(false);
+    }
+  };
+
+  const handleSkipNotice = async () => {
+    setNoticeSending(true);
+    try {
+      const result = await markZoomUrlNoticeSkippedForSession(sessionId);
+      if (result.ok) {
+        toast.success("スタッフ判断で未送信として記録しました");
+        setNoticeOpen(false);
+        router.refresh();
+      } else {
+        toast.error(result.message);
+      }
+    } finally {
+      setNoticeSending(false);
     }
   };
 
@@ -187,6 +282,9 @@ export function SessionZoomIssuePanel({
           <div className="flex items-center gap-2 text-xs">
             <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
             <span>発行済み</span>
+            <Badge variant="outline" className={`text-[10px] ${noticeStatusClass}`}>
+              {noticeStatusLabel}
+            </Badge>
             {primary.hostStaffName && (
               <span className="text-muted-foreground">
                 （主催: {primary.hostStaffName}）
@@ -221,7 +319,22 @@ export function SessionZoomIssuePanel({
               ※ API連携なしのため、録画・議事録の自動取得はできません。Zoom連携済み担当者のURLに切り替える場合は「削除」してから再発行してください。
             </div>
           )}
+          {primary.urlNoticeStatus === "failed" && (
+            <div className="text-[11px] text-red-700 bg-red-50 rounded px-2 py-1">
+              Zoom URL通知に失敗した送信先があります。必要に応じて再発行またはURL送信を行ってください。
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-0.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-[11px]"
+              onClick={openZoomNoticeDialog}
+              disabled={working}
+            >
+              <Link2 className="h-3 w-3 mr-1" />
+              URLを送信
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -291,55 +404,93 @@ export function SessionZoomIssuePanel({
         open={manualModalOpen}
         onOpenChange={setManualModalOpen}
         sessionId={sessionId}
-        onDone={() => {
+        onDone={async () => {
+          await openZoomNoticeDialog();
           router.refresh();
         }}
       />
 
-      {/* 発行/再発行成功直後の手動送信アナウンス */}
-      <AlertDialog
-        open={!!manualSendUrl}
-        onOpenChange={(open) => {
-          if (!open) setManualSendUrl(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              新しいZoom URLをお客様へ送付してください
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>
-                  Zoom URLが発行されました。このURLは
-                  <strong>自動送信されません</strong>。
-                  お手数ですが、下記URLをコピーしてお客様にお送りください。
-                </p>
-                <div className="rounded-md bg-muted p-3 text-sm break-all font-mono">
-                  {manualSendUrl}
+      <Dialog open={noticeOpen} onOpenChange={setNoticeOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>このZoom URLをお客様に送りますか？</DialogTitle>
+            <DialogDescription>
+              本文を確認・編集して送信できます。送らない場合も、スタッフ判断として記録します。
+            </DialogDescription>
+          </DialogHeader>
+          {noticeLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-6">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              送信内容を準備しています...
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {noticeJoinUrl && (
+                <div className="rounded-md bg-muted p-3 text-xs break-all font-mono">
+                  {noticeJoinUrl}
                 </div>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() =>
-                    manualSendUrl && handleCopy(manualSendUrl)
-                  }
-                >
-                  <Copy className="h-3 w-3 mr-2" />
-                  {copied ? "コピー済" : "URLをコピー"}
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  ※ 以降のリマインド（前日10:00・開始1時間前）は新しい今回作成されたこのURLで自動送信されます。
-                </p>
+              )}
+              <div className="space-y-2">
+                <div className="text-sm font-medium">送信先</div>
+                <div className="space-y-2 rounded-md border p-3">
+                  {noticeRecipients.length === 0 ? (
+                    <div className="text-xs text-red-700">
+                      LINE連携済みの送信対象者がいません。
+                    </div>
+                  ) : (
+                    noticeRecipients.map((recipient) => (
+                      <label
+                        key={recipient.lineFriendId}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <Checkbox
+                          checked={selectedRecipientIds.includes(recipient.lineFriendId)}
+                          onCheckedChange={(checked) =>
+                            toggleRecipient(recipient.lineFriendId, checked === true)
+                          }
+                        />
+                        <span>{recipient.label}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
               </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>キャンセル</AlertDialogCancel>
-            <AlertDialogAction>確認しました</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              <div className="space-y-2">
+                <div className="text-sm font-medium">送信本文</div>
+                <Textarea
+                  value={noticeBody}
+                  onChange={(e) => setNoticeBody(e.target.value)}
+                  className="min-h-[220px]"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleSkipNotice}
+              disabled={noticeLoading || noticeSending}
+            >
+              {noticeSending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              送らない
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSendNotice}
+              disabled={
+                noticeLoading ||
+                noticeSending ||
+                selectedRecipientIds.length === 0 ||
+                noticeBody.trim() === ""
+              }
+            >
+              {noticeSending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              送信する
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

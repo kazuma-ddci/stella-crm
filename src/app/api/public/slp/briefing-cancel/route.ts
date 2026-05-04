@@ -52,6 +52,7 @@ export async function GET(request: Request) {
           deletedAt: null,
         },
         select: {
+          status: true,
           companyRecordId: true,
           scheduledAt: true,
           bookedAt: true,
@@ -59,7 +60,16 @@ export async function GET(request: Request) {
           assignedStaff: { select: { name: true } },
         },
       });
-      const uniqueRecordIds = [...new Set(targetSessions.map((s) => s.companyRecordId))];
+      const activeTargetSessions = targetSessions.filter((s) => s.status !== "キャンセル");
+      const uniqueRecordIds = [...new Set(activeTargetSessions.map((s) => s.companyRecordId))];
+
+      if (targetSessions.length > 0 && activeTargetSessions.length === 0) {
+        return NextResponse.json({
+          success: true,
+          action: "noop",
+          canceledCount: 0,
+        });
+      }
 
       if (uniqueRecordIds.length > 0) {
         canceledRecordIds.push(...uniqueRecordIds);
@@ -67,7 +77,7 @@ export async function GET(request: Request) {
 
         // 履歴記録: 各レコード（キャンセル前の値をスナップショット）
         await prisma.slpReservationHistory.createMany({
-          data: targetSessions.map((s) => ({
+          data: activeTargetSessions.map((s) => ({
             companyRecordId: s.companyRecordId,
             reservationType: "briefing",
             actionType: "キャンセル",
@@ -97,7 +107,7 @@ export async function GET(request: Request) {
     // セッションテーブル更新 → 副作用処理（キャンセル通知 + 紹介者通知）
     for (const recordId of canceledRecordIds) {
       try {
-        const cancelledSession = await prisma.$transaction(async (tx) => {
+        const applied = await prisma.$transaction(async (tx) => {
           return applyProlineCancelToSession(
             recordId,
             "briefing",
@@ -107,7 +117,8 @@ export async function GET(request: Request) {
           );
         });
 
-        if (cancelledSession) {
+        if (applied?.action === "cancelled") {
+          const cancelledSession = applied.session;
           // 副作用処理（内部でZoom削除 + キャンセル通知 + 紹介者通知）
           handleSessionStatusChangeSideEffects({
             sessionId: cancelledSession.id,

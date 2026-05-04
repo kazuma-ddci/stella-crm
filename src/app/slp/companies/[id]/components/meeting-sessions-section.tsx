@@ -23,6 +23,8 @@ export interface SessionZoomForUI {
   hasRecording: boolean;
   zoomError: string | null;
   zoomErrorAt: string | null;
+  urlNoticeStatus: "sent" | "failed" | "skipped" | "missing" | "unknown";
+  urlNoticeFailureCount: number;
 }
 
 export interface SessionSummaryForUI {
@@ -105,6 +107,23 @@ export async function MeetingSessionsSection({
         createdByStaff: { select: { name: true } },
         bookerContact: { select: { id: true, name: true } },
         notifyOverrides: { select: { contactId: true } },
+        zoomSendLogs: {
+          where: {
+            recipient: "customer",
+            trigger: {
+              in: [
+                "confirm",
+                "change",
+                "remind_day_before",
+                "remind_hour_before",
+                "regenerated_manual_notice",
+              ],
+            },
+          },
+          select: { trigger: true, status: true, uid: true, bodyText: true, sentAt: true },
+          orderBy: { sentAt: "desc" },
+          take: 50,
+        },
       },
     }),
     prisma.slpMeetingSession.count({
@@ -223,27 +242,61 @@ export async function MeetingSessionsSection({
   for (const s of sessions) {
     const linkedV2Histories = v2BySessionId.get(String(s.id)) ?? [];
     const meetings = linkedV2Histories.flatMap((ch) => ch.meetings);
-    const zooms: SessionZoomForUI[] = meetings.map((m) => ({
-      id: m.id,
-      zoomMeetingId: m.externalMeetingId ?? "",
-      joinUrl: m.joinUrl ?? "",
-      startUrl: m.startUrl,
-      scheduledAt: m.scheduledStartAt?.toISOString() ?? null,
-      isPrimary: m.isPrimary,
-      label: m.label,
-      hostStaffId: m.hostStaffId,
-      hostStaffName: m.hostStaff?.name ?? null,
-      hostIntegrationActive:
-        !!m.hostStaff && (m.hostStaff.meetingIntegrations?.length ?? 0) > 0,
-      hasRecording:
-        m.state === "完了" ||
-        !!m.record?.aiSummary ||
-        !!m.record?.transcriptText ||
-        !!m.record?.recordingUrl ||
-        !!m.record?.recordingPath,
-      zoomError: m.apiError ?? null,
-      zoomErrorAt: m.apiErrorAt?.toISOString() ?? null,
-    }));
+    const customerZoomLogs = s.zoomSendLogs;
+    const zooms: SessionZoomForUI[] = meetings.map((m) => {
+      const joinUrl = m.joinUrl ?? "";
+      const urlSetAt = m.urlSetAt ?? m.createdAt;
+      const currentUrlLogs = customerZoomLogs.filter((log) => {
+        if (log.sentAt < urlSetAt) return false;
+        if (log.trigger === "regenerated_manual_notice" && log.status === "skipped") {
+          return true;
+        }
+        return joinUrl.length > 0 && log.bodyText.includes(joinUrl);
+      });
+      const latestByUid = new Map<string, (typeof currentUrlLogs)[number]>();
+      for (const log of currentUrlLogs) {
+        if (!latestByUid.has(log.uid)) {
+          latestByUid.set(log.uid, log);
+        }
+      }
+      const latestLogs = Array.from(latestByUid.values());
+      const failedNoticeCount = latestLogs.filter((log) => log.status === "failed").length;
+      const hasSuccessfulUrlNotice = latestLogs.some((log) => log.status === "success");
+      const hasSkippedUrlNotice = latestLogs.some((log) => log.status === "skipped");
+
+      return {
+        id: m.id,
+        zoomMeetingId: m.externalMeetingId ?? "",
+        joinUrl,
+        startUrl: m.startUrl,
+        scheduledAt: m.scheduledStartAt?.toISOString() ?? null,
+        isPrimary: m.isPrimary,
+        label: m.label,
+        hostStaffId: m.hostStaffId,
+        hostStaffName: m.hostStaff?.name ?? null,
+        hostIntegrationActive:
+          !!m.hostStaff && (m.hostStaff.meetingIntegrations?.length ?? 0) > 0,
+        hasRecording:
+          m.state === "完了" ||
+          !!m.record?.aiSummary ||
+          !!m.record?.transcriptText ||
+          !!m.record?.recordingUrl ||
+          !!m.record?.recordingPath,
+        zoomError: m.apiError ?? null,
+        zoomErrorAt: m.apiErrorAt?.toISOString() ?? null,
+        urlNoticeStatus:
+          !joinUrl || m.apiError
+            ? "missing"
+            : failedNoticeCount > 0
+              ? "failed"
+              : hasSuccessfulUrlNotice
+                ? "sent"
+                : hasSkippedUrlNotice
+                  ? "skipped"
+                  : "unknown",
+        urlNoticeFailureCount: failedNoticeCount,
+      };
+    });
     const summary: SessionSummaryForUI = {
       id: s.id,
       category: s.category as SessionCategory,

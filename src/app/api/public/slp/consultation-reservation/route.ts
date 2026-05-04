@@ -251,22 +251,6 @@ export async function GET(request: Request) {
       }
     }
 
-    // 履歴記録（新規予約）
-    if (updatedRecordIds.length > 0) {
-      await prisma.slpReservationHistory.createMany({
-        data: updatedRecordIds.map((recordId) => ({
-          companyRecordId: recordId,
-          reservationType: "consultation",
-          actionType: "予約",
-          reservationId: bookingId ?? null,
-          reservedAt: consultationDateParsed,
-          bookedAt: consultationBookedAt,
-          staffName: consultationStaff || null,
-          staffId: resolvedStaffId,
-        })),
-      });
-    }
-
     // ペンディング情報を消費済みに
     if (pending) {
       await prisma.slpReservationPending.update({
@@ -292,7 +276,7 @@ export async function GET(request: Request) {
           bookerContactId = c?.id ?? null;
         }
 
-        const createdSession = await prisma.$transaction(async (tx) => {
+        const applied = await prisma.$transaction(async (tx) => {
           return applyProlineReservationToSession(
             recordId,
             "consultation",
@@ -307,21 +291,37 @@ export async function GET(request: Request) {
             tx
           );
         });
+        const createdSession = applied.session;
 
-        handleSessionReservationSideEffects({
-          sessionId: createdSession.id,
-          companyRecordId: recordId,
-          category: "consultation",
-          triggerReason: "confirm",
-          roundNumber: createdSession.roundNumber,
-          notifyReferrer: false,
-        }).catch(async (err) => {
-          await logAutomationError({
-            source: "slp-consultation-reservation-side-effects",
-            message: `予約副作用処理失敗: sessionId=${createdSession.id}`,
-            detail: { error: err instanceof Error ? err.message : String(err) },
+        if (applied.action !== "noop") {
+          await prisma.slpReservationHistory.create({
+            data: {
+              companyRecordId: recordId,
+              reservationType: "consultation",
+              actionType: "予約",
+              reservationId: bookingId ?? null,
+              reservedAt: consultationDateParsed,
+              bookedAt: consultationBookedAt,
+              staffName: consultationStaff || null,
+              staffId: resolvedStaffId,
+            },
           });
-        });
+
+          handleSessionReservationSideEffects({
+            sessionId: createdSession.id,
+            companyRecordId: recordId,
+            category: "consultation",
+            triggerReason: "confirm",
+            roundNumber: createdSession.roundNumber,
+            notifyReferrer: false,
+          }).catch(async (err) => {
+            await logAutomationError({
+              source: "slp-consultation-reservation-side-effects",
+              message: `予約副作用処理失敗: sessionId=${createdSession.id}`,
+              detail: { error: err instanceof Error ? err.message : String(err) },
+            });
+          });
+        }
       } catch (err) {
         await logAutomationError({
           source: "slp-consultation-reservation-session",

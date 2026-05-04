@@ -104,12 +104,50 @@ export async function GET(request: Request) {
           category: "consultation",
           deletedAt: null,
         },
-        select: { companyRecordId: true },
+        select: { companyRecordId: true, prolineReservationId: true },
       });
       const uniqueRecordIds = [...new Set(targetSessions.map((s) => s.companyRecordId))];
       if (uniqueRecordIds.length > 0) {
         changedRecordIds.push(...uniqueRecordIds);
         updatedCount = uniqueRecordIds.length;
+      }
+    }
+
+    if (updatedCount === 0 && uid) {
+      const contactCompanyIds = await prisma.slpCompanyContact.findMany({
+        where: { lineFriend: { uid }, companyRecord: { deletedAt: null } },
+        select: { companyRecordId: true },
+      });
+      const companyIds = [...new Set(contactCompanyIds.map((c) => c.companyRecordId))];
+      const activeSessions =
+        companyIds.length > 0
+          ? await prisma.slpMeetingSession.findMany({
+              where: {
+                companyRecordId: { in: companyIds },
+                category: "consultation",
+                status: "予約中",
+                deletedAt: null,
+              },
+              select: { companyRecordId: true, prolineReservationId: true },
+            })
+          : [];
+      const activeReservationIds = [
+        ...new Set(activeSessions.map((s) => s.prolineReservationId).filter(Boolean)),
+      ];
+      if (activeSessions.length > 0 && activeReservationIds.length <= 1) {
+        const uniqueRecordIds = [...new Set(activeSessions.map((s) => s.companyRecordId))];
+        changedRecordIds.push(...uniqueRecordIds);
+        updatedCount = uniqueRecordIds.length;
+      } else if (activeSessions.length > 0) {
+        await logAutomationError({
+          source: "slp-consultation-change",
+          message: "変更対象の予約中セッションが複数あり特定できません",
+          detail: { uid, bookingId, activeReservationIds },
+        });
+        return NextResponse.json(
+          { success: false, error: "変更対象の予約が複数あり特定できません" },
+          { status: 409 }
+        );
       }
     }
 
@@ -126,22 +164,6 @@ export async function GET(request: Request) {
       );
     }
 
-    // 履歴記録（変更）
-    if (changedRecordIds.length > 0) {
-      await prisma.slpReservationHistory.createMany({
-        data: changedRecordIds.map((recordId) => ({
-          companyRecordId: recordId,
-          reservationType: "consultation",
-          actionType: "変更",
-          reservationId: bookingId ?? null,
-          reservedAt: consultationDateParsed,
-          bookedAt: consultationBookedAt,
-          staffName: consultationStaff || null,
-          staffId: resolvedStaffId,
-        })),
-      });
-    }
-
     // セッションテーブル更新 → 副作用処理（Zoom更新 + LINE通知）
     // 導入希望商談では紹介者通知は送らない
     for (const recordId of changedRecordIds) {
@@ -156,7 +178,7 @@ export async function GET(request: Request) {
           bookerContactId = c?.id ?? null;
         }
 
-        const updatedSession = await prisma.$transaction(async (tx) => {
+        const applied = await prisma.$transaction(async (tx) => {
           return applyProlineChangeToSession(
             recordId,
             "consultation",
@@ -171,21 +193,37 @@ export async function GET(request: Request) {
             tx
           );
         });
+        const updatedSession = applied.session;
 
-        handleSessionReservationSideEffects({
-          sessionId: updatedSession.id,
-          companyRecordId: recordId,
-          category: "consultation",
-          triggerReason: "change",
-          roundNumber: updatedSession.roundNumber,
-          notifyReferrer: false,
-        }).catch(async (err) => {
-          await logAutomationError({
-            source: "slp-consultation-change-side-effects",
-            message: `変更副作用処理失敗: sessionId=${updatedSession.id}`,
-            detail: { error: err instanceof Error ? err.message : String(err) },
+        if (applied.action !== "noop") {
+          await prisma.slpReservationHistory.create({
+            data: {
+              companyRecordId: recordId,
+              reservationType: "consultation",
+              actionType: "変更",
+              reservationId: bookingId ?? null,
+              reservedAt: consultationDateParsed,
+              bookedAt: consultationBookedAt,
+              staffName: consultationStaff || null,
+              staffId: resolvedStaffId,
+            },
           });
-        });
+
+          handleSessionReservationSideEffects({
+            sessionId: updatedSession.id,
+            companyRecordId: recordId,
+            category: "consultation",
+            triggerReason: "change",
+            roundNumber: updatedSession.roundNumber,
+            notifyReferrer: false,
+          }).catch(async (err) => {
+            await logAutomationError({
+              source: "slp-consultation-change-side-effects",
+              message: `変更副作用処理失敗: sessionId=${updatedSession.id}`,
+              detail: { error: err instanceof Error ? err.message : String(err) },
+            });
+          });
+        }
       } catch (err) {
         await logAutomationError({
           source: "slp-consultation-change-session",

@@ -95,7 +95,8 @@ export type SessionContactHistoryV2Row = {
   contactMethodName: string | null;
   contactCategoryName: string | null;
   staffNames: string[];
-  customerLabels: string[];
+  customerTargetLabels: string[];
+  attendeeNames: string[];
   meetingMinutes: string | null;
   note: string | null;
   files: {
@@ -368,6 +369,30 @@ export async function getV2ContactHistoriesBySession(
     orderBy: [{ scheduledStartAt: "desc" }, { id: "desc" }],
   });
 
+  const slpCompanyIds = rows.flatMap((row) =>
+    row.customerParticipants
+      .filter((p) => p.targetType === "slp_company_record" && p.targetId !== null)
+      .map((p) => p.targetId as number)
+  );
+  const slpCompanies =
+    slpCompanyIds.length > 0
+      ? await prisma.slpCompanyRecord.findMany({
+          where: { id: { in: [...new Set(slpCompanyIds)] } },
+          select: { id: true, companyName: true },
+        })
+      : [];
+  const slpCompanyNameById = new Map(
+    slpCompanies.map((company) => [company.id, company.companyName ?? `SLP事業者 #${company.id}`])
+  );
+
+  const targetLabel = (targetType: string, targetId: number | null) => {
+    if (targetType === "slp_company_record" && targetId !== null) {
+      return slpCompanyNameById.get(targetId) ?? `SLP事業者 #${targetId}`;
+    }
+    if (targetType === "slp_agency" && targetId !== null) return `代理店 #${targetId}`;
+    return targetId !== null ? `${targetType} #${targetId}` : targetType;
+  };
+
   return rows.map((row) => ({
     id: row.id,
     title: row.title,
@@ -377,11 +402,12 @@ export async function getV2ContactHistoriesBySession(
     staffNames: row.staffParticipants.map((p) =>
       p.isHost ? `${p.staff.name}（ホスト）` : p.staff.name
     ),
-    customerLabels: row.customerParticipants.map((p) => {
-      const attendees = p.attendees.map((a) => a.name).filter(Boolean);
-      const base = `${p.targetType}${p.targetId ? ` #${p.targetId}` : ""}`;
-      return attendees.length > 0 ? `${base}: ${attendees.join("、")}` : base;
-    }),
+    customerTargetLabels: row.customerParticipants.map((p) =>
+      targetLabel(p.targetType, p.targetId)
+    ),
+    attendeeNames: row.customerParticipants.flatMap((p) =>
+      p.attendees.map((a) => a.name).filter(Boolean)
+    ),
     meetingMinutes: row.meetingMinutes,
     note: row.note,
     files: row.files,

@@ -39,6 +39,7 @@ export type NotificationTrigger =
   | "remind_day_before_no_url"
   | "remind_hour_before"
   | "remind_hour_before_no_url"
+  | "regenerated_manual_notice"
   // 紹介ライフサイクル系（セッション非依存、紹介者通知専用）
   | "friend_added"
   | "contract_signed"
@@ -62,6 +63,11 @@ export interface SendSessionNotificationParams {
    * 未指定 + recipient=referrer の場合は従来通りメイン担当者の free1 を引く
    */
   referrerLineFriendId?: number;
+  /**
+   * スタッフが送信確認モーダルで編集した本文をそのまま送る場合に使う。
+   * テンプレートは formId/送信経路の解決に使い、本文だけを上書きする。
+   */
+  bodyTextOverride?: string;
 }
 
 /**
@@ -258,7 +264,7 @@ export async function sendSessionNotification(
     roundNumber: String(session.roundNumber),
   };
 
-  const bodyText = renderTemplateBody(template.body, vars);
+  const bodyText = params.bodyTextOverride ?? renderTemplateBody(template.body, vars);
 
   // 送信先 UID
   // 明示指定(customer/referrer LineFriendId)がある場合は、必ずそのLineFriendへ送る（フォールバックしない）

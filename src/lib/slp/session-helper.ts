@@ -186,6 +186,27 @@ export interface CreateSessionInput {
   roundNumber?: number;
 }
 
+export type ProlineReservationApplyResult = {
+  session: SlpMeetingSession;
+  action: "created" | "promoted" | "noop";
+};
+
+export type ProlineChangeApplyResult = {
+  session: SlpMeetingSession;
+  action: "created" | "updated" | "noop";
+};
+
+export type ProlineCancelApplyResult = {
+  session: SlpMeetingSession;
+  action: "cancelled" | "noop";
+};
+
+function sameInstant(a: Date | null | undefined, b: Date | null | undefined): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return a.getTime() === b.getTime();
+}
+
 /**
  * セッション作成（履歴記録付き）
  * トランザクション内で実行することを推奨（並列作成時の整合性のため）
@@ -442,7 +463,7 @@ export async function applyProlineReservationToSession(
   category: SessionCategory,
   params: ProlineReservationParams,
   tx: Prisma.TransactionClient
-): Promise<SlpMeetingSession> {
+): Promise<ProlineReservationApplyResult> {
   // 1. 冪等性チェック
   if (params.prolineReservationId) {
     const existing = await tx.slpMeetingSession.findFirst({
@@ -453,7 +474,7 @@ export async function applyProlineReservationToSession(
         deletedAt: null,
       },
     });
-    if (existing) return existing;
+    if (existing) return { session: existing, action: "noop" };
   }
 
   // 2. 「未予約」昇格
@@ -482,11 +503,11 @@ export async function applyProlineReservationToSession(
         reason: "プロラインwebhookにより予約確定",
       },
     });
-    return updated;
+    return { session: updated, action: "promoted" };
   }
 
   // 3. 新規セッション作成
-  return createSession(
+  const created = await createSession(
     {
       companyRecordId,
       category,
@@ -501,6 +522,7 @@ export async function applyProlineReservationToSession(
     },
     tx
   );
+  return { session: created, action: "created" };
 }
 
 /**
@@ -516,7 +538,7 @@ export async function applyProlineChangeToSession(
   category: SessionCategory,
   params: ProlineReservationParams,
   tx: Prisma.TransactionClient
-): Promise<SlpMeetingSession> {
+): Promise<ProlineChangeApplyResult> {
   let target: SlpMeetingSession | null = null;
 
   if (params.prolineReservationId) {
@@ -543,6 +565,13 @@ export async function applyProlineChangeToSession(
   }
 
   if (target) {
+    const alreadyApplied =
+      sameInstant(target.scheduledAt, params.scheduledAt) &&
+      target.assignedStaffId === params.assignedStaffId &&
+      target.prolineReservationId === params.prolineReservationId &&
+      target.status === "予約中";
+    if (alreadyApplied) return { session: target, action: "noop" };
+
     const updated = await tx.slpMeetingSession.update({
       where: { id: target.id },
       data: {
@@ -578,11 +607,11 @@ export async function applyProlineChangeToSession(
         reason: "プロラインwebhookによる予約変更",
       },
     });
-    return updated;
+    return { session: updated, action: "updated" };
   }
 
   // セッションが無い場合の救済: 新規作成
-  return createSession(
+  const created = await createSession(
     {
       companyRecordId,
       category,
@@ -597,6 +626,7 @@ export async function applyProlineChangeToSession(
     },
     tx
   );
+  return { session: created, action: "created" };
 }
 
 /**
@@ -610,7 +640,7 @@ export async function applyProlineCancelToSession(
   prolineReservationId: string | null,
   reason: string,
   tx: Prisma.TransactionClient
-): Promise<SlpMeetingSession | null> {
+): Promise<ProlineCancelApplyResult | null> {
   let target: SlpMeetingSession | null = null;
 
   if (prolineReservationId) {
@@ -622,6 +652,7 @@ export async function applyProlineCancelToSession(
         deletedAt: null,
       },
     });
+    if (!target) return null;
   }
 
   if (!target) {
@@ -637,6 +668,9 @@ export async function applyProlineCancelToSession(
   }
 
   if (!target) return null;
+  if (target.status === "キャンセル") {
+    return { session: target, action: "noop" };
+  }
 
   const now = new Date();
   const updated = await tx.slpMeetingSession.update({
@@ -657,7 +691,7 @@ export async function applyProlineCancelToSession(
       reason,
     },
   });
-  return updated;
+  return { session: updated, action: "cancelled" };
 }
 
 // ============================================

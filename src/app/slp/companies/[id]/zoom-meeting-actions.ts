@@ -12,6 +12,27 @@ import {
   findV2PrimaryMeetingForSession,
 } from "@/lib/slp/v2-session-sync";
 import { parseZoomJoinUrl } from "@/lib/zoom/url-parser";
+import { getNotifiableCustomerLineFriendIds } from "@/lib/slp/session-helper";
+import {
+  sendSessionNotification,
+  type NotificationTrigger,
+} from "@/lib/slp/slp-session-notification";
+import { formatJstDateTime } from "@/lib/zoom/templates";
+import { resolveProlineStaffName } from "@/lib/slp/proline-staff-name";
+import { ZOOM_GUIDE_FORM, ZOOM_CONSULT_FORM } from "@/lib/proline-form";
+
+export type ZoomUrlNoticeRecipient = {
+  lineFriendId: number;
+  uid: string;
+  label: string;
+};
+
+export type ZoomUrlNoticeDraft = {
+  ok: true;
+  joinUrl: string;
+  bodyText: string;
+  recipients: ZoomUrlNoticeRecipient[];
+} | { ok: false; message: string };
 
 /**
  * セッションIDに対して Zoom URL を再発行する（旧「手動で発行する」ボタン相当）
@@ -165,6 +186,195 @@ export async function setManualZoomForSession(params: {
       message: e instanceof Error ? e.message : "手動Zoom設定に失敗しました",
     };
   }
+}
+
+function buildZoomUrlNoticeBody(params: {
+  companyName: string;
+  category: "briefing" | "consultation";
+  scheduledAt: Date | null;
+  staffName: string | null;
+  joinUrl: string;
+}): string {
+  const categoryLabel = params.category === "briefing" ? "概要案内" : "導入希望商談";
+  return [
+    `${params.companyName} 様`,
+    "",
+    `${categoryLabel}のZoom URLをご案内いたします。`,
+    "",
+    `日時: ${params.scheduledAt ? formatJstDateTime(params.scheduledAt) : "未設定"}`,
+    `担当: ${params.staffName?.trim() || "未登録"}`,
+    `Zoom URL: ${params.joinUrl}`,
+    "",
+    "当日はこちらのURLからご参加ください。",
+  ].join("\n");
+}
+
+async function loadZoomUrlNoticeContext(sessionId: number) {
+  const session = await prisma.slpMeetingSession.findUnique({
+    where: { id: sessionId },
+    include: {
+      companyRecord: { select: { id: true, companyName: true } },
+    },
+  });
+  if (!session || session.deletedAt) {
+    return { ok: false as const, message: "打ち合わせが見つかりません" };
+  }
+
+  const meeting = await findV2PrimaryMeetingForSession(session.id);
+  if (!meeting?.joinUrl) {
+    return { ok: false as const, message: "送信できるZoom URLがまだ登録されていません" };
+  }
+
+  const recipientIds = await getNotifiableCustomerLineFriendIds(session.id);
+  const lineFriends =
+    recipientIds.length > 0
+      ? await prisma.slpLineFriend.findMany({
+          where: {
+            id: { in: recipientIds },
+            deletedAt: null,
+            uid: { not: "" },
+          },
+          select: { id: true, uid: true, snsname: true },
+        })
+      : [];
+  const recipients = lineFriends
+    .filter((lf) => lf.uid?.trim())
+    .map((lf) => ({
+      lineFriendId: lf.id,
+      uid: lf.uid,
+      label: `${lf.id} ${lf.snsname || lf.uid}`.trim(),
+    }));
+
+  const staffName = await resolveProlineStaffName({
+    staffId: session.assignedStaffId,
+    webhookFallback: session.prolineStaffName,
+  });
+
+  return {
+    ok: true as const,
+    session,
+    meeting,
+    recipients,
+    bodyText: buildZoomUrlNoticeBody({
+      companyName: session.companyRecord.companyName ?? "（企業名未設定）",
+      category: session.category as "briefing" | "consultation",
+      scheduledAt: session.scheduledAt,
+      staffName,
+      joinUrl: meeting.joinUrl,
+    }),
+  };
+}
+
+export async function getZoomUrlNoticeDraft(
+  sessionId: number
+): Promise<ZoomUrlNoticeDraft> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
+  const ctx = await loadZoomUrlNoticeContext(sessionId);
+  if (!ctx.ok) return ctx;
+  return {
+    ok: true,
+    joinUrl: ctx.meeting.joinUrl ?? "",
+    bodyText: ctx.bodyText,
+    recipients: ctx.recipients,
+  };
+}
+
+export async function sendZoomUrlNoticeForSession(params: {
+  sessionId: number;
+  bodyText: string;
+  targetLineFriendIds: number[];
+}): Promise<{
+  ok: boolean;
+  sentCount: number;
+  failedCount: number;
+  results: Array<{ lineFriendId: number; ok: boolean; errorMessage?: string }>;
+  message?: string;
+}> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
+
+  const ctx = await loadZoomUrlNoticeContext(params.sessionId);
+  if (!ctx.ok) {
+    return { ok: false, sentCount: 0, failedCount: 0, results: [], message: ctx.message };
+  }
+
+  const allowedIds = new Set(ctx.recipients.map((r) => r.lineFriendId));
+  const targetIds = [...new Set(params.targetLineFriendIds)].filter((id) => allowedIds.has(id));
+  if (targetIds.length === 0) {
+    return {
+      ok: false,
+      sentCount: 0,
+      failedCount: 0,
+      results: [],
+      message: "送信対象が選択されていません",
+    };
+  }
+
+  const bodyText = params.bodyText.trim();
+  if (!bodyText) {
+    return {
+      ok: false,
+      sentCount: 0,
+      failedCount: 0,
+      results: [],
+      message: "送信本文が空です",
+    };
+  }
+
+  const trigger: NotificationTrigger = "regenerated_manual_notice";
+  const results: Array<{ lineFriendId: number; ok: boolean; errorMessage?: string }> = [];
+  for (const lineFriendId of targetIds) {
+    const result = await sendSessionNotification({
+      sessionId: params.sessionId,
+      recipient: "customer",
+      trigger,
+      customerLineFriendId: lineFriendId,
+      bodyTextOverride: bodyText,
+    });
+    results.push({
+      lineFriendId,
+      ok: result.ok,
+      errorMessage: result.errorMessage,
+    });
+  }
+
+  const sentCount = results.filter((r) => r.ok).length;
+  const failedCount = results.length - sentCount;
+  revalidatePath(`/slp/companies/${ctx.session.companyRecordId}`);
+  return { ok: failedCount === 0, sentCount, failedCount, results };
+}
+
+export async function markZoomUrlNoticeSkippedForSession(
+  sessionId: number
+): Promise<{ ok: true; skippedCount: number } | { ok: false; message: string }> {
+  await requireStaffWithProjectPermission([{ project: "slp", level: "edit" }]);
+
+  const ctx = await loadZoomUrlNoticeContext(sessionId);
+  if (!ctx.ok) return ctx;
+
+  if (ctx.recipients.length === 0) {
+    revalidatePath(`/slp/companies/${ctx.session.companyRecordId}`);
+    return { ok: true, skippedCount: 0 };
+  }
+
+  const form = ctx.session.category === "briefing" ? ZOOM_GUIDE_FORM : ZOOM_CONSULT_FORM;
+  await prisma.slpZoomSendLog.createMany({
+    data: ctx.recipients.map((recipient) => ({
+      companyRecordId: ctx.session.companyRecordId,
+      sessionId: ctx.session.id,
+      category: ctx.session.category,
+      trigger: "regenerated_manual_notice",
+      recipient: "customer",
+      uid: recipient.uid,
+      formId: ctx.session.category === "briefing" ? "form16" : "form17",
+      fieldKey: form.fieldKey,
+      bodyText: "スタッフ判断で未送信",
+      status: "skipped",
+      errorMessage: "スタッフ判断でZoom URL通知を送らない選択",
+    })),
+  });
+
+  revalidatePath(`/slp/companies/${ctx.session.companyRecordId}`);
+  return { ok: true, skippedCount: ctx.recipients.length };
 }
 
 /**

@@ -457,6 +457,32 @@ export async function completeV2ForSession(sessionId: number): Promise<void> {
         actualEndAt: new Date(),
       },
     });
+
+    const terminalStates = ["完了", "失敗", "キャンセル"];
+    await prisma.contactHistoryMeeting.updateMany({
+      where: {
+        contactHistoryId: ch.id,
+        deletedAt: null,
+        state: { notIn: terminalStates },
+        joinUrl: { not: null },
+        externalMeetingId: { not: null },
+        hostStaffId: { not: null },
+        apiIntegrationStatus: "available",
+      },
+      data: {
+        state: "取得中",
+      },
+    });
+    await prisma.contactHistoryMeeting.updateMany({
+      where: {
+        contactHistoryId: ch.id,
+        deletedAt: null,
+        state: { notIn: [...terminalStates, "取得中"] },
+      },
+      data: {
+        state: "完了",
+      },
+    });
   } catch (e) {
     await logAutomationError({
       source: "slp-v2-sync-complete",
