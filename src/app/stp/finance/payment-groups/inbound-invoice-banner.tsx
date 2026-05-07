@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useSyncExternalStore, useTransition } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +17,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Mail, FileText, Check, X, Link2, AlertTriangle, Eye, ExternalLink, Paperclip } from "lucide-react";
+import {
+  Mail,
+  FileText,
+  Check,
+  X,
+  Link2,
+  AlertTriangle,
+  Eye,
+  ExternalLink,
+  Paperclip,
+  ChevronDown,
+} from "lucide-react";
 import { toast } from "sonner";
 import type { PendingInboundInvoice } from "./inbound-invoice-actions";
 import type { MatchablePaymentGroup } from "./inbound-invoice-actions";
@@ -54,6 +65,31 @@ const CONFIDENCE_CONFIG: Record<string, { label: string; detail: string; classNa
 const ALREADY_RECEIVED_STATUSES = [
   "invoice_received", "confirmed", "awaiting_accounting", "returned", "paid",
 ];
+
+const STORAGE_KEY = "stp-payment-groups-inbound-invoice-expanded";
+const storageListeners = new Set<() => void>();
+
+function subscribeToExpandedStorage(callback: () => void) {
+  storageListeners.add(callback);
+  window.addEventListener("storage", callback);
+  return () => {
+    storageListeners.delete(callback);
+    window.removeEventListener("storage", callback);
+  };
+}
+
+function getExpandedSnapshot() {
+  return localStorage.getItem(STORAGE_KEY) === "true";
+}
+
+function getExpandedServerSnapshot() {
+  return false;
+}
+
+function setStoredExpanded(expanded: boolean) {
+  localStorage.setItem(STORAGE_KEY, String(expanded));
+  storageListeners.forEach((callback) => callback());
+}
 
 function ConfidenceBadge({ confidence }: { confidence: string | null }) {
   if (!confidence) return null;
@@ -193,19 +229,19 @@ function MatchedInvoiceCard({
   const alreadyReceived = pg ? ALREADY_RECEIVED_STATUSES.includes(pg.status) : false;
 
   return (
-    <div className="border rounded-lg p-4 space-y-2">
+    <div className="border rounded-lg px-3 py-2.5 space-y-2 bg-white">
       {alreadyReceived && (
         <div className="flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-1.5 text-xs">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           <span>この支払は既に請求書受領済みです。承認すると追加の証憑として保存されます。</span>
         </div>
       )}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
           <Badge variant="outline" className="font-mono text-xs">
             {pg?.referenceCode ?? "---"}
           </Badge>
-          <span className="font-medium text-sm">
+          <span className="font-medium text-sm truncate">
             {pg?.counterpartyName ?? "不明"}
           </span>
           {pg?.totalAmount != null && (
@@ -214,15 +250,15 @@ function MatchedInvoiceCard({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           <span className="text-xs text-muted-foreground mr-1">信頼度:</span>
           <ConfidenceBadge confidence={invoice.matchConfidence} />
         </div>
       </div>
 
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
         <FileText className="h-3.5 w-3.5" />
-        <span>{invoice.attachmentFileName ?? "添付ファイルなし"}</span>
+        <span className="truncate">{invoice.attachmentFileName ?? "添付ファイルなし"}</span>
         {invoice.attachmentSize && (
           <span className="text-xs">
             ({formatFileSize(invoice.attachmentSize)})
@@ -230,9 +266,9 @@ function MatchedInvoiceCard({
         )}
       </div>
 
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <Mail className="h-3 w-3" />
-        <span>
+        <span className="truncate">
           {invoice.fromName
             ? `${invoice.fromName} <${invoice.fromEmail}>`
             : invoice.fromEmail}
@@ -240,7 +276,7 @@ function MatchedInvoiceCard({
         <span>受信: {formatDate(invoice.receivedAt)}</span>
       </div>
 
-      <div className="flex items-center justify-end gap-2 pt-1">
+      <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
         <Button
           variant="outline"
           size="sm"
@@ -322,24 +358,24 @@ function UnmatchedInvoiceCard({
   };
 
   return (
-    <div className="border rounded-lg p-4 space-y-2 border-orange-200 bg-orange-50/30">
-      <div className="flex items-center gap-2">
+    <div className="border rounded-lg px-3 py-2.5 space-y-2 border-orange-200 bg-orange-50/30">
+      <div className="flex flex-wrap items-center gap-2 min-w-0">
         <Badge
           variant="outline"
           className="bg-orange-100 text-orange-800 border-orange-200"
         >
           マッチなし
         </Badge>
-        <span className="text-sm font-medium">
+        <span className="text-sm font-medium truncate">
           {invoice.fromName
             ? `${invoice.fromName} <${invoice.fromEmail}>`
             : invoice.fromEmail}
         </span>
       </div>
 
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
         <FileText className="h-3.5 w-3.5" />
-        <span>{invoice.attachmentFileName ?? "添付ファイルなし"}</span>
+        <span className="truncate">{invoice.attachmentFileName ?? "添付ファイルなし"}</span>
         {invoice.attachmentSize && (
           <span className="text-xs">
             ({formatFileSize(invoice.attachmentSize)})
@@ -357,7 +393,7 @@ function UnmatchedInvoiceCard({
         受信: {formatDate(invoice.receivedAt)} / {invoice.receivedByEmail}
       </div>
 
-      <div className="flex items-center justify-end gap-2 pt-1">
+      <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
         <Button
           variant="outline"
           size="sm"
@@ -366,13 +402,13 @@ function UnmatchedInvoiceCard({
           <Eye className="h-3.5 w-3.5 mr-1" />
           プレビュー
         </Button>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center justify-end gap-1">
           {matchableGroups.length === 0 ? (
             <span className="text-xs text-muted-foreground">マッチ可能な支払グループがありません</span>
           ) : (
             <>
               <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
-                <SelectTrigger className="h-8 text-xs w-[200px]">
+                <SelectTrigger className="h-8 text-xs w-[min(220px,calc(100vw-3rem))]">
                   <SelectValue placeholder="支払グループを選択..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -417,38 +453,90 @@ function UnmatchedInvoiceCard({
 }
 
 export function InboundInvoiceBanner({ invoices, matchableGroups }: Props) {
+  const expanded = useSyncExternalStore(
+    subscribeToExpandedStorage,
+    getExpandedSnapshot,
+    getExpandedServerSnapshot
+  );
+
   if (invoices.length === 0) return null;
 
   const matched = invoices.filter((inv) => inv.status === "pending");
   const unmatched = invoices.filter((inv) => inv.status === "unmatched");
 
+  const handleToggle = () => {
+    setStoredExpanded(!expanded);
+  };
+
   return (
     <Card className="border-blue-200 bg-blue-50/30">
-      <CardContent className="pt-6 space-y-4">
-        <div className="flex items-center gap-2">
-          <Mail className="h-5 w-5 text-blue-600" />
-          <h3 className="font-semibold text-blue-900">
-            請求書が届いています ({invoices.length}件)
-          </h3>
-        </div>
-
-        {matched.length > 0 && (
-          <div className="space-y-3">
-            {matched.map((inv) => (
-              <MatchedInvoiceCard key={inv.id} invoice={inv} />
-            ))}
+      <CardContent className="p-0">
+        <button
+          type="button"
+          onClick={handleToggle}
+          aria-expanded={expanded}
+          className="flex w-full flex-col gap-3 px-4 py-4 text-left sm:flex-row sm:items-center sm:justify-between sm:px-6"
+        >
+          <div className="flex items-center gap-2">
+            <Mail className="h-5 w-5 text-blue-600" />
+            <h3 className="font-semibold text-blue-900">
+              請求書が届いています ({invoices.length}件)
+            </h3>
           </div>
-        )}
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+            {unmatched.length > 0 && (
+              <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-200">
+                マッチなし {unmatched.length}件
+              </Badge>
+            )}
+            {matched.length > 0 && (
+              <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
+                マッチ済み {matched.length}件
+              </Badge>
+            )}
+            <ChevronDown
+              className={`h-4 w-4 text-blue-700 transition-transform ${expanded ? "rotate-180" : ""}`}
+            />
+          </div>
+        </button>
 
-        {unmatched.length > 0 && (
-          <div className="space-y-3">
-            {unmatched.map((inv) => (
-              <UnmatchedInvoiceCard
-                key={inv.id}
-                invoice={inv}
-                matchableGroups={matchableGroups}
-              />
-            ))}
+        {expanded && (
+          <div className="space-y-4 border-t border-blue-100 px-4 py-4 sm:px-6">
+            {unmatched.length > 0 && (
+              <section className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-medium text-orange-900">マッチなし</h4>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-orange-700 border-orange-200">
+                    {unmatched.length}件
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  {unmatched.map((inv) => (
+                    <UnmatchedInvoiceCard
+                      key={inv.id}
+                      invoice={inv}
+                      matchableGroups={matchableGroups}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {matched.length > 0 && (
+              <section className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-medium text-green-900">マッチ済み</h4>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-700 border-green-200">
+                    {matched.length}件
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  {matched.map((inv) => (
+                    <MatchedInvoiceCard key={inv.id} invoice={inv} />
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         )}
       </CardContent>

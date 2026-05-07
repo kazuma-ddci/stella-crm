@@ -28,15 +28,16 @@ function extractDomain(email: string): string {
  *
  * マッチングアルゴリズム:
  * 1. 参照コード抽出: filename.match(/PG-(\d{4,})/i)
- * 2. 候補絞り込み:
- *    - expectedInboundEmailId = receivedByEmailId (必須)
- *    - status IN ('requested', 're_requested')
- *    - deletedAt IS NULL
- * 3. マッチング:
+ * 2. マッチング:
  *    (a) 参照コードあり → referenceCodeで完全一致検索
+ *      - status IN ('requested', 're_requested')
+ *      - deletedAt IS NULL
  *      → 見つかった: 送信元ドメイン == 取引先コンタクトメールドメイン? high : medium
  *      → 見つからない: unmatched
- *    (b) 参照コードなし → 送信元ドメインで候補内検索
+ *    (b) 参照コードなし → 受信メールアドレスと送信元ドメインで候補内検索
+ *      - expectedInboundEmailId = receivedByEmailId (必須)
+ *      - status IN ('requested', 're_requested')
+ *      - deletedAt IS NULL
  *      - fromEmailのドメイン → StellaCompanyContact.email → companyId → Counterparty.companyId → PaymentGroup
  *      → 1件のみ: low
  *      → 複数/0件: unmatched
@@ -50,41 +51,28 @@ export async function matchInboundInvoice(params: {
   const referenceCode = extractReferenceCode(attachmentFileName);
   const fromDomain = extractDomain(fromEmail);
 
-  // 候補となるPaymentGroupの基本条件
-  const baseCandidates = await prisma.paymentGroup.findMany({
-    where: {
-      expectedInboundEmailId: receivedByEmailId,
-      status: { in: ["requested", "re_requested"] },
-      deletedAt: null,
-    },
-    include: {
-      counterparty: {
-        include: {
-          company: {
-            include: {
-              contacts: {
-                where: { deletedAt: null },
-              },
+  const paymentGroupInclude = {
+    counterparty: {
+      include: {
+        company: {
+          include: {
+            contacts: {
+              where: { deletedAt: null },
             },
           },
         },
       },
     },
-  });
-
-  if (baseCandidates.length === 0) {
-    return {
-      paymentGroupId: null,
-      matchConfidence: null,
-      referenceCode,
-      status: "unmatched",
-    };
-  }
+  } as const;
 
   /** 候補からコンタクトメールドメインのリストを取得するヘルパー */
-  function getContactEmails(
-    pg: (typeof baseCandidates)[number]
-  ): string[] {
+  function getContactEmails(pg: {
+    counterparty?: {
+      company?: {
+        contacts: Array<{ email: string | null }>;
+      } | null;
+    } | null;
+  }): string[] {
     return (
       pg.counterparty?.company?.contacts
         .map((c: { email: string | null }) => c.email)
@@ -92,11 +80,16 @@ export async function matchInboundInvoice(params: {
     );
   }
 
-  // (a) 参照コードあり → referenceCodeで完全一致検索
+  // 参照コードはPaymentGroupで一意。返信先メールが変わっても完全一致なら優先して照合する。
   if (referenceCode) {
-    const matched = baseCandidates.find(
-      (pg) => pg.referenceCode === referenceCode
-    );
+    const matched = await prisma.paymentGroup.findFirst({
+      where: {
+        referenceCode,
+        status: { in: ["requested", "re_requested"] },
+        deletedAt: null,
+      },
+      include: paymentGroupInclude,
+    });
 
     if (!matched) {
       return {
@@ -118,6 +111,25 @@ export async function matchInboundInvoice(params: {
       matchConfidence: domainMatch ? "high" : "medium",
       referenceCode,
       status: "pending",
+    };
+  }
+
+  // 参照コードなしの場合だけ、受信先メールアドレスで候補を絞る
+  const baseCandidates = await prisma.paymentGroup.findMany({
+    where: {
+      expectedInboundEmailId: receivedByEmailId,
+      status: { in: ["requested", "re_requested"] },
+      deletedAt: null,
+    },
+    include: paymentGroupInclude,
+  });
+
+  if (baseCandidates.length === 0) {
+    return {
+      paymentGroupId: null,
+      matchConfidence: null,
+      referenceCode,
+      status: "unmatched",
     };
   }
 

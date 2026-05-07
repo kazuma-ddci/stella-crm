@@ -336,8 +336,11 @@ export function EmailsModal({
             onChange={(e) => setForm({ ...form, enableInbound: e.target.checked })}
             className="rounded border-gray-300"
           />
-          <span className="text-xs">受信チェックを有効にする</span>
+          <span className="text-xs">請求書受信チェックを有効にする</span>
         </label>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          支払管理の「請求書が届いています」に取り込むPDFだけを対象にします。CloudSign用メールはIMAP設定を残したままOFFにできます。
+        </p>
       </div>
 
       <div className="flex justify-end gap-2 pt-1">
@@ -394,7 +397,7 @@ export function EmailsModal({
                       <TableHead>メールアドレス</TableHead>
                       <TableHead>用途</TableHead>
                       <TableHead>送信</TableHead>
-                      <TableHead>受信</TableHead>
+                      <TableHead>請求書受信</TableHead>
                       <TableHead>デフォルト</TableHead>
                       {canEdit && (
                         <TableHead className="w-[100px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
