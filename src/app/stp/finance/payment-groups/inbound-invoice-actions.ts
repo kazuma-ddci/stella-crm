@@ -17,6 +17,12 @@ export async function getPendingInboundInvoices() {
   const invoices = await prisma.inboundInvoice.findMany({
     where: {
       status: { in: ["pending", "unmatched"] },
+      // 画面表示も現在の「請求書受信チェック」設定に従う。
+      // OFFにしたCloudSign用メールなどの過去取り込み分は支払管理には出さない。
+      receivedByEmail: {
+        enableInbound: true,
+        deletedAt: null,
+      },
       OR: [
         // マッチ済み: STPプロジェクトスコープ内のみ
         { paymentGroup: { projectId: stpProjectId } },
