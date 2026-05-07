@@ -1120,6 +1120,62 @@ docker compose version
 
 ---
 
+## stg/prodデプロイ後に502 + Prisma P3009になる
+
+### 症状
+
+- ブラウザで `502 Bad Gateway nginx/1.24.0 (Ubuntu)` が表示される
+- `docker compose --env-file .env.stg -f docker-compose.stg.yml logs app --tail 120` で、アプリ起動前に `prisma migrate deploy` が失敗している
+- 例:
+
+```text
+Error: P3009
+migrate found failed migrations in the target database, new migrations will not be applied.
+The `20260430180000_add_receipt_payment_record_source` migration ... failed
+ERROR: relation "bank_statement_entry_group_links" does not exist
+```
+
+### 原因
+
+Prisma schemaにはテーブルが追加されていたが、そのテーブルを作るmigrationが欠けた状態で、後続migrationが先にそのテーブルを参照した。
+
+このケースでは、入出金履歴テーブル（`bank_statement_imports` / `bank_statement_entries` / `bank_statement_entry_group_links`）を作るmigrationが無く、後続の `20260430180000_add_receipt_payment_record_source` が `bank_statement_entry_group_links` を参照して落ちた。
+
+### 恒久対応
+
+後続migrationより前のタイムスタンプで、不足しているテーブルを作るmigrationを追加する。
+
+```text
+prisma/migrations/20260430175000_add_bank_statement_tables/migration.sql
+```
+
+このmigrationはstgで手動復旧済みでも再適用で壊れないよう、`IF NOT EXISTS` と制約存在チェックを使う。
+
+### prod前の確認手順
+
+1. 修正migrationをpushする
+2. `~/deploy-stg.sh` を再実行し、本番DBコピー後でもmigrationが通ることを確認する
+3. stgでヘルスチェックが `status: ok` になることを確認する
+4. stgログに新しい `P3009` / `prisma:error` が無いことを確認する
+5. その後に `~/deploy-prod.sh` を実行する
+
+確認コマンド:
+
+```bash
+cd ~/stella-crm
+
+docker compose --env-file .env.stg -f docker-compose.stg.yml logs app --since 5m
+
+CRON_SECRET=$(grep '^CRON_SECRET=' .env.stg | cut -d'=' -f2- | tr -d '"')
+curl -s -H "Authorization: Bearer $CRON_SECRET" http://localhost:4000/api/health | python3 -m json.tool
+```
+
+### 応急復旧の考え方
+
+stg/prod DBでは破壊的な `DROP` / `TRUNCATE` / `migrate reset` は使わない。まず `_prisma_migrations` と実テーブル状態を確認し、足りないテーブル/カラムを非破壊で追加してから `prisma migrate resolve` で失敗履歴を整える。
+
+---
+
 ## CrudTableのselectで「-」(null)オプションが「なし」(none)と重複し意図しない変更が発生する
 
 > **2026-02-16 修正済み**
