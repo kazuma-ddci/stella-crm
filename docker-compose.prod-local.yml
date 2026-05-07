@@ -1,0 +1,72 @@
+name: stella-prod-local
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stella-prod-local-app
+    ports:
+      - "3001:3000"
+    volumes:
+      - .:/app
+      - prod_local_node_modules:/app/node_modules
+      - prod_local_next:/app/.next
+      - prod_local_uploads:/app/public/uploads
+    env_file:
+      - .env.prod-local
+    environment:
+      - DATABASE_URL=postgresql://stella_user:stella_local_password@db-prod-local:5432/crm_prod_local
+      - TZ=Asia/Tokyo
+      - WATCHPACK_POLLING=true
+      - NEXT_PUBLIC_APP_URL=http://localhost:3001
+      - AUTH_URL=http://localhost:3001
+    depends_on:
+      db-prod-local:
+        condition: service_healthy
+    command: sh -c "npm install && npx prisma generate && npm run dev"
+    restart: unless-stopped
+
+  db-prod-local:
+    image: postgres:15
+    container_name: stella-prod-local-db
+    ports:
+      - "127.0.0.1:5436:5432"
+    env_file:
+      - .env.prod-local
+    volumes:
+      - postgres_prod_local_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stella_user"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  prisma-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stella-prod-local-studio
+    ports:
+      - "5556:5555"
+    volumes:
+      - .:/app
+      - prod_local_studio_node_modules:/app/node_modules
+    env_file:
+      - .env.prod-local
+    environment:
+      - DATABASE_URL=postgresql://stella_user:stella_local_password@db-prod-local:5432/crm_prod_local
+      - TZ=Asia/Tokyo
+    depends_on:
+      db-prod-local:
+        condition: service_healthy
+    command: sh -c "npm install && npx prisma generate && npx prisma studio --port 5555 --hostname 0.0.0.0"
+    restart: unless-stopped
+
+volumes:
+  postgres_prod_local_data:
+  prod_local_node_modules:
+  prod_local_next:
+  prod_local_studio_node_modules:
+  prod_local_uploads:
