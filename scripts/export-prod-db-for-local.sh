@@ -46,13 +46,22 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-set -a
-# shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
+read_env_value() {
+  local key="$1"
+  local value
+  value="$(grep -E "^${key}=" "$ENV_FILE" | tail -n 1 | cut -d= -f2- || true)"
+  value="${value%$'\r'}"
+  value="${value#\"}"
+  value="${value%\"}"
+  value="${value#\'}"
+  value="${value%\'}"
+  printf '%s' "$value"
+}
 
-PROD_DB_USER="${POSTGRES_USER:-stella_user}"
-PROD_DB_NAME="${POSTGRES_DB:-crm_prod}"
+PROD_DB_USER="$(read_env_value POSTGRES_USER)"
+PROD_DB_NAME="$(read_env_value POSTGRES_DB)"
+PROD_DB_USER="${PROD_DB_USER:-stella_user}"
+PROD_DB_NAME="${PROD_DB_NAME:-crm_prod}"
 
 cd "$ROOT_DIR"
 

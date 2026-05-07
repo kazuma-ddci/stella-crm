@@ -120,12 +120,24 @@ if [ ! -f .env.prod ]; then
   exit 1
 fi
 
-set -a
-. .env.prod
-set +a
+read_env_value() {
+  key="$1"
+  value="$(grep -E "^${key}=" .env.prod | tail -n 1 | cut -d= -f2- || true)"
+  value="${value%$'\r'}"
+  value="${value#\"}"
+  value="${value%\"}"
+  value="${value#\'}"
+  value="${value%\'}"
+  printf '%s' "$value"
+}
+
+PROD_DB_USER="$(read_env_value POSTGRES_USER)"
+PROD_DB_NAME="$(read_env_value POSTGRES_DB)"
+PROD_DB_USER="${PROD_DB_USER:-stella_user}"
+PROD_DB_NAME="${PROD_DB_NAME:-crm_prod}"
 
 docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T db-prod \
-  pg_dump -U "${POSTGRES_USER:-stella_user}" -d "${POSTGRES_DB:-crm_prod}" \
+  pg_dump -U "$PROD_DB_USER" -d "$PROD_DB_NAME" \
     --format=custom --no-owner --no-acl
 REMOTE_SCRIPT
 else
