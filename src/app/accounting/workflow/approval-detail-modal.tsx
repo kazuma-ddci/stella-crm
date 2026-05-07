@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useTransition, useEffect } from "react";
+import { useState, useMemo, useTransition, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -91,7 +91,7 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
   const [newCounterpartyName, setNewCounterpartyName] = useState("");
   const [isCreatingCounterparty, setIsCreatingCounterparty] = useState(false);
 
-  const matchCounterpartySearch = (c: PendingApprovalDetail["counterparties"][0]) => {
+  const matchCounterpartySearch = useCallback((c: PendingApprovalDetail["counterparties"][0]) => {
     if (!counterpartySearch.trim()) return true;
     const q = counterpartySearch.toLowerCase();
     return (
@@ -99,15 +99,15 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
       (c.displayId && c.displayId.toLowerCase().includes(q)) ||
       (c.companyCode && c.companyCode.toLowerCase().includes(q))
     );
-  };
+  }, [counterpartySearch]);
 
   const stellaCounterparties = useMemo(
     () => (detail?.counterparties ?? []).filter((c) => c.companyCode !== null).filter(matchCounterpartySearch),
-    [detail, counterpartySearch]
+    [detail, matchCounterpartySearch]
   );
   const otherCounterparties = useMemo(
     () => (detail?.counterparties ?? []).filter((c) => c.companyCode === null).filter(matchCounterpartySearch),
-    [detail, counterpartySearch]
+    [detail, matchCounterpartySearch]
   );
 
   const handleCreateCounterparty = async () => {
@@ -171,13 +171,14 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
 
   const hasCustomCounterparty = !!detail?.customCounterpartyName;
   const missingCategory = !expenseCategoryId;
+  const approveButtonLabel = actualPaymentDate ? "支払済みとして記録" : "支払対応へ進める";
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            経費承認 {detail?.referenceCode ?? ""}
+            社内経費の支払対応 {detail?.referenceCode ?? ""}
           </DialogTitle>
         </DialogHeader>
 
@@ -211,7 +212,7 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
             {/* 基本情報（読み取り） */}
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
-                <span className="text-muted-foreground">事業部:</span>{" "}
+                <span className="text-muted-foreground">プロジェクト:</span>{" "}
                 <span className="font-medium">{detail.projectName ?? "-"}</span>
               </div>
               <div>
@@ -242,6 +243,21 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
                   <span className="font-medium">
                     {formatDate(detail.transaction.periodFrom)} 〜 {formatDate(detail.transaction.periodTo)}
                   </span>
+                </div>
+              )}
+              {detail.transaction?.allocationTemplate && (
+                <div className="col-span-2 rounded border bg-muted/30 p-3">
+                  <div className="text-muted-foreground mb-1">
+                    プロジェクト按分: <span className="font-medium text-foreground">{detail.transaction.allocationTemplate.name}</span>
+                  </div>
+                  <div className="space-y-1">
+                    {detail.transaction.allocationTemplate.lines.map((line, idx) => (
+                      <div key={idx} className="flex items-center justify-between">
+                        <span>{line.costCenterName ?? line.label ?? "未確定"}</span>
+                        <span className="font-mono">{line.allocationRate}%</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -480,7 +496,7 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
                 onClick={handleApprove}
                 disabled={isPending}
               >
-                {isPending ? "処理中..." : "確認して承認"}
+                {isPending ? "処理中..." : approveButtonLabel}
               </Button>
             </div>
           </div>

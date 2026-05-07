@@ -1,12 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import type { SessionUser } from "@/types/auth";
 import { hasPermission } from "@/lib/auth/permissions";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffForAccounting } from "@/lib/auth/staff-action";
+import { generateOtherCounterpartyDisplayId } from "@/lib/counterparty-sync";
 import {
   requireFinanceProjectAccess,
   requireFinanceProjectCodeAccess,
@@ -17,13 +19,26 @@ import {
 
 // 機密フィルタ: 作成者・承認者・経理権限者のみ閲覧可能
 // システム管理者・Founderであっても機密経費は見えない
-function buildExpenseConfidentialFilter(user: SessionUser) {
+function buildExpenseConfidentialFilter(user: SessionUser): Prisma.PaymentGroupWhereInput {
   if (hasPermission(user.permissions, "accounting", "edit")) return {};
   return {
     OR: [
       { isConfidential: false },
       { isConfidential: true, createdBy: user.id },
       { isConfidential: true, approverStaffId: user.id },
+      { isConfidential: true, transactions: { some: { expenseOwners: { some: { staffId: user.id } } } } },
+    ],
+  };
+}
+
+function buildTransactionConfidentialFilter(user: SessionUser): Prisma.TransactionWhereInput {
+  if (hasPermission(user.permissions, "accounting", "edit")) return {};
+  return {
+    OR: [
+      { isConfidential: false },
+      { isConfidential: true, createdBy: user.id },
+      { isConfidential: true, paymentGroup: { approverStaffId: user.id } },
+      { isConfidential: true, expenseOwners: { some: { staffId: user.id } } },
     ],
   };
 }
@@ -229,7 +244,7 @@ export type SubmitExpenseInput = {
 
 export async function submitExpenseRequest(
   input: SubmitExpenseInput
-): Promise<ActionResult<{ id: number; type: "transaction" | "recurring" }>> {
+): Promise<ActionResult<{ id: number; type: "transaction" | "recurring"; attachmentGroupId: number | null }>> {
   try {
     // ⚠️ 権限チェック（Codex 6次指摘 P0 対応）:
     // client 送信の input.mode / input.projectId を信頼せず、サーバー側で必ず検証する。
@@ -262,11 +277,6 @@ export async function submitExpenseRequest(
       }
     }
 
-    // 手入力取引先の場合: counterpartyId=null、customCounterpartyNameのみ保持
-    // 経理が承認時にマスタ紐付けまたは新規追加する
-    const counterpartyId = input.counterpartyId ?? null;
-    const customCounterpartyName = (!counterpartyId && input.customCounterpartyName?.trim()) || null;
-
     const project = await prisma.masterProject.findUnique({
       where: { id: input.projectId },
       select: { defaultCostCenterId: true },
@@ -282,14 +292,39 @@ export async function submitExpenseRequest(
 
     const isAccounting = input.mode === "accounting";
     const initialStatus = isAccounting ? "awaiting_accounting" : "pending_project_approval";
+    const resolveCounterpartyId = async (tx: Prisma.TransactionClient) => {
+      if (input.counterpartyId) return input.counterpartyId;
+      const name = input.customCounterpartyName?.trim();
+      if (!name) throw new Error("取引先を選択するか、取引先名を入力してください");
+
+      const existing = await tx.counterparty.findFirst({
+        where: { name, deletedAt: null, mergedIntoId: null },
+        select: { id: true },
+      });
+      if (existing) return existing.id;
+
+      const displayId = await generateOtherCounterpartyDisplayId(tx);
+      const created = await tx.counterparty.create({
+        data: {
+          displayId,
+          name,
+          counterpartyType: "other",
+          isActive: true,
+          createdBy: staffId,
+        },
+        select: { id: true },
+      });
+      return created.id;
+    };
 
     // === 定期取引 ===
     if (input.frequency !== "once") {
-      if (!counterpartyId) return err("定期取引の場合は取引先をマスタから選択してください（手入力不可）");
-      if (!input.recurringName?.trim()) return err("定期取引の名称は必須です");
+      if (!input.recurringName?.trim()) return err("サブスク・定期経費名は必須です");
       if (!input.startDate) return err("支払い開始日は必須です");
 
       const result = await prisma.$transaction(async (tx) => {
+        const counterpartyId = await resolveCounterpartyId(tx);
+        let paymentGroupId: number | null = null;
         const recurring = await tx.recurringTransaction.create({
           data: {
             type: "expense",
@@ -345,7 +380,7 @@ export async function submitExpenseRequest(
               paymentType: "direct",
               status: initialStatus,
               approverStaffId: input.approverStaffId ?? null,
-              customCounterpartyName,
+              customCounterpartyName: null,
               totalAmount: input.amount,
               taxAmount: input.taxAmount ?? 0,
               expectedPaymentDate: startDate,
@@ -357,6 +392,7 @@ export async function submitExpenseRequest(
             where: { id: pg.id },
             data: { referenceCode: `PG-${pg.id.toString().padStart(4, "0")}` },
           });
+          paymentGroupId = pg.id;
 
           const txn = await tx.transaction.create({
             data: {
@@ -396,11 +432,12 @@ export async function submitExpenseRequest(
           }
         }
 
-        return { recurringId: recurring.id, transactionId };
+        return { recurringId: recurring.id, transactionId, paymentGroupId };
       });
 
       revalidatePath("/accounting/workflow");
-      return ok({ id: result.recurringId, type: "recurring" as const });
+      revalidatePath("/stp/expenses/new");
+      return ok({ id: result.recurringId, type: "recurring" as const, attachmentGroupId: result.paymentGroupId });
     }
 
     // === 一度限り ===
@@ -410,10 +447,10 @@ export async function submitExpenseRequest(
     const periodFrom = scheduledPaymentDate;
     const periodTo = scheduledPaymentDate;
 
-    const isCustom = !counterpartyId;
     const validOwners = input.expenseOwners.filter((o) => o.staffId || o.customName);
 
     const result = await prisma.$transaction(async (tx) => {
+      const counterpartyId = await resolveCounterpartyId(tx);
       // PaymentGroup作成（手入力の場合 counterpartyId=null）
       const pg = await tx.paymentGroup.create({
         data: {
@@ -423,7 +460,7 @@ export async function submitExpenseRequest(
           paymentType: "direct",
           status: initialStatus,
           approverStaffId: input.approverStaffId ?? null,
-          customCounterpartyName,
+          customCounterpartyName: null,
           totalAmount: input.amountType === "fixed" ? input.amount! : null,
           taxAmount: input.amountType === "fixed" ? (input.taxAmount ?? 0) : null,
           expectedPaymentDate: scheduledPaymentDate,
@@ -436,53 +473,48 @@ export async function submitExpenseRequest(
         data: { referenceCode: `PG-${pg.id.toString().padStart(4, "0")}` },
       });
 
-      // Transaction は取引先が確定している場合のみ作成
-      // 手入力の場合は経理が承認時に取引先を確定してからTransaction作成
-      let transactionId: number | null = null;
-      if (!isCustom) {
-        const txn = await tx.transaction.create({
-          data: {
-            paymentGroupId: pg.id,
-            counterpartyId: counterpartyId!,
-            expenseCategoryId: input.expenseCategoryId || null,
-            allocationTemplateId: input.useAllocation ? (input.allocationTemplateId ?? null) : null,
-            costCenterId: input.useAllocation ? null : (input.costCenterId ?? project?.defaultCostCenterId ?? null),
-            projectId: input.projectId,
-            paymentMethodId: input.paymentMethodId ?? null,
-            type: "expense",
-            amount: input.amountType === "fixed" ? input.amount! : 0,
-            taxAmount: input.amountType === "fixed" ? (input.taxAmount ?? 0) : 0,
-            taxRate: input.taxRate,
-            taxType: "tax_included",
-            periodFrom,
-            periodTo,
-            scheduledPaymentDate,
-            status: initialStatus,
-            note: input.note?.trim() || null,
-            sourceType: "manual",
-            isConfidential: input.isConfidential ?? false,
-            hasExpenseOwner: validOwners.length > 0,
-            createdBy: staffId,
-          },
-        });
-        transactionId = txn.id;
+      const txn = await tx.transaction.create({
+        data: {
+          paymentGroupId: pg.id,
+          counterpartyId,
+          expenseCategoryId: input.expenseCategoryId || null,
+          allocationTemplateId: input.useAllocation ? (input.allocationTemplateId ?? null) : null,
+          costCenterId: input.useAllocation ? null : (input.costCenterId ?? project?.defaultCostCenterId ?? null),
+          projectId: input.projectId,
+          paymentMethodId: input.paymentMethodId ?? null,
+          type: "expense",
+          amount: input.amountType === "fixed" ? input.amount! : 0,
+          taxAmount: input.amountType === "fixed" ? (input.taxAmount ?? 0) : 0,
+          taxRate: input.taxRate,
+          taxType: "tax_included",
+          periodFrom,
+          periodTo,
+          scheduledPaymentDate,
+          status: initialStatus,
+          note: input.note?.trim() || null,
+          sourceType: "manual",
+          isConfidential: input.isConfidential ?? false,
+          hasExpenseOwner: validOwners.length > 0,
+          createdBy: staffId,
+        },
+      });
 
-        if (validOwners.length > 0) {
-          await tx.transactionExpenseOwner.createMany({
-            data: validOwners.map((o) => ({
-              transactionId: txn.id,
-              staffId: o.staffId ?? null,
-              customName: o.customName ?? null,
-            })),
-          });
-        }
+      if (validOwners.length > 0) {
+        await tx.transactionExpenseOwner.createMany({
+          data: validOwners.map((o) => ({
+            transactionId: txn.id,
+            staffId: o.staffId ?? null,
+            customName: o.customName ?? null,
+          })),
+        });
       }
 
-      return { paymentGroupId: pg.id, transactionId };
+      return { paymentGroupId: pg.id, transactionId: txn.id };
     });
 
     revalidatePath("/accounting/workflow");
-    return ok({ id: result.paymentGroupId, type: "transaction" as const });
+    revalidatePath("/stp/expenses/new");
+    return ok({ id: result.paymentGroupId, type: "transaction" as const, attachmentGroupId: result.paymentGroupId });
   } catch (e) {
     if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
     if (e instanceof FinanceRecordNotFoundError) return err("対象が見つかりません");
@@ -524,10 +556,12 @@ export type ExpenseStatusItem = {
   periodFrom: Date | null;
   periodTo: Date | null;
   expenseOwners: string[];
+  allocationTemplateName: string | null;
+  allocationLines: { label: string | null; costCenterName: string | null; allocationRate: number }[];
 };
 
 /** 申請状況タブ: プロジェクト内の手動経費一覧 */
-export async function getMyExpenses(projectId: number): Promise<ExpenseStatusItem[]> {
+export async function getMyExpenses(projectId: number, ownOnly = false): Promise<ExpenseStatusItem[]> {
   await requireFinanceProjectAccess(projectId, "view");
   const session = await getSession();
   const confidentialFilter = buildExpenseConfidentialFilter(session);
@@ -537,6 +571,7 @@ export async function getMyExpenses(projectId: number): Promise<ExpenseStatusIte
       projectId,
       paymentType: "direct",
       status: { in: ["pending_project_approval", "pending_accounting_approval", "awaiting_accounting", "returned", "paid"] },
+      ...(ownOnly ? { createdBy: session.id } : {}),
       ...confidentialFilter,
     },
     select: {
@@ -558,6 +593,19 @@ export async function getMyExpenses(projectId: number): Promise<ExpenseStatusIte
           periodTo: true,
           expenseCategory: { select: { name: true } },
           paymentMethod: { select: { name: true } },
+          allocationTemplate: {
+            select: {
+              name: true,
+              lines: {
+                select: {
+                  label: true,
+                  allocationRate: true,
+                  costCenter: { select: { name: true } },
+                },
+                orderBy: { id: "asc" },
+              },
+            },
+          },
           expenseOwners: { select: { staff: { select: { name: true } }, customName: true } },
         },
       },
@@ -585,6 +633,12 @@ export async function getMyExpenses(projectId: number): Promise<ExpenseStatusIte
       periodFrom: tx?.periodFrom ?? null,
       periodTo: tx?.periodTo ?? null,
       expenseOwners: tx?.expenseOwners.map((o) => o.staff?.name || o.customName || "-") ?? [],
+      allocationTemplateName: tx?.allocationTemplate?.name ?? null,
+      allocationLines: tx?.allocationTemplate?.lines.map((line) => ({
+        label: line.label,
+        costCenterName: line.costCenter?.name ?? null,
+        allocationRate: Number(line.allocationRate),
+      })) ?? [],
     };
   });
 }
@@ -620,6 +674,19 @@ export async function getPendingApprovals(projectId: number): Promise<ExpenseSta
           periodTo: true,
           expenseCategory: { select: { name: true } },
           paymentMethod: { select: { name: true } },
+          allocationTemplate: {
+            select: {
+              name: true,
+              lines: {
+                select: {
+                  label: true,
+                  allocationRate: true,
+                  costCenter: { select: { name: true } },
+                },
+                orderBy: { id: "asc" },
+              },
+            },
+          },
           expenseOwners: { select: { staff: { select: { name: true } }, customName: true } },
         },
       },
@@ -646,6 +713,12 @@ export async function getPendingApprovals(projectId: number): Promise<ExpenseSta
     periodFrom: tx?.periodFrom ?? null,
     periodTo: tx?.periodTo ?? null,
     expenseOwners: tx?.expenseOwners.map((o) => o.staff?.name || o.customName || "-") ?? [],
+    allocationTemplateName: tx?.allocationTemplate?.name ?? null,
+    allocationLines: tx?.allocationTemplate?.lines.map((line) => ({
+      label: line.label,
+      costCenterName: line.costCenter?.name ?? null,
+      allocationRate: Number(line.allocationRate),
+    })) ?? [],
     };
   });
 }
@@ -700,11 +773,345 @@ export async function getProjectRecurringTransactions(projectId: number): Promis
   }));
 }
 
+export type MyExpenseDashboard = {
+  targetMonth: string;
+  summary: {
+    approvedAmount: number;
+    approvedCount: number;
+    pendingApprovalAmount: number;
+    pendingApprovalCount: number;
+    inProgressAmount: number;
+    inProgressCount: number;
+    completedAmount: number;
+    completedCount: number;
+    recurringAmount: number;
+    recurringCount: number;
+    returnedCount: number;
+    hiddenCount: number;
+  };
+  items: {
+    id: number;
+    counterpartyName: string;
+    amount: number;
+    status: string;
+    note: string | null;
+    periodFrom: Date;
+    periodTo: Date;
+    createdAt: Date;
+    projectName: string | null;
+    creatorName: string;
+    approverName: string | null;
+    expenseOwners: string[];
+    sourceType: string | null;
+    expenseCategoryName: string | null;
+    paymentMethodName: string | null;
+    allocationTemplateName: string | null;
+    allocationLines: { label: string | null; costCenterName: string | null; allocationRate: number }[];
+  }[];
+  recurringItems: {
+    id: number;
+    name: string;
+    counterpartyName: string;
+    amount: number | null;
+    amountType: string;
+    frequency: string;
+    intervalCount: number;
+    startDate: Date;
+    endDate: Date | null;
+    projectName: string | null;
+    creatorName: string;
+    approverName: string | null;
+    expenseOwners: string[];
+    nextOccurrenceDate: Date | null;
+    occurrenceCount: number;
+    monthlyEstimatedAmount: number | null;
+  }[];
+};
+
+function parseExpenseTargetMonth(targetMonth?: string | null) {
+  const match = targetMonth?.match(/^(\d{4})-(\d{2})$/);
+  const now = new Date();
+  const year = match ? Number(match[1]) : now.getFullYear();
+  const month = match ? Number(match[2]) : now.getMonth() + 1;
+  const safeMonth = month >= 1 && month <= 12 ? month : now.getMonth() + 1;
+  const safeYear = Number.isInteger(year) ? year : now.getFullYear();
+  const start = new Date(safeYear, safeMonth - 1, 1);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(safeYear, safeMonth, 1);
+  end.setHours(0, 0, 0, 0);
+  return {
+    key: `${safeYear}-${String(safeMonth).padStart(2, "0")}`,
+    start,
+    end,
+    endInclusive: new Date(end.getTime() - 1),
+  };
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+
+function startOfDay(date: Date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getRecurringOccurrenceDates(
+  rt: { frequency: string; intervalCount: number; executionDay: number | null; executeOnLastDay: boolean; startDate: Date; endDate: Date | null },
+  monthStart: Date,
+  monthEndInclusive: Date
+) {
+  const occurrenceStart = startOfDay(rt.startDate);
+  const occurrenceEnd = rt.endDate && rt.endDate < monthEndInclusive ? startOfDay(rt.endDate) : monthEndInclusive;
+  if (rt.frequency === "monthly") {
+    const startMonthIndex = rt.startDate.getFullYear() * 12 + rt.startDate.getMonth();
+    const targetMonthIndex = monthStart.getFullYear() * 12 + monthStart.getMonth();
+    const monthDiff = targetMonthIndex - startMonthIndex;
+    if (monthDiff < 0 || monthDiff % Math.max(1, rt.intervalCount) !== 0) return [];
+    const lastDay = monthEndInclusive.getDate();
+    const day = rt.executeOnLastDay ? lastDay : Math.min(Math.max(1, rt.executionDay ?? rt.startDate.getDate()), lastDay);
+    const date = new Date(monthStart.getFullYear(), monthStart.getMonth(), day);
+    return date >= occurrenceStart && date <= occurrenceEnd ? [date] : [];
+  }
+  if (rt.frequency === "yearly") {
+    const yearDiff = monthStart.getFullYear() - rt.startDate.getFullYear();
+    if (yearDiff < 0 || yearDiff % Math.max(1, rt.intervalCount) !== 0) return [];
+    if (monthStart.getMonth() !== rt.startDate.getMonth()) return [];
+    const lastDay = monthEndInclusive.getDate();
+    const day = Math.min(Math.max(1, rt.executionDay ?? rt.startDate.getDate()), lastDay);
+    const date = new Date(monthStart.getFullYear(), monthStart.getMonth(), day);
+    return date >= occurrenceStart && date <= occurrenceEnd ? [date] : [];
+  }
+  if (rt.frequency === "weekly") {
+    const interval = Math.max(1, rt.intervalCount);
+    const weekday = rt.executionDay ?? rt.startDate.getDay();
+    const searchStart = startOfDay(monthStart) > occurrenceStart ? startOfDay(monthStart) : occurrenceStart;
+    const daysUntilWeekday = (weekday - searchStart.getDay() + 7) % 7;
+    const firstCandidate = new Date(searchStart.getTime() + daysUntilWeekday * DAY_MS);
+
+    let anchor = startOfDay(rt.startDate);
+    const anchorDaysUntilWeekday = (weekday - anchor.getDay() + 7) % 7;
+    anchor = new Date(anchor.getTime() + anchorDaysUntilWeekday * DAY_MS);
+
+    const dates: Date[] = [];
+    for (let cursor = firstCandidate; cursor <= occurrenceEnd; cursor = new Date(cursor.getTime() + WEEK_MS)) {
+      const weeksSinceAnchor = Math.floor((cursor.getTime() - anchor.getTime()) / WEEK_MS);
+      if (weeksSinceAnchor >= 0 && weeksSinceAnchor % interval === 0) {
+        dates.push(cursor);
+      }
+    }
+    return dates;
+  }
+  return [];
+}
+
+/** 自分の経費タブ: 申請者・担当者・承認者として関係する月別経費 */
+export async function getMyExpenseDashboard(projectId: number, targetMonth?: string | null): Promise<MyExpenseDashboard> {
+  await requireFinanceProjectAccess(projectId, "view");
+  const session = await getSession();
+  const { key, start, end, endInclusive } = parseExpenseTargetMonth(targetMonth);
+  const confidentialFilter = buildTransactionConfidentialFilter(session);
+  const personFilter: Prisma.TransactionWhereInput = {
+    OR: [
+      { createdBy: session.id },
+      { expenseOwners: { some: { staffId: session.id } } },
+      { paymentGroup: { approverStaffId: session.id } },
+    ],
+  };
+  const baseWhere = {
+    deletedAt: null,
+    projectId,
+    type: "expense",
+    sourceType: { in: ["manual", "recurring"] },
+    periodFrom: { gte: start, lt: end },
+    status: { in: ["pending_project_approval", "pending_accounting_approval", "awaiting_accounting", "journalized", "partially_paid", "paid", "returned"] },
+    AND: [personFilter],
+  } satisfies Prisma.TransactionWhereInput;
+
+  const [allRelatedTxs, visibleTxs, recurringRaw] = await Promise.all([
+    prisma.transaction.findMany({
+      where: baseWhere,
+      select: { id: true },
+    }),
+    prisma.transaction.findMany({
+      where: {
+        ...baseWhere,
+        AND: [personFilter, confidentialFilter],
+      },
+      select: {
+        id: true,
+        amount: true,
+        status: true,
+        note: true,
+        sourceType: true,
+        periodFrom: true,
+        periodTo: true,
+        createdAt: true,
+        counterparty: { select: { name: true } },
+        project: { select: { name: true } },
+        creator: { select: { name: true } },
+        paymentGroup: { select: { approver: { select: { name: true } } } },
+        expenseCategory: { select: { name: true } },
+        paymentMethod: { select: { name: true } },
+        allocationTemplate: {
+          select: {
+            name: true,
+            lines: {
+              select: {
+                label: true,
+                allocationRate: true,
+                costCenter: { select: { name: true } },
+              },
+              orderBy: { id: "asc" },
+            },
+          },
+        },
+        expenseOwners: { select: { staff: { select: { name: true } }, customName: true } },
+      },
+      orderBy: [{ periodFrom: "desc" }, { createdAt: "desc" }],
+    }),
+    prisma.recurringTransaction.findMany({
+      where: {
+        deletedAt: null,
+        projectId,
+        type: "expense",
+        isActive: true,
+        startDate: { lt: end },
+        OR: [
+          { endDate: null },
+          { endDate: { gte: start } },
+        ],
+        AND: [{
+          OR: [
+            { createdBy: session.id },
+            { approverStaffId: session.id },
+            { expenseOwners: { some: { staffId: session.id } } },
+          ],
+        }],
+      },
+      select: {
+        id: true,
+        name: true,
+        amount: true,
+        amountType: true,
+        frequency: true,
+        intervalCount: true,
+        executionDay: true,
+        executeOnLastDay: true,
+        startDate: true,
+        endDate: true,
+        counterparty: { select: { name: true } },
+        project: { select: { name: true } },
+        creator: { select: { name: true } },
+        approver: { select: { name: true } },
+        expenseOwners: { select: { staff: { select: { name: true } }, customName: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+
+  const items = visibleTxs.map((tx) => ({
+    id: tx.id,
+    counterpartyName: tx.counterparty.name,
+    amount: tx.amount,
+    status: tx.status,
+    note: tx.note,
+    sourceType: tx.sourceType,
+    periodFrom: tx.periodFrom,
+    periodTo: tx.periodTo,
+    createdAt: tx.createdAt,
+    projectName: tx.project?.name ?? null,
+    creatorName: tx.creator.name,
+    approverName: tx.paymentGroup?.approver?.name ?? null,
+    expenseCategoryName: tx.expenseCategory?.name ?? null,
+    paymentMethodName: tx.paymentMethod?.name ?? null,
+    expenseOwners: tx.expenseOwners.map((o) => o.staff?.name || o.customName || "-"),
+    allocationTemplateName: tx.allocationTemplate?.name ?? null,
+    allocationLines: tx.allocationTemplate?.lines.map((line) => ({
+      label: line.label,
+      costCenterName: line.costCenter?.name ?? null,
+      allocationRate: Number(line.allocationRate),
+    })) ?? [],
+  }));
+
+  const recurringItems = recurringRaw
+    .map((rt) => {
+      const occurrenceDates = getRecurringOccurrenceDates(rt, start, endInclusive);
+      const occurrenceCount = occurrenceDates.length;
+      return {
+        id: rt.id,
+        name: rt.name,
+        counterpartyName: rt.counterparty.name,
+        amount: rt.amount,
+        amountType: rt.amountType,
+        frequency: rt.frequency,
+        intervalCount: rt.intervalCount,
+        startDate: rt.startDate,
+        endDate: rt.endDate,
+        projectName: rt.project?.name ?? null,
+        creatorName: rt.creator.name,
+        approverName: rt.approver?.name ?? null,
+        expenseOwners: rt.expenseOwners.map((o) => o.staff?.name || o.customName || "-"),
+        nextOccurrenceDate: occurrenceDates[0] ?? null,
+        occurrenceCount,
+        monthlyEstimatedAmount: rt.amountType === "fixed" && rt.amount != null ? rt.amount * occurrenceCount : null,
+      };
+    })
+    .filter((rt) => rt.occurrenceCount > 0);
+
+  const pendingApprovalStatuses = new Set(["pending_project_approval"]);
+  const inProgressStatuses = new Set(["pending_accounting_approval", "awaiting_accounting", "journalized", "partially_paid"]);
+  const completedStatuses = new Set(["paid"]);
+  const approvedStatuses = new Set(["pending_accounting_approval", "awaiting_accounting", "journalized", "partially_paid", "paid"]);
+  const summary = {
+    approvedAmount: 0,
+    approvedCount: 0,
+    pendingApprovalAmount: 0,
+    pendingApprovalCount: 0,
+    inProgressAmount: 0,
+    inProgressCount: 0,
+    completedAmount: 0,
+    completedCount: 0,
+    recurringAmount: 0,
+    recurringCount: recurringItems.length,
+    returnedCount: 0,
+    hiddenCount: Math.max(0, allRelatedTxs.length - visibleTxs.length),
+  };
+
+  for (const item of items) {
+    if (approvedStatuses.has(item.status)) {
+      summary.approvedAmount += item.amount;
+      summary.approvedCount += 1;
+    }
+    if (pendingApprovalStatuses.has(item.status)) {
+      summary.pendingApprovalAmount += item.amount;
+      summary.pendingApprovalCount += 1;
+    }
+    if (inProgressStatuses.has(item.status)) {
+      summary.inProgressAmount += item.amount;
+      summary.inProgressCount += 1;
+    }
+    if (completedStatuses.has(item.status)) {
+      summary.completedAmount += item.amount;
+      summary.completedCount += 1;
+    }
+    if (item.status === "returned") summary.returnedCount += 1;
+  }
+  for (const item of recurringItems) {
+    if (item.monthlyEstimatedAmount != null) summary.recurringAmount += item.monthlyEstimatedAmount;
+  }
+
+  return { targetMonth: key, summary, items, recurringItems };
+}
+
 /** 全プロジェクト横断の定期取引（経理用） */
 export type MonthlySummary = {
   month: string; // YYYY-MM
   totalAmount: number;
   count: number;
+  pendingAmount: number;
+  pendingCount: number;
+  hiddenCount: number;
   items: {
     id: number;
     counterpartyName: string;
@@ -718,39 +1125,80 @@ export type MonthlySummary = {
 /** 月別サマリータブ */
 export async function getMonthlyExpenseSummary(projectId: number): Promise<MonthlySummary[]> {
   await requireFinanceProjectAccess(projectId, "view");
+  const session = await getSession();
+  const confidentialFilter = buildTransactionConfidentialFilter(session);
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
   sixMonthsAgo.setDate(1);
   sixMonthsAgo.setHours(0, 0, 0, 0);
 
-  const txs = await prisma.transaction.findMany({
-    where: {
+  const approvedStatuses = ["pending_accounting_approval", "awaiting_accounting", "journalized", "partially_paid", "paid"];
+  const pendingStatuses = ["pending_project_approval"];
+  const baseWhere = {
       deletedAt: null,
       projectId,
       type: "expense",
       sourceType: { in: ["manual", "recurring"] },
       createdAt: { gte: sixMonthsAgo },
-    },
+      status: { in: [...approvedStatuses, ...pendingStatuses] },
+  } satisfies Prisma.TransactionWhereInput;
+
+  const [aggregateTxs, visibleTxs] = await Promise.all([
+    prisma.transaction.findMany({
+      where: baseWhere,
+      select: {
+        id: true,
+        amount: true,
+        status: true,
+        createdAt: true,
+        periodFrom: true,
+        scheduledPaymentDate: true,
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.transaction.findMany({
+      where: {
+        ...baseWhere,
+        ...confidentialFilter,
+      },
     select: {
       id: true,
       amount: true,
       status: true,
       note: true,
       createdAt: true,
+      periodFrom: true,
+      scheduledPaymentDate: true,
       counterparty: { select: { name: true } },
     },
     orderBy: { createdAt: "desc" },
-  });
+    }),
+  ]);
 
   const byMonth = new Map<string, MonthlySummary>();
-  for (const tx of txs) {
-    const month = `${tx.createdAt.getFullYear()}-${String(tx.createdAt.getMonth() + 1).padStart(2, "0")}`;
+  for (const tx of aggregateTxs) {
+    const summaryDate = tx.periodFrom ?? tx.scheduledPaymentDate ?? tx.createdAt;
+    const month = `${summaryDate.getFullYear()}-${String(summaryDate.getMonth() + 1).padStart(2, "0")}`;
     if (!byMonth.has(month)) {
-      byMonth.set(month, { month, totalAmount: 0, count: 0, items: [] });
+      byMonth.set(month, { month, totalAmount: 0, count: 0, pendingAmount: 0, pendingCount: 0, hiddenCount: 0, items: [] });
     }
     const m = byMonth.get(month)!;
-    m.totalAmount += tx.amount;
-    m.count += 1;
+    if (approvedStatuses.includes(tx.status)) {
+      m.totalAmount += tx.amount;
+      m.count += 1;
+    } else if (pendingStatuses.includes(tx.status)) {
+      m.pendingAmount += tx.amount;
+      m.pendingCount += 1;
+    }
+  }
+
+  for (const tx of visibleTxs) {
+    const summaryDate = tx.periodFrom ?? tx.scheduledPaymentDate ?? tx.createdAt;
+    const month = `${summaryDate.getFullYear()}-${String(summaryDate.getMonth() + 1).padStart(2, "0")}`;
+    if (!byMonth.has(month)) {
+      byMonth.set(month, { month, totalAmount: 0, count: 0, pendingAmount: 0, pendingCount: 0, hiddenCount: 0, items: [] });
+    }
+    const m = byMonth.get(month)!;
     m.items.push({
       id: tx.id,
       counterpartyName: tx.counterparty?.name ?? "-",
@@ -759,6 +1207,11 @@ export async function getMonthlyExpenseSummary(projectId: number): Promise<Month
       note: tx.note,
       createdAt: tx.createdAt,
     });
+  }
+
+  for (const summary of byMonth.values()) {
+    const visibleTotalCount = summary.items.length;
+    summary.hiddenCount = Math.max(0, summary.count + summary.pendingCount - visibleTotalCount);
   }
 
   return Array.from(byMonth.values()).sort((a, b) => b.month.localeCompare(a.month));

@@ -18,7 +18,7 @@ import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 
 export type WorkflowCategory =
   | "pending_project_overdue" // プロジェクト未承認（決済予定日5日以内）— 警告
-  | "pending_accounting_approval" // 経理承認待ち（プロジェクト承認済み、経理未承認）
+  | "pending_accounting_approval" // 承認済み・支払対応待ち（プロジェクト承認済み、経理未処理）
   | "needs_journal"    // 仕訳待ち
   | "in_progress"      // 処理中（実現待ち and/or 入出金確認待ち）
   | "completed"        // 完了
@@ -125,7 +125,7 @@ function determineCategory(
   allRealizedCount: number,
   hasActualPaymentDate: boolean
 ): WorkflowCategory {
-  // 経理承認待ち（プロジェクト承認済み）
+  // 承認済み・支払対応待ち（プロジェクト承認済み）
   if (status === "pending_accounting_approval") return "pending_accounting_approval";
 
   // 差し戻し中
@@ -698,7 +698,7 @@ export async function checkAndCompleteTransaction(transactionId: number) {
 }
 
 // ============================================
-// 5. approvePaymentGroup（経理承認：pending_accounting_approval → awaiting_accounting）
+// 5. approvePaymentGroup（支払対応開始：pending_accounting_approval → awaiting_accounting）
 // ============================================
 
 export async function approvePaymentGroup(groupId: number): Promise<ActionResult> {
@@ -713,7 +713,7 @@ export async function approvePaymentGroup(groupId: number): Promise<ActionResult
     });
     if (!group) return err("支払グループが見つかりません");
     if (group.status !== "pending_accounting_approval") {
-      return err("このグループは経理承認待ちではありません");
+      return err("このグループは承認済み・支払対応待ちではありません");
     }
 
     await prisma.paymentGroup.update({
@@ -759,7 +759,7 @@ export async function rejectPaymentGroup(
     });
     if (!group) return err("支払グループが見つかりません");
     if (group.status !== "pending_accounting_approval") {
-      return err("このグループは経理承認待ちではありません");
+      return err("このグループは承認済み・支払対応待ちではありません");
     }
 
     await prisma.paymentGroup.update({
@@ -821,6 +821,14 @@ export type PendingApprovalDetail = {
     paymentDueDate: Date | null;
     note: string | null;
     sourceType: string | null;
+    allocationTemplate: {
+      name: string;
+      lines: {
+        label: string | null;
+        allocationRate: number;
+        costCenterName: string | null;
+      }[];
+    } | null;
     expenseOwners: { staffName: string | null; customName: string | null }[];
   } | null;
   counterparties: { id: number; name: string; displayId: string | null; companyCode: string | null }[];
@@ -862,6 +870,19 @@ export async function getPendingApprovalDetail(groupId: number): Promise<Pending
           paymentDueDate: true,
           note: true,
           sourceType: true,
+          allocationTemplate: {
+            select: {
+              name: true,
+              lines: {
+                select: {
+                  label: true,
+                  allocationRate: true,
+                  costCenter: { select: { name: true } },
+                },
+                orderBy: { id: "asc" },
+              },
+            },
+          },
           expenseCategory: { select: { name: true } },
           paymentMethod: { select: { name: true } },
           expenseOwners: {
@@ -874,7 +895,6 @@ export async function getPendingApprovalDetail(groupId: number): Promise<Pending
 
   if (!pg) return null;
 
-  const projectId = pg.projectId;
   const [counterparties, expenseCategories, paymentMethods] = await Promise.all([
     prisma.counterparty.findMany({
       where: { deletedAt: null, mergedIntoId: null, isActive: true },
@@ -924,6 +944,16 @@ export async function getPendingApprovalDetail(groupId: number): Promise<Pending
           paymentDueDate: tx.paymentDueDate,
           note: tx.note,
           sourceType: tx.sourceType,
+          allocationTemplate: tx.allocationTemplate
+            ? {
+                name: tx.allocationTemplate.name,
+                lines: tx.allocationTemplate.lines.map((line) => ({
+                  label: line.label,
+                  allocationRate: Number(line.allocationRate),
+                  costCenterName: line.costCenter?.name ?? null,
+                })),
+              }
+            : null,
           expenseOwners: tx.expenseOwners.map((o) => ({
             staffName: o.staff?.name ?? null,
             customName: o.customName,
@@ -973,6 +1003,8 @@ export async function updateAndApprovePaymentGroup(
       projectId: true,
       totalAmount: true,
       taxAmount: true,
+      expectedPaymentDate: true,
+      isConfidential: true,
       customCounterpartyName: true,
       createdBy: true,
       transactions: {
@@ -996,7 +1028,7 @@ export async function updateAndApprovePaymentGroup(
   });
   if (!group) return err("支払グループが見つかりません");
   if (group.status !== "pending_accounting_approval") {
-    return err("このグループは経理承認待ちではありません");
+    return err("このグループは承認済み・支払対応待ちではありません");
   }
 
   // 取引先の確定チェック
@@ -1094,7 +1126,7 @@ export async function updateAndApprovePaymentGroup(
       const amt = updates.amount ?? group.totalAmount ?? 0;
       const taxAmt = updates.taxAmount ?? group.taxAmount ?? 0;
       const taxRate = updates.taxRate ?? 10;
-      const now = new Date();
+      const occurrenceDate = group.expectedPaymentDate ?? new Date();
 
       await tx.transaction.create({
         data: {
@@ -1109,11 +1141,13 @@ export async function updateAndApprovePaymentGroup(
           taxAmount: taxAmt,
           taxRate,
           taxType: "tax_included",
-          periodFrom: now,
-          periodTo: now,
+          periodFrom: occurrenceDate,
+          periodTo: occurrenceDate,
+          scheduledPaymentDate: group.expectedPaymentDate ?? null,
           status: "awaiting_accounting",
           note: updates.note ?? null,
           sourceType: "manual",
+          isConfidential: group.isConfidential,
           hasExpenseOwner: false,
           createdBy: staffId,
         },
