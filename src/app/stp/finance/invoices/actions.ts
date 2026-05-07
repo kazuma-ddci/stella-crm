@@ -744,6 +744,76 @@ export async function updateInvoiceGroup(
   }
 }
 
+export async function updateInvoiceGroupTransactionNote(
+  groupId: number,
+  transactionId: number,
+  note: string | null
+): Promise<ActionResult> {
+  try {
+    const user = await requireEdit("stp");
+    const stpProjectId = await requireStpProjectId();
+
+    const group = await prisma.invoiceGroup.findFirst({
+      where: { id: groupId, deletedAt: null, projectId: stpProjectId },
+      select: { id: true, status: true },
+    });
+    if (!group) return err("請求が見つかりません");
+    if (!["draft", "pdf_created"].includes(group.status)) {
+      return err("このステータスでは摘要を編集できません");
+    }
+
+    const transaction = await prisma.transaction.findFirst({
+      where: {
+        id: transactionId,
+        invoiceGroupId: groupId,
+        projectId: stpProjectId,
+        deletedAt: null,
+      },
+      select: { id: true, note: true },
+    });
+    if (!transaction) return err("明細が見つかりません");
+
+    const nextNote = note?.trim() || null;
+    const updateGroupData =
+      group.status === "pdf_created"
+        ? { status: "draft", pdfPath: null, pdfFileName: null }
+        : {};
+
+    await prisma.$transaction(async (tx) => {
+      await tx.transaction.update({
+        where: { id: transactionId },
+        data: { note: nextNote, updatedBy: user.id },
+      });
+
+      if (Object.keys(updateGroupData).length > 0) {
+        await tx.invoiceGroup.update({
+          where: { id: groupId },
+          data: updateGroupData,
+        });
+      }
+
+      await recordChangeLog(
+        {
+          tableName: "Transaction",
+          recordId: transactionId,
+          changeType: "update",
+          oldData: { note: transaction.note },
+          newData: { note: nextNote },
+        },
+        user.id,
+        tx
+      );
+    });
+
+    revalidatePath("/stp/finance/invoices");
+    revalidatePath("/stp/finance/billing");
+    return ok();
+  } catch (e) {
+    console.error("[updateInvoiceGroupTransactionNote] error:", e);
+    return err(e instanceof Error ? e.message : "摘要の更新に失敗しました");
+  }
+}
+
 // ============================================
 // 取引の追加・削除
 // ============================================

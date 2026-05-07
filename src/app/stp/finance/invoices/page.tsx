@@ -4,7 +4,13 @@ import { InvoicesPageClient } from "./invoices-page-client";
 import { getExpenseCategories } from "../transactions/actions";
 import { getSystemProjectContext } from "@/lib/project-context";
 
-export default async function InvoiceGroupsPage() {
+type Props = {
+  searchParams?: Promise<{ groupId?: string }>;
+};
+
+export default async function InvoiceGroupsPage({ searchParams }: Props) {
+  const params = searchParams ? await searchParams : {};
+  const initialGroupId = params.groupId ? Number(params.groupId) : null;
   const ctx = await getSystemProjectContext("stp");
   if (!ctx) throw new Error("STPプロジェクトのコンテキストが取得できません");
   const projectId = ctx.projectId;
@@ -104,6 +110,7 @@ export default async function InvoiceGroupsPage() {
       expenseCategories={expenseCategories}
       unconfirmedTransactions={unconfirmedTransactions}
       projectId={projectId}
+      initialGroupId={Number.isFinite(initialGroupId) ? initialGroupId : null}
     />
   );
 }

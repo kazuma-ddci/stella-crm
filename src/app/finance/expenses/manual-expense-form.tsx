@@ -28,11 +28,26 @@ type Props = {
 };
 
 const FREQUENCY_OPTIONS = [
-  { value: "once", label: "一度限り" },
-  { value: "monthly", label: "毎月 / Nヶ月ごと" },
-  { value: "yearly", label: "毎年 / N年ごと" },
-  { value: "weekly", label: "毎週" },
+  { value: "once", label: "単発経費" },
+  { value: "monthly", label: "サブスク・月額 / Nヶ月ごと" },
+  { value: "yearly", label: "年額 / N年ごと" },
+  { value: "weekly", label: "週次の定期経費" },
 ];
+
+function compareAscii(a: string, b: string) {
+  const aa = a.toLowerCase();
+  const bb = b.toLowerCase();
+  const len = Math.min(aa.length, bb.length);
+  for (let i = 0; i < len; i += 1) {
+    const diff = aa.charCodeAt(i) - bb.charCodeAt(i);
+    if (diff !== 0) return diff;
+  }
+  return aa.length - bb.length;
+}
+
+function counterpartySortKey(c: ExpenseFormData["counterparties"][0]) {
+  return c.companyCode || c.displayId || c.name;
+}
 
 // 取引先選択コンポーネント
 function CounterpartySelector({
@@ -57,14 +72,18 @@ function CounterpartySelector({
     (c.companyCode && c.companyCode.toLowerCase().includes(q));
 
   const stellaList = useMemo(() => {
-    const list = counterparties.filter((c) => c.companyId !== null);
+    const list = counterparties
+      .filter((c) => c.companyId !== null)
+      .sort((a, b) => compareAscii(counterpartySortKey(a), counterpartySortKey(b)));
     if (!search.trim()) return list;
     const q = search.toLowerCase();
     return list.filter((c) => matchSearch(c, q));
   }, [counterparties, search]);
 
   const otherList = useMemo(() => {
-    const list = counterparties.filter((c) => c.companyId === null);
+    const list = counterparties
+      .filter((c) => c.companyId === null)
+      .sort((a, b) => compareAscii(counterpartySortKey(a), counterpartySortKey(b)));
     if (!search.trim()) return list;
     const q = search.toLowerCase();
     return list.filter((c) => matchSearch(c, q));
@@ -170,7 +189,7 @@ function CounterpartySelector({
               }}
             />
             <p className="text-xs text-muted-foreground mt-1">
-              経理が後から取引先マスタに紐付けを行います
+              未登録の取引先は、申請時に「その他取引先」として自動登録されます
             </p>
           </TabsContent>
         </Tabs>
@@ -213,7 +232,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
   // 按分
   const [useAllocation, setUseAllocation] = useState(false);
   const [allocationTemplateId, setAllocationTemplateId] = useState<number | null>(null);
-  const [costCenterId, setCostCenterId] = useState<number | null>(null);
+  const [costCenterId] = useState<number | null>(null);
 
   const selectedTemplate = useMemo(() => {
     if (!allocationTemplateId) return null;
@@ -299,7 +318,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
     if (mode === "accounting" && !expenseCategoryId) return setError("勘定科目（費目）は必須です");
     if (mode === "project" && !approverStaffId) return setError("承認者は必須です");
     if ((isRecurring ? amountType : "fixed") === "fixed" && (!amount || Number(amount) < 0)) return setError("金額を正しく入力してください");
-    if (isRecurring && !recurringName.trim()) return setError("定期取引の名称は必須です");
+    if (isRecurring && !recurringName.trim()) return setError("サブスク・定期経費名は必須です");
     if (isRecurring && !startDate) return setError("支払い開始日は必須です");
     if (!isRecurring && !scheduledPaymentDate) return setError("支払予定日は必須です");
 
@@ -342,7 +361,12 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
       // ユーザーへ「添付だけ失敗した」旨を伝えてリトライを促す。
       let attachmentFailed = false;
       let attachmentErrorMessage: string | null = null;
-      if (pendingFiles.length > 0 && result.data.id) {
+      const attachmentGroupId = result.data.attachmentGroupId;
+      if (pendingFiles.length > 0 && !attachmentGroupId) {
+        attachmentFailed = true;
+        attachmentErrorMessage =
+          "変動金額のサブスク・定期経費は、初回の支払レコード作成後に証憑を添付してください。";
+      } else if (pendingFiles.length > 0 && attachmentGroupId) {
         try {
           const uploadData = new FormData();
           for (const pf of pendingFiles) {
@@ -361,7 +385,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
           } else {
             const { files: uploaded } = await uploadRes.json();
             const { addGroupAttachments } = await import("@/app/accounting/workflow/actions");
-            const attachResult = await addGroupAttachments(result.data.id, "payment", uploaded.map((f: { filePath: string; fileName: string; fileSize: number; mimeType: string }) => ({
+            const attachResult = await addGroupAttachments(attachmentGroupId, "payment", uploaded.map((f: { filePath: string; fileName: string; fileSize: number; mimeType: string }) => ({
               ...f,
               attachmentType: "voucher",
             })));
@@ -381,10 +405,10 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
 
       const baseSuccessMessage =
         result.data.type === "recurring"
-          ? "定期取引として登録しました。"
+          ? "サブスク・定期経費として申請しました。"
           : mode === "accounting"
-            ? "経費を仕訳待ちとして登録しました。"
-            : "経費を申請しました。";
+            ? "経費を経理処理中として登録しました。"
+            : "社内経費を申請しました。";
       if (attachmentFailed) {
         alert(
           `${baseSuccessMessage}\n\nただし、証憑ファイルの添付に失敗しました：\n${attachmentErrorMessage ?? "詳細不明"}\n\nお手数ですが、経費詳細画面から添付をやり直してください。`
@@ -404,17 +428,17 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
       )}
 
       <Card>
-        <CardHeader><CardTitle className="text-base">基本情報</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">申請内容</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             {formData.project ? (
               <div>
-                <Label>事業部</Label>
+                <Label>プロジェクト</Label>
                 <Input value={formData.project.name} readOnly className="bg-muted" />
               </div>
             ) : (
               <div>
-                <Label>事業部 <span className="text-red-500">*</span></Label>
+                <Label>プロジェクト <span className="text-red-500">*</span></Label>
                 <Select value={projectId?.toString() ?? ""} onValueChange={(v) => handleProjectChange(Number(v))}>
                   <SelectTrigger><SelectValue placeholder="選択..." /></SelectTrigger>
                   <SelectContent>
@@ -509,11 +533,11 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle className="text-base">金額・支払いサイクル</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">金額・経費の種類</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className={`grid ${isRecurring ? "grid-cols-2" : "grid-cols-1"} gap-4`}>
             <div>
-              <Label>支払いサイクル <span className="text-red-500">*</span></Label>
+              <Label>経費の種類 <span className="text-red-500">*</span></Label>
               <Select value={frequency} onValueChange={(v) => {
                 setFrequency(v);
                 if (v === "once") setAmountType("fixed");
@@ -561,7 +585,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
             <>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>名称（定期取引） <span className="text-red-500">*</span></Label>
+                  <Label>サブスク・定期経費名 <span className="text-red-500">*</span></Label>
                   <Input value={recurringName} onChange={(e) => setRecurringName(e.target.value)} placeholder="例: AWS利用料、オフィス家賃" />
                 </div>
                 {(frequency === "monthly" || frequency === "yearly") && (
@@ -576,16 +600,16 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <Label>開始日 <span className="text-red-500">*</span></Label>
+                  <Label>利用開始日 <span className="text-red-500">*</span></Label>
                   <DatePicker value={startDate} onChange={setStartDate} />
                 </div>
                 <div>
-                  <Label>終了日</Label>
+                  <Label>利用終了日</Label>
                   <DatePicker value={endDate} onChange={setEndDate} placeholder="空欄 = 無期限" />
                 </div>
                 {frequency === "monthly" && (
                   <div>
-                    <Label>実行日</Label>
+                    <Label>毎月の決済日</Label>
                     {executeOnLastDay ? (
                       <Input value="月末日" readOnly className="bg-muted" />
                     ) : (
@@ -645,7 +669,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle className="text-base">按分設定</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">プロジェクト按分</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
@@ -656,7 +680,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
                 onChange={() => { setUseAllocation(false); setAllocationTemplateId(null); }}
                 className="rounded"
               />
-              <span className="text-sm">按分なし</span>
+              <span className="text-sm">主プロジェクトに全額計上</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -666,7 +690,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
                 onChange={() => setUseAllocation(true)}
                 className="rounded"
               />
-              <span className="text-sm">按分あり</span>
+              <span className="text-sm">複数プロジェクトに按分</span>
             </label>
           </div>
 
@@ -715,7 +739,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle className="text-base">摘要・メモ</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">摘要・機密設定</CardTitle></CardHeader>
         <CardContent>
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="例: 4/1 クライアントとの会食（〇〇レストラン）" rows={3} />
           <label className="flex items-center gap-2 mt-3 cursor-pointer">
@@ -725,7 +749,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
               onChange={(e) => setIsConfidential(e.target.checked)}
               className="rounded"
             />
-            <span className="text-sm">機密（作成者・承認者・経理担当のみ閲覧可能）</span>
+            <span className="text-sm">機密経費（申請者・承認者・経理担当のみ閲覧可能）</span>
           </label>
         </CardContent>
       </Card>
@@ -776,7 +800,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
 
       <div className="flex gap-2 pb-4">
         <Button type="submit" disabled={isPending}>
-          {isPending ? "登録中..." : mode === "accounting" ? "仕訳待ちとして登録" : "申請"}
+          {isPending ? "登録中..." : mode === "accounting" ? "経理処理中として登録" : "申請"}
         </Button>
         <Button type="button" variant="outline" onClick={() => router.push(backUrl)}>キャンセル</Button>
       </div>

@@ -100,11 +100,12 @@ export function validateTransactionData(data: Record<string, unknown>) {
   const costCenterId = data.costCenterId
     ? Number(data.costCenterId)
     : null;
+  const projectId = data.projectId ? Number(data.projectId) : null;
 
   if (allocationTemplateId && costCenterId) {
     throw new Error("按分テンプレートとプロジェクトは同時に指定できません");
   }
-  if (!allocationTemplateId && !costCenterId) {
+  if (!allocationTemplateId && !costCenterId && !projectId) {
     throw new Error("按分テンプレートまたはプロジェクトのいずれかを指定してください");
   }
 

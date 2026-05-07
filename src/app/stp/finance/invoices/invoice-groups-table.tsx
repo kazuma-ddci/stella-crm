@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Table,
   TableBody,
@@ -122,6 +122,7 @@ type Props = {
   defaultBankAccountByCompany: Record<string, string>;
   expenseCategories: { id: number; name: string; type: string }[];
   projectId?: number;
+  initialGroupId?: number | null;
 };
 
 export function InvoiceGroupsTable({
@@ -133,6 +134,7 @@ export function InvoiceGroupsTable({
   defaultBankAccountByCompany,
   expenseCategories,
   projectId,
+  initialGroupId,
 }: Props) {
   const [activeTab, setActiveTab] = useState<StatusTab>("all");
   const [counterpartyFilter, setCounterpartyFilter] = useState<string>("all");
@@ -146,6 +148,25 @@ export function InvoiceGroupsTable({
   const [submitToAccountingTarget, setSubmitToAccountingTarget] =
     useState<InvoiceGroupListItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!initialGroupId) return;
+    const existing = data.find((row) => row.id === initialGroupId);
+    if (existing) {
+      setSelectedGroup(existing);
+      return;
+    }
+
+    let cancelled = false;
+    getInvoiceGroupById(initialGroupId).then((group) => {
+      if (!cancelled && group) {
+        setSelectedGroup(group);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [data, initialGroupId]);
 
   const handleInvoiceCreated = async (groupId: number) => {
     const group = await getInvoiceGroupById(groupId);
