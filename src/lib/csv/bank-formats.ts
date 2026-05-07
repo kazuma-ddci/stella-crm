@@ -93,21 +93,6 @@ export const BANK_FORMATS: Record<string, BankCsvFormat> = {
     },
     dateFormat: "YYYY/MM/DD",
   },
-  moneyforward: {
-    id: "moneyforward",
-    bankName: "マネーフォワード（エクスポート）",
-    encoding: "utf-8",
-    headerRows: 1,
-    columns: {
-      date: 1,
-      description: 3,
-      incoming: 4,
-      outgoing: 4,
-      balance: 5,
-      memo: 6,
-    },
-    dateFormat: "YYYY/MM/DD",
-  },
 };
 
 /**

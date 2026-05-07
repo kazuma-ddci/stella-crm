@@ -496,7 +496,6 @@ export type MergeImpact = {
   target: { id: number; name: string; counterpartyType: string };
   transactionCount: number;
   recurringTransactionCount: number;
-  bankTransactionCount: number;
   autoJournalRuleCount: number;
   invoiceGroupCount: number;
   paymentGroupCount: number;
@@ -528,14 +527,12 @@ export async function getCounterpartyMergeImpact(
   const [
     transactionCount,
     recurringTransactionCount,
-    bankTransactionCount,
     autoJournalRuleCount,
     invoiceGroupCount,
     paymentGroupCount,
   ] = await Promise.all([
     prisma.transaction.count({ where: { counterpartyId: sourceId, deletedAt: null } }),
     prisma.recurringTransaction.count({ where: { counterpartyId: sourceId, deletedAt: null } }),
-    prisma.bankTransaction.count({ where: { counterpartyId: sourceId, deletedAt: null } }),
     prisma.autoJournalRule.count({ where: { counterpartyId: sourceId, deletedAt: null } }),
     prisma.invoiceGroup.count({ where: { counterpartyId: sourceId, deletedAt: null } }),
     prisma.paymentGroup.count({ where: { counterpartyId: sourceId, deletedAt: null } }),
@@ -544,7 +541,6 @@ export async function getCounterpartyMergeImpact(
   const totalAffected =
     transactionCount +
     recurringTransactionCount +
-    bankTransactionCount +
     autoJournalRuleCount +
     invoiceGroupCount +
     paymentGroupCount;
@@ -565,7 +561,6 @@ export async function getCounterpartyMergeImpact(
       target,
       transactionCount,
       recurringTransactionCount,
-      bankTransactionCount,
       autoJournalRuleCount,
       invoiceGroupCount,
       paymentGroupCount,
@@ -607,17 +602,13 @@ export async function mergeCounterparties(
   // トランザクション内でFK付替え + 統合元の論理削除 + ChangeLog記録
   const result = await prisma.$transaction(async (tx) => {
     // FK付替え
-    const [txnResult, recurResult, bankResult, ruleResult, invResult, payResult] =
+    const [txnResult, recurResult, ruleResult, invResult, payResult] =
       await Promise.all([
         tx.transaction.updateMany({
           where: { counterpartyId: sourceId },
           data: { counterpartyId: targetId },
         }),
         tx.recurringTransaction.updateMany({
-          where: { counterpartyId: sourceId },
-          data: { counterpartyId: targetId },
-        }),
-        tx.bankTransaction.updateMany({
           where: { counterpartyId: sourceId },
           data: { counterpartyId: targetId },
         }),
@@ -638,7 +629,6 @@ export async function mergeCounterparties(
     const totalUpdated =
       txnResult.count +
       recurResult.count +
-      bankResult.count +
       ruleResult.count +
       invResult.count +
       payResult.count;
@@ -680,7 +670,6 @@ export async function mergeCounterparties(
           fkDetails: {
             transactions: txnResult.count,
             recurringTransactions: recurResult.count,
-            bankTransactions: bankResult.count,
             autoJournalRules: ruleResult.count,
             invoiceGroups: invResult.count,
             paymentGroups: payResult.count,

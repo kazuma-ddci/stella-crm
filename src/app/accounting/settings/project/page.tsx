@@ -9,7 +9,7 @@ export default async function AccountingProjectSettingsPage() {
   const user = session?.user;
 
   if (!canViewProjectMasterDataSync(user, "accounting")) {
-    redirect("/accounting/dashboard");
+    redirect("/accounting/workflow");
   }
 
   const canEdit = canEditProjectMasterDataSync(user, "accounting");

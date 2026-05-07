@@ -53,7 +53,6 @@ type JournalEntryForEdit = {
   invoiceGroupId: number | null;
   paymentGroupId: number | null;
   transactionId: number | null;
-  bankTransactionId: number | null;
   projectId: number | null;
   counterpartyId: number | null;
   hasInvoice: boolean;
@@ -185,9 +184,6 @@ export function JournalEntryModal({
   const [realizationStatus, setRealizationStatus] = useState(
     editEntry?.realizationStatus ?? ""
   );
-  const [bankTransactionId, setBankTransactionId] = useState(
-    editEntry?.bankTransactionId ? String(editEntry.bankTransactionId) : "none"
-  );
   const [lines, setLines] = useState<LineFormState[]>(() => {
     if (editEntry?.lines && editEntry.lines.length > 0) {
       return editEntry.lines.map((l) => ({
@@ -227,7 +223,6 @@ export function JournalEntryModal({
       setCounterpartyId(cpid);
       setHasInvoice(cpHasInvoice);
       setRealizationStatus("");
-      setBankTransactionId("none");
       setLines([createEmptyLine("debit"), createEmptyLine("credit")]);
       setShowTaxFields(false);
     }
@@ -539,16 +534,11 @@ export function JournalEntryModal({
         paymentGroupId: editEntry?.paymentGroupId ?? null,
         transactionId:
           editEntry?.transactionId ?? defaultTransactionId ?? null,
-        bankTransactionId:
-          bankTransactionId && bankTransactionId !== "none"
-            ? Number(bankTransactionId)
-            : null,
         projectId: projectId ? Number(projectId) : null,
         counterpartyId: counterpartyId ? Number(counterpartyId) : null,
         hasInvoice,
         status,
         realizationStatus: realizationStatus || "unrealized",
-        scheduledDate: null,
       };
 
       if (isEdit && editEntry) {
@@ -585,7 +575,6 @@ export function JournalEntryModal({
       setCounterpartyId(initialCounterpartyId);
       setHasInvoice(initialHasInvoice);
       setRealizationStatus("");
-      setBankTransactionId("none");
       setLines([createEmptyLine("debit"), createEmptyLine("credit")]);
       setShowTaxFields(false);
     }
@@ -745,32 +734,6 @@ export function JournalEntryModal({
                   {REALIZATION_STATUSES.map((s) => (
                     <SelectItem key={s.value} value={s.value}>
                       {s.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex-1 min-w-0">
-              <Label className="text-xs text-muted-foreground">
-                入出金紐付け
-              </Label>
-              <Select
-                value={bankTransactionId}
-                onValueChange={setBankTransactionId}
-              >
-                <SelectTrigger className="mt-1 h-9">
-                  <SelectValue placeholder="なし" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">なし</SelectItem>
-                  {formData.bankTransactions.map((bt) => (
-                    <SelectItem key={bt.id} value={String(bt.id)}>
-                      {new Date(bt.transactionDate).toLocaleDateString(
-                        "ja-JP"
-                      )}{" "}
-                      {bt.direction === "incoming" ? "入金" : "出金"} ¥
-                      {bt.amount.toLocaleString()}
-                      {bt.counterparty ? ` ${bt.counterparty.name}` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>

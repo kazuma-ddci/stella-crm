@@ -133,7 +133,6 @@ export function parseCsvBuffer(
   const allRows = parseResult.data;
   const dataRows = allRows.slice(format.headerRows);
 
-  const isMoneyforward = format.id === "moneyforward";
   const rows: ParsedRow[] = [];
   let skippedRows = 0;
   let errorRows = 0;
@@ -162,27 +161,8 @@ export function parseCsvBuffer(
     const description = getCell(row, format.columns.description);
 
     // Parse amounts
-    let incoming: number;
-    let outgoing: number;
-
-    if (isMoneyforward) {
-      // MoneyForward: single column, positive = incoming, negative = outgoing
-      const rawAmount = parseAmount(getCell(row, format.columns.incoming));
-      if (rawAmount >= 0) {
-        incoming = rawAmount;
-        outgoing = 0;
-      } else {
-        incoming = 0;
-        outgoing = Math.abs(rawAmount);
-      }
-    } else {
-      incoming = parseAmount(getCell(row, format.columns.incoming));
-      outgoing = parseAmount(getCell(row, format.columns.outgoing));
-
-      // Ensure amounts are non-negative
-      incoming = Math.abs(incoming);
-      outgoing = Math.abs(outgoing);
-    }
+    let incoming = Math.abs(parseAmount(getCell(row, format.columns.incoming)));
+    let outgoing = Math.abs(parseAmount(getCell(row, format.columns.outgoing)));
 
     // Skip rows where both amounts are zero (no transaction)
     if (incoming === 0 && outgoing === 0) {

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -25,9 +26,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, Check, X, Link2, AlertTriangle } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, X, Link2, AlertTriangle, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { DatePicker } from "@/components/ui/date-picker";
+import { GroupStatementLinkPanel } from "@/components/accounting/group-statement-link-panel";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  attachExistingRecordToStatementEntry,
+  deleteLink,
+  listEntryCandidatesForGroup,
+  getGroupStatementLinkCompleted,
+  getGroupStatementLinkCompletionCheck,
+  toggleGroupStatementLinkCompleted,
+  type EntryCandidate,
+} from "@/app/accounting/statements/link-actions";
 import {
   Select,
   SelectContent,
@@ -105,6 +122,14 @@ function StatusBadge({
 export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = false }: Props) {
   const [data, setData] = useState<ReceiptRecordsResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [statementLinkCompleted, setStatementLinkCompleted] = useState(false);
+  const [statementCheck, setStatementCheck] = useState<{
+    linkCount: number;
+    linkedAmount: number;
+    recordAmount: number;
+    canComplete: boolean;
+    warnings: string[];
+  } | null>(null);
   const [isPending, startTransition] = useTransition();
 
   // 追加フォーム
@@ -121,6 +146,11 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
 
   // 削除確認
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [linkTarget, setLinkTarget] = useState<ReceiptRecordView | null>(null);
+  const [linkCandidates, setLinkCandidates] = useState<EntryCandidate[]>([]);
+  const [linkSearch, setLinkSearch] = useState("");
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkingEntryId, setLinkingEntryId] = useState<number | null>(null);
 
   const dateLabel = groupType === "invoice" ? "入金日" : "支払日";
   const amountLabel = groupType === "invoice" ? "入金額" : "支払額";
@@ -139,6 +169,11 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
         return;
       }
       setData(result.data);
+      setStatementLinkCompleted(
+        await getGroupStatementLinkCompleted(groupType, groupId)
+      );
+      const check = await getGroupStatementLinkCompletionCheck(groupType, groupId);
+      if (check.ok) setStatementCheck(check.data);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "データの取得に失敗しました");
     } finally {
@@ -255,6 +290,64 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
     });
   };
 
+  const handleDeleteStatementLink = (linkId: number) => {
+    startTransition(async () => {
+      const result = await deleteLink(linkId);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("入出金履歴の紐付けを解除しました");
+      await fetchData();
+    });
+  };
+
+  const loadLinkCandidates = async (search: string) => {
+    setLinkLoading(true);
+    try {
+      const result = await listEntryCandidatesForGroup({
+        groupKind: groupType,
+        groupId,
+        search,
+      });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      setLinkCandidates(result.data);
+    } finally {
+      setLinkLoading(false);
+    }
+  };
+
+  const openRecordLinkDialog = async (record: ReceiptRecordView) => {
+    setLinkTarget(record);
+    setLinkSearch("");
+    await loadLinkCandidates("");
+  };
+
+  const handleAttachRecord = (entryId: number) => {
+    if (!linkTarget) return;
+    setLinkingEntryId(entryId);
+    startTransition(async () => {
+      const result = await attachExistingRecordToStatementEntry({
+        groupKind: groupType,
+        groupId,
+        recordId: linkTarget.id,
+        entryId,
+      });
+      setLinkingEntryId(null);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${recordLabel}に入出金履歴を紐付けました`);
+      setLinkTarget(null);
+      setLinkCandidates([]);
+      await fetchData();
+    });
+  };
+
   // 手動入金/支払フラグの切替
   const handleManualStatusChange = (newStatus: ManualPaymentStatus) => {
     startTransition(async () => {
@@ -268,6 +361,26 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
       }
       toast.success(`ステータスを更新しました`);
       await fetchData();
+    });
+  };
+
+  const handleStatementLinkCompletedChange = (completed: boolean) => {
+    const prev = statementLinkCompleted;
+    setStatementLinkCompleted(completed);
+    startTransition(async () => {
+      const result = await toggleGroupStatementLinkCompleted({
+        groupKind: groupType,
+        groupId,
+        completed,
+      });
+      if (!result.ok) {
+        toast.error(result.error);
+        setStatementLinkCompleted(prev);
+        return;
+      }
+      toast.success(
+        completed ? "入出金履歴の確認を完了にしました" : "入出金履歴の確認完了を解除しました"
+      );
     });
   };
 
@@ -317,6 +430,23 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
                   </Select>
                 </div>
               )}
+              <div className="flex items-center gap-2 rounded-md border bg-muted/20 px-3 py-1.5">
+                <span className="text-xs text-muted-foreground">
+                  入出金履歴チェック:
+                </span>
+                <Label
+                  htmlFor={`statement-link-completed-${groupType}-${groupId}`}
+                  className="text-xs font-medium"
+                >
+                  完了
+                </Label>
+                <Switch
+                  id={`statement-link-completed-${groupType}-${groupId}`}
+                  checked={statementLinkCompleted}
+                  onCheckedChange={handleStatementLinkCompletedChange}
+                  disabled={readOnly || isPending || loading || (!statementLinkCompleted && statementCheck?.linkCount === 0)}
+                />
+              </div>
               {!readOnly && !addOpen && (
                 <Button
                   size="sm"
@@ -334,7 +464,7 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
         <CardContent className="space-y-3">
           {/* サマリ表示 */}
           {data && (
-            <div className="grid grid-cols-3 gap-4 text-sm pb-3 border-b">
+            <div className="grid grid-cols-2 gap-4 text-sm border-b pb-3 lg:grid-cols-4">
               <div>
                 <span className="text-muted-foreground">合計金額</span>
                 <p className="font-medium">
@@ -344,6 +474,12 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
               <div>
                 <span className="text-muted-foreground">{actionLabel}済合計</span>
                 <p className="font-medium">¥{data.summary.totalReceived.toLocaleString()}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">入出金履歴合計</span>
+                <p className="font-medium">
+                  ¥{(statementCheck?.linkedAmount ?? 0).toLocaleString()}
+                </p>
               </div>
               <div>
                 <span className="text-muted-foreground">残額</span>
@@ -404,6 +540,20 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
                   )}
                   {" "}振込手数料等の意図的な差額であれば問題ありません。
                 </p>
+              </div>
+            </div>
+          )}
+
+          {statementCheck && !statementCheck.canComplete && (
+            <div className="flex items-start gap-2 rounded-md border border-orange-300 bg-orange-50 p-3 text-sm text-orange-900">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-orange-700" />
+              <div className="flex-1">
+                <p className="font-medium">入出金履歴チェックを完了にできない条件があります</p>
+                <div className="mt-1 space-y-0.5 text-xs">
+                  {statementCheck.warnings.map((w) => (
+                    <p key={w}>{w}</p>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -537,7 +687,7 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
                         <div className="flex items-center gap-1.5">
                           {r.isBankLinked && (
                             <span
-                              title="銀行入出金履歴から自動生成された記録"
+                              title="入出金履歴から作成された記録"
                               className="inline-flex items-center"
                             >
                               <Link2 className="h-3.5 w-3.5 text-blue-600" />
@@ -550,11 +700,35 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
                         ¥{r.amount.toLocaleString()}
                       </TableCell>
                       <TableCell className="whitespace-pre-wrap text-sm">
-                        {r.comment ?? <span className="text-muted-foreground">-</span>}
+                        <div className="space-y-1">
+                          <div>
+                            {r.comment ?? <span className="text-muted-foreground">-</span>}
+                          </div>
+                          {r.statementLink && (
+                            <div className="rounded-md border border-blue-100 bg-blue-50/70 px-2 py-1.5 text-xs text-blue-900">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <Badge variant="outline" className="border-blue-200 bg-white text-[10px] text-blue-700">
+                                  入出金履歴
+                                </Badge>
+                                <span className="font-medium">
+                                  {new Date(r.statementLink.transactionDate).toLocaleDateString("ja-JP")}
+                                </span>
+                                <span className="truncate">
+                                  {r.statementLink.description}
+                                </span>
+                              </div>
+                              <div className="mt-0.5 text-[11px] text-blue-700">
+                                {r.statementLink.bankAccountLabel}
+                                {" / 取引額 ¥"}
+                                {(r.statementLink.incomingAmount ?? r.statementLink.outgoingAmount ?? 0).toLocaleString()}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {r.isBankLinked ? (
-                          <span className="text-blue-700">銀行履歴由来</span>
+                          <span className="text-blue-700">入出金履歴から作成</span>
                         ) : (
                           r.createdByName
                         )}
@@ -562,14 +736,26 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
                       {!readOnly && (
                         <TableCell className="text-right">
                           {r.isBankLinked ? (
-                            <span
-                              className="text-xs text-muted-foreground"
-                              title="銀行取引側で編集してください"
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => r.statementLink && handleDeleteStatementLink(r.statementLink.id)}
+                              disabled={isPending || !r.statementLink}
+                              title="紐付けを解除"
                             >
-                              編集不可
-                            </span>
+                              <Trash2 className="h-4 w-4 text-red-600" />
+                            </Button>
                           ) : (
                             <div className="flex justify-end gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => openRecordLinkDialog(r)}
+                                disabled={isPending}
+                                title="この記録に入出金履歴を紐付け"
+                              >
+                                <Link2 className="h-4 w-4 text-blue-600" />
+                              </Button>
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -598,6 +784,15 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
               </TableBody>
             </Table>
           )}
+
+          <GroupStatementLinkPanel
+            groupKind={groupType}
+            groupId={groupId}
+            onChanged={fetchData}
+            readOnly={readOnly}
+            statementLinkCompleted={statementLinkCompleted}
+            showLinkedList={false}
+          />
         </CardContent>
       </Card>
 
@@ -622,6 +817,85 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={linkTarget !== null} onOpenChange={(open) => !open && setLinkTarget(null)}>
+        <DialogContent size="wide">
+          <DialogHeader>
+            <DialogTitle>{recordLabel}に入出金履歴を紐付ける</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {linkTarget && (
+              <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                <div className="font-medium">
+                  {new Date(linkTarget.date).toLocaleDateString("ja-JP")}
+                  {" / ¥"}
+                  {linkTarget.amount.toLocaleString()}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  この記録金額で入出金履歴に紐付けます。日付は選択した入出金履歴の日付に揃います。
+                </div>
+              </div>
+            )}
+            <div className="relative">
+              <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={linkSearch}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setLinkSearch(value);
+                  loadLinkCandidates(value);
+                }}
+                placeholder="摘要で検索"
+                className="pl-8"
+              />
+            </div>
+            <div className="max-h-[420px] overflow-y-auto rounded-md border divide-y">
+              {linkLoading ? (
+                <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  候補を読み込み中
+                </div>
+              ) : linkCandidates.length === 0 ? (
+                <div className="p-3 text-sm text-muted-foreground">候補がありません</div>
+              ) : (
+                linkCandidates.map((candidate) => {
+                  const availableAmount = candidate.amount - candidate.alreadyLinkedAmount;
+                  const canAttach = !!linkTarget && availableAmount >= linkTarget.amount;
+                  return (
+                    <div key={candidate.id} className="flex items-center gap-3 p-3 text-sm">
+                      <Badge variant="outline" className="text-[10px]">
+                        {candidate.transactionDate}
+                      </Badge>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium">{candidate.description}</div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {candidate.bankAccountLabel} / 取引額 ¥{candidate.amount.toLocaleString()}
+                          {candidate.alreadyLinkedAmount > 0 &&
+                            ` / 既割当 ¥${candidate.alreadyLinkedAmount.toLocaleString()}`}
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!canAttach || linkingEntryId === candidate.id}
+                        onClick={() => handleAttachRecord(candidate.id)}
+                      >
+                        {linkingEntryId === candidate.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : canAttach ? (
+                          "紐付け"
+                        ) : (
+                          "金額不足"
+                        )}
+                      </Button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -237,7 +237,7 @@ export async function createTransaction(
   }
 
   revalidatePath("/accounting/transactions");
-  revalidatePath("/accounting/dashboard");
+  revalidatePath("/accounting/workflow");
 
   return ok({ id: result.transaction.id });
   } catch (e) {
@@ -1092,26 +1092,11 @@ export async function hideTransaction(id: number): Promise<ActionResult> {
 // ============================================
 
 export async function isMonthClosed(
-  targetMonth: Date,
+  _targetMonth: Date,
   projectId: number
 ): Promise<boolean> {
   await requireFinanceProjectAccess(projectId, "view");
-  const monthStart = new Date(
-    targetMonth.getFullYear(),
-    targetMonth.getMonth(),
-    1
-  );
-
-  const record = await prisma.accountingMonthlyClose.findFirst({
-    where: {
-      projectId,
-      targetMonth: monthStart,
-      status: { in: ["project_closed", "accounting_closed"] },
-    },
-    select: { id: true },
-  });
-
-  return !!record;
+  return false;
 }
 
 // ============================================

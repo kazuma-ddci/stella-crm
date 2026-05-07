@@ -93,6 +93,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { toast } from "sonner";
+import { GroupStatementLinkPanel } from "@/components/accounting/group-statement-link-panel";
 
 const SEND_METHOD_LABELS: Record<string, string> = {
   email: "メール",
@@ -133,7 +134,7 @@ export function PaymentGroupDetailModal({
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "detail" | "transactions" | "add" | "attachments" | "history" | "comments"
+    "detail" | "transactions" | "add" | "attachments" | "history" | "comments" | "statement-links"
   >("detail");
 
   // 編集可能な情報
@@ -179,6 +180,7 @@ export function PaymentGroupDetailModal({
   // 差し戻し依頼ダイアログ
   const [showReturnRequestDialog, setShowReturnRequestDialog] = useState(false);
   const [returnRequestBody, setReturnRequestBody] = useState("");
+  const isReturnRequested = group.returnRequestStatus === "requested";
 
   // 証憑
   const [groupAttachments, setGroupAttachments] = useState<{
@@ -771,7 +773,7 @@ export function PaymentGroupDetailModal({
               )}
 
               {/* awaiting_accounting: 引渡取消ボタン */}
-              {group.status === "awaiting_accounting" && (
+              {group.canCancelHandover && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -796,6 +798,11 @@ export function PaymentGroupDetailModal({
                   <Undo2 className="mr-1 h-4 w-4" />
                   引渡取消
                 </Button>
+              )}
+              {isReturnRequested && (
+                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300">
+                  差し戻し依頼中
+                </Badge>
               )}
 
               {/* paid: 支払済みバッジ */}
@@ -957,6 +964,16 @@ export function PaymentGroupDetailModal({
           >
             コメント
           </button>
+          <button
+            onClick={() => setActiveTab("statement-links")}
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors shrink-0 ${
+              activeTab === "statement-links"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground"
+            }`}
+          >
+            入出金紐付け
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto min-h-0">
@@ -969,7 +986,7 @@ export function PaymentGroupDetailModal({
               </div>
               <div className="flex items-center gap-2">
                 {/* awaiting_accounting / paid: 差し戻し依頼ボタン */}
-                {(group.status === "awaiting_accounting" || group.status === "paid") && (
+                {group.canRequestReturn && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -987,6 +1004,18 @@ export function PaymentGroupDetailModal({
           {/* 基本情報タブ */}
           {activeTab === "detail" && (
             <div className="space-y-4 p-1">
+              {isReturnRequested && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  <p className="font-medium">経理へ差し戻し依頼中です</p>
+                  <p className="mt-1 whitespace-pre-wrap">{group.returnRequestReason}</p>
+                </div>
+              )}
+              {group.status === "returned" && group.returnRequestReason && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                  <p className="font-medium">経理から差し戻されています</p>
+                  <p className="mt-1 whitespace-pre-wrap">{group.returnRequestReason}</p>
+                </div>
+              )}
               {/* 按分取引の処理状況警告 */}
               {allocationWarnings.length > 0 && (
                 <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
@@ -1192,7 +1221,6 @@ export function PaymentGroupDetailModal({
                   amount: p.amount,
                   comment: p.comment,
                   createdByName: p.createdByName,
-                  isBankLinked: p.isBankLinked,
                 }))}
                 status={group.paymentStatus}
                 recordTotal={group.paymentTotal}
@@ -1658,6 +1686,16 @@ export function PaymentGroupDetailModal({
               <CommentSection
                 paymentGroupId={group.id}
                 allowCommentTypes
+              />
+            </div>
+          )}
+
+          {/* 入出金紐付けタブ */}
+          {activeTab === "statement-links" && (
+            <div className="p-3">
+              <GroupStatementLinkPanel
+                groupKind="payment"
+                groupId={group.id}
               />
             </div>
           )}

@@ -37,6 +37,46 @@ function buildConfidentialFilter(user: SessionUser) {
   return { OR: [{ isConfidential: false }, { isConfidential: true, createdBy: user.id }] };
 }
 
+function hasPaymentGroupAccountingWork(group: {
+  status: string;
+  actualPaymentDate: Date | null;
+  manualPaymentStatus: string;
+  statementLinkCompleted: boolean;
+  transactions: { journalCompleted: boolean; journalEntries?: { id: number }[] }[];
+  payments?: { id: number }[];
+  bankStatementLinks?: { id: number }[];
+}) {
+  return (
+    group.status === "paid" ||
+    !!group.actualPaymentDate ||
+    group.manualPaymentStatus !== "unpaid" ||
+    group.statementLinkCompleted ||
+    group.transactions.some((t) => t.journalCompleted || (t.journalEntries?.length ?? 0) > 0) ||
+    (group.payments?.length ?? 0) > 0 ||
+    (group.bankStatementLinks?.length ?? 0) > 0
+  );
+}
+
+function getPaymentGroupProjectActions(group: {
+  status: string;
+  returnRequestStatus: string;
+  actualPaymentDate: Date | null;
+  manualPaymentStatus: string;
+  statementLinkCompleted: boolean;
+  transactions: { journalCompleted: boolean; journalEntries?: { id: number }[] }[];
+  payments?: { id: number }[];
+  bankStatementLinks?: { id: number }[];
+}) {
+  const accountingStarted = hasPaymentGroupAccountingWork(group);
+  const hasPendingRequest = group.returnRequestStatus === "requested";
+  return {
+    canCancelHandover: group.status === "awaiting_accounting" && !accountingStarted && !hasPendingRequest,
+    canRequestReturn:
+      !hasPendingRequest &&
+      (group.status === "paid" || (group.status === "awaiting_accounting" && accountingStarted)),
+  };
+}
+
 // ============================================
 // 型定義（types.ts から再エクスポート）
 // ============================================
@@ -76,7 +116,14 @@ export async function getPaymentGroups(
     include: {
       counterparty: true,
       operatingCompany: true,
-      transactions: { where: { deletedAt: null }, select: { id: true } },
+      transactions: {
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          journalCompleted: true,
+          journalEntries: { where: { deletedAt: null }, select: { id: true } },
+        },
+      },
       allocationItems: { select: { id: true } },
       creator: true,
       confirmer: true,
@@ -85,6 +132,7 @@ export async function getPaymentGroups(
         orderBy: { paidDate: "asc" },
         include: { creator: { select: { name: true } } },
       },
+      bankStatementLinks: { select: { id: true } },
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
@@ -100,6 +148,7 @@ export async function getPaymentGroups(
             ? "partial"
             : "over";
 
+    const projectActions = getPaymentGroupProjectActions(r);
     return {
       id: r.id,
       referenceCode: r.referenceCode,
@@ -134,11 +183,15 @@ export async function getPaymentGroups(
         amount: x.amount,
         comment: x.comment,
         createdByName: x.creator.name,
-        isBankLinked: x.bankTransactionLinkId !== null,
       })),
       paymentStatus,
       paymentTotal,
       manualPaymentStatus: r.manualPaymentStatus as "unpaid" | "partial" | "completed",
+      canCancelHandover: projectActions.canCancelHandover,
+      canRequestReturn: projectActions.canRequestReturn,
+      returnRequestStatus: r.returnRequestStatus,
+      returnRequestReason: r.returnRequestReason,
+      returnRequestedAt: r.returnRequestedAt ? toLocalDateString(r.returnRequestedAt) : null,
     };
   });
 }
@@ -162,7 +215,14 @@ export async function getPaymentGroupById(
     include: {
       counterparty: true,
       operatingCompany: true,
-      transactions: { where: { deletedAt: null }, select: { id: true } },
+      transactions: {
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          journalCompleted: true,
+          journalEntries: { where: { deletedAt: null }, select: { id: true } },
+        },
+      },
       allocationItems: { select: { id: true } },
       creator: true,
       confirmer: true,
@@ -171,6 +231,7 @@ export async function getPaymentGroupById(
         orderBy: { paidDate: "asc" },
         include: { creator: { select: { name: true } } },
       },
+      bankStatementLinks: { select: { id: true } },
     },
   });
   if (!r) return null;
@@ -185,6 +246,7 @@ export async function getPaymentGroupById(
           ? "partial"
           : "over";
 
+  const projectActions = getPaymentGroupProjectActions(r);
   return {
     id: r.id,
     referenceCode: r.referenceCode,
@@ -219,11 +281,15 @@ export async function getPaymentGroupById(
       amount: x.amount,
       comment: x.comment,
       createdByName: x.creator.name,
-      isBankLinked: x.bankTransactionLinkId !== null,
     })),
     paymentStatus,
     paymentTotal,
     manualPaymentStatus: r.manualPaymentStatus as "unpaid" | "partial" | "completed",
+    canCancelHandover: projectActions.canCancelHandover,
+    canRequestReturn: projectActions.canRequestReturn,
+    returnRequestStatus: r.returnRequestStatus,
+    returnRequestReason: r.returnRequestReason,
+    returnRequestedAt: r.returnRequestedAt ? toLocalDateString(r.returnRequestedAt) : null,
   };
 }
 
@@ -603,6 +669,17 @@ export async function updatePaymentGroup(
 
   const group = await prisma.paymentGroup.findUnique({
     where: { id, deletedAt: null, projectId: stpProjectId },
+    include: {
+      transactions: {
+        where: { deletedAt: null },
+        select: {
+          journalCompleted: true,
+          journalEntries: { where: { deletedAt: null }, select: { id: true } },
+        },
+      },
+      payments: { select: { id: true } },
+      bankStatementLinks: { select: { id: true } },
+    },
   });
   if (!group) return err("支払が見つかりません");
 
@@ -694,6 +771,17 @@ export async function deletePaymentGroup(
 
   const group = await prisma.paymentGroup.findUnique({
     where: { id, deletedAt: null, projectId: stpProjectId },
+    include: {
+      transactions: {
+        where: { deletedAt: null },
+        select: {
+          journalCompleted: true,
+          journalEntries: { where: { deletedAt: null }, select: { id: true } },
+        },
+      },
+      payments: { select: { id: true } },
+      bankStatementLinks: { select: { id: true } },
+    },
   });
   if (!group) return err("支払が見つかりません");
 
@@ -953,6 +1041,17 @@ export async function updatePaymentGroupStatus(
 
   const group = await prisma.paymentGroup.findUnique({
     where: { id, deletedAt: null, projectId: stpProjectId },
+    include: {
+      transactions: {
+        where: { deletedAt: null },
+        select: {
+          journalCompleted: true,
+          journalEntries: { where: { deletedAt: null }, select: { id: true } },
+        },
+      },
+      payments: { select: { id: true } },
+      bankStatementLinks: { select: { id: true } },
+    },
   });
   if (!group) return err("支払が見つかりません");
 
@@ -1294,13 +1393,19 @@ export async function submitPaymentGroupToAccounting(
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.paymentGroup.update({
-      where: { id },
-      data: {
-        status: "awaiting_accounting",
-        updatedBy: user.id,
-      },
-    });
+      await tx.paymentGroup.update({
+        where: { id },
+        data: {
+          status: "awaiting_accounting",
+          returnRequestStatus: "none",
+          returnRequestReason: null,
+          returnRequestedAt: null,
+          returnRequestedBy: null,
+          returnRequestHandledAt: null,
+          returnRequestHandledBy: null,
+          updatedBy: user.id,
+        },
+      });
 
     await recordChangeLog(
       {
@@ -1422,25 +1527,56 @@ export async function requestReturnPaymentGroup(
 
   const group = await prisma.paymentGroup.findUnique({
     where: { id, deletedAt: null, projectId: stpProjectId },
+    include: {
+      transactions: {
+        where: { deletedAt: null },
+        select: {
+          journalCompleted: true,
+          journalEntries: { where: { deletedAt: null }, select: { id: true } },
+        },
+      },
+      payments: { select: { id: true } },
+      bankStatementLinks: { select: { id: true } },
+    },
   });
   if (!group) return err("支払が見つかりません");
 
   if (!["awaiting_accounting", "paid"].includes(group.status)) {
     return err("このステータスでは差し戻し依頼できません");
   }
+  if (group.returnRequestStatus === "requested") {
+    return err("すでに差し戻し依頼中です");
+  }
+  if (group.status === "awaiting_accounting" && !hasPaymentGroupAccountingWork(group)) {
+    return err("経理側でまだ処理が始まっていないため、引渡取消を使用してください");
+  }
 
   if (!data.body.trim()) {
     return err("差し戻し理由を入力してください");
   }
 
-  await prisma.transactionComment.create({
-    data: {
-      paymentGroupId: id,
-      body: data.body.trim(),
-      commentType: "return",
-      returnReasonType: "correction_request",
-      createdBy: user.id,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.paymentGroup.update({
+      where: { id },
+      data: {
+        returnRequestStatus: "requested",
+        returnRequestReason: data.body.trim(),
+        returnRequestedAt: new Date(),
+        returnRequestedBy: user.id,
+        returnRequestHandledAt: null,
+        returnRequestHandledBy: null,
+      },
+    });
+
+    await tx.transactionComment.create({
+      data: {
+        paymentGroupId: id,
+        body: data.body.trim(),
+        commentType: "return",
+        returnReasonType: "correction_request",
+        createdBy: user.id,
+      },
+    });
   });
 
   // 経理権限を持つスタッフに通知
@@ -1463,12 +1599,13 @@ export async function requestReturnPaymentGroup(
         category: "accounting",
         title: `差し戻し依頼: 支払グループ #${id}`,
         message: data.body.trim(),
-        linkUrl: "/accounting/batch-complete",
+        linkUrl: `/accounting/workflow/group-detail?type=payment&id=${id}`,
       });
     }
   }
 
   revalidatePath("/stp/finance/payment-groups");
+  revalidatePath("/accounting/workflow");
   return ok();
  } catch (e) {
   console.error("[requestReturnPaymentGroup] error:", e);
@@ -1492,14 +1629,28 @@ export async function cancelPaymentGroupHandover(
     include: {
       transactions: {
         where: { deletedAt: null },
-        select: { id: true, journalCompleted: true },
+        select: {
+          id: true,
+          journalCompleted: true,
+          journalEntries: { where: { deletedAt: null }, select: { id: true } },
+        },
       },
+      payments: { select: { id: true } },
+      bankStatementLinks: { select: { id: true } },
     },
   });
   if (!group) return err("支払が見つかりません");
 
   if (group.status !== "awaiting_accounting") {
     return err("「経理引渡済み」ステータスの支払のみ引渡を取り消せます");
+  }
+
+  if (group.returnRequestStatus === "requested") {
+    return err("差し戻し依頼中のため、引渡を取り消せません");
+  }
+
+  if (hasPaymentGroupAccountingWork(group)) {
+    return err("経理側で処理が開始されているため、引渡を取り消せません。差し戻し依頼を送ってください");
   }
 
   // 仕訳処理が開始されていないかチェック

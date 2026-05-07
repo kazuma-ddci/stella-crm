@@ -137,10 +137,6 @@ export async function mergeCounterpartyForCompany(
         where: { counterpartyId: duplicateCp.id },
         data: { counterpartyId: survivorCp.id },
       }),
-      tx.bankTransaction.updateMany({
-        where: { counterpartyId: duplicateCp.id },
-        data: { counterpartyId: survivorCp.id },
-      }),
       tx.autoJournalRule.updateMany({
         where: { counterpartyId: duplicateCp.id },
         data: { counterpartyId: survivorCp.id },

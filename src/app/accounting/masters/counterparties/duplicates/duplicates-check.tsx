@@ -355,12 +355,6 @@ export function DuplicatesCheck({ initialPairs }: Props) {
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>入出金（BankTransaction）</TableCell>
-                    <TableCell className="text-right">
-                      {impact.bankTransactionCount}件
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
                     <TableCell>自動仕訳ルール（AutoJournalRule）</TableCell>
                     <TableCell className="text-right">
                       {impact.autoJournalRuleCount}件

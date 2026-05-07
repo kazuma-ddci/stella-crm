@@ -790,16 +790,13 @@ model MasterStaff {
   reopenedMonths         StpMonthlyClose[]   @relation("MonthReopener")
   financeEditLogs        StpFinanceEditLog[]
 
-  // 会計（横断）Relations
-  accountingImportBatches   AccountingImportBatch[]
-  accountingReconciliations AccountingReconciliation[] @relation("ReconciliationMatcher")
-  accountingVerifications   AccountingVerification[]
-  acctMonthProjectCloser    AccountingMonthlyClose[]   @relation("AcctMonthProjectCloser")
-  acctMonthAcctCloser       AccountingMonthlyClose[]   @relation("AcctMonthAcctCloser")
-  acctMonthReopener         AccountingMonthlyClose[]   @relation("AcctMonthReopener")
-
   // パスワードリセット
   passwordResetTokens PasswordResetToken[]
+
+  // 入出金履歴（CSV取込）
+  bankStatementImportsUploaded BankStatementImport[]         @relation("BankStatementImportUploader")
+  bankStatementGroupLinksCreated BankStatementEntryGroupLink[] @relation("BankStatementEntryGroupLinkCreator")
+  bankStatementEntriesExcluded BankStatementEntry[]          @relation("BankStatementEntryExcluder")
 
   // 経理システム Relations
   transactionConfirmed             Transaction[]                   @relation("TransactionConfirmer")
@@ -833,9 +830,6 @@ model MasterStaff {
   journalLineUpdated               JournalEntryLine[]              @relation("JournalLineUpdater")
   accountCreated                   Account[]                       @relation("AccountCreator")
   accountUpdated                   Account[]                       @relation("AccountUpdater")
-  bankTxCreated                    BankTransaction[]               @relation("BankTxCreator")
-  bankTxUpdated                    BankTransaction[]               @relation("BankTxUpdater")
-  reconciliationPerformed          Reconciliation[]                @relation("ReconciliationPerformer")
   counterpartyCreated              Counterparty[]                  @relation("CounterpartyCreator")
   counterpartyUpdated              Counterparty[]                  @relation("CounterpartyUpdater")
   autoJournalCreated               AutoJournalRule[]               @relation("AutoJournalCreator")
@@ -882,8 +876,6 @@ model MasterStaff {
   paymentGroupApproved    PaymentGroup[]                     @relation("PaymentGroupApprover")
   recurringApproved       RecurringTransaction[]             @relation("RecurringApprover")
   recurringExpenseOwners  RecurringTransactionExpenseOwner[]
-  bankTxGroupLinkCreated  BankTransactionGroupLink[]         @relation("BankTxGroupLinkCreator")
-  moneyForwardConnections MoneyForwardConnection[]           @relation("MFConnectionCreator")
   slpDocumentsUploaded    SlpDocument[]
   slpVideosUploaded       SlpVideo[]
   slpAsAssignments        SlpAs[]                            @relation("SlpAsStaff")
@@ -1109,9 +1101,6 @@ model MasterProject {
   contractTypes              ContractType[]
   customerTypes              CustomerType[]
   contactCategories          ContactCategory[]
-  accountingTransactions     AccountingTransaction[]
-  accountingMonthlyCloses    AccountingMonthlyClose[]
-  accountingReconciliations  AccountingReconciliation[]
   roleTypeLinks              StaffRoleTypeProject[]
   fieldDefinitionProjects    StaffFieldDefinitionProject[]
   managingRestrictions       StaffFieldRestriction[]       @relation("ManagingProjectRestrictions")
@@ -1175,8 +1164,10 @@ model OperatingCompany {
   invoiceMails            InvoiceMail[]
   invoiceNumberSequences  StpInvoiceNumberSequence[]
   cloudsignTemplates      CloudSignTemplate[]
-  accountingTransactions  AccountingTransaction[]
-  moneyForwardConnections MoneyForwardConnection[]
+
+  // 入出金履歴（CSV取込）
+  bankStatementImports BankStatementImport[]
+  bankStatementEntries BankStatementEntry[]
 
   @@map("operating_companies")
 }
@@ -1207,6 +1198,10 @@ model OperatingCompanyBankAccount {
   paymentMethod       PaymentMethod?       @relation(fields: [paymentMethodId], references: [id])
   invoiceGroups       InvoiceGroup[] // 経理システム追加
   projectBankAccounts ProjectBankAccount[]
+
+  // 入出金履歴（CSV取込）
+  bankStatementImports BankStatementImport[]
+  bankStatementEntries BankStatementEntry[]
 
   @@map("operating_company_bank_accounts")
 }
@@ -2077,7 +2072,6 @@ model StpRevenueRecord {
   expenseRecords            StpExpenseRecord[]
   editLogs                  StpFinanceEditLog[]        @relation("RevenueEditLogs")
   lineItems                 StpInvoiceLineItem[]
-  accountingReconciliations AccountingReconciliation[] @relation("RevenueReconciliation")
 
   @@index([stpCompanyId])
   @@index([targetMonth])
@@ -2156,7 +2150,6 @@ model StpExpenseRecord {
   invoice                   StpInvoice?                @relation(fields: [invoiceId], references: [id])
   editLogs                  StpFinanceEditLog[]        @relation("ExpenseEditLogs")
   lineItems                 StpInvoiceLineItem[]
-  accountingReconciliations AccountingReconciliation[] @relation("ExpenseReconciliation")
 
   @@index([agentId])
   @@index([stpCompanyId])
@@ -2347,194 +2340,6 @@ model StpInvoiceNumberSequence {
 
   @@unique([operatingCompanyId, yearMonth])
   @@map("stp_invoice_number_sequences")
-}
-
-// ============================================
-// 会計取込バッチ (Accounting Import Batches)
-// freee/銀行CSVの取込履歴を管理
-// ============================================
-
-model AccountingImportBatch {
-  id             Int       @id @default(autoincrement())
-  source         String    @db.VarChar(20) // "freee" / "bank_csv" / "manual"
-  sourceService  String?   @db.VarChar(30) // "freee", "mufg", "smbc" 等
-  fileName       String?   @db.VarChar(500) // 取込ファイル名
-  periodFrom     DateTime? @db.Date // 対象期間（開始）
-  periodTo       DateTime? @db.Date // 対象期間（終了）
-  totalCount     Int       @default(0) // 総件数
-  newCount       Int       @default(0) // 新規取込件数
-  duplicateCount Int       @default(0) // 重複スキップ件数
-  status         String    @default("processing") @db.VarChar(20) // processing/completed/error
-  errorMessage   String? // エラー時の内容
-  importedBy     Int // 取込実行者（MasterStaffへの外部キー）
-  importedAt     DateTime  @default(now()) // 取込日時
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  // Relations
-  importer     MasterStaff             @relation(fields: [importedBy], references: [id])
-  transactions AccountingTransaction[]
-
-  @@index([source])
-  @@index([importedAt])
-  @@map("accounting_import_batches")
-}
-
-// ============================================
-// 会計取引 (Accounting Transactions)
-// freee・銀行の入出金データ（実際のお金の動き）
-// ============================================
-
-model AccountingTransaction {
-  id               Int       @id @default(autoincrement())
-  direction        String    @db.VarChar(10) // "incoming"（入金）/ "outgoing"（出金）
-  transactionDate  DateTime  @db.Date // 取引日
-  valueDate        DateTime? @db.Date // 決済日・受渡日
-  amount           Int // 金額（税込）
-  taxAmount        Int? // 消費税額
-  counterpartyName String    @db.VarChar(200) // 取引先名（freee/銀行の表記）
-  counterpartyCode String?   @db.VarChar(50) // 取引先コード（freee上の管理コード）
-  description      String? // 摘要（銀行明細の摘要欄）
-  memo             String? // 社内メモ
-  accountCode      String?   @db.VarChar(20) // 勘定科目コード
-  accountName      String?   @db.VarChar(100) // 勘定科目名
-  bankAccountName  String?   @db.VarChar(100) // 口座名（みずほ普通、UFJ当座 等）
-
-  // データ元
-  source              String  @db.VarChar(20) // "freee" / "bank_csv" / "manual"
-  sourceService       String? @db.VarChar(30) // 具体的なサービス名
-  sourceTransactionId String? @db.VarChar(100) // 外部システムの取引ID
-  sourceDealId        String? @db.VarChar(100) // freeeの取引(deal)ID
-  importBatchId       Int? // 取込バッチID
-
-  // 入出金履歴用フィールド
-  balance            Int? // 残高（銀行明細の残高欄）
-  operatingCompanyId Int? // 法人ID（FK → OperatingCompany）
-  deduplicationHash  String? @db.VarChar(64) // 重複検知用SHA-256ハッシュ
-
-  // 消込ステータス
-  reconciliationStatus String @default("unmatched") @db.VarChar(20) // unmatched/partial/matched/excluded
-
-  // プロジェクト紐付け（判明している場合）
-  projectId Int? // MasterProjectへの外部キー
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  importBatch      AccountingImportBatch?     @relation(fields: [importBatchId], references: [id])
-  project          MasterProject?             @relation(fields: [projectId], references: [id])
-  operatingCompany OperatingCompany?          @relation(fields: [operatingCompanyId], references: [id])
-  reconciliations  AccountingReconciliation[]
-  verifications    AccountingVerification[]
-
-  @@index([direction])
-  @@index([transactionDate])
-  @@index([counterpartyName])
-  @@index([reconciliationStatus])
-  @@index([projectId])
-  @@index([source])
-  @@index([sourceTransactionId])
-  @@index([operatingCompanyId])
-  @@index([deduplicationHash])
-  @@map("accounting_transactions")
-}
-
-// ============================================
-// 会計消込・照合 (Accounting Reconciliations)
-// 会計取引とプロジェクト側レコードのN:N紐付け
-// ============================================
-
-model AccountingReconciliation {
-  id              Int      @id @default(autoincrement())
-  transactionId   Int // AccountingTransactionへの外部キー
-  projectId       Int // master_projectsへの外部キー
-  recordType      String   @db.VarChar(20) // "revenue" / "expense"
-  revenueRecordId Int? // StpRevenueRecordへの外部キー（売上の場合）
-  expenseRecordId Int? // StpExpenseRecordへの外部キー（経費の場合）
-  allocatedAmount Int // この紐付けで消し込む金額
-  note            String? // 消込時の備考
-  matchMethod     String   @default("manual") @db.VarChar(10) // "auto"（自動照合）/ "manual"（手動）
-  matchedBy       Int? // 消込実行者（MasterStaffへの外部キー）
-  matchedAt       DateTime @default(now()) // 消込日時
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  // Relations
-  transaction   AccountingTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  project       MasterProject         @relation(fields: [projectId], references: [id])
-  revenueRecord StpRevenueRecord?     @relation("RevenueReconciliation", fields: [revenueRecordId], references: [id])
-  expenseRecord StpExpenseRecord?     @relation("ExpenseReconciliation", fields: [expenseRecordId], references: [id])
-  matcher       MasterStaff?          @relation("ReconciliationMatcher", fields: [matchedBy], references: [id])
-
-  @@index([transactionId])
-  @@index([revenueRecordId])
-  @@index([expenseRecordId])
-  @@index([projectId])
-  @@map("accounting_reconciliations")
-}
-
-// ============================================
-// 会計確認 (Accounting Verifications)
-// プロジェクト担当と経理のダブルチェック記録
-// ============================================
-
-model AccountingVerification {
-  id               Int       @id @default(autoincrement())
-  transactionId    Int // AccountingTransactionへの外部キー
-  verificationType String    @db.VarChar(20) // "project"（業務発生確認）/ "accounting"（経理確認）
-  status           String    @default("pending") @db.VarChar(20) // pending/verified/flagged
-  verifiedBy       Int // 確認者（MasterStaffへの外部キー）
-  verifiedAt       DateTime? // 確認日時（null = 未確認）
-  flagReason       String? // 問題ありの場合の理由
-  note             String? // 確認メモ
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-
-  // Relations
-  transaction AccountingTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  verifier    MasterStaff           @relation(fields: [verifiedBy], references: [id])
-
-  @@unique([transactionId, verificationType])
-  @@index([verificationType])
-  @@index([status])
-  @@index([verifiedBy])
-  @@map("accounting_verifications")
-}
-
-// ============================================
-// 会計月次締め (Accounting Monthly Closes)
-// プロジェクト横断の月次締め管理
-// プロジェクト側の締め確認後、経理が最終締めを行う
-// ============================================
-
-model AccountingMonthlyClose {
-  id                 Int       @id @default(autoincrement())
-  targetMonth        DateTime  @db.Date // 締め対象月（月初日で統一: 2026-02-01等）
-  projectId          Int // プロジェクトID（MasterProjectへの外部キー）
-  status             String    @default("open") @db.VarChar(20) // open/project_closed/accounting_closed
-  projectClosedAt    DateTime? // プロジェクト側締め日時
-  projectClosedBy    Int? // プロジェクト側締め実行者
-  accountingClosedAt DateTime? // 経理側最終締め日時
-  accountingClosedBy Int? // 経理側最終締め実行者
-  reopenedAt         DateTime? // 再オープン日時
-  reopenedBy         Int? // 再オープン者
-  reopenReason       String? // 再オープン理由
-  note               String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-
-  // Relations
-  project          MasterProject @relation(fields: [projectId], references: [id])
-  projectCloser    MasterStaff?  @relation("AcctMonthProjectCloser", fields: [projectClosedBy], references: [id])
-  accountingCloser MasterStaff?  @relation("AcctMonthAcctCloser", fields: [accountingClosedBy], references: [id])
-  reopener         MasterStaff?  @relation("AcctMonthReopener", fields: [reopenedBy], references: [id])
-
-  @@unique([targetMonth, projectId])
-  @@index([targetMonth])
-  @@index([projectId])
-  @@index([status])
-  @@map("accounting_monthly_closes")
 }
 
 // ============================================
@@ -2830,12 +2635,23 @@ model InvoiceGroup {
   comments               TransactionComment[]
   attachments            Attachment[]
   memoLines              InvoiceGroupMemoLine[]
-  bankTxGroupLinks       BankTransactionGroupLink[]
   receipts               InvoiceGroupReceipt[]
   projectId              Int?
   project                MasterProject?               @relation("ProjectInvoiceGroups", fields: [projectId], references: [id])
   creator                MasterStaff                  @relation("InvoiceGroupCreator", fields: [createdBy], references: [id])
   updater                MasterStaff?                 @relation("InvoiceGroupUpdater", fields: [updatedBy], references: [id])
+
+  // 入出金履歴（CSV取込）紐付け
+  statementLinkCompleted Boolean                       @default(false) @map("statement_link_completed") // スタッフが手動で「紐付け完了」を押したか
+  bankStatementLinks     BankStatementEntryGroupLink[]
+
+  // プロジェクト側から経理への差し戻し依頼、または経理側からプロジェクトへの差し戻し状態
+  returnRequestStatus    String    @default("none") @map("return_request_status") // "none" | "requested" | "returned"
+  returnRequestReason    String?   @map("return_request_reason")
+  returnRequestedAt      DateTime? @map("return_requested_at")
+  returnRequestedBy      Int?      @map("return_requested_by")
+  returnRequestHandledAt DateTime? @map("return_request_handled_at")
+  returnRequestHandledBy Int?      @map("return_request_handled_by")
 }
 
 // ============================================
@@ -2926,8 +2742,19 @@ model PaymentGroup {
   updater              MasterStaff?               @relation("PaymentGroupUpdater", fields: [updatedBy], references: [id])
   expectedInboundEmail OperatingCompanyEmail?     @relation("ExpectedInbound", fields: [expectedInboundEmailId], references: [id])
   inboundInvoices      InboundInvoice[]
-  bankTxGroupLinks     BankTransactionGroupLink[]
   payments             PaymentGroupPayment[]
+
+  // 入出金履歴（CSV取込）紐付け
+  statementLinkCompleted Boolean                       @default(false) @map("statement_link_completed") // スタッフが手動で「紐付け完了」を押したか
+  bankStatementLinks     BankStatementEntryGroupLink[]
+
+  // プロジェクト側から経理への差し戻し依頼、または経理側からプロジェクトへの差し戻し状態
+  returnRequestStatus    String    @default("none") @map("return_request_status") // "none" | "requested" | "returned"
+  returnRequestReason    String?   @map("return_request_reason")
+  returnRequestedAt      DateTime? @map("return_requested_at")
+  returnRequestedBy      Int?      @map("return_requested_by")
+  returnRequestHandledAt DateTime? @map("return_request_handled_at")
+  returnRequestHandledBy Int?      @map("return_request_handled_by")
 }
 
 // ============================================
@@ -2935,19 +2762,20 @@ model PaymentGroup {
 // ============================================
 
 model InvoiceGroupReceipt {
-  id                    Int      @id @default(autoincrement())
-  invoiceGroupId        Int      @map("invoice_group_id")
-  receivedDate          DateTime @map("received_date") // 入金日
-  amount                Int // 入金額（税込）
-  comment               String?  @db.VarChar(500) // 任意コメント
-  createdById           Int      @map("created_by_id")
-  bankTransactionLinkId Int?     @unique @map("bank_transaction_link_id") // 銀行履歴から自動生成された場合のリンク
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+  id                            Int      @id @default(autoincrement())
+  invoiceGroupId                Int      @map("invoice_group_id")
+  receivedDate                  DateTime @map("received_date") // 入金日
+  amount                        Int // 入金額（税込）
+  comment                       String?  @db.VarChar(500) // 任意コメント
+  recordSource                  String   @default("manual") @map("record_source") // "manual" | "bank_statement"
+  createdById                   Int      @map("created_by_id")
+  bankStatementEntryGroupLinkId Int?     @unique @map("bank_statement_entry_group_link_id") // 系統C（CSV取込BankStatementEntry）リンク
+  createdAt                     DateTime @default(now()) @map("created_at")
+  updatedAt                     DateTime @updatedAt @map("updated_at")
 
-  invoiceGroup        InvoiceGroup              @relation(fields: [invoiceGroupId], references: [id], onDelete: Cascade)
-  creator             MasterStaff               @relation("InvoiceGroupReceiptCreator", fields: [createdById], references: [id])
-  bankTransactionLink BankTransactionGroupLink? @relation(fields: [bankTransactionLinkId], references: [id], onDelete: SetNull)
+  invoiceGroup            InvoiceGroup                 @relation(fields: [invoiceGroupId], references: [id], onDelete: Cascade)
+  creator                 MasterStaff                  @relation("InvoiceGroupReceiptCreator", fields: [createdById], references: [id])
+  bankStatementEntryLink  BankStatementEntryGroupLink? @relation(fields: [bankStatementEntryGroupLinkId], references: [id], onDelete: Cascade)
 
   @@index([invoiceGroupId])
   @@index([receivedDate])
@@ -2959,19 +2787,20 @@ model InvoiceGroupReceipt {
 // ============================================
 
 model PaymentGroupPayment {
-  id                    Int      @id @default(autoincrement())
-  paymentGroupId        Int      @map("payment_group_id")
-  paidDate              DateTime @map("paid_date") // 支払日
-  amount                Int // 支払額（税込）
-  comment               String?  @db.VarChar(500) // 任意コメント
-  createdById           Int      @map("created_by_id")
-  bankTransactionLinkId Int?     @unique @map("bank_transaction_link_id") // 銀行履歴から自動生成された場合のリンク
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+  id                            Int      @id @default(autoincrement())
+  paymentGroupId                Int      @map("payment_group_id")
+  paidDate                      DateTime @map("paid_date") // 支払日
+  amount                        Int // 支払額（税込）
+  comment                       String?  @db.VarChar(500) // 任意コメント
+  recordSource                  String   @default("manual") @map("record_source") // "manual" | "bank_statement"
+  createdById                   Int      @map("created_by_id")
+  bankStatementEntryGroupLinkId Int?     @unique @map("bank_statement_entry_group_link_id") // 系統C（CSV取込BankStatementEntry）リンク
+  createdAt                     DateTime @default(now()) @map("created_at")
+  updatedAt                     DateTime @updatedAt @map("updated_at")
 
-  paymentGroup        PaymentGroup              @relation(fields: [paymentGroupId], references: [id], onDelete: Cascade)
-  creator             MasterStaff               @relation("PaymentGroupPaymentCreator", fields: [createdById], references: [id])
-  bankTransactionLink BankTransactionGroupLink? @relation(fields: [bankTransactionLinkId], references: [id], onDelete: SetNull)
+  paymentGroup            PaymentGroup                 @relation(fields: [paymentGroupId], references: [id], onDelete: Cascade)
+  creator                 MasterStaff                  @relation("PaymentGroupPaymentCreator", fields: [createdById], references: [id])
+  bankStatementEntryLink  BankStatementEntryGroupLink? @relation(fields: [bankStatementEntryGroupLinkId], references: [id], onDelete: Cascade)
 
   @@index([paymentGroupId])
   @@index([paidDate])
@@ -3259,7 +3088,6 @@ model JournalEntry {
   invoiceGroupId    Int? // FK → InvoiceGroup（売上側：請求グループ単位で紐づく）
   paymentGroupId    Int? // FK → PaymentGroup（経費側：支払グループ単位で紐づく）
   transactionId     Int? // FK → Transaction（個別取引に直接紐づく場合）
-  bankTransactionId Int? // FK → BankTransaction（入出金起点の仕訳の場合）
   projectId         Int? // FK → MasterProject（プロジェクト）
   counterpartyId    Int? // FK → Counterparty（取引先）
   hasInvoice        Boolean  @default(true) // 適格請求書の有無
@@ -3269,11 +3097,9 @@ model JournalEntry {
   isAutoGenerated        Boolean @default(false) // 自動生成フラグ
   status                 String  @default("draft") // "draft" | "confirmed"
   autoJournalRuleId      Int? // FK → AutoJournalRule（どのルールで生成されたか）
-  sourceReconciliationId Int? // FK → Reconciliation（消込自動仕訳の生成元）
 
   // 実現/未実現ステータス
   realizationStatus String    @default("realized") // "realized" | "unrealized"
-  scheduledDate     DateTime? // 実現予定日（未実現の場合、この日に経理が確認）
   realizedAt        DateTime? // 実際に実現にした日時
   realizedBy        Int? // FK → MasterStaff（実現操作をした担当者）
 
@@ -3290,13 +3116,10 @@ model JournalEntry {
   invoiceGroup         InvoiceGroup?      @relation(fields: [invoiceGroupId], references: [id])
   paymentGroup         PaymentGroup?      @relation(fields: [paymentGroupId], references: [id])
   transaction          Transaction?       @relation(fields: [transactionId], references: [id])
-  bankTransaction      BankTransaction?   @relation("JournalBankTransaction", fields: [bankTransactionId], references: [id])
   autoJournalRule      AutoJournalRule?   @relation(fields: [autoJournalRuleId], references: [id])
-  sourceReconciliation Reconciliation?    @relation("ReconciliationAutoJournals", fields: [sourceReconciliationId], references: [id])
   project              MasterProject?     @relation(fields: [projectId], references: [id])
   counterparty         Counterparty?      @relation(fields: [counterpartyId], references: [id])
   lines                JournalEntryLine[]
-  reconciliations      Reconciliation[]
   attachments          Attachment[]
   approver             MasterStaff?       @relation("JournalApprover", fields: [approvedBy], references: [id])
   realizer             MasterStaff?       @relation("JournalRealizer", fields: [realizedBy], references: [id])
@@ -3361,88 +3184,6 @@ model Account {
 }
 
 // ============================================
-// ⑭ BankTransaction（入出金）
-// ============================================
-
-model BankTransaction {
-  id              Int      @id @default(autoincrement())
-  transactionDate DateTime // 日付
-  direction       String // "incoming" | "outgoing"（入金/出金）
-  paymentMethodId Int // FK → PaymentMethod（決済手段）
-  counterpartyId  Int? // FK → Counterparty（取引先）
-  amount          Int // 金額
-  description     String? // 摘要
-  source          String   @default("manual") // "manual" | "legacy" | "csv_import"（データ元識別）
-  linkCompleted   Boolean  @default(false) @map("link_completed") // 経理がグループへの紐付け完了を手動で押したか
-
-  createdBy Int // FK → MasterStaff
-  updatedBy Int? // FK → MasterStaff
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  // Relations
-  paymentMethod   PaymentMethod              @relation(fields: [paymentMethodId], references: [id])
-  counterparty    Counterparty?              @relation(fields: [counterpartyId], references: [id])
-  reconciliations Reconciliation[]
-  journalEntries  JournalEntry[]             @relation("JournalBankTransaction")
-  attachments     Attachment[]
-  cryptoDetail    CryptoTransactionDetail?
-  groupLinks      BankTransactionGroupLink[]
-  creator         MasterStaff                @relation("BankTxCreator", fields: [createdBy], references: [id])
-  updater         MasterStaff?               @relation("BankTxUpdater", fields: [updatedBy], references: [id])
-}
-
-// ============================================
-// ⑭-b BankTransactionGroupLink（銀行入出金 ↔ 請求/支払グループ 多対多）
-// 1つの入出金で複数グループを消し込む or 1つのグループが複数入金で分割着金するケースに対応
-// ============================================
-
-model BankTransactionGroupLink {
-  id                Int      @id @default(autoincrement())
-  bankTransactionId Int
-  invoiceGroupId    Int? // どちらか一方のみ
-  paymentGroupId    Int?
-  amount            Int // この紐付けで割り当てる金額
-  note              String?
-  createdBy         Int // FK → MasterStaff
-  createdAt         DateTime @default(now())
-
-  bankTransaction BankTransaction      @relation(fields: [bankTransactionId], references: [id], onDelete: Cascade)
-  invoiceGroup    InvoiceGroup?        @relation(fields: [invoiceGroupId], references: [id], onDelete: Cascade)
-  paymentGroup    PaymentGroup?        @relation(fields: [paymentGroupId], references: [id], onDelete: Cascade)
-  creator         MasterStaff          @relation("BankTxGroupLinkCreator", fields: [createdBy], references: [id])
-  invoiceReceipt  InvoiceGroupReceipt? // 自動生成された入金記録 (1:1)
-  paymentPayment  PaymentGroupPayment? // 自動生成された支払記録 (1:1)
-
-  @@index([bankTransactionId])
-  @@index([invoiceGroupId])
-  @@index([paymentGroupId])
-}
-
-// ============================================
-// ⑮ Reconciliation（消込）
-// ============================================
-
-model Reconciliation {
-  id                Int @id @default(autoincrement())
-  journalEntryId    Int // FK → JournalEntry
-  bankTransactionId Int // FK → BankTransaction
-  amount            Int // 消込金額
-
-  performedBy Int // FK → MasterStaff（消込実行者）
-  performedAt DateTime @default(now())
-
-  createdAt DateTime @default(now())
-
-  // Relations
-  journalEntry       JournalEntry    @relation(fields: [journalEntryId], references: [id])
-  bankTransaction    BankTransaction @relation(fields: [bankTransactionId], references: [id])
-  performer          MasterStaff     @relation("ReconciliationPerformer", fields: [performedBy], references: [id])
-  autoJournalEntries JournalEntry[]  @relation("ReconciliationAutoJournals")
-}
-
-// ============================================
 // ⑯ Counterparty（取引先マスタ）
 // ============================================
 
@@ -3479,7 +3220,6 @@ model Counterparty {
   mergedFrom            Counterparty[]         @relation("CounterpartyMerge")
   transactions          Transaction[]
   recurringTransactions RecurringTransaction[]
-  bankTransactions      BankTransaction[]
   autoJournalRules      AutoJournalRule[]
   invoiceGroups         InvoiceGroup[]
   paymentGroups         PaymentGroup[]
@@ -3552,7 +3292,6 @@ model PaymentMethod {
   // Relations
   settlementAccount     PaymentMethod?                @relation("CreditCardSettlement", fields: [settlementAccountId], references: [id])
   creditCards           PaymentMethod[]               @relation("CreditCardSettlement")
-  bankTransactions      BankTransaction[]
   transactions          Transaction[]
   recurringTransactions RecurringTransaction[]
   cryptoDetails         CryptoTransactionDetail[]
@@ -3569,7 +3308,6 @@ model Attachment {
   id                Int  @id @default(autoincrement())
   transactionId     Int? // FK → Transaction
   journalEntryId    Int? // FK → JournalEntry
-  bankTransactionId Int? // FK → BankTransaction
   commentId         Int? // FK → TransactionComment（コメント返信時の添付）
   invoiceGroupId    Int? // FK → InvoiceGroup（請求添付ファイル）
   paymentGroupId    Int? // FK → PaymentGroup（支払添付ファイル）
@@ -3591,7 +3329,6 @@ model Attachment {
   // Relations
   transaction     Transaction?        @relation(fields: [transactionId], references: [id])
   journalEntry    JournalEntry?       @relation(fields: [journalEntryId], references: [id])
-  bankTransaction BankTransaction?    @relation(fields: [bankTransactionId], references: [id])
   comment         TransactionComment? @relation(fields: [commentId], references: [id])
   invoiceGroup    InvoiceGroup?       @relation(fields: [invoiceGroupId], references: [id])
   paymentGroup    PaymentGroup?       @relation(fields: [paymentGroupId], references: [id])
@@ -3605,7 +3342,6 @@ model Attachment {
 model CryptoTransactionDetail {
   id                 Int     @id @default(autoincrement())
   transactionId      Int?    @unique // FK → Transaction
-  bankTransactionId  Int?    @unique // FK → BankTransaction
   currency           String // 銘柄（USDT、BTC、ETH等）
   network            String // ネットワーク（TRC20、ERC20等）
   counterpartyWallet String? // 取引先Walletアドレス
@@ -3622,7 +3358,6 @@ model CryptoTransactionDetail {
 
   // Relations
   transaction     Transaction?     @relation(fields: [transactionId], references: [id])
-  bankTransaction BankTransaction? @relation(fields: [bankTransactionId], references: [id])
   paymentMethod   PaymentMethod?   @relation(fields: [paymentMethodId], references: [id])
   creator         MasterStaff?     @relation("CryptoDetailCreator", fields: [createdBy], references: [id])
   updater         MasterStaff?     @relation("CryptoDetailUpdater", fields: [updatedBy], references: [id])
@@ -6300,33 +6035,6 @@ model HojoLoanProgressRateConfig {
 }
 
 // ============================================
-// マネーフォワード連携 (MoneyForward Connections)
-// 法人ごとのMF API接続情報を管理
-// ============================================
-
-model MoneyForwardConnection {
-  id                 Int       @id @default(autoincrement())
-  operatingCompanyId Int // どの法人の接続か
-  accessToken        String    @db.Text // 暗号化して保存
-  refreshToken       String    @db.Text // 暗号化して保存
-  tokenExpiresAt     DateTime
-  mfAccountId        String?   @db.VarChar(100) // MF側のアカウントID
-  lastSyncedAt       DateTime? // 最終同期日時
-  syncFromDate       DateTime? @db.Date // 同期開始日（初回設定時）
-  isActive           Boolean   @default(true)
-  createdBy          Int // 作成者（MasterStaffへの外部キー）
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-
-  // Relations
-  operatingCompany OperatingCompany @relation(fields: [operatingCompanyId], references: [id])
-  creator          MasterStaff      @relation("MFConnectionCreator", fields: [createdBy], references: [id])
-
-  @@index([operatingCompanyId])
-  @@map("money_forward_connections")
-}
-
-// ============================================
 // スタッフのミーティング連携（Zoom / 将来のGoogle Meet等）
 // スタッフ個別にOAuthトークンを保存。refresh_token/access_tokenはAES-256-GCMで暗号化。
 // 連携は本人のみ、連携解除はSLP manager以上。
@@ -6813,4 +6521,103 @@ model HojoBusinessPlanSection {
   updatedBy MasterStaff? @relation("HojoBusinessPlanSectionUpdater", fields: [updatedByStaffId], references: [id])
 
   @@map("hojo_business_plan_sections")
+}
+
+// ============================================
+// 入出金履歴（CSV取込ベースの口座明細）
+// 既存 BankTransaction とは独立。法人 + 銀行口座ごとに CSV 取込結果を保持し、
+// スタッフがメモを手動編集できる軽量な口座明細ビュー専用。
+// ============================================
+
+model BankStatementImport {
+  id                            Int      @id @default(autoincrement())
+  operatingCompanyId            Int // 法人 FK
+  operatingCompanyBankAccountId Int // 銀行口座 FK
+  bankFormatId                  String   @db.VarChar(40) // "sumishin_sbi" | "gmo_aozora" | "rakuten" | "zengin_mitsui"
+  fileName                      String   @db.VarChar(255)
+  uploadedBy                    Int // FK MasterStaff
+  rowCount                      Int      @default(0) // CSV 内の取引行数
+  insertedCount                 Int      @default(0)
+  duplicateCount                Int      @default(0)
+  openingBalance                Int? // 全銀フォーマットの「取引前残高」を保存
+  importedAt                    DateTime @default(now())
+
+  operatingCompany OperatingCompany            @relation(fields: [operatingCompanyId], references: [id])
+  bankAccount      OperatingCompanyBankAccount @relation(fields: [operatingCompanyBankAccountId], references: [id])
+  uploader         MasterStaff                 @relation("BankStatementImportUploader", fields: [uploadedBy], references: [id])
+  entries          BankStatementEntry[]
+
+  @@index([operatingCompanyId, importedAt])
+  @@index([operatingCompanyBankAccountId, importedAt])
+  @@map("bank_statement_imports")
+}
+
+model BankStatementEntry {
+  id                            Int @id @default(autoincrement())
+  importId                      Int // FK BankStatementImport
+  operatingCompanyId            Int // 非正規化（タブ表示の高速化）
+  operatingCompanyBankAccountId Int // 非正規化
+
+  transactionDate DateTime
+  description     String  @db.Text // 内容/摘要
+  incomingAmount  Int? // 入金額（円）
+  outgoingAmount  Int? // 出金額（円）
+  balance         Int? // 残高（全銀は計算値）
+  csvMemo         String? @db.Text // CSV由来メモ
+  staffMemo       String? @db.Text // スタッフ手動編集メモ
+
+  rowOrder  Int // CSV内の出現順（同日複数取引の表示順保持。dedupHashには含めない）
+  dedupHash String @db.VarChar(64) // SHA-256
+
+  // 除外フラグ（紐付け不要な取引のマーク）
+  excluded       Boolean   @default(false)
+  excludedReason String?   @db.VarChar(40) // "fee" | "tax" | "salary" | "internal_transfer" | "interest" | "other"
+  excludedNote   String?   @db.Text
+  excludedAt     DateTime?
+  excludedBy     Int? // FK MasterStaff
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  import           BankStatementImport         @relation(fields: [importId], references: [id], onDelete: Cascade)
+  operatingCompany OperatingCompany            @relation(fields: [operatingCompanyId], references: [id])
+  bankAccount      OperatingCompanyBankAccount @relation(fields: [operatingCompanyBankAccountId], references: [id])
+  excluder         MasterStaff?                @relation("BankStatementEntryExcluder", fields: [excludedBy], references: [id])
+  groupLinks       BankStatementEntryGroupLink[]
+
+  @@unique([operatingCompanyBankAccountId, dedupHash]) // 同一口座内で重複防止
+  @@index([operatingCompanyBankAccountId, transactionDate])
+  @@index([operatingCompanyId, transactionDate])
+  @@index([importId])
+  @@map("bank_statement_entries")
+}
+
+// ============================================
+// 入出金履歴 ↔ 請求/支払グループ 多対多リンク
+// 1取引が複数グループを消し込む / 1グループが複数取引で分割着金 のどちらにも対応。
+// 入金取引(incomingAmount > 0) は invoiceGroupId のみ、
+// 出金取引(outgoingAmount > 0) は paymentGroupId のみ紐付け可（アプリ層で検証）。
+// ============================================
+
+model BankStatementEntryGroupLink {
+  id                   Int @id @default(autoincrement())
+  bankStatementEntryId Int
+  invoiceGroupId       Int? // どちらか一方のみ
+  paymentGroupId       Int?
+  amount               Int // この紐付けで割り当てる金額（円）
+  note                 String? @db.Text
+  createdBy            Int // FK MasterStaff
+  createdAt            DateTime @default(now())
+
+  bankStatementEntry BankStatementEntry @relation(fields: [bankStatementEntryId], references: [id], onDelete: Cascade)
+  invoiceGroup       InvoiceGroup?      @relation(fields: [invoiceGroupId], references: [id], onDelete: Cascade)
+  paymentGroup       PaymentGroup?      @relation(fields: [paymentGroupId], references: [id], onDelete: Cascade)
+  creator            MasterStaff        @relation("BankStatementEntryGroupLinkCreator", fields: [createdBy], references: [id])
+  invoiceReceipt     InvoiceGroupReceipt?  // リンク作成時に自動生成（1:1）
+  paymentRecord      PaymentGroupPayment?  // リンク作成時に自動生成（1:1）
+
+  @@index([bankStatementEntryId])
+  @@index([invoiceGroupId])
+  @@index([paymentGroupId])
+  @@map("bank_statement_entry_group_links")
 }

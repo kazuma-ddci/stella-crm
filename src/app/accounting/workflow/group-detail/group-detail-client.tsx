@@ -29,8 +29,7 @@ import { ArrowLeft, Plus, Check, Clock, AlertCircle, Lock, ChevronDown, ChevronR
 import { toast } from "sonner";
 import { JournalEntryModal } from "../../journal/journal-entry-modal";
 import { realizeJournalEntry, confirmJournalEntry, deleteJournalEntry } from "../../journal/actions";
-import { setTransactionJournalCompleted, getGroupAttachments, addGroupAttachments, deleteGroupAttachment } from "../actions";
-import { returnGroupToStp } from "../../batch-complete/actions";
+import { setTransactionJournalCompleted, getGroupAttachments, addGroupAttachments, deleteGroupAttachment, returnGroupToProject } from "../actions";
 import type { WorkflowGroupDetail, WorkflowTransaction } from "../actions";
 import { ReceiptsSection } from "./receipts-section";
 import type { JournalFormData } from "../../journal/actions";
@@ -81,13 +80,57 @@ function TransactionStatusIcon({ transaction }: { transaction: WorkflowTransacti
 
 function CategoryBadge({ category }: { category: string }) {
   const config: Record<string, { label: string; className: string }> = {
-    needs_journal: { label: "仕訳待ち", className: "bg-red-50 text-red-700 border-red-200" },
-    in_progress: { label: "処理中", className: "bg-yellow-50 text-yellow-700 border-yellow-200" },
+    pending_accounting_approval: { label: "経理承認待ち", className: "bg-purple-50 text-purple-700 border-purple-200" },
+    return_requested: { label: "差し戻し依頼あり", className: "bg-amber-50 text-amber-700 border-amber-300" },
+    needs_journal: { label: "仕訳作成待ち", className: "bg-red-50 text-red-700 border-red-200" },
+    needs_realization: { label: "仕訳実現待ち", className: "bg-yellow-50 text-yellow-700 border-yellow-200" },
+    needs_statement_check: { label: "入出金確認待ち", className: "bg-orange-50 text-orange-700 border-orange-200" },
     completed: { label: "完了", className: "bg-green-50 text-green-700 border-green-200" },
     returned: { label: "差し戻し中", className: "bg-gray-50 text-gray-600 border-gray-200" },
   };
   const c = config[category] ?? { label: category, className: "" };
   return <Badge variant="outline" className={c.className}>{c.label}</Badge>;
+}
+
+function NextActionCard({ detail }: { detail: WorkflowGroupDetail }) {
+  const actionLabel = detail.groupType === "invoice" ? "入金" : "支払";
+  let title = "次の作業";
+  let body = "このグループは確認待ちです。";
+  let tone = "border-blue-200 bg-blue-50 text-blue-900";
+
+  if (detail.category === "pending_accounting_approval") {
+    body = "内容を確認して、経理承認を行ってください。";
+  } else if (detail.category === "return_requested") {
+    body = "プロジェクト側から差し戻し依頼が届いています。内容を確認し、必要であればプロジェクトへ差し戻してください。";
+    tone = "border-amber-300 bg-amber-50 text-amber-900";
+  } else if (detail.category === "needs_journal") {
+    body = "未仕訳の取引に仕訳を作成し、取引ごとの「仕訳完了」を付けてください。";
+  } else if (detail.category === "needs_realization") {
+    body = "確定済みの仕訳をすべて「実現」にしてください。";
+  } else if (detail.category === "needs_statement_check") {
+    if (detail.manualPaymentStatus !== "completed" && !detail.statementLinkCompleted) {
+      body = `${actionLabel}ステータスを完了にし、入出金履歴を紐付けてチェック完了にしてください。`;
+    } else if (detail.manualPaymentStatus !== "completed") {
+      body = `${actionLabel}ステータスを完了にしてください。`;
+    } else {
+      body = "入出金履歴を紐付けて、入出金履歴チェックを完了にしてください。";
+    }
+  } else if (detail.category === "completed") {
+    title = "完了条件クリア";
+    body = "仕訳の実現と入出金履歴チェックが完了しています。";
+    tone = "border-green-200 bg-green-50 text-green-900";
+  } else if (detail.category === "returned") {
+    title = "プロジェクト対応待ち";
+    body = "このグループは差し戻し中です。プロジェクト側の対応完了を待ってください。";
+    tone = "border-gray-200 bg-gray-50 text-gray-700";
+  }
+
+  return (
+    <div className={`rounded-lg border px-4 py-3 text-sm ${tone}`}>
+      <p className="font-semibold">{title}</p>
+      <p className="mt-1">{body}</p>
+    </div>
+  );
 }
 
 export function GroupDetailClient({ detail, journalFormData }: Props) {
@@ -234,7 +277,7 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
   const handleReturnToStp = async () => {
     setReturning(true);
     try {
-      const result = await returnGroupToStp(detail.id, detail.groupType, returnReason.trim() || undefined);
+      const result = await returnGroupToProject(detail.groupType, detail.id, returnReason.trim());
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -303,6 +346,20 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
         )}
       </div>
 
+      {detail.returnRequestStatus === "requested" && (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardContent className="pt-4 text-sm text-amber-900">
+            <p className="font-semibold">プロジェクト側から差し戻し依頼が届いています</p>
+            <p className="mt-1 whitespace-pre-wrap">{detail.returnRequestReason}</p>
+            {detail.returnRequestedAt && (
+              <p className="mt-2 text-xs text-amber-800">
+                依頼日: {new Date(detail.returnRequestedAt).toLocaleDateString("ja-JP")}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* グループ概要 + 条件ステータス */}
       <Card>
         <CardContent className="pt-6 space-y-4">
@@ -325,27 +382,29 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
             </div>
           </div>
 
+          <NextActionCard detail={detail} />
+
           {/* 3条件のステータス表示 */}
-          <div className="flex gap-4 pt-2 border-t">
+          <div className="flex flex-wrap gap-3 pt-2 border-t">
             <div className="flex items-center gap-2">
               {detail.isAllJournalized ? (
                 <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                  <Check className="h-3 w-3 mr-1" />仕訳完了
+                  <Check className="h-3 w-3 mr-1" />仕訳作成: 完了
                 </Badge>
               ) : (
                 <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-                  <AlertCircle className="h-3 w-3 mr-1" />仕訳未完了
+                  <AlertCircle className="h-3 w-3 mr-1" />仕訳作成: 未完了
                 </Badge>
               )}
             </div>
             <div className="flex items-center gap-2">
               {detail.isAllRealized ? (
                 <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                  <Check className="h-3 w-3 mr-1" />全実現
+                  <Check className="h-3 w-3 mr-1" />仕訳実現: 完了
                 </Badge>
               ) : (
                 <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
-                  <Clock className="h-3 w-3 mr-1" />実現待ち
+                  <Clock className="h-3 w-3 mr-1" />仕訳実現: 待ち
                 </Badge>
               )}
             </div>
@@ -354,7 +413,7 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
               {detail.manualPaymentStatus === "completed" ? (
                 <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
                   <Check className="h-3 w-3 mr-1" />
-                  {detail.groupType === "invoice" ? "入金" : "支払"}完了
+                  {detail.groupType === "invoice" ? "入金" : "支払"}ステータス: 完了
                   {detail.actualPaymentDate && (
                     <span className="ml-1 font-mono">
                       ({new Date(detail.actualPaymentDate).toLocaleDateString("ja-JP")})
@@ -363,7 +422,7 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
                 </Badge>
               ) : detail.manualPaymentStatus === "partial" ? (
                 <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300">
-                  一部{detail.groupType === "invoice" ? "入金" : "支払"}
+                  {detail.groupType === "invoice" ? "入金" : "支払"}ステータス: 一部
                   {detail.actualPaymentDate && (
                     <span className="ml-1 font-mono">
                       ({new Date(detail.actualPaymentDate).toLocaleDateString("ja-JP")})
@@ -372,7 +431,20 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
                 </Badge>
               ) : (
                 <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
-                  <Clock className="h-3 w-3 mr-1" />未{detail.groupType === "invoice" ? "入金" : "支払"}
+                  <Clock className="h-3 w-3 mr-1" />{detail.groupType === "invoice" ? "入金" : "支払"}ステータス: 未完了
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {detail.statementLinkCompleted ? (
+                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                  <Check className="h-3 w-3 mr-1" />
+                  入出金履歴チェック: 完了（{detail.statementLinkCount}件 / ¥{detail.statementLinkedAmount.toLocaleString()}）
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                  <Clock className="h-3 w-3 mr-1" />
+                  入出金履歴チェック: 未完了（{detail.statementLinkCount}件 / ¥{detail.statementLinkedAmount.toLocaleString()}）
                 </Badge>
               )}
             </div>
@@ -401,7 +473,7 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
         groupType={detail.groupType}
         groupId={detail.id}
         totalAmount={detail.totalAmount}
-        readOnly={isReturned}
+        readOnly={isReadOnly}
       />
 
       {/* 取引一覧 */}
@@ -839,20 +911,20 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>プロジェクト側に差し戻しますか？</AlertDialogTitle>
             <AlertDialogDescription>
-              この{groupTypeLabel}グループをプロジェクト側に差し戻します。
+              この{groupTypeLabel}グループをプロジェクト側に差し戻します。理由はプロジェクト側にも表示されます。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <Textarea
             value={returnReason}
             onChange={(e) => setReturnReason(e.target.value)}
-            placeholder="差し戻し理由（任意）"
+            placeholder="差し戻し理由"
             rows={3}
           />
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setReturnReason("")}>キャンセル</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleReturnToStp}
-              disabled={returning}
+              disabled={returning || !returnReason.trim()}
               className="bg-amber-600 hover:bg-amber-700"
             >
               差し戻す
@@ -878,7 +950,6 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
             invoiceGroupId: editJournalEntry.invoiceGroupId,
             paymentGroupId: editJournalEntry.paymentGroupId,
             transactionId: editJournalEntry.transactionId,
-            bankTransactionId: editJournalEntry.bankTransactionId,
             projectId: editJournalEntry.projectId,
             counterpartyId: editJournalEntry.counterpartyId,
             hasInvoice: editJournalEntry.hasInvoice,

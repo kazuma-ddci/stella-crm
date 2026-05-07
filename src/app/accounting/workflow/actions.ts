@@ -6,11 +6,14 @@ import { getSession } from "@/lib/auth";
 import {
   recalcInvoiceGroupActualPaymentDate,
   recalcPaymentGroupActualPaymentDate,
+  syncInvoiceGroupPaymentStateFromRecords,
+  syncPaymentGroupPaymentStateFromRecords,
   summarizeReceiptPayment,
   type ReceiptPaymentSummary,
 } from "@/lib/accounting/sync-payment-date";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffForAccounting } from "@/lib/auth/staff-action";
+import { createNotificationBulk } from "@/lib/notifications/create-notification";
 
 // ============================================
 // 型定義
@@ -19,8 +22,10 @@ import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 export type WorkflowCategory =
   | "pending_project_overdue" // プロジェクト未承認（決済予定日5日以内）— 警告
   | "pending_accounting_approval" // 経理承認待ち（プロジェクト承認済み、経理未承認）
+  | "return_requested" // プロジェクト側から差し戻し依頼あり
   | "needs_journal"    // 仕訳待ち
-  | "in_progress"      // 処理中（実現待ち and/or 入出金確認待ち）
+  | "needs_realization" // 仕訳実現待ち
+  | "needs_statement_check" // 入出金履歴チェック待ち
   | "completed"        // 完了
   | "returned";        // 差し戻し中
 
@@ -47,6 +52,12 @@ export type WorkflowGroup = {
   receiptStatus: "none" | "partial" | "complete" | "over";
   receiptCount: number;
   receiptTotal: number;
+  statementLinkCompleted: boolean;
+  statementLinkCount: number;
+  statementLinkedAmount: number;
+  returnRequestStatus: string;
+  returnRequestReason: string | null;
+  returnRequestedAt: Date | null;
   // 経理が手動で切り替える入金/支払フラグ（メイン判定）
   manualPaymentStatus: "unpaid" | "partial" | "completed";
   // 警告用（プロジェクト未承認）
@@ -80,7 +91,6 @@ export type WorkflowTransaction = {
     invoiceGroupId: number | null;
     paymentGroupId: number | null;
     transactionId: number | null;
-    bankTransactionId: number | null;
     projectId: number | null;
     counterpartyId: number | null;
     hasInvoice: boolean;
@@ -111,6 +121,13 @@ export type WorkflowGroupDetail = {
   isAllRealized: boolean;
   hasActualPaymentDate: boolean;
   manualPaymentStatus: "unpaid" | "partial" | "completed";
+  statementLinkCompleted: boolean;
+  statementLinkCount: number;
+  statementLinkedAmount: number;
+  returnRequestStatus: string;
+  returnRequestReason: string | null;
+  returnRequestedAt: Date | null;
+  projectId: number | null;
   transactions: WorkflowTransaction[];
 };
 
@@ -123,26 +140,32 @@ function determineCategory(
   transactionCount: number,
   journalizedCount: number,
   allRealizedCount: number,
-  hasActualPaymentDate: boolean
+  manualPaymentStatus: "unpaid" | "partial" | "completed",
+  statementLinkCompleted: boolean,
+  returnRequestStatus: string
 ): WorkflowCategory {
+  if (returnRequestStatus === "requested") return "return_requested";
+
   // 経理承認待ち（プロジェクト承認済み）
   if (status === "pending_accounting_approval") return "pending_accounting_approval";
 
   // 差し戻し中
   if (status === "returned") return "returned";
 
-  // 完了済み
-  if (status === "paid") return "completed";
-
   // 仕訳待ち: まだ仕訳が作成されていない取引がある
   if (transactionCount > 0 && journalizedCount < transactionCount) {
     return "needs_journal";
   }
 
-  // 全仕訳済み: 実現 or 入出金のいずれかが未完了 → 処理中
+  // 全仕訳済み: すべて実現するまでは実現待ち
   const isAllRealized = transactionCount > 0 && allRealizedCount === transactionCount;
-  if (!isAllRealized || !hasActualPaymentDate) {
-    return "in_progress";
+  if (!isAllRealized) {
+    return "needs_realization";
+  }
+
+  // 最後に入出金履歴の紐付け確認と、経理の入金/支払ステータス完了が必要
+  if (manualPaymentStatus !== "completed" || !statementLinkCompleted) {
+    return "needs_statement_check";
   }
 
   // 全完了
@@ -169,8 +192,12 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         createdAt: true,
         actualPaymentDate: true,
         manualPaymentStatus: true,
+        returnRequestStatus: true,
+        returnRequestReason: true,
+        returnRequestedAt: true,
         projectId: true,
         counterparty: { select: { name: true } },
+        statementLinkCompleted: true,
         transactions: {
           where: { deletedAt: null },
           select: {
@@ -185,6 +212,9 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         },
         receipts: {
           select: { amount: true, receivedDate: true },
+        },
+        bankStatementLinks: {
+          select: { amount: true },
         },
       },
       orderBy: { createdAt: "desc" },
@@ -203,6 +233,10 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         createdAt: true,
         actualPaymentDate: true,
         manualPaymentStatus: true,
+        returnRequestStatus: true,
+        returnRequestReason: true,
+        returnRequestedAt: true,
+        statementLinkCompleted: true,
         expectedPaymentDate: true,
         projectId: true,
         customCounterpartyName: true,
@@ -223,6 +257,9 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         },
         payments: {
           select: { amount: true, paidDate: true },
+        },
+        bankStatementLinks: {
+          select: { amount: true },
         },
       },
       orderBy: { createdAt: "desc" },
@@ -251,7 +288,13 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
     );
 
     const category = determineCategory(
-      ig.status, txCount, journalizedCount, allRealizedCount, hasActualPaymentDate
+      ig.status,
+      txCount,
+      journalizedCount,
+      allRealizedCount,
+      ig.manualPaymentStatus as "unpaid" | "partial" | "completed",
+      ig.statementLinkCompleted,
+      ig.returnRequestStatus
     );
 
     groups.push({
@@ -274,6 +317,12 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       receiptStatus: receiptSummary.status,
       receiptCount: receiptSummary.recordCount,
       receiptTotal: receiptSummary.totalReceived,
+      statementLinkCompleted: ig.statementLinkCompleted,
+      statementLinkCount: ig.bankStatementLinks.length,
+      statementLinkedAmount: ig.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0),
+      returnRequestStatus: ig.returnRequestStatus,
+      returnRequestReason: ig.returnRequestReason,
+      returnRequestedAt: ig.returnRequestedAt,
       manualPaymentStatus: ig.manualPaymentStatus as "unpaid" | "partial" | "completed",
       expectedPaymentDate: null,
       approverName: null,
@@ -332,6 +381,12 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         receiptStatus: receiptSummary.status,
         receiptCount: receiptSummary.recordCount,
         receiptTotal: receiptSummary.totalReceived,
+        statementLinkCompleted: pg.statementLinkCompleted,
+        statementLinkCount: pg.bankStatementLinks.length,
+        statementLinkedAmount: pg.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0),
+        returnRequestStatus: pg.returnRequestStatus,
+        returnRequestReason: pg.returnRequestReason,
+        returnRequestedAt: pg.returnRequestedAt,
         manualPaymentStatus: pg.manualPaymentStatus as "unpaid" | "partial" | "completed",
         expectedPaymentDate: pg.expectedPaymentDate,
         approverName: pg.approver?.name ?? null,
@@ -341,7 +396,13 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
     }
 
     const category = determineCategory(
-      pg.status, txCount, journalizedCount, allRealizedCount, hasActualPaymentDate
+      pg.status,
+      txCount,
+      journalizedCount,
+      allRealizedCount,
+      pg.manualPaymentStatus as "unpaid" | "partial" | "completed",
+      pg.statementLinkCompleted,
+      pg.returnRequestStatus
     );
 
     groups.push({
@@ -364,6 +425,12 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       receiptStatus: receiptSummary.status,
       receiptCount: receiptSummary.recordCount,
       receiptTotal: receiptSummary.totalReceived,
+      statementLinkCompleted: pg.statementLinkCompleted,
+      statementLinkCount: pg.bankStatementLinks.length,
+      statementLinkedAmount: pg.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0),
+      returnRequestStatus: pg.returnRequestStatus,
+      returnRequestReason: pg.returnRequestReason,
+      returnRequestedAt: pg.returnRequestedAt,
       manualPaymentStatus: pg.manualPaymentStatus as "unpaid" | "partial" | "completed",
       expectedPaymentDate: pg.expectedPaymentDate ?? null,
       approverName: pg.approver?.name ?? null,
@@ -411,7 +478,6 @@ export async function getWorkflowGroupDetail(
         invoiceGroupId: true,
         paymentGroupId: true,
         transactionId: true,
-        bankTransactionId: true,
         projectId: true,
         counterpartyId: true,
         hasInvoice: true,
@@ -454,7 +520,6 @@ export async function getWorkflowGroupDetail(
       invoiceGroupId: number | null;
       paymentGroupId: number | null;
       transactionId: number | null;
-      bankTransactionId: number | null;
       projectId: number | null;
       counterpartyId: number | null;
       hasInvoice: boolean;
@@ -483,7 +548,6 @@ export async function getWorkflowGroupDetail(
       invoiceGroupId: je.invoiceGroupId,
       paymentGroupId: je.paymentGroupId,
       transactionId: je.transactionId,
-      bankTransactionId: je.bankTransactionId,
       projectId: je.projectId,
       counterpartyId: je.counterpartyId,
       hasInvoice: je.hasInvoice,
@@ -513,7 +577,13 @@ export async function getWorkflowGroupDetail(
         status: true,
         actualPaymentDate: true,
         manualPaymentStatus: true,
+        returnRequestStatus: true,
+        returnRequestReason: true,
+        returnRequestedAt: true,
+        projectId: true,
         counterparty: { select: { id: true, name: true } },
+        statementLinkCompleted: true,
+        bankStatementLinks: { select: { amount: true } },
         transactions: {
           where: { deletedAt: null },
           select: transactionSelect,
@@ -541,11 +611,26 @@ export async function getWorkflowGroupDetail(
       totalAmount: group.totalAmount,
       status: group.status,
       actualPaymentDate: group.actualPaymentDate,
-      category: determineCategory(group.status, txCount, journalizedCount, allRealizedCount, hasActualPaymentDate),
+      category: determineCategory(
+        group.status,
+        txCount,
+        journalizedCount,
+        allRealizedCount,
+        group.manualPaymentStatus as "unpaid" | "partial" | "completed",
+        group.statementLinkCompleted,
+        group.returnRequestStatus
+      ),
       isAllJournalized: txCount > 0 && journalizedCount === txCount,
       isAllRealized: txCount > 0 && allRealizedCount === txCount,
       hasActualPaymentDate,
       manualPaymentStatus: group.manualPaymentStatus as "unpaid" | "partial" | "completed",
+      statementLinkCompleted: group.statementLinkCompleted,
+      statementLinkCount: group.bankStatementLinks.length,
+      statementLinkedAmount: group.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0),
+      returnRequestStatus: group.returnRequestStatus,
+      returnRequestReason: group.returnRequestReason,
+      returnRequestedAt: group.returnRequestedAt,
+      projectId: group.projectId,
       transactions,
     };
   }
@@ -560,7 +645,13 @@ export async function getWorkflowGroupDetail(
       status: true,
       actualPaymentDate: true,
       manualPaymentStatus: true,
+      returnRequestStatus: true,
+      returnRequestReason: true,
+      returnRequestedAt: true,
+      projectId: true,
       counterparty: { select: { id: true, name: true } },
+      statementLinkCompleted: true,
+      bankStatementLinks: { select: { amount: true } },
       transactions: {
         where: { deletedAt: null },
         select: transactionSelect,
@@ -588,11 +679,26 @@ export async function getWorkflowGroupDetail(
     totalAmount: group.totalAmount,
     status: group.status,
     actualPaymentDate: group.actualPaymentDate,
-    category: determineCategory(group.status, txCount, journalizedCount, allRealizedCount, hasActualPaymentDate),
+    category: determineCategory(
+      group.status,
+      txCount,
+      journalizedCount,
+      allRealizedCount,
+      group.manualPaymentStatus as "unpaid" | "partial" | "completed",
+      group.statementLinkCompleted,
+      group.returnRequestStatus
+    ),
     isAllJournalized: txCount > 0 && journalizedCount === txCount,
     isAllRealized: txCount > 0 && allRealizedCount === txCount,
     hasActualPaymentDate,
     manualPaymentStatus: group.manualPaymentStatus as "unpaid" | "partial" | "completed",
+    statementLinkCompleted: group.statementLinkCompleted,
+    statementLinkCount: group.bankStatementLinks.length,
+    statementLinkedAmount: group.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0),
+    returnRequestStatus: group.returnRequestStatus,
+    returnRequestReason: group.returnRequestReason,
+    returnRequestedAt: group.returnRequestedAt,
+    projectId: group.projectId,
     transactions,
   };
 }
@@ -1019,22 +1125,13 @@ export async function updateAndApprovePaymentGroup(
       pgUpdate.totalAmount = updates.amount;
       pgUpdate.taxAmount = updates.taxAmount ?? 0;
     }
-    if (updates.actualPaymentDate !== undefined) {
-      pgUpdate.actualPaymentDate = updates.actualPaymentDate
-        ? new Date(updates.actualPaymentDate)
-        : null;
-      // 経理が支払日を確定した = 経理判断として「支払完了」とみなす
-      // (空にした場合は未支払に戻す)
-      pgUpdate.manualPaymentStatus = updates.actualPaymentDate ? "completed" : "unpaid";
-    }
-
     await tx.paymentGroup.update({
       where: { id: groupId },
       data: pgUpdate,
     });
 
-    // 経理承認時に支払日が入力されたら、新システムの PaymentGroupPayment にも記録を追加
-    // (重複防止: 既存記録が0件の場合のみ自動作成)
+    // 経理承認時に支払日が入力された場合も、完了扱いにはしない。
+    // 支払記録として保存し、入出金履歴チェック完了後に支払完了へ進める。
     if (updates.actualPaymentDate) {
       const existingPaymentCount = await tx.paymentGroupPayment.count({
         where: { paymentGroupId: groupId },
@@ -1053,6 +1150,8 @@ export async function updateAndApprovePaymentGroup(
           });
         }
       }
+      await recalcPaymentGroupActualPaymentDate(tx, groupId);
+      await syncPaymentGroupPaymentStateFromRecords(tx, groupId);
     }
 
     const existingTx = group.transactions[0];
@@ -1265,7 +1364,17 @@ export type ReceiptRecordView = {
   createdAt: Date;
   createdById: number;
   createdByName: string;
-  isBankLinked: boolean; // 銀行履歴から自動生成された記録か
+  isBankLinked: boolean;
+  statementLink: {
+    id: number;
+    entryId: number;
+    transactionDate: Date;
+    description: string;
+    incomingAmount: number | null;
+    outgoingAmount: number | null;
+    bankAccountLabel: string;
+    note: string | null;
+  } | null;
 };
 
 export type ManualPaymentStatus = "unpaid" | "partial" | "completed";
@@ -1303,7 +1412,29 @@ export async function listInvoiceGroupReceipts(
       comment: true,
       createdAt: true,
       createdById: true,
-      bankTransactionLinkId: true,
+      bankStatementEntryGroupLinkId: true,
+      bankStatementEntryLink: {
+        select: {
+          id: true,
+          note: true,
+          bankStatementEntry: {
+            select: {
+              id: true,
+              transactionDate: true,
+              description: true,
+              incomingAmount: true,
+              outgoingAmount: true,
+              bankAccount: {
+                select: {
+                  bankName: true,
+                  branchName: true,
+                  accountNumber: true,
+                },
+              },
+            },
+          },
+        },
+      },
       creator: { select: { name: true } },
     },
   });
@@ -1316,7 +1447,23 @@ export async function listInvoiceGroupReceipts(
     createdAt: r.createdAt,
     createdById: r.createdById,
     createdByName: r.creator.name,
-    isBankLinked: r.bankTransactionLinkId !== null,
+    isBankLinked: r.bankStatementEntryGroupLinkId !== null,
+    statementLink: r.bankStatementEntryLink
+      ? {
+          id: r.bankStatementEntryLink.id,
+          entryId: r.bankStatementEntryLink.bankStatementEntry.id,
+          transactionDate: r.bankStatementEntryLink.bankStatementEntry.transactionDate,
+          description: r.bankStatementEntryLink.bankStatementEntry.description,
+          incomingAmount: r.bankStatementEntryLink.bankStatementEntry.incomingAmount,
+          outgoingAmount: r.bankStatementEntryLink.bankStatementEntry.outgoingAmount,
+          bankAccountLabel: [
+            r.bankStatementEntryLink.bankStatementEntry.bankAccount.bankName,
+            r.bankStatementEntryLink.bankStatementEntry.bankAccount.branchName,
+            r.bankStatementEntryLink.bankStatementEntry.bankAccount.accountNumber,
+          ].filter(Boolean).join(" "),
+          note: r.bankStatementEntryLink.note,
+        }
+      : null,
   }));
 
   const summary = summarizeReceiptPayment(
@@ -1370,6 +1517,11 @@ export async function addInvoiceGroupReceipt(
         },
       });
       await recalcInvoiceGroupActualPaymentDate(tx, invoiceGroupId);
+      await tx.invoiceGroup.update({
+        where: { id: invoiceGroupId },
+        data: { statementLinkCompleted: false },
+      });
+      await syncInvoiceGroupPaymentStateFromRecords(tx, invoiceGroupId);
     });
 
     revalidatePath("/accounting/workflow");
@@ -1394,11 +1546,11 @@ export async function updateInvoiceGroupReceipt(
 
     const existing = await prisma.invoiceGroupReceipt.findUnique({
       where: { id: receiptId },
-      select: { id: true, invoiceGroupId: true, bankTransactionLinkId: true },
+      select: { id: true, invoiceGroupId: true, bankStatementEntryGroupLinkId: true },
     });
     if (!existing) return err("入金記録が見つかりません");
-    if (existing.bankTransactionLinkId !== null) {
-      return err("銀行履歴から自動生成された記録は編集できません。銀行取引側で編集してください");
+    if (existing.bankStatementEntryGroupLinkId !== null) {
+      return err("入出金履歴から作成された記録は編集できません。入出金履歴側で編集してください");
     }
 
     const updateData: { receivedDate?: Date; amount?: number; comment?: string | null } = {};
@@ -1422,6 +1574,11 @@ export async function updateInvoiceGroupReceipt(
         data: updateData,
       });
       await recalcInvoiceGroupActualPaymentDate(tx, existing.invoiceGroupId);
+      await tx.invoiceGroup.update({
+        where: { id: existing.invoiceGroupId },
+        data: { statementLinkCompleted: false },
+      });
+      await syncInvoiceGroupPaymentStateFromRecords(tx, existing.invoiceGroupId);
     });
 
     revalidatePath("/accounting/workflow");
@@ -1445,16 +1602,21 @@ export async function deleteInvoiceGroupReceipt(
 
     const existing = await prisma.invoiceGroupReceipt.findUnique({
       where: { id: receiptId },
-      select: { id: true, invoiceGroupId: true, bankTransactionLinkId: true },
+      select: { id: true, invoiceGroupId: true, bankStatementEntryGroupLinkId: true },
     });
     if (!existing) return err("入金記録が見つかりません");
-    if (existing.bankTransactionLinkId !== null) {
-      return err("銀行履歴から自動生成された記録は削除できません。銀行取引側で紐付けを解除してください");
+    if (existing.bankStatementEntryGroupLinkId !== null) {
+      return err("入出金履歴から作成された記録は削除できません。入出金履歴側で紐付けを解除してください");
     }
 
     await prisma.$transaction(async (tx) => {
       await tx.invoiceGroupReceipt.delete({ where: { id: receiptId } });
       await recalcInvoiceGroupActualPaymentDate(tx, existing.invoiceGroupId);
+      await tx.invoiceGroup.update({
+        where: { id: existing.invoiceGroupId },
+        data: { statementLinkCompleted: false },
+      });
+      await syncInvoiceGroupPaymentStateFromRecords(tx, existing.invoiceGroupId);
     });
 
     revalidatePath("/accounting/workflow");
@@ -1492,7 +1654,29 @@ export async function listPaymentGroupPayments(
       comment: true,
       createdAt: true,
       createdById: true,
-      bankTransactionLinkId: true,
+      bankStatementEntryGroupLinkId: true,
+      bankStatementEntryLink: {
+        select: {
+          id: true,
+          note: true,
+          bankStatementEntry: {
+            select: {
+              id: true,
+              transactionDate: true,
+              description: true,
+              incomingAmount: true,
+              outgoingAmount: true,
+              bankAccount: {
+                select: {
+                  bankName: true,
+                  branchName: true,
+                  accountNumber: true,
+                },
+              },
+            },
+          },
+        },
+      },
       creator: { select: { name: true } },
     },
   });
@@ -1505,7 +1689,23 @@ export async function listPaymentGroupPayments(
     createdAt: r.createdAt,
     createdById: r.createdById,
     createdByName: r.creator.name,
-    isBankLinked: r.bankTransactionLinkId !== null,
+    isBankLinked: r.bankStatementEntryGroupLinkId !== null,
+    statementLink: r.bankStatementEntryLink
+      ? {
+          id: r.bankStatementEntryLink.id,
+          entryId: r.bankStatementEntryLink.bankStatementEntry.id,
+          transactionDate: r.bankStatementEntryLink.bankStatementEntry.transactionDate,
+          description: r.bankStatementEntryLink.bankStatementEntry.description,
+          incomingAmount: r.bankStatementEntryLink.bankStatementEntry.incomingAmount,
+          outgoingAmount: r.bankStatementEntryLink.bankStatementEntry.outgoingAmount,
+          bankAccountLabel: [
+            r.bankStatementEntryLink.bankStatementEntry.bankAccount.bankName,
+            r.bankStatementEntryLink.bankStatementEntry.bankAccount.branchName,
+            r.bankStatementEntryLink.bankStatementEntry.bankAccount.accountNumber,
+          ].filter(Boolean).join(" "),
+          note: r.bankStatementEntryLink.note,
+        }
+      : null,
   }));
 
   const summary = summarizeReceiptPayment(
@@ -1559,6 +1759,11 @@ export async function addPaymentGroupPayment(
         },
       });
       await recalcPaymentGroupActualPaymentDate(tx, paymentGroupId);
+      await tx.paymentGroup.update({
+        where: { id: paymentGroupId },
+        data: { statementLinkCompleted: false },
+      });
+      await syncPaymentGroupPaymentStateFromRecords(tx, paymentGroupId);
     });
 
     revalidatePath("/accounting/workflow");
@@ -1583,11 +1788,11 @@ export async function updatePaymentGroupPayment(
 
     const existing = await prisma.paymentGroupPayment.findUnique({
       where: { id: paymentId },
-      select: { id: true, paymentGroupId: true, bankTransactionLinkId: true },
+      select: { id: true, paymentGroupId: true, bankStatementEntryGroupLinkId: true },
     });
     if (!existing) return err("支払記録が見つかりません");
-    if (existing.bankTransactionLinkId !== null) {
-      return err("銀行履歴から自動生成された記録は編集できません。銀行取引側で編集してください");
+    if (existing.bankStatementEntryGroupLinkId !== null) {
+      return err("入出金履歴から作成された記録は編集できません。入出金履歴側で編集してください");
     }
 
     const updateData: { paidDate?: Date; amount?: number; comment?: string | null } = {};
@@ -1611,6 +1816,11 @@ export async function updatePaymentGroupPayment(
         data: updateData,
       });
       await recalcPaymentGroupActualPaymentDate(tx, existing.paymentGroupId);
+      await tx.paymentGroup.update({
+        where: { id: existing.paymentGroupId },
+        data: { statementLinkCompleted: false },
+      });
+      await syncPaymentGroupPaymentStateFromRecords(tx, existing.paymentGroupId);
     });
 
     revalidatePath("/accounting/workflow");
@@ -1634,16 +1844,21 @@ export async function deletePaymentGroupPayment(
 
     const existing = await prisma.paymentGroupPayment.findUnique({
       where: { id: paymentId },
-      select: { id: true, paymentGroupId: true, bankTransactionLinkId: true },
+      select: { id: true, paymentGroupId: true, bankStatementEntryGroupLinkId: true },
     });
     if (!existing) return err("支払記録が見つかりません");
-    if (existing.bankTransactionLinkId !== null) {
-      return err("銀行履歴から自動生成された記録は削除できません。銀行取引側で紐付けを解除してください");
+    if (existing.bankStatementEntryGroupLinkId !== null) {
+      return err("入出金履歴から作成された記録は削除できません。入出金履歴側で紐付けを解除してください");
     }
 
     await prisma.$transaction(async (tx) => {
       await tx.paymentGroupPayment.delete({ where: { id: paymentId } });
       await recalcPaymentGroupActualPaymentDate(tx, existing.paymentGroupId);
+      await tx.paymentGroup.update({
+        where: { id: existing.paymentGroupId },
+        data: { statementLinkCompleted: false },
+      });
+      await syncPaymentGroupPaymentStateFromRecords(tx, existing.paymentGroupId);
     });
 
     revalidatePath("/accounting/workflow");
@@ -1651,6 +1866,127 @@ export async function deletePaymentGroupPayment(
     return ok();
   } catch (e) {
     console.error("[deletePaymentGroupPayment] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+async function notifyProjectStaff(projectId: number | null, senderId: number, title: string, message: string, linkUrl: string) {
+  if (!projectId) return;
+  const permissions = await prisma.staffPermission.findMany({
+    where: {
+      projectId,
+      permissionLevel: { in: ["view", "edit", "manager"] },
+    },
+    select: { staffId: true },
+  });
+  const recipientIds = [...new Set(permissions.map((p) => p.staffId))];
+  if (recipientIds.length === 0) return;
+  await createNotificationBulk(recipientIds, {
+    senderType: "staff",
+    senderId,
+    category: "finance",
+    title,
+    message,
+    linkUrl,
+  });
+}
+
+export async function returnGroupToProject(
+  groupType: "invoice" | "payment",
+  groupId: number,
+  reason: string
+): Promise<ActionResult> {
+  try {
+    const session = await requireStaffForAccounting("edit");
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      return err("差し戻し理由を入力してください");
+    }
+
+    if (groupType === "invoice") {
+      const group = await prisma.invoiceGroup.findFirst({
+        where: { id: groupId, deletedAt: null },
+        select: { id: true, status: true, projectId: true },
+      });
+      if (!group) return err("請求グループが見つかりません");
+      if (group.status === "returned") return err("すでに差し戻し済みです");
+
+      await prisma.$transaction(async (tx) => {
+        await tx.invoiceGroup.update({
+          where: { id: groupId },
+          data: {
+            status: "returned",
+            returnRequestStatus: "returned",
+            returnRequestReason: trimmedReason,
+            returnRequestHandledAt: new Date(),
+            returnRequestHandledBy: session.id,
+            updatedBy: session.id,
+          },
+        });
+        await tx.transactionComment.create({
+          data: {
+            invoiceGroupId: groupId,
+            body: trimmedReason,
+            commentType: "return",
+            returnReasonType: "correction_request",
+            createdBy: session.id,
+          },
+        });
+      });
+
+      await notifyProjectStaff(
+        group.projectId,
+        session.id,
+        `経理から差し戻し: 請求グループ #${groupId}`,
+        trimmedReason,
+        `/stp/finance/invoices?groupId=${groupId}`
+      );
+      revalidatePath("/stp/finance/invoices");
+    } else {
+      const group = await prisma.paymentGroup.findFirst({
+        where: { id: groupId, deletedAt: null },
+        select: { id: true, status: true, projectId: true },
+      });
+      if (!group) return err("支払グループが見つかりません");
+      if (group.status === "returned") return err("すでに差し戻し済みです");
+
+      await prisma.$transaction(async (tx) => {
+        await tx.paymentGroup.update({
+          where: { id: groupId },
+          data: {
+            status: "returned",
+            returnRequestStatus: "returned",
+            returnRequestReason: trimmedReason,
+            returnRequestHandledAt: new Date(),
+            returnRequestHandledBy: session.id,
+            updatedBy: session.id,
+          },
+        });
+        await tx.transactionComment.create({
+          data: {
+            paymentGroupId: groupId,
+            body: trimmedReason,
+            commentType: "return",
+            returnReasonType: "correction_request",
+            createdBy: session.id,
+          },
+        });
+      });
+
+      await notifyProjectStaff(
+        group.projectId,
+        session.id,
+        `経理から差し戻し: 支払グループ #${groupId}`,
+        trimmedReason,
+        `/stp/finance/payment-groups?groupId=${groupId}`
+      );
+      revalidatePath("/stp/finance/payment-groups");
+    }
+
+    revalidatePath("/accounting/workflow");
+    return ok();
+  } catch (e) {
+    console.error("[returnGroupToProject] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
 }
@@ -1678,13 +2014,31 @@ export async function setInvoiceGroupManualPaymentStatus(
 
     const group = await prisma.invoiceGroup.findFirst({
       where: { id: invoiceGroupId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, status: true, statementLinkCompleted: true },
     });
     if (!group) return err("請求グループが見つかりません");
+    if (status === "completed" && !group.statementLinkCompleted) {
+      return err("入出金履歴チェックが完了していないため、入金完了にはできません");
+    }
 
     await prisma.invoiceGroup.update({
       where: { id: invoiceGroupId },
-      data: { manualPaymentStatus: status },
+      data: {
+        manualPaymentStatus: status,
+        ...(status !== "completed" ? { statementLinkCompleted: false } : {}),
+        ...(group.status !== "returned" && group.status !== "corrected"
+          ? {
+              status:
+                status === "completed"
+                  ? "paid"
+                  : status === "partial"
+                    ? "partially_paid"
+                    : group.status === "paid" || group.status === "partially_paid"
+                      ? "awaiting_accounting"
+                      : group.status,
+            }
+          : {}),
+      },
     });
 
     revalidatePath("/accounting/workflow");
@@ -1710,13 +2064,29 @@ export async function setPaymentGroupManualPaymentStatus(
 
     const group = await prisma.paymentGroup.findFirst({
       where: { id: paymentGroupId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, status: true, statementLinkCompleted: true },
     });
     if (!group) return err("支払グループが見つかりません");
+    if (status === "completed" && !group.statementLinkCompleted) {
+      return err("入出金履歴チェックが完了していないため、支払完了にはできません");
+    }
 
     await prisma.paymentGroup.update({
       where: { id: paymentGroupId },
-      data: { manualPaymentStatus: status },
+      data: {
+        manualPaymentStatus: status,
+        ...(status !== "completed" ? { statementLinkCompleted: false } : {}),
+        ...(group.status !== "returned"
+          ? {
+              status:
+                status === "completed"
+                  ? "paid"
+                  : group.status === "paid"
+                    ? "awaiting_accounting"
+                    : group.status,
+            }
+          : {}),
+      },
     });
 
     revalidatePath("/accounting/workflow");

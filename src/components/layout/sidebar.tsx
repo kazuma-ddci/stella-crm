@@ -28,14 +28,11 @@ import {
   DollarSign,
   ListChecks,
   TrendingUp,
-  TrendingDown,
   Receipt,
   Landmark,
   Clock,
-  Lock,
   Tag,
   Calculator,
-  ArrowLeftRight,
   CheckSquare,
   Upload,
   PanelLeftClose,
@@ -412,21 +409,12 @@ const navigation: NavItem[] = [
     key: "accounting",
     collapsible: true,
     children: [
-      { name: "ダッシュボード", href: "/accounting/dashboard", icon: Home },
       { name: "スタッフ管理", href: "/staff", icon: Users },
       { name: "ワークフロー", href: "/accounting/workflow", icon: ClipboardList },
       { name: "手動経費追加", href: "/accounting/expenses/new", icon: Plus },
       { name: "税区分チェック", href: "/accounting/invoice-check", icon: FileCheck },
-      { name: "会計取引", href: "/accounting/transactions", icon: Landmark },
-      { name: "入出金管理", href: "/accounting/bank-transactions", icon: Receipt },
-      { name: "入出金履歴", href: "/accounting/bank-transactions/history", icon: History },
-      { name: "消込管理", href: "/accounting/reconciliation", icon: ArrowLeftRight },
-      { name: "確認管理", href: "/accounting/verification", icon: CheckSquare },
+      { name: "入出金履歴", href: "/accounting/statements", icon: FileText },
       { name: "予実管理", href: "/accounting/budget", icon: TrendingUp },
-      { name: "キャッシュフロー", href: "/accounting/cashflow", icon: TrendingDown },
-      { name: "一括完了", href: "/accounting/batch-complete", icon: CheckCircle2 },
-      { name: "月次締め", href: "/accounting/monthly-close", icon: Lock },
-      { name: "取込管理", href: "/accounting/imports", icon: Upload },
       { name: "USDT日次レート", href: "/accounting/usdt-rates", icon: DollarSign },
       {
         name: "マスタ管理",
@@ -450,7 +438,6 @@ const navigation: NavItem[] = [
           { name: "プロジェクト設定", href: "/accounting/settings/project", icon: Building2 },
           { name: "スタッフ役割種別", href: "/staff/role-types?project=accounting", icon: Tags },
           { name: "担当者フィールド制約", href: "/staff/field-restrictions?project=accounting", icon: Shield },
-          { name: "マネーフォワード連携", href: "/accounting/settings/moneyforward", icon: Landmark },
         ],
       },
     ],
@@ -669,7 +656,7 @@ function NavItemComponent({
       {item.name}
       {item.badgeCount != null && item.badgeCount > 0 && (
         <span className="ml-auto inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full bg-red-500 text-white text-xs font-bold">
-          {item.badgeCount}
+          {item.badgeCount > 99 ? "99+" : item.badgeCount}
         </span>
       )}
     </Link>
@@ -885,6 +872,7 @@ interface SidebarContentProps {
   projectNames?: Record<string, string>;
   bbsPendingCount?: number;
   expenseApprovalCounts?: Record<string, number>;
+  unlinkedStatementCount?: number;
 }
 
 export function SidebarContent({
@@ -896,9 +884,17 @@ export function SidebarContent({
   projectNames,
   bbsPendingCount,
   expenseApprovalCounts,
+  unlinkedStatementCount,
 }: SidebarContentProps) {
   const appTitle = process.env.NEXT_PUBLIC_APP_TITLE || "Stella 基幹OS";
   let navItems = getFilteredNavigation(user, hiddenItems, projectNames, bbsPendingCount);
+  if (unlinkedStatementCount && unlinkedStatementCount > 0) {
+    navItems = applyBadgeCount(
+      navItems,
+      "/accounting/statements",
+      unlinkedStatementCount
+    );
+  }
 
   // 経費承認待ちバッジを各プロジェクトの経費申請メニューに適用
   if (expenseApprovalCounts) {
@@ -981,9 +977,10 @@ interface SidebarProps {
   projectNames?: Record<string, string>;
   bbsPendingCount?: number;
   expenseApprovalCounts?: Record<string, number>;
+  unlinkedStatementCount?: number;
 }
 
-export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems, projectNames, bbsPendingCount, expenseApprovalCounts }: SidebarProps) {
+export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems, projectNames, bbsPendingCount, expenseApprovalCounts, unlinkedStatementCount }: SidebarProps) {
   return (
     <div
       className={cn(
@@ -999,6 +996,7 @@ export function Sidebar({ user, collapsed, onToggleCollapse, hiddenItems, projec
         projectNames={projectNames}
         bbsPendingCount={bbsPendingCount}
         expenseApprovalCounts={expenseApprovalCounts}
+        unlinkedStatementCount={unlinkedStatementCount}
       />
     </div>
   );

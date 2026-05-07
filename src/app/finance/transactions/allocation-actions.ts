@@ -268,9 +268,9 @@ export async function confirmAllocation(
     await checkAndTransitionToAwaitingAccounting(transactionId);
 
     // 経理側 + 事業PJ側（STP）両方のキャッシュを無効化
-    // 按分確定は請求グループ/支払グループ詳細 + 経理ダッシュボード両方の表示に影響
+    // 按分確定は請求グループ/支払グループ詳細 + 経理ワークフロー両方の表示に影響
     revalidatePath(REVALIDATE_PATH);
-    revalidatePath("/accounting/dashboard");
+    revalidatePath("/accounting/workflow");
     revalidatePath("/stp/finance/invoices");
     revalidatePath("/stp/finance/payment-groups");
     revalidatePath("/stp/finance/transactions");

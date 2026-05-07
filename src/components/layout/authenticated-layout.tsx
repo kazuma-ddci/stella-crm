@@ -18,6 +18,7 @@ interface AuthenticatedLayoutProps {
   projectNames?: Record<string, string>;
   bbsPendingCount?: number;
   expenseApprovalCounts?: Record<string, number>;
+  unlinkedStatementCount?: number;
 }
 
 /**
@@ -33,6 +34,7 @@ export function AuthenticatedLayout({
   projectNames,
   bbsPendingCount,
   expenseApprovalCounts,
+  unlinkedStatementCount,
 }: AuthenticatedLayoutProps) {
   const { status } = useSession();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -103,6 +105,7 @@ export function AuthenticatedLayout({
           projectNames={projectNames}
           bbsPendingCount={bbsPendingCount}
           expenseApprovalCounts={expenseApprovalCounts}
+          unlinkedStatementCount={unlinkedStatementCount}
         />
 
         {/* モバイル: ドロワーサイドバー */}
@@ -120,7 +123,8 @@ export function AuthenticatedLayout({
               hiddenItems={hiddenItems}
               projectNames={projectNames}
               bbsPendingCount={bbsPendingCount}
-          expenseApprovalCounts={expenseApprovalCounts}
+              expenseApprovalCounts={expenseApprovalCounts}
+              unlinkedStatementCount={unlinkedStatementCount}
             />
           </SheetContent>
         </Sheet>

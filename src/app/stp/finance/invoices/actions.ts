@@ -38,6 +38,49 @@ function calcGroupTotals(transactions: { amount: number; taxAmount: number; taxR
   return { subtotal, taxAmount, totalAmount };
 }
 
+function hasInvoiceGroupAccountingWork(group: {
+  status: string;
+  actualPaymentDate: Date | null;
+  manualPaymentStatus: string;
+  statementLinkCompleted: boolean;
+  transactions: { journalCompleted: boolean; journalEntries?: { id: number }[] }[];
+  receipts?: { id: number }[];
+  bankStatementLinks?: { id: number }[];
+}) {
+  return (
+    group.status === "partially_paid" ||
+    group.status === "paid" ||
+    !!group.actualPaymentDate ||
+    group.manualPaymentStatus !== "unpaid" ||
+    group.statementLinkCompleted ||
+    group.transactions.some((t) => t.journalCompleted || (t.journalEntries?.length ?? 0) > 0) ||
+    (group.receipts?.length ?? 0) > 0 ||
+    (group.bankStatementLinks?.length ?? 0) > 0
+  );
+}
+
+function getInvoiceGroupProjectActions(group: {
+  status: string;
+  returnRequestStatus: string;
+  actualPaymentDate: Date | null;
+  manualPaymentStatus: string;
+  statementLinkCompleted: boolean;
+  transactions: { journalCompleted: boolean; journalEntries?: { id: number }[] }[];
+  receipts?: { id: number }[];
+  bankStatementLinks?: { id: number }[];
+}) {
+  const accountingStarted = hasInvoiceGroupAccountingWork(group);
+  const hasPendingRequest = group.returnRequestStatus === "requested";
+  return {
+    canCancelHandover: group.status === "awaiting_accounting" && !accountingStarted && !hasPendingRequest,
+    canRequestReturn:
+      !hasPendingRequest &&
+      (group.status === "partially_paid" ||
+        group.status === "paid" ||
+        (group.status === "awaiting_accounting" && accountingStarted)),
+  };
+}
+
 // ============================================
 // 型定義（types.ts から再エクスポート）
 // ============================================
@@ -68,13 +111,22 @@ export async function getInvoiceGroups(
       operatingCompany: true,
       bankAccount: true,
       originalInvoiceGroup: { select: { invoiceNumber: true } },
-      transactions: { where: { deletedAt: null }, select: { id: true, counterpartyId: true }, take: 1 },
+      transactions: {
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          counterpartyId: true,
+          journalCompleted: true,
+          journalEntries: { where: { deletedAt: null }, select: { id: true } },
+        },
+      },
       allocationItems: { select: { id: true } },
       creator: true,
       receipts: {
         orderBy: { receivedDate: "asc" },
         include: { creator: { select: { name: true } } },
       },
+      bankStatementLinks: { select: { id: true } },
       _count: { select: { memoLines: true, transactions: { where: { deletedAt: null } } } },
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -111,6 +163,7 @@ export async function getInvoiceGroups(
           : receiptTotal < (r.totalAmount ?? 0)
             ? "partial"
             : "over";
+    const projectActions = getInvoiceGroupProjectActions(r);
     return {
     id: r.id,
     counterpartyId: r.counterpartyId,
@@ -149,11 +202,15 @@ export async function getInvoiceGroups(
       amount: x.amount,
       comment: x.comment,
       createdByName: x.creator.name,
-      isBankLinked: x.bankTransactionLinkId !== null,
     })),
     receiptStatus,
     receiptTotal,
     manualPaymentStatus: r.manualPaymentStatus as "unpaid" | "partial" | "completed",
+    canCancelHandover: projectActions.canCancelHandover,
+    canRequestReturn: projectActions.canRequestReturn,
+    returnRequestStatus: r.returnRequestStatus,
+    returnRequestReason: r.returnRequestReason,
+    returnRequestedAt: r.returnRequestedAt ? toLocalDateString(r.returnRequestedAt) : null,
   };
   });
 }
@@ -169,13 +226,22 @@ export async function getInvoiceGroupById(
       operatingCompany: true,
       bankAccount: true,
       originalInvoiceGroup: { select: { invoiceNumber: true } },
-      transactions: { where: { deletedAt: null }, select: { id: true, counterpartyId: true } },
+      transactions: {
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          counterpartyId: true,
+          journalCompleted: true,
+          journalEntries: { where: { deletedAt: null }, select: { id: true } },
+        },
+      },
       allocationItems: { select: { id: true } },
       creator: true,
       receipts: {
         orderBy: { receivedDate: "asc" },
         include: { creator: { select: { name: true } } },
       },
+      bankStatementLinks: { select: { id: true } },
       _count: { select: { memoLines: true } },
     },
   });
@@ -203,6 +269,7 @@ export async function getInvoiceGroupById(
           ? "partial"
           : "over";
 
+  const projectActions = getInvoiceGroupProjectActions(r);
   return {
     id: r.id,
     counterpartyId: r.counterpartyId,
@@ -241,11 +308,15 @@ export async function getInvoiceGroupById(
       amount: x.amount,
       comment: x.comment,
       createdByName: x.creator.name,
-      isBankLinked: x.bankTransactionLinkId !== null,
     })),
     receiptStatus,
     receiptTotal,
     manualPaymentStatus: r.manualPaymentStatus as "unpaid" | "partial" | "completed",
+    canCancelHandover: projectActions.canCancelHandover,
+    canRequestReturn: projectActions.canRequestReturn,
+    returnRequestStatus: r.returnRequestStatus,
+    returnRequestReason: r.returnRequestReason,
+    returnRequestedAt: r.returnRequestedAt ? toLocalDateString(r.returnRequestedAt) : null,
   };
 }
 
@@ -615,6 +686,17 @@ export async function updateInvoiceGroup(
 
     const group = await prisma.invoiceGroup.findUnique({
       where: { id, deletedAt: null, projectId: stpProjectId },
+      include: {
+        transactions: {
+          where: { deletedAt: null },
+          select: {
+            journalCompleted: true,
+            journalEntries: { where: { deletedAt: null }, select: { id: true } },
+          },
+        },
+        receipts: { select: { id: true } },
+        bankStatementLinks: { select: { id: true } },
+      },
     });
     if (!group) return err("請求が見つかりません");
 
@@ -952,6 +1034,17 @@ export async function deleteInvoiceGroup(
 
     const group = await prisma.invoiceGroup.findUnique({
       where: { id, deletedAt: null, projectId: stpProjectId },
+      include: {
+        transactions: {
+          where: { deletedAt: null },
+          select: {
+            journalCompleted: true,
+            journalEntries: { where: { deletedAt: null }, select: { id: true } },
+          },
+        },
+        receipts: { select: { id: true } },
+        bankStatementLinks: { select: { id: true } },
+      },
     });
     if (!group) return err("請求が見つかりません");
 
@@ -1153,6 +1246,17 @@ export async function updateInvoiceGroupStatus(
 
     const group = await prisma.invoiceGroup.findUnique({
       where: { id, deletedAt: null, projectId: stpProjectId },
+      include: {
+        transactions: {
+          where: { deletedAt: null },
+          select: {
+            journalCompleted: true,
+            journalEntries: { where: { deletedAt: null }, select: { id: true } },
+          },
+        },
+        receipts: { select: { id: true } },
+        bankStatementLinks: { select: { id: true } },
+      },
     });
     if (!group) return err("請求が見つかりません");
 
@@ -1461,10 +1565,19 @@ export async function submitInvoiceGroupToAccounting(
 
   const oldStatus = group.status;
   await prisma.$transaction(async (tx) => {
-    await tx.invoiceGroup.update({
-      where: { id },
-      data: { status: "awaiting_accounting", updatedBy: user.id },
-    });
+      await tx.invoiceGroup.update({
+        where: { id },
+        data: {
+          status: "awaiting_accounting",
+          returnRequestStatus: "none",
+          returnRequestReason: null,
+          returnRequestedAt: null,
+          returnRequestedBy: null,
+          returnRequestHandledAt: null,
+          returnRequestHandledBy: null,
+          updatedBy: user.id,
+        },
+      });
 
     await recordChangeLog(
       {
@@ -1932,26 +2045,56 @@ export async function requestReturnInvoiceGroup(
 
     const group = await prisma.invoiceGroup.findUnique({
       where: { id, deletedAt: null, projectId: stpProjectId },
+      include: {
+        transactions: {
+          where: { deletedAt: null },
+          select: {
+            journalCompleted: true,
+            journalEntries: { where: { deletedAt: null }, select: { id: true } },
+          },
+        },
+        receipts: { select: { id: true } },
+        bankStatementLinks: { select: { id: true } },
+      },
     });
     if (!group) return err("請求グループが見つかりません");
 
     if (!["awaiting_accounting", "partially_paid", "paid"].includes(group.status)) {
       return err("このステータスでは差し戻し依頼できません");
     }
+    if (group.returnRequestStatus === "requested") {
+      return err("すでに差し戻し依頼中です");
+    }
+    if (group.status === "awaiting_accounting" && !hasInvoiceGroupAccountingWork(group)) {
+      return err("経理側でまだ処理が始まっていないため、引渡取消を使用してください");
+    }
 
     if (!data.body.trim()) {
       return err("差し戻し理由を入力してください");
     }
 
-    // コメントを作成
-    await prisma.transactionComment.create({
-      data: {
-        invoiceGroupId: id,
-        body: data.body.trim(),
-        commentType: "return",
-        returnReasonType: "correction_request",
-        createdBy: user.id,
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.invoiceGroup.update({
+        where: { id },
+        data: {
+          returnRequestStatus: "requested",
+          returnRequestReason: data.body.trim(),
+          returnRequestedAt: new Date(),
+          returnRequestedBy: user.id,
+          returnRequestHandledAt: null,
+          returnRequestHandledBy: null,
+        },
+      });
+
+      await tx.transactionComment.create({
+        data: {
+          invoiceGroupId: id,
+          body: data.body.trim(),
+          commentType: "return",
+          returnReasonType: "correction_request",
+          createdBy: user.id,
+        },
+      });
     });
 
     // 経理権限を持つスタッフを取得して通知
@@ -1978,12 +2121,13 @@ export async function requestReturnInvoiceGroup(
           category: "accounting",
           title: `差し戻し依頼: 請求グループ #${id}`,
           message: data.body.trim(),
-          linkUrl: "/accounting/batch-complete",
+          linkUrl: `/accounting/workflow/group-detail?type=invoice&id=${id}`,
         });
       }
     }
 
     revalidatePath("/stp/finance/invoices");
+    revalidatePath("/accounting/workflow");
     return ok();
   } catch (e) {
     console.error("[requestReturnInvoiceGroup] error:", e);
@@ -2007,14 +2151,28 @@ export async function cancelInvoiceGroupHandover(
       include: {
         transactions: {
           where: { deletedAt: null },
-          select: { id: true, journalCompleted: true },
+          select: {
+            id: true,
+            journalCompleted: true,
+            journalEntries: { where: { deletedAt: null }, select: { id: true } },
+          },
         },
+        receipts: { select: { id: true } },
+        bankStatementLinks: { select: { id: true } },
       },
     });
     if (!group) return err("請求グループが見つかりません");
 
     if (group.status !== "awaiting_accounting") {
       return err("「経理処理待ち」ステータスの請求のみ引渡を取り消せます");
+    }
+
+    if (group.returnRequestStatus === "requested") {
+      return err("差し戻し依頼中のため、引渡を取り消せません");
+    }
+
+    if (hasInvoiceGroupAccountingWork(group)) {
+      return err("経理側で処理が開始されているため、引渡を取り消せません。差し戻し依頼を送ってください");
     }
 
     // 仕訳処理が開始されていないかチェック

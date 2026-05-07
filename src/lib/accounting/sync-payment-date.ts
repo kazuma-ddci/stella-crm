@@ -114,6 +114,80 @@ export async function recalcPaymentGroupActualPaymentDate(
   return newDate;
 }
 
+export async function syncInvoiceGroupPaymentStateFromRecords(
+  tx: TxClient,
+  invoiceGroupId: number
+): Promise<void> {
+  const [group, records] = await Promise.all([
+    tx.invoiceGroup.findUnique({
+      where: { id: invoiceGroupId },
+      select: { status: true, statementLinkCompleted: true },
+    }),
+    tx.invoiceGroupReceipt.findMany({
+      where: { invoiceGroupId },
+      select: { amount: true, receivedDate: true },
+    }),
+  ]);
+  if (!group) return;
+
+  const manualPaymentStatus = group.statementLinkCompleted
+    ? "completed"
+    : records.length > 0
+      ? "partial"
+      : "unpaid";
+  const status =
+    group.status === "returned" || group.status === "corrected"
+      ? group.status
+      : manualPaymentStatus === "completed"
+        ? "paid"
+        : manualPaymentStatus === "partial"
+          ? "partially_paid"
+          : group.status === "paid" || group.status === "partially_paid"
+            ? "awaiting_accounting"
+            : group.status;
+
+  await tx.invoiceGroup.update({
+    where: { id: invoiceGroupId },
+    data: { manualPaymentStatus, status },
+  });
+}
+
+export async function syncPaymentGroupPaymentStateFromRecords(
+  tx: TxClient,
+  paymentGroupId: number
+): Promise<void> {
+  const [group, records] = await Promise.all([
+    tx.paymentGroup.findUnique({
+      where: { id: paymentGroupId },
+      select: { status: true, statementLinkCompleted: true },
+    }),
+    tx.paymentGroupPayment.findMany({
+      where: { paymentGroupId },
+      select: { amount: true, paidDate: true },
+    }),
+  ]);
+  if (!group) return;
+
+  const manualPaymentStatus = group.statementLinkCompleted
+    ? "completed"
+    : records.length > 0
+      ? "partial"
+      : "unpaid";
+  const status =
+    group.status === "returned"
+      ? group.status
+      : manualPaymentStatus === "completed"
+        ? "paid"
+        : group.status === "paid"
+          ? "awaiting_accounting"
+          : group.status;
+
+  await tx.paymentGroup.update({
+    where: { id: paymentGroupId },
+    data: { manualPaymentStatus, status },
+  });
+}
+
 // ============================================
 // 入金/支払の集計サマリ
 // ============================================

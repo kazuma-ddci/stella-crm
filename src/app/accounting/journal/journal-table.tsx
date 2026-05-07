@@ -43,9 +43,7 @@ type JournalEntryRow = {
   invoiceGroupId: number | null;
   paymentGroupId: number | null;
   transactionId: number | null;
-  bankTransactionId: number | null;
   realizationStatus: string;
-  scheduledDate: Date | null;
   realizedAt: Date | null;
   approvedAt: Date | null;
   lines: {
@@ -73,13 +71,6 @@ type JournalEntryRow = {
     type: string;
     amount: number;
     counterparty: { id: number; name: string } | null;
-  } | null;
-  bankTransaction: {
-    id: number;
-    transactionDate: Date;
-    direction: string;
-    amount: number;
-    description: string | null;
   } | null;
   projectId: number | null;
   counterpartyId: number | null;
@@ -204,10 +195,6 @@ export function JournalTable({ entries, formData }: Props) {
       const name = entry.transaction.counterparty?.name ?? "";
       return `${type}: ${name}`;
     }
-    if (entry.bankTransaction) {
-      const dir = entry.bankTransaction.direction === "incoming" ? "入金" : "出金";
-      return `${dir}: ¥${entry.bankTransaction.amount.toLocaleString()}`;
-    }
     return "手動仕訳";
   };
 
@@ -326,11 +313,6 @@ export function JournalTable({ entries, formData }: Props) {
                     <td className="px-3 py-2">
                       <div className="flex flex-col gap-1">
                         <RealizationStatusBadge status={entry.realizationStatus} />
-                        {entry.realizationStatus === "unrealized" && entry.scheduledDate && (
-                          <span className="text-xs text-muted-foreground">
-                            予定: {new Date(entry.scheduledDate).toLocaleDateString("ja-JP")}
-                          </span>
-                        )}
                       </div>
                     </td>
                     <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
@@ -377,13 +359,6 @@ export function JournalTable({ entries, formData }: Props) {
                                   <strong>摘要:</strong> {entry.description}
                                   <br />
                                   <strong>金額:</strong> ¥{totalAmount.toLocaleString()}
-                                  {entry.scheduledDate && (
-                                    <>
-                                      <br />
-                                      <strong>予定日:</strong>{" "}
-                                      {new Date(entry.scheduledDate).toLocaleDateString("ja-JP")}
-                                    </>
-                                  )}
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>

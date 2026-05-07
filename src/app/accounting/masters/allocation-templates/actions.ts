@@ -17,11 +17,6 @@ type LineInput = {
   label: string | null;
 };
 
-// ===== Helper: UTC基準で月初を取得 =====
-function getUTCMonthStart(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-}
-
 // ===== 按分テンプレート作成 =====
 export async function createAllocationTemplate(
   data: Record<string, unknown>
@@ -292,40 +287,14 @@ export async function getAffectedTransactions(templateId: number) {
     orderBy: { periodFrom: "desc" },
   });
 
-  // ★ Issue 6: UTC基準で月初を計算
-  const transactionMonths = new Set<string>();
-  for (const t of transactions) {
-    const monthStart = getUTCMonthStart(new Date(t.periodFrom));
-    transactionMonths.add(monthStart.toISOString());
-  }
-
-  const closedMonths = new Set<string>();
-  if (transactionMonths.size > 0) {
-    const monthDates = Array.from(transactionMonths).map((m) => new Date(m));
-    const closeRecords = await prisma.accountingMonthlyClose.findMany({
-      where: {
-        targetMonth: { in: monthDates },
-        status: { not: "open" },
-      },
-      select: { targetMonth: true },
-    });
-    for (const r of closeRecords) {
-      closedMonths.add(new Date(r.targetMonth).toISOString());
-    }
-  }
-
-  return transactions.map((t) => {
-    const monthStart = getUTCMonthStart(new Date(t.periodFrom));
-    const isClosed = closedMonths.has(monthStart.toISOString());
-    return {
-      id: t.id,
-      transactionDate: toLocalDateString(t.periodFrom),
-      counterpartyName: t.counterparty?.name ?? "（不明）",
-      costCenterName: t.costCenter?.name ?? "",
-      amountIncludingTax: t.amount + t.taxAmount,
-      isClosed,
-    };
-  });
+  return transactions.map((t) => ({
+    id: t.id,
+    transactionDate: toLocalDateString(t.periodFrom),
+    counterpartyName: t.counterparty?.name ?? "（不明）",
+    costCenterName: t.costCenter?.name ?? "",
+    amountIncludingTax: t.amount + t.taxAmount,
+    isClosed: false,
+  }));
 }
 
 // ===== テンプレート変更時のオーバーライド作成（変更前維持） =====
@@ -384,23 +353,7 @@ export async function checkClosedMonthInvolvement(
     select: { periodFrom: true },
   });
 
-  if (transactions.length === 0) return false;
-
-  // ★ Issue 6: UTC基準で月初を計算
-  const monthDates = new Set<string>();
-  for (const t of transactions) {
-    const monthStart = getUTCMonthStart(new Date(t.periodFrom));
-    monthDates.add(monthStart.toISOString());
-  }
-
-  const closedCount = await prisma.accountingMonthlyClose.count({
-    where: {
-      targetMonth: { in: Array.from(monthDates).map((m) => new Date(m)) },
-      status: { not: "open" },
-    },
-  });
-
-  return closedCount > 0;
+  return false;
 }
 
 // ===== バリデーション =====

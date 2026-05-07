@@ -9,7 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Check, Link2 } from "lucide-react";
+import { Check } from "lucide-react";
 
 type Mode = "invoice" | "payment";
 type Status = "none" | "partial" | "complete" | "over";
@@ -21,7 +21,6 @@ type RecordItem = {
   amount: number;
   comment: string | null;
   createdByName: string;
-  isBankLinked?: boolean;  // 銀行履歴由来の自動生成記録か
 };
 
 type Props = {
@@ -105,17 +104,9 @@ export function ReceiptsReadonly({
           </TableHeader>
           <TableBody>
             {records.map((r) => (
-              <TableRow key={r.id} className={r.isBankLinked ? "bg-blue-50/20" : ""}>
+              <TableRow key={r.id}>
                 <TableCell className="font-mono text-xs">
-                  <div className="flex items-center gap-1">
-                    {r.isBankLinked && (
-                      <Link2
-                        className="h-3 w-3 text-blue-600"
-                        aria-label="銀行履歴由来"
-                      />
-                    )}
-                    {new Date(r.date).toLocaleDateString("ja-JP")}
-                  </div>
+                  {new Date(r.date).toLocaleDateString("ja-JP")}
                 </TableCell>
                 <TableCell className="text-right text-xs font-medium">
                   ¥{r.amount.toLocaleString()}
@@ -124,11 +115,7 @@ export function ReceiptsReadonly({
                   {r.comment ?? <span className="text-muted-foreground">-</span>}
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
-                  {r.isBankLinked ? (
-                    <span className="text-blue-700">銀行履歴由来</span>
-                  ) : (
-                    r.createdByName
-                  )}
+                  {r.createdByName}
                 </TableCell>
               </TableRow>
             ))}

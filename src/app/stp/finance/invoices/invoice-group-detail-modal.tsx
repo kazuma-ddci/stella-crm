@@ -67,6 +67,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
+import { GroupStatementLinkPanel } from "@/components/accounting/group-statement-link-panel";
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "下書き",
@@ -115,7 +116,7 @@ export function InvoiceGroupDetailModal({
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [activeTab, setActiveTab] = useState<"detail" | "transactions" | "add" | "invoice-builder" | "attachments" | "history" | "comments">(
+  const [activeTab, setActiveTab] = useState<"detail" | "transactions" | "add" | "invoice-builder" | "attachments" | "history" | "comments" | "statement-links">(
     "detail"
   );
   const [showReturnRequestDialog, setShowReturnRequestDialog] = useState(false);
@@ -153,6 +154,7 @@ export function InvoiceGroupDetailModal({
     group.expectedPaymentDate ?? ""
   );
   const actualPaymentDate = group.actualPaymentDate ?? "";
+  const isReturnRequested = group.returnRequestStatus === "requested";
 
   // グループ内の取引
   const [transactions, setTransactions] = useState<GroupTransaction[]>([]);
@@ -868,6 +870,16 @@ export function InvoiceGroupDetailModal({
           >
             コメント
           </button>
+          <button
+            onClick={() => setActiveTab("statement-links")}
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors shrink-0 ${
+              activeTab === "statement-links"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground"
+            }`}
+          >
+            入出金紐付け
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto min-h-0">
@@ -915,7 +927,7 @@ export function InvoiceGroupDetailModal({
                       経理へ引渡
                     </Button>
                   )}
-                  {group.status === "awaiting_accounting" && (
+                  {group.canCancelHandover && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -941,7 +953,7 @@ export function InvoiceGroupDetailModal({
                       引渡取消
                     </Button>
                   )}
-                  {["awaiting_accounting", "partially_paid", "paid"].includes(group.status) && (
+                  {group.canRequestReturn && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -951,6 +963,11 @@ export function InvoiceGroupDetailModal({
                     >
                       差し戻し依頼
                     </Button>
+                  )}
+                  {isReturnRequested && (
+                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300">
+                      差し戻し依頼中
+                    </Badge>
                   )}
                   {group.status === "returned" && (
                     <Button
@@ -967,6 +984,18 @@ export function InvoiceGroupDetailModal({
           </div>
 
           {/* 基本情報タブ */}
+          {isReturnRequested && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-medium">経理へ差し戻し依頼中です</p>
+              <p className="mt-1 whitespace-pre-wrap">{group.returnRequestReason}</p>
+            </div>
+          )}
+          {group.status === "returned" && group.returnRequestReason && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+              <p className="font-medium">経理から差し戻されています</p>
+              <p className="mt-1 whitespace-pre-wrap">{group.returnRequestReason}</p>
+            </div>
+          )}
           {activeTab === "detail" && (
             <div className="space-y-4 p-1">
               {/* 訂正元情報 */}
@@ -1271,7 +1300,6 @@ export function InvoiceGroupDetailModal({
                   amount: r.amount,
                   comment: r.comment,
                   createdByName: r.createdByName,
-                  isBankLinked: r.isBankLinked,
                 }))}
                 status={group.receiptStatus}
                 recordTotal={group.receiptTotal}
@@ -1755,6 +1783,16 @@ export function InvoiceGroupDetailModal({
               <CommentSection
                 invoiceGroupId={group.id}
                 allowCommentTypes
+              />
+            </div>
+          )}
+
+          {/* 入出金紐付けタブ */}
+          {activeTab === "statement-links" && (
+            <div className="p-3">
+              <GroupStatementLinkPanel
+                groupKind="invoice"
+                groupId={group.id}
               />
             </div>
           )}

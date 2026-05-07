@@ -37,7 +37,6 @@ import { cn, matchesWithWordBoundary, toLocalDateString } from "@/lib/utils";
 import { toast } from "sonner";
 import { createTransaction, updateTransaction } from "./actions";
 import type { TransactionFormData } from "./actions";
-import { createAccountingTransaction } from "@/app/accounting/transactions/accounting-actions";
 
 // ============================================
 // 型定義
@@ -97,7 +96,6 @@ type Props = {
     fileName: string;
     filePath: string;
   }[];
-  accountingMode?: boolean;
 };
 
 function formatDate(d: Date | string | null | undefined): string {
@@ -110,7 +108,7 @@ function formatDate(d: Date | string | null | undefined): string {
 // メインコンポーネント
 // ============================================
 
-export function TransactionForm({ formData, transaction, projectContext, linkedGroupAttachments, accountingMode }: Props) {
+export function TransactionForm({ formData, transaction, projectContext, linkedGroupAttachments }: Props) {
   const router = useRouter();
   const isEdit = !!transaction;
 
@@ -439,18 +437,6 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
           return;
         }
         toast.success("取引を更新しました");
-      } else if (accountingMode) {
-        // グループ紐づけ
-        if (invoiceGroupId) data.invoiceGroupId = Number(invoiceGroupId);
-        if (paymentGroupId) data.paymentGroupId = Number(paymentGroupId);
-        const result = await createAccountingTransaction(data);
-        if (!result.ok) {
-          toast.error(result.error);
-          return;
-        }
-        toast.success("取引を作成しました（経理処理待ち）");
-        router.push(`/accounting/transactions/${result.data.id}/edit`);
-        return;
       } else {
         const result = await createTransaction(data);
         if (!result.ok) {
@@ -734,8 +720,8 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
         </CardContent>
       </Card>
 
-      {/* 5. グループ紐づけ（経理モード） */}
-      {accountingMode && (
+      {/* 5. グループ紐づけ（経理モード）— 系統B削除に伴い廃止 */}
+      {false && (
         <Card>
           <CardHeader>
             <CardTitle>請求/支払グループ紐づけ（任意）</CardTitle>

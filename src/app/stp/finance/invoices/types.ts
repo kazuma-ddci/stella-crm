@@ -4,7 +4,6 @@ export type InvoiceGroupReceiptItem = {
   amount: number;
   comment: string | null;
   createdByName: string;
-  isBankLinked: boolean; // 銀行履歴由来の自動生成記録か
 };
 
 export type ReceiptStatus = "none" | "partial" | "complete" | "over";
@@ -47,6 +46,11 @@ export type InvoiceGroupListItem = {
   receiptTotal: number;
   // 経理が手動で切り替える入金完了フラグ
   manualPaymentStatus: ManualPaymentStatus;
+  canCancelHandover: boolean;
+  canRequestReturn: boolean;
+  returnRequestStatus: string;
+  returnRequestReason: string | null;
+  returnRequestedAt: string | null;
 };
 
 export type UngroupedAllocationItem = {

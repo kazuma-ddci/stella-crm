@@ -48,6 +48,7 @@ export default async function RootLayout({
   let projectNames: Record<string, string> = {};
   let bbsPendingCount = 0;
   let expenseApprovalCounts: Record<string, number> = {};
+  let unlinkedStatementCount = 0;
   let tableSettings: TableSettingsMap = {};
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userId = (user as any)?.id as number | undefined;
@@ -124,6 +125,31 @@ export default async function RootLayout({
           if (code) expenseApprovalCounts[code] = g._count;
         }
       }
+
+      // 未紐付け入出金履歴の件数（経理プロジェクト権限がなくても実害なしのため一律取得）
+      try {
+        const entries = await prisma.bankStatementEntry.findMany({
+          where: { excluded: false },
+          select: {
+            incomingAmount: true,
+            outgoingAmount: true,
+            groupLinks: { select: { amount: true } },
+          },
+        });
+        for (const e of entries) {
+          const linkedSum = e.groupLinks.reduce((s, l) => s + l.amount, 0);
+          const total =
+            (e.incomingAmount ?? 0) > 0
+              ? e.incomingAmount!
+              : (e.outgoingAmount ?? 0) > 0
+                ? e.outgoingAmount!
+                : 0;
+          if (total === 0) continue;
+          if (linkedSum < total) unlinkedStatementCount++;
+        }
+      } catch {
+        // 取得失敗時は0のまま
+      }
     } catch {
       // DBエラー時は空のまま
     }
@@ -139,7 +165,7 @@ export default async function RootLayout({
           <PermissionGuard />
           <TableSettingsProvider initial={tableSettings} canManagePinning={userType === "staff" || userType === "lender"}>
             {user ? (
-              <AuthenticatedLayout serverUser={user} hiddenItems={hiddenItems} projectNames={projectNames} bbsPendingCount={bbsPendingCount} expenseApprovalCounts={expenseApprovalCounts}>
+              <AuthenticatedLayout serverUser={user} hiddenItems={hiddenItems} projectNames={projectNames} bbsPendingCount={bbsPendingCount} expenseApprovalCounts={expenseApprovalCounts} unlinkedStatementCount={unlinkedStatementCount}>
                 {children}
               </AuthenticatedLayout>
             ) : (
