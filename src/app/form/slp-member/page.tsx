@@ -55,7 +55,6 @@ type PageStatus =
   | "success"
   | "already_signed"
   | "already_sent"
-  | "remind_expired"
   | "email_diff"
   | "email_changed"
   | "form_locked"
@@ -80,6 +79,8 @@ type ApiResponse = {
   canRemind?: boolean;
   bouncedEmail?: string;
   emailChangeAvailable?: boolean;
+  autoRemindSent?: boolean;
+  autoRemindError?: boolean;
 };
 
 function formatDateTime(isoString: string | null | undefined): string {
@@ -355,11 +356,15 @@ export default function SlpMemberRegistrationPage() {
         const data: ApiResponse = await response.json();
         setApiResponse(data);
 
+        // フォーム送信時の自動リマインド成功 → 既存の「リマインド送付済」UI を流用
+        if (data.type === "already_sent" && data.autoRemindSent) {
+          setRemindSent(true);
+        }
+
         const statusMap: Record<string, PageStatus> = {
           success: "success",
           already_signed: "already_signed",
           already_sent: "already_sent",
-          remind_expired: "remind_expired",
           email_diff: "email_diff",
           email_changed: "email_changed",
           form_locked: "form_locked",
@@ -836,39 +841,45 @@ export default function SlpMemberRegistrationPage() {
             </p>
           </div>
 
-          {apiResponse?.canRemind && (
-            <div className="text-center">
-              {remindSent ? (
-                <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-4">
-                  <CheckCircle2 className="h-6 w-6 text-emerald-500 mx-auto mb-2" />
-                  <p className="text-emerald-700 text-sm font-semibold">
-                    リマインドを送付しました
-                  </p>
-                  <p className="mt-1 text-xs text-emerald-600">
-                    メールをご確認ください
-                  </p>
-                </div>
-              ) : (
-                <KoutekiButton
-                  onClick={handleRemind}
-                  disabled={remindLoading}
-                  size="lg"
-                >
-                  {remindLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      送信中...
-                    </>
-                  ) : (
-                    <>
-                      <Bell className="mr-2 h-4 w-4" />
-                      リマインド送付を希望する
-                    </>
-                  )}
-                </KoutekiButton>
-              )}
+          {remindSent ? (
+            <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-4 text-center">
+              <CheckCircle2 className="h-6 w-6 text-emerald-500 mx-auto mb-2" />
+              <p className="text-emerald-700 text-sm font-semibold">
+                リマインドを送付しました
+              </p>
+              <p className="mt-1 text-xs text-emerald-600">
+                公式LINEとメールをご確認ください
+              </p>
             </div>
-          )}
+          ) : apiResponse?.canRemind ? (
+            <div className="text-center">
+              <KoutekiButton
+                onClick={handleRemind}
+                disabled={remindLoading}
+                size="lg"
+              >
+                {remindLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    送信中...
+                  </>
+                ) : (
+                  <>
+                    <Bell className="mr-2 h-4 w-4" />
+                    リマインド送付を希望する
+                  </>
+                )}
+              </KoutekiButton>
+            </div>
+          ) : apiResponse?.autoRemindError ? (
+            <div className="rounded-xl bg-amber-50 border border-amber-100 p-4">
+              <p className="text-amber-800 text-sm">
+                自動リマインドの送信に失敗しました。
+                <br />
+                お手数ですが<strong>公式LINE</strong>へご連絡ください。
+              </p>
+            </div>
+          ) : null}
 
           {/* メアド変更ボタン（1回のみ利用可能） */}
           {apiResponse?.emailChangeAvailable && (
@@ -889,31 +900,6 @@ export default function SlpMemberRegistrationPage() {
               <span>{errorMessage}</span>
             </div>
           )}
-        </StatusCard>
-      </KoutekiPageShell>
-    );
-  }
-
-  // リマインド期限切れ
-  if (status === "remind_expired") {
-    return (
-      <KoutekiPageShell title="組合員入会申込フォーム">
-        <StatusCard
-          icon={<AlertCircle className="h-8 w-8 text-amber-500" />}
-          iconBg="bg-amber-50"
-          title="すでに登録されている情報が見つかっています"
-        >
-          <p className="text-center">一度の送信で大丈夫です、ありがとうございます。</p>
-          <div className="rounded-xl bg-amber-50 border border-amber-100 p-4">
-            <p className="font-semibold text-amber-800 mb-2">
-              送付した契約書の期限が切れています
-            </p>
-            <p className="text-amber-700">
-              再度契約書の締結をご希望でしょうか？
-              <br />
-              ご希望であれば、お手数ですが<strong>公式LINE</strong>へその旨をメッセージしてください。
-            </p>
-          </div>
         </StatusCard>
       </KoutekiPageShell>
     );

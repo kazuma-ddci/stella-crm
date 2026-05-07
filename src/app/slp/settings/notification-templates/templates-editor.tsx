@@ -42,6 +42,7 @@ const TRIGGER_ORDER = [
   "contract_signed",
   // 契約書関連（組合員向け）
   "contract_reminder",
+  "contract_reminder_form_submitted",
   "contract_bounced",
 ];
 
@@ -59,6 +60,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   friend_added: "友達追加通知",
   contract_signed: "契約締結通知",
   contract_reminder: "契約書リマインド",
+  contract_reminder_form_submitted: "契約書リマインド（フォーム送信経由）",
   contract_bounced: "メール不達通知",
 };
 

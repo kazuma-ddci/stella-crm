@@ -31,6 +31,7 @@ import { InlineTransactionForm } from "./inline-transaction-form";
 import type { InvoiceGroupListItem, UngroupedTransaction } from "./actions";
 import {
   updateInvoiceGroup,
+  updateInvoiceGroupTransactionNote,
   deleteInvoiceGroup,
   addTransactionToGroup,
   removeTransactionFromGroup,
@@ -104,6 +105,10 @@ type GroupTransaction = {
   note: string | null;
 };
 
+function displayCounterpartyName(label: string): string {
+  return label.replace(/^[A-Z]+-\d+\s+-?\s*/, "");
+}
+
 export function InvoiceGroupDetailModal({
   open,
   onClose,
@@ -140,6 +145,9 @@ export function InvoiceGroupDetailModal({
   }, [billingTab, stellaCustomerOptions, counterpartyOptions, billingSearch]);
   // 全選択肢を結合（ラベル検索用）
   const allBillingOptions = useMemo(() => [...stellaCustomerOptions, ...counterpartyOptions], [stellaCustomerOptions, counterpartyOptions]);
+  const selectedBillingLabel =
+    allBillingOptions.find((o) => o.value === counterpartyId)?.label ?? group.counterpartyName;
+  const selectedBillingDisplayName = displayCounterpartyName(selectedBillingLabel);
 
   const [bankAccountId, setBankAccountId] = useState<string>(
     group.bankAccountId ? String(group.bankAccountId) : ""
@@ -159,6 +167,9 @@ export function InvoiceGroupDetailModal({
   // グループ内の取引
   const [transactions, setTransactions] = useState<GroupTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [savingNoteId, setSavingNoteId] = useState<number | null>(null);
 
   // 追加用の未グループ化取引
   const [ungroupedTransactions, setUngroupedTransactions] = useState<
@@ -403,6 +414,34 @@ export function InvoiceGroupDetailModal({
       alert(e instanceof Error ? e.message : "エラーが発生しました");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveTransactionNote = async (transactionId: number) => {
+    setSavingNoteId(transactionId);
+    try {
+      const result = await updateInvoiceGroupTransactionNote(
+        group.id,
+        transactionId,
+        noteDraft
+      );
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
+      setTransactions((current) =>
+        current.map((tx) =>
+          tx.id === transactionId ? { ...tx, note: noteDraft.trim() || null } : tx
+        )
+      );
+      setEditingNoteId(null);
+      setNoteDraft("");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "摘要の保存に失敗しました");
+    } finally {
+      setSavingNoteId(null);
     }
   };
 
@@ -1090,7 +1129,7 @@ export function InvoiceGroupDetailModal({
                     <p className="font-medium">宛先が変更されています</p>
                     <p className="text-amber-700 mt-0.5">
                       {isBillingChanged
-                        ? `宛先を「${allBillingOptions.find((o) => o.value === counterpartyId)?.label}」に変更しました。`
+                        ? `宛先を「${selectedBillingDisplayName}」に変更しました。`
                         : `取引先「${group.originalCounterpartyName}」の取引を、「${group.counterpartyName}」宛の請求書として発行します。`
                       }
                     </p>
@@ -1180,7 +1219,7 @@ export function InvoiceGroupDetailModal({
                     <Input
                       value={
                         isEditable
-                          ? (allBillingOptions.find((o) => o.value === counterpartyId)?.label ?? group.counterpartyName)
+                          ? selectedBillingDisplayName
                           : group.counterpartyName
                       }
                       disabled
@@ -1388,11 +1427,67 @@ export function InvoiceGroupDetailModal({
                             {t.periodFrom} 〜 {t.periodTo}
                           </span>
                         </div>
-                        {t.note && (
-                          <div className="text-xs text-muted-foreground truncate">
-                            {t.note}
-                          </div>
-                        )}
+                        <div className="mt-1">
+                          {editingNoteId === t.id ? (
+                            <div className="space-y-2">
+                              <Textarea
+                                value={noteDraft}
+                                onChange={(e) => setNoteDraft(e.target.value)}
+                                rows={2}
+                                className="text-sm"
+                                placeholder="請求書に表示する摘要"
+                              />
+                              <div className="flex gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={() => handleSaveTransactionNote(t.id)}
+                                  disabled={savingNoteId === t.id}
+                                >
+                                  {savingNoteId === t.id && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                                  保存
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingNoteId(null);
+                                    setNoteDraft("");
+                                  }}
+                                  disabled={savingNoteId === t.id}
+                                >
+                                  キャンセル
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-start gap-2">
+                              <div className="min-w-0 flex-1 text-xs text-muted-foreground">
+                                <span className="font-medium text-gray-500">摘要: </span>
+                                <span className="whitespace-pre-wrap break-words">
+                                  {t.note || "未入力"}
+                                </span>
+                              </div>
+                              {isEditable && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => {
+                                    setEditingNoteId(t.id);
+                                    setNoteDraft(t.note ?? "");
+                                  }}
+                                  disabled={loading}
+                                >
+                                  <Pencil className="mr-1 h-3 w-3" />
+                                  編集
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                       <div className="text-right text-sm">
                         <div className="font-medium">

@@ -112,7 +112,7 @@ function ConditionBadges({ group }: { group: WorkflowGroup }) {
     return (
       <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 text-xs">
         <UserCheck className="h-3 w-3 mr-0.5" />
-        経理承認待ち
+        承認済み社内経費
       </Badge>
     );
   }
@@ -202,7 +202,7 @@ function ApprovalActions({
       className="h-7 text-xs bg-green-600 hover:bg-green-700"
       onClick={() => onOpenDetail(group.id)}
     >
-      確認・承認
+      内容確認
     </Button>
   );
 }
@@ -694,7 +694,7 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
           )}
           <TabsTrigger value="pending_accounting_approval" className="gap-1">
             <UserCheck className="h-3.5 w-3.5" />
-            経理承認待ち
+            承認済み・支払対応待ち
             {pendingApproval.length > 0 && (
               <Badge variant="default" className="ml-1 h-5 px-1.5 text-xs bg-purple-600">
                 {pendingApproval.length}
@@ -777,6 +777,9 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
         )}
 
         <TabsContent value="pending_accounting_approval" className="mt-4">
+          <div className="rounded border border-purple-200 bg-purple-50 px-4 py-3 mb-3 text-sm text-purple-900">
+            プロジェクト承認者の確認が完了した社内経費です。内容を確認して、支払対応・経理処理へ進めてください。
+          </div>
           <GroupTable
             groups={pendingApproval}
             showApprovalActions

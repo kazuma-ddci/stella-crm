@@ -191,11 +191,11 @@ const navigation: NavItem[] = [
         sectionLabel: true,
         children: [
           { name: "ダッシュボード", href: "/stp/finance/overview", icon: DollarSign },
-          { name: "取引管理", href: "/stp/finance/transactions", icon: Landmark },
           { name: "売上・支払トラッカー", href: "/stp/finance/billing", icon: ClipboardCheck },
+          { name: "取引台帳", href: "/stp/finance/transactions", icon: Landmark },
           { name: "請求管理（売上）", href: "/stp/finance/invoices", icon: Receipt },
           { name: "支払管理（経費）", href: "/stp/finance/payment-groups", icon: Wallet },
-          { name: "経費申請", href: "/stp/expenses/new", icon: Plus },
+          { name: "社内経費申請", href: "/stp/expenses/new", icon: Plus },
           { name: "売掛金年齢表", href: "/stp/finance/aging", icon: Clock },
           { name: "契約別ステータス", href: "/stp/finance/contract-status", icon: CheckCircle2 },
           { name: "代理店別サマリー", href: "/stp/finance/agent-summary", icon: Users },

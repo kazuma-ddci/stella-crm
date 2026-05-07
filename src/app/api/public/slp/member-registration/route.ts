@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { sendSlpContract, isRemindable, isRemindExpired, recordContractAttempt } from "@/lib/slp-cloudsign";
+import {
+  sendSlpContract,
+  sendSlpRemind,
+  isRemindable,
+  recordContractAttempt,
+} from "@/lib/slp-cloudsign";
+import { sendSlpRemindLegacy } from "@/lib/slp-cloudsign-legacy";
 import { logAutomationError } from "@/lib/automation-error";
 import { submitProlineForm } from "@/lib/proline-form";
 import { generateWatermarkCode } from "@/lib/watermark";
+import { sendMemberNotification } from "@/lib/slp/slp-member-notification";
+import { formatJpDate } from "@/lib/date-format-jp";
 
 interface RegistrationData {
   memberCategory: string;
@@ -26,8 +34,7 @@ interface RegistrationData {
  *
  * - "success"           : 新規登録＋契約書送付完了
  * - "already_signed"    : 既に契約締結済み
- * - "already_sent"      : 契約書送付済み（リマインド可能期間内）
- * - "remind_expired"    : 契約書の期限切れ（再送付は公式LINEへ）
+ * - "already_sent"      : 契約書送付済み（自動リマインド試行後の状態を autoRemindSent / autoRemindError で返す）
  * - "email_changed"     : メールアドレス変更＋契約書再送付完了（並行方式）
  * - "email_diff"        : 異なるメールアドレスで送信された（変更確認を促す）
  * - "form_locked"       : フォームから完全に操作不可（公式LINE案内）
@@ -402,30 +409,114 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // ─── (D-2) メールアドレス同じ → リマインド判定 ───
-        if (isRemindExpired(existingMember.contractSentDate)) {
+        // ─── (D-2) メールアドレス同じ → 自動リマインド試行 ───
+        // フォーム送信時点で CloudSign リマインド + LINE 通知を発火させる。
+        // 期限の有無に関わらず一律試行し、失敗時のみ手動リマインドボタンへフォールバック。
+        let autoRemindSent = false;
+        let autoRemindError = false;
+        try {
+          const remindContract = await prisma.masterContract.findFirst({
+            where: {
+              slpMemberId: existingMember.id,
+              cloudsignStatus: "sent",
+              cloudsignDocumentId: { not: null },
+            },
+            orderBy: { createdAt: "desc" },
+          });
+
+          if (remindContract) {
+            await sendSlpRemind(remindContract.id);
+          } else if (existingMember.documentId) {
+            await sendSlpRemindLegacy(existingMember.documentId);
+          } else {
+            throw new Error("リマインド対象の CloudSign 書類が見つかりません");
+          }
+
+          await prisma.slpMember.update({
+            where: { id: existingMember.id },
+            data: {
+              reminderCount: existingMember.reminderCount + 1,
+              lastReminderSentAt: new Date(),
+              formSubmittedAt: new Date(),
+              resubmitted: true,
+            },
+          });
+
+          // LINE 通知（fire-and-forget）— フォーム送信経由用テンプレ
+          if (existingMember.uid && existingMember.email) {
+            const sentDateJp = formatJpDate(existingMember.contractSentDate);
+            sendMemberNotification({
+              trigger: "contract_reminder_form_submitted",
+              memberUid: existingMember.uid,
+              context: {
+                memberName: existingMember.name,
+                contractSentDate: sentDateJp,
+                contractSentEmail: existingMember.email,
+              },
+            })
+              .then(async (r) => {
+                if (!r.ok) {
+                  await logAutomationError({
+                    source: "slp-member-registration/contract_reminder_form_submitted",
+                    message: `フォーム経由リマインドLINE送信失敗: ${existingMember.name}`,
+                    detail: {
+                      memberId: existingMember.id,
+                      uid: existingMember.uid,
+                      email: existingMember.email,
+                      errorMessage: r.errorMessage,
+                      retryAction: "contract-reminder",
+                    },
+                  });
+                }
+              })
+              .catch(async (err) => {
+                await logAutomationError({
+                  source: "slp-member-registration/contract_reminder_form_submitted",
+                  message: `フォーム経由リマインドLINE呼び出し失敗: ${existingMember.name}`,
+                  detail: {
+                    memberId: existingMember.id,
+                    uid: existingMember.uid,
+                    email: existingMember.email,
+                    error: err instanceof Error ? err.message : String(err),
+                    retryAction: "contract-reminder",
+                  },
+                });
+              });
+          }
+
+          autoRemindSent = true;
+        } catch (err) {
+          autoRemindError = true;
+          await logAutomationError({
+            source: "slp-member-registration",
+            message: `自動リマインド送信失敗: ${existingMember.name}`,
+            detail: {
+              uid: data.uid,
+              memberId: existingMember.id,
+              error: err instanceof Error ? err.message : String(err),
+              retryAction: "cloudsign-remind",
+            },
+          });
+          // 失敗時も formSubmittedAt は更新しておく（再送信痕跡として）
           await prisma.slpMember.update({
             where: { id: existingMember.id },
             data: { resubmitted: true, formSubmittedAt: new Date() },
           });
-
-          return NextResponse.json({
-            success: true,
-            type: "remind_expired",
-            sentDate: existingMember.contractSentDate?.toISOString() || null,
-            email: existingMember.email,
-          });
         }
 
-        // リマインド可能期間内
         return NextResponse.json({
           success: true,
           type: "already_sent",
           sentDate: existingMember.contractSentDate?.toISOString() || null,
           email: existingMember.email,
           documentId: existingMember.documentId,
-          canRemind: isRemindable(existingMember.contractSentDate),
+          // 自動リマインドが成功したら手動ボタンは出さない
+          canRemind:
+            !autoRemindSent &&
+            isRemindable(existingMember.contractSentDate),
           emailChangeAvailable: !existingMember.emailChangeUsed,
+          autoRemindSent,
+          autoRemindError,
         });
       }
 

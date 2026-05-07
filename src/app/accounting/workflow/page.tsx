@@ -33,7 +33,7 @@ export default async function AccountingWorkflowPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="text-2xl font-bold text-purple-600">{pendingApproval}</div>
-            <p className="text-sm text-muted-foreground">経理承認待ち</p>
+            <p className="text-sm text-muted-foreground">承認済み・支払対応待ち</p>
           </CardContent>
         </Card>
         <Card>

@@ -32,6 +32,8 @@ type Props = {
   onConfirmed?: () => void;
   expenseCategories: { id: number; name: string; type: string }[];
   transactionType: "revenue" | "expense";
+  initialEdit?: boolean;
+  closeOnCancelEdit?: boolean;
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -56,6 +58,16 @@ function toDateInputValue(d: Date | string | null): string {
   return toLocalDateString(date);
 }
 
+function formatProjectName(
+  project: { name: string } | null,
+  costCenter: { name: string } | null
+): string {
+  if (project) {
+    return project.name;
+  }
+  return costCenter?.name ?? "-";
+}
+
 export function TransactionPreviewModal({
   transactionId,
   open,
@@ -63,6 +75,8 @@ export function TransactionPreviewModal({
   onConfirmed,
   expenseCategories,
   transactionType,
+  initialEdit = false,
+  closeOnCancelEdit = false,
 }: Props) {
   const router = useRouter();
   const [transaction, setTransaction] = useState<TransactionData | null>(null);
@@ -117,9 +131,9 @@ export function TransactionPreviewModal({
   useEffect(() => {
     if (open) {
       loadTransaction();
-      setIsEditing(false);
+      setIsEditing(initialEdit);
     }
-  }, [open, loadTransaction]);
+  }, [open, loadTransaction, initialEdit]);
 
   const handleAmountChange = (val: string) => {
     setAmount(val);
@@ -148,6 +162,10 @@ export function TransactionPreviewModal({
   };
 
   const handleCancelEdit = () => {
+    if (closeOnCancelEdit) {
+      onClose();
+      return;
+    }
     if (transaction) {
       setExpenseCategoryId(String(transaction.expenseCategoryId));
       setAmount(String(transaction.amount));
@@ -160,6 +178,11 @@ export function TransactionPreviewModal({
       setNote(transaction.note ?? "");
     }
     setIsEditing(false);
+  };
+
+  const handleOpenDetailPage = () => {
+    onClose();
+    router.push(`/stp/finance/transactions/${transactionId}`);
   };
 
   const buildUpdateData = () => {
@@ -303,17 +326,19 @@ export function TransactionPreviewModal({
                     </span>
                   </div>
                   <div className="col-span-2">
-                    <span className="text-muted-foreground">
-                      {transaction.allocationTemplate ? "按分テンプレート:" : "プロジェクト:"}
-                    </span>{" "}
+                    <span className="text-muted-foreground">プロジェクト:</span>{" "}
                     <span className="font-medium">
-                      {transaction.allocationTemplate
-                        ? transaction.allocationTemplate.name
-                        : transaction.costCenter
-                          ? transaction.costCenter.name
-                          : "-"}
+                      {formatProjectName(transaction.project, transaction.costCenter)}
                     </span>
                   </div>
+                  {transaction.allocationTemplate && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">按分テンプレート:</span>{" "}
+                      <span className="font-medium">
+                        {transaction.allocationTemplate.name}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   これらの変更は詳細ページで行ってください
@@ -410,14 +435,14 @@ export function TransactionPreviewModal({
                 </div>
               </div>
 
-              {/* 備考 */}
+              {/* 摘要 */}
               <div>
-                <Label htmlFor="preview-note">備考</Label>
+                <Label htmlFor="preview-note">摘要</Label>
                 <Input
                   id="preview-note"
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
-                  placeholder="任意"
+                  placeholder="請求書・支払明細に表示する内容"
                   className="mt-1"
                 />
               </div>
@@ -442,17 +467,21 @@ export function TransactionPreviewModal({
                   <dd className="mt-0.5">{transaction.expenseCategory?.name ?? "（未設定）"}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground font-medium">
-                    {transaction.allocationTemplate ? "按分テンプレート" : "プロジェクト"}
-                  </dt>
+                  <dt className="text-muted-foreground font-medium">プロジェクト</dt>
                   <dd className="mt-0.5">
-                    {transaction.allocationTemplate
-                      ? transaction.allocationTemplate.name
-                      : transaction.costCenter
-                        ? transaction.costCenter.name
-                        : "-"}
+                    {formatProjectName(transaction.project, transaction.costCenter)}
                   </dd>
                 </div>
+                {transaction.allocationTemplate && (
+                  <div>
+                    <dt className="text-muted-foreground font-medium">
+                      按分テンプレート
+                    </dt>
+                    <dd className="mt-0.5">
+                      {transaction.allocationTemplate.name}
+                    </dd>
+                  </div>
+                )}
               </dl>
 
               <hr />
@@ -560,13 +589,13 @@ export function TransactionPreviewModal({
                 </>
               )}
 
-              {/* 備考 */}
+              {/* 摘要 */}
               {transaction.note && (
                 <>
                   <hr />
                   <div>
                     <dt className="text-sm text-muted-foreground font-medium">
-                      備考
+                      摘要
                     </dt>
                     <dd className="mt-0.5 text-sm whitespace-pre-wrap">
                       {transaction.note}
@@ -641,15 +670,9 @@ export function TransactionPreviewModal({
                   <Pencil className="mr-1 h-3.5 w-3.5" />
                   編集
                 </Button>
-                <Button variant="outline" size="sm" asChild>
-                  <a
-                    href={`/stp/finance/transactions/${transactionId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                    詳細ページ
-                  </a>
+                <Button variant="outline" size="sm" onClick={handleOpenDetailPage}>
+                  <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                  詳細ページ
                 </Button>
                 <Button
                   size="sm"
