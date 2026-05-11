@@ -29,11 +29,13 @@ type Props = {
   transactionId: number;
   open: boolean;
   onClose: () => void;
+  onSaved?: () => void | Promise<void>;
   onConfirmed?: () => void;
   expenseCategories: { id: number; name: string; type: string }[];
   transactionType: "revenue" | "expense";
   initialEdit?: boolean;
   closeOnCancelEdit?: boolean;
+  confirmOnlyEdit?: boolean;
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -72,11 +74,13 @@ export function TransactionPreviewModal({
   transactionId,
   open,
   onClose,
+  onSaved,
   onConfirmed,
   expenseCategories,
   transactionType,
   initialEdit = false,
   closeOnCancelEdit = false,
+  confirmOnlyEdit = false,
 }: Props) {
   const router = useRouter();
   const [transaction, setTransaction] = useState<TransactionData | null>(null);
@@ -234,6 +238,7 @@ export function TransactionPreviewModal({
         return;
       }
       await loadTransaction();
+      await onSaved?.();
       setIsEditing(false);
     } finally {
       setIsSaving(false);
@@ -643,21 +648,23 @@ export function TransactionPreviewModal({
                 <Button variant="outline" onClick={handleCancelEdit}>
                   キャンセル
                 </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleSave}
-                  disabled={isSaving}
-                >
-                  {isSaving && (
-                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                  )}
-                  保存
-                </Button>
+                {!confirmOnlyEdit && (
+                  <Button
+                    variant="outline"
+                    onClick={handleSave}
+                    disabled={isSaving}
+                  >
+                    {isSaving && (
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                    )}
+                    保存
+                  </Button>
+                )}
                 <Button onClick={handleSaveAndConfirm} disabled={isSaving}>
                   {isSaving && (
                     <Loader2 className="mr-1 h-4 w-4 animate-spin" />
                   )}
-                  保存して確定
+                  {confirmOnlyEdit ? "確定" : "保存して確定"}
                 </Button>
               </>
             ) : (

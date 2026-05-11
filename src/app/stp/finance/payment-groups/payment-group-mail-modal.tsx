@@ -984,7 +984,7 @@ export function PaymentGroupMailModal({
                   </div>
 
                   <div>
-                    <Label htmlFor="manual-note">備考（任意）</Label>
+                    <Label htmlFor="manual-note">送付メモ（任意）</Label>
                     <Textarea
                       id="manual-note"
                       value={manualNote}

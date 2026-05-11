@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import { requireEdit } from "@/lib/auth";
+import { getSession, requireEdit } from "@/lib/auth";
 import { generateInvoiceGroupNumber } from "@/lib/finance/invoice-number";
 import { recordChangeLog } from "@/app/finance/changelog/actions";
 import { requireStpProjectId } from "@/lib/project-context";
@@ -15,6 +15,14 @@ import { createNotificationBulk } from "@/lib/notifications/create-notification"
 import { createCounterpartyForCompany } from "@/lib/counterparty-sync";
 import { syncPaymentDateToRevenueRecords } from "@/lib/accounting/sync-payment-date";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+
+type SentInvoiceRecreateOptions = {
+  allowSentRecreate?: boolean;
+};
+
+function isInvoiceEditableStatus(status: string, options?: SentInvoiceRecreateOptions) {
+  return ["draft", "pdf_created"].includes(status) || (status === "sent" && options?.allowSentRecreate === true);
+}
 
 // ============================================
 // 税額計算ヘルパー（グループレベル一括計算）
@@ -86,12 +94,14 @@ function getInvoiceGroupProjectActions(group: {
 // ============================================
 
 import type {
+  InvoiceGroupCandidateTransaction,
   InvoiceGroupListItem,
   UngroupedAllocationItem,
   UngroupedTransaction,
 } from "./types";
 
 export type {
+  InvoiceGroupCandidateTransaction,
   InvoiceGroupListItem,
   UngroupedAllocationItem,
   UngroupedTransaction,
@@ -360,6 +370,81 @@ export async function getUngroupedTransactions(
     periodTo: toLocalDateString(r.periodTo),
     note: r.note,
   }));
+}
+
+export async function getInvoiceGroupCandidateTransactions(
+  groupId: number
+): Promise<InvoiceGroupCandidateTransaction[]> {
+  await getSession();
+  const stpProjectId = await requireStpProjectId();
+  const group = await prisma.invoiceGroup.findUnique({
+    where: { id: groupId, deletedAt: null, projectId: stpProjectId },
+    select: { id: true, counterpartyId: true },
+  });
+  if (!group) return [];
+
+  const records = await prisma.transaction.findMany({
+    where: {
+      deletedAt: null,
+      type: "revenue",
+      projectId: stpProjectId,
+      allocationTemplateId: null,
+      OR: [
+        { counterpartyId: group.counterpartyId },
+        { invoiceGroupId: group.id },
+      ],
+    },
+    include: {
+      counterparty: { select: { id: true, name: true } },
+      expenseCategory: { select: { name: true } },
+      invoiceGroup: { select: { id: true, invoiceNumber: true } },
+    },
+    orderBy: [{ periodFrom: "desc" }, { id: "desc" }],
+  });
+
+  return records.map((r) => {
+    const isCurrent = r.invoiceGroupId === group.id;
+    const isAvailable = r.status === "confirmed" && r.invoiceGroupId === null;
+    const addState =
+      isCurrent
+        ? "current"
+        : r.invoiceGroupId !== null
+          ? "other_group"
+          : r.status !== "confirmed"
+            ? "unconfirmed"
+            : "available";
+    const addStateLabel =
+      addState === "current"
+        ? "このグループに追加済み"
+        : addState === "other_group"
+          ? "他グループに紐付け済み"
+          : addState === "unconfirmed"
+            ? "未確定"
+            : "未紐付け";
+
+    return {
+      id: r.id,
+      type: r.type,
+      status: r.status,
+      counterpartyId: r.counterpartyId,
+      counterpartyName: r.counterparty.name,
+      expenseCategoryName: r.expenseCategory?.name ?? "（未設定）",
+      amount: r.amount,
+      taxAmount: r.taxAmount,
+      taxRate: r.taxRate,
+      taxType: r.taxType,
+      periodFrom: toLocalDateString(r.periodFrom),
+      periodTo: toLocalDateString(r.periodTo),
+      note: r.note,
+      invoiceGroupId: r.invoiceGroupId,
+      invoiceGroupLabel:
+        r.invoiceGroup?.invoiceNumber ??
+        (r.invoiceGroupId ? `請求 #${r.invoiceGroupId}` : null),
+      addState,
+      addStateLabel,
+      isAddable: isAvailable,
+    };
+  });
 }
 
 // 未処理の按分取引（売上側、このPJのCostCenter分でまだAllocationGroupItemがない）
@@ -678,7 +763,8 @@ export async function updateInvoiceGroup(
     honorific?: string;
     remarks?: string | null;
     lineDescriptions?: Record<string, string> | null;
-  }
+  },
+  options?: SentInvoiceRecreateOptions
 ): Promise<ActionResult> {
   try {
     const user = await requireEdit("stp");
@@ -715,7 +801,7 @@ export async function updateInvoiceGroup(
     // 送付済み以降・返送は編集不可（actualPaymentDateのみは例外）
     if (
       !onlyActualPaymentDate &&
-      ["sent", "awaiting_accounting", "partially_paid", "paid", "corrected", "returned"].includes(group.status)
+      !isInvoiceEditableStatus(group.status, options)
     ) {
       return err("このステータスでは編集できません");
     }
@@ -791,6 +877,9 @@ export async function updateInvoiceGroup(
       oldData.actualPaymentDate = group.actualPaymentDate ? toLocalDateString(group.actualPaymentDate) : null;
       newData.actualPaymentDate = data.actualPaymentDate ?? null;
     }
+    if (group.status === "sent" && options?.allowSentRecreate === true && Object.keys(newData).length > 0) {
+      newData.recreateSentInvoice = true;
+    }
 
     await prisma.$transaction(async (tx) => {
       await tx.invoiceGroup.update({
@@ -829,7 +918,8 @@ export async function updateInvoiceGroup(
 export async function updateInvoiceGroupTransactionNote(
   groupId: number,
   transactionId: number,
-  note: string | null
+  note: string | null,
+  options?: SentInvoiceRecreateOptions
 ): Promise<ActionResult> {
   try {
     const user = await requireEdit("stp");
@@ -840,7 +930,7 @@ export async function updateInvoiceGroupTransactionNote(
       select: { id: true, status: true },
     });
     if (!group) return err("請求が見つかりません");
-    if (!["draft", "pdf_created"].includes(group.status)) {
+    if (!isInvoiceEditableStatus(group.status, options)) {
       return err("このステータスでは摘要を編集できません");
     }
 
@@ -902,7 +992,8 @@ export async function updateInvoiceGroupTransactionNote(
 
 export async function addTransactionToGroup(
   groupId: number,
-  transactionIds: number[]
+  transactionIds: number[],
+  options?: SentInvoiceRecreateOptions
 ): Promise<ActionResult> {
   try {
     const user = await requireEdit("stp");
@@ -915,7 +1006,7 @@ export async function addTransactionToGroup(
     if (!group) return err("請求が見つかりません");
 
     // 下書き・PDF作成済みのみ追加可能
-    if (!["draft", "pdf_created"].includes(group.status)) {
+    if (!isInvoiceEditableStatus(group.status, options)) {
       return err("このステータスでは取引を追加できません");
     }
 
@@ -1020,7 +1111,8 @@ export async function addTransactionToGroup(
 
 export async function removeTransactionFromGroup(
   groupId: number,
-  transactionId: number
+  transactionId: number,
+  options?: SentInvoiceRecreateOptions
 ): Promise<ActionResult> {
   try {
     const user = await requireEdit("stp");
@@ -1033,7 +1125,7 @@ export async function removeTransactionFromGroup(
     if (!group) return err("請求が見つかりません");
 
     // 下書き・PDF作成済みのみ削除可能
-    if (!["draft", "pdf_created"].includes(group.status)) {
+    if (!isInvoiceEditableStatus(group.status, options)) {
       return err("このステータスでは取引を削除できません");
     }
 
@@ -1337,7 +1429,7 @@ export async function updateInvoiceGroupStatus(
       sent: ["awaiting_accounting", "corrected"],
       awaiting_accounting: ["partially_paid", "paid", "returned", "corrected"],
       partially_paid: ["paid"],
-      returned: ["draft"],
+      returned: ["sent"],
     };
 
     const allowed = validTransitions[group.status] ?? [];
@@ -1441,7 +1533,8 @@ export async function recalcInvoiceGroupTotals(
 // ============================================
 
 export async function generateInvoicePdf(
-  groupId: number
+  groupId: number,
+  options?: SentInvoiceRecreateOptions
 ): Promise<ActionResult<{ pdfPath: string; invoiceNumber: string }>> {
  try {
   const user = await requireEdit("stp");
@@ -1463,7 +1556,7 @@ export async function generateInvoicePdf(
     }
 
     // draft または pdf_created のみPDF生成可能
-    if (!["draft", "pdf_created"].includes(group.status)) {
+    if (!isInvoiceEditableStatus(group.status, options)) {
       throw new Error("このステータスではPDFを生成できません");
     }
 
@@ -1900,7 +1993,8 @@ export async function getInvoiceGroupDetail(groupId: number) {
 export async function addMemoLine(
   groupId: number,
   description: string,
-  sortOrder?: number
+  sortOrder?: number,
+  options?: SentInvoiceRecreateOptions
 ): Promise<ActionResult<{ id: number }>> {
   try {
     await requireEdit("stp");
@@ -1910,7 +2004,7 @@ export async function addMemoLine(
       where: { id: groupId, deletedAt: null, projectId: stpProjectId },
     });
     if (!group) return err("請求が見つかりません");
-    if (!["draft", "pdf_created"].includes(group.status)) {
+    if (!isInvoiceEditableStatus(group.status, options)) {
       return err("このステータスではメモ行を追加できません");
     }
 
@@ -1939,7 +2033,8 @@ export async function addMemoLine(
 
 export async function updateMemoLine(
   memoLineId: number,
-  description: string
+  description: string,
+  options?: SentInvoiceRecreateOptions
 ): Promise<ActionResult> {
   try {
     await requireEdit("stp");
@@ -1949,7 +2044,7 @@ export async function updateMemoLine(
       include: { invoiceGroup: true },
     });
     if (!line) return err("メモ行が見つかりません");
-    if (!["draft", "pdf_created"].includes(line.invoiceGroup.status)) {
+    if (!isInvoiceEditableStatus(line.invoiceGroup.status, options)) {
       return err("このステータスではメモ行を編集できません");
     }
 
@@ -1966,7 +2061,10 @@ export async function updateMemoLine(
   }
 }
 
-export async function deleteMemoLine(memoLineId: number): Promise<ActionResult> {
+export async function deleteMemoLine(
+  memoLineId: number,
+  options?: SentInvoiceRecreateOptions
+): Promise<ActionResult> {
   try {
     await requireEdit("stp");
 
@@ -1975,7 +2073,7 @@ export async function deleteMemoLine(memoLineId: number): Promise<ActionResult> 
       include: { invoiceGroup: true },
     });
     if (!line) return err("メモ行が見つかりません");
-    if (!["draft", "pdf_created"].includes(line.invoiceGroup.status)) {
+    if (!isInvoiceEditableStatus(line.invoiceGroup.status, options)) {
       return err("このステータスではメモ行を削除できません");
     }
 
@@ -1997,7 +2095,8 @@ export async function deleteMemoLine(memoLineId: number): Promise<ActionResult> 
 
 export async function updateLineOrder(
   groupId: number,
-  lineOrder: string[]
+  lineOrder: string[],
+  options?: SentInvoiceRecreateOptions
 ): Promise<ActionResult> {
   try {
     const user = await requireEdit("stp");
@@ -2007,7 +2106,7 @@ export async function updateLineOrder(
       where: { id: groupId, deletedAt: null, projectId: stpProjectId },
     });
     if (!group) return err("請求が見つかりません");
-    if (!["draft", "pdf_created"].includes(group.status)) {
+    if (!isInvoiceEditableStatus(group.status, options)) {
       return err("このステータスでは並び順を変更できません");
     }
 

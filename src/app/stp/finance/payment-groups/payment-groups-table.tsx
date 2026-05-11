@@ -35,7 +35,6 @@ type StatusTab =
   | "requested"
   | "invoice_received"
   | "rejected"
-  | "confirmed"
   | "awaiting_payment"
   | "paid";
 
@@ -46,9 +45,10 @@ const STATUS_LABELS: Record<string, string> = {
   invoice_received: "請求書受領",
   rejected: "差し戻し",
   re_requested: "再依頼済み",
-  confirmed: "確認済み",
+  confirmed: "請求書受領",
   unprocessed: "未処理",
   awaiting_accounting: "経理引渡済み",
+  returned: "差し戻し",
   paid: "支払済み",
 };
 
@@ -59,9 +59,10 @@ const STATUS_STYLES: Record<string, string> = {
   invoice_received: "bg-yellow-100 text-yellow-700",
   rejected: "bg-red-100 text-red-700",
   re_requested: "bg-indigo-100 text-indigo-700",
-  confirmed: "bg-emerald-100 text-emerald-700",
+  confirmed: "bg-yellow-100 text-yellow-700",
   unprocessed: "bg-orange-100 text-orange-700",
   awaiting_accounting: "bg-purple-100 text-purple-700",
+  returned: "bg-red-100 text-red-700",
   paid: "bg-green-100 text-green-700",
 };
 
@@ -106,17 +107,12 @@ const TAB_DEFS: TabDef[] = [
   {
     key: "invoice_received",
     label: "請求書受領",
-    filter: (r) => r.status === "invoice_received",
+    filter: (r) => r.status === "invoice_received" || r.status === "confirmed",
   },
   {
     key: "rejected",
     label: "差し戻し",
     filter: (r) => r.status === "rejected",
-  },
-  {
-    key: "confirmed",
-    label: "確認済み",
-    filter: (r) => r.status === "confirmed",
   },
   {
     key: "awaiting_payment",
@@ -415,7 +411,7 @@ export function PaymentGroupsTable({
                     className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {row.status === "confirmed" ? (
+                    {row.status === "invoice_received" || row.status === "confirmed" ? (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button
@@ -499,6 +495,7 @@ export function PaymentGroupsTable({
           counterpartyOptions={counterpartyOptions}
           operatingCompanyOptions={operatingCompanyOptions}
           expenseCategories={expenseCategories}
+          projectId={projectId}
           canEditAccounting={canEditAccounting}
         />
       )}

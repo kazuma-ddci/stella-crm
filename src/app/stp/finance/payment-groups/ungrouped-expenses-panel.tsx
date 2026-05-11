@@ -13,7 +13,6 @@ import {
   Eye,
   Pencil,
   CheckCircle2,
-  Sparkles,
 } from "lucide-react";
 import type {
   UngroupedExpenseTransaction,
@@ -22,7 +21,6 @@ import type {
 } from "./actions";
 import { CreatePaymentGroupModal } from "./create-payment-group-modal";
 import { TransactionPreviewModal } from "../transactions/transaction-preview-modal";
-import { CandidateDetectionPanel } from "./candidate-detection-panel";
 
 type Props = {
   ungroupedTransactions: UngroupedExpenseTransaction[];
@@ -60,7 +58,6 @@ export function UngroupedExpensesPanel({
     string | null
   >(null);
   const [previewTxId, setPreviewTxId] = useState<number | null>(null);
-  const [showCandidatePanel, setShowCandidatePanel] = useState(false);
 
   // 取引先ごとにグループ化（confirmed + unconfirmed を統合）
   const counterpartyGroups = useMemo(() => {
@@ -131,20 +128,9 @@ export function UngroupedExpensesPanel({
   const totalConfirmed = ungroupedTransactions.filter((t) => t.status === "confirmed").length;
   const totalUnconfirmed = ungroupedTransactions.filter((t) => t.status === "unconfirmed").length;
 
-  if (ungroupedTransactions.length === 0 && ungroupedAllocationItems.length === 0 && !showCandidatePanel) {
+  if (ungroupedTransactions.length === 0 && ungroupedAllocationItems.length === 0) {
     return (
       <div className="space-y-4">
-        {/* 候補検出ボタン */}
-        <div className="flex justify-end">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowCandidatePanel(true)}
-          >
-            <Sparkles className="mr-1 h-4 w-4" />
-            契約から候補を検出
-          </Button>
-        </div>
         <div className="text-center py-12 text-muted-foreground">
           未処理の経費取引はありません
         </div>
@@ -166,8 +152,8 @@ export function UngroupedExpensesPanel({
 
   return (
     <div className="space-y-4">
-      {/* 候補検出セクション */}
-      <div className="flex items-center justify-between">
+      {/* 未処理取引サマリー */}
+      {(totalConfirmed > 0 || totalUnconfirmed > 0) && (
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
           {totalConfirmed > 0 && (
             <span className="inline-flex items-center gap-1">
@@ -182,22 +168,6 @@ export function UngroupedExpensesPanel({
             </span>
           )}
         </div>
-        <Button
-          variant={showCandidatePanel ? "secondary" : "outline"}
-          size="sm"
-          onClick={() => setShowCandidatePanel(!showCandidatePanel)}
-        >
-          <Sparkles className="mr-1 h-4 w-4" />
-          契約から候補を検出
-        </Button>
-      </div>
-
-      {/* 候補検出パネル */}
-      {showCandidatePanel && (
-        <CandidateDetectionPanel
-          expenseCategories={expenseCategories}
-          onClose={() => setShowCandidatePanel(false)}
-        />
       )}
 
       {/* 按分取引セクション */}

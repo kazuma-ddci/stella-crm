@@ -48,11 +48,11 @@ export function PaymentGroupsPageClient({
     (r) => r.status === "pending_approval"
   ).length;
   const actionRequiredCount = data.filter(
-    (r) => ["pending_approval", "before_request", "invoice_received", "rejected"].includes(r.status)
+    (r) => ["pending_approval", "before_request", "invoice_received", "confirmed", "rejected"].includes(r.status)
   ).length;
   const totalAmount = data.reduce((sum, r) => sum + (r.totalAmount ?? 0), 0);
-  const confirmedAmount = data
-    .filter((r) => ["confirmed", "paid"].includes(r.status))
+  const preHandoverAmount = data
+    .filter((r) => ["invoice_received", "confirmed"].includes(r.status))
     .reduce((sum, r) => sum + (r.totalAmount ?? 0), 0);
 
   // 下書き（pending_approval / before_request）の支払グループ
@@ -138,10 +138,10 @@ export function PaymentGroupsPageClient({
               <Card>
                 <CardContent className="pt-6">
                   <div className="text-sm text-muted-foreground">
-                    確認済み
+                    引渡前
                   </div>
                   <div className="text-2xl font-bold text-blue-600">
-                    ¥{confirmedAmount.toLocaleString()}
+                    ¥{preHandoverAmount.toLocaleString()}
                   </div>
                 </CardContent>
               </Card>

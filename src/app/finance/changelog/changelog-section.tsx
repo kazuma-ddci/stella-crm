@@ -59,7 +59,7 @@ const FIELD_LABELS: Record<string, string> = {
   projectId: "プロジェクト",
   paymentMethodId: "決済手段",
   paymentDueDate: "支払期日",
-  note: "備考",
+  note: "摘要",
   status: "ステータス",
   isWithholdingTarget: "源泉徴収対象",
   withholdingTaxRate: "源泉徴収税率",

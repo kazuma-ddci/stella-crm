@@ -50,7 +50,10 @@ export default async function ExpenseCategoriesPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">費目マスタ</h1>
+      <h1 className="text-2xl font-bold">費目</h1>
+      <p className="text-sm text-muted-foreground">
+        売上・経費取引の分類、予実管理、定期取引、自動仕訳ルールで使う分類です。
+      </p>
       <Card>
         <CardHeader>
           <CardTitle>費目一覧</CardTitle>

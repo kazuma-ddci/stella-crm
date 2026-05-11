@@ -102,7 +102,7 @@ function NextActionCard({ detail }: { detail: WorkflowGroupDetail }) {
     body = "内容を確認して、経理承認を行ってください。";
   } else if (detail.category === "return_requested") {
     body = "プロジェクト側から差し戻し依頼が届いています。内容を確認し、必要であればプロジェクトへ差し戻してください。";
-    tone = "border-amber-300 bg-amber-50 text-amber-900";
+    tone = "border-red-300 bg-red-50 text-red-900";
   } else if (detail.category === "needs_journal") {
     body = "未仕訳の取引に仕訳を作成し、取引ごとの「仕訳完了」を付けてください。";
   } else if (detail.category === "needs_realization") {
@@ -335,9 +335,13 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
         <CategoryBadge category={detail.category} />
         {!isReadOnly && (
           <Button
-            variant="outline"
+            variant={detail.returnRequestStatus === "requested" ? "default" : "outline"}
             size="sm"
-            className="ml-auto text-amber-600 border-amber-300 hover:bg-amber-50"
+            className={
+              detail.returnRequestStatus === "requested"
+                ? "ml-auto bg-red-600 text-white hover:bg-red-700"
+                : "ml-auto text-red-600 border-red-300 hover:bg-red-50"
+            }
             onClick={() => setShowReturnDialog(true)}
           >
             <Undo2 className="h-4 w-4 mr-1" />
@@ -347,12 +351,12 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
       </div>
 
       {detail.returnRequestStatus === "requested" && (
-        <Card className="border-amber-300 bg-amber-50">
-          <CardContent className="pt-4 text-sm text-amber-900">
+        <Card className="border-red-300 bg-red-50">
+          <CardContent className="pt-4 text-sm text-red-900">
             <p className="font-semibold">プロジェクト側から差し戻し依頼が届いています</p>
             <p className="mt-1 whitespace-pre-wrap">{detail.returnRequestReason}</p>
             {detail.returnRequestedAt && (
-              <p className="mt-2 text-xs text-amber-800">
+              <p className="mt-2 text-xs text-red-800">
                 依頼日: {new Date(detail.returnRequestedAt).toLocaleDateString("ja-JP")}
               </p>
             )}
@@ -564,7 +568,7 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
             </div>
 
             {tx.note && (
-              <p className="text-sm text-muted-foreground mb-4">メモ: {tx.note}</p>
+              <p className="text-sm text-muted-foreground mb-4">摘要: {tx.note}</p>
             )}
 
             {/* 仕訳一覧 */}

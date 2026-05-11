@@ -1056,13 +1056,13 @@ export function TransactionForm({ formData, transaction, projectContext, linkedG
           <CardTitle>その他</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* メモ */}
+          {/* 摘要 */}
           <div className="space-y-2">
-            <Label>摘要・メモ</Label>
+            <Label>摘要</Label>
             <Textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="メモを入力..."
+              placeholder="摘要を入力..."
               rows={3}
             />
           </div>

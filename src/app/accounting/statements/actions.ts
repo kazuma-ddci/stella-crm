@@ -26,6 +26,7 @@ export type StatementCompanyOption = {
     accountNumber: string;
     accountType: string;
     accountHolderName: string;
+    note: string | null;
   }[];
 };
 
@@ -54,6 +55,7 @@ export async function listStatementCompanyOptions(): Promise<
           accountNumber: true,
           accountType: true,
           accountHolderName: true,
+          note: true,
         },
       },
     },
@@ -69,6 +71,7 @@ export async function listStatementCompanyOptions(): Promise<
       accountNumber: b.accountNumber,
       accountType: b.accountType,
       accountHolderName: b.accountHolderName,
+      note: b.note,
     })),
   }));
 }

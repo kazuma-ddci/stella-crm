@@ -62,6 +62,7 @@ type InvoiceBuilderTabProps = {
   paymentDueDate?: string;
   onInvoiceDateChange?: (date: string) => void;
   onPaymentDueDateChange?: (date: string) => void;
+  allowSentRecreate?: boolean;
 };
 
 // getInvoiceGroupDetail から返されるデータの型
@@ -177,12 +178,14 @@ function SortableOrderItem({
   value,
   onChangeValue,
   onDelete,
+  disabled,
 }: {
   id: string;
   type: "tx" | "memo";
   value: string;
   onChangeValue: (value: string) => void;
   onDelete?: () => void;
+  disabled?: boolean;
 }) {
   const {
     attributes,
@@ -209,13 +212,15 @@ function SortableOrderItem({
       <button
         {...attributes}
         {...listeners}
-        className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 shrink-0"
+        disabled={disabled}
+        className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <GripVertical className="h-3.5 w-3.5" />
       </button>
       <Input
         value={value}
         onChange={(e) => onChangeValue(e.target.value)}
+        disabled={disabled}
         placeholder={type === "memo" ? "メモ行の内容を入力..." : ""}
         className="flex-1 h-7 text-xs border-0 shadow-none focus-visible:ring-0 px-1"
       />
@@ -223,6 +228,7 @@ function SortableOrderItem({
         <button
           type="button"
           onClick={onDelete}
+          disabled={disabled}
           className="shrink-0 text-red-400 hover:text-red-600"
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -236,7 +242,7 @@ function SortableOrderItem({
 // コンポーネント
 // ============================================
 
-export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, isEditable = true, invoiceDate: invoiceDateProp, paymentDueDate: paymentDueDateProp, onInvoiceDateChange, onPaymentDueDateChange }: InvoiceBuilderTabProps) {
+export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, isEditable = true, invoiceDate: invoiceDateProp, paymentDueDate: paymentDueDateProp, onInvoiceDateChange, onPaymentDueDateChange, allowSentRecreate = false }: InvoiceBuilderTabProps) {
   // データロード状態
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -321,6 +327,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
   // ============================================
 
   const handleAddMemoLine = () => {
+    if (!isEditable) return;
     const tempId = nextTempId();
     const newMemo: LocalMemoLine = {
       id: tempId,
@@ -334,12 +341,14 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
   };
 
   const handleUpdateMemoDescription = (id: number, description: string) => {
+    if (!isEditable) return;
     setMemoLines((prev) =>
       prev.map((ml) => (ml.id === id ? { ...ml, description } : ml))
     );
   };
 
   const handleDeleteMemoLine = (id: number) => {
+    if (!isEditable) return;
     if (id < 0) {
       // 新規（未保存）のメモ行は直接削除
       setMemoLines((prev) => prev.filter((ml) => ml.id !== id));
@@ -401,6 +410,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
   );
 
   const handleDragEnd = (event: DragEndEvent) => {
+    if (!isEditable) return;
     const { active, over } = event;
     if (over && active.id !== over.id) {
       setLineOrderState((prev) => {
@@ -441,7 +451,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
           invoiceDate: invoiceDate || null,
           paymentDueDate: paymentDueDate || null,
           lineDescriptions: Object.keys(cleanedDescriptions).length > 0 ? cleanedDescriptions : null,
-        });
+        }, { allowSentRecreate });
         if (!r.ok) {
           alert(r.error);
           return false;
@@ -455,7 +465,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
       // 新規メモ行を追加
       const memoLinesToAdd = memoLines.filter((ml) => ml.isNew && !ml.isDeleted);
       for (const ml of memoLinesToAdd) {
-        const result = await addMemoLine(groupId, ml.description, ml.sortOrder);
+        const result = await addMemoLine(groupId, ml.description, ml.sortOrder, { allowSentRecreate });
         if (!result.ok) {
           alert(result.error);
           return false;
@@ -471,7 +481,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
           ml.description !== ml.originalDescription
       );
       for (const ml of memoLinesToUpdate) {
-        const r = await updateMemoLine(ml.id, ml.description);
+        const r = await updateMemoLine(ml.id, ml.description, { allowSentRecreate });
         if (!r.ok) {
           alert(r.error);
           return false;
@@ -483,7 +493,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
         .filter((ml) => !ml.isNew && ml.isDeleted)
         .map((ml) => ml.id);
       for (const id of memoLineIdsToDelete) {
-        const r = await deleteMemoLine(id);
+        const r = await deleteMemoLine(id, { allowSentRecreate });
         if (!r.ok) {
           alert(r.error);
           return false;
@@ -506,7 +516,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
           return Number(idStr) > 0;
         });
       {
-        const r = await updateLineOrder(groupId, resolvedLineOrder);
+        const r = await updateLineOrder(groupId, resolvedLineOrder, { allowSentRecreate });
         if (!r.ok) {
           alert(r.error);
           return false;
@@ -539,7 +549,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
       if (!saved) return;
 
       // PDF生成
-      const result = await generateInvoicePdf(groupId);
+      const result = await generateInvoicePdf(groupId, { allowSentRecreate });
       if (!result.ok) {
         alert(result.error);
         return;
@@ -644,6 +654,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
           <RadioGroup
             value={honorific}
             onValueChange={setHonorific}
+            disabled={!isEditable}
             className="flex gap-3"
           >
             <div className="flex items-center gap-1.5">
@@ -671,6 +682,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
               id="invoiceDate"
               value={invoiceDate}
               onChange={setInvoiceDate}
+              disabled={!isEditable}
               placeholder="日付を選択"
               className="h-8 text-sm"
             />
@@ -683,6 +695,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
               id="paymentDueDate"
               value={paymentDueDate}
               onChange={setPaymentDueDate}
+              disabled={!isEditable}
               placeholder="日付を選択"
               className="h-8 text-sm"
             />
@@ -726,6 +739,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
                       type={item.type}
                       value={item.value}
                       onChangeValue={(val) => {
+                        if (!isEditable) return;
                         if (item.type === "tx") {
                           setLineDescriptions((prev) => ({
                             ...prev,
@@ -740,6 +754,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
                           ? () => handleDeleteMemoLine(id)
                           : undefined
                       }
+                      disabled={!isEditable}
                     />
                   );
                 })}
@@ -751,6 +766,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
             variant="outline"
             size="sm"
             onClick={handleAddMemoLine}
+            disabled={!isEditable}
             className="mt-1.5 h-7 text-xs"
           >
             <Plus className="h-3.5 w-3.5 mr-1" />
@@ -767,6 +783,7 @@ export function InvoiceBuilderTab({ groupId, onInvoiceCreated, onPdfGenerated, i
             id="remarks"
             value={remarks}
             onChange={(e) => setRemarks(e.target.value)}
+            disabled={!isEditable}
             rows={2}
             placeholder="備考を入力..."
             className="text-sm"

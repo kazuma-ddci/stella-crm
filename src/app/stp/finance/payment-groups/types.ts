@@ -83,6 +83,15 @@ export type UngroupedExpenseTransaction = {
   isConfidential: boolean;
 };
 
+export type PaymentGroupCandidateTransaction = Omit<UngroupedExpenseTransaction, "status"> & {
+  status: string;
+  paymentGroupId: number | null;
+  paymentGroupLabel: string | null;
+  addState: "available" | "current" | "other_group" | "unconfirmed";
+  addStateLabel: string;
+  isAddable: boolean;
+};
+
 export type PaymentGroupTransaction = {
   id: number;
   expenseCategoryName: string;

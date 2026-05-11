@@ -62,12 +62,14 @@ export function AuthenticatedLayout({
         Math.round(window.innerWidth - el.getBoundingClientRect().width)
       );
       document.documentElement.style.setProperty("--sidebar-w", `${sw}px`);
+      document.documentElement.style.setProperty("--sidebar-half-w", `${sw / 2}px`);
     });
     ro.observe(el);
     return () => {
       ro.disconnect();
       document.documentElement.style.removeProperty("--content-w");
       document.documentElement.style.removeProperty("--sidebar-w");
+      document.documentElement.style.removeProperty("--sidebar-half-w");
     };
   }, []);
 

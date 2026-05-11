@@ -86,3 +86,12 @@ export type UngroupedTransaction = {
   periodTo: string;
   note: string | null;
 };
+
+export type InvoiceGroupCandidateTransaction = UngroupedTransaction & {
+  status: string;
+  invoiceGroupId: number | null;
+  invoiceGroupLabel: string | null;
+  addState: "available" | "current" | "other_group" | "unconfirmed";
+  addStateLabel: string;
+  isAddable: boolean;
+};

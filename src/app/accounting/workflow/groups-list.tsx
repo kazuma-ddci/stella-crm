@@ -682,9 +682,9 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
       </div>
 
       <Tabs defaultValue={defaultTab}>
-        <TabsList>
+        <TabsList className="h-auto w-full flex-wrap justify-start gap-1 p-1">
           {projectOverdue.length > 0 && (
-            <TabsTrigger value="pending_project_overdue" className="gap-1">
+            <TabsTrigger value="pending_project_overdue" className="gap-1 whitespace-nowrap">
               <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
               未承認警告
               <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">
@@ -692,7 +692,7 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
               </Badge>
             </TabsTrigger>
           )}
-          <TabsTrigger value="pending_accounting_approval" className="gap-1">
+          <TabsTrigger value="pending_accounting_approval" className="gap-1 whitespace-nowrap">
             <UserCheck className="h-3.5 w-3.5" />
             承認済み・支払対応待ち
             {pendingApproval.length > 0 && (
@@ -701,7 +701,7 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="return_requested" className="gap-1">
+          <TabsTrigger value="return_requested" className="gap-1 whitespace-nowrap">
             <Undo2 className="h-3.5 w-3.5" />
             差し戻し依頼
             {returnRequested.length > 0 && (
@@ -710,7 +710,7 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="due_unrealized" className="gap-1">
+          <TabsTrigger value="due_unrealized" className="gap-1 whitespace-nowrap">
             <Clock className="h-3.5 w-3.5" />
             本日実現待ち
             {dueUnrealized.length > 0 && (
@@ -719,7 +719,7 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="needs_journal" className="gap-1">
+          <TabsTrigger value="needs_journal" className="gap-1 whitespace-nowrap">
             <AlertCircle className="h-3.5 w-3.5" />
             仕訳作成待ち
             {needsJournal.length > 0 && (
@@ -728,7 +728,7 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="needs_realization" className="gap-1">
+          <TabsTrigger value="needs_realization" className="gap-1 whitespace-nowrap">
             <Clock className="h-3.5 w-3.5" />
             仕訳実現待ち
             {needsRealization.length > 0 && (
@@ -737,7 +737,7 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="needs_statement_check" className="gap-1">
+          <TabsTrigger value="needs_statement_check" className="gap-1 whitespace-nowrap">
             <Link2 className="h-3.5 w-3.5" />
             入出金確認待ち
             {needsStatementCheck.length > 0 && (
@@ -746,7 +746,7 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="completed" className="gap-1">
+          <TabsTrigger value="completed" className="gap-1 whitespace-nowrap">
             <Check className="h-3.5 w-3.5" />
             完了
             <span className="ml-1 text-xs text-muted-foreground">
@@ -754,7 +754,7 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
             </span>
           </TabsTrigger>
           {returned.length > 0 && (
-            <TabsTrigger value="returned" className="gap-1">
+            <TabsTrigger value="returned" className="gap-1 whitespace-nowrap">
               <Ban className="h-3.5 w-3.5" />
               差し戻し中
               <Badge variant="outline" className="ml-1 h-5 px-1.5 text-xs">

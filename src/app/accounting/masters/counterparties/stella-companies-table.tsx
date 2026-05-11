@@ -6,6 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { DatePicker } from "@/components/ui/date-picker";
+import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -22,16 +25,24 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Pencil, Check, Building2 } from "lucide-react";
+import { Pencil, Check, Building2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { updateStellaCompanyInvoiceInfo } from "./actions";
+import {
+  addStellaCompanyBankAccount,
+  deleteStellaCompanyBankAccount,
+  updateStellaCompanyBankAccount,
+  updateStellaCompanyInvoiceInfo,
+} from "./actions";
 
 type BankAccount = {
   id: number;
   bankName: string;
+  bankCode: string;
   branchName: string;
+  branchCode: string;
   accountNumber: string;
   accountHolderName: string;
+  note: string | null;
 };
 
 type StellaCompanyRow = {
@@ -85,9 +96,23 @@ export function StellaCompaniesTable({ data }: Props) {
   const [isPending, startTransition] = useTransition();
   const [searchText, setSearchText] = useState("");
   const [editCompany, setEditCompany] = useState<StellaCompanyRow | null>(null);
+  const [activeEditTab, setActiveEditTab] = useState("invoice");
   const [editInvoiceRegistered, setEditInvoiceRegistered] = useState(false);
   const [editRegNumber, setEditRegNumber] = useState("");
   const [editInvoiceEffectiveDate, setEditInvoiceEffectiveDate] = useState("");
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [bankDialogOpen, setBankDialogOpen] = useState(false);
+  const [editingBank, setEditingBank] = useState<BankAccount | null>(null);
+  const [bankForm, setBankForm] = useState({
+    bankName: "",
+    bankCode: "",
+    branchName: "",
+    branchCode: "",
+    accountNumber: "",
+    accountHolderName: "",
+    note: "",
+  });
+  const [bankSaving, setBankSaving] = useState(false);
 
   const filtered = useMemo(() => {
     if (!searchText.trim()) return data;
@@ -103,6 +128,7 @@ export function StellaCompaniesTable({ data }: Props) {
 
   const openEdit = (company: StellaCompanyRow) => {
     setEditCompany(company);
+    setActiveEditTab("invoice");
     setEditInvoiceRegistered(company.isInvoiceRegistered);
     setEditRegNumber(company.invoiceRegistrationNumber ?? "");
     setEditInvoiceEffectiveDate(
@@ -110,6 +136,9 @@ export function StellaCompaniesTable({ data }: Props) {
         ? new Date(company.invoiceEffectiveDate).toISOString().split("T")[0]
         : ""
     );
+    setBankAccounts(company.bankAccounts);
+    setBankDialogOpen(false);
+    setEditingBank(null);
   };
 
   const handleSave = () => {
@@ -134,6 +163,79 @@ export function StellaCompaniesTable({ data }: Props) {
         );
       }
     });
+  };
+
+  const openAddBank = () => {
+    setEditingBank(null);
+    setBankForm({
+      bankName: "",
+      bankCode: "",
+      branchName: "",
+      branchCode: "",
+      accountNumber: "",
+      accountHolderName: "",
+      note: "",
+    });
+    setBankDialogOpen(true);
+  };
+
+  const openEditBank = (bankAccount: BankAccount) => {
+    setEditingBank(bankAccount);
+    setBankForm({
+      bankName: bankAccount.bankName,
+      bankCode: bankAccount.bankCode,
+      branchName: bankAccount.branchName,
+      branchCode: bankAccount.branchCode,
+      accountNumber: bankAccount.accountNumber,
+      accountHolderName: bankAccount.accountHolderName,
+      note: bankAccount.note ?? "",
+    });
+    setBankDialogOpen(true);
+  };
+
+  const handleSaveBank = async () => {
+    if (!editCompany) return;
+    setBankSaving(true);
+    try {
+      const result = editingBank
+        ? await updateStellaCompanyBankAccount(editingBank.id, bankForm)
+        : await addStellaCompanyBankAccount(editCompany.id, bankForm);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      const saved = result.data;
+      if (editingBank) {
+        setBankAccounts((current) =>
+          current.map((item) => (item.id === saved.id ? saved : item))
+        );
+        toast.success("銀行口座を更新しました");
+      } else {
+        setBankAccounts((current) => [...current, saved]);
+        toast.success("銀行口座を追加しました");
+      }
+      setBankDialogOpen(false);
+      setEditingBank(null);
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "銀行口座の保存に失敗しました");
+    } finally {
+      setBankSaving(false);
+    }
+  };
+
+  const handleDeleteBank = async (bankAccount: BankAccount) => {
+    if (!window.confirm(`「${bankAccount.bankName} ${bankAccount.branchName}」の銀行口座を削除しますか？`)) {
+      return;
+    }
+    const result = await deleteStellaCompanyBankAccount(bankAccount.id);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    setBankAccounts((current) => current.filter((item) => item.id !== bankAccount.id));
+    toast.success("銀行口座を削除しました");
+    router.refresh();
   };
 
   return (
@@ -244,62 +346,136 @@ export function StellaCompaniesTable({ data }: Props) {
         </div>
       )}
 
-      {/* インボイス情報編集モーダル */}
+      {/* 全顧客マスタ編集モーダル */}
       <Dialog
         open={!!editCompany}
         onOpenChange={(open) => {
           if (!open) setEditCompany(null);
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent size="wide" className="max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>
-              インボイス情報編集 - {editCompany?.name}
+              全顧客マスタ編集 - {editCompany?.name}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="editInvoiceRegistered"
-                checked={editInvoiceRegistered}
-                onCheckedChange={(checked) => {
-                  setEditInvoiceRegistered(checked === true);
-                  if (!checked) setEditRegNumber("");
-                }}
-              />
-              <Label htmlFor="editInvoiceRegistered" className="cursor-pointer">
-                インボイス登録有り
-              </Label>
+          <Tabs
+            value={activeEditTab}
+            onValueChange={setActiveEditTab}
+            className="flex-1 min-h-0 flex flex-col"
+          >
+            <TabsList className="w-fit">
+              <TabsTrigger value="invoice">インボイス情報</TabsTrigger>
+              <TabsTrigger value="bankAccounts">銀行口座 ({bankAccounts.length})</TabsTrigger>
+            </TabsList>
+            <div className="flex-1 min-h-0 overflow-y-auto pt-4">
+              <TabsContent value="invoice" className="mt-0 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="editInvoiceRegistered"
+                    checked={editInvoiceRegistered}
+                    onCheckedChange={(checked) => {
+                      setEditInvoiceRegistered(checked === true);
+                      if (!checked) setEditRegNumber("");
+                    }}
+                  />
+                  <Label htmlFor="editInvoiceRegistered" className="cursor-pointer">
+                    インボイス登録有り
+                  </Label>
+                </div>
+                {editInvoiceRegistered && (
+                  <>
+                    <div>
+                      <Label>登録番号</Label>
+                      <Input
+                        value={editRegNumber}
+                        onChange={(e) => setEditRegNumber(e.target.value)}
+                        placeholder="T1234567890123"
+                        className="mt-1 font-mono"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        T + 13桁の数字で入力してください
+                      </p>
+                    </div>
+                    <div>
+                      <Label>インボイス適用日</Label>
+                      <DatePicker
+                        value={editInvoiceEffectiveDate}
+                        onChange={setEditInvoiceEffectiveDate}
+                        className="mt-1"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        この日以降の仕訳で税区分チェックが有効になります
+                      </p>
+                    </div>
+                  </>
+                )}
+              </TabsContent>
+
+              <TabsContent value="bankAccounts" className="mt-0 space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    請求・支払確認で参照する顧客側の銀行口座です。
+                  </p>
+                  <Button variant="outline" size="sm" onClick={openAddBank}>
+                    <Plus className="mr-1 h-4 w-4" />
+                    追加
+                  </Button>
+                </div>
+                {bankAccounts.length === 0 ? (
+                  <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
+                    銀行口座が登録されていません
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {bankAccounts.map((bankAccount) => (
+                      <div
+                        key={bankAccount.id}
+                        className="flex items-start justify-between gap-3 rounded-lg border p-3"
+                      >
+                        <div className="min-w-0 space-y-1">
+                          <div className="font-medium">
+                            {bankAccount.bankName} {bankAccount.branchName}
+                          </div>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                            <span>口座番号: {bankAccount.accountNumber}</span>
+                            <span>名義: {bankAccount.accountHolderName || "-"}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                            <span>銀行コード: {bankAccount.bankCode || "-"}</span>
+                            <span>支店コード: {bankAccount.branchCode || "-"}</span>
+                          </div>
+                          {bankAccount.note && (
+                            <p className="text-xs text-muted-foreground whitespace-pre-wrap break-words">
+                              {bankAccount.note}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => openEditBank(bankAccount)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
+                            onClick={() => handleDeleteBank(bankAccount)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
             </div>
-            {editInvoiceRegistered && (
-              <>
-                <div>
-                  <Label>登録番号</Label>
-                  <Input
-                    value={editRegNumber}
-                    onChange={(e) => setEditRegNumber(e.target.value)}
-                    placeholder="T1234567890123"
-                    className="mt-1 font-mono"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    T + 13桁の数字で入力してください
-                  </p>
-                </div>
-                <div>
-                  <Label>インボイス適用日</Label>
-                  <Input
-                    type="date"
-                    value={editInvoiceEffectiveDate}
-                    onChange={(e) => setEditInvoiceEffectiveDate(e.target.value)}
-                    className="mt-1"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    この日以降の仕訳で税区分チェックが有効になります
-                  </p>
-                </div>
-              </>
-            )}
-          </div>
+          </Tabs>
           <DialogFooter>
             <Button
               variant="outline"
@@ -308,8 +484,109 @@ export function StellaCompaniesTable({ data }: Props) {
             >
               キャンセル
             </Button>
-            <Button onClick={handleSave} disabled={isPending}>
-              {isPending ? "保存中..." : "保存"}
+            {activeEditTab === "invoice" && (
+              <Button onClick={handleSave} disabled={isPending}>
+                {isPending ? "保存中..." : "保存"}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bankDialogOpen} onOpenChange={setBankDialogOpen}>
+        <DialogContent size="form" className="max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>
+              {editingBank ? "銀行口座を編集" : "銀行口座を追加"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-4 p-1">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label>銀行名 *</Label>
+                <Input
+                  value={bankForm.bankName}
+                  onChange={(e) =>
+                    setBankForm((current) => ({ ...current, bankName: e.target.value }))
+                  }
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label>銀行コード</Label>
+                <Input
+                  value={bankForm.bankCode}
+                  onChange={(e) =>
+                    setBankForm((current) => ({ ...current, bankCode: e.target.value }))
+                  }
+                  className="mt-1"
+                  placeholder="4桁"
+                />
+              </div>
+              <div>
+                <Label>支店名</Label>
+                <Input
+                  value={bankForm.branchName}
+                  onChange={(e) =>
+                    setBankForm((current) => ({ ...current, branchName: e.target.value }))
+                  }
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label>支店コード</Label>
+                <Input
+                  value={bankForm.branchCode}
+                  onChange={(e) =>
+                    setBankForm((current) => ({ ...current, branchCode: e.target.value }))
+                  }
+                  className="mt-1"
+                  placeholder="3桁"
+                />
+              </div>
+              <div>
+                <Label>口座番号 *</Label>
+                <Input
+                  value={bankForm.accountNumber}
+                  onChange={(e) =>
+                    setBankForm((current) => ({ ...current, accountNumber: e.target.value }))
+                  }
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label>口座名義人</Label>
+                <Input
+                  value={bankForm.accountHolderName}
+                  onChange={(e) =>
+                    setBankForm((current) => ({ ...current, accountHolderName: e.target.value }))
+                  }
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <div>
+              <Label>備考</Label>
+              <Textarea
+                value={bankForm.note}
+                onChange={(e) =>
+                  setBankForm((current) => ({ ...current, note: e.target.value }))
+                }
+                className="mt-1 max-h-[30vh]"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setBankDialogOpen(false)}
+              disabled={bankSaving}
+            >
+              キャンセル
+            </Button>
+            <Button onClick={handleSaveBank} disabled={bankSaving}>
+              {bankSaving ? "保存中..." : editingBank ? "更新" : "追加"}
             </Button>
           </DialogFooter>
         </DialogContent>

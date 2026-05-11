@@ -12,6 +12,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Loader2, Plus, Trash2, Search } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -43,7 +50,17 @@ type EditableLink = {
   counterpartyName: string;
   amount: number;
   note: string;
+  isCrossCompany: boolean;
+  operatingCompanyName: string | null;
+  crossCompanyReason: string;
 };
+
+const CROSS_COMPANY_REASON_OPTIONS = [
+  "法人間立替",
+  "法人間送金",
+  "口座選択ミスではないことを確認済み",
+  "その他",
+];
 
 function fmt(n: number | null | undefined): string {
   if (n === null || n === undefined) return "";
@@ -65,6 +82,7 @@ export function LinkEntryModal({
   const [links, setLinks] = useState<EditableLink[]>([]);
   const [candidates, setCandidates] = useState<LinkCandidate[]>([]);
   const [search, setSearch] = useState("");
+  const [includeCrossCompany, setIncludeCrossCompany] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [conflicts, setConflicts] = useState<LinkConflict[] | null>(null);
@@ -84,7 +102,11 @@ export function LinkEntryModal({
     try {
       const [existingLinks, candRes] = await Promise.all([
         listLinksForEntry(entry.id),
-        listLinkCandidatesForEntry({ entryId: entry.id, search: "" }),
+        listLinkCandidatesForEntry({
+          entryId: entry.id,
+          search: "",
+          includeCrossCompany,
+        }),
       ]);
       const existing: EditableLink[] = existingLinks.map((l: EntryLinkRow) => ({
         existingLinkId: l.id,
@@ -94,6 +116,9 @@ export function LinkEntryModal({
         counterpartyName: l.counterpartyName,
         amount: l.amount,
         note: l.note ?? "",
+        isCrossCompany: l.isCrossCompany,
+        operatingCompanyName: l.operatingCompanyName,
+        crossCompanyReason: l.crossCompanyReason ?? "",
       }));
       setLinks(existing);
       if (candRes.ok) {
@@ -116,6 +141,7 @@ export function LinkEntryModal({
     const res = await listLinkCandidatesForEntry({
       entryId: entry.id,
       search: s,
+      includeCrossCompany,
     });
     if (res.ok) {
       setCandidates(res.data.candidates);
@@ -138,8 +164,29 @@ export function LinkEntryModal({
         counterpartyName: c.counterpartyName,
         amount: defaultAmount,
         note: "",
+        isCrossCompany: c.isCrossCompany,
+        operatingCompanyName: c.operatingCompanyName,
+        crossCompanyReason: "",
       },
     ]);
+  };
+
+  const handleToggleCrossCompany = async () => {
+    const next = !includeCrossCompany;
+    setIncludeCrossCompany(next);
+    if (next) {
+      toast.info("別法人候補を表示します。保存時に理由が必要です。");
+    }
+    const res = await listLinkCandidatesForEntry({
+      entryId: entry.id,
+      search,
+      includeCrossCompany: next,
+    });
+    if (res.ok) {
+      setCandidates(res.data.candidates);
+    } else {
+      toast.error(res.error);
+    }
   };
 
   const updateLink = (idx: number, patch: Partial<EditableLink>) => {
@@ -160,6 +207,10 @@ export function LinkEntryModal({
           toast.error(`金額は1円以上の整数で入力してください: ${l.groupLabel}`);
           return;
         }
+        if (l.isCrossCompany && !l.crossCompanyReason.trim()) {
+          toast.error(`別法人紐付け理由を選択してください: ${l.groupLabel}`);
+          return;
+        }
       }
       // 分割合計 = 取引金額 のクライアント側ガード
       if (links.length > 0 && allocatedSum !== totalAmount) {
@@ -176,6 +227,7 @@ export function LinkEntryModal({
           groupId: l.groupId,
           amount: l.amount,
           note: l.note || null,
+          crossCompanyReason: l.isCrossCompany ? l.crossCompanyReason : null,
         })),
         conflictResolution: resolution,
       });
@@ -204,7 +256,7 @@ export function LinkEntryModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+      <DialogContent size="wide" className="max-h-[85vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle>請求/支払グループへの紐付け</DialogTitle>
         </DialogHeader>
@@ -262,42 +314,78 @@ export function LinkEntryModal({
                   {links.map((l, idx) => (
                     <div
                       key={`${l.groupKind}-${l.groupId}`}
-                      className="flex items-start gap-2 p-2 text-sm"
+                      className="space-y-2 p-2 text-sm"
                     >
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">
-                          {l.groupLabel}
+                      <div className="grid grid-cols-[minmax(0,1fr)_7rem_minmax(0,9rem)_2rem] items-start gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1 min-w-0">
+                            <span className="font-medium truncate">
+                              {l.groupLabel}
+                            </span>
+                            {l.isCrossCompany && (
+                              <Badge variant="outline" className="shrink-0 border-amber-200 bg-amber-50 text-[10px] text-amber-800">
+                                別法人
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {l.counterpartyName}
+                            {l.operatingCompanyName ? ` / ${l.operatingCompanyName}` : ""}
+                          </div>
                         </div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          {l.counterpartyName}
-                        </div>
+                        <Input
+                          type="number"
+                          value={l.amount}
+                          onChange={(e) =>
+                            updateLink(idx, {
+                              amount: parseInt(e.target.value || "0", 10),
+                            })
+                          }
+                          className="h-8 w-full text-xs"
+                          placeholder="金額"
+                        />
+                        <Input
+                          value={l.note}
+                          onChange={(e) =>
+                            updateLink(idx, { note: e.target.value })
+                          }
+                          className="h-8 w-full text-xs"
+                          placeholder="メモ（任意）"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => removeLink(idx)}
+                          aria-label="紐付けを削除"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
                       </div>
-                      <Input
-                        type="number"
-                        value={l.amount}
-                        onChange={(e) =>
-                          updateLink(idx, {
-                            amount: parseInt(e.target.value || "0", 10),
-                          })
-                        }
-                        className="w-28 h-8 text-xs"
-                        placeholder="金額"
-                      />
-                      <Input
-                        value={l.note}
-                        onChange={(e) =>
-                          updateLink(idx, { note: e.target.value })
-                        }
-                        className="w-40 h-8 text-xs"
-                        placeholder="メモ（任意）"
-                      />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeLink(idx)}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
+                      {l.isCrossCompany && (
+                        <div className="grid grid-cols-[8rem_minmax(0,1fr)] items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-2">
+                          <span className="text-xs font-medium text-amber-900">
+                            別法人理由
+                          </span>
+                          <Select
+                            value={l.crossCompanyReason}
+                            onValueChange={(value) =>
+                              updateLink(idx, { crossCompanyReason: value })
+                            }
+                          >
+                            <SelectTrigger className="h-8 bg-white text-xs">
+                              <SelectValue placeholder="理由を選択" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CROSS_COMPANY_REASON_OPTIONS.map((reason) => (
+                                <SelectItem key={reason} value={reason}>
+                                  {reason}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -308,7 +396,23 @@ export function LinkEntryModal({
           {/* Candidate search */}
           {direction !== null && (
             <div className="space-y-2">
-              <Label className="text-sm font-medium">候補から追加</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-sm font-medium">候補から追加</Label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={includeCrossCompany ? "default" : "outline"}
+                  onClick={handleToggleCrossCompany}
+                  className="h-8"
+                >
+                  {includeCrossCompany ? "別法人候補を表示中" : "別法人の候補も表示"}
+                </Button>
+              </div>
+              {includeCrossCompany && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                  別法人の候補を表示しています。別法人に紐付ける行は保存時に理由が必要です。
+                </div>
+              )}
               <div className="relative">
                 <Search className="absolute left-2 top-2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -346,10 +450,18 @@ export function LinkEntryModal({
                         className="p-2 text-xs flex items-center gap-2 hover:bg-muted/40"
                       >
                         <div className="flex-1 min-w-0">
-                          <div className="font-medium truncate">{c.label}</div>
+                          <div className="flex items-center gap-1 min-w-0">
+                            <span className="font-medium truncate">{c.label}</span>
+                            {c.isCrossCompany && (
+                              <Badge variant="outline" className="shrink-0 border-amber-200 bg-amber-50 text-[10px] text-amber-800">
+                                別法人
+                              </Badge>
+                            )}
+                          </div>
                           <div className="text-muted-foreground truncate">
                             {c.counterpartyName}
                             {c.expectedDate && ` / 予定 ${c.expectedDate}`}
+                            {c.isCrossCompany && ` / ${c.operatingCompanyName}`}
                           </div>
                         </div>
                         <div className="text-right whitespace-nowrap">
