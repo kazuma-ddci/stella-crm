@@ -21,6 +21,37 @@ const PERM_LEVEL_ORDER: Record<string, number> = {
   manager: 3,
 };
 
+async function unhideGrantedSidebarProjects(
+  staffId: number,
+  permissions: { projectId: number; permissionLevel: string; canApprove: boolean }[]
+) {
+  const projectIds = permissions
+    .filter((p) => p.permissionLevel !== "none")
+    .map((p) => p.projectId);
+  if (projectIds.length === 0) return;
+
+  const projects = await prisma.masterProject.findMany({
+    where: { id: { in: projectIds } },
+    select: { code: true },
+  });
+  const grantedCodes = new Set(projects.map((p) => p.code));
+  if (grantedCodes.size === 0) return;
+
+  const pref = await prisma.staffSidebarPreference.findUnique({
+    where: { staffId },
+    select: { hiddenItems: true },
+  });
+  if (!pref || pref.hiddenItems.length === 0) return;
+
+  const nextHiddenItems = pref.hiddenItems.filter((code) => !grantedCodes.has(code));
+  if (nextHiddenItems.length === pref.hiddenItems.length) return;
+
+  await prisma.staffSidebarPreference.update({
+    where: { staffId },
+    data: { hiddenItems: nextHiddenItems },
+  });
+}
+
 /**
  * 現在のユーザーが権限変更可能なプロジェクトと天井レベルのリストを返す
  * - admin/founder → 全PJ、maxLevel="manager"
@@ -88,7 +119,8 @@ function validatePermissionCeiling(
 async function buildPermissions(
   staffId: number,
   data: Record<string, unknown>,
-  canSetApprove: boolean
+  canSetApprove: boolean,
+  approvalOnly = false
 ) {
   const permissions: { staffId: number; projectId: number; permissionLevel: string; canApprove: boolean }[] = [];
 
@@ -107,6 +139,24 @@ async function buildPermissions(
         approveMap.set(projectCode, toBoolean(value));
       }
     }
+  }
+
+  // ファウンダーは組織ロールで全権限を持つため、個別の権限レベルは保存しない。
+  // ただし経費申請の承認者候補に出すため、canApprove=true だけはプロジェクト別に保存する。
+  if (approvalOnly) {
+    for (const [projectCode, canApprove] of approveMap.entries()) {
+      if (!canApprove) continue;
+      const projectId = codeToId.get(projectCode);
+      if (projectId) {
+        permissions.push({
+          staffId,
+          projectId,
+          permissionLevel: "none",
+          canApprove: true,
+        });
+      }
+    }
+    return permissions;
   }
 
   // プロジェクト権限（perm_xxx キーから動的取得）
@@ -182,9 +232,13 @@ export async function addStaff(
     });
   }
 
-  // ファウンダーの場合は権限を設定しない（全権限が組織ロールで付与される）
-  if (organizationRole !== "founder" && editableCodes.length > 0) {
-    const allPermissions = await buildPermissions(staff.id, data, isAdminUser || isFounder);
+  if (editableCodes.length > 0) {
+    const allPermissions = await buildPermissions(
+      staff.id,
+      data,
+      isAdminUser || isFounder,
+      organizationRole === "founder"
+    );
     // editableCodes は projectCode ベースなので、projectId→code の逆引きが必要
     const allProjects = await prisma.masterProject.findMany({ select: { id: true, code: true } });
     const idToCode = new Map(allProjects.map((p) => [p.id, p.code]));
@@ -196,6 +250,7 @@ export async function addStaff(
       await prisma.staffPermission.createMany({
         data: permissionsToCreate,
       });
+      await unhideGrantedSidebarProjects(staff.id, permissionsToCreate);
     }
   }
 
@@ -236,12 +291,6 @@ export async function updateStaff(
     if (isAdminUser || isFounder) {
       updateData.organizationRole = requestedRole;
 
-      // ファウンダーに変更された場合、全プロジェクト権限を削除
-      if (requestedRole === "founder") {
-        await prisma.staffPermission.deleteMany({
-          where: { staffId: id },
-        });
-      }
     }
   }
 
@@ -289,7 +338,7 @@ export async function updateStaff(
     await prisma.masterStaff.findUnique({ where: { id }, select: { organizationRole: true } })
   )?.organizationRole ?? "member";
 
-  // 権限を更新（権限関連キーが渡された場合のみ、かつファウンダーでない場合）
+  // 権限を更新（権限関連キーが渡された場合のみ）
   const hasPermissionChange = Object.keys(data).some((k) => k.startsWith(PERM_PREFIX) || k.startsWith(APPROVE_PREFIX));
 
   // 承認権限の設定はadmin/founderのみ
@@ -301,7 +350,7 @@ export async function updateStaff(
     canSetApproveForUpdate = u?.loginId === "admin" || u?.organizationRole === "founder";
   }
 
-  if (targetRole !== "founder" && hasPermissionChange && editableCodes.length > 0) {
+  if (hasPermissionChange && editableCodes.length > 0) {
     // editableCodes → editableProjectIds に変換
     const allProjects = await prisma.masterProject.findMany({ select: { id: true, code: true } });
     const codeToId = new Map(allProjects.map((p) => [p.code, p.id]));
@@ -334,8 +383,11 @@ export async function updateStaff(
       }
     }
 
-    // 天井バリデーション
-    validatePermissionCeiling(editableProjectsList, mergedData);
+    // 天井バリデーション。ファウンダーは個別権限レベルを保存しないため、
+    // 承認フラグのみ更新する場合は権限レベルの天井チェック対象外にする。
+    if (targetRole !== "founder") {
+      validatePermissionCeiling(editableProjectsList, mergedData);
+    }
 
     // 編集可能なプロジェクトの権限のみ削除
     await prisma.staffPermission.deleteMany({
@@ -343,7 +395,12 @@ export async function updateStaff(
     });
 
     // マージ済みデータから権限を再作成
-    const allPermissions = await buildPermissions(id, mergedData, canSetApproveForUpdate);
+    const allPermissions = await buildPermissions(
+      id,
+      mergedData,
+      canSetApproveForUpdate,
+      targetRole === "founder"
+    );
     const permissionsToCreate = allPermissions.filter((p) => {
       const code = idToCode.get(p.projectId);
       return code && editableCodes.includes(code);
@@ -352,7 +409,19 @@ export async function updateStaff(
       await prisma.staffPermission.createMany({
         data: permissionsToCreate,
       });
+      await unhideGrantedSidebarProjects(id, permissionsToCreate);
     }
+  } else if (targetRole === "founder" && "organizationRole" in data && editableCodes.length > 0) {
+    // ファウンダーへ変更しただけで権限カラムが送信されなかった場合でも、
+    // 個別プロジェクト権限は残さない。
+    const allProjects = await prisma.masterProject.findMany({ select: { id: true, code: true } });
+    const codeToId = new Map(allProjects.map((p) => [p.code, p.id]));
+    const editableProjectIds = editableCodes
+      .map((c) => codeToId.get(c))
+      .filter((projectId): projectId is number => projectId !== undefined);
+    await prisma.staffPermission.deleteMany({
+      where: { staffId: id, projectId: { in: editableProjectIds } },
+    });
   }
 
     revalidatePath("/staff");

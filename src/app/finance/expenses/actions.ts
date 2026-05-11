@@ -242,6 +242,37 @@ export type SubmitExpenseInput = {
   isConfidential?: boolean;
 };
 
+export type EditExpenseInput = SubmitExpenseInput;
+
+async function resolveExpenseCounterpartyId(
+  tx: Prisma.TransactionClient,
+  staffId: number,
+  input: Pick<SubmitExpenseInput, "counterpartyId" | "customCounterpartyName">
+) {
+  if (input.counterpartyId) return input.counterpartyId;
+  const name = input.customCounterpartyName?.trim();
+  if (!name) throw new Error("取引先を選択するか、取引先名を入力してください");
+
+  const existing = await tx.counterparty.findFirst({
+    where: { name, deletedAt: null, mergedIntoId: null },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+
+  const displayId = await generateOtherCounterpartyDisplayId(tx);
+  const created = await tx.counterparty.create({
+    data: {
+      displayId,
+      name,
+      counterpartyType: "other",
+      isActive: true,
+      createdBy: staffId,
+    },
+    select: { id: true },
+  });
+  return created.id;
+}
+
 export async function submitExpenseRequest(
   input: SubmitExpenseInput
 ): Promise<ActionResult<{ id: number; type: "transaction" | "recurring"; attachmentGroupId: number | null }>> {
@@ -549,6 +580,11 @@ export type ExpenseStatusItem = {
   approverName: string | null;
   createdAt: Date;
   createdByName: string;
+  createdById: number;
+  canEdit: boolean;
+  canCancel: boolean;
+  canResubmit: boolean;
+  returnReason: string | null;
   // プレビュー用
   note: string | null;
   expenseCategoryName: string | null;
@@ -558,6 +594,24 @@ export type ExpenseStatusItem = {
   expenseOwners: string[];
   allocationTemplateName: string | null;
   allocationLines: { label: string | null; costCenterName: string | null; allocationRate: number }[];
+  editValues: {
+    projectId: number | null;
+    counterpartyId: number | null;
+    customCounterpartyName: string | null;
+    operatingCompanyId: number;
+    expenseCategoryId: number | null;
+    paymentMethodId: number | null;
+    approverStaffId: number | null;
+    amount: number | null;
+    taxRate: number;
+    scheduledPaymentDate: Date | null;
+    note: string | null;
+    useAllocation: boolean;
+    allocationTemplateId: number | null;
+    costCenterId: number | null;
+    isConfidential: boolean;
+    expenseOwners: { staffId: number | null; customName: string | null }[];
+  } | null;
 };
 
 /** 申請状況タブ: プロジェクト内の手動経費一覧 */
@@ -570,7 +624,7 @@ export async function getMyExpenses(projectId: number, ownOnly = false): Promise
       deletedAt: null,
       projectId,
       paymentType: "direct",
-      status: { in: ["pending_project_approval", "pending_accounting_approval", "awaiting_accounting", "returned", "paid"] },
+      status: { in: ["pending_project_approval", "pending_accounting_approval", "awaiting_accounting", "returned", "paid", "cancelled"] },
       ...(ownOnly ? { createdBy: session.id } : {}),
       ...confidentialFilter,
     },
@@ -581,13 +635,36 @@ export async function getMyExpenses(projectId: number, ownOnly = false): Promise
       status: true,
       customCounterpartyName: true,
       createdAt: true,
+      createdBy: true,
+      counterpartyId: true,
+      operatingCompanyId: true,
+      projectId: true,
+      approverStaffId: true,
+      isConfidential: true,
       counterparty: { select: { name: true } },
       approver: { select: { name: true } },
       creator: { select: { name: true } },
+      comments: {
+        where: { deletedAt: null, commentType: "return" },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { body: true },
+      },
       transactions: {
         where: { deletedAt: null },
         take: 1,
         select: {
+          id: true,
+          sourceType: true,
+          amount: true,
+          taxAmount: true,
+          taxRate: true,
+          scheduledPaymentDate: true,
+          expenseCategoryId: true,
+          paymentMethodId: true,
+          allocationTemplateId: true,
+          costCenterId: true,
+          isConfidential: true,
           note: true,
           periodFrom: true,
           periodTo: true,
@@ -606,7 +683,7 @@ export async function getMyExpenses(projectId: number, ownOnly = false): Promise
               },
             },
           },
-          expenseOwners: { select: { staff: { select: { name: true } }, customName: true } },
+          expenseOwners: { select: { staffId: true, staff: { select: { name: true } }, customName: true } },
         },
       },
     },
@@ -616,6 +693,11 @@ export async function getMyExpenses(projectId: number, ownOnly = false): Promise
 
   return pgs.map((pg) => {
     const tx = pg.transactions[0];
+    const isCreator = pg.createdBy === session.id;
+    const isManual = tx?.sourceType === "manual" || tx?.sourceType == null;
+    const canEdit = isCreator && isManual && pg.status === "pending_project_approval";
+    const canResubmit = isCreator && isManual && pg.status === "returned";
+    const canCancel = isCreator && isManual && ["pending_project_approval", "returned"].includes(pg.status);
     return {
       id: pg.id,
       groupType: "payment" as const,
@@ -627,6 +709,11 @@ export async function getMyExpenses(projectId: number, ownOnly = false): Promise
       approverName: pg.approver?.name ?? null,
       createdAt: pg.createdAt,
       createdByName: pg.creator.name,
+      createdById: pg.createdBy,
+      canEdit,
+      canCancel,
+      canResubmit,
+      returnReason: pg.comments[0]?.body ?? null,
       note: tx?.note ?? null,
       expenseCategoryName: tx?.expenseCategory?.name ?? null,
       paymentMethodName: tx?.paymentMethod?.name ?? null,
@@ -639,6 +726,27 @@ export async function getMyExpenses(projectId: number, ownOnly = false): Promise
         costCenterName: line.costCenter?.name ?? null,
         allocationRate: Number(line.allocationRate),
       })) ?? [],
+      editValues: tx ? {
+        projectId: pg.projectId,
+        counterpartyId: pg.counterpartyId,
+        customCounterpartyName: pg.customCounterpartyName,
+        operatingCompanyId: pg.operatingCompanyId,
+        expenseCategoryId: tx.expenseCategoryId,
+        paymentMethodId: tx.paymentMethodId,
+        approverStaffId: pg.approverStaffId,
+        amount: pg.totalAmount,
+        taxRate: tx.taxRate,
+        scheduledPaymentDate: tx.scheduledPaymentDate ?? tx.periodFrom,
+        note: tx.note,
+        useAllocation: tx.allocationTemplateId !== null,
+        allocationTemplateId: tx.allocationTemplateId,
+        costCenterId: tx.costCenterId,
+        isConfidential: pg.isConfidential || tx.isConfidential,
+        expenseOwners: tx.expenseOwners.map((o) => ({
+          staffId: o.staffId,
+          customName: o.customName,
+        })),
+      } : null,
     };
   });
 }
@@ -707,6 +815,11 @@ export async function getPendingApprovals(projectId: number): Promise<ExpenseSta
     approverName: pg.approver?.name ?? null,
     createdAt: pg.createdAt,
     createdByName: pg.creator.name,
+    createdById: 0,
+    canEdit: false,
+    canCancel: false,
+    canResubmit: false,
+    returnReason: null,
     note: tx?.note ?? null,
     expenseCategoryName: tx?.expenseCategory?.name ?? null,
     paymentMethodName: tx?.paymentMethod?.name ?? null,
@@ -719,6 +832,7 @@ export async function getPendingApprovals(projectId: number): Promise<ExpenseSta
       costCenterName: line.costCenter?.name ?? null,
       allocationRate: Number(line.allocationRate),
     })) ?? [],
+    editValues: null,
     };
   });
 }
@@ -1215,6 +1329,221 @@ export async function getMonthlyExpenseSummary(projectId: number): Promise<Month
   }
 
   return Array.from(byMonth.values()).sort((a, b) => b.month.localeCompare(a.month));
+}
+
+// ============================================
+// 申請者向け: 編集・再申請・取消
+// ============================================
+
+type EditableExpenseGroup = {
+  id: number;
+  status: string;
+  createdBy: number;
+  projectId: number | null;
+  transactions: { id: number; sourceType: string | null }[];
+};
+
+async function getEditableExpenseGroupOrError(groupId: number, staffId: number): Promise<EditableExpenseGroup> {
+  const group = await prisma.paymentGroup.findUnique({
+    where: { id: groupId },
+    select: {
+      id: true,
+      status: true,
+      createdBy: true,
+      projectId: true,
+      transactions: {
+        where: { deletedAt: null },
+        select: { id: true, sourceType: true },
+      },
+    },
+  });
+
+  if (!group) throw new FinanceRecordNotFoundError("PaymentGroup", groupId);
+  if (group.createdBy !== staffId) throw new FinanceForbiddenError();
+  if (!["pending_project_approval", "returned"].includes(group.status)) {
+    throw new Error("この申請は編集または取消できません");
+  }
+  if (group.transactions.length !== 1) {
+    throw new Error("この申請は複数明細のため、この画面では編集できません");
+  }
+  const transaction = group.transactions[0];
+  if (transaction.sourceType && transaction.sourceType !== "manual") {
+    throw new Error("定期経費から作成された申請は、この画面では編集できません");
+  }
+  return group;
+}
+
+async function applyExpenseRequestUpdate(
+  groupId: number,
+  input: EditExpenseInput,
+  nextStatus: "pending_project_approval" | "returned",
+  expectedStatuses: string[]
+): Promise<ActionResult<{ id: number; type: "transaction"; attachmentGroupId: number }>> {
+  try {
+    const session = await getSession();
+    const staffId = session.id;
+    const group = await getEditableExpenseGroupOrError(groupId, staffId);
+
+    if (!expectedStatuses.includes(group.status)) {
+      return err("この申請は現在の状態では更新できません");
+    }
+    if (input.mode !== "project") return err("プロジェクト経費申請のみ編集できます");
+    if (input.frequency !== "once") return err("定期経費はこの画面では編集できません");
+    if (!input.projectId || input.projectId !== group.projectId) return err("プロジェクトは変更できません");
+    if (!input.counterpartyId && !input.customCounterpartyName?.trim()) {
+      return err("取引先を選択するか、取引先名を入力してください");
+    }
+    if (!input.operatingCompanyId) return err("支払元法人は必須です");
+    if (!input.approverStaffId) return err("承認者は必須です");
+    if (input.amount == null || input.amount < 0 || !Number.isInteger(input.amount)) {
+      return err("金額は0以上の整数で入力してください");
+    }
+    if (!input.scheduledPaymentDate) return err("支払予定日は必須です");
+
+    const project = await prisma.masterProject.findUnique({
+      where: { id: input.projectId },
+      select: { defaultCostCenterId: true },
+    });
+
+    const approverPermission = await prisma.staffPermission.findFirst({
+      where: { staffId: input.approverStaffId, projectId: input.projectId, canApprove: true },
+      select: { id: true },
+    });
+    if (!approverPermission) {
+      return err("選択された承認者はこのプロジェクトの承認権限を持っていません");
+    }
+
+    const scheduledPaymentDate = new Date(input.scheduledPaymentDate);
+    const validOwners = input.expenseOwners.filter((o) => o.staffId || o.customName?.trim());
+    const transactionId = group.transactions[0].id;
+
+    await prisma.$transaction(async (tx) => {
+      const counterpartyId = await resolveExpenseCounterpartyId(tx, staffId, input);
+
+      await tx.paymentGroup.update({
+        where: { id: groupId },
+        data: {
+          counterpartyId,
+          operatingCompanyId: input.operatingCompanyId,
+          projectId: input.projectId,
+          status: nextStatus,
+          approverStaffId: input.approverStaffId,
+          approvedAt: null,
+          customCounterpartyName: null,
+          totalAmount: input.amount!,
+          taxAmount: input.taxAmount ?? 0,
+          expectedPaymentDate: scheduledPaymentDate,
+          isConfidential: input.isConfidential ?? false,
+          updatedBy: staffId,
+        },
+      });
+
+      await tx.transaction.update({
+        where: { id: transactionId },
+        data: {
+          counterpartyId,
+          expenseCategoryId: input.expenseCategoryId || null,
+          allocationTemplateId: input.useAllocation ? (input.allocationTemplateId ?? null) : null,
+          costCenterId: input.useAllocation ? null : (input.costCenterId ?? project?.defaultCostCenterId ?? null),
+          projectId: input.projectId,
+          paymentMethodId: input.paymentMethodId ?? null,
+          amount: input.amount!,
+          taxAmount: input.taxAmount ?? 0,
+          taxRate: input.taxRate,
+          periodFrom: scheduledPaymentDate,
+          periodTo: scheduledPaymentDate,
+          scheduledPaymentDate,
+          status: nextStatus,
+          note: input.note?.trim() || null,
+          isConfidential: input.isConfidential ?? false,
+          hasExpenseOwner: validOwners.length > 0,
+          updatedBy: staffId,
+        },
+      });
+
+      await tx.transactionExpenseOwner.deleteMany({
+        where: { transactionId },
+      });
+      if (validOwners.length > 0) {
+        await tx.transactionExpenseOwner.createMany({
+          data: validOwners.map((o) => ({
+            transactionId,
+            staffId: o.staffId ?? null,
+            customName: o.customName?.trim() || null,
+          })),
+        });
+      }
+    });
+
+    revalidatePath("/stp/expenses/new");
+    revalidatePath("/slp/expenses/new");
+    revalidatePath("/hojo/expenses/new");
+    revalidatePath("/accounting/workflow");
+    return ok({ id: groupId, type: "transaction" as const, attachmentGroupId: groupId });
+  } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この申請を編集する権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("申請が見つかりません");
+    console.error("[applyExpenseRequestUpdate] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+export async function updateExpenseRequest(
+  groupId: number,
+  input: EditExpenseInput
+): Promise<ActionResult<{ id: number; type: "transaction"; attachmentGroupId: number }>> {
+  return applyExpenseRequestUpdate(groupId, input, "pending_project_approval", ["pending_project_approval"]);
+}
+
+export async function resubmitReturnedExpense(
+  groupId: number,
+  input: EditExpenseInput
+): Promise<ActionResult<{ id: number; type: "transaction"; attachmentGroupId: number }>> {
+  return applyExpenseRequestUpdate(groupId, input, "pending_project_approval", ["returned"]);
+}
+
+export async function cancelExpenseRequest(groupId: number): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    const staffId = session.id;
+    await getEditableExpenseGroupOrError(groupId, staffId);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.paymentGroup.update({
+        where: { id: groupId },
+        data: {
+          status: "cancelled",
+          updatedBy: staffId,
+        },
+      });
+      await tx.transaction.updateMany({
+        where: { paymentGroupId: groupId, deletedAt: null },
+        data: {
+          status: "cancelled",
+          updatedBy: staffId,
+        },
+      });
+      await tx.transactionComment.create({
+        data: {
+          paymentGroupId: groupId,
+          body: "申請者が申請を取り消しました",
+          commentType: "normal",
+          createdBy: staffId,
+        },
+      });
+    });
+
+    revalidatePath("/stp/expenses/new");
+    revalidatePath("/slp/expenses/new");
+    revalidatePath("/hojo/expenses/new");
+    revalidatePath("/accounting/workflow");
+    return ok();
+  } catch (e) {
+    if (e instanceof FinanceForbiddenError) return err("この申請を取り消す権限がありません");
+    if (e instanceof FinanceRecordNotFoundError) return err("申請が見つかりません");
+    console.error("[cancelExpenseRequest] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
 }
 
 // ============================================

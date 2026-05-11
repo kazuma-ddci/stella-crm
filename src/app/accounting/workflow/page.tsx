@@ -15,6 +15,7 @@ export default async function AccountingWorkflowPage() {
     getDueUnrealizedJournalEntries(),
   ]);
 
+  const projectPending = groups.filter((g) => g.category === "pending_project_approval").length;
   const pendingApproval = groups.filter((g) => g.category === "pending_accounting_approval").length;
   const returnRequested = groups.filter((g) => g.category === "return_requested").length;
   const dueUnrealizedCount = dueUnrealizedEntries.length;
@@ -30,6 +31,12 @@ export default async function AccountingWorkflowPage() {
 
       {/* サマリー */}
       <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-8 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-2xl font-bold text-amber-600">{projectPending}</div>
+            <p className="text-sm text-muted-foreground">プロジェクト承認待ち</p>
+          </CardContent>
+        </Card>
         <Card>
           <CardContent className="pt-6">
             <div className="text-2xl font-bold text-purple-600">{pendingApproval}</div>
