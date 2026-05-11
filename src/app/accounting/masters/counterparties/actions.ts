@@ -5,10 +5,39 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { recordChangeLog } from "@/app/finance/changelog/actions";
 import { generateOtherCounterpartyDisplayId, createCounterpartyForCompany, updateCounterpartyForCompany } from "@/lib/counterparty-sync";
+import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 import { toBoolean } from "@/lib/utils";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 
 const VALID_TYPES = ["customer", "vendor", "service", "project", "other"] as const;
+
+type StellaCompanyForAccounting = Awaited<
+  ReturnType<typeof fetchStellaCompaniesForAccounting>
+>[number];
+
+function parseCompanyCode(code: string | null | undefined) {
+  const match = code?.match(/^SC-(\d+)$/);
+  if (!match) {
+    return { hasCode: false, number: Number.MAX_SAFE_INTEGER };
+  }
+  return { hasCode: true, number: Number(match[1]) };
+}
+
+function compareStellaCompanies(
+  a: StellaCompanyForAccounting,
+  b: StellaCompanyForAccounting
+) {
+  const codeA = parseCompanyCode(a.companyCode);
+  const codeB = parseCompanyCode(b.companyCode);
+
+  if (codeA.hasCode !== codeB.hasCode) {
+    return codeA.hasCode ? -1 : 1;
+  }
+  if (codeA.number !== codeB.number) {
+    return codeA.number - codeB.number;
+  }
+  return a.id - b.id;
+}
 
 // 正規化比較用（設計書5.7: 全角/半角、カタカナ/ひらがな等の正規化後マッチング）
 function normalizeCounterpartyName(name: string): string {
@@ -68,7 +97,7 @@ export async function createCounterparty(
   data: Record<string, unknown>
 ): Promise<ActionResult> {
   try {
-    const session = await getSession();
+    const session = await requireStaffForAccounting("edit");
     const staffId = session.id;
 
     const name = (data.name as string).trim();
@@ -128,7 +157,7 @@ export async function updateCounterparty(
   data: Record<string, unknown>
 ): Promise<ActionResult> {
   try {
-    const session = await getSession();
+    const session = await requireStaffForAccounting("edit");
     const staffId = session.id;
 
     const updateData: Record<string, unknown> = {};
@@ -198,7 +227,7 @@ export async function updateCounterparty(
 // MasterStellaCompanyとの同期処理（設計書8.6）
 // UIからの手動実行用
 export async function syncCounterparties() {
-  const session = await getSession();
+  const session = await requireStaffForAccounting("edit");
   const result = await syncCounterpartiesCore(session.id);
   revalidatePath("/accounting/masters/counterparties");
   return result;
@@ -241,7 +270,7 @@ export async function syncCounterpartiesCore(staffId: number) {
 
 // CostCenter → 取引先の同期（経理プロジェクト按分先用）
 export async function syncCostCenterCounterparties() {
-  const session = await getSession();
+  const session = await requireStaffForAccounting("edit");
   const staffId = session.id;
 
   const costCenters = await prisma.costCenter.findMany({
@@ -298,7 +327,7 @@ export async function syncCostCenterCounterparties() {
 // 全顧客マスタ（MasterStellaCompany）のインボイス情報更新
 // ============================================
 
-export async function getStellaCompaniesForAccounting() {
+async function fetchStellaCompaniesForAccounting() {
   return prisma.masterStellaCompany.findMany({
     where: { deletedAt: null, mergedIntoId: null },
     select: {
@@ -317,9 +346,12 @@ export async function getStellaCompaniesForAccounting() {
         select: {
           id: true,
           bankName: true,
+          bankCode: true,
           branchName: true,
+          branchCode: true,
           accountNumber: true,
           accountHolderName: true,
+          note: true,
         },
       },
       counterparties: {
@@ -332,6 +364,11 @@ export async function getStellaCompaniesForAccounting() {
   });
 }
 
+export async function getStellaCompaniesForAccounting() {
+  const companies = await fetchStellaCompaniesForAccounting();
+  return [...companies].sort(compareStellaCompanies);
+}
+
 export async function updateStellaCompanyInvoiceInfo(
   id: number,
   data: {
@@ -341,6 +378,7 @@ export async function updateStellaCompanyInvoiceInfo(
   }
 ): Promise<ActionResult<void>> {
   try {
+    await requireStaffForAccounting("edit");
     const updateData: Record<string, unknown> = {};
 
     if ("isInvoiceRegistered" in data) {
@@ -394,6 +432,148 @@ export async function updateStellaCompanyInvoiceInfo(
     return err(
       e instanceof Error ? e.message : "インボイス情報の更新に失敗しました"
     );
+  }
+}
+
+type BankAccountDto = {
+  id: number;
+  companyId: number;
+  bankName: string;
+  bankCode: string;
+  branchName: string;
+  branchCode: string;
+  accountNumber: string;
+  accountHolderName: string;
+  note: string | null;
+};
+
+function buildBankAccountData(data: Record<string, unknown>) {
+  const bankName = String(data.bankName ?? "").trim();
+  const accountNumber = String(data.accountNumber ?? "").trim();
+
+  if (!bankName) return { ok: false as const, error: "銀行名は必須です" };
+  if (!accountNumber) return { ok: false as const, error: "口座番号は必須です" };
+
+  return {
+    ok: true as const,
+    data: {
+      bankName,
+      bankCode: String(data.bankCode ?? "").trim(),
+      branchName: String(data.branchName ?? "").trim(),
+      branchCode: String(data.branchCode ?? "").trim(),
+      accountNumber,
+      accountHolderName: String(data.accountHolderName ?? "").trim(),
+      note: String(data.note ?? "").trim() || null,
+    },
+  };
+}
+
+function toBankAccountDto(bankAccount: {
+  id: number;
+  companyId: number;
+  bankName: string;
+  bankCode: string;
+  branchName: string;
+  branchCode: string;
+  accountNumber: string;
+  accountHolderName: string;
+  note: string | null;
+}): BankAccountDto {
+  return {
+    id: bankAccount.id,
+    companyId: bankAccount.companyId,
+    bankName: bankAccount.bankName,
+    bankCode: bankAccount.bankCode,
+    branchName: bankAccount.branchName,
+    branchCode: bankAccount.branchCode,
+    accountNumber: bankAccount.accountNumber,
+    accountHolderName: bankAccount.accountHolderName,
+    note: bankAccount.note,
+  };
+}
+
+export async function addStellaCompanyBankAccount(
+  companyId: number,
+  data: Record<string, unknown>
+): Promise<ActionResult<BankAccountDto>> {
+  try {
+    await requireStaffForAccounting("edit");
+    const company = await prisma.masterStellaCompany.findFirst({
+      where: { id: companyId, deletedAt: null, mergedIntoId: null },
+      select: { id: true },
+    });
+    if (!company) return err("企業が見つかりません");
+
+    const built = buildBankAccountData(data);
+    if (!built.ok) return err(built.error);
+
+    const bankAccount = await prisma.stellaCompanyBankAccount.create({
+      data: {
+        companyId,
+        ...built.data,
+      },
+    });
+
+    revalidatePath("/accounting/masters/counterparties");
+    revalidatePath("/companies");
+    return ok(toBankAccountDto(bankAccount));
+  } catch (e) {
+    console.error("[addStellaCompanyBankAccount] error:", e);
+    return err(e instanceof Error ? e.message : "銀行口座の追加に失敗しました");
+  }
+}
+
+export async function updateStellaCompanyBankAccount(
+  id: number,
+  data: Record<string, unknown>
+): Promise<ActionResult<BankAccountDto>> {
+  try {
+    await requireStaffForAccounting("edit");
+    const existing = await prisma.stellaCompanyBankAccount.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) return err("銀行口座が見つかりません");
+
+    const built = buildBankAccountData(data);
+    if (!built.ok) return err(built.error);
+
+    const bankAccount = await prisma.stellaCompanyBankAccount.update({
+      where: { id },
+      data: built.data,
+    });
+
+    revalidatePath("/accounting/masters/counterparties");
+    revalidatePath("/companies");
+    return ok(toBankAccountDto(bankAccount));
+  } catch (e) {
+    console.error("[updateStellaCompanyBankAccount] error:", e);
+    return err(e instanceof Error ? e.message : "銀行口座の更新に失敗しました");
+  }
+}
+
+export async function deleteStellaCompanyBankAccount(
+  id: number
+): Promise<ActionResult> {
+  try {
+    await requireStaffForAccounting("edit");
+    const existing = await prisma.stellaCompanyBankAccount.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) return err("銀行口座が見つかりません");
+
+    await prisma.stellaCompanyBankAccount.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+
+    revalidatePath("/accounting/masters/counterparties");
+    revalidatePath("/companies");
+    return ok();
+  } catch (e) {
+    console.error("[deleteStellaCompanyBankAccount] error:", e);
+    return err(e instanceof Error ? e.message : "銀行口座の削除に失敗しました");
   }
 }
 

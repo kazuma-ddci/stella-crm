@@ -38,6 +38,9 @@ export type LinkCandidate = {
   id: number;
   label: string;
   counterpartyName: string;
+  operatingCompanyId: number;
+  operatingCompanyName: string;
+  isCrossCompany: boolean;
   totalAmount: number | null;
   expectedDate: string | null;
   status: string;
@@ -154,6 +157,14 @@ function addAffectedGroup(
   map.get(groupKind)?.add(groupId);
 }
 
+function buildLinkNote(note: string | null | undefined, crossCompanyReason?: string | null) {
+  const trimmedNote = note?.trim() || "";
+  const trimmedReason = crossCompanyReason?.trim() || "";
+  if (!trimmedReason) return trimmedNote || null;
+  const prefix = `[別法人紐付け: ${trimmedReason}]`;
+  return trimmedNote ? `${prefix} ${trimmedNote}` : prefix;
+}
+
 async function detachManualRecordsForLinks(
   tx: Prisma.TransactionClient,
   linkIds: number[]
@@ -258,6 +269,7 @@ export type ListLinkCandidatesInput = {
   entryId: number;
   search?: string;
   limit?: number;
+  includeCrossCompany?: boolean;
 };
 
 export async function listLinkCandidatesForEntry(
@@ -274,11 +286,14 @@ export async function listLinkCandidatesForEntry(
 
     const limit = Math.min(200, Math.max(20, input.limit ?? 100));
     const search = (input.search ?? "").trim();
+    const companyWhere = input.includeCrossCompany
+      ? {}
+      : { operatingCompanyId: meta.operatingCompanyId };
 
     if (meta.direction === "invoice") {
       const groups = await prisma.invoiceGroup.findMany({
         where: {
-          operatingCompanyId: meta.operatingCompanyId,
+          ...companyWhere,
           deletedAt: null,
           statementLinkCompleted: false,
           ...(search
@@ -300,16 +315,20 @@ export async function listLinkCandidatesForEntry(
           status: true,
           manualPaymentStatus: true,
           statementLinkCompleted: true,
+          operatingCompanyId: true,
+          operatingCompany: { select: { companyName: true } },
           counterparty: { select: { name: true } },
           bankStatementLinks: { select: { amount: true } },
         },
       });
-      return ok({
-        direction: "invoice",
-        candidates: groups.map((g) => ({
+      const candidates = groups
+        .map((g) => ({
           id: g.id,
           label: g.invoiceNumber ?? `請求#${g.id}`,
           counterpartyName: g.counterparty.name,
+          operatingCompanyId: g.operatingCompanyId,
+          operatingCompanyName: g.operatingCompany.companyName,
+          isCrossCompany: g.operatingCompanyId !== meta.operatingCompanyId,
           totalAmount: g.totalAmount,
           expectedDate: g.expectedPaymentDate
             ? g.expectedPaymentDate.toISOString().slice(0, 10)
@@ -321,13 +340,17 @@ export async function listLinkCandidatesForEntry(
             0
           ),
           statementLinkCompleted: g.statementLinkCompleted,
-        })),
+        }))
+        .sort((a, b) => Number(a.isCrossCompany) - Number(b.isCrossCompany));
+      return ok({
+        direction: "invoice",
+        candidates,
       });
     }
 
     const groups = await prisma.paymentGroup.findMany({
       where: {
-        operatingCompanyId: meta.operatingCompanyId,
+        ...companyWhere,
         deletedAt: null,
         statementLinkCompleted: false,
         ...(search
@@ -350,18 +373,22 @@ export async function listLinkCandidatesForEntry(
         status: true,
         manualPaymentStatus: true,
         statementLinkCompleted: true,
+        operatingCompanyId: true,
+        operatingCompany: { select: { companyName: true } },
         customCounterpartyName: true,
         counterparty: { select: { name: true } },
         bankStatementLinks: { select: { amount: true } },
       },
     });
-    return ok({
-      direction: "payment",
-      candidates: groups.map((g) => ({
+    const candidates = groups
+      .map((g) => ({
         id: g.id,
         label: g.referenceCode ?? `支払#${g.id}`,
         counterpartyName:
           g.counterparty?.name ?? g.customCounterpartyName ?? "(取引先未設定)",
+        operatingCompanyId: g.operatingCompanyId,
+        operatingCompanyName: g.operatingCompany.companyName,
+        isCrossCompany: g.operatingCompanyId !== meta.operatingCompanyId,
         totalAmount: g.totalAmount,
         expectedDate: g.expectedPaymentDate
           ? g.expectedPaymentDate.toISOString().slice(0, 10)
@@ -373,7 +400,11 @@ export async function listLinkCandidatesForEntry(
           0
         ),
         statementLinkCompleted: g.statementLinkCompleted,
-      })),
+      }))
+      .sort((a, b) => Number(a.isCrossCompany) - Number(b.isCrossCompany));
+    return ok({
+      direction: "payment",
+      candidates,
     });
   } catch (e) {
     console.error("[listLinkCandidatesForEntry] error:", e);
@@ -391,9 +422,25 @@ export type EntryLinkRow = {
   groupId: number;
   groupLabel: string;
   counterpartyName: string;
+  operatingCompanyName: string | null;
+  isCrossCompany: boolean;
+  crossCompanyReason: string | null;
   amount: number;
   note: string | null;
 };
+
+function parseLinkNote(note: string | null): {
+  note: string | null;
+  crossCompanyReason: string | null;
+} {
+  if (!note) return { note: null, crossCompanyReason: null };
+  const match = note.match(/^\[別法人紐付け: ([^\]]+)\]\s*(.*)$/);
+  if (!match) return { note, crossCompanyReason: null };
+  return {
+    crossCompanyReason: match[1],
+    note: match[2]?.trim() || null,
+  };
+}
 
 export async function listLinksForEntry(
   entryId: number
@@ -409,10 +456,13 @@ export async function listLinksForEntry(
       note: true,
       invoiceGroupId: true,
       paymentGroupId: true,
+      bankStatementEntry: { select: { operatingCompanyId: true } },
       invoiceGroup: {
         select: {
           id: true,
           invoiceNumber: true,
+          operatingCompanyId: true,
+          operatingCompany: { select: { companyName: true } },
           counterparty: { select: { name: true } },
         },
       },
@@ -420,6 +470,8 @@ export async function listLinksForEntry(
         select: {
           id: true,
           referenceCode: true,
+          operatingCompanyId: true,
+          operatingCompany: { select: { companyName: true } },
           customCounterpartyName: true,
           counterparty: { select: { name: true } },
         },
@@ -428,17 +480,27 @@ export async function listLinksForEntry(
   });
 
   return links.map((l) => {
+    const parsedNote = parseLinkNote(l.note);
     if (l.invoiceGroup) {
+      const isCrossCompany =
+        l.invoiceGroup.operatingCompanyId !== l.bankStatementEntry.operatingCompanyId;
       return {
         id: l.id,
         groupKind: "invoice" as const,
         groupId: l.invoiceGroup.id,
         groupLabel: l.invoiceGroup.invoiceNumber ?? `請求#${l.invoiceGroup.id}`,
         counterpartyName: l.invoiceGroup.counterparty.name,
+        operatingCompanyName: isCrossCompany
+          ? l.invoiceGroup.operatingCompany.companyName
+          : null,
+        isCrossCompany,
+        crossCompanyReason: parsedNote.crossCompanyReason,
         amount: l.amount,
-        note: l.note,
+        note: parsedNote.note,
       };
     }
+    const isCrossCompany =
+      l.paymentGroup!.operatingCompanyId !== l.bankStatementEntry.operatingCompanyId;
     return {
       id: l.id,
       groupKind: "payment" as const,
@@ -448,8 +510,13 @@ export async function listLinksForEntry(
         l.paymentGroup!.counterparty?.name ??
         l.paymentGroup!.customCounterpartyName ??
         "(取引先未設定)",
+      operatingCompanyName: isCrossCompany
+        ? l.paymentGroup!.operatingCompany.companyName
+        : null,
+      isCrossCompany,
+      crossCompanyReason: parsedNote.crossCompanyReason,
       amount: l.amount,
-      note: l.note,
+      note: parsedNote.note,
     };
   });
 }
@@ -465,6 +532,7 @@ export type ReplaceLinksInput = {
     groupId: number;
     amount: number;
     note?: string | null;
+    crossCompanyReason?: string | null;
   }[];
   conflictResolution?: ConflictResolution;
 };
@@ -513,13 +581,20 @@ export async function replaceLinksForEntry(
     if (ids.length > 0) {
       if (meta.direction === "invoice") {
         const found = await prisma.invoiceGroup.findMany({
-            where: { id: { in: ids } },
-          select: { id: true, operatingCompanyId: true, statementLinkCompleted: true },
+          where: { id: { in: ids } },
+          select: {
+            id: true,
+            operatingCompanyId: true,
+            statementLinkCompleted: true,
+          },
         });
         if (found.length !== ids.length) return err("一部の請求グループが見つかりません");
         for (const g of found) {
           if (g.operatingCompanyId !== meta.operatingCompanyId) {
-            return err(`請求グループ#${g.id} は別法人のため紐付けできません`);
+            const reason = input.links.find((l) => l.groupId === g.id)?.crossCompanyReason?.trim();
+            if (!reason) {
+              return err(`請求グループ#${g.id} は別法人のため、別法人紐付け理由を入力してください`);
+            }
           }
           if (g.statementLinkCompleted) {
             return err(`請求グループ#${g.id} は入出金履歴チェック完了済みのため紐付けできません`);
@@ -533,7 +608,10 @@ export async function replaceLinksForEntry(
         if (found.length !== ids.length) return err("一部の支払グループが見つかりません");
         for (const g of found) {
           if (g.operatingCompanyId !== meta.operatingCompanyId) {
-            return err(`支払グループ#${g.id} は別法人のため紐付けできません`);
+            const reason = input.links.find((l) => l.groupId === g.id)?.crossCompanyReason?.trim();
+            if (!reason) {
+              return err(`支払グループ#${g.id} は別法人のため、別法人紐付け理由を入力してください`);
+            }
           }
           if (g.statementLinkCompleted) {
             return err(`支払グループ#${g.id} は入出金履歴チェック完了済みのため紐付けできません`);
@@ -596,13 +674,14 @@ export async function replaceLinksForEntry(
 
       // リンク作成 + receipt/payment 自動生成
       for (const l of input.links) {
+        const note = buildLinkNote(l.note, l.crossCompanyReason);
         const link = await tx.bankStatementEntryGroupLink.create({
           data: {
             bankStatementEntryId: input.entryId,
             invoiceGroupId: l.groupKind === "invoice" ? l.groupId : null,
             paymentGroupId: l.groupKind === "payment" ? l.groupId : null,
             amount: l.amount,
-            note: l.note ?? null,
+            note,
             createdBy: session.id,
           },
         });
@@ -612,7 +691,7 @@ export async function replaceLinksForEntry(
               invoiceGroupId: l.groupId,
               receivedDate: meta.transactionDate,
               amount: l.amount,
-              comment: l.note ?? null,
+              comment: note,
               recordSource: "bank_statement",
               createdById: session.id,
               bankStatementEntryGroupLinkId: link.id,
@@ -624,7 +703,7 @@ export async function replaceLinksForEntry(
               paymentGroupId: l.groupId,
               paidDate: meta.transactionDate,
               amount: l.amount,
-              comment: l.note ?? null,
+              comment: note,
               recordSource: "bank_statement",
               createdById: session.id,
               bankStatementEntryGroupLinkId: link.id,

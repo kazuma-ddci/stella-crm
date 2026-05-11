@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STELLA OS — 部署別KPIダッシュボード v3</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════
+   STELLA OS — Design System (matching existing)
+   ═══════════════════════════════════════════════ */
+:root {
+  --bg-deep: #070b14;
+  --bg-base: #0c1221;
+  --bg-surface: #131c31;
+  --bg-card: #172033;
+  --bg-card-hover: #1c2740;
+  --bg-elevated: #1e293b;
+  --border-subtle: #1e2d4a;
+  --border-default: #263354;
+  --border-strong: #334155;
+
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #64748b;
+  --text-muted: #475569;
+
+  --primary: #6366f1;
+  --primary-light: #818cf8;
+  --primary-glow: rgba(99, 102, 241, 0.15);
+  --primary-subtle: rgba(99, 102, 241, 0.08);
+
+  --green: #22c55e;
+  --green-bg: rgba(34, 197, 94, 0.1);
+  --green-border: rgba(34, 197, 94, 0.2);
+  --amber: #f59e0b;
+  --amber-bg: rgba(245, 158, 11, 0.08);
+  --amber-border: rgba(245, 158, 11, 0.2);
+  --red: #ef4444;
+  --red-bg: rgba(239, 68, 68, 0.1);
+  --red-border: rgba(239, 68, 68, 0.2);
+  --gray: #6b7280;
+  --gray-bg: rgba(107, 114, 128, 0.1);
+
+  --gap-xs: 4px;
+  --gap-sm: 8px;
+  --gap-md: 12px;
+  --gap-lg: 16px;
+  --gap-xl: 20px;
+  --gap-2xl: 24px;
+  --gap-3xl: 32px;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  --sidebar-w: 232px;
+}
+
+/* Reset */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 13px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body {
+  font-family: 'DM Sans', 'Noto Sans JP', sans-serif;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+.num {
+  font-family: 'JetBrains Mono', 'DM Sans', monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* ═══════════════════════════════════════════════
+   Layout
+   ═══════════════════════════════════════════════ */
+.app { display: flex; min-height: 100vh; }
+
+/* ═══════════════════════════════════════════════
+   Sidebar
+   ═══════════════════════════════════════════════ */
+.sidebar {
+  width: var(--sidebar-w);
+  min-width: var(--sidebar-w);
+  background: var(--bg-base);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  z-index: 100;
+  overflow-y: auto;
+}
+.sidebar-logo {
+  padding: 20px 20px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.sidebar-logo .logo-mark {
+  width: 28px; height: 28px;
+  background: linear-gradient(135deg, var(--primary), #a78bfa);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; color: white;
+  flex-shrink: 0;
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+}
+.sidebar-logo .logo-text {
+  font-size: 14px; font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+}
+.sidebar-nav { flex: 1; padding: 12px 10px; }
+.nav-section { margin-bottom: 6px; }
+.nav-section-label {
+  font-size: 9.5px; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 14px 10px 6px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12.5px; font-weight: 450;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+.nav-item:hover { background: var(--primary-subtle); color: var(--text-primary); }
+.nav-item.active {
+  background: var(--primary-glow);
+  color: var(--primary-light);
+  font-weight: 550;
+}
+.nav-item.active::before {
+  content: '';
+  position: absolute; left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 3px; height: 16px;
+  background: var(--primary);
+  border-radius: 0 2px 2px 0;
+}
+.nav-item .icon { font-size: 14px; width: 20px; text-align: center; flex-shrink: 0; }
+.nav-badge {
+  margin-left: auto;
+  font-size: 9.5px; font-weight: 700;
+  min-width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 9px; padding: 0 5px;
+}
+.nav-badge.red { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
+.nav-badge.amber { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-border); }
+.nav-badge.primary { background: var(--primary-subtle); color: var(--primary-light); border: 1px solid rgba(99,102,241,0.2); }
+
+/* ═══════════════════════════════════════════════
+   Main
+   ═══════════════════════════════════════════════ */
+.main { flex: 1; margin-left: var(--sidebar-w); min-height: 100vh; }
+
+/* Topbar */
+.topbar {
+  height: 52px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--gap-2xl);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+  position: sticky; top: 0; z-index: 50;
+  backdrop-filter: blur(12px);
+}
+.topbar-left { display: flex; align-items: center; gap: var(--gap-md); }
+.topbar-breadcrumb {
+  font-size: 12px; color: var(--text-tertiary);
+  display: flex; align-items: center; gap: 6px;
+}
+.topbar-breadcrumb span { color: var(--text-primary); font-weight: 600; }
+.month-selector {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px; font-weight: 500;
+  cursor: pointer; transition: border-color 0.15s;
+}
+.month-selector:hover { border-color: var(--primary); }
+.topbar-right { display: flex; align-items: center; gap: var(--gap-lg); }
+.greeting { font-size: 12px; color: var(--text-secondary); }
+.greeting .name { color: var(--text-primary); font-weight: 600; }
+.avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary), #a78bfa);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600; color: white;
+}
+
+/* Content */
+.content { padding: var(--gap-2xl); max-width: 1280px; }
+
+/* Data Freshness */
+.data-freshness {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: var(--gap-lg); padding: 0 2px;
+}
+.freshness-left {
+  display: flex; align-items: center; gap: var(--gap-sm);
+  font-size: 11px; color: var(--text-muted);
+}
+.freshness-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.freshness-right { font-size: 10.5px; color: var(--text-muted); }
+
+/* ═══════════════════════════════════════════════
+   Department Tabs
+   ═══════════════════════════════════════════════ */
+.dept-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  animation: fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.dept-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 var(--gap-xl);
+  gap: 2px;
+  overflow-x: auto;
+}
+.dept-tab {
+  padding: 12px 16px;
+  font-size: 12px; font-weight: 500;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  white-space: nowrap;
+  user-select: none;
+}
+.dept-tab:hover { color: var(--text-secondary); }
+.dept-tab.active {
+  color: var(--primary-light);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}
+.dept-panel { display: none; padding: var(--gap-xl); }
+.dept-panel.active { display: block; }
+
+/* Department Header */
+.dept-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: var(--gap-xl);
+}
+.dept-title { font-size: 14px; font-weight: 600; }
+.dept-title .head {
+  color: var(--text-tertiary); font-weight: 400;
+  margin-left: 8px;
+}
+.dept-period { font-size: 11px; color: var(--text-muted); }
+
+/* Section Labels */
+.section-label {
+  display: flex; align-items: center; gap: var(--gap-sm);
+  margin-bottom: var(--gap-lg);
+  margin-top: var(--gap-xl);
+}
+.section-label:first-of-type { margin-top: 0; }
+.section-label-text {
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.section-label-line {
+  flex: 1; height: 1px;
+  background: var(--border-subtle);
+}
+.section-label-badge {
+  font-size: 9px; font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.section-label-badge.kpi {
+  background: var(--primary-subtle);
+  color: var(--primary-light);
+}
+.section-label-badge.observe {
+  background: var(--gray-bg);
+  color: var(--gray);
+  border: 1px solid rgba(107, 114, 128, 0.2);
+}
+
+/* ═══════════════════════════════════════════════
+   KPI Cards Grid
+   ═══════════════════════════════════════════════ */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--gap-lg);
+  margin-bottom: var(--gap-lg);
+}
+.kpi-grid.five { grid-template-columns: repeat(5, 1fr); }
+
+@media (max-width: 1100px) {
+  .kpi-grid.five { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 780px) {
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .kpi-grid.five { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ═══════════════════════════════════════════════
+   KPI Card
+   ═══════════════════════════════════════════════ */
+.kpi-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--gap-lg) var(--gap-xl);
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.kpi-card:hover {
+  border-color: var(--border-default);
+  background: var(--bg-card-hover);
+  transform: translateY(-1px);
+}
+
+/* Top accent bar */
+.kpi-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 2px;
+}
+.kpi-card.status-green::before { background: linear-gradient(90deg, var(--green), transparent 80%); }
+.kpi-card.status-amber::before { background: linear-gradient(90deg, var(--amber), transparent 80%); }
+.kpi-card.status-red::before { background: linear-gradient(90deg, var(--red), transparent 80%); }
+.kpi-card.status-gray::before { background: linear-gradient(90deg, var(--gray), transparent 80%); }
+
+/* Observation card variant */
+.kpi-card.observe {
+  border-style: solid;
+  border-color: rgba(107, 114, 128, 0.15);
+  background: rgba(23, 32, 51, 0.6);
+}
+.kpi-card.observe:hover {
+  border-color: rgba(107, 114, 128, 0.3);
+  background: var(--bg-card-hover);
+}
+
+/* Pending card variant */
+.kpi-card.pending {
+  border-style: dashed;
+  border-color: var(--border-default);
+  background: rgba(23, 32, 51, 0.4);
+}
+.kpi-card.pending:hover {
+  border-color: var(--border-strong);
+}
+
+.kpi-card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: var(--gap-sm);
+}
+.kpi-card-label {
+  font-size: 11px; color: var(--text-tertiary);
+  font-weight: 500;
+}
+.kpi-card-badges { display: flex; gap: var(--gap-xs); }
+
+/* Badge: New/Observe/Implemented */
+.badge {
+  font-size: 8.5px; font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+}
+.badge.new {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--amber);
+  border: 1px solid var(--amber-border);
+}
+.badge.done {
+  background: var(--green-bg);
+  color: var(--green);
+  border: 1px solid var(--green-border);
+}
+.badge.observe-tag {
+  background: var(--gray-bg);
+  color: var(--gray);
+  border: 1px solid rgba(107, 114, 128, 0.2);
+}
+.badge.pending-tag {
+  background: rgba(107, 114, 128, 0.08);
+  color: var(--text-muted);
+  border: 1px dashed var(--border-default);
+}
+
+/* Value */
+.kpi-card-value {
+  font-size: 26px; font-weight: 700;
+  letter-spacing: -0.03em;
+  margin-bottom: 2px;
+  line-height: 1.1;
+}
+.kpi-card-value.muted { color: var(--text-muted); font-size: 14px; font-weight: 500; }
+
+/* Subtitle (delta, comparison) */
+.kpi-card-sub {
+  font-size: 11px; color: var(--text-tertiary);
+  margin-bottom: var(--gap-md);
+  display: flex; align-items: center; gap: 4px;
+}
+.kpi-card-sub .delta-up { color: var(--green); font-weight: 600; }
+.kpi-card-sub .delta-down { color: var(--red); font-weight: 600; }
+.kpi-card-sub .delta-flat { color: var(--text-muted); font-weight: 600; }
+
+/* Progress */
+.kpi-progress {
+  height: 4px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  margin-bottom: var(--gap-sm);
+  overflow: hidden;
+}
+.kpi-progress-bar {
+  height: 100%; border-radius: 2px;
+  transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.kpi-progress-bar.green { background: var(--green); }
+.kpi-progress-bar.amber { background: var(--amber); }
+.kpi-progress-bar.red { background: var(--red); }
+.kpi-progress-bar.gray { background: var(--gray); }
+
+.kpi-card-meta {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 10.5px;
+}
+.kpi-card-percent { font-weight: 600; }
+.kpi-card-percent.green { color: var(--green); }
+.kpi-card-percent.amber { color: var(--amber); }
+.kpi-card-percent.red { color: var(--red); }
+.kpi-card-percent.gray { color: var(--gray); }
+
+.kpi-card-target { color: var(--text-muted); }
+
+/* Status dot with a11y text */
+.status-indicator {
+  display: flex; align-items: center; gap: 4px;
+}
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+}
+.status-dot.green { background: var(--green); box-shadow: 0 0 8px rgba(34, 197, 94, 0.4); }
+.status-dot.amber { background: var(--amber); box-shadow: 0 0 8px rgba(245, 158, 11, 0.4); }
+.status-dot.red { background: var(--red); box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
+.status-dot.gray { background: var(--gray); }
+.status-text {
+  font-size: 9px; font-weight: 600;
+}
+.status-text.green { color: var(--green); }
+.status-text.amber { color: var(--amber); }
+.status-text.red { color: var(--red); }
+.status-text.gray { color: var(--gray); }
+
+/* Drill-down affordance */
+.kpi-card .drill-down {
+  position: absolute;
+  bottom: 10px; right: 16px;
+  font-size: 10.5px;
+  color: var(--primary-light);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+.kpi-card:hover .drill-down {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* ═══════════════════════════════════════════════
+   Summary Strip (dev request count)
+   ═══════════════════════════════════════════════ */
+.dev-summary {
+  display: flex; align-items: center; gap: var(--gap-lg);
+  padding: var(--gap-md) var(--gap-xl);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--gap-2xl);
+  font-size: 12px;
+}
+.dev-summary-item {
+  display: flex; align-items: center; gap: var(--gap-sm);
+  color: var(--text-secondary);
+}
+.dev-summary-item .count {
+  font-weight: 700;
+}
+.dev-summary-item .count.done { color: var(--green); }
+.dev-summary-item .count.new { color: var(--amber); }
+.dev-summary-item .count.hold { color: var(--gray); }
+.dev-summary-sep {
+  width: 1px; height: 16px;
+  background: var(--border-subtle);
+}
+
+/* ═══════════════════════════════════════════════
+   Animations
+   ═══════════════════════════════════════════════ */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-up {
+  animation: fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.fade-up-d1 { animation-delay: 0.03s; }
+.fade-up-d2 { animation-delay: 0.06s; }
+.fade-up-d3 { animation-delay: 0.09s; }
+.fade-up-d4 { animation-delay: 0.12s; }
+.fade-up-d5 { animation-delay: 0.15s; }
+.fade-up-d6 { animation-delay: 0.18s; }
+.fade-up-d7 { animation-delay: 0.21s; }
+.fade-up-d8 { animation-delay: 0.24s; }
+.fade-up-d9 { animation-delay: 0.27s; }
+.fade-up-d10 { animation-delay: 0.30s; }
+
+/* ═══════════════════════════════════════════════
+   Empty / Pending state
+   ═══════════════════════════════════════════════ */
+.pending-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--gap-2xl);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.pending-icon {
+  font-size: 28px;
+  margin-bottom: var(--gap-sm);
+  opacity: 0.5;
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ═══ Sidebar ═══ -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark">S</div>
+      <div class="logo-text">STELLA OS</div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">
+        <div class="nav-item active">
+          <span class="icon">🏠</span> ホーム
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">リード & 商談</div>
+        <div class="nav-item">
+          <span class="icon">📥</span> リード管理
+          <span class="nav-badge amber">5</span>
+        </div>
+        <div class="nav-item">
+          <span class="icon">💼</span> 商談パイプライン
+          <span class="nav-badge primary">3</span>
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">契約 & 運用</div>
+        <div class="nav-item"><span class="icon">📝</span> 契約管理</div>
+        <div class="nav-item"><span class="icon">⚙️</span> 運用プロジェクト</div>
+        <div class="nav-item"><span class="icon">📊</span> 運用KPI</div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">CS & 成長</div>
+        <div class="nav-item"><span class="icon">🤝</span> カスタマーサクセス</div>
+        <div class="nav-item"><span class="icon">📈</span> KPI目標管理</div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-label">管理</div>
+        <div class="nav-item">
+          <span class="icon">💰</span> 売上・請求
+          <span class="nav-badge red">1</span>
+        </div>
+        <div class="nav-item"><span class="icon">🏢</span> 代理店管理</div>
+        <div class="nav-item"><span class="icon">👥</span> スタッフ</div>
+        <div class="nav-item"><span class="icon">⚙️</span> 設定</div>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- ═══ Main Content ═══ -->
+  <div class="main">
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="topbar-breadcrumb">
+          STELLA OS / <span>KPIダッシュボード</span>
+        </div>
+        <div class="month-selector">
+          📅 2026年3月 ▼
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="greeting" id="greeting"></div>
+        <div class="avatar">青</div>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <div class="content">
+      <!-- Data Freshness -->
+      <div class="data-freshness">
+        <div class="freshness-left">
+          <div class="freshness-dot"></div>
+          <span>リアルタイム更新</span>
+          <span>最終更新: <span class="num" id="lastUpdate"></span></span>
+        </div>
+        <div class="freshness-right">
+          データソース: Stella CRM
+        </div>
+      </div>
+
+      <!-- Dev Summary Strip -->
+      <div class="dev-summary">
+        <div class="dev-summary-item">
+          <span>全指標</span>
+          <span class="count num">25</span>
+        </div>
+        <div class="dev-summary-sep"></div>
+        <div class="dev-summary-item">
+          <span>✅ 実装済み</span>
+          <span class="count done num">8</span>
+        </div>
+        <div class="dev-summary-sep"></div>
+        <div class="dev-summary-item">
+          <span>🆕 開発依頼</span>
+          <span class="count new num">16</span>
+        </div>
+        <div class="dev-summary-sep"></div>
+        <div class="dev-summary-item">
+          <span>⏸ 保留</span>
+          <span class="count hold num">1</span>
+        </div>
+      </div>
+
+      <!-- Department Container -->
+      <div class="dept-container" id="deptContainer">
+        <div class="dept-tabs" id="deptTabs"></div>
+        <div id="deptPanels"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════
+   Data Definition
+   ═══════════════════════════════════════════════ */
+const DEPARTMENTS = [
+  {
+    id: 'kgi',
+    label: 'KGI',
+    title: '事業KGI',
+    head: '',
+    kpis: [
+      { name: '月次売上', value: '¥382万', target: '目標 ¥668万', pct: 57.2, status: 'amber', impl: 'done' },
+      { name: '月次粗利', value: '¥230万', target: '目標 ¥469万', pct: 49.0, status: 'red', impl: 'done' },
+      { name: '採用目標達成率', value: '—', target: '目標 80%', pct: 0, status: 'gray', impl: 'new', statusLabel: '未計測' },
+      { name: '応募目標達成率', value: '—', target: '目標 90%', pct: 0, status: 'gray', impl: 'new', statusLabel: '未計測' },
+      { name: '新規契約数', value: '24社', target: '目標 24社', pct: 100, status: 'green', impl: 'done' },
+    ],
+    observations: [],
+    gridClass: 'five'
+  },
+  {
+    id: 'alliance',
+    label: 'Alliance',
+    title: 'アライアンス部',
+    head: '宮原',
+    kpis: [
+      { name: '有効リード数', value: '50件', target: '目標 50件', pct: 100, status: 'green', impl: 'done' },
+      { name: 'SQL化率', value: '80%', target: '目標 80%', pct: 100, status: 'green', impl: 'done' },
+      { name: '商談数', value: '40件', target: '目標 40件', pct: 100, status: 'green', impl: 'done' },
+    ],
+    observations: [
+      { name: '代理店社数', value: '8社', delta: '+2', deltaDir: 'up', sub: '前月比', impl: 'new' },
+      { name: 'チャネル別CAC', value: '¥12,500', sub: '全チャネル平均', impl: 'new' },
+      { name: 'パートナー経由SQL化率', value: '25%', sub: '代理店経由のみ', impl: 'new' },
+    ]
+  },
+  {
+    id: 'sales',
+    label: 'Sales',
+    title: 'セールス部',
+    head: '青山',
+    kpis: [
+      { name: '成約率', value: '60%', target: '目標 60%', pct: 100, status: 'green', impl: 'done' },
+      { name: '新規契約数', value: '24社', target: '目標 24社', pct: 100, status: 'green', impl: 'done' },
+      { name: '商談→契約LT', value: '12日', target: '目標 14日', pct: 85.7, status: 'green', impl: 'new', inverted: true },
+    ],
+    observations: []
+  },
+  {
+    id: 'backoffice',
+    label: 'バックオフィス',
+    title: 'バックオフィス部',
+    head: '吉川',
+    kpis: [
+      { name: '運用開始LT', value: '4営業日', target: '目標 5営業日', pct: 80, status: 'green', impl: 'new', inverted: true },
+      { name: '回収遅延率', value: '2.1%', target: '目標 3%以下', pct: 70, status: 'green', impl: 'new', inverted: true },
+      { name: '商談→契約LT', value: '12日', target: '目標 14日', pct: 85.7, status: 'green', impl: 'new', inverted: true },
+    ],
+    observations: []
+  },
+  {
+    id: 'cs',
+    label: 'CS',
+    title: 'CS部',
+    head: '東田',
+    kpis: [
+      { name: '顧客満足度', value: '', target: '', pct: 0, status: 'gray', impl: 'pending', pendingMsg: '測定方法検討中' },
+    ],
+    observations: [
+      { name: 'CPA', value: '¥7,200', sub: '目標 ¥8,000以下', impl: 'new' },
+      { name: '応募数', value: '11.8件/社', sub: '稼働企業あたり', impl: 'new' },
+      { name: 'CTR', value: '1.3%', sub: 'クリック率', impl: 'new' },
+      { name: 'CVR', value: '0.9%', sub: '応募率', impl: 'new' },
+      { name: '面接着座率', value: '72%', sub: '面接実施/応募', impl: 'new' },
+      { name: '契約継続率', value: '98.5%', sub: '月次', impl: 'new' },
+      { name: '顧客LTV', value: '¥185万', sub: '顧客あたり累計平均', impl: 'new' },
+    ]
+  }
+];
+
+/* ═══════════════════════════════════════════════
+   Rendering (No innerHTML — DOM only)
+   ═══════════════════════════════════════════════ */
+function createEl(tag, classes, text) {
+  const el = document.createElement(tag);
+  if (classes) {
+    classes.split(' ').forEach(function(c) { if (c) el.classList.add(c); });
+  }
+  if (text !== undefined && text !== null) el.textContent = text;
+  return el;
+}
+
+function buildBadge(impl) {
+  const badge = createEl('span', 'badge');
+  if (impl === 'done') {
+    badge.classList.add('done');
+    badge.textContent = '✅ 実装済み';
+  } else if (impl === 'new') {
+    badge.classList.add('new');
+    badge.textContent = '🆕 開発依頼';
+  } else if (impl === 'pending') {
+    badge.classList.add('pending-tag');
+    badge.textContent = '⏸ 保留';
+  }
+  return badge;
+}
+
+function statusLabel(status) {
+  const map = { green: '達成', amber: '注意', red: '未達', gray: '未計測' };
+  return map[status] || '—';
+}
+
+function buildKpiCard(kpi, delay) {
+  const isPending = kpi.impl === 'pending';
+  const cardClasses = 'kpi-card fade-up fade-up-d' + delay;
+  const card = createEl('div', cardClasses);
+  card.classList.add('status-' + kpi.status);
+  if (isPending) card.classList.add('pending');
+
+  // Header
+  const header = createEl('div', 'kpi-card-header');
+  const label = createEl('div', 'kpi-card-label', kpi.name);
+  const badges = createEl('div', 'kpi-card-badges');
+
+  // Status indicator
+  const statusInd = createEl('div', 'status-indicator');
+  const dot = createEl('div', 'status-dot ' + kpi.status);
+  const stText = createEl('span', 'status-text ' + kpi.status, kpi.statusLabel || statusLabel(kpi.status));
+  statusInd.appendChild(dot);
+  statusInd.appendChild(stText);
+
+  badges.appendChild(statusInd);
+  badges.appendChild(buildBadge(kpi.impl));
+  header.appendChild(label);
+  header.appendChild(badges);
+  card.appendChild(header);
+
+  // Value
+  if (isPending) {
+    const msg = createEl('div', 'kpi-card-value muted', kpi.pendingMsg);
+    card.appendChild(msg);
+    const spacer = createEl('div', 'kpi-card-sub');
+    spacer.textContent = '\u00A0';
+    card.appendChild(spacer);
+  } else {
+    const val = createEl('div', 'kpi-card-value num', kpi.value || '—');
+    card.appendChild(val);
+    const sub = createEl('div', 'kpi-card-sub', kpi.target);
+    card.appendChild(sub);
+  }
+
+  // Progress bar
+  if (!isPending && kpi.pct !== undefined) {
+    const progWrap = createEl('div', 'kpi-progress');
+    const progBar = createEl('div', 'kpi-progress-bar ' + kpi.status);
+    progBar.style.width = Math.min(kpi.pct, 100) + '%';
+    progWrap.appendChild(progBar);
+    card.appendChild(progWrap);
+
+    const meta = createEl('div', 'kpi-card-meta');
+    const pctEl = createEl('span', 'kpi-card-percent num ' + kpi.status, kpi.pct.toFixed(1) + '%');
+    meta.appendChild(pctEl);
+    card.appendChild(meta);
+  }
+
+  // Drill-down
+  const drill = createEl('span', 'drill-down', '詳細を見る →');
+  card.appendChild(drill);
+
+  return card;
+}
+
+function buildObservationCard(obs, delay) {
+  const card = createEl('div', 'kpi-card observe fade-up fade-up-d' + delay);
+
+  // Header
+  const header = createEl('div', 'kpi-card-header');
+  const label = createEl('div', 'kpi-card-label', obs.name);
+  const badges = createEl('div', 'kpi-card-badges');
+  const obsBadge = createEl('span', 'badge observe-tag', '観測');
+  badges.appendChild(obsBadge);
+  badges.appendChild(buildBadge(obs.impl));
+  header.appendChild(label);
+  header.appendChild(badges);
+  card.appendChild(header);
+
+  // Value
+  const val = createEl('div', 'kpi-card-value num', obs.value);
+  card.appendChild(val);
+
+  // Sub line with delta
+  const sub = createEl('div', 'kpi-card-sub');
+  if (obs.delta) {
+    const deltaSpan = createEl('span', '', obs.delta);
+    if (obs.deltaDir === 'up') deltaSpan.classList.add('delta-up');
+    else if (obs.deltaDir === 'down') deltaSpan.classList.add('delta-down');
+    else deltaSpan.classList.add('delta-flat');
+    sub.appendChild(deltaSpan);
+    const subText = document.createTextNode(' ' + (obs.sub || ''));
+    sub.appendChild(subText);
+  } else {
+    sub.textContent = obs.sub || '\u00A0';
+  }
+  card.appendChild(sub);
+
+  // Drill-down
+  const drill = createEl('span', 'drill-down', '詳細を見る →');
+  card.appendChild(drill);
+
+  return card;
+}
+
+function renderDepartment(dept) {
+  const panel = createEl('div', 'dept-panel');
+  panel.dataset.dept = dept.id;
+
+  // Header
+  const header = createEl('div', 'dept-header');
+  const titleEl = createEl('div', 'dept-title');
+  titleEl.textContent = dept.title;
+  if (dept.head) {
+    const headSpan = createEl('span', 'head', dept.head);
+    titleEl.appendChild(headSpan);
+  }
+  const period = createEl('div', 'dept-period', '2026年3月 実績 / 目標');
+  header.appendChild(titleEl);
+  header.appendChild(period);
+  panel.appendChild(header);
+
+  // KPI section
+  if (dept.kpis.length > 0) {
+    const kpiLabel = createEl('div', 'section-label');
+    const kpiText = createEl('span', 'section-label-text', 'KPI');
+    const kpiBadge = createEl('span', 'section-label-badge kpi', dept.kpis.length + '指標');
+    const kpiLine = createEl('div', 'section-label-line');
+    kpiLabel.appendChild(kpiText);
+    kpiLabel.appendChild(kpiBadge);
+    kpiLabel.appendChild(kpiLine);
+    panel.appendChild(kpiLabel);
+
+    const kpiGrid = createEl('div', 'kpi-grid');
+    if (dept.gridClass) kpiGrid.classList.add(dept.gridClass);
+    dept.kpis.forEach(function(kpi, i) {
+      kpiGrid.appendChild(buildKpiCard(kpi, i + 1));
+    });
+    panel.appendChild(kpiGrid);
+  }
+
+  // Observation section
+  if (dept.observations.length > 0) {
+    const obsLabel = createEl('div', 'section-label');
+    const obsText = createEl('span', 'section-label-text', '観測指標');
+    const obsBadge = createEl('span', 'section-label-badge observe', dept.observations.length + '指標');
+    const obsLine = createEl('div', 'section-label-line');
+    obsLabel.appendChild(obsText);
+    obsLabel.appendChild(obsBadge);
+    obsLabel.appendChild(obsLine);
+    panel.appendChild(obsLabel);
+
+    const obsGrid = createEl('div', 'kpi-grid');
+    dept.observations.forEach(function(obs, i) {
+      obsGrid.appendChild(buildObservationCard(obs, dept.kpis.length + i + 1));
+    });
+    panel.appendChild(obsGrid);
+  }
+
+  // No observations note
+  if (dept.observations.length === 0 && dept.id !== 'kgi') {
+    // Intentionally empty — clean look
+  }
+
+  return panel;
+}
+
+function init() {
+  var tabsContainer = document.getElementById('deptTabs');
+  var panelsContainer = document.getElementById('deptPanels');
+
+  DEPARTMENTS.forEach(function(dept, idx) {
+    // Tab
+    var tab = createEl('div', 'dept-tab', dept.label);
+    tab.dataset.dept = dept.id;
+    if (idx === 0) tab.classList.add('active');
+    tabsContainer.appendChild(tab);
+
+    // Panel
+    var panel = renderDepartment(dept);
+    if (idx === 0) panel.classList.add('active');
+    panelsContainer.appendChild(panel);
+  });
+
+  // Tab switching
+  tabsContainer.addEventListener('click', function(e) {
+    var tab = e.target.closest('.dept-tab');
+    if (!tab) return;
+    var deptId = tab.dataset.dept;
+
+    // Update tabs
+    var allTabs = tabsContainer.querySelectorAll('.dept-tab');
+    allTabs.forEach(function(t) { t.classList.remove('active'); });
+    tab.classList.add('active');
+
+    // Update panels
+    var allPanels = panelsContainer.querySelectorAll('.dept-panel');
+    allPanels.forEach(function(p) { p.classList.remove('active'); });
+    var targetPanel = panelsContainer.querySelector('[data-dept="' + deptId + '"]');
+    if (targetPanel) {
+      targetPanel.classList.add('active');
+      // Re-trigger animations
+      var cards = targetPanel.querySelectorAll('.fade-up');
+      cards.forEach(function(card) {
+        card.style.animation = 'none';
+        card.offsetHeight; // force reflow
+        card.style.animation = '';
+      });
+    }
+  });
+
+  // Greeting
+  var greetingEl = document.getElementById('greeting');
+  var hour = new Date().getHours();
+  var greetText = hour >= 5 && hour < 12 ? 'おはようございます' :
+                  hour >= 12 && hour < 18 ? 'こんにちは' : 'お疲れさまです';
+  greetingEl.textContent = greetText + '、';
+  var nameSpan = createEl('span', 'name', '青山さん');
+  greetingEl.appendChild(nameSpan);
+
+  // Last update time
+  var updateEl = document.getElementById('lastUpdate');
+  var now = new Date();
+  var h = String(now.getHours()).padStart(2, '0');
+  var m = String(now.getMinutes()).padStart(2, '0');
+  updateEl.textContent = h + ':' + m;
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

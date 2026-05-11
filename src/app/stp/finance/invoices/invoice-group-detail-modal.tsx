@@ -28,14 +28,14 @@ import { ReceiptsReadonly } from "@/components/finance/receipts-readonly";
 import { InvoiceMailModal } from "./invoice-mail-modal";
 import { getInvoiceGroupMailHistory, type MailHistoryItem } from "./mail-actions";
 import { InlineTransactionForm } from "./inline-transaction-form";
-import type { InvoiceGroupListItem, UngroupedTransaction } from "./actions";
+import type { InvoiceGroupCandidateTransaction, InvoiceGroupListItem } from "./actions";
 import {
   updateInvoiceGroup,
   updateInvoiceGroupTransactionNote,
   deleteInvoiceGroup,
   addTransactionToGroup,
   removeTransactionFromGroup,
-  getUngroupedTransactions,
+  getInvoiceGroupCandidateTransactions,
   createCorrectionInvoiceGroup,
   updateInvoiceGroupStatus,
   generateInvoicePdf,
@@ -109,6 +109,13 @@ function displayCounterpartyName(label: string): string {
   return label.replace(/^[A-Z]+-\d+\s+-?\s*/, "");
 }
 
+const ADD_STATE_STYLES: Record<InvoiceGroupCandidateTransaction["addState"], string> = {
+  available: "bg-green-50 text-green-700 border-green-200",
+  current: "bg-blue-50 text-blue-700 border-blue-200",
+  other_group: "bg-gray-100 text-gray-700 border-gray-200",
+  unconfirmed: "bg-amber-50 text-amber-700 border-amber-200",
+};
+
 export function InvoiceGroupDetailModal({
   open,
   onClose,
@@ -121,11 +128,13 @@ export function InvoiceGroupDetailModal({
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [activeTab, setActiveTab] = useState<"detail" | "transactions" | "add" | "invoice-builder" | "attachments" | "history" | "comments" | "statement-links">(
+  const [activeTab, setActiveTab] = useState<"detail" | "transactions" | "invoice-builder" | "attachments" | "history" | "comments" | "statement-links">(
     "detail"
   );
   const [showReturnRequestDialog, setShowReturnRequestDialog] = useState(false);
   const [returnRequestBody, setReturnRequestBody] = useState("");
+  const [isRecreatingSentInvoice, setIsRecreatingSentInvoice] = useState(false);
+  const [showRecreateSentDialog, setShowRecreateSentDialog] = useState(false);
 
   // 編集可能な情報
   const [counterpartyId, setCounterpartyId] = useState<string>(
@@ -171,12 +180,12 @@ export function InvoiceGroupDetailModal({
   const [noteDraft, setNoteDraft] = useState("");
   const [savingNoteId, setSavingNoteId] = useState<number | null>(null);
 
-  // 追加用の未グループ化取引
-  const [ungroupedTransactions, setUngroupedTransactions] = useState<
-    UngroupedTransaction[]
+  // 明細タブ下段に表示する同一取引先の既存取引
+  const [candidateTransactions, setCandidateTransactions] = useState<
+    InvoiceGroupCandidateTransaction[]
   >([]);
   const [selectedAddIds, setSelectedAddIds] = useState<Set<number>>(new Set());
-  const [loadingUngrouped, setLoadingUngrouped] = useState(false);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
 
   // 訂正モーダル
   const [showCorrectionDialog, setShowCorrectionDialog] = useState(false);
@@ -246,6 +255,13 @@ export function InvoiceGroupDetailModal({
   // 訂正請求の子を取得
   useEffect(() => {
     if (!open) return;
+    setIsRecreatingSentInvoice(false);
+    setShowRecreateSentDialog(false);
+  }, [open, group.id]);
+
+  // 訂正請求の子を取得
+  useEffect(() => {
+    if (!open) return;
     let cancelled = false;
     fetch(`/api/finance/invoice-groups/${group.id}/corrections`)
       .then((res) => (res.ok ? res.json() : []))
@@ -308,6 +324,8 @@ export function InvoiceGroupDetailModal({
   }, [open, activeTab, group.id]);
 
   const isEditable = ["draft", "pdf_created"].includes(group.status);
+  const canRecreateSentInvoice = group.status === "sent";
+  const canEditInvoiceContent = isEditable || isRecreatingSentInvoice;
   const canDelete = group.status === "draft";
 
   const currentBankAccounts = useMemo(
@@ -333,31 +351,27 @@ export function InvoiceGroupDetailModal({
     }
   }, [group.id]);
 
+  const loadCandidateTransactions = useCallback(async () => {
+    setLoadingCandidates(true);
+    try {
+      const txs = await getInvoiceGroupCandidateTransactions(group.id);
+      setCandidateTransactions(txs);
+    } catch {
+      setCandidateTransactions([]);
+    } finally {
+      setLoadingCandidates(false);
+    }
+  }, [group.id]);
+
+  const loadTransactionTabData = useCallback(async () => {
+    await Promise.all([loadTransactions(), loadCandidateTransactions()]);
+  }, [loadTransactions, loadCandidateTransactions]);
+
   useEffect(() => {
     if (open && activeTab === "transactions") {
-      loadTransactions();
+      loadTransactionTabData();
     }
-  }, [open, activeTab, loadTransactions]);
-
-  // 追加タブ: 未グループ化取引を取得
-  useEffect(() => {
-    if (activeTab !== "add") return;
-    let cancelled = false;
-    setLoadingUngrouped(true);
-    getUngroupedTransactions(group.counterpartyId)
-      .then((txs) => {
-        if (!cancelled) {
-          setUngroupedTransactions(txs);
-          setLoadingUngrouped(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setLoadingUngrouped(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, group.counterpartyId]);
+  }, [open, activeTab, loadTransactionTabData]);
 
   const handleSave = async () => {
     setLoading(true);
@@ -368,7 +382,7 @@ export function InvoiceGroupDetailModal({
         invoiceDate: invoiceDate || null,
         paymentDueDate: paymentDueDate || null,
         expectedPaymentDate: expectedPaymentDate || null,
-      });
+      }, { allowSentRecreate: isRecreatingSentInvoice });
       if (!result.ok) {
         alert(result.error);
         return;
@@ -404,12 +418,14 @@ export function InvoiceGroupDetailModal({
     if (!confirm("この取引を請求から外しますか？")) return;
     setLoading(true);
     try {
-      const result = await removeTransactionFromGroup(group.id, transactionId);
+      const result = await removeTransactionFromGroup(group.id, transactionId, {
+        allowSentRecreate: isRecreatingSentInvoice,
+      });
       if (!result.ok) {
         alert(result.error);
         return;
       }
-      await loadTransactions();
+      await loadTransactionTabData();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
     } finally {
@@ -423,13 +439,19 @@ export function InvoiceGroupDetailModal({
       const result = await updateInvoiceGroupTransactionNote(
         group.id,
         transactionId,
-        noteDraft
+        noteDraft,
+        { allowSentRecreate: isRecreatingSentInvoice }
       );
       if (!result.ok) {
         alert(result.error);
         return;
       }
       setTransactions((current) =>
+        current.map((tx) =>
+          tx.id === transactionId ? { ...tx, note: noteDraft.trim() || null } : tx
+        )
+      );
+      setCandidateTransactions((current) =>
         current.map((tx) =>
           tx.id === transactionId ? { ...tx, note: noteDraft.trim() || null } : tx
         )
@@ -449,19 +471,33 @@ export function InvoiceGroupDetailModal({
     if (selectedAddIds.size === 0) return;
     setLoading(true);
     try {
-      const result = await addTransactionToGroup(group.id, Array.from(selectedAddIds));
+      const result = await addTransactionToGroup(group.id, Array.from(selectedAddIds), {
+        allowSentRecreate: isRecreatingSentInvoice,
+      });
       if (!result.ok) {
         alert(result.error);
         return;
       }
       setSelectedAddIds(new Set());
-      setActiveTab("transactions");
-      await loadTransactions();
+      await loadTransactionTabData();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleInlineTransactionCreated = async (transactionId: number) => {
+    const result = await addTransactionToGroup(group.id, [transactionId], {
+      allowSentRecreate: isRecreatingSentInvoice,
+    });
+    if (!result.ok) {
+      throw new Error(
+        `取引は作成されましたが、請求への追加に失敗しました。${result.error}`
+      );
+    }
+    setSelectedAddIds(new Set());
+    await loadTransactionTabData();
   };
 
   // PDFプレビュー表示
@@ -489,7 +525,9 @@ export function InvoiceGroupDetailModal({
   const handleSavePdf = async () => {
     setLoading(true);
     try {
-      const result = await generateInvoicePdf(group.id);
+      const result = await generateInvoicePdf(group.id, {
+        allowSentRecreate: isRecreatingSentInvoice,
+      });
       if (!result.ok) {
         alert(result.error);
         return;
@@ -542,7 +580,13 @@ export function InvoiceGroupDetailModal({
   };
 
   const handleStatusChange = async (newStatus: string) => {
-    if (newStatus === "sent" && !confirm("送付済みにしますか？以降は編集できなくなります。")) return;
+    if (newStatus === "sent") {
+      const message =
+        group.status === "returned"
+          ? "経理引渡し前（送付済み）に戻しますか？\n請求書の内容は引き続き編集できません。内容変更が必要な場合は訂正請求書を作成してください。"
+          : "送付済みにしますか？以降は編集できなくなります。";
+      if (!confirm(message)) return;
+    }
     setLoading(true);
     try {
       const result = await updateInvoiceGroupStatus(group.id, newStatus);
@@ -759,10 +803,22 @@ export function InvoiceGroupDetailModal({
                 </>
               )}
               {effectiveStatus === "sent" && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-green-50 border border-green-200 px-2.5 py-1 text-xs font-medium text-green-700">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  送付済み
-                </span>
+                <>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-green-50 border border-green-200 px-2.5 py-1 text-xs font-medium text-green-700">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    送付済み
+                  </span>
+                  {canRecreateSentInvoice && !isRecreatingSentInvoice && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setShowRecreateSentDialog(true)}
+                    >
+                      <RefreshCw className="mr-1 h-4 w-4" />
+                      請求書を作り直す
+                    </Button>
+                  )}
+                </>
               )}
               {effectiveStatus === "awaiting_accounting" && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-xs font-medium text-amber-700">
@@ -856,18 +912,6 @@ export function InvoiceGroupDetailModal({
           >
             明細 ({group.transactionCount}件)
           </button>
-          {isEditable && (
-            <button
-              onClick={() => setActiveTab("add")}
-              className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors shrink-0 ${
-                activeTab === "add"
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground"
-              }`}
-            >
-              + 取引追加
-            </button>
-          )}
           <button
             onClick={() => setActiveTab("invoice-builder")}
             className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors shrink-0 ${
@@ -930,11 +974,11 @@ export function InvoiceGroupDetailModal({
                     ステータス:{" "}
                   </span>
                   <span className="font-medium">
-                    {STATUS_LABELS[group.status] ?? group.status}
+                    {STATUS_LABELS[effectiveStatus] ?? effectiveStatus}
                   </span>
                 </div>
                 <div className="flex gap-2">
-                  {group.status === "pdf_created" && (
+                  {effectiveStatus === "pdf_created" && (
                     <>
                       <Button
                         size="sm"
@@ -956,15 +1000,28 @@ export function InvoiceGroupDetailModal({
                       </Button>
                     </>
                   )}
-                  {group.status === "sent" && (
-                    <Button
-                      size="sm"
-                      onClick={() => setShowSubmitToAccountingDialog(true)}
-                      disabled={loading}
-                    >
-                      <ArrowRight className="mr-1 h-4 w-4" />
-                      経理へ引渡
-                    </Button>
+                  {effectiveStatus === "sent" && (
+                    <>
+                      {canRecreateSentInvoice && !isRecreatingSentInvoice && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setShowRecreateSentDialog(true)}
+                          disabled={loading}
+                        >
+                          <RefreshCw className="mr-1 h-4 w-4" />
+                          請求書を作り直す
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        onClick={() => setShowSubmitToAccountingDialog(true)}
+                        disabled={loading || isRecreatingSentInvoice}
+                      >
+                        <ArrowRight className="mr-1 h-4 w-4" />
+                        経理へ引渡
+                      </Button>
+                    </>
                   )}
                   {group.canCancelHandover && (
                     <Button
@@ -1012,10 +1069,10 @@ export function InvoiceGroupDetailModal({
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => handleStatusChange("draft")}
+                      onClick={() => handleStatusChange("sent")}
                       disabled={loading}
                     >
-                      下書きに戻す
+                      経理引渡し前に戻す
                     </Button>
                   )}
                 </div>
@@ -1033,6 +1090,14 @@ export function InvoiceGroupDetailModal({
             <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
               <p className="font-medium">経理から差し戻されています</p>
               <p className="mt-1 whitespace-pre-wrap">{group.returnRequestReason}</p>
+            </div>
+          )}
+          {isRecreatingSentInvoice && (
+            <div className="m-1 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+              <p className="font-medium">送付済み請求書の再作成中です</p>
+              <p className="mt-1 text-blue-800">
+                宛先・明細・備考を編集できます。PDF作成後、旧PDFは証憑に残り、新しいPDFを送付できます。
+              </p>
             </div>
           )}
           {activeTab === "detail" && (
@@ -1142,7 +1207,7 @@ export function InvoiceGroupDetailModal({
                 <div>
                   <div className="flex items-center justify-between">
                     <Label>請求書の宛先</Label>
-                    {isEditable && (
+                    {canEditInvoiceContent && (
                       !isEditingBilling ? (
                         <Button
                           type="button"
@@ -1171,7 +1236,7 @@ export function InvoiceGroupDetailModal({
                       ) : null
                     )}
                   </div>
-                  {isEditable && isEditingBilling ? (
+                  {canEditInvoiceContent && isEditingBilling ? (
                     <div className={`mt-1 rounded-md border ${isBillingChanged ? "border-amber-400 bg-amber-50" : "border-input"}`}>
                       <div className="flex border-b">
                         <button
@@ -1218,7 +1283,7 @@ export function InvoiceGroupDetailModal({
                   ) : (
                     <Input
                       value={
-                        isEditable
+                        canEditInvoiceContent
                           ? selectedBillingDisplayName
                           : group.counterpartyName
                       }
@@ -1241,7 +1306,7 @@ export function InvoiceGroupDetailModal({
                     id="detail-bankAccountId"
                     value={bankAccountId}
                     onChange={(e) => setBankAccountId(e.target.value)}
-                    disabled={!isEditable}
+                    disabled={!canEditInvoiceContent}
                     className="mt-1 w-full h-10 rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50"
                   >
                     <option value="">選択してください</option>
@@ -1258,7 +1323,7 @@ export function InvoiceGroupDetailModal({
                     id="detail-invoiceDate"
                     value={invoiceDate}
                     onChange={setInvoiceDate}
-                    disabled={!isEditable}
+                    disabled={!canEditInvoiceContent}
                     placeholder="日付を選択"
                     className="mt-1"
                   />
@@ -1269,7 +1334,7 @@ export function InvoiceGroupDetailModal({
                     id="detail-paymentDueDate"
                     value={paymentDueDate}
                     onChange={setPaymentDueDate}
-                    disabled={!isEditable}
+                    disabled={!canEditInvoiceContent}
                     placeholder="日付を選択"
                     className="mt-1"
                   />
@@ -1280,7 +1345,7 @@ export function InvoiceGroupDetailModal({
                     id="detail-expectedPaymentDate"
                     value={expectedPaymentDate}
                     onChange={setExpectedPaymentDate}
-                    disabled={!isEditable}
+                    disabled={!canEditInvoiceContent}
                     placeholder="日付を選択"
                     className="mt-1"
                   />
@@ -1385,7 +1450,7 @@ export function InvoiceGroupDetailModal({
                   </Button>
                 )}
                 <div className="ml-auto">
-                  {(isEditable || ["sent"].includes(group.status)) && (
+                  {canEditInvoiceContent && (
                     <Button onClick={handleSave} disabled={loading || saved}>
                       {loading ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1402,166 +1467,29 @@ export function InvoiceGroupDetailModal({
 
           {/* 明細タブ */}
           {activeTab === "transactions" && (
-            <div className="space-y-3 p-1">
-              {loadingTransactions ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <div className="space-y-6 p-1">
+              <section className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold">現在の明細</h3>
+                  {loadingTransactions && (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  )}
                 </div>
-              ) : transactions.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  取引がありません
-                </div>
-              ) : (
-                <div className="border rounded-lg divide-y">
-                  {transactions.map((t) => (
-                    <div
-                      key={t.id}
-                      className="flex items-center gap-3 px-4 py-3"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">
-                            {t.expenseCategoryName}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {t.periodFrom} 〜 {t.periodTo}
-                          </span>
-                        </div>
-                        <div className="mt-1">
-                          {editingNoteId === t.id ? (
-                            <div className="space-y-2">
-                              <Textarea
-                                value={noteDraft}
-                                onChange={(e) => setNoteDraft(e.target.value)}
-                                rows={2}
-                                className="text-sm"
-                                placeholder="請求書に表示する摘要"
-                              />
-                              <div className="flex gap-2">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  onClick={() => handleSaveTransactionNote(t.id)}
-                                  disabled={savingNoteId === t.id}
-                                >
-                                  {savingNoteId === t.id && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-                                  保存
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    setEditingNoteId(null);
-                                    setNoteDraft("");
-                                  }}
-                                  disabled={savingNoteId === t.id}
-                                >
-                                  キャンセル
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-start gap-2">
-                              <div className="min-w-0 flex-1 text-xs text-muted-foreground">
-                                <span className="font-medium text-gray-500">摘要: </span>
-                                <span className="whitespace-pre-wrap break-words">
-                                  {t.note || "未入力"}
-                                </span>
-                              </div>
-                              {isEditable && (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 px-2 text-xs"
-                                  onClick={() => {
-                                    setEditingNoteId(t.id);
-                                    setNoteDraft(t.note ?? "");
-                                  }}
-                                  disabled={loading}
-                                >
-                                  <Pencil className="mr-1 h-3 w-3" />
-                                  編集
-                                </Button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="text-right text-sm">
-                        <div className="font-medium">
-                          ¥{t.amount.toLocaleString()}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          税¥{t.taxAmount.toLocaleString()} ({t.taxRate}%)
-                        </div>
-                      </div>
-                      {isEditable && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRemoveTransaction(t.id)}
-                          disabled={loading}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 取引追加タブ */}
-          {activeTab === "add" && (
-            <div className="space-y-3 p-1">
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowInlineForm(true)}
-                >
-                  <Plus className="mr-1 h-4 w-4" />
-                  取引を新規作成
-                </Button>
-              </div>
-              {loadingUngrouped ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : ungroupedTransactions.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  追加できる取引がありません
-                </div>
-              ) : (
-                <>
-                  <div className="border rounded-lg max-h-[300px] overflow-y-auto divide-y">
-                    {ungroupedTransactions.map((t) => (
-                      <label
+                {loadingTransactions ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : transactions.length === 0 ? (
+                  <div className="rounded-lg border py-8 text-center text-muted-foreground">
+                    取引がありません
+                  </div>
+                ) : (
+                  <div className="border rounded-lg divide-y">
+                    {transactions.map((t) => (
+                      <div
                         key={t.id}
-                        className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 ${
-                          selectedAddIds.has(t.id) ? "bg-blue-50" : ""
-                        }`}
+                        className="flex items-center gap-3 px-4 py-3"
                       >
-                        <input
-                          type="checkbox"
-                          checked={selectedAddIds.has(t.id)}
-                          onChange={() => {
-                            setSelectedAddIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(t.id)) {
-                                next.delete(t.id);
-                              } else {
-                                next.add(t.id);
-                              }
-                              return next;
-                            });
-                          }}
-                          className="rounded"
-                        />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-medium">
@@ -1571,29 +1499,196 @@ export function InvoiceGroupDetailModal({
                               {t.periodFrom} 〜 {t.periodTo}
                             </span>
                           </div>
+                          <div className="mt-1">
+                            {editingNoteId === t.id ? (
+                              <div className="space-y-2">
+                                <Textarea
+                                  value={noteDraft}
+                                  onChange={(e) => setNoteDraft(e.target.value)}
+                                  rows={2}
+                                  className="text-sm"
+                                  placeholder="請求書に表示する摘要"
+                                />
+                                <div className="flex gap-2">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={() => handleSaveTransactionNote(t.id)}
+                                    disabled={savingNoteId === t.id}
+                                  >
+                                    {savingNoteId === t.id && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                                    保存
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setEditingNoteId(null);
+                                      setNoteDraft("");
+                                    }}
+                                    disabled={savingNoteId === t.id}
+                                  >
+                                    キャンセル
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-start gap-2">
+                                <div className="min-w-0 flex-1 text-xs text-muted-foreground">
+                                  <span className="font-medium text-gray-500">摘要: </span>
+                                  <span className="whitespace-pre-wrap break-words">
+                                    {t.note || "未入力"}
+                                  </span>
+                                </div>
+                                {canEditInvoiceContent && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() => {
+                                      setEditingNoteId(t.id);
+                                      setNoteDraft(t.note ?? "");
+                                    }}
+                                    disabled={loading}
+                                  >
+                                    <Pencil className="mr-1 h-3 w-3" />
+                                    編集
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-right text-sm font-medium">
-                          ¥{t.amount.toLocaleString()}
+                        <div className="text-right text-sm">
+                          <div className="font-medium">
+                            ¥{t.amount.toLocaleString()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            税¥{t.taxAmount.toLocaleString()} ({t.taxRate}%)
+                          </div>
                         </div>
-                      </label>
+                        {canEditInvoiceContent && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveTransaction(t.id)}
+                            disabled={loading}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     ))}
                   </div>
-                  {selectedAddIds.size > 0 && (
-                    <div className="flex justify-end">
-                      <Button
-                        onClick={handleAddTransactions}
-                        disabled={loading}
-                        size="sm"
-                      >
-                        {loading && (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        )}
-                        {selectedAddIds.size}件追加
-                      </Button>
-                    </div>
+                )}
+              </section>
+
+              <section className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold">同じ取引先の既存取引</h3>
+                  {canEditInvoiceContent && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowInlineForm((v) => !v)}
+                    >
+                      <Plus className="mr-1 h-4 w-4" />
+                      新規取引を追加
+                    </Button>
                   )}
-                </>
-              )}
+                </div>
+                {showInlineForm && (
+                  <div className="rounded-lg border bg-gray-50 p-3">
+                    <InlineTransactionForm
+                      onClose={() => setShowInlineForm(false)}
+                      onCreated={handleInlineTransactionCreated}
+                      counterpartyId={group.counterpartyId}
+                      projectId={projectId}
+                      expenseCategories={expenseCategories}
+                    />
+                  </div>
+                )}
+                {loadingCandidates ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : candidateTransactions.length === 0 ? (
+                  <div className="rounded-lg border py-8 text-center text-muted-foreground">
+                    同じ取引先の既存取引がありません
+                  </div>
+                ) : (
+                  <>
+                    <div className="border rounded-lg max-h-[360px] overflow-y-auto divide-y">
+                      {candidateTransactions.map((t) => (
+                        <label
+                          key={t.id}
+                          className={`flex items-center gap-3 px-4 py-3 ${
+                            t.isAddable ? "cursor-pointer hover:bg-gray-50" : "bg-gray-50"
+                          } ${selectedAddIds.has(t.id) ? "bg-blue-50" : ""}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedAddIds.has(t.id)}
+                            disabled={!canEditInvoiceContent || !t.isAddable || loading}
+                            onChange={() => {
+                              if (!t.isAddable) return;
+                              setSelectedAddIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(t.id)) {
+                                  next.delete(t.id);
+                                } else {
+                                  next.add(t.id);
+                                }
+                                return next;
+                              });
+                            }}
+                            className="rounded"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium">
+                                {t.expenseCategoryName}
+                              </span>
+                              <span className={`rounded border px-1.5 py-0.5 text-xs font-medium ${ADD_STATE_STYLES[t.addState]}`}>
+                                {t.addStateLabel}
+                              </span>
+                              {t.invoiceGroupLabel && t.addState === "other_group" && (
+                                <span className="text-xs text-muted-foreground">
+                                  {t.invoiceGroupLabel}
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              {t.periodFrom} 〜 {t.periodTo}
+                              {t.note ? ` / ${t.note}` : ""}
+                            </div>
+                          </div>
+                          <div className="text-right text-sm font-medium">
+                            ¥{t.amount.toLocaleString()}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    {selectedAddIds.size > 0 && (
+                      <div className="flex justify-end">
+                        <Button
+                          onClick={handleAddTransactions}
+                          disabled={loading}
+                          size="sm"
+                        >
+                          {loading && (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          )}
+                          {selectedAddIds.size}件追加
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </section>
             </div>
           )}
 
@@ -1788,7 +1883,8 @@ export function InvoiceGroupDetailModal({
                 projectId={projectId}
                 onInvoiceCreated={() => setInvoiceCreated(true)}
                 onPdfGenerated={handlePdfGenerated}
-                isEditable={isEditable || invoiceCreated}
+                isEditable={canEditInvoiceContent || invoiceCreated}
+                allowSentRecreate={isRecreatingSentInvoice}
                 invoiceDate={invoiceDate}
                 paymentDueDate={paymentDueDate}
                 onInvoiceDateChange={setInvoiceDate}
@@ -2073,9 +2169,40 @@ export function InvoiceGroupDetailModal({
           </AlertDialogContent>
         </AlertDialog>
 
+        {/* 送付済み請求書の再作成確認ダイアログ */}
+        <AlertDialog
+          open={showRecreateSentDialog}
+          onOpenChange={setShowRecreateSentDialog}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>請求書を作り直しますか？</AlertDialogTitle>
+              <AlertDialogDescription>
+                送付済みの請求書を再作成します。明細・宛名・備考などを編集できます。
+                既存PDFは旧版として証憑に残ります。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={loading}>キャンセル</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setIsRecreatingSentInvoice(true);
+                  setShowRecreateSentDialog(false);
+                  setActiveTab("invoice-builder");
+                }}
+                disabled={loading}
+              >
+                再作成を開始
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         {/* 差し戻し依頼ダイアログ */}
         <AlertDialog open={showReturnRequestDialog} onOpenChange={setShowReturnRequestDialog}>
-          <AlertDialogContent>
+          <AlertDialogContent
+            style={{ left: "calc(50% + var(--sidebar-half-w, 0px))" }}
+          >
             <AlertDialogHeader>
               <AlertDialogTitle>差し戻し依頼</AlertDialogTitle>
               <AlertDialogDescription>
@@ -2129,23 +2256,6 @@ export function InvoiceGroupDetailModal({
           invoiceGroupId={group.id}
         />
 
-        {/* インライン取引作成 */}
-        {showInlineForm && (
-          <InlineTransactionForm
-            onClose={() => setShowInlineForm(false)}
-            onCreated={() => {
-              setLoadingUngrouped(true);
-              getUngroupedTransactions(group.counterpartyId)
-                .then((txs) => {
-                  setUngroupedTransactions(txs);
-                  setLoadingUngrouped(false);
-                })
-                .catch(() => setLoadingUngrouped(false));
-            }}
-            counterpartyId={group.counterpartyId}
-            expenseCategories={expenseCategories}
-          />
-        )}
       </DialogContent>
     </Dialog>
   );

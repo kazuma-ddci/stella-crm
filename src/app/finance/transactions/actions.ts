@@ -448,6 +448,7 @@ export async function updateTransaction(
 
   revalidatePath("/accounting/transactions");
   revalidatePath("/stp/finance/transactions");
+  revalidatePath("/stp/finance/billing");
   return ok();
   } catch (e) {
     if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
@@ -587,6 +588,7 @@ export async function confirmTransaction(id: number): Promise<ActionResult> {
   await checkAndTransitionToAwaitingAccounting(id);
 
   revalidatePath("/accounting/transactions");
+  revalidatePath("/stp/finance/billing");
   return ok();
   } catch (e) {
     if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
@@ -668,6 +670,7 @@ export async function unconfirmTransaction(id: number): Promise<ActionResult> {
   });
 
   revalidatePath("/accounting/transactions");
+  revalidatePath("/stp/finance/billing");
   return ok();
   } catch (e) {
     if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");
@@ -1014,6 +1017,7 @@ export async function deleteTransaction(id: number): Promise<ActionResult> {
 
   revalidatePath("/accounting/transactions");
   revalidatePath("/stp/finance/transactions");
+  revalidatePath("/stp/finance/billing");
   return ok();
   } catch (e) {
     if (e instanceof FinanceForbiddenError) return err("この操作を行う権限がありません");

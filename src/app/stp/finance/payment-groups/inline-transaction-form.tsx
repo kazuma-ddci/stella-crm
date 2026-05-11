@@ -4,7 +4,7 @@ import { InlineTransactionForm as BaseInlineTransactionForm } from "@/components
 
 type Props = {
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (transactionId: number) => void | Promise<void>;
   counterpartyId: number;
   projectId?: number;
   expenseCategories: { id: number; name: string; type: string }[];

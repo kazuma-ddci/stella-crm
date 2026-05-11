@@ -36,7 +36,6 @@ import {
   Send,
   Banknote,
   Inbox,
-  Undo2,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -51,11 +50,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   getBillingLifecycleData,
-  createTransactionFromBilling,
-  bulkCreateTransactionsFromBilling,
+  createConfirmedTransactionFromBilling,
   getExpenseLifecycleData,
-  createTransactionFromExpense,
-  bulkCreateTransactionsFromExpenses,
+  createConfirmedTransactionFromExpense,
   getInvoiceGroupCandidatesFromTracker,
   getPaymentGroupCandidatesFromTracker,
   createInvoiceGroupFromTrackerTransactions,
@@ -63,16 +60,17 @@ import {
   createManualTrackerTransaction,
   createTrackerExpenseCategory,
 } from "./actions";
-import { deleteTransaction } from "@/app/finance/transactions/actions";
+import { unconfirmTransaction } from "@/app/finance/transactions/actions";
 import { TransactionPreviewModal } from "../transactions/transaction-preview-modal";
 import type {
   BillingLifecycleData,
   BillingLifecycleItem,
   LifecycleStatus,
-  BillingItemInput,
+  ConfirmBillingItemInput,
   ExpenseLifecycleData,
   ExpenseLifecycleItem,
   ExpenseLifecycleStatus,
+  ConfirmExpenseItemInput,
   TrackerGroupCandidateResult,
   ManualTrackerTransactionInput,
   TrackerExpenseCategoryInput,
@@ -80,9 +78,6 @@ import type {
 import { calcTax } from "@/lib/finance/tax-calc";
 
 type ExpenseCategoryOption = { id: number; name: string; type: string };
-type AutoBillingLifecycleItem = BillingLifecycleItem & {
-  feeType: "initial" | "monthly" | "performance";
-};
 
 // ============================================
 // 売上ステータス設定
@@ -100,7 +95,7 @@ type StatusConfig = {
 
 const REVENUE_STATUS_CONFIGS: Record<LifecycleStatus, StatusConfig> = {
   not_created: {
-    label: "未取引化",
+    label: "取引確認待ち",
     color: "text-red-700",
     bgColor: "bg-red-50",
     borderColor: "border-red-200",
@@ -109,7 +104,7 @@ const REVENUE_STATUS_CONFIGS: Record<LifecycleStatus, StatusConfig> = {
     summaryKey: "notCreated",
   },
   unconfirmed: {
-    label: "取引化済み・未確定",
+    label: "未確定",
     color: "text-yellow-700",
     bgColor: "bg-yellow-50",
     borderColor: "border-yellow-200",
@@ -175,7 +170,6 @@ const REVENUE_STATUS_CONFIGS: Record<LifecycleStatus, StatusConfig> = {
 
 const REVENUE_STATUS_ORDER: LifecycleStatus[] = [
   "not_created",
-  "unconfirmed",
   "confirmed",
   "in_invoice_draft",
   "pdf_created",
@@ -190,7 +184,7 @@ const REVENUE_STATUS_ORDER: LifecycleStatus[] = [
 
 const EXPENSE_STATUS_CONFIGS: Record<ExpenseLifecycleStatus, StatusConfig> = {
   not_created: {
-    label: "未取引化",
+    label: "取引確認待ち",
     color: "text-red-700",
     bgColor: "bg-red-50",
     borderColor: "border-red-200",
@@ -199,7 +193,7 @@ const EXPENSE_STATUS_CONFIGS: Record<ExpenseLifecycleStatus, StatusConfig> = {
     summaryKey: "notCreated",
   },
   unconfirmed: {
-    label: "取引化済み・未確定",
+    label: "未確定",
     color: "text-yellow-700",
     bgColor: "bg-yellow-50",
     borderColor: "border-yellow-200",
@@ -256,7 +250,6 @@ const EXPENSE_STATUS_CONFIGS: Record<ExpenseLifecycleStatus, StatusConfig> = {
 
 const EXPENSE_STATUS_ORDER: ExpenseLifecycleStatus[] = [
   "not_created",
-  "unconfirmed",
   "confirmed",
   "in_payment_group",
   "invoice_received",
@@ -323,6 +316,312 @@ function endOfMonthString(month: string): string {
   const monthNumber = Number(monthStr);
   const lastDay = new Date(year, monthNumber, 0).getDate();
   return `${month}-${String(lastDay).padStart(2, "0")}`;
+}
+
+type DraftTrackerTransaction =
+  | { kind: "revenue"; item: BillingLifecycleItem }
+  | { kind: "expense"; item: ExpenseLifecycleItem };
+
+function pickDefaultExpenseCategoryId(
+  draft: DraftTrackerTransaction,
+  expenseCategories: ExpenseCategoryOption[]
+) {
+  const transactionType = draft.kind === "revenue" ? "revenue" : "expense";
+  const filtered = expenseCategories.filter(
+    (category) => category.type === transactionType || category.type === "both"
+  );
+  if (filtered.length === 0) return "";
+
+  const match =
+    draft.kind === "revenue"
+      ? filtered.find((category) => {
+          if (draft.item.feeType === "initial") return category.name.includes("初期");
+          if (draft.item.feeType === "monthly") return category.name.includes("月額");
+          if (draft.item.feeType === "performance") return category.name.includes("成果");
+          return false;
+        })
+      : filtered.find((category) => {
+          if (draft.item.expenseType.includes("commission")) {
+            return category.name.includes("紹介") || category.name.includes("報酬");
+          }
+          if (draft.item.expenseType.includes("agent")) {
+            return category.name.includes("代理店") || category.name.includes("外注");
+          }
+          return false;
+        });
+
+  return String((match ?? filtered[0]).id);
+}
+
+function DraftTrackerTransactionModal({
+  draft,
+  expenseCategories,
+  submitting,
+  onClose,
+  onConfirm,
+}: {
+  draft: DraftTrackerTransaction;
+  expenseCategories: ExpenseCategoryOption[];
+  submitting: boolean;
+  onClose: () => void;
+  onConfirm: (data: ConfirmBillingItemInput | ConfirmExpenseItemInput) => void;
+}) {
+  const transactionType = draft.kind === "revenue" ? "revenue" : "expense";
+  const filteredCategories = useMemo(
+    () =>
+      expenseCategories.filter(
+        (category) => category.type === transactionType || category.type === "both"
+      ),
+    [expenseCategories, transactionType]
+  );
+  const [expenseCategoryId, setExpenseCategoryId] = useState(() =>
+    pickDefaultExpenseCategoryId(draft, expenseCategories)
+  );
+  const [amount, setAmount] = useState(String(draft.item.amount));
+  const [taxType, setTaxType] = useState<"tax_included" | "tax_excluded">("tax_included");
+  const [taxRate, setTaxRate] = useState("10");
+  const [taxAmount, setTaxAmount] = useState(calcTax(String(draft.item.amount), "10", "tax_included"));
+  const [taxManuallyEdited, setTaxManuallyEdited] = useState(false);
+  const [periodFrom, setPeriodFrom] = useState(draft.item.periodFrom);
+  const [periodTo, setPeriodTo] = useState(draft.item.periodTo);
+  const [paymentDueDate, setPaymentDueDate] = useState(
+    draft.kind === "revenue"
+      ? draft.item.paymentDueDate ?? draft.item.expectedPaymentDeadline ?? ""
+      : draft.item.paymentDueDate ?? ""
+  );
+  const [note, setNote] = useState(draft.item.description);
+
+  const title =
+    draft.kind === "revenue"
+      ? `${draft.item.companyName} ${FEE_TYPE_LABELS[draft.item.feeType] ?? draft.item.feeType}`
+      : `${draft.item.agentName} ${EXPENSE_TYPE_LABELS[draft.item.expenseType] ?? draft.item.expenseType}`;
+
+  const updateTaxIfNeeded = (nextAmount: string, nextRate: string, nextType: "tax_included" | "tax_excluded") => {
+    if (!taxManuallyEdited) {
+      setTaxAmount(calcTax(nextAmount, nextRate, nextType));
+    }
+  };
+
+  const handleAmountChange = (value: string) => {
+    setAmount(value);
+    updateTaxIfNeeded(value, taxRate, taxType);
+  };
+
+  const handleTaxRateChange = (value: string) => {
+    setTaxRate(value);
+    updateTaxIfNeeded(amount, value, taxType);
+  };
+
+  const handleTaxTypeChange = (value: "tax_included" | "tax_excluded") => {
+    setTaxType(value);
+    updateTaxIfNeeded(amount, taxRate, value);
+  };
+
+  const handleConfirm = () => {
+    const numericAmount = Number(amount);
+    const numericTaxRate = Number(taxRate);
+    const numericTaxAmount = Number(taxAmount);
+    const categoryId = Number(expenseCategoryId);
+
+    if (!categoryId) {
+      toast.error("費目を選択してください");
+      return;
+    }
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      toast.error("金額を入力してください");
+      return;
+    }
+    if (!periodFrom || !periodTo) {
+      toast.error("対象期間を入力してください");
+      return;
+    }
+
+    if (draft.kind === "revenue") {
+      if (draft.item.feeType === "manual") return;
+      onConfirm({
+        contractHistoryId: draft.item.contractHistoryId,
+        feeType: draft.item.feeType,
+        amount: numericAmount,
+        taxAmount: Number.isFinite(numericTaxAmount) ? numericTaxAmount : 0,
+        taxRate: Number.isFinite(numericTaxRate) ? numericTaxRate : 10,
+        taxType,
+        periodFrom,
+        periodTo,
+        candidateId: draft.item.candidateId ?? undefined,
+        paymentDueDate: paymentDueDate || undefined,
+        expenseCategoryId: categoryId,
+        note: note || null,
+      });
+    } else {
+      onConfirm({
+        expenseType: draft.item.expenseType,
+        agentId: draft.item.agentId,
+        agentContractHistoryId: draft.item.agentContractHistoryId,
+        contractHistoryId: draft.item.contractHistoryId,
+        stpCompanyId: draft.item.stpCompanyId,
+        candidateId: draft.item.candidateId,
+        amount: numericAmount,
+        taxAmount: Number.isFinite(numericTaxAmount) ? numericTaxAmount : 0,
+        taxRate: Number.isFinite(numericTaxRate) ? numericTaxRate : 10,
+        taxType,
+        periodFrom,
+        periodTo,
+        agentName: draft.item.agentName,
+        companyName: draft.item.companyName,
+        paymentDueDate: paymentDueDate || undefined,
+        expenseCategoryId: categoryId,
+        note: note || null,
+      });
+    }
+  };
+
+  return (
+    <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+        <DialogHeader className="flex-shrink-0">
+          <DialogTitle>取引確認 - {title}</DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-4 p-1">
+          <div className="rounded-lg bg-gray-50 p-3 text-sm">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div>
+                <span className="text-muted-foreground">種別:</span>{" "}
+                <span className="font-medium">{draft.kind === "revenue" ? "売上" : "経費"}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">取引先:</span>{" "}
+                <span className="font-medium">
+                  {draft.kind === "revenue" ? draft.item.companyName : draft.item.agentName}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <Label htmlFor="draft-category">費目</Label>
+            <select
+              id="draft-category"
+              value={expenseCategoryId}
+              onChange={(event) => setExpenseCategoryId(event.target.value)}
+              className="mt-1 w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="">選択してください</option>
+              {filteredCategories.map((category) => (
+                <option key={category.id} value={String(category.id)}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="draft-amount">金額</Label>
+              <Input
+                id="draft-amount"
+                type="number"
+                value={amount}
+                onChange={(event) => handleAmountChange(event.target.value)}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="draft-tax-type">税区分</Label>
+              <select
+                id="draft-tax-type"
+                value={taxType}
+                onChange={(event) =>
+                  handleTaxTypeChange(event.target.value as "tax_included" | "tax_excluded")
+                }
+                className="mt-1 w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="tax_included">内税</option>
+                <option value="tax_excluded">外税</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="draft-tax-rate">税率 (%)</Label>
+              <Input
+                id="draft-tax-rate"
+                type="number"
+                value={taxRate}
+                onChange={(event) => handleTaxRateChange(event.target.value)}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="draft-tax-amount">税額</Label>
+              <Input
+                id="draft-tax-amount"
+                type="number"
+                value={taxAmount}
+                onChange={(event) => {
+                  setTaxManuallyEdited(true);
+                  setTaxAmount(event.target.value);
+                }}
+                className="mt-1"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="draft-period-from">対象期間From</Label>
+              <DatePicker
+                id="draft-period-from"
+                value={periodFrom}
+                onChange={setPeriodFrom}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="draft-period-to">対象期間To</Label>
+              <DatePicker
+                id="draft-period-to"
+                value={periodTo}
+                onChange={setPeriodTo}
+                className="mt-1"
+              />
+            </div>
+          </div>
+
+          <div>
+            <Label htmlFor="draft-payment-due-date">
+              {draft.kind === "revenue" ? "支払期限" : "支払予定日"}
+            </Label>
+            <DatePicker
+              id="draft-payment-due-date"
+              value={paymentDueDate}
+              onChange={setPaymentDueDate}
+              className="mt-1"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="draft-note">摘要</Label>
+            <Input
+              id="draft-note"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              className="mt-1"
+            />
+          </div>
+        </div>
+        <DialogFooter className="flex-shrink-0 gap-2 sm:gap-2">
+          <Button variant="outline" onClick={onClose} disabled={submitting}>
+            キャンセル
+          </Button>
+          <Button onClick={handleConfirm} disabled={submitting}>
+            {submitting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+            確定
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function ManualTrackerTransactionModal({
@@ -904,20 +1203,16 @@ function RevenueItemRow({
   item,
   status,
   onCreateTransaction,
-  onCancelTransaction,
-  onOpenTransaction,
+  onUnconfirmTransaction,
   onCreateInvoiceGroup,
-  isCancelling,
   isCreating,
   isCreatingGroup,
 }: {
   item: BillingLifecycleItem;
   status: LifecycleStatus;
   onCreateTransaction?: (item: BillingLifecycleItem) => void;
-  onCancelTransaction?: (transactionId: number) => void;
-  onOpenTransaction?: (transactionId: number, type: "revenue" | "expense") => void;
+  onUnconfirmTransaction?: (transactionId: number) => void;
   onCreateInvoiceGroup?: (transactionId: number) => void;
-  isCancelling?: boolean;
   isCreating?: boolean;
   isCreatingGroup?: boolean;
 }) {
@@ -990,19 +1285,7 @@ function RevenueItemRow({
           )}
           {status === "not_created" && onCreateTransaction && (
             <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); onCreateTransaction(item); }} disabled={isCreating}>
-              {isCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : "確認して確定"}
-            </Button>
-          )}
-          {status === "unconfirmed" && item.transactionId && onCancelTransaction && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenTransaction?.(item.transactionId!, "revenue");
-              }}
-            >
-              編集・確定
+              {isCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : "取引確認"}
             </Button>
           )}
           {status === "confirmed" && item.transactionId && onCreateInvoiceGroup && (
@@ -1017,24 +1300,29 @@ function RevenueItemRow({
               {isCreatingGroup ? <Loader2 className="h-3 w-3 animate-spin" /> : "請求にまとめる"}
             </Button>
           )}
-          {status === "unconfirmed" && item.transactionId && onCancelTransaction && (
+          {status === "confirmed" && item.transactionId && onUnconfirmTransaction && !item.invoiceGroupId && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-50 hover:text-orange-700" onClick={(e) => e.stopPropagation()} disabled={isCancelling}>
-                  {isCancelling ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Undo2 className="h-3 w-3 mr-1" />取引化取消</>}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-amber-600 border-amber-200 hover:bg-amber-50 hover:text-amber-700"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  確定取消
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent onClick={(e) => e.stopPropagation()}>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>取引化を取り消しますか？</AlertDialogTitle>
+                  <AlertDialogTitle>確定を取り消しますか？</AlertDialogTitle>
                   <AlertDialogDescription>
-                    この取引を削除し、未取引化の状態に戻します。再度「確認して確定」ボタンで取引を作り直せます。
+                    編集内容を保持したまま取引確認待ちに戻します。再度「取引確認」から編集して確定できます。
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>キャンセル</AlertDialogCancel>
-                  <AlertDialogAction variant="destructive" onClick={() => onCancelTransaction(item.transactionId!)}>
-                    取引化を取り消す
+                  <AlertDialogAction onClick={() => onUnconfirmTransaction(item.transactionId!)}>
+                    確定を取り消す
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -1079,20 +1367,16 @@ function ExpenseItemRow({
   item,
   status,
   onCreateTransaction,
-  onCancelTransaction,
-  onOpenTransaction,
+  onUnconfirmTransaction,
   onCreatePaymentGroup,
-  isCancelling,
   isCreating,
   isCreatingGroup,
 }: {
   item: ExpenseLifecycleItem;
   status: ExpenseLifecycleStatus;
   onCreateTransaction?: (item: ExpenseLifecycleItem) => void;
-  onCancelTransaction?: (transactionId: number) => void;
-  onOpenTransaction?: (transactionId: number, type: "revenue" | "expense") => void;
+  onUnconfirmTransaction?: (transactionId: number) => void;
   onCreatePaymentGroup?: (transactionId: number) => void;
-  isCancelling?: boolean;
   isCreating?: boolean;
   isCreatingGroup?: boolean;
 }) {
@@ -1159,19 +1443,7 @@ function ExpenseItemRow({
           )}
           {status === "not_created" && onCreateTransaction && (
             <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); onCreateTransaction(item); }} disabled={isCreating}>
-              {isCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : "確認して確定"}
-            </Button>
-          )}
-          {status === "unconfirmed" && item.transactionId && onCancelTransaction && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenTransaction?.(item.transactionId!, "expense");
-              }}
-            >
-              編集・確定
+              {isCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : "取引確認"}
             </Button>
           )}
           {status === "confirmed" && item.transactionId && onCreatePaymentGroup && (
@@ -1186,24 +1458,29 @@ function ExpenseItemRow({
               {isCreatingGroup ? <Loader2 className="h-3 w-3 animate-spin" /> : "支払にまとめる"}
             </Button>
           )}
-          {status === "unconfirmed" && item.transactionId && onCancelTransaction && (
+          {status === "confirmed" && item.transactionId && onUnconfirmTransaction && !item.paymentGroupId && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-50 hover:text-orange-700" onClick={(e) => e.stopPropagation()} disabled={isCancelling}>
-                  {isCancelling ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Undo2 className="h-3 w-3 mr-1" />取引化取消</>}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-amber-600 border-amber-200 hover:bg-amber-50 hover:text-amber-700"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  確定取消
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent onClick={(e) => e.stopPropagation()}>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>取引化を取り消しますか？</AlertDialogTitle>
+                  <AlertDialogTitle>確定を取り消しますか？</AlertDialogTitle>
                   <AlertDialogDescription>
-                    この取引を削除し、未取引化の状態に戻します。再度「確認して確定」ボタンで取引を作り直せます。
+                    編集内容を保持したまま取引確認待ちに戻します。再度「取引確認」から編集して確定できます。
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>キャンセル</AlertDialogCancel>
-                  <AlertDialogAction variant="destructive" onClick={() => onCancelTransaction(item.transactionId!)}>
-                    取引化を取り消す
+                  <AlertDialogAction onClick={() => onUnconfirmTransaction(item.transactionId!)}>
+                    確定を取り消す
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -1278,7 +1555,6 @@ export function BillingLifecycleView({
   const [isExpenseLoading, setIsExpenseLoading] = useState(false);
   const [activeExpenseStatus, setActiveExpenseStatus] = useState<ExpenseLifecycleStatus>("not_created");
 
-  const [isCreating, setIsCreating] = useState(false);
   const [showManualModal, setShowManualModal] = useState(false);
   const [manualExpenseCategories, setManualExpenseCategories] =
     useState<ExpenseCategoryOption[]>(expenseCategories);
@@ -1294,11 +1570,16 @@ export function BillingLifecycleView({
     kind: "invoice" | "payment";
     groupId: number;
   } | null>(null);
+  const [draftTransaction, setDraftTransaction] =
+    useState<DraftTrackerTransaction | null>(null);
+  const [isDraftConfirming, setIsDraftConfirming] = useState(false);
+  const isCreating = isDraftConfirming;
   const [previewTransaction, setPreviewTransaction] = useState<{
     id: number;
     type: "revenue" | "expense";
     initialEdit?: boolean;
     refreshOnClose?: boolean;
+    confirmOnlyEdit?: boolean;
   } | null>(null);
 
   const loadRevenueData = useCallback(async (month: string) => {
@@ -1353,11 +1634,11 @@ export function BillingLifecycleView({
     if (result.type === "revenue") {
       setActiveTopTab("revenue");
       await loadRevenueData(selectedMonth);
-      setActiveRevenueStatus(result.status === "confirmed" ? "confirmed" : "unconfirmed");
+      setActiveRevenueStatus(result.status === "confirmed" ? "confirmed" : "not_created");
     } else {
       setActiveTopTab("expense");
       await loadExpenseData(selectedMonth);
-      setActiveExpenseStatus(result.status === "confirmed" ? "confirmed" : "unconfirmed");
+      setActiveExpenseStatus(result.status === "confirmed" ? "confirmed" : "not_created");
     }
   };
 
@@ -1368,176 +1649,89 @@ export function BillingLifecycleView({
     });
   };
 
-  // 売上: 確認用の取引を作成して編集モーダルを開く
-  const handleCreateRevenueTransaction = async (item: BillingLifecycleItem) => {
-    if (item.feeType === "manual") return;
-    setIsCreating(true);
-    try {
-      const input: BillingItemInput = {
-        contractHistoryId: item.contractHistoryId,
-        feeType: item.feeType,
-        amount: item.amount,
-        periodFrom: item.periodFrom,
-        periodTo: item.periodTo,
-        candidateId: item.candidateId ?? undefined,
-        paymentDueDate: item.expectedPaymentDeadline ?? undefined,
-      };
-      const result = await createTransactionFromBilling(input);
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-      await loadRevenueData(selectedMonth);
+  // 売上: 取引確認用の下書きモーダルを開く（この時点では取引を作らない）
+  const handleCreateRevenueTransaction = (item: BillingLifecycleItem) => {
+    if (item.transactionId) {
       setPreviewTransaction({
-        id: result.data.transactionId,
+        id: item.transactionId,
         type: "revenue",
         initialEdit: true,
         refreshOnClose: true,
+        confirmOnlyEdit: true,
       });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "取引化に失敗しました");
-    } finally {
-      setIsCreating(false);
+      return;
     }
+    if (item.feeType === "manual") return;
+    setDraftTransaction({ kind: "revenue", item });
   };
 
-  const handleBulkCreateRevenue = async () => {
-    if (!revenueData) return;
-    const notCreatedItems = revenueData.items.filter(
-      (i): i is AutoBillingLifecycleItem =>
-        i.status === "not_created" && i.feeType !== "manual"
-    );
-    if (notCreatedItems.length === 0) return;
-    if (!window.confirm(`${notCreatedItems.length}件の取引を一括作成します。よろしいですか？`)) return;
-
-    setIsCreating(true);
-    try {
-      const inputs: BillingItemInput[] = notCreatedItems.map((item) => ({
-        contractHistoryId: item.contractHistoryId,
-        feeType: item.feeType,
-        amount: item.amount,
-        periodFrom: item.periodFrom,
-        periodTo: item.periodTo,
-        candidateId: item.candidateId ?? undefined,
-        paymentDueDate: item.expectedPaymentDeadline ?? undefined,
-      }));
-      const result = await bulkCreateTransactionsFromBilling(inputs);
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success(`${result.data.created}件の取引を作成しました`);
-      await loadRevenueData(selectedMonth);
-    } catch {
-      toast.error("一括取引化に失敗しました");
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  // 経費: 確認用の取引を作成して編集モーダルを開く
-  const handleCreateExpenseTransaction = async (item: ExpenseLifecycleItem) => {
-    setIsCreating(true);
-    try {
-      const result = await createTransactionFromExpense({
-        expenseType: item.expenseType,
-        agentId: item.agentId,
-        agentContractHistoryId: item.agentContractHistoryId,
-        contractHistoryId: item.contractHistoryId,
-        stpCompanyId: item.stpCompanyId,
-        candidateId: item.candidateId,
-        amount: item.amount,
-        periodFrom: item.periodFrom,
-        periodTo: item.periodTo,
-        agentName: item.agentName,
-        companyName: item.companyName,
-        paymentDueDate: item.paymentDueDate ?? undefined,
-      });
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-      await loadExpenseData(selectedMonth);
+  // 経費: 取引確認用の下書きモーダルを開く（この時点では取引を作らない）
+  const handleCreateExpenseTransaction = (item: ExpenseLifecycleItem) => {
+    if (item.transactionId) {
       setPreviewTransaction({
-        id: result.data.transactionId,
+        id: item.transactionId,
         type: "expense",
         initialEdit: true,
         refreshOnClose: true,
+        confirmOnlyEdit: true,
       });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "経費取引化に失敗しました");
-    } finally {
-      setIsCreating(false);
+      return;
     }
+    setDraftTransaction({ kind: "expense", item });
   };
 
-  const handleBulkCreateExpense = async () => {
-    if (!expenseData) return;
-    const notCreatedItems = expenseData.items.filter((i) => i.status === "not_created");
-    if (notCreatedItems.length === 0) return;
-    if (!window.confirm(`${notCreatedItems.length}件の経費取引を一括作成します。よろしいですか？`)) return;
-
-    setIsCreating(true);
+  const handleConfirmDraftTransaction = async (
+    data: ConfirmBillingItemInput | ConfirmExpenseItemInput
+  ) => {
+    if (!draftTransaction) return;
+    setIsDraftConfirming(true);
     try {
-      const inputs = notCreatedItems.map((item) => ({
-        expenseType: item.expenseType,
-        agentId: item.agentId,
-        agentContractHistoryId: item.agentContractHistoryId,
-        contractHistoryId: item.contractHistoryId,
-        stpCompanyId: item.stpCompanyId,
-        candidateId: item.candidateId,
-        amount: item.amount,
-        periodFrom: item.periodFrom,
-        periodTo: item.periodTo,
-        agentName: item.agentName,
-        companyName: item.companyName,
-        paymentDueDate: item.paymentDueDate ?? undefined,
-      }));
-      const result = await bulkCreateTransactionsFromExpenses(inputs);
+      const result =
+        draftTransaction.kind === "revenue"
+          ? await createConfirmedTransactionFromBilling(data as ConfirmBillingItemInput)
+          : await createConfirmedTransactionFromExpense(data as ConfirmExpenseItemInput);
       if (!result.ok) {
         toast.error(result.error);
         return;
       }
-      toast.success(`${result.data.created}件の経費取引を作成しました`);
-      await loadExpenseData(selectedMonth);
-    } catch {
-      toast.error("一括取引化に失敗しました");
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  // 取引化取消
-  const [isCancelling, setIsCancelling] = useState(false);
-
-  const handleCancelRevenueTransaction = async (transactionId: number) => {
-    setIsCancelling(true);
-    try {
-      await deleteTransaction(transactionId);
-      toast.success("取引化を取り消しました");
-      await loadRevenueData(selectedMonth);
+      toast.success("取引を確定しました");
+      setDraftTransaction(null);
+      if (draftTransaction.kind === "revenue") {
+        setActiveTopTab("revenue");
+        await loadRevenueData(selectedMonth);
+        setActiveRevenueStatus("confirmed");
+      } else {
+        setActiveTopTab("expense");
+        await loadExpenseData(selectedMonth);
+        setActiveExpenseStatus("confirmed");
+      }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "取引化取消に失敗しました");
+      toast.error(error instanceof Error ? error.message : "取引確定に失敗しました");
     } finally {
-      setIsCancelling(false);
+      setIsDraftConfirming(false);
     }
   };
 
-  const handleCancelExpenseTransaction = async (transactionId: number) => {
-    setIsCancelling(true);
-    try {
-      await deleteTransaction(transactionId);
-      toast.success("取引化を取り消しました");
-      await loadExpenseData(selectedMonth);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "取引化取消に失敗しました");
-    } finally {
-      setIsCancelling(false);
+  const handleUnconfirmRevenueTransaction = async (transactionId: number) => {
+    const result = await unconfirmTransaction(transactionId);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
     }
+    toast.success("確定を取り消し、取引確認待ちに戻しました");
+    await loadRevenueData(selectedMonth);
+    setActiveRevenueStatus("not_created");
   };
 
-  const handleOpenTransaction = (id: number, type: "revenue" | "expense") => {
-    setPreviewTransaction({ id, type, initialEdit: false });
+  const handleUnconfirmExpenseTransaction = async (transactionId: number) => {
+    const result = await unconfirmTransaction(transactionId);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success("確定を取り消し、取引確認待ちに戻しました");
+    await loadExpenseData(selectedMonth);
+    setActiveExpenseStatus("not_created");
   };
 
   const handleCreateInvoiceGroup = async (transactionId: number) => {
@@ -1689,7 +1883,11 @@ export function BillingLifecycleView({
     : 0;
 
   const getRevenueItems = (status: LifecycleStatus) =>
-    revenueData?.items.filter((item) => item.status === status) ?? [];
+    revenueData?.items.filter((item) =>
+      status === "not_created"
+        ? item.status === "not_created" || item.status === "unconfirmed"
+        : item.status === status
+    ) ?? [];
 
   // 経費サマリー
   const expenseTotalAmount = expenseData
@@ -1697,7 +1895,11 @@ export function BillingLifecycleView({
     : 0;
 
   const getExpenseItems = (status: ExpenseLifecycleStatus) =>
-    expenseData?.items.filter((item) => item.status === status) ?? [];
+    expenseData?.items.filter((item) =>
+      status === "not_created"
+        ? item.status === "not_created" || item.status === "unconfirmed"
+        : item.status === status
+    ) ?? [];
 
   return (
     <div className="space-y-6 p-6">
@@ -1761,12 +1963,22 @@ export function BillingLifecycleView({
           onSubmit={handleSubmitGroupModal}
         />
       )}
+      {draftTransaction && (
+        <DraftTrackerTransactionModal
+          draft={draftTransaction}
+          expenseCategories={manualExpenseCategories}
+          submitting={isDraftConfirming}
+          onClose={() => setDraftTransaction(null)}
+          onConfirm={handleConfirmDraftTransaction}
+        />
+      )}
       {previewTransaction && (
         <TransactionPreviewModal
           transactionId={previewTransaction.id}
           open={true}
           initialEdit={previewTransaction.initialEdit}
           closeOnCancelEdit={previewTransaction.initialEdit}
+          confirmOnlyEdit={previewTransaction.confirmOnlyEdit}
           onClose={() => {
             const closingTransaction = previewTransaction;
             setPreviewTransaction(null);
@@ -1776,6 +1988,13 @@ export function BillingLifecycleView({
               } else {
                 void loadExpenseData(selectedMonth);
               }
+            }
+          }}
+          onSaved={async () => {
+            if (previewTransaction.type === "revenue") {
+              await loadRevenueData(selectedMonth);
+            } else {
+              await loadExpenseData(selectedMonth);
             }
           }}
           onConfirmed={async () => {
@@ -1849,8 +2068,10 @@ export function BillingLifecycleView({
                 <div className="text-xl font-bold">{formatAmount(revenueTotalAmount)}</div>
               </Card>
               <Card className="p-3">
-                <div className="text-xs text-gray-500">未取引化</div>
-                <div className="text-xl font-bold text-red-600">{revenueData.summary.notCreated}件</div>
+                <div className="text-xs text-gray-500">取引確認待ち</div>
+                <div className="text-xl font-bold text-red-600">
+                  {revenueData.summary.notCreated + revenueData.summary.unconfirmed}件
+                </div>
               </Card>
               <Card className="p-3">
                 <div className="text-xs text-gray-500">期限超過</div>
@@ -1875,7 +2096,10 @@ export function BillingLifecycleView({
               <TabsList className="flex flex-wrap h-auto gap-1">
                 {REVENUE_STATUS_ORDER.map((status) => {
                   const config = REVENUE_STATUS_CONFIGS[status];
-                  const count = (revenueData.summary as Record<string, number>)[config.summaryKey] ?? 0;
+                  const count =
+                    status === "not_created"
+                      ? revenueData.summary.notCreated + revenueData.summary.unconfirmed
+                      : (revenueData.summary as Record<string, number>)[config.summaryKey] ?? 0;
                   return (
                     <TabsTrigger key={status} value={status} className="text-xs gap-1">
                       {config.label}
@@ -1888,18 +2112,8 @@ export function BillingLifecycleView({
               </TabsList>
 
               {REVENUE_STATUS_ORDER.map((status) => {
-                const config = REVENUE_STATUS_CONFIGS[status];
-                const count = (revenueData.summary as Record<string, number>)[config.summaryKey] ?? 0;
                 return (
                   <TabsContent key={status} value={status} className="mt-4">
-                    {status === "not_created" && count > 0 && (
-                      <div className="flex justify-end mb-3">
-                        <Button size="sm" onClick={handleBulkCreateRevenue} disabled={isCreating}>
-                          {isCreating && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
-                          一括取引化（{count}件）
-                        </Button>
-                      </div>
-                    )}
                     <div className="space-y-2">
                       {getRevenueItems(status).length === 0 ? (
                         <div className="text-sm text-gray-500 py-8 text-center">該当する項目はありません</div>
@@ -1908,12 +2122,15 @@ export function BillingLifecycleView({
                           <RevenueItemRow
                             key={item.id}
                             item={item}
-                            status={status}
-                            onCreateTransaction={status === "not_created" ? handleCreateRevenueTransaction : undefined}
-                            onCancelTransaction={status === "unconfirmed" ? handleCancelRevenueTransaction : undefined}
-                            onOpenTransaction={handleOpenTransaction}
-                            onCreateInvoiceGroup={status === "confirmed" ? handleCreateInvoiceGroup : undefined}
-                            isCancelling={isCancelling}
+                            status={status === "not_created" ? "not_created" : item.status}
+                            onCreateTransaction={
+                              status === "not_created" &&
+                              (item.status === "not_created" || item.status === "unconfirmed")
+                                ? handleCreateRevenueTransaction
+                                : undefined
+                            }
+                            onCreateInvoiceGroup={item.status === "confirmed" ? handleCreateInvoiceGroup : undefined}
+                            onUnconfirmTransaction={item.status === "confirmed" ? handleUnconfirmRevenueTransaction : undefined}
                             isCreating={isCreating}
                             isCreatingGroup={
                               item.transactionId != null &&
@@ -1943,9 +2160,9 @@ export function BillingLifecycleView({
                 <div className="text-xl font-bold">{formatAmount(expenseTotalAmount)}</div>
               </Card>
               <Card className="p-3">
-                <div className="text-xs text-gray-500">未取引化</div>
+                <div className="text-xs text-gray-500">取引確認待ち</div>
                 <div className="text-xl font-bold text-red-600">
-                  {expenseData.summary.notCreated}件
+                  {expenseData.summary.notCreated + expenseData.summary.unconfirmed}件
                 </div>
               </Card>
               <Card className="p-3">
@@ -1971,7 +2188,10 @@ export function BillingLifecycleView({
               <TabsList className="flex flex-wrap h-auto gap-1">
                 {EXPENSE_STATUS_ORDER.map((status) => {
                   const config = EXPENSE_STATUS_CONFIGS[status];
-                  const count = (expenseData.summary as Record<string, number>)[config.summaryKey] ?? 0;
+                  const count =
+                    status === "not_created"
+                      ? expenseData.summary.notCreated + expenseData.summary.unconfirmed
+                      : (expenseData.summary as Record<string, number>)[config.summaryKey] ?? 0;
                   return (
                     <TabsTrigger key={status} value={status} className="text-xs gap-1">
                       {config.label}
@@ -1984,18 +2204,8 @@ export function BillingLifecycleView({
               </TabsList>
 
               {EXPENSE_STATUS_ORDER.map((status) => {
-                const config = EXPENSE_STATUS_CONFIGS[status];
-                const count = (expenseData.summary as Record<string, number>)[config.summaryKey] ?? 0;
                 return (
                   <TabsContent key={status} value={status} className="mt-4">
-                    {status === "not_created" && count > 0 && (
-                      <div className="flex justify-end mb-3">
-                        <Button size="sm" onClick={handleBulkCreateExpense} disabled={isCreating}>
-                          {isCreating && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
-                          一括取引化（{count}件）
-                        </Button>
-                      </div>
-                    )}
                     <div className="space-y-2">
                       {getExpenseItems(status).length === 0 ? (
                         <div className="text-sm text-gray-500 py-8 text-center">該当する項目はありません</div>
@@ -2004,12 +2214,15 @@ export function BillingLifecycleView({
                           <ExpenseItemRow
                             key={item.id}
                             item={item}
-                            status={status}
-                            onCreateTransaction={status === "not_created" ? handleCreateExpenseTransaction : undefined}
-                            onCancelTransaction={status === "unconfirmed" ? handleCancelExpenseTransaction : undefined}
-                            onOpenTransaction={handleOpenTransaction}
-                            onCreatePaymentGroup={status === "confirmed" ? handleCreatePaymentGroup : undefined}
-                            isCancelling={isCancelling}
+                            status={status === "not_created" ? "not_created" : item.status}
+                            onCreateTransaction={
+                              status === "not_created" &&
+                              (item.status === "not_created" || item.status === "unconfirmed")
+                                ? handleCreateExpenseTransaction
+                                : undefined
+                            }
+                            onCreatePaymentGroup={item.status === "confirmed" ? handleCreatePaymentGroup : undefined}
+                            onUnconfirmTransaction={item.status === "confirmed" ? handleUnconfirmExpenseTransaction : undefined}
                             isCreating={isCreating}
                             isCreatingGroup={
                               item.transactionId != null &&

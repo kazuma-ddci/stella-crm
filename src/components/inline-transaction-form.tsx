@@ -11,7 +11,7 @@ import { calcTax } from "@/lib/finance/tax-calc";
 
 type Props = {
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (transactionId: number) => void | Promise<void>;
   counterpartyId: number;
   projectId?: number;
   expenseCategories: { id: number; name: string; type: string }[];
@@ -88,7 +88,7 @@ export function InlineTransactionForm({
     if (!expenseCategoryId || !amount || !periodFrom || !periodTo) return;
     setLoading(true);
     try {
-      await createTransactionInline({
+      const record = await createTransactionInline({
         type: transactionType,
         counterpartyId,
         expenseCategoryId: Number(expenseCategoryId),
@@ -101,7 +101,7 @@ export function InlineTransactionForm({
         note: note || undefined,
         projectId,
       });
-      onCreated();
+      await onCreated(record.id);
       onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
@@ -207,12 +207,16 @@ export function InlineTransactionForm({
       </div>
 
       <div>
-        <Label htmlFor={`${idPrefix}-note`}>備考</Label>
+        <Label htmlFor={`${idPrefix}-note`}>摘要</Label>
         <Input
           id={`${idPrefix}-note`}
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="任意"
+          placeholder={
+            transactionType === "revenue"
+              ? "請求書に表示する摘要"
+              : "支払明細に表示する摘要"
+          }
           className="mt-1"
         />
       </div>

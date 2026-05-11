@@ -19,12 +19,12 @@ const INVOICE_TRANSITIONS: Record<string, string[]> = {
   pending_approval: ["before_request"],
   before_request: ["requested"],
   requested: ["invoice_received"],
-  invoice_received: ["confirmed", "rejected"],
+  invoice_received: ["awaiting_accounting", "confirmed", "rejected"],
   rejected: ["re_requested"],
   re_requested: ["invoice_received"],
   confirmed: ["awaiting_accounting", "paid"],
   awaiting_accounting: ["paid", "returned"],
-  returned: ["confirmed"],
+  returned: ["invoice_received", "confirmed"],
 };
 
 // ============================================
@@ -83,6 +83,7 @@ function getPaymentGroupProjectActions(group: {
 
 import type {
   PaymentGroupListItem,
+  PaymentGroupCandidateTransaction,
   UngroupedAllocationItem,
   UngroupedExpenseTransaction,
   PaymentGroupTransaction,
@@ -90,6 +91,7 @@ import type {
 
 export type {
   PaymentGroupListItem,
+  PaymentGroupCandidateTransaction,
   UngroupedAllocationItem,
   UngroupedExpenseTransaction,
   PaymentGroupTransaction,
@@ -342,6 +344,96 @@ export async function getUngroupedExpenseTransactions(
     note: r.note,
     isConfidential: r.isConfidential,
   }));
+}
+
+export async function getPaymentGroupCandidateTransactions(
+  groupId: number
+): Promise<PaymentGroupCandidateTransaction[]> {
+  const session = await getSession();
+  const txConfidentialFilter = buildConfidentialFilter(session);
+  const stpProjectId = await requireStpProjectId();
+  const group = await prisma.paymentGroup.findUnique({
+    where: { id: groupId, deletedAt: null, projectId: stpProjectId },
+    select: { id: true, counterpartyId: true },
+  });
+  if (!group) return [];
+
+  const candidateScope = group.counterpartyId
+    ? {
+        OR: [
+          { counterpartyId: group.counterpartyId },
+          { paymentGroupId: group.id },
+        ],
+      }
+    : { paymentGroupId: group.id };
+
+  const records = await prisma.transaction.findMany({
+    where: {
+      deletedAt: null,
+      type: "expense",
+      projectId: stpProjectId,
+      allocationTemplateId: null,
+      AND: [candidateScope, txConfidentialFilter],
+    },
+    include: {
+      counterparty: { select: { id: true, name: true } },
+      expenseCategory: { select: { name: true } },
+      paymentGroup: { select: { id: true, referenceCode: true, targetMonth: true } },
+    },
+    orderBy: [{ periodFrom: "desc" }, { id: "desc" }],
+  });
+
+  return records.map((r) => {
+    const isCurrent = r.paymentGroupId === group.id;
+    const isAvailable = r.status === "confirmed" && r.paymentGroupId === null;
+    const addState =
+      isCurrent
+        ? "current"
+        : r.paymentGroupId !== null
+          ? "other_group"
+          : r.status !== "confirmed"
+            ? "unconfirmed"
+            : "available";
+    const addStateLabel =
+      addState === "current"
+        ? "このグループに追加済み"
+        : addState === "other_group"
+          ? "他グループに紐付け済み"
+          : addState === "unconfirmed"
+            ? "未確定"
+            : "未紐付け";
+    const paymentGroupLabel =
+      r.paymentGroup?.referenceCode ??
+      (r.paymentGroup?.targetMonth
+        ? `支払 ${r.paymentGroup.targetMonth.getUTCFullYear()}/${String(
+            r.paymentGroup.targetMonth.getUTCMonth() + 1
+          ).padStart(2, "0")}`
+        : r.paymentGroupId
+          ? `支払 #${r.paymentGroupId}`
+          : null);
+
+    return {
+      id: r.id,
+      type: r.type,
+      status: r.status,
+      counterpartyId: r.counterpartyId,
+      counterpartyName: r.counterparty.name,
+      expenseCategoryName: r.expenseCategory?.name ?? "（未設定）",
+      amount: r.amount,
+      taxAmount: r.taxAmount,
+      taxRate: r.taxRate,
+      taxType: r.taxType,
+      periodFrom: toLocalDateString(r.periodFrom),
+      periodTo: toLocalDateString(r.periodTo),
+      note: r.note,
+      isConfidential: r.isConfidential,
+      paymentGroupId: r.paymentGroupId,
+      paymentGroupLabel,
+      addState,
+      addStateLabel,
+      isAddable: isAvailable,
+    };
+  });
 }
 
 // ============================================
@@ -1287,6 +1379,67 @@ export async function removeTransactionFromPaymentGroup(
  }
 }
 
+export async function updatePaymentGroupTransactionNote(
+  groupId: number,
+  transactionId: number,
+  note: string | null
+): Promise<ActionResult> {
+ try {
+  const user = await requireEdit("stp");
+  const stpProjectId = await requireStpProjectId();
+
+  const group = await prisma.paymentGroup.findFirst({
+    where: { id: groupId, deletedAt: null, projectId: stpProjectId },
+    select: { id: true, status: true },
+  });
+  if (!group) return err("支払が見つかりません");
+
+  const editableStatuses = ["pending_approval", "before_request", "rejected"];
+  if (!editableStatuses.includes(group.status)) {
+    return err("このステータスでは摘要を編集できません");
+  }
+
+  const transaction = await prisma.transaction.findFirst({
+    where: {
+      id: transactionId,
+      paymentGroupId: groupId,
+      projectId: stpProjectId,
+      deletedAt: null,
+    },
+    select: { id: true, note: true },
+  });
+  if (!transaction) return err("明細が見つかりません");
+
+  const nextNote = note?.trim() || null;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.transaction.update({
+      where: { id: transactionId },
+      data: { note: nextNote, updatedBy: user.id },
+    });
+
+    await recordChangeLog(
+      {
+        tableName: "Transaction",
+        recordId: transactionId,
+        changeType: "update",
+        oldData: { note: transaction.note },
+        newData: { note: nextNote },
+      },
+      user.id,
+      tx
+    );
+  });
+
+  revalidatePath("/stp/finance/payment-groups");
+  revalidatePath("/stp/finance/transactions");
+  return ok();
+ } catch (e) {
+  console.error("[updatePaymentGroupTransactionNote] error:", e);
+  return err(e instanceof Error ? e.message : "摘要の更新に失敗しました");
+ }
+}
+
 // ============================================
 // グループ内取引の取得
 // ============================================
@@ -1352,10 +1505,10 @@ export async function submitPaymentGroupToAccounting(
   });
   if (!group) return err("支払が見つかりません");
 
-  // confirmed のみ遷移可能
-  if (group.status !== "confirmed") {
+  // 既存互換の confirmed と、UI上の直接引渡用 invoice_received を許可
+  if (!["invoice_received", "confirmed"].includes(group.status)) {
     return err(
-      "「確認済み」ステータスの支払のみ経理へ引渡できます"
+      "「請求書受領」ステータスの支払のみ経理へ引渡できます"
     );
   }
 
@@ -1397,6 +1550,8 @@ export async function submitPaymentGroupToAccounting(
         where: { id },
         data: {
           status: "awaiting_accounting",
+          confirmedBy: group.confirmedBy ?? user.id,
+          confirmedAt: group.confirmedAt ?? new Date(),
           returnRequestStatus: "none",
           returnRequestReason: null,
           returnRequestedAt: null,
@@ -1678,7 +1833,7 @@ export async function cancelPaymentGroupHandover(
   await prisma.$transaction(async (tx) => {
     await tx.paymentGroup.update({
       where: { id },
-      data: { status: "confirmed", updatedBy: user.id },
+      data: { status: "invoice_received", updatedBy: user.id },
     });
 
     await recordChangeLog(
@@ -1687,7 +1842,7 @@ export async function cancelPaymentGroupHandover(
         recordId: id,
         changeType: "update",
         oldData: { status: "awaiting_accounting" },
-        newData: { status: "confirmed" },
+        newData: { status: "invoice_received" },
       },
       user.id,
       tx

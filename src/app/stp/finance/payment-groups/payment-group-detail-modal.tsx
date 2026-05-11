@@ -50,20 +50,20 @@ import { PaymentGroupMailModal } from "./payment-group-mail-modal";
 import { getPaymentGroupMailHistory, type MailHistoryItem } from "./mail-actions";
 import { InlineTransactionForm } from "./inline-transaction-form";
 import type {
+  PaymentGroupCandidateTransaction,
   PaymentGroupListItem,
-  UngroupedExpenseTransaction,
   PaymentGroupTransaction,
 } from "./actions";
 import {
   updatePaymentGroup,
   deletePaymentGroup,
-  confirmReceivedInvoice,
   approvePaymentGroup,
   rejectInvoice,
   updatePaymentGroupStatus,
   addTransactionToPaymentGroup,
   removeTransactionFromPaymentGroup,
-  getUngroupedExpenseTransactions,
+  updatePaymentGroupTransactionNote,
+  getPaymentGroupCandidateTransactions,
   getPaymentGroupTransactions,
   submitPaymentGroupToAccounting,
   requestReturnPaymentGroup,
@@ -110,10 +110,17 @@ const STATUS_LABELS: Record<string, string> = {
   invoice_received: "請求書受領",
   rejected: "差し戻し",
   re_requested: "再依頼済み",
-  confirmed: "確認済み",
+  confirmed: "請求書受領",
   awaiting_accounting: "経理引渡済み",
   paid: "支払済み",
   returned: "差し戻し",
+};
+
+const ADD_STATE_STYLES: Record<PaymentGroupCandidateTransaction["addState"], string> = {
+  available: "bg-green-50 text-green-700 border-green-200",
+  current: "bg-blue-50 text-blue-700 border-blue-200",
+  other_group: "bg-gray-100 text-gray-700 border-gray-200",
+  unconfirmed: "bg-amber-50 text-amber-700 border-amber-200",
 };
 
 type Props = {
@@ -123,6 +130,7 @@ type Props = {
   counterpartyOptions: { value: string; label: string }[];
   operatingCompanyOptions: { value: string; label: string }[];
   expenseCategories: { id: number; name: string; type: string }[];
+  projectId?: number;
   canEditAccounting?: boolean;
 };
 
@@ -131,10 +139,11 @@ export function PaymentGroupDetailModal({
   onClose,
   group,
   expenseCategories,
+  projectId,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "detail" | "transactions" | "add" | "attachments" | "history" | "comments" | "statement-links"
+    "detail" | "transactions" | "attachments" | "history" | "comments" | "statement-links"
   >("detail");
 
   // 編集可能な情報
@@ -153,15 +162,18 @@ export function PaymentGroupDetailModal({
     []
   );
   const [loadingTransactions, setLoadingTransactions] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [savingNoteId, setSavingNoteId] = useState<number | null>(null);
 
-  // 追加用の未グループ化取引
-  const [ungroupedTransactions, setUngroupedTransactions] = useState<
-    UngroupedExpenseTransaction[]
+  // 明細タブ下段に表示する同一取引先の既存取引
+  const [candidateTransactions, setCandidateTransactions] = useState<
+    PaymentGroupCandidateTransaction[]
   >([]);
   const [selectedAddIds, setSelectedAddIds] = useState<Set<number>>(
     new Set()
   );
-  const [loadingUngrouped, setLoadingUngrouped] = useState(false);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
 
   // インライン取引作成
   const [showInlineForm, setShowInlineForm] = useState(false);
@@ -235,31 +247,27 @@ export function PaymentGroupDetailModal({
     }
   }, [group.id]);
 
+  const loadCandidateTransactions = useCallback(async () => {
+    setLoadingCandidates(true);
+    try {
+      const data = await getPaymentGroupCandidateTransactions(group.id);
+      setCandidateTransactions(data);
+    } catch {
+      setCandidateTransactions([]);
+    } finally {
+      setLoadingCandidates(false);
+    }
+  }, [group.id]);
+
+  const loadTransactionTabData = useCallback(async () => {
+    await Promise.all([loadTransactions(), loadCandidateTransactions()]);
+  }, [loadTransactions, loadCandidateTransactions]);
+
   useEffect(() => {
     if (open && activeTab === "transactions") {
-      loadTransactions();
+      loadTransactionTabData();
     }
-  }, [open, activeTab, loadTransactions]);
-
-  // 追加タブ: 未グループ化取引を取得
-  useEffect(() => {
-    if (activeTab !== "add") return;
-    let cancelled = false;
-    setLoadingUngrouped(true);
-    getUngroupedExpenseTransactions(group.counterpartyId ?? undefined)
-      .then((txs) => {
-        if (!cancelled) {
-          setUngroupedTransactions(txs);
-          setLoadingUngrouped(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setLoadingUngrouped(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, group.counterpartyId]);
+  }, [open, activeTab, loadTransactionTabData]);
 
   // フォーム値をgroupの変更に同期
   useEffect(() => {
@@ -367,11 +375,38 @@ export function PaymentGroupDetailModal({
         alert(result.error);
         return;
       }
-      await loadTransactions();
+      await loadTransactionTabData();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveTransactionNote = async (transactionId: number) => {
+    setSavingNoteId(transactionId);
+    try {
+      const result = await updatePaymentGroupTransactionNote(
+        group.id,
+        transactionId,
+        noteDraft
+      );
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
+      setTransactions((current) =>
+        current.map((tx) =>
+          tx.id === transactionId ? { ...tx, note: noteDraft.trim() || null } : tx
+        )
+      );
+      setEditingNoteId(null);
+      setNoteDraft("");
+      toast.success("摘要を保存しました");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "摘要の保存に失敗しました");
+    } finally {
+      setSavingNoteId(null);
     }
   };
 
@@ -388,13 +423,23 @@ export function PaymentGroupDetailModal({
         return;
       }
       setSelectedAddIds(new Set());
-      setActiveTab("transactions");
-      await loadTransactions();
+      await loadTransactionTabData();
     } catch (e) {
       alert(e instanceof Error ? e.message : "エラーが発生しました");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleInlineTransactionCreated = async (transactionId: number) => {
+    const result = await addTransactionToPaymentGroup(group.id, [transactionId]);
+    if (!result.ok) {
+      throw new Error(
+        `取引は作成されましたが、支払への追加に失敗しました。${result.error}`
+      );
+    }
+    setSelectedAddIds(new Set());
+    await loadTransactionTabData();
   };
 
   // 請求書受領を記録
@@ -410,42 +455,6 @@ export function PaymentGroupDetailModal({
       }
       if (!confirm("請求書の受領・保管が完了しました。受領を記録しますか？")) return;
       const result = await updatePaymentGroupStatus(group.id, "invoice_received");
-      if (!result.ok) {
-        alert(result.error);
-        return;
-      }
-      onClose();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "エラーが発生しました");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 確認する
-  const handleConfirm = async () => {
-    if (!paymentDueDate && !expectedPaymentDate) {
-      alert("支払期限または支払予定日を入力してください");
-      return;
-    }
-    if (!confirm("この支払を確認済みにしますか？")) return;
-    setLoading(true);
-    try {
-      // まず日付情報を保存
-      {
-        const r = await updatePaymentGroup(group.id, {
-          expectedPaymentDate: expectedPaymentDate || null,
-          paymentDueDate: paymentDueDate || null,
-        });
-        if (!r.ok) {
-          alert(r.error);
-          return;
-        }
-      }
-      // 確認ステータスへ遷移
-      const result = await confirmReceivedInvoice(group.id, {
-        expectedPaymentDate: expectedPaymentDate || undefined,
-      });
       if (!result.ok) {
         alert(result.error);
         return;
@@ -503,6 +512,16 @@ export function PaymentGroupDetailModal({
   const handleSubmitToAccounting = async () => {
     setLoading(true);
     try {
+      if (group.status === "invoice_received") {
+        const saveResult = await updatePaymentGroup(group.id, {
+          expectedPaymentDate: expectedPaymentDate || null,
+          paymentDueDate: paymentDueDate || null,
+        });
+        if (!saveResult.ok) {
+          alert(saveResult.error);
+          return;
+        }
+      }
       const result = await submitPaymentGroupToAccounting(group.id);
       if (!result.ok) {
         alert(result.error);
@@ -680,32 +699,48 @@ export function PaymentGroupDetailModal({
                 </Button>
               )}
 
-              {/* invoice_received: 確認する + 却下して再依頼 */}
-              {group.paymentType === "invoice" && group.status === "invoice_received" && (
+              {/* invoice_received / confirmed: 経理へ引渡 */}
+              {group.paymentType === "invoice" && ["invoice_received", "confirmed"].includes(group.status) && (
                 <>
-                  <Button
-                    size="sm"
-                    onClick={handleConfirm}
-                    disabled={loading}
-                  >
-                    <CheckCircle2 className="mr-1 h-4 w-4" />
-                    確認する
-                  </Button>
-                  {!paymentDueDate && !expectedPaymentDate && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button size="sm" disabled={loading}>
+                        <Send className="mr-1 h-4 w-4" />
+                        経理へ引渡
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>経理へ引渡しますか？</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          この支払を経理部門へ引渡します。按分確定が完了していない取引が含まれている場合はエラーになります。
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleSubmitToAccounting}>
+                          引渡する
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                  {(!paymentDueDate || !expectedPaymentDate) && (
                     <span className="text-xs text-amber-600 flex items-center gap-1">
                       <AlertTriangle className="h-3.5 w-3.5" />
                       支払期限/支払予定日を入力
                     </span>
                   )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setShowRejectDialog(true)}
-                    disabled={loading}
-                  >
-                    <XCircle className="mr-1 h-4 w-4" />
-                    却下して再依頼
-                  </Button>
+                  {group.status === "invoice_received" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setShowRejectDialog(true)}
+                      disabled={loading}
+                    >
+                      <XCircle className="mr-1 h-4 w-4" />
+                      却下して再依頼
+                    </Button>
+                  )}
                 </>
               )}
 
@@ -746,39 +781,13 @@ export function PaymentGroupDetailModal({
                 </Button>
               )}
 
-              {/* confirmed: 経理へ引渡 */}
-              {group.status === "confirmed" && (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button size="sm" disabled={loading}>
-                      <Send className="mr-1 h-4 w-4" />
-                      経理へ引渡
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>経理へ引渡しますか？</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        この支払を経理部門へ引渡します。按分確定が完了していない取引が含まれている場合はエラーになります。
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>キャンセル</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleSubmitToAccounting}>
-                        引渡する
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              )}
-
               {/* awaiting_accounting: 引渡取消ボタン */}
               {group.canCancelHandover && (
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={async () => {
-                    if (!confirm("経理引渡を取り消して「確認済み」に戻しますか？\n※経理側で仕訳処理が開始されている場合は取り消せません。")) return;
+                    if (!confirm("経理引渡を取り消して「請求書受領」に戻しますか？\n※経理側で仕訳処理が開始されている場合は取り消せません。")) return;
                     setLoading(true);
                     try {
                       const result = await cancelPaymentGroupHandover(group.id);
@@ -813,16 +822,16 @@ export function PaymentGroupDetailModal({
                 </span>
               )}
 
-              {/* returned: 確認済みに戻す */}
+              {/* returned: 請求書受領に戻す */}
               {group.status === "returned" && (
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={async () => {
-                    if (!confirm("確認済みに戻しますか？")) return;
+                    if (!confirm("請求書受領に戻しますか？")) return;
                     setLoading(true);
                     try {
-                      const result = await updatePaymentGroupStatus(group.id, "confirmed");
+                      const result = await updatePaymentGroupStatus(group.id, "invoice_received");
                       if (!result.ok) {
                         alert(result.error);
                         return;
@@ -836,7 +845,7 @@ export function PaymentGroupDetailModal({
                   }}
                   disabled={loading}
                 >
-                  確認済みに戻す
+                  請求書受領に戻す
                 </Button>
               )}
             </div>
@@ -848,11 +857,11 @@ export function PaymentGroupDetailModal({
                   { key: "before_request", label: "依頼前" },
                   { key: "requested", label: "依頼済み" },
                   { key: "invoice_received", label: "請求書受領" },
-                  { key: "confirmed", label: "確認済み" },
                   { key: "awaiting_accounting", label: "経理引渡" },
                   { key: "paid", label: "支払済み" },
                 ];
-            const currentIdx = steps.findIndex((s) => s.key === group.status);
+            const stepStatus = group.status === "confirmed" ? "invoice_received" : group.status;
+            const currentIdx = steps.findIndex((s) => s.key === stepStatus);
             // returned/rejected/re_requested は特殊ステータスなので非表示
             if (currentIdx === -1) return null;
             return (
@@ -919,18 +928,6 @@ export function PaymentGroupDetailModal({
           >
             明細 ({group.transactionCount}件)
           </button>
-          {isEditable && (
-            <button
-              onClick={() => setActiveTab("add")}
-              className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors shrink-0 ${
-                activeTab === "add"
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground"
-              }`}
-            >
-              + 取引追加
-            </button>
-          )}
           <button
             onClick={() => setActiveTab("attachments")}
             className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors shrink-0 ${
@@ -1286,110 +1283,29 @@ export function PaymentGroupDetailModal({
 
           {/* 明細タブ */}
           {activeTab === "transactions" && (
-            <div className="space-y-3 p-1">
-              {loadingTransactions ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <div className="space-y-6 p-1">
+              <section className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold">現在の明細</h3>
+                  {loadingTransactions && (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  )}
                 </div>
-              ) : transactions.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  取引がありません
-                </div>
-              ) : (
-                <div className="border rounded-lg divide-y">
-                  {transactions.map((t) => (
-                    <div
-                      key={t.id}
-                      className="flex items-center gap-3 px-4 py-3"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">
-                            {t.expenseCategoryName}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {t.periodFrom} 〜 {t.periodTo}
-                          </span>
-                        </div>
-                        {t.note && (
-                          <div className="text-xs text-muted-foreground truncate">
-                            {t.note}
-                          </div>
-                        )}
-                      </div>
-                      <div className="text-right text-sm">
-                        <div className="font-medium">
-                          ¥{t.amount.toLocaleString()}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          税¥{t.taxAmount.toLocaleString()} ({t.taxRate}%)
-                        </div>
-                      </div>
-                      {isEditable && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRemoveTransaction(t.id)}
-                          disabled={loading}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 取引追加タブ */}
-          {activeTab === "add" && (
-            <div className="space-y-3 p-1">
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowInlineForm(true)}
-                >
-                  <Plus className="mr-1 h-4 w-4" />
-                  取引を新規作成
-                </Button>
-              </div>
-              {loadingUngrouped ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : ungroupedTransactions.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  追加できる取引がありません
-                </div>
-              ) : (
-                <>
-                  <div className="border rounded-lg max-h-[300px] overflow-y-auto divide-y">
-                    {ungroupedTransactions.map((t) => (
-                      <label
+                {loadingTransactions ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : transactions.length === 0 ? (
+                  <div className="rounded-lg border py-8 text-center text-muted-foreground">
+                    取引がありません
+                  </div>
+                ) : (
+                  <div className="border rounded-lg divide-y">
+                    {transactions.map((t) => (
+                      <div
                         key={t.id}
-                        className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 ${
-                          selectedAddIds.has(t.id) ? "bg-blue-50" : ""
-                        }`}
+                        className="flex items-center gap-3 px-4 py-3"
                       >
-                        <input
-                          type="checkbox"
-                          checked={selectedAddIds.has(t.id)}
-                          onChange={() => {
-                            setSelectedAddIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(t.id)) {
-                                next.delete(t.id);
-                              } else {
-                                next.add(t.id);
-                              }
-                              return next;
-                            });
-                          }}
-                          className="rounded"
-                        />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-medium">
@@ -1399,29 +1315,198 @@ export function PaymentGroupDetailModal({
                               {t.periodFrom} 〜 {t.periodTo}
                             </span>
                           </div>
+                          <div className="mt-1">
+                            {editingNoteId === t.id ? (
+                              <div className="space-y-2">
+                                <Textarea
+                                  value={noteDraft}
+                                  onChange={(e) => setNoteDraft(e.target.value)}
+                                  rows={2}
+                                  className="text-sm"
+                                  placeholder="支払明細に表示する摘要"
+                                />
+                                <div className="flex gap-2">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={() => handleSaveTransactionNote(t.id)}
+                                    disabled={savingNoteId === t.id}
+                                  >
+                                    {savingNoteId === t.id && (
+                                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                                    )}
+                                    保存
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setEditingNoteId(null);
+                                      setNoteDraft("");
+                                    }}
+                                    disabled={savingNoteId === t.id}
+                                  >
+                                    キャンセル
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-start gap-2">
+                                <div className="min-w-0 flex-1 text-xs text-muted-foreground">
+                                  <span className="font-medium text-gray-500">摘要: </span>
+                                  <span className="whitespace-pre-wrap break-words">
+                                    {t.note || "未入力"}
+                                  </span>
+                                </div>
+                                {isEditable && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() => {
+                                      setEditingNoteId(t.id);
+                                      setNoteDraft(t.note ?? "");
+                                    }}
+                                    disabled={loading}
+                                  >
+                                    <Pencil className="mr-1 h-3 w-3" />
+                                    編集
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-right text-sm font-medium">
-                          ¥{t.amount.toLocaleString()}
+                        <div className="text-right text-sm">
+                          <div className="font-medium">
+                            ¥{t.amount.toLocaleString()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            税¥{t.taxAmount.toLocaleString()} ({t.taxRate}%)
+                          </div>
                         </div>
-                      </label>
+                        {isEditable && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveTransaction(t.id)}
+                            disabled={loading}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     ))}
                   </div>
-                  {selectedAddIds.size > 0 && (
-                    <div className="flex justify-end">
-                      <Button
-                        onClick={handleAddTransactions}
-                        disabled={loading}
-                        size="sm"
-                      >
-                        {loading && (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        )}
-                        {selectedAddIds.size}件追加
-                      </Button>
-                    </div>
+                )}
+              </section>
+
+              <section className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold">同じ取引先の既存取引</h3>
+                  {isEditable && group.counterpartyId && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowInlineForm((v) => !v)}
+                    >
+                      <Plus className="mr-1 h-4 w-4" />
+                      新規取引を追加
+                    </Button>
                   )}
-                </>
-              )}
+                </div>
+                {showInlineForm && group.counterpartyId && (
+                  <div className="rounded-lg border bg-gray-50 p-3">
+                    <InlineTransactionForm
+                      onClose={() => setShowInlineForm(false)}
+                      onCreated={handleInlineTransactionCreated}
+                      counterpartyId={group.counterpartyId}
+                      projectId={projectId}
+                      expenseCategories={expenseCategories}
+                    />
+                  </div>
+                )}
+                {loadingCandidates ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : candidateTransactions.length === 0 ? (
+                  <div className="rounded-lg border py-8 text-center text-muted-foreground">
+                    同じ取引先の既存取引がありません
+                  </div>
+                ) : (
+                  <>
+                    <div className="border rounded-lg max-h-[360px] overflow-y-auto divide-y">
+                      {candidateTransactions.map((t) => (
+                        <label
+                          key={t.id}
+                          className={`flex items-center gap-3 px-4 py-3 ${
+                            t.isAddable ? "cursor-pointer hover:bg-gray-50" : "bg-gray-50"
+                          } ${selectedAddIds.has(t.id) ? "bg-blue-50" : ""}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedAddIds.has(t.id)}
+                            disabled={!isEditable || !t.isAddable || loading}
+                            onChange={() => {
+                              if (!t.isAddable) return;
+                              setSelectedAddIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(t.id)) {
+                                  next.delete(t.id);
+                                } else {
+                                  next.add(t.id);
+                                }
+                                return next;
+                              });
+                            }}
+                            className="rounded"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium">
+                                {t.expenseCategoryName}
+                              </span>
+                              <span className={`rounded border px-1.5 py-0.5 text-xs font-medium ${ADD_STATE_STYLES[t.addState]}`}>
+                                {t.addStateLabel}
+                              </span>
+                              {t.paymentGroupLabel && t.addState === "other_group" && (
+                                <span className="text-xs text-muted-foreground">
+                                  {t.paymentGroupLabel}
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              {t.periodFrom} 〜 {t.periodTo}
+                              {t.note ? ` / ${t.note}` : ""}
+                            </div>
+                          </div>
+                          <div className="text-right text-sm font-medium">
+                            ¥{t.amount.toLocaleString()}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    {selectedAddIds.size > 0 && (
+                      <div className="flex justify-end">
+                        <Button
+                          onClick={handleAddTransactions}
+                          disabled={loading}
+                          size="sm"
+                        >
+                          {loading && (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          )}
+                          {selectedAddIds.size}件追加
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </section>
             </div>
           )}
 
@@ -1764,27 +1849,11 @@ export function PaymentGroupDetailModal({
           initialTab={mailModalInitialTab}
         />
 
-        {/* インライン取引作成 */}
-        {showInlineForm && (
-          <InlineTransactionForm
-            onClose={() => setShowInlineForm(false)}
-            onCreated={() => {
-              setLoadingUngrouped(true);
-              getUngroupedExpenseTransactions(group.counterpartyId ?? undefined)
-                .then((txs) => {
-                  setUngroupedTransactions(txs);
-                  setLoadingUngrouped(false);
-                })
-                .catch(() => setLoadingUngrouped(false));
-            }}
-            counterpartyId={group.counterpartyId!}
-            expenseCategories={expenseCategories}
-          />
-        )}
-
         {/* 差し戻し依頼ダイアログ */}
         <AlertDialog open={showReturnRequestDialog} onOpenChange={setShowReturnRequestDialog}>
-          <AlertDialogContent>
+          <AlertDialogContent
+            style={{ left: "calc(50% + var(--sidebar-half-w, 0px))" }}
+          >
             <AlertDialogHeader>
               <AlertDialogTitle>差し戻し依頼</AlertDialogTitle>
               <AlertDialogDescription>
