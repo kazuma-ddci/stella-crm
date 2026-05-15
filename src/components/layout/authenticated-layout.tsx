@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Sidebar, SidebarContent } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
@@ -37,6 +38,7 @@ export function AuthenticatedLayout({
   unlinkedStatementCount,
 }: AuthenticatedLayoutProps) {
   const { status } = useSession();
+  const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -80,6 +82,22 @@ export function AuthenticatedLayout({
       return next;
     });
   };
+
+  const authPageRoots = [
+    "/login",
+    "/forgot-password",
+    "/register",
+    "/reset-password",
+    "/verify-email",
+    "/staff/setup",
+  ];
+  const isAuthPage = authPageRoots.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`)
+  );
+
+  if (isAuthPage) {
+    return <main className="min-h-screen bg-gray-100">{children}</main>;
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const userType = (serverUser as any)?.userType;

@@ -8,6 +8,9 @@ import { JOURNAL_ENTRY_LOG_FIELDS } from "@/app/finance/changelog/log-fields";
 import { ensureMonthNotClosed } from "@/lib/finance/monthly-close";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffForAccounting } from "@/lib/auth/staff-action";
+import { ensureCostCentersForActiveProjects } from "@/lib/accounting/cost-centers";
+import { isPlAccountCategory } from "@/lib/accounting/pl-report";
+import type { Prisma } from "@prisma/client";
 
 // ============================================
 // 型定義
@@ -31,7 +34,19 @@ export type JournalFormData = {
   }[];
   projects: {
     id: number;
-    code: string;
+    name: string;
+  }[];
+  operatingCompanies: {
+    id: number;
+    companyName: string;
+  }[];
+  costCenters: {
+    id: number;
+    name: string;
+    projectId: number | null;
+  }[];
+  allocationTemplates: {
+    id: number;
     name: string;
   }[];
   counterparties: {
@@ -55,6 +70,7 @@ export type JournalFormData = {
 const VALID_STATUSES = ["draft", "confirmed"] as const;
 const VALID_SIDES = ["debit", "credit"] as const;
 const VALID_REALIZATION_STATUSES = ["realized", "unrealized"] as const;
+const VALID_PL_ALLOCATION_MODES = ["direct", "common", "template"] as const;
 const VALID_TAX_CLASSIFICATIONS = [
   "taxable_10", "taxable_8", "exempt", "non_taxable",
   "tax_free_export", "taxable_10_no_invoice", "taxable_8_no_invoice",
@@ -183,6 +199,49 @@ function validateJournalEntryData(data: Record<string, unknown>) {
     throw new Error("取引先IDが不正です");
   }
   const hasInvoice = data.hasInvoice !== false;
+  const operatingCompanyId = data.operatingCompanyId ? Number(data.operatingCompanyId) : null;
+  if (
+    operatingCompanyId !== null &&
+    (isNaN(operatingCompanyId) || !Number.isInteger(operatingCompanyId) || operatingCompanyId <= 0)
+  ) {
+    throw new Error("運営法人IDが不正です");
+  }
+
+  const plAllocationMode = (data.plAllocationMode as string) || null;
+  if (plAllocationMode && !(VALID_PL_ALLOCATION_MODES as readonly string[]).includes(plAllocationMode)) {
+    throw new Error("P/L上の置き場所が不正です");
+  }
+
+  const plProjectId = data.plProjectId ? Number(data.plProjectId) : null;
+  if (plProjectId !== null && (isNaN(plProjectId) || !Number.isInteger(plProjectId) || plProjectId <= 0)) {
+    throw new Error("P/L計上先プロジェクトIDが不正です");
+  }
+  const plCostCenterId = data.plCostCenterId ? Number(data.plCostCenterId) : null;
+  if (plCostCenterId !== null && (isNaN(plCostCenterId) || !Number.isInteger(plCostCenterId) || plCostCenterId <= 0)) {
+    throw new Error("P/L計上先コストセンターIDが不正です");
+  }
+  const plAllocationTemplateId = data.plAllocationTemplateId ? Number(data.plAllocationTemplateId) : null;
+  if (
+    plAllocationTemplateId !== null &&
+    (isNaN(plAllocationTemplateId) || !Number.isInteger(plAllocationTemplateId) || plAllocationTemplateId <= 0)
+  ) {
+    throw new Error("P/L按分テンプレートIDが不正です");
+  }
+
+  if (nonNullCount === 0) {
+    if (!operatingCompanyId) {
+      throw new Error("手動仕訳では運営法人を選択してください");
+    }
+    if (!plAllocationMode) {
+      throw new Error("手動仕訳ではP/L上の置き場所を選択してください");
+    }
+    if (plAllocationMode === "direct" && !plProjectId && !plCostCenterId) {
+      throw new Error("直接計上ではプロジェクトまたはコストセンターを選択してください");
+    }
+    if (plAllocationMode === "template" && !plAllocationTemplateId) {
+      throw new Error("按分テンプレート計上では按分テンプレートを選択してください");
+    }
+  }
 
   return {
     journalDate,
@@ -192,6 +251,11 @@ function validateJournalEntryData(data: Record<string, unknown>) {
     transactionId,
     projectId,
     counterpartyId,
+    operatingCompanyId,
+    plAllocationMode: plAllocationMode as "direct" | "common" | "template" | null,
+    plProjectId,
+    plCostCenterId,
+    plAllocationTemplateId,
     hasInvoice,
     status,
     realizationStatus: realizationStatus || "unrealized",
@@ -199,6 +263,228 @@ function validateJournalEntryData(data: Record<string, unknown>) {
     debitTotal,
     creditTotal,
   };
+}
+
+type ValidatedJournalEntryData = ReturnType<typeof validateJournalEntryData>;
+
+type JournalTx = Prisma.TransactionClient;
+
+function allocateRounded(total: number, rates: number[]): number[] {
+  if (rates.length === 0) return [];
+  let used = 0;
+  return rates.map((rate, idx) => {
+    if (idx === rates.length - 1) return total - used;
+    const amount = Math.round((total * rate) / 100);
+    used += amount;
+    return amount;
+  });
+}
+
+async function resolveOperatingCompanyId(
+  tx: JournalTx,
+  journalEntryId: number,
+  fallbackOperatingCompanyId: number | null
+): Promise<number | null> {
+  const entry = await tx.journalEntry.findUnique({
+    where: { id: journalEntryId },
+    select: {
+      operatingCompanyId: true,
+      project: { select: { operatingCompanyId: true } },
+      invoiceGroup: { select: { operatingCompanyId: true } },
+      paymentGroup: { select: { operatingCompanyId: true } },
+      transaction: {
+        select: {
+          invoiceGroup: { select: { operatingCompanyId: true } },
+          paymentGroup: { select: { operatingCompanyId: true } },
+          project: { select: { operatingCompanyId: true } },
+        },
+      },
+    },
+  });
+
+  return (
+    fallbackOperatingCompanyId ??
+    entry?.operatingCompanyId ??
+    entry?.invoiceGroup?.operatingCompanyId ??
+    entry?.paymentGroup?.operatingCompanyId ??
+    entry?.transaction?.invoiceGroup?.operatingCompanyId ??
+    entry?.transaction?.paymentGroup?.operatingCompanyId ??
+    entry?.project?.operatingCompanyId ??
+    entry?.transaction?.project?.operatingCompanyId ??
+    null
+  );
+}
+
+async function buildPlAllocationSource(
+  tx: JournalTx,
+  journalEntryId: number,
+  validated: ValidatedJournalEntryData
+): Promise<{
+  operatingCompanyId: number | null;
+  mode: "direct" | "common" | "template" | "unclassified";
+  projectId: number | null;
+  costCenterId: number | null;
+  allocationTemplateId: number | null;
+}> {
+  const operatingCompanyId = await resolveOperatingCompanyId(
+    tx,
+    journalEntryId,
+    validated.operatingCompanyId
+  );
+
+  if (validated.plAllocationMode === "template") {
+    return {
+      operatingCompanyId,
+      mode: "template",
+      projectId: null,
+      costCenterId: null,
+      allocationTemplateId: validated.plAllocationTemplateId,
+    };
+  }
+  if (validated.plAllocationMode === "common") {
+    return {
+      operatingCompanyId,
+      mode: "common",
+      projectId: null,
+      costCenterId: null,
+      allocationTemplateId: null,
+    };
+  }
+  if (validated.plAllocationMode === "direct") {
+    return {
+      operatingCompanyId,
+      mode: "direct",
+      projectId: validated.plProjectId ?? validated.projectId,
+      costCenterId: validated.plCostCenterId,
+      allocationTemplateId: null,
+    };
+  }
+
+  const entry = await tx.journalEntry.findUnique({
+    where: { id: journalEntryId },
+    select: {
+      projectId: true,
+      invoiceGroup: { select: { projectId: true } },
+      paymentGroup: { select: { projectId: true } },
+      transaction: {
+        select: {
+          projectId: true,
+          costCenterId: true,
+          allocationTemplateId: true,
+        },
+      },
+    },
+  });
+
+  const allocationTemplateId = entry?.transaction?.allocationTemplateId ?? null;
+  if (allocationTemplateId) {
+    return {
+      operatingCompanyId,
+      mode: "template",
+      projectId: null,
+      costCenterId: null,
+      allocationTemplateId,
+    };
+  }
+
+  const costCenterId = entry?.transaction?.costCenterId ?? null;
+  const projectId =
+    entry?.projectId ??
+    entry?.transaction?.projectId ??
+    entry?.invoiceGroup?.projectId ??
+    entry?.paymentGroup?.projectId ??
+    null;
+
+  if (costCenterId || projectId) {
+    return {
+      operatingCompanyId,
+      mode: "direct",
+      projectId,
+      costCenterId,
+      allocationTemplateId: null,
+    };
+  }
+
+  return {
+    operatingCompanyId,
+    mode: operatingCompanyId ? "common" : "unclassified",
+    projectId: null,
+    costCenterId: null,
+    allocationTemplateId: null,
+  };
+}
+
+async function refreshJournalEntryLinePlAllocations(
+  tx: JournalTx,
+  journalEntryId: number,
+  validated: ValidatedJournalEntryData
+) {
+  const source = await buildPlAllocationSource(tx, journalEntryId, validated);
+  if (!source.operatingCompanyId) return;
+
+  const lines = await tx.journalEntryLine.findMany({
+    where: { journalEntryId },
+    include: { account: { select: { category: true } } },
+    orderBy: { id: "asc" },
+  });
+
+  const plLines = lines.filter((line) => isPlAccountCategory(line.account.category));
+  if (plLines.length === 0) return;
+
+  if (source.mode === "template" && source.allocationTemplateId) {
+    const templateLines = await tx.allocationTemplateLine.findMany({
+      where: { templateId: source.allocationTemplateId },
+      include: { costCenter: { select: { id: true, projectId: true } } },
+      orderBy: { id: "asc" },
+    });
+    const rates = templateLines.map((line) => Number(line.allocationRate));
+    for (const line of plLines) {
+      const taxAmount = line.taxAmount ?? 0;
+      const amountParts = allocateRounded(line.amount, rates);
+      const taxParts = allocateRounded(taxAmount, rates);
+      await tx.journalEntryLinePlAllocation.createMany({
+        data: templateLines.map((templateLine, idx) => ({
+          journalEntryLineId: line.id,
+          operatingCompanyId: source.operatingCompanyId!,
+          projectId: templateLine.costCenter?.projectId ?? null,
+          costCenterId: templateLine.costCenterId ?? null,
+          allocationTemplateId: source.allocationTemplateId,
+          allocationMode: "template",
+          allocationRate: templateLine.allocationRate,
+          amountExcludingTax: amountParts[idx] ?? 0,
+          taxAmount: taxParts[idx] ?? 0,
+          amountIncludingTax: (amountParts[idx] ?? 0) + (taxParts[idx] ?? 0),
+        })),
+      });
+    }
+    return;
+  }
+
+  let projectId = source.projectId;
+  if (!projectId && source.costCenterId) {
+    const costCenter = await tx.costCenter.findUnique({
+      where: { id: source.costCenterId },
+      select: { projectId: true },
+    });
+    projectId = costCenter?.projectId ?? null;
+  }
+
+  await tx.journalEntryLinePlAllocation.createMany({
+    data: plLines.map((line) => {
+      const taxAmount = line.taxAmount ?? 0;
+      return {
+        journalEntryLineId: line.id,
+        operatingCompanyId: source.operatingCompanyId!,
+        projectId: source.mode === "direct" ? projectId : null,
+        costCenterId: source.mode === "direct" ? source.costCenterId : null,
+        allocationTemplateId: null,
+        allocationMode: source.mode,
+        amountExcludingTax: line.amount,
+        taxAmount,
+        amountIncludingTax: line.amount + taxAmount,
+      };
+    }),
+  });
 }
 
 // ============================================
@@ -237,7 +523,17 @@ export async function getJournalEntries(filters?: {
     include: {
       lines: {
         include: {
-          account: { select: { id: true, code: true, name: true } },
+          account: { select: { id: true, code: true, name: true, category: true } },
+          plAllocations: {
+            select: {
+              allocationMode: true,
+              operatingCompanyId: true,
+              projectId: true,
+              costCenterId: true,
+              allocationTemplateId: true,
+            },
+            take: 1,
+          },
         },
       },
       invoiceGroup: {
@@ -262,8 +558,9 @@ export async function getJournalEntries(filters?: {
           counterparty: { select: { id: true, name: true } },
         },
       },
-      project: { select: { id: true, code: true, name: true } },
+      project: { select: { id: true, name: true, defaultCostCenter: { select: { name: true } } } },
       counterparty: { select: { id: true, name: true, isInvoiceRegistered: true } },
+      operatingCompany: { select: { id: true, companyName: true } },
       creator: { select: { id: true, name: true } },
       approver: { select: { id: true, name: true } },
       realizer: { select: { id: true, name: true } },
@@ -286,7 +583,7 @@ export async function createJournalEntry(
   const validated = validateJournalEntryData(data);
 
   // 月次クローズチェック
-  await ensureMonthNotClosed(validated.journalDate);
+  await ensureMonthNotClosed(validated.journalDate, validated.operatingCompanyId);
 
   // 紐づき先の存在チェック
   if (validated.invoiceGroupId) {
@@ -316,6 +613,33 @@ export async function createJournalEntry(
       return err("指定された取引が見つかりません");
     }
   }
+  if (validated.operatingCompanyId) {
+    const operatingCompany = await prisma.operatingCompany.findFirst({
+      where: { id: validated.operatingCompanyId, isActive: true },
+      select: { id: true },
+    });
+    if (!operatingCompany) {
+      return err("指定された運営法人が見つかりません");
+    }
+  }
+  if (validated.plCostCenterId) {
+    const costCenter = await prisma.costCenter.findFirst({
+      where: { id: validated.plCostCenterId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!costCenter) {
+      return err("指定されたコストセンターが見つかりません");
+    }
+  }
+  if (validated.plAllocationTemplateId) {
+    const template = await prisma.allocationTemplate.findFirst({
+      where: { id: validated.plAllocationTemplateId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!template) {
+      return err("指定された按分テンプレートが見つかりません");
+    }
+  }
   // 勘定科目の存在チェック
   const accountIds = [
     ...new Set(validated.lines.map((l) => Number(l.accountId))),
@@ -341,6 +665,7 @@ export async function createJournalEntry(
         invoiceGroupId: validated.invoiceGroupId,
         paymentGroupId: validated.paymentGroupId,
         transactionId: validated.transactionId,
+        operatingCompanyId: validated.operatingCompanyId,
         projectId: validated.projectId,
         counterpartyId: validated.counterpartyId,
         hasInvoice: validated.hasInvoice,
@@ -351,8 +676,9 @@ export async function createJournalEntry(
       },
     });
 
-    await tx.journalEntryLine.createMany({
-      data: validated.lines.map((line) => ({
+    for (const line of validated.lines) {
+      await tx.journalEntryLine.create({
+        data: {
         journalEntryId: journalEntry.id,
         side: line.side,
         accountId: Number(line.accountId),
@@ -361,8 +687,11 @@ export async function createJournalEntry(
         taxClassification: line.taxClassification || null,
         taxAmount: line.taxAmount != null ? Number(line.taxAmount) : null,
         createdBy: staffId,
-      })),
-    });
+        },
+      });
+    }
+
+    await refreshJournalEntryLinePlAllocations(tx, journalEntry.id, validated);
 
     // 変更履歴を記録
     await recordChangeLog(
@@ -389,6 +718,7 @@ export async function createJournalEntry(
   }
 
   revalidatePath("/accounting/journal");
+  revalidatePath("/accounting/pl");
   return ok({ id: result.id });
   } catch (e) {
     console.error("[createJournalEntry] error:", e);
@@ -419,12 +749,12 @@ export async function updateJournalEntry(
   }
 
   // 月次クローズチェック（既存レコードの日付）
-  await ensureMonthNotClosed(existing.journalDate);
+  await ensureMonthNotClosed(existing.journalDate, existing.operatingCompanyId);
 
   const validated = validateJournalEntryData(data);
 
   // 月次クローズチェック（新しい日付）
-  await ensureMonthNotClosed(validated.journalDate);
+  await ensureMonthNotClosed(validated.journalDate, validated.operatingCompanyId);
 
   // 勘定科目の存在チェック
   const accountIds = [
@@ -451,6 +781,7 @@ export async function updateJournalEntry(
         invoiceGroupId: validated.invoiceGroupId,
         paymentGroupId: validated.paymentGroupId,
         transactionId: validated.transactionId,
+        operatingCompanyId: validated.operatingCompanyId,
         projectId: validated.projectId,
         counterpartyId: validated.counterpartyId,
         hasInvoice: validated.hasInvoice,
@@ -464,8 +795,9 @@ export async function updateJournalEntry(
       where: { journalEntryId: id },
     });
 
-    await tx.journalEntryLine.createMany({
-      data: validated.lines.map((line) => ({
+    for (const line of validated.lines) {
+      await tx.journalEntryLine.create({
+        data: {
         journalEntryId: id,
         side: line.side,
         accountId: Number(line.accountId),
@@ -474,8 +806,11 @@ export async function updateJournalEntry(
         taxClassification: line.taxClassification || null,
         taxAmount: line.taxAmount != null ? Number(line.taxAmount) : null,
         createdBy: staffId,
-      })),
-    });
+        },
+      });
+    }
+
+    await refreshJournalEntryLinePlAllocations(tx, id, validated);
 
     // 変更履歴を記録
     const oldData = await pickRecordData(
@@ -509,6 +844,7 @@ export async function updateJournalEntry(
   }
 
   revalidatePath("/accounting/journal");
+  revalidatePath("/accounting/pl");
   return ok();
   } catch (e) {
     console.error("[updateJournalEntry] error:", e);
@@ -640,6 +976,7 @@ export async function confirmJournalEntry(id: number): Promise<ActionResult> {
 
   revalidatePath("/accounting/journal");
   revalidatePath("/accounting/transactions");
+  revalidatePath("/accounting/pl");
   return ok();
   } catch (e) {
     console.error("[confirmJournalEntry] error:", e);
@@ -667,7 +1004,7 @@ export async function deleteJournalEntry(id: number): Promise<ActionResult> {
   }
 
   // 月次クローズチェック
-  await ensureMonthNotClosed(entry.journalDate);
+  await ensureMonthNotClosed(entry.journalDate, entry.operatingCompanyId);
 
   await prisma.$transaction(async (tx) => {
     await tx.journalEntry.update({
@@ -695,6 +1032,7 @@ export async function deleteJournalEntry(id: number): Promise<ActionResult> {
   });
 
   revalidatePath("/accounting/journal");
+  revalidatePath("/accounting/pl");
   return ok();
   } catch (e) {
     console.error("[deleteJournalEntry] error:", e);
@@ -708,8 +1046,18 @@ export async function deleteJournalEntry(id: number): Promise<ActionResult> {
 
 export async function getJournalFormData(): Promise<JournalFormData> {
   await requireStaffForAccounting("view");
+  await ensureCostCentersForActiveProjects();
 
-  const [accounts, projects, counterparties, inputTaxAccount, outputTaxAccount] = await Promise.all([
+  const [
+    accounts,
+    projects,
+    operatingCompanies,
+    costCenters,
+    allocationTemplates,
+    counterparties,
+    inputTaxAccount,
+    outputTaxAccount,
+  ] = await Promise.all([
     prisma.account.findMany({
       where: { isActive: true },
       select: { id: true, code: true, name: true, category: true },
@@ -717,8 +1065,23 @@ export async function getJournalFormData(): Promise<JournalFormData> {
     }),
     prisma.masterProject.findMany({
       where: { isActive: true },
-      select: { id: true, code: true, name: true },
+      select: { id: true, name: true, defaultCostCenter: { select: { name: true } } },
       orderBy: { displayOrder: "asc" },
+    }),
+    prisma.operatingCompany.findMany({
+      where: { isActive: true },
+      select: { id: true, companyName: true },
+      orderBy: { id: "asc" },
+    }),
+    prisma.costCenter.findMany({
+      where: { isActive: true, deletedAt: null },
+      select: { id: true, name: true, projectId: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.allocationTemplate.findMany({
+      where: { isActive: true, deletedAt: null },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
     }),
     prisma.counterparty.findMany({
       where: { isActive: true, deletedAt: null, mergedIntoId: null },
@@ -737,7 +1100,13 @@ export async function getJournalFormData(): Promise<JournalFormData> {
 
   return {
     accounts,
-    projects,
+    projects: projects.map((project) => ({
+      id: project.id,
+      name: project.defaultCostCenter?.name ?? project.name,
+    })),
+    operatingCompanies,
+    costCenters,
+    allocationTemplates,
     counterparties,
     taxAccounts: {
       inputTaxAccountId: inputTaxAccount?.id ?? null,
@@ -797,6 +1166,7 @@ export async function realizeJournalEntry(id: number): Promise<ActionResult> {
 
   revalidatePath("/accounting/journal");
   revalidatePath("/accounting/workflow");
+  revalidatePath("/accounting/pl");
   return ok();
   } catch (e) {
     console.error("[realizeJournalEntry] error:", e);
@@ -855,6 +1225,7 @@ export async function unrealizeJournalEntry(id: number): Promise<ActionResult> {
 
   revalidatePath("/accounting/journal");
   revalidatePath("/accounting/workflow");
+  revalidatePath("/accounting/pl");
   return ok();
   } catch (e) {
     console.error("[unrealizeJournalEntry] error:", e);
@@ -908,7 +1279,7 @@ export async function getDueUnrealizedJournalEntries() {
           counterparty: { select: { id: true, name: true } },
         },
       },
-      project: { select: { id: true, code: true, name: true } },
+      project: { select: { id: true, name: true, defaultCostCenter: { select: { name: true } } } },
       counterparty: { select: { id: true, name: true } },
       creator: { select: { id: true, name: true } },
     },
@@ -983,6 +1354,7 @@ export async function bulkRealizeJournalEntries(ids: number[]): Promise<ActionRe
 
     revalidatePath("/accounting/journal");
     revalidatePath("/accounting/workflow");
+    revalidatePath("/accounting/pl");
     return ok({ count: entries.length });
   } catch (e) {
     console.error("[bulkRealizeJournalEntries] error:", e);

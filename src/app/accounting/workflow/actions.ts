@@ -15,6 +15,7 @@ import {
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 import { createNotificationBulk } from "@/lib/notifications/create-notification";
+import { ensureCostCentersForActiveProjects } from "@/lib/accounting/cost-centers";
 
 // ============================================
 // 型定義
@@ -59,6 +60,7 @@ export type WorkflowGroup = {
   statementLinkCount: number;
   statementLinkedAmount: number;
   statementUnlinkedAmount: number | null;
+  excludeFromInternalPl: boolean;
   attachmentCount: number;
   categorySummary: string[];
   noteSummary: string | null;
@@ -147,6 +149,7 @@ export type WorkflowGroupDetail = {
   statementLinkCount: number;
   statementLinkedAmount: number;
   statementUnlinkedAmount: number | null;
+  excludeFromInternalPl: boolean;
   attachmentCount: number;
   returnRequestStatus: string;
   returnRequestReason: string | null;
@@ -348,6 +351,7 @@ function calcUnlinkedAmount(totalAmount: number | null, linkedAmount: number) {
 
 export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
   await requireStaffForAccounting("view");
+  await ensureCostCentersForActiveProjects();
   const [invoiceGroups, paymentGroups] = await Promise.all([
     prisma.invoiceGroup.findMany({
       where: {
@@ -368,9 +372,10 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         returnRequestReason: true,
         returnRequestedAt: true,
         projectId: true,
-        project: { select: { code: true, name: true } },
+        project: { select: { name: true, defaultCostCenter: { select: { name: true } } } },
         counterparty: { select: { name: true } },
         statementLinkCompleted: true,
+        excludeFromInternalPl: true,
         _count: { select: { attachments: true } },
         transactions: {
           where: { deletedAt: null },
@@ -415,10 +420,11 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         returnRequestReason: true,
         returnRequestedAt: true,
         statementLinkCompleted: true,
+        excludeFromInternalPl: true,
         paymentDueDate: true,
         expectedPaymentDate: true,
         projectId: true,
-        project: { select: { code: true, name: true } },
+        project: { select: { name: true, defaultCostCenter: { select: { name: true } } } },
         customCounterpartyName: true,
         counterparty: { select: { name: true } },
         approver: { select: { name: true } },
@@ -493,7 +499,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       createdAt: ig.createdAt,
       category,
       projectId: ig.projectId ?? null,
-      projectLabel: ig.project ? `${ig.project.code} ${ig.project.name}` : null,
+      projectLabel: ig.project?.defaultCostCenter?.name ?? ig.project?.name ?? null,
       paymentDueDate: ig.paymentDueDate ?? null,
       transactionCount: txCount,
       journalizedCount,
@@ -509,6 +515,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       statementLinkCount: ig.bankStatementLinks.length,
       statementLinkedAmount,
       statementUnlinkedAmount: calcUnlinkedAmount(ig.totalAmount, statementLinkedAmount),
+      excludeFromInternalPl: ig.excludeFromInternalPl,
       attachmentCount: ig._count.attachments,
       categorySummary: summarizeCategoryNames(ig.transactions),
       noteSummary: summarizeFirstNote(ig.transactions),
@@ -566,7 +573,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         createdAt: pg.createdAt,
         category: "pending_project_overdue",
         projectId: pg.projectId ?? null,
-        projectLabel: pg.project ? `${pg.project.code} ${pg.project.name}` : null,
+        projectLabel: pg.project?.defaultCostCenter?.name ?? pg.project?.name ?? null,
         paymentDueDate: pg.paymentDueDate ?? null,
         transactionCount: txCount,
         journalizedCount,
@@ -582,6 +589,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         statementLinkCount: pg.bankStatementLinks.length,
         statementLinkedAmount,
         statementUnlinkedAmount: calcUnlinkedAmount(pg.totalAmount, statementLinkedAmount),
+        excludeFromInternalPl: pg.excludeFromInternalPl,
         attachmentCount: pg._count.attachments,
         categorySummary: summarizeCategoryNames(pg.transactions),
         noteSummary: summarizeFirstNote(pg.transactions),
@@ -618,7 +626,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       createdAt: pg.createdAt,
       category,
       projectId: pg.projectId ?? null,
-      projectLabel: pg.project ? `${pg.project.code} ${pg.project.name}` : null,
+      projectLabel: pg.project?.defaultCostCenter?.name ?? pg.project?.name ?? null,
       paymentDueDate: pg.paymentDueDate ?? null,
       transactionCount: txCount,
       journalizedCount,
@@ -634,6 +642,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       statementLinkCount: pg.bankStatementLinks.length,
       statementLinkedAmount,
       statementUnlinkedAmount: calcUnlinkedAmount(pg.totalAmount, statementLinkedAmount),
+      excludeFromInternalPl: pg.excludeFromInternalPl,
       attachmentCount: pg._count.attachments,
       categorySummary: summarizeCategoryNames(pg.transactions),
       noteSummary: summarizeFirstNote(pg.transactions),
@@ -664,6 +673,7 @@ export async function getWorkflowGroupDetail(
   groupId: number
 ): Promise<WorkflowGroupDetail | null> {
   await requireStaffForAccounting("view");
+  await ensureCostCentersForActiveProjects();
   const allocationTemplates = await getAllocationTemplateOptions();
   const transactionSelect = {
     id: true,
@@ -846,9 +856,10 @@ export async function getWorkflowGroupDetail(
         returnRequestReason: true,
         returnRequestedAt: true,
         projectId: true,
-        project: { select: { name: true } },
+        project: { select: { name: true, defaultCostCenter: { select: { name: true } } } },
         counterparty: { select: { id: true, name: true } },
         statementLinkCompleted: true,
+        excludeFromInternalPl: true,
         _count: { select: { attachments: true } },
         bankStatementLinks: { select: { amount: true } },
         transactions: {
@@ -878,7 +889,7 @@ export async function getWorkflowGroupDetail(
       counterpartyId: group.counterparty.id,
       totalAmount: group.totalAmount,
       status: group.status,
-      projectName: group.project?.name ?? null,
+      projectName: group.project?.defaultCostCenter?.name ?? group.project?.name ?? null,
       paymentDueDate: group.paymentDueDate ?? null,
       expectedPaymentDate: group.expectedPaymentDate ?? null,
       actualPaymentDate: group.actualPaymentDate,
@@ -899,6 +910,7 @@ export async function getWorkflowGroupDetail(
       statementLinkCount: group.bankStatementLinks.length,
       statementLinkedAmount,
       statementUnlinkedAmount: calcUnlinkedAmount(group.totalAmount, statementLinkedAmount),
+      excludeFromInternalPl: group.excludeFromInternalPl,
       attachmentCount: group._count.attachments,
       returnRequestStatus: group.returnRequestStatus,
       returnRequestReason: group.returnRequestReason,
@@ -926,9 +938,10 @@ export async function getWorkflowGroupDetail(
       returnRequestedAt: true,
       projectId: true,
       customCounterpartyName: true,
-      project: { select: { name: true } },
+      project: { select: { name: true, defaultCostCenter: { select: { name: true } } } },
       counterparty: { select: { id: true, name: true } },
       statementLinkCompleted: true,
+      excludeFromInternalPl: true,
       _count: { select: { attachments: true } },
       bankStatementLinks: { select: { amount: true } },
       transactions: {
@@ -958,7 +971,7 @@ export async function getWorkflowGroupDetail(
     counterpartyId: group.counterparty?.id ?? null,
     totalAmount: group.totalAmount,
     status: group.status,
-    projectName: group.project?.name ?? null,
+    projectName: group.project?.defaultCostCenter?.name ?? group.project?.name ?? null,
     paymentDueDate: group.paymentDueDate ?? null,
     expectedPaymentDate: group.expectedPaymentDate ?? null,
     actualPaymentDate: group.actualPaymentDate,
@@ -979,6 +992,7 @@ export async function getWorkflowGroupDetail(
     statementLinkCount: group.bankStatementLinks.length,
     statementLinkedAmount,
     statementUnlinkedAmount: calcUnlinkedAmount(group.totalAmount, statementLinkedAmount),
+    excludeFromInternalPl: group.excludeFromInternalPl,
     attachmentCount: group._count.attachments,
     returnRequestStatus: group.returnRequestStatus,
     returnRequestReason: group.returnRequestReason,
@@ -1233,6 +1247,7 @@ export type PendingApprovalDetail = {
 
 export async function getPendingApprovalDetail(groupId: number): Promise<PendingApprovalDetail | null> {
   await requireStaffForAccounting("view");
+  await ensureCostCentersForActiveProjects();
   const pg = await prisma.paymentGroup.findFirst({
     where: { id: groupId, deletedAt: null },
     select: {
@@ -1247,7 +1262,7 @@ export async function getPendingApprovalDetail(groupId: number): Promise<Pending
       createdAt: true,
       counterparty: { select: { name: true } },
       operatingCompany: { select: { companyName: true } },
-      project: { select: { name: true } },
+      project: { select: { name: true, defaultCostCenter: { select: { name: true } } } },
       approver: { select: { name: true } },
       creator: { select: { name: true } },
       transactions: {
@@ -1321,7 +1336,7 @@ export async function getPendingApprovalDetail(groupId: number): Promise<Pending
     customCounterpartyName: pg.customCounterpartyName,
     operatingCompanyName: pg.operatingCompany.companyName,
     projectId: pg.projectId,
-    projectName: pg.project?.name ?? null,
+    projectName: pg.project?.defaultCostCenter?.name ?? pg.project?.name ?? null,
     totalAmount: pg.totalAmount,
     taxAmount: pg.taxAmount,
     approverName: pg.approver?.name ?? null,
@@ -2399,6 +2414,70 @@ export async function returnGroupToProject(
     return ok();
   } catch (e) {
     console.error("[returnGroupToProject] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+// ============================================
+// 社内P/L未適用フラグの切替
+// ============================================
+
+export async function setInvoiceGroupExcludeFromInternalPl(
+  invoiceGroupId: number,
+  excluded: boolean
+): Promise<ActionResult> {
+  try {
+    const session = await requireStaffForAccounting("edit");
+
+    const group = await prisma.invoiceGroup.findFirst({
+      where: { id: invoiceGroupId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!group) return err("請求グループが見つかりません");
+
+    await prisma.invoiceGroup.update({
+      where: { id: invoiceGroupId },
+      data: {
+        excludeFromInternalPl: excluded === true,
+        updatedBy: session.id,
+      },
+    });
+
+    revalidatePath("/accounting/workflow");
+    revalidatePath("/accounting/pl");
+    return ok();
+  } catch (e) {
+    console.error("[setInvoiceGroupExcludeFromInternalPl] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+export async function setPaymentGroupExcludeFromInternalPl(
+  paymentGroupId: number,
+  excluded: boolean
+): Promise<ActionResult> {
+  try {
+    const session = await requireStaffForAccounting("edit");
+
+    const group = await prisma.paymentGroup.findFirst({
+      where: { id: paymentGroupId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!group) return err("支払グループが見つかりません");
+
+    await prisma.paymentGroup.update({
+      where: { id: paymentGroupId },
+      data: {
+        excludeFromInternalPl: excluded === true,
+        updatedBy: session.id,
+      },
+    });
+
+    revalidatePath("/accounting/workflow");
+    revalidatePath("/accounting/pl");
+    return ok();
+  } catch (e) {
+    console.error("[setPaymentGroupExcludeFromInternalPl] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
 }

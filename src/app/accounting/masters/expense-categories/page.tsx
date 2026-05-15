@@ -1,15 +1,18 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExpenseCategoriesTable } from "./expense-categories-table";
+import { ensureCostCentersForActiveProjects } from "@/lib/accounting/cost-centers";
 
 export default async function ExpenseCategoriesPage() {
+  await ensureCostCentersForActiveProjects();
+
   const [expenseCategories, accounts, projects] = await Promise.all([
     prisma.expenseCategory.findMany({
       where: { deletedAt: null },
       orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
       include: {
         defaultAccount: { select: { id: true, code: true, name: true } },
-        project: { select: { id: true, name: true } },
+        project: { select: { id: true, name: true, defaultCostCenter: { select: { name: true } } } },
       },
     }),
     prisma.account.findMany({
@@ -20,7 +23,7 @@ export default async function ExpenseCategoriesPage() {
     prisma.masterProject.findMany({
       where: { isActive: true },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, defaultCostCenter: { select: { name: true } } },
     }),
   ]);
 
@@ -29,7 +32,7 @@ export default async function ExpenseCategoriesPage() {
     name: ec.name,
     type: ec.type,
     projectId: ec.projectId ? String(ec.projectId) : "",
-    projectName: ec.project?.name ?? "共通",
+    projectName: ec.project?.defaultCostCenter?.name ?? ec.project?.name ?? "共通",
     defaultAccountId: ec.defaultAccountId ? String(ec.defaultAccountId) : "",
     defaultAccountLabel: ec.defaultAccount
       ? `${ec.defaultAccount.code} - ${ec.defaultAccount.name}`
@@ -45,7 +48,7 @@ export default async function ExpenseCategoriesPage() {
 
   const projectOptions = projects.map((p) => ({
     value: String(p.id),
-    label: p.name,
+    label: p.defaultCostCenter?.name ?? p.name,
   }));
 
   return (

@@ -43,6 +43,7 @@ type JournalEntryRow = {
   invoiceGroupId: number | null;
   paymentGroupId: number | null;
   transactionId: number | null;
+  operatingCompanyId: number | null;
   realizationStatus: string;
   realizedAt: Date | null;
   approvedAt: Date | null;
@@ -54,7 +55,14 @@ type JournalEntryRow = {
     description: string | null;
     taxClassification: string | null;
     taxAmount: number | null;
-    account: { id: number; code: string; name: string };
+    account: { id: number; code: string; name: string; category: string };
+    plAllocations?: {
+      allocationMode: string;
+      operatingCompanyId: number;
+      projectId: number | null;
+      costCenterId: number | null;
+      allocationTemplateId: number | null;
+    }[];
   }[];
   invoiceGroup: {
     id: number;
@@ -75,7 +83,8 @@ type JournalEntryRow = {
   projectId: number | null;
   counterpartyId: number | null;
   hasInvoice: boolean;
-  project: { id: number; code: string; name: string } | null;
+  project: { id: number; name: string; defaultCostCenter: { name: string } | null } | null;
+  operatingCompany: { id: number; companyName: string } | null;
   counterparty: { id: number; name: string; isInvoiceRegistered: boolean } | null;
   creator: { id: number; name: string } | null;
   approver: { id: number; name: string } | null;

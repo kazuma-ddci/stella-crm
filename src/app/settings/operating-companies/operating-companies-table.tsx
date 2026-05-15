@@ -38,6 +38,15 @@ const columns: ColumnDef[] = [
   { key: "registrationNumber", header: "登録番号(T+13桁)", type: "text" },
   { key: "invoicePrefix", header: "請求書番号プレフィックス", type: "text" },
   {
+    key: "fiscalClosingMonth",
+    header: "決算月",
+    type: "select",
+    options: Array.from({ length: 12 }, (_, i) => ({
+      value: String(i + 1),
+      label: `${i + 1}月決算`,
+    })),
+  },
+  {
     key: "paymentMonthOffset",
     header: "支払月",
     type: "select",

@@ -17,6 +17,9 @@ export async function addOperatingCompany(data: Record<string, unknown>) {
       phone: (data.phone as string) || null,
       abbreviation: (data.abbreviation as string) || null,
       invoicePrefix: (data.invoicePrefix as string) || null,
+      fiscalClosingMonth: data.fiscalClosingMonth != null && data.fiscalClosingMonth !== ""
+        ? Number(data.fiscalClosingMonth)
+        : 3,
       paymentMonthOffset: data.paymentMonthOffset != null && data.paymentMonthOffset !== ""
         ? Number(data.paymentMonthOffset)
         : null,
@@ -46,6 +49,13 @@ export async function updateOperatingCompany(
   if ("phone" in data) updateData.phone = (data.phone as string) || null;
   if ("abbreviation" in data) updateData.abbreviation = (data.abbreviation as string) || null;
   if ("invoicePrefix" in data) updateData.invoicePrefix = (data.invoicePrefix as string) || null;
+  if ("fiscalClosingMonth" in data) {
+    const month = Number(data.fiscalClosingMonth);
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      throw new Error("決算月は1月から12月で選択してください");
+    }
+    updateData.fiscalClosingMonth = month;
+  }
   if ("cloudsignClientId" in data) {
     const val = data.cloudsignClientId as string;
     // マスク値("********")は変更なしとして無視し、空文字はクリア、それ以外は新しい値として保存

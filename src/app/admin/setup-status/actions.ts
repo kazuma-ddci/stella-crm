@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { countActiveProjectsWithAccountingProject } from "@/lib/accounting/cost-centers";
 
 export type SetupCheckStatus = "ok" | "warning" | "error";
 
@@ -24,6 +25,7 @@ export interface SetupCheckItem {
  * - name: 表示名
  * - description: 説明
  * - required: 最低必要件数（0件だとwarning）
+ * - requiredFn: 動的な最低必要件数
  * - href: 設定画面へのリンク
  * - countFn: 現在の件数を返す関数
  */
@@ -33,6 +35,7 @@ interface CheckDefinition {
   name: string;
   description: string;
   required: number;
+  requiredFn?: () => Promise<number>;
   href: string;
   countFn: () => Promise<number>;
 }
@@ -394,12 +397,12 @@ const checkDefinitions: CheckDefinition[] = [
   {
     id: "accounting-cost-centers",
     category: "経理",
-    name: "コストセンター",
-    description: "経費按分先となるコストセンター（部門・プロジェクト等）",
+    name: "経理用プロジェクト",
+    description: "CRM側の有効プロジェクトごとに経理用プロジェクト名が設定されていること",
     required: 1,
+    requiredFn: () => prisma.masterProject.count({ where: { isActive: true } }),
     href: "/accounting/masters/cost-centers",
-    countFn: () =>
-      prisma.costCenter.count({ where: { isActive: true, deletedAt: null } }),
+    countFn: countActiveProjectsWithAccountingProject,
   },
   {
     id: "accounting-expense-categories",
@@ -472,13 +475,16 @@ const checkDefinitions: CheckDefinition[] = [
 export async function getSetupStatus(): Promise<SetupCheckItem[]> {
   const results = await Promise.all(
     checkDefinitions.map(async (def) => {
-      const current = await def.countFn();
+      const [current, required] = await Promise.all([
+        def.countFn(),
+        def.requiredFn ? def.requiredFn() : Promise.resolve(def.required),
+      ]);
       let status: SetupCheckStatus;
-      if (def.required > 0 && current === 0) {
+      if (required > 0 && current === 0) {
         status = "error";
-      } else if (def.required > 0 && current < def.required) {
+      } else if (required > 0 && current < required) {
         status = "warning";
-      } else if (def.required === 0 && current === 0) {
+      } else if (required === 0 && current === 0) {
         status = "warning";
       } else {
         status = "ok";
@@ -490,7 +496,7 @@ export async function getSetupStatus(): Promise<SetupCheckItem[]> {
         description: def.description,
         status,
         current,
-        required: def.required,
+        required,
         href: def.href,
       };
     })

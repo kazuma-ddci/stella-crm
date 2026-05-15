@@ -1,0 +1,4 @@
+-- This migration directory was present without a migration.sql file, which
+-- prevents `prisma migrate deploy` from running. The intended SLP fixed Zoom
+-- URL change is implemented in application code and requires no database DDL.
+-- Keep this no-op migration so existing migration ordering remains stable.

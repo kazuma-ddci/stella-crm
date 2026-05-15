@@ -1,8 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ensureCostCentersForActiveProjects } from "@/lib/accounting/cost-centers";
 import { CostCentersTable } from "./cost-centers-table";
 
 export default async function CostCentersPage() {
+  await ensureCostCentersForActiveProjects();
+
   const [costCenters, projects] = await Promise.all([
     prisma.costCenter.findMany({
       where: { deletedAt: null },

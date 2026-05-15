@@ -2,8 +2,11 @@ import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RecurringTransactionsTable } from "./recurring-transactions-table";
 import { toLocalDateString } from "@/lib/utils";
+import { ensureCostCentersForActiveProjects } from "@/lib/accounting/cost-centers";
 
 export default async function RecurringTransactionsPage() {
+  await ensureCostCentersForActiveProjects();
+
   const [
     recurringTransactions,
     counterparties,
@@ -22,7 +25,7 @@ export default async function RecurringTransactionsPage() {
         costCenter: { select: { id: true, name: true } },
         allocationTemplate: { select: { id: true, name: true } },
         paymentMethod: { select: { id: true, name: true } },
-        project: { select: { id: true, name: true } },
+        project: { select: { id: true, name: true, defaultCostCenter: { select: { name: true } } } },
         _count: { select: { transactions: { where: { deletedAt: null } } } },
       },
     }),
@@ -53,7 +56,7 @@ export default async function RecurringTransactionsPage() {
     }),
     prisma.masterProject.findMany({
       orderBy: { id: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, defaultCostCenter: { select: { name: true } } },
     }),
   ]);
 
@@ -102,7 +105,7 @@ export default async function RecurringTransactionsPage() {
     paymentMethodId: rt.paymentMethodId ? String(rt.paymentMethodId) : "",
     paymentMethodName: rt.paymentMethod?.name ?? "",
     projectId: rt.projectId ? String(rt.projectId) : "",
-    projectName: rt.project?.name ?? "",
+    projectName: rt.project?.defaultCostCenter?.name ?? rt.project?.name ?? "",
     approverStaffId: rt.approverStaffId ? String(rt.approverStaffId) : "",
     approverStaffName: rt.approverStaffId ? approverStaffMap.get(rt.approverStaffId) ?? "" : "",
     note: rt.note ?? "",
@@ -157,7 +160,7 @@ export default async function RecurringTransactionsPage() {
 
   const projectOptions = projects.map((p) => ({
     value: String(p.id),
-    label: p.name,
+    label: p.defaultCostCenter?.name ?? p.name,
   }));
 
   return (

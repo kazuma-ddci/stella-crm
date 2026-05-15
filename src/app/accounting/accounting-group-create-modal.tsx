@@ -499,7 +499,7 @@ export function AccountingGroupCreateModal({
                   <SelectContent>
                     {options.projects.map((project) => (
                       <SelectItem key={project.id} value={String(project.id)}>
-                        {project.code} - {project.name}
+                        {project.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -18,7 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { FileText, CreditCard, ChevronRight, Check, Clock, AlertCircle, AlertTriangle, Ban, UserCheck, Link2, Undo2, Plus } from "lucide-react";
 import { toast } from "sonner";
-import type { WorkflowGroup } from "./actions";
+import { type WorkflowGroup } from "./actions";
 import { bulkRealizeJournalEntries, type DueUnrealizedJournalEntry } from "../journal/actions";
 import { ApprovalDetailModal } from "./approval-detail-modal";
 import { AccountingGroupCreateModal } from "../accounting-group-create-modal";
@@ -26,7 +26,7 @@ import type { AccountingGroupKind } from "../accounting-group-create-actions";
 
 type Props = {
   groups: WorkflowGroup[];
-  projects: { id: number; code: string; name: string }[];
+  projects: { id: number; name: string }[];
   dueUnrealizedEntries: DueUnrealizedJournalEntry[];
 };
 
@@ -483,7 +483,9 @@ function DueUnrealizedTable({
                     )}
                   </TableCell>
                   <TableCell className="whitespace-nowrap">
-                    {entry.project ? `${entry.project.code} ${entry.project.name}` : "-"}
+                    {entry.project
+                      ? entry.project.defaultCostCenter?.name ?? entry.project.name
+                      : "-"}
                   </TableCell>
                   <TableCell className="text-right whitespace-nowrap">
                     ¥{amount.toLocaleString()}
@@ -603,7 +605,7 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
           entry.description.toLowerCase().includes(q) ||
           source.label.toLowerCase().includes(q) ||
           source.counterpartyName.toLowerCase().includes(q) ||
-          entry.project?.code.toLowerCase().includes(q) ||
+          entry.project?.defaultCostCenter?.name.toLowerCase().includes(q) ||
           entry.project?.name.toLowerCase().includes(q)
         );
       });
@@ -730,7 +732,7 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
                   className="h-7 text-xs"
                   onClick={() => toggleProject(p.id)}
                 >
-                  {p.code}
+                  {p.name}
                 </Button>
               ))}
               {selectedProjectIds.size > 0 && (

@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 import { generateOtherCounterpartyDisplayId } from "@/lib/counterparty-sync";
+import { ensureCostCentersForActiveProjects } from "@/lib/accounting/cost-centers";
 import {
   recalcInvoiceGroupActualPaymentDate,
   recalcPaymentGroupActualPaymentDate,
@@ -17,7 +18,7 @@ export type AccountingGroupKind = "invoice" | "payment";
 
 export type AccountingGroupCreateOptions = {
   operatingCompanies: { id: number; name: string }[];
-  projects: { id: number; code: string; name: string }[];
+  projects: { id: number; name: string }[];
   counterparties: {
     id: number;
     name: string;
@@ -184,6 +185,7 @@ export async function getAccountingGroupCreateOptions(
 ): Promise<ActionResult<AccountingGroupCreateOptions>> {
   await requireStaffForAccounting("view");
   try {
+    await ensureCostCentersForActiveProjects();
     const [operatingCompanies, projects, counterparties, expenseCategories, allocationTemplates, sourceEntry] =
       await Promise.all([
         prisma.operatingCompany.findMany({
@@ -193,7 +195,7 @@ export async function getAccountingGroupCreateOptions(
         }),
         prisma.masterProject.findMany({
           where: { isActive: true },
-          select: { id: true, code: true, name: true },
+          select: { id: true, name: true, defaultCostCenter: { select: { name: true } } },
           orderBy: { displayOrder: "asc" },
         }),
         prisma.counterparty.findMany({
@@ -236,7 +238,10 @@ export async function getAccountingGroupCreateOptions(
         id: company.id,
         name: company.companyName,
       })),
-      projects,
+      projects: projects.map((project) => ({
+        id: project.id,
+        name: project.defaultCostCenter?.name ?? project.name,
+      })),
       counterparties: counterparties.map((counterparty) => ({
         id: counterparty.id,
         name: counterparty.name,

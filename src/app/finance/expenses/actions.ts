@@ -129,7 +129,14 @@ export async function getExpenseFormData(
     }),
     prisma.masterProject.findMany({
       where: { isActive: true },
-      select: { id: true, code: true, name: true, defaultApproverStaffId: true, operatingCompanyId: true },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        defaultApproverStaffId: true,
+        operatingCompanyId: true,
+        defaultCostCenter: { select: { name: true } },
+      },
       orderBy: { displayOrder: "asc" },
     }),
     prisma.paymentMethod.findMany({
@@ -185,7 +192,16 @@ export async function getExpenseFormData(
     counterparties,
     expenseCategories,
     project,
-    allProjects: projects,
+    allProjects: projects.map((project) => ({
+      id: project.id,
+      code: project.code,
+      name:
+        projectCode === null
+          ? project.defaultCostCenter?.name ?? project.name
+          : project.name,
+      defaultApproverStaffId: project.defaultApproverStaffId,
+      operatingCompanyId: project.operatingCompanyId,
+    })),
     paymentMethods,
     operatingCompanies,
     staffOptions,

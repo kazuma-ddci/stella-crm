@@ -413,8 +413,8 @@ const navigation: NavItem[] = [
       { name: "手動経費追加", href: "/accounting/expenses/new", icon: Plus },
       { name: "税区分チェック", href: "/accounting/invoice-check", icon: FileCheck },
       { name: "入出金履歴", href: "/accounting/statements", icon: FileText },
+      { name: "P/L", href: "/accounting/pl", icon: Calculator },
       { name: "予実管理", href: "/accounting/budget", icon: TrendingUp },
-      { name: "USDT日次レート", href: "/accounting/usdt-rates", icon: DollarSign },
       {
         name: "マスタ管理",
         icon: Settings,
@@ -437,6 +437,7 @@ const navigation: NavItem[] = [
           { name: "プロジェクト設定", href: "/accounting/settings/project", icon: Building2 },
           { name: "スタッフ役割種別", href: "/staff/role-types?project=accounting", icon: Tags },
           { name: "担当者フィールド制約", href: "/staff/field-restrictions?project=accounting", icon: Shield },
+          { name: "USDT日次レート", href: "/accounting/usdt-rates", icon: DollarSign },
         ],
       },
     ],

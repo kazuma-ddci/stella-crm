@@ -75,6 +75,7 @@ export default async function ProjectsPage() {
     phone: c.phone,
     abbreviation: c.abbreviation,
     invoicePrefix: c.invoicePrefix,
+    fiscalClosingMonth: String(c.fiscalClosingMonth ?? 3),
     paymentMonthOffset: c.paymentMonthOffset != null ? String(c.paymentMonthOffset) : "",
     paymentDay: c.paymentDay != null ? String(c.paymentDay) : "",
     cloudsignClientId: c.cloudsignClientId ? "********" : "",

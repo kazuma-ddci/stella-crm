@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { toBoolean } from "@/lib/utils";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { ensureCostCentersForActiveProjects } from "@/lib/accounting/cost-centers";
 
 export async function createCostCenter(
   data: Record<string, unknown>
@@ -50,6 +51,7 @@ export async function createCostCenter(
       },
     });
 
+    await ensureCostCentersForActiveProjects();
     revalidatePath("/accounting/masters/cost-centers");
     return ok();
   } catch (e) {
@@ -108,6 +110,7 @@ export async function updateCostCenter(
       data: updateData,
     });
 
+    await ensureCostCentersForActiveProjects();
     revalidatePath("/accounting/masters/cost-centers");
     return ok();
   } catch (e) {

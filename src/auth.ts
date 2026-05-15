@@ -11,6 +11,49 @@ import type {
 } from "@/types/auth";
 import { authenticateExternalUser } from "@/lib/auth/external-user";
 
+function getLocalAuthCookieSuffix() {
+  const authUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL;
+  if (!authUrl) return "";
+
+  try {
+    const url = new URL(authUrl);
+    const isLocalhost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+    return isLocalhost && url.port ? `.${url.port}` : "";
+  } catch {
+    return "";
+  }
+}
+
+function buildLocalAuthCookies() {
+  const suffix = getLocalAuthCookieSuffix();
+  if (!suffix) return undefined;
+
+  const secure = (process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? "").startsWith("https://");
+  const options = {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    path: "/",
+    secure,
+  };
+
+  return {
+    sessionToken: {
+      name: `authjs.session-token${suffix}`,
+      options,
+    },
+    callbackUrl: {
+      name: `authjs.callback-url${suffix}`,
+      options,
+    },
+    csrfToken: {
+      name: `authjs.csrf-token${suffix}`,
+      options,
+    },
+  };
+}
+
+const localAuthCookies = buildLocalAuthCookies();
+
 declare module "next-auth" {
   interface Session {
     user: {
@@ -92,6 +135,7 @@ declare module "@auth/core/jwt" {
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  ...(localAuthCookies ? { cookies: localAuthCookies } : {}),
   providers: [
     Credentials({
       name: "credentials",

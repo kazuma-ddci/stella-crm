@@ -7,7 +7,10 @@ import type { Prisma } from "@prisma/client";
  * 指定月がクローズされているか判定（MonthlyCloseLog ベース）
  * 全社クローズ（projectId = null）の最新アクションを確認
  */
-export async function isMonthClosed(targetMonth: Date): Promise<boolean> {
+export async function isMonthClosed(
+  targetMonth: Date,
+  operatingCompanyId?: number | null
+): Promise<boolean> {
   const monthStart = new Date(
     targetMonth.getFullYear(),
     targetMonth.getMonth(),
@@ -16,6 +19,7 @@ export async function isMonthClosed(targetMonth: Date): Promise<boolean> {
   const latestLog = await prisma.monthlyCloseLog.findFirst({
     where: {
       projectId: null,
+      operatingCompanyId: operatingCompanyId ?? null,
       targetMonth: monthStart,
     },
     orderBy: { performedAt: "desc" },
@@ -30,7 +34,8 @@ export async function isMonthClosed(targetMonth: Date): Promise<boolean> {
 export async function closeMonth(
   targetMonth: Date,
   performedBy: number,
-  snapshotData?: Prisma.InputJsonValue
+  snapshotData?: Prisma.InputJsonValue,
+  operatingCompanyId?: number | null
 ): Promise<void> {
   const monthStart = new Date(
     targetMonth.getFullYear(),
@@ -38,7 +43,7 @@ export async function closeMonth(
     1
   );
 
-  const alreadyClosed = await isMonthClosed(monthStart);
+  const alreadyClosed = await isMonthClosed(monthStart, operatingCompanyId);
   if (alreadyClosed) {
     throw new Error(
       `${monthStart.getFullYear()}年${monthStart.getMonth() + 1}月は既にクローズ済みです`
@@ -48,6 +53,7 @@ export async function closeMonth(
   await prisma.monthlyCloseLog.create({
     data: {
       projectId: null,
+      operatingCompanyId: operatingCompanyId ?? null,
       targetMonth: monthStart,
       action: "close",
       snapshotData: snapshotData ?? undefined,
@@ -62,7 +68,8 @@ export async function closeMonth(
 export async function reopenMonth(
   targetMonth: Date,
   performedBy: number,
-  reason: string
+  reason: string,
+  operatingCompanyId?: number | null
 ): Promise<void> {
   const monthStart = new Date(
     targetMonth.getFullYear(),
@@ -70,7 +77,7 @@ export async function reopenMonth(
     1
   );
 
-  const closed = await isMonthClosed(monthStart);
+  const closed = await isMonthClosed(monthStart, operatingCompanyId);
   if (!closed) {
     throw new Error(
       `${monthStart.getFullYear()}年${monthStart.getMonth() + 1}月はクローズされていません`
@@ -84,6 +91,7 @@ export async function reopenMonth(
   await prisma.monthlyCloseLog.create({
     data: {
       projectId: null,
+      operatingCompanyId: operatingCompanyId ?? null,
       targetMonth: monthStart,
       action: "reopen",
       reason: reason.trim(),
@@ -96,8 +104,11 @@ export async function reopenMonth(
  * 月次クローズチェック（Server Action用ガード）
  * 対象月がクローズされていればエラーをthrow
  */
-export async function ensureMonthNotClosed(targetMonth: Date): Promise<void> {
-  const closed = await isMonthClosed(targetMonth);
+export async function ensureMonthNotClosed(
+  targetMonth: Date,
+  operatingCompanyId?: number | null
+): Promise<void> {
+  const closed = await isMonthClosed(targetMonth, operatingCompanyId);
   if (closed) {
     throw new Error(
       `${targetMonth.getFullYear()}年${targetMonth.getMonth() + 1}月は月次クローズ済みのため変更できません`

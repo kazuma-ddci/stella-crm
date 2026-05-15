@@ -53,6 +53,7 @@ type JournalEntryForEdit = {
   invoiceGroupId: number | null;
   paymentGroupId: number | null;
   transactionId: number | null;
+  operatingCompanyId?: number | null;
   projectId: number | null;
   counterpartyId: number | null;
   hasInvoice: boolean;
@@ -65,6 +66,13 @@ type JournalEntryForEdit = {
     description: string | null;
     taxClassification: string | null;
     taxAmount: number | null;
+    plAllocations?: {
+      allocationMode: string;
+      operatingCompanyId: number;
+      projectId: number | null;
+      costCenterId: number | null;
+      allocationTemplateId: number | null;
+    }[];
   }[];
 };
 
@@ -160,6 +168,15 @@ export function JournalEntryModal({
     : defaultCounterpartyId
       ? String(defaultCounterpartyId)
       : "";
+  const initialPlAllocation = editEntry?.lines
+    .flatMap((line) => line.plAllocations ?? [])
+    .find(Boolean);
+  const hasLinkedSource = !!(
+    editEntry?.invoiceGroupId ||
+    editEntry?.paymentGroupId ||
+    editEntry?.transactionId ||
+    defaultTransactionId
+  );
 
   // 取引先のインボイス登録状態からデフォルト値を算出
   const initialHasInvoice = editEntry
@@ -179,6 +196,30 @@ export function JournalEntryModal({
     editEntry?.description ?? ""
   );
   const [projectId, setProjectId] = useState(initialProjectId);
+  const [operatingCompanyId, setOperatingCompanyId] = useState(
+    editEntry?.operatingCompanyId
+      ? String(editEntry.operatingCompanyId)
+      : initialPlAllocation?.operatingCompanyId
+        ? String(initialPlAllocation.operatingCompanyId)
+        : ""
+  );
+  const [plAllocationMode, setPlAllocationMode] = useState(
+    initialPlAllocation?.allocationMode &&
+      ["direct", "common", "template"].includes(initialPlAllocation.allocationMode)
+      ? initialPlAllocation.allocationMode
+      : ""
+  );
+  const [plProjectId, setPlProjectId] = useState(
+    initialPlAllocation?.projectId ? String(initialPlAllocation.projectId) : ""
+  );
+  const [plCostCenterId, setPlCostCenterId] = useState(
+    initialPlAllocation?.costCenterId ? String(initialPlAllocation.costCenterId) : ""
+  );
+  const [plAllocationTemplateId, setPlAllocationTemplateId] = useState(
+    initialPlAllocation?.allocationTemplateId
+      ? String(initialPlAllocation.allocationTemplateId)
+      : ""
+  );
   const [counterpartyId, setCounterpartyId] = useState(initialCounterpartyId);
   const [hasInvoice, setHasInvoice] = useState(initialHasInvoice);
   const [realizationStatus, setRealizationStatus] = useState(
@@ -220,6 +261,11 @@ export function JournalEntryModal({
       setJournalDate(toLocalDateString(new Date()));
       setDescription("");
       setProjectId(pid);
+      setOperatingCompanyId("");
+      setPlAllocationMode("");
+      setPlProjectId("");
+      setPlCostCenterId("");
+      setPlAllocationTemplateId("");
       setCounterpartyId(cpid);
       setHasInvoice(cpHasInvoice);
       setRealizationStatus("");
@@ -456,6 +502,24 @@ export function JournalEntryModal({
       toast.error("実現ステータスを選択してください");
       return;
     }
+    if (!hasLinkedSource) {
+      if (!operatingCompanyId) {
+        toast.error("運営法人を選択してください");
+        return;
+      }
+      if (!plAllocationMode) {
+        toast.error("P/L上の置き場所を選択してください");
+        return;
+      }
+      if (plAllocationMode === "direct" && !plProjectId && !plCostCenterId) {
+        toast.error("直接計上ではプロジェクトまたはコストセンターを選択してください");
+        return;
+      }
+      if (plAllocationMode === "template" && !plAllocationTemplateId) {
+        toast.error("按分テンプレートを選択してください");
+        return;
+      }
+    }
     // 消費税勘定科目の存在チェック
     const { inputTaxAccountId, outputTaxAccountId } = formData.taxAccounts;
     const hasTaxLines = lines.some(
@@ -534,6 +598,11 @@ export function JournalEntryModal({
         paymentGroupId: editEntry?.paymentGroupId ?? null,
         transactionId:
           editEntry?.transactionId ?? defaultTransactionId ?? null,
+        operatingCompanyId: operatingCompanyId ? Number(operatingCompanyId) : null,
+        plAllocationMode: plAllocationMode || null,
+        plProjectId: plProjectId ? Number(plProjectId) : null,
+        plCostCenterId: plCostCenterId ? Number(plCostCenterId) : null,
+        plAllocationTemplateId: plAllocationTemplateId ? Number(plAllocationTemplateId) : null,
         projectId: projectId ? Number(projectId) : null,
         counterpartyId: counterpartyId ? Number(counterpartyId) : null,
         hasInvoice,
@@ -572,6 +641,11 @@ export function JournalEntryModal({
       setJournalDate(toLocalDateString(new Date()));
       setDescription("");
       setProjectId(initialProjectId);
+      setOperatingCompanyId("");
+      setPlAllocationMode("");
+      setPlProjectId("");
+      setPlCostCenterId("");
+      setPlAllocationTemplateId("");
       setCounterpartyId(initialCounterpartyId);
       setHasInvoice(initialHasInvoice);
       setRealizationStatus("");
@@ -621,6 +695,139 @@ export function JournalEntryModal({
               />
             </div>
           </div>
+
+          {!hasLinkedSource && (
+            <div className="grid grid-cols-4 gap-3 rounded-md border bg-muted/20 p-3">
+              <div>
+                <Label className="text-xs text-muted-foreground">
+                  運営法人 *
+                </Label>
+                <Select
+                  value={operatingCompanyId || "placeholder"}
+                  onValueChange={(v) =>
+                    setOperatingCompanyId(v === "placeholder" ? "" : v)
+                  }
+                >
+                  <SelectTrigger className="mt-1 h-9">
+                    <SelectValue placeholder="選択してください" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="placeholder" disabled>
+                      選択してください
+                    </SelectItem>
+                    {formData.operatingCompanies.map((company) => (
+                      <SelectItem key={company.id} value={String(company.id)}>
+                        {company.companyName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">
+                  P/L上の置き場所 *
+                </Label>
+                <Select
+                  value={plAllocationMode || "placeholder"}
+                  onValueChange={(v) => {
+                    setPlAllocationMode(v === "placeholder" ? "" : v);
+                    if (v !== "direct") {
+                      setPlProjectId("");
+                      setPlCostCenterId("");
+                    }
+                    if (v !== "template") {
+                      setPlAllocationTemplateId("");
+                    }
+                  }}
+                >
+                  <SelectTrigger className="mt-1 h-9">
+                    <SelectValue placeholder="選択してください" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="placeholder" disabled>
+                      選択してください
+                    </SelectItem>
+                    <SelectItem value="direct">プロジェクト/コストセンターに直接計上</SelectItem>
+                    <SelectItem value="common">法人共通に計上</SelectItem>
+                    <SelectItem value="template">按分テンプレートで配賦</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {plAllocationMode === "direct" && (
+                <>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">
+                      計上先プロジェクト
+                    </Label>
+                    <Select
+                      value={plProjectId || "none"}
+                      onValueChange={(v) => setPlProjectId(v === "none" ? "" : v)}
+                    >
+                      <SelectTrigger className="mt-1 h-9">
+                        <SelectValue placeholder="選択してください" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">未選択</SelectItem>
+                        {formData.projects.map((p) => (
+                          <SelectItem key={p.id} value={String(p.id)}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">
+                      計上先コストセンター
+                    </Label>
+                    <Select
+                      value={plCostCenterId || "none"}
+                      onValueChange={(v) => setPlCostCenterId(v === "none" ? "" : v)}
+                    >
+                      <SelectTrigger className="mt-1 h-9">
+                        <SelectValue placeholder="選択してください" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">未選択</SelectItem>
+                        {formData.costCenters.map((cc) => (
+                          <SelectItem key={cc.id} value={String(cc.id)}>
+                            {cc.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+              {plAllocationMode === "template" && (
+                <div className="col-span-2">
+                  <Label className="text-xs text-muted-foreground">
+                    按分テンプレート *
+                  </Label>
+                  <Select
+                    value={plAllocationTemplateId || "placeholder"}
+                    onValueChange={(v) =>
+                      setPlAllocationTemplateId(v === "placeholder" ? "" : v)
+                    }
+                  >
+                    <SelectTrigger className="mt-1 h-9">
+                      <SelectValue placeholder="選択してください" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="placeholder" disabled>
+                        選択してください
+                      </SelectItem>
+                      {formData.allocationTemplates.map((template) => (
+                        <SelectItem key={template.id} value={String(template.id)}>
+                          {template.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* プロジェクト・取引先・インボイス有無 */}
           <div className="grid grid-cols-4 gap-3">

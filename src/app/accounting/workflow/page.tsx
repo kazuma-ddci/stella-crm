@@ -3,13 +3,16 @@ import { prisma } from "@/lib/prisma";
 import { getWorkflowGroups } from "./actions";
 import { getDueUnrealizedJournalEntries } from "../journal/actions";
 import { GroupsList } from "./groups-list";
+import { ensureCostCentersForActiveProjects } from "@/lib/accounting/cost-centers";
 
 export default async function AccountingWorkflowPage() {
+  await ensureCostCentersForActiveProjects();
+
   const [groups, projects, dueUnrealizedEntries] = await Promise.all([
     getWorkflowGroups(),
     prisma.masterProject.findMany({
       where: { isActive: true },
-      select: { id: true, code: true, name: true },
+      select: { id: true, name: true, defaultCostCenter: { select: { name: true } } },
       orderBy: { displayOrder: "asc" },
     }),
     getDueUnrealizedJournalEntries(),
@@ -88,7 +91,14 @@ export default async function AccountingWorkflowPage() {
           <CardTitle>請求/支払グループ</CardTitle>
         </CardHeader>
         <CardContent>
-          <GroupsList groups={groups} projects={projects} dueUnrealizedEntries={dueUnrealizedEntries} />
+          <GroupsList
+            groups={groups}
+            projects={projects.map((project) => ({
+              id: project.id,
+              name: project.defaultCostCenter?.name ?? project.name,
+            }))}
+            dueUnrealizedEntries={dueUnrealizedEntries}
+          />
         </CardContent>
       </Card>
     </div>

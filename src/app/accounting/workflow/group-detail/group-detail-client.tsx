@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -37,7 +38,16 @@ import { ArrowLeft, Plus, Check, Clock, AlertCircle, Lock, ChevronDown, ChevronR
 import { toast } from "sonner";
 import { JournalEntryModal } from "../../journal/journal-entry-modal";
 import { realizeJournalEntry, confirmJournalEntry, deleteJournalEntry } from "../../journal/actions";
-import { setTransactionJournalCompleted, getGroupAttachments, addGroupAttachments, deleteGroupAttachment, returnGroupToProject, updatePaymentGroupAllocation } from "../actions";
+import {
+  setTransactionJournalCompleted,
+  getGroupAttachments,
+  addGroupAttachments,
+  deleteGroupAttachment,
+  returnGroupToProject,
+  updatePaymentGroupAllocation,
+  setInvoiceGroupExcludeFromInternalPl,
+  setPaymentGroupExcludeFromInternalPl,
+} from "../actions";
 import type { WorkflowGroupDetail, WorkflowTransaction } from "../actions";
 import { ReceiptsSection } from "./receipts-section";
 import type { JournalFormData } from "../../journal/actions";
@@ -288,6 +298,8 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
   const [expandedJournalIds, setExpandedJournalIds] = useState<Set<number>>(new Set());
   const [editJournalEntry, setEditJournalEntry] = useState<WorkflowTransaction["journalEntries"][number] | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [internalPlPending, startInternalPlTransition] = useTransition();
+  const [excludeFromInternalPl, setExcludeFromInternalPl] = useState(detail.excludeFromInternalPl);
 
   // 証憑管理
   type AttachmentRow = { id: number; fileName: string; filePath: string; fileSize: number | null; mimeType: string | null; attachmentType: string; displayName: string | null; generatedName: string | null; createdAt: string };
@@ -465,6 +477,30 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
 
   const groupTypeLabel = detail.groupType === "invoice" ? "請求" : "支払";
 
+  const handleInternalPlChange = (checked: boolean) => {
+    const prev = excludeFromInternalPl;
+    setExcludeFromInternalPl(checked);
+    startInternalPlTransition(async () => {
+      const result =
+        detail.groupType === "invoice"
+          ? await setInvoiceGroupExcludeFromInternalPl(detail.id, checked)
+          : await setPaymentGroupExcludeFromInternalPl(detail.id, checked);
+
+      if (!result.ok) {
+        setExcludeFromInternalPl(prev);
+        toast.error(result.error);
+        return;
+      }
+
+      toast.success(
+        checked
+          ? "社内用P/Lから除外します"
+          : "社内用P/Lに含めます"
+      );
+      router.refresh();
+    });
+  };
+
   return (
     <>
       {/* ヘッダー */}
@@ -554,6 +590,21 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
             <div>
               <span className="text-muted-foreground">証憑</span>
               <p className="font-medium">{detail.attachmentCount}件</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">社内P/L</span>
+              <label className="mt-1 flex w-fit items-center gap-2 text-sm">
+                <Checkbox
+                  checked={excludeFromInternalPl}
+                  onCheckedChange={(checked) => handleInternalPlChange(checked === true)}
+                  disabled={internalPlPending}
+                  aria-label="社内P/L未適用"
+                />
+                <span className="font-medium">社内P/L未適用</span>
+              </label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                チェックありの場合、社内用P/Lから除外されます。
+              </p>
             </div>
           </div>
 

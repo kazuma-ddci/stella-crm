@@ -9,11 +9,13 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireStaffForAccounting } from "@/lib/auth/staff-action";
+import { ensureCostCentersForActiveProjects } from "@/lib/accounting/cost-centers";
 import type { RecurringItem } from "@/app/finance/expenses/actions";
 
 /** 全プロジェクト横断の定期取引（経理用） */
 export async function getAllRecurringTransactions(): Promise<RecurringItem[]> {
   await requireStaffForAccounting("view");
+  await ensureCostCentersForActiveProjects();
   const rts = await prisma.recurringTransaction.findMany({
     where: { deletedAt: null, type: "expense" },
     select: {
@@ -27,7 +29,7 @@ export async function getAllRecurringTransactions(): Promise<RecurringItem[]> {
       startDate: true,
       endDate: true,
       counterparty: { select: { name: true } },
-      project: { select: { name: true } },
+      project: { select: { name: true, defaultCostCenter: { select: { name: true } } } },
     },
     orderBy: [{ projectId: "asc" }, { createdAt: "desc" }],
   });
@@ -43,6 +45,6 @@ export async function getAllRecurringTransactions(): Promise<RecurringItem[]> {
     isActive: rt.isActive,
     startDate: rt.startDate,
     endDate: rt.endDate,
-    projectName: rt.project?.name ?? null,
+    projectName: rt.project?.defaultCostCenter?.name ?? rt.project?.name ?? null,
   }));
 }

@@ -1119,6 +1119,7 @@ model MasterProject {
   invoiceTemplates         InvoiceTemplate[]
   expenseCategories        ExpenseCategory[]
   journalEntries           JournalEntry[]
+  journalLinePlAllocations JournalEntryLinePlAllocation[]
   billingRules             StpBillingRule[]
 
   @@map("master_projects")
@@ -1148,6 +1149,7 @@ model OperatingCompany {
   invoicePrefix      String? // 請求書番号プレフィックス
   paymentMonthOffset Int? // 支払月（0=当月, 1=翌月, 2=翌々月...）
   paymentDay         Int? // 支払日（0=末日, 1-28=指定日）
+  fiscalClosingMonth Int     @default(3) @map("fiscal_closing_month") // 決算月（1-12）
 
   // クラウドサイン連携
   cloudsignClientId        String? @db.VarChar(500) // クラウドサインWeb APIクライアントID
@@ -1164,10 +1166,13 @@ model OperatingCompany {
   invoiceMails            InvoiceMail[]
   invoiceNumberSequences  StpInvoiceNumberSequence[]
   cloudsignTemplates      CloudSignTemplate[]
+  journalEntries          JournalEntry[]
+  journalLinePlAllocations JournalEntryLinePlAllocation[]
 
   // 入出金履歴（CSV取込）
   bankStatementImports BankStatementImport[]
   bankStatementEntries BankStatementEntry[]
+  monthlyCloseLogs MonthlyCloseLog[]
 
   @@map("operating_companies")
 }
@@ -2645,6 +2650,9 @@ model InvoiceGroup {
   statementLinkCompleted Boolean                       @default(false) @map("statement_link_completed") // スタッフが手動で「紐付け完了」を押したか
   bankStatementLinks     BankStatementEntryGroupLink[]
 
+  // 社内P/Lから除外するか（決算提出用P/Lには影響しない）
+  excludeFromInternalPl Boolean @default(false) @map("exclude_from_internal_pl")
+
   // プロジェクト側から経理への差し戻し依頼、または経理側からプロジェクトへの差し戻し状態
   returnRequestStatus    String    @default("none") @map("return_request_status") // "none" | "requested" | "returned"
   returnRequestReason    String?   @map("return_request_reason")
@@ -2747,6 +2755,9 @@ model PaymentGroup {
   // 入出金履歴（CSV取込）紐付け
   statementLinkCompleted Boolean                       @default(false) @map("statement_link_completed") // スタッフが手動で「紐付け完了」を押したか
   bankStatementLinks     BankStatementEntryGroupLink[]
+
+  // 社内P/Lから除外するか（決算提出用P/Lには影響しない）
+  excludeFromInternalPl Boolean @default(false) @map("exclude_from_internal_pl")
 
   // プロジェクト側から経理への差し戻し依頼、または経理側からプロジェクトへの差し戻し状態
   returnRequestStatus    String    @default("none") @map("return_request_status") // "none" | "requested" | "returned"
@@ -2898,6 +2909,7 @@ model CostCenter {
   allocationTemplateLines   AllocationTemplateLine[]
   allocationConfirmations   AllocationConfirmation[]
   allocationGroupItems      AllocationGroupItem[]
+  journalLinePlAllocations  JournalEntryLinePlAllocation[]
   ownerAllocationTemplates  AllocationTemplate[]          @relation("OwnerCostCenter")
   budgets                   Budget[]
   counterparty              Counterparty?
@@ -2945,6 +2957,7 @@ model AllocationTemplate {
   transactions          Transaction[]
   recurringTransactions RecurringTransaction[]
   overrides             AllocationTemplateOverride[]
+  journalLinePlAllocations JournalEntryLinePlAllocation[]
   ownerCostCenter       CostCenter?                  @relation("OwnerCostCenter", fields: [ownerCostCenterId], references: [id])
   creator               MasterStaff                  @relation("AllocTemplateCreator", fields: [createdBy], references: [id])
   updater               MasterStaff?                 @relation("AllocTemplateUpdater", fields: [updatedBy], references: [id])
@@ -3088,6 +3101,7 @@ model JournalEntry {
   invoiceGroupId    Int? // FK → InvoiceGroup（売上側：請求グループ単位で紐づく）
   paymentGroupId    Int? // FK → PaymentGroup（経費側：支払グループ単位で紐づく）
   transactionId     Int? // FK → Transaction（個別取引に直接紐づく場合）
+  operatingCompanyId Int? // FK → OperatingCompany（P/L集計用。既存データ互換のためDB上は任意）
   projectId         Int? // FK → MasterProject（プロジェクト）
   counterpartyId    Int? // FK → Counterparty（取引先）
   hasInvoice        Boolean  @default(true) // 適格請求書の有無
@@ -3116,6 +3130,7 @@ model JournalEntry {
   invoiceGroup         InvoiceGroup?      @relation(fields: [invoiceGroupId], references: [id])
   paymentGroup         PaymentGroup?      @relation(fields: [paymentGroupId], references: [id])
   transaction          Transaction?       @relation(fields: [transactionId], references: [id])
+  operatingCompany     OperatingCompany?  @relation(fields: [operatingCompanyId], references: [id])
   autoJournalRule      AutoJournalRule?   @relation(fields: [autoJournalRuleId], references: [id])
   project              MasterProject?     @relation(fields: [projectId], references: [id])
   counterparty         Counterparty?      @relation(fields: [counterpartyId], references: [id])
@@ -3125,6 +3140,8 @@ model JournalEntry {
   realizer             MasterStaff?       @relation("JournalRealizer", fields: [realizedBy], references: [id])
   creator              MasterStaff        @relation("JournalCreator", fields: [createdBy], references: [id])
   updater              MasterStaff?       @relation("JournalUpdater", fields: [updatedBy], references: [id])
+
+  @@index([operatingCompanyId])
 }
 
 // ============================================
@@ -3151,8 +3168,42 @@ model JournalEntryLine {
   // Relations
   journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id])
   account      Account      @relation(fields: [accountId], references: [id])
+  plAllocations JournalEntryLinePlAllocation[]
   creator      MasterStaff? @relation("JournalLineCreator", fields: [createdBy], references: [id])
   updater      MasterStaff? @relation("JournalLineUpdater", fields: [updatedBy], references: [id])
+}
+
+// ============================================
+// ⑫-b JournalEntryLinePlAllocation（仕訳明細P/L配賦結果）
+// ============================================
+
+model JournalEntryLinePlAllocation {
+  id                   Int      @id @default(autoincrement())
+  journalEntryLineId   Int
+  operatingCompanyId   Int
+  projectId            Int?
+  costCenterId         Int?
+  allocationTemplateId Int?
+  allocationMode       String   @default("direct") @map("allocation_mode") // "direct" | "common" | "template" | "unclassified"
+  allocationRate       Decimal? @map("allocation_rate")
+  amountExcludingTax   Int      @map("amount_excluding_tax")
+  taxAmount            Int      @default(0) @map("tax_amount")
+  amountIncludingTax   Int      @map("amount_including_tax")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  journalEntryLine   JournalEntryLine   @relation(fields: [journalEntryLineId], references: [id], onDelete: Cascade)
+  operatingCompany   OperatingCompany   @relation(fields: [operatingCompanyId], references: [id])
+  project            MasterProject?     @relation(fields: [projectId], references: [id])
+  costCenter         CostCenter?        @relation(fields: [costCenterId], references: [id])
+  allocationTemplate AllocationTemplate? @relation(fields: [allocationTemplateId], references: [id])
+
+  @@index([journalEntryLineId])
+  @@index([operatingCompanyId])
+  @@index([projectId])
+  @@index([costCenterId])
+  @@index([allocationTemplateId])
+  @@map("journal_entry_line_pl_allocations")
 }
 
 // ============================================
@@ -3419,6 +3470,7 @@ model Budget {
 model MonthlyCloseLog {
   id           Int      @id @default(autoincrement())
   projectId    Int? // FK → MasterProject（null = 全社クローズ）
+  operatingCompanyId Int? @map("operating_company_id") // FK → OperatingCompany（null = 全運営法人）
   targetMonth  DateTime // 対象月（YYYY-MM-01）
   action       String // "close" | "reopen"
   reason       String? // 再オープン時の理由（必須）
@@ -3428,11 +3480,13 @@ model MonthlyCloseLog {
   performedAt DateTime @default(now())
 
   // Relations
-  project   MasterProject? @relation(fields: [projectId], references: [id])
-  performer MasterStaff    @relation("MonthlyClosePerformer", fields: [performedBy], references: [id])
+  project          MasterProject?    @relation(fields: [projectId], references: [id])
+  operatingCompany OperatingCompany? @relation(fields: [operatingCompanyId], references: [id])
+  performer        MasterStaff       @relation("MonthlyClosePerformer", fields: [performedBy], references: [id])
 
   @@index([targetMonth])
   @@index([projectId, targetMonth])
+  @@index([operatingCompanyId, targetMonth])
 }
 
 // ============================================
