@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState, useEffect, useRef } from "react";
+import { Fragment, useState, useEffect, useRef, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -25,18 +25,35 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ArrowLeft, Plus, Check, Clock, AlertCircle, Lock, ChevronDown, ChevronRight, Pencil, Trash2, Undo2, Upload, FileText, X } from "lucide-react";
 import { toast } from "sonner";
 import { JournalEntryModal } from "../../journal/journal-entry-modal";
 import { realizeJournalEntry, confirmJournalEntry, deleteJournalEntry } from "../../journal/actions";
-import { setTransactionJournalCompleted, getGroupAttachments, addGroupAttachments, deleteGroupAttachment, returnGroupToProject } from "../actions";
+import { setTransactionJournalCompleted, getGroupAttachments, addGroupAttachments, deleteGroupAttachment, returnGroupToProject, updatePaymentGroupAllocation } from "../actions";
 import type { WorkflowGroupDetail, WorkflowTransaction } from "../actions";
 import { ReceiptsSection } from "./receipts-section";
 import type { JournalFormData } from "../../journal/actions";
-import { ATTACHMENT_TYPE_OPTIONS, ATTACHMENT_TYPE_LABELS } from "@/lib/attachments/constants";
+import { ATTACHMENT_TYPE_LABELS } from "@/lib/attachments/constants";
 /** 税込合計を返す（tax_included の場合 amount がすでに税込） */
 function getTaxIncludedTotal(tx: WorkflowTransaction): number {
   return tx.taxType === "tax_included" ? tx.amount : tx.amount + tx.taxAmount;
+}
+
+function formatYen(value: number | null | undefined) {
+  return value === null || value === undefined ? "-" : `¥${value.toLocaleString()}`;
+}
+
+function formatDate(value: Date | string | null | undefined) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString("ja-JP");
 }
 
 type Props = {
@@ -90,6 +107,135 @@ function CategoryBadge({ category }: { category: string }) {
   };
   const c = config[category] ?? { label: category, className: "" };
   return <Badge variant="outline" className={c.className}>{c.label}</Badge>;
+}
+
+function TransactionAllocationEditor({
+  groupId,
+  transaction,
+  allocationTemplates,
+  readOnly,
+  onSaved,
+}: {
+  groupId: number;
+  transaction: WorkflowTransaction;
+  allocationTemplates: WorkflowGroupDetail["allocationTemplates"];
+  readOnly: boolean;
+  onSaved: () => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [useAllocation, setUseAllocation] = useState(!!transaction.allocationTemplateId);
+  const [allocationTemplateId, setAllocationTemplateId] = useState<number | null>(
+    transaction.allocationTemplateId
+  );
+
+  const selectedTemplate = allocationTemplateId
+    ? allocationTemplates.find((template) => template.id === allocationTemplateId) ?? null
+    : null;
+  const hasAccountingWork = transaction.journalCompleted || transaction.journalEntries.length > 0;
+  const disabled = readOnly || hasAccountingWork || isPending;
+
+  const handleSave = () => {
+    if (useAllocation && !allocationTemplateId) {
+      toast.error("按分テンプレートを選択してください");
+      return;
+    }
+    startTransition(async () => {
+      const result = await updatePaymentGroupAllocation(groupId, {
+        transactionId: transaction.id,
+        useAllocation,
+        allocationTemplateId: useAllocation ? allocationTemplateId : null,
+      });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("按分設定を更新しました");
+      onSaved();
+    });
+  };
+
+  return (
+    <div className="rounded border bg-muted/20 p-3 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Label>プロジェクト按分</Label>
+        {hasAccountingWork && (
+          <Badge variant="outline" className="bg-gray-50 text-gray-600 border-gray-200">
+            仕訳作成後は変更不可
+          </Badge>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-4">
+        <label className="flex items-center gap-2 cursor-pointer text-sm">
+          <input
+            type="radio"
+            name={`allocation-${transaction.id}`}
+            checked={!useAllocation}
+            disabled={disabled}
+            onChange={() => {
+              setUseAllocation(false);
+              setAllocationTemplateId(null);
+            }}
+            className="rounded"
+          />
+          主プロジェクトに全額計上
+        </label>
+        <label className="flex items-center gap-2 cursor-pointer text-sm">
+          <input
+            type="radio"
+            name={`allocation-${transaction.id}`}
+            checked={useAllocation}
+            disabled={disabled}
+            onChange={() => setUseAllocation(true)}
+            className="rounded"
+          />
+          複数プロジェクトに按分
+        </label>
+      </div>
+
+      {useAllocation && (
+        <div className="space-y-3">
+          <Select
+            value={allocationTemplateId?.toString() ?? ""}
+            onValueChange={(value) => setAllocationTemplateId(value ? Number(value) : null)}
+            disabled={disabled}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="按分テンプレートを選択..." />
+            </SelectTrigger>
+            <SelectContent>
+              {allocationTemplates.map((template) => (
+                <SelectItem key={template.id} value={template.id.toString()}>
+                  {template.name}（{template.lines.length}先）
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {selectedTemplate && (
+            <div className="rounded border bg-background p-3">
+              <p className="text-xs font-medium text-muted-foreground mb-2">按分内訳</p>
+              <div className="space-y-1">
+                {selectedTemplate.lines.map((line, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-sm">
+                    <span>{line.costCenterName ?? line.label ?? "未確定"}</span>
+                    <span className="font-mono text-muted-foreground">{line.allocationRate}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!readOnly && !hasAccountingWork && (
+        <div className="flex justify-end">
+          <Button size="sm" variant="outline" onClick={handleSave} disabled={isPending}>
+            {isPending ? "保存中..." : "按分設定を保存"}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function NextActionCard({ detail }: { detail: WorkflowGroupDetail }) {
@@ -367,22 +513,47 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
       {/* グループ概要 + 条件ステータス */}
       <Card>
         <CardContent className="pt-6 space-y-4">
-          <div className="grid grid-cols-3 gap-4 text-sm">
+          <div className="grid gap-4 text-sm md:grid-cols-3">
             <div>
               <span className="text-muted-foreground">取引先</span>
               <p className="font-medium">{detail.counterpartyName}</p>
             </div>
             <div>
+              <span className="text-muted-foreground">プロジェクト</span>
+              <p className="font-medium">{detail.projectName ?? "未設定"}</p>
+            </div>
+            <div>
               <span className="text-muted-foreground">合計金額</span>
-              <p className="font-medium">
-                {detail.totalAmount != null
-                  ? `¥${detail.totalAmount.toLocaleString()}`
-                  : "-"}
-              </p>
+              <p className="font-medium">{formatYen(detail.totalAmount)}</p>
             </div>
             <div>
               <span className="text-muted-foreground">取引数</span>
               <p className="font-medium">{detail.transactions.length}件</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">
+                {detail.groupType === "invoice" ? "入金予定日" : "支払予定日"}
+              </span>
+              <p className="font-medium">{formatDate(detail.expectedPaymentDate ?? detail.paymentDueDate)}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">
+                {detail.groupType === "invoice" ? "実入金日" : "実支払日"}
+              </span>
+              <p className="font-medium">{formatDate(detail.actualPaymentDate)}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">入出金紐づき</span>
+              <p className="font-medium">
+                {formatYen(detail.statementLinkedAmount)}
+                <span className="ml-2 text-xs text-muted-foreground">
+                  未紐づき {formatYen(detail.statementUnlinkedAmount)}
+                </span>
+              </p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">証憑</span>
+              <p className="font-medium">{detail.attachmentCount}件</p>
             </div>
           </div>
 
@@ -542,7 +713,7 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
           </CardHeader>
           <CardContent>
             {/* 取引情報 */}
-            <div className="grid grid-cols-4 gap-3 text-sm mb-4 pb-4 border-b">
+            <div className="grid gap-3 text-sm mb-4 pb-4 border-b md:grid-cols-4">
               <div>
                 <span className="text-muted-foreground">取引先</span>
                 <p>{tx.counterpartyName}</p>
@@ -553,22 +724,58 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
                 </span>
                 <p>¥{tx.amount.toLocaleString()}</p>
               </div>
-              <div>
-                <span className="text-muted-foreground">消費税</span>
-                <p>¥{tx.taxAmount.toLocaleString()}</p>
+            <div>
+              <span className="text-muted-foreground">消費税</span>
+                <p>¥{tx.taxAmount.toLocaleString()}（{tx.taxRate}%）</p>
               </div>
               <div>
                 <span className="text-muted-foreground">発生期間</span>
                 <p className="whitespace-nowrap">
-                  {new Date(tx.periodFrom).toLocaleDateString("ja-JP")}
+                  {formatDate(tx.periodFrom)}
                   {" 〜 "}
-                  {new Date(tx.periodTo).toLocaleDateString("ja-JP")}
+                  {formatDate(tx.periodTo)}
                 </p>
               </div>
+              <div>
+                <span className="text-muted-foreground">計上先</span>
+                <p>
+                  {tx.allocationTemplateName
+                    ? `按分: ${tx.allocationTemplateName}`
+                    : tx.costCenterName ?? "主プロジェクト"}
+                </p>
+              </div>
+              {detail.groupType === "payment" && (
+                <div>
+                  <span className="text-muted-foreground">源泉徴収</span>
+                  {tx.isWithholdingTarget ? (
+                    <p>
+                      {formatYen(tx.withholdingTaxAmount)}
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        差引 {formatYen(tx.netPaymentAmount)}
+                      </span>
+                    </p>
+                  ) : (
+                    <p>対象外</p>
+                  )}
+                </div>
+              )}
             </div>
 
             {tx.note && (
               <p className="text-sm text-muted-foreground mb-4">摘要: {tx.note}</p>
+            )}
+
+            {detail.groupType === "payment" && tx.type === "expense" && (
+              <div className="mb-4">
+                <TransactionAllocationEditor
+                  key={`${tx.id}-${tx.allocationTemplateId ?? "none"}`}
+                  groupId={detail.id}
+                  transaction={tx}
+                  allocationTemplates={detail.allocationTemplates}
+                  readOnly={isReadOnly}
+                  onSaved={() => router.refresh()}
+                />
+              </div>
             )}
 
             {/* 仕訳一覧 */}

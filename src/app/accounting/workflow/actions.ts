@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import {
@@ -39,6 +40,8 @@ export type WorkflowGroup = {
   createdAt: Date;
   category: WorkflowCategory;
   projectId: number | null;
+  projectLabel: string | null;
+  paymentDueDate: Date | null;
   // 進捗
   transactionCount: number;
   journalizedCount: number;       // 仕訳済みの取引数
@@ -55,6 +58,12 @@ export type WorkflowGroup = {
   statementLinkCompleted: boolean;
   statementLinkCount: number;
   statementLinkedAmount: number;
+  statementUnlinkedAmount: number | null;
+  attachmentCount: number;
+  categorySummary: string[];
+  noteSummary: string | null;
+  hasAllocation: boolean;
+  hasWithholding: boolean;
   returnRequestStatus: string;
   returnRequestReason: string | null;
   returnRequestedAt: Date | null;
@@ -72,7 +81,17 @@ export type WorkflowTransaction = {
   type: string;
   amount: number;
   taxAmount: number;
+  taxRate: number;
   taxType: string;
+  isWithholdingTarget: boolean;
+  withholdingTaxRate: number | null;
+  withholdingTaxAmount: number | null;
+  netPaymentAmount: number | null;
+  allocationTemplateId: number | null;
+  costCenterId: number | null;
+  costCenterName: string | null;
+  allocationTemplateName: string | null;
+  allocationLines: { label: string | null; costCenterName: string | null; allocationRate: number }[];
   counterpartyName: string;
   expenseCategoryName: string;
   projectId: number | null;
@@ -115,6 +134,9 @@ export type WorkflowGroupDetail = {
   counterpartyId: number | null;
   totalAmount: number | null;
   status: string;
+  projectName: string | null;
+  paymentDueDate: Date | null;
+  expectedPaymentDate: Date | null;
   actualPaymentDate: Date | null;
   category: WorkflowCategory;
   isAllJournalized: boolean;
@@ -124,12 +146,139 @@ export type WorkflowGroupDetail = {
   statementLinkCompleted: boolean;
   statementLinkCount: number;
   statementLinkedAmount: number;
+  statementUnlinkedAmount: number | null;
+  attachmentCount: number;
   returnRequestStatus: string;
   returnRequestReason: string | null;
   returnRequestedAt: Date | null;
   projectId: number | null;
   transactions: WorkflowTransaction[];
+  allocationTemplates: AllocationTemplateOption[];
 };
+
+export type AllocationTemplateOption = {
+  id: number;
+  name: string;
+  lines: {
+    costCenterId: number | null;
+    allocationRate: number;
+    label: string | null;
+    costCenterName: string | null;
+  }[];
+};
+
+async function getAllocationTemplateOptions(): Promise<AllocationTemplateOption[]> {
+  const templates = await prisma.allocationTemplate.findMany({
+    where: { deletedAt: null, isActive: true },
+    include: {
+      lines: {
+        include: { costCenter: { select: { id: true, name: true } } },
+        orderBy: { id: "asc" },
+      },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  return templates.map((template) => ({
+    id: template.id,
+    name: template.name,
+    lines: template.lines.map((line) => ({
+      costCenterId: line.costCenterId,
+      allocationRate: Number(line.allocationRate),
+      label: line.label,
+      costCenterName: line.costCenter?.name ?? null,
+    })),
+  }));
+}
+
+async function resolveCostCenterForFullProject(
+  tx: Prisma.TransactionClient,
+  projectId: number | null,
+  existingCostCenterId: number | null
+) {
+  if (existingCostCenterId) return existingCostCenterId;
+  if (!projectId) return null;
+
+  const project = await tx.masterProject.findUnique({
+    where: { id: projectId },
+    select: { defaultCostCenterId: true },
+  });
+
+  return project?.defaultCostCenterId ?? null;
+}
+
+async function assertNoAccountingWorkStarted(
+  tx: Prisma.TransactionClient,
+  transactionId: number
+): Promise<ActionResult<{ allocationTemplateId: number | null; costCenterId: number | null }>> {
+  const transaction = await tx.transaction.findFirst({
+    where: { id: transactionId, deletedAt: null },
+    select: {
+      allocationTemplateId: true,
+      costCenterId: true,
+      journalCompleted: true,
+      journalEntries: {
+        where: { deletedAt: null },
+        select: { id: true },
+        take: 1,
+      },
+    },
+  });
+
+  if (!transaction) return err("取引が見つかりません");
+  if (transaction.journalCompleted || transaction.journalEntries.length > 0) {
+    return err("仕訳作成後の按分設定は変更できません");
+  }
+
+  return ok({
+    allocationTemplateId: transaction.allocationTemplateId,
+    costCenterId: transaction.costCenterId,
+  });
+}
+
+async function applyTransactionAllocationUpdate(
+  tx: Prisma.TransactionClient,
+  params: {
+    transactionId: number;
+    projectId: number | null;
+    existingCostCenterId: number | null;
+    useAllocation: boolean;
+    allocationTemplateId?: number | null;
+  }
+) {
+  if (params.useAllocation && !params.allocationTemplateId) {
+    return err("按分テンプレートを選択してください");
+  }
+
+  const current = await assertNoAccountingWorkStarted(tx, params.transactionId);
+  if (!current.ok) return current;
+
+  const costCenterId = params.useAllocation
+    ? null
+    : await resolveCostCenterForFullProject(tx, params.projectId, params.existingCostCenterId);
+  const allocationChanged = params.useAllocation
+    ? current.data.allocationTemplateId !== params.allocationTemplateId || current.data.costCenterId !== null
+    : current.data.allocationTemplateId !== null || current.data.costCenterId !== costCenterId;
+
+  if (allocationChanged) {
+    await tx.allocationConfirmation.deleteMany({
+      where: { transactionId: params.transactionId },
+    });
+    await tx.allocationGroupItem.deleteMany({
+      where: { transactionId: params.transactionId },
+    });
+  }
+
+  await tx.transaction.update({
+    where: { id: params.transactionId },
+    data: {
+      allocationTemplateId: params.useAllocation ? params.allocationTemplateId! : null,
+      costCenterId,
+    },
+  });
+
+  return ok();
+}
 
 // ============================================
 // カテゴリ判定ロジック
@@ -172,6 +321,27 @@ function determineCategory(
   return "completed";
 }
 
+function summarizeCategoryNames(
+  transactions: { expenseCategory: { name: string } | null }[],
+  limit = 3
+) {
+  return [
+    ...new Set(
+      transactions
+        .map((transaction) => transaction.expenseCategory?.name)
+        .filter((name): name is string => !!name)
+    ),
+  ].slice(0, limit);
+}
+
+function summarizeFirstNote(transactions: { note: string | null }[]) {
+  return transactions.map((transaction) => transaction.note?.trim()).find(Boolean) ?? null;
+}
+
+function calcUnlinkedAmount(totalAmount: number | null, linkedAmount: number) {
+  return totalAmount === null ? null : totalAmount - linkedAmount;
+}
+
 // ============================================
 // 1. getWorkflowGroups（経理ワークフロー：グループ一覧）
 // ============================================
@@ -191,19 +361,27 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         status: true,
         createdAt: true,
         actualPaymentDate: true,
+        paymentDueDate: true,
+        expectedPaymentDate: true,
         manualPaymentStatus: true,
         returnRequestStatus: true,
         returnRequestReason: true,
         returnRequestedAt: true,
         projectId: true,
+        project: { select: { code: true, name: true } },
         counterparty: { select: { name: true } },
         statementLinkCompleted: true,
+        _count: { select: { attachments: true } },
         transactions: {
           where: { deletedAt: null },
           select: {
             id: true,
             status: true,
             journalCompleted: true,
+            allocationTemplateId: true,
+            isWithholdingTarget: true,
+            note: true,
+            expenseCategory: { select: { name: true } },
             journalEntries: {
               where: { deletedAt: null, status: "confirmed" },
               select: { id: true, realizationStatus: true },
@@ -237,11 +415,14 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         returnRequestReason: true,
         returnRequestedAt: true,
         statementLinkCompleted: true,
+        paymentDueDate: true,
         expectedPaymentDate: true,
         projectId: true,
+        project: { select: { code: true, name: true } },
         customCounterpartyName: true,
         counterparty: { select: { name: true } },
         approver: { select: { name: true } },
+        _count: { select: { attachments: true } },
         transactions: {
           where: { deletedAt: null },
           select: {
@@ -249,6 +430,10 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
             status: true,
             journalCompleted: true,
             sourceType: true,
+            allocationTemplateId: true,
+            isWithholdingTarget: true,
+            note: true,
+            expenseCategory: { select: { name: true } },
             journalEntries: {
               where: { deletedAt: null, status: "confirmed" },
               select: { id: true, realizationStatus: true },
@@ -286,6 +471,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       ig.receipts.map((r) => ({ amount: r.amount, date: r.receivedDate })),
       ig.totalAmount
     );
+    const statementLinkedAmount = ig.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0);
 
     const category = determineCategory(
       ig.status,
@@ -307,6 +493,8 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       createdAt: ig.createdAt,
       category,
       projectId: ig.projectId ?? null,
+      projectLabel: ig.project ? `${ig.project.code} ${ig.project.name}` : null,
+      paymentDueDate: ig.paymentDueDate ?? null,
       transactionCount: txCount,
       journalizedCount,
       allRealizedCount,
@@ -319,12 +507,18 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       receiptTotal: receiptSummary.totalReceived,
       statementLinkCompleted: ig.statementLinkCompleted,
       statementLinkCount: ig.bankStatementLinks.length,
-      statementLinkedAmount: ig.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0),
+      statementLinkedAmount,
+      statementUnlinkedAmount: calcUnlinkedAmount(ig.totalAmount, statementLinkedAmount),
+      attachmentCount: ig._count.attachments,
+      categorySummary: summarizeCategoryNames(ig.transactions),
+      noteSummary: summarizeFirstNote(ig.transactions),
+      hasAllocation: ig.transactions.some((t) => !!t.allocationTemplateId),
+      hasWithholding: ig.transactions.some((t) => t.isWithholdingTarget),
       returnRequestStatus: ig.returnRequestStatus,
       returnRequestReason: ig.returnRequestReason,
       returnRequestedAt: ig.returnRequestedAt,
       manualPaymentStatus: ig.manualPaymentStatus as "unpaid" | "partial" | "completed",
-      expectedPaymentDate: null,
+      expectedPaymentDate: ig.expectedPaymentDate ?? null,
       approverName: null,
       daysUntilPayment: null,
     });
@@ -349,6 +543,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       pg.payments.map((p) => ({ amount: p.amount, date: p.paidDate })),
       pg.totalAmount
     );
+    const statementLinkedAmount = pg.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0);
 
     // 決済予定日までの日数
     const daysUntilPayment = pg.expectedPaymentDate
@@ -371,6 +566,8 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         createdAt: pg.createdAt,
         category: "pending_project_overdue",
         projectId: pg.projectId ?? null,
+        projectLabel: pg.project ? `${pg.project.code} ${pg.project.name}` : null,
+        paymentDueDate: pg.paymentDueDate ?? null,
         transactionCount: txCount,
         journalizedCount,
         allRealizedCount,
@@ -383,7 +580,13 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         receiptTotal: receiptSummary.totalReceived,
         statementLinkCompleted: pg.statementLinkCompleted,
         statementLinkCount: pg.bankStatementLinks.length,
-        statementLinkedAmount: pg.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0),
+        statementLinkedAmount,
+        statementUnlinkedAmount: calcUnlinkedAmount(pg.totalAmount, statementLinkedAmount),
+        attachmentCount: pg._count.attachments,
+        categorySummary: summarizeCategoryNames(pg.transactions),
+        noteSummary: summarizeFirstNote(pg.transactions),
+        hasAllocation: pg.transactions.some((t) => !!t.allocationTemplateId),
+        hasWithholding: pg.transactions.some((t) => t.isWithholdingTarget),
         returnRequestStatus: pg.returnRequestStatus,
         returnRequestReason: pg.returnRequestReason,
         returnRequestedAt: pg.returnRequestedAt,
@@ -415,6 +618,8 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       createdAt: pg.createdAt,
       category,
       projectId: pg.projectId ?? null,
+      projectLabel: pg.project ? `${pg.project.code} ${pg.project.name}` : null,
+      paymentDueDate: pg.paymentDueDate ?? null,
       transactionCount: txCount,
       journalizedCount,
       allRealizedCount,
@@ -427,7 +632,13 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       receiptTotal: receiptSummary.totalReceived,
       statementLinkCompleted: pg.statementLinkCompleted,
       statementLinkCount: pg.bankStatementLinks.length,
-      statementLinkedAmount: pg.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0),
+      statementLinkedAmount,
+      statementUnlinkedAmount: calcUnlinkedAmount(pg.totalAmount, statementLinkedAmount),
+      attachmentCount: pg._count.attachments,
+      categorySummary: summarizeCategoryNames(pg.transactions),
+      noteSummary: summarizeFirstNote(pg.transactions),
+      hasAllocation: pg.transactions.some((t) => !!t.allocationTemplateId),
+      hasWithholding: pg.transactions.some((t) => t.isWithholdingTarget),
       returnRequestStatus: pg.returnRequestStatus,
       returnRequestReason: pg.returnRequestReason,
       returnRequestedAt: pg.returnRequestedAt,
@@ -453,12 +664,21 @@ export async function getWorkflowGroupDetail(
   groupId: number
 ): Promise<WorkflowGroupDetail | null> {
   await requireStaffForAccounting("view");
+  const allocationTemplates = await getAllocationTemplateOptions();
   const transactionSelect = {
     id: true,
     type: true,
     amount: true,
     taxAmount: true,
+    taxRate: true,
     taxType: true,
+    isWithholdingTarget: true,
+    withholdingTaxRate: true,
+    withholdingTaxAmount: true,
+    netPaymentAmount: true,
+    allocationTemplateId: true,
+    costCenterId: true,
+    costCenter: { select: { name: true } },
     projectId: true,
     periodFrom: true,
     periodTo: true,
@@ -467,6 +687,19 @@ export async function getWorkflowGroupDetail(
     journalCompleted: true,
     counterparty: { select: { name: true } },
     expenseCategory: { select: { name: true } },
+    allocationTemplate: {
+      select: {
+        name: true,
+        lines: {
+          select: {
+            label: true,
+            allocationRate: true,
+            costCenter: { select: { name: true } },
+          },
+          orderBy: { id: "asc" as const },
+        },
+      },
+    },
     journalEntries: {
       where: { deletedAt: null },
       select: {
@@ -502,7 +735,15 @@ export async function getWorkflowGroupDetail(
     type: string;
     amount: number;
     taxAmount: number;
+    taxRate: number;
     taxType: string;
+    isWithholdingTarget: boolean;
+    withholdingTaxRate: Prisma.Decimal | null;
+    withholdingTaxAmount: number | null;
+    netPaymentAmount: number | null;
+    allocationTemplateId: number | null;
+    costCenterId: number | null;
+    costCenter: { name: string } | null;
     projectId: number | null;
     periodFrom: Date;
     periodTo: Date;
@@ -511,6 +752,14 @@ export async function getWorkflowGroupDetail(
     journalCompleted: boolean;
     counterparty: { name: string } | null;
     expenseCategory: { name: string } | null;
+    allocationTemplate: {
+      name: string;
+      lines: {
+        label: string | null;
+        allocationRate: Prisma.Decimal;
+        costCenter: { name: string } | null;
+      }[];
+    } | null;
     journalEntries: {
       id: number;
       journalDate: Date;
@@ -530,7 +779,21 @@ export async function getWorkflowGroupDetail(
     type: t.type,
     amount: t.amount,
     taxAmount: t.taxAmount,
+    taxRate: t.taxRate,
     taxType: t.taxType,
+    isWithholdingTarget: t.isWithholdingTarget,
+    withholdingTaxRate: t.withholdingTaxRate ? Number(t.withholdingTaxRate) : null,
+    withholdingTaxAmount: t.withholdingTaxAmount,
+    netPaymentAmount: t.netPaymentAmount,
+    allocationTemplateId: t.allocationTemplateId,
+    costCenterId: t.costCenterId,
+    costCenterName: t.costCenter?.name ?? null,
+    allocationTemplateName: t.allocationTemplate?.name ?? null,
+    allocationLines: t.allocationTemplate?.lines.map((line) => ({
+      label: line.label,
+      costCenterName: line.costCenter?.name ?? null,
+      allocationRate: Number(line.allocationRate),
+    })) ?? [],
     counterpartyName: t.counterparty?.name ?? "-",
     expenseCategoryName: t.expenseCategory?.name ?? "-",
     projectId: t.projectId,
@@ -575,14 +838,18 @@ export async function getWorkflowGroupDetail(
         invoiceNumber: true,
         totalAmount: true,
         status: true,
+        paymentDueDate: true,
+        expectedPaymentDate: true,
         actualPaymentDate: true,
         manualPaymentStatus: true,
         returnRequestStatus: true,
         returnRequestReason: true,
         returnRequestedAt: true,
         projectId: true,
+        project: { select: { name: true } },
         counterparty: { select: { id: true, name: true } },
         statementLinkCompleted: true,
+        _count: { select: { attachments: true } },
         bankStatementLinks: { select: { amount: true } },
         transactions: {
           where: { deletedAt: null },
@@ -601,6 +868,7 @@ export async function getWorkflowGroupDetail(
       (t) => confirmedFilter(t).length > 0 && confirmedFilter(t).every((je) => je.realizationStatus === "realized")
     ).length;
     const hasActualPaymentDate = !!group.actualPaymentDate;
+    const statementLinkedAmount = group.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0);
 
     return {
       id: group.id,
@@ -610,6 +878,9 @@ export async function getWorkflowGroupDetail(
       counterpartyId: group.counterparty.id,
       totalAmount: group.totalAmount,
       status: group.status,
+      projectName: group.project?.name ?? null,
+      paymentDueDate: group.paymentDueDate ?? null,
+      expectedPaymentDate: group.expectedPaymentDate ?? null,
       actualPaymentDate: group.actualPaymentDate,
       category: determineCategory(
         group.status,
@@ -626,12 +897,15 @@ export async function getWorkflowGroupDetail(
       manualPaymentStatus: group.manualPaymentStatus as "unpaid" | "partial" | "completed",
       statementLinkCompleted: group.statementLinkCompleted,
       statementLinkCount: group.bankStatementLinks.length,
-      statementLinkedAmount: group.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0),
+      statementLinkedAmount,
+      statementUnlinkedAmount: calcUnlinkedAmount(group.totalAmount, statementLinkedAmount),
+      attachmentCount: group._count.attachments,
       returnRequestStatus: group.returnRequestStatus,
       returnRequestReason: group.returnRequestReason,
       returnRequestedAt: group.returnRequestedAt,
       projectId: group.projectId,
       transactions,
+      allocationTemplates,
     };
   }
 
@@ -643,14 +917,19 @@ export async function getWorkflowGroupDetail(
       referenceCode: true,
       totalAmount: true,
       status: true,
+      paymentDueDate: true,
+      expectedPaymentDate: true,
       actualPaymentDate: true,
       manualPaymentStatus: true,
       returnRequestStatus: true,
       returnRequestReason: true,
       returnRequestedAt: true,
       projectId: true,
+      customCounterpartyName: true,
+      project: { select: { name: true } },
       counterparty: { select: { id: true, name: true } },
       statementLinkCompleted: true,
+      _count: { select: { attachments: true } },
       bankStatementLinks: { select: { amount: true } },
       transactions: {
         where: { deletedAt: null },
@@ -669,15 +948,19 @@ export async function getWorkflowGroupDetail(
     (t) => confirmedFilter(t).length > 0 && confirmedFilter(t).every((je) => je.realizationStatus === "realized")
   ).length;
   const hasActualPaymentDate = !!group.actualPaymentDate;
+  const statementLinkedAmount = group.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0);
 
   return {
     id: group.id,
     groupType: "payment",
     label: group.referenceCode ?? `PG-${group.id}`,
-    counterpartyName: group.counterparty?.name ?? "（未設定）",
-    counterpartyId: group.counterparty?.id ?? 0,
+    counterpartyName: group.counterparty?.name ?? group.customCounterpartyName ?? "（未設定）",
+    counterpartyId: group.counterparty?.id ?? null,
     totalAmount: group.totalAmount,
     status: group.status,
+    projectName: group.project?.name ?? null,
+    paymentDueDate: group.paymentDueDate ?? null,
+    expectedPaymentDate: group.expectedPaymentDate ?? null,
     actualPaymentDate: group.actualPaymentDate,
     category: determineCategory(
       group.status,
@@ -694,12 +977,15 @@ export async function getWorkflowGroupDetail(
     manualPaymentStatus: group.manualPaymentStatus as "unpaid" | "partial" | "completed",
     statementLinkCompleted: group.statementLinkCompleted,
     statementLinkCount: group.bankStatementLinks.length,
-    statementLinkedAmount: group.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0),
+    statementLinkedAmount,
+    statementUnlinkedAmount: calcUnlinkedAmount(group.totalAmount, statementLinkedAmount),
+    attachmentCount: group._count.attachments,
     returnRequestStatus: group.returnRequestStatus,
     returnRequestReason: group.returnRequestReason,
     returnRequestedAt: group.returnRequestedAt,
     projectId: group.projectId,
     transactions,
+    allocationTemplates,
   };
 }
 
@@ -919,6 +1205,8 @@ export type PendingApprovalDetail = {
     expenseCategoryName: string | null;
     paymentMethodId: number | null;
     paymentMethodName: string | null;
+    allocationTemplateId: number | null;
+    costCenterId: number | null;
     amount: number;
     taxAmount: number;
     taxRate: number;
@@ -940,6 +1228,7 @@ export type PendingApprovalDetail = {
   counterparties: { id: number; name: string; displayId: string | null; companyCode: string | null }[];
   expenseCategories: { id: number; name: string }[];
   paymentMethods: { id: number; name: string }[];
+  allocationTemplates: AllocationTemplateOption[];
 };
 
 export async function getPendingApprovalDetail(groupId: number): Promise<PendingApprovalDetail | null> {
@@ -968,6 +1257,8 @@ export async function getPendingApprovalDetail(groupId: number): Promise<Pending
           id: true,
           expenseCategoryId: true,
           paymentMethodId: true,
+          allocationTemplateId: true,
+          costCenterId: true,
           amount: true,
           taxAmount: true,
           taxRate: true,
@@ -1001,7 +1292,7 @@ export async function getPendingApprovalDetail(groupId: number): Promise<Pending
 
   if (!pg) return null;
 
-  const [counterparties, expenseCategories, paymentMethods] = await Promise.all([
+  const [counterparties, expenseCategories, paymentMethods, allocationTemplates] = await Promise.all([
     prisma.counterparty.findMany({
       where: { deletedAt: null, mergedIntoId: null, isActive: true },
       select: { id: true, name: true, displayId: true, company: { select: { companyCode: true } } },
@@ -1017,6 +1308,7 @@ export async function getPendingApprovalDetail(groupId: number): Promise<Pending
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
+    getAllocationTemplateOptions(),
   ]);
 
   const tx = pg.transactions[0] ?? null;
@@ -1042,6 +1334,8 @@ export async function getPendingApprovalDetail(groupId: number): Promise<Pending
           expenseCategoryName: tx.expenseCategory?.name ?? null,
           paymentMethodId: tx.paymentMethodId,
           paymentMethodName: tx.paymentMethod?.name ?? null,
+          allocationTemplateId: tx.allocationTemplateId,
+          costCenterId: tx.costCenterId,
           amount: tx.amount,
           taxAmount: tx.taxAmount,
           taxRate: tx.taxRate,
@@ -1074,6 +1368,7 @@ export async function getPendingApprovalDetail(groupId: number): Promise<Pending
     })),
     expenseCategories,
     paymentMethods,
+    allocationTemplates,
   };
 }
 
@@ -1092,6 +1387,8 @@ export async function updateAndApprovePaymentGroup(
     taxRate?: number;
     note?: string | null;
     actualPaymentDate?: string | null;
+    useAllocation?: boolean;
+    allocationTemplateId?: number | null;
   }
 ): Promise<ActionResult> {
   try {
@@ -1128,6 +1425,8 @@ export async function updateAndApprovePaymentGroup(
           paymentDueDate: true,
           note: true,
           costCenterId: true,
+          allocationTemplateId: true,
+          projectId: true,
         },
       },
     },
@@ -1220,19 +1519,37 @@ export async function updateAndApprovePaymentGroup(
         where: { id: existingTx.id },
         data: txUpdate,
       });
+
+      if (updates.useAllocation !== undefined) {
+        const allocationResult = await applyTransactionAllocationUpdate(tx, {
+          transactionId: existingTx.id,
+          projectId: group.projectId,
+          existingCostCenterId: existingTx.costCenterId,
+          useAllocation: updates.useAllocation,
+          allocationTemplateId: updates.allocationTemplateId,
+        });
+        if (!allocationResult.ok) throw new Error(allocationResult.error);
+      }
     } else {
       // Transaction が未作成の場合（手入力取引先で承認時に初めて作成）
       const amt = updates.amount ?? group.totalAmount ?? 0;
       const taxAmt = updates.taxAmount ?? group.taxAmount ?? 0;
       const taxRate = updates.taxRate ?? 10;
       const occurrenceDate = group.expectedPaymentDate ?? new Date();
+      if (updates.useAllocation && !updates.allocationTemplateId) {
+        throw new Error("按分テンプレートを選択してください");
+      }
+      const costCenterId = updates.useAllocation
+        ? null
+        : await resolveCostCenterForFullProject(tx, group.projectId, null);
 
       await tx.transaction.create({
         data: {
           paymentGroupId: groupId,
           counterpartyId: finalCounterpartyId,
           expenseCategoryId: updates.expenseCategoryId ?? null,
-          costCenterId: group.transactions[0]?.costCenterId ?? null,
+          costCenterId,
+          allocationTemplateId: updates.useAllocation ? (updates.allocationTemplateId ?? null) : null,
           projectId: group.projectId,
           paymentMethodId: updates.paymentMethodId ?? null,
           type: "expense",
@@ -1259,6 +1576,67 @@ export async function updateAndApprovePaymentGroup(
   } catch (e) {
     console.error("[updateAndApprovePaymentGroup] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+// ============================================
+// 8b. updatePaymentGroupAllocation（仕訳前の按分設定変更）
+// ============================================
+
+export async function updatePaymentGroupAllocation(
+  groupId: number,
+  input: {
+    transactionId: number;
+    useAllocation: boolean;
+    allocationTemplateId?: number | null;
+  }
+): Promise<ActionResult> {
+  try {
+    await requireStaffForAccounting("edit");
+
+    const group = await prisma.paymentGroup.findFirst({
+      where: { id: groupId, deletedAt: null },
+      select: {
+        id: true,
+        status: true,
+        projectId: true,
+        transactions: {
+          where: { id: input.transactionId, deletedAt: null },
+          select: {
+            id: true,
+            costCenterId: true,
+          },
+          take: 1,
+        },
+      },
+    });
+
+    if (!group) return err("支払グループが見つかりません");
+    if (!["awaiting_accounting", "pending_accounting_approval"].includes(group.status)) {
+      return err("このステータスでは按分設定を変更できません");
+    }
+
+    const transaction = group.transactions[0];
+    if (!transaction) return err("対象の取引が見つかりません");
+
+    const result = await prisma.$transaction(async (tx) => {
+      return applyTransactionAllocationUpdate(tx, {
+        transactionId: transaction.id,
+        projectId: group.projectId,
+        existingCostCenterId: transaction.costCenterId,
+        useAllocation: input.useAllocation,
+        allocationTemplateId: input.allocationTemplateId,
+      });
+    });
+
+    if (!result.ok) return result;
+
+    revalidatePath("/accounting/workflow");
+    revalidatePath("/accounting/workflow/group-detail");
+    return ok();
+  } catch (e) {
+    console.error("[updatePaymentGroupAllocation] error:", e);
+    return err(e instanceof Error ? e.message : "按分設定の更新に失敗しました");
   }
 }
 

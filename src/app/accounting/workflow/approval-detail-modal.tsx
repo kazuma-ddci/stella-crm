@@ -57,6 +57,8 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
   const [note, setNote] = useState("");
   const [actualPaymentDate, setActualPaymentDate] = useState("");
   const [rejectReason, setRejectReason] = useState("");
+  const [useAllocation, setUseAllocation] = useState(false);
+  const [allocationTemplateId, setAllocationTemplateId] = useState<number | null>(null);
 
   // データロード
   useEffect(() => {
@@ -76,6 +78,9 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
           setAmount(d.transaction?.amount?.toString() ?? "");
           setTaxRate(d.transaction?.taxRate ?? 10);
           setNote(d.transaction?.note ?? "");
+          const currentAllocationTemplateId = d.transaction?.allocationTemplateId ?? null;
+          setUseAllocation(!!currentAllocationTemplateId);
+          setAllocationTemplateId(currentAllocationTemplateId);
         }
       })
       .finally(() => setLoading(false));
@@ -86,6 +91,11 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
     if (!amt || !taxRate) return 0;
     return Math.floor(amt - amt / (1 + taxRate / 100));
   }, [amount, taxRate]);
+
+  const selectedAllocationTemplate = useMemo(() => {
+    if (!detail || !allocationTemplateId) return null;
+    return detail.allocationTemplates.find((t) => t.id === allocationTemplateId) ?? null;
+  }, [detail, allocationTemplateId]);
 
   const [counterpartyTab, setCounterpartyTab] = useState("stella");
   const [newCounterpartyName, setNewCounterpartyName] = useState("");
@@ -137,6 +147,10 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
   const handleApprove = () => {
     if (!detail) return;
     setError(null);
+    if (useAllocation && !allocationTemplateId) {
+      setError("按分テンプレートを選択してください");
+      return;
+    }
     startTransition(async () => {
       const result = await updateAndApprovePaymentGroup(detail.id, {
         counterpartyId: counterpartyId ?? undefined,
@@ -147,6 +161,8 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
         taxRate,
         note: note.trim() || null,
         actualPaymentDate: actualPaymentDate || null,
+        useAllocation,
+        allocationTemplateId: useAllocation ? allocationTemplateId : null,
       });
       if (!result.ok) {
         setError(result.error);
@@ -415,6 +431,69 @@ export function ApprovalDetailModal({ groupId, open, onClose }: Props) {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* プロジェクト按分 */}
+              <div className="rounded border p-3 space-y-3">
+                <Label>プロジェクト按分</Label>
+                <div className="flex flex-wrap items-center gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <input
+                      type="radio"
+                      name="approval-allocation"
+                      checked={!useAllocation}
+                      onChange={() => {
+                        setUseAllocation(false);
+                        setAllocationTemplateId(null);
+                      }}
+                      className="rounded"
+                    />
+                    主プロジェクトに全額計上
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <input
+                      type="radio"
+                      name="approval-allocation"
+                      checked={useAllocation}
+                      onChange={() => setUseAllocation(true)}
+                      className="rounded"
+                    />
+                    複数プロジェクトに按分
+                  </label>
+                </div>
+
+                {useAllocation && (
+                  <div className="space-y-3">
+                    <Select
+                      value={allocationTemplateId?.toString() ?? ""}
+                      onValueChange={(v) => setAllocationTemplateId(v ? Number(v) : null)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="按分テンプレートを選択..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {detail.allocationTemplates.map((template) => (
+                          <SelectItem key={template.id} value={template.id.toString()}>
+                            {template.name}（{template.lines.length}先）
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedAllocationTemplate && (
+                      <div className="rounded border bg-muted/30 p-3">
+                        <p className="text-xs font-medium text-muted-foreground mb-2">按分内訳</p>
+                        <div className="space-y-1">
+                          {selectedAllocationTemplate.lines.map((line, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-sm">
+                              <span>{line.costCenterName ?? line.label ?? "未確定"}</span>
+                              <span className="font-mono text-muted-foreground">{line.allocationRate}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* 金額 */}

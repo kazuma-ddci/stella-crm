@@ -360,6 +360,28 @@ const checkDefinitions: CheckDefinition[] = [
       prisma.operatingCompany.count({ where: { isActive: true } }),
   },
   {
+    id: "accounting-projects",
+    category: "経理",
+    name: "プロジェクト",
+    description: "経理側で請求/支払グループを作成するためのプロジェクト",
+    required: 1,
+    href: "/settings/projects",
+    countFn: () =>
+      prisma.masterProject.count({ where: { isActive: true } }),
+  },
+  {
+    id: "accounting-counterparties",
+    category: "経理",
+    name: "取引先",
+    description: "経理側で請求/支払グループを作成するための取引先マスタ",
+    required: 1,
+    href: "/accounting/masters/counterparties",
+    countFn: () =>
+      prisma.counterparty.count({
+        where: { deletedAt: null, mergedIntoId: null, isActive: true },
+      }),
+  },
+  {
     id: "accounting-accounts",
     category: "経理",
     name: "勘定科目",

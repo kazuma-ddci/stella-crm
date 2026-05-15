@@ -32,6 +32,7 @@ import {
   type ConflictResolution,
 } from "./link-actions";
 import { ConflictResolutionDialog } from "@/components/accounting/conflict-resolution-dialog";
+import { AccountingGroupCreateModal } from "../accounting-group-create-modal";
 
 type EntrySummary = {
   id: number;
@@ -86,6 +87,7 @@ export function LinkEntryModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [conflicts, setConflicts] = useState<LinkConflict[] | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const totalAmount =
     (entry.incomingAmount ?? 0) > 0
@@ -398,15 +400,27 @@ export function LinkEntryModal({
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <Label className="text-sm font-medium">候補から追加</Label>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={includeCrossCompany ? "default" : "outline"}
-                  onClick={handleToggleCrossCompany}
-                  className="h-8"
-                >
-                  {includeCrossCompany ? "別法人候補を表示中" : "別法人の候補も表示"}
-                </Button>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setCreateOpen(true)}
+                    className="h-8"
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    {direction === "invoice" ? "請求グループを作成" : "支払グループを作成"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={includeCrossCompany ? "default" : "outline"}
+                    onClick={handleToggleCrossCompany}
+                    className="h-8"
+                  >
+                    {includeCrossCompany ? "別法人候補を表示中" : "別法人の候補も表示"}
+                  </Button>
+                </div>
               </div>
               {includeCrossCompany && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
@@ -534,6 +548,18 @@ export function LinkEntryModal({
         onResolve={handleResolveConflict}
         onCancel={() => setConflicts(null)}
       />
+      {direction && (
+        <AccountingGroupCreateModal
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          sourceEntryId={entry.id}
+          initialKind={direction}
+          onCreated={() => {
+            load();
+            onSaved?.();
+          }}
+        />
+      )}
     </Dialog>
   );
 }

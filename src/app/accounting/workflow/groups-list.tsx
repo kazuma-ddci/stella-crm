@@ -16,17 +16,28 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { FileText, CreditCard, ChevronRight, Check, Clock, AlertCircle, AlertTriangle, Ban, UserCheck, Link2, Undo2 } from "lucide-react";
+import { FileText, CreditCard, ChevronRight, Check, Clock, AlertCircle, AlertTriangle, Ban, UserCheck, Link2, Undo2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import type { WorkflowGroup } from "./actions";
 import { bulkRealizeJournalEntries, type DueUnrealizedJournalEntry } from "../journal/actions";
 import { ApprovalDetailModal } from "./approval-detail-modal";
+import { AccountingGroupCreateModal } from "../accounting-group-create-modal";
+import type { AccountingGroupKind } from "../accounting-group-create-actions";
 
 type Props = {
   groups: WorkflowGroup[];
   projects: { id: number; code: string; name: string }[];
   dueUnrealizedEntries: DueUnrealizedJournalEntry[];
 };
+
+function yen(value: number | null | undefined) {
+  return value === null || value === undefined ? "-" : `¥${value.toLocaleString()}`;
+}
+
+function dateLabel(value: Date | string | null | undefined) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString("ja-JP");
+}
 
 // 入金/支払の手動ステータスバッジ（経理が手動で切り替えた状態を表示）
 function ManualPaymentStatusBadge({ group }: { group: WorkflowGroup }) {
@@ -230,9 +241,11 @@ function GroupTable({
         <TableHeader>
           <TableRow>
             <TableHead className="w-[40px]">種別</TableHead>
-            <TableHead>番号</TableHead>
-            <TableHead>取引先</TableHead>
-            <TableHead className="text-right">金額</TableHead>
+            <TableHead>グループ</TableHead>
+            <TableHead>取引先・プロジェクト</TableHead>
+            <TableHead>明細</TableHead>
+            <TableHead className="text-right">金額・入出金</TableHead>
+            <TableHead>日付</TableHead>
             <TableHead>進捗</TableHead>
             {showApprovalActions && <TableHead className="w-[160px]">承認アクション</TableHead>}
             <TableHead className="w-[60px]">詳細</TableHead>
@@ -254,16 +267,63 @@ function GroupTable({
                   </div>
                 )}
               </TableCell>
-              <TableCell className="font-mono text-sm">
-                {g.label}
+              <TableCell className="whitespace-nowrap">
+                <div className="font-mono text-sm">{g.label}</div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {g.attachmentCount > 0 && (
+                    <Badge variant="outline" className="text-[10px]">
+                      証憑 {g.attachmentCount}
+                    </Badge>
+                  )}
+                  {g.hasAllocation && (
+                    <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
+                      按分あり
+                    </Badge>
+                  )}
+                  {g.hasWithholding && (
+                    <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">
+                      源泉あり
+                    </Badge>
+                  )}
+                </div>
               </TableCell>
-              <TableCell className="max-w-[200px] truncate">
-                {g.counterpartyName}
+              <TableCell className="max-w-[240px]">
+                <div className="truncate font-medium">{g.counterpartyName}</div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {g.projectLabel ?? "プロジェクト未設定"}
+                </div>
+              </TableCell>
+              <TableCell className="max-w-[260px]">
+                <div className="text-sm">
+                  {g.transactionCount}件
+                  {g.categorySummary.length > 0 && (
+                    <span className="ml-1 text-muted-foreground">
+                      {g.categorySummary.join(" / ")}
+                    </span>
+                  )}
+                </div>
+                {g.noteSummary && (
+                  <div className="truncate text-xs text-muted-foreground">
+                    {g.noteSummary}
+                  </div>
+                )}
               </TableCell>
               <TableCell className="text-right whitespace-nowrap">
-                {g.totalAmount != null
-                  ? `¥${g.totalAmount.toLocaleString()}`
-                  : "-"}
+                <div className="font-medium">{yen(g.totalAmount)}</div>
+                <div className="text-xs text-muted-foreground">
+                  紐づき {yen(g.statementLinkedAmount)}
+                </div>
+                <div className={g.statementUnlinkedAmount === 0 ? "text-xs text-green-700" : "text-xs text-amber-700"}>
+                  未紐づき {yen(g.statementUnlinkedAmount)}
+                </div>
+              </TableCell>
+              <TableCell className="whitespace-nowrap text-xs">
+                <div>
+                  予定: {dateLabel(g.expectedPaymentDate ?? g.paymentDueDate)}
+                </div>
+                <div className="text-muted-foreground">
+                  実績: {dateLabel(g.actualPaymentDate)}
+                </div>
               </TableCell>
               <TableCell>
                 <ConditionBadges group={g} />
@@ -498,6 +558,8 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
   const [isPending, startTransition] = useTransition();
   const [search, setSearch] = useState("");
   const [approvalModalGroupId, setApprovalModalGroupId] = useState<number | null>(null);
+  const [createKind, setCreateKind] = useState<AccountingGroupKind>("invoice");
+  const [createOpen, setCreateOpen] = useState(false);
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<number>>(new Set());
   const [selectedDueEntryIds, setSelectedDueEntryIds] = useState<Set<number>>(new Set());
 
@@ -517,7 +579,10 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
       filtered = filtered.filter(
         (g) =>
           g.label.toLowerCase().includes(q) ||
-          g.counterpartyName.toLowerCase().includes(q)
+          g.counterpartyName.toLowerCase().includes(q) ||
+          g.projectLabel?.toLowerCase().includes(q) ||
+          g.categorySummary.some((category) => category.toLowerCase().includes(q)) ||
+          g.noteSummary?.toLowerCase().includes(q)
       );
     }
     if (selectedProjectIds.size > 0) {
@@ -646,39 +711,65 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3 flex-wrap">
-        <Input
-          placeholder="請求番号・取引先で検索..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-64"
-        />
-        {projects.length > 0 && (
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-muted-foreground">プロジェクト:</span>
-            {projects.map((p) => (
-              <Button
-                key={p.id}
-                variant={selectedProjectIds.has(p.id) ? "default" : "outline"}
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => toggleProject(p.id)}
-              >
-                {p.code}
-              </Button>
-            ))}
-            {selectedProjectIds.size > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-xs text-muted-foreground"
-                onClick={() => setSelectedProjectIds(new Set())}
-              >
-                クリア
-              </Button>
-            )}
-          </div>
-        )}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <Input
+            placeholder="請求番号・取引先で検索..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-64"
+          />
+          {projects.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">プロジェクト:</span>
+              {projects.map((p) => (
+                <Button
+                  key={p.id}
+                  variant={selectedProjectIds.has(p.id) ? "default" : "outline"}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => toggleProject(p.id)}
+                >
+                  {p.code}
+                </Button>
+              ))}
+              {selectedProjectIds.size > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs text-muted-foreground"
+                  onClick={() => setSelectedProjectIds(new Set())}
+                >
+                  クリア
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setCreateKind("invoice");
+              setCreateOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            請求グループ作成
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setCreateKind("payment");
+              setCreateOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            支払グループ作成
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue={defaultTab}>
@@ -827,6 +918,12 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
         groupId={approvalModalGroupId}
         open={approvalModalGroupId !== null}
         onClose={() => setApprovalModalGroupId(null)}
+      />
+      <AccountingGroupCreateModal
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        initialKind={createKind}
+        onCreated={() => router.refresh()}
       />
     </div>
   );
