@@ -174,9 +174,9 @@ export function StaffTable({ data, projectOptions, permissionProjects, editableP
         options: isEditable
           ? getPermissionLevelsForMaxLevel(editableMap.get(p.code)!)
           : PERMISSION_LEVELS,
+        dependsOn: `approve_${p.code}`,
         editable: isEditable,
         simpleMode: true,
-        hiddenWhen: { field: "organizationRole", value: "founder" },
       },
       // approve_xxx はデータ保持用の非表示カラム（perm_xxx のカスタムフォームから制御）
       {
@@ -245,7 +245,12 @@ export function StaffTable({ data, projectOptions, permissionProjects, editableP
       // ファウンダー表示
       if (row.organizationRole === "founder") {
         return (
-          <span className="text-xs text-muted-foreground">(全権限)</span>
+          <div>
+            <span className="text-xs text-muted-foreground">(全権限)</span>
+            {row[approveKey] === true && (
+              <div className="text-xs text-blue-600 font-medium">承認権限あり</div>
+            )}
+          </div>
         );
       }
 
@@ -281,11 +286,36 @@ export function StaffTable({ data, projectOptions, permissionProjects, editableP
         const hasPermission = permValue !== "none";
         const editingStaffId = formData.id as number | undefined;
         const isSelfEdit = editingStaffId === currentUserId;
+        const isFounderRole = formData.organizationRole === "founder";
 
         // 自分自身か他人かで使うマップを切り替え
         const effectiveMap = isSelfEdit ? selfEditableMap : editableMap;
         const isEditable = effectiveMap.has(project.code);
         const maxLevel = effectiveMap.get(project.code) ?? "none";
+
+        if (isFounderRole) {
+          return (
+            <div className="space-y-2">
+              <div className="w-full rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground">
+                ファウンダーのため全権限
+              </div>
+              {canSetFounder && isEditable && (
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={approveValue}
+                    onChange={(e) => setFormData({ ...formData, [approveKey]: e.target.checked })}
+                    className="rounded"
+                  />
+                  承認権限
+                </label>
+              )}
+              {approveValue && (!canSetFounder || !isEditable) && (
+                <div className="text-xs text-blue-600 font-medium">承認権限あり</div>
+              )}
+            </div>
+          );
+        }
 
         // 編集不可の場合: グレーアウト表示
         if (!isEditable) {

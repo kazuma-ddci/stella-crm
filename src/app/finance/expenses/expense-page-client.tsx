@@ -13,10 +13,11 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import { PlusCircle, ClipboardList, Repeat, BarChart3, UserCheck, Eye, Wallet } from "lucide-react";
+import { PlusCircle, ClipboardList, Repeat, BarChart3, UserCheck, Eye, Wallet, Pencil, RotateCcw, XCircle } from "lucide-react";
 import { ManualExpenseForm } from "./manual-expense-form";
 import {
   approveByProjectApprover,
+  cancelExpenseRequest,
   rejectByProjectApprover,
   type ExpenseFormData,
   type ExpenseStatusItem,
@@ -42,6 +43,7 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   pending_accounting_approval: { label: "承認済み・支払対応待ち", className: "bg-yellow-100 text-yellow-700" },
   awaiting_accounting: { label: "経理処理中", className: "bg-blue-100 text-blue-700" },
   returned: { label: "差し戻し", className: "bg-red-100 text-red-700" },
+  cancelled: { label: "取消済み", className: "bg-gray-100 text-gray-500" },
   paid: { label: "完了", className: "bg-green-100 text-green-700" },
   confirmed: { label: "確定", className: "bg-blue-100 text-blue-700" },
   before_request: { label: "請求前", className: "bg-gray-100 text-gray-700" },
@@ -136,6 +138,12 @@ function ExpensePreviewModal({ item, open, onClose }: { item: ExpenseStatusItem 
             {item.expenseOwners.length > 0 && (
               <div className="col-span-2">
                 <span className="text-muted-foreground">担当者:</span> {item.expenseOwners.join(", ")}
+              </div>
+            )}
+            {item.returnReason && (
+              <div className="col-span-2 rounded border border-red-200 bg-red-50 p-2">
+                <div className="font-medium text-red-700 mb-1">差し戻し理由</div>
+                <p className="whitespace-pre-wrap text-red-800">{item.returnReason}</p>
               </div>
             )}
             {item.allocationTemplateName && (
@@ -253,6 +261,11 @@ function MyExpenseDashboardTab({
         approverName: previewItem.approverName,
         createdAt: previewItem.createdAt,
         createdByName: previewItem.creatorName,
+        createdById: 0,
+        canEdit: false,
+        canCancel: false,
+        canResubmit: false,
+        returnReason: null,
         note: previewItem.note,
         expenseCategoryName: previewItem.expenseCategoryName,
         paymentMethodName: previewItem.paymentMethodName,
@@ -261,6 +274,7 @@ function MyExpenseDashboardTab({
         expenseOwners: previewItem.expenseOwners,
         allocationTemplateName: previewItem.allocationTemplateName,
         allocationLines: previewItem.allocationLines,
+        editValues: null,
       }
     : null;
 
@@ -444,8 +458,33 @@ function MyExpenseDashboardTab({
 // ============================================
 // 自分の申請タブ
 // ============================================
-function ExpenseStatusTab({ items }: { items: ExpenseStatusItem[] }) {
+function ExpenseStatusTab({
+  items,
+  formData,
+  mode,
+  backUrl,
+}: {
+  items: ExpenseStatusItem[];
+  formData: ExpenseFormData;
+  mode: "accounting" | "project";
+  backUrl: string;
+}) {
   const [previewItem, setPreviewItem] = useState<ExpenseStatusItem | null>(null);
+  const [editItem, setEditItem] = useState<ExpenseStatusItem | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+
+  const handleCancelRequest = (item: ExpenseStatusItem) => {
+    if (!confirm(`${item.referenceCode ?? "この申請"}を取り消しますか？`)) return;
+    startTransition(async () => {
+      const result = await cancelExpenseRequest(item.id);
+      if (!result.ok) {
+        alert(result.error);
+        return;
+      }
+      router.refresh();
+    });
+  };
 
   if (items.length === 0) {
     return <p className="text-muted-foreground text-center py-12">申請した経費はまだありません</p>;
@@ -463,7 +502,7 @@ function ExpenseStatusTab({ items }: { items: ExpenseStatusItem[] }) {
               <TableHead>ステータス</TableHead>
               <TableHead>承認者</TableHead>
               <TableHead>申請日</TableHead>
-              <TableHead className="w-[50px]"></TableHead>
+              <TableHead className="w-[210px]">アクション</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -484,9 +523,40 @@ function ExpenseStatusTab({ items }: { items: ExpenseStatusItem[] }) {
                 <TableCell className="text-sm">{item.approverName ?? "-"}</TableCell>
                 <TableCell className="text-sm">{formatDate(item.createdAt)}</TableCell>
                 <TableCell>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setPreviewItem(item)}>
-                    <Eye className="h-3.5 w-3.5" />
-                  </Button>
+                  <div className="flex flex-wrap gap-1">
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setPreviewItem(item)}>
+                      <Eye className="h-3.5 w-3.5" />
+                    </Button>
+                    {item.canEdit && item.editValues && (
+                      <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setEditItem(item)}>
+                        <Pencil className="h-3 w-3" />
+                        編集
+                      </Button>
+                    )}
+                    {item.canResubmit && item.editValues && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs gap-1 border-purple-200 text-purple-700 hover:bg-purple-50"
+                        onClick={() => setEditItem(item)}
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        再申請
+                      </Button>
+                    )}
+                    {item.canCancel && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs gap-1 border-red-200 text-red-700 hover:bg-red-50"
+                        disabled={isPending}
+                        onClick={() => handleCancelRequest(item)}
+                      >
+                        <XCircle className="h-3 w-3" />
+                        取消
+                      </Button>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -494,6 +564,30 @@ function ExpenseStatusTab({ items }: { items: ExpenseStatusItem[] }) {
         </Table>
       </div>
       <ExpensePreviewModal item={previewItem} open={!!previewItem} onClose={() => setPreviewItem(null)} />
+      <Dialog open={!!editItem} onOpenChange={(open) => !open && setEditItem(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {editItem?.status === "returned" ? "差し戻し申請の修正" : "申請内容の編集"}
+            </DialogTitle>
+          </DialogHeader>
+          {editItem?.editValues && (
+            <ManualExpenseForm
+              formData={formData}
+              mode={mode}
+              backUrl={backUrl}
+              submitMode={editItem.status === "returned" ? "resubmit" : "update"}
+              groupId={editItem.id}
+              initialExpense={editItem.editValues}
+              onSuccess={() => {
+                setEditItem(null);
+                router.refresh();
+              }}
+              onCancel={() => setEditItem(null)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -822,7 +916,7 @@ export function ExpensePageClient({
       )}
 
       <TabsContent value="status" className="mt-6">
-        <ExpenseStatusTab items={myExpenses} />
+        <ExpenseStatusTab items={myExpenses} formData={formData} mode={mode} backUrl={backUrl} />
       </TabsContent>
 
       <TabsContent value="recurring" className="mt-6">

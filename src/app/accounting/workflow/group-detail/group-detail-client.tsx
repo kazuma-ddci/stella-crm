@@ -107,6 +107,7 @@ function TransactionStatusIcon({ transaction }: { transaction: WorkflowTransacti
 
 function CategoryBadge({ category }: { category: string }) {
   const config: Record<string, { label: string; className: string }> = {
+    pending_project_approval: { label: "プロジェクト承認待ち", className: "bg-amber-50 text-amber-700 border-amber-200" },
     pending_accounting_approval: { label: "経理承認待ち", className: "bg-purple-50 text-purple-700 border-purple-200" },
     return_requested: { label: "差し戻し依頼あり", className: "bg-amber-50 text-amber-700 border-amber-300" },
     needs_journal: { label: "仕訳作成待ち", className: "bg-red-50 text-red-700 border-red-200" },
@@ -254,7 +255,10 @@ function NextActionCard({ detail }: { detail: WorkflowGroupDetail }) {
   let body = "このグループは確認待ちです。";
   let tone = "border-blue-200 bg-blue-50 text-blue-900";
 
-  if (detail.category === "pending_accounting_approval") {
+  if (detail.category === "pending_project_approval") {
+    body = "プロジェクト承認者の確認待ちです。経理では内容確認のみ行い、支払対応へは進められません。";
+    tone = "border-amber-200 bg-amber-50 text-amber-900";
+  } else if (detail.category === "pending_accounting_approval") {
     body = "内容を確認して、経理承認を行ってください。";
   } else if (detail.category === "return_requested") {
     body = "プロジェクト側から差し戻し依頼が届いています。内容を確認し、必要であればプロジェクトへ差し戻してください。";
@@ -362,7 +366,8 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
 
   const isCompleted = detail.category === "completed";
   const isReturned = detail.category === "returned";
-  const isReadOnly = isCompleted || isReturned;
+  const isProjectPending = detail.category === "pending_project_approval";
+  const isReadOnly = isCompleted || isReturned || isProjectPending;
 
   const openCreateJournal = (transactionId: number, projectId: number | null) => {
     setSelectedTransactionId(transactionId);

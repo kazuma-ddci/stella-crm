@@ -689,6 +689,12 @@ function filterNavigationByPermissions(
     .filter((item) => {
       // サイドバーカスタマイズ: hiddenItemsに含まれるキーは非表示（デフォルト: 全て表示）
       if (item.key && Array.isArray(hiddenItems) && hiddenItems.length > 0 && hiddenItems.includes(item.key)) {
+        if (
+          item.key === "accounting" &&
+          (isAdminUser || isFounder || canView(user.permissions, "accounting"))
+        ) {
+          return true;
+        }
         return false;
       }
       // adminユーザーは全メニュー表示

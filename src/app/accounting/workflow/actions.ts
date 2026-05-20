@@ -22,7 +22,7 @@ import { ensureCostCentersForActiveProjects } from "@/lib/accounting/cost-center
 // ============================================
 
 export type WorkflowCategory =
-  | "pending_project_overdue" // プロジェクト未承認（決済予定日5日以内）— 警告
+  | "pending_project_approval" // プロジェクト承認待ち（経理は閲覧のみ）
   | "pending_accounting_approval" // 経理承認待ち（プロジェクト承認済み、経理未承認）
   | "return_requested" // プロジェクト側から差し戻し依頼あり
   | "needs_journal"    // 仕訳待ち
@@ -298,6 +298,9 @@ function determineCategory(
 ): WorkflowCategory {
   if (returnRequestStatus === "requested") return "return_requested";
 
+  // プロジェクト承認待ち（経理は先読み・督促用に閲覧のみ）
+  if (status === "pending_project_approval") return "pending_project_approval";
+
   // 経理承認待ち（プロジェクト承認済み）
   if (status === "pending_accounting_approval") return "pending_accounting_approval";
 
@@ -557,12 +560,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       ? Math.ceil((pg.expectedPaymentDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
       : null;
 
-    // pending_project_approval は経理側には「5日以内の警告」のみ表示
     if (pg.status === "pending_project_approval") {
-      // 定期取引由来かつ決済予定日5日以内のもののみ表示
-      const isRecurring = pg.transactions.some((t) => t.sourceType === "recurring");
-      if (!isRecurring || daysUntilPayment === null || daysUntilPayment > 5) continue;
-
       groups.push({
         id: pg.id,
         groupType: "payment",
@@ -571,7 +569,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         totalAmount: pg.totalAmount,
         status: pg.status,
         createdAt: pg.createdAt,
-        category: "pending_project_overdue",
+        category: "pending_project_approval",
         projectId: pg.projectId ?? null,
         projectLabel: pg.project?.defaultCostCenter?.name ?? pg.project?.name ?? null,
         paymentDueDate: pg.paymentDueDate ?? null,

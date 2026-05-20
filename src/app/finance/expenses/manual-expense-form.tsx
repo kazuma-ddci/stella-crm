@@ -17,7 +17,13 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { X, Plus, Search, Upload, FileText, Trash2 } from "lucide-react";
-import { submitExpenseRequest, type ExpenseFormData } from "./actions";
+import {
+  resubmitReturnedExpense,
+  submitExpenseRequest,
+  updateExpenseRequest,
+  type ExpenseFormData,
+  type ExpenseStatusItem,
+} from "./actions";
 
 type Owner = { staffId: number | null; customName: string | null; key: string };
 
@@ -25,13 +31,22 @@ type Props = {
   formData: ExpenseFormData;
   mode: "accounting" | "project";
   backUrl: string;
+  submitMode?: "create" | "update" | "resubmit";
+  groupId?: number;
+  initialExpense?: ExpenseStatusItem["editValues"];
+  onSuccess?: () => void;
+  onCancel?: () => void;
 };
 
-const FREQUENCY_OPTIONS = [
+const EXPENSE_KIND_OPTIONS = [
   { value: "once", label: "単発経費" },
-  { value: "monthly", label: "サブスク・月額 / Nヶ月ごと" },
-  { value: "yearly", label: "年額 / N年ごと" },
-  { value: "weekly", label: "週次の定期経費" },
+  { value: "recurring", label: "定期経費" },
+];
+
+const RECURRING_FREQUENCY_OPTIONS = [
+  { value: "monthly", label: "毎月" },
+  { value: "yearly", label: "毎年" },
+  { value: "weekly", label: "週次" },
 ];
 
 function compareAscii(a: string, b: string) {
@@ -198,27 +213,45 @@ function CounterpartySelector({
   );
 }
 
-export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
+function toDateInputValue(value: Date | string | null | undefined) {
+  if (!value) return "";
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export function ManualExpenseForm({
+  formData,
+  mode,
+  backUrl,
+  submitMode = "create",
+  groupId,
+  initialExpense,
+  onSuccess,
+  onCancel,
+}: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const isEditMode = submitMode !== "create";
 
-  const [projectId, setProjectId] = useState<number | null>(formData.project?.id ?? null);
-  const [counterpartyId, setCounterpartyId] = useState<number | null>(null);
-  const [customCounterpartyName, setCustomCounterpartyName] = useState("");
+  const [projectId, setProjectId] = useState<number | null>(initialExpense?.projectId ?? formData.project?.id ?? null);
+  const [counterpartyId, setCounterpartyId] = useState<number | null>(initialExpense?.counterpartyId ?? null);
+  const [customCounterpartyName, setCustomCounterpartyName] = useState(initialExpense?.customCounterpartyName ?? "");
   const [operatingCompanyId, setOperatingCompanyId] = useState<number | null>(
-    formData.project?.operatingCompanyId ?? formData.operatingCompanies[0]?.id ?? null
+    initialExpense?.operatingCompanyId ?? formData.project?.operatingCompanyId ?? formData.operatingCompanies[0]?.id ?? null
   );
-  const [expenseCategoryId, setExpenseCategoryId] = useState<number | null>(null);
-  const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
+  const [expenseCategoryId, setExpenseCategoryId] = useState<number | null>(initialExpense?.expenseCategoryId ?? null);
+  const [paymentMethodId, setPaymentMethodId] = useState<number | null>(initialExpense?.paymentMethodId ?? null);
   const [approverStaffId, setApproverStaffId] = useState<number | null>(
-    formData.project?.defaultApproverStaffId ?? null
+    initialExpense?.approverStaffId ?? formData.project?.defaultApproverStaffId ?? null
   );
 
-  const [frequency, setFrequency] = useState<string>("once");
+  const [expenseKind, setExpenseKind] = useState<"once" | "recurring">("once");
+  const [recurringFrequency, setRecurringFrequency] = useState<"monthly" | "yearly" | "weekly">("monthly");
   const [amountType, setAmountType] = useState<"fixed" | "variable">("fixed");
-  const [amount, setAmount] = useState("");
-  const [taxRate, setTaxRate] = useState(10);
+  const [amount, setAmount] = useState(initialExpense?.amount != null ? String(initialExpense.amount) : "");
+  const [taxRate, setTaxRate] = useState(initialExpense?.taxRate ?? 10);
 
   const [intervalCount, setIntervalCount] = useState(1);
   const [executionDay, setExecutionDay] = useState("");
@@ -227,12 +260,12 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
   const [endDate, setEndDate] = useState("");
   const [recurringName, setRecurringName] = useState("");
 
-  const [scheduledPaymentDate, setScheduledPaymentDate] = useState("");
+  const [scheduledPaymentDate, setScheduledPaymentDate] = useState(toDateInputValue(initialExpense?.scheduledPaymentDate));
 
   // 按分
-  const [useAllocation, setUseAllocation] = useState(false);
-  const [allocationTemplateId, setAllocationTemplateId] = useState<number | null>(null);
-  const [costCenterId] = useState<number | null>(null);
+  const [useAllocation, setUseAllocation] = useState(initialExpense?.useAllocation ?? false);
+  const [allocationTemplateId, setAllocationTemplateId] = useState<number | null>(initialExpense?.allocationTemplateId ?? null);
+  const [costCenterId] = useState<number | null>(initialExpense?.costCenterId ?? null);
 
   const selectedTemplate = useMemo(() => {
     if (!allocationTemplateId) return null;
@@ -240,7 +273,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
   }, [allocationTemplateId, formData.allocationTemplates]);
 
   // 機密
-  const [isConfidential, setIsConfidential] = useState(false);
+  const [isConfidential, setIsConfidential] = useState(initialExpense?.isConfidential ?? false);
 
   // 証憑ファイル
   type PendingFile = { file: File; key: string };
@@ -256,10 +289,19 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
   };
   const removeFile = (key: string) => setPendingFiles((prev) => prev.filter((f) => f.key !== key));
 
-  const [note, setNote] = useState("");
-  const [owners, setOwners] = useState<Owner[]>([]);
+  const [note, setNote] = useState(initialExpense?.note ?? "");
+  const [owners, setOwners] = useState<Owner[]>(
+    initialExpense?.expenseOwners && initialExpense.expenseOwners.length > 0
+      ? initialExpense.expenseOwners.map((owner, index) => ({
+          staffId: owner.staffId,
+          customName: owner.customName,
+          key: `initial-${index}-${owner.staffId ?? owner.customName ?? "custom"}`,
+        }))
+      : [{ staffId: formData.currentUserId, customName: null, key: `current-${formData.currentUserId}` }]
+  );
 
-  const isRecurring = frequency !== "once";
+  const isRecurring = expenseKind === "recurring";
+  const frequency = isRecurring ? recurringFrequency : "once";
 
   const filteredCategories = useMemo(() => {
     const expenseTypes = formData.expenseCategories.filter(
@@ -318,12 +360,13 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
     if (mode === "accounting" && !expenseCategoryId) return setError("勘定科目（費目）は必須です");
     if (mode === "project" && !approverStaffId) return setError("承認者は必須です");
     if ((isRecurring ? amountType : "fixed") === "fixed" && (!amount || Number(amount) < 0)) return setError("金額を正しく入力してください");
-    if (isRecurring && !recurringName.trim()) return setError("サブスク・定期経費名は必須です");
+    if (isEditMode && isRecurring) return setError("定期経費はこの画面では編集できません");
+    if (isRecurring && !recurringName.trim()) return setError("定期経費名は必須です");
     if (isRecurring && !startDate) return setError("支払い開始日は必須です");
     if (!isRecurring && !scheduledPaymentDate) return setError("支払予定日は必須です");
 
     startTransition(async () => {
-      const result = await submitExpenseRequest({
+      const payload = {
         mode,
         projectId,
         counterpartyId: counterpartyId ?? undefined,
@@ -352,7 +395,14 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
         allocationTemplateId: useAllocation ? allocationTemplateId : undefined,
         costCenterId: !useAllocation ? costCenterId : undefined,
         isConfidential,
-      });
+      };
+
+      const result =
+        submitMode === "update" && groupId
+          ? await updateExpenseRequest(groupId, payload)
+          : submitMode === "resubmit" && groupId
+            ? await resubmitReturnedExpense(groupId, payload)
+            : await submitExpenseRequest(payload);
 
       if (!result.ok) return setError(result.error);
 
@@ -365,7 +415,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
       if (pendingFiles.length > 0 && !attachmentGroupId) {
         attachmentFailed = true;
         attachmentErrorMessage =
-          "変動金額のサブスク・定期経費は、初回の支払レコード作成後に証憑を添付してください。";
+          "変動金額の定期経費は、初回の支払レコード作成後に証憑を添付してください。";
       } else if (pendingFiles.length > 0 && attachmentGroupId) {
         try {
           const uploadData = new FormData();
@@ -404,11 +454,15 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
       }
 
       const baseSuccessMessage =
-        result.data.type === "recurring"
-          ? "サブスク・定期経費として申請しました。"
-          : mode === "accounting"
-            ? "経費を経理処理中として登録しました。"
-            : "社内経費を申請しました。";
+        submitMode === "update"
+          ? "申請内容を更新しました。"
+          : submitMode === "resubmit"
+            ? "修正した内容で再申請しました。"
+            : result.data.type === "recurring"
+              ? "定期経費として申請しました。"
+              : mode === "accounting"
+                ? "経費を経理処理中として登録しました。"
+                : "社内経費を申請しました。";
       if (attachmentFailed) {
         alert(
           `${baseSuccessMessage}\n\nただし、証憑ファイルの添付に失敗しました：\n${attachmentErrorMessage ?? "詳細不明"}\n\nお手数ですが、経費詳細画面から添付をやり直してください。`
@@ -416,7 +470,11 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
       } else {
         alert(baseSuccessMessage);
       }
-      router.push(backUrl);
+      if (onSuccess) {
+        onSuccess();
+      } else {
+        router.push(backUrl);
+      }
       router.refresh();
     });
   };
@@ -535,21 +593,35 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
       <Card>
         <CardHeader><CardTitle className="text-base">金額・経費の種類</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <div className={`grid ${isRecurring ? "grid-cols-2" : "grid-cols-1"} gap-4`}>
+          <div className={`grid grid-cols-1 ${isRecurring ? "md:grid-cols-3" : ""} gap-4`}>
             <div>
               <Label>経費の種類 <span className="text-red-500">*</span></Label>
-              <Select value={frequency} onValueChange={(v) => {
-                setFrequency(v);
-                if (v === "once") setAmountType("fixed");
-              }}>
+              <Select value={expenseKind} onValueChange={(v) => {
+                const next = v as "once" | "recurring";
+                setExpenseKind(next);
+                if (next === "once") setAmountType("fixed");
+              }} disabled={isEditMode}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {FREQUENCY_OPTIONS.map((o) => (
+                  {EXPENSE_KIND_OPTIONS.map((o) => (
                     <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+            {isRecurring && (
+              <div>
+                <Label>定期経費の周期 <span className="text-red-500">*</span></Label>
+                <Select value={recurringFrequency} onValueChange={(v) => setRecurringFrequency(v as "monthly" | "yearly" | "weekly")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {RECURRING_FREQUENCY_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {isRecurring && (
               <div>
                 <Label>金額タイプ <span className="text-red-500">*</span></Label>
@@ -565,7 +637,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
           </div>
 
           {(isRecurring ? amountType : "fixed") === "fixed" && (
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <Label>金額（税込） <span className="text-red-500">*</span></Label>
                 <Input type="number" min={0} step={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="10000" />
@@ -583,9 +655,9 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
 
           {isRecurring && (
             <>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label>サブスク・定期経費名 <span className="text-red-500">*</span></Label>
+                  <Label>定期経費名 <span className="text-red-500">*</span></Label>
                   <Input value={recurringName} onChange={(e) => setRecurringName(e.target.value)} placeholder="例: AWS利用料、オフィス家賃" />
                 </div>
                 {(frequency === "monthly" || frequency === "yearly") && (
@@ -598,7 +670,7 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <Label>利用開始日 <span className="text-red-500">*</span></Label>
                   <DatePicker value={startDate} onChange={setStartDate} />
@@ -800,9 +872,17 @@ export function ManualExpenseForm({ formData, mode, backUrl }: Props) {
 
       <div className="flex gap-2 pb-4">
         <Button type="submit" disabled={isPending}>
-          {isPending ? "登録中..." : mode === "accounting" ? "経理処理中として登録" : "申請"}
+          {isPending
+            ? "登録中..."
+            : submitMode === "update"
+              ? "変更を保存"
+              : submitMode === "resubmit"
+                ? "修正して再申請"
+                : mode === "accounting"
+                  ? "経理処理中として登録"
+                  : "申請"}
         </Button>
-        <Button type="button" variant="outline" onClick={() => router.push(backUrl)}>キャンセル</Button>
+        <Button type="button" variant="outline" onClick={() => onCancel ? onCancel() : router.push(backUrl)}>キャンセル</Button>
       </div>
     </form>
   );
