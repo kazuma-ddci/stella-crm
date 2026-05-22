@@ -112,7 +112,6 @@ type Props = {
   activitiesData: Record<string, unknown>[];
   preApplicationData: Record<string, unknown>[];
   postApplicationData: Record<string, unknown>[];
-  contractOptions: { value: string; label: string }[];
   scLabel: string;
   joseiLabel: string;
   staffOptions: { value: string; label: string }[];
@@ -147,7 +146,6 @@ export function VendorDetailTabs({
   activitiesData,
   preApplicationData,
   postApplicationData,
-  contractOptions,
   scLabel,
   joseiLabel,
   staffOptions,
@@ -241,12 +239,12 @@ export function VendorDetailTabs({
               data={activitiesData}
               canEdit={true}
               vendorOptions={vendorOptions}
-              contractOptions={contractOptions}
+              staffOptions={staffOptions}
               onAddOverride={addActivityForVendor}
               onUpdateOverride={updateActivityForVendor}
               onDeleteOverride={(id) => deleteActivityForVendor(id, String(vendor.id))}
               hideVendorColumn={true}
-              notesReadOnly={true}
+              notesReadOnly={false}
               defaultVendorId={String(vendor.id)}
               tableId="hojo.vendor-detail.activities"
             />

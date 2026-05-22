@@ -121,14 +121,17 @@ export default async function VendorDetailPage({
   >[];
 
   // Fetch additional data for tabs
-  const [activities, preApplicationRecords, postApplicationRecords, contractsForDropdown] =
+  const [activities, preApplicationRecords, postApplicationRecords] =
     await Promise.all([
       prisma.hojoConsultingActivity.findMany({
         where: { deletedAt: null, vendorId: id },
         include: {
           vendor: { select: { id: true, name: true } },
-          contract: { select: { id: true, companyName: true, contractPlan: true } },
           tasks: { orderBy: [{ taskType: "asc" }, { displayOrder: "asc" }] },
+          staffAssignments: {
+            include: { staff: { select: { id: true, name: true } } },
+            orderBy: { staff: { displayOrder: "asc" } },
+          },
         },
         orderBy: { activityDate: "desc" },
       }),
@@ -142,27 +145,18 @@ export default async function VendorDetailPage({
         include: { vendor: { select: { id: true, name: true } } },
         orderBy: { id: "desc" },
       }),
-      prisma.hojoConsultingContract.findMany({
-        where: { deletedAt: null, vendorId: id },
-        orderBy: { id: "desc" },
-        select: { id: true, companyName: true, contractPlan: true, vendorId: true },
-      }),
     ]);
 
   const activitiesData = activities.map((a) => ({
     id: a.id,
     vendorId: String(a.vendorId),
     vendorName: a.vendor.name,
-    contractId: a.contractId ? String(a.contractId) : "",
-    contractLabel: a.contract
-      ? `${a.contract.companyName}${a.contract.contractPlan ? ` (${a.contract.contractPlan})` : ""}`
-      : "",
     activityDate: a.activityDate.toISOString().split("T")[0],
     contactMethod: a.contactMethod ?? "",
-    vendorIssue: a.vendorIssue ?? "",
-    hearingContent: a.hearingContent ?? "",
-    responseContent: a.responseContent ?? "",
-    proposalContent: a.proposalContent ?? "",
+    staffIds: a.staffAssignments.map((s) => String(s.staffId)).join(","),
+    staffNames: a.staffAssignments.map((s) => s.staff.name).join(", "),
+    title: a.title ?? "",
+    meetingMinutes: a.meetingMinutes ?? "",
     vendorNextAction: a.vendorNextAction ?? "",
     nextDeadline: a.nextDeadline?.toISOString().split("T")[0] ?? "",
     tasks: a.tasks.map((t) => ({
@@ -175,7 +169,6 @@ export default async function VendorDetailPage({
     })),
     attachmentUrls: (a.attachmentUrls as string[] | null) ?? [],
     recordingUrls: (a.recordingUrls as string[] | null) ?? [],
-    screenshotUrls: (a.screenshotUrls as string[] | null) ?? [],
     notes: a.notes ?? "",
   }));
 
@@ -202,11 +195,6 @@ export default async function VendorDetailPage({
     applicationCompletedDate: r.applicationCompletedDate?.toISOString().split("T")[0] ?? "",
     hasLoan: r.hasLoan,
     completedDate: r.completedDate?.toISOString().split("T")[0] ?? "",
-  }));
-
-  const contractOptions = contractsForDropdown.map((c) => ({
-    value: String(c.id),
-    label: `${c.companyName}${c.contractPlan ? ` (${c.contractPlan})` : ""}`,
   }));
 
   const scWholesaleOptions = scWholesaleStatuses.map((s) => ({
@@ -408,7 +396,6 @@ export default async function VendorDetailPage({
       activitiesData={activitiesData}
       preApplicationData={preApplicationData}
       postApplicationData={postApplicationData}
-      contractOptions={contractOptions}
       scLabel={scLabel}
       joseiLabel={joseiLabel}
       staffOptions={staffOptions}

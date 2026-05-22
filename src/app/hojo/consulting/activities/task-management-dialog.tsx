@@ -77,7 +77,7 @@ export function TaskManagementDialog({
 
         <div className="space-y-6 py-2">
           <TaskGroup
-            title="ベンダー様タスク"
+            title="先方タスク"
             taskType="vendor"
             activityId={activityId}
             tasks={vendorTasks}
@@ -88,7 +88,7 @@ export function TaskManagementDialog({
 
           {showConsultingTeam && (
             <TaskGroup
-              title="コンサルチームタスク"
+              title="弊社タスク"
               taskType="consulting_team"
               activityId={activityId}
               tasks={consultingTasks}

@@ -169,28 +169,36 @@ export async function updateLoanLenderMemo(
 
 const LENDER_EDITABLE_FIELDS = [
   "statusId", "memo", "memorandum", "funds", "redemptionScheduleIssuedAt",
-  "repaymentDate", "repaymentAmount", "principalAmount", "interestAmount",
-  "overshortAmount", "operationFee", "redemptionAmount", "redemptionDate", "endMemo",
+  "repaymentDate", "repaymentAmount", "principalAmount", "overshortAmount",
+  "secondaryRepaymentDate", "redemptionDate", "endMemo",
 ];
 
-// ソース項目（変更時に派生5列を再計算する）
-const SOURCE_FIELDS_TRIGGERING_RECOMPUTE = new Set(["repaymentAmount", "repaymentDate"]);
+// ソース項目（変更時に派生列を再計算する）
+const SOURCE_FIELDS_TRIGGERING_RECOMPUTE = new Set(["repaymentAmount", "repaymentDate", "secondaryRepaymentDate"]);
 
-const DERIVED_FIELDS = ["principalAmount", "interestAmount", "overshortAmount", "operationFee", "redemptionAmount"] as const;
+const DERIVED_FIELDS = [
+  "interestAmount",
+  "operationFee",
+  "redemptionAmount",
+  "secondaryRepaymentAmount",
+  "secondaryPrincipalAmount",
+  "secondaryInterestAmount",
+  "secondaryRedemptionAmount",
+] as const;
 
 async function loadRates() {
   try {
     if (!prisma.hojoLoanProgressRateConfig) {
-      return { interestRate: 0, feeRate: 0 };
+      return { interestRate: 0.15, feeRate: 0.5 };
     }
     const config = await prisma.hojoLoanProgressRateConfig.findFirst({ orderBy: { id: "asc" } });
     return {
-      interestRate: config ? Number(config.interestRate) : 0,
-      feeRate: config ? Number(config.feeRate) : 0,
+      interestRate: config ? Number(config.interestRate) : 0.15,
+      feeRate: config ? Number(config.feeRate) : 0.5,
     };
   } catch (e) {
     console.warn("[loadRates] failed (migration not applied?):", e);
-    return { interestRate: 0, feeRate: 0 };
+    return { interestRate: 0.15, feeRate: 0.5 };
   }
 }
 
@@ -224,8 +232,19 @@ export async function updateLenderProgress(
 
     const updateData: Record<string, unknown> = {};
 
-    const dateFields = ["repaymentDate", "redemptionDate", "redemptionScheduleIssuedAt"];
-    const decimalFields = ["repaymentAmount", "principalAmount", "interestAmount", "overshortAmount", "operationFee", "redemptionAmount"];
+    const dateFields = ["repaymentDate", "secondaryRepaymentDate", "redemptionDate", "redemptionScheduleIssuedAt"];
+    const decimalFields = [
+      "repaymentAmount",
+      "principalAmount",
+      "interestAmount",
+      "overshortAmount",
+      "operationFee",
+      "redemptionAmount",
+      "secondaryRepaymentAmount",
+      "secondaryPrincipalAmount",
+      "secondaryInterestAmount",
+      "secondaryRedemptionAmount",
+    ];
 
     if (field === "statusId") {
       updateData.statusId = value ? Number(value) : null;
@@ -237,7 +256,7 @@ export async function updateLenderProgress(
       updateData[field] = value || null;
     }
 
-    // ソース項目（返金額・返金日）が変更された場合、派生5列を再計算
+    // ソース項目（1次返金額・1次返金日・2次返金日）が変更された場合、派生列を再計算
     if (SOURCE_FIELDS_TRIGGERING_RECOMPUTE.has(field)) {
       const { computeDerivedFields } = await import("@/lib/hojo/loan-progress-calc");
       const rates = await loadRates();
@@ -248,6 +267,9 @@ export async function updateLenderProgress(
       const repaymentDate = field === "repaymentDate"
         ? (updateData.repaymentDate as Date | null)
         : progress.repaymentDate;
+      const secondaryRepaymentDate = field === "secondaryRepaymentDate"
+        ? (updateData.secondaryRepaymentDate as Date | null)
+        : progress.secondaryRepaymentDate;
 
       const derived = computeDerivedFields(
         {
@@ -255,6 +277,7 @@ export async function updateLenderProgress(
           loanExecutionDate: progress.loanExecutionDate,
           repaymentDate,
           repaymentAmount,
+          secondaryRepaymentDate,
         },
         rates,
       );
@@ -324,7 +347,7 @@ export async function updateHojoLoanProgressRates(
         });
       }
 
-      // 全レコードの派生 4 列を再計算（principalAmount は loanAmount 直貼りなので変動なし）
+      // 全レコードの派生列を再計算
       const records = await tx.hojoLoanProgress.findMany({ where: { deletedAt: null } });
       for (const r of records) {
         const derived = computeDerivedFields(
@@ -333,17 +356,20 @@ export async function updateHojoLoanProgressRates(
             loanExecutionDate: r.loanExecutionDate,
             repaymentDate: r.repaymentDate,
             repaymentAmount: r.repaymentAmount === null ? null : Number(r.repaymentAmount),
+            secondaryRepaymentDate: r.secondaryRepaymentDate,
           },
           { interestRate, feeRate },
         );
         await tx.hojoLoanProgress.update({
           where: { id: r.id },
           data: {
-            principalAmount: derived.principalAmount,
             interestAmount: derived.interestAmount,
-            overshortAmount: derived.overshortAmount,
             operationFee: derived.operationFee,
             redemptionAmount: derived.redemptionAmount,
+            secondaryRepaymentAmount: derived.secondaryRepaymentAmount,
+            secondaryPrincipalAmount: derived.secondaryPrincipalAmount,
+            secondaryInterestAmount: derived.secondaryInterestAmount,
+            secondaryRedemptionAmount: derived.secondaryRedemptionAmount,
           },
         });
       }

@@ -31,7 +31,7 @@ const menuSections = [
   },
   {
     label: "セキュリティクラウド卸",
-    items: [{ key: "wholesale", label: "卸アカウント管理" }],
+    items: [{ key: "wholesale", label: "顧客情報管理" }],
   },
   {
     label: "助成金申請",
@@ -48,7 +48,7 @@ const menuSections = [
 
 function getSectionTitle(section: VendorSection): string {
   const map: Record<VendorSection, string> = {
-    wholesale: "卸アカウント管理",
+    wholesale: "顧客情報管理",
     grant: "助成金申請管理",
     "consulting-contract": "契約情報",
     "consulting-activity": "コンサル履歴",
@@ -85,7 +85,10 @@ export function VendorPortalLayout({
   const router = useRouter();
   // SSR/クライアント間のRadix useId()不一致を防ぐため、Selectはマウント後にのみ描画
   const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMounted(true), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const handleVendorChange = (token: string) => {
     router.push(`/hojo/vendor/${token}`);

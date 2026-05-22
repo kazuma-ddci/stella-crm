@@ -325,7 +325,7 @@ const navigation: NavItem[] = [
         icon: Shield,
         sectionLabel: true,
         children: [
-          { name: "卸アカウント管理", href: "/hojo/security-cloud/accounts", icon: Key },
+          { name: "顧客リスト", href: "/hojo/security-cloud/accounts", icon: Key },
         ],
       },
       {

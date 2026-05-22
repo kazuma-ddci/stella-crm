@@ -7,10 +7,9 @@ import { AlertTriangle, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
-const INVOICE_STATUS_OPTIONS = [
-  { value: "請求書送付済み", label: "請求書送付済み" },
-  { value: "着金確認中", label: "着金確認中" },
-  { value: "着金確認済み", label: "着金確認済み" },
+const USAGE_OPTIONS = [
+  { value: "有", label: "有" },
+  { value: "無", label: "無" },
 ];
 
 type Props = { data: Record<string, unknown>[] };
@@ -27,13 +26,15 @@ export function AccountsTable({ data }: Props) {
     { key: "companyName", header: "会社名(補助事業社、納品先）", editable: false, filterable: true },
     { key: "email", header: "メールアドレス(アカウント)", editable: false, filterable: true },
     { key: "softwareSalesContractUrl", header: "ソフトウェア販売契約書", editable: false },
+    { key: "loanUsage", header: "貸金利用", type: "select", options: USAGE_OPTIONS, editable: false, filterable: true },
+    { key: "grantUsage", header: "助成金利用", type: "select", options: USAGE_OPTIONS, editable: false, filterable: true },
+    { key: "subsidyTargetAmountTaxIncluded", header: "補助金対象額（税込）", type: "number", editable: false },
+    { key: "applicationAmount", header: "申請額", type: "number", editable: false },
     { key: "recruitmentRound", header: "募集回", editable: false },
     { key: "adoptionDate", header: "採択日", editable: false },
     { key: "issueRequestDate", header: "発行依頼日", editable: false },
     { key: "accountApprovalDate", header: "アカウント承認日", type: "date", inlineEditable: true },
     { key: "grantDate", header: "交付日", editable: false },
-    { key: "toolCost", header: "ツール代(税別)万円", type: "number", inlineEditable: true },
-    { key: "invoiceStatus", header: "請求入金状況", type: "select", options: INVOICE_STATUS_OPTIONS, inlineEditable: true, filterable: true },
   ];
 
   const customRenderers: CustomRenderers = {
@@ -45,9 +46,13 @@ export function AccountsTable({ data }: Props) {
         </a>
       );
     },
-    toolCost: (value) => {
+    subsidyTargetAmountTaxIncluded: (value) => {
       if (value == null || value === "") return "-";
-      return `${value}万円`;
+      return `${Number(value).toLocaleString("ja-JP")}円`;
+    },
+    applicationAmount: (value) => {
+      if (value == null || value === "") return "-";
+      return `${Number(value).toLocaleString("ja-JP")}円`;
     },
     vendorName: (value, row) => {
       const name = String(value || "-");
@@ -96,10 +101,10 @@ export function AccountsTable({ data }: Props) {
       tableId="hojo.security-cloud.accounts"
       data={data}
       columns={columns}
-      title="アカウント管理"
+      title="顧客リスト"
       onUpdate={handleUpdate}
       onDelete={handleDelete}
-      emptyMessage="アカウントデータが登録されていません"
+      emptyMessage="顧客データが登録されていません"
       customRenderers={customRenderers}
       customActions={customActions}
       enableInlineEdit

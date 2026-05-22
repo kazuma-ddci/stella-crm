@@ -1,14 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { InlineCell } from "@/components/inline-cell";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { updateActivityNotesByVendor } from "./actions";
 import { ClipboardList, ExternalLink, ListChecks } from "lucide-react";
 import { TaskManagementDialog, type TaskRecord } from "@/app/hojo/consulting/activities/task-management-dialog";
 
@@ -16,13 +13,14 @@ type ActivityRecord = {
   id: number;
   activityDate: string;
   contactMethod: string;
-  vendorIssue: string;
+  staffNames: string;
+  title: string;
+  meetingMinutes: string;
   vendorNextAction: string;
   nextDeadline: string;
   tasks: TaskRecord[];
   attachmentUrls: string[];
   recordingUrls: string[];
-  screenshotUrls: string[];
   notes: string;
 };
 
@@ -55,7 +53,6 @@ function UrlLinkList({ urls }: { urls: string[] }) {
 }
 
 export function VendorActivitiesSection({ data, vendorId, canEdit }: Props) {
-  const router = useRouter();
   const [taskDialog, setTaskDialog] = useState<{ activityId: number; tasks: TaskRecord[]; label: string } | null>(null);
   const [textDialog, setTextDialog] = useState<{ title: string; content: string } | null>(null);
 
@@ -73,15 +70,6 @@ export function VendorActivitiesSection({ data, vendorId, canEdit }: Props) {
         </p>
       </button>
     );
-  };
-
-  const handleNotesSave = async (activityId: number, value: string) => {
-    const result = await updateActivityNotesByVendor(activityId, vendorId, value);
-    if (!result.ok) {
-      alert(result.error);
-      return;
-    }
-    router.refresh();
   };
 
   if (data.length === 0) {
@@ -105,14 +93,15 @@ export function VendorActivitiesSection({ data, vendorId, canEdit }: Props) {
               <TableRow className="bg-gradient-to-r from-[#10b981]/5 to-[#86efac]/5">
                 <TableHead className="text-xs font-semibold text-[#10b981]">対応日</TableHead>
                 <TableHead className="text-xs font-semibold text-[#10b981]">対応手段</TableHead>
-                <TableHead className="text-xs font-semibold text-[#10b981]">課題/ご相談内容</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">担当者</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">タイトル</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">議事録</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">録画</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">先方タスク</TableHead>
                 <TableHead className="text-xs font-semibold text-[#10b981]">次回アクション</TableHead>
                 <TableHead className="text-xs font-semibold text-[#10b981]">次回期限</TableHead>
-                <TableHead className="text-xs font-semibold text-[#10b981]">ベンダー様タスク</TableHead>
-                <TableHead className="text-xs font-semibold text-[#10b981]">添付資料</TableHead>
-                <TableHead className="text-xs font-semibold text-[#10b981]">録画</TableHead>
-                <TableHead className="text-xs font-semibold text-[#10b981]">スクショ</TableHead>
                 <TableHead className="text-xs font-semibold text-[#10b981]">備考</TableHead>
+                <TableHead className="text-xs font-semibold text-[#10b981]">添付資料</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -133,13 +122,16 @@ export function VendorActivitiesSection({ data, vendorId, canEdit }: Props) {
                       ) : "-"}
                     </TableCell>
                     <TableCell className="max-w-[220px] align-top">
-                      {renderExpandableCell("課題/ご相談内容", r.vendorIssue)}
+                      {renderExpandableCell("担当者", r.staffNames)}
                     </TableCell>
                     <TableCell className="max-w-[220px] align-top">
-                      {renderExpandableCell("次回アクション", r.vendorNextAction)}
+                      {renderExpandableCell("タイトル", r.title)}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-sm text-gray-600">
-                      {r.nextDeadline || "-"}
+                    <TableCell className="max-w-[260px] align-top">
+                      {renderExpandableCell("議事録", r.meetingMinutes)}
+                    </TableCell>
+                    <TableCell>
+                      <UrlLinkList urls={r.recordingUrls} />
                     </TableCell>
                     <TableCell>
                       <Button
@@ -161,29 +153,17 @@ export function VendorActivitiesSection({ data, vendorId, canEdit }: Props) {
                         )}
                       </Button>
                     </TableCell>
-                    <TableCell>
-                      <UrlLinkList urls={r.attachmentUrls} />
+                    <TableCell className="max-w-[220px] align-top">
+                      {renderExpandableCell("次回アクション", r.vendorNextAction)}
                     </TableCell>
-                    <TableCell>
-                      <UrlLinkList urls={r.recordingUrls} />
-                    </TableCell>
-                    <TableCell>
-                      <UrlLinkList urls={r.screenshotUrls} />
+                    <TableCell className="whitespace-nowrap text-sm text-gray-600">
+                      {r.nextDeadline || "-"}
                     </TableCell>
                     <TableCell className="max-w-[180px] align-top">
-                      {canEdit ? (
-                        <InlineCell
-                          value={r.notes}
-                          onSave={(v) => handleNotesSave(r.id, v)}
-                          type="textarea"
-                        >
-                          <span className="text-sm text-gray-600 whitespace-pre-wrap block max-h-20 overflow-y-auto pr-1">
-                            {r.notes || <span className="text-gray-300 italic">クリックして入力</span>}
-                          </span>
-                        </InlineCell>
-                      ) : (
-                        renderExpandableCell("備考", r.notes)
-                      )}
+                      {renderExpandableCell("備考", r.notes)}
+                    </TableCell>
+                    <TableCell>
+                      <UrlLinkList urls={r.attachmentUrls} />
                     </TableCell>
                   </TableRow>
                 );

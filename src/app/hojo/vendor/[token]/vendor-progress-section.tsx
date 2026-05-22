@@ -40,6 +40,11 @@ export type ProgressRow = {
   interestAmount: string;
   overshortAmount: string;
   redemptionAmount: string;
+  secondaryRepaymentDate: string;
+  secondaryRepaymentAmount: string;
+  secondaryPrincipalAmount: string;
+  secondaryInterestAmount: string;
+  secondaryRedemptionAmount: string;
   redemptionDate: string;
   endMemo: string;
 };
@@ -96,9 +101,6 @@ export function VendorProgressSection({ data, vendorId, canEdit }: Props) {
       ];
 
       // Handle loanExecution date+time as combined datetime
-      const oldCombined = editRow.loanExecutionDate
-        ? `${editRow.loanExecutionDate}T${editRow.loanExecutionTime || "00:00"}:00`
-        : "";
       const newCombined = editData.loanExecutionDate
         ? `${editData.loanExecutionDate}T${editData.loanExecutionTime || "00:00"}:00`
         : "";
@@ -191,12 +193,17 @@ export function VendorProgressSection({ data, vendorId, canEdit }: Props) {
             <TableHead className={canEdit ? "bg-blue-50 whitespace-nowrap" : "whitespace-nowrap"}>資金移動日</TableHead>
             <TableHead className={canEdit ? "bg-blue-50 whitespace-nowrap" : "whitespace-nowrap"}>貸付実行日</TableHead>
             <TableHead className={canEdit ? "bg-blue-50 whitespace-nowrap" : "whitespace-nowrap"}>貸付実行時刻</TableHead>
-            <TableHead className="whitespace-nowrap">返金日(着金日)</TableHead>
-            <TableHead className="whitespace-nowrap">返金額(着金額)</TableHead>
+            <TableHead className="whitespace-nowrap">1次返金日(着金日)</TableHead>
+            <TableHead className="whitespace-nowrap">1次返金額(着金額)</TableHead>
             <TableHead className="whitespace-nowrap">元金分</TableHead>
-            <TableHead className="whitespace-nowrap">利息分</TableHead>
+            <TableHead className="whitespace-nowrap">1次利息分</TableHead>
             <TableHead className="whitespace-nowrap">過不足</TableHead>
-            <TableHead className="whitespace-nowrap">償還額</TableHead>
+            <TableHead className="whitespace-nowrap">1次償還額</TableHead>
+            <TableHead className="whitespace-nowrap">2次返金日</TableHead>
+            <TableHead className="whitespace-nowrap">2次返金額</TableHead>
+            <TableHead className="whitespace-nowrap">2次返金元金分</TableHead>
+            <TableHead className="whitespace-nowrap">2次利息分</TableHead>
+            <TableHead className="whitespace-nowrap">2次償還額</TableHead>
             <TableHead className="whitespace-nowrap">償還日</TableHead>
             <TableHead className="whitespace-nowrap">返済備考</TableHead>
             {canEdit && (
@@ -209,7 +216,7 @@ export function VendorProgressSection({ data, vendorId, canEdit }: Props) {
         <TableBody>
           {data.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={canEdit ? 25 : 24} className="text-center text-gray-500 py-8">
+              <TableCell colSpan={canEdit ? 30 : 29} className="text-center text-gray-500 py-8">
                 データがありません
               </TableCell>
             </TableRow>
@@ -316,6 +323,11 @@ export function VendorProgressSection({ data, vendorId, canEdit }: Props) {
                 <TableCell className="whitespace-nowrap">{r.interestAmount || "-"}</TableCell>
                 <TableCell className="whitespace-nowrap">{r.overshortAmount || "-"}</TableCell>
                 <TableCell className="whitespace-nowrap">{r.redemptionAmount || "-"}</TableCell>
+                <TableCell className="whitespace-nowrap">{fmtDate(r.secondaryRepaymentDate)}</TableCell>
+                <TableCell className="whitespace-nowrap">{r.secondaryRepaymentAmount || "-"}</TableCell>
+                <TableCell className="whitespace-nowrap">{r.secondaryPrincipalAmount || "-"}</TableCell>
+                <TableCell className="whitespace-nowrap">{r.secondaryInterestAmount || "-"}</TableCell>
+                <TableCell className="whitespace-nowrap">{r.secondaryRedemptionAmount || "-"}</TableCell>
                 <TableCell className="whitespace-nowrap">{fmtDate(r.redemptionDate)}</TableCell>
                 <TableCell className="max-w-[200px] truncate">{r.endMemo || "-"}</TableCell>
                 {canEdit && (

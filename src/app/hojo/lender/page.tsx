@@ -1,8 +1,6 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { LenderClientPage } from "./lender-client-page";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -17,11 +15,11 @@ export default async function LenderPage() {
   const isAuthenticated = isStaff || isLender;
 
   if (!isAuthenticated) {
-    return <LenderClientPage authenticated={false} isLender={false} corporateData={[]} individualData={[]} vendors={[]} progressData={[]} statusOptions={[]} rates={{ interestRate: 0, feeRate: 0 }} />;
+    return <LenderClientPage authenticated={false} isLender={false} corporateData={[]} individualData={[]} vendors={[]} progressData={[]} statusOptions={[]} rates={{ interestRate: 0.15, feeRate: 0.5 }} />;
   }
 
   if (isLender && session?.user?.mustChangePassword) {
-    return <LenderClientPage authenticated={false} isLender={false} corporateData={[]} individualData={[]} vendors={[]} progressData={[]} statusOptions={[]} rates={{ interestRate: 0, feeRate: 0 }} />;
+    return <LenderClientPage authenticated={false} isLender={false} corporateData={[]} individualData={[]} vendors={[]} progressData={[]} statusOptions={[]} rates={{ interestRate: 0.15, feeRate: 0.5 }} />;
   }
 
   // 全ベンダーの借入申込フォーム回答を取得
@@ -78,7 +76,6 @@ export default async function LenderPage() {
   });
 
   // vendorNoを計算（ベンダー内での表示順）
-  const vendorIdCounts: Record<number, number> = {};
   const progressesByVendor: Record<number, typeof progressRecords> = {};
   for (const r of progressRecords) {
     if (!progressesByVendor[r.vendorId]) progressesByVendor[r.vendorId] = [];
@@ -118,6 +115,11 @@ export default async function LenderPage() {
     overshortAmount: r.overshortAmount ? Number(r.overshortAmount).toLocaleString() : "",
     operationFee: r.operationFee ? Number(r.operationFee).toLocaleString() : "",
     redemptionAmount: r.redemptionAmount ? Number(r.redemptionAmount).toLocaleString() : "",
+    secondaryRepaymentDate: r.secondaryRepaymentDate?.toISOString().split("T")[0] ?? "",
+    secondaryRepaymentAmount: r.secondaryRepaymentAmount ? Number(r.secondaryRepaymentAmount).toLocaleString() : "",
+    secondaryPrincipalAmount: r.secondaryPrincipalAmount ? Number(r.secondaryPrincipalAmount).toLocaleString() : "",
+    secondaryInterestAmount: r.secondaryInterestAmount ? Number(r.secondaryInterestAmount).toLocaleString() : "",
+    secondaryRedemptionAmount: r.secondaryRedemptionAmount ? Number(r.secondaryRedemptionAmount).toLocaleString() : "",
     redemptionDate: r.redemptionDate?.toISOString().split("T")[0] ?? "",
     endMemo: r.endMemo ?? "",
   }));
@@ -130,7 +132,7 @@ export default async function LenderPage() {
 
   // 利率/フィー率（グローバル設定。シングルトン）
   // マイグレーション未適用 / Prisma Client未再生成時は 0 にフォールバック
-  let rates = { interestRate: 0, feeRate: 0 };
+  let rates = { interestRate: 0.15, feeRate: 0.5 };
   try {
     if (prisma.hojoLoanProgressRateConfig) {
       const rateConfig = await prisma.hojoLoanProgressRateConfig.findFirst({ orderBy: { id: "asc" } });

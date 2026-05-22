@@ -20,7 +20,7 @@ type Props = {
   data: Record<string, unknown>[];
   canEdit: boolean;
   vendorOptions: { value: string; label: string }[];
-  contractOptions: { value: string; label: string }[];
+  staffOptions: { value: string; label: string }[];
   onAddOverride?: (data: Record<string, unknown>) => Promise<void | import("@/lib/action-result").ActionResult>;
   onUpdateOverride?: (id: number, data: Record<string, unknown>) => Promise<void | import("@/lib/action-result").ActionResult>;
   onDeleteOverride?: (id: number) => Promise<void | import("@/lib/action-result").ActionResult>;
@@ -30,7 +30,7 @@ type Props = {
   tableId?: string;
 };
 
-export function ActivitiesCrudTable({ data, canEdit, vendorOptions, contractOptions, onAddOverride, onUpdateOverride, onDeleteOverride, hideVendorColumn, notesReadOnly, defaultVendorId, tableId = "hojo.consulting.activities-crud" }: Props) {
+export function ActivitiesCrudTable({ data, canEdit, vendorOptions, staffOptions, onAddOverride, onUpdateOverride, onDeleteOverride, hideVendorColumn, notesReadOnly, defaultVendorId, tableId = "hojo.consulting.activities-crud" }: Props) {
   const [taskDialogState, setTaskDialogState] = useState<{ activityId: number; tasks: TaskRecord[]; label: string } | null>(null);
 
   const columns: ColumnDef[] = [
@@ -39,17 +39,16 @@ export function ActivitiesCrudTable({ data, canEdit, vendorOptions, contractOpti
     { key: "vendorName", header: "ベンダー名", editable: false, filterable: true, hidden: hideVendorColumn },
     { key: "activityDate", header: "対応日", type: "date", required: true },
     { key: "contactMethod", header: "対応手段", type: "select", options: contactMethodOptions },
-    { key: "vendorIssue", header: "ベンダー様\n課題/ご相談内容", type: "textarea" },
-    { key: "hearingContent", header: "ヒアリング内容", type: "textarea" },
-    { key: "responseContent", header: "回答内容", type: "textarea" },
-    { key: "proposalContent", header: "提案内容", type: "textarea" },
-    { key: "vendorNextAction", header: "ベンダー様\n次回アクション", type: "textarea" },
-    { key: "nextDeadline", header: "次回期限", type: "date" },
-    { key: "tasks", header: "タスク", editable: true },
-    { key: "attachmentUrls", header: "添付資料", editable: true },
+    { key: "staffIds", header: "担当者", type: "multiselect", options: staffOptions, filterable: true },
+    { key: "staffNames", header: "担当者", editable: false, hidden: true },
+    { key: "title", header: "タイトル", type: "text", filterable: true },
+    { key: "meetingMinutes", header: "議事録", type: "textarea", filterable: true },
     { key: "recordingUrls", header: "録画", editable: true },
-    { key: "screenshotUrls", header: "スクショ", editable: true },
+    { key: "tasks", header: "先方タスク/弊社タスク", editable: true },
+    { key: "vendorNextAction", header: "次回アクション", type: "textarea" },
+    { key: "nextDeadline", header: "次回期限", type: "date" },
     { key: "notes", header: "備考", type: "textarea", editable: notesReadOnly ? false : undefined },
+    { key: "attachmentUrls", header: "添付資料", editable: true },
   ];
 
   const renderUrlListCell = (value: unknown) => {
@@ -100,13 +99,20 @@ export function ActivitiesCrudTable({ data, canEdit, vendorOptions, contractOpti
           }}
         >
           <ListChecks className="h-3 w-3" />
-          ベ:{vendorCount} / チ:{teamCount}
+          先:{vendorCount} / 弊:{teamCount}
         </Button>
+      );
+    },
+    staffIds: (_value: unknown, row: Record<string, unknown>) => {
+      const names = String(row.staffNames || "");
+      return names ? (
+        <span className="text-sm whitespace-pre-wrap line-clamp-2 max-w-[180px] block">{names}</span>
+      ) : (
+        <span className="text-gray-300">-</span>
       );
     },
     attachmentUrls: renderUrlListCell,
     recordingUrls: renderUrlListCell,
-    screenshotUrls: renderUrlListCell,
   };
 
   const customFormFields = {
@@ -114,14 +120,6 @@ export function ActivitiesCrudTable({ data, canEdit, vendorOptions, contractOpti
       render: (value: unknown, onChange: (value: unknown) => void) => (
         <TaskFormField
           value={(value as TaskFormValue[]) || []}
-          onChange={(v) => onChange(v)}
-        />
-      ),
-    },
-    attachmentUrls: {
-      render: (value: unknown, onChange: (value: unknown) => void) => (
-        <MultiUrlField
-          value={(value as string[]) || []}
           onChange={(v) => onChange(v)}
         />
       ),
@@ -134,7 +132,7 @@ export function ActivitiesCrudTable({ data, canEdit, vendorOptions, contractOpti
         />
       ),
     },
-    screenshotUrls: {
+    attachmentUrls: {
       render: (value: unknown, onChange: (value: unknown) => void) => (
         <MultiUrlField
           value={(value as string[]) || []}

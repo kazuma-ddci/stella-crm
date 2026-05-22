@@ -42,6 +42,11 @@ type RowData = {
   overshortAmount: string | null;
   operationFee: string | null;
   redemptionAmount: string | null;
+  secondaryRepaymentDate: string | null;
+  secondaryRepaymentAmount: string | null;
+  secondaryPrincipalAmount: string | null;
+  secondaryInterestAmount: string | null;
+  secondaryRedemptionAmount: string | null;
   redemptionDate: string | null;
   endMemo: string;
   staffMemo: string;
@@ -123,13 +128,18 @@ export function LoanProgressTable({
     { key: "loanAmount", header: "貸付金額", editable: false, filterable: true },
     { key: "fundTransferDate", header: "資金移動日", type: "date", editable: false, filterable: true },
     { key: "loanExecutionDate", header: "貸付実行日", type: "datetime", editable: false, filterable: true },
-    { key: "repaymentDate", header: "返金日(着金日)", type: "date", editable: false, filterable: true },
-    { key: "repaymentAmount", header: "返金額(着金額)", editable: false, filterable: true },
+    { key: "repaymentDate", header: "1次返金日(着金日)", type: "date", editable: false, filterable: true },
+    { key: "repaymentAmount", header: "1次返金額(着金額)", editable: false, filterable: true },
     { key: "principalAmount", header: "元金分", editable: false, filterable: true },
-    { key: "interestAmount", header: "利息分", editable: false, filterable: true },
+    { key: "interestAmount", header: "1次利息分", editable: false, filterable: true },
     { key: "overshortAmount", header: "過不足", editable: false, filterable: true },
     { key: "operationFee", header: "運用フィー", editable: false, filterable: true },
-    { key: "redemptionAmount", header: "償還額", editable: false, filterable: true },
+    { key: "redemptionAmount", header: "1次償還額", editable: false, filterable: true },
+    { key: "secondaryRepaymentDate", header: "2次返金日", type: "date", editable: false, filterable: true },
+    { key: "secondaryRepaymentAmount", header: "2次返金額", editable: false, filterable: true },
+    { key: "secondaryPrincipalAmount", header: "2次返金元金分", editable: false, filterable: true },
+    { key: "secondaryInterestAmount", header: "2次利息分", editable: false, filterable: true },
+    { key: "secondaryRedemptionAmount", header: "2次償還額", editable: false, filterable: true },
     { key: "redemptionDate", header: "償還日", type: "date", editable: false, filterable: true },
     { key: "endMemo", header: "貸金返済備考", type: "textarea", editable: false, filterable: true },
     { key: "staffMemo", header: "弊社備考", type: "textarea", editable: false, filterable: true },
@@ -156,6 +166,10 @@ export function LoanProgressTable({
     overshortAmount: numberCell,
     operationFee: numberCell,
     redemptionAmount: numberCell,
+    secondaryRepaymentAmount: numberCell,
+    secondaryPrincipalAmount: numberCell,
+    secondaryInterestAmount: numberCell,
+    secondaryRedemptionAmount: numberCell,
     staffMemo: (value, row) => {
       const id = row.id as number;
       const staffMemo = (row.staffMemo as string) ?? "";

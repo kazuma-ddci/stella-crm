@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { DatePicker } from "@/components/ui/date-picker";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { recordVendorPasswordResetRequest, updateVendorFields, addWholesaleAccount, updateWholesaleAccountByVendor, deleteWholesaleAccountByVendor } from "./actions";
 import { Trash2, Plus, Pencil, FileText, ClipboardList, Banknote, Copy, Check, Eye, FolderOpen } from "lucide-react";
 import { VendorDocumentStorageModal, type VendorDocumentInfo } from "./vendor-document-storage-modal";
@@ -52,8 +53,10 @@ type ApplicantRecord = {
 type WholesaleRecord = {
   id: number; supportProviderName: string; companyName: string; email: string;
   softwareSalesContractUrl: string;
+  loanUsage: string; grantUsage: string;
+  subsidyTargetAmountTaxIncluded: number | null; applicationAmount: number | null;
   recruitmentRound: number | null; adoptionDate: string; issueRequestDate: string;
-  accountApprovalDate: string; grantDate: string; toolCost: number | null; invoiceStatus: string;
+  accountApprovalDate: string; grantDate: string;
 };
 
 type ContractRecord = {
@@ -78,10 +81,10 @@ type ConsultingTask = {
 };
 
 type ActivityRecord = {
-  id: number; activityDate: string; contactMethod: string; vendorIssue: string;
+  id: number; activityDate: string; contactMethod: string; staffNames: string; title: string; meetingMinutes: string;
   vendorNextAction: string; nextDeadline: string;
   tasks: ConsultingTask[];
-  attachmentUrls: string[]; recordingUrls: string[]; screenshotUrls: string[]; notes: string;
+  attachmentUrls: string[]; recordingUrls: string[]; notes: string;
 };
 
 type PreAppRecord = {
@@ -346,7 +349,7 @@ function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; ca
   );
 }
 
-// ========== 卸アカウント管理タブ ==========
+// ========== 顧客情報管理タブ ==========
 function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; canEdit: boolean; vendorId?: number }) {
   const [editRecord, setEditRecord] = useState<WholesaleRecord | null>(null);
   const [editData, setEditData] = useState<Record<string, string>>({});
@@ -360,16 +363,28 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
     setEditData({
       supportProviderName: r.supportProviderName, companyName: r.companyName, email: r.email,
       softwareSalesContractUrl: r.softwareSalesContractUrl,
+      loanUsage: r.loanUsage,
+      grantUsage: r.grantUsage,
+      subsidyTargetAmountTaxIncluded: r.subsidyTargetAmountTaxIncluded != null ? String(r.subsidyTargetAmountTaxIncluded) : "",
+      applicationAmount: r.applicationAmount != null ? String(r.applicationAmount) : "",
       recruitmentRound: r.recruitmentRound != null ? String(r.recruitmentRound) : "",
       adoptionDate: r.adoptionDate, issueRequestDate: r.issueRequestDate, grantDate: r.grantDate,
     });
   };
 
+  const numericFields = new Set(["subsidyTargetAmountTaxIncluded", "applicationAmount", "recruitmentRound"]);
+  const toPayload = (values: Record<string, string>) => ({
+    ...values,
+    subsidyTargetAmountTaxIncluded: values.subsidyTargetAmountTaxIncluded ? Number(values.subsidyTargetAmountTaxIncluded) : null,
+    applicationAmount: values.applicationAmount ? Number(values.applicationAmount) : null,
+    recruitmentRound: values.recruitmentRound ? Number(values.recruitmentRound) : null,
+  });
+
   const saveModal = async () => {
     if (!editRecord || !vendorId) return;
     setSaving(true);
     try {
-      const result = await updateWholesaleAccountByVendor(editRecord.id, vendorId, { ...editData, recruitmentRound: editData.recruitmentRound ? Number(editData.recruitmentRound) : null });
+      const result = await updateWholesaleAccountByVendor(editRecord.id, vendorId, toPayload(editData));
       if (!result.ok) { alert(result.error); return; }
       setEditRecord(null); router.refresh();
     } finally { setSaving(false); }
@@ -377,7 +392,7 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
 
   const inlineSave = async (id: number, field: string, value: string) => {
     if (!vendorId) return;
-    const payload: Record<string, unknown> = { [field]: field === "recruitmentRound" ? (value ? Number(value) : null) : (value || null) };
+    const payload: Record<string, unknown> = { [field]: numericFields.has(field) ? (value ? Number(value) : null) : (value || null) };
     const result = await updateWholesaleAccountByVendor(id, vendorId, payload);
     if (!result.ok) { alert(result.error); return; }
     router.refresh();
@@ -387,7 +402,7 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
     if (!vendorId) return;
     setSaving(true);
     try {
-      const result = await addWholesaleAccount(vendorId, { ...newData, recruitmentRound: newData.recruitmentRound ? Number(newData.recruitmentRound) : null });
+      const result = await addWholesaleAccount(vendorId, toPayload(newData));
       if (!result.ok) { alert(result.error); return; }
       setAdding(false); setNewData({}); router.refresh();
     } finally { setSaving(false); }
@@ -400,18 +415,54 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
     router.refresh();
   };
 
-  const fmtCost = (n: number | null) => n == null ? "-" : `${n}万円`;
+  const fmtYen = (n: number | null) => n == null ? "-" : `${n.toLocaleString("ja-JP")}円`;
+  const usageOptions = [
+    { value: "", label: "-" },
+    { value: "有", label: "有" },
+    { value: "無", label: "無" },
+  ];
 
   const editableFields = [
     { key: "supportProviderName", label: "支援事業者名", type: "text" as const },
     { key: "companyName", label: "会社名(補助事業社、納品先）", type: "text" as const },
     { key: "email", label: "メールアドレス(アカウント)", type: "text" as const },
     { key: "softwareSalesContractUrl", label: "ソフトウェア販売契約書", type: "url" as const, placeholder: "https://..." },
+    { key: "loanUsage", label: "貸金利用", type: "select" as const },
+    { key: "grantUsage", label: "助成金利用", type: "select" as const },
+    { key: "subsidyTargetAmountTaxIncluded", label: "補助金対象額（税込）", type: "number" as const },
+    { key: "applicationAmount", label: "申請額", type: "number" as const },
     { key: "recruitmentRound", label: "募集回", type: "number" as const },
     { key: "adoptionDate", label: "採択日", type: "date" as const },
     { key: "issueRequestDate", label: "発行依頼日", type: "date" as const },
     { key: "grantDate", label: "交付日", type: "date" as const },
   ];
+
+  const renderFormField = (f: (typeof editableFields)[number], values: Record<string, string>, setValues: (values: Record<string, string>) => void) => {
+    if (f.type === "date") {
+      return <DatePicker value={values[f.key] || ""} onChange={(v) => setValues({ ...values, [f.key]: v })} />;
+    }
+    if (f.type === "select") {
+      return (
+        <Select value={values[f.key] || "__empty"} onValueChange={(v) => setValues({ ...values, [f.key]: v === "__empty" ? "" : v })}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {usageOptions.map((o) => (
+              <SelectItem key={o.value || "__empty"} value={o.value || "__empty"}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      );
+    }
+    return (
+      <Input
+        type={f.type}
+        value={values[f.key] || ""}
+        onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+        min={f.type === "number" ? "0" : undefined}
+        placeholder={"placeholder" in f ? f.placeholder : undefined}
+      />
+    );
+  };
 
   return (
     <>
@@ -426,12 +477,12 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
             <TableHeader><TableRow>
               <TableHead className="w-12">No.</TableHead>
               <TableHead>支援事業者名</TableHead><TableHead>会社名(補助事業社、納品先）</TableHead><TableHead>メールアドレス(アカウント)</TableHead>
-              <TableHead>ソフトウェア販売契約書</TableHead><TableHead>募集回</TableHead><TableHead>採択日</TableHead><TableHead>発行依頼日</TableHead><TableHead>アカウント承認日</TableHead>
-              <TableHead>交付日</TableHead><TableHead>ツール代(税別)万円</TableHead><TableHead>請求入金状況</TableHead>
+              <TableHead>ソフトウェア販売契約書</TableHead><TableHead>貸金利用</TableHead><TableHead>助成金利用</TableHead><TableHead>補助金対象額（税込）</TableHead><TableHead>申請額</TableHead><TableHead>募集回</TableHead><TableHead>採択日</TableHead><TableHead>発行依頼日</TableHead><TableHead>アカウント承認日</TableHead>
+              <TableHead>交付日</TableHead>
               {canEdit && <TableHead className="w-[80px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
             </TableRow></TableHeader>
             <TableBody>
-              {data.length === 0 ? <TableRow><TableCell colSpan={canEdit ? 13 : 12} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
+              {data.length === 0 ? <TableRow><TableCell colSpan={canEdit ? 15 : 14} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
               : data.map((r, idx) => (
                 <TableRow key={r.id} className="group/row">
                   <TableCell className="text-gray-500">{idx + 1}</TableCell>
@@ -439,12 +490,15 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.companyName} onSave={(v) => inlineSave(r.id, "companyName", v)}>{r.companyName || "-"}</InlineCell> : r.companyName || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.email} onSave={(v) => inlineSave(r.id, "email", v)}>{r.email || "-"}</InlineCell> : r.email || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.softwareSalesContractUrl} onSave={(v) => inlineSave(r.id, "softwareSalesContractUrl", v)}>{r.softwareSalesContractUrl ? <a href={r.softwareSalesContractUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">リンク</a> : "-"}</InlineCell> : r.softwareSalesContractUrl ? <a href={r.softwareSalesContractUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">リンク</a> : "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.loanUsage} onSave={(v) => inlineSave(r.id, "loanUsage", v)} type="select" options={usageOptions}>{r.loanUsage || "-"}</InlineCell> : r.loanUsage || "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.grantUsage} onSave={(v) => inlineSave(r.id, "grantUsage", v)} type="select" options={usageOptions}>{r.grantUsage || "-"}</InlineCell> : r.grantUsage || "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.subsidyTargetAmountTaxIncluded != null ? String(r.subsidyTargetAmountTaxIncluded) : ""} onSave={(v) => inlineSave(r.id, "subsidyTargetAmountTaxIncluded", v)} type="number">{fmtYen(r.subsidyTargetAmountTaxIncluded)}</InlineCell> : fmtYen(r.subsidyTargetAmountTaxIncluded)}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.applicationAmount != null ? String(r.applicationAmount) : ""} onSave={(v) => inlineSave(r.id, "applicationAmount", v)} type="number">{fmtYen(r.applicationAmount)}</InlineCell> : fmtYen(r.applicationAmount)}</TableCell>
                   <TableCell>{canEdit ? <InlineCell value={r.recruitmentRound != null ? String(r.recruitmentRound) : ""} onSave={(v) => inlineSave(r.id, "recruitmentRound", v)} type="number">{r.recruitmentRound ?? "-"}</InlineCell> : r.recruitmentRound ?? "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.adoptionDate} onSave={(v) => inlineSave(r.id, "adoptionDate", v)} type="date">{r.adoptionDate || "-"}</InlineCell> : r.adoptionDate || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.issueRequestDate} onSave={(v) => inlineSave(r.id, "issueRequestDate", v)} type="date">{r.issueRequestDate || "-"}</InlineCell> : r.issueRequestDate || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{r.accountApprovalDate}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.grantDate} onSave={(v) => inlineSave(r.id, "grantDate", v)} type="date">{r.grantDate || "-"}</InlineCell> : r.grantDate || "-"}</TableCell>
-                  <TableCell>{fmtCost(r.toolCost)}</TableCell><TableCell className="whitespace-nowrap">{r.invoiceStatus}</TableCell>
                   {canEdit && (
                     <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                       <div className="flex gap-1">
@@ -463,13 +517,12 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
       {/* 新規追加モーダル */}
       <Dialog open={adding} onOpenChange={setAdding}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>卸アカウント新規追加</DialogTitle></DialogHeader>
-          <div className="space-y-3">
+          <DialogHeader><DialogTitle>顧客情報新規追加</DialogTitle></DialogHeader>
+          <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
             {editableFields.map((f) => (
               <div key={f.key} className="space-y-1">
                 <Label>{f.label}</Label>
-                {f.type === "date" ? <DatePicker value={newData[f.key] || ""} onChange={(v) => setNewData({ ...newData, [f.key]: v })} />
-                : <Input type={f.type} value={newData[f.key] || ""} onChange={(e) => setNewData({ ...newData, [f.key]: e.target.value })} min={f.type === "number" ? "1" : undefined} placeholder={"placeholder" in f ? f.placeholder : undefined} />}
+                {renderFormField(f, newData, setNewData)}
               </div>
             ))}
           </div>
@@ -480,13 +533,12 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
       {/* 編集モーダル */}
       <Dialog open={!!editRecord} onOpenChange={(open) => !open && setEditRecord(null)}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>卸アカウント編集</DialogTitle></DialogHeader>
-          <div className="space-y-3">
+          <DialogHeader><DialogTitle>顧客情報編集</DialogTitle></DialogHeader>
+          <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
             {editableFields.map((f) => (
               <div key={f.key} className="space-y-1">
                 <Label>{f.label}</Label>
-                {f.type === "date" ? <DatePicker value={editData[f.key] || ""} onChange={(v) => setEditData({ ...editData, [f.key]: v })} />
-                : <Input type={f.type} value={editData[f.key] || ""} onChange={(e) => setEditData({ ...editData, [f.key]: e.target.value })} min={f.type === "number" ? "1" : undefined} />}
+                {renderFormField(f, editData, setEditData)}
               </div>
             ))}
           </div>
@@ -519,7 +571,7 @@ function VendorDataPage({ applicantData, wholesaleData, contractsData, activitie
   useEffect(() => {
     const hash = window.location.hash.replace("#", "");
     if (VALID_SECTIONS.includes(hash as VendorSection)) {
-      setActiveSection(hash as VendorSection);
+      queueMicrotask(() => setActiveSection(hash as VendorSection));
     }
   }, []);
 

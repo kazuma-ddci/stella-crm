@@ -780,6 +780,7 @@ model MasterStaff {
   contactHistories           ContactHistory[]
   slpContactHistories        SlpContactHistory[]
   hojoContactHistories       HojoContactHistory[]     @relation("HojoContactHistoryStaff")
+  hojoConsultingActivityStaff HojoConsultingActivityStaff[]
   approvedExternalUsers      ExternalUser[]
   issuedRegistrationTokens   RegistrationToken[]
   processedLeadSubmissions   StpLeadFormSubmission[]
@@ -4995,7 +4996,7 @@ model HojoVendorAccount {
 }
 
 // ============================================
-// 卸アカウント管理
+// 顧客リスト
 // ============================================
 
 model HojoWholesaleAccount {
@@ -5005,13 +5006,15 @@ model HojoWholesaleAccount {
   companyName              String?   @map("company_name") @db.VarChar(200) // 会社名(補助事業社、納品先）
   email                    String?   @db.VarChar(255) // メールアドレス(アカウント)
   softwareSalesContractUrl String?   @map("software_sales_contract_url") @db.VarChar(500) // ソフトウェア販売契約書URL
+  loanUsage                String?   @map("loan_usage") @db.VarChar(10) // 貸金利用（有/無）
+  grantUsage               String?   @map("grant_usage") @db.VarChar(10) // 助成金利用（有/無）
+  subsidyTargetAmountTaxIncluded Int? @map("subsidy_target_amount_tax_included") // 補助金対象額（税込）
+  applicationAmount        Int?      @map("application_amount") // 申請額
   recruitmentRound         Int?      @map("recruitment_round") // 募集回
   adoptionDate             DateTime? @map("adoption_date") // 採択日
   issueRequestDate         DateTime? @map("issue_request_date") // 発行依頼日
   accountApprovalDate      DateTime? @map("account_approval_date") // アカウント承認日（弊社側のみ編集）
   grantDate                DateTime? @map("grant_date") // 交付日
-  toolCost                 Int?      @map("tool_cost") // ツール代(税別)万円（弊社側のみ編集）
-  invoiceStatus            String?   @map("invoice_status") @db.VarChar(50) // 請求入金状況（弊社側のみ編集）
   deletedByVendor          Boolean   @default(false) @map("deleted_by_vendor") // ベンダー側削除フラグ
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @updatedAt @map("updated_at")
@@ -5659,6 +5662,8 @@ model HojoConsultingActivity {
   contractId    Int?     @map("contract_id")
   activityDate  DateTime @map("activity_date")
   contactMethod String?  @map("contact_method") @db.VarChar(100)
+  title         String?  @db.VarChar(200)
+  meetingMinutes String? @map("meeting_minutes") @db.Text
 
   // ベンダー側が記入可能
   vendorIssue String? @map("vendor_issue") @db.Text
@@ -5699,10 +5704,26 @@ model HojoConsultingActivity {
   vendor   HojoVendor                   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   contract HojoConsultingContract?      @relation(fields: [contractId], references: [id], onDelete: SetNull)
   tasks    HojoConsultingActivityTask[]
+  staffAssignments HojoConsultingActivityStaff[]
 
   @@index([vendorId])
   @@index([contractId])
   @@map("hojo_consulting_activities")
+}
+
+model HojoConsultingActivityStaff {
+  id         Int      @id @default(autoincrement())
+  activityId Int      @map("activity_id")
+  staffId    Int      @map("staff_id")
+  createdAt  DateTime @default(now())
+
+  activity HojoConsultingActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  staff    MasterStaff            @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([activityId, staffId])
+  @@index([activityId])
+  @@index([staffId])
+  @@map("hojo_consulting_activity_staff")
 }
 
 // ============================================
@@ -6055,6 +6076,11 @@ model HojoLoanProgress {
   overshortAmount  Decimal?  @db.Decimal(14, 0) // 過不足
   operationFee     Decimal?  @db.Decimal(14, 0) // 運用フィー
   redemptionAmount Decimal?  @db.Decimal(14, 0) // 償還額
+  secondaryRepaymentDate     DateTime? @map("secondary_repayment_date") // 2次返金日
+  secondaryRepaymentAmount   Decimal?  @map("secondary_repayment_amount") @db.Decimal(14, 0) // 2次返金額
+  secondaryPrincipalAmount   Decimal?  @map("secondary_principal_amount") @db.Decimal(14, 0) // 2次返金元金分
+  secondaryInterestAmount    Decimal?  @map("secondary_interest_amount") @db.Decimal(14, 0) // 2次利息分
+  secondaryRedemptionAmount  Decimal?  @map("secondary_redemption_amount") @db.Decimal(14, 0) // 2次償還額
   redemptionDate   DateTime? // 償還日
   endMemo          String?   @db.Text // 返済備考
 
@@ -6080,8 +6106,8 @@ model HojoLoanProgress {
 
 model HojoLoanProgressRateConfig {
   id           Int      @id @default(autoincrement())
-  interestRate Decimal  @default(0) @db.Decimal(8, 6) // 例: 0.05 = 5%
-  feeRate      Decimal  @default(0) @db.Decimal(8, 6)
+  interestRate Decimal  @default(0.15) @db.Decimal(8, 6) // 例: 0.15 = 15%
+  feeRate      Decimal  @default(0.5) @db.Decimal(8, 6)
   updatedAt    DateTime @updatedAt
   updatedBy    String?  @db.VarChar(255)
 

@@ -191,7 +191,7 @@ export default async function VendorPage({
     })),
   }));
 
-  // 卸アカウント管理データ（ベンダー側削除されたものは非表示）
+  // 顧客情報管理データ（ベンダー側削除されたものは非表示）
   const wholesaleRecords = await prisma.hojoWholesaleAccount.findMany({
     where: { vendorId: vendor.id, deletedAt: null, deletedByVendor: false },
     orderBy: { id: "asc" },
@@ -203,13 +203,15 @@ export default async function VendorPage({
     companyName: r.companyName || "",
     email: r.email || "",
     softwareSalesContractUrl: r.softwareSalesContractUrl || "",
+    loanUsage: r.loanUsage || "",
+    grantUsage: r.grantUsage || "",
+    subsidyTargetAmountTaxIncluded: r.subsidyTargetAmountTaxIncluded,
+    applicationAmount: r.applicationAmount,
     recruitmentRound: r.recruitmentRound,
     adoptionDate: r.adoptionDate?.toISOString().slice(0, 10) ?? "",
     issueRequestDate: r.issueRequestDate?.toISOString().slice(0, 10) ?? "",
     accountApprovalDate: r.accountApprovalDate?.toISOString().slice(0, 10) ?? "-",
     grantDate: r.grantDate?.toISOString().slice(0, 10) ?? "",
-    toolCost: r.toolCost,
-    invoiceStatus: r.invoiceStatus || "-",
   }));
 
   // コンサル契約データ
@@ -249,11 +251,15 @@ export default async function VendorPage({
     notes: c.notes ?? "",
   }));
 
-  // コンサル活動データ（スタッフ専用フィールドを除外）
+  // コンサル活動データ
   const activities = await prisma.hojoConsultingActivity.findMany({
     where: { vendorId: vendor.id, deletedAt: null },
     include: {
       tasks: { orderBy: [{ taskType: "asc" }, { displayOrder: "asc" }] },
+      staffAssignments: {
+        include: { staff: { select: { id: true, name: true } } },
+        orderBy: { staff: { displayOrder: "asc" } },
+      },
     },
     orderBy: { activityDate: "desc" },
   });
@@ -262,7 +268,9 @@ export default async function VendorPage({
     id: a.id,
     activityDate: a.activityDate.toISOString().split("T")[0],
     contactMethod: a.contactMethod ?? "",
-    vendorIssue: a.vendorIssue ?? "",
+    staffNames: a.staffAssignments.map((s) => s.staff.name).join(", "),
+    title: a.title ?? "",
+    meetingMinutes: a.meetingMinutes ?? "",
     vendorNextAction: a.vendorNextAction ?? "",
     nextDeadline: a.nextDeadline?.toISOString().split("T")[0] ?? "",
     tasks: a.tasks.map((t) => ({
@@ -275,7 +283,6 @@ export default async function VendorPage({
     })),
     attachmentUrls: (a.attachmentUrls as string[] | null) ?? [],
     recordingUrls: (a.recordingUrls as string[] | null) ?? [],
-    screenshotUrls: (a.screenshotUrls as string[] | null) ?? [],
     notes: a.notes ?? "",
   }));
 
@@ -400,6 +407,11 @@ export default async function VendorPage({
     interestAmount: r.interestAmount ? Number(r.interestAmount).toLocaleString() : "",
     overshortAmount: r.overshortAmount ? Number(r.overshortAmount).toLocaleString() : "",
     redemptionAmount: r.redemptionAmount ? Number(r.redemptionAmount).toLocaleString() : "",
+    secondaryRepaymentDate: r.secondaryRepaymentDate?.toISOString().split("T")[0] ?? "",
+    secondaryRepaymentAmount: r.secondaryRepaymentAmount ? Number(r.secondaryRepaymentAmount).toLocaleString() : "",
+    secondaryPrincipalAmount: r.secondaryPrincipalAmount ? Number(r.secondaryPrincipalAmount).toLocaleString() : "",
+    secondaryInterestAmount: r.secondaryInterestAmount ? Number(r.secondaryInterestAmount).toLocaleString() : "",
+    secondaryRedemptionAmount: r.secondaryRedemptionAmount ? Number(r.secondaryRedemptionAmount).toLocaleString() : "",
     redemptionDate: r.redemptionDate?.toISOString().split("T")[0] ?? "",
     endMemo: r.endMemo ?? "",
   }));
