@@ -10,9 +10,17 @@ const VendorDetailForm = dynamic(() => import("./vendor-detail-form").then((mod)
   loading: () => <div className="p-8 text-center text-muted-foreground">読み込み中...</div>,
 });
 import { ActivitiesCrudTable } from "@/app/hojo/consulting/activities/activities-crud-table";
-import { PreApplicationTable } from "@/app/hojo/grant-customers/pre-application/pre-application-table";
-import { PostApplicationTable } from "@/app/hojo/grant-customers/post-application/post-application-table";
 import { VendorContactHistorySection } from "@/app/hojo/contact-histories/vendor-contact-history-section";
+import {
+  ApplicantTab,
+  WholesaleTab,
+  type ApplicantRecord,
+  type WholesaleRecord,
+} from "@/app/hojo/vendor/[token]/vendor-client-page";
+import {
+  VendorProgressSection,
+  type ProgressRow,
+} from "@/app/hojo/vendor/[token]/vendor-progress-section";
 import type {
   CustomerType,
   ContactCategoryOption,
@@ -22,12 +30,6 @@ import {
   addActivityForVendor,
   updateActivityForVendor,
   deleteActivityForVendor,
-  addPreApplicationForVendor,
-  updatePreApplicationForVendor,
-  deletePreApplicationForVendor,
-  addPostApplicationForVendor,
-  updatePostApplicationForVendor,
-  deletePostApplicationForVendor,
 } from "./actions";
 
 type ContactData = {
@@ -107,8 +109,9 @@ type Props = {
   toolRegistrations: { toolId: number; statusId: number | null; memo: string }[];
   contractDocsByService: Record<string, ContractDocumentItem[]>;
   activitiesData: Record<string, unknown>[];
-  preApplicationData: Record<string, unknown>[];
-  postApplicationData: Record<string, unknown>[];
+  wholesaleData: WholesaleRecord[];
+  applicantData: ApplicantRecord[];
+  loanProgressData: ProgressRow[];
   scLabel: string;
   joseiLabel: string;
   staffOptions: { value: string; label: string }[];
@@ -141,8 +144,9 @@ export function VendorDetailTabs({
   toolRegistrations,
   contractDocsByService,
   activitiesData,
-  preApplicationData,
-  postApplicationData,
+  wholesaleData,
+  applicantData,
+  loanProgressData,
   scLabel,
   joseiLabel,
   staffOptions,
@@ -178,8 +182,7 @@ export function VendorDetailTabs({
         <TabsList>
           <TabsTrigger value="basic">基本情報</TabsTrigger>
           <TabsTrigger value="activities">コンサル履歴</TabsTrigger>
-          <TabsTrigger value="customers">顧客管理</TabsTrigger>
-          <TabsTrigger value="loan">貸金業社</TabsTrigger>
+          <TabsTrigger value="customers">顧客リスト</TabsTrigger>
           <TabsTrigger value="contact-histories">接触履歴</TabsTrigger>
         </TabsList>
 
@@ -232,53 +235,29 @@ export function VendorDetailTabs({
       </TabsContent>
 
       <TabsContent value="customers">
-        <Tabs defaultValue="pre">
+        <Tabs defaultValue="all" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="pre">~概要案内</TabsTrigger>
-            <TabsTrigger value="post">交付申請~</TabsTrigger>
+            <TabsTrigger value="all">全顧客情報</TabsTrigger>
+            <TabsTrigger value="grant">助成金申請</TabsTrigger>
+            <TabsTrigger value="loan">貸金進捗</TabsTrigger>
           </TabsList>
-          <TabsContent value="pre">
-            <Card>
-              <CardHeader>
-                <CardTitle>概要案内一覧</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <PreApplicationTable
-                  data={preApplicationData}
-                  canEdit={true}
-                  vendorOptions={vendorOptions}
-                  onAddOverride={addPreApplicationForVendor}
-                  onUpdateOverride={updatePreApplicationForVendor}
-                  onDeleteOverride={(id) => deletePreApplicationForVendor(id, String(vendor.id))}
-                  tableId="hojo.vendor-detail.pre-application"
-                />
-              </CardContent>
-            </Card>
+
+          <TabsContent value="all">
+            <WholesaleTab data={wholesaleData} canEdit={true} vendorId={vendor.id} />
           </TabsContent>
-          <TabsContent value="post">
-            <Card>
-              <CardHeader>
-                <CardTitle>交付申請一覧</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <PostApplicationTable
-                  data={postApplicationData}
-                  canEdit={true}
-                  vendorOptions={vendorOptions}
-                  onAddOverride={addPostApplicationForVendor}
-                  onUpdateOverride={updatePostApplicationForVendor}
-                  onDeleteOverride={(id) => deletePostApplicationForVendor(id, String(vendor.id))}
-                  tableId="hojo.vendor-detail.post-application"
-                />
-              </CardContent>
-            </Card>
+
+          <TabsContent value="grant">
+            <ApplicantTab data={applicantData} canEdit={true} vendorId={vendor.id} />
+          </TabsContent>
+
+          <TabsContent value="loan">
+            <VendorProgressSection
+              data={loanProgressData}
+              vendorId={vendor.id}
+              canEdit={true}
+            />
           </TabsContent>
         </Tabs>
-      </TabsContent>
-      <TabsContent value="loan">
-        <p className="text-sm text-muted-foreground">
-          顧客ごとの借入申込フォームURLは、ベンダー専用ページの「貸金 顧客進捗管理」にあるURL列からコピーしてください。
-        </p>
       </TabsContent>
 
       <TabsContent value="contact-histories">

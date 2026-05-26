@@ -13,10 +13,10 @@ import {
 
 export type VendorSection =
   | "wholesale"
+  | "application-bpo"
   | "grant"
   | "consulting-contract"
   | "consulting-activity"
-  | "consulting-customer"
   | "loan"
   | "loan-progress";
 
@@ -26,12 +26,15 @@ const menuSections = [
     items: [
       { key: "consulting-contract", label: "契約情報" },
       { key: "consulting-activity", label: "コンサル履歴" },
-      { key: "consulting-customer", label: "顧客管理" },
     ],
   },
   {
     label: "セキュリティクラウド卸",
     items: [{ key: "wholesale", label: "顧客情報管理" }],
+  },
+  {
+    label: "申請BPO",
+    items: [{ key: "application-bpo", label: "申請BPO管理" }],
   },
   {
     label: "助成金申請",
@@ -49,10 +52,10 @@ const menuSections = [
 function getSectionTitle(section: VendorSection): string {
   const map: Record<VendorSection, string> = {
     wholesale: "顧客情報管理",
+    "application-bpo": "申請BPO管理",
     grant: "助成金申請管理",
     "consulting-contract": "契約情報",
     "consulting-activity": "コンサル履歴",
-    "consulting-customer": "顧客管理",
     loan: "借入申込管理",
     "loan-progress": "顧客進捗管理",
   };

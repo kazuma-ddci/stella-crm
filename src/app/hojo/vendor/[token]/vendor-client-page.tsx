@@ -7,14 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InlineCell } from "@/components/inline-cell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { recordVendorPasswordResetRequest, updateVendorFields, addWholesaleAccount, updateWholesaleAccountByVendor, deleteWholesaleAccountByVendor } from "./actions";
-import { Trash2, Plus, Pencil, FileText, ClipboardList, Banknote, Copy, Check, Eye, FolderOpen } from "lucide-react";
+import { Trash2, Plus, Pencil, Copy, Check, Eye, FolderOpen } from "lucide-react";
 import { VendorDocumentStorageModal, type VendorDocumentInfo } from "./vendor-document-storage-modal";
 import Link from "next/link";
 import { VendorPortalLayout } from "./vendor-portal-layout";
@@ -22,16 +21,16 @@ import { PortalLoginWrapper } from "@/components/hojo-portal";
 import type { VendorSection } from "./vendor-portal-layout";
 import { VendorContractsSection } from "./vendor-contracts-section";
 import { VendorActivitiesSection } from "./vendor-activities-section";
-import { VendorCustomersSection } from "./vendor-customers-section";
 import { VendorLoanSection } from "./vendor-loan-section";
 import type { LoanSubmissionRow } from "./vendor-loan-section";
 import { VendorProgressSection } from "./vendor-progress-section";
+import { ApplicationBpoTable, type ApplicationBpoRow } from "@/app/hojo/application-bpo/application-bpo-table";
 import type { ProgressRow } from "./vendor-progress-section";
 import { FormAnswerViewerModal } from "@/components/hojo/form-answer-viewer-modal";
 import type { FileInfo } from "@/components/hojo/form-answer-editor";
 import { getHojoCustomerOrigin } from "@/lib/hojo/customer-domain";
 
-type FormSubmissionData = {
+export type FormSubmissionData = {
   id: number;
   submittedAt: string;
   confirmedAt: string | null;
@@ -40,7 +39,7 @@ type FormSubmissionData = {
   fileUrls: Record<string, unknown> | null;
 };
 
-type ApplicantRecord = {
+export type ApplicantRecord = {
   id: number; wholesaleAccountId: number | null; formToken: string; formUpdateStatus: string; applicantName: string; statusName: string;
   formAnswerDate: string; formTranscriptDate: string; applicationFormDate: string;
   subsidyDesiredDate: string; subsidyAmount: number | null;
@@ -50,7 +49,7 @@ type ApplicantRecord = {
   documents: VendorDocumentInfo[];
 };
 
-type WholesaleRecord = {
+export type WholesaleRecord = {
   id: number; applicantType: string; companyName: string; email: string;
   softwareSalesContractUrl: string;
   loanUsage: string; grantUsage: string;
@@ -87,23 +86,6 @@ type ActivityRecord = {
   attachmentUrls: string[]; recordingUrls: string[]; notes: string;
 };
 
-type PreAppRecord = {
-  id: number; applicantName: string; referrer: string; salesStaff: string;
-  category: string; status: string; prospectLevel: string; nextContactDate: string;
-  overviewBriefingDate: string; briefingStaff: string; phone: string;
-  businessEntity: string; industry: string; systemType: string; hasLoan: string;
-  revenueRange: string; businessName: string;
-};
-
-type PostAppRecord = {
-  id: number; isBpo: boolean; applicantName: string; memo: string;
-  referrer: string; salesStaff: string; applicationCompletedDate: string;
-  applicationStaff: string; grantApplicationNumber: string; nextAction: string;
-  nextContactDate: string; subsidyStatus: string; subsidyApplicantName: string;
-  prefecture: string; recruitmentRound: string; applicationType: string;
-  itToolName: string; hasLoan: boolean; completedDate: string;
-};
-
 type VendorContactInfo = {
   id: number; name: string; role: string; email: string; phone: string; isPrimary: boolean;
 };
@@ -136,9 +118,9 @@ type Props = {
   authenticated: boolean; isVendor: boolean; canEdit?: boolean;
   applicantData: ApplicantRecord[]; wholesaleData: WholesaleRecord[];
   contractsData: ContractRecord[]; activitiesData: ActivityRecord[];
-  preApplicationData: PreAppRecord[]; postApplicationData: PostAppRecord[];
   loanCorporateData: LoanSubmissionRow[]; loanIndividualData: LoanSubmissionRow[];
   loanProgressData: ProgressRow[];
+  applicationBpoData: ApplicationBpoRow[];
   vendorName: string; vendorToken: string; vendorId?: number;
   allVendors: { id: number; name: string; token: string }[];
   userName?: string;
@@ -237,7 +219,7 @@ function FormAnswerModal({ data, open, onClose }: { data: FormSubmissionData; op
 }
 
 // ========== 助成金申請者管理タブ ==========
-function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; canEdit: boolean; vendorId?: number }) {
+export function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; canEdit: boolean; vendorId?: number }) {
   const [editRecord, setEditRecord] = useState<ApplicantRecord | null>(null);
   const [editData, setEditData] = useState({ subsidyDesiredDate: "", subsidyAmount: "", vendorMemo: "" });
   const [saving, setSaving] = useState(false);
@@ -351,7 +333,7 @@ function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; ca
 }
 
 // ========== 顧客情報管理タブ ==========
-function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; canEdit: boolean; vendorId?: number }) {
+export function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; canEdit: boolean; vendorId?: number }) {
   const [editRecord, setEditRecord] = useState<WholesaleRecord | null>(null);
   const [editData, setEditData] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -557,22 +539,10 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
   );
 }
 
-// ========== プレースホルダーセクション ==========
-function PlaceholderSection({ icon: Icon, message }: { icon: React.ElementType; message: string }) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center justify-center py-16 text-gray-400">
-        <Icon className="h-12 w-12 mb-4" />
-        <p className="text-lg">{message}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
 // ========== メインコンポーネント ==========
-const VALID_SECTIONS: VendorSection[] = ["consulting-contract", "consulting-activity", "consulting-customer", "wholesale", "grant", "loan", "loan-progress"];
+const VALID_SECTIONS: VendorSection[] = ["consulting-contract", "consulting-activity", "wholesale", "application-bpo", "grant", "loan", "loan-progress"];
 
-function VendorDataPage({ applicantData, wholesaleData, contractsData, activitiesData, preApplicationData, postApplicationData, loanCorporateData, loanIndividualData, loanProgressData, isVendor, canEdit = false, vendorId, vendorName, allVendors, vendorToken, userName, vendorInfo }: Omit<Props, "authenticated">) {
+function VendorDataPage({ applicantData, wholesaleData, contractsData, activitiesData, loanCorporateData, loanIndividualData, loanProgressData, applicationBpoData, isVendor, canEdit = false, vendorId, vendorName, allVendors, vendorToken, userName, vendorInfo }: Omit<Props, "authenticated">) {
   // SSRと一致する初期値を使い、マウント後にハッシュから復元
   const [activeSection, setActiveSection] = useState<VendorSection>("consulting-contract");
 
@@ -592,14 +562,14 @@ function VendorDataPage({ applicantData, wholesaleData, contractsData, activitie
     switch (activeSection) {
       case "wholesale":
         return <WholesaleTab data={wholesaleData} canEdit={canEdit} vendorId={vendorId} />;
+      case "application-bpo":
+        return <ApplicationBpoTable data={applicationBpoData} mode="vendor" vendorId={vendorId} canEdit={canEdit} />;
       case "grant":
         return <ApplicantTab data={applicantData} canEdit={canEdit} vendorId={vendorId} />;
       case "consulting-contract":
         return <VendorContractsSection data={contractsData} vendorInfo={vendorInfo} />;
       case "consulting-activity":
         return <VendorActivitiesSection data={activitiesData} vendorId={vendorId!} canEdit={canEdit} />;
-      case "consulting-customer":
-        return <VendorCustomersSection preApplicationData={preApplicationData} postApplicationData={postApplicationData} vendorId={vendorId} canEdit={canEdit} />;
       case "loan":
         return <VendorLoanSection vendorToken={vendorToken} vendorId={vendorId!} canEdit={canEdit} corporateSubmissions={loanCorporateData} individualSubmissions={loanIndividualData} />;
       case "loan-progress":
@@ -624,11 +594,11 @@ function VendorDataPage({ applicantData, wholesaleData, contractsData, activitie
   );
 }
 
-export function VendorClientPage({ authenticated, isVendor, canEdit = false, applicantData, wholesaleData, contractsData, activitiesData, preApplicationData, postApplicationData, loanCorporateData, loanIndividualData, loanProgressData, vendorName, vendorToken, vendorId, allVendors, userName, vendorInfo }: Props) {
+export function VendorClientPage({ authenticated, isVendor, canEdit = false, applicantData, wholesaleData, contractsData, activitiesData, loanCorporateData, loanIndividualData, loanProgressData, applicationBpoData, vendorName, vendorToken, vendorId, allVendors, userName, vendorInfo }: Props) {
   if (!authenticated) return <LoginForm vendorName={vendorName} vendorToken={vendorToken} />;
   return (
     <div className={isVendor ? "min-h-screen" : ""}>
-      <VendorDataPage applicantData={applicantData} wholesaleData={wholesaleData} contractsData={contractsData} activitiesData={activitiesData} preApplicationData={preApplicationData} postApplicationData={postApplicationData} loanCorporateData={loanCorporateData} loanIndividualData={loanIndividualData} loanProgressData={loanProgressData} isVendor={isVendor} canEdit={canEdit} vendorId={vendorId} vendorName={vendorName} allVendors={allVendors} vendorToken={vendorToken} userName={userName} vendorInfo={vendorInfo} />
+      <VendorDataPage applicantData={applicantData} wholesaleData={wholesaleData} contractsData={contractsData} activitiesData={activitiesData} loanCorporateData={loanCorporateData} loanIndividualData={loanIndividualData} loanProgressData={loanProgressData} applicationBpoData={applicationBpoData} isVendor={isVendor} canEdit={canEdit} vendorId={vendorId} vendorName={vendorName} allVendors={allVendors} vendorToken={vendorToken} userName={userName} vendorInfo={vendorInfo} />
     </div>
   );
 }

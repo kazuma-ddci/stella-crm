@@ -25,8 +25,10 @@ export default async function HojoLoanProgressPage() {
     orderBy: { id: "desc" },
   });
 
-  const serialized = allProgress.map((p) => ({
+  const serialized = allProgress.map((p, idx) => ({
     id: p.id,
+    rowNo: idx + 1,
+    wholesaleAccountId: p.wholesaleAccountId,
     formToken: p.formToken ?? "",
     formUpdateStatus: p.formUpdateStatus,
     loanUsagePending: p.loanUsagePending ?? "",

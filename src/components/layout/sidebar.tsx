@@ -329,14 +329,20 @@ const navigation: NavItem[] = [
         ],
       },
       {
+        name: "申請BPO",
+        icon: ClipboardCheck,
+        sectionLabel: true,
+        children: [
+          { name: "申請BPO管理", href: "/hojo/application-bpo", icon: ClipboardCheck },
+        ],
+      },
+      {
         name: "助成金申請",
         icon: FileText,
         sectionLabel: true,
         children: [
           { name: "申請者管理", href: "/hojo/application-support", icon: ClipboardList },
           { name: "情報回収フォーム回答", href: "/hojo/form-submissions", icon: ClipboardList },
-          { name: "概要案内フェーズ", href: "/hojo/grant-customers/pre-application", icon: ClipboardList },
-          { name: "交付申請フェーズ", href: "/hojo/grant-customers/post-application", icon: FileCheck },
           { name: "BBS接触履歴", href: "/hojo/contact-histories/bbs", icon: History },
         ],
       },
@@ -345,8 +351,8 @@ const navigation: NavItem[] = [
         icon: Wallet,
         sectionLabel: true,
         children: [
-          { name: "借入申込フォーム回答", href: "/hojo/loan-submissions", icon: ClipboardList },
           { name: "顧客進捗状況", href: "/hojo/loan-progress", icon: ListChecks },
+          { name: "借入申込フォーム回答", href: "/hojo/loan-submissions", icon: ClipboardList },
           { name: "貸金業社接触履歴", href: "/hojo/contact-histories/lender", icon: History },
         ],
       },

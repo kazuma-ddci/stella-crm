@@ -19,6 +19,8 @@ import { approveLoanUsageChange, rejectLoanUsageChange, updateProgressStaffMemo 
 
 type RowData = {
   id: number;
+  rowNo: number;
+  wholesaleAccountId: number | null;
   formToken: string;
   formUpdateStatus: string;
   loanUsagePending: string;
@@ -152,6 +154,8 @@ export function LoanProgressTable({
 
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
+    { key: "rowNo", header: "No.", editable: false, width: 1, cellClassName: "text-center" },
+    { key: "wholesaleAccountId", header: "顧客リストNo.", editable: false, filterable: true, width: 1, cellClassName: "text-center" },
     { key: "vendorName", header: "ベンダー", type: "select", options: vendorOptions, editable: false, filterable: true },
     { key: "requestDate", header: "依頼日", type: "date", editable: false, filterable: true },
     { key: "companyName", header: "社名（屋号名）", type: "text", editable: false, filterable: true },
