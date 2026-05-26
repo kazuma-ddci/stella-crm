@@ -30,9 +30,13 @@ export default async function BbsPage() {
 
   // BBSに共有するのは「確定済み」（formTranscriptDate が入っている）ものだけ
   const records = await prisma.hojoApplicationSupport.findMany({
-    where: { deletedAt: null, formTranscriptDate: { not: null }, lineFriend: { userType: "顧客" } },
+    where: {
+      deletedAt: null,
+      formTranscriptDate: { not: null },
+      wholesaleAccount: { deletedAt: null, deletedByVendor: false },
+    },
     include: {
-      lineFriend: true,
+      wholesaleAccount: true,
       linkedFormSubmissions: {
         where: { deletedAt: null, formType: "business-plan" },
         orderBy: { submittedAt: "desc" },

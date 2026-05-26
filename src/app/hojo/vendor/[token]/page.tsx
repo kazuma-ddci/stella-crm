@@ -5,8 +5,11 @@ import { VendorClientPage } from "./vendor-client-page";
 import { canEdit as canEditProject } from "@/lib/auth/permissions";
 import type { UserPermission } from "@/types/auth";
 import type { Metadata } from "next";
-import { extractSubmissionMeta } from "@/lib/hojo/form-answer-sections";
 import type { FileInfo } from "@/components/hojo/form-answer-editor";
+import {
+  displayApplicationFormUpdateStatus,
+  syncApplicationSupportAfterWholesaleSave,
+} from "@/lib/hojo/application-support-wholesale";
 
 export const metadata: Metadata = {
   title: "ベンダー様専用",
@@ -122,56 +125,45 @@ export default async function VendorPage({
     allVendors = vendors.map((v) => ({ id: v.id, name: v.name, token: v.accessToken }));
   }
 
-  // 助成金申請者管理データ（vendorIdで直接フィルタ。申請者管理ページがfree1→vendorIdを自動同期済み）
-  const records = await prisma.hojoApplicationSupport.findMany({
-    where: { vendorId: vendor.id, deletedAt: null },
-    include: { lineFriend: true, status: true, documents: true },
-    orderBy: { lineFriendId: "asc" },
+  const grantWholesaleAccounts = await prisma.hojoWholesaleAccount.findMany({
+    where: { vendorId: vendor.id, deletedAt: null, deletedByVendor: false, grantUsage: "有" },
+    orderBy: { id: "asc" },
   });
-
-  const applicantUids = records.map((r) => r.lineFriend.uid).filter(Boolean);
-  const formSubmissions = applicantUids.length
-    ? await prisma.hojoFormSubmission.findMany({
-        where: {
-          deletedAt: null,
-          formType: "business-plan",
-          OR: [
-            { linkedApplicationSupportId: { in: records.map((r) => r.id) } },
-            ...applicantUids.map((uid) => ({
-              answers: { path: ["_meta", "uid"], equals: uid },
-            })),
-          ],
-        },
-        orderBy: { submittedAt: "desc" },
-      })
-    : [];
-  const formByUid = new Map<string, {
-    id: number;
-    submittedAt: string;
-    confirmedAt: string | null;
-    answers: Record<string, unknown>;
-    modifiedAnswers: Record<string, Record<string, string | null>> | null;
-    fileUrls: Record<string, FileInfo> | null;
-  }>();
-  for (const s of formSubmissions) {
-    const { uid } = extractSubmissionMeta(s.answers as Record<string, unknown>);
-    if (!uid || formByUid.has(uid)) continue;
-    formByUid.set(uid, {
-      id: s.id,
-      submittedAt: s.submittedAt.toISOString(),
-      confirmedAt: s.confirmedAt?.toISOString() ?? null,
-      answers: s.answers as Record<string, unknown>,
-      modifiedAnswers:
-        (s.modifiedAnswers as Record<string, Record<string, string | null>> | null) ?? null,
-      fileUrls: (s.fileUrls as Record<string, FileInfo> | null) ?? null,
+  if (grantWholesaleAccounts.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      for (const account of grantWholesaleAccounts) {
+        await syncApplicationSupportAfterWholesaleSave(tx, account);
+      }
     });
   }
 
-  const applicantData = records.map((r) => ({
+  // 助成金申請者管理データ（顧客リストの助成金利用=有を起点に表示）
+  const records = await prisma.hojoApplicationSupport.findMany({
+    where: {
+      vendorId: vendor.id,
+      wholesaleAccount: { grantUsage: "有", deletedAt: null, deletedByVendor: false },
+    },
+    include: {
+      wholesaleAccount: true,
+      status: true,
+      documents: true,
+      linkedFormSubmissions: {
+        where: { deletedAt: null, formType: "business-plan" },
+        orderBy: { submittedAt: "desc" },
+        take: 1,
+      },
+    },
+    orderBy: { wholesaleAccountId: "asc" },
+  });
+
+  const applicantData = records.map((r) => {
+    const submission = r.linkedFormSubmissions[0] ?? null;
+    return {
     id: r.id,
-    lineFriendUid: r.lineFriend.uid,
-    lineName: r.lineFriend.snsname || "-",
-    applicantName: r.applicantName || "-",
+    wholesaleAccountId: r.wholesaleAccountId,
+    formToken: r.formToken ?? "",
+    formUpdateStatus: displayApplicationFormUpdateStatus(r.formUpdateStatus, r.formTranscriptDate),
+    applicantName: r.wholesaleAccount?.companyName || r.applicantName || "-",
     statusName: r.status?.name || "-",
     formAnswerDate: r.formAnswerDate?.toISOString().slice(0, 10) ?? "-",
     formTranscriptDate: r.formTranscriptDate?.toISOString().slice(0, 10) ?? "-",
@@ -182,14 +174,23 @@ export default async function VendorPage({
     paymentReceivedDate: r.paymentReceivedDate?.toISOString().slice(0, 10) ?? "-",
     subsidyReceivedDate: r.subsidyReceivedDate?.toISOString().slice(0, 10) ?? "-",
     vendorMemo: r.vendorMemo || "",
-    formSubmission: formByUid.get(r.lineFriend.uid) ?? null,
+    formSubmission: submission ? {
+      id: submission.id,
+      submittedAt: submission.submittedAt.toISOString(),
+      confirmedAt: submission.confirmedAt?.toISOString() ?? null,
+      answers: submission.answers as Record<string, unknown>,
+      modifiedAnswers:
+        (submission.modifiedAnswers as Record<string, Record<string, string | null>> | null) ?? null,
+      fileUrls: (submission.fileUrls as Record<string, FileInfo> | null) ?? null,
+    } : null,
     documents: r.documents.map((d) => ({
       docType: d.docType,
       filePath: d.filePath,
       fileName: d.fileName,
       generatedAt: d.generatedAt.toISOString(),
     })),
-  }));
+  };
+  });
 
   // 顧客情報管理データ（ベンダー側削除されたものは非表示）
   const wholesaleRecords = await prisma.hojoWholesaleAccount.findMany({
@@ -199,7 +200,7 @@ export default async function VendorPage({
 
   const wholesaleData = wholesaleRecords.map((r) => ({
     id: r.id,
-    supportProviderName: r.supportProviderName || "",
+    applicantType: r.applicantType || "",
     companyName: r.companyName || "",
     email: r.email || "",
     softwareSalesContractUrl: r.softwareSalesContractUrl || "",
@@ -346,6 +347,21 @@ export default async function VendorPage({
       deletedAt: null,
       formType: { in: ["loan-corporate", "loan-individual"] },
       answers: { path: ["_vendorId"], equals: vendor.id },
+      OR: [
+        { loanProgress: { is: null } },
+        { loanProgress: { is: { wholesaleAccountId: null, deletedAt: null } } },
+        {
+          loanProgress: {
+            is: {
+              wholesaleAccount: {
+                loanUsage: "有",
+                deletedAt: null,
+                deletedByVendor: false,
+              },
+            },
+          },
+        },
+      ],
     },
     include: {
       loanProgress: { select: { deletedAt: true } },
@@ -377,13 +393,25 @@ export default async function VendorPage({
 
   // 貸金 顧客進捗管理データ
   const loanProgressRecords = await prisma.hojoLoanProgress.findMany({
-    where: { vendorId: vendor.id, deletedAt: null },
-    include: { status: { select: { name: true } } },
+    where: {
+      vendorId: vendor.id,
+      OR: [
+        { wholesaleAccountId: null, deletedAt: null },
+        { wholesaleAccount: { loanUsage: "有", deletedAt: null, deletedByVendor: false } },
+      ],
+    },
+    include: {
+      status: { select: { name: true } },
+      wholesaleAccount: { select: { loanUsage: true } },
+    },
     orderBy: { id: "asc" },
   });
 
   const loanProgressData = loanProgressRecords.map((r) => ({
     id: r.id,
+    formToken: r.formToken ?? "",
+    formUpdateStatus: r.formUpdateStatus,
+    hasPendingAnswers: r.pendingAnswers != null,
     requestDate: r.requestDate?.toISOString().split("T")[0] ?? "",
     companyName: r.companyName ?? "",
     representName: r.representName ?? "",

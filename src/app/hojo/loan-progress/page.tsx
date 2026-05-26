@@ -11,10 +11,16 @@ export default async function HojoLoanProgressPage() {
   const canEdit = canEditProject(userPermissions, "hojo");
 
   const allProgress = await prisma.hojoLoanProgress.findMany({
-    where: { deletedAt: null },
+    where: {
+      OR: [
+        { deletedAt: null },
+        { loanUsagePending: { not: null } },
+      ],
+    },
     include: {
       vendor: { select: { id: true, name: true } },
       status: { select: { name: true } },
+      wholesaleAccount: { select: { loanUsage: true } },
     },
     orderBy: { id: "desc" },
   });
@@ -38,6 +44,10 @@ export default async function HojoLoanProgressPage() {
 
   const serialized = allProgress.map((p) => ({
     id: p.id,
+    formToken: p.formToken ?? "",
+    formUpdateStatus: p.formUpdateStatus,
+    loanUsagePending: p.loanUsagePending ?? "",
+    loanUsageApproved: p.loanUsageApproved ?? "",
     vendorName: p.vendor?.name ?? "",
     vendorNo: vendorNoMap.get(p.id) ?? 0,
     requestDate: p.requestDate?.toISOString() ?? null,

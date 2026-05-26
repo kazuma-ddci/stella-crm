@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,10 +23,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Copy, Check, Eye, Link as LinkIcon, Pencil, History } from "lucide-react";
+import { Eye, Pencil, History } from "lucide-react";
 import { InlineCell } from "@/components/inline-cell";
 import { updateLoanSubmissionAnswers, updateLoanVendorMemo, toggleProgressExclusion } from "./actions";
-import { getHojoCustomerOrigin } from "@/lib/hojo/customer-domain";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -567,7 +566,6 @@ function SubmissionTable({
 // ---------------------------------------------------------------------------
 
 export function VendorLoanSection({
-  vendorToken,
   vendorId,
   canEdit,
   corporateSubmissions,
@@ -579,56 +577,8 @@ export function VendorLoanSection({
   corporateSubmissions: LoanSubmissionRow[];
   individualSubmissions: LoanSubmissionRow[];
 }) {
-  const [copied, setCopied] = useState(false);
-  const [formUrl, setFormUrl] = useState(`/form/hojo-loan-application?v=${vendorToken}`);
-
-  useEffect(() => {
-    setFormUrl(`${getHojoCustomerOrigin()}/form/hojo-loan-application?v=${vendorToken}`);
-  }, [vendorToken]);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(formUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      const input = document.createElement("input");
-      input.value = formUrl;
-      document.body.appendChild(input);
-      input.select();
-      document.execCommand("copy");
-      document.body.removeChild(input);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <LinkIcon className="h-4 w-4" />
-            借入申込フォームURL
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-3">
-            以下のURLをお客様にお送りください。このURLから申し込みされた回答は自動的にこちらに反映されます。
-          </p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 text-xs bg-gray-100 rounded px-3 py-2 break-all">{formUrl}</code>
-            <Button variant="outline" size="sm" onClick={handleCopy} className="shrink-0">
-              {copied ? (
-                <><Check className="h-4 w-4 mr-1 text-green-500" />コピー済</>
-              ) : (
-                <><Copy className="h-4 w-4 mr-1" />コピー</>
-              )}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
       <Card>
         <CardHeader>
           <CardTitle className="text-base">借入申込フォーム回答</CardTitle>

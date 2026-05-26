@@ -1,12 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { ArrowLeft, Copy, Check } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { getHojoCustomerOrigin } from "@/lib/hojo/customer-domain";
 
 const VendorDetailForm = dynamic(() => import("./vendor-detail-form").then((mod) => mod.VendorDetailForm), {
   ssr: false,
@@ -155,7 +152,6 @@ export function VendorDetailTabs({
   autoDetectedAsLabel,
   autoDetectedAsLineFriendId,
   scLineFriendsForAs,
-  accessToken,
   contactHistoriesData,
   contactMethodOptions,
   contactStaffOptions,
@@ -167,23 +163,6 @@ export function VendorDetailTabs({
   const vendorOptions = [
     { value: String(vendor.id), label: vendor.name },
   ];
-
-  const [copied, setCopied] = useState(false);
-  const [loanFormUrl, setLoanFormUrl] = useState(`/form/hojo-loan-application?v=${accessToken}`);
-
-  useEffect(() => {
-    setLoanFormUrl(`${getHojoCustomerOrigin()}/form/hojo-loan-application?v=${accessToken}`);
-  }, [accessToken]);
-
-  const handleCopyUrl = async () => {
-    try {
-      await navigator.clipboard.writeText(loanFormUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* noop */
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -297,28 +276,9 @@ export function VendorDetailTabs({
         </Tabs>
       </TabsContent>
       <TabsContent value="loan">
-        <Card>
-          <CardHeader>
-            <CardTitle>借入申込フォームURL</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-3">
-              このベンダー専用の借入申込フォームURLです。ベンダー様のお客様にこのURLをお送りください。
-            </p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-xs bg-gray-100 rounded px-3 py-2 break-all">
-                {loanFormUrl}
-              </code>
-              <Button variant="outline" size="sm" onClick={handleCopyUrl} className="shrink-0">
-                {copied ? (
-                  <><Check className="h-4 w-4 mr-1 text-green-500" />コピー済</>
-                ) : (
-                  <><Copy className="h-4 w-4 mr-1" />コピー</>
-                )}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <p className="text-sm text-muted-foreground">
+          顧客ごとの借入申込フォームURLは、ベンダー専用ページの「貸金 顧客進捗管理」にあるURL列からコピーしてください。
+        </p>
       </TabsContent>
 
       <TabsContent value="contact-histories">

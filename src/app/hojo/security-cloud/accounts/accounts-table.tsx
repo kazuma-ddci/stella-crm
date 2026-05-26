@@ -12,6 +12,11 @@ const USAGE_OPTIONS = [
   { value: "無", label: "無" },
 ];
 
+const APPLICANT_TYPE_OPTIONS = [
+  { value: "法人", label: "法人" },
+  { value: "個人事業主", label: "個人事業主" },
+];
+
 type Props = { data: Record<string, unknown>[] };
 
 export function AccountsTable({ data }: Props) {
@@ -20,10 +25,10 @@ export function AccountsTable({ data }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
     { key: "rowNo", header: "No.", editable: false, width: 1, cellClassName: "text-center" },
-    { key: "vendorName", header: "紹介元ベンダー", editable: false, filterable: true },
+    { key: "vendorName", header: "紹介元ベンダー(支援事業者)", editable: false, filterable: true },
     { key: "vendorNo", header: "ベンダーNo.", editable: false, width: 1 },
-    { key: "supportProviderName", header: "支援事業者名", editable: false, filterable: true },
     { key: "companyName", header: "会社名(補助事業社、納品先）", editable: false, filterable: true },
+    { key: "applicantType", header: "法人/個人", type: "select", options: APPLICANT_TYPE_OPTIONS, editable: false, filterable: true },
     { key: "email", header: "メールアドレス(アカウント)", editable: false, filterable: true },
     { key: "softwareSalesContractUrl", header: "ソフトウェア販売契約書", editable: false },
     { key: "loanUsage", header: "貸金利用", type: "select", options: USAGE_OPTIONS, editable: false, filterable: true },

@@ -4833,10 +4833,18 @@ model HojoBbsStatus {
 
 model HojoApplicationSupport {
   id                    Int       @id @default(autoincrement())
-  lineFriendId          Int // LINE友達（助成金申請サポート）のID（同一LINEユーザーで複数レコード可）
+  lineFriendId          Int? // 旧LINE友達（助成金申請サポート）のID
+  wholesaleAccountId    Int?      @unique @map("wholesale_account_id") // セキュリティクラウド卸 顧客リストID
   vendorId              Int? // 紹介元ベンダー
   vendorIdManual        Boolean   @default(false) @map("vendor_id_manual") // true=手動設定、false=free1から自動設定
   statusId              Int? // 自社ステータス
+  formToken             String?   @unique @map("form_token") @db.VarChar(64) // 情報回収フォームURL用トークン
+  formUpdateStatus      String    @default("未送信") @map("form_update_status") @db.VarChar(20)
+  pendingAnswers        Json?     @map("pending_answers")
+  pendingFileUrls       Json?     @map("pending_file_urls")
+  grantUsageApproved    String?   @map("grant_usage_approved") @db.VarChar(10)
+  grantUsagePending     String?   @map("grant_usage_pending") @db.VarChar(10)
+  grantUsageChangeRequestedAt DateTime? @map("grant_usage_change_requested_at")
   applicantName         String?   @db.VarChar(200) // 申請者名
   detailMemo            String?   @db.Text // 詳細メモ
   formAnswerDate        DateTime? // フォーム回答日
@@ -4864,7 +4872,8 @@ model HojoApplicationSupport {
   updatedAt             DateTime  @updatedAt
   deletedAt             DateTime?
 
-  lineFriend            HojoLineFriendJoseiSupport        @relation(fields: [lineFriendId], references: [id], onDelete: Cascade)
+  lineFriend            HojoLineFriendJoseiSupport?       @relation(fields: [lineFriendId], references: [id], onDelete: Cascade)
+  wholesaleAccount      HojoWholesaleAccount?             @relation(fields: [wholesaleAccountId], references: [id], onDelete: SetNull)
   vendor                HojoVendor?                       @relation(fields: [vendorId], references: [id], onDelete: SetNull)
   status                HojoApplicationStatus?            @relation(fields: [statusId], references: [id], onDelete: SetNull)
   bbsStatusRef          HojoBbsStatus?                    @relation(fields: [bbsStatusId], references: [id], onDelete: SetNull)
@@ -4872,6 +4881,9 @@ model HojoApplicationSupport {
   linkedFormSubmissions HojoFormSubmission[]              @relation("FormSubmissionLink")
   documents             HojoApplicationSupportDocument[]
 
+  @@index([wholesaleAccountId])
+  @@index([formUpdateStatus])
+  @@index([grantUsagePending])
   @@map("hojo_application_supports")
 }
 
@@ -5002,7 +5014,7 @@ model HojoVendorAccount {
 model HojoWholesaleAccount {
   id                       Int       @id @default(autoincrement())
   vendorId                 Int       @map("vendor_id")
-  supportProviderName      String?   @map("support_provider_name") @db.VarChar(200) // 支援事業者名
+  applicantType            String?   @map("applicant_type") @db.VarChar(20) // 法人/個人事業主
   companyName              String?   @map("company_name") @db.VarChar(200) // 会社名(補助事業社、納品先）
   email                    String?   @db.VarChar(255) // メールアドレス(アカウント)
   softwareSalesContractUrl String?   @map("software_sales_contract_url") @db.VarChar(500) // ソフトウェア販売契約書URL
@@ -5020,7 +5032,9 @@ model HojoWholesaleAccount {
   updatedAt                DateTime  @updatedAt @map("updated_at")
   deletedAt                DateTime? @map("deleted_at") // 正式削除（弊社側）
 
-  vendor HojoVendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendor       HojoVendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  loanProgress HojoLoanProgress?
+  applicationSupport HojoApplicationSupport?
 
   @@map("hojo_wholesale_accounts")
 }
@@ -6048,8 +6062,16 @@ model HojoLoanProgressStatus {
 
 model HojoLoanProgress {
   id               Int @id @default(autoincrement())
-  formSubmissionId Int @unique
+  formSubmissionId Int? @unique
+  wholesaleAccountId Int? @unique @map("wholesale_account_id")
   vendorId         Int
+  formToken        String? @unique @map("form_token") @db.VarChar(64)
+  formUpdateStatus String  @default("未送信") @map("form_update_status") @db.VarChar(20)
+  pendingFormType  String? @map("pending_form_type") @db.VarChar(100)
+  pendingAnswers   Json?   @map("pending_answers")
+  loanUsageApproved String? @map("loan_usage_approved") @db.VarChar(10)
+  loanUsagePending  String? @map("loan_usage_pending") @db.VarChar(10)
+  loanUsageChangeRequestedAt DateTime? @map("loan_usage_change_requested_at")
 
   // フォームから自動取得
   companyName   String?  @db.VarChar(255) // 社名（屋号名）
@@ -6092,11 +6114,15 @@ model HojoLoanProgress {
   deletedAt DateTime?
 
   // Relations
-  formSubmission HojoFormSubmission      @relation(fields: [formSubmissionId], references: [id])
-  vendor         HojoVendor              @relation(fields: [vendorId], references: [id])
-  status         HojoLoanProgressStatus? @relation(fields: [statusId], references: [id])
+  formSubmission   HojoFormSubmission?     @relation(fields: [formSubmissionId], references: [id])
+  wholesaleAccount HojoWholesaleAccount?   @relation(fields: [wholesaleAccountId], references: [id], onDelete: SetNull)
+  vendor           HojoVendor              @relation(fields: [vendorId], references: [id])
+  status           HojoLoanProgressStatus? @relation(fields: [statusId], references: [id])
 
   @@index([vendorId])
+  @@index([wholesaleAccountId])
+  @@index([formUpdateStatus])
+  @@index([loanUsagePending])
   @@map("hojo_loan_progresses")
 }
 

@@ -26,6 +26,7 @@ export async function updateWholesaleAccount(id: number, data: Record<string, un
 
   revalidatePath(REVALIDATE_PATH);
   revalidatePath("/hojo/vendor");
+  revalidatePath("/hojo/application-support");
 }
 
 export async function deleteWholesaleAccount(id: number) {
@@ -35,6 +36,8 @@ export async function deleteWholesaleAccount(id: number) {
     data: { deletedAt: new Date() },
   });
   revalidatePath(REVALIDATE_PATH);
+  revalidatePath("/hojo/application-support");
+  revalidatePath("/hojo/vendor");
 }
 
 export async function restoreWholesaleAccount(id: number) {
@@ -45,4 +48,5 @@ export async function restoreWholesaleAccount(id: number) {
   });
   revalidatePath(REVALIDATE_PATH);
   revalidatePath("/hojo/vendor");
+  revalidatePath("/hojo/application-support");
 }

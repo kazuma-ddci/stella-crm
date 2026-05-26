@@ -16,8 +16,50 @@ import { parseYmdDate } from "@/lib/hojo/parse-date";
 import { type RpaDocKey } from "@/lib/hojo/rpa-document-config";
 import { checkDailyApiCostLimit } from "@/lib/hojo/api-cost-limit";
 import { acquirePdfGenerationLock, releasePdfGenerationLock } from "@/lib/hojo/pdf-generation-lock";
+import { APPLICATION_FORM_UPDATE_STATUS } from "@/lib/hojo/application-support-wholesale";
 
 const REVALIDATE_PATH = "/hojo/application-support";
+
+function revalidateApplicationSupportPaths() {
+  revalidatePath(REVALIDATE_PATH);
+  revalidatePath("/hojo/vendor");
+  revalidatePath("/hojo/security-cloud/accounts");
+  revalidatePath("/hojo/form-submissions");
+  revalidatePath("/hojo/bbs");
+  revalidatePath("/hojo/bbs/form-answers");
+}
+
+type ChangeEntry = {
+  field: string;
+  fieldLabel: string;
+  oldValue: string;
+  newValue: string;
+};
+
+type ChangeHistoryRecord = {
+  changedAt: string;
+  changedBy: string;
+  changes: ChangeEntry[];
+};
+
+function flattenAnswers(value: unknown, prefix = ""): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: Record<string, string> = {};
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (key === "_meta") continue;
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (child && typeof child === "object" && !Array.isArray(child)) {
+      Object.assign(result, flattenAnswers(child, path));
+    } else {
+      result[path] = child == null ? "" : String(child);
+    }
+  }
+  return result;
+}
+
+function mergeAnswers(base: Record<string, unknown>, pending: Record<string, unknown>) {
+  return { ...base, ...pending };
+}
 
 async function runRegenerator<T>(
   logLabel: string,
@@ -290,95 +332,163 @@ export async function updateApplicationSupport(id: number, data: Record<string, 
   }
 }
 
-/** 同一LINEアカウントの新規レコードを追加（複製） */
-export async function addApplicationSupportRecord(lineFriendId: number): Promise<ActionResult> {
+export async function approveGrantUsageChange(applicationSupportId: number): Promise<ActionResult> {
   await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
   try {
-    await prisma.hojoApplicationSupport.create({
-      data: { lineFriendId },
-    });
-    revalidatePath(REVALIDATE_PATH);
-    return ok();
-  } catch (e) {
-    console.error("[addApplicationSupportRecord] error:", e);
-    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
-  }
-}
-
-/** 申請者管理レコードの論理削除 */
-export async function deleteApplicationSupportRecord(id: number): Promise<ActionResult> {
-  await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
-  try {
-    // 同一lineFriendIdのレコードが他にあるか確認
     const record = await prisma.hojoApplicationSupport.findUnique({
-      where: { id },
-      select: { lineFriendId: true },
+      where: { id: applicationSupportId },
+      include: { wholesaleAccount: true },
     });
-    if (!record) return ok();
-
-    const siblingCount = await prisma.hojoApplicationSupport.count({
-      where: { lineFriendId: record.lineFriendId, deletedAt: null, id: { not: id } },
-    });
-
-    if (siblingCount === 0) {
-      return err("最後の1レコードは削除できません。最低1レコードは必要です。");
+    if (!record || !record.grantUsagePending || !record.wholesaleAccountId) {
+      return err("承認待ちの変更が見つかりません");
     }
 
-    await prisma.hojoApplicationSupport.update({
-      where: { id },
-      data: { deletedAt: new Date() },
+    const nextUsage = record.grantUsagePending;
+    await prisma.$transaction(async (tx) => {
+      await tx.hojoWholesaleAccount.update({
+        where: { id: record.wholesaleAccountId! },
+        data: { grantUsage: nextUsage },
+      });
+      await tx.hojoApplicationSupport.update({
+        where: { id: record.id },
+        data: {
+          grantUsageApproved: nextUsage,
+          grantUsagePending: null,
+          grantUsageChangeRequestedAt: null,
+          deletedAt: nextUsage === "有" ? null : new Date(),
+        },
+      });
     });
 
-    revalidatePath(REVALIDATE_PATH);
+    revalidateApplicationSupportPaths();
     return ok();
   } catch (e) {
-    console.error("[deleteApplicationSupportRecord] error:", e);
+    console.error("[approveGrantUsageChange] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
 }
 
-/** 紹介元ベンダーの不一致を解決する */
-export async function resolveVendorMismatch(
-  id: number,
-  action: "accept" | "keep"
-): Promise<ActionResult> {
+export async function rejectGrantUsageChange(applicationSupportId: number): Promise<ActionResult> {
   await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
   try {
-    if (action === "accept") {
-      // free1から解決されたベンダーを受け入れる → vendorIdManualをfalseに戻してsyncに任せる
-      // resolvedVendorIdはクライアントから受け取る
-      // ここでは単にvendorIdManualをfalseにリセットし、syncが次回拾う
-      await prisma.hojoApplicationSupport.update({
-        where: { id },
-        data: { vendorIdManual: false, vendorId: null },
-      });
-    } else {
-      // 現在のベンダーを維持 → vendorIdManualをtrueにして今後の自動変更を防ぐ
-      await prisma.hojoApplicationSupport.update({
-        where: { id },
-        data: { vendorIdManual: true },
-      });
+    const record = await prisma.hojoApplicationSupport.findUnique({
+      where: { id: applicationSupportId },
+    });
+    if (!record || !record.grantUsagePending || !record.wholesaleAccountId) {
+      return err("却下できる変更が見つかりません");
     }
-    revalidatePath(REVALIDATE_PATH);
+
+    const approvedUsage = record.grantUsageApproved ?? (record.deletedAt ? "無" : "有");
+    await prisma.$transaction(async (tx) => {
+      await tx.hojoWholesaleAccount.update({
+        where: { id: record.wholesaleAccountId! },
+        data: { grantUsage: approvedUsage },
+      });
+      await tx.hojoApplicationSupport.update({
+        where: { id: record.id },
+        data: {
+          grantUsagePending: null,
+          grantUsageChangeRequestedAt: null,
+          deletedAt: approvedUsage === "有" ? null : new Date(),
+        },
+      });
+    });
+
+    revalidateApplicationSupportPaths();
     return ok();
   } catch (e) {
-    console.error("[resolveVendorMismatch] error:", e);
+    console.error("[rejectGrantUsageChange] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
 }
 
-/** 紹介元ベンダーの不一致を解決する（新しいベンダーを指定して受け入れ） */
-export async function acceptResolvedVendor(id: number, newVendorId: number | null): Promise<ActionResult> {
+export async function applyPendingBusinessPlanSubmission(applicationSupportId: number): Promise<ActionResult> {
   await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
   try {
-    await prisma.hojoApplicationSupport.update({
-      where: { id },
-      data: { vendorId: newVendorId, vendorIdManual: false },
+    const record = await prisma.hojoApplicationSupport.findUnique({
+      where: { id: applicationSupportId },
+      include: {
+        linkedFormSubmissions: {
+          where: { deletedAt: null, formType: "business-plan" },
+          orderBy: { submittedAt: "desc" },
+          take: 1,
+        },
+      },
     });
-    revalidatePath(REVALIDATE_PATH);
+    const submission = record?.linkedFormSubmissions[0];
+    if (!record || !record.pendingAnswers || !submission) {
+      return err("反映できる修正申請がありません");
+    }
+
+    const pendingAnswers = record.pendingAnswers as Record<string, unknown>;
+    const currentAnswers = (submission.modifiedAnswers ?? submission.answers) as Record<string, unknown>;
+    const before = flattenAnswers(currentAnswers);
+    const after = flattenAnswers(pendingAnswers);
+    const changes: ChangeEntry[] = [];
+    for (const [field, newValue] of Object.entries(after)) {
+      const oldValue = before[field] ?? "";
+      if (oldValue !== newValue) {
+        changes.push({ field, fieldLabel: field, oldValue, newValue });
+      }
+    }
+
+    const existingHistory = (submission.changeHistory as ChangeHistoryRecord[] | null) ?? [];
+    const historyEntry: ChangeHistoryRecord = {
+      changedAt: new Date().toISOString(),
+      changedBy: "弊社スタッフ",
+      changes,
+    };
+
+    await prisma.$transaction(async (tx) => {
+      await tx.hojoFormSubmission.update({
+        where: { id: submission.id },
+        data: {
+          modifiedAnswers: mergeAnswers(currentAnswers, pendingAnswers) as Prisma.InputJsonValue,
+          fileUrls: record.pendingFileUrls ?? submission.fileUrls ?? Prisma.JsonNull,
+          changeHistory: (changes.length > 0 ? [...existingHistory, historyEntry] : existingHistory) as Prisma.InputJsonValue,
+        },
+      });
+      await tx.hojoApplicationSupport.update({
+        where: { id: record.id },
+        data: {
+          pendingAnswers: Prisma.DbNull,
+          pendingFileUrls: Prisma.DbNull,
+          formUpdateStatus: APPLICATION_FORM_UPDATE_STATUS.APPLIED,
+        },
+      });
+    });
+
+    revalidateApplicationSupportPaths();
     return ok();
   } catch (e) {
-    console.error("[acceptResolvedVendor] error:", e);
+    console.error("[applyPendingBusinessPlanSubmission] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+export async function rejectPendingBusinessPlanSubmission(applicationSupportId: number): Promise<ActionResult> {
+  await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
+  try {
+    const record = await prisma.hojoApplicationSupport.findUnique({
+      where: { id: applicationSupportId },
+    });
+    if (!record || !record.pendingAnswers) {
+      return err("却下できる修正申請がありません");
+    }
+
+    await prisma.hojoApplicationSupport.update({
+      where: { id: record.id },
+      data: {
+        pendingAnswers: Prisma.DbNull,
+        pendingFileUrls: Prisma.DbNull,
+        formUpdateStatus: APPLICATION_FORM_UPDATE_STATUS.REJECTED,
+      },
+    });
+
+    revalidateApplicationSupportPaths();
+    return ok();
+  } catch (e) {
+    console.error("[rejectPendingBusinessPlanSubmission] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
 }

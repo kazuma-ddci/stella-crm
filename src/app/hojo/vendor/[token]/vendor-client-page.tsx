@@ -41,7 +41,7 @@ type FormSubmissionData = {
 };
 
 type ApplicantRecord = {
-  id: number; lineFriendUid: string; lineName: string; applicantName: string; statusName: string;
+  id: number; wholesaleAccountId: number | null; formToken: string; formUpdateStatus: string; applicantName: string; statusName: string;
   formAnswerDate: string; formTranscriptDate: string; applicationFormDate: string;
   subsidyDesiredDate: string; subsidyAmount: number | null;
   paymentReceivedAmount: number | null; paymentReceivedDate: string;
@@ -51,7 +51,7 @@ type ApplicantRecord = {
 };
 
 type WholesaleRecord = {
-  id: number; supportProviderName: string; companyName: string; email: string;
+  id: number; applicantType: string; companyName: string; email: string;
   softwareSalesContractUrl: string;
   loanUsage: string; grantUsage: string;
   subsidyTargetAmountTaxIncluded: number | null; applicationAmount: number | null;
@@ -196,9 +196,9 @@ function LoginForm({ vendorName, vendorToken }: { vendorName: string; vendorToke
 }
 
 // ========== フォームURLコピーボタン ==========
-function FormUrlCopyButton({ uid }: { uid: string }) {
+function FormUrlCopyButton({ token }: { token: string }) {
   const [copied, setCopied] = useState(false);
-  const url = `${getHojoCustomerOrigin()}/form/hojo-business-plan?uid=${uid}`;
+  const url = `${getHojoCustomerOrigin()}/form/hojo-business-plan?t=${token}`;
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(url);
@@ -278,19 +278,20 @@ function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; ca
       <div className="overflow-auto">
         <Table>
           <TableHeader><TableRow>
-            <TableHead>LINE名</TableHead><TableHead>申請者名</TableHead><TableHead>ステータス</TableHead>
-            <TableHead>情報回収フォームURL</TableHead><TableHead>情報回収フォーム回答日</TableHead>
+            <TableHead>顧客リストNo.</TableHead><TableHead>申請者名</TableHead><TableHead>ステータス</TableHead>
+            <TableHead>情報回収フォームURL</TableHead><TableHead>フォーム更新状況</TableHead><TableHead>情報回収フォーム回答日</TableHead>
             <TableHead>回答データ</TableHead><TableHead>フォーム内容確定日</TableHead><TableHead>資料保管</TableHead><TableHead>支援制度申請フォーム回答日</TableHead>
             <TableHead>助成金着金希望日</TableHead><TableHead>助成金額</TableHead><TableHead>原資金額</TableHead><TableHead>原資着金日</TableHead>
             <TableHead>助成金着金日</TableHead><TableHead>備考</TableHead>
             {canEdit && <TableHead className="w-[60px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
           </TableRow></TableHeader>
           <TableBody>
-            {data.length === 0 ? <TableRow><TableCell colSpan={canEdit ? 16 : 15} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
+            {data.length === 0 ? <TableRow><TableCell colSpan={canEdit ? 17 : 16} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
             : data.map((r) => (
               <TableRow key={r.id} className="group/row">
-                <TableCell className="whitespace-nowrap">{r.lineName}</TableCell><TableCell className="whitespace-nowrap">{r.applicantName}</TableCell><TableCell className="whitespace-nowrap">{r.statusName}</TableCell>
-                <TableCell><FormUrlCopyButton uid={r.lineFriendUid} /></TableCell>
+                <TableCell className="whitespace-nowrap">{r.wholesaleAccountId ?? "-"}</TableCell><TableCell className="whitespace-nowrap">{r.applicantName}</TableCell><TableCell className="whitespace-nowrap">{r.statusName}</TableCell>
+                <TableCell>{r.formToken ? <FormUrlCopyButton token={r.formToken} /> : "-"}</TableCell>
+                <TableCell className="whitespace-nowrap">{r.formUpdateStatus || "未送信"}</TableCell>
                 <TableCell className="whitespace-nowrap">{r.formAnswerDate}</TableCell>
                 <TableCell>
                   {r.formSubmission ? (
@@ -341,7 +342,7 @@ function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; ca
           open={true}
           onClose={() => setDocRecord(null)}
           applicationSupportId={docRecord.id}
-          applicantName={docRecord.applicantName !== "-" ? docRecord.applicantName : docRecord.lineName}
+          applicantName={docRecord.applicantName !== "-" ? docRecord.applicantName : `顧客リストNo.${docRecord.wholesaleAccountId ?? ""}`}
           documents={docRecord.documents}
         />
       )}
@@ -361,7 +362,8 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
   const openEdit = (r: WholesaleRecord) => {
     setEditRecord(r);
     setEditData({
-      supportProviderName: r.supportProviderName, companyName: r.companyName, email: r.email,
+      companyName: r.companyName, email: r.email,
+      applicantType: r.applicantType,
       softwareSalesContractUrl: r.softwareSalesContractUrl,
       loanUsage: r.loanUsage,
       grantUsage: r.grantUsage,
@@ -421,10 +423,15 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
     { value: "有", label: "有" },
     { value: "無", label: "無" },
   ];
+  const applicantTypeOptions = [
+    { value: "", label: "-" },
+    { value: "法人", label: "法人" },
+    { value: "個人事業主", label: "個人事業主" },
+  ];
 
   const editableFields = [
-    { key: "supportProviderName", label: "支援事業者名", type: "text" as const },
     { key: "companyName", label: "会社名(補助事業社、納品先）", type: "text" as const },
+    { key: "applicantType", label: "法人/個人", type: "select" as const, options: applicantTypeOptions },
     { key: "email", label: "メールアドレス(アカウント)", type: "text" as const },
     { key: "softwareSalesContractUrl", label: "ソフトウェア販売契約書", type: "url" as const, placeholder: "https://..." },
     { key: "loanUsage", label: "貸金利用", type: "select" as const },
@@ -442,11 +449,12 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
       return <DatePicker value={values[f.key] || ""} onChange={(v) => setValues({ ...values, [f.key]: v })} />;
     }
     if (f.type === "select") {
+      const options = "options" in f && f.options ? f.options : usageOptions;
       return (
         <Select value={values[f.key] || "__empty"} onValueChange={(v) => setValues({ ...values, [f.key]: v === "__empty" ? "" : v })}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
-            {usageOptions.map((o) => (
+            {options.map((o) => (
               <SelectItem key={o.value || "__empty"} value={o.value || "__empty"}>{o.label}</SelectItem>
             ))}
           </SelectContent>
@@ -476,7 +484,7 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
           <Table>
             <TableHeader><TableRow>
               <TableHead className="w-12">No.</TableHead>
-              <TableHead>支援事業者名</TableHead><TableHead>会社名(補助事業社、納品先）</TableHead><TableHead>メールアドレス(アカウント)</TableHead>
+              <TableHead>会社名(補助事業社、納品先）</TableHead><TableHead>法人/個人</TableHead><TableHead>メールアドレス(アカウント)</TableHead>
               <TableHead>ソフトウェア販売契約書</TableHead><TableHead>貸金利用</TableHead><TableHead>助成金利用</TableHead><TableHead>補助金対象額（税込）</TableHead><TableHead>申請額</TableHead><TableHead>募集回</TableHead><TableHead>採択日</TableHead><TableHead>発行依頼日</TableHead><TableHead>アカウント承認日</TableHead>
               <TableHead>交付日</TableHead>
               {canEdit && <TableHead className="w-[80px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
@@ -486,8 +494,8 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
               : data.map((r, idx) => (
                 <TableRow key={r.id} className="group/row">
                   <TableCell className="text-gray-500">{idx + 1}</TableCell>
-                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.supportProviderName} onSave={(v) => inlineSave(r.id, "supportProviderName", v)}>{r.supportProviderName || "-"}</InlineCell> : r.supportProviderName || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.companyName} onSave={(v) => inlineSave(r.id, "companyName", v)}>{r.companyName || "-"}</InlineCell> : r.companyName || "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.applicantType} onSave={(v) => inlineSave(r.id, "applicantType", v)} type="select" options={applicantTypeOptions}>{r.applicantType || "-"}</InlineCell> : r.applicantType || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.email} onSave={(v) => inlineSave(r.id, "email", v)}>{r.email || "-"}</InlineCell> : r.email || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.softwareSalesContractUrl} onSave={(v) => inlineSave(r.id, "softwareSalesContractUrl", v)}>{r.softwareSalesContractUrl ? <a href={r.softwareSalesContractUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">リンク</a> : "-"}</InlineCell> : r.softwareSalesContractUrl ? <a href={r.softwareSalesContractUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">リンク</a> : "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.loanUsage} onSave={(v) => inlineSave(r.id, "loanUsage", v)} type="select" options={usageOptions}>{r.loanUsage || "-"}</InlineCell> : r.loanUsage || "-"}</TableCell>
@@ -595,7 +603,7 @@ function VendorDataPage({ applicantData, wholesaleData, contractsData, activitie
       case "loan":
         return <VendorLoanSection vendorToken={vendorToken} vendorId={vendorId!} canEdit={canEdit} corporateSubmissions={loanCorporateData} individualSubmissions={loanIndividualData} />;
       case "loan-progress":
-        return <VendorProgressSection data={loanProgressData} vendorId={vendorId!} canEdit={canEdit} />;
+        return <VendorProgressSection data={loanProgressData} vendorId={vendorId!} canEdit={canEdit} canReviewFormUpdates={isVendor} />;
     }
   };
 

@@ -24,7 +24,7 @@ export default async function BbsFormAnswersPage() {
     where: {
       deletedAt: null,
       formTranscriptDate: { not: null },
-      lineFriend: { userType: "顧客" },
+      wholesaleAccount: { deletedAt: null, deletedByVendor: false },
     },
     include: {
       linkedFormSubmissions: {

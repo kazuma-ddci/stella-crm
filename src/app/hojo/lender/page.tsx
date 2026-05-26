@@ -22,11 +22,25 @@ export default async function LenderPage() {
     return <LenderClientPage authenticated={false} isLender={false} corporateData={[]} individualData={[]} vendors={[]} progressData={[]} statusOptions={[]} rates={{ interestRate: 0.15, feeRate: 0.5 }} />;
   }
 
-  // 全ベンダーの借入申込フォーム回答を取得
+  // 貸金業社側は弊社承認済みの表示状態を使う。
+  // ベンダーが貸金利用を変更しても、弊社が承認するまでは貸金業社側へ反映しない。
+  // 既存の未紐づけ回答は移行対象外のため、従来どおり表示する。
   const allSubmissions = await prisma.hojoFormSubmission.findMany({
     where: {
       deletedAt: null,
       formType: { in: ["loan-corporate", "loan-individual"] },
+      OR: [
+        { loanProgress: { is: null } },
+        { loanProgress: { is: { wholesaleAccountId: null, deletedAt: null } } },
+        {
+          loanProgress: {
+            is: {
+              deletedAt: null,
+              wholesaleAccount: { deletedAt: null, deletedByVendor: false },
+            },
+          },
+        },
+      ],
     },
     orderBy: { submittedAt: "desc" },
   });
@@ -67,10 +81,16 @@ export default async function LenderPage() {
 
   // 顧客進捗データ
   const progressRecords = await prisma.hojoLoanProgress.findMany({
-    where: { deletedAt: null },
+    where: {
+      OR: [
+        { wholesaleAccountId: null, deletedAt: null },
+        { deletedAt: null, wholesaleAccount: { deletedAt: null, deletedByVendor: false } },
+      ],
+    },
     include: {
       vendor: { select: { id: true, name: true } },
       status: { select: { id: true, name: true } },
+      wholesaleAccount: { select: { loanUsage: true } },
     },
     orderBy: { id: "desc" },
   });

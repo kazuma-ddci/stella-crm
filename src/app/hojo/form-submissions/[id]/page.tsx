@@ -44,7 +44,7 @@ export default async function HojoFormSubmissionDetailPage({
   };
 
   const answers = submission.answers as Record<string, unknown>;
-  const { uid } = extractSubmissionMeta(answers);
+  const meta = extractSubmissionMeta(answers);
   const fileUrls = (submission.fileUrls as Record<string, FileInfo> | null) ?? null;
   const initialModifiedAnswers =
     (submission.modifiedAnswers as ModifiedAnswers | null) ?? {};
@@ -57,28 +57,23 @@ export default async function HojoFormSubmissionDetailPage({
     createdAt: string;
   }> = [];
 
-  if (uid) {
-    const lineFriend = await prisma.hojoLineFriendJoseiSupport.findUnique({
-      where: { uid },
-      select: {
-        applicationSupports: {
-          where: { deletedAt: null },
-          include: {
-            status: { select: { name: true } },
-            vendor: { select: { name: true } },
-          },
-          orderBy: { createdAt: "asc" },
-        },
+  const targetApplicationSupportId = submission.linkedApplicationSupportId ?? meta.applicationSupportId;
+  if (targetApplicationSupportId) {
+    const appSupport = await prisma.hojoApplicationSupport.findFirst({
+      where: { id: targetApplicationSupportId, deletedAt: null },
+      include: {
+        status: { select: { name: true } },
+        vendor: { select: { name: true } },
       },
     });
-    if (lineFriend) {
-      candidates = lineFriend.applicationSupports.map((a) => ({
-        id: a.id,
-        applicantName: a.applicantName,
-        statusName: a.status?.name ?? null,
-        vendorName: a.vendor?.name ?? null,
-        createdAt: a.createdAt.toISOString(),
-      }));
+    if (appSupport) {
+      candidates = [{
+        id: appSupport.id,
+        applicantName: appSupport.applicantName,
+        statusName: appSupport.status?.name ?? null,
+        vendorName: appSupport.vendor?.name ?? null,
+        createdAt: appSupport.createdAt.toISOString(),
+      }];
     }
   }
 
@@ -96,7 +91,7 @@ export default async function HojoFormSubmissionDetailPage({
           .slice(0, 10) ?? null
       }
       linkedApplicationSupportId={submission.linkedApplicationSupportId}
-      uid={uid}
+      uid={meta.formToken ?? meta.uid}
       applicationSupportCandidates={candidates}
       canEdit={canEdit}
       subsidyAmount={submission.linkedApplicationSupport?.subsidyAmount ?? null}

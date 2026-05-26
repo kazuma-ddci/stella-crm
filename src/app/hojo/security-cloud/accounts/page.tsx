@@ -21,7 +21,7 @@ export default async function SecurityCloudAccountsPage() {
       vendorId: r.vendorId,
       vendorName: r.vendor.name,
       vendorNo: vendorCounters[r.vendorId],
-      supportProviderName: r.supportProviderName || "",
+      applicantType: r.applicantType || "",
       companyName: r.companyName || "",
       email: r.email || "",
       softwareSalesContractUrl: r.softwareSalesContractUrl || "",

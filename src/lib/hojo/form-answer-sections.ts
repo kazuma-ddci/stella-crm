@@ -268,6 +268,9 @@ export const FILE_FIELDS: Array<{ key: string; label: string }> = [
 
 export type SubmissionMeta = {
   uid: string | null;
+  formToken: string | null;
+  applicationSupportId: number | null;
+  wholesaleAccountId: number | null;
   formVersion: string | null;
   formType: string | null;
   submittedAt: string | null;
@@ -277,6 +280,9 @@ export function extractSubmissionMeta(answers: Record<string, unknown> | null | 
   const meta = (answers?._meta as Record<string, unknown> | undefined) ?? {};
   return {
     uid: typeof meta.uid === "string" ? meta.uid : null,
+    formToken: typeof meta.formToken === "string" ? meta.formToken : null,
+    applicationSupportId: typeof meta.applicationSupportId === "number" ? meta.applicationSupportId : null,
+    wholesaleAccountId: typeof meta.wholesaleAccountId === "number" ? meta.wholesaleAccountId : null,
     formVersion: typeof meta.formVersion === "string" ? meta.formVersion : null,
     formType: typeof meta.formType === "string" ? meta.formType : null,
     submittedAt: typeof meta.submittedAt === "string" ? meta.submittedAt : null,

@@ -6,7 +6,14 @@ import { auth } from "@/auth";
 import { canEdit as canEditProject } from "@/lib/auth/permissions";
 import type { UserPermission } from "@/types/auth";
 import bcrypt from "bcryptjs";
+import { Prisma } from "@prisma/client";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import {
+  FORM_UPDATE_STATUS,
+  normalizeApplicantType,
+  syncLoanProgressAfterWholesaleSave,
+} from "@/lib/hojo/loan-progress-wholesale";
+import { syncApplicationSupportAfterWholesaleSave } from "@/lib/hojo/application-support-wholesale";
 
 async function isStaffWithHojoEdit(): Promise<boolean> {
   const session = await auth();
@@ -179,6 +186,18 @@ function parseOptionalNumber(value: unknown) {
   return Number.isFinite(number) ? number : null;
 }
 
+function revalidateLoanPaths() {
+  revalidatePath("/hojo/vendor");
+  revalidatePath("/hojo/security-cloud/accounts");
+  revalidatePath("/hojo/loan-progress");
+  revalidatePath("/hojo/lender");
+  revalidatePath("/hojo/loan-submissions");
+  revalidatePath("/hojo/application-support");
+  revalidatePath("/hojo/form-submissions");
+  revalidatePath("/hojo/bbs");
+  revalidatePath("/hojo/bbs/form-answers");
+}
+
 export async function addWholesaleAccount(vendorId: number, data: Record<string, unknown>): Promise<ActionResult> {
   try {
     const staffEdit = await isStaffWithHojoEdit();
@@ -188,25 +207,28 @@ export async function addWholesaleAccount(vendorId: number, data: Record<string,
     if (!staffEdit && (userType !== "vendor" || sessionVendorId !== vendorId)) {
       return err("権限がありません");
     }
-    await prisma.hojoWholesaleAccount.create({
-      data: {
-        vendorId,
-        supportProviderName: data.supportProviderName ? String(data.supportProviderName).trim() : null,
-        companyName: data.companyName ? String(data.companyName).trim() : null,
-        email: data.email ? String(data.email).trim() : null,
-        softwareSalesContractUrl: data.softwareSalesContractUrl ? String(data.softwareSalesContractUrl).trim() : null,
-        loanUsage: parseUsageValue(data.loanUsage),
-        grantUsage: parseUsageValue(data.grantUsage),
-        subsidyTargetAmountTaxIncluded: parseOptionalNumber(data.subsidyTargetAmountTaxIncluded),
-        applicationAmount: parseOptionalNumber(data.applicationAmount),
-        recruitmentRound: data.recruitmentRound ? Number(data.recruitmentRound) : null,
-        adoptionDate: data.adoptionDate ? new Date(String(data.adoptionDate)) : null,
-        issueRequestDate: data.issueRequestDate ? new Date(String(data.issueRequestDate)) : null,
-        grantDate: data.grantDate ? new Date(String(data.grantDate)) : null,
-      },
+    await prisma.$transaction(async (tx) => {
+      const account = await tx.hojoWholesaleAccount.create({
+        data: {
+          vendorId,
+          applicantType: normalizeApplicantType(data.applicantType),
+          companyName: data.companyName ? String(data.companyName).trim() : null,
+          email: data.email ? String(data.email).trim() : null,
+          softwareSalesContractUrl: data.softwareSalesContractUrl ? String(data.softwareSalesContractUrl).trim() : null,
+          loanUsage: parseUsageValue(data.loanUsage),
+          grantUsage: parseUsageValue(data.grantUsage),
+          subsidyTargetAmountTaxIncluded: parseOptionalNumber(data.subsidyTargetAmountTaxIncluded),
+          applicationAmount: parseOptionalNumber(data.applicationAmount),
+          recruitmentRound: data.recruitmentRound ? Number(data.recruitmentRound) : null,
+          adoptionDate: data.adoptionDate ? new Date(String(data.adoptionDate)) : null,
+          issueRequestDate: data.issueRequestDate ? new Date(String(data.issueRequestDate)) : null,
+          grantDate: data.grantDate ? new Date(String(data.grantDate)) : null,
+        },
+      });
+      await syncLoanProgressAfterWholesaleSave(tx, account);
+      await syncApplicationSupportAfterWholesaleSave(tx, account);
     });
-    revalidatePath("/hojo/vendor");
-    revalidatePath("/hojo/security-cloud/accounts");
+    revalidateLoanPaths();
     return ok();
   } catch (e) {
     console.error("[addWholesaleAccount] error:", e);
@@ -230,7 +252,7 @@ export async function updateWholesaleAccountByVendor(
     }
 
     const updateData: Record<string, unknown> = {};
-    if (data.supportProviderName !== undefined) updateData.supportProviderName = data.supportProviderName ? String(data.supportProviderName).trim() : null;
+    if (data.applicantType !== undefined) updateData.applicantType = normalizeApplicantType(data.applicantType);
     if (data.companyName !== undefined) updateData.companyName = data.companyName ? String(data.companyName).trim() : null;
     if (data.email !== undefined) updateData.email = data.email ? String(data.email).trim() : null;
     if (data.softwareSalesContractUrl !== undefined) updateData.softwareSalesContractUrl = data.softwareSalesContractUrl ? String(data.softwareSalesContractUrl).trim() : null;
@@ -245,10 +267,13 @@ export async function updateWholesaleAccountByVendor(
     }
 
     if (Object.keys(updateData).length > 0) {
-      await prisma.hojoWholesaleAccount.update({ where: { id }, data: updateData });
+      await prisma.$transaction(async (tx) => {
+        const updated = await tx.hojoWholesaleAccount.update({ where: { id }, data: updateData });
+        await syncLoanProgressAfterWholesaleSave(tx, updated, record.loanUsage);
+        await syncApplicationSupportAfterWholesaleSave(tx, updated, record.grantUsage);
+      });
     }
-    revalidatePath("/hojo/vendor");
-    revalidatePath("/hojo/security-cloud/accounts");
+    revalidateLoanPaths();
     return ok();
   } catch (e) {
     console.error("[updateWholesaleAccountByVendor] error:", e);
@@ -693,6 +718,130 @@ export async function updateLoanSubmissionAnswers(
     return ok();
   } catch (e) {
     console.error("[updateLoanSubmissionAnswers] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+function getAnswerValue(answers: Record<string, unknown>, key: string) {
+  const value = answers[key];
+  return value == null ? "" : String(value);
+}
+
+function getLoanAnswerLabel(key: string) {
+  const labels: Record<string, string> = {
+    corp_company_name: "法人名称(正式名称)",
+    corp_loan_amount: "借入希望金額",
+    corp_rep_name: "代表者氏名(正式名称)",
+    corp_email: "メールアドレス",
+    corp_phone: "法人電話番号",
+    ind_business_name: "屋号(正式名称)",
+    ind_loan_amount: "借入希望金額",
+    ind_name: "氏名(正式名称)",
+    ind_email: "メールアドレス",
+    ind_phone: "電話番号",
+  };
+  return labels[key] ?? key;
+}
+
+export async function applyPendingLoanFormSubmission(
+  progressId: number,
+  vendorId: number
+): Promise<ActionResult> {
+  try {
+    const session = await auth();
+    const isVendor = session?.user?.userType === "vendor" && session?.user?.vendorId === vendorId;
+    if (!isVendor) return err("修正申請の反映はベンダーアカウントのみ実行できます");
+
+    const progress = await prisma.hojoLoanProgress.findUnique({
+      where: { id: progressId },
+      include: { formSubmission: true },
+    });
+    if (!progress || progress.vendorId !== vendorId || !progress.pendingAnswers || !progress.formSubmission) {
+      return err("反映できる修正申請がありません");
+    }
+
+    const pendingAnswers = progress.pendingAnswers as Record<string, unknown>;
+    const currentAnswers = (progress.formSubmission.modifiedAnswers ?? progress.formSubmission.answers) as Record<string, unknown>;
+    const changes: ChangeEntry[] = [];
+    const newAnswers = { ...currentAnswers };
+
+    for (const [key, value] of Object.entries(pendingAnswers)) {
+      const oldValue = getAnswerValue(currentAnswers, key);
+      const newValue = value == null ? "" : String(value);
+      if (oldValue !== newValue) {
+        changes.push({
+          field: key,
+          fieldLabel: getLoanAnswerLabel(key),
+          oldValue,
+          newValue,
+        });
+        newAnswers[key] = value;
+      }
+    }
+
+    const existingHistory = (progress.formSubmission.changeHistory as ChangeHistoryRecord[] | null) ?? [];
+    const historyEntry: ChangeHistoryRecord = {
+      changedAt: new Date().toISOString(),
+      changedBy: session?.user?.name || "ベンダー",
+      changes,
+    };
+
+    await prisma.$transaction(async (tx) => {
+      await tx.hojoFormSubmission.update({
+        where: { id: progress.formSubmissionId! },
+        data: {
+          modifiedAnswers: newAnswers as Prisma.InputJsonValue,
+          changeHistory: (changes.length > 0 ? [...existingHistory, historyEntry] : existingHistory) as Prisma.InputJsonValue,
+        },
+      });
+      await tx.hojoLoanProgress.update({
+        where: { id: progress.id },
+        data: {
+          pendingAnswers: Prisma.DbNull,
+          pendingFormType: null,
+          formUpdateStatus: FORM_UPDATE_STATUS.APPLIED,
+          representName: progress.pendingFormType === "loan-corporate"
+            ? getAnswerValue(pendingAnswers, "corp_rep_name") || progress.representName
+            : getAnswerValue(pendingAnswers, "ind_name") || progress.representName,
+        },
+      });
+    });
+
+    revalidateLoanPaths();
+    return ok();
+  } catch (e) {
+    console.error("[applyPendingLoanFormSubmission] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+export async function rejectPendingLoanFormSubmission(
+  progressId: number,
+  vendorId: number
+): Promise<ActionResult> {
+  try {
+    const session = await auth();
+    const isVendor = session?.user?.userType === "vendor" && session?.user?.vendorId === vendorId;
+    if (!isVendor) return err("修正申請の却下はベンダーアカウントのみ実行できます");
+
+    const progress = await prisma.hojoLoanProgress.findUnique({ where: { id: progressId } });
+    if (!progress || progress.vendorId !== vendorId || !progress.pendingAnswers) {
+      return err("却下できる修正申請がありません");
+    }
+
+    await prisma.hojoLoanProgress.update({
+      where: { id: progress.id },
+      data: {
+        pendingAnswers: Prisma.DbNull,
+        pendingFormType: null,
+        formUpdateStatus: FORM_UPDATE_STATUS.REJECTED,
+      },
+    });
+
+    revalidateLoanPaths();
+    return ok();
+  } catch (e) {
+    console.error("[rejectPendingLoanFormSubmission] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
 }

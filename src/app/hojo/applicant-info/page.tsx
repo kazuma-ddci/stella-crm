@@ -123,7 +123,7 @@ export default async function ApplicantInfoPage() {
   // lineFriendId → 紹介元ベンダー名リスト（重複なし）
   const vendorNamesByLineFriendId = new Map<number, string[]>();
   for (const as of applicationSupports) {
-    if (as.vendor?.name) {
+    if (as.lineFriendId && as.vendor?.name) {
       const names = vendorNamesByLineFriendId.get(as.lineFriendId) || [];
       if (!names.includes(as.vendor.name)) {
         names.push(as.vendor.name);

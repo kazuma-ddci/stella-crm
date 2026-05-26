@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { Check, Copy, Pencil, X } from "lucide-react";
 import { InlineCell } from "@/components/inline-cell";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,10 +15,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { updateVendorProgress } from "./actions";
+import { applyPendingLoanFormSubmission, rejectPendingLoanFormSubmission, updateVendorProgress } from "./actions";
+import { getHojoCustomerOrigin } from "@/lib/hojo/customer-domain";
 
 export type ProgressRow = {
   id: number;
+  formToken: string;
+  formUpdateStatus: string;
+  hasPendingAnswers: boolean;
   requestDate: string;
   companyName: string;
   representName: string;
@@ -53,9 +57,10 @@ type Props = {
   data: ProgressRow[];
   vendorId: number;
   canEdit: boolean;
+  canReviewFormUpdates?: boolean;
 };
 
-export function VendorProgressSection({ data, vendorId, canEdit }: Props) {
+export function VendorProgressSection({ data, vendorId, canEdit, canReviewFormUpdates = false }: Props) {
   const router = useRouter();
   const [editRow, setEditRow] = useState<ProgressRow | null>(null);
   const [editData, setEditData] = useState({
@@ -66,6 +71,7 @@ export function VendorProgressSection({ data, vendorId, canEdit }: Props) {
     loanExecutionTime: "",
   });
   const [saving, setSaving] = useState(false);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const openEdit = (row: ProgressRow) => {
     setEditRow(row);
@@ -159,6 +165,35 @@ export function VendorProgressSection({ data, vendorId, canEdit }: Props) {
   };
 
   const fmtDate = (d: string) => (d ? d.replace(/-/g, "/") : "-");
+  const formUrl = (token: string) => token ? `${getHojoCustomerOrigin()}/form/hojo-loan-application?t=${token}` : "";
+
+  const copyFormUrl = async (row: ProgressRow) => {
+    const url = formUrl(row.formToken);
+    if (!url) return;
+    await navigator.clipboard.writeText(url);
+    setCopiedId(row.id);
+    setTimeout(() => setCopiedId((id) => (id === row.id ? null : id)), 1500);
+  };
+
+  const applyPending = async (row: ProgressRow) => {
+    if (!confirm("修正申請を正式な回答として反映しますか？")) return;
+    const result = await applyPendingLoanFormSubmission(row.id, vendorId);
+    if (!result.ok) {
+      alert(result.error);
+      return;
+    }
+    router.refresh();
+  };
+
+  const rejectPending = async (row: ProgressRow) => {
+    if (!confirm("修正申請を却下しますか？")) return;
+    const result = await rejectPendingLoanFormSubmission(row.id, vendorId);
+    if (!result.ok) {
+      alert(result.error);
+      return;
+    }
+    router.refresh();
+  };
 
   // ツール購入代金と貸付金額が一致しているかチェック
   const parseAmount = (s: string) => {
@@ -181,6 +216,8 @@ export function VendorProgressSection({ data, vendorId, canEdit }: Props) {
             <TableHead className={canEdit ? "bg-blue-50 whitespace-nowrap" : "whitespace-nowrap"}>依頼日</TableHead>
             <TableHead className="whitespace-nowrap">社名（屋号名）</TableHead>
             <TableHead className="whitespace-nowrap">代表者(契約者)氏名</TableHead>
+            <TableHead className="whitespace-nowrap">URL</TableHead>
+            <TableHead className="whitespace-nowrap">フォーム更新状況</TableHead>
             <TableHead className="whitespace-nowrap">ステータス</TableHead>
             <TableHead className="whitespace-nowrap">法人/個人</TableHead>
             <TableHead className="whitespace-nowrap">最終更新日</TableHead>
@@ -216,7 +253,7 @@ export function VendorProgressSection({ data, vendorId, canEdit }: Props) {
         <TableBody>
           {data.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={canEdit ? 30 : 29} className="text-center text-gray-500 py-8">
+              <TableCell colSpan={canEdit ? 32 : 31} className="text-center text-gray-500 py-8">
                 データがありません
               </TableCell>
             </TableRow>
@@ -248,6 +285,35 @@ export function VendorProgressSection({ data, vendorId, canEdit }: Props) {
                 </TableCell>
                 <TableCell className="whitespace-nowrap">{r.companyName || "-"}</TableCell>
                 <TableCell className="whitespace-nowrap">{r.representName || "-"}</TableCell>
+                <TableCell className="whitespace-nowrap">
+                  {r.formToken ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1"
+                      onClick={() => copyFormUrl(r)}
+                    >
+                      {copiedId === r.id ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                      コピー
+                    </Button>
+                  ) : "-"}
+                </TableCell>
+                <TableCell className="whitespace-nowrap">
+                  <div className="flex items-center gap-2">
+                    <span>{r.formUpdateStatus || "未送信"}</span>
+                    {canReviewFormUpdates && r.hasPendingAnswers && (
+                      <span className="inline-flex gap-1">
+                        <Button type="button" size="sm" variant="outline" className="h-7 px-2" onClick={() => applyPending(r)}>
+                          <Check className="h-3 w-3 mr-1" />反映
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" className="h-7 px-2" onClick={() => rejectPending(r)}>
+                          <X className="h-3 w-3 mr-1" />却下
+                        </Button>
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
                 <TableCell className="whitespace-nowrap">{r.statusName || "-"}</TableCell>
                 <TableCell className="whitespace-nowrap">{r.applicantType || "-"}</TableCell>
                 <TableCell className="whitespace-nowrap">{fmtDate(r.updatedAt)}</TableCell>

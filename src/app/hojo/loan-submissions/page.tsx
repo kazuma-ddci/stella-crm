@@ -15,6 +15,9 @@ export default async function HojoLoanSubmissionsPage() {
       deletedAt: null,
       formType: { in: ["loan-corporate", "loan-individual"] },
     },
+    include: {
+      loanProgress: { select: { formUpdateStatus: true } },
+    },
     orderBy: { submittedAt: "desc" },
   });
 
@@ -32,6 +35,7 @@ export default async function HojoLoanSubmissionsPage() {
       vendorMemo: s.vendorMemo || "",
       lenderMemo: s.lenderMemo || "",
       staffMemo: s.staffMemo || "",
+      changeApplied: s.loanProgress?.formUpdateStatus === "変更反映済み" || !!s.modifiedAnswers,
       answers: answers ?? {},
       modifiedAnswers: (s.modifiedAnswers as Record<string, unknown> | null) ?? null,
     };
