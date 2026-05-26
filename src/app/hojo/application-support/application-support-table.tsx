@@ -159,13 +159,13 @@ export function ApplicationSupportTable({
     },
     {
       key: "vendorName",
-      header: "紹介元ベンダー",
+      header: "ベンダー",
       editable: false,
       filterable: true,
     },
     {
       key: "vendorId",
-      header: "紹介元ベンダー（編集用）",
+      header: "ベンダー（編集用）",
       type: "select",
       options: vendorOptions,
       searchable: true,

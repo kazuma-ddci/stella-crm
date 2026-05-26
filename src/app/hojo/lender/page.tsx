@@ -95,23 +95,9 @@ export default async function LenderPage() {
     orderBy: { id: "desc" },
   });
 
-  // vendorNoを計算（ベンダー内での表示順）
-  const progressesByVendor: Record<number, typeof progressRecords> = {};
-  for (const r of progressRecords) {
-    if (!progressesByVendor[r.vendorId]) progressesByVendor[r.vendorId] = [];
-    progressesByVendor[r.vendorId].push(r);
-  }
-  // ベンダー内はid昇順でナンバリング
-  const vendorNoMap: Record<number, number> = {};
-  for (const records of Object.values(progressesByVendor)) {
-    const sorted = [...records].sort((a, b) => a.id - b.id);
-    sorted.forEach((r, i) => { vendorNoMap[r.id] = i + 1; });
-  }
-
   const progressData = progressRecords.map((r) => ({
     id: r.id,
     vendorName: r.vendor.name,
-    vendorNo: vendorNoMap[r.id] ?? 0,
     requestDate: r.requestDate?.toISOString().split("T")[0] ?? "",
     companyName: r.companyName ?? "",
     representName: r.representName ?? "",

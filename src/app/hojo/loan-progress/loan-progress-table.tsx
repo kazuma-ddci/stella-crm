@@ -24,7 +24,6 @@ type RowData = {
   loanUsagePending: string;
   loanUsageApproved: string;
   vendorName: string;
-  vendorNo: number;
   requestDate: string | null;
   companyName: string;
   representName: string;
@@ -154,7 +153,6 @@ export function LoanProgressTable({
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
     { key: "vendorName", header: "ベンダー", type: "select", options: vendorOptions, editable: false, filterable: true },
-    { key: "vendorNo", header: "ベンダーNo.", type: "number", editable: false, filterable: true, cellClassName: "text-center" },
     { key: "requestDate", header: "依頼日", type: "date", editable: false, filterable: true },
     { key: "companyName", header: "社名（屋号名）", type: "text", editable: false, filterable: true },
     { key: "representName", header: "代表者(契約者)氏名", type: "text", editable: false, filterable: true },

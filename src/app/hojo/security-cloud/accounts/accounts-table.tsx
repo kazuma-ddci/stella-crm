@@ -25,8 +25,7 @@ export function AccountsTable({ data }: Props) {
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
     { key: "rowNo", header: "No.", editable: false, width: 1, cellClassName: "text-center" },
-    { key: "vendorName", header: "紹介元ベンダー(支援事業者)", editable: false, filterable: true },
-    { key: "vendorNo", header: "ベンダーNo.", editable: false, width: 1 },
+    { key: "vendorName", header: "ベンダー", editable: false, filterable: true },
     { key: "companyName", header: "会社名(補助事業社、納品先）", editable: false, filterable: true },
     { key: "applicantType", header: "法人/個人", type: "select", options: APPLICANT_TYPE_OPTIONS, editable: false, filterable: true },
     { key: "email", header: "メールアドレス(アカウント)", editable: false, filterable: true },

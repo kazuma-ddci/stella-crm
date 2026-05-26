@@ -409,6 +409,7 @@ export default async function VendorPage({
 
   const loanProgressData = loanProgressRecords.map((r) => ({
     id: r.id,
+    wholesaleAccountId: r.wholesaleAccountId,
     formToken: r.formToken ?? "",
     formUpdateStatus: r.formUpdateStatus,
     hasPendingAnswers: r.pendingAnswers != null,

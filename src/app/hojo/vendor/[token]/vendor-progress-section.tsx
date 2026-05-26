@@ -20,6 +20,7 @@ import { getHojoCustomerOrigin } from "@/lib/hojo/customer-domain";
 
 export type ProgressRow = {
   id: number;
+  wholesaleAccountId: number | null;
   formToken: string;
   formUpdateStatus: string;
   hasPendingAnswers: boolean;
@@ -286,7 +287,7 @@ export function VendorProgressSection({ data, vendorId, canEdit, canReviewFormUp
                 <TableCell className="whitespace-nowrap">{r.companyName || "-"}</TableCell>
                 <TableCell className="whitespace-nowrap">{r.representName || "-"}</TableCell>
                 <TableCell className="whitespace-nowrap">
-                  {r.formToken ? (
+                  {r.wholesaleAccountId && r.formToken ? (
                     <Button
                       type="button"
                       size="sm"

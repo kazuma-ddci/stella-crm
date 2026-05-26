@@ -25,23 +25,6 @@ export default async function HojoLoanProgressPage() {
     orderBy: { id: "desc" },
   });
 
-  // Compute vendorNo: position within same vendor's records (sorted by id asc, 1-indexed)
-  const vendorRecordsMap = new Map<number, number[]>();
-  // Collect all record ids per vendor, sorted by id asc
-  const sortedByIdAsc = [...allProgress].sort((a, b) => a.id - b.id);
-  for (const record of sortedByIdAsc) {
-    const ids = vendorRecordsMap.get(record.vendorId) ?? [];
-    ids.push(record.id);
-    vendorRecordsMap.set(record.vendorId, ids);
-  }
-  // Map record id -> vendorNo
-  const vendorNoMap = new Map<number, number>();
-  for (const [, ids] of vendorRecordsMap) {
-    ids.forEach((id, idx) => {
-      vendorNoMap.set(id, idx + 1);
-    });
-  }
-
   const serialized = allProgress.map((p) => ({
     id: p.id,
     formToken: p.formToken ?? "",
@@ -49,7 +32,6 @@ export default async function HojoLoanProgressPage() {
     loanUsagePending: p.loanUsagePending ?? "",
     loanUsageApproved: p.loanUsageApproved ?? "",
     vendorName: p.vendor?.name ?? "",
-    vendorNo: vendorNoMap.get(p.id) ?? 0,
     requestDate: p.requestDate?.toISOString() ?? null,
     companyName: p.companyName ?? "",
     representName: p.representName ?? "",

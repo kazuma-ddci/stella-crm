@@ -8,19 +8,12 @@ export default async function SecurityCloudAccountsPage() {
     orderBy: { id: "asc" },
   });
 
-  // ベンダーごとのNo.計算
-  const vendorCounters: Record<number, number> = {};
-
   const data = records.map((r, idx) => {
-    if (!vendorCounters[r.vendorId]) vendorCounters[r.vendorId] = 0;
-    vendorCounters[r.vendorId]++;
-
     return {
       id: r.id,
       rowNo: idx + 1,
       vendorId: r.vendorId,
       vendorName: r.vendor.name,
-      vendorNo: vendorCounters[r.vendorId],
       applicantType: r.applicantType || "",
       companyName: r.companyName || "",
       email: r.email || "",

@@ -51,7 +51,7 @@ const applicantColumns: ColumnDef[] = [
   { key: "snsname", header: "LINE名", type: "text", editable: false, filterable: true },
   { key: "uid", header: "UID", type: "text", editable: false, filterable: true },
   { key: "userType", header: "ユーザー種別", editable: false, filterable: true },
-  { key: "vendorName", header: "紹介元ベンダー", editable: false, filterable: true },
+  { key: "vendorName", header: "ベンダー", editable: false, filterable: true },
   { key: "nextContactDate", header: "次の連絡日", type: "date", editable: false, filterable: true },
 ];
 
