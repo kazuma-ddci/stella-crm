@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import { err, ok, type ActionResult } from "@/lib/action-result";
 import type { Prisma } from "@prisma/client";
 
@@ -16,8 +15,10 @@ function revalidateApplicationBpo() {
 
 async function isStaffWithHojoEdit() {
   const session = await auth();
-  const permissions = (session?.user?.permissions ?? []) as UserPermission[];
-  return session?.user?.userType === "staff" && canEditProject(permissions, "hojo");
+  return (
+    session?.user?.userType === "staff" &&
+    canEditProjectMasterDataSync(session.user, "hojo")
+  );
 }
 
 async function requireHojoEditStaff() {

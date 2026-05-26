@@ -1,7 +1,6 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import { ApplicationBpoTable, type ApplicationBpoRow } from "./application-bpo-table";
 import type { ApplicationBpoAttachments } from "@/lib/hojo/application-bpo-fields";
 
@@ -11,8 +10,9 @@ function dateOnly(value: Date | null) {
 
 export default async function ApplicationBpoPage() {
   const session = await auth();
-  const permissions = (session?.user?.permissions ?? []) as UserPermission[];
-  const canEdit = session?.user?.userType === "staff" && canEditProject(permissions, "hojo");
+  const canEdit =
+    session?.user?.userType === "staff" &&
+    canEditProjectMasterDataSync(session?.user, "hojo");
 
   const records = await prisma.hojoApplicationBpoRequest.findMany({
     where: { deletedAt: null },

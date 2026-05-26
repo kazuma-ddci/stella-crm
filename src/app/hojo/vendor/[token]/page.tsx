@@ -2,8 +2,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import { VendorClientPage } from "./vendor-client-page";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import type { Metadata } from "next";
 import type { FileInfo } from "@/components/hojo/form-answer-editor";
 import type { ApplicationBpoAttachments } from "@/lib/hojo/application-bpo-fields";
@@ -91,8 +90,9 @@ export default async function VendorPage({
   const isVendor = userType === "vendor";
   const sessionVendorId = session?.user?.vendorId;
   const isAuthenticated = isStaff || (isVendor && sessionVendorId === vendor.id);
-  const userPermissions = (session?.user?.permissions ?? []) as UserPermission[];
-  const staffCanEdit = isStaff && canEditProject(userPermissions, "hojo");
+  const staffCanEdit =
+    isStaff &&
+    canEditProjectMasterDataSync(session?.user, "hojo");
 
   if (!isAuthenticated) {
     return (

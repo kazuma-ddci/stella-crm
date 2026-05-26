@@ -276,14 +276,14 @@ type TaskInput = {
 
 async function checkPermissionForActivity(activityId: number, vendorId?: number): Promise<{ isStaff: boolean; isVendor: boolean }> {
   const { auth } = await import("@/auth");
-  const { canEdit: canEditProject } = await import("@/lib/auth/permissions");
+  const { canEditProjectMasterDataSync } = await import("@/lib/auth/master-data-permission");
   const session = await auth();
   const userType = session?.user?.userType;
 
-  const isStaff = userType === "staff" && canEditProject(
-    (session?.user?.permissions ?? []) as import("@/types/auth").UserPermission[],
-    "hojo"
-  );
+  const isStaff =
+    userType === "staff" &&
+    !!session?.user &&
+    canEditProjectMasterDataSync(session.user, "hojo");
   const isVendor = userType === "vendor" && typeof vendorId === "number" && session?.user?.vendorId === vendorId;
 
   if (!isStaff && !isVendor) {

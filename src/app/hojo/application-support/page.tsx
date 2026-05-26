@@ -1,8 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { ApplicationSupportTable } from "./application-support-table";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import {
   displayApplicationFormUpdateStatus,
   syncApplicationSupportAfterWholesaleSave,
@@ -10,9 +9,9 @@ import {
 
 export default async function ApplicationSupportPage() {
   const session = await auth();
-  const userPermissions = (session?.user?.permissions ?? []) as UserPermission[];
   const canEditAnswers =
-    session?.user?.userType === "staff" && canEditProject(userPermissions, "hojo");
+    session?.user?.userType === "staff" &&
+    canEditProjectMasterDataSync(session?.user, "hojo");
 
   const grantAccounts = await prisma.hojoWholesaleAccount.findMany({
     where: { deletedAt: null, deletedByVendor: false, grantUsage: "有" },

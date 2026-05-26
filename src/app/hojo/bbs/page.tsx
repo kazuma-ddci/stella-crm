@@ -1,8 +1,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { BbsClientPage } from "./bbs-client-page";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import type { Metadata } from "next";
 import type { FileInfo } from "@/components/hojo/form-answer-editor";
 
@@ -16,8 +15,9 @@ export default async function BbsPage() {
   const isStaff = userType === "staff";
   const isBbs = userType === "bbs";
   const isAuthenticated = isStaff || isBbs;
-  const userPermissions = (session?.user?.permissions ?? []) as UserPermission[];
-  const staffCanEdit = isStaff && canEditProject(userPermissions, "hojo");
+  const staffCanEdit =
+    isStaff &&
+    canEditProjectMasterDataSync(session?.user, "hojo");
 
   if (!isAuthenticated) {
     return <BbsClientPage authenticated={false} isBbs={false} data={[]} />;

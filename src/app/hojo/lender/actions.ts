@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import bcrypt from "bcryptjs";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 
 const REVALIDATE_PATH = "/hojo/lender";
 
@@ -135,9 +136,7 @@ export async function updateLoanLenderMemo(
 
     // スタッフの場合はhojo edit権限チェック
     if (userType === "staff") {
-      const { canEdit: canEditProject } = await import("@/lib/auth/permissions");
-      const permissions = (session?.user?.permissions ?? []) as import("@/types/auth").UserPermission[];
-      if (!canEditProject(permissions, "hojo")) {
+      if (!session?.user || !canEditProjectMasterDataSync(session.user, "hojo")) {
         return err("権限がありません");
       }
     }
@@ -216,9 +215,7 @@ export async function updateLenderProgress(
     }
 
     if (userType === "staff") {
-      const { canEdit: canEditProject } = await import("@/lib/auth/permissions");
-      const permissions = (session?.user?.permissions ?? []) as import("@/types/auth").UserPermission[];
-      if (!canEditProject(permissions, "hojo")) {
+      if (!session?.user || !canEditProjectMasterDataSync(session.user, "hojo")) {
         return err("権限がありません");
       }
     }
@@ -311,9 +308,7 @@ export async function updateHojoLoanProgressRates(
       return err("権限がありません");
     }
     if (userType === "staff") {
-      const { canEdit: canEditProject } = await import("@/lib/auth/permissions");
-      const permissions = (session?.user?.permissions ?? []) as import("@/types/auth").UserPermission[];
-      if (!canEditProject(permissions, "hojo")) {
+      if (!session?.user || !canEditProjectMasterDataSync(session.user, "hojo")) {
         return err("権限がありません");
       }
     }

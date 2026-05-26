@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import bcrypt from "bcryptjs";
 import { Prisma } from "@prisma/client";
 import { ok, err, type ActionResult } from "@/lib/action-result";
@@ -19,8 +18,7 @@ async function isStaffWithHojoEdit(): Promise<boolean> {
   const session = await auth();
   const userType = session?.user?.userType;
   if (userType !== "staff") return false;
-  const permissions = (session?.user?.permissions ?? []) as UserPermission[];
-  return canEditProject(permissions, "hojo");
+  return !!session?.user && canEditProjectMasterDataSync(session.user, "hojo");
 }
 
 async function loadLoanProgressRates() {

@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import bcrypt from "bcryptjs";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import { parseYmdDate } from "@/lib/hojo/parse-date";
@@ -16,8 +15,9 @@ async function requireBbsEditPermission(): Promise<void> {
   const userType = session?.user?.userType;
   if (userType === "bbs") return; // BBSユーザーは編集可
   if (userType === "staff") {
-    const permissions = (session?.user?.permissions ?? []) as UserPermission[];
-    if (canEditProject(permissions, "hojo")) return; // スタッフのhojo edit以上も編集可
+    if (session?.user && canEditProjectMasterDataSync(session.user, "hojo")) {
+      return; // スタッフのhojo edit以上、admin、founderは編集可
+    }
   }
   throw new Error("権限がありません");
 }
@@ -186,4 +186,3 @@ export async function changeBbsPassword(
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
 }
-

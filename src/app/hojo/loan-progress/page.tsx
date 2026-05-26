@@ -1,14 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import { LoanProgressTable } from "./loan-progress-table";
 import { LenderShareableUrlCard } from "@/components/lender-shareable-url-card";
 
 export default async function HojoLoanProgressPage() {
   const session = await auth();
-  const userPermissions = (session?.user?.permissions ?? []) as UserPermission[];
-  const canEdit = canEditProject(userPermissions, "hojo");
+  const canEdit =
+    session?.user?.userType === "staff" &&
+    canEditProjectMasterDataSync(session?.user, "hojo");
 
   const allProgress = await prisma.hojoLoanProgress.findMany({
     where: {
