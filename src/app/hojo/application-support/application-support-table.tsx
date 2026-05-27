@@ -97,7 +97,7 @@ function FormUrlCopyBtn({ token }: { token: string }) {
   );
   useEffect(() => {
     if (!process.env.NEXT_PUBLIC_HOJO_CUSTOMER_DOMAIN) {
-      setOrigin(window.location.origin);
+      queueMicrotask(() => setOrigin(window.location.origin));
     }
   }, []);
   const url = `${origin}/form/hojo-business-plan?t=${token}`;
@@ -252,7 +252,7 @@ export function ApplicationSupportTable({
       header: "原資金額",
       type: "number",
       currency: true,
-      inlineEditable: true,
+      editable: false,
     },
     {
       key: "paymentReceivedDate",
@@ -265,7 +265,7 @@ export function ApplicationSupportTable({
       header: "BBSへの振込額",
       type: "number",
       currency: true,
-      inlineEditable: true,
+      editable: false,
     },
     {
       key: "bbsTransferDate",

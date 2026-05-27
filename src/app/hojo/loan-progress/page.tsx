@@ -3,12 +3,25 @@ import { auth } from "@/auth";
 import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import { LoanProgressTable } from "./loan-progress-table";
 import { LenderShareableUrlCard } from "@/components/lender-shareable-url-card";
+import { syncLoanProgressAfterWholesaleSave } from "@/lib/hojo/loan-progress-wholesale";
 
 export default async function HojoLoanProgressPage() {
   const session = await auth();
   const canEdit =
     session?.user?.userType === "staff" &&
     canEditProjectMasterDataSync(session?.user, "hojo");
+
+  const loanAccounts = await prisma.hojoWholesaleAccount.findMany({
+    where: { deletedAt: null, deletedByVendor: false, loanUsage: "有" },
+    orderBy: { id: "asc" },
+  });
+  if (loanAccounts.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      for (const account of loanAccounts) {
+        await syncLoanProgressAfterWholesaleSave(tx, account);
+      }
+    });
+  }
 
   const allProgress = await prisma.hojoLoanProgress.findMany({
     where: {

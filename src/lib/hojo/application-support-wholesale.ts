@@ -28,6 +28,21 @@ function subsidyAmountFromWholesale(account: WholesaleSeed) {
   return account.applicationAmount ?? account.subsidyTargetAmountTaxIncluded ?? null;
 }
 
+export function calculateGrantPaymentAmounts(subsidyAmount: number | null | undefined) {
+  if (subsidyAmount == null) {
+    return {
+      paymentReceivedAmount: null,
+      bbsTransferAmount: null,
+    };
+  }
+
+  const paymentReceivedAmount = Math.round(subsidyAmount * 1.1 + 55_000 + 165_000);
+  return {
+    paymentReceivedAmount,
+    bbsTransferAmount: paymentReceivedAmount - 55_000,
+  };
+}
+
 export async function ensureApplicationSupportForWholesaleAccount(
   client: PrismaLike,
   account: WholesaleSeed,
@@ -41,12 +56,14 @@ export async function ensureApplicationSupportForWholesaleAccount(
     applicantName: account.companyName,
     subsidyAmount: subsidyAmountFromWholesale(account),
   };
+  const calculatedAmounts = calculateGrantPaymentAmounts(data.subsidyAmount);
 
   if (existing) {
     return client.hojoApplicationSupport.update({
       where: { id: existing.id },
       data: {
         ...data,
+        ...calculatedAmounts,
         formToken: existing.formToken ?? generateApplicationFormToken(),
       },
     });
@@ -55,6 +72,7 @@ export async function ensureApplicationSupportForWholesaleAccount(
   return client.hojoApplicationSupport.create({
     data: {
       ...data,
+      ...calculatedAmounts,
       wholesaleAccountId: account.id,
       formToken: generateApplicationFormToken(),
       formUpdateStatus: APPLICATION_FORM_UPDATE_STATUS.UNSENT,
@@ -108,6 +126,7 @@ export async function syncApplicationSupportAfterWholesaleSave(
         vendorId: account.vendorId,
         applicantName: account.companyName,
         subsidyAmount: subsidyAmountFromWholesale(account),
+        ...calculateGrantPaymentAmounts(subsidyAmountFromWholesale(account)),
         grantUsagePending: pendingUsage,
         grantUsageChangeRequestedAt:
           pendingUsage && pendingUsage !== support.grantUsagePending

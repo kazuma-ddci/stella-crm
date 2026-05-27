@@ -12,7 +12,10 @@ import {
   normalizeApplicantType,
   syncLoanProgressAfterWholesaleSave,
 } from "@/lib/hojo/loan-progress-wholesale";
-import { syncApplicationSupportAfterWholesaleSave } from "@/lib/hojo/application-support-wholesale";
+import {
+  calculateGrantPaymentAmounts,
+  syncApplicationSupportAfterWholesaleSave,
+} from "@/lib/hojo/application-support-wholesale";
 
 async function isStaffWithHojoEdit(): Promise<boolean> {
   const session = await auth();
@@ -119,7 +122,9 @@ export async function updateVendorFields(
       updateData.subsidyDesiredDate = data.subsidyDesiredDate ? new Date(data.subsidyDesiredDate) : null;
     }
     if (data.subsidyAmount !== undefined) {
-      updateData.subsidyAmount = data.subsidyAmount ?? null;
+      const subsidyAmount = data.subsidyAmount ?? null;
+      updateData.subsidyAmount = subsidyAmount;
+      Object.assign(updateData, calculateGrantPaymentAmounts(subsidyAmount));
     }
     if (data.vendorMemo !== undefined) {
       updateData.vendorMemo = data.vendorMemo?.trim() || null;

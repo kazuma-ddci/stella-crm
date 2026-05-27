@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { ApplicationSupportTable } from "./application-support-table";
 import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import {
+  calculateGrantPaymentAmounts,
   displayApplicationFormUpdateStatus,
   syncApplicationSupportAfterWholesaleSave,
 } from "@/lib/hojo/application-support-wholesale";
@@ -84,6 +85,7 @@ export default async function ApplicationSupportPage() {
   const data = records.map((record, idx) => {
     const submission = record.linkedFormSubmissions[0] ?? null;
     const account = record.wholesaleAccount;
+    const calculatedAmounts = calculateGrantPaymentAmounts(record.subsidyAmount);
     return {
       id: record.id,
       rowNo: idx + 1,
@@ -108,8 +110,8 @@ export default async function ApplicationSupportPage() {
       subsidyDesiredDate: record.subsidyDesiredDate?.toISOString().slice(0, 10) ?? null,
       subsidyAmount: record.subsidyAmount ?? null,
       paymentReceivedDate: record.paymentReceivedDate?.toISOString().slice(0, 10) ?? null,
-      paymentReceivedAmount: record.paymentReceivedAmount ?? null,
-      bbsTransferAmount: record.bbsTransferAmount ?? null,
+      paymentReceivedAmount: calculatedAmounts.paymentReceivedAmount,
+      bbsTransferAmount: calculatedAmounts.bbsTransferAmount,
       bbsTransferDate: record.bbsTransferDate?.toISOString().slice(0, 10) ?? null,
       subsidyReceivedDate: record.subsidyReceivedDate?.toISOString().slice(0, 10) ?? null,
       alkesMemo: record.alkesMemo ?? "",

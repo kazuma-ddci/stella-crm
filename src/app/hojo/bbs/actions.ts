@@ -104,6 +104,7 @@ export type BbsEditableFields = {
   bbsStatusId?: number | null;
   bbsMemo?: string;
   applicationFormDate?: string | null;
+  subsidyReceivedDate?: string | null;
 };
 
 // 各フィールドの Prisma への変換ロジック。追加時はここに1行足すだけ。
@@ -113,6 +114,7 @@ const BBS_FIELD_CONVERTERS: {
   bbsStatusId: (v) => v || null,
   bbsMemo: (v) => v || null,
   applicationFormDate: (v) => parseYmdDate(v as string | null),
+  subsidyReceivedDate: (v) => parseYmdDate(v as string | null),
 };
 
 export async function updateBbsFields(
@@ -137,7 +139,7 @@ export async function updateBbsFields(
       data: updateData,
     });
 
-    // BBSが編集した applicationFormDate は社内申請者管理にも表示されるため両方を revalidate
+    // BBSが編集した日付・備考は社内申請者管理にも表示されるため両方を revalidate
     revalidatePath(REVALIDATE_PATH);
     revalidatePath("/hojo/application-support");
     return ok();

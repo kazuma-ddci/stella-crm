@@ -126,6 +126,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
     bbsStatusId: "" as string,
     bbsMemo: "",
     applicationFormDate: "",
+    subsidyReceivedDate: "",
   });
   const [saving, setSaving] = useState(false);
   const [viewRecord, setViewRecord] = useState<BbsRecord | null>(null);
@@ -143,6 +144,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
       bbsStatusId: r.bbsStatusId ? String(r.bbsStatusId) : "",
       bbsMemo: r.bbsMemo,
       applicationFormDate: r.applicationFormDate,
+      subsidyReceivedDate: r.subsidyReceivedDate === "-" ? "" : r.subsidyReceivedDate,
     });
   };
 
@@ -154,6 +156,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
         bbsStatusId: editData.bbsStatusId ? Number(editData.bbsStatusId) : null,
         bbsMemo: editData.bbsMemo,
         applicationFormDate: editData.applicationFormDate || null,
+        subsidyReceivedDate: editData.subsidyReceivedDate || null,
       });
       if (!result.ok) { alert(result.error); return; }
       setEditRecord(null);
@@ -169,12 +172,14 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
     }
     if (field === "bbsMemo") return (record.bbsMemo ?? "") === raw;
     if (field === "applicationFormDate") return (record.applicationFormDate ?? "") === raw;
+    if (field === "subsidyReceivedDate") return (record.subsidyReceivedDate === "-" ? "" : record.subsidyReceivedDate) === raw;
     return false;
   };
 
   const buildPayload = (field: keyof BbsEditableFields, raw: string): BbsEditableFields => {
     if (field === "bbsStatusId") return { bbsStatusId: raw === "__empty" ? null : Number(raw) };
     if (field === "bbsMemo") return { bbsMemo: raw };
+    if (field === "subsidyReceivedDate") return { subsidyReceivedDate: raw || null };
     return { applicationFormDate: raw || null };
   };
 
@@ -207,7 +212,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
                 <TableHead>ステータス</TableHead>
                 <TableHead>支援枠</TableHead>
                 <TableHead>BBSへの振込日</TableHead>
-                <TableHead>お客様着金希望日</TableHead>
+                <TableHead>助成金着金日</TableHead>
                 <TableHead>運営備考</TableHead>
                 <TableHead>BBS備考</TableHead>
                 {canEdit && <TableHead className="w-[60px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
@@ -257,7 +262,15 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
                     </TableCell>
                     <TableCell className="whitespace-nowrap">{formatCurrency(record.bbsTransferAmount)}</TableCell>
                     <TableCell className="whitespace-nowrap">{record.bbsTransferDate}</TableCell>
-                    <TableCell className="whitespace-nowrap">{record.subsidyReceivedDate}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {canEdit ? (
+                        <InlineCell value={record.subsidyReceivedDate === "-" ? "" : record.subsidyReceivedDate} onSave={(v) => inlineSave(record.id, "subsidyReceivedDate", v)} type="date">
+                          <span className="whitespace-nowrap">{record.subsidyReceivedDate}</span>
+                        </InlineCell>
+                      ) : (
+                        record.subsidyReceivedDate
+                      )}
+                    </TableCell>
                     <TableCell className="max-w-[200px] truncate">{record.alkesMemo || "-"}</TableCell>
                     <TableCell className="max-w-[200px]">
                       {canEdit ? (
@@ -292,6 +305,13 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
               <DatePicker
                 value={editData.applicationFormDate}
                 onChange={(v) => setEditData((prev) => ({ ...prev, applicationFormDate: v }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>助成金着金日</Label>
+              <DatePicker
+                value={editData.subsidyReceivedDate}
+                onChange={(v) => setEditData((prev) => ({ ...prev, subsidyReceivedDate: v }))}
               />
             </div>
             <div className="space-y-1">
