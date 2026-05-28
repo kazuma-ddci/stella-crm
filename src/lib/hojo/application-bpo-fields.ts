@@ -23,20 +23,36 @@ export type ApplicationBpoField = {
 
 const yesNoOptions = ["はい", "いいえ"];
 
+const growthChallengeGoalPlaceholder = `（500文字以内）ビルメンテナンス業として多様な現場契約と定期メンテナンスを展開する当社は、顧客データや作業実績の散在化により最適な提案機会を逃しています。データ活用による売上向上を目指し、顧客の設備稼働状況・過去作業履歴・契約更新データを統合分析します。顧客ごとの設備故障予測とメンテナンス需要をAIで解析し、予防保全提案を自動生成、作業員稼働データと紐づけて追加受注を促進します。売上データを地域・契約種別で可視化し、高収益案件の優先配置を実現、2026年までにリピート率20%向上、客単価15%増を達成します。IoTセンサー連携で設備データをクラウド収集・故障予兆検知し、顧客ダッシュボードで提案書即時出力、成約率を高めます。作業報告アプリ活用で効率ボトルネック特定、人員配置最適化し、無駄移動削減と新規開拓へシフト。これらによりデータドリブンな営業・運用体制を構築し、持続的な売上拡大を実現します。`;
+
+const growthBusinessDescriptionPlaceholder = `（500文字以内）ビルメンテナンス業は、商業施設、オフィスビル、マンション、工場などの建物を対象に、清掃、設備保守、環境管理を総合的に提供する事業です。日常清掃から緊急修理まで対応し、施設の安全・快適性・稼働率を維持します。清掃業務では共用部・室内の定期・特殊清掃を実施し、高所作業や災害復旧も担って衛生基準を遵守します。設備保守では空調、給排水、電気・昇降機の点検・修理を行い、予防保全で故障を未然に防ぎます。環境管理として害虫駆除、廃棄物処理、緑地整備を推進し、法令対応とエコ運用を実現します。24時間体制と多拠点対応を強みとし、IoT・クラウドでリアルタイム監視を可能にします。顧客ニーズに合わせたカスタマイズ提案で長期契約を獲得し、安定収益を確保します。将来的にデータ活用で予防サービスを強化し、持続的な成長を続けます。`;
+
+const businessTextPatternsPlaceholder = `（255文字以内）①当社はビルメンテナンス業として多拠点の取引・請求・会計を紙と手作業で行っており、属人化と人員不足により処理遅延や入力ミスが発生しやすい状況です。システムクラウドを導入し、受発注から請求・会計までをクラウド上で一元管理することで、インボイス制度・電子帳簿保存法に確実に対応しつつ業務効率と正確性を高めます。スマホ・タブレットから現場でも入力・確認ができる体制を構築し、2026年までに会計工数を50％削減して人材を営業や新規事業へ再配置し、事業拡大につなげていきます。
+
+②当社はビルメンテナンス業として、担当者ごとに異なる管理方法と紙文化が残っており、見積・受注・請求情報が分散しヒューマンエラーや二重入力が課題となっています。クラウド型受発注システムであるシステムクラウドを活用し、取引から請求・会計、総勘定元帳・財務三表までを自動連携させることで、リアルタイムで財務状況を把握しながら業務を標準化します。2026年までに会計業務工数を50％削減し、人材の再配置による営業力強化と従業員の育成に力を注ぎ、持続的な成長を実現していきます。
+
+③当社はビルメンテナンス業として多様な契約先を抱えていますが、紙の伝票とExcelによる手作業管理により業務フローが硬直化し、テレワークや外出先からの対応が難しいことが課題です。システムクラウドを導入し、インボイス制度・電子帳簿保存法に対応した形で受発注・請求・会計をクラウド一元管理することで、どこからでも安全にアクセスできる環境を整備します。2026年までに会計工数を50％削減し、経営陣の経営判断の迅速化と新規事業の開発に注力できる体制を構築していきます。`;
+
+const businessProcessTextPatternsPlaceholder = `（255文字以内）①当社はビルメンテナンス業として多拠点の契約先を担当していますが、紙文化と手作業に依存した受発注・請求業務により、属人化と人員不足による多忙化が課題となっています。システムクラウドを導入し、取引から請求・会計までをクラウドで一元管理することで、入力・集計作業を自動化し、インボイス制度・電子帳簿保存法にも対応した標準プロセスを構築します。スマホ・タブレットで現場からも入力・確認が可能な体制を整え、2026年までに会計業務工数を大幅に削減し、人材を営業や新規サービス企画へ振り向けることで、事業の拡大と生産性向上を実現していきます。
+
+②当社はビルメンテナンス業として多様な業務を請け負っていますが、担当者ごとに異なる管理方法と紙ベースの伝票処理により、ヒューマンエラーや二重入力が発生しやすい状況です。そこでシステムクラウドを活用し、受発注情報から請求・会計処理、総勘定元帳・財務三表の作成までをクラウド上で自動連携させ、リアルタイムで財務状況を把握できる体制を整備します。これにより業務効率と精度を同時に高め、2026年までに会計関連工数を削減して人材の再配置や従業員育成に注力し、企業としての競争力向上につなげていきます。
+
+③当社はビルメンテナンス業として各現場ごとに個別管理を行っており、紙やExcelに頼った業務フローが硬直化し、テレワークや外出先からの対応が難しいことが課題です。システムクラウド導入により、インボイス制度・電子帳簿保存法に対応した受発注・請求・会計プロセスをクラウドに集約し、場所を問わずスマホ・タブレットから安全にアクセスできる仕組みを構築します。これにより属人化を抑えた標準化されたプロセスで業務効率を高め、2026年までに会計業務工数を削減し、経営陣の迅速な意思決定と新規事業開発に時間を投下できる体制を目指していきます。`;
+
 export const APPLICATION_BPO_FIELDS: ApplicationBpoField[] = [
   { key: "requestDate", column: "A", group: "依頼", label: "依頼日", role: "vendor", type: "date", placeholder: "2026/05/01" },
   { key: "doubleCheckStatus", column: "B", group: "依頼側ダブルチェック入力", label: "正誤チェック", role: "vendor", type: "select", options: ["済み", "申請ステイ"], placeholder: "済み" },
-  { key: "contactNotes", column: "C", group: "申請内容等", label: "連絡事項等", role: "vendor", type: "textarea", placeholder: "【記入例】" },
+  { key: "contactNotes", column: "C", group: "申請内容等", label: "連絡事項等", role: "vendor", type: "textarea", placeholder: "連絡事項があればご記入下さい。※書類リンクの共有の設定を再度ご確認願います。" },
   { key: "scheduledAt", column: "D", group: "申請内容等", label: "申請予定日時", role: "vendor", type: "text", placeholder: "2026/05/01 15:00" },
-  { key: "companyName", column: "E", group: "申請内容等", label: "事業者名", role: "vendor", type: "text", placeholder: "株式会社 〇〇〇" },
+  { key: "companyName", column: "E", group: "申請内容等", label: "事業者名", role: "vendor", type: "text", placeholder: "株式会社〇〇〇（全角）" },
   { key: "applicantType", column: "F", group: "申請内容等", label: "事業体", role: "vendor", type: "select", options: ["法人", "個人事業主"], placeholder: "法人" },
   { key: "repeatType", column: "G", group: "申請内容等", label: "おかわり判定", role: "vendor", type: "select", options: ["新規", "おかわり"], placeholder: "新規" },
-  { key: "repeatTypeComment", column: "G+", group: "申請内容等", label: "おかわり判定 補足コメント", role: "vendor", type: "text", placeholder: "必要な場合のみ補足を入力" },
+  { key: "repeatTypeComment", column: "G+", group: "申請内容等", label: "おかわり判定 補足コメント", role: "vendor", type: "text", placeholder: "申請枠（通常枠/セキュリティ対策推進枠など）を記入" },
   { key: "wageIncreaseAvailability", column: "H", group: "申請内容等", label: "賃上げ可否", role: "vendor", type: "select", options: ["可", "不可"], placeholder: "可" },
   { key: "wageIncreaseComment", column: "H+", group: "申請内容等", label: "賃上げ可否 補足コメント", role: "vendor", type: "text", placeholder: "必要な場合のみ補足を入力" },
   { key: "growthChallengeTitle", column: "I", group: "成長加速マッチング", label: "挑戦課題のタイトル", role: "vendor", type: "text", placeholder: "データ活用による売上向上戦略" },
-  { key: "growthChallengeGoal", column: "J", group: "成長加速マッチング", label: "挑戦課題の解決の目標", role: "vendor", type: "textarea", placeholder: "顧客データや作業実績を統合分析し、売上向上を目指します。" },
-  { key: "growthBusinessDescription", column: "K", group: "成長加速マッチング", label: "事業内容", role: "vendor", type: "textarea", placeholder: "商業施設、オフィスビル、工場などを対象に清掃・設備保守を提供する事業です。" },
+  { key: "growthChallengeGoal", column: "J", group: "成長加速マッチング", label: "挑戦課題の解決の目標", role: "vendor", type: "textarea", placeholder: growthChallengeGoalPlaceholder },
+  { key: "growthBusinessDescription", column: "K", group: "成長加速マッチング", label: "事業内容", role: "vendor", type: "textarea", placeholder: growthBusinessDescriptionPlaceholder },
   { key: "productivitySolutionPdf", column: "L", group: "省力化ナビ", label: "解決策PDF", role: "vendor", type: "file", placeholder: "保管用ドライブURL" },
   { key: "vendorName", column: "M", group: "アカウント情報", label: "ベンダー", role: "vendor", type: "text", placeholder: "株式会社 □□□" },
   { key: "accountId", column: "N", group: "アカウント情報", label: "ID", role: "vendor", type: "text", placeholder: "********" },
@@ -50,11 +66,11 @@ export const APPLICATION_BPO_FIELDS: ApplicationBpoField[] = [
   { key: "hasEmployees", column: "V", group: "事業者情報", label: "従業員有無", role: "vendor", type: "select", options: ["従業員有り", "従業員無し"], placeholder: "従業員有り" },
   { key: "gbizTopScreenshot", column: "W", group: "gBizID", label: "TOPスクショ", role: "vendor", type: "file", placeholder: "保管用ドライブURL" },
   { key: "gbizEmail", column: "X", group: "gBizID", label: "gBizIDアドレス", role: "vendor", type: "text", placeholder: "xxx@example.jp" },
-  { key: "selfDeclarationId", column: "Y", group: "gBizID", label: "自己宣言ID", role: "vendor", type: "text", placeholder: "5*********" },
+  { key: "selfDeclarationId", column: "Y", group: "gBizID", label: "自己宣言ID", role: "vendor", type: "text", placeholder: "4または5から始まる11桁の数字" },
   { key: "establishedDate", column: "Z", group: "事業者情報", label: "開業/設立年月日", role: "vendor", type: "date", placeholder: "2020/01/01" },
   { key: "capitalText", column: "AA", group: "事業者情報", label: "資本金", role: "vendor", type: "text", placeholder: "100万円" },
   { key: "fiscalMonth", column: "AB", group: "事業者情報", label: "決算月", role: "vendor", type: "text", placeholder: "3月" },
-  { key: "businessTextPatterns", column: "AC", group: "事業者情報", label: "事業内容文章（3パターン）", role: "vendor", type: "textarea", placeholder: "①当社は... ②当社は... ③当社は..." },
+  { key: "businessTextPatterns", column: "AC", group: "事業者情報", label: "事業内容文章（3パターン）", role: "vendor", type: "textarea", placeholder: businessTextPatternsPlaceholder },
   { key: "salesAmount", column: "AD", group: "財務情報", label: "売上高", role: "vendor", type: "number", placeholder: "30000000" },
   { key: "grossProfit", column: "AE", group: "財務情報", label: "粗利益", role: "vendor", type: "number", placeholder: "10000000" },
   { key: "operatingProfit", column: "AF", group: "財務情報", label: "営業利益", role: "vendor", type: "number", placeholder: "1000000" },
@@ -62,7 +78,7 @@ export const APPLICATION_BPO_FIELDS: ApplicationBpoField[] = [
   { key: "depreciation", column: "AH", group: "財務情報", label: "減価償却費", role: "vendor", type: "number", placeholder: "50000" },
   { key: "laborCost", column: "AI", group: "財務情報", label: "人件費", role: "vendor", type: "number", placeholder: "3000000" },
   { key: "capitalAmount", column: "AJ", group: "財務情報", label: "資本金", role: "vendor", type: "number", placeholder: "1000000" },
-  { key: "businessProcessTextPatterns", column: "AK", group: "事業計画", label: "ビジネスプロセス改善に向けて文章（3パターン）", role: "vendor", type: "textarea", placeholder: "①当社は... ②当社は... ③当社は..." },
+  { key: "businessProcessTextPatterns", column: "AK", group: "事業計画", label: "ビジネスプロセス改善に向けて文章（3パターン）", role: "vendor", type: "textarea", placeholder: businessProcessTextPatternsPlaceholder },
   { key: "securityCloudSystemName", column: "AL", group: "見積情報【セキュリティクラウド】", label: "システム名", role: "vendor", type: "text", placeholder: "セキュリティクラウドAI_サブスクプラン" },
   { key: "securityCloudSystemNo", column: "AM", group: "見積情報【セキュリティクラウド】", label: "システムNo", role: "vendor", type: "text", placeholder: "DL***********" },
   { key: "securityCloudUnitPrice", column: "AN", group: "見積情報【セキュリティクラウド】", label: "システム金額（単価）", role: "vendor", type: "number", placeholder: "2481000" },

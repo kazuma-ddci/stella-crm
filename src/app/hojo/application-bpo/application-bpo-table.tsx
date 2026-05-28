@@ -168,6 +168,13 @@ function fieldLayoutClass(field: ApplicationBpoField) {
   return "space-y-1 md:col-span-6";
 }
 
+const pairedFieldKeys: Record<string, string> = {
+  repeatType: "repeatTypeComment",
+  wageIncreaseAvailability: "wageIncreaseComment",
+};
+
+const pairedCommentKeys = new Set(Object.values(pairedFieldKeys));
+
 export function ApplicationBpoTable({ data, mode, vendorId, canEdit = true }: Props) {
   const router = useRouter();
   const [editing, setEditing] = useState<EditState | null>(null);
@@ -378,6 +385,31 @@ export function ApplicationBpoTable({ data, mode, vendorId, canEdit = true }: Pr
           <h3 className="border-b pb-1 text-sm font-semibold text-muted-foreground">{group.name}</h3>
           <div className="grid gap-x-4 gap-y-3 md:grid-cols-12">
             {group.fields.map((field) => {
+              const pairedFieldKey = pairedFieldKeys[field.key];
+              if (pairedFieldKey) {
+                const pairedField = group.fields.find((candidate) => candidate.key === pairedFieldKey);
+                if (pairedField) {
+                  const fieldEditable = canEdit && (mode === "staff" || field.role === mode);
+                  const pairedFieldEditable = canEdit && (mode === "staff" || pairedField.role === mode);
+                  return (
+                    <div key={`${field.key}-${pairedField.key}`} className="grid gap-x-3 gap-y-3 md:col-span-12 md:grid-cols-[minmax(140px,180px)_minmax(0,1fr)] xl:col-span-6">
+                      <div className="space-y-1">
+                        <Label className="text-sm">
+                          {field.label}
+                        </Label>
+                        {renderField(field, role, fieldEditable)}
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-sm">
+                          {pairedField.label}
+                        </Label>
+                        {renderField(pairedField, role, pairedFieldEditable)}
+                      </div>
+                    </div>
+                  );
+                }
+              }
+              if (pairedCommentKeys.has(field.key)) return null;
               const editable = canEdit && (mode === "staff" || field.role === mode);
               return (
                 <div key={field.key} className={fieldLayoutClass(field)}>
