@@ -10,6 +10,7 @@ import {
   displayApplicationFormUpdateStatus,
   syncApplicationSupportAfterWholesaleSave,
 } from "@/lib/hojo/application-support-wholesale";
+import { syncLoanProgressAfterWholesaleSave } from "@/lib/hojo/loan-progress-wholesale";
 
 export const metadata: Metadata = {
   title: "ベンダー様専用",
@@ -133,6 +134,18 @@ export default async function VendorPage({
     await prisma.$transaction(async (tx) => {
       for (const account of grantWholesaleAccounts) {
         await syncApplicationSupportAfterWholesaleSave(tx, account);
+      }
+    });
+  }
+
+  const loanWholesaleAccounts = await prisma.hojoWholesaleAccount.findMany({
+    where: { vendorId: vendor.id, deletedAt: null, deletedByVendor: false, loanUsage: "有" },
+    orderBy: { id: "asc" },
+  });
+  if (loanWholesaleAccounts.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      for (const account of loanWholesaleAccounts) {
+        await syncLoanProgressAfterWholesaleSave(tx, account);
       }
     });
   }

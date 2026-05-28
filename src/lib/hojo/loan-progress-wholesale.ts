@@ -37,7 +37,7 @@ export function generateLoanFormToken() {
   return randomBytes(24).toString("hex");
 }
 
-function loanAmountFromWholesale(account: WholesaleSeed) {
+function amountFromWholesale(account: WholesaleSeed) {
   return account.subsidyTargetAmountTaxIncluded ?? null;
 }
 
@@ -53,7 +53,8 @@ export async function ensureLoanProgressForWholesaleAccount(
     vendorId: account.vendorId,
     companyName: account.companyName,
     applicantType: normalizeApplicantType(account.applicantType),
-    loanAmount: loanAmountFromWholesale(account),
+    loanAmount: amountFromWholesale(account),
+    toolPurchasePrice: amountFromWholesale(account),
   };
 
   if (existing) {
@@ -120,7 +121,8 @@ export async function syncLoanProgressAfterWholesaleSave(
       data: {
         companyName: account.companyName,
         applicantType: normalizeApplicantType(account.applicantType),
-        loanAmount: loanAmountFromWholesale(account),
+        loanAmount: amountFromWholesale(account),
+        toolPurchasePrice: amountFromWholesale(account),
         loanUsagePending: pendingUsage,
         loanUsageChangeRequestedAt:
           pendingUsage && pendingUsage !== progress.loanUsagePending

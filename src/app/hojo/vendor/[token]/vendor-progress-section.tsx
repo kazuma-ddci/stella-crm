@@ -66,7 +66,6 @@ export function VendorProgressSection({ data, vendorId, canEdit, canReviewFormUp
   const [editRow, setEditRow] = useState<ProgressRow | null>(null);
   const [editData, setEditData] = useState({
     requestDate: "",
-    toolPurchasePrice: "",
     fundTransferDate: "",
     loanExecutionDate: "",
     loanExecutionTime: "",
@@ -78,7 +77,6 @@ export function VendorProgressSection({ data, vendorId, canEdit, canReviewFormUp
     setEditRow(row);
     setEditData({
       requestDate: row.requestDate,
-      toolPurchasePrice: row.toolPurchasePrice ? row.toolPurchasePrice.replace(/,/g, "") : "",
       fundTransferDate: row.fundTransferDate,
       loanExecutionDate: row.loanExecutionDate,
       loanExecutionTime: row.loanExecutionTime,
@@ -90,7 +88,7 @@ export function VendorProgressSection({ data, vendorId, canEdit, canReviewFormUp
 
     // ツール購入代金と貸付金額の一致チェック
     const loanNum = Number((editRow.loanAmount || "").replace(/,/g, ""));
-    const toolNum = Number((editData.toolPurchasePrice || "").replace(/,/g, ""));
+    const toolNum = Number((editRow.toolPurchasePrice || "").replace(/,/g, ""));
     const modalPriceMatched = !isNaN(loanNum) && !isNaN(toolNum) && loanNum === toolNum;
 
     // 依頼日を変更しようとしている かつ 一致していない場合はエラー
@@ -103,7 +101,6 @@ export function VendorProgressSection({ data, vendorId, canEdit, canReviewFormUp
     try {
       const fields: { field: string; newVal: string; oldVal: string }[] = [
         { field: "requestDate", newVal: editData.requestDate, oldVal: editRow.requestDate },
-        { field: "toolPurchasePrice", newVal: editData.toolPurchasePrice, oldVal: editRow.toolPurchasePrice ? editRow.toolPurchasePrice.replace(/,/g, "") : "" },
         { field: "fundTransferDate", newVal: editData.fundTransferDate, oldVal: editRow.fundTransferDate },
       ];
 
@@ -226,7 +223,7 @@ export function VendorProgressSection({ data, vendorId, canEdit, canReviewFormUp
             <TableHead className="whitespace-nowrap">覚書</TableHead>
             <TableHead className="whitespace-nowrap">資金</TableHead>
             <TableHead className="whitespace-nowrap">償還表発行日</TableHead>
-            <TableHead className={canEdit ? "bg-blue-50 whitespace-nowrap" : "whitespace-nowrap"}>ツール購入代金</TableHead>
+            <TableHead className="whitespace-nowrap">ツール購入代金</TableHead>
             <TableHead className="whitespace-nowrap">貸付金額</TableHead>
             <TableHead className={canEdit ? "bg-blue-50 whitespace-nowrap" : "whitespace-nowrap"}>資金移動日</TableHead>
             <TableHead className={canEdit ? "bg-blue-50 whitespace-nowrap" : "whitespace-nowrap"}>貸付実行日</TableHead>
@@ -322,28 +319,13 @@ export function VendorProgressSection({ data, vendorId, canEdit, canReviewFormUp
                 <TableCell className="max-w-[200px] truncate">{r.memorandum || "-"}</TableCell>
                 <TableCell className="max-w-[200px] truncate">{r.funds || "-"}</TableCell>
                 <TableCell className="whitespace-nowrap">{fmtDate(r.redemptionScheduleIssuedAt)}</TableCell>
-                <TableCell className={`whitespace-nowrap ${canEdit ? "bg-blue-50/50" : ""} ${!priceMatched && r.toolPurchasePrice ? "text-red-600 font-semibold" : ""}`}>
-                  {canEdit ? (
-                    <InlineCell
-                      value={r.toolPurchasePrice ? r.toolPurchasePrice.replace(/,/g, "") : ""}
-                      onSave={(v) => handleSave(r.id, "toolPurchasePrice", v)}
-                      type="number"
-                    >
-                      <span>
-                        {r.toolPurchasePrice || "-"}
-                        {!priceMatched && (
-                          <span className="ml-1 text-xs text-red-500" title="貸付金額と一致していません">⚠</span>
-                        )}
-                      </span>
-                    </InlineCell>
-                  ) : (
-                    <span>
-                      {r.toolPurchasePrice || "-"}
-                      {!priceMatched && r.toolPurchasePrice && (
-                        <span className="ml-1 text-xs text-red-500">⚠</span>
-                      )}
-                    </span>
-                  )}
+                <TableCell className={`whitespace-nowrap ${!priceMatched && r.toolPurchasePrice ? "text-red-600 font-semibold" : ""}`}>
+                  <span>
+                    {r.toolPurchasePrice || "-"}
+                    {!priceMatched && r.toolPurchasePrice && (
+                      <span className="ml-1 text-xs text-red-500" title="貸付金額と一致していません">⚠</span>
+                    )}
+                  </span>
                 </TableCell>
                 <TableCell className="whitespace-nowrap">{r.loanAmount || "-"}</TableCell>
                 <TableCell className={canEdit ? "whitespace-nowrap bg-blue-50/50" : "whitespace-nowrap"}>
@@ -424,30 +406,21 @@ export function VendorProgressSection({ data, vendorId, canEdit, canReviewFormUp
           </DialogHeader>
           {(() => {
             const loanNum = editRow ? parseAmount(editRow.loanAmount) : null;
-            const toolNum = parseAmount(editData.toolPurchasePrice);
+            const toolNum = editRow ? parseAmount(editRow.toolPurchasePrice) : null;
             const modalPriceMatched = loanNum != null && toolNum != null && loanNum === toolNum;
             return (
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-toolPurchasePrice">
-                ツール購入代金
-                {editRow?.loanAmount && (
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    （貸付金額: {editRow.loanAmount}）
-                  </span>
-                )}
-              </Label>
-              <Input
-                id="edit-toolPurchasePrice"
-                type="number"
-                value={editData.toolPurchasePrice}
-                onChange={(e) => setEditData((d) => ({ ...d, toolPurchasePrice: e.target.value }))}
-                className={!modalPriceMatched && editData.toolPurchasePrice ? "border-red-500 text-red-600" : ""}
-              />
-              {!modalPriceMatched && (
-                <p className="text-xs text-red-500">
-                  ⚠ ツール購入代金は貸付金額と一致する必要があります
-                </p>
+              <Label>ツール購入代金</Label>
+              <div className={`rounded-md border px-3 py-2 text-sm ${!modalPriceMatched && editRow?.toolPurchasePrice ? "border-red-500 text-red-600" : "bg-muted/40"}`}>
+                {editRow?.toolPurchasePrice || "-"}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                顧客リストの「補助金対象額（税込）」から自動反映されます。
+                {editRow?.loanAmount ? ` 貸付金額: ${editRow.loanAmount}` : ""}
+              </p>
+              {!modalPriceMatched && editRow?.toolPurchasePrice && (
+                <p className="text-xs text-red-500">⚠ ツール購入代金は貸付金額と一致する必要があります</p>
               )}
             </div>
             <div className="space-y-2">

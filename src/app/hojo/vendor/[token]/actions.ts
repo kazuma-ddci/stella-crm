@@ -631,8 +631,11 @@ export async function updateVendorProgress(
     if (!progress || progress.deletedAt || progress.vendorId !== vendorId) return err("権限がありません");
 
     // ベンダーユーザーは限定フィールドのみ編集可
-    const vendorFields = ["requestDate", "toolPurchasePrice", "fundTransferDate", "loanExecutionDate"];
+    const vendorFields = ["requestDate", "fundTransferDate", "loanExecutionDate"];
     if (!isStaff && !vendorFields.includes(field)) return err("権限がありません");
+    if (field === "toolPurchasePrice") {
+      return err("ツール購入代金は顧客リストの補助金対象額（税込）から自動反映されます");
+    }
 
     // 依頼日はツール購入代金と貸付金額が一致している場合のみ入力可
     if (field === "requestDate" && value) {
@@ -648,8 +651,6 @@ export async function updateVendorProgress(
       updateData[field] = value ? new Date(value) : null;
     } else if (field === "loanExecutionDate") {
       updateData[field] = value ? new Date(value) : null;
-    } else if (field === "toolPurchasePrice") {
-      updateData[field] = value ? Number(value.replace(/,/g, "")) : null;
     } else {
       updateData[field] = value || null;
     }
