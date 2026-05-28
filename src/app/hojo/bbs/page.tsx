@@ -4,7 +4,6 @@ import { BbsClientPage } from "./bbs-client-page";
 import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import type { Metadata } from "next";
 import type { FileInfo } from "@/components/hojo/form-answer-editor";
-import { calculateGrantPaymentAmounts } from "@/lib/hojo/application-support-wholesale";
 
 export const metadata: Metadata = {
   title: "支援金管理ページ",
@@ -49,14 +48,14 @@ export default async function BbsPage() {
 
   const data = records.map((r) => {
     const submission = r.linkedFormSubmissions[0] ?? null;
-    const calculatedAmounts = calculateGrantPaymentAmounts(r.subsidyAmount);
     return {
       id: r.id,
       applicantName: r.applicantName || "-",
       formTranscriptDate: r.formTranscriptDate?.toISOString().slice(0, 10) ?? "-",
       applicationFormDate: r.applicationFormDate?.toISOString().slice(0, 10) ?? "",
       bbsStatusId: r.bbsStatusId,
-      bbsTransferAmount: calculatedAmounts.bbsTransferAmount,
+      subsidyDesiredDate: r.subsidyDesiredDate?.toISOString().slice(0, 10) ?? "-",
+      subsidyAmount: r.subsidyAmount,
       bbsTransferDate: r.bbsTransferDate?.toISOString().slice(0, 10) ?? "-",
       subsidyReceivedDate: r.subsidyReceivedDate?.toISOString().slice(0, 10) ?? "-",
       alkesMemo: r.alkesMemo || "",

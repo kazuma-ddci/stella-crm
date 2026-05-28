@@ -24,10 +24,6 @@ export function generateApplicationFormToken() {
   return randomBytes(24).toString("hex");
 }
 
-function subsidyAmountFromWholesale(account: WholesaleSeed) {
-  return account.applicationAmount ?? account.subsidyTargetAmountTaxIncluded ?? null;
-}
-
 export function calculateGrantPaymentAmounts(subsidyAmount: number | null | undefined) {
   if (subsidyAmount == null) {
     return {
@@ -54,16 +50,13 @@ export async function ensureApplicationSupportForWholesaleAccount(
   const data = {
     vendorId: account.vendorId,
     applicantName: account.companyName,
-    subsidyAmount: subsidyAmountFromWholesale(account),
   };
-  const calculatedAmounts = calculateGrantPaymentAmounts(data.subsidyAmount);
 
   if (existing) {
     return client.hojoApplicationSupport.update({
       where: { id: existing.id },
       data: {
         ...data,
-        ...calculatedAmounts,
         formToken: existing.formToken ?? generateApplicationFormToken(),
       },
     });
@@ -72,7 +65,6 @@ export async function ensureApplicationSupportForWholesaleAccount(
   return client.hojoApplicationSupport.create({
     data: {
       ...data,
-      ...calculatedAmounts,
       wholesaleAccountId: account.id,
       formToken: generateApplicationFormToken(),
       formUpdateStatus: APPLICATION_FORM_UPDATE_STATUS.UNSENT,
@@ -125,8 +117,6 @@ export async function syncApplicationSupportAfterWholesaleSave(
       data: {
         vendorId: account.vendorId,
         applicantName: account.companyName,
-        subsidyAmount: subsidyAmountFromWholesale(account),
-        ...calculateGrantPaymentAmounts(subsidyAmountFromWholesale(account)),
         grantUsagePending: pendingUsage,
         grantUsageChangeRequestedAt:
           pendingUsage && pendingUsage !== support.grantUsagePending

@@ -16,7 +16,10 @@ import { parseYmdDate } from "@/lib/hojo/parse-date";
 import { type RpaDocKey } from "@/lib/hojo/rpa-document-config";
 import { checkDailyApiCostLimit } from "@/lib/hojo/api-cost-limit";
 import { acquirePdfGenerationLock, releasePdfGenerationLock } from "@/lib/hojo/pdf-generation-lock";
-import { APPLICATION_FORM_UPDATE_STATUS } from "@/lib/hojo/application-support-wholesale";
+import {
+  APPLICATION_FORM_UPDATE_STATUS,
+  calculateGrantPaymentAmounts,
+} from "@/lib/hojo/application-support-wholesale";
 
 const REVALIDATE_PATH = "/hojo/application-support";
 
@@ -298,7 +301,7 @@ export async function updateApplicationSupport(id: number, data: Record<string, 
 
     const dateFields = [
       "formAnswerDate", "formTranscriptDate",
-      "paymentReceivedDate", "bbsTransferDate", "subsidyReceivedDate",
+      "paymentReceivedDate", "bbsTransferDate",
     ];
     for (const field of dateFields) {
       if (data[field] !== undefined) {
@@ -306,11 +309,18 @@ export async function updateApplicationSupport(id: number, data: Record<string, 
       }
     }
 
-    const numberFields = ["paymentReceivedAmount", "bbsTransferAmount"];
+    const numberFields = ["paymentReceivedAmount", "bbsTransferAmount", "subsidyAmount"];
     for (const field of numberFields) {
       if (data[field] !== undefined) {
-        updateData[field] = data[field] ? Number(data[field]) : null;
+        updateData[field] = data[field] !== null && data[field] !== "" ? Number(data[field]) : null;
       }
+    }
+
+    if (data.subsidyAmount !== undefined) {
+      Object.assign(
+        updateData,
+        calculateGrantPaymentAmounts(updateData.subsidyAmount as number | null),
+      );
     }
 
     if (data.documentStorageUrl !== undefined) {

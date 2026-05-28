@@ -10,13 +10,13 @@ import { parseYmdDate } from "@/lib/hojo/parse-date";
 
 const REVALIDATE_PATH = "/hojo/bbs";
 
-async function requireBbsEditPermission(): Promise<void> {
+async function requireBbsEditPermission(): Promise<"bbs" | "staff"> {
   const session = await auth();
   const userType = session?.user?.userType;
-  if (userType === "bbs") return; // BBSユーザーは編集可
+  if (userType === "bbs") return "bbs"; // BBSユーザーは編集可
   if (userType === "staff") {
     if (session?.user && canEditProjectMasterDataSync(session.user, "hojo")) {
-      return; // スタッフのhojo edit以上、admin、founderは編集可
+      return "staff"; // スタッフのhojo edit以上、admin、founderは編集可
     }
   }
   throw new Error("権限がありません");
@@ -122,7 +122,10 @@ export async function updateBbsFields(
   data: BbsEditableFields
 ): Promise<ActionResult> {
   try {
-    await requireBbsEditPermission();
+    const editorType = await requireBbsEditPermission();
+    if (data.subsidyReceivedDate !== undefined && editorType !== "bbs") {
+      throw new Error("助成金着金日はBBSアカウントのみ編集できます");
+    }
     const updateData: Record<string, unknown> = {};
 
     for (const key of Object.keys(BBS_FIELD_CONVERTERS) as (keyof BbsEditableFields)[]) {

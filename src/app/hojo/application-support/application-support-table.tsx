@@ -245,7 +245,9 @@ export function ApplicationSupportTable({
     {
       key: "subsidyAmount",
       header: "助成金額",
-      editable: false,
+      type: "number",
+      currency: true,
+      inlineEditable: true,
     },
     {
       key: "paymentReceivedAmount",
@@ -277,7 +279,7 @@ export function ApplicationSupportTable({
       key: "subsidyReceivedDate",
       header: "助成金着金日",
       type: "date",
-      inlineEditable: true,
+      editable: false,
     },
     {
       key: "alkesMemo",
@@ -349,7 +351,15 @@ export function ApplicationSupportTable({
       return String(value);
     },
     subsidyAmount: (value) => {
-      if (!value) return "-";
+      if (value == null || value === "") return "-";
+      return `¥${Number(value).toLocaleString()}`;
+    },
+    paymentReceivedAmount: (value) => {
+      if (value == null || value === "") return "-";
+      return `¥${Number(value).toLocaleString()}`;
+    },
+    bbsTransferAmount: (value) => {
+      if (value == null || value === "") return "-";
       return `¥${Number(value).toLocaleString()}`;
     },
     formAnswerData: (_value, row) => {

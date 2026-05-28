@@ -2,7 +2,6 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { LenderClientPage } from "./lender-client-page";
 import type { Metadata } from "next";
-import { syncLoanProgressAfterWholesaleSave } from "@/lib/hojo/loan-progress-wholesale";
 
 export const metadata: Metadata = {
   title: "貸金業社様 専用ページ",
@@ -21,18 +20,6 @@ export default async function LenderPage() {
 
   if (isLender && session?.user?.mustChangePassword) {
     return <LenderClientPage authenticated={false} isLender={false} corporateData={[]} individualData={[]} vendors={[]} progressData={[]} statusOptions={[]} rates={{ interestRate: 0.15, feeRate: 0.5 }} />;
-  }
-
-  const loanAccounts = await prisma.hojoWholesaleAccount.findMany({
-    where: { deletedAt: null, deletedByVendor: false, loanUsage: "有" },
-    orderBy: { id: "asc" },
-  });
-  if (loanAccounts.length > 0) {
-    await prisma.$transaction(async (tx) => {
-      for (const account of loanAccounts) {
-        await syncLoanProgressAfterWholesaleSave(tx, account);
-      }
-    });
   }
 
   // 貸金業社側は弊社承認済みの表示状態を使う。
@@ -95,9 +82,11 @@ export default async function LenderPage() {
   // 顧客進捗データ
   const progressRecords = await prisma.hojoLoanProgress.findMany({
     where: {
+      deletedAt: null,
+      formSubmissionId: { not: null },
       OR: [
-        { wholesaleAccountId: null, deletedAt: null },
-        { deletedAt: null, wholesaleAccount: { deletedAt: null, deletedByVendor: false } },
+        { wholesaleAccountId: null },
+        { wholesaleAccount: { deletedAt: null, deletedByVendor: false } },
       ],
     },
     include: {
