@@ -3,6 +3,11 @@ import { requireProjectMasterDataEditPermission } from "@/lib/auth/master-data-p
 import { VendorDetailTabs } from "./vendor-detail-tabs";
 import { notFound } from "next/navigation";
 import { formatLineFriendLabel } from "@/lib/hojo/format-line-friend-label";
+import type { FileInfo } from "@/components/hojo/form-answer-editor";
+import {
+  displayApplicationFormUpdateStatus,
+  syncApplicationSupportAfterWholesaleSave,
+} from "@/lib/hojo/application-support-wholesale";
 import {
   loadHojoContactHistoryMasters,
   loadContactHistoriesForVendor,
@@ -120,49 +125,171 @@ export default async function VendorDetailPage({
     unknown
   >[];
 
-  // Fetch additional data for tabs
-  const [activities, preApplicationRecords, postApplicationRecords, contractsForDropdown] =
-    await Promise.all([
-      prisma.hojoConsultingActivity.findMany({
-        where: { deletedAt: null, vendorId: id },
-        include: {
-          vendor: { select: { id: true, name: true } },
-          contract: { select: { id: true, companyName: true, contractPlan: true } },
-          tasks: { orderBy: [{ taskType: "asc" }, { displayOrder: "asc" }] },
+  const grantWholesaleAccounts = await prisma.hojoWholesaleAccount.findMany({
+    where: { vendorId: id, deletedAt: null, deletedByVendor: false, grantUsage: "有" },
+    orderBy: { id: "asc" },
+  });
+  if (grantWholesaleAccounts.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      for (const account of grantWholesaleAccounts) {
+        await syncApplicationSupportAfterWholesaleSave(tx, account);
+      }
+    });
+  }
+
+  const [wholesaleRecords, applicationSupportRecords, loanProgressRecords] = await Promise.all([
+    prisma.hojoWholesaleAccount.findMany({
+      where: { vendorId: id, deletedAt: null, deletedByVendor: false },
+      orderBy: { id: "asc" },
+    }),
+    prisma.hojoApplicationSupport.findMany({
+      where: {
+        vendorId: id,
+        wholesaleAccount: { grantUsage: "有", deletedAt: null, deletedByVendor: false },
+      },
+      include: {
+        wholesaleAccount: true,
+        status: true,
+        documents: true,
+        linkedFormSubmissions: {
+          where: { deletedAt: null, formType: "business-plan" },
+          orderBy: { submittedAt: "desc" },
+          take: 1,
         },
-        orderBy: { activityDate: "desc" },
-      }),
-      prisma.hojoGrantCustomerPreApplication.findMany({
-        where: { deletedAt: null, vendorId: id },
-        include: { vendor: { select: { id: true, name: true } } },
-        orderBy: { id: "desc" },
-      }),
-      prisma.hojoGrantCustomerPostApplication.findMany({
-        where: { deletedAt: null, vendorId: id },
-        include: { vendor: { select: { id: true, name: true } } },
-        orderBy: { id: "desc" },
-      }),
-      prisma.hojoConsultingContract.findMany({
-        where: { deletedAt: null, vendorId: id },
-        orderBy: { id: "desc" },
-        select: { id: true, companyName: true, contractPlan: true, vendorId: true },
-      }),
-    ]);
+      },
+      orderBy: { wholesaleAccountId: "asc" },
+    }),
+    prisma.hojoLoanProgress.findMany({
+      where: {
+        vendorId: id,
+        OR: [
+          { wholesaleAccountId: null, deletedAt: null },
+          { wholesaleAccount: { loanUsage: "有", deletedAt: null, deletedByVendor: false } },
+        ],
+      },
+      include: {
+        status: { select: { name: true } },
+        wholesaleAccount: { select: { loanUsage: true } },
+      },
+      orderBy: { id: "asc" },
+    }),
+  ]);
+
+  const wholesaleData = wholesaleRecords.map((r) => ({
+    id: r.id,
+    applicantType: r.applicantType || "",
+    companyName: r.companyName || "",
+    email: r.email || "",
+    softwareSalesContractUrl: r.softwareSalesContractUrl || "",
+    loanUsage: r.loanUsage || "",
+    grantUsage: r.grantUsage || "",
+    subsidyTargetAmountTaxIncluded: r.subsidyTargetAmountTaxIncluded,
+    applicationAmount: r.applicationAmount,
+    recruitmentRound: r.recruitmentRound,
+    adoptionDate: r.adoptionDate?.toISOString().slice(0, 10) ?? "",
+    issueRequestDate: r.issueRequestDate?.toISOString().slice(0, 10) ?? "",
+    accountApprovalDate: r.accountApprovalDate?.toISOString().slice(0, 10) ?? "-",
+    grantDate: r.grantDate?.toISOString().slice(0, 10) ?? "",
+  }));
+
+  const applicantData = applicationSupportRecords.map((r) => {
+    const submission = r.linkedFormSubmissions[0] ?? null;
+    return {
+      id: r.id,
+      wholesaleAccountId: r.wholesaleAccountId,
+      formToken: r.formToken ?? "",
+      formUpdateStatus: displayApplicationFormUpdateStatus(r.formUpdateStatus, r.formTranscriptDate),
+      applicantName: r.wholesaleAccount?.companyName || r.applicantName || "-",
+      statusName: r.status?.name || "-",
+      formAnswerDate: r.formAnswerDate?.toISOString().slice(0, 10) ?? "-",
+      formTranscriptDate: r.formTranscriptDate?.toISOString().slice(0, 10) ?? "-",
+      applicationFormDate: r.applicationFormDate?.toISOString().slice(0, 10) ?? "-",
+      subsidyDesiredDate: r.subsidyDesiredDate?.toISOString().slice(0, 10) ?? "",
+      subsidyAmount: r.subsidyAmount,
+      paymentReceivedAmount: r.paymentReceivedAmount,
+      paymentReceivedDate: r.paymentReceivedDate?.toISOString().slice(0, 10) ?? "-",
+      subsidyReceivedDate: r.subsidyReceivedDate?.toISOString().slice(0, 10) ?? "-",
+      vendorMemo: r.vendorMemo || "",
+      formSubmission: submission ? {
+        id: submission.id,
+        submittedAt: submission.submittedAt.toISOString(),
+        confirmedAt: submission.confirmedAt?.toISOString() ?? null,
+        answers: submission.answers as Record<string, unknown>,
+        modifiedAnswers:
+          (submission.modifiedAnswers as Record<string, Record<string, string | null>> | null) ?? null,
+        fileUrls: (submission.fileUrls as Record<string, FileInfo> | null) ?? null,
+      } : null,
+      documents: r.documents.map((d) => ({
+        docType: d.docType,
+        filePath: d.filePath,
+        fileName: d.fileName,
+        generatedAt: d.generatedAt.toISOString(),
+      })),
+    };
+  });
+
+  const loanProgressData = loanProgressRecords.map((r) => ({
+    id: r.id,
+    wholesaleAccountId: r.wholesaleAccountId,
+    formToken: r.formToken ?? "",
+    formUpdateStatus: r.formUpdateStatus,
+    hasPendingAnswers: r.pendingAnswers != null,
+    requestDate: r.requestDate?.toISOString().split("T")[0] ?? "",
+    companyName: r.companyName ?? "",
+    representName: r.representName ?? "",
+    statusName: r.status?.name ?? "",
+    applicantType: r.applicantType ?? "",
+    updatedAt: r.updatedAt.toISOString().split("T")[0],
+    memo: r.memo ?? "",
+    memorandum: r.memorandum ?? "",
+    funds: r.funds ?? "",
+    redemptionScheduleIssuedAt: r.redemptionScheduleIssuedAt?.toISOString().split("T")[0] ?? "",
+    toolPurchasePrice: r.toolPurchasePrice ? Number(r.toolPurchasePrice).toLocaleString() : "",
+    loanAmount: r.loanAmount ? Number(r.loanAmount).toLocaleString() : "",
+    fundTransferDate: r.fundTransferDate?.toISOString().split("T")[0] ?? "",
+    loanExecutionDate: r.loanExecutionDate?.toISOString().split("T")[0] ?? "",
+    loanExecutionTime: r.loanExecutionDate
+      ? r.loanExecutionDate.toISOString().split("T")[1]?.substring(0, 5) ?? ""
+      : "",
+    repaymentDate: r.repaymentDate?.toISOString().split("T")[0] ?? "",
+    repaymentAmount: r.repaymentAmount ? Number(r.repaymentAmount).toLocaleString() : "",
+    principalAmount: r.principalAmount ? Number(r.principalAmount).toLocaleString() : "",
+    interestAmount: r.interestAmount ? Number(r.interestAmount).toLocaleString() : "",
+    overshortAmount: r.overshortAmount ? Number(r.overshortAmount).toLocaleString() : "",
+    redemptionAmount: r.redemptionAmount ? Number(r.redemptionAmount).toLocaleString() : "",
+    secondaryRepaymentDate: r.secondaryRepaymentDate?.toISOString().split("T")[0] ?? "",
+    secondaryRepaymentAmount: r.secondaryRepaymentAmount ? Number(r.secondaryRepaymentAmount).toLocaleString() : "",
+    secondaryPrincipalAmount: r.secondaryPrincipalAmount ? Number(r.secondaryPrincipalAmount).toLocaleString() : "",
+    secondaryInterestAmount: r.secondaryInterestAmount ? Number(r.secondaryInterestAmount).toLocaleString() : "",
+    secondaryRedemptionAmount: r.secondaryRedemptionAmount ? Number(r.secondaryRedemptionAmount).toLocaleString() : "",
+    redemptionDate: r.redemptionDate?.toISOString().split("T")[0] ?? "",
+    endMemo: r.endMemo ?? "",
+  }));
+
+  // Fetch additional data for tabs
+  const activities = await prisma.hojoConsultingActivity.findMany({
+    where: { deletedAt: null, vendorId: id },
+    include: {
+      vendor: { select: { id: true, name: true } },
+      tasks: { orderBy: [{ taskType: "asc" }, { displayOrder: "asc" }] },
+      staffAssignments: {
+        include: { staff: { select: { id: true, name: true } } },
+        orderBy: { staff: { displayOrder: "asc" } },
+      },
+    },
+    orderBy: { activityDate: "desc" },
+  });
 
   const activitiesData = activities.map((a) => ({
     id: a.id,
     vendorId: String(a.vendorId),
     vendorName: a.vendor.name,
-    contractId: a.contractId ? String(a.contractId) : "",
-    contractLabel: a.contract
-      ? `${a.contract.companyName}${a.contract.contractPlan ? ` (${a.contract.contractPlan})` : ""}`
-      : "",
     activityDate: a.activityDate.toISOString().split("T")[0],
     contactMethod: a.contactMethod ?? "",
-    vendorIssue: a.vendorIssue ?? "",
-    hearingContent: a.hearingContent ?? "",
-    responseContent: a.responseContent ?? "",
-    proposalContent: a.proposalContent ?? "",
+    staffIds: a.staffAssignments.map((s) => String(s.staffId)).join(","),
+    staffNames: a.staffAssignments.map((s) => s.staff.name).join(", "),
+    title: a.title ?? "",
+    meetingMinutes: a.meetingMinutes ?? "",
     vendorNextAction: a.vendorNextAction ?? "",
     nextDeadline: a.nextDeadline?.toISOString().split("T")[0] ?? "",
     tasks: a.tasks.map((t) => ({
@@ -175,38 +302,7 @@ export default async function VendorDetailPage({
     })),
     attachmentUrls: (a.attachmentUrls as string[] | null) ?? [],
     recordingUrls: (a.recordingUrls as string[] | null) ?? [],
-    screenshotUrls: (a.screenshotUrls as string[] | null) ?? [],
     notes: a.notes ?? "",
-  }));
-
-  const preApplicationData = preApplicationRecords.map((r) => ({
-    id: r.id,
-    vendorId: String(r.vendorId),
-    vendorName: r.vendor.name,
-    applicantName: r.applicantName ?? "",
-    status: r.status ?? "",
-    category: r.category ?? "",
-    prospectLevel: r.prospectLevel ?? "",
-    nextContactDate: r.nextContactDate?.toISOString().split("T")[0] ?? "",
-    businessName: r.businessName ?? "",
-    salesStaff: r.salesStaff ?? "",
-  }));
-
-  const postApplicationData = postApplicationRecords.map((r) => ({
-    id: r.id,
-    vendorId: String(r.vendorId),
-    vendorName: r.vendor.name,
-    applicantName: r.applicantName ?? "",
-    grantApplicationNumber: r.grantApplicationNumber ?? "",
-    subsidyStatus: r.subsidyStatus ?? "",
-    applicationCompletedDate: r.applicationCompletedDate?.toISOString().split("T")[0] ?? "",
-    hasLoan: r.hasLoan,
-    completedDate: r.completedDate?.toISOString().split("T")[0] ?? "",
-  }));
-
-  const contractOptions = contractsForDropdown.map((c) => ({
-    value: String(c.id),
-    label: `${c.companyName}${c.contractPlan ? ` (${c.contractPlan})` : ""}`,
   }));
 
   const scWholesaleOptions = scWholesaleStatuses.map((s) => ({
@@ -406,9 +502,9 @@ export default async function VendorDetailPage({
       toolRegistrations={toolRegistrationsForForm}
       contractDocsByService={contractDocsByService}
       activitiesData={activitiesData}
-      preApplicationData={preApplicationData}
-      postApplicationData={postApplicationData}
-      contractOptions={contractOptions}
+      wholesaleData={wholesaleData}
+      applicantData={applicantData}
+      loanProgressData={loanProgressData}
       scLabel={scLabel}
       joseiLabel={joseiLabel}
       staffOptions={staffOptions}

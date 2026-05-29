@@ -1,45 +1,52 @@
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import { LoanProgressTable } from "./loan-progress-table";
 import { LenderShareableUrlCard } from "@/components/lender-shareable-url-card";
+import { syncLoanProgressAfterWholesaleSave } from "@/lib/hojo/loan-progress-wholesale";
 
 export default async function HojoLoanProgressPage() {
   const session = await auth();
-  const userPermissions = (session?.user?.permissions ?? []) as UserPermission[];
-  const canEdit = canEditProject(userPermissions, "hojo");
+  const canEdit =
+    session?.user?.userType === "staff" &&
+    canEditProjectMasterDataSync(session?.user, "hojo");
+
+  const loanAccounts = await prisma.hojoWholesaleAccount.findMany({
+    where: { deletedAt: null, deletedByVendor: false, loanUsage: "有" },
+    orderBy: { id: "asc" },
+  });
+  if (loanAccounts.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      for (const account of loanAccounts) {
+        await syncLoanProgressAfterWholesaleSave(tx, account);
+      }
+    });
+  }
 
   const allProgress = await prisma.hojoLoanProgress.findMany({
-    where: { deletedAt: null },
+    where: {
+      OR: [
+        { deletedAt: null },
+        { loanUsagePending: { not: null } },
+      ],
+    },
     include: {
       vendor: { select: { id: true, name: true } },
       status: { select: { name: true } },
+      wholesaleAccount: { select: { loanUsage: true } },
     },
     orderBy: { id: "desc" },
   });
 
-  // Compute vendorNo: position within same vendor's records (sorted by id asc, 1-indexed)
-  const vendorRecordsMap = new Map<number, number[]>();
-  // Collect all record ids per vendor, sorted by id asc
-  const sortedByIdAsc = [...allProgress].sort((a, b) => a.id - b.id);
-  for (const record of sortedByIdAsc) {
-    const ids = vendorRecordsMap.get(record.vendorId) ?? [];
-    ids.push(record.id);
-    vendorRecordsMap.set(record.vendorId, ids);
-  }
-  // Map record id -> vendorNo
-  const vendorNoMap = new Map<number, number>();
-  for (const [, ids] of vendorRecordsMap) {
-    ids.forEach((id, idx) => {
-      vendorNoMap.set(id, idx + 1);
-    });
-  }
-
-  const serialized = allProgress.map((p) => ({
+  const serialized = allProgress.map((p, idx) => ({
     id: p.id,
+    rowNo: idx + 1,
+    wholesaleAccountId: p.wholesaleAccountId,
+    formToken: p.formToken ?? "",
+    formUpdateStatus: p.formUpdateStatus,
+    loanUsagePending: p.loanUsagePending ?? "",
+    loanUsageApproved: p.loanUsageApproved ?? "",
     vendorName: p.vendor?.name ?? "",
-    vendorNo: vendorNoMap.get(p.id) ?? 0,
     requestDate: p.requestDate?.toISOString() ?? null,
     companyName: p.companyName ?? "",
     representName: p.representName ?? "",
@@ -61,6 +68,11 @@ export default async function HojoLoanProgressPage() {
     overshortAmount: p.overshortAmount?.toString() ?? null,
     operationFee: p.operationFee?.toString() ?? null,
     redemptionAmount: p.redemptionAmount?.toString() ?? null,
+    secondaryRepaymentDate: p.secondaryRepaymentDate?.toISOString() ?? null,
+    secondaryRepaymentAmount: p.secondaryRepaymentAmount?.toString() ?? null,
+    secondaryPrincipalAmount: p.secondaryPrincipalAmount?.toString() ?? null,
+    secondaryInterestAmount: p.secondaryInterestAmount?.toString() ?? null,
+    secondaryRedemptionAmount: p.secondaryRedemptionAmount?.toString() ?? null,
     redemptionDate: p.redemptionDate?.toISOString() ?? null,
     endMemo: p.endMemo ?? "",
     staffMemo: p.staffMemo ?? "",

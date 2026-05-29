@@ -1,8 +1,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { LenderClientPage } from "./lender-client-page";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -17,18 +16,32 @@ export default async function LenderPage() {
   const isAuthenticated = isStaff || isLender;
 
   if (!isAuthenticated) {
-    return <LenderClientPage authenticated={false} isLender={false} corporateData={[]} individualData={[]} vendors={[]} progressData={[]} statusOptions={[]} rates={{ interestRate: 0, feeRate: 0 }} />;
+    return <LenderClientPage authenticated={false} isLender={false} corporateData={[]} individualData={[]} vendors={[]} progressData={[]} statusOptions={[]} rates={{ interestRate: 0.15, feeRate: 0.5 }} />;
   }
 
   if (isLender && session?.user?.mustChangePassword) {
-    return <LenderClientPage authenticated={false} isLender={false} corporateData={[]} individualData={[]} vendors={[]} progressData={[]} statusOptions={[]} rates={{ interestRate: 0, feeRate: 0 }} />;
+    redirect("/hojo/lender/change-password");
   }
 
-  // 全ベンダーの借入申込フォーム回答を取得
+  // 貸金業社側は弊社承認済みの表示状態を使う。
+  // ベンダーが貸金利用を変更しても、弊社が承認するまでは貸金業社側へ反映しない。
+  // 既存の未紐づけ回答は移行対象外のため、従来どおり表示する。
   const allSubmissions = await prisma.hojoFormSubmission.findMany({
     where: {
       deletedAt: null,
       formType: { in: ["loan-corporate", "loan-individual"] },
+      OR: [
+        { loanProgress: { is: null } },
+        { loanProgress: { is: { wholesaleAccountId: null, deletedAt: null } } },
+        {
+          loanProgress: {
+            is: {
+              deletedAt: null,
+              wholesaleAccount: { deletedAt: null, deletedByVendor: false },
+            },
+          },
+        },
+      ],
     },
     orderBy: { submittedAt: "desc" },
   });
@@ -69,32 +82,25 @@ export default async function LenderPage() {
 
   // 顧客進捗データ
   const progressRecords = await prisma.hojoLoanProgress.findMany({
-    where: { deletedAt: null },
+    where: {
+      deletedAt: null,
+      formSubmissionId: { not: null },
+      OR: [
+        { wholesaleAccountId: null },
+        { wholesaleAccount: { deletedAt: null, deletedByVendor: false } },
+      ],
+    },
     include: {
       vendor: { select: { id: true, name: true } },
       status: { select: { id: true, name: true } },
+      wholesaleAccount: { select: { loanUsage: true } },
     },
     orderBy: { id: "desc" },
   });
 
-  // vendorNoを計算（ベンダー内での表示順）
-  const vendorIdCounts: Record<number, number> = {};
-  const progressesByVendor: Record<number, typeof progressRecords> = {};
-  for (const r of progressRecords) {
-    if (!progressesByVendor[r.vendorId]) progressesByVendor[r.vendorId] = [];
-    progressesByVendor[r.vendorId].push(r);
-  }
-  // ベンダー内はid昇順でナンバリング
-  const vendorNoMap: Record<number, number> = {};
-  for (const records of Object.values(progressesByVendor)) {
-    const sorted = [...records].sort((a, b) => a.id - b.id);
-    sorted.forEach((r, i) => { vendorNoMap[r.id] = i + 1; });
-  }
-
   const progressData = progressRecords.map((r) => ({
     id: r.id,
     vendorName: r.vendor.name,
-    vendorNo: vendorNoMap[r.id] ?? 0,
     requestDate: r.requestDate?.toISOString().split("T")[0] ?? "",
     companyName: r.companyName ?? "",
     representName: r.representName ?? "",
@@ -118,6 +124,11 @@ export default async function LenderPage() {
     overshortAmount: r.overshortAmount ? Number(r.overshortAmount).toLocaleString() : "",
     operationFee: r.operationFee ? Number(r.operationFee).toLocaleString() : "",
     redemptionAmount: r.redemptionAmount ? Number(r.redemptionAmount).toLocaleString() : "",
+    secondaryRepaymentDate: r.secondaryRepaymentDate?.toISOString().split("T")[0] ?? "",
+    secondaryRepaymentAmount: r.secondaryRepaymentAmount ? Number(r.secondaryRepaymentAmount).toLocaleString() : "",
+    secondaryPrincipalAmount: r.secondaryPrincipalAmount ? Number(r.secondaryPrincipalAmount).toLocaleString() : "",
+    secondaryInterestAmount: r.secondaryInterestAmount ? Number(r.secondaryInterestAmount).toLocaleString() : "",
+    secondaryRedemptionAmount: r.secondaryRedemptionAmount ? Number(r.secondaryRedemptionAmount).toLocaleString() : "",
     redemptionDate: r.redemptionDate?.toISOString().split("T")[0] ?? "",
     endMemo: r.endMemo ?? "",
   }));
@@ -130,7 +141,7 @@ export default async function LenderPage() {
 
   // 利率/フィー率（グローバル設定。シングルトン）
   // マイグレーション未適用 / Prisma Client未再生成時は 0 にフォールバック
-  let rates = { interestRate: 0, feeRate: 0 };
+  let rates = { interestRate: 0.15, feeRate: 0.5 };
   try {
     if (prisma.hojoLoanProgressRateConfig) {
       const rateConfig = await prisma.hojoLoanProgressRateConfig.findFirst({ orderBy: { id: "asc" } });

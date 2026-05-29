@@ -8,6 +8,10 @@ export default async function ConsultingActivitiesPage() {
     include: {
       vendor: { select: { id: true, name: true } },
       tasks: { orderBy: [{ taskType: "asc" }, { displayOrder: "asc" }] },
+      staffAssignments: {
+        include: { staff: { select: { id: true, name: true } } },
+        orderBy: { staff: { displayOrder: "asc" } },
+      },
     },
     orderBy: { activityDate: "desc" },
   });
@@ -18,10 +22,9 @@ export default async function ConsultingActivitiesPage() {
     vendorName: a.vendor.name,
     activityDate: a.activityDate.toISOString().split("T")[0],
     contactMethod: a.contactMethod ?? "",
-    vendorIssue: a.vendorIssue ?? "",
-    hearingContent: a.hearingContent ?? "",
-    responseContent: a.responseContent ?? "",
-    proposalContent: a.proposalContent ?? "",
+    staffNames: a.staffAssignments.map((s) => s.staff.name).join(", "),
+    title: a.title ?? "",
+    meetingMinutes: a.meetingMinutes ?? "",
     vendorNextAction: a.vendorNextAction ?? "",
     nextDeadline: a.nextDeadline?.toISOString().split("T")[0] ?? "",
     tasks: a.tasks.map((t) => ({
@@ -34,7 +37,6 @@ export default async function ConsultingActivitiesPage() {
     })),
     attachmentUrls: (a.attachmentUrls as string[] | null) ?? [],
     recordingUrls: (a.recordingUrls as string[] | null) ?? [],
-    screenshotUrls: (a.screenshotUrls as string[] | null) ?? [],
     notes: a.notes ?? "",
   }));
 

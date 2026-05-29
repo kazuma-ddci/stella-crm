@@ -42,7 +42,8 @@ type BbsRecord = {
   formTranscriptDate: string;
   applicationFormDate: string;
   bbsStatusId: number | null;
-  bbsTransferAmount: number | null;
+  subsidyDesiredDate: string;
+  subsidyAmount: number | null;
   bbsTransferDate: string;
   subsidyReceivedDate: string;
   alkesMemo: string;
@@ -120,12 +121,23 @@ function LoginForm() {
   );
 }
 
-function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecord[]; canEdit: boolean; bbsStatusOptions: StatusOption[] }) {
+function BbsDataTable({
+  data,
+  canEdit,
+  canEditSubsidyReceivedDate,
+  bbsStatusOptions = [],
+}: {
+  data: BbsRecord[];
+  canEdit: boolean;
+  canEditSubsidyReceivedDate: boolean;
+  bbsStatusOptions: StatusOption[];
+}) {
   const [editRecord, setEditRecord] = useState<BbsRecord | null>(null);
   const [editData, setEditData] = useState({
     bbsStatusId: "" as string,
     bbsMemo: "",
     applicationFormDate: "",
+    subsidyReceivedDate: "",
   });
   const [saving, setSaving] = useState(false);
   const [viewRecord, setViewRecord] = useState<BbsRecord | null>(null);
@@ -143,6 +155,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
       bbsStatusId: r.bbsStatusId ? String(r.bbsStatusId) : "",
       bbsMemo: r.bbsMemo,
       applicationFormDate: r.applicationFormDate,
+      subsidyReceivedDate: r.subsidyReceivedDate === "-" ? "" : r.subsidyReceivedDate,
     });
   };
 
@@ -154,6 +167,9 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
         bbsStatusId: editData.bbsStatusId ? Number(editData.bbsStatusId) : null,
         bbsMemo: editData.bbsMemo,
         applicationFormDate: editData.applicationFormDate || null,
+        ...(canEditSubsidyReceivedDate
+          ? { subsidyReceivedDate: editData.subsidyReceivedDate || null }
+          : {}),
       });
       if (!result.ok) { alert(result.error); return; }
       setEditRecord(null);
@@ -169,12 +185,14 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
     }
     if (field === "bbsMemo") return (record.bbsMemo ?? "") === raw;
     if (field === "applicationFormDate") return (record.applicationFormDate ?? "") === raw;
+    if (field === "subsidyReceivedDate") return (record.subsidyReceivedDate === "-" ? "" : record.subsidyReceivedDate) === raw;
     return false;
   };
 
   const buildPayload = (field: keyof BbsEditableFields, raw: string): BbsEditableFields => {
     if (field === "bbsStatusId") return { bbsStatusId: raw === "__empty" ? null : Number(raw) };
     if (field === "bbsMemo") return { bbsMemo: raw };
+    if (field === "subsidyReceivedDate") return { subsidyReceivedDate: raw || null };
     return { applicationFormDate: raw || null };
   };
 
@@ -205,9 +223,10 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
                 <TableHead>情報回収フォーム回答共有日</TableHead>
                 <TableHead>支援制度申請フォーム回答日</TableHead>
                 <TableHead>ステータス</TableHead>
+                <TableHead>助成金着金希望日</TableHead>
                 <TableHead>支援枠</TableHead>
                 <TableHead>BBSへの振込日</TableHead>
-                <TableHead>お客様着金希望日</TableHead>
+                <TableHead>助成金着金日</TableHead>
                 <TableHead>運営備考</TableHead>
                 <TableHead>BBS備考</TableHead>
                 {canEdit && <TableHead className="w-[60px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
@@ -216,7 +235,7 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
             <TableBody>
               {data.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={canEdit ? 11 : 10} className="text-center text-gray-500 py-8">
+                  <TableCell colSpan={canEdit ? 12 : 11} className="text-center text-gray-500 py-8">
                     データがありません
                   </TableCell>
                 </TableRow>
@@ -255,9 +274,18 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
                         <span className="whitespace-nowrap">{getStatusLabel(record.bbsStatusId)}</span>
                       )}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">{formatCurrency(record.bbsTransferAmount)}</TableCell>
+                    <TableCell className="whitespace-nowrap">{record.subsidyDesiredDate}</TableCell>
+                    <TableCell className="whitespace-nowrap">{formatCurrency(record.subsidyAmount)}</TableCell>
                     <TableCell className="whitespace-nowrap">{record.bbsTransferDate}</TableCell>
-                    <TableCell className="whitespace-nowrap">{record.subsidyReceivedDate}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {canEdit && canEditSubsidyReceivedDate ? (
+                        <InlineCell value={record.subsidyReceivedDate === "-" ? "" : record.subsidyReceivedDate} onSave={(v) => inlineSave(record.id, "subsidyReceivedDate", v)} type="date">
+                          <span className="whitespace-nowrap">{record.subsidyReceivedDate}</span>
+                        </InlineCell>
+                      ) : (
+                        record.subsidyReceivedDate
+                      )}
+                    </TableCell>
                     <TableCell className="max-w-[200px] truncate">{record.alkesMemo || "-"}</TableCell>
                     <TableCell className="max-w-[200px]">
                       {canEdit ? (
@@ -294,6 +322,15 @@ function BbsDataTable({ data, canEdit, bbsStatusOptions = [] }: { data: BbsRecor
                 onChange={(v) => setEditData((prev) => ({ ...prev, applicationFormDate: v }))}
               />
             </div>
+            {canEditSubsidyReceivedDate && (
+              <div className="space-y-1">
+                <Label>助成金着金日</Label>
+                <DatePicker
+                  value={editData.subsidyReceivedDate}
+                  onChange={(v) => setEditData((prev) => ({ ...prev, subsidyReceivedDate: v }))}
+                />
+              </div>
+            )}
             <div className="space-y-1">
               <Label>ステータス</Label>
               <Select value={editData.bbsStatusId || "__empty"} onValueChange={(v) => setEditData((prev) => ({ ...prev, bbsStatusId: v === "__empty" ? "" : v }))}>
@@ -338,7 +375,12 @@ export function BbsClientPage({ authenticated, isBbs, canEdit = false, data, use
 
   return (
     <BbsPortalLayout userName={userName} isBbs={isBbs} pageTitle="支援金管理ページ">
-      <BbsDataTable data={data} canEdit={canEdit} bbsStatusOptions={bbsStatusOptions} />
+      <BbsDataTable
+        data={data}
+        canEdit={canEdit}
+        canEditSubsidyReceivedDate={isBbs}
+        bbsStatusOptions={bbsStatusOptions}
+      />
     </BbsPortalLayout>
   );
 }

@@ -55,7 +55,7 @@ export async function syncVendorIdFromFree1(lineFriendId?: number): Promise<{
 
   const whereClause = lineFriendId
     ? { lineFriendId, deletedAt: null }
-    : { deletedAt: null };
+    : { deletedAt: null, lineFriendId: { not: null } };
 
   const records = await prisma.hojoApplicationSupport.findMany({
     where: whereClause,
@@ -70,6 +70,7 @@ export async function syncVendorIdFromFree1(lineFriendId?: number): Promise<{
   const mismatches: VendorMismatch[] = [];
 
   for (const r of records) {
+    if (!r.lineFriendId) continue;
     const free1 = free1ByFriendId.get(r.lineFriendId) ?? null;
     const resolved = resolveVendor(free1);
     const resolvedVendorId = resolved?.id ?? null;

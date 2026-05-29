@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,13 +10,16 @@ import { changeBbsPassword } from "../actions";
 import { useSession } from "next-auth/react";
 
 export default function BbsChangePasswordPage() {
-  const { data: session } = useSession();
+  const { data: session, status, update } = useSession();
+  const router = useRouter();
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const bbsAccountId = session?.user?.bbsAccountId;
+  const isBbsAccount = session?.user?.userType === "bbs" && !!bbsAccountId;
+  const isForcedChange = session?.user?.mustChangePassword === true;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,12 +45,43 @@ export default function BbsChangePasswordPage() {
         setError(result.error);
         return;
       }
-      // パスワード変更後、再ログインさせる（mustChangePasswordフラグをセッションに反映するため）
-      await signOut({ callbackUrl: "/hojo/bbs" });
+      await update();
+      router.replace("/hojo/bbs");
+      router.refresh();
     } finally {
       setLoading(false);
     }
   };
+
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="text-center text-2xl">確認中</CardTitle>
+            <CardDescription className="text-center">
+              ログイン状態を確認しています。
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isBbsAccount) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="text-center text-2xl">ログインが必要です</CardTitle>
+            <CardDescription className="text-center">
+              パスワード変更は、対象のBBSアカウントでログインした後に利用できます。
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
@@ -55,7 +89,9 @@ export default function BbsChangePasswordPage() {
         <CardHeader>
           <CardTitle className="text-center text-2xl">パスワード変更</CardTitle>
           <CardDescription className="text-center">
-            初回ログインのため、パスワードの変更が必要です。
+            {isForcedChange
+              ? "パスワードを初期化されたアカウントでログインされています。続行するにはパスワードを変更してください。"
+              : "新しいパスワードを設定してください。"}
           </CardDescription>
         </CardHeader>
         <CardContent>

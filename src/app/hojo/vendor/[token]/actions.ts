@@ -3,17 +3,41 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import bcrypt from "bcryptjs";
+import { Prisma } from "@prisma/client";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+import {
+  FORM_UPDATE_STATUS,
+  normalizeApplicantType,
+  syncLoanProgressAfterWholesaleSave,
+} from "@/lib/hojo/loan-progress-wholesale";
+import {
+  calculateGrantPaymentAmounts,
+  syncApplicationSupportAfterWholesaleSave,
+} from "@/lib/hojo/application-support-wholesale";
 
 async function isStaffWithHojoEdit(): Promise<boolean> {
   const session = await auth();
   const userType = session?.user?.userType;
   if (userType !== "staff") return false;
-  const permissions = (session?.user?.permissions ?? []) as UserPermission[];
-  return canEditProject(permissions, "hojo");
+  return !!session?.user && canEditProjectMasterDataSync(session.user, "hojo");
+}
+
+async function loadLoanProgressRates() {
+  try {
+    if (!prisma.hojoLoanProgressRateConfig) {
+      return { interestRate: 0.15, feeRate: 0.5 };
+    }
+    const config = await prisma.hojoLoanProgressRateConfig.findFirst({ orderBy: { id: "asc" } });
+    return {
+      interestRate: config ? Number(config.interestRate) : 0.15,
+      feeRate: config ? Number(config.feeRate) : 0.5,
+    };
+  } catch (e) {
+    console.warn("[loadLoanProgressRates] failed (migration not applied?):", e);
+    return { interestRate: 0.15, feeRate: 0.5 };
+  }
 }
 
 export async function registerVendorAccount(data: {
@@ -98,7 +122,9 @@ export async function updateVendorFields(
       updateData.subsidyDesiredDate = data.subsidyDesiredDate ? new Date(data.subsidyDesiredDate) : null;
     }
     if (data.subsidyAmount !== undefined) {
-      updateData.subsidyAmount = data.subsidyAmount ?? null;
+      const subsidyAmount = data.subsidyAmount ?? null;
+      updateData.subsidyAmount = subsidyAmount;
+      Object.assign(updateData, calculateGrantPaymentAmounts(subsidyAmount));
     }
     if (data.vendorMemo !== undefined) {
       updateData.vendorMemo = data.vendorMemo?.trim() || null;
@@ -150,7 +176,30 @@ export async function changeVendorPassword(accountId: number, newPassword: strin
   }
 }
 
-// ========== 卸アカウント管理 ==========
+// ========== 顧客情報管理 ==========
+
+function parseUsageValue(value: unknown) {
+  const text = value ? String(value).trim() : "";
+  return text === "有" || text === "無" ? text : null;
+}
+
+function parseOptionalNumber(value: unknown) {
+  if (value === undefined || value === null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function revalidateLoanPaths() {
+  revalidatePath("/hojo/vendor");
+  revalidatePath("/hojo/security-cloud/accounts");
+  revalidatePath("/hojo/loan-progress");
+  revalidatePath("/hojo/lender");
+  revalidatePath("/hojo/loan-submissions");
+  revalidatePath("/hojo/application-support");
+  revalidatePath("/hojo/form-submissions");
+  revalidatePath("/hojo/bbs");
+  revalidatePath("/hojo/bbs/form-answers");
+}
 
 export async function addWholesaleAccount(vendorId: number, data: Record<string, unknown>): Promise<ActionResult> {
   try {
@@ -161,21 +210,28 @@ export async function addWholesaleAccount(vendorId: number, data: Record<string,
     if (!staffEdit && (userType !== "vendor" || sessionVendorId !== vendorId)) {
       return err("権限がありません");
     }
-    await prisma.hojoWholesaleAccount.create({
-      data: {
-        vendorId,
-        supportProviderName: data.supportProviderName ? String(data.supportProviderName).trim() : null,
-        companyName: data.companyName ? String(data.companyName).trim() : null,
-        email: data.email ? String(data.email).trim() : null,
-        softwareSalesContractUrl: data.softwareSalesContractUrl ? String(data.softwareSalesContractUrl).trim() : null,
-        recruitmentRound: data.recruitmentRound ? Number(data.recruitmentRound) : null,
-        adoptionDate: data.adoptionDate ? new Date(String(data.adoptionDate)) : null,
-        issueRequestDate: data.issueRequestDate ? new Date(String(data.issueRequestDate)) : null,
-        grantDate: data.grantDate ? new Date(String(data.grantDate)) : null,
-      },
+    await prisma.$transaction(async (tx) => {
+      const account = await tx.hojoWholesaleAccount.create({
+        data: {
+          vendorId,
+          applicantType: normalizeApplicantType(data.applicantType),
+          companyName: data.companyName ? String(data.companyName).trim() : null,
+          email: data.email ? String(data.email).trim() : null,
+          softwareSalesContractUrl: data.softwareSalesContractUrl ? String(data.softwareSalesContractUrl).trim() : null,
+          loanUsage: parseUsageValue(data.loanUsage),
+          grantUsage: parseUsageValue(data.grantUsage),
+          subsidyTargetAmountTaxIncluded: parseOptionalNumber(data.subsidyTargetAmountTaxIncluded),
+          applicationAmount: parseOptionalNumber(data.applicationAmount),
+          recruitmentRound: data.recruitmentRound ? Number(data.recruitmentRound) : null,
+          adoptionDate: data.adoptionDate ? new Date(String(data.adoptionDate)) : null,
+          issueRequestDate: data.issueRequestDate ? new Date(String(data.issueRequestDate)) : null,
+          grantDate: data.grantDate ? new Date(String(data.grantDate)) : null,
+        },
+      });
+      await syncLoanProgressAfterWholesaleSave(tx, account);
+      await syncApplicationSupportAfterWholesaleSave(tx, account);
     });
-    revalidatePath("/hojo/vendor");
-    revalidatePath("/hojo/security-cloud/accounts");
+    revalidateLoanPaths();
     return ok();
   } catch (e) {
     console.error("[addWholesaleAccount] error:", e);
@@ -199,10 +255,14 @@ export async function updateWholesaleAccountByVendor(
     }
 
     const updateData: Record<string, unknown> = {};
-    if (data.supportProviderName !== undefined) updateData.supportProviderName = data.supportProviderName ? String(data.supportProviderName).trim() : null;
+    if (data.applicantType !== undefined) updateData.applicantType = normalizeApplicantType(data.applicantType);
     if (data.companyName !== undefined) updateData.companyName = data.companyName ? String(data.companyName).trim() : null;
     if (data.email !== undefined) updateData.email = data.email ? String(data.email).trim() : null;
     if (data.softwareSalesContractUrl !== undefined) updateData.softwareSalesContractUrl = data.softwareSalesContractUrl ? String(data.softwareSalesContractUrl).trim() : null;
+    if (data.loanUsage !== undefined) updateData.loanUsage = parseUsageValue(data.loanUsage);
+    if (data.grantUsage !== undefined) updateData.grantUsage = parseUsageValue(data.grantUsage);
+    if (data.subsidyTargetAmountTaxIncluded !== undefined) updateData.subsidyTargetAmountTaxIncluded = parseOptionalNumber(data.subsidyTargetAmountTaxIncluded);
+    if (data.applicationAmount !== undefined) updateData.applicationAmount = parseOptionalNumber(data.applicationAmount);
     if (data.recruitmentRound !== undefined) updateData.recruitmentRound = data.recruitmentRound ? Number(data.recruitmentRound) : null;
     const dateFields = ["adoptionDate", "issueRequestDate", "grantDate"];
     for (const field of dateFields) {
@@ -210,38 +270,16 @@ export async function updateWholesaleAccountByVendor(
     }
 
     if (Object.keys(updateData).length > 0) {
-      await prisma.hojoWholesaleAccount.update({ where: { id }, data: updateData });
+      await prisma.$transaction(async (tx) => {
+        const updated = await tx.hojoWholesaleAccount.update({ where: { id }, data: updateData });
+        await syncLoanProgressAfterWholesaleSave(tx, updated, record.loanUsage);
+        await syncApplicationSupportAfterWholesaleSave(tx, updated, record.grantUsage);
+      });
     }
-    revalidatePath("/hojo/vendor");
-    revalidatePath("/hojo/security-cloud/accounts");
+    revalidateLoanPaths();
     return ok();
   } catch (e) {
     console.error("[updateWholesaleAccountByVendor] error:", e);
-    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
-  }
-}
-
-export async function updateActivityNotesByVendor(
-  activityId: number,
-  vendorId: number,
-  notes: string
-): Promise<ActionResult> {
-  try {
-    // Validate the activity belongs to this vendor
-    const activity = await prisma.hojoConsultingActivity.findFirst({
-      where: { id: activityId, vendorId, deletedAt: null },
-    });
-    if (!activity) return err("アクティビティが見つかりません");
-
-    await prisma.hojoConsultingActivity.update({
-      where: { id: activityId },
-      data: { notes: notes.trim() || null },
-    });
-
-    revalidatePath(`/hojo/vendor`);
-    return ok();
-  } catch (e) {
-    console.error("[updateActivityNotesByVendor] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
 }
@@ -261,333 +299,6 @@ export async function deleteWholesaleAccountByVendor(id: number, vendorId: numbe
     return ok();
   } catch (e) {
     console.error("[deleteWholesaleAccountByVendor] error:", e);
-    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
-  }
-}
-
-// ============ 顧客管理 CRUD (ベンダー用) ============
-
-export async function getPreApplicationDetail(
-  id: number,
-  vendorId: number
-): Promise<ActionResult<Record<string, unknown>>> {
-  try {
-    const record = await prisma.hojoGrantCustomerPreApplication.findFirst({
-      where: { id, vendorId, deletedAt: null },
-    });
-    if (!record) return err("レコードが見つかりません");
-    // Serialize dates and decimals for client
-    const serialized: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(record)) {
-      if (value instanceof Date) serialized[key] = value.toISOString().split("T")[0];
-      else if (typeof value === "object" && value !== null && "toNumber" in value) serialized[key] = (value as { toNumber(): number }).toNumber();
-      else serialized[key] = value;
-    }
-    return ok(serialized);
-  } catch (e) {
-    console.error("[getPreApplicationDetail] error:", e);
-    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
-  }
-}
-
-export async function getPostApplicationDetail(
-  id: number,
-  vendorId: number
-): Promise<ActionResult<Record<string, unknown>>> {
-  try {
-    const record = await prisma.hojoGrantCustomerPostApplication.findFirst({
-      where: { id, vendorId, deletedAt: null },
-    });
-    if (!record) return err("レコードが見つかりません");
-    const serialized: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(record)) {
-      if (value instanceof Date) serialized[key] = value.toISOString().split("T")[0];
-      else if (typeof value === "object" && value !== null && "toNumber" in value) serialized[key] = (value as { toNumber(): number }).toNumber();
-      else serialized[key] = value;
-    }
-    return ok(serialized);
-  } catch (e) {
-    console.error("[getPostApplicationDetail] error:", e);
-    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
-  }
-}
-
-function toDateOrNull(val: unknown): Date | null {
-  if (!val) return null;
-  const d = new Date(String(val));
-  return isNaN(d.getTime()) ? null : d;
-}
-
-function toDecimalOrNull(val: unknown): number | null {
-  if (val === null || val === undefined || val === "") return null;
-  const n = Number(val);
-  return isNaN(n) ? null : n;
-}
-
-function toStr(val: unknown): string | null {
-  if (val === null || val === undefined || val === "") return null;
-  return String(val).trim();
-}
-
-export async function addPreApplicationByVendor(vendorId: number, data: Record<string, unknown>): Promise<ActionResult> {
-  try {
-  await prisma.hojoGrantCustomerPreApplication.create({
-    data: {
-      vendor: { connect: { id: vendorId } },
-      applicantName: toStr(data.applicantName),
-      referrer: toStr(data.referrer),
-      salesStaff: toStr(data.salesStaff),
-      category: toStr(data.category),
-      status: toStr(data.status),
-      prospectLevel: toStr(data.prospectLevel),
-      detailMemo: toStr(data.detailMemo),
-      nextAction: toStr(data.nextAction),
-      nextContactDate: toDateOrNull(data.nextContactDate),
-      overviewBriefingDate: toDateOrNull(data.overviewBriefingDate),
-      mtgRecordingUrl: toStr(data.mtgRecordingUrl),
-      briefingStaff: toStr(data.briefingStaff),
-      phone: toStr(data.phone),
-      businessEntity: toStr(data.businessEntity),
-      industry: toStr(data.industry),
-      systemType: toStr(data.systemType),
-      hasLoan: toStr(data.hasLoan),
-      revenueRange: toStr(data.revenueRange),
-      importantTags: toStr(data.importantTags),
-      loanPattern: toStr(data.loanPattern),
-      referrerRewardPct: toDecimalOrNull(data.referrerRewardPct),
-      agent1Number: toStr(data.agent1Number),
-      agent1RewardPct: toDecimalOrNull(data.agent1RewardPct),
-      totalReward: toDecimalOrNull(data.totalReward),
-      doubleChecker: toStr(data.doubleChecker),
-      repeatJudgment: toStr(data.repeatJudgment),
-      wageRaiseEligible: toStr(data.wageRaiseEligible),
-      pastProduct: toStr(data.pastProduct),
-      lostDate: toDateOrNull(data.lostDate),
-      agentContractUrl: toStr(data.agentContractUrl),
-      docCollectionStart: toDateOrNull(data.docCollectionStart),
-      docSubmissionDate: toDateOrNull(data.docSubmissionDate),
-      businessName: toStr(data.businessName),
-      doc1: toStr(data.doc1),
-      doc2: toStr(data.doc2),
-      doc3: toStr(data.doc3),
-      doc4: toStr(data.doc4),
-      doc5: toStr(data.doc5),
-      itStrategyNaviPdf: toStr(data.itStrategyNaviPdf),
-      hasEmployees: toStr(data.hasEmployees),
-      gbizidScreenshot: toStr(data.gbizidScreenshot),
-      gbizidAddress: toStr(data.gbizidAddress),
-      selfDeclarationId: toStr(data.selfDeclarationId),
-      antiSocialCheck: toStr(data.antiSocialCheck),
-      establishmentDate: toDateOrNull(data.establishmentDate),
-      capital: toStr(data.capital),
-      fiscalMonth: toStr(data.fiscalMonth),
-      revenue: toDecimalOrNull(data.revenue),
-      grossProfit: toDecimalOrNull(data.grossProfit),
-      operatingProfit: toDecimalOrNull(data.operatingProfit),
-      ordinaryProfit: toDecimalOrNull(data.ordinaryProfit),
-      depreciation: toDecimalOrNull(data.depreciation),
-      laborCost: toDecimalOrNull(data.laborCost),
-      capitalOrReserve: toStr(data.capitalOrReserve),
-      executiveCompensation: toDecimalOrNull(data.executiveCompensation),
-      totalSalaryPrevYear: toDecimalOrNull(data.totalSalaryPrevYear),
-      planYear1: toStr(data.planYear1),
-      planYear2: toStr(data.planYear2),
-      planYear3: toStr(data.planYear3),
-      bonus1Target: toStr(data.bonus1Target),
-      bonus1Doc: toStr(data.bonus1Doc),
-      bonus2Target: toStr(data.bonus2Target),
-      bonus2Doc: toStr(data.bonus2Doc),
-      minWage: toStr(data.minWage),
-      applicationSystem: toStr(data.applicationSystem),
-      businessDescriptionDraft: toStr(data.businessDescriptionDraft),
-      businessProcessNote: toStr(data.businessProcessNote),
-      homepageUrl: toStr(data.homepageUrl),
-      businessDescription: toStr(data.businessDescription),
-      challengeTitle: toStr(data.challengeTitle),
-      challengeGoal: toStr(data.challengeGoal),
-      growthMatchingDescription: toStr(data.growthMatchingDescription),
-      dataEntryStaff: toStr(data.dataEntryStaff),
-      dataEntryConfirmed: toStr(data.dataEntryConfirmed),
-      businessDescriptionFinal: toStr(data.businessDescriptionFinal),
-      industryCode: toStr(data.industryCode),
-      officeCount: data.officeCount ? Number(data.officeCount) : null,
-      empRegular: data.empRegular ? Number(data.empRegular) : null,
-      empContract: data.empContract ? Number(data.empContract) : null,
-      empPartTime: data.empPartTime ? Number(data.empPartTime) : null,
-      empDispatch: data.empDispatch ? Number(data.empDispatch) : null,
-      empOther: data.empOther ? Number(data.empOther) : null,
-      wageTable1: toStr(data.wageTable1),
-      wageTable2: toStr(data.wageTable2),
-      wageTable3: toStr(data.wageTable3),
-      wageTable4: toStr(data.wageTable4),
-      wageTable5: toStr(data.wageTable5),
-      wageTable6: toStr(data.wageTable6),
-      wageTable7: toStr(data.wageTable7),
-      wageTable8: toStr(data.wageTable8),
-      wageTable9: toStr(data.wageTable9),
-      wageTable10: toStr(data.wageTable10),
-    },
-  });
-  revalidatePath("/hojo/vendor");
-  return ok();
-  } catch (e) {
-    console.error("[addPreApplicationByVendor] error:", e);
-    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
-  }
-}
-
-export async function updatePreApplicationByVendor(id: number, vendorId: number, data: Record<string, unknown>): Promise<ActionResult> {
-  try {
-  const record = await prisma.hojoGrantCustomerPreApplication.findFirst({ where: { id, vendorId, deletedAt: null } });
-  if (!record) return err("レコードが見つかりません");
-
-  const updateData: Record<string, unknown> = {};
-
-  // String fields
-  const strFields = [
-    "applicantName", "referrer", "salesStaff", "category", "status", "prospectLevel",
-    "detailMemo", "nextAction", "mtgRecordingUrl", "briefingStaff", "phone",
-    "businessEntity", "industry", "systemType", "hasLoan", "revenueRange", "importantTags",
-    "loanPattern", "agent1Number", "doubleChecker", "repeatJudgment", "wageRaiseEligible",
-    "pastProduct", "agentContractUrl", "businessName", "doc1", "doc2", "doc3", "doc4", "doc5",
-    "itStrategyNaviPdf", "hasEmployees", "gbizidScreenshot", "gbizidAddress", "selfDeclarationId",
-    "antiSocialCheck", "capital", "fiscalMonth", "capitalOrReserve", "planYear1", "planYear2",
-    "planYear3", "bonus1Target", "bonus1Doc", "bonus2Target", "bonus2Doc", "minWage",
-    "applicationSystem", "businessDescriptionDraft", "businessProcessNote", "homepageUrl",
-    "businessDescription", "challengeTitle", "challengeGoal", "growthMatchingDescription",
-    "dataEntryStaff", "dataEntryConfirmed", "businessDescriptionFinal", "industryCode",
-    "wageTable1", "wageTable2", "wageTable3", "wageTable4", "wageTable5",
-    "wageTable6", "wageTable7", "wageTable8", "wageTable9", "wageTable10",
-  ];
-  for (const f of strFields) {
-    if (f in data) updateData[f] = toStr(data[f]);
-  }
-
-  // Date fields
-  const dateFields = ["nextContactDate", "overviewBriefingDate", "lostDate", "docCollectionStart", "docSubmissionDate", "establishmentDate"];
-  for (const f of dateFields) {
-    if (f in data) updateData[f] = toDateOrNull(data[f]);
-  }
-
-  // Decimal fields
-  const decFields = ["referrerRewardPct", "agent1RewardPct", "totalReward", "revenue", "grossProfit", "operatingProfit", "ordinaryProfit", "depreciation", "laborCost", "executiveCompensation", "totalSalaryPrevYear"];
-  for (const f of decFields) {
-    if (f in data) updateData[f] = toDecimalOrNull(data[f]);
-  }
-
-  // Int fields
-  const intFields = ["officeCount", "empRegular", "empContract", "empPartTime", "empDispatch", "empOther"];
-  for (const f of intFields) {
-    if (f in data) updateData[f] = data[f] ? Number(data[f]) : null;
-  }
-
-  if (Object.keys(updateData).length > 0) {
-    await prisma.hojoGrantCustomerPreApplication.update({ where: { id }, data: updateData });
-  }
-  revalidatePath("/hojo/vendor");
-  return ok();
-  } catch (e) {
-    console.error("[updatePreApplicationByVendor] error:", e);
-    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
-  }
-}
-
-export async function addPostApplicationByVendor(vendorId: number, data: Record<string, unknown>): Promise<ActionResult> {
-  try {
-  await prisma.hojoGrantCustomerPostApplication.create({
-    data: {
-      vendor: { connect: { id: vendorId } },
-      isBpo: data.isBpo === true || data.isBpo === "true",
-      applicantName: toStr(data.applicantName),
-      memo: toStr(data.memo),
-      referrer: toStr(data.referrer),
-      salesStaff: toStr(data.salesStaff),
-      applicationCompletedDate: toDateOrNull(data.applicationCompletedDate),
-      applicationStaff: toStr(data.applicationStaff),
-      grantApplicationNumber: toStr(data.grantApplicationNumber),
-      nextAction: toStr(data.nextAction),
-      nextContactDate: toDateOrNull(data.nextContactDate),
-      documentStorageUrl: toStr(data.documentStorageUrl),
-      existingDocuments: toStr(data.existingDocuments),
-      staffEmail: toStr(data.staffEmail),
-      growthMatchingUrl: toStr(data.growthMatchingUrl),
-      growthMatchingStatus: toStr(data.growthMatchingStatus),
-      wageRaise: toStr(data.wageRaise),
-      laborSavingNavi: toStr(data.laborSavingNavi),
-      invoiceRegistration: toStr(data.invoiceRegistration),
-      repeatJudgment: toStr(data.repeatJudgment),
-      subsidyApplicantName: toStr(data.subsidyApplicantName),
-      prefecture: toStr(data.prefecture),
-      recruitmentRound: toStr(data.recruitmentRound),
-      applicationType: toStr(data.applicationType),
-      subsidyStatus: toStr(data.subsidyStatus),
-      subsidyStatusUpdated: toDateOrNull(data.subsidyStatusUpdated),
-      subsidyVendorName: toStr(data.subsidyVendorName),
-      itToolName: toStr(data.itToolName),
-      subsidyTargetAmount: data.subsidyTargetAmount ? Number(data.subsidyTargetAmount) : null,
-      subsidyAppliedAmount: data.subsidyAppliedAmount ? Number(data.subsidyAppliedAmount) : null,
-      grantDecisionDate: toDateOrNull(data.grantDecisionDate),
-      grantDecisionAmount: data.grantDecisionAmount ? Number(data.grantDecisionAmount) : null,
-      confirmationApprovalDate: toDateOrNull(data.confirmationApprovalDate),
-      subsidyConfirmedAmount: data.subsidyConfirmedAmount ? Number(data.subsidyConfirmedAmount) : null,
-      hasLoan: data.hasLoan === true || data.hasLoan === "true",
-      completedDate: toDateOrNull(data.completedDate),
-      vendorPattern: toStr(data.vendorPattern),
-      toolPattern: toStr(data.toolPattern),
-    },
-  });
-  revalidatePath("/hojo/vendor");
-  return ok();
-  } catch (e) {
-    console.error("[addPostApplicationByVendor] error:", e);
-    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
-  }
-}
-
-export async function updatePostApplicationByVendor(id: number, vendorId: number, data: Record<string, unknown>): Promise<ActionResult> {
-  try {
-  const record = await prisma.hojoGrantCustomerPostApplication.findFirst({ where: { id, vendorId, deletedAt: null } });
-  if (!record) return err("レコードが見つかりません");
-
-  const updateData: Record<string, unknown> = {};
-
-  // Boolean
-  if ("isBpo" in data) updateData.isBpo = data.isBpo === true || data.isBpo === "true";
-  if ("hasLoan" in data) updateData.hasLoan = data.hasLoan === true || data.hasLoan === "true";
-
-  // String fields
-  const strFields = [
-    "applicantName", "memo", "referrer", "salesStaff", "applicationStaff",
-    "grantApplicationNumber", "nextAction", "documentStorageUrl", "existingDocuments",
-    "staffEmail", "growthMatchingUrl", "growthMatchingStatus", "wageRaise",
-    "laborSavingNavi", "invoiceRegistration", "repeatJudgment",
-    "subsidyApplicantName", "prefecture", "recruitmentRound", "applicationType",
-    "subsidyStatus", "subsidyVendorName", "itToolName",
-    "vendorPattern", "toolPattern",
-  ];
-  for (const f of strFields) {
-    if (f in data) updateData[f] = toStr(data[f]);
-  }
-
-  // Date fields
-  const dateFields = ["applicationCompletedDate", "nextContactDate", "subsidyStatusUpdated", "grantDecisionDate", "confirmationApprovalDate", "completedDate"];
-  for (const f of dateFields) {
-    if (f in data) updateData[f] = toDateOrNull(data[f]);
-  }
-
-  // Int fields
-  const intFields = ["subsidyTargetAmount", "subsidyAppliedAmount", "grantDecisionAmount", "subsidyConfirmedAmount"];
-  for (const f of intFields) {
-    if (f in data) updateData[f] = data[f] ? Number(data[f]) : null;
-  }
-
-  if (Object.keys(updateData).length > 0) {
-    await prisma.hojoGrantCustomerPostApplication.update({ where: { id }, data: updateData });
-  }
-  revalidatePath("/hojo/vendor");
-  return ok();
-  } catch (e) {
-    console.error("[updatePostApplicationByVendor] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
 }
@@ -683,6 +394,130 @@ export async function updateLoanSubmissionAnswers(
     return ok();
   } catch (e) {
     console.error("[updateLoanSubmissionAnswers] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+function getAnswerValue(answers: Record<string, unknown>, key: string) {
+  const value = answers[key];
+  return value == null ? "" : String(value);
+}
+
+function getLoanAnswerLabel(key: string) {
+  const labels: Record<string, string> = {
+    corp_company_name: "法人名称(正式名称)",
+    corp_loan_amount: "借入希望金額",
+    corp_rep_name: "代表者氏名(正式名称)",
+    corp_email: "メールアドレス",
+    corp_phone: "法人電話番号",
+    ind_business_name: "屋号(正式名称)",
+    ind_loan_amount: "借入希望金額",
+    ind_name: "氏名(正式名称)",
+    ind_email: "メールアドレス",
+    ind_phone: "電話番号",
+  };
+  return labels[key] ?? key;
+}
+
+export async function applyPendingLoanFormSubmission(
+  progressId: number,
+  vendorId: number
+): Promise<ActionResult> {
+  try {
+    const session = await auth();
+    const isVendor = session?.user?.userType === "vendor" && session?.user?.vendorId === vendorId;
+    if (!isVendor) return err("修正申請の反映はベンダーアカウントのみ実行できます");
+
+    const progress = await prisma.hojoLoanProgress.findUnique({
+      where: { id: progressId },
+      include: { formSubmission: true },
+    });
+    if (!progress || progress.vendorId !== vendorId || !progress.pendingAnswers || !progress.formSubmission) {
+      return err("反映できる修正申請がありません");
+    }
+
+    const pendingAnswers = progress.pendingAnswers as Record<string, unknown>;
+    const currentAnswers = (progress.formSubmission.modifiedAnswers ?? progress.formSubmission.answers) as Record<string, unknown>;
+    const changes: ChangeEntry[] = [];
+    const newAnswers = { ...currentAnswers };
+
+    for (const [key, value] of Object.entries(pendingAnswers)) {
+      const oldValue = getAnswerValue(currentAnswers, key);
+      const newValue = value == null ? "" : String(value);
+      if (oldValue !== newValue) {
+        changes.push({
+          field: key,
+          fieldLabel: getLoanAnswerLabel(key),
+          oldValue,
+          newValue,
+        });
+        newAnswers[key] = value;
+      }
+    }
+
+    const existingHistory = (progress.formSubmission.changeHistory as ChangeHistoryRecord[] | null) ?? [];
+    const historyEntry: ChangeHistoryRecord = {
+      changedAt: new Date().toISOString(),
+      changedBy: session?.user?.name || "ベンダー",
+      changes,
+    };
+
+    await prisma.$transaction(async (tx) => {
+      await tx.hojoFormSubmission.update({
+        where: { id: progress.formSubmissionId! },
+        data: {
+          modifiedAnswers: newAnswers as Prisma.InputJsonValue,
+          changeHistory: (changes.length > 0 ? [...existingHistory, historyEntry] : existingHistory) as Prisma.InputJsonValue,
+        },
+      });
+      await tx.hojoLoanProgress.update({
+        where: { id: progress.id },
+        data: {
+          pendingAnswers: Prisma.DbNull,
+          pendingFormType: null,
+          formUpdateStatus: FORM_UPDATE_STATUS.APPLIED,
+          representName: progress.pendingFormType === "loan-corporate"
+            ? getAnswerValue(pendingAnswers, "corp_rep_name") || progress.representName
+            : getAnswerValue(pendingAnswers, "ind_name") || progress.representName,
+        },
+      });
+    });
+
+    revalidateLoanPaths();
+    return ok();
+  } catch (e) {
+    console.error("[applyPendingLoanFormSubmission] error:", e);
+    return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
+  }
+}
+
+export async function rejectPendingLoanFormSubmission(
+  progressId: number,
+  vendorId: number
+): Promise<ActionResult> {
+  try {
+    const session = await auth();
+    const isVendor = session?.user?.userType === "vendor" && session?.user?.vendorId === vendorId;
+    if (!isVendor) return err("修正申請の却下はベンダーアカウントのみ実行できます");
+
+    const progress = await prisma.hojoLoanProgress.findUnique({ where: { id: progressId } });
+    if (!progress || progress.vendorId !== vendorId || !progress.pendingAnswers) {
+      return err("却下できる修正申請がありません");
+    }
+
+    await prisma.hojoLoanProgress.update({
+      where: { id: progress.id },
+      data: {
+        pendingAnswers: Prisma.DbNull,
+        pendingFormType: null,
+        formUpdateStatus: FORM_UPDATE_STATUS.REJECTED,
+      },
+    });
+
+    revalidateLoanPaths();
+    return ok();
+  } catch (e) {
+    console.error("[rejectPendingLoanFormSubmission] error:", e);
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
 }
@@ -796,8 +631,11 @@ export async function updateVendorProgress(
     if (!progress || progress.deletedAt || progress.vendorId !== vendorId) return err("権限がありません");
 
     // ベンダーユーザーは限定フィールドのみ編集可
-    const vendorFields = ["requestDate", "toolPurchasePrice", "fundTransferDate", "loanExecutionDate"];
+    const vendorFields = ["requestDate", "fundTransferDate", "loanExecutionDate"];
     if (!isStaff && !vendorFields.includes(field)) return err("権限がありません");
+    if (field === "toolPurchasePrice") {
+      return err("ツール購入代金は顧客リストの補助金対象額（税込）から自動反映されます");
+    }
 
     // 依頼日はツール購入代金と貸付金額が一致している場合のみ入力可
     if (field === "requestDate" && value) {
@@ -813,10 +651,31 @@ export async function updateVendorProgress(
       updateData[field] = value ? new Date(value) : null;
     } else if (field === "loanExecutionDate") {
       updateData[field] = value ? new Date(value) : null;
-    } else if (field === "toolPurchasePrice") {
-      updateData[field] = value ? Number(value.replace(/,/g, "")) : null;
     } else {
       updateData[field] = value || null;
+    }
+
+    if (field === "loanExecutionDate") {
+      const { computeDerivedFields } = await import("@/lib/hojo/loan-progress-calc");
+      const rates = await loadLoanProgressRates();
+      const loanExecutionDate = updateData.loanExecutionDate as Date | null;
+      const derived = computeDerivedFields(
+        {
+          loanAmount: progress.loanAmount === null ? null : Number(progress.loanAmount),
+          loanExecutionDate,
+          repaymentDate: progress.repaymentDate,
+          repaymentAmount: progress.repaymentAmount === null ? null : Number(progress.repaymentAmount),
+          secondaryRepaymentDate: progress.secondaryRepaymentDate,
+        },
+        rates,
+      );
+      updateData.interestAmount = derived.interestAmount;
+      updateData.operationFee = derived.operationFee;
+      updateData.redemptionAmount = derived.redemptionAmount;
+      updateData.secondaryRepaymentAmount = derived.secondaryRepaymentAmount;
+      updateData.secondaryPrincipalAmount = derived.secondaryPrincipalAmount;
+      updateData.secondaryInterestAmount = derived.secondaryInterestAmount;
+      updateData.secondaryRedemptionAmount = derived.secondaryRedemptionAmount;
     }
 
     await prisma.hojoLoanProgress.update({ where: { id: progressId }, data: updateData });

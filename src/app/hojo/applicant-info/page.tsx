@@ -94,14 +94,14 @@ export default async function ApplicantInfoPage() {
       where: { lineType: "josei-support" },
       select: { label: true },
     }),
-    // 申請者管理の全レコードを取得（紹介元ベンダー表示用）
+    // 申請者管理の全レコードを取得（ベンダー表示用）
     prisma.hojoApplicationSupport.findMany({
       where: { deletedAt: null },
       select: { lineFriendId: true, vendorId: true, vendor: { select: { name: true } } },
     }),
   ]);
 
-  // joseiLineFriendId → ベンダー名リスト のマップ（旧フィールド + contacts両方から構築）
+  // joseiLineFriendId → ベンダーリスト のマップ（旧フィールド + contacts両方から構築）
   const vendorNamesByJoseiId = new Map<number, string[]>();
   function addVendorJosei(joseiId: number, name: string) {
     const names = vendorNamesByJoseiId.get(joseiId) || [];
@@ -120,10 +120,10 @@ export default async function ApplicantInfoPage() {
     joseiFriendsAll.map((f) => [f.uid, f.id])
   );
 
-  // lineFriendId → 紹介元ベンダー名リスト（重複なし）
+  // lineFriendId → ベンダーリスト（重複なし）
   const vendorNamesByLineFriendId = new Map<number, string[]>();
   for (const as of applicationSupports) {
-    if (as.vendor?.name) {
+    if (as.lineFriendId && as.vendor?.name) {
       const names = vendorNamesByLineFriendId.get(as.lineFriendId) || [];
       if (!names.includes(as.vendor.name)) {
         names.push(as.vendor.name);
@@ -140,7 +140,7 @@ export default async function ApplicantInfoPage() {
       ? `ベンダー(${belongsToVendors.join(",")})`
       : f.userType;
 
-    // 紹介元ベンダー: 申請者管理のレコードから取得（複数ベンダー対応）
+    // ベンダー: 申請者管理のレコードから取得（複数ベンダー対応）
     const vendorNamesFromRecords = vendorNamesByLineFriendId.get(f.id) || [];
 
     // free1からのベンダー判定（エラー検出用）
@@ -161,7 +161,7 @@ export default async function ApplicantInfoPage() {
       }
     }
 
-    // 表示用ベンダー名: 申請者管理のレコードがあればそちらを優先、なければfree1から
+    // 表示用ベンダー: 申請者管理のレコードがあればそちらを優先、なければfree1から
     const vendorNames = vendorNamesFromRecords.length > 0
       ? vendorNamesFromRecords
       : vendorNameFromFree1

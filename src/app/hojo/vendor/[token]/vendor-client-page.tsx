@@ -7,13 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InlineCell } from "@/components/inline-cell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { DatePicker } from "@/components/ui/date-picker";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { recordVendorPasswordResetRequest, updateVendorFields, addWholesaleAccount, updateWholesaleAccountByVendor, deleteWholesaleAccountByVendor } from "./actions";
-import { Trash2, Plus, Pencil, FileText, ClipboardList, Banknote, Copy, Check, Eye, FolderOpen } from "lucide-react";
+import { Trash2, Plus, Pencil, Copy, Check, Eye, FolderOpen } from "lucide-react";
 import { VendorDocumentStorageModal, type VendorDocumentInfo } from "./vendor-document-storage-modal";
 import Link from "next/link";
 import { VendorPortalLayout } from "./vendor-portal-layout";
@@ -21,16 +21,16 @@ import { PortalLoginWrapper } from "@/components/hojo-portal";
 import type { VendorSection } from "./vendor-portal-layout";
 import { VendorContractsSection } from "./vendor-contracts-section";
 import { VendorActivitiesSection } from "./vendor-activities-section";
-import { VendorCustomersSection } from "./vendor-customers-section";
 import { VendorLoanSection } from "./vendor-loan-section";
 import type { LoanSubmissionRow } from "./vendor-loan-section";
 import { VendorProgressSection } from "./vendor-progress-section";
+import { ApplicationBpoTable, type ApplicationBpoRow } from "@/app/hojo/application-bpo/application-bpo-table";
 import type { ProgressRow } from "./vendor-progress-section";
 import { FormAnswerViewerModal } from "@/components/hojo/form-answer-viewer-modal";
 import type { FileInfo } from "@/components/hojo/form-answer-editor";
 import { getHojoCustomerOrigin } from "@/lib/hojo/customer-domain";
 
-type FormSubmissionData = {
+export type FormSubmissionData = {
   id: number;
   submittedAt: string;
   confirmedAt: string | null;
@@ -39,8 +39,8 @@ type FormSubmissionData = {
   fileUrls: Record<string, unknown> | null;
 };
 
-type ApplicantRecord = {
-  id: number; lineFriendUid: string; lineName: string; applicantName: string; statusName: string;
+export type ApplicantRecord = {
+  id: number; wholesaleAccountId: number | null; formToken: string; formUpdateStatus: string; applicantName: string; statusName: string;
   formAnswerDate: string; formTranscriptDate: string; applicationFormDate: string;
   subsidyDesiredDate: string; subsidyAmount: number | null;
   paymentReceivedAmount: number | null; paymentReceivedDate: string;
@@ -49,11 +49,13 @@ type ApplicantRecord = {
   documents: VendorDocumentInfo[];
 };
 
-type WholesaleRecord = {
-  id: number; supportProviderName: string; companyName: string; email: string;
+export type WholesaleRecord = {
+  id: number; applicantType: string; companyName: string; email: string;
   softwareSalesContractUrl: string;
+  loanUsage: string; grantUsage: string;
+  subsidyTargetAmountTaxIncluded: number | null; applicationAmount: number | null;
   recruitmentRound: number | null; adoptionDate: string; issueRequestDate: string;
-  accountApprovalDate: string; grantDate: string; toolCost: number | null; invoiceStatus: string;
+  accountApprovalDate: string; grantDate: string;
 };
 
 type ContractRecord = {
@@ -78,27 +80,10 @@ type ConsultingTask = {
 };
 
 type ActivityRecord = {
-  id: number; activityDate: string; contactMethod: string; vendorIssue: string;
+  id: number; activityDate: string; contactMethod: string; staffNames: string; title: string; meetingMinutes: string;
   vendorNextAction: string; nextDeadline: string;
   tasks: ConsultingTask[];
-  attachmentUrls: string[]; recordingUrls: string[]; screenshotUrls: string[]; notes: string;
-};
-
-type PreAppRecord = {
-  id: number; applicantName: string; referrer: string; salesStaff: string;
-  category: string; status: string; prospectLevel: string; nextContactDate: string;
-  overviewBriefingDate: string; briefingStaff: string; phone: string;
-  businessEntity: string; industry: string; systemType: string; hasLoan: string;
-  revenueRange: string; businessName: string;
-};
-
-type PostAppRecord = {
-  id: number; isBpo: boolean; applicantName: string; memo: string;
-  referrer: string; salesStaff: string; applicationCompletedDate: string;
-  applicationStaff: string; grantApplicationNumber: string; nextAction: string;
-  nextContactDate: string; subsidyStatus: string; subsidyApplicantName: string;
-  prefecture: string; recruitmentRound: string; applicationType: string;
-  itToolName: string; hasLoan: boolean; completedDate: string;
+  attachmentUrls: string[]; recordingUrls: string[]; notes: string;
 };
 
 type VendorContactInfo = {
@@ -133,9 +118,9 @@ type Props = {
   authenticated: boolean; isVendor: boolean; canEdit?: boolean;
   applicantData: ApplicantRecord[]; wholesaleData: WholesaleRecord[];
   contractsData: ContractRecord[]; activitiesData: ActivityRecord[];
-  preApplicationData: PreAppRecord[]; postApplicationData: PostAppRecord[];
   loanCorporateData: LoanSubmissionRow[]; loanIndividualData: LoanSubmissionRow[];
   loanProgressData: ProgressRow[];
+  applicationBpoData: ApplicationBpoRow[];
   vendorName: string; vendorToken: string; vendorId?: number;
   allVendors: { id: number; name: string; token: string }[];
   userName?: string;
@@ -193,9 +178,9 @@ function LoginForm({ vendorName, vendorToken }: { vendorName: string; vendorToke
 }
 
 // ========== フォームURLコピーボタン ==========
-function FormUrlCopyButton({ uid }: { uid: string }) {
+function FormUrlCopyButton({ token }: { token: string }) {
   const [copied, setCopied] = useState(false);
-  const url = `${getHojoCustomerOrigin()}/form/hojo-business-plan?uid=${uid}`;
+  const url = `${getHojoCustomerOrigin()}/form/hojo-business-plan?t=${token}`;
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(url);
@@ -234,7 +219,7 @@ function FormAnswerModal({ data, open, onClose }: { data: FormSubmissionData; op
 }
 
 // ========== 助成金申請者管理タブ ==========
-function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; canEdit: boolean; vendorId?: number }) {
+export function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; canEdit: boolean; vendorId?: number }) {
   const [editRecord, setEditRecord] = useState<ApplicantRecord | null>(null);
   const [editData, setEditData] = useState({ subsidyDesiredDate: "", subsidyAmount: "", vendorMemo: "" });
   const [saving, setSaving] = useState(false);
@@ -275,19 +260,20 @@ function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; ca
       <div className="overflow-auto">
         <Table>
           <TableHeader><TableRow>
-            <TableHead>LINE名</TableHead><TableHead>申請者名</TableHead><TableHead>ステータス</TableHead>
-            <TableHead>情報回収フォームURL</TableHead><TableHead>情報回収フォーム回答日</TableHead>
+            <TableHead>顧客リストNo.</TableHead><TableHead>申請者名</TableHead><TableHead>ステータス</TableHead>
+            <TableHead>情報回収フォームURL</TableHead><TableHead>フォーム更新状況</TableHead><TableHead>情報回収フォーム回答日</TableHead>
             <TableHead>回答データ</TableHead><TableHead>フォーム内容確定日</TableHead><TableHead>資料保管</TableHead><TableHead>支援制度申請フォーム回答日</TableHead>
             <TableHead>助成金着金希望日</TableHead><TableHead>助成金額</TableHead><TableHead>原資金額</TableHead><TableHead>原資着金日</TableHead>
             <TableHead>助成金着金日</TableHead><TableHead>備考</TableHead>
             {canEdit && <TableHead className="w-[60px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
           </TableRow></TableHeader>
           <TableBody>
-            {data.length === 0 ? <TableRow><TableCell colSpan={canEdit ? 16 : 15} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
+            {data.length === 0 ? <TableRow><TableCell colSpan={canEdit ? 17 : 16} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
             : data.map((r) => (
               <TableRow key={r.id} className="group/row">
-                <TableCell className="whitespace-nowrap">{r.lineName}</TableCell><TableCell className="whitespace-nowrap">{r.applicantName}</TableCell><TableCell className="whitespace-nowrap">{r.statusName}</TableCell>
-                <TableCell><FormUrlCopyButton uid={r.lineFriendUid} /></TableCell>
+                <TableCell className="whitespace-nowrap">{r.wholesaleAccountId ?? "-"}</TableCell><TableCell className="whitespace-nowrap">{r.applicantName}</TableCell><TableCell className="whitespace-nowrap">{r.statusName}</TableCell>
+                <TableCell>{r.formToken ? <FormUrlCopyButton token={r.formToken} /> : "-"}</TableCell>
+                <TableCell className="whitespace-nowrap">{r.formUpdateStatus || "未送信"}</TableCell>
                 <TableCell className="whitespace-nowrap">{r.formAnswerDate}</TableCell>
                 <TableCell>
                   {r.formSubmission ? (
@@ -338,7 +324,7 @@ function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; ca
           open={true}
           onClose={() => setDocRecord(null)}
           applicationSupportId={docRecord.id}
-          applicantName={docRecord.applicantName !== "-" ? docRecord.applicantName : docRecord.lineName}
+          applicantName={docRecord.applicantName !== "-" ? docRecord.applicantName : `顧客リストNo.${docRecord.wholesaleAccountId ?? ""}`}
           documents={docRecord.documents}
         />
       )}
@@ -346,8 +332,8 @@ function ApplicantTab({ data, canEdit, vendorId }: { data: ApplicantRecord[]; ca
   );
 }
 
-// ========== 卸アカウント管理タブ ==========
-function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; canEdit: boolean; vendorId?: number }) {
+// ========== 顧客情報管理タブ ==========
+export function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; canEdit: boolean; vendorId?: number }) {
   const [editRecord, setEditRecord] = useState<WholesaleRecord | null>(null);
   const [editData, setEditData] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -358,18 +344,31 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
   const openEdit = (r: WholesaleRecord) => {
     setEditRecord(r);
     setEditData({
-      supportProviderName: r.supportProviderName, companyName: r.companyName, email: r.email,
+      companyName: r.companyName, email: r.email,
+      applicantType: r.applicantType,
       softwareSalesContractUrl: r.softwareSalesContractUrl,
+      loanUsage: r.loanUsage,
+      grantUsage: r.grantUsage,
+      subsidyTargetAmountTaxIncluded: r.subsidyTargetAmountTaxIncluded != null ? String(r.subsidyTargetAmountTaxIncluded) : "",
+      applicationAmount: r.applicationAmount != null ? String(r.applicationAmount) : "",
       recruitmentRound: r.recruitmentRound != null ? String(r.recruitmentRound) : "",
       adoptionDate: r.adoptionDate, issueRequestDate: r.issueRequestDate, grantDate: r.grantDate,
     });
   };
 
+  const numericFields = new Set(["subsidyTargetAmountTaxIncluded", "applicationAmount", "recruitmentRound"]);
+  const toPayload = (values: Record<string, string>) => ({
+    ...values,
+    subsidyTargetAmountTaxIncluded: values.subsidyTargetAmountTaxIncluded ? Number(values.subsidyTargetAmountTaxIncluded) : null,
+    applicationAmount: values.applicationAmount ? Number(values.applicationAmount) : null,
+    recruitmentRound: values.recruitmentRound ? Number(values.recruitmentRound) : null,
+  });
+
   const saveModal = async () => {
     if (!editRecord || !vendorId) return;
     setSaving(true);
     try {
-      const result = await updateWholesaleAccountByVendor(editRecord.id, vendorId, { ...editData, recruitmentRound: editData.recruitmentRound ? Number(editData.recruitmentRound) : null });
+      const result = await updateWholesaleAccountByVendor(editRecord.id, vendorId, toPayload(editData));
       if (!result.ok) { alert(result.error); return; }
       setEditRecord(null); router.refresh();
     } finally { setSaving(false); }
@@ -377,7 +376,7 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
 
   const inlineSave = async (id: number, field: string, value: string) => {
     if (!vendorId) return;
-    const payload: Record<string, unknown> = { [field]: field === "recruitmentRound" ? (value ? Number(value) : null) : (value || null) };
+    const payload: Record<string, unknown> = { [field]: numericFields.has(field) ? (value ? Number(value) : null) : (value || null) };
     const result = await updateWholesaleAccountByVendor(id, vendorId, payload);
     if (!result.ok) { alert(result.error); return; }
     router.refresh();
@@ -387,7 +386,7 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
     if (!vendorId) return;
     setSaving(true);
     try {
-      const result = await addWholesaleAccount(vendorId, { ...newData, recruitmentRound: newData.recruitmentRound ? Number(newData.recruitmentRound) : null });
+      const result = await addWholesaleAccount(vendorId, toPayload(newData));
       if (!result.ok) { alert(result.error); return; }
       setAdding(false); setNewData({}); router.refresh();
     } finally { setSaving(false); }
@@ -400,18 +399,60 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
     router.refresh();
   };
 
-  const fmtCost = (n: number | null) => n == null ? "-" : `${n}万円`;
+  const fmtYen = (n: number | null) => n == null ? "-" : `${n.toLocaleString("ja-JP")}円`;
+  const usageOptions = [
+    { value: "", label: "-" },
+    { value: "有", label: "有" },
+    { value: "無", label: "無" },
+  ];
+  const applicantTypeOptions = [
+    { value: "", label: "-" },
+    { value: "法人", label: "法人" },
+    { value: "個人事業主", label: "個人事業主" },
+  ];
 
   const editableFields = [
-    { key: "supportProviderName", label: "支援事業者名", type: "text" as const },
     { key: "companyName", label: "会社名(補助事業社、納品先）", type: "text" as const },
+    { key: "applicantType", label: "法人/個人", type: "select" as const, options: applicantTypeOptions },
     { key: "email", label: "メールアドレス(アカウント)", type: "text" as const },
     { key: "softwareSalesContractUrl", label: "ソフトウェア販売契約書", type: "url" as const, placeholder: "https://..." },
+    { key: "loanUsage", label: "貸金利用", type: "select" as const },
+    { key: "grantUsage", label: "助成金利用", type: "select" as const },
+    { key: "subsidyTargetAmountTaxIncluded", label: "補助金対象額（税込）", type: "number" as const },
+    { key: "applicationAmount", label: "申請額", type: "number" as const },
     { key: "recruitmentRound", label: "募集回", type: "number" as const },
     { key: "adoptionDate", label: "採択日", type: "date" as const },
     { key: "issueRequestDate", label: "発行依頼日", type: "date" as const },
     { key: "grantDate", label: "交付日", type: "date" as const },
   ];
+
+  const renderFormField = (f: (typeof editableFields)[number], values: Record<string, string>, setValues: (values: Record<string, string>) => void) => {
+    if (f.type === "date") {
+      return <DatePicker value={values[f.key] || ""} onChange={(v) => setValues({ ...values, [f.key]: v })} />;
+    }
+    if (f.type === "select") {
+      const options = "options" in f && f.options ? f.options : usageOptions;
+      return (
+        <Select value={values[f.key] || "__empty"} onValueChange={(v) => setValues({ ...values, [f.key]: v === "__empty" ? "" : v })}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {options.map((o) => (
+              <SelectItem key={o.value || "__empty"} value={o.value || "__empty"}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      );
+    }
+    return (
+      <Input
+        type={f.type}
+        value={values[f.key] || ""}
+        onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+        min={f.type === "number" ? "0" : undefined}
+        placeholder={"placeholder" in f ? f.placeholder : undefined}
+      />
+    );
+  };
 
   return (
     <>
@@ -425,26 +466,29 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
           <Table>
             <TableHeader><TableRow>
               <TableHead className="w-12">No.</TableHead>
-              <TableHead>支援事業者名</TableHead><TableHead>会社名(補助事業社、納品先）</TableHead><TableHead>メールアドレス(アカウント)</TableHead>
-              <TableHead>ソフトウェア販売契約書</TableHead><TableHead>募集回</TableHead><TableHead>採択日</TableHead><TableHead>発行依頼日</TableHead><TableHead>アカウント承認日</TableHead>
-              <TableHead>交付日</TableHead><TableHead>ツール代(税別)万円</TableHead><TableHead>請求入金状況</TableHead>
+              <TableHead>会社名(補助事業社、納品先）</TableHead><TableHead>法人/個人</TableHead><TableHead>メールアドレス(アカウント)</TableHead>
+              <TableHead>ソフトウェア販売契約書</TableHead><TableHead>貸金利用</TableHead><TableHead>助成金利用</TableHead><TableHead>補助金対象額（税込）</TableHead><TableHead>申請額</TableHead><TableHead>募集回</TableHead><TableHead>採択日</TableHead><TableHead>発行依頼日</TableHead><TableHead>アカウント承認日</TableHead>
+              <TableHead>交付日</TableHead>
               {canEdit && <TableHead className="w-[80px] sticky right-0 z-30 bg-white shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">操作</TableHead>}
             </TableRow></TableHeader>
             <TableBody>
-              {data.length === 0 ? <TableRow><TableCell colSpan={canEdit ? 13 : 12} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
+              {data.length === 0 ? <TableRow><TableCell colSpan={canEdit ? 15 : 14} className="text-center text-gray-500 py-8">データがありません</TableCell></TableRow>
               : data.map((r, idx) => (
                 <TableRow key={r.id} className="group/row">
                   <TableCell className="text-gray-500">{idx + 1}</TableCell>
-                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.supportProviderName} onSave={(v) => inlineSave(r.id, "supportProviderName", v)}>{r.supportProviderName || "-"}</InlineCell> : r.supportProviderName || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.companyName} onSave={(v) => inlineSave(r.id, "companyName", v)}>{r.companyName || "-"}</InlineCell> : r.companyName || "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.applicantType} onSave={(v) => inlineSave(r.id, "applicantType", v)} type="select" options={applicantTypeOptions}>{r.applicantType || "-"}</InlineCell> : r.applicantType || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.email} onSave={(v) => inlineSave(r.id, "email", v)}>{r.email || "-"}</InlineCell> : r.email || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.softwareSalesContractUrl} onSave={(v) => inlineSave(r.id, "softwareSalesContractUrl", v)}>{r.softwareSalesContractUrl ? <a href={r.softwareSalesContractUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">リンク</a> : "-"}</InlineCell> : r.softwareSalesContractUrl ? <a href={r.softwareSalesContractUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">リンク</a> : "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.loanUsage} onSave={(v) => inlineSave(r.id, "loanUsage", v)} type="select" options={usageOptions}>{r.loanUsage || "-"}</InlineCell> : r.loanUsage || "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.grantUsage} onSave={(v) => inlineSave(r.id, "grantUsage", v)} type="select" options={usageOptions}>{r.grantUsage || "-"}</InlineCell> : r.grantUsage || "-"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.subsidyTargetAmountTaxIncluded != null ? String(r.subsidyTargetAmountTaxIncluded) : ""} onSave={(v) => inlineSave(r.id, "subsidyTargetAmountTaxIncluded", v)} type="number">{fmtYen(r.subsidyTargetAmountTaxIncluded)}</InlineCell> : fmtYen(r.subsidyTargetAmountTaxIncluded)}</TableCell>
+                  <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.applicationAmount != null ? String(r.applicationAmount) : ""} onSave={(v) => inlineSave(r.id, "applicationAmount", v)} type="number">{fmtYen(r.applicationAmount)}</InlineCell> : fmtYen(r.applicationAmount)}</TableCell>
                   <TableCell>{canEdit ? <InlineCell value={r.recruitmentRound != null ? String(r.recruitmentRound) : ""} onSave={(v) => inlineSave(r.id, "recruitmentRound", v)} type="number">{r.recruitmentRound ?? "-"}</InlineCell> : r.recruitmentRound ?? "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.adoptionDate} onSave={(v) => inlineSave(r.id, "adoptionDate", v)} type="date">{r.adoptionDate || "-"}</InlineCell> : r.adoptionDate || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.issueRequestDate} onSave={(v) => inlineSave(r.id, "issueRequestDate", v)} type="date">{r.issueRequestDate || "-"}</InlineCell> : r.issueRequestDate || "-"}</TableCell>
                   <TableCell className="whitespace-nowrap">{r.accountApprovalDate}</TableCell>
                   <TableCell className="whitespace-nowrap">{canEdit ? <InlineCell value={r.grantDate} onSave={(v) => inlineSave(r.id, "grantDate", v)} type="date">{r.grantDate || "-"}</InlineCell> : r.grantDate || "-"}</TableCell>
-                  <TableCell>{fmtCost(r.toolCost)}</TableCell><TableCell className="whitespace-nowrap">{r.invoiceStatus}</TableCell>
                   {canEdit && (
                     <TableCell className="sticky right-0 z-10 bg-white group-hover/row:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                       <div className="flex gap-1">
@@ -463,13 +507,12 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
       {/* 新規追加モーダル */}
       <Dialog open={adding} onOpenChange={setAdding}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>卸アカウント新規追加</DialogTitle></DialogHeader>
-          <div className="space-y-3">
+          <DialogHeader><DialogTitle>顧客情報新規追加</DialogTitle></DialogHeader>
+          <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
             {editableFields.map((f) => (
               <div key={f.key} className="space-y-1">
                 <Label>{f.label}</Label>
-                {f.type === "date" ? <DatePicker value={newData[f.key] || ""} onChange={(v) => setNewData({ ...newData, [f.key]: v })} />
-                : <Input type={f.type} value={newData[f.key] || ""} onChange={(e) => setNewData({ ...newData, [f.key]: e.target.value })} min={f.type === "number" ? "1" : undefined} placeholder={"placeholder" in f ? f.placeholder : undefined} />}
+                {renderFormField(f, newData, setNewData)}
               </div>
             ))}
           </div>
@@ -480,13 +523,12 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
       {/* 編集モーダル */}
       <Dialog open={!!editRecord} onOpenChange={(open) => !open && setEditRecord(null)}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>卸アカウント編集</DialogTitle></DialogHeader>
-          <div className="space-y-3">
+          <DialogHeader><DialogTitle>顧客情報編集</DialogTitle></DialogHeader>
+          <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
             {editableFields.map((f) => (
               <div key={f.key} className="space-y-1">
                 <Label>{f.label}</Label>
-                {f.type === "date" ? <DatePicker value={editData[f.key] || ""} onChange={(v) => setEditData({ ...editData, [f.key]: v })} />
-                : <Input type={f.type} value={editData[f.key] || ""} onChange={(e) => setEditData({ ...editData, [f.key]: e.target.value })} min={f.type === "number" ? "1" : undefined} />}
+                {renderFormField(f, editData, setEditData)}
               </div>
             ))}
           </div>
@@ -497,29 +539,17 @@ function WholesaleTab({ data, canEdit, vendorId }: { data: WholesaleRecord[]; ca
   );
 }
 
-// ========== プレースホルダーセクション ==========
-function PlaceholderSection({ icon: Icon, message }: { icon: React.ElementType; message: string }) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center justify-center py-16 text-gray-400">
-        <Icon className="h-12 w-12 mb-4" />
-        <p className="text-lg">{message}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
 // ========== メインコンポーネント ==========
-const VALID_SECTIONS: VendorSection[] = ["consulting-contract", "consulting-activity", "consulting-customer", "wholesale", "grant", "loan", "loan-progress"];
+const VALID_SECTIONS: VendorSection[] = ["consulting-contract", "consulting-activity", "wholesale", "application-bpo", "grant", "loan", "loan-progress"];
 
-function VendorDataPage({ applicantData, wholesaleData, contractsData, activitiesData, preApplicationData, postApplicationData, loanCorporateData, loanIndividualData, loanProgressData, isVendor, canEdit = false, vendorId, vendorName, allVendors, vendorToken, userName, vendorInfo }: Omit<Props, "authenticated">) {
+function VendorDataPage({ applicantData, wholesaleData, contractsData, activitiesData, loanCorporateData, loanIndividualData, loanProgressData, applicationBpoData, isVendor, canEdit = false, vendorId, vendorName, allVendors, vendorToken, userName, vendorInfo }: Omit<Props, "authenticated">) {
   // SSRと一致する初期値を使い、マウント後にハッシュから復元
   const [activeSection, setActiveSection] = useState<VendorSection>("consulting-contract");
 
   useEffect(() => {
     const hash = window.location.hash.replace("#", "");
     if (VALID_SECTIONS.includes(hash as VendorSection)) {
-      setActiveSection(hash as VendorSection);
+      queueMicrotask(() => setActiveSection(hash as VendorSection));
     }
   }, []);
 
@@ -532,18 +562,18 @@ function VendorDataPage({ applicantData, wholesaleData, contractsData, activitie
     switch (activeSection) {
       case "wholesale":
         return <WholesaleTab data={wholesaleData} canEdit={canEdit} vendorId={vendorId} />;
+      case "application-bpo":
+        return <ApplicationBpoTable data={applicationBpoData} mode="vendor" vendorId={vendorId} canEdit={canEdit} />;
       case "grant":
         return <ApplicantTab data={applicantData} canEdit={canEdit} vendorId={vendorId} />;
       case "consulting-contract":
         return <VendorContractsSection data={contractsData} vendorInfo={vendorInfo} />;
       case "consulting-activity":
         return <VendorActivitiesSection data={activitiesData} vendorId={vendorId!} canEdit={canEdit} />;
-      case "consulting-customer":
-        return <VendorCustomersSection preApplicationData={preApplicationData} postApplicationData={postApplicationData} vendorId={vendorId} canEdit={canEdit} />;
       case "loan":
         return <VendorLoanSection vendorToken={vendorToken} vendorId={vendorId!} canEdit={canEdit} corporateSubmissions={loanCorporateData} individualSubmissions={loanIndividualData} />;
       case "loan-progress":
-        return <VendorProgressSection data={loanProgressData} vendorId={vendorId!} canEdit={canEdit} />;
+        return <VendorProgressSection data={loanProgressData} vendorId={vendorId!} canEdit={canEdit} canReviewFormUpdates={isVendor} />;
     }
   };
 
@@ -564,11 +594,11 @@ function VendorDataPage({ applicantData, wholesaleData, contractsData, activitie
   );
 }
 
-export function VendorClientPage({ authenticated, isVendor, canEdit = false, applicantData, wholesaleData, contractsData, activitiesData, preApplicationData, postApplicationData, loanCorporateData, loanIndividualData, loanProgressData, vendorName, vendorToken, vendorId, allVendors, userName, vendorInfo }: Props) {
+export function VendorClientPage({ authenticated, isVendor, canEdit = false, applicantData, wholesaleData, contractsData, activitiesData, loanCorporateData, loanIndividualData, loanProgressData, applicationBpoData, vendorName, vendorToken, vendorId, allVendors, userName, vendorInfo }: Props) {
   if (!authenticated) return <LoginForm vendorName={vendorName} vendorToken={vendorToken} />;
   return (
     <div className={isVendor ? "min-h-screen" : ""}>
-      <VendorDataPage applicantData={applicantData} wholesaleData={wholesaleData} contractsData={contractsData} activitiesData={activitiesData} preApplicationData={preApplicationData} postApplicationData={postApplicationData} loanCorporateData={loanCorporateData} loanIndividualData={loanIndividualData} loanProgressData={loanProgressData} isVendor={isVendor} canEdit={canEdit} vendorId={vendorId} vendorName={vendorName} allVendors={allVendors} vendorToken={vendorToken} userName={userName} vendorInfo={vendorInfo} />
+      <VendorDataPage applicantData={applicantData} wholesaleData={wholesaleData} contractsData={contractsData} activitiesData={activitiesData} loanCorporateData={loanCorporateData} loanIndividualData={loanIndividualData} loanProgressData={loanProgressData} applicationBpoData={applicationBpoData} isVendor={isVendor} canEdit={canEdit} vendorId={vendorId} vendorName={vendorName} allVendors={allVendors} vendorToken={vendorToken} userName={userName} vendorInfo={vendorInfo} />
     </div>
   );
 }

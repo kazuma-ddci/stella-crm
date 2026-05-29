@@ -23,6 +23,7 @@ type RowData = {
   vendorMemo: string;
   lenderMemo: string;
   staffMemo: string;
+  changeApplied: boolean;
   answers: Record<string, unknown>;
   modifiedAnswers: Record<string, unknown> | null;
 };
@@ -60,6 +61,7 @@ function SubmissionTable({
     { key: "vendorMemo", header: "ベンダー備考", type: "textarea", editable: false, filterable: true },
     { key: "lenderMemo", header: "貸金業社備考", type: "textarea", editable: false, filterable: true },
     { key: "staffMemo", header: "弊社備考", type: "textarea", editable: false, filterable: true },
+    { key: "changeApplied", header: "変更", editable: false, filterable: true },
   ];
 
   const customRenderers: CustomRenderers = {
@@ -89,6 +91,7 @@ function SubmissionTable({
         </InlineCell>
       );
     },
+    changeApplied: (value) => value ? "有" : "",
     vendorName: (value) => {
       const s = value ? String(value) : "";
       return <span className="whitespace-nowrap text-sm">{s || "（不明）"}</span>;

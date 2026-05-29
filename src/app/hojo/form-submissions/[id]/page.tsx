@@ -1,8 +1,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import { FormSubmissionEditClient } from "./edit-client";
 import type { ModifiedAnswers, FileInfo } from "@/components/hojo/form-answer-editor";
 import { extractSubmissionMeta } from "@/lib/hojo/form-answer-sections";
@@ -14,8 +13,9 @@ export default async function HojoFormSubmissionDetailPage({
 }) {
   const { id } = await params;
   const session = await auth();
-  const userPermissions = (session?.user?.permissions ?? []) as UserPermission[];
-  const canEdit = session?.user?.userType === "staff" && canEditProject(userPermissions, "hojo");
+  const canEdit =
+    session?.user?.userType === "staff" &&
+    canEditProjectMasterDataSync(session?.user, "hojo");
 
   const submission = await prisma.hojoFormSubmission.findUnique({
     where: { id: parseInt(id) },
@@ -44,7 +44,7 @@ export default async function HojoFormSubmissionDetailPage({
   };
 
   const answers = submission.answers as Record<string, unknown>;
-  const { uid } = extractSubmissionMeta(answers);
+  const meta = extractSubmissionMeta(answers);
   const fileUrls = (submission.fileUrls as Record<string, FileInfo> | null) ?? null;
   const initialModifiedAnswers =
     (submission.modifiedAnswers as ModifiedAnswers | null) ?? {};
@@ -57,28 +57,23 @@ export default async function HojoFormSubmissionDetailPage({
     createdAt: string;
   }> = [];
 
-  if (uid) {
-    const lineFriend = await prisma.hojoLineFriendJoseiSupport.findUnique({
-      where: { uid },
-      select: {
-        applicationSupports: {
-          where: { deletedAt: null },
-          include: {
-            status: { select: { name: true } },
-            vendor: { select: { name: true } },
-          },
-          orderBy: { createdAt: "asc" },
-        },
+  const targetApplicationSupportId = submission.linkedApplicationSupportId ?? meta.applicationSupportId;
+  if (targetApplicationSupportId) {
+    const appSupport = await prisma.hojoApplicationSupport.findFirst({
+      where: { id: targetApplicationSupportId, deletedAt: null },
+      include: {
+        status: { select: { name: true } },
+        vendor: { select: { name: true } },
       },
     });
-    if (lineFriend) {
-      candidates = lineFriend.applicationSupports.map((a) => ({
-        id: a.id,
-        applicantName: a.applicantName,
-        statusName: a.status?.name ?? null,
-        vendorName: a.vendor?.name ?? null,
-        createdAt: a.createdAt.toISOString(),
-      }));
+    if (appSupport) {
+      candidates = [{
+        id: appSupport.id,
+        applicantName: appSupport.applicantName,
+        statusName: appSupport.status?.name ?? null,
+        vendorName: appSupport.vendor?.name ?? null,
+        createdAt: appSupport.createdAt.toISOString(),
+      }];
     }
   }
 
@@ -96,7 +91,7 @@ export default async function HojoFormSubmissionDetailPage({
           .slice(0, 10) ?? null
       }
       linkedApplicationSupportId={submission.linkedApplicationSupportId}
-      uid={uid}
+      uid={meta.formToken ?? meta.uid}
       applicationSupportCandidates={candidates}
       canEdit={canEdit}
       subsidyAmount={submission.linkedApplicationSupport?.subsidyAmount ?? null}

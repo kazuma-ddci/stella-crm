@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { signOut, useSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,13 +10,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { changeVendorPassword } from "../[token]/actions";
 
 export default function VendorChangePasswordPage() {
-  const { data: session } = useSession();
+  const { data: session, status, update } = useSession();
+  const router = useRouter();
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const vendorAccountId = session?.user?.vendorAccountId;
+  const isVendorAccount = session?.user?.userType === "vendor" && !!vendorAccountId;
+  const isForcedChange = session?.user?.mustChangePassword === true;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,18 +38,53 @@ export default function VendorChangePasswordPage() {
         setError(result.error);
         return;
       }
-      await signOut({ callbackUrl: "/hojo/vendor" });
+      await update();
+      const vendorToken = session?.user?.vendorToken;
+      router.replace(vendorToken ? `/hojo/vendor/${vendorToken}` : "/hojo/vendor");
+      router.refresh();
     } finally {
       setLoading(false);
     }
   };
+
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="text-center text-2xl">確認中</CardTitle>
+            <CardDescription className="text-center">ログイン状態を確認しています。</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isVendorAccount) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="text-center text-2xl">ログインが必要です</CardTitle>
+            <CardDescription className="text-center">
+              パスワード変更は、対象のベンダーアカウントでログインした後に利用できます。
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-center text-2xl">パスワード変更</CardTitle>
-          <CardDescription className="text-center">初回ログインのため、パスワードの変更が必要です。</CardDescription>
+          <CardDescription className="text-center">
+            {isForcedChange
+              ? "パスワードを初期化されたアカウントでログインされています。続行するにはパスワードを変更してください。"
+              : "新しいパスワードを設定してください。"}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

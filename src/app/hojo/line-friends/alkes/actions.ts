@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 import { getOptionalSession } from "@/lib/auth/session";
-import { hasPermission } from "@/lib/auth/permissions";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 
 const REVALIDATE_PATH = "/hojo/line-friends/alkes";
 
@@ -142,7 +142,7 @@ export async function triggerProLineSync(): Promise<{
   if (session.userType !== "staff") {
     return { success: false, error: "社内スタッフのみ実行可能です" };
   }
-  if (!hasPermission(session.permissions ?? [], "hojo", "edit")) {
+  if (!canEditProjectMasterDataSync(session, "hojo")) {
     return { success: false, error: "補助金プロジェクトの編集権限が必要です" };
   }
 

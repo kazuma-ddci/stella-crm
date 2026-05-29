@@ -254,16 +254,6 @@ import {
   updateActivity,
   deleteActivity,
 } from "@/app/hojo/consulting/activities/actions";
-import {
-  addPreApplication,
-  updatePreApplication,
-  deletePreApplication,
-} from "@/app/hojo/grant-customers/pre-application/actions";
-import {
-  addPostApplication,
-  updatePostApplication,
-  deletePostApplication,
-} from "@/app/hojo/grant-customers/post-application/actions";
 
 export async function addActivityForVendor(data: Record<string, unknown>): Promise<ActionResult> {
   const result = await addActivity(data);
@@ -287,64 +277,6 @@ export async function deleteActivityForVendor(
   vendorId: string
 ): Promise<ActionResult> {
   const result = await deleteActivity(id);
-  if (!result.ok) return result;
-  revalidatePath(`/hojo/settings/vendors/${vendorId}`);
-  return ok();
-}
-
-export async function addPreApplicationForVendor(
-  data: Record<string, unknown>
-): Promise<ActionResult> {
-  const result = await addPreApplication(data);
-  if (!result.ok) return result;
-  revalidatePath(`/hojo/settings/vendors/${data.vendorId}`);
-  return ok();
-}
-
-export async function updatePreApplicationForVendor(
-  id: number,
-  data: Record<string, unknown>
-): Promise<ActionResult> {
-  const result = await updatePreApplication(id, data);
-  if (!result.ok) return result;
-  revalidatePath(`/hojo/settings/vendors/${data.vendorId}`);
-  return ok();
-}
-
-export async function deletePreApplicationForVendor(
-  id: number,
-  vendorId: string
-): Promise<ActionResult> {
-  const result = await deletePreApplication(id);
-  if (!result.ok) return result;
-  revalidatePath(`/hojo/settings/vendors/${vendorId}`);
-  return ok();
-}
-
-export async function addPostApplicationForVendor(
-  data: Record<string, unknown>
-): Promise<ActionResult> {
-  const result = await addPostApplication(data);
-  if (!result.ok) return result;
-  revalidatePath(`/hojo/settings/vendors/${data.vendorId}`);
-  return ok();
-}
-
-export async function updatePostApplicationForVendor(
-  id: number,
-  data: Record<string, unknown>
-): Promise<ActionResult> {
-  const result = await updatePostApplication(id, data);
-  if (!result.ok) return result;
-  revalidatePath(`/hojo/settings/vendors/${data.vendorId}`);
-  return ok();
-}
-
-export async function deletePostApplicationForVendor(
-  id: number,
-  vendorId: string
-): Promise<ActionResult> {
-  const result = await deletePostApplication(id);
   if (!result.ok) return result;
   revalidatePath(`/hojo/settings/vendors/${vendorId}`);
   return ok();

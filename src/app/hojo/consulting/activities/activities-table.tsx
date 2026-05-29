@@ -13,16 +13,14 @@ type ActivityRow = {
   vendorName: string;
   activityDate: string;
   contactMethod: string;
-  vendorIssue: string;
-  hearingContent: string;
-  responseContent: string;
-  proposalContent: string;
+  staffNames: string;
+  title: string;
+  meetingMinutes: string;
   vendorNextAction: string;
   nextDeadline: string;
   tasks: TaskRecord[];
   attachmentUrls: string[];
   recordingUrls: string[];
-  screenshotUrls: string[];
   notes: string;
 };
 
@@ -76,17 +74,15 @@ export function ActivityListTable({ data }: Props) {
     { key: "vendorName", header: "ベンダー名", type: "select", options: vendorOptions, editable: false, filterable: true, searchable: true },
     { key: "activityDate", header: "対応日", type: "date", editable: false, filterable: true },
     { key: "contactMethod", header: "対応手段", type: "select", options: contactMethodOptions, editable: false, filterable: true },
-    { key: "vendorIssue", header: "課題/ご相談内容", type: "textarea", editable: false, filterable: true },
-    { key: "hearingContent", header: "ヒアリング内容", type: "textarea", editable: false, filterable: true },
-    { key: "responseContent", header: "回答内容", type: "textarea", editable: false, filterable: true },
-    { key: "proposalContent", header: "提案内容", type: "textarea", editable: false, filterable: true },
+    { key: "staffNames", header: "担当者", editable: false, filterable: true },
+    { key: "title", header: "タイトル", editable: false, filterable: true },
+    { key: "meetingMinutes", header: "議事録", type: "textarea", editable: false, filterable: true },
+    { key: "recordingUrls", header: "録画", editable: false },
+    { key: "tasks", header: "先方タスク/弊社タスク", editable: false },
     { key: "vendorNextAction", header: "次回アクション", type: "textarea", editable: false, filterable: true },
     { key: "nextDeadline", header: "次回期限", type: "date", editable: false, filterable: true },
-    { key: "tasks", header: "タスク", editable: false },
-    { key: "attachmentUrls", header: "添付資料", editable: false },
-    { key: "recordingUrls", header: "録画", editable: false },
-    { key: "screenshotUrls", header: "スクショ", editable: false },
     { key: "notes", header: "備考", type: "textarea", editable: false, filterable: true },
+    { key: "attachmentUrls", header: "添付資料", editable: false },
   ];
 
   const truncateCell = (value: unknown) => (
@@ -112,10 +108,9 @@ export function ActivityListTable({ data }: Props) {
       ) : (
         <span className="text-gray-300">-</span>
       ),
-    vendorIssue: truncateCell,
-    hearingContent: truncateCell,
-    responseContent: truncateCell,
-    proposalContent: truncateCell,
+    staffNames: truncateCell,
+    title: truncateCell,
+    meetingMinutes: truncateCell,
     vendorNextAction: truncateCell,
     notes: (value) => (
       <span className="text-sm truncate block max-w-[150px]">{value ? String(value) : "-"}</span>
@@ -138,13 +133,12 @@ export function ActivityListTable({ data }: Props) {
           }
         >
           <ListChecks className="h-3 w-3" />
-          ベ:{vendorCount}/チ:{teamCount}
+          先:{vendorCount}/弊:{teamCount}
         </Button>
       );
     },
     attachmentUrls: (value) => <UrlListCell urls={(value as string[]) ?? []} />,
     recordingUrls: (value) => <UrlListCell urls={(value as string[]) ?? []} />,
-    screenshotUrls: (value) => <UrlListCell urls={(value as string[]) ?? []} />,
   };
 
   return (

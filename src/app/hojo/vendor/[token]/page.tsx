@@ -1,12 +1,16 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { VendorClientPage } from "./vendor-client-page";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import type { Metadata } from "next";
-import { extractSubmissionMeta } from "@/lib/hojo/form-answer-sections";
 import type { FileInfo } from "@/components/hojo/form-answer-editor";
+import type { ApplicationBpoAttachments } from "@/lib/hojo/application-bpo-fields";
+import {
+  displayApplicationFormUpdateStatus,
+  syncApplicationSupportAfterWholesaleSave,
+} from "@/lib/hojo/application-support-wholesale";
+import { syncLoanProgressAfterWholesaleSave } from "@/lib/hojo/loan-progress-wholesale";
 
 export const metadata: Metadata = {
   title: "ベンダー様専用",
@@ -87,8 +91,13 @@ export default async function VendorPage({
   const isVendor = userType === "vendor";
   const sessionVendorId = session?.user?.vendorId;
   const isAuthenticated = isStaff || (isVendor && sessionVendorId === vendor.id);
-  const userPermissions = (session?.user?.permissions ?? []) as UserPermission[];
-  const staffCanEdit = isStaff && canEditProject(userPermissions, "hojo");
+  const staffCanEdit =
+    isStaff &&
+    canEditProjectMasterDataSync(session?.user, "hojo");
+
+  if (isVendor && sessionVendorId === vendor.id && session?.user?.mustChangePassword) {
+    redirect("/hojo/vendor/change-password");
+  }
 
   if (!isAuthenticated) {
     return (
@@ -99,11 +108,10 @@ export default async function VendorPage({
         wholesaleData={[]}
         contractsData={[]}
         activitiesData={[]}
-        preApplicationData={[]}
-        postApplicationData={[]}
         loanCorporateData={[]}
         loanIndividualData={[]}
         loanProgressData={[]}
+        applicationBpoData={[]}
         vendorName={vendor.name}
         vendorToken={token}
         allVendors={[]}
@@ -122,56 +130,57 @@ export default async function VendorPage({
     allVendors = vendors.map((v) => ({ id: v.id, name: v.name, token: v.accessToken }));
   }
 
-  // 助成金申請者管理データ（vendorIdで直接フィルタ。申請者管理ページがfree1→vendorIdを自動同期済み）
-  const records = await prisma.hojoApplicationSupport.findMany({
-    where: { vendorId: vendor.id, deletedAt: null },
-    include: { lineFriend: true, status: true, documents: true },
-    orderBy: { lineFriendId: "asc" },
+  const grantWholesaleAccounts = await prisma.hojoWholesaleAccount.findMany({
+    where: { vendorId: vendor.id, deletedAt: null, deletedByVendor: false, grantUsage: "有" },
+    orderBy: { id: "asc" },
   });
-
-  const applicantUids = records.map((r) => r.lineFriend.uid).filter(Boolean);
-  const formSubmissions = applicantUids.length
-    ? await prisma.hojoFormSubmission.findMany({
-        where: {
-          deletedAt: null,
-          formType: "business-plan",
-          OR: [
-            { linkedApplicationSupportId: { in: records.map((r) => r.id) } },
-            ...applicantUids.map((uid) => ({
-              answers: { path: ["_meta", "uid"], equals: uid },
-            })),
-          ],
-        },
-        orderBy: { submittedAt: "desc" },
-      })
-    : [];
-  const formByUid = new Map<string, {
-    id: number;
-    submittedAt: string;
-    confirmedAt: string | null;
-    answers: Record<string, unknown>;
-    modifiedAnswers: Record<string, Record<string, string | null>> | null;
-    fileUrls: Record<string, FileInfo> | null;
-  }>();
-  for (const s of formSubmissions) {
-    const { uid } = extractSubmissionMeta(s.answers as Record<string, unknown>);
-    if (!uid || formByUid.has(uid)) continue;
-    formByUid.set(uid, {
-      id: s.id,
-      submittedAt: s.submittedAt.toISOString(),
-      confirmedAt: s.confirmedAt?.toISOString() ?? null,
-      answers: s.answers as Record<string, unknown>,
-      modifiedAnswers:
-        (s.modifiedAnswers as Record<string, Record<string, string | null>> | null) ?? null,
-      fileUrls: (s.fileUrls as Record<string, FileInfo> | null) ?? null,
+  if (grantWholesaleAccounts.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      for (const account of grantWholesaleAccounts) {
+        await syncApplicationSupportAfterWholesaleSave(tx, account);
+      }
     });
   }
 
-  const applicantData = records.map((r) => ({
+  const loanWholesaleAccounts = await prisma.hojoWholesaleAccount.findMany({
+    where: { vendorId: vendor.id, deletedAt: null, deletedByVendor: false, loanUsage: "有" },
+    orderBy: { id: "asc" },
+  });
+  if (loanWholesaleAccounts.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      for (const account of loanWholesaleAccounts) {
+        await syncLoanProgressAfterWholesaleSave(tx, account);
+      }
+    });
+  }
+
+  // 助成金申請者管理データ（顧客リストの助成金利用=有を起点に表示）
+  const records = await prisma.hojoApplicationSupport.findMany({
+    where: {
+      vendorId: vendor.id,
+      wholesaleAccount: { grantUsage: "有", deletedAt: null, deletedByVendor: false },
+    },
+    include: {
+      wholesaleAccount: true,
+      status: true,
+      documents: true,
+      linkedFormSubmissions: {
+        where: { deletedAt: null, formType: "business-plan" },
+        orderBy: { submittedAt: "desc" },
+        take: 1,
+      },
+    },
+    orderBy: { wholesaleAccountId: "asc" },
+  });
+
+  const applicantData = records.map((r) => {
+    const submission = r.linkedFormSubmissions[0] ?? null;
+    return {
     id: r.id,
-    lineFriendUid: r.lineFriend.uid,
-    lineName: r.lineFriend.snsname || "-",
-    applicantName: r.applicantName || "-",
+    wholesaleAccountId: r.wholesaleAccountId,
+    formToken: r.formToken ?? "",
+    formUpdateStatus: displayApplicationFormUpdateStatus(r.formUpdateStatus, r.formTranscriptDate),
+    applicantName: r.wholesaleAccount?.companyName || r.applicantName || "-",
     statusName: r.status?.name || "-",
     formAnswerDate: r.formAnswerDate?.toISOString().slice(0, 10) ?? "-",
     formTranscriptDate: r.formTranscriptDate?.toISOString().slice(0, 10) ?? "-",
@@ -182,16 +191,25 @@ export default async function VendorPage({
     paymentReceivedDate: r.paymentReceivedDate?.toISOString().slice(0, 10) ?? "-",
     subsidyReceivedDate: r.subsidyReceivedDate?.toISOString().slice(0, 10) ?? "-",
     vendorMemo: r.vendorMemo || "",
-    formSubmission: formByUid.get(r.lineFriend.uid) ?? null,
+    formSubmission: submission ? {
+      id: submission.id,
+      submittedAt: submission.submittedAt.toISOString(),
+      confirmedAt: submission.confirmedAt?.toISOString() ?? null,
+      answers: submission.answers as Record<string, unknown>,
+      modifiedAnswers:
+        (submission.modifiedAnswers as Record<string, Record<string, string | null>> | null) ?? null,
+      fileUrls: (submission.fileUrls as Record<string, FileInfo> | null) ?? null,
+    } : null,
     documents: r.documents.map((d) => ({
       docType: d.docType,
       filePath: d.filePath,
       fileName: d.fileName,
       generatedAt: d.generatedAt.toISOString(),
     })),
-  }));
+  };
+  });
 
-  // 卸アカウント管理データ（ベンダー側削除されたものは非表示）
+  // 顧客情報管理データ（ベンダー側削除されたものは非表示）
   const wholesaleRecords = await prisma.hojoWholesaleAccount.findMany({
     where: { vendorId: vendor.id, deletedAt: null, deletedByVendor: false },
     orderBy: { id: "asc" },
@@ -199,17 +217,19 @@ export default async function VendorPage({
 
   const wholesaleData = wholesaleRecords.map((r) => ({
     id: r.id,
-    supportProviderName: r.supportProviderName || "",
+    applicantType: r.applicantType || "",
     companyName: r.companyName || "",
     email: r.email || "",
     softwareSalesContractUrl: r.softwareSalesContractUrl || "",
+    loanUsage: r.loanUsage || "",
+    grantUsage: r.grantUsage || "",
+    subsidyTargetAmountTaxIncluded: r.subsidyTargetAmountTaxIncluded,
+    applicationAmount: r.applicationAmount,
     recruitmentRound: r.recruitmentRound,
     adoptionDate: r.adoptionDate?.toISOString().slice(0, 10) ?? "",
     issueRequestDate: r.issueRequestDate?.toISOString().slice(0, 10) ?? "",
     accountApprovalDate: r.accountApprovalDate?.toISOString().slice(0, 10) ?? "-",
     grantDate: r.grantDate?.toISOString().slice(0, 10) ?? "",
-    toolCost: r.toolCost,
-    invoiceStatus: r.invoiceStatus || "-",
   }));
 
   // コンサル契約データ
@@ -249,11 +269,15 @@ export default async function VendorPage({
     notes: c.notes ?? "",
   }));
 
-  // コンサル活動データ（スタッフ専用フィールドを除外）
+  // コンサル活動データ
   const activities = await prisma.hojoConsultingActivity.findMany({
     where: { vendorId: vendor.id, deletedAt: null },
     include: {
       tasks: { orderBy: [{ taskType: "asc" }, { displayOrder: "asc" }] },
+      staffAssignments: {
+        include: { staff: { select: { id: true, name: true } } },
+        orderBy: { staff: { displayOrder: "asc" } },
+      },
     },
     orderBy: { activityDate: "desc" },
   });
@@ -262,7 +286,9 @@ export default async function VendorPage({
     id: a.id,
     activityDate: a.activityDate.toISOString().split("T")[0],
     contactMethod: a.contactMethod ?? "",
-    vendorIssue: a.vendorIssue ?? "",
+    staffNames: a.staffAssignments.map((s) => s.staff.name).join(", "),
+    title: a.title ?? "",
+    meetingMinutes: a.meetingMinutes ?? "",
     vendorNextAction: a.vendorNextAction ?? "",
     nextDeadline: a.nextDeadline?.toISOString().split("T")[0] ?? "",
     tasks: a.tasks.map((t) => ({
@@ -275,62 +301,7 @@ export default async function VendorPage({
     })),
     attachmentUrls: (a.attachmentUrls as string[] | null) ?? [],
     recordingUrls: (a.recordingUrls as string[] | null) ?? [],
-    screenshotUrls: (a.screenshotUrls as string[] | null) ?? [],
     notes: a.notes ?? "",
-  }));
-
-  // 助成金顧客 〜概要案内データ
-  const preApps = await prisma.hojoGrantCustomerPreApplication.findMany({
-    where: { vendorId: vendor.id, deletedAt: null },
-    orderBy: { id: "asc" },
-  });
-
-  const preApplicationData = preApps.map((r) => ({
-    id: r.id,
-    applicantName: r.applicantName ?? "",
-    referrer: r.referrer ?? "",
-    salesStaff: r.salesStaff ?? "",
-    category: r.category ?? "",
-    status: r.status ?? "",
-    prospectLevel: r.prospectLevel ?? "",
-    nextContactDate: r.nextContactDate?.toISOString().split("T")[0] ?? "",
-    overviewBriefingDate: r.overviewBriefingDate?.toISOString().split("T")[0] ?? "",
-    briefingStaff: r.briefingStaff ?? "",
-    phone: r.phone ?? "",
-    businessEntity: r.businessEntity ?? "",
-    industry: r.industry ?? "",
-    systemType: r.systemType ?? "",
-    hasLoan: r.hasLoan ?? "",
-    revenueRange: r.revenueRange ?? "",
-    businessName: r.businessName ?? "",
-  }));
-
-  // 助成金顧客 交付申請〜データ
-  const postApps = await prisma.hojoGrantCustomerPostApplication.findMany({
-    where: { vendorId: vendor.id, deletedAt: null },
-    orderBy: { id: "asc" },
-  });
-
-  const postApplicationData = postApps.map((r) => ({
-    id: r.id,
-    isBpo: r.isBpo,
-    applicantName: r.applicantName ?? "",
-    memo: r.memo ?? "",
-    referrer: r.referrer ?? "",
-    salesStaff: r.salesStaff ?? "",
-    applicationCompletedDate: r.applicationCompletedDate?.toISOString().split("T")[0] ?? "",
-    applicationStaff: r.applicationStaff ?? "",
-    grantApplicationNumber: r.grantApplicationNumber ?? "",
-    nextAction: r.nextAction ?? "",
-    nextContactDate: r.nextContactDate?.toISOString().split("T")[0] ?? "",
-    subsidyStatus: r.subsidyStatus ?? "",
-    subsidyApplicantName: r.subsidyApplicantName ?? "",
-    prefecture: r.prefecture ?? "",
-    recruitmentRound: r.recruitmentRound ?? "",
-    applicationType: r.applicationType ?? "",
-    itToolName: r.itToolName ?? "",
-    hasLoan: r.hasLoan,
-    completedDate: r.completedDate?.toISOString().split("T")[0] ?? "",
   }));
 
   // 借入申込フォーム回答データ（このベンダーのもの）
@@ -339,6 +310,21 @@ export default async function VendorPage({
       deletedAt: null,
       formType: { in: ["loan-corporate", "loan-individual"] },
       answers: { path: ["_vendorId"], equals: vendor.id },
+      OR: [
+        { loanProgress: { is: null } },
+        { loanProgress: { is: { wholesaleAccountId: null, deletedAt: null } } },
+        {
+          loanProgress: {
+            is: {
+              wholesaleAccount: {
+                loanUsage: "有",
+                deletedAt: null,
+                deletedByVendor: false,
+              },
+            },
+          },
+        },
+      ],
     },
     include: {
       loanProgress: { select: { deletedAt: true } },
@@ -370,13 +356,26 @@ export default async function VendorPage({
 
   // 貸金 顧客進捗管理データ
   const loanProgressRecords = await prisma.hojoLoanProgress.findMany({
-    where: { vendorId: vendor.id, deletedAt: null },
-    include: { status: { select: { name: true } } },
+    where: {
+      vendorId: vendor.id,
+      OR: [
+        { wholesaleAccountId: null, deletedAt: null },
+        { wholesaleAccount: { loanUsage: "有", deletedAt: null, deletedByVendor: false } },
+      ],
+    },
+    include: {
+      status: { select: { name: true } },
+      wholesaleAccount: { select: { loanUsage: true } },
+    },
     orderBy: { id: "asc" },
   });
 
   const loanProgressData = loanProgressRecords.map((r) => ({
     id: r.id,
+    wholesaleAccountId: r.wholesaleAccountId,
+    formToken: r.formToken ?? "",
+    formUpdateStatus: r.formUpdateStatus,
+    hasPendingAnswers: r.pendingAnswers != null,
     requestDate: r.requestDate?.toISOString().split("T")[0] ?? "",
     companyName: r.companyName ?? "",
     representName: r.representName ?? "",
@@ -400,8 +399,39 @@ export default async function VendorPage({
     interestAmount: r.interestAmount ? Number(r.interestAmount).toLocaleString() : "",
     overshortAmount: r.overshortAmount ? Number(r.overshortAmount).toLocaleString() : "",
     redemptionAmount: r.redemptionAmount ? Number(r.redemptionAmount).toLocaleString() : "",
+    secondaryRepaymentDate: r.secondaryRepaymentDate?.toISOString().split("T")[0] ?? "",
+    secondaryRepaymentAmount: r.secondaryRepaymentAmount ? Number(r.secondaryRepaymentAmount).toLocaleString() : "",
+    secondaryPrincipalAmount: r.secondaryPrincipalAmount ? Number(r.secondaryPrincipalAmount).toLocaleString() : "",
+    secondaryInterestAmount: r.secondaryInterestAmount ? Number(r.secondaryInterestAmount).toLocaleString() : "",
+    secondaryRedemptionAmount: r.secondaryRedemptionAmount ? Number(r.secondaryRedemptionAmount).toLocaleString() : "",
     redemptionDate: r.redemptionDate?.toISOString().split("T")[0] ?? "",
     endMemo: r.endMemo ?? "",
+  }));
+
+  const applicationBpoRecords = await prisma.hojoApplicationBpoRequest.findMany({
+    where: { vendorId: vendor.id, deletedAt: null },
+    include: { vendor: { select: { name: true } } },
+    orderBy: { vendorCustomerNo: "asc" },
+  });
+
+  const applicationBpoData = applicationBpoRecords.map((record) => ({
+    id: record.id,
+    vendorId: record.vendorId,
+    vendorName: record.vendor.name,
+    vendorCustomerNo: record.vendorCustomerNo,
+    requestDate: dateOnly(record.requestDate) ?? "",
+    doubleCheckStatus: record.doubleCheckStatus ?? "",
+    scheduledAt: record.scheduledAt ?? "",
+    companyName: record.companyName ?? "",
+    applicantType: record.applicantType ?? "",
+    repeatType: record.repeatType ?? "",
+    wageIncreaseAvailability: record.wageIncreaseAvailability ?? "",
+    completionDate: dateOnly(record.completionDate) ?? "",
+    nextAction: record.nextAction ?? "",
+    vendorInput: (record.vendorInput as Record<string, unknown> | null) ?? {},
+    staffInput: (record.staffInput as Record<string, unknown> | null) ?? {},
+    attachments: (record.attachments as ApplicationBpoAttachments | null) ?? {},
+    staffMemo: record.staffMemo ?? "",
   }));
 
   const userName = session?.user?.name || "";
@@ -415,11 +445,10 @@ export default async function VendorPage({
       wholesaleData={wholesaleData}
       contractsData={contractsData}
       activitiesData={activitiesData}
-      preApplicationData={preApplicationData}
-      postApplicationData={postApplicationData}
       loanCorporateData={loanCorporateData}
       loanIndividualData={loanIndividualData}
       loanProgressData={loanProgressData}
+      applicationBpoData={applicationBpoData}
       vendorName={vendor.name}
       vendorToken={token}
       vendorId={vendor.id}

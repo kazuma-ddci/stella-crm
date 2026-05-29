@@ -64,16 +64,18 @@ export async function linkSubmissionToApplicationSupport(
     });
     if (!submission || submission.deletedAt) return err("回答が見つかりません");
 
-    const { uid } = extractSubmissionMeta(submission.answers as Record<string, unknown>);
-    if (!uid) return err("この回答はUIDが記録されていないため紐付けできません");
+    const meta = extractSubmissionMeta(submission.answers as Record<string, unknown>);
 
     const appSupport = await prisma.hojoApplicationSupport.findUnique({
       where: { id: applicationSupportId },
-      select: { id: true, deletedAt: true, lineFriend: { select: { uid: true } } },
+      select: { id: true, deletedAt: true, wholesaleAccountId: true },
     });
     if (!appSupport || appSupport.deletedAt) return err("申請者レコードが見つかりません");
-    if (appSupport.lineFriend.uid !== uid) {
-      return err("この申請者レコードは回答のUIDと一致しません");
+    if (meta.applicationSupportId && meta.applicationSupportId !== appSupport.id) {
+      return err("この回答は別の助成金管理レコード用の回答です");
+    }
+    if (meta.wholesaleAccountId && meta.wholesaleAccountId !== appSupport.wholesaleAccountId) {
+      return err("この回答は顧客リストNo.が一致しません");
     }
 
     await prisma.hojoFormSubmission.update({

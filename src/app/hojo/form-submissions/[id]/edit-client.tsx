@@ -103,7 +103,7 @@ export function FormSubmissionEditClient({
         )}
       </div>
 
-      {uid && <div className="text-xs text-gray-500">UID: {uid}</div>}
+      {uid && <div className="text-xs text-gray-500">フォームトークン: {uid}</div>}
 
       <Card>
         <CardHeader className="pb-3">
@@ -115,7 +115,7 @@ export function FormSubmissionEditClient({
         <CardContent className="space-y-3">
           {applicationSupportCandidates.length === 0 ? (
             <p className="text-sm text-gray-500">
-              このUIDに紐付く申請者レコードが見つかりません。支援金管理ページで該当のLINE友達を確認してください。
+              この回答に紐付く助成金管理レコードが見つかりません。助成金管理ページで顧客リストNo.を確認してください。
             </p>
           ) : isAutoLinked ? (
             <p className="text-sm text-gray-700">
@@ -134,7 +134,7 @@ export function FormSubmissionEditClient({
                 disabled={!canEdit}
                 warning={
                   !linkedApplicationSupportId && applicationSupportCandidates.length > 1
-                    ? "同じUIDに複数の申請者レコードがあります。どの申請者の回答として確定するか選択してください。"
+                    ? "候補が複数あります。どの申請者の回答として確定するか選択してください。"
                     : null
                 }
               />

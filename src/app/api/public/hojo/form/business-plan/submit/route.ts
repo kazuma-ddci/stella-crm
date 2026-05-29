@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { APPLICATION_FORM_UPDATE_STATUS } from "@/lib/hojo/application-support-wholesale";
 
 /**
  * 補助金事業計画フォーム 送信API（公開・認証不要）
  *
  * Body (JSON):
- *   - uid: string (LINE UID)
+ *   - token: string (顧客専用フォームトークン)
  *   - answers: Record<string, string> (フォーム回答)
  *   - fileUrls: Record<string, { filePath, fileName, fileSize, mimeType }> (アップロード済みファイル)
  *
@@ -15,12 +16,36 @@ import { prisma } from "@/lib/prisma";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { uid, answers, fileUrls } = body;
+    const { token, uid, answers, fileUrls } = body;
 
-    if (!answers || typeof answers !== "object") {
+    if (uid || !token || typeof token !== "string" || !answers || typeof answers !== "object") {
       return NextResponse.json(
-        { error: "必須パラメータが不足しています" },
+        { error: "フォームURLが無効です" },
         { status: 400 },
+      );
+    }
+
+    const applicationSupport = await prisma.hojoApplicationSupport.findUnique({
+      where: { formToken: token },
+      include: {
+        wholesaleAccount: true,
+        linkedFormSubmissions: {
+          where: { deletedAt: null, formType: "business-plan" },
+          orderBy: { submittedAt: "desc" },
+          take: 1,
+        },
+      },
+    });
+    if (
+      !applicationSupport ||
+      applicationSupport.deletedAt ||
+      !applicationSupport.wholesaleAccount ||
+      applicationSupport.wholesaleAccount.deletedAt ||
+      applicationSupport.wholesaleAccount.deletedByVendor
+    ) {
+      return NextResponse.json(
+        { error: "フォームURLが無効です" },
+        { status: 404 },
       );
     }
 
@@ -29,7 +54,9 @@ export async function POST(request: NextRequest) {
       _meta: {
         formVersion: "2026-04-12",
         formType: "digital-support-business-plan",
-        uid: uid || null,
+        formToken: token,
+        applicationSupportId: applicationSupport.id,
+        wholesaleAccountId: applicationSupport.wholesaleAccountId,
         submittedAt: new Date().toISOString(),
       },
       basic: {
@@ -99,48 +126,39 @@ export async function POST(request: NextRequest) {
         ? (fileUrls as Prisma.InputJsonValue)
         : null;
 
-    const created = await prisma.hojoFormSubmission.create({
-      data: {
-        formType: "business-plan",
-        companyName: answers.tradeName?.trim() || null,
-        representName: answers.fullName?.trim() || null,
-        email: answers.email?.trim() || null,
-        phone: answers.phone?.trim() || null,
-        answers: structuredAnswers,
-        fileUrls: structuredFileUrls ?? Prisma.JsonNull,
-      },
-    });
-
-    if (uid) {
-      try {
-        const lineFriend = await prisma.hojoLineFriendJoseiSupport.findUnique({
-          where: { uid: String(uid) },
-          select: {
-            applicationSupports: {
-              where: { deletedAt: null },
-              select: { id: true },
-            },
+    const existingSubmission = applicationSupport.linkedFormSubmissions[0] ?? null;
+    if (!existingSubmission) {
+      await prisma.$transaction(async (tx) => {
+        const created = await tx.hojoFormSubmission.create({
+          data: {
+            formType: "business-plan",
+            companyName: answers.tradeName?.trim() || null,
+            representName: answers.fullName?.trim() || null,
+            email: answers.email?.trim() || null,
+            phone: answers.phone?.trim() || null,
+            answers: structuredAnswers,
+            fileUrls: structuredFileUrls ?? Prisma.JsonNull,
+            linkedApplicationSupportId: applicationSupport.id,
+            linkedAt: new Date(),
           },
         });
-        const apps = lineFriend?.applicationSupports ?? [];
-        if (apps.length > 0) {
-          await prisma.hojoApplicationSupport.updateMany({
-            where: { id: { in: apps.map((a) => a.id) } },
-            data: { formAnswerDate: new Date() },
-          });
-        }
-        if (apps.length === 1) {
-          await prisma.hojoFormSubmission.update({
-            where: { id: created.id },
-            data: {
-              linkedApplicationSupportId: apps[0].id,
-              linkedAt: new Date(),
-            },
-          });
-        }
-      } catch (e) {
-        console.error("[BusinessPlan] formAnswerDate/link update error:", e);
-      }
+        await tx.hojoApplicationSupport.update({
+          where: { id: applicationSupport.id },
+          data: {
+            formAnswerDate: created.submittedAt,
+            formUpdateStatus: APPLICATION_FORM_UPDATE_STATUS.SUBMITTED,
+          },
+        });
+      });
+    } else {
+      await prisma.hojoApplicationSupport.update({
+        where: { id: applicationSupport.id },
+        data: {
+          pendingAnswers: structuredAnswers as Prisma.InputJsonValue,
+          pendingFileUrls: structuredFileUrls ?? Prisma.JsonNull,
+          formUpdateStatus: APPLICATION_FORM_UPDATE_STATUS.PENDING,
+        },
+      });
     }
 
     return NextResponse.json({ success: true });

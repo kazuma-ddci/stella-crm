@@ -1404,6 +1404,22 @@ export function CrudTable({
     );
   };
 
+  if (!mountedForPinUi) {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-2 items-center">
+          <div className="h-10 w-full sm:w-[180px] rounded-md bg-muted/40" />
+          <div className="h-10 w-[250px] rounded-md bg-muted/40" />
+        </div>
+        <div className="rounded-md border bg-background">
+          <div className="h-24 flex items-center justify-center text-sm text-muted-foreground">
+            読み込み中...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {/* 検索バー */}

@@ -70,7 +70,7 @@ export function TaskFormField({ value, onChange }: Props) {
   return (
     <div className="space-y-4 border rounded-lg p-3 bg-gray-50/50">
       <TaskGroup
-        title="ベンダー様タスク"
+        title="先方タスク"
         tasks={vendorTasks}
         onAdd={(t) => addTask("vendor", t)}
         onUpdate={(t, idx) => updateTask(t, idx)}
@@ -78,7 +78,7 @@ export function TaskFormField({ value, onChange }: Props) {
       />
       <div className="border-t" />
       <TaskGroup
-        title="コンサルチームタスク"
+        title="弊社タスク"
         tasks={teamTasks}
         onAdd={(t) => addTask("consulting_team", t)}
         onUpdate={(t, idx) => updateTask(t, idx)}

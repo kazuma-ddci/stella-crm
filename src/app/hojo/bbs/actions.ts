@@ -3,21 +3,21 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import bcrypt from "bcryptjs";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 import { parseYmdDate } from "@/lib/hojo/parse-date";
 
 const REVALIDATE_PATH = "/hojo/bbs";
 
-async function requireBbsEditPermission(): Promise<void> {
+async function requireBbsEditPermission(): Promise<"bbs" | "staff"> {
   const session = await auth();
   const userType = session?.user?.userType;
-  if (userType === "bbs") return; // BBSユーザーは編集可
+  if (userType === "bbs") return "bbs"; // BBSユーザーは編集可
   if (userType === "staff") {
-    const permissions = (session?.user?.permissions ?? []) as UserPermission[];
-    if (canEditProject(permissions, "hojo")) return; // スタッフのhojo edit以上も編集可
+    if (session?.user && canEditProjectMasterDataSync(session.user, "hojo")) {
+      return "staff"; // スタッフのhojo edit以上、admin、founderは編集可
+    }
   }
   throw new Error("権限がありません");
 }
@@ -104,6 +104,7 @@ export type BbsEditableFields = {
   bbsStatusId?: number | null;
   bbsMemo?: string;
   applicationFormDate?: string | null;
+  subsidyReceivedDate?: string | null;
 };
 
 // 各フィールドの Prisma への変換ロジック。追加時はここに1行足すだけ。
@@ -113,6 +114,7 @@ const BBS_FIELD_CONVERTERS: {
   bbsStatusId: (v) => v || null,
   bbsMemo: (v) => v || null,
   applicationFormDate: (v) => parseYmdDate(v as string | null),
+  subsidyReceivedDate: (v) => parseYmdDate(v as string | null),
 };
 
 export async function updateBbsFields(
@@ -120,7 +122,10 @@ export async function updateBbsFields(
   data: BbsEditableFields
 ): Promise<ActionResult> {
   try {
-    await requireBbsEditPermission();
+    const editorType = await requireBbsEditPermission();
+    if (data.subsidyReceivedDate !== undefined && editorType !== "bbs") {
+      throw new Error("助成金着金日はBBSアカウントのみ編集できます");
+    }
     const updateData: Record<string, unknown> = {};
 
     for (const key of Object.keys(BBS_FIELD_CONVERTERS) as (keyof BbsEditableFields)[]) {
@@ -137,7 +142,7 @@ export async function updateBbsFields(
       data: updateData,
     });
 
-    // BBSが編集した applicationFormDate は社内申請者管理にも表示されるため両方を revalidate
+    // BBSが編集した日付・備考は社内申請者管理にも表示されるため両方を revalidate
     revalidatePath(REVALIDATE_PATH);
     revalidatePath("/hojo/application-support");
     return ok();
@@ -186,4 +191,3 @@ export async function changeBbsPassword(
     return err(e instanceof Error ? e.message : "予期しないエラーが発生しました");
   }
 }
-

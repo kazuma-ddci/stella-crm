@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import { ok, err, type ActionResult } from "@/lib/action-result";
 
 export async function updateLoanStaffMemo(
@@ -19,8 +18,7 @@ export async function updateLoanStaffMemo(
       return err("権限がありません");
     }
 
-    const permissions = (session?.user?.permissions ?? []) as UserPermission[];
-    if (!canEditProject(permissions, "hojo")) {
+    if (!session?.user || !canEditProjectMasterDataSync(session.user, "hojo")) {
       return err("権限がありません");
     }
 

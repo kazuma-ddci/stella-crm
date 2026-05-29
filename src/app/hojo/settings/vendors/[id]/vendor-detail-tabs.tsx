@@ -1,21 +1,26 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { ArrowLeft, Copy, Check } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { getHojoCustomerOrigin } from "@/lib/hojo/customer-domain";
 
 const VendorDetailForm = dynamic(() => import("./vendor-detail-form").then((mod) => mod.VendorDetailForm), {
   ssr: false,
   loading: () => <div className="p-8 text-center text-muted-foreground">読み込み中...</div>,
 });
 import { ActivitiesCrudTable } from "@/app/hojo/consulting/activities/activities-crud-table";
-import { PreApplicationTable } from "@/app/hojo/grant-customers/pre-application/pre-application-table";
-import { PostApplicationTable } from "@/app/hojo/grant-customers/post-application/post-application-table";
 import { VendorContactHistorySection } from "@/app/hojo/contact-histories/vendor-contact-history-section";
+import {
+  ApplicantTab,
+  WholesaleTab,
+  type ApplicantRecord,
+  type WholesaleRecord,
+} from "@/app/hojo/vendor/[token]/vendor-client-page";
+import {
+  VendorProgressSection,
+  type ProgressRow,
+} from "@/app/hojo/vendor/[token]/vendor-progress-section";
 import type {
   CustomerType,
   ContactCategoryOption,
@@ -25,12 +30,6 @@ import {
   addActivityForVendor,
   updateActivityForVendor,
   deleteActivityForVendor,
-  addPreApplicationForVendor,
-  updatePreApplicationForVendor,
-  deletePreApplicationForVendor,
-  addPostApplicationForVendor,
-  updatePostApplicationForVendor,
-  deletePostApplicationForVendor,
 } from "./actions";
 
 type ContactData = {
@@ -110,9 +109,9 @@ type Props = {
   toolRegistrations: { toolId: number; statusId: number | null; memo: string }[];
   contractDocsByService: Record<string, ContractDocumentItem[]>;
   activitiesData: Record<string, unknown>[];
-  preApplicationData: Record<string, unknown>[];
-  postApplicationData: Record<string, unknown>[];
-  contractOptions: { value: string; label: string }[];
+  wholesaleData: WholesaleRecord[];
+  applicantData: ApplicantRecord[];
+  loanProgressData: ProgressRow[];
   scLabel: string;
   joseiLabel: string;
   staffOptions: { value: string; label: string }[];
@@ -145,9 +144,9 @@ export function VendorDetailTabs({
   toolRegistrations,
   contractDocsByService,
   activitiesData,
-  preApplicationData,
-  postApplicationData,
-  contractOptions,
+  wholesaleData,
+  applicantData,
+  loanProgressData,
   scLabel,
   joseiLabel,
   staffOptions,
@@ -157,7 +156,6 @@ export function VendorDetailTabs({
   autoDetectedAsLabel,
   autoDetectedAsLineFriendId,
   scLineFriendsForAs,
-  accessToken,
   contactHistoriesData,
   contactMethodOptions,
   contactStaffOptions,
@@ -169,23 +167,6 @@ export function VendorDetailTabs({
   const vendorOptions = [
     { value: String(vendor.id), label: vendor.name },
   ];
-
-  const [copied, setCopied] = useState(false);
-  const [loanFormUrl, setLoanFormUrl] = useState(`/form/hojo-loan-application?v=${accessToken}`);
-
-  useEffect(() => {
-    setLoanFormUrl(`${getHojoCustomerOrigin()}/form/hojo-loan-application?v=${accessToken}`);
-  }, [accessToken]);
-
-  const handleCopyUrl = async () => {
-    try {
-      await navigator.clipboard.writeText(loanFormUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* noop */
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -201,8 +182,7 @@ export function VendorDetailTabs({
         <TabsList>
           <TabsTrigger value="basic">基本情報</TabsTrigger>
           <TabsTrigger value="activities">コンサル履歴</TabsTrigger>
-          <TabsTrigger value="customers">顧客管理</TabsTrigger>
-          <TabsTrigger value="loan">貸金業社</TabsTrigger>
+          <TabsTrigger value="customers">顧客リスト</TabsTrigger>
           <TabsTrigger value="contact-histories">接触履歴</TabsTrigger>
         </TabsList>
 
@@ -241,12 +221,12 @@ export function VendorDetailTabs({
               data={activitiesData}
               canEdit={true}
               vendorOptions={vendorOptions}
-              contractOptions={contractOptions}
+              staffOptions={staffOptions}
               onAddOverride={addActivityForVendor}
               onUpdateOverride={updateActivityForVendor}
               onDeleteOverride={(id) => deleteActivityForVendor(id, String(vendor.id))}
               hideVendorColumn={true}
-              notesReadOnly={true}
+              notesReadOnly={false}
               defaultVendorId={String(vendor.id)}
               tableId="hojo.vendor-detail.activities"
             />
@@ -255,72 +235,29 @@ export function VendorDetailTabs({
       </TabsContent>
 
       <TabsContent value="customers">
-        <Tabs defaultValue="pre">
+        <Tabs defaultValue="all" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="pre">~概要案内</TabsTrigger>
-            <TabsTrigger value="post">交付申請~</TabsTrigger>
+            <TabsTrigger value="all">全顧客情報</TabsTrigger>
+            <TabsTrigger value="grant">助成金申請</TabsTrigger>
+            <TabsTrigger value="loan">貸金進捗</TabsTrigger>
           </TabsList>
-          <TabsContent value="pre">
-            <Card>
-              <CardHeader>
-                <CardTitle>概要案内一覧</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <PreApplicationTable
-                  data={preApplicationData}
-                  canEdit={true}
-                  vendorOptions={vendorOptions}
-                  onAddOverride={addPreApplicationForVendor}
-                  onUpdateOverride={updatePreApplicationForVendor}
-                  onDeleteOverride={(id) => deletePreApplicationForVendor(id, String(vendor.id))}
-                  tableId="hojo.vendor-detail.pre-application"
-                />
-              </CardContent>
-            </Card>
+
+          <TabsContent value="all">
+            <WholesaleTab data={wholesaleData} canEdit={true} vendorId={vendor.id} />
           </TabsContent>
-          <TabsContent value="post">
-            <Card>
-              <CardHeader>
-                <CardTitle>交付申請一覧</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <PostApplicationTable
-                  data={postApplicationData}
-                  canEdit={true}
-                  vendorOptions={vendorOptions}
-                  onAddOverride={addPostApplicationForVendor}
-                  onUpdateOverride={updatePostApplicationForVendor}
-                  onDeleteOverride={(id) => deletePostApplicationForVendor(id, String(vendor.id))}
-                  tableId="hojo.vendor-detail.post-application"
-                />
-              </CardContent>
-            </Card>
+
+          <TabsContent value="grant">
+            <ApplicantTab data={applicantData} canEdit={true} vendorId={vendor.id} />
+          </TabsContent>
+
+          <TabsContent value="loan">
+            <VendorProgressSection
+              data={loanProgressData}
+              vendorId={vendor.id}
+              canEdit={true}
+            />
           </TabsContent>
         </Tabs>
-      </TabsContent>
-      <TabsContent value="loan">
-        <Card>
-          <CardHeader>
-            <CardTitle>借入申込フォームURL</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-3">
-              このベンダー専用の借入申込フォームURLです。ベンダー様のお客様にこのURLをお送りください。
-            </p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-xs bg-gray-100 rounded px-3 py-2 break-all">
-                {loanFormUrl}
-              </code>
-              <Button variant="outline" size="sm" onClick={handleCopyUrl} className="shrink-0">
-                {copied ? (
-                  <><Check className="h-4 w-4 mr-1 text-green-500" />コピー済</>
-                ) : (
-                  <><Copy className="h-4 w-4 mr-1" />コピー</>
-                )}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
       </TabsContent>
 
       <TabsContent value="contact-histories">

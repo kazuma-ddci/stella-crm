@@ -1,19 +1,22 @@
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import { LoanSubmissionsClient } from "./loan-submissions-client";
 import { LenderShareableUrlCard } from "@/components/lender-shareable-url-card";
 
 export default async function HojoLoanSubmissionsPage() {
   const session = await auth();
-  const userPermissions = (session?.user?.permissions ?? []) as UserPermission[];
-  const canEdit = canEditProject(userPermissions, "hojo");
+  const canEdit =
+    session?.user?.userType === "staff" &&
+    canEditProjectMasterDataSync(session?.user, "hojo");
 
   const allSubmissions = await prisma.hojoFormSubmission.findMany({
     where: {
       deletedAt: null,
       formType: { in: ["loan-corporate", "loan-individual"] },
+    },
+    include: {
+      loanProgress: { select: { formUpdateStatus: true } },
     },
     orderBy: { submittedAt: "desc" },
   });
@@ -32,6 +35,7 @@ export default async function HojoLoanSubmissionsPage() {
       vendorMemo: s.vendorMemo || "",
       lenderMemo: s.lenderMemo || "",
       staffMemo: s.staffMemo || "",
+      changeApplied: s.loanProgress?.formUpdateStatus === "変更反映済み" || !!s.modifiedAnswers,
       answers: answers ?? {},
       modifiedAnswers: (s.modifiedAnswers as Record<string, unknown> | null) ?? null,
     };

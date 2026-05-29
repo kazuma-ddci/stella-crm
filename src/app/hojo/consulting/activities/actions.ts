@@ -21,6 +21,48 @@ function toStringArray(val: unknown): string[] {
   return [];
 }
 
+function parseStaffIds(val: unknown): number[] {
+  const raw = Array.isArray(val)
+    ? val
+    : typeof val === "string"
+      ? val.split(",")
+      : [];
+  const ids = raw
+    .map((v) => Number(String(v).trim()))
+    .filter((v) => Number.isInteger(v) && v > 0);
+  return [...new Set(ids)];
+}
+
+async function validateHojoActivityStaffIds(staffIds: number[]): Promise<number[]> {
+  if (staffIds.length === 0) return [];
+  const hojoProject = await prisma.masterProject.findFirst({
+    where: { code: "hojo" },
+    select: { id: true },
+  });
+  if (!hojoProject) {
+    throw new Error("補助金プロジェクトが見つかりません");
+  }
+  const validStaff = await prisma.masterStaff.findMany({
+    where: {
+      id: { in: staffIds },
+      isActive: true,
+      isSystemUser: false,
+      permissions: {
+        some: {
+          projectId: hojoProject.id,
+          permissionLevel: { in: ["edit", "manager"] },
+        },
+      },
+    },
+    select: { id: true },
+  });
+  const validIds = validStaff.map((s) => s.id);
+  if (validIds.length !== staffIds.length) {
+    throw new Error("担当者に選択できないスタッフが含まれています");
+  }
+  return validIds;
+}
+
 type TaskFormData = {
   id?: number; // tempID for new (negative) or actual id
   taskType: "vendor" | "consulting_team";
@@ -75,6 +117,29 @@ async function syncTasks(activityId: number, tasks: TaskFormData[]) {
   }
 }
 
+async function syncActivityStaff(activityId: number, staffIds: number[]) {
+  const existing = await prisma.hojoConsultingActivityStaff.findMany({
+    where: { activityId },
+    select: { staffId: true },
+  });
+  const existingIds = new Set(existing.map((s) => s.staffId));
+  const nextIds = new Set(staffIds);
+  const toDelete = [...existingIds].filter((id) => !nextIds.has(id));
+  const toCreate = staffIds.filter((id) => !existingIds.has(id));
+
+  if (toDelete.length > 0) {
+    await prisma.hojoConsultingActivityStaff.deleteMany({
+      where: { activityId, staffId: { in: toDelete } },
+    });
+  }
+  if (toCreate.length > 0) {
+    await prisma.hojoConsultingActivityStaff.createMany({
+      data: toCreate.map((staffId) => ({ activityId, staffId })),
+      skipDuplicates: true,
+    });
+  }
+}
+
 export async function addActivity(data: Record<string, unknown>): Promise<ActionResult> {
   try {
   await requireProjectMasterDataEditPermission();
@@ -87,6 +152,7 @@ export async function addActivity(data: Record<string, unknown>): Promise<Action
 
   const contractId = data.contractId ? Number(data.contractId) : null;
   const tasks = Array.isArray(data.tasks) ? (data.tasks as TaskFormData[]) : [];
+  const staffIds = await validateHojoActivityStaffIds(parseStaffIds(data.staffIds));
 
   const created = await prisma.hojoConsultingActivity.create({
     data: {
@@ -94,18 +160,19 @@ export async function addActivity(data: Record<string, unknown>): Promise<Action
       ...(contractId ? { contract: { connect: { id: contractId } } } : {}),
       activityDate,
       contactMethod: data.contactMethod ? String(data.contactMethod).trim() : null,
-      vendorIssue: data.vendorIssue ? String(data.vendorIssue).trim() : null,
-      hearingContent: data.hearingContent ? String(data.hearingContent).trim() : null,
-      responseContent: data.responseContent ? String(data.responseContent).trim() : null,
-      proposalContent: data.proposalContent ? String(data.proposalContent).trim() : null,
+      title: data.title ? String(data.title).trim() : null,
+      meetingMinutes: data.meetingMinutes ? String(data.meetingMinutes).trim() : null,
       vendorNextAction: data.vendorNextAction ? String(data.vendorNextAction).trim() : null,
       nextDeadline: toDateOrNull(data.nextDeadline),
       attachmentUrls: toStringArray(data.attachmentUrls),
       recordingUrls: toStringArray(data.recordingUrls),
-      screenshotUrls: toStringArray(data.screenshotUrls),
       notes: data.notes ? String(data.notes).trim() : null,
     },
   });
+
+  if (staffIds.length > 0) {
+    await syncActivityStaff(created.id, staffIds);
+  }
 
   if (tasks.length > 0) {
     await syncTasks(created.id, tasks);
@@ -146,15 +213,12 @@ export async function updateActivity(id: number, data: Record<string, unknown>):
     if (d) updateData.activityDate = d;
   }
   if ("contactMethod" in data) updateData.contactMethod = data.contactMethod ? String(data.contactMethod).trim() : null;
-  if ("vendorIssue" in data) updateData.vendorIssue = data.vendorIssue ? String(data.vendorIssue).trim() : null;
-  if ("hearingContent" in data) updateData.hearingContent = data.hearingContent ? String(data.hearingContent).trim() : null;
-  if ("responseContent" in data) updateData.responseContent = data.responseContent ? String(data.responseContent).trim() : null;
-  if ("proposalContent" in data) updateData.proposalContent = data.proposalContent ? String(data.proposalContent).trim() : null;
+  if ("title" in data) updateData.title = data.title ? String(data.title).trim() : null;
+  if ("meetingMinutes" in data) updateData.meetingMinutes = data.meetingMinutes ? String(data.meetingMinutes).trim() : null;
   if ("vendorNextAction" in data) updateData.vendorNextAction = data.vendorNextAction ? String(data.vendorNextAction).trim() : null;
   if ("nextDeadline" in data) updateData.nextDeadline = toDateOrNull(data.nextDeadline);
   if ("attachmentUrls" in data) updateData.attachmentUrls = toStringArray(data.attachmentUrls);
   if ("recordingUrls" in data) updateData.recordingUrls = toStringArray(data.recordingUrls);
-  if ("screenshotUrls" in data) updateData.screenshotUrls = toStringArray(data.screenshotUrls);
   if ("notes" in data) updateData.notes = data.notes ? String(data.notes).trim() : null;
 
   if (Object.keys(updateData).length > 0) {
@@ -162,6 +226,11 @@ export async function updateActivity(id: number, data: Record<string, unknown>):
       where: { id },
       data: updateData,
     });
+  }
+
+  if ("staffIds" in data) {
+    const staffIds = await validateHojoActivityStaffIds(parseStaffIds(data.staffIds));
+    await syncActivityStaff(id, staffIds);
   }
 
   // タスク同期
@@ -207,14 +276,14 @@ type TaskInput = {
 
 async function checkPermissionForActivity(activityId: number, vendorId?: number): Promise<{ isStaff: boolean; isVendor: boolean }> {
   const { auth } = await import("@/auth");
-  const { canEdit: canEditProject } = await import("@/lib/auth/permissions");
+  const { canEditProjectMasterDataSync } = await import("@/lib/auth/master-data-permission");
   const session = await auth();
   const userType = session?.user?.userType;
 
-  const isStaff = userType === "staff" && canEditProject(
-    (session?.user?.permissions ?? []) as import("@/types/auth").UserPermission[],
-    "hojo"
-  );
+  const isStaff =
+    userType === "staff" &&
+    !!session?.user &&
+    canEditProjectMasterDataSync(session.user, "hojo");
   const isVendor = userType === "vendor" && typeof vendorId === "number" && session?.user?.vendorId === vendorId;
 
   if (!isStaff && !isVendor) {

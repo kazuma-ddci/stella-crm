@@ -1,8 +1,8 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { BbsClientPage } from "./bbs-client-page";
-import { canEdit as canEditProject } from "@/lib/auth/permissions";
-import type { UserPermission } from "@/types/auth";
+import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
+import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import type { FileInfo } from "@/components/hojo/form-answer-editor";
 
@@ -16,23 +16,28 @@ export default async function BbsPage() {
   const isStaff = userType === "staff";
   const isBbs = userType === "bbs";
   const isAuthenticated = isStaff || isBbs;
-  const userPermissions = (session?.user?.permissions ?? []) as UserPermission[];
-  const staffCanEdit = isStaff && canEditProject(userPermissions, "hojo");
+  const staffCanEdit =
+    isStaff &&
+    canEditProjectMasterDataSync(session?.user, "hojo");
 
   if (!isAuthenticated) {
     return <BbsClientPage authenticated={false} isBbs={false} data={[]} />;
   }
 
-  // BBSユーザーでmustChangePasswordの場合はリダイレクト（middlewareで制御されるがフォールバック）
+  // BBSユーザーでmustChangePasswordの場合は /hojo/bbs/change-password に誘導する。
   if (isBbs && session?.user?.mustChangePassword) {
-    return <BbsClientPage authenticated={false} isBbs={false} data={[]} />;
+    redirect("/hojo/bbs/change-password");
   }
 
   // BBSに共有するのは「確定済み」（formTranscriptDate が入っている）ものだけ
   const records = await prisma.hojoApplicationSupport.findMany({
-    where: { deletedAt: null, formTranscriptDate: { not: null }, lineFriend: { userType: "顧客" } },
+    where: {
+      deletedAt: null,
+      formTranscriptDate: { not: null },
+      wholesaleAccount: { deletedAt: null, deletedByVendor: false },
+    },
     include: {
-      lineFriend: true,
+      wholesaleAccount: true,
       linkedFormSubmissions: {
         where: { deletedAt: null, formType: "business-plan" },
         orderBy: { submittedAt: "desc" },
@@ -50,7 +55,8 @@ export default async function BbsPage() {
       formTranscriptDate: r.formTranscriptDate?.toISOString().slice(0, 10) ?? "-",
       applicationFormDate: r.applicationFormDate?.toISOString().slice(0, 10) ?? "",
       bbsStatusId: r.bbsStatusId,
-      bbsTransferAmount: r.bbsTransferAmount,
+      subsidyDesiredDate: r.subsidyDesiredDate?.toISOString().slice(0, 10) ?? "-",
+      subsidyAmount: r.subsidyAmount,
       bbsTransferDate: r.bbsTransferDate?.toISOString().slice(0, 10) ?? "-",
       subsidyReceivedDate: r.subsidyReceivedDate?.toISOString().slice(0, 10) ?? "-",
       alkesMemo: r.alkesMemo || "",

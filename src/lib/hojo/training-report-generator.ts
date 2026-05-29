@@ -6,7 +6,7 @@ import { loadApplicationSupportWithLatestAnswers } from "./application-support-l
 import { writeHojoDocumentPdf } from "./document-writer";
 
 const DOC_TYPE = "training_report";
-const ADVISOR_COMPANY_NAME = "株式会社ALKES";
+const ADVISOR_COMPANY_NAME = "合同会社ALKES";
 const ADVISOR_PERSON_NAME = "飯塚隆之介";
 
 export async function generateTrainingReportPdf(applicationSupportId: number): Promise<{

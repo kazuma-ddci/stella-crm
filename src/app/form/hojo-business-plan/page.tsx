@@ -673,7 +673,7 @@ function FormField({
 
 export default function BusinessPlanFormPage() {
   const searchParams = useSearchParams();
-  const uid = searchParams.get("uid") || "";
+  const token = searchParams.get("t") || "";
 
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [uploadedFiles, setUploadedFiles] = useState<Record<string, UploadedFile>>({});
@@ -766,7 +766,7 @@ export default function BusinessPlanFormPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          uid,
+          token,
           answers,
           fileUrls: uploadedFiles,
         }),
@@ -786,6 +786,15 @@ export default function BusinessPlanFormPage() {
       <HojoFormComplete
         title="送信が完了しました"
         message="情報回収フォームの送信が完了しました。ご協力ありがとうございます。"
+      />
+    );
+  }
+
+  if (!token) {
+    return (
+      <HojoFormComplete
+        title="フォームURLが無効です"
+        message="この情報回収フォームは専用URLからのみ送信できます。URLをご確認ください。"
       />
     );
   }

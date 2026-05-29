@@ -19,12 +19,6 @@ export async function updateWholesaleAccount(id: number, data: Record<string, un
   if (data.accountApprovalDate !== undefined) {
     updateData.accountApprovalDate = data.accountApprovalDate ? new Date(String(data.accountApprovalDate)) : null;
   }
-  if (data.toolCost !== undefined) {
-    updateData.toolCost = data.toolCost ? Number(data.toolCost) : null;
-  }
-  if (data.invoiceStatus !== undefined) {
-    updateData.invoiceStatus = data.invoiceStatus ? String(data.invoiceStatus).trim() : null;
-  }
 
   if (Object.keys(updateData).length > 0) {
     await prisma.hojoWholesaleAccount.update({ where: { id }, data: updateData });
@@ -32,6 +26,7 @@ export async function updateWholesaleAccount(id: number, data: Record<string, un
 
   revalidatePath(REVALIDATE_PATH);
   revalidatePath("/hojo/vendor");
+  revalidatePath("/hojo/application-support");
 }
 
 export async function deleteWholesaleAccount(id: number) {
@@ -41,6 +36,8 @@ export async function deleteWholesaleAccount(id: number) {
     data: { deletedAt: new Date() },
   });
   revalidatePath(REVALIDATE_PATH);
+  revalidatePath("/hojo/application-support");
+  revalidatePath("/hojo/vendor");
 }
 
 export async function restoreWholesaleAccount(id: number) {
@@ -51,4 +48,5 @@ export async function restoreWholesaleAccount(id: number) {
   });
   revalidatePath(REVALIDATE_PATH);
   revalidatePath("/hojo/vendor");
+  revalidatePath("/hojo/application-support");
 }

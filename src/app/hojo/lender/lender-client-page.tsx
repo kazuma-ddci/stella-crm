@@ -34,6 +34,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Eye, History, Pencil, Copy, Check, Link as LinkIcon, Download } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { InlineCell } from "@/components/inline-cell";
+import { DatePicker } from "@/components/ui/date-picker";
 import { CrudTable, type ColumnDef, type CustomAction, type CustomRenderers } from "@/components/crud-table";
 import Link from "next/link";
 import { recordLenderPasswordResetRequest, updateLoanLenderMemo, updateLenderProgress, updateHojoLoanProgressRates } from "./actions";
@@ -89,7 +90,6 @@ type LenderSection = "loan-submissions" | "customer-progress";
 type LenderProgressRow = {
   id: number;
   vendorName: string;
-  vendorNo: number;
   requestDate: string;
   companyName: string;
   representName: string;
@@ -113,6 +113,11 @@ type LenderProgressRow = {
   overshortAmount: string;
   operationFee: string;
   redemptionAmount: string;
+  secondaryRepaymentDate: string;
+  secondaryRepaymentAmount: string;
+  secondaryPrincipalAmount: string;
+  secondaryInterestAmount: string;
+  secondaryRedemptionAmount: string;
   redemptionDate: string;
   endMemo: string;
 };
@@ -155,7 +160,7 @@ function ShareableUrlCard() {
   const [portalUrl, setPortalUrl] = useState("/hojo/lender");
 
   useEffect(() => {
-    setPortalUrl(`${window.location.origin}/hojo/lender`);
+    queueMicrotask(() => setPortalUrl(`${window.location.origin}/hojo/lender`));
   }, []);
 
   const handleCopy = async () => {
@@ -763,6 +768,11 @@ function CustomerProgressSection({
       overshortAmount: row.overshortAmount.replace(/,/g, ""),
       operationFee: row.operationFee.replace(/,/g, ""),
       redemptionAmount: row.redemptionAmount.replace(/,/g, ""),
+      secondaryRepaymentDate: row.secondaryRepaymentDate,
+      secondaryRepaymentAmount: row.secondaryRepaymentAmount.replace(/,/g, ""),
+      secondaryPrincipalAmount: row.secondaryPrincipalAmount.replace(/,/g, ""),
+      secondaryInterestAmount: row.secondaryInterestAmount.replace(/,/g, ""),
+      secondaryRedemptionAmount: row.secondaryRedemptionAmount.replace(/,/g, ""),
       redemptionDate: row.redemptionDate,
       endMemo: row.endMemo,
     });
@@ -785,6 +795,11 @@ function CustomerProgressSection({
         overshortAmount: editRow.overshortAmount.replace(/,/g, ""),
         operationFee: editRow.operationFee.replace(/,/g, ""),
         redemptionAmount: editRow.redemptionAmount.replace(/,/g, ""),
+        secondaryRepaymentDate: editRow.secondaryRepaymentDate,
+        secondaryRepaymentAmount: editRow.secondaryRepaymentAmount.replace(/,/g, ""),
+        secondaryPrincipalAmount: editRow.secondaryPrincipalAmount.replace(/,/g, ""),
+        secondaryInterestAmount: editRow.secondaryInterestAmount.replace(/,/g, ""),
+        secondaryRedemptionAmount: editRow.secondaryRedemptionAmount.replace(/,/g, ""),
         redemptionDate: editRow.redemptionDate,
         endMemo: editRow.endMemo,
       };
@@ -818,7 +833,6 @@ function CustomerProgressSection({
   const columns: ColumnDef[] = [
     { key: "id", header: "ID", editable: false, hidden: true },
     { key: "vendorName", header: "ベンダー", type: "select", options: vendorNameOptions, editable: false, filterable: true },
-    { key: "vendorNo", header: "ベンダーNo.", type: "number", editable: false, filterable: true, cellClassName: "text-center" },
     { key: "requestDate", header: "依頼日", type: "date", editable: false, filterable: true },
     { key: "companyName", header: "社名（屋号名）", type: "text", editable: false, filterable: true },
     { key: "representName", header: "代表者(契約者)氏名", type: "text", editable: false, filterable: true },
@@ -833,13 +847,18 @@ function CustomerProgressSection({
     { key: "loanAmount", header: "貸付金額", editable: false, filterable: true },
     { key: "fundTransferDate", header: "資金移動日", type: "date", editable: false, filterable: true },
     { key: "loanExecutionDate", header: "貸付実行日", type: "date", editable: false, filterable: true },
-    { key: "repaymentDate", header: "返金日(着金日)", type: "date", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
-    { key: "repaymentAmount", header: "返金額(着金額)", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "repaymentDate", header: "1次返金日(着金日)", type: "date", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "repaymentAmount", header: "1次返金額(着金額)", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
     { key: "principalAmount", header: "元金分", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
-    { key: "interestAmount", header: "利息分", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "interestAmount", header: "1次利息分", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
     { key: "overshortAmount", header: "過不足", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
     { key: "operationFee", header: "運用フィー", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
-    { key: "redemptionAmount", header: "償還額", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "redemptionAmount", header: "1次償還額", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "secondaryRepaymentDate", header: "2次返金日", type: "date", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "secondaryRepaymentAmount", header: "2次返金額", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "secondaryPrincipalAmount", header: "2次返金元金分", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "secondaryInterestAmount", header: "2次利息分", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
+    { key: "secondaryRedemptionAmount", header: "2次償還額", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
     { key: "redemptionDate", header: "償還日", type: "date", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
     { key: "endMemo", header: "返済備考", type: "textarea", editable: false, filterable: true, cellClassName: isLender ? "bg-blue-50/50" : undefined },
   ];
@@ -864,6 +883,10 @@ function CustomerProgressSection({
     <InlineCell value={displayValue.replace(/,/g, "")} onSave={(v) => handleSave(id, field as string, v)} type="number">
       <span className="whitespace-nowrap">{displayValue || "-"}</span>
     </InlineCell>
+  );
+
+  const displayNumber = (value: unknown) => (
+    <span className="whitespace-nowrap">{String(value || "-")}</span>
   );
 
   const customRenderers: CustomRenderers = isLender
@@ -897,10 +920,15 @@ function CustomerProgressSection({
         repaymentDate: (_, row) => inlineDate(row.id as number, "repaymentDate", (row.repaymentDate as string) ?? ""),
         repaymentAmount: (_, row) => inlineNumber(row.id as number, "repaymentAmount", (row.repaymentAmount as string) ?? ""),
         principalAmount: (_, row) => inlineNumber(row.id as number, "principalAmount", (row.principalAmount as string) ?? ""),
-        interestAmount: (_, row) => inlineNumber(row.id as number, "interestAmount", (row.interestAmount as string) ?? ""),
+        interestAmount: displayNumber,
         overshortAmount: (_, row) => inlineNumber(row.id as number, "overshortAmount", (row.overshortAmount as string) ?? ""),
-        operationFee: (_, row) => inlineNumber(row.id as number, "operationFee", (row.operationFee as string) ?? ""),
-        redemptionAmount: (_, row) => inlineNumber(row.id as number, "redemptionAmount", (row.redemptionAmount as string) ?? ""),
+        operationFee: displayNumber,
+        redemptionAmount: displayNumber,
+        secondaryRepaymentDate: (_, row) => inlineDate(row.id as number, "secondaryRepaymentDate", (row.secondaryRepaymentDate as string) ?? ""),
+        secondaryRepaymentAmount: displayNumber,
+        secondaryPrincipalAmount: displayNumber,
+        secondaryInterestAmount: displayNumber,
+        secondaryRedemptionAmount: displayNumber,
         redemptionDate: (_, row) => inlineDate(row.id as number, "redemptionDate", (row.redemptionDate as string) ?? ""),
         endMemo: (_, row) => inlineTextarea(row.id as number, "endMemo", (row.endMemo as string) ?? ""),
       }
@@ -935,7 +963,7 @@ function CustomerProgressSection({
             className="hover:underline focus:outline-none"
             title="クリックして利息%を編集"
           >
-            利息分 <span className="text-xs text-gray-500">({formatRatePercent(rates.interestRate)})</span>
+            1次利息分 <span className="text-xs text-gray-500">({formatRatePercent(rates.interestRate)})</span>
           </button>
         ),
         operationFee: () => (
@@ -999,14 +1027,14 @@ function CustomerProgressSection({
             </div>
             <div className="space-y-2">
               <Label>償還表発行日</Label>
-              <Input type="date" value={editData.redemptionScheduleIssuedAt ?? ""} onChange={(e) => setEditData((d) => ({ ...d, redemptionScheduleIssuedAt: e.target.value }))} />
+              <DatePicker value={editData.redemptionScheduleIssuedAt ?? ""} onChange={(v) => setEditData((d) => ({ ...d, redemptionScheduleIssuedAt: v }))} />
             </div>
             <div className="space-y-2">
-              <Label>返金日(着金日)</Label>
-              <Input type="date" value={editData.repaymentDate ?? ""} onChange={(e) => setEditData((d) => ({ ...d, repaymentDate: e.target.value }))} />
+              <Label>1次返金日(着金日)</Label>
+              <DatePicker value={editData.repaymentDate ?? ""} onChange={(v) => setEditData((d) => ({ ...d, repaymentDate: v }))} />
             </div>
             <div className="space-y-2">
-              <Label>返金額(着金額)</Label>
+              <Label>1次返金額(着金額)</Label>
               <Input type="number" value={editData.repaymentAmount ?? ""} onChange={(e) => setEditData((d) => ({ ...d, repaymentAmount: e.target.value }))} />
             </div>
             <div className="space-y-2">
@@ -1014,8 +1042,8 @@ function CustomerProgressSection({
               <Input type="number" value={editData.principalAmount ?? ""} onChange={(e) => setEditData((d) => ({ ...d, principalAmount: e.target.value }))} />
             </div>
             <div className="space-y-2">
-              <Label>利息分</Label>
-              <Input type="number" value={editData.interestAmount ?? ""} onChange={(e) => setEditData((d) => ({ ...d, interestAmount: e.target.value }))} />
+              <Label>1次利息分</Label>
+              <Input type="number" value={editData.interestAmount ?? ""} disabled />
             </div>
             <div className="space-y-2">
               <Label>過不足</Label>
@@ -1023,15 +1051,35 @@ function CustomerProgressSection({
             </div>
             <div className="space-y-2">
               <Label>運用フィー</Label>
-              <Input type="number" value={editData.operationFee ?? ""} onChange={(e) => setEditData((d) => ({ ...d, operationFee: e.target.value }))} />
+              <Input type="number" value={editData.operationFee ?? ""} disabled />
             </div>
             <div className="space-y-2">
-              <Label>償還額</Label>
-              <Input type="number" value={editData.redemptionAmount ?? ""} onChange={(e) => setEditData((d) => ({ ...d, redemptionAmount: e.target.value }))} />
+              <Label>1次償還額</Label>
+              <Input type="number" value={editData.redemptionAmount ?? ""} disabled />
+            </div>
+            <div className="space-y-2">
+              <Label>2次返金日</Label>
+              <DatePicker value={editData.secondaryRepaymentDate ?? ""} onChange={(v) => setEditData((d) => ({ ...d, secondaryRepaymentDate: v }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>2次返金額</Label>
+              <Input type="number" value={editData.secondaryRepaymentAmount ?? ""} disabled />
+            </div>
+            <div className="space-y-2">
+              <Label>2次返金元金分</Label>
+              <Input type="number" value={editData.secondaryPrincipalAmount ?? ""} disabled />
+            </div>
+            <div className="space-y-2">
+              <Label>2次利息分</Label>
+              <Input type="number" value={editData.secondaryInterestAmount ?? ""} disabled />
+            </div>
+            <div className="space-y-2">
+              <Label>2次償還額</Label>
+              <Input type="number" value={editData.secondaryRedemptionAmount ?? ""} disabled />
             </div>
             <div className="space-y-2">
               <Label>償還日</Label>
-              <Input type="date" value={editData.redemptionDate ?? ""} onChange={(e) => setEditData((d) => ({ ...d, redemptionDate: e.target.value }))} />
+              <DatePicker value={editData.redemptionDate ?? ""} onChange={(v) => setEditData((d) => ({ ...d, redemptionDate: v }))} />
             </div>
             <div className="space-y-2">
               <Label>返済備考</Label>
@@ -1067,7 +1115,7 @@ function CustomerProgressSection({
               </p>
             </div>
             <p className="text-xs text-amber-600">
-              ※ 既存レコードの該当項目（{rateDialog === "interest" ? "利息分・過不足" : "運用フィー・償還額"}）も新しい%で再計算され、手動上書き値は上書きされます。
+              ※ 既存レコードの該当項目（{rateDialog === "interest" ? "1次利息分・2次利息分" : "運用フィー・2次償還額"}）も新しい%で再計算されます。
             </p>
           </div>
           <DialogFooter>
@@ -1101,7 +1149,7 @@ function LenderDataPage({
   useEffect(() => {
     const hash = window.location.hash.replace("#", "");
     if (VALID_SECTIONS.includes(hash as LenderSection)) {
-      setActiveSection(hash as LenderSection);
+      queueMicrotask(() => setActiveSection(hash as LenderSection));
     }
   }, []);
 
@@ -1117,6 +1165,9 @@ function LenderDataPage({
         isLender && userName ? (
           <PortalUserMenu
             userName={userName}
+            onChangePassword={() => {
+              window.location.href = "/hojo/lender/change-password";
+            }}
             onLogout={() => signOut({ callbackUrl: "/hojo/lender" })}
           />
         ) : undefined

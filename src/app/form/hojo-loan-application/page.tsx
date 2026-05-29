@@ -449,12 +449,14 @@ function FormFieldRenderer({
   onChange,
   error,
   errorMessage,
+  disabled,
 }: {
   field: FieldDef;
   value: string;
   onChange: (val: string) => void;
   error?: boolean;
   errorMessage?: string;
+  disabled?: boolean;
 }) {
   const inputClass = error ? "border-red-500" : "";
 
@@ -469,7 +471,7 @@ function FormFieldRenderer({
       )}
 
       {field.type === "radio" && field.options ? (
-        <RadioGroup value={value} onValueChange={onChange} className="flex flex-col gap-2">
+        <RadioGroup value={value} onValueChange={onChange} className="flex flex-col gap-2" disabled={disabled}>
           {field.options.map((opt) => (
             <div key={opt} className="flex items-center space-x-2">
               <RadioGroupItem value={opt} id={`${field.key}_${opt}`} />
@@ -480,7 +482,7 @@ function FormFieldRenderer({
           ))}
         </RadioGroup>
       ) : field.type === "select" && field.options ? (
-        <Select value={value} onValueChange={onChange}>
+        <Select value={value} onValueChange={onChange} disabled={disabled}>
           <SelectTrigger className={inputClass}>
             <SelectValue placeholder="選択" />
           </SelectTrigger>
@@ -498,6 +500,7 @@ function FormFieldRenderer({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className={inputClass}
+          disabled={disabled}
         />
       ) : (
         <Input
@@ -507,6 +510,7 @@ function FormFieldRenderer({
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.placeholder}
           className={inputClass}
+          disabled={disabled}
         />
       )}
       {error && (
@@ -522,7 +526,7 @@ function FormFieldRenderer({
 
 export default function HojoLoanApplicationPage() {
   const searchParams = useSearchParams();
-  const vendorToken = searchParams.get("v");
+  const formToken = searchParams.get("t");
 
   const [formType, setFormType] = useState<FormType | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -530,13 +534,43 @@ export default function HojoLoanApplicationPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [invalidUrl, setInvalidUrl] = useState(false);
+  const [loadingToken, setLoadingToken] = useState(true);
+  const [alreadySubmitted, setAlreadySubmitted] = useState(false);
   const [boCount, setBoCount] = useState(0); // 実質的支配者の人数
 
   useEffect(() => {
-    if (!vendorToken) {
+    if (!formToken) {
       setInvalidUrl(true);
+      setLoadingToken(false);
+      return;
     }
-  }, [vendorToken]);
+    let cancelled = false;
+    fetch(`/api/public/hojo/form/loan-application/submit?t=${encodeURIComponent(formToken)}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error("invalid");
+        return res.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        const nextType: FormType = data.formType === "loan-corporate" ? "corporate" : "individual";
+        const loanAmount = data.loanAmount == null ? "" : String(data.loanAmount);
+        setFormType(nextType);
+        setAlreadySubmitted(!!data.alreadySubmitted);
+        setAnswers((prev) => nextType === "corporate"
+          ? { ...prev, corp_company_name: data.companyName ?? "", corp_loan_amount: loanAmount }
+          : { ...prev, ind_business_name: data.companyName ?? "", ind_loan_amount: loanAmount }
+        );
+        setLoadingToken(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setInvalidUrl(true);
+        setLoadingToken(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [formToken]);
 
   const sections =
     formType === "corporate"
@@ -601,7 +635,7 @@ export default function HojoLoanApplicationPage() {
   }
 
   async function handleSubmit() {
-    if (!validate() || !formType || !vendorToken) return;
+    if (!validate() || !formType || !formToken) return;
     setSubmitting(true);
     try {
       const res = await fetch("/api/public/hojo/form/loan-application/submit", {
@@ -609,7 +643,7 @@ export default function HojoLoanApplicationPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           formType: formType === "corporate" ? "loan-corporate" : "loan-individual",
-          vendorToken,
+          formToken,
           answers,
         }),
       });
@@ -620,6 +654,19 @@ export default function HojoLoanApplicationPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (loadingToken) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-[#ecfdf5] p-4">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+          <div className="h-1 bg-gradient-to-r from-[#10b981] via-[#34d399] to-[#86efac]" />
+          <div className="px-8 py-12 text-center">
+            <Loader2 className="h-6 w-6 animate-spin mx-auto text-[#10b981]" />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // URL検証
@@ -700,6 +747,11 @@ export default function HojoLoanApplicationPage() {
             </h1>
             <p className="text-sm text-gray-400">以下の質問にすべてお答えください</p>
             <p className="text-xs text-red-500 mt-2">* 必須の質問です</p>
+            {alreadySubmitted && (
+              <p className="text-xs text-amber-600 mt-2">
+                送信済みのため、再送信内容は修正申請としてベンダー確認後に反映されます。
+              </p>
+            )}
           </div>
         </div>
 
@@ -722,6 +774,12 @@ export default function HojoLoanApplicationPage() {
                   onChange={(val) => handleChange(field.key, val)}
                   error={errors.has(field.key)}
                   errorMessage={errors.get(field.key)}
+                  disabled={
+                    field.key === "corp_company_name" ||
+                    field.key === "corp_loan_amount" ||
+                    field.key === "ind_business_name" ||
+                    field.key === "ind_loan_amount"
+                  }
                 />
               ))}
             </div>
