@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { VendorClientPage } from "./vendor-client-page";
 import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import type { Metadata } from "next";
@@ -94,6 +94,10 @@ export default async function VendorPage({
   const staffCanEdit =
     isStaff &&
     canEditProjectMasterDataSync(session?.user, "hojo");
+
+  if (isVendor && sessionVendorId === vendor.id && session?.user?.mustChangePassword) {
+    redirect("/hojo/vendor/change-password");
+  }
 
   if (!isAuthenticated) {
     return (

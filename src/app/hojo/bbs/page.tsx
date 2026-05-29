@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { BbsClientPage } from "./bbs-client-page";
 import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
+import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import type { FileInfo } from "@/components/hojo/form-answer-editor";
 
@@ -23,9 +24,9 @@ export default async function BbsPage() {
     return <BbsClientPage authenticated={false} isBbs={false} data={[]} />;
   }
 
-  // BBSユーザーでmustChangePasswordの場合はリダイレクト（middlewareで制御されるがフォールバック）
+  // BBSユーザーでmustChangePasswordの場合は /hojo/bbs/change-password に誘導する。
   if (isBbs && session?.user?.mustChangePassword) {
-    return <BbsClientPage authenticated={false} isBbs={false} data={[]} />;
+    redirect("/hojo/bbs/change-password");
   }
 
   // BBSに共有するのは「確定済み」（formTranscriptDate が入っている）ものだけ

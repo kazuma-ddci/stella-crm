@@ -76,6 +76,7 @@ declare module "next-auth" {
       vendorAccountId?: number;
       vendorId?: number;
       vendorName?: string;
+      vendorToken?: string;
       // 貸金業社ユーザー用
       lenderAccountId?: number;
     };
@@ -101,6 +102,7 @@ declare module "next-auth" {
     vendorAccountId?: number;
     vendorId?: number;
     vendorName?: string;
+    vendorToken?: string;
     // 貸金業社ユーザー用
     lenderAccountId?: number;
   }
@@ -129,6 +131,7 @@ declare module "@auth/core/jwt" {
     vendorAccountId?: number;
     vendorId?: number;
     vendorName?: string;
+    vendorToken?: string;
     // 貸金業社ユーザー用
     lenderAccountId?: number;
   }
@@ -261,7 +264,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (isEmail) {
           const vendorAccount = await prisma.hojoVendorAccount.findUnique({
             where: { email: identifier },
-            include: { vendor: { select: { id: true, name: true } } },
+            include: { vendor: { select: { id: true, name: true, accessToken: true } } },
           });
           if (vendorAccount) {
             if (vendorAccount.status === "pending_approval") {
@@ -292,6 +295,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                 vendorAccountId: vendorAccount.id,
                 vendorId: vendorAccount.vendor.id,
                 vendorName: vendorAccount.vendor.name,
+                vendorToken: vendorAccount.vendor.accessToken,
                 mustChangePassword: vendorAccount.mustChangePassword,
               };
             }
@@ -372,6 +376,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.vendorAccountId = user.vendorAccountId;
           token.vendorId = user.vendorId;
           token.vendorName = user.vendorName;
+          token.vendorToken = user.vendorToken;
           token.mustChangePassword = user.mustChangePassword;
         }
 
@@ -420,6 +425,57 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             // DB接続エラー時は既存のセッションを維持
           }
           token.permissionsCheckedAt = now;
+        }
+      } else if (
+        (token.userType === "bbs" || token.userType === "vendor" || token.userType === "lender") &&
+        token.id
+      ) {
+        // Edge runtime（middleware）ではPrismaが使えないのでスキップ
+        // @ts-expect-error EdgeRuntime is defined only in edge runtime
+        const isEdge = typeof EdgeRuntime !== "undefined";
+        if (isEdge) return token;
+
+        try {
+          if (token.userType === "bbs") {
+            const accountId = Number(token.bbsAccountId ?? token.id);
+            const account = await prisma.hojoBbsAccount.findUnique({
+              where: { id: accountId },
+              select: { mustChangePassword: true },
+            });
+            if (account) {
+              token.mustChangePassword = account.mustChangePassword;
+            }
+          }
+
+          if (token.userType === "vendor") {
+            const accountId = Number(token.vendorAccountId ?? token.id);
+            const account = await prisma.hojoVendorAccount.findUnique({
+              where: { id: accountId },
+              select: {
+                mustChangePassword: true,
+                vendor: { select: { id: true, name: true, accessToken: true } },
+              },
+            });
+            if (account) {
+              token.mustChangePassword = account.mustChangePassword;
+              token.vendorId = account.vendor.id;
+              token.vendorName = account.vendor.name;
+              token.vendorToken = account.vendor.accessToken;
+            }
+          }
+
+          if (token.userType === "lender") {
+            const accountId = Number(token.lenderAccountId ?? token.id);
+            const account = await prisma.hojoLenderAccount.findUnique({
+              where: { id: accountId },
+              select: { mustChangePassword: true },
+            });
+            if (account) {
+              token.mustChangePassword = account.mustChangePassword;
+            }
+          }
+        } catch {
+          // DB接続エラー時は既存のセッションを維持
         }
       }
       return token;
@@ -470,6 +526,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         (session.user as any).vendorId = token.vendorId;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (session.user as any).vendorName = token.vendorName;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (session.user as any).vendorToken = token.vendorToken;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (session.user as any).mustChangePassword = token.mustChangePassword;
       }

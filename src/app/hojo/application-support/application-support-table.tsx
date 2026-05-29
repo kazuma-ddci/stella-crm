@@ -245,9 +245,7 @@ export function ApplicationSupportTable({
     {
       key: "subsidyAmount",
       header: "助成金額",
-      type: "number",
-      currency: true,
-      inlineEditable: true,
+      editable: false,
     },
     {
       key: "paymentReceivedAmount",

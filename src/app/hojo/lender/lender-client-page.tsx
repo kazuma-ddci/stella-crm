@@ -1165,6 +1165,9 @@ function LenderDataPage({
         isLender && userName ? (
           <PortalUserMenu
             userName={userName}
+            onChangePassword={() => {
+              window.location.href = "/hojo/lender/change-password";
+            }}
             onLogout={() => signOut({ callbackUrl: "/hojo/lender" })}
           />
         ) : undefined

@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { LogOut } from "lucide-react";
+import { KeyRound, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 // 薄めで鮮やかなグリーン基調のカラートークン
@@ -40,10 +40,12 @@ export function PortalHeader({
 export function PortalUserMenu({
   userName,
   onLogout,
+  onChangePassword,
   extra,
 }: {
   userName?: string;
   onLogout: () => void;
+  onChangePassword?: () => void;
   extra?: React.ReactNode;
 }) {
   return (
@@ -52,6 +54,17 @@ export function PortalUserMenu({
       {userName && (
         <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
           <span className="text-sm text-gray-500">{userName}</span>
+          {onChangePassword && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 px-2 text-gray-400 hover:text-gray-600"
+              onClick={onChangePassword}
+              title="パスワード変更"
+            >
+              <KeyRound className="h-4 w-4" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"

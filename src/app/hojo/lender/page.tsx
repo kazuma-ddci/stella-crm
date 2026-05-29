@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { LenderClientPage } from "./lender-client-page";
+import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -19,7 +20,7 @@ export default async function LenderPage() {
   }
 
   if (isLender && session?.user?.mustChangePassword) {
-    return <LenderClientPage authenticated={false} isLender={false} corporateData={[]} individualData={[]} vendors={[]} progressData={[]} statusOptions={[]} rates={{ interestRate: 0.15, feeRate: 0.5 }} />;
+    redirect("/hojo/lender/change-password");
   }
 
   // 貸金業社側は弊社承認済みの表示状態を使う。

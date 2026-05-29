@@ -48,6 +48,7 @@ export function BbsPortalLayout({ userName, isBbs, pageTitle, children }: Props)
         isBbs && userName ? (
           <PortalUserMenu
             userName={userName}
+            onChangePassword={() => router.push("/hojo/bbs/change-password")}
             onLogout={() => signOut({ callbackUrl: "/hojo/bbs" })}
           />
         ) : undefined

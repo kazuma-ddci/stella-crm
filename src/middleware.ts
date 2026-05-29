@@ -335,11 +335,15 @@ export default auth((request) => {
       if (session?.user && !permissionsExpired) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const userType = (session.user as any).userType ?? "staff";
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mustChangePassword = !!(session.user as any).mustChangePassword;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const vendorToken = (session.user as any).vendorToken as string | undefined;
         const redirectUrl =
           userType === "external" ? "/portal" :
-          userType === "bbs" ? "/hojo/bbs" :
-          userType === "vendor" ? "/hojo/vendor" :
-          userType === "lender" ? "/hojo/lender" :
+          userType === "bbs" ? (mustChangePassword ? "/hojo/bbs/change-password" : "/hojo/bbs") :
+          userType === "vendor" ? (mustChangePassword ? "/hojo/vendor/change-password" : vendorToken ? `/hojo/vendor/${vendorToken}` : "/hojo/vendor") :
+          userType === "lender" ? (mustChangePassword ? "/hojo/lender/change-password" : "/hojo/lender") :
           "/";
         return NextResponse.redirect(new URL(redirectUrl, request.url));
       }

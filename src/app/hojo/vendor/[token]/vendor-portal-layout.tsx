@@ -103,6 +103,11 @@ export function VendorPortalLayout({
       rightContent={
         <PortalUserMenu
           userName={isVendor ? userName : undefined}
+          onChangePassword={
+            isVendor
+              ? () => router.push("/hojo/vendor/change-password")
+              : undefined
+          }
           onLogout={() => signOut({ callbackUrl: `/hojo/vendor/${vendorToken}` })}
           extra={
             mounted && allVendors.length > 0 ? (
