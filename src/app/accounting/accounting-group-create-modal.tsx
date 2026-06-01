@@ -233,15 +233,21 @@ export function AccountingGroupCreateModal({
         setOptions(res.data);
         const entry = res.data.sourceEntry;
         const nextKind = entry?.direction ?? initialKind;
+        const nextCompanyId = entry?.operatingCompanyId
+          ? String(entry.operatingCompanyId)
+          : res.data.operatingCompanies[0]?.id
+            ? String(res.data.operatingCompanies[0].id)
+            : "";
         setGroupKind(nextKind);
-        setOperatingCompanyId(
-          entry?.operatingCompanyId
-            ? String(entry.operatingCompanyId)
-            : res.data.operatingCompanies[0]?.id
-              ? String(res.data.operatingCompanies[0].id)
-              : ""
-        );
-        setProjectId(res.data.projects[0]?.id ? String(res.data.projects[0].id) : "");
+        setOperatingCompanyId(nextCompanyId);
+        const initialProject =
+          res.data.projects.find(
+            (project) =>
+              nextCompanyId &&
+              (project.operatingCompanyId === null ||
+                project.operatingCompanyId === Number(nextCompanyId))
+          ) ?? res.data.projects[0];
+        setProjectId(initialProject?.id ? String(initialProject.id) : "");
         setCounterpartyId("");
         setCustomCounterpartyName("");
         setCounterpartySearch("");
@@ -256,15 +262,29 @@ export function AccountingGroupCreateModal({
   }, [open, sourceEntryId, initialKind, requestKey]);
 
   const selectedProjectId = projectId ? Number(projectId) : null;
+  const selectedProject = useMemo(() => {
+    if (!options || !selectedProjectId) return null;
+    return options.projects.find((project) => project.id === selectedProjectId) ?? null;
+  }, [options, selectedProjectId]);
+  const projectOptions = useMemo(() => {
+    if (!options) return [];
+    const selectedCompanyId = operatingCompanyId ? Number(operatingCompanyId) : null;
+    return options.projects.filter(
+      (project) =>
+        project.operatingCompanyId === null ||
+        selectedCompanyId === null ||
+        project.operatingCompanyId === selectedCompanyId
+    );
+  }, [operatingCompanyId, options]);
   const categoryType = groupKind === "invoice" ? "revenue" : "expense";
   const categoryOptions = useMemo(() => {
-    if (!options || !selectedProjectId) return [];
+    if (!options || !selectedProject?.categoryProjectId) return [];
     return options.expenseCategories.filter(
       (category) =>
-        category.projectId === selectedProjectId &&
+        category.projectId === selectedProject.categoryProjectId &&
         (category.type === categoryType || category.type === "both")
     );
-  }, [categoryType, options, selectedProjectId]);
+  }, [categoryType, options, selectedProject]);
 
   const lineTotal = lines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
   const withholdingTotal = lines.reduce(
@@ -368,7 +388,7 @@ export function AccountingGroupCreateModal({
         groupKind,
         sourceEntryId,
         operatingCompanyId: Number(operatingCompanyId),
-        projectId: Number(projectId),
+        costCenterId: Number(projectId),
         counterpartyId: counterpartyId ? Number(counterpartyId) : null,
         customCounterpartyName: customCounterpartyName.trim() || null,
         expectedDate,
@@ -424,7 +444,7 @@ export function AccountingGroupCreateModal({
                 </div>
                 {sourceMismatch && (
                   <div className="text-xs text-amber-700">
-                    明細合計と入出金の未紐づけ金額は一致していません。作成後、この入出金は未紐づけ金額分だけ紐づき、差額は別の入出金履歴で追加紐づけできます。
+                    明細合計と入出金の未紐づけ金額は一致していません。作成後は小さい方の金額だけ紐づき、残額は後から追加紐づけできます。
                   </div>
                 )}
               </div>
@@ -462,7 +482,18 @@ export function AccountingGroupCreateModal({
                   </div>
                   <div className="space-y-1">
                     <Label>法人</Label>
-                    <Select value={operatingCompanyId} onValueChange={setOperatingCompanyId}>
+                    <Select
+                      value={operatingCompanyId}
+                      onValueChange={(value) => {
+                        setOperatingCompanyId(value);
+                        const nextProject = options.projects.find(
+                          (project) =>
+                            project.operatingCompanyId === null ||
+                            project.operatingCompanyId === Number(value)
+                        );
+                        setProjectId(nextProject?.id ? String(nextProject.id) : "");
+                      }}
+                    >
                       <SelectTrigger>
                         <SelectValue placeholder="法人を選択" />
                       </SelectTrigger>
@@ -497,7 +528,7 @@ export function AccountingGroupCreateModal({
                     <SelectValue placeholder="プロジェクトを選択" />
                   </SelectTrigger>
                   <SelectContent>
-                    {options.projects.map((project) => (
+                    {projectOptions.map((project) => (
                       <SelectItem key={project.id} value={String(project.id)}>
                         {project.name}
                       </SelectItem>

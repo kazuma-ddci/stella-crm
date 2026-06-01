@@ -2,8 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import {
+  requireMasterDataEditPermission,
+  requireProjectMasterDataEditPermission,
+} from "@/lib/auth/master-data-permission";
 import { ok, err, type ActionResult } from "@/lib/action-result";
+
+async function requireOperatingCompanyEditPermission() {
+  try {
+    await requireMasterDataEditPermission();
+  } catch {
+    await requireProjectMasterDataEditPermission("accounting");
+  }
+}
 
 type OperatingCompanyBankAccountDto = {
   id: number;
@@ -26,7 +37,7 @@ export async function addOperatingCompanyBankAccount(
   data: Record<string, unknown>
 ): Promise<ActionResult<OperatingCompanyBankAccountDto>> {
   try {
-    await requireMasterDataEditPermission();
+    await requireOperatingCompanyEditPermission();
     const isDefault = !!data.isDefault;
 
     const bankAccount = await prisma.operatingCompanyBankAccount.create({
@@ -56,6 +67,7 @@ export async function addOperatingCompanyBankAccount(
     }
 
     revalidatePath("/settings/projects");
+    revalidatePath("/accounting/masters/cost-centers");
     return ok({
       id: bankAccount.id,
       operatingCompanyId: bankAccount.operatingCompanyId,
@@ -82,7 +94,7 @@ export async function updateOperatingCompanyBankAccount(
   data: Record<string, unknown>
 ): Promise<ActionResult<OperatingCompanyBankAccountDto>> {
   try {
-    await requireMasterDataEditPermission();
+    await requireOperatingCompanyEditPermission();
     const existing = await prisma.operatingCompanyBankAccount.findUnique({
       where: { id },
     });
@@ -117,6 +129,7 @@ export async function updateOperatingCompanyBankAccount(
     }
 
     revalidatePath("/settings/projects");
+    revalidatePath("/accounting/masters/cost-centers");
     return ok({
       id: bankAccount.id,
       operatingCompanyId: bankAccount.operatingCompanyId,
@@ -142,12 +155,13 @@ export async function deleteOperatingCompanyBankAccount(
   id: number
 ): Promise<ActionResult> {
   try {
-    await requireMasterDataEditPermission();
+    await requireOperatingCompanyEditPermission();
     await prisma.operatingCompanyBankAccount.update({
       where: { id },
       data: { deletedAt: new Date() },
     });
     revalidatePath("/settings/projects");
+    revalidatePath("/accounting/masters/cost-centers");
     return ok();
   } catch (e) {
     console.error("[deleteOperatingCompanyBankAccount] error:", e);

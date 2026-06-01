@@ -13,12 +13,19 @@ import {
   syncInvoiceGroupPaymentStateFromRecords,
   syncPaymentGroupPaymentStateFromRecords,
 } from "@/lib/accounting/sync-payment-date";
+import { summarizeStatementLinks } from "@/lib/accounting/statement-link-completion";
 
 export type AccountingGroupKind = "invoice" | "payment";
 
 export type AccountingGroupCreateOptions = {
   operatingCompanies: { id: number; name: string }[];
-  projects: { id: number; name: string }[];
+  projects: {
+    id: number;
+    name: string;
+    projectId: number | null;
+    categoryProjectId: number | null;
+    operatingCompanyId: number | null;
+  }[];
   counterparties: {
     id: number;
     name: string;
@@ -51,7 +58,7 @@ export type CreateAccountingGroupInput = {
   groupKind: AccountingGroupKind;
   sourceEntryId?: number | null;
   operatingCompanyId: number;
-  projectId: number;
+  costCenterId: number;
   counterpartyId?: number | null;
   customCounterpartyName?: string | null;
   expectedDate: string;
@@ -96,7 +103,7 @@ async function getEntryMeta(entryId: number): Promise<EntryMeta | null> {
       transactionDate: true,
       description: true,
       excluded: true,
-      groupLinks: { select: { amount: true } },
+      groupLinks: { select: { amount: true, linkType: true } },
     },
   });
   if (!entry) return null;
@@ -113,7 +120,7 @@ async function getEntryMeta(entryId: number): Promise<EntryMeta | null> {
       : (entry.outgoingAmount ?? 0) > 0
         ? "payment"
         : null;
-  const linkedAmount = entry.groupLinks.reduce((sum, link) => sum + link.amount, 0);
+  const linkedAmount = summarizeStatementLinks(entry.groupLinks).allocatedAmount;
 
   return {
     id: entry.id,
@@ -127,12 +134,12 @@ async function getEntryMeta(entryId: number): Promise<EntryMeta | null> {
   };
 }
 
-async function getProjectDefaultCostCenterId(projectId: number) {
-  const project = await prisma.masterProject.findUnique({
-    where: { id: projectId },
-    select: { defaultCostCenterId: true },
+async function getAccountingProjectId(tx: Prisma.TransactionClient | typeof prisma = prisma) {
+  const project = await tx.masterProject.findFirst({
+    where: { code: "accounting", isActive: true },
+    select: { id: true },
   });
-  return project?.defaultCostCenterId ?? null;
+  return project?.id ?? null;
 }
 
 async function resolveAccountingGroupCounterpartyId(
@@ -186,18 +193,25 @@ export async function getAccountingGroupCreateOptions(
   await requireStaffForAccounting("view");
   try {
     await ensureCostCentersForActiveProjects();
-    const [operatingCompanies, projects, counterparties, expenseCategories, allocationTemplates, sourceEntry] =
+    const [operatingCompanies, costCenters, accountingProjectId, counterparties, expenseCategories, allocationTemplates, sourceEntry] =
       await Promise.all([
         prisma.operatingCompany.findMany({
           where: { isActive: true },
           select: { id: true, companyName: true },
           orderBy: { id: "asc" },
         }),
-        prisma.masterProject.findMany({
-          where: { isActive: true },
-          select: { id: true, name: true, defaultCostCenter: { select: { name: true } } },
-          orderBy: { displayOrder: "asc" },
+        prisma.costCenter.findMany({
+          where: { isActive: true, deletedAt: null },
+          select: {
+            id: true,
+            name: true,
+            projectId: true,
+            operatingCompanyId: true,
+            project: { select: { operatingCompanyId: true, displayOrder: true } },
+          },
+          orderBy: [{ projectId: "asc" }, { id: "asc" }],
         }),
+        getAccountingProjectId(),
         prisma.counterparty.findMany({
           where: { deletedAt: null, mergedIntoId: null, isActive: true },
           select: {
@@ -238,9 +252,13 @@ export async function getAccountingGroupCreateOptions(
         id: company.id,
         name: company.companyName,
       })),
-      projects: projects.map((project) => ({
-        id: project.id,
-        name: project.defaultCostCenter?.name ?? project.name,
+      projects: costCenters.map((costCenter) => ({
+        id: costCenter.id,
+        name: costCenter.name,
+        projectId: costCenter.projectId,
+        categoryProjectId: costCenter.projectId ?? accountingProjectId,
+        operatingCompanyId:
+          costCenter.project?.operatingCompanyId ?? costCenter.operatingCompanyId ?? null,
       })),
       counterparties: counterparties.map((counterparty) => ({
         id: counterparty.id,
@@ -288,7 +306,7 @@ export async function createAccountingGroup(
     if (!Number.isInteger(input.operatingCompanyId) || input.operatingCompanyId <= 0) {
       return err("法人を選択してください");
     }
-    if (!Number.isInteger(input.projectId) || input.projectId <= 0) {
+    if (!Number.isInteger(input.costCenterId) || input.costCenterId <= 0) {
       return err("プロジェクトを選択してください");
     }
     if (
@@ -374,19 +392,40 @@ export async function createAccountingGroup(
           .filter((id): id is number => id !== null)
       ),
     ];
-    const [company, project, categories, allocationTemplates] = await Promise.all([
+    const accountingProjectId = await getAccountingProjectId();
+    const costCenter = await prisma.costCenter.findFirst({
+      where: { id: input.costCenterId, isActive: true, deletedAt: null },
+      select: {
+        id: true,
+        projectId: true,
+        operatingCompanyId: true,
+        project: { select: { id: true, isActive: true, operatingCompanyId: true } },
+      },
+    });
+    if (!costCenter) return err("経理プロジェクトが見つかりません");
+    if (costCenter.projectId && !costCenter.project?.isActive) {
+      return err("選択された経理プロジェクトのCRMプロジェクトが無効です");
+    }
+    const costCenterCompanyId =
+      costCenter.project?.operatingCompanyId ?? costCenter.operatingCompanyId ?? null;
+    if (costCenterCompanyId !== null && costCenterCompanyId !== input.operatingCompanyId) {
+      return err("選択された経理プロジェクトの法人とグループの法人が一致していません");
+    }
+    const resolvedProjectId = costCenter.projectId ?? null;
+    const categoryProjectId = resolvedProjectId ?? accountingProjectId;
+    if (!categoryProjectId) {
+      return err("経理共通プロジェクトが見つかりません");
+    }
+
+    const [company, categories, allocationTemplates] = await Promise.all([
       prisma.operatingCompany.findFirst({
         where: { id: input.operatingCompanyId, isActive: true },
-        select: { id: true },
-      }),
-      prisma.masterProject.findFirst({
-        where: { id: input.projectId, isActive: true },
         select: { id: true },
       }),
       prisma.expenseCategory.findMany({
         where: {
           id: { in: input.lines.map((line) => line.expenseCategoryId) },
-          projectId: input.projectId,
+          projectId: categoryProjectId,
           deletedAt: null,
           isActive: true,
           type: { in: [input.groupKind === "invoice" ? "revenue" : "expense", "both"] },
@@ -401,7 +440,6 @@ export async function createAccountingGroup(
         : Promise.resolve([]),
     ]);
     if (!company) return err("法人が見つかりません");
-    if (!project) return err("プロジェクトが見つかりません");
     if (categories.length !== new Set(input.lines.map((line) => line.expenseCategoryId)).size) {
       return err("選択された費目に利用できないものがあります");
     }
@@ -409,8 +447,10 @@ export async function createAccountingGroup(
       return err("選択された按分テンプレートに利用できないものがあります");
     }
 
-    const costCenterId = await getProjectDefaultCostCenterId(input.projectId);
     const totalAmount = input.lines.reduce((sum, line) => sum + line.amount, 0);
+    const sourceLinkAmount = sourceEntry
+      ? Math.min(sourceEntry.remainingAmount, totalAmount)
+      : null;
     const taxAmount = input.lines.reduce(
       (sum, line) => sum + calcIncludedTax(line.amount, line.taxRate),
       0
@@ -438,7 +478,8 @@ export async function createAccountingGroup(
             subtotal,
             taxAmount,
             totalAmount,
-            projectId: input.projectId,
+            projectId: resolvedProjectId,
+            costCenterId: costCenter.id,
             status: "awaiting_accounting",
             createdBy: session.id,
             remarks: groupNote,
@@ -452,7 +493,7 @@ export async function createAccountingGroup(
               invoiceGroupId: group.id,
               counterpartyId: resolvedCounterpartyId,
               expenseCategoryId: line.expenseCategoryId,
-              projectId: input.projectId,
+              projectId: resolvedProjectId,
               type: "revenue",
               amount: line.amount,
               taxAmount: lineTax,
@@ -465,7 +506,7 @@ export async function createAccountingGroup(
               note: line.note?.trim() || groupNote,
               sourceType: "manual",
               allocationTemplateId: line.allocationTemplateId ?? null,
-              costCenterId: line.allocationTemplateId ? null : costCenterId,
+              costCenterId: line.allocationTemplateId ? null : costCenter.id,
               createdBy: session.id,
             },
           });
@@ -476,7 +517,7 @@ export async function createAccountingGroup(
             data: {
               bankStatementEntryId: sourceEntry.id,
               invoiceGroupId: group.id,
-              amount: sourceEntry.remainingAmount,
+              amount: sourceLinkAmount!,
               note: groupNote,
               createdBy: session.id,
             },
@@ -485,7 +526,7 @@ export async function createAccountingGroup(
             data: {
               invoiceGroupId: group.id,
               receivedDate: sourceEntry.transactionDate,
-              amount: sourceEntry.remainingAmount,
+              amount: sourceLinkAmount!,
               comment: groupNote,
               recordSource: "bank_statement",
               createdById: session.id,
@@ -507,7 +548,8 @@ export async function createAccountingGroup(
           paymentDueDate: expectedDate,
           totalAmount,
           taxAmount,
-          projectId: input.projectId,
+          projectId: resolvedProjectId,
+          costCenterId: costCenter.id,
           paymentType: "direct",
           status: "awaiting_accounting",
           createdBy: session.id,
@@ -526,9 +568,9 @@ export async function createAccountingGroup(
             paymentGroupId: group.id,
             counterpartyId: resolvedCounterpartyId,
             expenseCategoryId: line.expenseCategoryId,
-            costCenterId: line.allocationTemplateId ? null : costCenterId,
+            costCenterId: line.allocationTemplateId ? null : costCenter.id,
             allocationTemplateId: line.allocationTemplateId ?? null,
-            projectId: input.projectId,
+            projectId: resolvedProjectId,
             type: "expense",
             amount: line.amount,
             taxAmount: lineTax,
@@ -557,7 +599,7 @@ export async function createAccountingGroup(
           data: {
             bankStatementEntryId: sourceEntry.id,
             paymentGroupId: group.id,
-            amount: sourceEntry.remainingAmount,
+            amount: sourceLinkAmount!,
             note: groupNote,
             createdBy: session.id,
           },
@@ -566,7 +608,7 @@ export async function createAccountingGroup(
           data: {
             paymentGroupId: group.id,
             paidDate: sourceEntry.transactionDate,
-            amount: sourceEntry.remainingAmount,
+            amount: sourceLinkAmount!,
             comment: groupNote,
             recordSource: "bank_statement",
             createdById: session.id,

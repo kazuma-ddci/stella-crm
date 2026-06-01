@@ -1167,6 +1167,7 @@ model OperatingCompany {
   invoiceMails            InvoiceMail[]
   invoiceNumberSequences  StpInvoiceNumberSequence[]
   cloudsignTemplates      CloudSignTemplate[]
+  costCenters             CostCenter[]
   journalEntries          JournalEntry[]
   journalLinePlAllocations JournalEntryLinePlAllocation[]
 
@@ -1204,6 +1205,7 @@ model OperatingCompanyBankAccount {
   paymentMethod       PaymentMethod?       @relation(fields: [paymentMethodId], references: [id])
   invoiceGroups       InvoiceGroup[] // 経理システム追加
   projectBankAccounts ProjectBankAccount[]
+  costCenterBankAccounts CostCenterBankAccount[]
 
   // 入出金履歴（CSV取込）
   bankStatementImports BankStatementImport[]
@@ -2643,7 +2645,9 @@ model InvoiceGroup {
   memoLines              InvoiceGroupMemoLine[]
   receipts               InvoiceGroupReceipt[]
   projectId              Int?
+  costCenterId           Int? // FK → CostCenter（経理プロジェクト）
   project                MasterProject?               @relation("ProjectInvoiceGroups", fields: [projectId], references: [id])
+  costCenter             CostCenter?                  @relation(fields: [costCenterId], references: [id])
   creator                MasterStaff                  @relation("InvoiceGroupCreator", fields: [createdBy], references: [id])
   updater                MasterStaff?                 @relation("InvoiceGroupUpdater", fields: [updatedBy], references: [id])
 
@@ -2661,6 +2665,8 @@ model InvoiceGroup {
   returnRequestedBy      Int?      @map("return_requested_by")
   returnRequestHandledAt DateTime? @map("return_request_handled_at")
   returnRequestHandledBy Int?      @map("return_request_handled_by")
+
+  @@index([costCenterId])
 }
 
 // ============================================
@@ -2744,7 +2750,9 @@ model PaymentGroup {
   comments             TransactionComment[]
   attachments          Attachment[]
   projectId            Int?
+  costCenterId         Int? // FK → CostCenter（経理プロジェクト）
   project              MasterProject?             @relation("ProjectPaymentGroups", fields: [projectId], references: [id])
+  costCenter           CostCenter?                @relation(fields: [costCenterId], references: [id])
   confirmer            MasterStaff?               @relation("PaymentGroupConfirmer", fields: [confirmedBy], references: [id])
   approver             MasterStaff?               @relation("PaymentGroupApprover", fields: [approverStaffId], references: [id])
   creator              MasterStaff                @relation("PaymentGroupCreator", fields: [createdBy], references: [id])
@@ -2767,6 +2775,8 @@ model PaymentGroup {
   returnRequestedBy      Int?      @map("return_requested_by")
   returnRequestHandledAt DateTime? @map("return_request_handled_at")
   returnRequestHandledBy Int?      @map("return_request_handled_by")
+
+  @@index([costCenterId])
 }
 
 // ============================================
@@ -2894,6 +2904,7 @@ model CostCenter {
   id        Int     @id @default(autoincrement())
   name      String // 名称（例: STP事業、社内開発、管理部門）
   projectId Int? // FK → MasterProject（CRMプロジェクトと紐づく場合）
+  operatingCompanyId Int? @map("operating_company_id") // FK → OperatingCompany（CRM未登録の経理専用プロジェクト用）
   isActive  Boolean @default(true)
 
   createdBy Int? // FK → MasterStaff
@@ -2904,8 +2915,12 @@ model CostCenter {
 
   // Relations
   project                   MasterProject?                @relation(fields: [projectId], references: [id])
+  operatingCompany          OperatingCompany?             @relation(fields: [operatingCompanyId], references: [id])
+  costCenterBankAccounts    CostCenterBankAccount[]
   projectAssignments        CostCenterProjectAssignment[]
   transactions              Transaction[]
+  invoiceGroups             InvoiceGroup[]
+  paymentGroups             PaymentGroup[]
   recurringTransactions     RecurringTransaction[]
   allocationTemplateLines   AllocationTemplateLine[]
   allocationConfirmations   AllocationConfirmation[]
@@ -2917,6 +2932,28 @@ model CostCenter {
   creator                   MasterStaff?                  @relation("CostCenterCreator", fields: [createdBy], references: [id])
   updater                   MasterStaff?                  @relation("CostCenterUpdater", fields: [updatedBy], references: [id])
   projectDefaultCostCenters MasterProject[]               @relation("ProjectDefaultCostCenter")
+
+  @@index([operatingCompanyId])
+}
+
+// ============================================
+// ⑤-c CostCenterBankAccount（経理専用プロジェクト別銀行口座設定）
+// ============================================
+
+model CostCenterBankAccount {
+  id            Int      @id @default(autoincrement())
+  costCenterId  Int      @map("cost_center_id")
+  bankAccountId Int      @map("bank_account_id")
+  isDefault     Boolean  @default(false) @map("is_default")
+  memo          String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  costCenter  CostCenter                  @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  bankAccount OperatingCompanyBankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([costCenterId, bankAccountId])
+  @@map("cost_center_bank_accounts")
 }
 
 // ============================================
@@ -6467,6 +6504,7 @@ model BankStatementEntryGroupLink {
   invoiceGroupId       Int? // どちらか一方のみ
   paymentGroupId       Int?
   amount               Int // この紐付けで割り当てる金額（円）
+  linkType             String @default("settlement") @map("link_type") @db.VarChar(20) // "settlement" | "fee"
   note                 String? @db.Text
   createdBy            Int // FK MasterStaff
   createdAt            DateTime @default(now())

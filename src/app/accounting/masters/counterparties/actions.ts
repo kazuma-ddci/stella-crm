@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { recordChangeLog } from "@/app/finance/changelog/actions";
-import { generateOtherCounterpartyDisplayId, createCounterpartyForCompany, updateCounterpartyForCompany } from "@/lib/counterparty-sync";
+import {
+  generateOtherCounterpartyDisplayId,
+  createCounterpartyForCompany,
+  updateCounterpartyForCompany,
+  syncCounterpartiesForCostCenters,
+} from "@/lib/counterparty-sync";
 import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 import { toBoolean } from "@/lib/utils";
 import { ok, err, type ActionResult } from "@/lib/action-result";
@@ -271,56 +276,11 @@ export async function syncCounterpartiesCore(staffId: number) {
 // CostCenter → 取引先の同期（経理プロジェクト按分先用）
 export async function syncCostCenterCounterparties() {
   const session = await requireStaffForAccounting("edit");
-  const staffId = session.id;
-
-  const costCenters = await prisma.costCenter.findMany({
-    where: { isActive: true, deletedAt: null },
-    select: { id: true, name: true },
-  });
-
-  const existingLinks = await prisma.counterparty.findMany({
-    where: { costCenterId: { not: null }, deletedAt: null },
-    select: { id: true, costCenterId: true, name: true },
-  });
-
-  const linkedCostCenterIds = new Set(
-    existingLinks.map((link) => link.costCenterId as number)
-  );
-
-  let created = 0;
-  let updated = 0;
-
-  for (const costCenter of costCenters) {
-    if (linkedCostCenterIds.has(costCenter.id)) {
-      const existing = existingLinks.find(
-        (link) => link.costCenterId === costCenter.id
-      );
-      if (existing && existing.name !== costCenter.name) {
-        await prisma.counterparty.update({
-          where: { id: existing.id },
-          data: { name: costCenter.name, updatedBy: staffId },
-        });
-        updated++;
-      }
-    } else {
-      const displayId = await generateOtherCounterpartyDisplayId();
-      await prisma.counterparty.create({
-        data: {
-          displayId,
-          name: costCenter.name,
-          costCenterId: costCenter.id,
-          counterpartyType: "project",
-          isActive: true,
-          createdBy: staffId,
-        },
-      });
-      created++;
-    }
-  }
+  const result = await syncCounterpartiesForCostCenters(session.id);
 
   revalidatePath("/accounting/masters/counterparties");
 
-  return { created, updated, total: costCenters.length };
+  return result;
 }
 
 // ============================================

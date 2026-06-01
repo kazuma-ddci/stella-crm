@@ -126,6 +126,9 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
   const [statementCheck, setStatementCheck] = useState<{
     linkCount: number;
     linkedAmount: number;
+    settlementAmount: number;
+    feeAmount: number;
+    allocatedAmount: number;
     recordAmount: number;
     canComplete: boolean;
     warnings: string[];
@@ -478,8 +481,13 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
               <div>
                 <span className="text-muted-foreground">入出金履歴合計</span>
                 <p className="font-medium">
-                  ¥{(statementCheck?.linkedAmount ?? 0).toLocaleString()}
+                  ¥{(statementCheck?.allocatedAmount ?? 0).toLocaleString()}
                 </p>
+                {(statementCheck?.feeAmount ?? 0) > 0 && (
+                  <p className="text-xs text-orange-700">
+                    通常 ¥{(statementCheck?.settlementAmount ?? 0).toLocaleString()} / 手数料 ¥{(statementCheck?.feeAmount ?? 0).toLocaleString()}
+                  </p>
+                )}
               </div>
               <div>
                 <span className="text-muted-foreground">残額</span>
@@ -609,7 +617,7 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
           {/* 一覧 */}
           {loading ? (
             <p className="text-sm text-muted-foreground py-4 text-center">読み込み中...</p>
-          ) : data && data.records.length === 0 ? (
+          ) : data && data.records.length === 0 && data.feeLinks.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4 text-center">
               {recordLabel}はまだありません
             </p>
@@ -781,6 +789,70 @@ export function ReceiptsSection({ groupType, groupId, totalAmount, readOnly = fa
                     </TableRow>
                   );
                 })}
+                {data?.feeLinks.map((fee) => (
+                  <TableRow key={`fee-${fee.id}`} className="bg-orange-50/30">
+                    <TableCell className="font-mono text-sm">
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          title="手数料として紐付いた入出金履歴"
+                          className="inline-flex items-center"
+                        >
+                          <Link2 className="h-3.5 w-3.5 text-orange-600" />
+                        </span>
+                        {new Date(fee.transactionDate).toLocaleDateString("ja-JP")}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right font-medium text-orange-800">
+                      ¥{fee.amount.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="whitespace-pre-wrap text-sm">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className="border-orange-200 bg-white text-[10px] text-orange-700">
+                            手数料
+                          </Badge>
+                          <span className="text-orange-900">
+                            {fee.note ?? "支払手数料"}
+                          </span>
+                        </div>
+                        <div className="rounded-md border border-orange-100 bg-orange-50/70 px-2 py-1.5 text-xs text-orange-900">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <Badge variant="outline" className="border-orange-200 bg-white text-[10px] text-orange-700">
+                              入出金履歴
+                            </Badge>
+                            <span className="font-medium">
+                              {new Date(fee.transactionDate).toLocaleDateString("ja-JP")}
+                            </span>
+                            <span className="truncate">
+                              {fee.description}
+                            </span>
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-orange-700">
+                            {fee.bankAccountLabel}
+                            {" / 取引額 ¥"}
+                            {(fee.incomingAmount ?? fee.outgoingAmount ?? 0).toLocaleString()}
+                          </div>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs text-orange-700">
+                      入出金履歴（手数料）
+                    </TableCell>
+                    {!readOnly && (
+                      <TableCell className="text-right">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleDeleteStatementLink(fee.id)}
+                          disabled={isPending}
+                          title="手数料の紐付けを解除"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-600" />
+                        </Button>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           )}

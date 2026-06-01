@@ -10,10 +10,10 @@ export default async function AccountingWorkflowPage() {
 
   const [groups, projects, dueUnrealizedEntries] = await Promise.all([
     getWorkflowGroups(),
-    prisma.masterProject.findMany({
-      where: { isActive: true },
-      select: { id: true, name: true, defaultCostCenter: { select: { name: true } } },
-      orderBy: { displayOrder: "asc" },
+    prisma.costCenter.findMany({
+      where: { isActive: true, deletedAt: null },
+      select: { id: true, name: true, projectId: true },
+      orderBy: [{ projectId: "asc" }, { id: "asc" }],
     }),
     getDueUnrealizedJournalEntries(),
   ]);
@@ -102,7 +102,8 @@ export default async function AccountingWorkflowPage() {
             groups={groups}
             projects={projects.map((project) => ({
               id: project.id,
-              name: project.defaultCostCenter?.name ?? project.name,
+              name: project.name,
+              projectId: project.projectId,
             }))}
             dueUnrealizedEntries={dueUnrealizedEntries}
           />
