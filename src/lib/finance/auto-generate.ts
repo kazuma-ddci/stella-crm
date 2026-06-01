@@ -142,6 +142,7 @@ export async function autoGenerateFinanceForContractHistory(
     contractHistoryId: contractHistory.id,
     stpCompanyId: stpCompany.id,
     contractStartDate: contractHistory.contractStartDate,
+    contractEndDate: contractHistory.contractEndDate,
     contractDate: contractHistory.contractDate,
     initialFee: contractHistory.initialFee,
     monthlyFee: contractHistory.monthlyFee,
@@ -166,6 +167,7 @@ type RevenueGenerateParams = {
   contractHistoryId: number;
   stpCompanyId: number;
   contractStartDate: Date;
+  contractEndDate: Date | null;
   contractDate: Date | null;
   initialFee: number;
   monthlyFee: number;
@@ -185,6 +187,9 @@ async function generateRevenueRecords(params: RevenueGenerateParams) {
   const initialFeeDate = params.contractDate ?? params.contractStartDate;
   const initialFeeMonth = startOfMonth(initialFeeDate);
   const contractStartMonth = startOfMonth(params.contractStartDate);
+  const contractEndMonth = params.contractEndDate
+    ? startOfMonth(params.contractEndDate)
+    : null;
 
   if (initialFee > 0) {
     await ensureRevenueRecord({
@@ -198,16 +203,21 @@ async function generateRevenueRecords(params: RevenueGenerateParams) {
 
   if (monthlyFee > 0) {
     for (const month of targetMonths) {
-      // 日割り計算: contractStartDate の月 = 対象月の場合
+      // 日割り計算: 契約開始月・契約終了月は対象期間分のみ
       const isFirstMonth = contractStartMonth.getTime() === month.getTime();
+      const isEndMonth = contractEndMonth?.getTime() === month.getTime();
+      const year = month.getUTCFullYear();
+      const m = month.getUTCMonth() + 1; // 1-indexed for getDaysInMonth
+      const totalDays = getDaysInMonth(year, m);
+      const startDay = isFirstMonth ? params.contractStartDate.getUTCDate() : 1;
+      const endDay = isEndMonth && params.contractEndDate
+        ? params.contractEndDate.getUTCDate()
+        : totalDays;
+      const isProrated = startDay > 1 || endDay < totalDays;
       let amount = monthlyFee;
 
-      if (isFirstMonth) {
-        const startDay = params.contractStartDate.getUTCDate();
-        const year = month.getUTCFullYear();
-        const m = month.getUTCMonth() + 1; // 1-indexed for getDaysInMonth
-        const totalDays = getDaysInMonth(year, m);
-        amount = calculateProratedFee(monthlyFee, startDay, totalDays);
+      if (isProrated) {
+        amount = calculateProratedFee(monthlyFee, startDay, totalDays, endDay);
       }
 
       await ensureRevenueRecord({
@@ -453,22 +463,30 @@ async function generateAgentDirectExpenses(params: AgentDirectExpenseParams) {
     });
   }
 
-  // 月額費用: contractStartDate から contractEndDate まで毎月、初月は日割り
+  // 月額費用: contractStartDate から contractEndDate まで毎月、開始月・終了月は日割り
   if ((agentContractHistory.monthlyFee ?? 0) > 0) {
     const amt = agentContractHistory.monthlyFee ?? 0;
     const contractStartMonth = startOfMonth(agentContractHistory.contractStartDate);
+    const contractEndMonth = agentContractHistory.contractEndDate
+      ? startOfMonth(agentContractHistory.contractEndDate)
+      : null;
 
     for (const month of targetMonths) {
-      // 日割り計算: contractStartDate の月 = 対象月の場合
+      // 日割り計算: 契約開始月・契約終了月は対象期間分のみ
       const isFirstMonth = contractStartMonth.getTime() === month.getTime();
+      const isEndMonth = contractEndMonth?.getTime() === month.getTime();
+      const year = month.getUTCFullYear();
+      const m = month.getUTCMonth() + 1;
+      const totalDays = getDaysInMonth(year, m);
+      const startDay = isFirstMonth ? agentContractHistory.contractStartDate.getUTCDate() : 1;
+      const endDay = isEndMonth && agentContractHistory.contractEndDate
+        ? agentContractHistory.contractEndDate.getUTCDate()
+        : totalDays;
+      const isProrated = startDay > 1 || endDay < totalDays;
       let monthlyAmount = amt;
 
-      if (isFirstMonth) {
-        const startDay = agentContractHistory.contractStartDate.getUTCDate();
-        const year = month.getUTCFullYear();
-        const m = month.getUTCMonth() + 1;
-        const totalDays = getDaysInMonth(year, m);
-        monthlyAmount = calculateProratedFee(amt, startDay, totalDays);
+      if (isProrated) {
+        monthlyAmount = calculateProratedFee(amt, startDay, totalDays, endDay);
       }
 
       await ensureExpenseRecord({
@@ -625,6 +643,7 @@ export async function generateMonthlyRecordsForAllContracts(
       contractHistoryId: contract.id,
       stpCompanyId: stpCompany.id,
       contractStartDate: contract.contractStartDate,
+      contractEndDate: contract.contractEndDate,
       contractDate: contract.contractDate,
       initialFee: contract.initialFee,
       monthlyFee: contract.monthlyFee,

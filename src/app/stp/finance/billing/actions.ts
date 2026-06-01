@@ -393,25 +393,39 @@ export async function getBillingLifecycleData(
     const contractStartDate = contract.contractStartDate;
     const contractStartMonth =
       contractStartDate.getUTCFullYear() * 100 + (contractStartDate.getUTCMonth() + 1);
+    const contractEndDate = contract.contractEndDate;
+    const contractEndMonth = contractEndDate
+      ? contractEndDate.getUTCFullYear() * 100 + (contractEndDate.getUTCMonth() + 1)
+      : null;
     const targetMonthNum = year * 100 + month;
     const isFirstMonth = contractStartMonth === targetMonthNum;
+    const isEndMonth = contractEndMonth === targetMonthNum;
 
     let amount = contract.monthlyFee;
     let periodFromDate = monthStart;
+    let periodToDate = monthEnd;
+    const totalDays = getDaysInMonth(year, month);
+    const startDay = isFirstMonth ? contractStartDate.getUTCDate() : 1;
+    const endDay = isEndMonth && contractEndDate ? contractEndDate.getUTCDate() : totalDays;
+    const isProrated = startDay > 1 || endDay < totalDays;
 
-    if (isFirstMonth && contractStartDate.getUTCDate() > 1) {
-      // 初月日割り
-      const totalDays = getDaysInMonth(year, month);
+    if (isProrated) {
       amount = calculateProratedFee(
         contract.monthlyFee,
-        contractStartDate.getUTCDate(),
-        totalDays
+        startDay,
+        totalDays,
+        endDay
       );
+    }
+    if (isFirstMonth) {
       periodFromDate = contractStartDate;
+    }
+    if (isEndMonth && contractEndDate) {
+      periodToDate = contractEndDate;
     }
 
     const periodFrom = formatDate(periodFromDate);
-    const periodTo = formatDate(monthEnd);
+    const periodTo = formatDate(periodToDate);
 
     // 支払期限計算
     const rule = ruleByFeeType.get("monthly");
@@ -440,7 +454,7 @@ export async function getBillingLifecycleData(
       amount,
       periodFrom,
       periodTo,
-      description: `月額 ${amount.toLocaleString()}円${isFirstMonth && contractStartDate.getUTCDate() > 1 ? "（日割り）" : ""}`,
+      description: `月額 ${amount.toLocaleString()}円${isProrated ? "（日割り）" : ""}`,
       status: "not_created",
       transactionId: null,
       invoiceGroupId: null,
@@ -1477,14 +1491,34 @@ export async function getExpenseLifecycleData(
     // 代理店月額費用
     if ((agentContract.monthlyFee ?? 0) > 0) {
       let amt = agentContract.monthlyFee!;
+      const agentContractEndDate = agentContract.contractEndDate;
+      const agentContractEndMonth = agentContractEndDate
+        ? new Date(
+            Date.UTC(
+              agentContractEndDate.getUTCFullYear(),
+              agentContractEndDate.getUTCMonth(),
+              1
+            )
+          )
+        : null;
+      const isEndMonth = agentContractEndMonth?.getTime() === monthStart.getTime();
+      const totalDays = getDaysInMonth(year, month);
+      const startDay = isStartMonth ? agentContract.contractStartDate.getUTCDate() : 1;
+      const endDay = isEndMonth && agentContractEndDate
+        ? agentContractEndDate.getUTCDate()
+        : totalDays;
+      const isProrated = startDay > 1 || endDay < totalDays;
+      const periodFrom = isStartMonth ? formatDate(agentContract.contractStartDate) : periodFromStr;
+      const periodTo = isEndMonth && agentContractEndDate
+        ? formatDate(agentContractEndDate)
+        : periodToStr;
 
-      // 初月日割り
-      if (isStartMonth && agentContract.contractStartDate.getUTCDate() > 1) {
-        const totalDays = getDaysInMonth(year, month);
+      if (isProrated) {
         amt = calculateProratedFee(
           agentContract.monthlyFee!,
-          agentContract.contractStartDate.getUTCDate(),
-          totalDays
+          startDay,
+          totalDays,
+          endDay
         );
       }
 
@@ -1500,9 +1534,9 @@ export async function getExpenseLifecycleData(
         contractHistoryId: null,
         amount: amt,
         ...wh,
-        periodFrom: periodFromStr,
-        periodTo: periodToStr,
-        description: `代理店月額 (${agentName})${isStartMonth && agentContract.contractStartDate.getUTCDate() > 1 ? "（日割り）" : ""}`,
+        periodFrom,
+        periodTo,
+        description: `代理店月額 (${agentName})${isProrated ? "（日割り）" : ""}`,
         appliedCommissionRate: null,
         appliedCommissionType: null,
         status: "not_created",

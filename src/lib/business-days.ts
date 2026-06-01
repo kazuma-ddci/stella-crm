@@ -34,8 +34,13 @@ export function getDaysInMonth(year: number, month: number): number {
 export function calculateProratedFee(
   monthlyFee: number,
   startDay: number,
-  totalDaysInMonth: number
+  totalDaysInMonth: number,
+  endDay: number = totalDaysInMonth
 ): number {
-  const remainingDays = totalDaysInMonth - startDay + 1;
-  return Math.ceil((monthlyFee * remainingDays) / totalDaysInMonth);
+  const normalizedStartDay = Math.max(1, Math.min(startDay, totalDaysInMonth));
+  const normalizedEndDay = Math.max(1, Math.min(endDay, totalDaysInMonth));
+  if (normalizedEndDay < normalizedStartDay) return 0;
+
+  const billableDays = normalizedEndDay - normalizedStartDay + 1;
+  return Math.ceil((monthlyFee * billableDays) / totalDaysInMonth);
 }

@@ -875,25 +875,27 @@ async function detectCrmCandidates(
     if (contract.monthlyFee > 0) {
       const revCategory = revenueCategoryMonthly ?? defaultRevenueCategory ?? null;
 
-      // 日割り計算: contractStartDate の月 = 対象月の場合
+      // 日割り計算: 契約開始月・契約終了月は対象期間分のみ
       const isFirstMonth = contractStart.getTime() === monthStart.getTime();
-      let monthlyAmount: number;
-      let monthlyPeriodFrom: string;
-      let monthlyPeriodTo: string;
+      const contractEnd = contract.contractEndDate
+        ? startOfMonth(contract.contractEndDate)
+        : null;
+      const isEndMonth = contractEnd?.getTime() === monthStart.getTime();
+      const year = monthStart.getUTCFullYear();
+      const month = monthStart.getUTCMonth() + 1; // 1-indexed for getDaysInMonth
+      const totalDays = getDaysInMonth(year, month);
+      const startDay = isFirstMonth ? contract.contractStartDate.getUTCDate() : 1;
+      const endDay = isEndMonth && contract.contractEndDate
+        ? contract.contractEndDate.getUTCDate()
+        : totalDays;
+      const isProrated = startDay > 1 || endDay < totalDays;
 
-      if (isFirstMonth) {
-        const startDay = contract.contractStartDate.getUTCDate();
-        const year = monthStart.getUTCFullYear();
-        const month = monthStart.getUTCMonth() + 1; // 1-indexed for getDaysInMonth
-        const totalDays = getDaysInMonth(year, month);
-        monthlyAmount = calculateProratedFee(contract.monthlyFee, startDay, totalDays);
-        monthlyPeriodFrom = formatDate(contract.contractStartDate);
-        monthlyPeriodTo = formatDate(monthEnd);
-      } else {
-        monthlyAmount = contract.monthlyFee;
-        monthlyPeriodFrom = periodFromStr;
-        monthlyPeriodTo = periodToStr;
-      }
+      const monthlyAmount = isProrated
+        ? calculateProratedFee(contract.monthlyFee, startDay, totalDays, endDay)
+        : contract.monthlyFee;
+      const monthlyPeriodFrom = isFirstMonth ? formatDate(contract.contractStartDate) : periodFromStr;
+      const monthlyPeriodTo =
+        isEndMonth && contract.contractEndDate ? formatDate(contract.contractEndDate) : periodToStr;
 
       {
         const key = `crm-revenue-monthly-${contract.id}`;
@@ -919,7 +921,7 @@ async function detectCrmCandidates(
           taxType: DEFAULT_TAX_TYPE,
           periodFrom: monthlyPeriodFrom,
           periodTo: monthlyPeriodTo,
-          note: `${contract.company.name} 月額費用${isFirstMonth ? "（日割り）" : ""}`,
+          note: `${contract.company.name} 月額費用${isProrated ? "（日割り）" : ""}`,
           contractTitle: null,
           stpContractHistoryId: contract.id,
           stpRevenueType: "monthly",
@@ -1286,18 +1288,31 @@ async function detectCrmCandidates(
       const amt = agentContract.monthlyFee ?? 0;
       const agentContractStart = startOfMonth(agentContract.contractStartDate);
       const isFirstMonth = agentContractStart.getTime() === monthStart.getTime();
+      const agentContractEnd = agentContract.contractEndDate
+        ? startOfMonth(agentContract.contractEndDate)
+        : null;
+      const isEndMonth = agentContractEnd?.getTime() === monthStart.getTime();
 
       let monthlyAmount = amt;
       let monthlyPeriodFrom = formatDate(monthStart);
-      const monthlyPeriodTo = formatDate(monthEnd);
+      let monthlyPeriodTo = formatDate(monthEnd);
+      const year = monthStart.getUTCFullYear();
+      const month = monthStart.getUTCMonth() + 1;
+      const totalDays = getDaysInMonth(year, month);
+      const startDay = isFirstMonth ? agentContract.contractStartDate.getUTCDate() : 1;
+      const endDay = isEndMonth && agentContract.contractEndDate
+        ? agentContract.contractEndDate.getUTCDate()
+        : totalDays;
+      const isProrated = startDay > 1 || endDay < totalDays;
 
+      if (isProrated) {
+        monthlyAmount = calculateProratedFee(amt, startDay, totalDays, endDay);
+      }
       if (isFirstMonth) {
-        const startDay = agentContract.contractStartDate.getUTCDate();
-        const year = monthStart.getUTCFullYear();
-        const month = monthStart.getUTCMonth() + 1;
-        const totalDays = getDaysInMonth(year, month);
-        monthlyAmount = calculateProratedFee(amt, startDay, totalDays);
         monthlyPeriodFrom = formatDate(agentContract.contractStartDate);
+      }
+      if (isEndMonth && agentContract.contractEndDate) {
+        monthlyPeriodTo = formatDate(agentContract.contractEndDate);
       }
 
       const key = `crm-expense-agent_monthly-agent${agentContract.id}`;
@@ -1322,7 +1337,7 @@ async function detectCrmCandidates(
         taxType: DEFAULT_TAX_TYPE,
         periodFrom: monthlyPeriodFrom,
         periodTo: monthlyPeriodTo,
-        note: `代理店月額費用 (${agentCpName})${isFirstMonth ? "（日割り）" : ""}`,
+        note: `代理店月額費用 (${agentCpName})${isProrated ? "（日割り）" : ""}`,
         contractTitle: null,
         stpContractHistoryId: null,
         stpRevenueType: null,
