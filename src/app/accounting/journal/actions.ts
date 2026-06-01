@@ -10,6 +10,7 @@ import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 import { ensureCostCentersForActiveProjects } from "@/lib/accounting/cost-centers";
 import { isPlAccountCategory } from "@/lib/accounting/pl-report";
+import { syncCounterpartiesForCostCenters } from "@/lib/counterparty-sync";
 import type { Prisma } from "@prisma/client";
 
 // ============================================
@@ -1045,8 +1046,9 @@ export async function deleteJournalEntry(id: number): Promise<ActionResult> {
 // ============================================
 
 export async function getJournalFormData(): Promise<JournalFormData> {
-  await requireStaffForAccounting("view");
+  const session = await requireStaffForAccounting("view");
   await ensureCostCentersForActiveProjects();
+  await syncCounterpartiesForCostCenters(session.id);
 
   const [
     accounts,

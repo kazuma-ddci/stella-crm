@@ -906,7 +906,11 @@ export function JournalEntryModal({
                         : otherCounterparties
                     ).map((cp) => (
                       <SelectItem key={cp.id} value={String(cp.id)}>
-                        {cp.displayId ? `${cp.displayId} ${cp.name}` : cp.name}
+                        {counterpartyTab === "project"
+                          ? cp.name
+                          : cp.displayId
+                            ? `${cp.displayId} ${cp.name}`
+                            : cp.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

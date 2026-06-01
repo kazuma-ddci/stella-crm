@@ -35,6 +35,63 @@ export async function generateOtherCounterpartyDisplayId(
 }
 
 /**
+ * CostCenter（経理プロジェクト）を「取引先: プロジェクト」選択肢として使えるようにする。
+ */
+export async function syncCounterpartiesForCostCenters(
+  staffId?: number,
+  db: TxClient | typeof prisma = prisma
+): Promise<{ created: number; updated: number; total: number }> {
+  const costCenters = await db.costCenter.findMany({
+    where: { isActive: true, deletedAt: null },
+    select: { id: true, name: true },
+  });
+
+  const existingLinks = await db.counterparty.findMany({
+    where: { costCenterId: { not: null }, deletedAt: null },
+    select: { id: true, costCenterId: true, name: true },
+  });
+
+  const existingByCostCenterId = new Map(
+    existingLinks.map((link) => [link.costCenterId as number, link])
+  );
+
+  let created = 0;
+  let updated = 0;
+
+  for (const costCenter of costCenters) {
+    const existing = existingByCostCenterId.get(costCenter.id);
+    if (existing) {
+      if (existing.name !== costCenter.name) {
+        await db.counterparty.update({
+          where: { id: existing.id },
+          data: {
+            name: costCenter.name,
+            ...(staffId ? { updatedBy: staffId } : {}),
+          },
+        });
+        updated++;
+      }
+      continue;
+    }
+
+    const displayId = await generateOtherCounterpartyDisplayId(db);
+    await db.counterparty.create({
+      data: {
+        displayId,
+        name: costCenter.name,
+        costCenterId: costCenter.id,
+        counterpartyType: "project",
+        isActive: true,
+        ...(staffId ? { createdBy: staffId } : {}),
+      },
+    });
+    created++;
+  }
+
+  return { created, updated, total: costCenters.length };
+}
+
+/**
  * MasterStellaCompany作成時にCounterpartyを自動作成する。
  * 既に同じcompanyIdのCounterpartyが存在する場合はスキップ。
  * displayId重複（P2002）時は最大3回リトライする。

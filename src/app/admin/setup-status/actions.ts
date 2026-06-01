@@ -365,12 +365,12 @@ const checkDefinitions: CheckDefinition[] = [
   {
     id: "accounting-projects",
     category: "経理",
-    name: "プロジェクト",
-    description: "経理側で請求/支払グループを作成するためのプロジェクト",
+    name: "経理プロジェクト",
+    description: "経理側で請求/支払グループを作成するための経理プロジェクト",
     required: 1,
-    href: "/settings/projects",
+    href: "/accounting/masters/cost-centers",
     countFn: () =>
-      prisma.masterProject.count({ where: { isActive: true } }),
+      prisma.costCenter.count({ where: { isActive: true, deletedAt: null } }),
   },
   {
     id: "accounting-counterparties",

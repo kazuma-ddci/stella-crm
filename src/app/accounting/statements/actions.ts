@@ -12,6 +12,7 @@ import {
   syncInvoiceGroupPaymentStateFromRecords,
   syncPaymentGroupPaymentStateFromRecords,
 } from "@/lib/accounting/sync-payment-date";
+import { summarizeStatementLinks } from "@/lib/accounting/statement-link-completion";
 import { attachDedupHashes } from "@/lib/accounting/statements/dedup";
 import type { ParsedStatementEntry } from "@/lib/accounting/statements/types";
 import { EXCLUDED_REASONS, type ExcludedReason } from "./constants";
@@ -214,7 +215,7 @@ export async function listStatementEntries(
       incomingAmount: true,
       outgoingAmount: true,
       excluded: true,
-      groupLinks: { select: { amount: true } },
+      groupLinks: { select: { amount: true, linkType: true } },
     },
   });
 
@@ -226,7 +227,7 @@ export async function listStatementEntries(
     excluded: 0,
   };
   for (const e of allEntriesForCount) {
-    const linkedSum = e.groupLinks.reduce((s, l) => s + l.amount, 0);
+    const linkedSum = summarizeStatementLinks(e.groupLinks).allocatedAmount;
     const status = computeLinkStatus(
       e.incomingAmount,
       e.outgoingAmount,
@@ -246,7 +247,7 @@ export async function listStatementEntries(
 
   const eligibleIds: number[] = [];
   for (const e of allEntriesForCount) {
-    const linkedSum = e.groupLinks.reduce((s, l) => s + l.amount, 0);
+    const linkedSum = summarizeStatementLinks(e.groupLinks).allocatedAmount;
     const status = computeLinkStatus(
       e.incomingAmount,
       e.outgoingAmount,
@@ -287,13 +288,13 @@ export async function listStatementEntries(
       import: {
         select: { fileName: true, bankFormatId: true, importedAt: true },
       },
-      groupLinks: { select: { amount: true } },
+      groupLinks: { select: { amount: true, linkType: true } },
     },
   });
 
   return {
     rows: rowsRaw.map((r) => {
-      const linkedAmount = r.groupLinks.reduce((s, l) => s + l.amount, 0);
+      const linkedAmount = summarizeStatementLinks(r.groupLinks).allocatedAmount;
       return {
         id: r.id,
         transactionDate: r.transactionDate.toISOString().slice(0, 10),
@@ -408,12 +409,12 @@ export async function getGlobalUnlinkedCount(): Promise<number> {
     select: {
       incomingAmount: true,
       outgoingAmount: true,
-      groupLinks: { select: { amount: true } },
+      groupLinks: { select: { amount: true, linkType: true } },
     },
   });
   let n = 0;
   for (const e of entries) {
-    const linkedSum = e.groupLinks.reduce((s, l) => s + l.amount, 0);
+    const linkedSum = summarizeStatementLinks(e.groupLinks).allocatedAmount;
     const status = computeLinkStatus(
       e.incomingAmount,
       e.outgoingAmount,

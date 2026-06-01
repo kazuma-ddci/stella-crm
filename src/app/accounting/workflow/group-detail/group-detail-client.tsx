@@ -412,6 +412,7 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
   };
 
   const [completeConfirmId, setCompleteConfirmId] = useState<number | null>(null);
+  const [uncompleteConfirmId, setUncompleteConfirmId] = useState<number | null>(null);
 
   const handleConfirmComplete = async () => {
     if (completeConfirmId === null) return;
@@ -424,13 +425,15 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
     setCompleteConfirmId(null);
   };
 
-  const handleUncomplete = async (transactionId: number) => {
-    const result = await setTransactionJournalCompleted(transactionId, false);
+  const handleConfirmUncomplete = async () => {
+    if (uncompleteConfirmId === null) return;
+    const result = await setTransactionJournalCompleted(uncompleteConfirmId, false);
     if (!result.ok) {
       toast.error(result.error);
       return;
     }
     router.refresh();
+    setUncompleteConfirmId(null);
   };
 
   const [showReturnDialog, setShowReturnDialog] = useState(false);
@@ -591,6 +594,11 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
                   未紐づき {formatYen(detail.statementUnlinkedAmount)}
                 </span>
               </p>
+              {detail.statementFeeAmount > 0 && (
+                <p className="text-xs text-orange-700">
+                  手数料 {formatYen(detail.statementFeeAmount)}
+                </p>
+              )}
             </div>
             <div>
               <span className="text-muted-foreground">証憑</span>
@@ -732,12 +740,12 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
                         <Check className="h-3 w-3 mr-1" />仕訳完了
                       </Badge>
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
-                        className="h-6 px-2 text-xs text-muted-foreground"
-                        onClick={() => handleUncomplete(tx.id)}
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setUncompleteConfirmId(tx.id)}
                       >
-                        取消
+                        仕訳未完了に戻す
                       </Button>
                     </div>
                   ) : (
@@ -1149,6 +1157,29 @@ export function GroupDetailClient({ detail, journalFormData }: Props) {
             <AlertDialogCancel>キャンセル</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmComplete}>
               はい、完了です
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 仕訳未完了へ戻す確認ダイアログ */}
+      <AlertDialog
+        open={uncompleteConfirmId !== null}
+        onOpenChange={(open) => {
+          if (!open) setUncompleteConfirmId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>仕訳未完了に戻しますか？</AlertDialogTitle>
+            <AlertDialogDescription>
+              この取引を仕訳未完了として扱い、経理ワークフローの仕訳作成待ちに戻します。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>キャンセル</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmUncomplete}>
+              未完了に戻す
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

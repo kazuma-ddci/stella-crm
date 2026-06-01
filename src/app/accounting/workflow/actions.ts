@@ -5,9 +5,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import {
-  recalcInvoiceGroupActualPaymentDate,
   recalcPaymentGroupActualPaymentDate,
-  syncInvoiceGroupPaymentStateFromRecords,
   syncPaymentGroupPaymentStateFromRecords,
   summarizeReceiptPayment,
   type ReceiptPaymentSummary,
@@ -16,6 +14,10 @@ import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 import { createNotificationBulk } from "@/lib/notifications/create-notification";
 import { ensureCostCentersForActiveProjects } from "@/lib/accounting/cost-centers";
+import {
+  recalculateStatementLinkCompleted,
+  summarizeStatementLinks,
+} from "@/lib/accounting/statement-link-completion";
 
 // ============================================
 // 型定義
@@ -41,6 +43,7 @@ export type WorkflowGroup = {
   createdAt: Date;
   category: WorkflowCategory;
   projectId: number | null;
+  costCenterId: number | null;
   projectLabel: string | null;
   paymentDueDate: Date | null;
   // 進捗
@@ -59,6 +62,8 @@ export type WorkflowGroup = {
   statementLinkCompleted: boolean;
   statementLinkCount: number;
   statementLinkedAmount: number;
+  statementFeeAmount: number;
+  statementAllocatedAmount: number;
   statementUnlinkedAmount: number | null;
   excludeFromInternalPl: boolean;
   attachmentCount: number;
@@ -148,6 +153,8 @@ export type WorkflowGroupDetail = {
   statementLinkCompleted: boolean;
   statementLinkCount: number;
   statementLinkedAmount: number;
+  statementFeeAmount: number;
+  statementAllocatedAmount: number;
   statementUnlinkedAmount: number | null;
   excludeFromInternalPl: boolean;
   attachmentCount: number;
@@ -155,6 +162,7 @@ export type WorkflowGroupDetail = {
   returnRequestReason: string | null;
   returnRequestedAt: Date | null;
   projectId: number | null;
+  costCenterId: number | null;
   transactions: WorkflowTransaction[];
   allocationTemplates: AllocationTemplateOption[];
 };
@@ -375,7 +383,9 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         returnRequestReason: true,
         returnRequestedAt: true,
         projectId: true,
+        costCenterId: true,
         project: { select: { name: true, defaultCostCenter: { select: { name: true } } } },
+        costCenter: { select: { name: true } },
         counterparty: { select: { name: true } },
         statementLinkCompleted: true,
         excludeFromInternalPl: true,
@@ -400,7 +410,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
           select: { amount: true, receivedDate: true },
         },
         bankStatementLinks: {
-          select: { amount: true },
+          select: { amount: true, linkType: true },
         },
       },
       orderBy: { createdAt: "desc" },
@@ -427,6 +437,8 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         paymentDueDate: true,
         expectedPaymentDate: true,
         projectId: true,
+        costCenterId: true,
+        costCenter: { select: { name: true } },
         project: { select: { name: true, defaultCostCenter: { select: { name: true } } } },
         customCounterpartyName: true,
         counterparty: { select: { name: true } },
@@ -453,7 +465,7 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
           select: { amount: true, paidDate: true },
         },
         bankStatementLinks: {
-          select: { amount: true },
+          select: { amount: true, linkType: true },
         },
       },
       orderBy: { createdAt: "desc" },
@@ -480,7 +492,8 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       ig.receipts.map((r) => ({ amount: r.amount, date: r.receivedDate })),
       ig.totalAmount
     );
-    const statementLinkedAmount = ig.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0);
+    const statementSummary = summarizeStatementLinks(ig.bankStatementLinks);
+    const statementLinkedAmount = statementSummary.settlementAmount;
 
     const category = determineCategory(
       ig.status,
@@ -502,7 +515,8 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       createdAt: ig.createdAt,
       category,
       projectId: ig.projectId ?? null,
-      projectLabel: ig.project?.defaultCostCenter?.name ?? ig.project?.name ?? null,
+      costCenterId: ig.costCenterId ?? null,
+      projectLabel: ig.costCenter?.name ?? ig.project?.defaultCostCenter?.name ?? ig.project?.name ?? null,
       paymentDueDate: ig.paymentDueDate ?? null,
       transactionCount: txCount,
       journalizedCount,
@@ -517,6 +531,8 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       statementLinkCompleted: ig.statementLinkCompleted,
       statementLinkCount: ig.bankStatementLinks.length,
       statementLinkedAmount,
+      statementFeeAmount: statementSummary.feeAmount,
+      statementAllocatedAmount: statementSummary.allocatedAmount,
       statementUnlinkedAmount: calcUnlinkedAmount(ig.totalAmount, statementLinkedAmount),
       excludeFromInternalPl: ig.excludeFromInternalPl,
       attachmentCount: ig._count.attachments,
@@ -553,7 +569,8 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       pg.payments.map((p) => ({ amount: p.amount, date: p.paidDate })),
       pg.totalAmount
     );
-    const statementLinkedAmount = pg.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0);
+    const statementSummary = summarizeStatementLinks(pg.bankStatementLinks);
+    const statementLinkedAmount = statementSummary.settlementAmount;
 
     // 決済予定日までの日数
     const daysUntilPayment = pg.expectedPaymentDate
@@ -571,7 +588,8 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         createdAt: pg.createdAt,
         category: "pending_project_approval",
         projectId: pg.projectId ?? null,
-        projectLabel: pg.project?.defaultCostCenter?.name ?? pg.project?.name ?? null,
+        costCenterId: pg.costCenterId ?? null,
+        projectLabel: pg.costCenter?.name ?? pg.project?.defaultCostCenter?.name ?? pg.project?.name ?? null,
         paymentDueDate: pg.paymentDueDate ?? null,
         transactionCount: txCount,
         journalizedCount,
@@ -586,6 +604,8 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
         statementLinkCompleted: pg.statementLinkCompleted,
         statementLinkCount: pg.bankStatementLinks.length,
         statementLinkedAmount,
+        statementFeeAmount: statementSummary.feeAmount,
+        statementAllocatedAmount: statementSummary.allocatedAmount,
         statementUnlinkedAmount: calcUnlinkedAmount(pg.totalAmount, statementLinkedAmount),
         excludeFromInternalPl: pg.excludeFromInternalPl,
         attachmentCount: pg._count.attachments,
@@ -624,7 +644,8 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       createdAt: pg.createdAt,
       category,
       projectId: pg.projectId ?? null,
-      projectLabel: pg.project?.defaultCostCenter?.name ?? pg.project?.name ?? null,
+      costCenterId: pg.costCenterId ?? null,
+      projectLabel: pg.costCenter?.name ?? pg.project?.defaultCostCenter?.name ?? pg.project?.name ?? null,
       paymentDueDate: pg.paymentDueDate ?? null,
       transactionCount: txCount,
       journalizedCount,
@@ -639,6 +660,8 @@ export async function getWorkflowGroups(): Promise<WorkflowGroup[]> {
       statementLinkCompleted: pg.statementLinkCompleted,
       statementLinkCount: pg.bankStatementLinks.length,
       statementLinkedAmount,
+      statementFeeAmount: statementSummary.feeAmount,
+      statementAllocatedAmount: statementSummary.allocatedAmount,
       statementUnlinkedAmount: calcUnlinkedAmount(pg.totalAmount, statementLinkedAmount),
       excludeFromInternalPl: pg.excludeFromInternalPl,
       attachmentCount: pg._count.attachments,
@@ -854,12 +877,14 @@ export async function getWorkflowGroupDetail(
         returnRequestReason: true,
         returnRequestedAt: true,
         projectId: true,
+        costCenterId: true,
+        costCenter: { select: { name: true } },
         project: { select: { name: true, defaultCostCenter: { select: { name: true } } } },
         counterparty: { select: { id: true, name: true } },
         statementLinkCompleted: true,
         excludeFromInternalPl: true,
         _count: { select: { attachments: true } },
-        bankStatementLinks: { select: { amount: true } },
+        bankStatementLinks: { select: { amount: true, linkType: true } },
         transactions: {
           where: { deletedAt: null },
           select: transactionSelect,
@@ -877,7 +902,8 @@ export async function getWorkflowGroupDetail(
       (t) => confirmedFilter(t).length > 0 && confirmedFilter(t).every((je) => je.realizationStatus === "realized")
     ).length;
     const hasActualPaymentDate = !!group.actualPaymentDate;
-    const statementLinkedAmount = group.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0);
+    const statementSummary = summarizeStatementLinks(group.bankStatementLinks);
+    const statementLinkedAmount = statementSummary.settlementAmount;
 
     return {
       id: group.id,
@@ -887,7 +913,7 @@ export async function getWorkflowGroupDetail(
       counterpartyId: group.counterparty.id,
       totalAmount: group.totalAmount,
       status: group.status,
-      projectName: group.project?.defaultCostCenter?.name ?? group.project?.name ?? null,
+      projectName: group.costCenter?.name ?? group.project?.defaultCostCenter?.name ?? group.project?.name ?? null,
       paymentDueDate: group.paymentDueDate ?? null,
       expectedPaymentDate: group.expectedPaymentDate ?? null,
       actualPaymentDate: group.actualPaymentDate,
@@ -907,6 +933,8 @@ export async function getWorkflowGroupDetail(
       statementLinkCompleted: group.statementLinkCompleted,
       statementLinkCount: group.bankStatementLinks.length,
       statementLinkedAmount,
+      statementFeeAmount: statementSummary.feeAmount,
+      statementAllocatedAmount: statementSummary.allocatedAmount,
       statementUnlinkedAmount: calcUnlinkedAmount(group.totalAmount, statementLinkedAmount),
       excludeFromInternalPl: group.excludeFromInternalPl,
       attachmentCount: group._count.attachments,
@@ -914,6 +942,7 @@ export async function getWorkflowGroupDetail(
       returnRequestReason: group.returnRequestReason,
       returnRequestedAt: group.returnRequestedAt,
       projectId: group.projectId,
+      costCenterId: group.costCenterId,
       transactions,
       allocationTemplates,
     };
@@ -935,13 +964,15 @@ export async function getWorkflowGroupDetail(
       returnRequestReason: true,
       returnRequestedAt: true,
       projectId: true,
+      costCenterId: true,
+      costCenter: { select: { name: true } },
       customCounterpartyName: true,
       project: { select: { name: true, defaultCostCenter: { select: { name: true } } } },
       counterparty: { select: { id: true, name: true } },
       statementLinkCompleted: true,
       excludeFromInternalPl: true,
       _count: { select: { attachments: true } },
-      bankStatementLinks: { select: { amount: true } },
+      bankStatementLinks: { select: { amount: true, linkType: true } },
       transactions: {
         where: { deletedAt: null },
         select: transactionSelect,
@@ -959,7 +990,8 @@ export async function getWorkflowGroupDetail(
     (t) => confirmedFilter(t).length > 0 && confirmedFilter(t).every((je) => je.realizationStatus === "realized")
   ).length;
   const hasActualPaymentDate = !!group.actualPaymentDate;
-  const statementLinkedAmount = group.bankStatementLinks.reduce((sum, l) => sum + l.amount, 0);
+  const statementSummary = summarizeStatementLinks(group.bankStatementLinks);
+  const statementLinkedAmount = statementSummary.settlementAmount;
 
   return {
     id: group.id,
@@ -969,7 +1001,7 @@ export async function getWorkflowGroupDetail(
     counterpartyId: group.counterparty?.id ?? null,
     totalAmount: group.totalAmount,
     status: group.status,
-    projectName: group.project?.defaultCostCenter?.name ?? group.project?.name ?? null,
+    projectName: group.costCenter?.name ?? group.project?.defaultCostCenter?.name ?? group.project?.name ?? null,
     paymentDueDate: group.paymentDueDate ?? null,
     expectedPaymentDate: group.expectedPaymentDate ?? null,
     actualPaymentDate: group.actualPaymentDate,
@@ -989,6 +1021,8 @@ export async function getWorkflowGroupDetail(
     statementLinkCompleted: group.statementLinkCompleted,
     statementLinkCount: group.bankStatementLinks.length,
     statementLinkedAmount,
+    statementFeeAmount: statementSummary.feeAmount,
+    statementAllocatedAmount: statementSummary.allocatedAmount,
     statementUnlinkedAmount: calcUnlinkedAmount(group.totalAmount, statementLinkedAmount),
     excludeFromInternalPl: group.excludeFromInternalPl,
     attachmentCount: group._count.attachments,
@@ -996,6 +1030,7 @@ export async function getWorkflowGroupDetail(
     returnRequestReason: group.returnRequestReason,
     returnRequestedAt: group.returnRequestedAt,
     projectId: group.projectId,
+    costCenterId: group.costCenterId,
     transactions,
     allocationTemplates,
   };
@@ -1802,10 +1837,23 @@ export type ReceiptRecordView = {
   } | null;
 };
 
+export type StatementFeeLinkView = {
+  id: number;
+  entryId: number;
+  transactionDate: Date;
+  description: string;
+  amount: number;
+  incomingAmount: number | null;
+  outgoingAmount: number | null;
+  bankAccountLabel: string;
+  note: string | null;
+};
+
 export type ManualPaymentStatus = "unpaid" | "partial" | "completed";
 
 export type ReceiptRecordsResult = {
   records: ReceiptRecordView[];
+  feeLinks: StatementFeeLinkView[];
   manualPaymentStatus: ManualPaymentStatus;
   summary: ReceiptPaymentSummary;
   totalAmount: number | null;
@@ -1864,6 +1912,32 @@ export async function listInvoiceGroupReceipts(
     },
   });
 
+  const feeLinks = await prisma.bankStatementEntryGroupLink.findMany({
+    where: { invoiceGroupId, linkType: "fee" },
+    orderBy: { bankStatementEntry: { transactionDate: "asc" } },
+    select: {
+      id: true,
+      amount: true,
+      note: true,
+      bankStatementEntry: {
+        select: {
+          id: true,
+          transactionDate: true,
+          description: true,
+          incomingAmount: true,
+          outgoingAmount: true,
+          bankAccount: {
+            select: {
+              bankName: true,
+              branchName: true,
+              accountNumber: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
   const view: ReceiptRecordView[] = records.map((r) => ({
     id: r.id,
     date: r.receivedDate,
@@ -1898,6 +1972,21 @@ export async function listInvoiceGroupReceipts(
 
   return ok({
     records: view,
+    feeLinks: feeLinks.map((link) => ({
+      id: link.id,
+      entryId: link.bankStatementEntry.id,
+      transactionDate: link.bankStatementEntry.transactionDate,
+      description: link.bankStatementEntry.description,
+      amount: link.amount,
+      incomingAmount: link.bankStatementEntry.incomingAmount,
+      outgoingAmount: link.bankStatementEntry.outgoingAmount,
+      bankAccountLabel: [
+        link.bankStatementEntry.bankAccount.bankName,
+        link.bankStatementEntry.bankAccount.branchName,
+        link.bankStatementEntry.bankAccount.accountNumber,
+      ].filter(Boolean).join(" "),
+      note: link.note,
+    })),
     summary,
     totalAmount: group.totalAmount,
     manualPaymentStatus: group.manualPaymentStatus as ManualPaymentStatus,
@@ -1941,12 +2030,7 @@ export async function addInvoiceGroupReceipt(
           createdById: staffId,
         },
       });
-      await recalcInvoiceGroupActualPaymentDate(tx, invoiceGroupId);
-      await tx.invoiceGroup.update({
-        where: { id: invoiceGroupId },
-        data: { statementLinkCompleted: false },
-      });
-      await syncInvoiceGroupPaymentStateFromRecords(tx, invoiceGroupId);
+      await recalculateStatementLinkCompleted(tx, "invoice", invoiceGroupId);
     });
 
     revalidatePath("/accounting/workflow");
@@ -1998,12 +2082,7 @@ export async function updateInvoiceGroupReceipt(
         where: { id: receiptId },
         data: updateData,
       });
-      await recalcInvoiceGroupActualPaymentDate(tx, existing.invoiceGroupId);
-      await tx.invoiceGroup.update({
-        where: { id: existing.invoiceGroupId },
-        data: { statementLinkCompleted: false },
-      });
-      await syncInvoiceGroupPaymentStateFromRecords(tx, existing.invoiceGroupId);
+      await recalculateStatementLinkCompleted(tx, "invoice", existing.invoiceGroupId);
     });
 
     revalidatePath("/accounting/workflow");
@@ -2036,12 +2115,7 @@ export async function deleteInvoiceGroupReceipt(
 
     await prisma.$transaction(async (tx) => {
       await tx.invoiceGroupReceipt.delete({ where: { id: receiptId } });
-      await recalcInvoiceGroupActualPaymentDate(tx, existing.invoiceGroupId);
-      await tx.invoiceGroup.update({
-        where: { id: existing.invoiceGroupId },
-        data: { statementLinkCompleted: false },
-      });
-      await syncInvoiceGroupPaymentStateFromRecords(tx, existing.invoiceGroupId);
+      await recalculateStatementLinkCompleted(tx, "invoice", existing.invoiceGroupId);
     });
 
     revalidatePath("/accounting/workflow");
@@ -2106,6 +2180,32 @@ export async function listPaymentGroupPayments(
     },
   });
 
+  const feeLinks = await prisma.bankStatementEntryGroupLink.findMany({
+    where: { paymentGroupId, linkType: "fee" },
+    orderBy: { bankStatementEntry: { transactionDate: "asc" } },
+    select: {
+      id: true,
+      amount: true,
+      note: true,
+      bankStatementEntry: {
+        select: {
+          id: true,
+          transactionDate: true,
+          description: true,
+          incomingAmount: true,
+          outgoingAmount: true,
+          bankAccount: {
+            select: {
+              bankName: true,
+              branchName: true,
+              accountNumber: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
   const view: ReceiptRecordView[] = records.map((r) => ({
     id: r.id,
     date: r.paidDate,
@@ -2140,6 +2240,21 @@ export async function listPaymentGroupPayments(
 
   return ok({
     records: view,
+    feeLinks: feeLinks.map((link) => ({
+      id: link.id,
+      entryId: link.bankStatementEntry.id,
+      transactionDate: link.bankStatementEntry.transactionDate,
+      description: link.bankStatementEntry.description,
+      amount: link.amount,
+      incomingAmount: link.bankStatementEntry.incomingAmount,
+      outgoingAmount: link.bankStatementEntry.outgoingAmount,
+      bankAccountLabel: [
+        link.bankStatementEntry.bankAccount.bankName,
+        link.bankStatementEntry.bankAccount.branchName,
+        link.bankStatementEntry.bankAccount.accountNumber,
+      ].filter(Boolean).join(" "),
+      note: link.note,
+    })),
     summary,
     totalAmount: group.totalAmount,
     manualPaymentStatus: group.manualPaymentStatus as ManualPaymentStatus,
@@ -2183,12 +2298,7 @@ export async function addPaymentGroupPayment(
           createdById: staffId,
         },
       });
-      await recalcPaymentGroupActualPaymentDate(tx, paymentGroupId);
-      await tx.paymentGroup.update({
-        where: { id: paymentGroupId },
-        data: { statementLinkCompleted: false },
-      });
-      await syncPaymentGroupPaymentStateFromRecords(tx, paymentGroupId);
+      await recalculateStatementLinkCompleted(tx, "payment", paymentGroupId);
     });
 
     revalidatePath("/accounting/workflow");
@@ -2240,12 +2350,7 @@ export async function updatePaymentGroupPayment(
         where: { id: paymentId },
         data: updateData,
       });
-      await recalcPaymentGroupActualPaymentDate(tx, existing.paymentGroupId);
-      await tx.paymentGroup.update({
-        where: { id: existing.paymentGroupId },
-        data: { statementLinkCompleted: false },
-      });
-      await syncPaymentGroupPaymentStateFromRecords(tx, existing.paymentGroupId);
+      await recalculateStatementLinkCompleted(tx, "payment", existing.paymentGroupId);
     });
 
     revalidatePath("/accounting/workflow");
@@ -2278,12 +2383,7 @@ export async function deletePaymentGroupPayment(
 
     await prisma.$transaction(async (tx) => {
       await tx.paymentGroupPayment.delete({ where: { id: paymentId } });
-      await recalcPaymentGroupActualPaymentDate(tx, existing.paymentGroupId);
-      await tx.paymentGroup.update({
-        where: { id: existing.paymentGroupId },
-        data: { statementLinkCompleted: false },
-      });
-      await syncPaymentGroupPaymentStateFromRecords(tx, existing.paymentGroupId);
+      await recalculateStatementLinkCompleted(tx, "payment", existing.paymentGroupId);
     });
 
     revalidatePath("/accounting/workflow");
@@ -2506,9 +2606,6 @@ export async function setInvoiceGroupManualPaymentStatus(
       select: { id: true, status: true, statementLinkCompleted: true },
     });
     if (!group) return err("請求グループが見つかりません");
-    if (status === "completed" && !group.statementLinkCompleted) {
-      return err("入出金履歴チェックが完了していないため、入金完了にはできません");
-    }
 
     await prisma.invoiceGroup.update({
       where: { id: invoiceGroupId },
@@ -2556,9 +2653,6 @@ export async function setPaymentGroupManualPaymentStatus(
       select: { id: true, status: true, statementLinkCompleted: true },
     });
     if (!group) return err("支払グループが見つかりません");
-    if (status === "completed" && !group.statementLinkCompleted) {
-      return err("入出金履歴チェックが完了していないため、支払完了にはできません");
-    }
 
     await prisma.paymentGroup.update({
       where: { id: paymentGroupId },

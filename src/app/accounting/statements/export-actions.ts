@@ -7,6 +7,7 @@ import { ok, err, type ActionResult } from "@/lib/action-result";
 import { requireStaffForAccounting } from "@/lib/auth/staff-action";
 import type { LinkStatusFilter } from "./actions";
 import { EXCLUDED_REASON_LABELS, type ExcludedReason } from "./constants";
+import { summarizeStatementLinks } from "@/lib/accounting/statement-link-completion";
 
 type ExportInput = {
   operatingCompanyBankAccountId: number;
@@ -84,6 +85,7 @@ export async function exportStatementsCsv(
         groupLinks: {
           select: {
             amount: true,
+            linkType: true,
             invoiceGroup: { select: { id: true, invoiceNumber: true } },
             paymentGroup: { select: { id: true, referenceCode: true } },
           },
@@ -93,7 +95,7 @@ export async function exportStatementsCsv(
 
     // フィルタ条件と一致しない行は除外
     const filtered = entries.filter((e) => {
-      const linkedAmount = e.groupLinks.reduce((s, l) => s + l.amount, 0);
+      const linkedAmount = summarizeStatementLinks(e.groupLinks).allocatedAmount;
       const total =
         (e.incomingAmount ?? 0) > 0
           ? e.incomingAmount!
@@ -116,13 +118,14 @@ export async function exportStatementsCsv(
     });
 
     const rows = filtered.map((e) => {
-      const linkedAmount = e.groupLinks.reduce((s, l) => s + l.amount, 0);
+      const summary = summarizeStatementLinks(e.groupLinks);
+      const linkedAmount = summary.allocatedAmount;
       const linkRefs = e.groupLinks
         .map((l) =>
           l.invoiceGroup
-            ? `請求#${l.invoiceGroup.invoiceNumber ?? l.invoiceGroup.id}`
+            ? `請求#${l.invoiceGroup.invoiceNumber ?? l.invoiceGroup.id}${l.linkType === "fee" ? "(手数料)" : ""}`
             : l.paymentGroup
-              ? `支払#${l.paymentGroup.referenceCode ?? l.paymentGroup.id}`
+              ? `支払#${l.paymentGroup.referenceCode ?? l.paymentGroup.id}${l.linkType === "fee" ? "(手数料)" : ""}`
               : ""
         )
         .filter(Boolean)
@@ -144,6 +147,8 @@ export async function exportStatementsCsv(
         ),
         紐付け先: linkRefs,
         紐付け金額合計: linkedAmount,
+        通常紐付け金額: summary.settlementAmount,
+        手数料金額: summary.feeAmount,
         除外フラグ: e.excluded ? "除外" : "",
         除外理由: e.excluded && e.excludedReason
           ? EXCLUDED_REASON_LABELS[e.excludedReason as ExcludedReason] ?? ""

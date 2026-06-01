@@ -26,7 +26,7 @@ import type { AccountingGroupKind } from "../accounting-group-create-actions";
 
 type Props = {
   groups: WorkflowGroup[];
-  projects: { id: number; name: string }[];
+  projects: { id: number; name: string; projectId: number | null }[];
   dueUnrealizedEntries: DueUnrealizedJournalEntry[];
 };
 
@@ -375,6 +375,11 @@ function GroupTable({
                 <div className="text-xs text-muted-foreground">
                   紐づき {yen(g.statementLinkedAmount)}
                 </div>
+                {g.statementFeeAmount > 0 && (
+                  <div className="text-xs text-orange-700">
+                    手数料 {yen(g.statementFeeAmount)}
+                  </div>
+                )}
                 <div className={g.statementUnlinkedAmount === 0 ? "text-xs text-green-700" : "text-xs text-amber-700"}>
                   未紐づき {yen(g.statementUnlinkedAmount)}
                 </div>
@@ -583,17 +588,27 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
   const [approvalModalGroupId, setApprovalModalGroupId] = useState<number | null>(null);
   const [createKind, setCreateKind] = useState<AccountingGroupKind>("invoice");
   const [createOpen, setCreateOpen] = useState(false);
-  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<number>>(new Set());
+  const [selectedCostCenterIds, setSelectedCostCenterIds] = useState<Set<number>>(new Set());
   const [selectedDueEntryIds, setSelectedDueEntryIds] = useState<Set<number>>(new Set());
 
-  const toggleProject = (projectId: number) => {
-    setSelectedProjectIds((prev) => {
+  const toggleProject = (costCenterId: number) => {
+    setSelectedCostCenterIds((prev) => {
       const next = new Set(prev);
-      if (next.has(projectId)) next.delete(projectId);
-      else next.add(projectId);
+      if (next.has(costCenterId)) next.delete(costCenterId);
+      else next.add(costCenterId);
       return next;
     });
   };
+
+  const selectedMasterProjectIds = useMemo(
+    () =>
+      new Set(
+        projects
+          .filter((project) => selectedCostCenterIds.has(project.id) && project.projectId !== null)
+          .map((project) => project.projectId as number)
+      ),
+    [projects, selectedCostCenterIds]
+  );
 
   const applyFilters = useCallback((items: WorkflowGroup[]) => {
     let filtered = items;
@@ -608,13 +623,13 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
           g.noteSummary?.toLowerCase().includes(q)
       );
     }
-    if (selectedProjectIds.size > 0) {
+    if (selectedCostCenterIds.size > 0) {
       filtered = filtered.filter(
-        (g) => g.projectId !== null && selectedProjectIds.has(g.projectId)
+        (g) => g.costCenterId !== null && selectedCostCenterIds.has(g.costCenterId)
       );
     }
     return filtered;
-  }, [search, selectedProjectIds]);
+  }, [search, selectedCostCenterIds]);
 
   const applyDueEntryFilters = useCallback((items: DueUnrealizedJournalEntry[]) => {
     let filtered = items;
@@ -631,13 +646,13 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
         );
       });
     }
-    if (selectedProjectIds.size > 0) {
+    if (selectedCostCenterIds.size > 0) {
       filtered = filtered.filter(
-        (entry) => entry.projectId !== null && selectedProjectIds.has(entry.projectId)
+        (entry) => entry.projectId !== null && selectedMasterProjectIds.has(entry.projectId)
       );
     }
     return filtered;
-  }, [search, selectedProjectIds]);
+  }, [search, selectedCostCenterIds, selectedMasterProjectIds]);
 
   const toggleDueEntry = (id: number) => {
     setSelectedDueEntryIds((prev) => {
@@ -748,7 +763,7 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
               {projects.map((p) => (
                 <Button
                   key={p.id}
-                  variant={selectedProjectIds.has(p.id) ? "default" : "outline"}
+                  variant={selectedCostCenterIds.has(p.id) ? "default" : "outline"}
                   size="sm"
                   className="h-7 text-xs"
                   onClick={() => toggleProject(p.id)}
@@ -756,12 +771,12 @@ export function GroupsList({ groups, projects, dueUnrealizedEntries }: Props) {
                   {p.name}
                 </Button>
               ))}
-              {selectedProjectIds.size > 0 && (
+              {selectedCostCenterIds.size > 0 && (
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-7 text-xs text-muted-foreground"
-                  onClick={() => setSelectedProjectIds(new Set())}
+                  onClick={() => setSelectedCostCenterIds(new Set())}
                 >
                   クリア
                 </Button>

@@ -2,10 +2,21 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireMasterDataEditPermission } from "@/lib/auth/master-data-permission";
+import {
+  requireMasterDataEditPermission,
+  requireProjectMasterDataEditPermission,
+} from "@/lib/auth/master-data-permission";
+
+async function requireOperatingCompanyEditPermission() {
+  try {
+    await requireMasterDataEditPermission();
+  } catch {
+    await requireProjectMasterDataEditPermission("accounting");
+  }
+}
 
 export async function addOperatingCompany(data: Record<string, unknown>) {
-  await requireMasterDataEditPermission();
+  await requireOperatingCompanyEditPermission();
   await prisma.operatingCompany.create({
     data: {
       companyName: data.companyName as string,
@@ -32,13 +43,14 @@ export async function addOperatingCompany(data: Record<string, unknown>) {
   });
   revalidatePath("/settings/operating-companies");
   revalidatePath("/settings/projects");
+  revalidatePath("/accounting/masters/cost-centers");
 }
 
 export async function updateOperatingCompany(
   id: number,
   data: Record<string, unknown>
 ) {
-  await requireMasterDataEditPermission();
+  await requireOperatingCompanyEditPermission();
   const updateData: Record<string, unknown> = {};
   if ("companyName" in data) updateData.companyName = data.companyName as string;
   if ("registrationNumber" in data) updateData.registrationNumber = (data.registrationNumber as string) || null;
@@ -80,14 +92,16 @@ export async function updateOperatingCompany(
   }
   revalidatePath("/settings/operating-companies");
   revalidatePath("/settings/projects");
+  revalidatePath("/accounting/masters/cost-centers");
 }
 
 export async function deleteOperatingCompany(id: number) {
-  await requireMasterDataEditPermission();
+  await requireOperatingCompanyEditPermission();
   await prisma.operatingCompany.update({
     where: { id },
     data: { isActive: false },
   });
   revalidatePath("/settings/operating-companies");
   revalidatePath("/settings/projects");
+  revalidatePath("/accounting/masters/cost-centers");
 }

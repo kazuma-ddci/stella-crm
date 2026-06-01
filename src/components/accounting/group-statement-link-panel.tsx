@@ -12,6 +12,13 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Loader2, Plus, Trash2, Search, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -26,6 +33,8 @@ import {
   type ConflictResolution,
 } from "@/app/accounting/statements/link-actions";
 import { ConflictResolutionDialog } from "./conflict-resolution-dialog";
+
+type StatementLinkType = "settlement" | "fee";
 
 type Props = {
   groupKind: GroupKind;
@@ -56,7 +65,7 @@ export function GroupStatementLinkPanel({
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState<{ entryId: number; amount: number } | null>(null);
   const [showCandidates, setShowCandidates] = useState(false);
-  const [pending, setPending] = useState<{ entry: EntryCandidate; amount: number } | null>(null);
+  const [pending, setPending] = useState<{ entry: EntryCandidate; amount: number; linkType: StatementLinkType } | null>(null);
   const [conflicts, setConflicts] = useState<LinkConflict[] | null>(null);
 
   const reload = async () => {
@@ -94,6 +103,7 @@ export function GroupStatementLinkPanel({
   const performAdd = async (
     entry: EntryCandidate,
     amount: number,
+    linkType: StatementLinkType,
     resolution?: ConflictResolution
   ) => {
     if (!Number.isInteger(amount) || amount <= 0) {
@@ -107,6 +117,7 @@ export function GroupStatementLinkPanel({
         groupId,
         entryId: entry.id,
         amount,
+        linkType,
         conflictResolution: resolution,
       });
       if (!res.ok) {
@@ -114,7 +125,7 @@ export function GroupStatementLinkPanel({
         return;
       }
       if (res.data.status === "conflicts") {
-        setPending({ entry, amount });
+        setPending({ entry, amount, linkType });
         setConflicts(res.data.conflicts);
         return;
       }
@@ -128,14 +139,14 @@ export function GroupStatementLinkPanel({
     }
   };
 
-  const handleAdd = (entry: EntryCandidate, amount: number) =>
-    performAdd(entry, amount);
+  const handleAdd = (entry: EntryCandidate, amount: number, linkType: StatementLinkType) =>
+    performAdd(entry, amount, linkType);
 
   const handleResolveConflict = (resolution: ConflictResolution) => {
     if (!pending) return;
-    const { entry, amount } = pending;
+    const { entry, amount, linkType } = pending;
     setConflicts(null);
-    performAdd(entry, amount, resolution);
+    performAdd(entry, amount, linkType, resolution);
   };
 
   const handleDelete = async (linkId: number) => {
@@ -150,6 +161,9 @@ export function GroupStatementLinkPanel({
   };
 
   const totalLinkedAmount = links.reduce((s, l) => s + l.amount, 0);
+  const feeLinkedAmount = links
+    .filter((l) => l.linkType === "fee")
+    .reduce((s, l) => s + l.amount, 0);
 
   return (
     <div className="space-y-3 rounded-md border p-3">
@@ -162,6 +176,11 @@ export function GroupStatementLinkPanel({
           {showLinkedList && links.length > 0 && (
             <Badge variant="secondary" className="text-xs">
               {links.length}件 / {fmt(totalLinkedAmount)}円
+            </Badge>
+          )}
+          {showLinkedList && feeLinkedAmount > 0 && (
+            <Badge variant="outline" className="border-orange-200 bg-orange-50 text-xs text-orange-800">
+              手数料 {fmt(feeLinkedAmount)}円
             </Badge>
           )}
         </div>
@@ -193,6 +212,11 @@ export function GroupStatementLinkPanel({
                       </div>
                     </div>
                     <div className="text-right whitespace-nowrap">
+                      {l.linkType === "fee" && (
+                        <Badge variant="outline" className="mb-1 border-orange-200 bg-orange-50 text-[10px] text-orange-800">
+                          手数料
+                        </Badge>
+                      )}
                       <div className="font-medium">{fmt(l.amount)} 円</div>
                       {(l.incomingAmount ?? l.outgoingAmount ?? 0) !== l.amount && (
                         <div className="text-[10px] text-muted-foreground">
@@ -256,7 +280,7 @@ export function GroupStatementLinkPanel({
                         candidate={c}
                         adding={adding?.entryId === c.id}
                         alreadyLinked={links.some((l) => l.entryId === c.id)}
-                        onAdd={(amt) => handleAdd(c, amt)}
+                        onAdd={(amt, linkType) => handleAdd(c, amt, linkType)}
                       />
                     ))
                   )}
@@ -290,11 +314,13 @@ function CandidateRow({
   candidate: EntryCandidate;
   alreadyLinked: boolean;
   adding: boolean;
-  onAdd: (amount: number) => void;
+  onAdd: (amount: number, linkType: StatementLinkType) => void;
 }) {
+  const [linkType, setLinkType] = useState<StatementLinkType>("settlement");
   const [amount, setAmount] = useState<number>(
     Math.max(0, candidate.amount - candidate.alreadyLinkedAmount)
   );
+  const availableAmount = Math.max(0, candidate.amount - candidate.alreadyLinkedAmount);
 
   return (
     <div className="flex items-center gap-2 p-2 text-xs">
@@ -309,19 +335,40 @@ function CandidateRow({
             ` / 既割当 ${fmt(candidate.alreadyLinkedAmount)}`}
         </div>
       </div>
+      <Select
+        value={linkType}
+        onValueChange={(value) => {
+          const nextType = value as StatementLinkType;
+          if (nextType === "fee" && candidate.alreadyLinkedAmount > 0) {
+            toast.warning("手数料は未割当の入出金履歴1行全体にだけ設定できます");
+            return;
+          }
+          setLinkType(nextType);
+          setAmount(nextType === "fee" ? availableAmount : amount || availableAmount);
+        }}
+        disabled={alreadyLinked}
+      >
+        <SelectTrigger className="h-7 w-24 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="settlement">通常</SelectItem>
+          <SelectItem value="fee">手数料</SelectItem>
+        </SelectContent>
+      </Select>
       <Input
         type="number"
         value={amount}
         onChange={(e) => setAmount(parseInt(e.target.value || "0", 10))}
         className="w-24 h-7 text-xs"
         placeholder="金額"
-        disabled={alreadyLinked}
+        disabled={alreadyLinked || linkType === "fee"}
       />
       <Button
         size="sm"
         variant={alreadyLinked ? "ghost" : "outline"}
         disabled={alreadyLinked || adding}
-        onClick={() => onAdd(amount)}
+        onClick={() => onAdd(amount, linkType)}
       >
         {adding ? (
           <Loader2 className="h-3 w-3 animate-spin" />

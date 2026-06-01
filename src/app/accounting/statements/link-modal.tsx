@@ -54,7 +54,10 @@ type EditableLink = {
   isCrossCompany: boolean;
   operatingCompanyName: string | null;
   crossCompanyReason: string;
+  linkType: StatementLinkType;
 };
+
+type StatementLinkType = "settlement" | "fee";
 
 const CROSS_COMPANY_REASON_OPTIONS = [
   "法人間立替",
@@ -66,6 +69,11 @@ const CROSS_COMPANY_REASON_OPTIONS = [
 function fmt(n: number | null | undefined): string {
   if (n === null || n === undefined) return "";
   return n.toLocaleString("ja-JP");
+}
+
+function candidateRemainingAmount(candidate: LinkCandidate) {
+  if (candidate.totalAmount === null) return null;
+  return candidate.totalAmount - candidate.alreadyLinkedAmount;
 }
 
 export function LinkEntryModal({
@@ -84,6 +92,7 @@ export function LinkEntryModal({
   const [candidates, setCandidates] = useState<LinkCandidate[]>([]);
   const [search, setSearch] = useState("");
   const [includeCrossCompany, setIncludeCrossCompany] = useState(false);
+  const [feeTargetMode, setFeeTargetMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [conflicts, setConflicts] = useState<LinkConflict[] | null>(null);
@@ -97,6 +106,7 @@ export function LinkEntryModal({
     () => links.reduce((s, l) => s + (l.amount || 0), 0),
     [links]
   );
+  const hasFeeLink = links.some((l) => l.linkType === "fee");
   const remaining = totalAmount - allocatedSum;
 
   const load = async () => {
@@ -108,6 +118,7 @@ export function LinkEntryModal({
           entryId: entry.id,
           search: "",
           includeCrossCompany,
+          includeFeeTargets: feeTargetMode,
         }),
       ]);
       const existing: EditableLink[] = existingLinks.map((l: EntryLinkRow) => ({
@@ -117,6 +128,7 @@ export function LinkEntryModal({
         groupLabel: l.groupLabel,
         counterpartyName: l.counterpartyName,
         amount: l.amount,
+        linkType: l.linkType,
         note: l.note ?? "",
         isCrossCompany: l.isCrossCompany,
         operatingCompanyName: l.operatingCompanyName,
@@ -144,19 +156,49 @@ export function LinkEntryModal({
       entryId: entry.id,
       search: s,
       includeCrossCompany,
+      includeFeeTargets: feeTargetMode,
     });
     if (res.ok) {
       setCandidates(res.data.candidates);
     }
   };
 
-  const addCandidate = (c: LinkCandidate) => {
+  const addCandidate = (c: LinkCandidate, linkType: StatementLinkType = "settlement") => {
     if (!direction) return;
     if (links.some((l) => l.groupId === c.id && l.groupKind === direction)) {
       toast.warning("既に追加されています");
       return;
     }
-    const defaultAmount = Math.max(0, Math.min(remaining, c.totalAmount ?? remaining));
+    if (linkType === "fee") {
+      if (links.length > 0 || allocatedSum > 0) {
+        toast.warning("手数料は入出金履歴1行全体を1つのグループに紐付ける時だけ選べます");
+        return;
+      }
+      setLinks([
+        {
+          groupKind: direction,
+          groupId: c.id,
+          groupLabel: c.label,
+          counterpartyName: c.counterpartyName,
+          amount: totalAmount,
+          linkType: "fee",
+          note: "支払手数料",
+          isCrossCompany: c.isCrossCompany,
+          operatingCompanyName: c.operatingCompanyName,
+          crossCompanyReason: "",
+        },
+      ]);
+      return;
+    }
+    const groupRemaining = candidateRemainingAmount(c);
+    const defaultAmount = Math.max(
+      0,
+      Math.min(remaining, groupRemaining ?? remaining)
+    );
+    if (defaultAmount <= 0) {
+      toast.warning("残り紐付け可能額がありません");
+      return;
+    }
     setLinks((prev) => [
       ...prev,
       {
@@ -165,6 +207,7 @@ export function LinkEntryModal({
         groupLabel: c.label,
         counterpartyName: c.counterpartyName,
         amount: defaultAmount,
+        linkType: "settlement",
         note: "",
         isCrossCompany: c.isCrossCompany,
         operatingCompanyName: c.operatingCompanyName,
@@ -183,6 +226,7 @@ export function LinkEntryModal({
       entryId: entry.id,
       search,
       includeCrossCompany: next,
+      includeFeeTargets: feeTargetMode,
     });
     if (res.ok) {
       setCandidates(res.data.candidates);
@@ -213,11 +257,18 @@ export function LinkEntryModal({
           toast.error(`別法人紐付け理由を選択してください: ${l.groupLabel}`);
           return;
         }
+        if (l.linkType === "fee" && l.amount !== totalAmount) {
+          toast.error("手数料は入出金履歴1行の全額で紐付けてください");
+          return;
+        }
       }
-      // 分割合計 = 取引金額 のクライアント側ガード
-      if (links.length > 0 && allocatedSum !== totalAmount) {
+      if (hasFeeLink && links.length > 1) {
+        toast.error("手数料として紐付ける場合は、1つのグループだけに紐付けてください");
+        return;
+      }
+      if (links.length > 0 && allocatedSum > totalAmount) {
         toast.error(
-          `紐付け金額の合計（${allocatedSum.toLocaleString("ja-JP")}円）が取引金額（${totalAmount.toLocaleString("ja-JP")}円）と一致しません`
+          `紐付け金額の合計（${allocatedSum.toLocaleString("ja-JP")}円）が取引金額（${totalAmount.toLocaleString("ja-JP")}円）を超えています`
         );
         return;
       }
@@ -228,6 +279,7 @@ export function LinkEntryModal({
           groupKind: l.groupKind,
           groupId: l.groupId,
           amount: l.amount,
+          linkType: l.linkType,
           note: l.note || null,
           crossCompanyReason: l.isCrossCompany ? l.crossCompanyReason : null,
         })),
@@ -287,7 +339,7 @@ export function LinkEntryModal({
                 割当合計: <strong>{fmt(allocatedSum)}</strong> 円
               </span>
               <span className={remaining < 0 ? "text-red-600" : ""}>
-                残り: <strong>{fmt(remaining)}</strong> 円
+                未紐付け残額: <strong>{fmt(remaining)}</strong> 円
               </span>
             </div>
           </div>
@@ -315,15 +367,20 @@ export function LinkEntryModal({
                 <div className="border rounded-md divide-y">
                   {links.map((l, idx) => (
                     <div
-                      key={`${l.groupKind}-${l.groupId}`}
+                      key={`${l.groupKind}-${l.groupId}-${l.linkType}`}
                       className="space-y-2 p-2 text-sm"
                     >
-                      <div className="grid grid-cols-[minmax(0,1fr)_7rem_minmax(0,9rem)_2rem] items-start gap-2">
+                      <div className="grid grid-cols-[minmax(0,1fr)_6rem_7rem_minmax(0,9rem)_2rem] items-start gap-2">
                         <div className="min-w-0">
                           <div className="flex items-center gap-1 min-w-0">
                             <span className="font-medium truncate">
                               {l.groupLabel}
                             </span>
+                            {l.linkType === "fee" && (
+                              <Badge variant="outline" className="shrink-0 border-orange-200 bg-orange-50 text-[10px] text-orange-800">
+                                手数料
+                              </Badge>
+                            )}
                             {l.isCrossCompany && (
                               <Badge variant="outline" className="shrink-0 border-amber-200 bg-amber-50 text-[10px] text-amber-800">
                                 別法人
@@ -335,6 +392,28 @@ export function LinkEntryModal({
                             {l.operatingCompanyName ? ` / ${l.operatingCompanyName}` : ""}
                           </div>
                         </div>
+                        <Select
+                          value={l.linkType}
+                          onValueChange={(value) => {
+                            const nextType = value as StatementLinkType;
+                            if (nextType === "fee" && links.length > 1) {
+                              toast.warning("手数料は1行全体を1つのグループに紐付ける時だけ選べます");
+                              return;
+                            }
+                            updateLink(idx, {
+                              linkType: nextType,
+                              amount: nextType === "fee" ? totalAmount : l.amount,
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="settlement">通常</SelectItem>
+                            <SelectItem value="fee">手数料</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <Input
                           type="number"
                           value={l.amount}
@@ -345,6 +424,7 @@ export function LinkEntryModal({
                           }
                           className="h-8 w-full text-xs"
                           placeholder="金額"
+                          disabled={l.linkType === "fee"}
                         />
                         <Input
                           value={l.note}
@@ -420,6 +500,26 @@ export function LinkEntryModal({
                   >
                     {includeCrossCompany ? "別法人候補を表示中" : "別法人の候補も表示"}
                   </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={feeTargetMode ? "default" : "outline"}
+                    onClick={async () => {
+                      const next = !feeTargetMode;
+                      setFeeTargetMode(next);
+                      const res = await listLinkCandidatesForEntry({
+                        entryId: entry.id,
+                        search,
+                        includeCrossCompany,
+                        includeFeeTargets: next,
+                      });
+                      if (res.ok) setCandidates(res.data.candidates);
+                      else toast.error(res.error);
+                    }}
+                    className="h-8"
+                  >
+                    {feeTargetMode ? "手数料候補を表示中" : "手数料として紐付け"}
+                  </Button>
                 </div>
               </div>
               {includeCrossCompany && (
@@ -458,6 +558,7 @@ export function LinkEntryModal({
                     const linked = links.some(
                       (l) => l.groupId === c.id && l.groupKind === direction
                     );
+                    const groupRemaining = candidateRemainingAmount(c);
                     return (
                       <div
                         key={c.id}
@@ -485,6 +586,11 @@ export function LinkEntryModal({
                               既割当 {fmt(c.alreadyLinkedAmount)}
                             </div>
                           )}
+                          {groupRemaining !== null && (
+                            <div className={groupRemaining <= 0 ? "text-red-600" : "text-muted-foreground"}>
+                              残額 {fmt(groupRemaining)}
+                            </div>
+                          )}
                         </div>
                         {c.statementLinkCompleted && (
                           <Badge variant="secondary" className="text-[10px]">
@@ -495,10 +601,10 @@ export function LinkEntryModal({
                           size="sm"
                           variant={linked ? "ghost" : "outline"}
                           disabled={linked}
-                          onClick={() => addCandidate(c)}
+                          onClick={() => addCandidate(c, feeTargetMode ? "fee" : "settlement")}
                         >
                           <Plus className="h-3 w-3 mr-1" />
-                          {linked ? "追加済" : "追加"}
+                          {linked ? "追加済" : feeTargetMode ? "手数料" : "追加"}
                         </Button>
                       </div>
                     );
@@ -522,11 +628,11 @@ export function LinkEntryModal({
             disabled={
               saving ||
               direction === null ||
-              (links.length > 0 && allocatedSum !== totalAmount)
+              (links.length > 0 && allocatedSum > totalAmount)
             }
             title={
-              links.length > 0 && allocatedSum !== totalAmount
-                ? "割当合計が取引金額と一致しません"
+              links.length > 0 && allocatedSum > totalAmount
+                ? "割当合計が取引金額を超えています"
                 : undefined
             }
           >
