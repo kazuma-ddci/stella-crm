@@ -60,7 +60,7 @@ import {
   createManualTrackerTransaction,
   createTrackerExpenseCategory,
 } from "./actions";
-import { unconfirmTransaction } from "@/app/finance/transactions/actions";
+import { deleteTransaction } from "@/app/finance/transactions/actions";
 import { TransactionPreviewModal } from "../transactions/transaction-preview-modal";
 import type {
   BillingLifecycleData,
@@ -1314,9 +1314,9 @@ function RevenueItemRow({
               </AlertDialogTrigger>
               <AlertDialogContent onClick={(e) => e.stopPropagation()}>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>確定を取り消しますか？</AlertDialogTitle>
+                  <AlertDialogTitle>確定を取り消して候補に戻しますか？</AlertDialogTitle>
                   <AlertDialogDescription>
-                    編集内容を保持したまま取引確認待ちに戻します。再度「取引確認」から編集して確定できます。
+                    保存済みの取引を取り消し、契約履歴から再計算した取引確認待ちに戻します。
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -1472,9 +1472,9 @@ function ExpenseItemRow({
               </AlertDialogTrigger>
               <AlertDialogContent onClick={(e) => e.stopPropagation()}>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>確定を取り消しますか？</AlertDialogTitle>
+                  <AlertDialogTitle>確定を取り消して候補に戻しますか？</AlertDialogTitle>
                   <AlertDialogDescription>
-                    編集内容を保持したまま取引確認待ちに戻します。再度「取引確認」から編集して確定できます。
+                    保存済みの取引を取り消し、契約履歴から再計算した取引確認待ちに戻します。
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -1713,23 +1713,23 @@ export function BillingLifecycleView({
   };
 
   const handleUnconfirmRevenueTransaction = async (transactionId: number) => {
-    const result = await unconfirmTransaction(transactionId);
+    const result = await deleteTransaction(transactionId);
     if (!result.ok) {
       toast.error(result.error);
       return;
     }
-    toast.success("確定を取り消し、取引確認待ちに戻しました");
+    toast.success("確定を取り消し、再計算した取引確認待ちに戻しました");
     await loadRevenueData(selectedMonth);
     setActiveRevenueStatus("not_created");
   };
 
   const handleUnconfirmExpenseTransaction = async (transactionId: number) => {
-    const result = await unconfirmTransaction(transactionId);
+    const result = await deleteTransaction(transactionId);
     if (!result.ok) {
       toast.error(result.error);
       return;
     }
-    toast.success("確定を取り消し、取引確認待ちに戻しました");
+    toast.success("確定を取り消し、再計算した取引確認待ちに戻しました");
     await loadExpenseData(selectedMonth);
     setActiveExpenseStatus("not_created");
   };
