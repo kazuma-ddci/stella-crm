@@ -2087,6 +2087,7 @@ model StpRevenueRecord {
   @@index([stpCompanyId, targetMonth])
   @@index([accountingStatus])
   @@index([invoiceId])
+  @@index([contractHistoryId, revenueType, targetMonth, deletedAt], map: "stp_rev_contract_type_month_deleted_idx")
   @@map("stp_revenue_records")
 }
 
@@ -2562,6 +2563,12 @@ model Transaction {
   allocationGroupItems    AllocationGroupItem[]
   expenseOwners           TransactionExpenseOwner[]
   cryptoDetail            CryptoTransactionDetail?
+
+  @@index([invoiceGroupId], map: "transaction_invoice_group_idx")
+  @@index([paymentGroupId], map: "transaction_payment_group_idx")
+  @@index([stpContractHistoryId], map: "transaction_stp_contract_history_idx")
+  @@index([invoiceGroupId, deletedAt], map: "transaction_invoice_group_deleted_idx")
+  @@index([paymentGroupId, deletedAt], map: "transaction_payment_group_deleted_idx")
 }
 
 // ============================================
@@ -3180,6 +3187,9 @@ model JournalEntry {
   updater              MasterStaff?       @relation("JournalUpdater", fields: [updatedBy], references: [id])
 
   @@index([operatingCompanyId])
+  @@index([invoiceGroupId], map: "journal_entry_invoice_group_idx")
+  @@index([paymentGroupId], map: "journal_entry_payment_group_idx")
+  @@index([transactionId], map: "journal_entry_transaction_idx")
 }
 
 // ============================================
@@ -3845,6 +3855,9 @@ model InboundInvoice {
   processor       MasterStaff?          @relation("InboundInvoiceProcessor", fields: [processedBy], references: [id])
 
   @@unique([messageId, attachmentIndex])
+  @@index([receivedByEmailId, receivedAt], map: "inbound_invoice_email_received_idx")
+  @@index([paymentGroupId], map: "inbound_invoice_payment_group_idx")
+  @@index([status], map: "inbound_invoice_status_idx")
 }
 
 // ============================================
@@ -5333,6 +5346,8 @@ model AutomationError {
   resolved  Boolean  @default(false) // 解決済みフラグ
   createdAt DateTime @default(now())
 
+  @@index([source, createdAt], map: "automation_errors_source_created_idx")
+  @@index([resolved, createdAt], map: "automation_errors_resolved_created_idx")
   @@map("automation_errors")
 }
 

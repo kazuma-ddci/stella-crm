@@ -35,6 +35,7 @@ if (fs.existsSync(envPath)) {
 
 const PORT = parseInt(process.env.TRIGGER_PORT || "3100");
 const CRON_SECRET = process.env.CRON_SECRET;
+const SYNC_TIMEOUT_MS = 15 * 60 * 1000;
 
 // stg/prod で環境別の APP_URL/CRON_SECRET を切り替える用（.env.sync に追記する）
 // 後方互換: 設定が無ければ既存の APP_URL/CRON_SECRET をそのまま使う
@@ -78,8 +79,9 @@ function resolveEnvConfig(envParam) {
   };
 }
 
-/** ラベル別の実行管理（異なるラベルは並列実行可能、同一ラベルは排他） */
+/** 同期実行管理 */
 const runningSet = new Set();
+let activeProlineLabel = null;
 
 // 補助金プロジェクトの有効なアカウント種別
 const HOJO_ACCOUNTS = ["josei-support", "shinsei-support", "alkes", "security-cloud"];
@@ -125,14 +127,20 @@ const server = http.createServer((req, res) => {
       label = `${resolvedEnv}:slp`;
     }
 
-    // 同一ラベルの同期が実行中なら拒否（異なるラベルは並列OK）
+    // ProLine同期はPuppeteer/Chromeを起動するため、VPS負荷を避けて全体で1本に制限する。
     if (runningSet.has(label)) {
       res.writeHead(409, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: `同期処理が既に実行中です（${label}）` }));
       return;
     }
+    if (activeProlineLabel) {
+      res.writeHead(409, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: `別のProLine同期が実行中です（${activeProlineLabel}）` }));
+      return;
+    }
 
     runningSet.add(label);
+    activeProlineLabel = label;
     console.log(`[trigger] 同期開始 (${label}) → ${appUrl}: ${new Date().toISOString()}`);
 
     const execEnv = { ...process.env };
@@ -145,8 +153,9 @@ const server = http.createServer((req, res) => {
       execEnv.NODE_PATH = `${homedir}/proline-deps/node_modules`;
     }
 
-    execFile("node", scriptArgs, { timeout: 180000, env: execEnv }, (error, stdout, stderr) => {
+    execFile("node", scriptArgs, { timeout: SYNC_TIMEOUT_MS, env: execEnv }, (error, stdout, stderr) => {
       runningSet.delete(label);
+      if (activeProlineLabel === label) activeProlineLabel = null;
 
       if (error) {
         console.error(`[trigger] 同期エラー (${label}):`, error.message);

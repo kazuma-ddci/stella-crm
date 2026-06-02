@@ -36,6 +36,25 @@ export interface CloudSignEmail {
 }
 
 const MAX_MESSAGES_PER_BATCH = 50;
+const IMAP_CONNECTION_TIMEOUT_MS = 10_000;
+const IMAP_GREETING_TIMEOUT_MS = 10_000;
+const IMAP_SOCKET_TIMEOUT_MS = 30_000;
+
+function createImapClient(config: ImapConfig) {
+  return new ImapFlow({
+    host: config.host,
+    port: config.port,
+    secure: config.tls ?? true,
+    auth: {
+      user: config.user,
+      pass: config.pass,
+    },
+    connectionTimeout: IMAP_CONNECTION_TIMEOUT_MS,
+    greetingTimeout: IMAP_GREETING_TIMEOUT_MS,
+    socketTimeout: IMAP_SOCKET_TIMEOUT_MS,
+    logger: false,
+  });
+}
 
 /**
  * sinceUid より大きいUIDのメールからPDF添付付きのものを取得する。
@@ -46,16 +65,7 @@ export async function fetchNewWithPdfAttachments(
   sinceUid: number,
   emailAccountId?: number
 ): Promise<InboundEmail[]> {
-  const client = new ImapFlow({
-    host: config.host,
-    port: config.port,
-    secure: config.tls ?? true,
-    auth: {
-      user: config.user,
-      pass: config.pass,
-    },
-    logger: false,
-  });
+  const client = createImapClient(config);
 
   const results: InboundEmail[] = [];
 
@@ -147,16 +157,7 @@ export async function fetchCloudSignSigningEmails(
   sinceUid: number,
   targetDocumentId?: string
 ): Promise<CloudSignEmail[]> {
-  const client = new ImapFlow({
-    host: config.host,
-    port: config.port,
-    secure: config.tls ?? true,
-    auth: {
-      user: config.user,
-      pass: config.pass,
-    },
-    logger: false,
-  });
+  const client = createImapClient(config);
 
   const results: CloudSignEmail[] = [];
 
@@ -301,4 +302,3 @@ function decodeHtmlEntities(str: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
 }
-

@@ -37,6 +37,20 @@ if (fs.existsSync(envPath)) {
 
 const CRON_SECRET = process.env.CRON_SECRET;
 const APP_URL = process.env.APP_URL || "http://localhost:4001";
+const PUPPETEER_PROTOCOL_TIMEOUT_MS = 90_000;
+const BROWSER_CLOSE_TIMEOUT_MS = 5_000;
+const PUPPETEER_LAUNCH_ARGS = [
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+  "--disable-dev-shm-usage",
+  "--disable-gpu",
+  "--disable-software-rasterizer",
+  "--disable-background-networking",
+  "--disable-extensions",
+  "--disable-sync",
+  "--metrics-recording-only",
+];
+const activeBrowsers = new Set();
 
 // レガシー: 環境変数からのフォールバック（CRM設定が優先）
 const PROLINE_EMAIL = process.env.PROLINE_EMAIL;
@@ -46,6 +60,40 @@ if (!CRON_SECRET) {
   console.error("必要な環境変数が設定されていません: CRON_SECRET");
   process.exit(1);
 }
+
+async function closeBrowser(browser, label = "browser") {
+  if (!browser) return;
+
+  const browserProcess = typeof browser.process === "function" ? browser.process() : null;
+  try {
+    await Promise.race([
+      browser.close(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("browser.close timeout")), BROWSER_CLOSE_TIMEOUT_MS)
+      ),
+    ]);
+  } catch (err) {
+    console.error(`[sync-proline] ${label} 終了失敗: ${err.message}`);
+    if (browserProcess && !browserProcess.killed) {
+      browserProcess.kill("SIGKILL");
+    }
+  } finally {
+    activeBrowsers.delete(browser);
+  }
+}
+
+async function shutdown(signal) {
+  console.error(`[sync-proline] ${signal} を受信したためブラウザを終了します`);
+  await Promise.all([...activeBrowsers].map((browser) => closeBrowser(browser, signal)));
+  process.exit(128 + (signal === "SIGINT" ? 2 : 15));
+}
+
+process.once("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});
+process.once("SIGINT", () => {
+  void shutdown("SIGINT");
+});
 
 /**
  * CRM設定画面に登録されたプロラインアカウント情報を取得
@@ -147,11 +195,15 @@ async function downloadExcel(account) {
   console.log("[sync-proline] Puppeteerブラウザ起動...");
   const browser = await puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    protocolTimeout: PUPPETEER_PROTOCOL_TIMEOUT_MS,
+    args: PUPPETEER_LAUNCH_ARGS,
   });
+  activeBrowsers.add(browser);
 
   try {
     const page = await browser.newPage();
+    page.setDefaultTimeout(30_000);
+    page.setDefaultNavigationTimeout(60_000);
 
     const client = await page.createCDPSession();
     await client.send("Page.setDownloadBehavior", {
@@ -227,7 +279,7 @@ async function downloadExcel(account) {
     console.log(`[sync-proline] ダウンロード完了: ${xlsFile}`);
     return xlsFile;
   } finally {
-    await browser.close();
+    await closeBrowser(browser);
   }
 }
 
