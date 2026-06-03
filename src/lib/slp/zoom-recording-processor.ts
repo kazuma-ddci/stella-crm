@@ -27,20 +27,36 @@ type RecordingContext = {
 };
 
 // ============================================
-// meeting_id で既存Recording を探す（CRM無関係の会議はスキップ用）
+// meeting_id / meeting_uuid / 開催時刻で既存Recording を探す（CRM無関係の会議はスキップ用）
 //
-// 新構造では Zoom URL発行・手動追加の時点で Recording が作成されるため、
-// Webhook 到着時は必ず既存レコードが見つかる想定。見つからない＝CRM管理外の会議。
+// 固定URL/PMI は同じ numeric meeting_id を複数開催回で再利用する。
+// Zoom Webhook には開催回ごとに異なる uuid が届くため、uuid一致を最優先し、
+// まだ uuid 未保存の予定レコードは開催時刻に近いものへ紐付ける。
 // ============================================
 
-async function findExistingRecordingByMeetingId(
-  meetingId: bigint
-): Promise<RecordingContext | null> {
-  const existing = await prisma.slpZoomRecording.findUnique({
-    where: { zoomMeetingId: meetingId },
+async function findHostStaffIdByZoomUserId(
+  zoomUserId: string | null | undefined
+): Promise<number | null> {
+  if (!zoomUserId) return null;
+  const integration = await prisma.staffMeetingIntegration.findFirst({
+    where: {
+      provider: "zoom",
+      externalUserId: zoomUserId,
+      disconnectedAt: null,
+    },
+    select: { staffId: true },
   });
-  if (!existing) return null;
+  return integration?.staffId ?? null;
+}
 
+function toRecordingContext(existing: {
+  id: number;
+  contactHistoryId: number;
+  category: string;
+  hostStaffId: number | null;
+  zoomMeetingId: bigint;
+  zoomMeetingUuid: string | null;
+}): RecordingContext {
   return {
     recordingRowId: existing.id,
     contactHistoryId: existing.contactHistoryId,
@@ -49,6 +65,56 @@ async function findExistingRecordingByMeetingId(
     meetingId: existing.zoomMeetingId,
     meetingUuid: existing.zoomMeetingUuid,
   };
+}
+
+async function findExistingRecordingForZoomOccurrence(params: {
+  meetingId: bigint;
+  meetingUuid?: string | null;
+  startTime?: string | null;
+  hostZoomUserId?: string | null;
+}): Promise<RecordingContext | null> {
+  const exactUuid = params.meetingUuid
+    ? await prisma.slpZoomRecording.findFirst({
+        where: {
+          zoomMeetingId: params.meetingId,
+          zoomMeetingUuid: params.meetingUuid,
+          deletedAt: null,
+        },
+      })
+    : null;
+  if (exactUuid) return toRecordingContext(exactUuid);
+
+  const hostStaffId = await findHostStaffIdByZoomUserId(params.hostZoomUserId);
+  const candidates = await prisma.slpZoomRecording.findMany({
+    where: {
+      zoomMeetingId: params.meetingId,
+      deletedAt: null,
+      OR: [{ zoomMeetingUuid: null }, { state: { in: ["予定", "取得中"] } }],
+      ...(hostStaffId ? { hostStaffId } : {}),
+    },
+    orderBy: [{ scheduledAt: "asc" }, { createdAt: "asc" }],
+  });
+  if (candidates.length === 0) return null;
+
+  const occurrenceStartedAt = params.startTime
+    ? new Date(params.startTime)
+    : null;
+  if (occurrenceStartedAt && !Number.isNaN(occurrenceStartedAt.getTime())) {
+    const best = candidates.reduce((currentBest, candidate) => {
+      const currentTime = currentBest.scheduledAt ?? currentBest.createdAt;
+      const candidateTime = candidate.scheduledAt ?? candidate.createdAt;
+      const currentDiff = Math.abs(
+        currentTime.getTime() - occurrenceStartedAt.getTime()
+      );
+      const candidateDiff = Math.abs(
+        candidateTime.getTime() - occurrenceStartedAt.getTime()
+      );
+      return candidateDiff < currentDiff ? candidate : currentBest;
+    });
+    return toRecordingContext(best);
+  }
+
+  return toRecordingContext(candidates[0]);
 }
 
 // ============================================
@@ -367,13 +433,21 @@ export async function downloadAndSaveRecordingFiles(
   // 文字起こしは議事録欄には入れない（詳細モーダルの「文字起こし」タブで参照可能）。
 
   // Zoom側の録画ファイルを削除（DL成功分のみ）
-  await deleteFetchedZoomFiles(recordingPayload, rec.hostStaffId, rec.zoomMeetingId, rec.zoomMeetingUuid, downloaded);
+  await deleteFetchedZoomFiles(
+    recordingPayload,
+    rec.id,
+    rec.hostStaffId,
+    rec.zoomMeetingId,
+    rec.zoomMeetingUuid,
+    downloaded
+  );
 
   return { ok: true, mp4: mp4Saved, transcript: transcriptSaved, chat: chatSaved };
 }
 
 async function deleteFetchedZoomFiles(
   payload: ZoomRecordingPayload,
+  recordingRowId: number,
   hostStaffId: number,
   meetingId: bigint,
   meetingUuid: string | null,
@@ -409,16 +483,10 @@ async function deleteFetchedZoomFiles(
     }
   }
   if (deletedAll) {
-    const r = await prisma.slpZoomRecording.findUnique({
-      where: { zoomMeetingId: meetingId },
-      select: { id: true },
+    await prisma.slpZoomRecording.update({
+      where: { id: recordingRowId },
+      data: { zoomCloudDeletedAt: new Date() },
     });
-    if (r) {
-      await prisma.slpZoomRecording.update({
-        where: { id: r.id },
-        data: { zoomCloudDeletedAt: new Date() },
-      });
-    }
   }
   // 不要パラメータ警告抑制
   void payload;
@@ -625,7 +693,7 @@ async function finalizeRecordingState(recordingRowId: number): Promise<"予定" 
 // Webhook エントリポイント1: recording.completed / recording.transcript_completed
 //
 // 新構造: 対象 Recording は Zoom発行・手動追加時点で既に作成済み（state="予定"）。
-// 該当 meeting_id の Recording が見つからない = CRM無関係の会議としてスルー。
+// 該当する Recording が見つからない = CRM無関係の会議としてスルー。
 // ============================================
 
 export async function processZoomRecordingCompleted(
@@ -634,7 +702,12 @@ export async function processZoomRecordingCompleted(
   const meetingIdNum =
     typeof payload.id === "string" ? BigInt(payload.id) : BigInt(payload.id);
 
-  const ctx = await findExistingRecordingByMeetingId(meetingIdNum);
+  const ctx = await findExistingRecordingForZoomOccurrence({
+    meetingId: meetingIdNum,
+    meetingUuid: payload.uuid,
+    startTime: payload.start_time,
+    hostZoomUserId: payload.host_id,
+  });
   if (!ctx) {
     // CRM無関係の会議 → 黙ってスルー
     return;
@@ -695,8 +768,13 @@ export async function processZoomRecordingCompleted(
 export async function processMeetingSummaryCompleted(payload: {
   meetingId: bigint;
   meetingUuid: string;
+  hostZoomUserId?: string | null;
 }): Promise<void> {
-  const ctx = await findExistingRecordingByMeetingId(payload.meetingId);
+  const ctx = await findExistingRecordingForZoomOccurrence({
+    meetingId: payload.meetingId,
+    meetingUuid: payload.meetingUuid,
+    hostZoomUserId: payload.hostZoomUserId,
+  });
   if (!ctx) return;
 
   // meeting_uuid を反映（後で参加者取得・録画削除に必要）

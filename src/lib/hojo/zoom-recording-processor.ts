@@ -26,14 +26,28 @@ type RecordingContext = {
   meetingUuid: string | null;
 };
 
-async function findExistingRecordingByMeetingId(
-  meetingId: bigint
-): Promise<RecordingContext | null> {
-  const existing = await prisma.hojoZoomRecording.findUnique({
-    where: { zoomMeetingId: meetingId },
+async function findHostStaffIdByZoomUserId(
+  zoomUserId: string | null | undefined
+): Promise<number | null> {
+  if (!zoomUserId) return null;
+  const integration = await prisma.staffMeetingIntegration.findFirst({
+    where: {
+      provider: "zoom",
+      externalUserId: zoomUserId,
+      disconnectedAt: null,
+    },
+    select: { staffId: true },
   });
-  if (!existing) return null;
+  return integration?.staffId ?? null;
+}
 
+function toRecordingContext(existing: {
+  id: number;
+  contactHistoryId: number;
+  hostStaffId: number | null;
+  zoomMeetingId: bigint;
+  zoomMeetingUuid: string | null;
+}): RecordingContext {
   return {
     recordingRowId: existing.id,
     contactHistoryId: existing.contactHistoryId,
@@ -41,6 +55,56 @@ async function findExistingRecordingByMeetingId(
     meetingId: existing.zoomMeetingId,
     meetingUuid: existing.zoomMeetingUuid,
   };
+}
+
+async function findExistingRecordingForZoomOccurrence(params: {
+  meetingId: bigint;
+  meetingUuid?: string | null;
+  startTime?: string | null;
+  hostZoomUserId?: string | null;
+}): Promise<RecordingContext | null> {
+  const exactUuid = params.meetingUuid
+    ? await prisma.hojoZoomRecording.findFirst({
+        where: {
+          zoomMeetingId: params.meetingId,
+          zoomMeetingUuid: params.meetingUuid,
+          deletedAt: null,
+        },
+      })
+    : null;
+  if (exactUuid) return toRecordingContext(exactUuid);
+
+  const hostStaffId = await findHostStaffIdByZoomUserId(params.hostZoomUserId);
+  const candidates = await prisma.hojoZoomRecording.findMany({
+    where: {
+      zoomMeetingId: params.meetingId,
+      deletedAt: null,
+      OR: [{ zoomMeetingUuid: null }, { state: { in: ["予定", "取得中"] } }],
+      ...(hostStaffId ? { hostStaffId } : {}),
+    },
+    orderBy: [{ scheduledAt: "asc" }, { createdAt: "asc" }],
+  });
+  if (candidates.length === 0) return null;
+
+  const occurrenceStartedAt = params.startTime
+    ? new Date(params.startTime)
+    : null;
+  if (occurrenceStartedAt && !Number.isNaN(occurrenceStartedAt.getTime())) {
+    const best = candidates.reduce((currentBest, candidate) => {
+      const currentTime = currentBest.scheduledAt ?? currentBest.createdAt;
+      const candidateTime = candidate.scheduledAt ?? candidate.createdAt;
+      const currentDiff = Math.abs(
+        currentTime.getTime() - occurrenceStartedAt.getTime()
+      );
+      const candidateDiff = Math.abs(
+        candidateTime.getTime() - occurrenceStartedAt.getTime()
+      );
+      return candidateDiff < currentDiff ? candidate : currentBest;
+    });
+    return toRecordingContext(best);
+  }
+
+  return toRecordingContext(candidates[0]);
 }
 
 // ============================================
@@ -337,6 +401,7 @@ export async function downloadAndSaveRecordingFiles(
 
   await deleteFetchedZoomFiles(
     recordingPayload,
+    rec.id,
     rec.hostStaffId,
     rec.zoomMeetingId,
     rec.zoomMeetingUuid,
@@ -348,6 +413,7 @@ export async function downloadAndSaveRecordingFiles(
 
 async function deleteFetchedZoomFiles(
   payload: ZoomRecordingPayload,
+  recordingRowId: number,
   hostStaffId: number,
   meetingId: bigint,
   meetingUuid: string | null,
@@ -383,16 +449,10 @@ async function deleteFetchedZoomFiles(
     }
   }
   if (deletedAll) {
-    const r = await prisma.hojoZoomRecording.findUnique({
-      where: { zoomMeetingId: meetingId },
-      select: { id: true },
+    await prisma.hojoZoomRecording.update({
+      where: { id: recordingRowId },
+      data: { zoomCloudDeletedAt: new Date() },
     });
-    if (r) {
-      await prisma.hojoZoomRecording.update({
-        where: { id: r.id },
-        data: { zoomCloudDeletedAt: new Date() },
-      });
-    }
   }
   void payload;
 }
@@ -573,7 +633,12 @@ export async function processHojoZoomRecordingCompleted(
   const meetingIdNum =
     typeof payload.id === "string" ? BigInt(payload.id) : BigInt(payload.id);
 
-  const ctx = await findExistingRecordingByMeetingId(meetingIdNum);
+  const ctx = await findExistingRecordingForZoomOccurrence({
+    meetingId: meetingIdNum,
+    meetingUuid: payload.uuid,
+    startTime: payload.start_time,
+    hostZoomUserId: payload.host_id,
+  });
   if (!ctx) return;
 
   if (payload.uuid && !ctx.meetingUuid) {
@@ -622,8 +687,13 @@ export async function processHojoZoomRecordingCompleted(
 export async function processHojoMeetingSummaryCompleted(payload: {
   meetingId: bigint;
   meetingUuid: string;
+  hostZoomUserId?: string | null;
 }): Promise<void> {
-  const ctx = await findExistingRecordingByMeetingId(payload.meetingId);
+  const ctx = await findExistingRecordingForZoomOccurrence({
+    meetingId: payload.meetingId,
+    meetingUuid: payload.meetingUuid,
+    hostZoomUserId: payload.hostZoomUserId,
+  });
   if (!ctx) return;
 
   if (payload.meetingUuid) {
@@ -640,8 +710,8 @@ export async function processHojoMeetingSummaryCompleted(payload: {
 // HOJO Zoom recording が存在するかチェック（Webhook振り分け用）
 // ============================================
 export async function hojoZoomRecordingExists(meetingId: bigint): Promise<boolean> {
-  const rec = await prisma.hojoZoomRecording.findUnique({
-    where: { zoomMeetingId: meetingId },
+  const rec = await prisma.hojoZoomRecording.findFirst({
+    where: { zoomMeetingId: meetingId, deletedAt: null },
     select: { id: true },
   });
   return !!rec;

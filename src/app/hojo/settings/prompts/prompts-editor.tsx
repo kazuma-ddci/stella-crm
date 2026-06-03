@@ -195,10 +195,11 @@ export function PromptsEditor({
         <div className="rounded-lg border bg-blue-50/50 p-4 text-sm space-y-1">
           <div className="font-semibold">Zoom議事録 AIプロンプト</div>
           <p className="text-xs">
-            Zoom議事録のClaude要約生成・先方参加者抽出用のプロンプトです。SLPと共通で使用されます。
+            Zoom議事録のClaude要約生成・タスク候補抽出・先方参加者抽出用のプロンプトです。
           </p>
           <ul className="text-xs list-disc ml-5 space-y-1">
             <li><strong>議事録要約:</strong> <code>{"{{事業者名}} {{商談種別}} {{日時}} {{担当者}}"}</code></li>
+            <li><strong>タスク候補抽出:</strong> <code>{"{{事業者名}} {{商談種別}} {{日時}} {{担当者}}"}</code></li>
             <li><strong>先方参加者抽出:</strong> <code>{"{{弊社スタッフ一覧}}"}</code></li>
           </ul>
         </div>

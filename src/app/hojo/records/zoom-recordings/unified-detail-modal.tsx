@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Tabs,
   TabsContent,
@@ -40,6 +41,9 @@ import {
   Save,
   History,
   Pencil,
+  ListChecks,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import {
   getHojoZoomRecordingDetail,
@@ -48,6 +52,9 @@ import {
   updateHojoZoomRecordingState,
   getHojoContactHistoryForZoomRecording,
   updateHojoContactHistoryFromZoomModal,
+  generateHojoZoomTaskCandidates,
+  listHojoConsultingActivitiesForZoomTaskReflection,
+  reflectHojoZoomTasksToConsultingActivity,
 } from "@/app/hojo/contact-histories/zoom-actions";
 
 type DetailData = {
@@ -98,6 +105,21 @@ type Participant = {
   leave_time?: string;
 };
 
+type TaskDraft = {
+  taskType: "vendor" | "consulting_team";
+  content: string;
+  deadline: string;
+  priority: string;
+};
+
+type ActivityOption = {
+  id: number;
+  label: string;
+  activityDate: string;
+  title: string | null;
+  taskCounts: { vendor: number; consultingTeam: number };
+};
+
 function formatJst(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -118,6 +140,111 @@ function formatBytes(n: number | null): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
   if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)}MB`;
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)}GB`;
+}
+
+const priorityOptions = ["高", "中", "低"];
+
+function TaskDraftGroup({
+  title,
+  taskType,
+  tasks,
+  onAdd,
+  onUpdate,
+  onRemove,
+}: {
+  title: string;
+  taskType: "vendor" | "consulting_team";
+  tasks: TaskDraft[];
+  onAdd: () => void;
+  onUpdate: (index: number, patch: Partial<TaskDraft>) => void;
+  onRemove: (index: number) => void;
+}) {
+  const filtered = tasks
+    .map((task, index) => ({ task, index }))
+    .filter(({ task }) => task.taskType === taskType);
+
+  return (
+    <section className="rounded border bg-white p-4 space-y-4 min-h-[360px]">
+      <div className="flex items-center justify-between gap-2 border-b pb-3">
+        <div>
+          <h3 className="text-base font-semibold">{title}</h3>
+          <p className="text-xs text-muted-foreground">
+            内容は確定前に編集できます。空欄のタスクは反映されません。
+          </p>
+        </div>
+        <Button type="button" size="sm" variant="outline" onClick={onAdd}>
+          <Plus className="h-3 w-3 mr-1" />
+          追加
+        </Button>
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-4">
+          タスク候補がありません
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map(({ task, index }) => (
+            <div key={index} className="rounded border bg-muted/10 p-4 space-y-3">
+              <div className="flex items-start gap-2">
+                <div className="flex-1 space-y-1">
+                  <Label className="text-xs">内容</Label>
+                  <Textarea
+                    value={task.content}
+                    onChange={(e) => onUpdate(index, { content: e.target.value })}
+                    rows={5}
+                    className="min-h-[120px] text-sm leading-relaxed"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
+                  onClick={() => onRemove(index)}
+                  title="削除"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">期限</Label>
+                  <DatePicker
+                    value={task.deadline}
+                    onChange={(deadline) => onUpdate(index, { deadline })}
+                    placeholder="期限なし"
+                    className="h-8"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">優先度</Label>
+                  <Select
+                    value={task.priority || "none"}
+                    onValueChange={(value) =>
+                      onUpdate(index, { priority: value === "none" ? "" : value })
+                    }
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue placeholder="-" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">-</SelectItem>
+                      {priorityOptions.map((priority) => (
+                        <SelectItem key={priority} value={priority}>
+                          {priority}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
 }
 
 export function UnifiedDetailModal({
@@ -145,13 +272,20 @@ export function UnifiedDetailModal({
   const [chMinutes, setChMinutes] = useState("");
   const [chNote, setChNote] = useState("");
   const [chCustomerParticipants, setChCustomerParticipants] = useState("");
+  const [activityOptions, setActivityOptions] = useState<ActivityOption[]>([]);
+  const [selectedActivityId, setSelectedActivityId] = useState("");
+  const [taskDrafts, setTaskDrafts] = useState<TaskDraft[]>([]);
+  const [generatingTasks, setGeneratingTasks] = useState(false);
+  const [reflectingTasks, setReflectingTasks] = useState(false);
+  const [taskModel, setTaskModel] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [d, c] = await Promise.all([
+      const [d, c, activities] = await Promise.all([
         getHojoZoomRecordingDetail(recordingId),
         getHojoContactHistoryForZoomRecording(recordingId),
+        listHojoConsultingActivitiesForZoomTaskReflection(recordingId),
       ]);
       if (d.ok) {
         setData(d.data);
@@ -166,6 +300,18 @@ export function UnifiedDetailModal({
         setChNote(c.data.note ?? "");
         setChCustomerParticipants(c.data.customerParticipants ?? "");
       }
+      if (activities.ok) {
+        setActivityOptions(activities.data);
+        setSelectedActivityId((current) => {
+          if (current && activities.data.some((activity) => String(activity.id) === current)) {
+            return current;
+          }
+          return activities.data[0] ? String(activities.data[0].id) : "";
+        });
+      } else {
+        setActivityOptions([]);
+        setSelectedActivityId("");
+      }
     } finally {
       setLoading(false);
     }
@@ -175,6 +321,8 @@ export function UnifiedDetailModal({
     if (open) {
       setEditingClaude(false);
       setEditingCh(false);
+      setTaskDrafts([]);
+      setTaskModel(null);
       load();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -335,11 +483,96 @@ export function UnifiedDetailModal({
     }
   };
 
+  const handleGenerateTasks = async () => {
+    if (!data?.transcriptText) {
+      toast.error("文字起こしがまだ取得されていません");
+      return;
+    }
+    setGeneratingTasks(true);
+    try {
+      const r = await generateHojoZoomTaskCandidates(recordingId);
+      if (r.ok) {
+        setTaskDrafts(
+          r.data.tasks.map((task) => ({
+            taskType: task.taskType,
+            content: task.content,
+            deadline: task.deadline,
+            priority: task.priority,
+          }))
+        );
+        setTaskModel(r.data.model);
+        if (r.data.tasks.length > 0) {
+          toast.success(`タスク候補を${r.data.tasks.length}件生成しました`);
+        } else {
+          toast.info("タスク候補は見つかりませんでした");
+        }
+      } else {
+        toast.error(r.error);
+      }
+    } finally {
+      setGeneratingTasks(false);
+    }
+  };
+
+  const handleReflectTasks = async () => {
+    if (!selectedActivityId) {
+      toast.error("反映先のコンサル履歴を選択してください");
+      return;
+    }
+    const tasks = taskDrafts.filter((task) => task.content.trim());
+    if (tasks.length === 0) {
+      toast.error("反映するタスクを入力してください");
+      return;
+    }
+    setReflectingTasks(true);
+    try {
+      const r = await reflectHojoZoomTasksToConsultingActivity({
+        recordingId,
+        activityId: Number(selectedActivityId),
+        tasks,
+      });
+      if (r.ok) {
+        toast.success(`タスクを${r.data.createdCount}件反映しました`);
+        setTaskDrafts([]);
+        await load();
+        router.refresh();
+      } else {
+        toast.error(r.error);
+      }
+    } finally {
+      setReflectingTasks(false);
+    }
+  };
+
+  const updateTaskDraft = (index: number, patch: Partial<TaskDraft>) => {
+    setTaskDrafts((current) =>
+      current.map((task, i) => (i === index ? { ...task, ...patch } : task))
+    );
+  };
+
+  const addTaskDraft = (taskType: "vendor" | "consulting_team") => {
+    setTaskDrafts((current) => [
+      ...current,
+      { taskType, content: "", deadline: "", priority: "" },
+    ]);
+  };
+
+  const removeTaskDraft = (index: number) => {
+    setTaskDrafts((current) => current.filter((_, i) => i !== index));
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 flex-wrap">
+      <DialogContent
+        size="cloudsign"
+        className="w-[min(900px,calc(100vw-2rem))] overflow-hidden flex flex-col gap-0 p-0"
+        style={{
+          height: "60vh",
+          maxHeight: "60vh",
+        }}
+      >
+        <DialogHeader className="shrink-0 border-b p-4 pr-12 sm:p-5 sm:pr-12">
+          <DialogTitle className="flex items-center gap-2 flex-wrap text-base sm:text-lg">
             <Video className="h-5 w-5" />
             Zoom商談録画 詳細
             {data && (
@@ -357,14 +590,14 @@ export function UnifiedDetailModal({
         </DialogHeader>
 
         {loading && (
-          <div className="flex items-center justify-center py-10 text-muted-foreground">
+          <div className="flex flex-1 items-center justify-center py-10 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin mr-2" />
             読み込み中...
           </div>
         )}
 
         {!loading && data && (
-          <div className="space-y-4">
+          <div className="min-h-0 flex flex-1 flex-col p-4 sm:p-6 space-y-4">
             {/* 操作バー */}
             <div className="flex flex-wrap gap-2 items-center rounded-lg border bg-muted/20 p-2">
               <Label className="text-xs">状態:</Label>
@@ -412,11 +645,15 @@ export function UnifiedDetailModal({
               </div>
             )}
 
-            <Tabs defaultValue="summary">
-              <TabsList>
+            <Tabs defaultValue="summary" className="min-h-0 flex flex-1 flex-col">
+              <TabsList className="h-auto shrink-0 flex-wrap">
                 <TabsTrigger value="summary">
                   <Brain className="h-3 w-3 mr-1" />
                   AI要約
+                </TabsTrigger>
+                <TabsTrigger value="tasks">
+                  <ListChecks className="h-3 w-3 mr-1" />
+                  タスク候補
                 </TabsTrigger>
                 <TabsTrigger value="video">
                   <Video className="h-3 w-3 mr-1" />
@@ -442,7 +679,7 @@ export function UnifiedDetailModal({
                 )}
               </TabsList>
 
-              <TabsContent value="summary" className="space-y-4">
+              <TabsContent value="summary" className="min-h-0 flex-1 overflow-y-auto pr-1 space-y-4">
                 <section>
                   <h3 className="text-sm font-semibold mb-2">
                     Zoom AI Companion 要約
@@ -561,7 +798,106 @@ export function UnifiedDetailModal({
                 </section>
               </TabsContent>
 
-              <TabsContent value="video" className="space-y-2">
+              <TabsContent value="tasks" className="min-h-0 flex-1 overflow-y-auto pr-1 space-y-5">
+                {ch?.targetType !== "vendor" || !ch.vendorId ? (
+                  <div className="rounded border bg-muted/20 p-4 text-sm text-muted-foreground">
+                    ベンダー接触履歴に紐づくZoomのみ、コンサル履歴へタスクを反映できます。
+                  </div>
+                ) : (
+                  <>
+                    <div className="rounded border bg-muted/20 p-4 space-y-3">
+                      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+                        <div className="space-y-1">
+                          <Label className="text-sm font-medium">反映先コンサル履歴</Label>
+                          <Select
+                            value={selectedActivityId}
+                            onValueChange={setSelectedActivityId}
+                          >
+                            <SelectTrigger className="h-10 bg-white">
+                              <SelectValue placeholder="コンサル履歴を選択" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {activityOptions.map((activity) => (
+                                <SelectItem key={activity.id} value={String(activity.id)}>
+                                  {activity.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {activityOptions.length === 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              このベンダーのコンサル履歴がまだありません。先にコンサル履歴を作成してください。
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2 xl:justify-end">
+                          <Button
+                            size="default"
+                            variant="outline"
+                            onClick={handleGenerateTasks}
+                            disabled={generatingTasks || !data.transcriptText}
+                          >
+                            {generatingTasks ? (
+                              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                            ) : (
+                              <Sparkles className="h-3 w-3 mr-1" />
+                            )}
+                            候補を生成
+                          </Button>
+                          <Button
+                            size="default"
+                            onClick={handleReflectTasks}
+                            disabled={
+                              reflectingTasks ||
+                              !selectedActivityId ||
+                              taskDrafts.filter((task) => task.content.trim()).length === 0
+                            }
+                          >
+                            {reflectingTasks ? (
+                              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                            ) : (
+                              <Save className="h-3 w-3 mr-1" />
+                            )}
+                            確定して反映
+                          </Button>
+                        </div>
+                      </div>
+                      {taskModel && (
+                        <p className="text-[10px] text-muted-foreground">
+                          生成モデル: {taskModel}
+                        </p>
+                      )}
+                    </div>
+
+                    {!data.transcriptText && (
+                      <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                        文字起こしがまだ取得されていません。「未取得分を取得」で文字起こしを取得してから生成してください。
+                      </div>
+                    )}
+
+                    <div className="grid gap-5 xl:grid-cols-2">
+                      <TaskDraftGroup
+                        title="先方タスク"
+                        taskType="vendor"
+                        tasks={taskDrafts}
+                        onAdd={() => addTaskDraft("vendor")}
+                        onUpdate={updateTaskDraft}
+                        onRemove={removeTaskDraft}
+                      />
+                      <TaskDraftGroup
+                        title="弊社タスク"
+                        taskType="consulting_team"
+                        tasks={taskDrafts}
+                        onAdd={() => addTaskDraft("consulting_team")}
+                        onUpdate={updateTaskDraft}
+                        onRemove={removeTaskDraft}
+                      />
+                    </div>
+                  </>
+                )}
+              </TabsContent>
+
+              <TabsContent value="video" className="min-h-0 flex-1 overflow-y-auto pr-1 space-y-2">
                 {data.mp4Path ? (
                   <div className="space-y-2">
                     <video
@@ -592,9 +928,9 @@ export function UnifiedDetailModal({
                 )}
               </TabsContent>
 
-              <TabsContent value="transcript">
+              <TabsContent value="transcript" className="min-h-0 flex-1 overflow-y-auto pr-1">
                 {data.transcriptText ? (
-                  <pre className="whitespace-pre-wrap rounded bg-muted/30 p-3 text-xs max-h-[50vh] overflow-y-auto">
+                  <pre className="whitespace-pre-wrap rounded bg-muted/30 p-3 text-xs">
                     {data.transcriptText}
                   </pre>
                 ) : (
@@ -604,9 +940,9 @@ export function UnifiedDetailModal({
                 )}
               </TabsContent>
 
-              <TabsContent value="chat">
+              <TabsContent value="chat" className="min-h-0 flex-1 overflow-y-auto pr-1">
                 {data.chatLogText ? (
-                  <pre className="whitespace-pre-wrap rounded bg-muted/30 p-3 text-xs max-h-[50vh] overflow-y-auto">
+                  <pre className="whitespace-pre-wrap rounded bg-muted/30 p-3 text-xs">
                     {data.chatLogText}
                   </pre>
                 ) : (
@@ -647,7 +983,7 @@ export function UnifiedDetailModal({
               </TabsContent>
 
               {ch && (
-                <TabsContent value="contact" className="space-y-3">
+                <TabsContent value="contact" className="min-h-0 flex-1 overflow-y-auto pr-1 space-y-3">
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
                       <div className="text-xs text-muted-foreground">接触日時</div>

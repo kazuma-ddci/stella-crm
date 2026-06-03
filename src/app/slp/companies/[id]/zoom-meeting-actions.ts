@@ -77,26 +77,25 @@ export async function setManualZoomForSession(params: {
     }
     const meetingIdBig = BigInt(parsed.meetingId);
 
-    // 同一 meeting_id の既存Recording確認（UNIQUE制約）
-    const existingByMeetingId = await prisma.slpZoomRecording.findUnique({
-      where: { zoomMeetingId: meetingIdBig },
-      select: { id: true, contactHistoryId: true, deletedAt: true },
-    });
-    if (existingByMeetingId) {
-      if (!existingByMeetingId.deletedAt) {
-        return {
-          ok: false,
-          message: `このZoom URL（Meeting ID: ${parsed.meetingId}）は既に別の接触履歴 #${existingByMeetingId.contactHistoryId} に登録されています`,
-        };
-      }
-      return {
-        ok: false,
-        message: `このZoom URL（Meeting ID: ${parsed.meetingId}）は以前に削除されたため再登録できません。別のURLを使用してください。`,
-      };
-    }
-
     // 接触履歴を確保（なければ作成）
     const contactHistory = await ensureContactHistoryForSession(session.id);
+
+    // 固定URL/PMI は同じ meeting_id を複数開催回で再利用するため、
+    // この打ち合わせの接触履歴内で同じURLがアクティブな場合だけ止める。
+    const existingByMeetingId = await prisma.slpZoomRecording.findFirst({
+      where: {
+        contactHistoryId: contactHistory.id,
+        zoomMeetingId: meetingIdBig,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (existingByMeetingId) {
+      return {
+        ok: false,
+        message: "このZoom URLはこの打ち合わせに既に登録されています",
+      };
+    }
 
     // 既に primary Recording があるならエラー（運用的には削除してから再入力してもらう）
     const existingPrimary = await prisma.slpZoomRecording.findFirst({

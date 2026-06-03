@@ -6049,7 +6049,7 @@ model SlpZoomSendLog {
 model SlpZoomRecording {
   id                          Int       @id @default(autoincrement())
   contactHistoryId            Int       @map("contact_history_id") // 1:N — UNIQUE 削除済み
-  zoomMeetingId               BigInt    @unique @map("zoom_meeting_id") // Zoom Meeting IDはシステム全体でユニーク
+  zoomMeetingId               BigInt    @map("zoom_meeting_id") // 固定URLでは同じ Meeting ID が複数開催回で再利用される
   zoomMeetingUuid             String?   @map("zoom_meeting_uuid") @db.VarChar(200)
   category                    String    @db.VarChar(30) // "briefing" | "consultation"
   hostStaffId                 Int?      @map("host_staff_id")
@@ -6115,6 +6115,8 @@ model SlpZoomRecording {
   hostStaff      MasterStaff?      @relation("SlpZoomRecordingHost", fields: [hostStaffId], references: [id])
 
   @@index([contactHistoryId])
+  @@index([zoomMeetingId])
+  @@index([zoomMeetingUuid])
   @@index([state])
   @@index([downloadStatus])
   @@index([createdAt])
@@ -6337,7 +6339,7 @@ model HojoContactHistoryFile {
 model HojoZoomRecording {
   id                          Int       @id @default(autoincrement())
   contactHistoryId            Int       @map("contact_history_id")
-  zoomMeetingId               BigInt    @unique @map("zoom_meeting_id")
+  zoomMeetingId               BigInt    @map("zoom_meeting_id") // 固定URLでは同じ Meeting ID が複数開催回で再利用される
   zoomMeetingUuid             String?   @map("zoom_meeting_uuid") @db.VarChar(200)
   hostStaffId                 Int?      @map("host_staff_id")
 
@@ -6391,6 +6393,8 @@ model HojoZoomRecording {
   hostStaff      MasterStaff?       @relation("HojoZoomRecordingHost", fields: [hostStaffId], references: [id])
 
   @@index([contactHistoryId])
+  @@index([zoomMeetingId])
+  @@index([zoomMeetingUuid])
   @@index([state])
   @@index([downloadStatus])
   @@index([createdAt])

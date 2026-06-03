@@ -16,23 +16,27 @@ import type { ZoomRecordingPayload } from "@/lib/zoom/recording";
 import { logAutomationError } from "@/lib/automation-error";
 
 /**
- * meetingId から SLP / HOJO のどちらにヒットするかを判定。
- * SLPファースト（既存挙動維持）。どちらにもなければ null。
+ * meetingId から候補プロジェクトを判定。
+ * 固定URLでは同じ meetingId が複数プロジェクト・複数接触履歴に存在しうるため、
+ * 一つに絞らず各プロジェクト側の uuid/予定時刻マッチングへ渡す。
  */
-async function resolveRecordingScope(
+async function resolveRecordingScopes(
   meetingId: bigint
-): Promise<"slp" | "hojo" | null> {
-  const slp = await prisma.slpZoomRecording.findUnique({
-    where: { zoomMeetingId: meetingId },
-    select: { id: true },
-  });
-  if (slp) return "slp";
-  const hojo = await prisma.hojoZoomRecording.findUnique({
-    where: { zoomMeetingId: meetingId },
-    select: { id: true },
-  });
-  if (hojo) return "hojo";
-  return null;
+): Promise<Array<"slp" | "hojo">> {
+  const [slp, hojo] = await Promise.all([
+    prisma.slpZoomRecording.findFirst({
+      where: { zoomMeetingId: meetingId, deletedAt: null },
+      select: { id: true },
+    }),
+    prisma.hojoZoomRecording.findFirst({
+      where: { zoomMeetingId: meetingId, deletedAt: null },
+      select: { id: true },
+    }),
+  ]);
+  const scopes: Array<"slp" | "hojo"> = [];
+  if (slp) scopes.push("slp");
+  if (hojo) scopes.push("hojo");
+  return scopes;
 }
 
 export const dynamic = "force-dynamic";
@@ -107,25 +111,27 @@ export async function POST(request: Request) {
       };
       const meetingIdForPayload =
         typeof payload.id === "string" ? BigInt(payload.id) : BigInt(payload.id);
-      const scope = await resolveRecordingScope(meetingIdForPayload);
-      if (scope === "slp") {
-        processZoomRecordingCompleted(payload).catch(async (err) => {
-          await logAutomationError({
-            source: "zoom-webhook-recording-completed",
-            message: `SLP録画処理失敗: ${err instanceof Error ? err.message : String(err)}`,
-            detail: { meetingId: String(payload.id), event: body.event },
+      const scopes = await resolveRecordingScopes(meetingIdForPayload);
+      for (const scope of scopes) {
+        if (scope === "slp") {
+          processZoomRecordingCompleted(payload).catch(async (err) => {
+            await logAutomationError({
+              source: "zoom-webhook-recording-completed",
+              message: `SLP録画処理失敗: ${err instanceof Error ? err.message : String(err)}`,
+              detail: { meetingId: String(payload.id), event: body.event },
+            });
           });
-        });
-      } else if (scope === "hojo") {
-        processHojoZoomRecordingCompleted(payload).catch(async (err) => {
-          await logAutomationError({
-            source: "zoom-webhook-recording-completed",
-            message: `HOJO録画処理失敗: ${err instanceof Error ? err.message : String(err)}`,
-            detail: { meetingId: String(payload.id), event: body.event },
+        } else if (scope === "hojo") {
+          processHojoZoomRecordingCompleted(payload).catch(async (err) => {
+            await logAutomationError({
+              source: "zoom-webhook-recording-completed",
+              message: `HOJO録画処理失敗: ${err instanceof Error ? err.message : String(err)}`,
+              detail: { meetingId: String(payload.id), event: body.event },
+            });
           });
-        });
+        }
       }
-      // scope=null(CRM管理外の会議) → スルー
+      // scopes=[](CRM管理外の会議) → スルー
       return NextResponse.json({ ok: true });
     }
 
@@ -135,7 +141,11 @@ export async function POST(request: Request) {
     // ============================================
     if (body.event === "meeting.summary_completed") {
       const obj = body.payload?.object as
-        | { meeting_id?: string | number; meeting_uuid?: string }
+        | {
+            meeting_id?: string | number;
+            meeting_uuid?: string;
+            host_id?: string;
+          }
         | undefined;
       const meetingIdRaw = obj?.meeting_id;
       const meetingUuid = obj?.meeting_uuid;
@@ -146,27 +156,33 @@ export async function POST(request: Request) {
         typeof meetingIdRaw === "string"
           ? BigInt(meetingIdRaw)
           : BigInt(meetingIdRaw);
-      const summaryScope = await resolveRecordingScope(meetingId);
-      if (summaryScope === "slp") {
-        processMeetingSummaryCompleted({ meetingId, meetingUuid }).catch(
-          async (err) => {
+      const summaryScopes = await resolveRecordingScopes(meetingId);
+      for (const scope of summaryScopes) {
+        if (scope === "slp") {
+          processMeetingSummaryCompleted({
+            meetingId,
+            meetingUuid,
+            hostZoomUserId: obj?.host_id ?? null,
+          }).catch(async (err) => {
             await logAutomationError({
               source: "zoom-webhook-summary-completed",
               message: `SLP AI要約処理失敗: ${err instanceof Error ? err.message : String(err)}`,
               detail: { meetingId: meetingId.toString(), meetingUuid },
             });
-          }
-        );
-      } else if (summaryScope === "hojo") {
-        processHojoMeetingSummaryCompleted({ meetingId, meetingUuid }).catch(
-          async (err) => {
+          });
+        } else if (scope === "hojo") {
+          processHojoMeetingSummaryCompleted({
+            meetingId,
+            meetingUuid,
+            hostZoomUserId: obj?.host_id ?? null,
+          }).catch(async (err) => {
             await logAutomationError({
               source: "zoom-webhook-summary-completed",
               message: `HOJO AI要約処理失敗: ${err instanceof Error ? err.message : String(err)}`,
               detail: { meetingId: meetingId.toString(), meetingUuid },
             });
-          }
-        );
+          });
+        }
       }
       return NextResponse.json({ ok: true });
     }

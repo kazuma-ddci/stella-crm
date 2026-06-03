@@ -31,6 +31,89 @@ async function getPrompt(templateKey: string, projectCode?: "slp" | "hojo") {
   return shared;
 }
 
+export type HojoZoomTaskCandidate = {
+  taskType: "vendor" | "consulting_team";
+  content: string;
+  deadline: string;
+  priority: string;
+};
+
+function normalizeTaskType(value: unknown): "vendor" | "consulting_team" | null {
+  if (value === "vendor" || value === "先方" || value === "先方タスク") {
+    return "vendor";
+  }
+  if (
+    value === "consulting_team" ||
+    value === "弊社" ||
+    value === "弊社タスク" ||
+    value === "コンサルチーム"
+  ) {
+    return "consulting_team";
+  }
+  return null;
+}
+
+function normalizePriority(value: unknown): string {
+  const priority = typeof value === "string" ? value.trim() : "";
+  return ["高", "中", "低"].includes(priority) ? priority : "";
+}
+
+function normalizeDeadline(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const deadline = value.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(deadline) ? deadline : "";
+}
+
+function parseTaskCandidates(text: string): HojoZoomTaskCandidate[] {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return [];
+
+  const parsed = JSON.parse(match[0]) as {
+    tasks?: unknown[];
+    vendorTasks?: unknown[];
+    consultingTeamTasks?: unknown[];
+  };
+  const rawTasks: unknown[] = [];
+  if (Array.isArray(parsed.tasks)) rawTasks.push(...parsed.tasks);
+  if (Array.isArray(parsed.vendorTasks)) {
+    rawTasks.push(
+      ...parsed.vendorTasks.map((task) => ({
+        ...(typeof task === "object" && task ? task : {}),
+        taskType: "vendor",
+      }))
+    );
+  }
+  if (Array.isArray(parsed.consultingTeamTasks)) {
+    rawTasks.push(
+      ...parsed.consultingTeamTasks.map((task) => ({
+        ...(typeof task === "object" && task ? task : {}),
+        taskType: "consulting_team",
+      }))
+    );
+  }
+
+  return rawTasks
+    .map((raw) => {
+      if (!raw || typeof raw !== "object") return null;
+      const row = raw as Record<string, unknown>;
+      const taskType = normalizeTaskType(row.taskType ?? row.type ?? row.owner);
+      const content =
+        typeof row.content === "string"
+          ? row.content.trim()
+          : typeof row.task === "string"
+            ? row.task.trim()
+            : "";
+      if (!taskType || !content) return null;
+      return {
+        taskType,
+        content,
+        deadline: normalizeDeadline(row.deadline),
+        priority: normalizePriority(row.priority),
+      };
+    })
+    .filter((task): task is HojoZoomTaskCandidate => task !== null);
+}
+
 /**
  * 文字起こしから議事録要約をClaude Sonnet 4.6で生成（HOJO版）
  */
@@ -88,6 +171,70 @@ export async function generateClaudeSummaryForHojoRecording(params: {
   });
 
   return { summary: text, promptSnapshot: systemPrompt, model: tpl.model };
+}
+
+/**
+ * 文字起こしから先方タスク・弊社タスク候補を抽出（HOJO版）
+ */
+export async function generateTaskCandidatesForHojoRecording(params: {
+  recordingId: number;
+}): Promise<{ tasks: HojoZoomTaskCandidate[]; promptSnapshot: string; model: string }> {
+  const recording = await prisma.hojoZoomRecording.findUnique({
+    where: { id: params.recordingId },
+    include: {
+      contactHistory: {
+        include: {
+          vendor: { select: { name: true } },
+        },
+      },
+      hostStaff: { select: { name: true } },
+    },
+  });
+  if (!recording) throw new Error("録画レコードが見つかりません");
+  if (!recording.transcriptText || recording.transcriptText.trim().length === 0) {
+    throw new Error("文字起こしテキストがありません");
+  }
+  if (recording.contactHistory?.targetType !== "vendor" || !recording.contactHistory.vendorId) {
+    throw new Error("ベンダー接触履歴に紐づくZoomのみタスク候補を生成できます");
+  }
+
+  const tpl = await getPrompt("task_extract", "hojo");
+  const customerName = recording.contactHistory.vendor?.name || "";
+  const dateJst = recording.scheduledAt ?? recording.recordingStartAt ?? null;
+  const hostName = recording.hostStaff?.name ?? "";
+  const systemPrompt = renderTemplate(tpl.promptBody, {
+    事業者名: customerName,
+    商談種別: "HOJOベンダー商談",
+    日時: dateJst ? formatJstDateTime(dateJst) : "",
+    担当者: hostName,
+  });
+
+  const { text } = await callClaude({
+    model: tpl.model,
+    systemPrompt,
+    userMessage: `以下が今回の商談の文字起こしです。先方タスクと弊社タスクの候補を抽出してください。\n\n---\n${recording.transcriptText}\n---`,
+    maxTokens: tpl.maxTokens,
+    temperature: 0.2,
+  });
+
+  try {
+    return {
+      tasks: parseTaskCandidates(text),
+      promptSnapshot: systemPrompt,
+      model: tpl.model,
+    };
+  } catch (err) {
+    await logAutomationError({
+      source: "hojo-zoom-task-extract-parse",
+      message: "タスク候補抽出JSONパース失敗",
+      detail: {
+        recordingId: params.recordingId,
+        error: err instanceof Error ? err.message : String(err),
+        aiResponsePreview: text.slice(0, 500),
+      },
+    });
+    throw new Error("タスク候補の解析に失敗しました。プロンプトの出力形式を確認してください。");
+  }
 }
 
 /**

@@ -7,6 +7,10 @@ import { requireStaffWithProjectPermission } from "@/lib/auth/staff-action";
 import { parseZoomJoinUrl } from "@/lib/zoom/url-parser";
 import { fetchAllForRecording } from "@/lib/hojo/zoom-recording-processor";
 import { appendClaudeSummaryMinutesHojo } from "@/lib/hojo/hojo-meeting-minutes";
+import {
+  generateTaskCandidatesForHojoRecording,
+  type HojoZoomTaskCandidate,
+} from "@/lib/hojo/zoom-ai";
 
 // ============================================
 // Zoom連携済みスタッフ一覧取得（ホスト選択プルダウン用）
@@ -129,34 +133,18 @@ export async function addManualZoomToHojoContactHistory(params: {
       return err("接触履歴が見つかりません");
     }
 
-    // SLP / HOJO 両方の zoom_recordings で同一 meeting_id を検索
-    const [existingHojo, existingSlp] = await Promise.all([
-      prisma.hojoZoomRecording.findUnique({
-        where: { zoomMeetingId: meetingIdBig },
-        select: { id: true, contactHistoryId: true, deletedAt: true },
-      }),
-      prisma.slpZoomRecording.findUnique({
-        where: { zoomMeetingId: meetingIdBig },
-        select: { id: true },
-      }),
-    ]);
+    // 固定URL/PMI は同じ meeting_id を複数開催回で再利用するため、
+    // SLPや別のHOJO接触履歴で使われていても登録可能。同一接触履歴内の二重登録だけ防ぐ。
+    const existingHojo = await prisma.hojoZoomRecording.findFirst({
+      where: {
+        contactHistoryId: params.contactHistoryId,
+        zoomMeetingId: meetingIdBig,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
     if (existingHojo) {
-      if (!existingHojo.deletedAt) {
-        if (existingHojo.contactHistoryId === params.contactHistoryId) {
-          return err("このZoom URLはこの接触履歴に既に登録されています");
-        }
-        return err(
-          `このZoom URL（Meeting ID: ${parsed.meetingId}）は別の接触履歴 #${existingHojo.contactHistoryId} に既に登録されています`
-        );
-      }
-      return err(
-        `このZoom URL（Meeting ID: ${parsed.meetingId}）は以前に削除された記録があるため、同じ URL は再登録できません。別の会議URLを使用してください。`
-      );
-    }
-    if (existingSlp) {
-      return err(
-        `このZoom URL（Meeting ID: ${parsed.meetingId}）はSLPの接触履歴に既に登録されています`
-      );
+      return err("このZoom URLはこの接触履歴に既に登録されています");
     }
 
     let hostIntegrationActive = false;
@@ -237,6 +225,196 @@ async function revalidatePathsForContactHistory(contactHistoryId: number) {
   }
   revalidatePath("/hojo/records/contact-histories");
   revalidatePath("/hojo/records/zoom-recordings");
+}
+
+function toDateOrNull(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeTaskInput(
+  task: HojoZoomTaskCandidate
+): HojoZoomTaskCandidate | null {
+  const taskType =
+    task.taskType === "vendor" || task.taskType === "consulting_team"
+      ? task.taskType
+      : null;
+  const content = typeof task.content === "string" ? task.content.trim() : "";
+  if (!taskType || !content) return null;
+  const deadline =
+    typeof task.deadline === "string" && /^\d{4}-\d{2}-\d{2}$/.test(task.deadline)
+      ? task.deadline
+      : "";
+  const priority =
+    typeof task.priority === "string" && ["高", "中", "低"].includes(task.priority)
+      ? task.priority
+      : "";
+  return { taskType, content, deadline, priority };
+}
+
+async function getVendorContactHistoryForRecording(recordingId: number) {
+  const rec = await prisma.hojoZoomRecording.findUnique({
+    where: { id: recordingId },
+    select: {
+      id: true,
+      contactHistoryId: true,
+      deletedAt: true,
+      contactHistory: {
+        select: {
+          id: true,
+          deletedAt: true,
+          targetType: true,
+          vendorId: true,
+        },
+      },
+    },
+  });
+  if (!rec || rec.deletedAt) {
+    throw new Error("Recording が見つかりません");
+  }
+  const ch = rec.contactHistory;
+  if (!ch || ch.deletedAt || ch.targetType !== "vendor" || !ch.vendorId) {
+    throw new Error("ベンダー接触履歴に紐づくZoomのみ利用できます");
+  }
+  return {
+    recordingId: rec.id,
+    contactHistoryId: rec.contactHistoryId,
+    vendorId: ch.vendorId,
+  };
+}
+
+// ============================================
+// Zoom文字起こし → コンサル履歴タスク候補
+// ============================================
+export async function generateHojoZoomTaskCandidates(
+  recordingId: number
+): Promise<ActionResult<{ tasks: HojoZoomTaskCandidate[]; model: string }>> {
+  try {
+    await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
+    await getVendorContactHistoryForRecording(recordingId);
+    const result = await generateTaskCandidatesForHojoRecording({ recordingId });
+    return ok({ tasks: result.tasks, model: result.model });
+  } catch (e) {
+    return err(e instanceof Error ? e.message : "タスク候補の生成に失敗しました");
+  }
+}
+
+export async function listHojoConsultingActivitiesForZoomTaskReflection(
+  recordingId: number
+): Promise<
+  ActionResult<
+    {
+      id: number;
+      label: string;
+      activityDate: string;
+      title: string | null;
+      taskCounts: { vendor: number; consultingTeam: number };
+    }[]
+  >
+> {
+  try {
+    await requireStaffWithProjectPermission([{ project: "hojo", level: "view" }]);
+    const { vendorId } = await getVendorContactHistoryForRecording(recordingId);
+    const rows = await prisma.hojoConsultingActivity.findMany({
+      where: { vendorId, deletedAt: null },
+      select: {
+        id: true,
+        activityDate: true,
+        title: true,
+        contactMethod: true,
+        tasks: { select: { taskType: true } },
+      },
+      orderBy: [{ activityDate: "desc" }, { id: "desc" }],
+    });
+
+    return ok(
+      rows.map((row) => {
+        const activityDate = row.activityDate.toISOString().split("T")[0];
+        const title = row.title?.trim() || row.contactMethod?.trim() || "コンサル履歴";
+        return {
+          id: row.id,
+          activityDate,
+          title: row.title,
+          label: `${activityDate} - ${title} (#${row.id})`,
+          taskCounts: {
+            vendor: row.tasks.filter((task) => task.taskType === "vendor").length,
+            consultingTeam: row.tasks.filter((task) => task.taskType === "consulting_team").length,
+          },
+        };
+      })
+    );
+  } catch (e) {
+    return err(e instanceof Error ? e.message : "コンサル履歴候補の取得に失敗しました");
+  }
+}
+
+export async function reflectHojoZoomTasksToConsultingActivity(params: {
+  recordingId: number;
+  activityId: number;
+  tasks: HojoZoomTaskCandidate[];
+}): Promise<ActionResult<{ createdCount: number }>> {
+  try {
+    await requireStaffWithProjectPermission([{ project: "hojo", level: "edit" }]);
+    const { vendorId, contactHistoryId } = await getVendorContactHistoryForRecording(
+      params.recordingId
+    );
+    const activity = await prisma.hojoConsultingActivity.findUnique({
+      where: { id: params.activityId },
+      select: { id: true, vendorId: true, deletedAt: true },
+    });
+    if (!activity || activity.deletedAt || activity.vendorId !== vendorId) {
+      return err("選択したコンサル履歴が見つかりません");
+    }
+
+    const tasks = params.tasks
+      .map(normalizeTaskInput)
+      .filter((task): task is HojoZoomTaskCandidate => task !== null);
+    if (tasks.length === 0) {
+      return err("反映するタスクを入力してください");
+    }
+
+    const maxOrders = await prisma.hojoConsultingActivityTask.groupBy({
+      by: ["taskType"],
+      where: { activityId: params.activityId },
+      _max: { displayOrder: true },
+    });
+    const nextOrderByType: Record<"vendor" | "consulting_team", number> = {
+      vendor: 0,
+      consulting_team: 0,
+    };
+    for (const row of maxOrders) {
+      if (row.taskType === "vendor" || row.taskType === "consulting_team") {
+        nextOrderByType[row.taskType] = (row._max.displayOrder ?? -1) + 1;
+      }
+    }
+
+    await prisma.$transaction(
+      tasks.map((task) => {
+        const displayOrder = nextOrderByType[task.taskType];
+        nextOrderByType[task.taskType] += 1;
+        return prisma.hojoConsultingActivityTask.create({
+          data: {
+            activity: { connect: { id: params.activityId } },
+            taskType: task.taskType,
+            content: task.content,
+            deadline: toDateOrNull(task.deadline),
+            priority: task.priority || null,
+            completed: false,
+            displayOrder,
+          },
+        });
+      })
+    );
+
+    await revalidatePathsForContactHistory(contactHistoryId);
+    revalidatePath("/hojo/consulting/activities");
+    revalidatePath(`/hojo/settings/vendors/${vendorId}`);
+    revalidatePath("/hojo/vendor");
+    return ok({ createdCount: tasks.length });
+  } catch (e) {
+    return err(e instanceof Error ? e.message : "タスクの反映に失敗しました");
+  }
 }
 
 // ============================================

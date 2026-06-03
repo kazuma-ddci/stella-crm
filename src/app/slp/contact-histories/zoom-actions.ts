@@ -135,27 +135,18 @@ export async function addManualZoomToContactHistory(params: {
       return err("接触履歴が見つかりません");
     }
 
-    // 同一 meeting_id の既存Recording確認
-    //   - アクティブ(deletedAt=null): 他履歴にあればエラー、自履歴なら重複エラー
-    //   - 論理削除済み: zoomMeetingId は UNIQUE なので新規作成しようとすると
-    //     Prismaが P2002 を投げる。事前に分かりやすいエラーを返す。
-    const existing = await prisma.slpZoomRecording.findUnique({
-      where: { zoomMeetingId: meetingIdBig },
+    // 固定URL/PMI は同じ meeting_id を複数開催回で再利用するため、
+    // 別の接触履歴で使われていても登録可能。同一接触履歴内の二重登録だけ防ぐ。
+    const existing = await prisma.slpZoomRecording.findFirst({
+      where: {
+        contactHistoryId: params.contactHistoryId,
+        zoomMeetingId: meetingIdBig,
+        deletedAt: null,
+      },
       select: { id: true, contactHistoryId: true, deletedAt: true },
     });
     if (existing) {
-      if (!existing.deletedAt) {
-        if (existing.contactHistoryId === params.contactHistoryId) {
-          return err("このZoom URLはこの接触履歴に既に登録されています");
-        }
-        return err(
-          `このZoom URL（Meeting ID: ${parsed.meetingId}）は別の接触履歴 #${existing.contactHistoryId} に既に登録されています`
-        );
-      }
-      // 論理削除済み → 明確なメッセージ（物理削除は不可）
-      return err(
-        `このZoom URL（Meeting ID: ${parsed.meetingId}）は以前に削除された記録があるため、同じ URL は再登録できません。別の会議URLを使用するか、スタッフ管理者にご相談ください。`
-      );
+      return err("このZoom URLはこの接触履歴に既に登録されています");
     }
 
     // ホストスタッフがZoom連携済みか確認（未指定 or 未連携なら「API連携なし」レコードとして扱う）
