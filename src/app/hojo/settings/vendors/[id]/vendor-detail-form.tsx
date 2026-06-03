@@ -92,6 +92,7 @@ type Props = {
     phone: string;
     kickoffMtg: string;
     nextContactDate: string;
+    nextContactNotes: string;
     nextContactDateWholesale: string;
     nextContactDateConsulting: string;
     scWholesaleStatusId: number | null;
@@ -198,6 +199,7 @@ export function VendorDetailForm({
   // 全体の初回MTG + 次の連絡日（全体用）
   const [kickoffMtg, setKickoffMtg] = useState(vendor.kickoffMtg);
   const [nextContactDate, setNextContactDate] = useState(vendor.nextContactDate);
+  const [nextContactNotes, setNextContactNotes] = useState(vendor.nextContactNotes);
 
   // セキュリティクラウド卸
   const [scWholesaleStatusId, setScWholesaleStatusId] = useState<string>(
@@ -305,7 +307,7 @@ export function VendorDetailForm({
 
   // 未保存変更の検出
   const currentValues = useMemo(() => JSON.stringify({
-    vendorEmail, vendorPhone, kickoffMtg, nextContactDate,
+    vendorEmail, vendorPhone, kickoffMtg, nextContactDate, nextContactNotes,
     scWholesaleStatusId, scWholesaleContractStatusId, scWholesaleKickoffMtg, scWholesaleContractDate, scWholesaleEndDate, scWholesaleMemo, scWholesaleDocs, nextContactDateWholesale,
     consultingPlanStatusId, consultingPlanContractStatusId, consultingPlanKickoffMtg, consultingPlanContractDate, consultingPlanEndDate, consultingPlanMemo, consultingPlanDocs, nextContactDateConsulting,
     grantApplicationBpo, grantApplicationBpoContractStatusId, grantApplicationBpoKickoffMtg, grantApplicationBpoContractDate, grantApplicationBpoMemo, grantApplicationBpoDocs,
@@ -317,7 +319,7 @@ export function VendorDetailForm({
     consultingStaffIds: [...consultingStaffIds].sort(),
     asLineFriendId,
   }), [
-    vendorEmail, vendorPhone, kickoffMtg, nextContactDate,
+    vendorEmail, vendorPhone, kickoffMtg, nextContactDate, nextContactNotes,
     scWholesaleStatusId, scWholesaleContractStatusId, scWholesaleKickoffMtg, scWholesaleContractDate, scWholesaleEndDate, scWholesaleMemo, scWholesaleDocs, nextContactDateWholesale,
     consultingPlanStatusId, consultingPlanContractStatusId, consultingPlanKickoffMtg, consultingPlanContractDate, consultingPlanEndDate, consultingPlanMemo, consultingPlanDocs, nextContactDateConsulting,
     grantApplicationBpo, grantApplicationBpoContractStatusId, grantApplicationBpoKickoffMtg, grantApplicationBpoContractDate, grantApplicationBpoMemo, grantApplicationBpoDocs,
@@ -535,6 +537,7 @@ export function VendorDetailForm({
           phone: vendorPhone,
           kickoffMtg: kickoffMtg || null,
           nextContactDate: nextContactDate || null,
+          nextContactNotes,
           nextContactDateWholesale: nextContactDateWholesale || null,
           nextContactDateConsulting: nextContactDateConsulting || null,
           scWholesaleStatusId: scWholesaleStatusId ? Number(scWholesaleStatusId) : null,
@@ -988,6 +991,16 @@ export function VendorDetailForm({
             </FieldBlock>
             <FieldBlock label="次の連絡日">
               <DatePicker value={nextContactDate} onChange={setNextContactDate} placeholder="次の連絡日" />
+            </FieldBlock>
+          </div>
+          <div className="mt-3">
+            <FieldBlock label="次回連絡事項">
+              <Textarea
+                value={nextContactNotes}
+                onChange={(e) => setNextContactNotes(e.target.value)}
+                rows={3}
+                placeholder="次回連絡時に確認・対応する事項"
+              />
             </FieldBlock>
           </div>
         </CardContent>

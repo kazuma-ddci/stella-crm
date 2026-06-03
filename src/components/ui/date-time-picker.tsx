@@ -4,6 +4,7 @@ import * as React from "react"
 import { format, parse } from "date-fns"
 import { ja } from "date-fns/locale"
 import { CalendarIcon } from "lucide-react"
+import type { DayPickerProps } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -20,6 +21,20 @@ interface DateTimePickerProps {
   disabled?: boolean
   className?: string
   id?: string
+  captionLayout?: DayPickerProps["captionLayout"]
+  startMonth?: Date
+  endMonth?: Date
+}
+
+function parseDateTimeValue(value: string) {
+  const normalized = value.trim().replace(/\//g, "-").replace(" ", "T")
+  const datePart = normalized.slice(0, 10)
+  const timePart = normalized.slice(11, 16) || "09:00"
+  const parsed = parse(datePart, "yyyy-MM-dd", new Date())
+  if (Number.isNaN(parsed.getTime())) {
+    return { selectedDate: undefined, timeStr: "09:00" }
+  }
+  return { selectedDate: parsed, timeStr: timePart }
 }
 
 function DateTimePicker({
@@ -29,20 +44,15 @@ function DateTimePicker({
   disabled = false,
   className,
   id,
+  captionLayout,
+  startMonth,
+  endMonth,
 }: DateTimePickerProps) {
   const [open, setOpen] = React.useState(false)
 
   const { selectedDate, timeStr } = React.useMemo(() => {
     if (!value) return { selectedDate: undefined, timeStr: "09:00" }
-    // value: "YYYY-MM-DDTHH:mm" or "YYYY-MM-DDTHH:mm:ss"
-    const datePart = value.slice(0, 10)
-    const timePart = value.slice(11, 16) || "09:00"
-    try {
-      const d = parse(datePart, "yyyy-MM-dd", new Date())
-      return { selectedDate: d, timeStr: timePart }
-    } catch {
-      return { selectedDate: undefined, timeStr: "09:00" }
-    }
+    return parseDateTimeValue(value)
   }, [value])
 
   const buildValue = (date: Date | undefined, time: string): string => {
@@ -92,6 +102,9 @@ function DateTimePicker({
           selected={selectedDate}
           onSelect={handleSelectDate}
           defaultMonth={selectedDate}
+          captionLayout={captionLayout}
+          startMonth={startMonth}
+          endMonth={endMonth}
           autoFocus
         />
         <div className="p-3 border-t flex items-center gap-2">

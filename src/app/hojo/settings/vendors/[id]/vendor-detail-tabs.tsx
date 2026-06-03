@@ -63,6 +63,7 @@ type Props = {
     phone: string;
     kickoffMtg: string;
     nextContactDate: string;
+    nextContactNotes: string;
     nextContactDateWholesale: string;
     nextContactDateConsulting: string;
     scWholesaleStatusId: number | null;

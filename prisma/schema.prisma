@@ -4743,6 +4743,8 @@ model HojoVendor {
 
   // 次の連絡日（全体用: 基本情報タブに表示）
   nextContactDate DateTime? @map("next_contact_date")
+  // 次回連絡事項（全体用: 基本情報タブに表示）
+  nextContactNotes String? @map("next_contact_notes") @db.Text
   // 次の連絡日（卸用: ベンダー一覧の卸関連カラムに表示）
   nextContactDateWholesale DateTime? @map("next_contact_date_wholesale")
   // 次の連絡日（コンサル用: ベンダー一覧のコンサル関連カラムに表示）

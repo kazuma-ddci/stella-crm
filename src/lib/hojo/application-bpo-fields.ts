@@ -1,4 +1,4 @@
-export type ApplicationBpoFieldType = "text" | "textarea" | "number" | "date" | "select" | "file";
+export type ApplicationBpoFieldType = "text" | "textarea" | "number" | "date" | "datetime" | "select" | "file";
 export type ApplicationBpoFieldRole = "vendor" | "staff";
 
 export type ApplicationBpoFileInfo = {
@@ -43,7 +43,7 @@ export const APPLICATION_BPO_FIELDS: ApplicationBpoField[] = [
   { key: "requestDate", column: "A", group: "依頼", label: "依頼日", role: "vendor", type: "date", placeholder: "2026/05/01" },
   { key: "doubleCheckStatus", column: "B", group: "依頼側ダブルチェック入力", label: "正誤チェック", role: "vendor", type: "select", options: ["済み", "申請ステイ"], placeholder: "済み" },
   { key: "contactNotes", column: "C", group: "申請内容等", label: "連絡事項等", role: "vendor", type: "textarea", placeholder: "連絡事項があればご記入下さい。※書類リンクの共有の設定を再度ご確認願います。" },
-  { key: "scheduledAt", column: "D", group: "申請内容等", label: "申請予定日時", role: "vendor", type: "text", placeholder: "2026/05/01 15:00" },
+  { key: "scheduledAt", column: "D", group: "申請内容等", label: "申請予定日時", role: "vendor", type: "datetime", placeholder: "2026/05/01 15:00" },
   { key: "companyName", column: "E", group: "申請内容等", label: "事業者名", role: "vendor", type: "text", placeholder: "株式会社〇〇〇（全角）" },
   { key: "applicantType", column: "F", group: "申請内容等", label: "事業体", role: "vendor", type: "select", options: ["法人", "個人事業主"], placeholder: "法人" },
   { key: "repeatType", column: "G", group: "申請内容等", label: "おかわり判定", role: "vendor", type: "select", options: ["新規", "おかわり"], placeholder: "新規" },

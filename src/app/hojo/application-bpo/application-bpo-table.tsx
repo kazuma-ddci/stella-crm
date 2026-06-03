@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { DatePicker } from "@/components/ui/date-picker";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import {
   type ApplicationBpoAttachments,
   type ApplicationBpoField,
@@ -174,6 +175,8 @@ const pairedFieldKeys: Record<string, string> = {
 };
 
 const pairedCommentKeys = new Set(Object.values(pairedFieldKeys));
+const ESTABLISHED_DATE_START_MONTH = new Date(1900, 0);
+const DATE_PICKER_END_MONTH = new Date(new Date().getFullYear() + 5, 11);
 
 export function ApplicationBpoTable({ data, mode, vendorId, canEdit = true }: Props) {
   const router = useRouter();
@@ -346,10 +349,31 @@ export function ApplicationBpoTable({ data, mode, vendorId, canEdit = true }: Pr
       );
     }
     if (field.type === "date") {
+      if (field.key === "establishedDate") {
+        return (
+          <DatePicker
+            value={value}
+            placeholder={field.placeholder || "日付を選択"}
+            onChange={(next) => updateInput(role, field.key, next)}
+            captionLayout="dropdown"
+            startMonth={ESTABLISHED_DATE_START_MONTH}
+            endMonth={DATE_PICKER_END_MONTH}
+          />
+        );
+      }
       return (
         <DatePicker
           value={value}
           placeholder={field.placeholder || "日付を選択"}
+          onChange={(next) => updateInput(role, field.key, next)}
+        />
+      );
+    }
+    if (field.type === "datetime") {
+      return (
+        <DateTimePicker
+          value={value}
+          placeholder={field.placeholder || "日時を選択"}
           onChange={(next) => updateInput(role, field.key, next)}
         />
       );

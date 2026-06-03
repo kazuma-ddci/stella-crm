@@ -460,6 +460,7 @@ export default async function VendorDetailPage({
         phone: vendor.phone ?? "",
         kickoffMtg: toDateTimeString(vendor.kickoffMtg),
         nextContactDate: toDateString(vendor.nextContactDate),
+        nextContactNotes: vendor.nextContactNotes ?? "",
         nextContactDateWholesale: toDateString(vendor.nextContactDateWholesale),
         nextContactDateConsulting: toDateString(vendor.nextContactDateConsulting),
         scWholesaleStatusId: vendor.scWholesaleStatusId,

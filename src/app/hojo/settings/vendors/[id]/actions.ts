@@ -95,6 +95,7 @@ export async function updateVendorDetail(
   const vendorSharedMemo = data.vendorSharedMemo
     ? String(data.vendorSharedMemo).trim()
     : null;
+  const nextContactNotes = trimOrNull(data.nextContactNotes);
 
   await prisma.hojoVendor.update({
     where: { id },
@@ -103,6 +104,7 @@ export async function updateVendorDetail(
       phone,
       kickoffMtg,
       nextContactDate,
+      nextContactNotes,
       nextContactDateWholesale,
       nextContactDateConsulting,
       scWholesaleStatus: scWholesaleStatusId
