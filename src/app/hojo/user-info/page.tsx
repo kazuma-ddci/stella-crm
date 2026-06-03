@@ -82,6 +82,23 @@ function calcLastSyncAt(friends: { updatedAt: Date }[]): string | null {
     .toISOString();
 }
 
+type ProlineSyncStatus = {
+  lastSyncSucceededAt: Date | null;
+  lastSyncErrorMessage: string | null;
+};
+
+function getSyncStatus(
+  statusMap: Map<string, ProlineSyncStatus>,
+  lineType: string,
+  fallbackLastSyncAt: string | null,
+) {
+  const status = statusMap.get(lineType);
+  return {
+    lastSyncAt: status?.lastSyncSucceededAt?.toISOString() ?? fallbackLastSyncAt,
+    errorMessage: status?.lastSyncErrorMessage ?? null,
+  };
+}
+
 export default async function CustomerInfoPage() {
   const [scFriends, shinseiFriends, alkesFriends, shinseiFree1, alkesFree1, vendors, prolineAccounts] =
     await Promise.all([
@@ -113,7 +130,12 @@ export default async function CustomerInfoPage() {
         },
       }),
       prisma.hojoProlineAccount.findMany({
-        select: { lineType: true, label: true },
+        select: {
+          lineType: true,
+          label: true,
+          lastSyncSucceededAt: true,
+          lastSyncErrorMessage: true,
+        },
       }),
     ]);
 
@@ -197,9 +219,17 @@ export default async function CustomerInfoPage() {
 
   // プロラインラベルのマップ
   const labelMap: Record<string, string> = {};
+  const syncStatusMap = new Map<string, ProlineSyncStatus>();
   for (const a of prolineAccounts) {
     labelMap[a.lineType] = a.label;
+    syncStatusMap.set(a.lineType, {
+      lastSyncSucceededAt: a.lastSyncSucceededAt,
+      lastSyncErrorMessage: a.lastSyncErrorMessage,
+    });
   }
+  const securityCloudSyncStatus = getSyncStatus(syncStatusMap, "security-cloud", calcLastSyncAt(scFriends));
+  const alkesSyncStatus = getSyncStatus(syncStatusMap, "alkes", calcLastSyncAt(alkesFriends));
+  const shinseiSyncStatus = getSyncStatus(syncStatusMap, "shinsei-support", calcLastSyncAt(shinseiFriends));
 
   return (
     <div className="space-y-6">
@@ -207,15 +237,18 @@ export default async function CustomerInfoPage() {
       <CustomerPageClient
         customerData={customerData}
         securityCloudData={scFriends.map(formatLineFriend)}
-        securityCloudLastSync={calcLastSyncAt(scFriends)}
+        securityCloudLastSync={securityCloudSyncStatus.lastSyncAt}
+        securityCloudSyncError={securityCloudSyncStatus.errorMessage}
         securityCloudLabel={labelMap["security-cloud"] || "セキュリティクラウド"}
         alkesData={alkesFriends.map(formatLineFriend)}
-        alkesLastSync={calcLastSyncAt(alkesFriends)}
+        alkesLastSync={alkesSyncStatus.lastSyncAt}
+        alkesSyncError={alkesSyncStatus.errorMessage}
         alkesInvalidIds={alkesInvalidIds}
         alkesDuplicateIds={alkesDuplicateIds}
         alkesLabel={labelMap["alkes"] || "ALKES"}
         shinseiData={shinseiFriends.map(formatLineFriend)}
-        shinseiLastSync={calcLastSyncAt(shinseiFriends)}
+        shinseiLastSync={shinseiSyncStatus.lastSyncAt}
+        shinseiSyncError={shinseiSyncStatus.errorMessage}
         shinseiInvalidIds={shinseiInvalidIds}
         shinseiDuplicateIds={shinseiDuplicateIds}
         shinseiLabel={labelMap["shinsei-support"] || "申請サポートセンター"}

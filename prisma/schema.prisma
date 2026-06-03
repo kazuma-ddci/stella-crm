@@ -5128,15 +5128,19 @@ model HojoApplicationBpoRequest {
 // ============================================
 
 model HojoProlineAccount {
-  id        Int      @id @default(autoincrement())
-  lineType  String   @unique @map("line_type") @db.VarChar(30) // "josei-support", "shinsei-support", "alkes", "security-cloud"
-  label     String   @db.VarChar(100) // 表示名（例: "助成金申請サポート"）
-  email     String   @default("") @db.VarChar(255) // プロラインログインメール
-  password  String   @default("") @db.VarChar(255) // プロラインログインパスワード
-  loginUrl  String?  @map("login_url") @db.VarChar(500) // ログインURL（設定するとパスワード入力から開始）
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id                   Int       @id @default(autoincrement())
+  lineType             String    @unique @map("line_type") @db.VarChar(30) // "josei-support", "shinsei-support", "alkes", "security-cloud"
+  label                String    @db.VarChar(100) // 表示名（例: "助成金申請サポート"）
+  email                String    @default("") @db.VarChar(255) // プロラインログインメール
+  password             String    @default("") @db.VarChar(255) // プロラインログインパスワード
+  loginUrl             String?   @map("login_url") @db.VarChar(500) // ログインURL（設定するとパスワード入力から開始）
+  isActive             Boolean   @default(true) @map("is_active")
+  lastSyncSucceededAt  DateTime? @map("last_sync_succeeded_at")
+  lastSyncFailedAt     DateTime? @map("last_sync_failed_at")
+  lastSyncErrorMessage String?   @map("last_sync_error_message") @db.VarChar(2000)
+  lastSyncAttemptCount Int       @default(0) @map("last_sync_attempt_count")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   @@map("hojo_proline_accounts")
 }

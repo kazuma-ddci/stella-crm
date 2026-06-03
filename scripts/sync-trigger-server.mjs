@@ -35,7 +35,7 @@ if (fs.existsSync(envPath)) {
 
 const PORT = parseInt(process.env.TRIGGER_PORT || "3100");
 const CRON_SECRET = process.env.CRON_SECRET;
-const SYNC_TIMEOUT_MS = 15 * 60 * 1000;
+const SYNC_TIMEOUT_MS = 90 * 60 * 1000;
 
 // stg/prod で環境別の APP_URL/CRON_SECRET を切り替える用（.env.sync に追記する）
 // 後方互換: 設定が無ければ既存の APP_URL/CRON_SECRET をそのまま使う
@@ -153,7 +153,20 @@ const server = http.createServer((req, res) => {
       execEnv.NODE_PATH = `${homedir}/proline-deps/node_modules`;
     }
 
-    execFile("node", scriptArgs, { timeout: SYNC_TIMEOUT_MS, env: execEnv }, (error, stdout, stderr) => {
+    const lowPriorityArgs = [
+      "-w",
+      "7200",
+      "/tmp/proline-sync-global.lock",
+      "ionice",
+      "-c2",
+      "-n7",
+      "nice",
+      "-n",
+      "15",
+      "node",
+      ...scriptArgs,
+    ];
+    execFile("flock", lowPriorityArgs, { timeout: SYNC_TIMEOUT_MS, env: execEnv }, (error, stdout, stderr) => {
       runningSet.delete(label);
       if (activeProlineLabel === label) activeProlineLabel = null;
 

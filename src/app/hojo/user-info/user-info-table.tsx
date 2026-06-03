@@ -32,14 +32,17 @@ type Props = {
   customerData: Record<string, unknown>[];
   securityCloudData: Record<string, unknown>[];
   securityCloudLastSync: string | null;
+  securityCloudSyncError: string | null;
   securityCloudLabel: string;
   alkesData: Record<string, unknown>[];
   alkesLastSync: string | null;
+  alkesSyncError: string | null;
   alkesInvalidIds: number[];
   alkesDuplicateIds: number[];
   alkesLabel: string;
   shinseiData: Record<string, unknown>[];
   shinseiLastSync: string | null;
+  shinseiSyncError: string | null;
   shinseiInvalidIds: number[];
   shinseiDuplicateIds: number[];
   shinseiLabel: string;
@@ -131,6 +134,7 @@ const lineFriendColumns: ColumnDef[] = [
 function LineFriendTab({
   data,
   lastSyncAt,
+  syncError,
   invalidIds = [],
   duplicateIds = [],
   onAdd,
@@ -141,6 +145,7 @@ function LineFriendTab({
 }: {
   data: Record<string, unknown>[];
   lastSyncAt: string | null;
+  syncError: string | null;
   invalidIds?: number[];
   duplicateIds?: number[];
   onAdd: (formData: Record<string, unknown>) => Promise<import("@/lib/action-result").ActionResult | void>;
@@ -215,12 +220,13 @@ function LineFriendTab({
         </div>
       )}
       <div className="flex items-center justify-between mb-4">
-        <div className="text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
           {lastSyncAt && (
             <span>
               最終同期: {new Date(lastSyncAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
             </span>
           )}
+          {syncError && <span className="font-medium text-red-600">エラー: {syncError}</span>}
         </div>
         <Button variant="outline" size="sm" onClick={handleSync} disabled={isSyncing}>
           <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? "animate-spin" : ""}`} />
@@ -275,14 +281,17 @@ export function CustomerPageClient({
   customerData,
   securityCloudData,
   securityCloudLastSync,
+  securityCloudSyncError,
   securityCloudLabel,
   alkesData,
   alkesLastSync,
+  alkesSyncError,
   alkesInvalidIds,
   alkesDuplicateIds,
   alkesLabel,
   shinseiData,
   shinseiLastSync,
+  shinseiSyncError,
   shinseiInvalidIds,
   shinseiDuplicateIds,
   shinseiLabel,
@@ -347,6 +356,7 @@ export function CustomerPageClient({
         <LineFriendTab
           data={securityCloudData}
           lastSyncAt={securityCloudLastSync}
+          syncError={securityCloudSyncError}
           onAdd={addSC}
           onUpdate={updateSC}
           onDelete={deleteSC}
@@ -359,6 +369,7 @@ export function CustomerPageClient({
         <LineFriendTab
           data={alkesData}
           lastSyncAt={alkesLastSync}
+          syncError={alkesSyncError}
           invalidIds={alkesInvalidIds}
           duplicateIds={alkesDuplicateIds}
           onAdd={addAlkes}
@@ -373,6 +384,7 @@ export function CustomerPageClient({
         <LineFriendTab
           data={shinseiData}
           lastSyncAt={shinseiLastSync}
+          syncError={shinseiSyncError}
           invalidIds={shinseiInvalidIds}
           duplicateIds={shinseiDuplicateIds}
           onAdd={addShinsei}

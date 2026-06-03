@@ -96,6 +96,9 @@ process.once("SIGINT", () => {
 });
 
 const DOWNLOAD_DIR = path.join(__dirname, ".hojo-proline-downloads");
+const MAX_SYNC_ATTEMPTS = 3;
+const RETRY_DELAYS_MS = [30_000, 60_000];
+const VALID_LINE_TYPES = new Set(["josei-support", "shinsei-support", "alkes", "security-cloud"]);
 
 // カラムマッピング（Excelの列インデックス → フィールド名）
 const COLUMN_MAP = {
@@ -375,12 +378,37 @@ async function syncToApp(friends, lineType, label) {
   return await res.json();
 }
 
+async function reportSyncStatus(result) {
+  const endpoint = `${APP_URL}/api/cron/hojo-proline-sync-status`;
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${CRON_SECRET}`,
+      },
+      body: JSON.stringify(result),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      console.error(`[sync-hojo] [${result.lineType}] 同期状態更新エラー ${res.status}: ${text}`);
+    }
+  } catch (err) {
+    console.error(`[sync-hojo] [${result.lineType}] 同期状態更新失敗: ${err.message}`);
+  }
+}
+
+async function delay(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * 1アカウント分の同期処理
  */
-async function syncOneAccount(account) {
+async function syncOneAccountOnce(account, attempt) {
   const startTime = Date.now();
-  console.log(`\n[sync-hojo] === ${account.label} (${account.lineType}) 同期開始 ===`);
+  console.log(`\n[sync-hojo] === ${account.label} (${account.lineType}) 同期開始 attempt=${attempt}/${MAX_SYNC_ATTEMPTS} ===`);
 
   try {
     const xlsFile = await downloadExcel(account);
@@ -392,12 +420,59 @@ async function syncOneAccount(account) {
       `[sync-hojo] [${account.label}] 同期完了: created=${result.created}, updated=${result.updated}, total=${result.total} (${elapsed}秒)`
     );
 
-    return { lineType: account.lineType, label: account.label, success: true, ...result, elapsed };
+    return { lineType: account.lineType, label: account.label, success: true, attempt, ...result, elapsed };
   } catch (err) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.error(`[sync-hojo] [${account.label}] エラー: ${err.message}`);
-    return { lineType: account.lineType, label: account.label, success: false, error: err.message, elapsed };
+    return { lineType: account.lineType, label: account.label, success: false, attempt, error: err.message, elapsed };
   }
+}
+
+async function syncOneAccount(account) {
+  let lastResult = null;
+
+  for (let attempt = 1; attempt <= MAX_SYNC_ATTEMPTS; attempt++) {
+    const result = await syncOneAccountOnce(account, attempt);
+    lastResult = result;
+
+    if (result.success) {
+      await reportSyncStatus({
+        lineType: account.lineType,
+        status: "success",
+        attemptCount: attempt,
+        created: result.created,
+        updated: result.updated,
+        total: result.total,
+        elapsed: result.elapsed,
+      });
+      return result;
+    }
+
+    if (attempt < MAX_SYNC_ATTEMPTS) {
+      const delayMs = RETRY_DELAYS_MS[attempt - 1] ?? 60_000;
+      console.error(
+        `[sync-hojo] [${account.label}] ${attempt}回目失敗。${Math.round(delayMs / 1000)}秒後に再試行します。`
+      );
+      await delay(delayMs);
+    }
+  }
+
+  await reportSyncStatus({
+    lineType: account.lineType,
+    status: "failed",
+    attemptCount: MAX_SYNC_ATTEMPTS,
+    errorMessage: lastResult?.error ?? "不明なエラー",
+    elapsed: lastResult?.elapsed,
+  });
+
+  return lastResult ?? {
+    lineType: account.lineType,
+    label: account.label,
+    success: false,
+    attempt: MAX_SYNC_ATTEMPTS,
+    error: "不明なエラー",
+    elapsed: "0.0",
+  };
 }
 
 // --account オプション: 指定されたアカウントのみ同期（トリガーサーバーから呼ばれる場合）
@@ -406,20 +481,56 @@ const accountArg = (() => {
   return idx !== -1 && process.argv[idx + 1] ? process.argv[idx + 1] : null;
 })();
 
+const accountListArg = (() => {
+  const idx = process.argv.indexOf("--accounts");
+  if (idx === -1 || !process.argv[idx + 1]) return null;
+  return process.argv[idx + 1]
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+})();
+
 async function main() {
   const startTime = Date.now();
-  const modeLabel = accountArg ? `単体同期: ${accountArg}` : "全アカウント同期";
+  if (accountArg && accountListArg) {
+    throw new Error("--account と --accounts は同時に指定できません");
+  }
+
+  const modeLabel = accountArg
+    ? `単体同期: ${accountArg}`
+    : accountListArg
+      ? `複数同期: ${accountListArg.join(",")}`
+      : "全アカウント同期";
   console.log(`[sync-hojo] 補助金プロライン同期開始 (${modeLabel}): ${new Date().toISOString()}`);
 
   try {
     // 1. CRMからプロラインアカウント情報を取得
     let accounts = await fetchProlineAccounts();
 
-    // --account指定時は対象アカウントのみに絞る
+    if (accountArg && !VALID_LINE_TYPES.has(accountArg)) {
+      throw new Error(`無効なアカウント種別です: ${accountArg}`);
+    }
+    if (accountListArg) {
+      const invalidTypes = accountListArg.filter((lineType) => !VALID_LINE_TYPES.has(lineType));
+      if (invalidTypes.length > 0) {
+        throw new Error(`無効なアカウント種別です: ${invalidTypes.join(", ")}`);
+      }
+    }
+
+    // --account / --accounts 指定時は対象アカウントのみに絞る
     if (accountArg) {
       accounts = accounts.filter((a) => a.lineType === accountArg);
       if (accounts.length === 0) {
         throw new Error(`アカウント "${accountArg}" が見つかりません`);
+      }
+    }
+    if (accountListArg) {
+      const requestedSet = new Set(accountListArg);
+      accounts = accounts.filter((a) => requestedSet.has(a.lineType));
+      const foundSet = new Set(accounts.map((a) => a.lineType));
+      const missingTypes = accountListArg.filter((lineType) => !foundSet.has(lineType));
+      if (missingTypes.length > 0) {
+        throw new Error(`アカウント "${missingTypes.join(", ")}" が見つかりません`);
       }
     }
 
