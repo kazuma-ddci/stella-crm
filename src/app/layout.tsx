@@ -11,6 +11,8 @@ import { PermissionGuard } from "@/components/auth/permission-guard";
 import { AuthenticatedLayout } from "@/components/layout/authenticated-layout";
 import { BuildVersionChecker } from "@/components/build-version-checker";
 
+type CountRow = { count: number | bigint };
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -47,7 +49,7 @@ export default async function RootLayout({
   let hiddenItems: string[] = [];
   let projectNames: Record<string, string> = {};
   let bbsPendingCount = 0;
-  let expenseApprovalCounts: Record<string, number> = {};
+  const expenseApprovalCounts: Record<string, number> = {};
   let unlinkedStatementCount = 0;
   let tableSettings: TableSettingsMap = {};
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -106,13 +108,6 @@ export default async function RootLayout({
       bbsPendingCount = bbsPending + vendorPending + lenderPending;
       projectNames = Object.fromEntries(projects.map((p) => [p.code, p.name]));
 
-      // プロジェクトID→コードのマッピング
-      const idToCode = Object.fromEntries(
-        projects.map((p) => {
-          const proj = projects.find((pp) => pp.code === p.code);
-          return [proj?.code, p.code];
-        })
-      );
       // projectId → code 変換用にDB再取得
       const projectIdMap = await prisma.masterProject.findMany({
         where: { isActive: true },
@@ -128,25 +123,25 @@ export default async function RootLayout({
 
       // 未紐付け入出金履歴の件数（経理プロジェクト権限がなくても実害なしのため一律取得）
       try {
-        const entries = await prisma.bankStatementEntry.findMany({
-          where: { excluded: false },
-          select: {
-            incomingAmount: true,
-            outgoingAmount: true,
-            groupLinks: { select: { amount: true } },
-          },
-        });
-        for (const e of entries) {
-          const linkedSum = e.groupLinks.reduce((s, l) => s + l.amount, 0);
-          const total =
-            (e.incomingAmount ?? 0) > 0
-              ? e.incomingAmount!
-              : (e.outgoingAmount ?? 0) > 0
-                ? e.outgoingAmount!
-                : 0;
-          if (total === 0) continue;
-          if (linkedSum < total) unlinkedStatementCount++;
-        }
+        const [row] = await prisma.$queryRaw<CountRow[]>`
+          SELECT COUNT(*)::int AS count
+          FROM (
+            SELECT
+              e.id,
+              CASE
+                WHEN COALESCE(e."incomingAmount", 0) > 0 THEN e."incomingAmount"
+                WHEN COALESCE(e."outgoingAmount", 0) > 0 THEN e."outgoingAmount"
+                ELSE 0
+              END AS total_amount,
+              COALESCE(SUM(l.amount), 0) AS linked_amount
+            FROM bank_statement_entries e
+            LEFT JOIN bank_statement_entry_group_links l ON l."bankStatementEntryId" = e.id
+            WHERE e.excluded = false
+            GROUP BY e.id
+          ) s
+          WHERE s.total_amount > 0 AND s.linked_amount < s.total_amount
+        `;
+        unlinkedStatementCount = Number(row?.count ?? 0);
       } catch {
         // 取得失敗時は0のまま
       }
