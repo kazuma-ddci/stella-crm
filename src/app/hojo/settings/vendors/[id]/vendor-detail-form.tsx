@@ -993,16 +993,6 @@ export function VendorDetailForm({
               <DatePicker value={nextContactDate} onChange={setNextContactDate} placeholder="次の連絡日" />
             </FieldBlock>
           </div>
-          <div className="mt-3">
-            <FieldBlock label="次回連絡事項">
-              <Textarea
-                value={nextContactNotes}
-                onChange={(e) => setNextContactNotes(e.target.value)}
-                rows={3}
-                placeholder="次回連絡時に確認・対応する事項"
-              />
-            </FieldBlock>
-          </div>
         </CardContent>
       </Card>
 
@@ -1148,6 +1138,14 @@ export function VendorDetailForm({
                 <DatePicker value={nextContactDateConsulting} onChange={setNextContactDateConsulting} placeholder="次の連絡日" />
               </FieldBlock>
             </div>
+            <FieldBlock label="次回連絡事項">
+              <Textarea
+                value={nextContactNotes}
+                onChange={(e) => setNextContactNotes(e.target.value)}
+                rows={3}
+                placeholder="次回連絡時に確認・対応する事項"
+              />
+            </FieldBlock>
             <FieldBlock label="契約書">
               <ContractDocumentEditor value={consultingPlanDocs} onChange={setConsultingPlanDocs} vendorId={vendor.id} />
             </FieldBlock>
