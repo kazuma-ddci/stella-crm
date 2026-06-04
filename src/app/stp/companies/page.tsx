@@ -1,155 +1,262 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StpCompaniesTable } from "./stp-companies-table";
-import type { ProposalContent } from "@/lib/proposals/simulation";
 import { getStaffOptionsByField, getStaffOptionsByFields } from "@/lib/staff/get-staff-by-field";
+import { elapsedPerfMs, logPerf, measurePerf, startPerfTimer } from "@/lib/perf-log";
+
+type UnlockedProposalRow = { stpCompanyId: number | null };
 
 export default async function StpCompaniesPage() {
+  const pageStartedAt = startPerfTimer();
   const STP_PROJECT_ID = 1; // 採用ブースト
 
-  const [companies, masterCompanies, stages, agents, staff, contractTypes, leadSources, contactMethods, masterContractStatuses, masterContracts, contactHistories, customerTypes, contractHistoriesData, editorProposalsRaw, stpProducts, contactCategories] = await Promise.all([
-    prisma.stpCompany.findMany({
-      include: {
-        company: {
-          include: {
-            locations: { where: { deletedAt: null } },
-            contacts: { where: { deletedAt: null } },
+  const [companies, masterCompanies, stages, agents, staff, contractTypes, leadSources, contactMethods, masterContractStatuses, contactHistories, customerTypes, contractHistoriesData, unlockedProposalRows, stpProducts, contactCategories] = await Promise.all([
+    measurePerf("page.stpCompanies", "stp-companies", () =>
+      prisma.stpCompany.findMany({
+        select: {
+          id: true,
+          companyId: true,
+          note: true,
+          leadAcquiredDate: true,
+          leadValidity: true,
+          currentStageId: true,
+          nextTargetStageId: true,
+          nextTargetDate: true,
+          forecast: true,
+          plannedHires: true,
+          salesStaffId: true,
+          adminStaffId: true,
+          agentId: true,
+          leadSourceId: true,
+          billingLocationId: true,
+          billingAddress: true,
+          billingRepresentative: true,
+          hasDeal: true,
+          proposedProductIds: true,
+          pendingReason: true,
+          lostReason: true,
+          createdAt: true,
+          updatedAt: true,
+          currentStage: { select: { id: true, name: true, stageType: true } },
+          nextTargetStage: { select: { id: true, name: true, stageType: true } },
+          leadSource: { select: { id: true, name: true } },
+          salesStaff: { select: { id: true, name: true } },
+          adminStaff: { select: { id: true, name: true } },
+          agent: {
+            select: {
+              id: true,
+              companyId: true,
+              company: { select: { id: true, companyCode: true, name: true } },
+            },
           },
-        },
-        currentStage: true,
-        nextTargetStage: true,
-        agent: {
-          include: { company: true },
-        },
-        leadSource: true,
-        salesStaff: true,
-        adminStaff: true,
-      },
-      orderBy: { id: "asc" },
-    }),
-    prisma.masterStellaCompany.findMany({
-      where: { deletedAt: null },
-      include: {
-        locations: { where: { deletedAt: null } },
-        contacts: { where: { deletedAt: null } },
-      },
-      orderBy: { id: "desc" },
-    }),
-    prisma.stpStage.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: "asc" },
-    }),
-    prisma.stpAgent.findMany({
-      where: { status: "アクティブ" },
-      include: { company: true },
-      orderBy: { id: "asc" },
-    }),
-    prisma.masterStaff.findMany({
-      where: { isActive: true, isSystemUser: false },
-      orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
-    }),
-    prisma.contractType.findMany({
-      where: { projectId: STP_PROJECT_ID, isActive: true },
-      orderBy: { displayOrder: "asc" },
-    }),
-    prisma.stpLeadSource.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: "asc" },
-    }),
-    prisma.contactMethod.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: "asc" },
-    }),
-    prisma.masterContractStatus.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: "asc" },
-    }),
-    prisma.masterContract.findMany({
-      where: { projectId: STP_PROJECT_ID },
-      include: { currentStatus: true },
-      orderBy: { createdAt: "desc" },
-    }),
-    // 接触履歴（顧客種別「企業」のコンテキストを持つもの）
-    prisma.contactHistory.findMany({
-      where: {
-        deletedAt: null,
-        roles: {
-          some: {
-            customerType: {
-              projectId: STP_PROJECT_ID,
-              name: "企業",
+          company: {
+            select: {
+              id: true,
+              companyCode: true,
+              name: true,
+              industry: true,
+              revenueScale: true,
+              websiteUrl: true,
+              locations: {
+                where: { deletedAt: null },
+                select: { id: true, name: true, address: true },
+              },
+              contacts: {
+                where: { deletedAt: null },
+                select: { id: true, name: true, email: true },
+              },
             },
           },
         },
-      },
-      include: {
-        contactMethod: true,
-        roles: {
-          include: {
-            customerType: true,
+        orderBy: { id: "asc" },
+      }),
+      500
+    ),
+    measurePerf("page.stpCompanies", "master-companies", () =>
+      prisma.masterStellaCompany.findMany({
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          companyCode: true,
+          name: true,
+          locations: {
+            where: { deletedAt: null },
+            select: { id: true, name: true, address: true },
+          },
+          contacts: {
+            where: { deletedAt: null },
+            select: { id: true, name: true, email: true },
           },
         },
-      },
-      orderBy: { contactDate: "desc" },
-    }),
+        orderBy: { id: "desc" },
+      }),
+      500
+    ),
+    measurePerf("page.stpCompanies", "stages", () =>
+      prisma.stpStage.findMany({
+        where: { isActive: true },
+        orderBy: { displayOrder: "asc" },
+      }),
+      200
+    ),
+    measurePerf("page.stpCompanies", "agents", () =>
+      prisma.stpAgent.findMany({
+        where: { status: "アクティブ" },
+        select: { id: true, company: { select: { id: true, name: true } } },
+        orderBy: { id: "asc" },
+      }),
+      200
+    ),
+    measurePerf("page.stpCompanies", "staff", () =>
+      prisma.masterStaff.findMany({
+        where: { isActive: true, isSystemUser: false },
+        orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+        select: { id: true, name: true },
+      }),
+      200
+    ),
+    measurePerf("page.stpCompanies", "contract-types", () =>
+      prisma.contractType.findMany({
+        where: { projectId: STP_PROJECT_ID, isActive: true },
+        orderBy: { displayOrder: "asc" },
+      }),
+      200
+    ),
+    measurePerf("page.stpCompanies", "lead-sources", () =>
+      prisma.stpLeadSource.findMany({
+        where: { isActive: true },
+        orderBy: { displayOrder: "asc" },
+      }),
+      200
+    ),
+    measurePerf("page.stpCompanies", "contact-methods", () =>
+      prisma.contactMethod.findMany({
+        where: { isActive: true },
+        orderBy: { displayOrder: "asc" },
+      }),
+      200
+    ),
+    measurePerf("page.stpCompanies", "master-contract-statuses", () =>
+      prisma.masterContractStatus.findMany({
+        where: { isActive: true },
+        orderBy: { displayOrder: "asc" },
+      }),
+      200
+    ),
+    // 接触履歴（顧客種別「企業」のコンテキストを持つもの）
+    measurePerf("page.stpCompanies", "contact-histories", () =>
+      prisma.contactHistory.findMany({
+        where: {
+          deletedAt: null,
+          roles: {
+            some: {
+              customerType: {
+                projectId: STP_PROJECT_ID,
+                name: "企業",
+              },
+            },
+          },
+        },
+        select: {
+          id: true,
+          companyId: true,
+          contactDate: true,
+          contactMethodId: true,
+          assignedTo: true,
+          customerParticipants: true,
+          meetingMinutes: true,
+          note: true,
+          contactMethod: { select: { id: true, name: true } },
+          roles: {
+            select: {
+              customerTypeId: true,
+              customerType: { select: { id: true, name: true, projectId: true } },
+            },
+          },
+        },
+        orderBy: { contactDate: "desc" },
+      }),
+      500
+    ),
     // 顧客種別マスタ（全プロジェクト - 接触履歴で複数プロジェクト選択可能にするため）
-    prisma.customerType.findMany({
-      where: { isActive: true },
-      include: { project: true },
-      orderBy: [
-        { project: { displayOrder: "asc" } },
-        { displayOrder: "asc" },
-      ],
-    }),
+    measurePerf("page.stpCompanies", "customer-types", () =>
+      prisma.customerType.findMany({
+        where: { isActive: true },
+        include: { project: true },
+        orderBy: [
+          { project: { displayOrder: "asc" } },
+          { displayOrder: "asc" },
+        ],
+      }),
+      200
+    ),
     // 契約履歴（全件取得 - 期間内/期間外のフィルタはクライアントで行う）
-    prisma.stpContractHistory.findMany({
-      where: {
-        deletedAt: null,
-      },
-      include: {
-        salesStaff: true,
-        operationStaff: true,
-      },
-      orderBy: { contractStartDate: "desc" },
-    }),
-    // エディタ提案書（権限未戻しチェック用）
-    prisma.stpProposal.findMany({
-      where: {
-        deletedAt: null,
-        sourceProposalId: null,
-        proposalContent: { not: Prisma.DbNull },
-      },
-      select: {
-        stpCompanyId: true,
-        proposalContent: true,
-      },
-    }),
+    measurePerf("page.stpCompanies", "contract-histories", () =>
+      prisma.stpContractHistory.findMany({
+        where: {
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          companyId: true,
+          industryType: true,
+          contractPlan: true,
+          jobMedia: true,
+          contractStartDate: true,
+          contractEndDate: true,
+          initialFee: true,
+          monthlyFee: true,
+          performanceFee: true,
+          note: true,
+          operationStatus: true,
+          accountId: true,
+          accountPass: true,
+          salesStaff: { select: { id: true, name: true } },
+          operationStaff: { select: { id: true, name: true } },
+        },
+        orderBy: { contractStartDate: "desc" },
+      }),
+      500
+    ),
+    // エディタ提案書（権限未戻しチェック用）。巨大JSONを全件アプリへ渡さずDB側で判定する。
+    measurePerf("page.stpCompanies", "unlocked-proposals", () =>
+      prisma.$queryRaw<UnlockedProposalRow[]>`
+        SELECT DISTINCT "stpCompanyId"
+        FROM stp_proposals
+        WHERE "deletedAt" IS NULL
+          AND "sourceProposalId" IS NULL
+          AND "stpCompanyId" IS NOT NULL
+          AND "proposalContent" IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(COALESCE("proposalContent"->'slides', '[]'::jsonb)) AS slide
+            WHERE NULLIF(slide->>'editUnlockedAt', '') IS NOT NULL
+              AND NULLIF(slide->>'deletedAt', '') IS NULL
+          )
+      `,
+      500
+    ),
     // 商材マスタを取得
-    prisma.stpProduct.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: "asc" },
-    }),
+    measurePerf("page.stpCompanies", "products", () =>
+      prisma.stpProduct.findMany({
+        where: { isActive: true },
+        orderBy: { displayOrder: "asc" },
+      }),
+      200
+    ),
     // 接触種別を取得
-    prisma.contactCategory.findMany({
-      where: { isActive: true },
-      include: { project: true },
-      orderBy: [
-        { project: { displayOrder: "asc" } },
-        { displayOrder: "asc" },
-      ],
-    }),
+    measurePerf("page.stpCompanies", "contact-categories", () =>
+      prisma.contactCategory.findMany({
+        where: { isActive: true },
+        include: { project: true },
+        orderBy: [
+          { project: { displayOrder: "asc" } },
+          { displayOrder: "asc" },
+        ],
+      }),
+      200
+    ),
   ]);
-
-  // companyIdでMasterContractをグループ化
-  const masterContractsByCompanyId: Record<number, typeof masterContracts> = {};
-  masterContracts.forEach((contract) => {
-    if (contract.companyId == null) return;
-    if (!masterContractsByCompanyId[contract.companyId]) {
-      masterContractsByCompanyId[contract.companyId] = [];
-    }
-    masterContractsByCompanyId[contract.companyId].push(contract);
-  });
 
   // companyIdで接触履歴をグループ化
   const contactHistoriesByCompanyId: Record<number, typeof contactHistories> = {};
@@ -170,16 +277,11 @@ export default async function StpCompaniesPage() {
   });
 
   // 権限未戻しスライドを持つstpCompanyIdのセットを作成
-  const companiesWithUnlockedSlides = new Set<number>();
-  for (const ep of editorProposalsRaw) {
-    const content = ep.proposalContent as unknown as ProposalContent | null;
-    const hasUnlocked = (content?.slides || []).some(
-      (s) => s.editUnlockedAt && !s.deletedAt,
-    );
-    if (hasUnlocked && ep.stpCompanyId) {
-      companiesWithUnlockedSlides.add(ep.stpCompanyId);
-    }
-  }
+  const companiesWithUnlockedSlides = new Set(
+    unlockedProposalRows
+      .map((row) => row.stpCompanyId)
+      .filter((id): id is number => typeof id === "number")
+  );
 
   // companyIdの重複を検出（企業統合で「両方残す」を選んだ場合）
   const companyIdCounts: Record<number, number> = {};
@@ -306,24 +408,6 @@ export default async function StpCompaniesPage() {
         customerTypeIds: h.roles.map((r) => r.customerTypeId),
       };
     }),
-    // MasterContract（契約書管理）
-    masterContracts: (masterContractsByCompanyId[c.companyId] || []).map((mc) => ({
-      id: mc.id,
-      contractType: mc.contractType,
-      title: mc.title,
-      contractNumber: mc.contractNumber,
-      startDate: mc.startDate?.toISOString() || null,
-      endDate: mc.endDate?.toISOString() || null,
-      currentStatusId: mc.currentStatusId,
-      currentStatusName: mc.currentStatus?.name || null,
-      targetDate: mc.targetDate?.toISOString() || null,
-      signedDate: mc.signedDate?.toISOString() || null,
-      signingMethod: mc.signingMethod,
-      filePath: mc.filePath,
-      fileName: mc.fileName,
-      assignedTo: mc.assignedTo,
-      note: mc.note,
-    })),
     // 契約履歴（全件、stateフラグ付き）- 契約関連データ用
     contractHistories: companyContractHistories.map((ch, i) => ({
       id: ch.id,
@@ -369,7 +453,12 @@ export default async function StpCompaniesPage() {
     label: a.company.name,
   }));
 
-  const staffOptionsByFieldResult = await getStaffOptionsByFields(["STP_COMPANY_SALES", "STP_COMPANY_ADMIN", "CONTRACT_ASSIGNED_TO", "CONTACT_HISTORY_STAFF"]);
+  const staffOptionsByFieldResult = await measurePerf(
+    "page.stpCompanies",
+    "staff-options-by-fields",
+    () => getStaffOptionsByFields(["STP_COMPANY_SALES", "STP_COMPANY_ADMIN", "CONTRACT_ASSIGNED_TO", "CONTACT_HISTORY_STAFF"]),
+    500
+  );
   const staffOptions = staffOptionsByFieldResult.STP_COMPANY_SALES;
   const adminStaffOptions = staffOptionsByFieldResult.STP_COMPANY_ADMIN;
   const contractStaffOptions = staffOptionsByFieldResult.CONTRACT_ASSIGNED_TO;
@@ -381,11 +470,25 @@ export default async function StpCompaniesPage() {
   }));
 
   // プロジェクトごとの担当者オプション（接触履歴モーダル用）
-  const allProjects = await prisma.masterProject.findMany({ where: { isActive: true } });
-  const staffByProject: Record<number, { value: string; label: string }[]> = {};
-  for (const project of allProjects) {
-    staffByProject[project.id] = await getStaffOptionsByField("CONTACT_HISTORY_STAFF", project.id);
-  }
+  const allProjects = await measurePerf(
+    "page.stpCompanies",
+    "active-projects",
+    () => prisma.masterProject.findMany({ where: { isActive: true }, select: { id: true } }),
+    200
+  );
+  const staffByProjectEntries = await measurePerf(
+    "page.stpCompanies",
+    "staff-options-by-project",
+    () =>
+      Promise.all(
+        allProjects.map(async (project) => [
+          project.id,
+          await getStaffOptionsByField("CONTACT_HISTORY_STAFF", project.id),
+        ] as const)
+      ),
+    500
+  );
+  const staffByProject: Record<number, { value: string; label: string }[]> = Object.fromEntries(staffByProjectEntries);
 
   const leadSourceOptions = leadSources.map((ls) => ({
     value: String(ls.id),
@@ -425,6 +528,8 @@ export default async function StpCompaniesPage() {
   // ステージ情報（検討中・失注のステージIDを取得）
   const pendingStageId = stages.find((s) => s.stageType === 'pending')?.id;
   const lostStageId = stages.find((s) => s.stageType === 'closed_lost')?.id;
+
+  logPerf("page.stpCompanies", "total", elapsedPerfMs(pageStartedAt), { rows: data.length }, 500);
 
   return (
     <div className="space-y-6">

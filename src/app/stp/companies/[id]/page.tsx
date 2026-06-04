@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import { toLocalDateString } from "@/lib/utils";
-import { getStaffOptionsByFields, getStaffOptionsByField } from "@/lib/staff/get-staff-by-field";
+import { getStaffOptionsByField } from "@/lib/staff/get-staff-by-field";
 import { CompanyDetailTabs } from "./company-detail-tabs";
+import { elapsedPerfMs, logPerf, measurePerf, startPerfTimer } from "@/lib/perf-log";
 
 const STP_PROJECT_ID = 1;
 
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export default async function StpCompanyDetailPage({ params, searchParams }: Props) {
+  const pageStartedAt = startPerfTimer();
   const { id: idStr } = await params;
   const { tab } = await searchParams;
   const stpCompanyId = parseInt(idStr, 10);
@@ -19,83 +21,132 @@ export default async function StpCompanyDetailPage({ params, searchParams }: Pro
   if (isNaN(stpCompanyId)) notFound();
 
   // 企業データ取得
-  const stpCompany = await prisma.stpCompany.findUnique({
-    where: { id: stpCompanyId },
-    include: {
-      company: {
+  const stpCompany = await measurePerf(
+    "page.stpCompanyDetail",
+    "stp-company",
+    () =>
+      prisma.stpCompany.findUnique({
+        where: { id: stpCompanyId },
         include: {
-          locations: { where: { deletedAt: null }, orderBy: [{ isPrimary: "desc" }, { id: "asc" }] },
-          contacts: { where: { deletedAt: null }, orderBy: [{ isPrimary: "desc" }, { id: "asc" }] },
-          bankAccounts: { where: { deletedAt: null }, orderBy: { id: "asc" } },
+          company: {
+            include: {
+              locations: { where: { deletedAt: null }, orderBy: [{ isPrimary: "desc" }, { id: "asc" }] },
+              contacts: { where: { deletedAt: null }, orderBy: [{ isPrimary: "desc" }, { id: "asc" }] },
+              bankAccounts: { where: { deletedAt: null }, orderBy: { id: "asc" } },
+            },
+          },
+          currentStage: true,
+          nextTargetStage: true,
+          agent: { include: { company: true } },
+          leadSource: true,
+          salesStaff: true,
+          adminStaff: true,
         },
-      },
-      currentStage: true,
-      nextTargetStage: true,
-      agent: { include: { company: true } },
-      leadSource: true,
-      salesStaff: true,
-      adminStaff: true,
-    },
-  });
+      }),
+    500
+  );
 
   if (!stpCompany) notFound();
 
   // マスタオプション並列取得
   const [
-    stages,
     staff,
     contactMethods,
     customerTypes,
-    stpProducts,
     contactCategories,
     latestContract,
-    staffOptionsByField,
     masterContractStatuses,
     contractTypes,
     contactHistoriesRaw,
   ] = await Promise.all([
-    prisma.stpStage.findMany({ where: { isActive: true }, orderBy: { displayOrder: "asc" } }),
-    prisma.masterStaff.findMany({ where: { isActive: true, isSystemUser: false }, orderBy: [{ displayOrder: "asc" }, { id: "asc" }] }),
-    prisma.contactMethod.findMany({ where: { isActive: true }, orderBy: { displayOrder: "asc" } }),
-    prisma.customerType.findMany({ where: { isActive: true }, include: { project: true }, orderBy: [{ project: { displayOrder: "asc" } }, { displayOrder: "asc" }] }),
-    prisma.stpProduct.findMany({ where: { isActive: true }, orderBy: { displayOrder: "asc" } }),
-    prisma.contactCategory.findMany({ where: { isActive: true }, include: { project: true }, orderBy: [{ project: { displayOrder: "asc" } }, { displayOrder: "asc" }] }),
-    prisma.stpContractHistory.findFirst({
-      where: { companyId: stpCompany.companyId, deletedAt: null },
-      orderBy: { contractStartDate: "desc" },
-      include: { salesStaff: true, operationStaff: true },
-    }),
-    getStaffOptionsByFields(["STP_COMPANY_SALES", "STP_COMPANY_ADMIN", "CONTRACT_ASSIGNED_TO", "CONTACT_HISTORY_STAFF"]),
-    prisma.masterContractStatus.findMany({ where: { isActive: true }, orderBy: { displayOrder: "asc" } }),
-    prisma.contractType.findMany({ where: { projectId: STP_PROJECT_ID, isActive: true }, orderBy: { displayOrder: "asc" } }),
+    measurePerf("page.stpCompanyDetail", "staff", () =>
+      prisma.masterStaff.findMany({
+        where: { isActive: true, isSystemUser: false },
+        orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+      }),
+      200
+    ),
+    measurePerf("page.stpCompanyDetail", "contact-methods", () =>
+      prisma.contactMethod.findMany({ where: { isActive: true }, orderBy: { displayOrder: "asc" } }),
+      200
+    ),
+    measurePerf("page.stpCompanyDetail", "customer-types", () =>
+      prisma.customerType.findMany({
+        where: { isActive: true },
+        include: { project: true },
+        orderBy: [{ project: { displayOrder: "asc" } }, { displayOrder: "asc" }],
+      }),
+      200
+    ),
+    measurePerf("page.stpCompanyDetail", "contact-categories", () =>
+      prisma.contactCategory.findMany({
+        where: { isActive: true },
+        include: { project: true },
+        orderBy: [{ project: { displayOrder: "asc" } }, { displayOrder: "asc" }],
+      }),
+      200
+    ),
+    measurePerf("page.stpCompanyDetail", "latest-contract", () =>
+      prisma.stpContractHistory.findFirst({
+        where: { companyId: stpCompany.companyId, deletedAt: null },
+        orderBy: { contractStartDate: "desc" },
+        include: { salesStaff: true, operationStaff: true },
+      }),
+      300
+    ),
+    measurePerf("page.stpCompanyDetail", "master-contract-statuses", () =>
+      prisma.masterContractStatus.findMany({ where: { isActive: true }, orderBy: { displayOrder: "asc" } }),
+      200
+    ),
+    measurePerf("page.stpCompanyDetail", "contract-types", () =>
+      prisma.contractType.findMany({ where: { projectId: STP_PROJECT_ID, isActive: true }, orderBy: { displayOrder: "asc" } }),
+      200
+    ),
     // 接触履歴（この企業に紐づくもの）
-    prisma.contactHistory.findMany({
-      where: {
-        companyId: stpCompany.companyId,
-        deletedAt: null,
-        roles: {
-          some: {
-            customerType: {
-              projectId: STP_PROJECT_ID,
-              name: "企業",
+    measurePerf("page.stpCompanyDetail", "contact-histories", () =>
+      prisma.contactHistory.findMany({
+        where: {
+          companyId: stpCompany.companyId,
+          deletedAt: null,
+          roles: {
+            some: {
+              customerType: {
+                projectId: STP_PROJECT_ID,
+                name: "企業",
+              },
             },
           },
         },
-      },
-      include: {
-        contactMethod: true,
-        roles: { include: { customerType: true } },
-      },
-      orderBy: { contactDate: "desc" },
-    }),
+        include: {
+          contactMethod: true,
+          roles: { include: { customerType: true } },
+        },
+        orderBy: { contactDate: "desc" },
+      }),
+      500
+    ),
   ]);
 
   // プロジェクトごとの担当者オプション（接触履歴用）
-  const allProjects = await prisma.masterProject.findMany({ where: { isActive: true } });
-  const staffByProject: Record<number, { value: string; label: string }[]> = {};
-  for (const project of allProjects) {
-    staffByProject[project.id] = await getStaffOptionsByField("CONTACT_HISTORY_STAFF", project.id);
-  }
+  const allProjects = await measurePerf(
+    "page.stpCompanyDetail",
+    "active-projects",
+    () => prisma.masterProject.findMany({ where: { isActive: true } }),
+    200
+  );
+  const staffByProjectEntries = await measurePerf(
+    "page.stpCompanyDetail",
+    "staff-options-by-project",
+    () =>
+      Promise.all(
+        allProjects.map(async (project) => [
+          project.id,
+          await getStaffOptionsByField("CONTACT_HISTORY_STAFF", project.id),
+        ] as const)
+      ),
+    500
+  );
+  const staffByProject: Record<number, { value: string; label: string }[]> = Object.fromEntries(staffByProjectEntries);
 
   // 企業データシリアライズ
   const companyData = {
@@ -216,6 +267,11 @@ export default async function StpCompanyDetailPage({ params, searchParams }: Pro
   // オプション
   const contactMethodOptions = contactMethods.map((m) => ({ value: String(m.id), label: m.name }));
   const staffOptions = staff.map((s) => ({ value: String(s.id), label: s.name }));
+
+  logPerf("page.stpCompanyDetail", "total", elapsedPerfMs(pageStartedAt), {
+    contactHistories: contactHistoriesData.length,
+  }, 500);
+
   return (
     <CompanyDetailTabs
       stpCompanyId={stpCompanyId}

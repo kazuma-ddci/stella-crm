@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
+import { unstable_cache } from "next/cache";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { SessionProvider } from "@/components/providers/session-provider";
@@ -10,8 +11,79 @@ import { prisma } from "@/lib/prisma";
 import { PermissionGuard } from "@/components/auth/permission-guard";
 import { AuthenticatedLayout } from "@/components/layout/authenticated-layout";
 import { BuildVersionChecker } from "@/components/build-version-checker";
+import { elapsedPerfMs, logPerf, measurePerf, startPerfTimer } from "@/lib/perf-log";
 
 type CountRow = { count: number | bigint };
+
+const getActiveProjectsForLayout = unstable_cache(
+  async () =>
+    prisma.masterProject.findMany({
+      where: { isActive: true },
+      select: { id: true, code: true, name: true },
+    }),
+  ["layout-active-projects"],
+  { revalidate: 300 }
+);
+
+const getHojoPendingAccountCountForLayout = unstable_cache(
+  async () => {
+    const [bbsPending, vendorPending, lenderPending] = await Promise.all([
+      prisma.hojoBbsAccount.count({
+        where: { status: "pending_approval" },
+      }),
+      prisma.hojoVendorAccount.count({
+        where: { status: "pending_approval" },
+      }),
+      prisma.hojoLenderAccount.count({
+        where: { status: "pending_approval" },
+      }),
+    ]);
+    return bbsPending + vendorPending + lenderPending;
+  },
+  ["layout-hojo-pending-account-count"],
+  { revalidate: 60 }
+);
+
+const getExpenseApprovalCountsForLayout = unstable_cache(
+  async (userId: number) =>
+    prisma.paymentGroup.groupBy({
+      by: ["projectId"],
+      where: {
+        deletedAt: null,
+        status: "pending_project_approval",
+        approverStaffId: userId,
+      },
+      _count: true,
+    }),
+  ["layout-expense-approval-counts"],
+  { revalidate: 30 }
+);
+
+const getUnlinkedStatementCountForLayout = unstable_cache(
+  async () => {
+    const [row] = await prisma.$queryRaw<CountRow[]>`
+      SELECT COUNT(*)::int AS count
+      FROM (
+        SELECT
+          e.id,
+          CASE
+            WHEN COALESCE(e."incomingAmount", 0) > 0 THEN e."incomingAmount"
+            WHEN COALESCE(e."outgoingAmount", 0) > 0 THEN e."outgoingAmount"
+            ELSE 0
+          END AS total_amount,
+          COALESCE(SUM(l.amount), 0) AS linked_amount
+        FROM bank_statement_entries e
+        LEFT JOIN bank_statement_entry_group_links l ON l."bankStatementEntryId" = e.id
+        WHERE e.excluded = false
+        GROUP BY e.id
+      ) s
+      WHERE s.total_amount > 0 AND s.linked_amount < s.total_amount
+    `;
+    return Number(row?.count ?? 0);
+  },
+  ["layout-unlinked-statement-count"],
+  { revalidate: 60 }
+);
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -42,7 +114,8 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await auth();
+  const layoutStartedAt = startPerfTimer();
+  const session = await measurePerf("layout", "auth", () => auth(), 100);
   const user = session?.user;
 
   // サイドバー設定をDBから取得
@@ -58,10 +131,16 @@ export default async function RootLayout({
   const userType = (user as any)?.userType;
   if (userId && userType === "lender") {
     try {
-      const lenderMeta = await prisma.hojoLenderAccount.findUnique({
-        where: { id: userId },
-        select: { tableSettings: true },
-      });
+      const lenderMeta = await measurePerf(
+        "layout",
+        "lender-table-settings",
+        () =>
+          prisma.hojoLenderAccount.findUnique({
+            where: { id: userId },
+            select: { tableSettings: true },
+          }),
+        100
+      );
       tableSettings = (lenderMeta?.tableSettings as TableSettingsMap | null) ?? {};
     } catch {
       // DBエラー時は空のまま
@@ -69,86 +148,66 @@ export default async function RootLayout({
   }
   if (userId && userType === "staff") {
     try {
-      const [pref, projects, bbsPending, vendorPending, lenderPending, expenseApprovals, staffMeta] = await Promise.all([
-        prisma.staffSidebarPreference.findUnique({
-          where: { staffId: userId },
-          select: { hiddenItems: true },
-        }),
-        prisma.masterProject.findMany({
-          where: { isActive: true },
-          select: { code: true, name: true },
-        }),
-        prisma.hojoBbsAccount.count({
-          where: { status: "pending_approval" },
-        }),
-        prisma.hojoVendorAccount.count({
-          where: { status: "pending_approval" },
-        }),
-        prisma.hojoLenderAccount.count({
-          where: { status: "pending_approval" },
-        }),
-        // 経費申請の承認待ち（自分が承認者のもの）をプロジェクト別にカウント
-        prisma.paymentGroup.groupBy({
-          by: ["projectId"],
-          where: {
-            deletedAt: null,
-            status: "pending_project_approval",
-            approverStaffId: userId,
-          },
-          _count: true,
-        }),
+      const [pref, projects, hojoPendingCount, expenseApprovals, staffMeta, statementCount] = await Promise.all([
+        measurePerf(
+          "layout",
+          "sidebar-preference",
+          () =>
+            prisma.staffSidebarPreference.findUnique({
+              where: { staffId: userId },
+              select: { hiddenItems: true },
+            }),
+          100
+        ),
+        measurePerf("layout", "active-projects", getActiveProjectsForLayout, 100),
+        measurePerf(
+          "layout",
+          "hojo-pending-account-count",
+          getHojoPendingAccountCountForLayout,
+          100
+        ),
+        measurePerf(
+          "layout",
+          "expense-approval-counts",
+          () => getExpenseApprovalCountsForLayout(userId),
+          100
+        ),
         // スタッフのテーブルUI設定
-        prisma.masterStaff.findUnique({
-          where: { id: userId },
-          select: { tableSettings: true },
-        }),
+        measurePerf(
+          "layout",
+          "staff-table-settings",
+          () =>
+            prisma.masterStaff.findUnique({
+              where: { id: userId },
+              select: { tableSettings: true },
+            }),
+          100
+        ),
+        measurePerf(
+          "layout",
+          "unlinked-statement-count",
+          getUnlinkedStatementCountForLayout,
+          100
+        ),
       ]);
       tableSettings = (staffMeta?.tableSettings as TableSettingsMap | null) ?? {};
       hiddenItems = pref?.hiddenItems ?? [];
-      bbsPendingCount = bbsPending + vendorPending + lenderPending;
+      bbsPendingCount = hojoPendingCount;
       projectNames = Object.fromEntries(projects.map((p) => [p.code, p.name]));
-
-      // projectId → code 変換用にDB再取得
-      const projectIdMap = await prisma.masterProject.findMany({
-        where: { isActive: true },
-        select: { id: true, code: true },
-      });
-      const pidToCode = Object.fromEntries(projectIdMap.map((p) => [p.id, p.code]));
+      const pidToCode = Object.fromEntries(projects.map((p) => [p.id, p.code]));
       for (const g of expenseApprovals) {
         if (g.projectId) {
           const code = pidToCode[g.projectId];
           if (code) expenseApprovalCounts[code] = g._count;
         }
       }
-
-      // 未紐付け入出金履歴の件数（経理プロジェクト権限がなくても実害なしのため一律取得）
-      try {
-        const [row] = await prisma.$queryRaw<CountRow[]>`
-          SELECT COUNT(*)::int AS count
-          FROM (
-            SELECT
-              e.id,
-              CASE
-                WHEN COALESCE(e."incomingAmount", 0) > 0 THEN e."incomingAmount"
-                WHEN COALESCE(e."outgoingAmount", 0) > 0 THEN e."outgoingAmount"
-                ELSE 0
-              END AS total_amount,
-              COALESCE(SUM(l.amount), 0) AS linked_amount
-            FROM bank_statement_entries e
-            LEFT JOIN bank_statement_entry_group_links l ON l."bankStatementEntryId" = e.id
-            WHERE e.excluded = false
-            GROUP BY e.id
-          ) s
-          WHERE s.total_amount > 0 AND s.linked_amount < s.total_amount
-        `;
-        unlinkedStatementCount = Number(row?.count ?? 0);
-      } catch {
-        // 取得失敗時は0のまま
-      }
+      unlinkedStatementCount = statementCount;
     } catch {
       // DBエラー時は空のまま
     }
   }
+
+  logPerf("layout", "total", elapsedPerfMs(layoutStartedAt), { userType }, 300);
 
   return (
     <html lang="ja">

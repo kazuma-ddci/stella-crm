@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
 import type { ProjectCode, UserType, DisplayViewPermission } from "@/types/auth";
+import { elapsedPerfMs, logPerf, sanitizePerfPath, startPerfTimer } from "@/lib/perf-log";
 
 // 公開パス（認証不要）
 const PUBLIC_PATHS = [
@@ -274,9 +275,11 @@ function isCustomerDomain(host: string): boolean {
 }
 
 export default auth((request) => {
+  const startedAt = startPerfTimer();
   const { pathname } = request.nextUrl;
   const host = request.headers.get("host") || "";
 
+  try {
   // =====================================================================
   // SLP 資料配信の Cache-Control 強制上書き
   // Next.js は API Route に `no-cache, no-store, must-revalidate` を
@@ -504,6 +507,9 @@ export default auth((request) => {
   }
 
   return NextResponse.next();
+  } finally {
+    logPerf("middleware", "total", elapsedPerfMs(startedAt), { path: sanitizePerfPath(pathname) }, 50);
+  }
 });
 
 export const config = {

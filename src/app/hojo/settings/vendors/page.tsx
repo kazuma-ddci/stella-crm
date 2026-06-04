@@ -6,23 +6,36 @@ import { FormResponsesTable } from "./form-responses-table";
 import { auth } from "@/auth";
 import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 import { formatLineFriendLabel } from "@/lib/hojo/format-line-friend-label";
+import { elapsedPerfMs, logPerf, measurePerf, startPerfTimer } from "@/lib/perf-log";
 
 export default async function VendorsPage() {
-  const session = await auth();
+  const pageStartedAt = startPerfTimer();
+  const session = await measurePerf("page.hojoVendors", "auth", () => auth(), 100);
   const canEdit = canEditProjectMasterDataSync(session?.user);
 
   // hojoプロジェクトのedit/manager権限を持つスタッフを取得
-  const hojoProject = await prisma.masterProject.findFirst({ where: { code: "hojo" } });
+  const hojoProject = await measurePerf(
+    "page.hojoVendors",
+    "hojo-project",
+    () => prisma.masterProject.findFirst({ where: { code: "hojo" } }),
+    200
+  );
   const staffWithHojoPermission = hojoProject
-    ? await prisma.masterStaff.findMany({
-        where: {
-          isActive: true,
-          isSystemUser: false,
-          permissions: { some: { projectId: hojoProject.id, permissionLevel: { in: ["edit", "manager"] } } },
-        },
-        orderBy: { displayOrder: "asc" },
-        select: { id: true, name: true },
-      })
+    ? await measurePerf(
+        "page.hojoVendors",
+        "staff-with-hojo-permission",
+        () =>
+          prisma.masterStaff.findMany({
+            where: {
+              isActive: true,
+              isSystemUser: false,
+              permissions: { some: { projectId: hojoProject.id, permissionLevel: { in: ["edit", "manager"] } } },
+            },
+            orderBy: { displayOrder: "asc" },
+            select: { id: true, name: true },
+          }),
+        300
+      )
     : [];
 
   const staffOptions = staffWithHojoPermission.map((s) => ({
@@ -39,70 +52,91 @@ export default async function VendorsPage() {
     vendorRegistrationStatuses,
     tools,
   ] = await Promise.all([
-    prisma.hojoVendor.findMany({
-      orderBy: { displayOrder: "asc" },
-      include: {
-        consultingStaff: {
-          include: { staff: { select: { id: true, name: true } } },
-        },
-        assignedAsLineFriend: {
-          select: { id: true, sei: true, mei: true, snsname: true },
-        },
-        scWholesaleStatus: { select: { id: true, name: true } },
-        scWholesaleContractStatus: { select: { id: true, name: true } },
-        consultingPlanStatus: { select: { id: true, name: true } },
-        consultingPlanContractStatus: { select: { id: true, name: true } },
-        grantApplicationBpoContractStatus: { select: { id: true, name: true } },
-        vendorRegistrationStatus: { select: { id: true, name: true } },
-        toolRegistrations: {
-          include: {
-            status: { select: { id: true, name: true, isCompleted: true } },
+    measurePerf("page.hojoVendors", "vendors", () =>
+      prisma.hojoVendor.findMany({
+        orderBy: { displayOrder: "asc" },
+        include: {
+          consultingStaff: {
+            include: { staff: { select: { id: true, name: true } } },
+          },
+          assignedAsLineFriend: {
+            select: { id: true, sei: true, mei: true, snsname: true },
+          },
+          scWholesaleStatus: { select: { id: true, name: true } },
+          scWholesaleContractStatus: { select: { id: true, name: true } },
+          consultingPlanStatus: { select: { id: true, name: true } },
+          consultingPlanContractStatus: { select: { id: true, name: true } },
+          grantApplicationBpoContractStatus: { select: { id: true, name: true } },
+          vendorRegistrationStatus: { select: { id: true, name: true } },
+          toolRegistrations: {
+            include: {
+              status: { select: { id: true, name: true, isCompleted: true } },
+            },
+          },
+          contacts: {
+            include: {
+              lineFriend: { select: { id: true, uid: true, free1: true, snsname: true } },
+            },
+            orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
           },
         },
-        contacts: {
-          include: {
-            lineFriend: { select: { id: true, uid: true, free1: true, snsname: true } },
+      }),
+      500
+    ),
+    measurePerf("page.hojoVendors", "line-friends", () =>
+      prisma.hojoLineFriendSecurityCloud.findMany({
+        where: { deletedAt: null },
+        orderBy: { id: "asc" },
+        select: { id: true, uid: true, sei: true, mei: true, snsname: true, userType: true, free1: true },
+      }),
+      500
+    ),
+    measurePerf("page.hojoVendors", "sc-wholesale-statuses", () =>
+      prisma.hojoVendorScWholesaleStatus.findMany({
+        where: { isActive: true },
+        orderBy: { displayOrder: "asc" },
+        select: { id: true, name: true, color: true },
+      }),
+      200
+    ),
+    measurePerf("page.hojoVendors", "consulting-plan-statuses", () =>
+      prisma.hojoVendorConsultingPlanStatus.findMany({
+        where: { isActive: true },
+        orderBy: { displayOrder: "asc" },
+        select: { id: true, name: true, color: true },
+      }),
+      200
+    ),
+    measurePerf("page.hojoVendors", "contract-statuses", () =>
+      prisma.hojoVendorContractStatus.findMany({
+        where: { isActive: true },
+        orderBy: { displayOrder: "asc" },
+        select: { id: true, name: true, isCompleted: true },
+      }),
+      200
+    ),
+    measurePerf("page.hojoVendors", "vendor-registration-statuses", () =>
+      prisma.hojoVendorRegistrationStatus.findMany({
+        where: { isActive: true },
+        orderBy: { displayOrder: "asc" },
+        select: { id: true, name: true, isCompleted: true },
+      }),
+      200
+    ),
+    measurePerf("page.hojoVendors", "tools", () =>
+      prisma.hojoVendorTool.findMany({
+        where: { isActive: true },
+        include: {
+          statuses: {
+            where: { isActive: true },
+            orderBy: { displayOrder: "asc" },
+            select: { id: true, name: true, isCompleted: true },
           },
-          orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
         },
-      },
-    }),
-    prisma.hojoLineFriendSecurityCloud.findMany({
-      where: { deletedAt: null },
-      orderBy: { id: "asc" },
-      select: { id: true, uid: true, sei: true, mei: true, snsname: true, userType: true, free1: true },
-    }),
-    prisma.hojoVendorScWholesaleStatus.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: "asc" },
-      select: { id: true, name: true, color: true },
-    }),
-    prisma.hojoVendorConsultingPlanStatus.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: "asc" },
-      select: { id: true, name: true, color: true },
-    }),
-    prisma.hojoVendorContractStatus.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: "asc" },
-      select: { id: true, name: true, isCompleted: true },
-    }),
-    prisma.hojoVendorRegistrationStatus.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: "asc" },
-      select: { id: true, name: true, isCompleted: true },
-    }),
-    prisma.hojoVendorTool.findMany({
-      where: { isActive: true },
-      include: {
-        statuses: {
-          where: { isActive: true },
-          orderBy: { displayOrder: "asc" },
-          select: { id: true, name: true, isCompleted: true },
-        },
-      },
-      orderBy: { displayOrder: "asc" },
-    }),
+        orderBy: { displayOrder: "asc" },
+      }),
+      300
+    ),
   ]);
 
   // セキュリティクラウドLINEからASユーザーを検出するためのマップ
@@ -212,10 +246,16 @@ export default async function VendorsPage() {
   }));
 
   // フォーム回答データ取得
-  const formResponses = await prisma.hojoFormSubmission.findMany({
-    where: { formType: "contract-confirmation", deletedAt: null },
-    orderBy: { submittedAt: "desc" },
-  });
+  const formResponses = await measurePerf(
+    "page.hojoVendors",
+    "form-responses",
+    () =>
+      prisma.hojoFormSubmission.findMany({
+        where: { formType: "contract-confirmation", deletedAt: null },
+        orderBy: { submittedAt: "desc" },
+      }),
+    500
+  );
 
   const formResponseData = formResponses.map((r) => ({
     id: r.id,
@@ -227,6 +267,11 @@ export default async function VendorsPage() {
     answers: (r.answers as Record<string, string>) ?? {},
     staffMemo: r.staffMemo,
   }));
+
+  logPerf("page.hojoVendors", "total", elapsedPerfMs(pageStartedAt), {
+    vendors: data.length,
+    formResponses: formResponseData.length,
+  }, 500);
 
   return (
     <div className="space-y-6">

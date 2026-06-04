@@ -2,29 +2,42 @@ import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CompaniesTable } from "./companies-table";
 import { getStaffOptionsByField } from "@/lib/staff/get-staff-by-field";
+import { elapsedPerfMs, logPerf, measurePerf, startPerfTimer } from "@/lib/perf-log";
 
 export default async function CompaniesPage() {
-  const staffOptions = await getStaffOptionsByField("MASTER_COMPANY_STAFF");
+  const pageStartedAt = startPerfTimer();
+  const staffOptions = await measurePerf(
+    "page.companies",
+    "staff-options",
+    () => getStaffOptionsByField("MASTER_COMPANY_STAFF"),
+    300
+  );
 
-  const companies = await prisma.masterStellaCompany.findMany({
-    where: { mergedIntoId: null, deletedAt: null },
-    orderBy: { id: "asc" },
-    include: {
-      staff: true,
-      locations: {
-        where: { deletedAt: null },
-        orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
-      },
-      contacts: {
-        where: { deletedAt: null },
-        orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
-      },
-      bankAccounts: {
-        where: { deletedAt: null },
+  const companies = await measurePerf(
+    "page.companies",
+    "companies",
+    () =>
+      prisma.masterStellaCompany.findMany({
+        where: { mergedIntoId: null, deletedAt: null },
         orderBy: { id: "asc" },
-      },
-    },
-  });
+        include: {
+          staff: true,
+          locations: {
+            where: { deletedAt: null },
+            orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
+          },
+          contacts: {
+            where: { deletedAt: null },
+            orderBy: [{ isPrimary: "desc" }, { id: "asc" }],
+          },
+          bankAccounts: {
+            where: { deletedAt: null },
+            orderBy: { id: "asc" },
+          },
+        },
+      }),
+    500
+  );
 
   const data = companies.map((c) => ({
     id: c.id,
@@ -87,6 +100,8 @@ export default async function CompaniesPage() {
       updatedAt: ba.updatedAt.toISOString(),
     })),
   }));
+
+  logPerf("page.companies", "total", elapsedPerfMs(pageStartedAt), { rows: data.length }, 500);
 
   return (
     <div className="space-y-6">
