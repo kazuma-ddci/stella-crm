@@ -20,7 +20,8 @@ The owner is an AI engineer but not a web application engineer. Explain changes 
 
 - Never run `git reset --hard`, `git checkout -- <path>`, destructive `rm`, or broad cleanup commands unless the user explicitly asks and approves the consequence.
 - Never revert or overwrite changes you did not make. If unexpected edits appear in files you are using, stop and ask.
-- Do not run `ssh` yourself. For VPS work, output commands for the user to run manually.
+- For VPS work, output commands for the user to run manually by default. You may run `ssh` yourself only when the user explicitly authorizes direct VPS operation in the current conversation, including short mobile instructions such as "VPSに接続してデプロイして" or "DB migrateも実行して".
+- When directly operating a VPS after explicit authorization, keep actions non-destructive and scoped to the requested deployment or diagnosis. Production/staging DB migrations are allowed only via non-destructive deploy paths such as `prisma migrate deploy`; never use reset/push/drop-style shortcuts.
 - Do not propose destructive operations against stg/prod VPS databases (`migrate reset`, `DROP`, `TRUNCATE`, volume deletion, reseeding) as a normal fix. Find non-destructive paths.
 - Do not change `.env` `DATABASE_URL` to make local commands work.
 - Do not use `npx next dev` locally. Use Docker for the dev server.
