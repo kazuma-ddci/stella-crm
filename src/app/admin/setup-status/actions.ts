@@ -86,6 +86,29 @@ const checkDefinitions: CheckDefinition[] = [
     countFn: () =>
       prisma.staffRoleType.count({ where: { isActive: true } }),
   },
+  {
+    id: "as-staff",
+    category: "共通",
+    name: "AS担当者",
+    description: "STP企業情報のAS担当者に設定できるスタッフ",
+    required: 1,
+    href: "/staff/role-types",
+    countFn: () =>
+      prisma.masterStaff.count({
+        where: {
+          isSystemUser: false,
+          isActive: true,
+          roleAssignments: {
+            some: {
+              roleType: {
+                isActive: true,
+                OR: [{ code: "AS" }, { name: "AS" }],
+              },
+            },
+          },
+        },
+      }),
+  },
 
   // ========================================
   // STP
@@ -99,6 +122,16 @@ const checkDefinitions: CheckDefinition[] = [
     href: "/stp/settings/stages",
     countFn: () =>
       prisma.stpStage.count({ where: { isActive: true } }),
+  },
+  {
+    id: "stp-lost-reason-options",
+    category: "STP",
+    name: "失注理由",
+    description: "価格・タイミングなどの失注理由選択肢",
+    required: 1,
+    href: "/stp/settings/stages",
+    countFn: () =>
+      prisma.stpLostReasonOption.count({ where: { isActive: true } }),
   },
   {
     id: "stp-lead-sources",

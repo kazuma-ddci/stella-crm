@@ -156,7 +156,8 @@ const navigation: NavItem[] = [
     key: "stp",
     collapsible: true,
     children: [
-      { name: "ダッシュボード", href: "/stp/dashboard", icon: Home },
+      { name: "ダッシュボード", href: "/stp/new-dashboard", icon: Home },
+      { name: "(旧)ダッシュボード", href: "/stp/dashboard", icon: Home },
       { name: "経営インサイト", href: "/stp/insights", icon: MessageSquare },
       { name: "KPI目標管理", href: "/stp/kpi-targets", icon: Target },
       { name: "アラート検知", href: "/stp/alerts", icon: AlertTriangle },

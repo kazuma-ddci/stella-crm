@@ -22,10 +22,40 @@ function toCommaSeparatedString(value: unknown): string | null {
   return String(value) || null;
 }
 
+async function validateAsStaff(staffId: number): Promise<boolean> {
+  const staff = await prisma.masterStaff.findFirst({
+    where: {
+      id: staffId,
+      isActive: true,
+      isSystemUser: false,
+      roleAssignments: {
+        some: {
+          roleType: {
+            isActive: true,
+            OR: [{ code: "AS" }, { name: "AS" }],
+          },
+        },
+      },
+    },
+    select: { id: true },
+  });
+  return !!staff;
+}
+
+function parseDealProbability(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const probability = Number(value);
+  if (!Number.isInteger(probability) || probability < 0 || probability > 100 || probability % 10 !== 0) {
+    throw new Error("案件確度は0%〜100%の10%刻みで入力してください");
+  }
+  return probability;
+}
+
 // 変更履歴管理対象フィールドの定義
 const TRACKED_FIELDS: Record<string, { displayName: string; fieldCode?: string }> = {
   salesStaffId: { displayName: "担当営業", fieldCode: "STP_COMPANY_SALES" },
   adminStaffId: { displayName: "担当事務", fieldCode: "STP_COMPANY_ADMIN" },
+  asStaffId: { displayName: "AS担当者" },
   plannedHires: { displayName: "採用予定人数" },
   billingContactIds: { displayName: "請求先担当者" },
 };
@@ -91,6 +121,10 @@ export async function addStpCompany(data: Record<string, unknown>): Promise<Acti
     const isValid = await validateStaffForField("STP_COMPANY_ADMIN", Number(data.adminStaffId));
     if (!isValid) return err("選択された担当事務はこのフィールドに割り当てできません");
   }
+  if (data.asStaffId) {
+    const isValid = await validateAsStaff(Number(data.asStaffId));
+    if (!isValid) return err("選択されたAS担当者は役割「AS」のスタッフではありません");
+  }
 
   // トランザクションで企業作成と履歴作成を実行
   const result = await prisma.$transaction(async (tx) => {
@@ -109,8 +143,11 @@ export async function addStpCompany(data: Record<string, unknown>): Promise<Acti
         forecast: (data.forecast as string) || null,
         plannedHires: data.plannedHires ? Number(data.plannedHires) : null,
         leadSourceId: data.leadSourceId ? Number(data.leadSourceId) : null,
+        dealProbability: parseDealProbability(data.dealProbability),
+        nextContactDate: data.nextContactDate ? new Date(data.nextContactDate as string) : null,
         salesStaffId: data.salesStaffId ? Number(data.salesStaffId) : null,
         adminStaffId: data.adminStaffId ? Number(data.adminStaffId) : null,
+        asStaffId: data.asStaffId ? Number(data.asStaffId) : null,
         // 請求先情報（複数選択はカンマ区切りで保存）
         billingLocationId: data.billingLocationId ? Number(data.billingLocationId) : null,
         billingAddress: toCommaSeparatedString(data.billingAddress),
@@ -176,8 +213,11 @@ const UPDATE_FIELD_LABELS: Record<string, string> = {
   forecast: "ヨミ",
   plannedHires: "採用予定人数",
   leadSourceId: "流入経路",
+  dealProbability: "案件確度",
+  nextContactDate: "次に連絡する日",
   salesStaffId: "担当営業",
   adminStaffId: "担当事務",
+  asStaffId: "AS担当者",
   billingAddress: "請求先住所",
   billingLocationId: "請求先拠点",
   billingRepresentative: "請求先担当者",
@@ -185,6 +225,7 @@ const UPDATE_FIELD_LABELS: Record<string, string> = {
   proposedProductIds: "提案中の商材",
   note: "メモ",
   pendingReason: "検討理由",
+  lostReasonOptionId: "失注理由（選択）",
   lostReason: "失注理由",
   progressDetail: "進捗詳細",
   meetingDate: "商談日",
@@ -238,6 +279,14 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
     updateData.leadSourceId = data.leadSourceId ? Number(data.leadSourceId) : null;
   }
 
+  if ("dealProbability" in data) {
+    updateData.dealProbability = parseDealProbability(data.dealProbability);
+  }
+
+  if ("nextContactDate" in data) {
+    updateData.nextContactDate = data.nextContactDate ? new Date(data.nextContactDate as string) : null;
+  }
+
   // 担当営業ID
   if ("salesStaffId" in data) {
     const staffId = data.salesStaffId ? Number(data.salesStaffId) : null;
@@ -256,6 +305,16 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
       if (!isValid) return err("選択された担当事務はこのフィールドに割り当てできません");
     }
     updateData.adminStaffId = staffId;
+  }
+
+  // AS担当者ID
+  if ("asStaffId" in data) {
+    const staffId = data.asStaffId ? Number(data.asStaffId) : null;
+    if (staffId) {
+      const isValid = await validateAsStaff(staffId);
+      if (!isValid) return err("選択されたAS担当者は役割「AS」のスタッフではありません");
+    }
+    updateData.asStaffId = staffId;
   }
 
   // 請求先住所（複数選択はカンマ区切りで保存）
@@ -289,6 +348,18 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
     updateData.note = (data.note as string) || null;
   }
 
+  if ("lostReasonOptionId" in data) {
+    const optionId = data.lostReasonOptionId ? Number(data.lostReasonOptionId) : null;
+    if (optionId) {
+      const option = await prisma.stpLostReasonOption.findFirst({
+        where: { id: optionId, isActive: true },
+        select: { id: true },
+      });
+      if (!option) return err("選択された失注理由が見つからないか、無効です");
+    }
+    updateData.lostReasonOptionId = optionId;
+  }
+
   // calcChanges用: 更新前のデータを取得（updateDataのキーだけ取得すれば十分）
   const updateKeys = Object.keys(updateData);
   const selectForBefore: Record<string, boolean> = {};
@@ -304,21 +375,25 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
   // 検討理由・失注理由の更新チェック
   const isPendingReasonChanged = "pendingReason" in data;
   const isLostReasonChanged = "lostReason" in data;
+  const isLostReasonOptionChanged = "lostReasonOptionId" in data;
 
   // トランザクションが必要な場合（変更履歴管理対象 or 理由変更）
-  if (hasTrackedChanges || isPendingReasonChanged || isLostReasonChanged) {
+  if (hasTrackedChanges || isPendingReasonChanged || isLostReasonChanged || isLostReasonOptionChanged) {
     // 現在の値を取得（変更比較用）
     const company = await prisma.stpCompany.findUnique({
       where: { id },
       select: {
         pendingReason: true,
         lostReason: true,
+        lostReasonOptionId: true,
         salesStaffId: true,
         adminStaffId: true,
+        asStaffId: true,
         plannedHires: true,
         billingRepresentative: true,
         salesStaff: { select: { name: true } },
         adminStaff: { select: { name: true } },
+        asStaff: { select: { name: true } },
       },
     });
 
@@ -350,6 +425,13 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
           } else if (key === "adminStaffId") {
             oldValue = company.adminStaff?.name || (company.adminStaffId ? String(company.adminStaffId) : null);
             const newStaffId = updateData.adminStaffId;
+            if (newStaffId) {
+              const staff = await tx.masterStaff.findUnique({ where: { id: newStaffId }, select: { name: true } });
+              newValue = staff?.name || String(newStaffId);
+            }
+          } else if (key === "asStaffId") {
+            oldValue = company.asStaff?.name || (company.asStaffId ? String(company.asStaffId) : null);
+            const newStaffId = updateData.asStaffId;
             if (newStaffId) {
               const staff = await tx.masterStaff.findUnique({ where: { id: newStaffId }, select: { name: true } });
               newValue = staff?.name || String(newStaffId);
@@ -401,9 +483,14 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
       }
 
       // 失注理由の変更
-      if (isLostReasonChanged) {
-        const newValue = (data.lostReason as string) || null;
-        if (company?.lostReason !== newValue) {
+      if (isLostReasonChanged || isLostReasonOptionChanged) {
+        const newValue = isLostReasonChanged
+          ? (data.lostReason as string) || null
+          : company?.lostReason ?? null;
+        const newOptionId = "lostReasonOptionId" in data
+          ? (data.lostReasonOptionId ? Number(data.lostReasonOptionId) : null)
+          : company?.lostReasonOptionId ?? null;
+        if (company?.lostReason !== newValue || company?.lostReasonOptionId !== newOptionId) {
           await tx.stpStageHistory.create({
             data: {
               stpCompanyId: id,
@@ -414,10 +501,12 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
               note: null,
               alertAcknowledged: false,
               lostReason: newValue,
+              lostReasonOptionId: newOptionId,
             },
           });
         }
-        updateData.lostReason = newValue;
+        if (isLostReasonChanged) updateData.lostReason = newValue;
+        if (isLostReasonOptionChanged) updateData.lostReasonOptionId = newOptionId;
       }
 
       // データベースを更新

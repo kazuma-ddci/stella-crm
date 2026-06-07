@@ -15,6 +15,7 @@ interface HistoryGroup {
   changedBy: string | null;
   note: string | null;
   lostReason: string | null;
+  lostReasonOptionName: string | null;
   pendingReason: string | null;
   events: StageHistoryRecord[];
 }
@@ -170,6 +171,9 @@ export function StageHistorySection({ histories }: StageHistorySectionProps) {
         if (!group.lostReason && history.lostReason) {
           group.lostReason = history.lostReason;
         }
+        if (!group.lostReasonOptionName && history.lostReasonOptionName) {
+          group.lostReasonOptionName = history.lostReasonOptionName;
+        }
         if (!group.pendingReason && history.pendingReason) {
           group.pendingReason = history.pendingReason;
         }
@@ -179,6 +183,7 @@ export function StageHistorySection({ histories }: StageHistorySectionProps) {
           changedBy: history.changedBy,
           note: history.note,
           lostReason: history.lostReason,
+          lostReasonOptionName: history.lostReasonOptionName,
           pendingReason: history.pendingReason,
           events: [history],
         };
@@ -273,8 +278,11 @@ export function StageHistorySection({ histories }: StageHistorySectionProps) {
                   })}
 
                   {/* 理由・メモ（コンパクト表示） */}
-                  {(group.lostReason || group.pendingReason || group.note) && (
+                  {(group.lostReasonOptionName || group.lostReason || group.pendingReason || group.note) && (
                     <div className="mt-1 text-xs text-muted-foreground bg-muted/40 rounded px-2 py-1 space-y-0.5">
+                      {group.lostReasonOptionName && (
+                        <p><span className="font-medium">失注理由（選択）:</span> {group.lostReasonOptionName}</p>
+                      )}
                       {group.lostReason && (
                         <p><span className="font-medium">失注理由:</span> {group.lostReason}</p>
                       )}

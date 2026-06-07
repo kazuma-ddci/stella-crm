@@ -143,6 +143,7 @@ type OverviewTabProps = {
     leadSourceName: string | null;
     forecast: string | null;
     pendingReason: string | null;
+    lostReasonOptionName: string | null;
     lostReason: string | null;
     billingCompanyName: string | null;
     billingAddress: string | null;
@@ -419,7 +420,6 @@ export function OverviewTab({
   const [note, setNote] = useState(company.note || "");
   const [contractNote, setContractNote] = useState(company.contractNote || "");
   const [pendingReason, setPendingReason] = useState(company.pendingReason || "");
-  const [lostReason, setLostReason] = useState(company.lostReason || "");
   const [jobPostingStartDate, setJobPostingStartDate] = useState(company.jobPostingStartDate || "");
 
   // 未保存変更の検出
@@ -429,14 +429,14 @@ export function OverviewTab({
     mcClosingDay, mcPaymentMonthOffset, mcPaymentDay,
     industryType, plannedHires, leadAcquiredDate, leadValidity, hasDeal,
     forecast, operationStatus, billingCompanyName, billingAddress,
-    note, contractNote, pendingReason, lostReason, jobPostingStartDate,
+    note, contractNote, pendingReason, jobPostingStartDate,
   }), [
     mcName, mcNameKana, mcCorporateNumber, mcCompanyType, mcWebsiteUrl,
     mcIndustry, mcRevenueScale, mcEmployeeCount, mcNote,
     mcClosingDay, mcPaymentMonthOffset, mcPaymentDay,
     industryType, plannedHires, leadAcquiredDate, leadValidity, hasDeal,
     forecast, operationStatus, billingCompanyName, billingAddress,
-    note, contractNote, pendingReason, lostReason, jobPostingStartDate,
+    note, contractNote, pendingReason, jobPostingStartDate,
   ]);
 
   const [savedValues, setSavedValues] = useState(currentValues);
@@ -501,7 +501,6 @@ export function OverviewTab({
           note: note || null,
           contractNote: contractNote || null,
           pendingReason: pendingReason || null,
-          lostReason: lostReason || null,
           jobPostingStartDate: jobPostingStartDate || null,
         };
         const stpResult = await updateStpCompany(stpCompanyId, stpData);
@@ -1186,12 +1185,16 @@ export function OverviewTab({
               />
             </FieldBlock>
             <FieldBlock label="失注理由">
-              <Textarea
-                value={lostReason}
-                onChange={(e) => setLostReason(e.target.value)}
-                rows={2}
-                placeholder="失注の場合の理由"
-              />
+              <div className="min-h-[80px] rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                {company.lostReasonOptionName && (
+                  <div className="mb-1 inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">
+                    {company.lostReasonOptionName}
+                  </div>
+                )}
+                <div className="whitespace-pre-wrap break-words text-muted-foreground">
+                  {company.lostReason || "-"}
+                </div>
+              </div>
             </FieldBlock>
           </div>
         </CardContent>

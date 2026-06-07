@@ -32,11 +32,13 @@ export async function getStageManagementData(
       company: true,
       currentStage: true,
       nextTargetStage: true,
+      lostReasonOption: true,
       stageHistories: {
         where: { isVoided: false }, // 論理削除されていないもののみ
         include: {
           fromStage: true,
           toStage: true,
+          lostReasonOption: true,
         },
         orderBy: { recordedAt: "desc" },
       },
@@ -54,6 +56,10 @@ export async function getStageManagementData(
       { displayOrder: { sort: "asc", nulls: "last" } },
       { id: "asc" },
     ],
+  });
+  const lostReasonOptions = await prisma.stpLostReasonOption.findMany({
+    where: { isActive: true },
+    orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
   });
 
   // 統計情報を計算（論理削除されていないもののみ）
@@ -101,6 +107,8 @@ export async function getStageManagementData(
     // 理由（検討中・失注の場合）
     pendingReason: company.pendingReason,
     lostReason: company.lostReason,
+    lostReasonOptionId: company.lostReasonOptionId,
+    lostReasonOptionName: company.lostReasonOption?.name ?? null,
     pendingResponseDate: company.pendingResponseDate,
     histories: company.stageHistories.map(mapHistoryToRecord),
     statistics: {
@@ -109,6 +117,12 @@ export async function getStageManagementData(
       stageStartDate,
     },
     stages: stages.map(mapStageToInfo),
+    lostReasonOptions: lostReasonOptions.map((option) => ({
+      id: option.id,
+      name: option.name,
+      displayOrder: option.displayOrder,
+      isActive: option.isActive,
+    })),
     targetSetDate: targetSetRecord?.recordedAt ?? null,
   };
 }
@@ -133,6 +147,7 @@ export async function updateStageWithHistory(
     changedBy,
     alertAcknowledged = false,
     lostReason,
+    lostReasonOptionId,
     pendingReason,
     pendingResponseDate,
   } = params;
@@ -184,6 +199,22 @@ export async function updateStageWithHistory(
     return { success: false, error: "変更がありません" };
   }
 
+  const isChangingToLost = events.some((event) => event.eventType === "lost");
+  const normalizedLostReason = lostReason?.trim() || null;
+  if (isChangingToLost) {
+    if (!lostReasonOptionId || !normalizedLostReason) {
+      return { success: false, error: "失注理由（選択）と失注理由の両方を入力してください" };
+    }
+
+    const lostReasonOption = await prisma.stpLostReasonOption.findFirst({
+      where: { id: lostReasonOptionId, isActive: true },
+      select: { id: true },
+    });
+    if (!lostReasonOption) {
+      return { success: false, error: "選択された失注理由が見つからないか、無効です" };
+    }
+  }
+
   // バリデーション
   const validation = validateStageChange({
     input: {
@@ -227,7 +258,8 @@ export async function updateStageWithHistory(
             note: note ?? null,
             alertAcknowledged,
             // 失注・検討中理由
-            lostReason: event.eventType === "lost" ? lostReason : null,
+            lostReason: event.eventType === "lost" ? normalizedLostReason : null,
+            lostReasonOptionId: event.eventType === "lost" ? lostReasonOptionId : null,
             pendingReason: event.eventType === "suspended" ? pendingReason : null,
             // recommitのサブタイプ
             subType: event.subType ?? null,
@@ -259,8 +291,9 @@ export async function updateStageWithHistory(
       };
 
       // 失注の場合、失注理由を更新
-      if (isLost && lostReason) {
-        updateData.lostReason = lostReason;
+      if (isLost) {
+        updateData.lostReason = normalizedLostReason;
+        updateData.lostReasonOptionId = lostReasonOptionId;
       }
 
       // 検討中の場合、検討中理由と回答予定日を更新
@@ -360,6 +393,8 @@ function mapHistoryToRecord(history: {
   note: string | null;
   alertAcknowledged: boolean;
   lostReason: string | null;
+  lostReasonOptionId: number | null;
+  lostReasonOption?: { id: number; name: string } | null;
   pendingReason: string | null;
   subType: string | null;
   isVoided: boolean;
@@ -378,6 +413,8 @@ function mapHistoryToRecord(history: {
     note: history.note,
     alertAcknowledged: history.alertAcknowledged,
     lostReason: history.lostReason,
+    lostReasonOptionId: history.lostReasonOptionId,
+    lostReasonOptionName: history.lostReasonOption?.name ?? null,
     pendingReason: history.pendingReason,
     subType: history.subType as RecommitSubType | null,
     isVoided: history.isVoided,
@@ -393,16 +430,23 @@ function mapHistoryToRecord(history: {
 export async function updateReasonOnly(params: {
   stpCompanyId: number;
   lostReason?: string | null;
+  lostReasonOptionId?: number | null;
   pendingReason?: string | null;
   pendingResponseDate?: Date | null;
 }): Promise<{ success: boolean; error?: string }> {
   await requireEdit("stp");
-  const { stpCompanyId, lostReason, pendingReason, pendingResponseDate } = params;
+  const { stpCompanyId, lostReason, lostReasonOptionId, pendingReason, pendingResponseDate } = params;
 
   // 現在の状態を取得
   const company = await prisma.stpCompany.findUnique({
     where: { id: stpCompanyId },
-    select: { pendingReason: true, lostReason: true, pendingResponseDate: true },
+    select: {
+      pendingReason: true,
+      lostReason: true,
+      lostReasonOptionId: true,
+      pendingResponseDate: true,
+      currentStage: { select: { stageType: true } },
+    },
   });
 
   if (!company) {
@@ -412,11 +456,29 @@ export async function updateReasonOnly(params: {
   // 変更があるかチェック
   const isPendingReasonChanged = pendingReason !== undefined && company.pendingReason !== pendingReason;
   const isLostReasonChanged = lostReason !== undefined && company.lostReason !== lostReason;
+  const isLostReasonOptionChanged = lostReasonOptionId !== undefined && company.lostReasonOptionId !== lostReasonOptionId;
   const isPendingResponseDateChanged = pendingResponseDate !== undefined &&
     (company.pendingResponseDate?.getTime() !== pendingResponseDate?.getTime());
 
-  if (!isPendingReasonChanged && !isLostReasonChanged && !isPendingResponseDateChanged) {
+  if (!isPendingReasonChanged && !isLostReasonChanged && !isLostReasonOptionChanged && !isPendingResponseDateChanged) {
     return { success: false, error: "変更がありません" };
+  }
+
+  const nextLostReason = lostReason !== undefined ? lostReason?.trim() || null : company.lostReason?.trim() || null;
+  const nextLostReasonOptionId = lostReasonOptionId !== undefined ? lostReasonOptionId : company.lostReasonOptionId;
+
+  if (company.currentStage?.stageType === "closed_lost" && (lostReason !== undefined || lostReasonOptionId !== undefined)) {
+    if (!nextLostReasonOptionId || !nextLostReason) {
+      return { success: false, error: "失注理由（選択）と失注理由の両方を入力してください" };
+    }
+
+    const lostReasonOption = await prisma.stpLostReasonOption.findFirst({
+      where: { id: nextLostReasonOptionId, isActive: true },
+      select: { id: true },
+    });
+    if (!lostReasonOption) {
+      return { success: false, error: "選択された失注理由が見つからないか、無効です" };
+    }
   }
 
   try {
@@ -438,7 +500,7 @@ export async function updateReasonOnly(params: {
       }
 
       // 失注理由が変更された場合、履歴を記録
-      if (isLostReasonChanged) {
+      if (isLostReasonChanged || isLostReasonOptionChanged) {
         await tx.stpStageHistory.create({
           data: {
             stpCompanyId,
@@ -448,7 +510,8 @@ export async function updateReasonOnly(params: {
             targetDate: null,
             note: null,
             alertAcknowledged: false,
-            lostReason: lostReason ?? null,
+            lostReason: nextLostReason,
+            lostReasonOptionId: nextLostReasonOptionId,
           },
         });
       }
@@ -459,7 +522,10 @@ export async function updateReasonOnly(params: {
         updateData.pendingReason = pendingReason;
       }
       if (lostReason !== undefined) {
-        updateData.lostReason = lostReason;
+        updateData.lostReason = nextLostReason;
+      }
+      if (lostReasonOptionId !== undefined) {
+        updateData.lostReasonOptionId = lostReasonOptionId;
       }
       if (pendingResponseDate !== undefined) {
         updateData.pendingResponseDate = pendingResponseDate;

@@ -68,8 +68,10 @@ export function detectEvents(
       }
     } else if (targetRelatedChanged) {
       // 目標関連も同時に変更された場合
-      // ただし、won/lost/suspendedへの遷移時は目標が自動クリアされるため、cancelは不要
-      const isAutoTargetClear = stageEvent && ['won', 'lost', 'suspended'].includes(stageEvent.eventType);
+      // ただし、端末系ステージへの遷移時は目標が自動クリアされるため、cancelは不要
+      const isAutoTargetClear =
+        (stageEvent && ['won', 'lost', 'suspended'].includes(stageEvent.eventType)) ||
+        newStage.stageType === 'completed';
 
       if (!isAutoTargetClear || input.newTargetStageId !== null) {
         // 自動クリアでない場合、または新しい目標が同時に設定された場合のみイベント検出
@@ -226,6 +228,16 @@ function detectStageTransitionEvent(
       toStageId: newStage.id,
       targetDate: null,
       pendingReason: input.note, // noteを検討中理由として使用
+    };
+  }
+
+  // 完了への遷移
+  if (newType === 'completed') {
+    return {
+      eventType: 'progress',
+      fromStageId: currentStage?.id ?? null,
+      toStageId: newStage.id,
+      targetDate: null,
     };
   }
 
@@ -494,6 +506,10 @@ export function getChangeType(
   // 検討中（一時停止）に変更
   if (newType === 'pending') {
     return { type: 'suspended', message: `⏸️ この案件を${newStage.name}として記録します` };
+  }
+
+  if (newType === 'completed') {
+    return { type: 'progress', message: `✅ ${newStage.name}として記録します` };
   }
 
   // 検討中から再開

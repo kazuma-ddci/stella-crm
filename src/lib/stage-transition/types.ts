@@ -19,7 +19,7 @@ export type StageEventType =
 export type RecommitSubType = 'positive' | 'negative' | 'neutral';
 
 // ステージタイプ
-export type StageType = 'progress' | 'closed_won' | 'closed_lost' | 'pending';
+export type StageType = 'progress' | 'closed_won' | 'closed_lost' | 'pending' | 'completed';
 
 // アラートの深刻度
 export type AlertSeverity = 'ERROR' | 'WARNING' | 'INFO';
@@ -54,6 +54,14 @@ export interface StageInfo {
   isActive: boolean;
 }
 
+// 失注理由マスタ
+export interface LostReasonOptionInfo {
+  id: number;
+  name: string;
+  displayOrder: number;
+  isActive: boolean;
+}
+
 // ステージ変更入力
 export interface StageChangeInput {
   // 現在の状態（変更前）
@@ -78,6 +86,7 @@ export interface DetectedEvent {
   targetDate: Date | null;
   subType?: RecommitSubType;        // recommit用
   lostReason?: string;              // 失注理由
+  lostReasonOptionId?: number | null;// 失注理由（選択）
   pendingReason?: string;           // 検討中理由
 }
 
@@ -109,6 +118,8 @@ export interface StageHistoryRecord {
   note: string | null;
   alertAcknowledged: boolean;
   lostReason: string | null;        // 失注理由
+  lostReasonOptionId: number | null;// 失注理由（選択）
+  lostReasonOptionName: string | null;// 失注理由（選択）の表示名
   pendingReason: string | null;     // 検討中理由
   subType: RecommitSubType | null;  // recommit用サブタイプ
   isVoided: boolean;                // 論理削除フラグ
@@ -142,6 +153,8 @@ export interface StageManagementData {
   // 理由（検討中・失注の場合）
   pendingReason: string | null;
   lostReason: string | null;
+  lostReasonOptionId: number | null;
+  lostReasonOptionName: string | null;
   pendingResponseDate: Date | null;
 
   // 履歴
@@ -152,6 +165,7 @@ export interface StageManagementData {
 
   // ステージマスタ
   stages: StageInfo[];
+  lostReasonOptions: LostReasonOptionInfo[];
 
   // 目標設定日（最新のcommitまたはrecommitのrecordedAt）
   targetSetDate: Date | null;
@@ -167,6 +181,7 @@ export interface StageUpdateParams {
   changedBy?: string;
   alertAcknowledged?: boolean;
   lostReason?: string;              // 失注理由
+  lostReasonOptionId?: number | null;// 失注理由（選択）
   pendingReason?: string;           // 検討中理由
   pendingResponseDate?: Date | null;// 回答予定日
 }

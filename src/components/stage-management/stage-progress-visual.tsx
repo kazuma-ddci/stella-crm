@@ -17,7 +17,7 @@ export function StageProgressVisual({
 }: StageProgressVisualProps) {
   // stageTypeで分類
   const progressStages = stages
-    .filter((s) => s.stageType === 'progress' || s.stageType === 'closed_won')
+    .filter((s) => s.stageType === 'progress' || s.stageType === 'closed_won' || s.stageType === 'completed')
     .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
 
   const specialStages = stages.filter(
@@ -30,7 +30,11 @@ export function StageProgressVisual({
 
   const isPassed = (stage: StageInfo) => {
     if (!currentStage) return false;
-    if (currentStage.stageType !== 'progress' && currentStage.stageType !== 'closed_won') {
+    if (
+      currentStage.stageType !== 'progress' &&
+      currentStage.stageType !== 'closed_won' &&
+      currentStage.stageType !== 'completed'
+    ) {
       return false;
     }
     return (stage.displayOrder ?? 0) < currentOrder;

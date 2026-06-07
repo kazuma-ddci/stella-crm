@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { StageInfo, ValidationResult } from "@/lib/stage-transition/types";
+import { LostReasonOptionInfo, StageInfo, ValidationResult } from "@/lib/stage-transition/types";
 import { detectEvents, getChangeType } from "@/lib/stage-transition/event-detector";
 import { validateStageChange } from "@/lib/stage-transition/alert-validator";
 import { NON_TARGET_STAGE_TYPES } from "@/lib/stage-transition/constants";
@@ -29,6 +29,7 @@ interface StageUpdateFormProps {
   currentStageId: number | null;
   currentTargetStageId: number | null;
   currentTargetDate: Date | null;
+  lostReasonOptions: LostReasonOptionInfo[];
   onSubmit: (params: {
     newStageId: number | null;
     newTargetStageId: number | null;
@@ -37,6 +38,7 @@ interface StageUpdateFormProps {
     alertAcknowledged: boolean;
     validation: ValidationResult;
     lostReason?: string;
+    lostReasonOptionId?: number | null;
     pendingReason?: string;
     pendingResponseDate?: Date | null;
   }) => void;
@@ -52,12 +54,14 @@ const NO_CHANGE = "__no_change__";
 const CLEAR_VALUE = "__clear__";
 // 「新しい日付を設定」を表す特別な値
 const SET_NEW_DATE = "__set_new_date__";
+const NO_LOST_REASON_OPTION = "__no_lost_reason_option__";
 
 export function StageUpdateForm({
   stages,
   currentStageId,
   currentTargetStageId,
   currentTargetDate,
+  lostReasonOptions,
   onSubmit,
   onCancel,
   loading,
@@ -71,6 +75,7 @@ export function StageUpdateForm({
   const [note, setNote] = useState("");
 
   // 失注・検討中の詳細フォーム用の状態
+  const [lostReasonOptionValue, setLostReasonOptionValue] = useState<string>(NO_LOST_REASON_OPTION);
   const [lostReason, setLostReason] = useState("");
   const [pendingReason, setPendingReason] = useState("");
   const [pendingResponseDate, setPendingResponseDate] = useState<Date | null>(null);
@@ -112,14 +117,20 @@ export function StageUpdateForm({
   const isChangingToPending = hasStageChange && newStageType === 'pending';
 
   // 失注理由・検討中理由が必要か
+  const requiresLostReasonOption = isChangingToLost && lostReasonOptionValue === NO_LOST_REASON_OPTION;
   const requiresLostReason = isChangingToLost && !lostReason.trim();
   const requiresPendingReason = isChangingToPending && !pendingReason.trim();
 
   // 親コンポーネントに変更状態を通知
   useEffect(() => {
-    const hasFormChanges = hasAnyChange || note.trim() !== "" || lostReason.trim() !== "" || pendingReason.trim() !== "";
+    const hasFormChanges =
+      hasAnyChange ||
+      note.trim() !== "" ||
+      lostReason.trim() !== "" ||
+      lostReasonOptionValue !== NO_LOST_REASON_OPTION ||
+      pendingReason.trim() !== "";
     onHasChangesChange(hasFormChanges);
-  }, [hasAnyChange, note, lostReason, pendingReason, onHasChangesChange]);
+  }, [hasAnyChange, note, lostReason, lostReasonOptionValue, pendingReason, onHasChangesChange]);
 
   // ステージ変更時の変更タイプを判定
   const changeType = useMemo(() => {
@@ -183,11 +194,15 @@ export function StageUpdateForm({
   const targetableStages = useMemo(() => {
     const currentStage = stages.find((s) => s.id === effectiveNewStageId);
 
-    if (currentStage?.stageType === 'closed_lost' || currentStage?.stageType === 'pending') {
+    if (
+      currentStage?.stageType === 'closed_lost' ||
+      currentStage?.stageType === 'pending' ||
+      currentStage?.stageType === 'completed'
+    ) {
       return stages.filter(
         (s) =>
           !NON_TARGET_STAGE_TYPES.includes(s.stageType) &&
-          (s.stageType === 'progress' || s.stageType === 'closed_won')
+          (s.stageType === 'progress' || s.stageType === 'closed_won' || s.stageType === 'completed')
       );
     }
 
@@ -198,7 +213,7 @@ export function StageUpdateForm({
     return stages.filter(
       (s) =>
         !NON_TARGET_STAGE_TYPES.includes(s.stageType) &&
-        (s.stageType === 'progress' || s.stageType === 'closed_won') &&
+        (s.stageType === 'progress' || s.stageType === 'closed_won' || s.stageType === 'completed') &&
         (s.displayOrder ?? 0) > currentOrder
     );
   }, [stages, effectiveNewStageId]);
@@ -211,7 +226,8 @@ export function StageUpdateForm({
       if (
         newStage?.stageType === 'closed_won' ||
         newStage?.stageType === 'closed_lost' ||
-        newStage?.stageType === 'pending'
+        newStage?.stageType === 'pending' ||
+        newStage?.stageType === 'completed'
       ) {
         // eslint-disable-next-line react-hooks/set-state-in-effect -- clear target fields when stage changes to terminal state
         setSelectedTargetStageValue(CLEAR_VALUE);
@@ -230,6 +246,7 @@ export function StageUpdateForm({
   useEffect(() => {
     if (!isChangingToLost) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reset lost/pending reason when stage selection changes
+      setLostReasonOptionValue(NO_LOST_REASON_OPTION);
       setLostReason("");
     }
     if (!isChangingToPending) {
@@ -249,6 +266,7 @@ export function StageUpdateForm({
       alertAcknowledged: hasWarningsOrInfos,
       validation,
       lostReason: isChangingToLost ? lostReason : undefined,
+      lostReasonOptionId: isChangingToLost ? Number(lostReasonOptionValue) : undefined,
       pendingReason: isChangingToPending ? pendingReason : undefined,
       pendingResponseDate: isChangingToPending ? pendingResponseDate : undefined,
     });
@@ -288,6 +306,7 @@ export function StageUpdateForm({
     hasDetectedChanges &&
     validation.isValid &&
     hasAnyChange &&
+    !requiresLostReasonOption &&
     !requiresLostReason &&
     !requiresPendingReason;
 
@@ -393,8 +412,37 @@ export function StageUpdateForm({
 
       {/* 失注の詳細セクション */}
       {isChangingToLost && (
-        <div className="rounded-md border border-gray-300 bg-gray-50/50 p-3">
-          <h4 className="font-medium text-xs text-gray-800 mb-2">失注の詳細</h4>
+        <div className="rounded-md border border-gray-300 bg-gray-50/50 p-3 space-y-3">
+          <h4 className="font-medium text-xs text-gray-800">失注の詳細</h4>
+          <div>
+            <Label htmlFor="lost-reason-option" className="text-xs text-gray-800">
+              失注理由（選択）<span className="text-destructive ml-0.5">*</span>
+            </Label>
+            <Select
+              value={lostReasonOptionValue}
+              onValueChange={setLostReasonOptionValue}
+            >
+              <SelectTrigger id="lost-reason-option" className="mt-1 h-9 bg-background">
+                <SelectValue placeholder="選択してください" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_LOST_REASON_OPTION}>
+                  <span className="text-muted-foreground">選択してください</span>
+                </SelectItem>
+                {lostReasonOptions.map((option) => (
+                  <SelectItem key={option.id} value={String(option.id)}>
+                    {option.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {requiresLostReasonOption && (
+              <p className="text-xs text-destructive mt-1">失注理由（選択）は必須です</p>
+            )}
+            {lostReasonOptions.length === 0 && (
+              <p className="text-xs text-destructive mt-1">有効な失注理由が登録されていません</p>
+            )}
+          </div>
           <div>
             <Label htmlFor="lost-reason" className="text-xs text-gray-800">
               失注理由<span className="text-destructive ml-0.5">*</span>

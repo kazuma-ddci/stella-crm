@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StagesTable } from "./stages-table";
+import { LostReasonOptionsTable, StagesTable } from "./stages-table";
 import { auth } from "@/auth";
 import { canEditProjectMasterDataSync } from "@/lib/auth/master-data-permission";
 
@@ -9,6 +9,9 @@ export default async function StagesPage() {
   const canEditMasterData = canEditProjectMasterDataSync(session?.user, "stp");
   const stages = await prisma.stpStage.findMany({
     orderBy: { displayOrder: { sort: "asc", nulls: "last" } },
+  });
+  const lostReasonOptions = await prisma.stpLostReasonOption.findMany({
+    orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
   });
 
   const data = stages.map((s) => ({
@@ -20,6 +23,14 @@ export default async function StagesPage() {
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
   }));
+  const lostReasonOptionsData = lostReasonOptions.map((option) => ({
+    id: option.id,
+    name: option.name,
+    displayOrder: option.displayOrder,
+    isActive: option.isActive,
+    createdAt: option.createdAt.toISOString(),
+    updatedAt: option.updatedAt.toISOString(),
+  }));
 
   return (
     <div className="space-y-6">
@@ -30,6 +41,14 @@ export default async function StagesPage() {
         </CardHeader>
         <CardContent>
           <StagesTable data={data} canEdit={canEditMasterData} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>失注理由一覧</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <LostReasonOptionsTable data={lostReasonOptionsData} canEdit={canEditMasterData} />
         </CardContent>
       </Card>
     </div>
