@@ -60,6 +60,7 @@ export function StageManagementModal({
     note: string;
     validation: ValidationResult;
     lostReason?: string;
+    lostReasonOptionId?: number | null;
     pendingReason?: string;
     pendingResponseDate?: Date | null;
   } | null>(null);
@@ -123,6 +124,7 @@ export function StageManagementModal({
     alertAcknowledged: boolean;
     validation: ValidationResult;
     lostReason?: string;
+    lostReasonOptionId?: number | null;
     pendingReason?: string;
     pendingResponseDate?: Date | null;
   }) => {
@@ -166,6 +168,7 @@ export function StageManagementModal({
     note: string;
     alertAcknowledged?: boolean;
     lostReason?: string;
+    lostReasonOptionId?: number | null;
     pendingReason?: string;
     pendingResponseDate?: Date | null;
   }) => {
@@ -181,6 +184,7 @@ export function StageManagementModal({
         note: params.note,
         alertAcknowledged: params.alertAcknowledged,
         lostReason: params.lostReason,
+        lostReasonOptionId: params.lostReasonOptionId,
         pendingReason: params.pendingReason,
         pendingResponseDate: params.pendingResponseDate,
       });
@@ -244,6 +248,7 @@ export function StageManagementModal({
             currentStageId={data.currentStageId}
             currentTargetStageId={data.nextTargetStageId}
             currentTargetDate={data.nextTargetDate}
+            lostReasonOptions={data.lostReasonOptions}
             onSubmit={handleFormSubmit}
             onCancel={renderInline ? () => {} : handleCancel}
             loading={saving}

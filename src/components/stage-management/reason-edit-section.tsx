@@ -5,6 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { StageManagementData } from "@/lib/stage-transition/types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { updateReasonOnly } from "@/app/stp/companies/stage-management/actions";
 import { toast } from "sonner";
 import { Loader2, Pencil, X, Check } from "lucide-react";
@@ -14,6 +21,8 @@ import "react-datepicker/dist/react-datepicker.css";
 
 // 日本語ロケールを登録
 registerLocale("ja", ja);
+
+const NO_LOST_REASON_OPTION = "__no_lost_reason_option__";
 
 interface ReasonEditSectionProps {
   data: StageManagementData;
@@ -26,6 +35,9 @@ export function ReasonEditSection({ data, onUpdateSuccess }: ReasonEditSectionPr
 
   // 編集用の状態
   const [pendingReason, setPendingReason] = useState(data.pendingReason ?? "");
+  const [lostReasonOptionValue, setLostReasonOptionValue] = useState(
+    data.lostReasonOptionId ? String(data.lostReasonOptionId) : NO_LOST_REASON_OPTION
+  );
   const [lostReason, setLostReason] = useState(data.lostReason ?? "");
   const [pendingResponseDate, setPendingResponseDate] = useState<Date | null>(
     data.pendingResponseDate ? new Date(data.pendingResponseDate) : null
@@ -34,9 +46,10 @@ export function ReasonEditSection({ data, onUpdateSuccess }: ReasonEditSectionPr
   // dataが変更されたら状態をリセット
   useEffect(() => {
     setPendingReason(data.pendingReason ?? "");
+    setLostReasonOptionValue(data.lostReasonOptionId ? String(data.lostReasonOptionId) : NO_LOST_REASON_OPTION);
     setLostReason(data.lostReason ?? "");
     setPendingResponseDate(data.pendingResponseDate ? new Date(data.pendingResponseDate) : null);
-  }, [data.pendingReason, data.lostReason, data.pendingResponseDate]);
+  }, [data.pendingReason, data.lostReason, data.lostReasonOptionId, data.pendingResponseDate]);
 
   // 現在のステージタイプを取得
   const currentStageType = data.currentStage?.stageType;
@@ -51,6 +64,7 @@ export function ReasonEditSection({ data, onUpdateSuccess }: ReasonEditSectionPr
   const handleCancel = () => {
     // 元の値に戻す
     setPendingReason(data.pendingReason ?? "");
+    setLostReasonOptionValue(data.lostReasonOptionId ? String(data.lostReasonOptionId) : NO_LOST_REASON_OPTION);
     setLostReason(data.lostReason ?? "");
     setPendingResponseDate(data.pendingResponseDate ? new Date(data.pendingResponseDate) : null);
     setIsEditing(false);
@@ -63,6 +77,7 @@ export function ReasonEditSection({ data, onUpdateSuccess }: ReasonEditSectionPr
         stpCompanyId: data.companyId,
         pendingReason: isPendingStage ? (pendingReason || null) : undefined,
         lostReason: isLostStage ? (lostReason || null) : undefined,
+        lostReasonOptionId: isLostStage ? Number(lostReasonOptionValue) : undefined,
         pendingResponseDate: isPendingStage ? pendingResponseDate : undefined,
       });
 
@@ -85,7 +100,11 @@ export function ReasonEditSection({ data, onUpdateSuccess }: ReasonEditSectionPr
   const hasChanges = isPendingStage
     ? pendingReason !== (data.pendingReason ?? "") ||
       pendingResponseDate?.getTime() !== (data.pendingResponseDate ? new Date(data.pendingResponseDate).getTime() : undefined)
-    : lostReason !== (data.lostReason ?? "");
+    : lostReason !== (data.lostReason ?? "") ||
+      lostReasonOptionValue !== (data.lostReasonOptionId ? String(data.lostReasonOptionId) : NO_LOST_REASON_OPTION);
+  const missingLostReasonRequired =
+    isLostStage &&
+    (lostReasonOptionValue === NO_LOST_REASON_OPTION || !lostReason.trim());
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -138,16 +157,45 @@ export function ReasonEditSection({ data, onUpdateSuccess }: ReasonEditSectionPr
           )}
 
           {isLostStage && (
-            <div className="space-y-2">
-              <Label htmlFor="lostReason">失注理由</Label>
-              <Textarea
-                id="lostReason"
-                value={lostReason}
-                onChange={(e) => setLostReason(e.target.value)}
-                placeholder="失注理由を入力"
-                rows={3}
-              />
-            </div>
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="lostReasonOption">失注理由（選択）</Label>
+                <Select
+                  value={lostReasonOptionValue}
+                  onValueChange={setLostReasonOptionValue}
+                >
+                  <SelectTrigger id="lostReasonOption">
+                    <SelectValue placeholder="選択してください" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_LOST_REASON_OPTION}>
+                      <span className="text-muted-foreground">選択してください</span>
+                    </SelectItem>
+                    {data.lostReasonOptions.map((option) => (
+                      <SelectItem key={option.id} value={String(option.id)}>
+                        {option.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {lostReasonOptionValue === NO_LOST_REASON_OPTION && (
+                  <p className="text-xs text-destructive">失注理由（選択）は必須です</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="lostReason">失注理由</Label>
+                <Textarea
+                  id="lostReason"
+                  value={lostReason}
+                  onChange={(e) => setLostReason(e.target.value)}
+                  placeholder="失注理由を入力"
+                  rows={3}
+                />
+                {!lostReason.trim() && (
+                  <p className="text-xs text-destructive">失注理由は必須です</p>
+                )}
+              </div>
+            </>
           )}
 
           <div className="flex justify-end gap-2">
@@ -163,7 +211,7 @@ export function ReasonEditSection({ data, onUpdateSuccess }: ReasonEditSectionPr
             <Button
               size="sm"
               onClick={handleSave}
-              disabled={saving || !hasChanges}
+              disabled={saving || !hasChanges || missingLostReasonRequired}
             >
               {saving ? (
                 <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
@@ -201,12 +249,20 @@ export function ReasonEditSection({ data, onUpdateSuccess }: ReasonEditSectionPr
           )}
 
           {isLostStage && (
-            <div>
-              <span className="text-sm text-muted-foreground">失注理由：</span>
-              <span className="text-sm ml-1">
-                {data.lostReason || "-"}
-              </span>
-            </div>
+            <>
+              <div>
+                <span className="text-sm text-muted-foreground">失注理由（選択）：</span>
+                <span className="text-sm ml-1">
+                  {data.lostReasonOptionName || "-"}
+                </span>
+              </div>
+              <div>
+                <span className="text-sm text-muted-foreground">失注理由：</span>
+                <span className="text-sm ml-1 whitespace-pre-wrap break-words">
+                  {data.lostReason || "-"}
+                </span>
+              </div>
+            </>
           )}
         </div>
       )}

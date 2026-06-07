@@ -246,6 +246,25 @@ model StpStage {
 }
 
 // ============================================
+// STP 失注理由マスタ
+// ============================================
+
+model StpLostReasonOption {
+  id           Int      @id @default(autoincrement())
+  name         String   @unique @db.VarChar(100)
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  stpCompanies   StpCompany[]
+  stageHistories StpStageHistory[]
+
+  @@map("stp_lost_reason_options")
+}
+
+// ============================================
 // 商材マスタ (STP Products)
 // ============================================
 
@@ -256,6 +275,9 @@ model StpProduct {
   isActive     Boolean  @default(true) @map("is_active")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
+
+  dashboardMonthEndSnapshots StpDashboardMonthEndSnapshot[]
+  dashboardFunnelTargets     StpDashboardFunnelTarget[]
 
   @@map("stp_products")
 }
@@ -345,10 +367,11 @@ model StpCompany {
   jobPostingStartDate String?   @db.VarChar(100) // 求人掲載開始日（テキスト入力）
 
   // 進捗・ステータス
-  progressDetail  String? // 進捗詳細
-  forecast        String? @db.VarChar(20) // ヨミ（MIN,落とし,MAX,来月,辞退）
-  operationStatus String? @db.VarChar(20) // 運用ステータス（テスト1,テスト2）
-  lostReason      String? // 失注理由
+  progressDetail     String? // 進捗詳細
+  forecast           String? @db.VarChar(20) // ヨミ（MIN,落とし,MAX,来月,辞退）
+  operationStatus    String? @db.VarChar(20) // 運用ステータス（テスト1,テスト2）
+  lostReasonOptionId Int?    @map("lost_reason_option_id") // 失注理由（選択式）
+  lostReason         String? // 失注理由（自由記述）
 
   // 企業情報
   industryType String? @db.VarChar(20) // 業種区分（一般,派遣）
@@ -364,8 +387,11 @@ model StpCompany {
   initialFee         Int? // 初期費用（0, 100000, 150000）
   monthlyFee         Int? // 月額
   performanceFee     Int? // 成果報酬単価
+  dealProbability    Int?      @map("deal_probability") // 案件確度（0〜100、10%刻み）
+  nextContactDate    DateTime? @map("next_contact_date") @db.Date // 次に連絡する日
   salesStaffId       Int? // 担当営業（Staffから選択）
   adminStaffId       Int? // 担当事務（Staffから選択）
+  asStaffId          Int?      @map("as_staff_id") // AS担当者（Staffから選択）
   operationStaffList String?   @db.VarChar(100) // 担当運用（複数選択：indeed,運用2等）
 
   // アカウント情報
@@ -405,8 +431,10 @@ model StpCompany {
   nextTargetStage     StpStage?                    @relation("TargetStage", fields: [nextTargetStageId], references: [id])
   agent               StpAgent?                    @relation(fields: [agentId], references: [id])
   leadSource          StpLeadSource?               @relation(fields: [leadSourceId], references: [id])
+  lostReasonOption    StpLostReasonOption?         @relation(fields: [lostReasonOptionId], references: [id], onDelete: SetNull)
   salesStaff          MasterStaff?                 @relation("SalesStaffCompanies", fields: [salesStaffId], references: [id])
   adminStaff          MasterStaff?                 @relation("AdminStaffCompanies", fields: [adminStaffId], references: [id])
+  asStaff             MasterStaff?                 @relation("AsStaffCompanies", fields: [asStaffId], references: [id])
   stageHistories      StpStageHistory[]
   proposals           StpProposal[]
   kpiSheets           StpKpiSheet[]
@@ -416,6 +444,7 @@ model StpCompany {
   commissionOverrides StpAgentCommissionOverride[]
   invoices            StpInvoice[]
 
+  @@index([lostReasonOptionId], map: "idx_stp_companies_lost_reason_option_id")
   @@map("stp_companies")
 }
 
@@ -720,8 +749,9 @@ model StpStageHistory {
   alertAcknowledged Boolean   @default(false) // アラートを確認して更新したか
 
   // 失注・検討中理由
-  lostReason    String? // 失注理由
-  pendingReason String? // 検討中理由
+  lostReasonOptionId Int?    @map("lost_reason_option_id") // 失注理由（選択式）
+  lostReason         String? // 失注理由（自由記述）
+  pendingReason      String? // 検討中理由
 
   // サブタイプ（recommit用: positive, negative, neutral）
   subType String? @db.VarChar(20)
@@ -733,10 +763,12 @@ model StpStageHistory {
   voidReason String? // 取り消し理由
 
   // Relations
-  stpCompany StpCompany @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
-  fromStage  StpStage?  @relation("FromStage", fields: [fromStageId], references: [id])
-  toStage    StpStage?  @relation("ToStage", fields: [toStageId], references: [id])
+  stpCompany       StpCompany           @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
+  fromStage        StpStage?            @relation("FromStage", fields: [fromStageId], references: [id])
+  toStage          StpStage?            @relation("ToStage", fields: [toStageId], references: [id])
+  lostReasonOption StpLostReasonOption? @relation(fields: [lostReasonOptionId], references: [id], onDelete: SetNull)
 
+  @@index([lostReasonOptionId], map: "idx_stp_stage_histories_lost_reason_option_id")
   @@map("stp_stage_histories")
 }
 
@@ -766,38 +798,41 @@ model MasterStaff {
   updatedAt            DateTime  @updatedAt
 
   // Relations
-  permissions                StaffPermission[]
-  sidebarPreference          StaffSidebarPreference?
-  roleAssignments            StaffRoleAssignment[]
-  projectAssignments         StaffProjectAssignment[]
-  salesContractHistories     StpContractHistory[]     @relation("SalesStaff")
-  operationContractHistories StpContractHistory[]     @relation("OperationStaff")
-  agentAssignments           StpAgentStaff[]
-  assignedCompanies          MasterStellaCompany[]
-  salesStpCompanies          StpCompany[]             @relation("SalesStaffCompanies")
-  adminStpCompanies          StpCompany[]             @relation("AdminStaffCompanies")
-  adminAgents                StpAgent[]               @relation("AdminStaffAgents")
-  contactHistories           ContactHistory[]
-  slpContactHistories        SlpContactHistory[]
-  hojoContactHistories       HojoContactHistory[]     @relation("HojoContactHistoryStaff")
+  permissions                 StaffPermission[]
+  sidebarPreference           StaffSidebarPreference?
+  roleAssignments             StaffRoleAssignment[]
+  projectAssignments          StaffProjectAssignment[]
+  salesContractHistories      StpContractHistory[]          @relation("SalesStaff")
+  operationContractHistories  StpContractHistory[]          @relation("OperationStaff")
+  agentAssignments            StpAgentStaff[]
+  assignedCompanies           MasterStellaCompany[]
+  salesStpCompanies           StpCompany[]                  @relation("SalesStaffCompanies")
+  adminStpCompanies           StpCompany[]                  @relation("AdminStaffCompanies")
+  asStpCompanies              StpCompany[]                  @relation("AsStaffCompanies")
+  adminAgents                 StpAgent[]                    @relation("AdminStaffAgents")
+  contactHistories            ContactHistory[]
+  slpContactHistories         SlpContactHistory[]
+  hojoContactHistories        HojoContactHistory[]          @relation("HojoContactHistoryStaff")
   hojoConsultingActivityStaff HojoConsultingActivityStaff[]
-  approvedExternalUsers      ExternalUser[]
-  issuedRegistrationTokens   RegistrationToken[]
-  processedLeadSubmissions   StpLeadFormSubmission[]
+  approvedExternalUsers       ExternalUser[]
+  issuedRegistrationTokens    RegistrationToken[]
+  processedLeadSubmissions    StpLeadFormSubmission[]
 
   // 会計関連Relations
-  approvedRevenueRecords StpRevenueRecord[]  @relation("RevenueApprover")
-  closedMonths           StpMonthlyClose[]   @relation("MonthCloser")
-  reopenedMonths         StpMonthlyClose[]   @relation("MonthReopener")
+  approvedRevenueRecords StpRevenueRecord[]             @relation("RevenueApprover")
+  closedMonths           StpMonthlyClose[]              @relation("MonthCloser")
+  reopenedMonths         StpMonthlyClose[]              @relation("MonthReopener")
+  stpDashboardSnapshots  StpDashboardMonthEndSnapshot[] @relation("StpDashboardMonthEndSnapshotStaff")
+  stpDashboardTargets    StpDashboardFunnelTarget[]     @relation("StpDashboardFunnelTargetStaff")
   financeEditLogs        StpFinanceEditLog[]
 
   // パスワードリセット
   passwordResetTokens PasswordResetToken[]
 
   // 入出金履歴（CSV取込）
-  bankStatementImportsUploaded BankStatementImport[]         @relation("BankStatementImportUploader")
+  bankStatementImportsUploaded   BankStatementImport[]         @relation("BankStatementImportUploader")
   bankStatementGroupLinksCreated BankStatementEntryGroupLink[] @relation("BankStatementEntryGroupLinkCreator")
-  bankStatementEntriesExcluded BankStatementEntry[]          @relation("BankStatementEntryExcluder")
+  bankStatementEntriesExcluded   BankStatementEntry[]          @relation("BankStatementEntryExcluder")
 
   // 経理システム Relations
   transactionConfirmed             Transaction[]                   @relation("TransactionConfirmer")
@@ -882,14 +917,14 @@ model MasterStaff {
   slpAsAssignments        SlpAs[]                            @relation("SlpAsStaff")
 
   // ミーティング連携（Zoom / 将来のGoogle Meet等）
-  meetingIntegrations                StaffMeetingIntegration[] @relation("StaffMeetingIntegrations")
-  disconnectedMeetingIntegrations    StaffMeetingIntegration[] @relation("StaffMeetingIntegrationsDisconnectedBy")
-  slpZoomRecordingsHosted            SlpZoomRecording[]        @relation("SlpZoomRecordingHost")
-  slpZoomAiPromptTemplatesUpdated    SlpZoomAiPromptTemplate[] @relation("SlpZoomAiPromptTemplateUpdater")
-  hojoZoomRecordingsHosted           HojoZoomRecording[]       @relation("HojoZoomRecordingHost")
-  hojoBusinessPlanPromptsUpdated     HojoBusinessPlanPrompt[]  @relation("HojoBusinessPlanPromptUpdater")
-  hojoBusinessPlanSectionsUpdated    HojoBusinessPlanSection[] @relation("HojoBusinessPlanSectionUpdater")
-  hojoDailyApiCostOverrides          HojoDailyApiCostOverride[]
+  meetingIntegrations             StaffMeetingIntegration[]  @relation("StaffMeetingIntegrations")
+  disconnectedMeetingIntegrations StaffMeetingIntegration[]  @relation("StaffMeetingIntegrationsDisconnectedBy")
+  slpZoomRecordingsHosted         SlpZoomRecording[]         @relation("SlpZoomRecordingHost")
+  slpZoomAiPromptTemplatesUpdated SlpZoomAiPromptTemplate[]  @relation("SlpZoomAiPromptTemplateUpdater")
+  hojoZoomRecordingsHosted        HojoZoomRecording[]        @relation("HojoZoomRecordingHost")
+  hojoBusinessPlanPromptsUpdated  HojoBusinessPlanPrompt[]   @relation("HojoBusinessPlanPromptUpdater")
+  hojoBusinessPlanSectionsUpdated HojoBusinessPlanSection[]  @relation("HojoBusinessPlanSectionUpdater")
+  hojoDailyApiCostOverrides       HojoDailyApiCostOverride[]
 
   // SLP 商談セッション関連
   slpSessionAssigned              SlpMeetingSession[]        @relation("SlpSessionAssignedStaff")
@@ -1113,8 +1148,8 @@ model MasterProject {
   finTransactions          Transaction[]
   finRecurringTransactions RecurringTransaction[]
   monthlyCloseLogs         MonthlyCloseLog[]
-  finInvoiceGroups         InvoiceGroup[]                @relation("ProjectInvoiceGroups")
-  finPaymentGroups         PaymentGroup[]                @relation("ProjectPaymentGroups")
+  finInvoiceGroups         InvoiceGroup[]                 @relation("ProjectInvoiceGroups")
+  finPaymentGroups         PaymentGroup[]                 @relation("ProjectPaymentGroups")
   projectEmails            ProjectEmail[]
   projectBankAccounts      ProjectBankAccount[]
   invoiceTemplates         InvoiceTemplate[]
@@ -1160,21 +1195,21 @@ model OperatingCompany {
   bankAccounts OperatingCompanyBankAccount[]
 
   // 経理システム追加Relations
-  emails                  OperatingCompanyEmail[]
-  invoiceGroups           InvoiceGroup[]
-  paymentGroups           PaymentGroup[]
-  invoiceTemplates        InvoiceTemplate[]
-  invoiceMails            InvoiceMail[]
-  invoiceNumberSequences  StpInvoiceNumberSequence[]
-  cloudsignTemplates      CloudSignTemplate[]
-  costCenters             CostCenter[]
-  journalEntries          JournalEntry[]
+  emails                   OperatingCompanyEmail[]
+  invoiceGroups            InvoiceGroup[]
+  paymentGroups            PaymentGroup[]
+  invoiceTemplates         InvoiceTemplate[]
+  invoiceMails             InvoiceMail[]
+  invoiceNumberSequences   StpInvoiceNumberSequence[]
+  cloudsignTemplates       CloudSignTemplate[]
+  costCenters              CostCenter[]
+  journalEntries           JournalEntry[]
   journalLinePlAllocations JournalEntryLinePlAllocation[]
 
   // 入出金履歴（CSV取込）
   bankStatementImports BankStatementImport[]
   bankStatementEntries BankStatementEntry[]
-  monthlyCloseLogs MonthlyCloseLog[]
+  monthlyCloseLogs     MonthlyCloseLog[]
 
   @@map("operating_companies")
 }
@@ -1201,10 +1236,10 @@ model OperatingCompanyBankAccount {
   deletedAt          DateTime? // 論理削除日時
 
   // Relations
-  operatingCompany    OperatingCompany     @relation(fields: [operatingCompanyId], references: [id], onDelete: Cascade)
-  paymentMethod       PaymentMethod?       @relation(fields: [paymentMethodId], references: [id])
-  invoiceGroups       InvoiceGroup[] // 経理システム追加
-  projectBankAccounts ProjectBankAccount[]
+  operatingCompany       OperatingCompany        @relation(fields: [operatingCompanyId], references: [id], onDelete: Cascade)
+  paymentMethod          PaymentMethod?          @relation(fields: [paymentMethodId], references: [id])
+  invoiceGroups          InvoiceGroup[] // 経理システム追加
+  projectBankAccounts    ProjectBankAccount[]
   costCenterBankAccounts CostCenterBankAccount[]
 
   // 入出金履歴（CSV取込）
@@ -2072,14 +2107,14 @@ model StpRevenueRecord {
   deletedAt DateTime? // 論理削除日時
 
   // Relations
-  stpCompany                StpCompany                 @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
-  contractHistory           StpContractHistory?        @relation(fields: [contractHistoryId], references: [id])
-  candidate                 StpCandidate?              @relation(fields: [candidateId], references: [id])
-  invoice                   StpInvoice?                @relation(fields: [invoiceId], references: [id])
-  approver                  MasterStaff?               @relation("RevenueApprover", fields: [approvedBy], references: [id])
-  expenseRecords            StpExpenseRecord[]
-  editLogs                  StpFinanceEditLog[]        @relation("RevenueEditLogs")
-  lineItems                 StpInvoiceLineItem[]
+  stpCompany      StpCompany           @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
+  contractHistory StpContractHistory?  @relation(fields: [contractHistoryId], references: [id])
+  candidate       StpCandidate?        @relation(fields: [candidateId], references: [id])
+  invoice         StpInvoice?          @relation(fields: [invoiceId], references: [id])
+  approver        MasterStaff?         @relation("RevenueApprover", fields: [approvedBy], references: [id])
+  expenseRecords  StpExpenseRecord[]
+  editLogs        StpFinanceEditLog[]  @relation("RevenueEditLogs")
+  lineItems       StpInvoiceLineItem[]
 
   @@index([stpCompanyId])
   @@index([targetMonth])
@@ -2151,14 +2186,14 @@ model StpExpenseRecord {
   deletedAt DateTime? // 論理削除日時
 
   // Relations
-  agent                     StpAgent                   @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  stpCompany                StpCompany?                @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
-  agentContractHistory      StpAgentContractHistory?   @relation(fields: [agentContractHistoryId], references: [id])
-  contractHistory           StpContractHistory?        @relation(fields: [contractHistoryId], references: [id])
-  revenueRecord             StpRevenueRecord?          @relation(fields: [revenueRecordId], references: [id])
-  invoice                   StpInvoice?                @relation(fields: [invoiceId], references: [id])
-  editLogs                  StpFinanceEditLog[]        @relation("ExpenseEditLogs")
-  lineItems                 StpInvoiceLineItem[]
+  agent                StpAgent                 @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  stpCompany           StpCompany?              @relation(fields: [stpCompanyId], references: [id], onDelete: Cascade)
+  agentContractHistory StpAgentContractHistory? @relation(fields: [agentContractHistoryId], references: [id])
+  contractHistory      StpContractHistory?      @relation(fields: [contractHistoryId], references: [id])
+  revenueRecord        StpRevenueRecord?        @relation(fields: [revenueRecordId], references: [id])
+  invoice              StpInvoice?              @relation(fields: [invoiceId], references: [id])
+  editLogs             StpFinanceEditLog[]      @relation("ExpenseEditLogs")
+  lineItems            StpInvoiceLineItem[]
 
   @@index([agentId])
   @@index([stpCompanyId])
@@ -2330,6 +2365,86 @@ model StpMonthlyClose {
 
   @@unique([targetMonth])
   @@map("stp_monthly_closes")
+}
+
+// ============================================
+// STP新ダッシュボード 月末残高スナップショット
+// ============================================
+
+model StpDashboardMonthEndSnapshot {
+  id           Int      @id @default(autoincrement())
+  targetMonth  String   @map("target_month") @db.VarChar(7) // "2026-03"
+  productKey   String   @map("product_key") @db.VarChar(50)
+  productName  String   @map("product_name") @db.VarChar(100)
+  productId    Int?     @map("product_id")
+  staffKey     String   @map("staff_key") @db.VarChar(50)
+  staffName    String   @map("staff_name") @db.VarChar(100)
+  salesStaffId Int?     @map("sales_staff_id")
+  snapshotData Json     @map("snapshot_data")
+  capturedAt   DateTime @default(now()) @map("captured_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  product    StpProduct?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  salesStaff MasterStaff? @relation("StpDashboardMonthEndSnapshotStaff", fields: [salesStaffId], references: [id], onDelete: SetNull)
+
+  @@unique([targetMonth, productKey, staffKey], map: "stp_dashboard_month_end_snapshots_month_product_staff_key")
+  @@index([targetMonth], map: "idx_stp_dashboard_month_end_snapshots_target_month")
+  @@index([productId], map: "idx_stp_dashboard_month_end_snapshots_product_id")
+  @@index([salesStaffId], map: "idx_stp_dashboard_month_end_snapshots_sales_staff_id")
+  @@map("stp_dashboard_month_end_snapshots")
+}
+
+// ============================================
+// STP新ダッシュボード MA・SFA・契約ファネル目標
+// ============================================
+
+model StpDashboardFunnelTarget {
+  id              Int      @id @default(autoincrement())
+  targetMonth     String   @map("target_month") @db.VarChar(7) // "2026-03"
+  productKey      String   @map("product_key") @db.VarChar(50)
+  productName     String   @map("product_name") @db.VarChar(100)
+  productId       Int?     @map("product_id")
+  staffKey        String   @map("staff_key") @db.VarChar(50)
+  staffName       String   @map("staff_name") @db.VarChar(100)
+  salesStaffId    Int?     @map("sales_staff_id")
+  leadTarget      Int?     @map("lead_target")
+  validLeadTarget Int?     @map("valid_lead_target")
+  meetingTarget   Int?     @map("meeting_target")
+  pendingTarget   Int?     @map("pending_target")
+  contractTarget  Int?     @map("contract_target")
+  lostTarget      Int?     @map("lost_target")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  product    StpProduct?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  salesStaff MasterStaff? @relation("StpDashboardFunnelTargetStaff", fields: [salesStaffId], references: [id], onDelete: SetNull)
+
+  @@unique([targetMonth, productKey, staffKey], map: "stp_dashboard_funnel_targets_month_product_staff_key")
+  @@index([targetMonth], map: "idx_stp_dashboard_funnel_targets_target_month")
+  @@index([productId], map: "idx_stp_dashboard_funnel_targets_product_id")
+  @@index([salesStaffId], map: "idx_stp_dashboard_funnel_targets_sales_staff_id")
+  @@map("stp_dashboard_funnel_targets")
+}
+
+// ============================================
+// STP売却KPI 月次目標
+// ============================================
+
+model StpExitKpiTarget {
+  id                 Int      @id @default(autoincrement())
+  targetMonth        String   @unique @map("target_month") @db.VarChar(7) // "2026-03"
+  currentMrrTarget   Int?     @map("current_mrr_target")
+  arrRunRateTarget   Int?     @map("arr_run_rate_target")
+  nrrTarget          Decimal? @map("nrr_target") @db.Decimal(6, 1)
+  churnRateTarget    Decimal? @map("churn_rate_target") @db.Decimal(6, 1)
+  grossMarginTarget  Decimal? @map("gross_margin_target") @db.Decimal(6, 1)
+  ebitdaMarginTarget Decimal? @map("ebitda_margin_target") @db.Decimal(6, 1)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([targetMonth], map: "idx_stp_exit_kpi_targets_target_month")
+  @@map("stp_exit_kpi_targets")
 }
 
 // ============================================
@@ -2748,8 +2863,8 @@ model PaymentGroup {
   deletedAt DateTime?
 
   // Relations
-  counterparty         Counterparty?              @relation(fields: [counterpartyId], references: [id])
-  operatingCompany     OperatingCompany           @relation(fields: [operatingCompanyId], references: [id])
+  counterparty         Counterparty?          @relation(fields: [counterpartyId], references: [id])
+  operatingCompany     OperatingCompany       @relation(fields: [operatingCompanyId], references: [id])
   transactions         Transaction[]
   allocationItems      AllocationGroupItem[]
   journalEntries       JournalEntry[]
@@ -2758,13 +2873,13 @@ model PaymentGroup {
   attachments          Attachment[]
   projectId            Int?
   costCenterId         Int? // FK → CostCenter（経理プロジェクト）
-  project              MasterProject?             @relation("ProjectPaymentGroups", fields: [projectId], references: [id])
-  costCenter           CostCenter?                @relation(fields: [costCenterId], references: [id])
-  confirmer            MasterStaff?               @relation("PaymentGroupConfirmer", fields: [confirmedBy], references: [id])
-  approver             MasterStaff?               @relation("PaymentGroupApprover", fields: [approverStaffId], references: [id])
-  creator              MasterStaff                @relation("PaymentGroupCreator", fields: [createdBy], references: [id])
-  updater              MasterStaff?               @relation("PaymentGroupUpdater", fields: [updatedBy], references: [id])
-  expectedInboundEmail OperatingCompanyEmail?     @relation("ExpectedInbound", fields: [expectedInboundEmailId], references: [id])
+  project              MasterProject?         @relation("ProjectPaymentGroups", fields: [projectId], references: [id])
+  costCenter           CostCenter?            @relation(fields: [costCenterId], references: [id])
+  confirmer            MasterStaff?           @relation("PaymentGroupConfirmer", fields: [confirmedBy], references: [id])
+  approver             MasterStaff?           @relation("PaymentGroupApprover", fields: [approverStaffId], references: [id])
+  creator              MasterStaff            @relation("PaymentGroupCreator", fields: [createdBy], references: [id])
+  updater              MasterStaff?           @relation("PaymentGroupUpdater", fields: [updatedBy], references: [id])
+  expectedInboundEmail OperatingCompanyEmail? @relation("ExpectedInbound", fields: [expectedInboundEmailId], references: [id])
   inboundInvoices      InboundInvoice[]
   payments             PaymentGroupPayment[]
 
@@ -2802,9 +2917,9 @@ model InvoiceGroupReceipt {
   createdAt                     DateTime @default(now()) @map("created_at")
   updatedAt                     DateTime @updatedAt @map("updated_at")
 
-  invoiceGroup            InvoiceGroup                 @relation(fields: [invoiceGroupId], references: [id], onDelete: Cascade)
-  creator                 MasterStaff                  @relation("InvoiceGroupReceiptCreator", fields: [createdById], references: [id])
-  bankStatementEntryLink  BankStatementEntryGroupLink? @relation(fields: [bankStatementEntryGroupLinkId], references: [id], onDelete: Cascade)
+  invoiceGroup           InvoiceGroup                 @relation(fields: [invoiceGroupId], references: [id], onDelete: Cascade)
+  creator                MasterStaff                  @relation("InvoiceGroupReceiptCreator", fields: [createdById], references: [id])
+  bankStatementEntryLink BankStatementEntryGroupLink? @relation(fields: [bankStatementEntryGroupLinkId], references: [id], onDelete: Cascade)
 
   @@index([invoiceGroupId])
   @@index([receivedDate])
@@ -2827,9 +2942,9 @@ model PaymentGroupPayment {
   createdAt                     DateTime @default(now()) @map("created_at")
   updatedAt                     DateTime @updatedAt @map("updated_at")
 
-  paymentGroup            PaymentGroup                 @relation(fields: [paymentGroupId], references: [id], onDelete: Cascade)
-  creator                 MasterStaff                  @relation("PaymentGroupPaymentCreator", fields: [createdById], references: [id])
-  bankStatementEntryLink  BankStatementEntryGroupLink? @relation(fields: [bankStatementEntryGroupLinkId], references: [id], onDelete: Cascade)
+  paymentGroup           PaymentGroup                 @relation(fields: [paymentGroupId], references: [id], onDelete: Cascade)
+  creator                MasterStaff                  @relation("PaymentGroupPaymentCreator", fields: [createdById], references: [id])
+  bankStatementEntryLink BankStatementEntryGroupLink? @relation(fields: [bankStatementEntryGroupLinkId], references: [id], onDelete: Cascade)
 
   @@index([paymentGroupId])
   @@index([paidDate])
@@ -2908,11 +3023,11 @@ model RecurringTransactionExpenseOwner {
 // ============================================
 
 model CostCenter {
-  id        Int     @id @default(autoincrement())
-  name      String // 名称（例: STP事業、社内開発、管理部門）
-  projectId Int? // FK → MasterProject（CRMプロジェクトと紐づく場合）
-  operatingCompanyId Int? @map("operating_company_id") // FK → OperatingCompany（CRM未登録の経理専用プロジェクト用）
-  isActive  Boolean @default(true)
+  id                 Int     @id @default(autoincrement())
+  name               String // 名称（例: STP事業、社内開発、管理部門）
+  projectId          Int? // FK → MasterProject（CRMプロジェクトと紐づく場合）
+  operatingCompanyId Int?    @map("operating_company_id") // FK → OperatingCompany（CRM未登録の経理専用プロジェクト用）
+  isActive           Boolean @default(true)
 
   createdBy Int? // FK → MasterStaff
   updatedBy Int? // FK → MasterStaff
@@ -2921,8 +3036,8 @@ model CostCenter {
   deletedAt DateTime?
 
   // Relations
-  project                   MasterProject?                @relation(fields: [projectId], references: [id])
-  operatingCompany          OperatingCompany?             @relation(fields: [operatingCompanyId], references: [id])
+  project                   MasterProject?                 @relation(fields: [projectId], references: [id])
+  operatingCompany          OperatingCompany?              @relation(fields: [operatingCompanyId], references: [id])
   costCenterBankAccounts    CostCenterBankAccount[]
   projectAssignments        CostCenterProjectAssignment[]
   transactions              Transaction[]
@@ -2933,12 +3048,12 @@ model CostCenter {
   allocationConfirmations   AllocationConfirmation[]
   allocationGroupItems      AllocationGroupItem[]
   journalLinePlAllocations  JournalEntryLinePlAllocation[]
-  ownerAllocationTemplates  AllocationTemplate[]          @relation("OwnerCostCenter")
+  ownerAllocationTemplates  AllocationTemplate[]           @relation("OwnerCostCenter")
   budgets                   Budget[]
   counterparty              Counterparty?
-  creator                   MasterStaff?                  @relation("CostCenterCreator", fields: [createdBy], references: [id])
-  updater                   MasterStaff?                  @relation("CostCenterUpdater", fields: [updatedBy], references: [id])
-  projectDefaultCostCenters MasterProject[]               @relation("ProjectDefaultCostCenter")
+  creator                   MasterStaff?                   @relation("CostCenterCreator", fields: [createdBy], references: [id])
+  updater                   MasterStaff?                   @relation("CostCenterUpdater", fields: [updatedBy], references: [id])
+  projectDefaultCostCenters MasterProject[]                @relation("ProjectDefaultCostCenter")
 
   @@index([operatingCompanyId])
 }
@@ -2998,14 +3113,14 @@ model AllocationTemplate {
   ownerCostCenterId Int? // FK → CostCenter（代表プロジェクトのコストセンター）
 
   // Relations
-  lines                 AllocationTemplateLine[]
-  transactions          Transaction[]
-  recurringTransactions RecurringTransaction[]
-  overrides             AllocationTemplateOverride[]
+  lines                    AllocationTemplateLine[]
+  transactions             Transaction[]
+  recurringTransactions    RecurringTransaction[]
+  overrides                AllocationTemplateOverride[]
   journalLinePlAllocations JournalEntryLinePlAllocation[]
-  ownerCostCenter       CostCenter?                  @relation("OwnerCostCenter", fields: [ownerCostCenterId], references: [id])
-  creator               MasterStaff                  @relation("AllocTemplateCreator", fields: [createdBy], references: [id])
-  updater               MasterStaff?                 @relation("AllocTemplateUpdater", fields: [updatedBy], references: [id])
+  ownerCostCenter          CostCenter?                    @relation("OwnerCostCenter", fields: [ownerCostCenterId], references: [id])
+  creator                  MasterStaff                    @relation("AllocTemplateCreator", fields: [createdBy], references: [id])
+  updater                  MasterStaff?                   @relation("AllocTemplateUpdater", fields: [updatedBy], references: [id])
 }
 
 // ============================================
@@ -3142,20 +3257,20 @@ model ExpenseCategory {
 // ============================================
 
 model JournalEntry {
-  id                Int      @id @default(autoincrement())
-  invoiceGroupId    Int? // FK → InvoiceGroup（売上側：請求グループ単位で紐づく）
-  paymentGroupId    Int? // FK → PaymentGroup（経費側：支払グループ単位で紐づく）
-  transactionId     Int? // FK → Transaction（個別取引に直接紐づく場合）
+  id                 Int      @id @default(autoincrement())
+  invoiceGroupId     Int? // FK → InvoiceGroup（売上側：請求グループ単位で紐づく）
+  paymentGroupId     Int? // FK → PaymentGroup（経費側：支払グループ単位で紐づく）
+  transactionId      Int? // FK → Transaction（個別取引に直接紐づく場合）
   operatingCompanyId Int? // FK → OperatingCompany（P/L集計用。既存データ互換のためDB上は任意）
-  projectId         Int? // FK → MasterProject（プロジェクト）
-  counterpartyId    Int? // FK → Counterparty（取引先）
-  hasInvoice        Boolean  @default(true) // 適格請求書の有無
-  journalDate       DateTime // 仕訳日
-  description       String // 摘要
+  projectId          Int? // FK → MasterProject（プロジェクト）
+  counterpartyId     Int? // FK → Counterparty（取引先）
+  hasInvoice         Boolean  @default(true) // 適格請求書の有無
+  journalDate        DateTime // 仕訳日
+  description        String // 摘要
 
-  isAutoGenerated        Boolean @default(false) // 自動生成フラグ
-  status                 String  @default("draft") // "draft" | "confirmed"
-  autoJournalRuleId      Int? // FK → AutoJournalRule（どのルールで生成されたか）
+  isAutoGenerated   Boolean @default(false) // 自動生成フラグ
+  status            String  @default("draft") // "draft" | "confirmed"
+  autoJournalRuleId Int? // FK → AutoJournalRule（どのルールで生成されたか）
 
   // 実現/未実現ステータス
   realizationStatus String    @default("realized") // "realized" | "unrealized"
@@ -3172,19 +3287,19 @@ model JournalEntry {
   deletedAt DateTime?
 
   // Relations
-  invoiceGroup         InvoiceGroup?      @relation(fields: [invoiceGroupId], references: [id])
-  paymentGroup         PaymentGroup?      @relation(fields: [paymentGroupId], references: [id])
-  transaction          Transaction?       @relation(fields: [transactionId], references: [id])
-  operatingCompany     OperatingCompany?  @relation(fields: [operatingCompanyId], references: [id])
-  autoJournalRule      AutoJournalRule?   @relation(fields: [autoJournalRuleId], references: [id])
-  project              MasterProject?     @relation(fields: [projectId], references: [id])
-  counterparty         Counterparty?      @relation(fields: [counterpartyId], references: [id])
-  lines                JournalEntryLine[]
-  attachments          Attachment[]
-  approver             MasterStaff?       @relation("JournalApprover", fields: [approvedBy], references: [id])
-  realizer             MasterStaff?       @relation("JournalRealizer", fields: [realizedBy], references: [id])
-  creator              MasterStaff        @relation("JournalCreator", fields: [createdBy], references: [id])
-  updater              MasterStaff?       @relation("JournalUpdater", fields: [updatedBy], references: [id])
+  invoiceGroup     InvoiceGroup?      @relation(fields: [invoiceGroupId], references: [id])
+  paymentGroup     PaymentGroup?      @relation(fields: [paymentGroupId], references: [id])
+  transaction      Transaction?       @relation(fields: [transactionId], references: [id])
+  operatingCompany OperatingCompany?  @relation(fields: [operatingCompanyId], references: [id])
+  autoJournalRule  AutoJournalRule?   @relation(fields: [autoJournalRuleId], references: [id])
+  project          MasterProject?     @relation(fields: [projectId], references: [id])
+  counterparty     Counterparty?      @relation(fields: [counterpartyId], references: [id])
+  lines            JournalEntryLine[]
+  attachments      Attachment[]
+  approver         MasterStaff?       @relation("JournalApprover", fields: [approvedBy], references: [id])
+  realizer         MasterStaff?       @relation("JournalRealizer", fields: [realizedBy], references: [id])
+  creator          MasterStaff        @relation("JournalCreator", fields: [createdBy], references: [id])
+  updater          MasterStaff?       @relation("JournalUpdater", fields: [updatedBy], references: [id])
 
   @@index([operatingCompanyId])
   @@index([invoiceGroupId], map: "journal_entry_invoice_group_idx")
@@ -3214,11 +3329,11 @@ model JournalEntryLine {
   updatedAt DateTime @updatedAt
 
   // Relations
-  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id])
-  account      Account      @relation(fields: [accountId], references: [id])
+  journalEntry  JournalEntry                   @relation(fields: [journalEntryId], references: [id])
+  account       Account                        @relation(fields: [accountId], references: [id])
   plAllocations JournalEntryLinePlAllocation[]
-  creator      MasterStaff? @relation("JournalLineCreator", fields: [createdBy], references: [id])
-  updater      MasterStaff? @relation("JournalLineUpdater", fields: [updatedBy], references: [id])
+  creator       MasterStaff?                   @relation("JournalLineCreator", fields: [createdBy], references: [id])
+  updater       MasterStaff?                   @relation("JournalLineUpdater", fields: [updatedBy], references: [id])
 }
 
 // ============================================
@@ -3240,10 +3355,10 @@ model JournalEntryLinePlAllocation {
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
-  journalEntryLine   JournalEntryLine   @relation(fields: [journalEntryLineId], references: [id], onDelete: Cascade)
-  operatingCompany   OperatingCompany   @relation(fields: [operatingCompanyId], references: [id])
-  project            MasterProject?     @relation(fields: [projectId], references: [id])
-  costCenter         CostCenter?        @relation(fields: [costCenterId], references: [id])
+  journalEntryLine   JournalEntryLine    @relation(fields: [journalEntryLineId], references: [id], onDelete: Cascade)
+  operatingCompany   OperatingCompany    @relation(fields: [operatingCompanyId], references: [id])
+  project            MasterProject?      @relation(fields: [projectId], references: [id])
+  costCenter         CostCenter?         @relation(fields: [costCenterId], references: [id])
   allocationTemplate AllocationTemplate? @relation(fields: [allocationTemplateId], references: [id])
 
   @@index([journalEntryLineId])
@@ -3404,12 +3519,12 @@ model PaymentMethod {
 // ============================================
 
 model Attachment {
-  id                Int  @id @default(autoincrement())
-  transactionId     Int? // FK → Transaction
-  journalEntryId    Int? // FK → JournalEntry
-  commentId         Int? // FK → TransactionComment（コメント返信時の添付）
-  invoiceGroupId    Int? // FK → InvoiceGroup（請求添付ファイル）
-  paymentGroupId    Int? // FK → PaymentGroup（支払添付ファイル）
+  id             Int  @id @default(autoincrement())
+  transactionId  Int? // FK → Transaction
+  journalEntryId Int? // FK → JournalEntry
+  commentId      Int? // FK → TransactionComment（コメント返信時の添付）
+  invoiceGroupId Int? // FK → InvoiceGroup（請求添付ファイル）
+  paymentGroupId Int? // FK → PaymentGroup（支払添付ファイル）
 
   fileName       String
   filePath       String // ストレージパス
@@ -3426,12 +3541,12 @@ model Attachment {
   deletedAt  DateTime?
 
   // Relations
-  transaction     Transaction?        @relation(fields: [transactionId], references: [id])
-  journalEntry    JournalEntry?       @relation(fields: [journalEntryId], references: [id])
-  comment         TransactionComment? @relation(fields: [commentId], references: [id])
-  invoiceGroup    InvoiceGroup?       @relation(fields: [invoiceGroupId], references: [id])
-  paymentGroup    PaymentGroup?       @relation(fields: [paymentGroupId], references: [id])
-  uploader        MasterStaff         @relation("AttachmentUploader", fields: [uploadedBy], references: [id])
+  transaction  Transaction?        @relation(fields: [transactionId], references: [id])
+  journalEntry JournalEntry?       @relation(fields: [journalEntryId], references: [id])
+  comment      TransactionComment? @relation(fields: [commentId], references: [id])
+  invoiceGroup InvoiceGroup?       @relation(fields: [invoiceGroupId], references: [id])
+  paymentGroup PaymentGroup?       @relation(fields: [paymentGroupId], references: [id])
+  uploader     MasterStaff         @relation("AttachmentUploader", fields: [uploadedBy], references: [id])
 }
 
 // ============================================
@@ -3456,10 +3571,10 @@ model CryptoTransactionDetail {
   updatedAt DateTime @updatedAt
 
   // Relations
-  transaction     Transaction?     @relation(fields: [transactionId], references: [id])
-  paymentMethod   PaymentMethod?   @relation(fields: [paymentMethodId], references: [id])
-  creator         MasterStaff?     @relation("CryptoDetailCreator", fields: [createdBy], references: [id])
-  updater         MasterStaff?     @relation("CryptoDetailUpdater", fields: [updatedBy], references: [id])
+  transaction   Transaction?   @relation(fields: [transactionId], references: [id])
+  paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  creator       MasterStaff?   @relation("CryptoDetailCreator", fields: [createdBy], references: [id])
+  updater       MasterStaff?   @relation("CryptoDetailUpdater", fields: [updatedBy], references: [id])
 }
 
 // ============================================
@@ -3516,13 +3631,13 @@ model Budget {
 // ============================================
 
 model MonthlyCloseLog {
-  id           Int      @id @default(autoincrement())
-  projectId    Int? // FK → MasterProject（null = 全社クローズ）
-  operatingCompanyId Int? @map("operating_company_id") // FK → OperatingCompany（null = 全運営法人）
-  targetMonth  DateTime // 対象月（YYYY-MM-01）
-  action       String // "close" | "reopen"
-  reason       String? // 再オープン時の理由（必須）
-  snapshotData Json? // クローズ時のPLスナップショット（closeの場合）
+  id                 Int      @id @default(autoincrement())
+  projectId          Int? // FK → MasterProject（null = 全社クローズ）
+  operatingCompanyId Int?     @map("operating_company_id") // FK → OperatingCompany（null = 全運営法人）
+  targetMonth        DateTime // 対象月（YYYY-MM-01）
+  action             String // "close" | "reopen"
+  reason             String? // 再オープン時の理由（必須）
+  snapshotData       Json? // クローズ時のPLスナップショット（closeの場合）
 
   performedBy Int // FK → MasterStaff（経理管理者）
   performedAt DateTime @default(now())
@@ -3898,48 +4013,48 @@ model UsdtDailyRate {
 // ============================================
 
 model SlpMember {
-  id                       Int       @id @default(autoincrement())
-  name                     String    @db.VarChar(100)
-  email                    String?   @db.VarChar(255)
-  status                   String?   @db.VarChar(50) // 契約書未送付/契約書送付済/組合員契約書締結/契約破棄
-  contractSentDate         DateTime?
-  contractSignedDate       DateTime?
-  position                 String?   @db.VarChar(100)
-  company                  String?   @db.VarChar(200)
-  memberCategory           String?   @db.VarChar(50) // 個人（法人代表・役員・従業員）/法人担当者/代理店
-  lineName                 String?   @db.VarChar(100)
-  uid                      String    @unique @db.VarChar(100)
-  phone                    String?   @db.VarChar(50)
-  address                  String?
-  referrerUid              String?   @db.VarChar(100)
-  note                     String?
-  memo                     String?
-  documentId               String?   @db.VarChar(255)
-  cloudsignUrl             String?
-  reminderCount            Int       @default(0)
-  formSubmittedAt          DateTime? // フォーム送信日時
-  lastReminderSentAt       DateTime? // 直近リマインド送付日時
-  emailChangeCount         Int       @default(0) // メールアドレス変更回数（フォーム経由、上限2回）
-  resubmitted              Boolean   @default(false) // 未締結再フォーム送信フラグ（管理者通知用）
-  watermarkCode            String?   @unique @db.VarChar(9) // ウォーターマーク用固定コード（XXXX-XXXX形式、変更不可）
-  form5NotifyCount         Int       @default(0) // Form5（契約締結通知）送信回数
-  form5NotifiedReferrerUid String?   @map("form5_notified_referrer_uid") @db.VarChar(100) // 最後にForm5通知を送信した紹介者UID（free1と比較して未通知判定に使用）
-  form5NotifySkippedReferrerUid String? @map("form5_notify_skipped_referrer_uid") @db.VarChar(100) // Form5通知「送信不要」と判断した紹介者UID（free1と比較して未通知判定から除外）
-  reminderExcluded         Boolean   @default(false) // 自動リマインド除外フラグ
-  richmenuBeaconCalled     Boolean   @default(false) @map("richmenu_beacon_called") // リッチメニュー切り替えビーコンを呼び出し済みか（締結済み / 締結ビーコン D6DJAb2MNC・xZugEszbhx 共通）
-  postLinkSentBeaconCalled Boolean   @default(false) @map("post_link_sent_beacon_called") // 後追い紐付け時の「契約書送付済」案内ビーコン（G0JqiTyQx9）呼び出し済みフラグ
-  cloudsignBounced         Boolean   @default(false) @map("cloudsign_bounced") // CloudSignメール送信失敗フラグ
-  cloudsignBouncedAt       DateTime? @map("cloudsign_bounced_at") // CloudSignメール送信失敗検知日時
-  cloudsignBouncedEmail    String?   @map("cloudsign_bounced_email") @db.VarChar(255) // 失敗したメールアドレス
+  id                            Int       @id @default(autoincrement())
+  name                          String    @db.VarChar(100)
+  email                         String?   @db.VarChar(255)
+  status                        String?   @db.VarChar(50) // 契約書未送付/契約書送付済/組合員契約書締結/契約破棄
+  contractSentDate              DateTime?
+  contractSignedDate            DateTime?
+  position                      String?   @db.VarChar(100)
+  company                       String?   @db.VarChar(200)
+  memberCategory                String?   @db.VarChar(50) // 個人（法人代表・役員・従業員）/法人担当者/代理店
+  lineName                      String?   @db.VarChar(100)
+  uid                           String    @unique @db.VarChar(100)
+  phone                         String?   @db.VarChar(50)
+  address                       String?
+  referrerUid                   String?   @db.VarChar(100)
+  note                          String?
+  memo                          String?
+  documentId                    String?   @db.VarChar(255)
+  cloudsignUrl                  String?
+  reminderCount                 Int       @default(0)
+  formSubmittedAt               DateTime? // フォーム送信日時
+  lastReminderSentAt            DateTime? // 直近リマインド送付日時
+  emailChangeCount              Int       @default(0) // メールアドレス変更回数（フォーム経由、上限2回）
+  resubmitted                   Boolean   @default(false) // 未締結再フォーム送信フラグ（管理者通知用）
+  watermarkCode                 String?   @unique @db.VarChar(9) // ウォーターマーク用固定コード（XXXX-XXXX形式、変更不可）
+  form5NotifyCount              Int       @default(0) // Form5（契約締結通知）送信回数
+  form5NotifiedReferrerUid      String?   @map("form5_notified_referrer_uid") @db.VarChar(100) // 最後にForm5通知を送信した紹介者UID（free1と比較して未通知判定に使用）
+  form5NotifySkippedReferrerUid String?   @map("form5_notify_skipped_referrer_uid") @db.VarChar(100) // Form5通知「送信不要」と判断した紹介者UID（free1と比較して未通知判定から除外）
+  reminderExcluded              Boolean   @default(false) // 自動リマインド除外フラグ
+  richmenuBeaconCalled          Boolean   @default(false) @map("richmenu_beacon_called") // リッチメニュー切り替えビーコンを呼び出し済みか（締結済み / 締結ビーコン D6DJAb2MNC・xZugEszbhx 共通）
+  postLinkSentBeaconCalled      Boolean   @default(false) @map("post_link_sent_beacon_called") // 後追い紐付け時の「契約書送付済」案内ビーコン（G0JqiTyQx9）呼び出し済みフラグ
+  cloudsignBounced              Boolean   @default(false) @map("cloudsign_bounced") // CloudSignメール送信失敗フラグ
+  cloudsignBouncedAt            DateTime? @map("cloudsign_bounced_at") // CloudSignメール送信失敗検知日時
+  cloudsignBouncedEmail         String?   @map("cloudsign_bounced_email") @db.VarChar(255) // 失敗したメールアドレス
   // 送付履歴・フロー制御フィールド
-  bounceConfirmedAt        DateTime? @map("bounce_confirmed_at") // 「間違いない」ボタン押下日時
-  bounceFixUsed            Boolean   @default(false) @map("bounce_fix_used") // 不達修正（リトライ）を使用済みか
-  emailChangeUsed          Boolean   @default(false) @map("email_change_used") // 成功後のメアド変更を使用済みか
-  formLocked               Boolean   @default(false) @map("form_locked") // フォームから完全に操作不可（公式LINE案内）
-  autoSendLocked           Boolean   @default(false) @map("auto_send_locked") // 自動送付停止（スタッフ手動対応）
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @updatedAt
-  deletedAt                DateTime?
+  bounceConfirmedAt             DateTime? @map("bounce_confirmed_at") // 「間違いない」ボタン押下日時
+  bounceFixUsed                 Boolean   @default(false) @map("bounce_fix_used") // 不達修正（リトライ）を使用済みか
+  emailChangeUsed               Boolean   @default(false) @map("email_change_used") // 成功後のメアド変更を使用済みか
+  formLocked                    Boolean   @default(false) @map("form_locked") // フォームから完全に操作不可（公式LINE案内）
+  autoSendLocked                Boolean   @default(false) @map("auto_send_locked") // 自動送付停止（スタッフ手動対応）
+  createdAt                     DateTime  @default(now())
+  updatedAt                     DateTime  @updatedAt
+  deletedAt                     DateTime?
 
   referrer         SlpMember?           @relation("MemberReferral", fields: [referrerUid], references: [uid])
   referrals        SlpMember[]          @relation("MemberReferral")
@@ -4184,18 +4299,18 @@ model SlpCompanyRecord {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  contacts              SlpCompanyContact[]
-  primaryContact        SlpCompanyContact?              @relation("PrimaryContact", fields: [primaryContactId], references: [id])
-  salesStaff            MasterStaff?                    @relation("SlpCompanySalesStaff", fields: [salesStaffId], references: [id])
-  industry              SlpIndustryMaster?              @relation(fields: [industryId], references: [id])
-  flowSource            SlpFlowSourceMaster?            @relation(fields: [flowSourceId], references: [id])
-  status1               SlpCompanyStatus1Master?        @relation(fields: [status1Id], references: [id])
-  status2               SlpCompanyStatus2Master?        @relation(fields: [status2Id], references: [id])
-  statusHistories       SlpCompanyRecordStatusHistory[]
-  submittedDocuments    SlpCompanyDocument[]
-  reservationHistories  SlpReservationHistory[]
-  masterCompany         MasterStellaCompany?            @relation("SlpCompanyRecordToMaster", fields: [masterCompanyId], references: [id])
-  contactHistories      SlpContactHistory[]             @relation("SlpContactHistoryCompanyRecord")
+  contacts             SlpCompanyContact[]
+  primaryContact       SlpCompanyContact?              @relation("PrimaryContact", fields: [primaryContactId], references: [id])
+  salesStaff           MasterStaff?                    @relation("SlpCompanySalesStaff", fields: [salesStaffId], references: [id])
+  industry             SlpIndustryMaster?              @relation(fields: [industryId], references: [id])
+  flowSource           SlpFlowSourceMaster?            @relation(fields: [flowSourceId], references: [id])
+  status1              SlpCompanyStatus1Master?        @relation(fields: [status1Id], references: [id])
+  status2              SlpCompanyStatus2Master?        @relation(fields: [status2Id], references: [id])
+  statusHistories      SlpCompanyRecordStatusHistory[]
+  submittedDocuments   SlpCompanyDocument[]
+  reservationHistories SlpReservationHistory[]
+  masterCompany        MasterStellaCompany?            @relation("SlpCompanyRecordToMaster", fields: [masterCompanyId], references: [id])
+  contactHistories     SlpContactHistory[]             @relation("SlpContactHistoryCompanyRecord")
 
   // 重複統合関連リレーション
   duplicateCandidatesA SlpCompanyDuplicateCandidate[] @relation("DuplicateCandidateA")
@@ -4360,18 +4475,18 @@ model SlpCompanyRecordStatusHistory {
 // ============================================
 
 model SlpCompanyContact {
-  id              Int      @id @default(autoincrement())
-  companyRecordId Int      @map("company_record_id")
-  name            String?  @db.VarChar(200) // 名前
-  role            String?  @db.VarChar(100) // 役割（代表者/主担当者/その他自由入力）
-  email           String?  @db.VarChar(255) // メールアドレス
-  phone           String?  @db.VarChar(50) // 電話番号
-  lineFriendId    Int?     @map("line_friend_id") // 公式LINE友達
-  isPrimary       Boolean  @default(false) @map("is_primary")
+  id                           Int      @id @default(autoincrement())
+  companyRecordId              Int      @map("company_record_id")
+  name                         String?  @db.VarChar(200) // 名前
+  role                         String?  @db.VarChar(100) // 役割（代表者/主担当者/その他自由入力）
+  email                        String?  @db.VarChar(255) // メールアドレス
+  phone                        String?  @db.VarChar(50) // 電話番号
+  lineFriendId                 Int?     @map("line_friend_id") // 公式LINE友達
+  isPrimary                    Boolean  @default(false) @map("is_primary")
   /// 商談の確定・変更・リマインド等をLINEで受け取るか。デフォルトON。
   /// 予約者（SlpMeetingSession.bookerContactId）の場合はこのフラグに関わらず必ず送信される。
-  receivesSessionNotifications Boolean @default(true) @map("receives_session_notifications")
-  createdAt       DateTime @default(now()) @map("created_at")
+  receivesSessionNotifications Boolean  @default(true) @map("receives_session_notifications")
+  createdAt                    DateTime @default(now()) @map("created_at")
 
   // AS担当の手動上書き（自動解決値を上書きする場合のみ設定）
   manualAsId          Int?      @map("manual_as_id") // 手動設定したAS（SlpAs.id）
@@ -4379,12 +4494,12 @@ model SlpCompanyContact {
   manualAsChangedAt   DateTime? @map("manual_as_changed_at") // 手動上書きした日時
   manualAsChangedById Int?      @map("manual_as_changed_by_id") // 手動上書きしたスタッフID
 
-  companyRecord     SlpCompanyRecord           @relation(fields: [companyRecordId], references: [id], onDelete: Cascade)
-  primaryOf         SlpCompanyRecord[]         @relation("PrimaryContact")
-  lineFriend        SlpLineFriend?             @relation(fields: [lineFriendId], references: [id])
-  manualAs          SlpAs?                     @relation("SlpCompanyContactManualAs", fields: [manualAsId], references: [id])
-  manualAsChangedBy MasterStaff?               @relation("SlpCompanyContactManualAsChangedBy", fields: [manualAsChangedById], references: [id])
-  bookedSessions    SlpMeetingSession[]        @relation("SessionBooker")
+  companyRecord     SlpCompanyRecord          @relation(fields: [companyRecordId], references: [id], onDelete: Cascade)
+  primaryOf         SlpCompanyRecord[]        @relation("PrimaryContact")
+  lineFriend        SlpLineFriend?            @relation(fields: [lineFriendId], references: [id])
+  manualAs          SlpAs?                    @relation("SlpCompanyContactManualAs", fields: [manualAsId], references: [id])
+  manualAsChangedBy MasterStaff?              @relation("SlpCompanyContactManualAsChangedBy", fields: [manualAsChangedById], references: [id])
+  bookedSessions    SlpMeetingSession[]       @relation("SessionBooker")
   notifyOverrides   SlpSessionNotifyContact[]
 
   @@map("slp_company_contacts")
@@ -4742,11 +4857,11 @@ model HojoVendor {
   kickoffMtg DateTime? @map("kickoff_mtg")
 
   // 次の連絡日（全体用: 基本情報タブに表示）
-  nextContactDate DateTime? @map("next_contact_date")
+  nextContactDate           DateTime? @map("next_contact_date")
   // 次回連絡事項（全体用: 基本情報タブに表示）
-  nextContactNotes String? @map("next_contact_notes") @db.Text
+  nextContactNotes          String?   @map("next_contact_notes") @db.Text
   // 次の連絡日（卸用: ベンダー一覧の卸関連カラムに表示）
-  nextContactDateWholesale DateTime? @map("next_contact_date_wholesale")
+  nextContactDateWholesale  DateTime? @map("next_contact_date_wholesale")
   // 次の連絡日（コンサル用: ベンダー一覧のコンサル関連カラムに表示）
   nextContactDateConsulting DateTime? @map("next_contact_date_consulting")
 
@@ -4796,18 +4911,18 @@ model HojoVendor {
   assignedAsLineFriendId Int? @map("assigned_as_line_friend_id")
 
   // --- リレーション ---
-  lineFriend                        HojoLineFriendSecurityCloud?       @relation("vendorLineFriend", fields: [lineFriendId], references: [id], onDelete: SetNull)
-  representativeLineFriend          HojoLineFriendSecurityCloud?       @relation("vendorRepresentative", fields: [representativeLineFriendId], references: [id], onDelete: SetNull)
-  contactPersonLineFriend           HojoLineFriendSecurityCloud?       @relation("vendorContactPerson", fields: [contactPersonLineFriendId], references: [id], onDelete: SetNull)
-  joseiLineFriend                   HojoLineFriendJoseiSupport?        @relation(fields: [joseiLineFriendId], references: [id], onDelete: SetNull)
-  scWholesaleStatus                 HojoVendorScWholesaleStatus?       @relation(fields: [scWholesaleStatusId], references: [id], onDelete: SetNull)
-  scWholesaleContractStatus         HojoVendorContractStatus?          @relation("vendorScWholesaleContractStatus", fields: [scWholesaleContractStatusId], references: [id], onDelete: SetNull)
-  consultingPlanStatus              HojoVendorConsultingPlanStatus?    @relation(fields: [consultingPlanStatusId], references: [id], onDelete: SetNull)
-  consultingPlanContractStatus      HojoVendorContractStatus?          @relation("vendorConsultingPlanContractStatus", fields: [consultingPlanContractStatusId], references: [id], onDelete: SetNull)
-  grantApplicationBpoContractStatus HojoVendorContractStatus?          @relation("vendorGrantApplicationBpoContractStatus", fields: [grantApplicationBpoContractStatusId], references: [id], onDelete: SetNull)
-  vendorRegistrationStatus          HojoVendorRegistrationStatus?      @relation(fields: [vendorRegistrationStatusId], references: [id], onDelete: SetNull)
+  lineFriend                        HojoLineFriendSecurityCloud?    @relation("vendorLineFriend", fields: [lineFriendId], references: [id], onDelete: SetNull)
+  representativeLineFriend          HojoLineFriendSecurityCloud?    @relation("vendorRepresentative", fields: [representativeLineFriendId], references: [id], onDelete: SetNull)
+  contactPersonLineFriend           HojoLineFriendSecurityCloud?    @relation("vendorContactPerson", fields: [contactPersonLineFriendId], references: [id], onDelete: SetNull)
+  joseiLineFriend                   HojoLineFriendJoseiSupport?     @relation(fields: [joseiLineFriendId], references: [id], onDelete: SetNull)
+  scWholesaleStatus                 HojoVendorScWholesaleStatus?    @relation(fields: [scWholesaleStatusId], references: [id], onDelete: SetNull)
+  scWholesaleContractStatus         HojoVendorContractStatus?       @relation("vendorScWholesaleContractStatus", fields: [scWholesaleContractStatusId], references: [id], onDelete: SetNull)
+  consultingPlanStatus              HojoVendorConsultingPlanStatus? @relation(fields: [consultingPlanStatusId], references: [id], onDelete: SetNull)
+  consultingPlanContractStatus      HojoVendorContractStatus?       @relation("vendorConsultingPlanContractStatus", fields: [consultingPlanContractStatusId], references: [id], onDelete: SetNull)
+  grantApplicationBpoContractStatus HojoVendorContractStatus?       @relation("vendorGrantApplicationBpoContractStatus", fields: [grantApplicationBpoContractStatusId], references: [id], onDelete: SetNull)
+  vendorRegistrationStatus          HojoVendorRegistrationStatus?   @relation(fields: [vendorRegistrationStatusId], references: [id], onDelete: SetNull)
   toolRegistrations                 HojoVendorToolRegistration[]
-  assignedAsLineFriend              HojoLineFriendSecurityCloud?       @relation("vendorAssignedAs", fields: [assignedAsLineFriendId], references: [id], onDelete: SetNull)
+  assignedAsLineFriend              HojoLineFriendSecurityCloud?    @relation("vendorAssignedAs", fields: [assignedAsLineFriendId], references: [id], onDelete: SetNull)
   consultingStaff                   HojoVendorConsultingStaff[]
   contacts                          HojoVendorContact[]
   contractDocuments                 HojoVendorContractDocument[]
@@ -4818,7 +4933,7 @@ model HojoVendor {
   consultingActivities              HojoConsultingActivity[]
   loanProgresses                    HojoLoanProgress[]
   applicationBpoRequests            HojoApplicationBpoRequest[]
-  contactHistories                  HojoContactHistory[]               @relation("HojoContactHistoryVendor")
+  contactHistories                  HojoContactHistory[]            @relation("HojoContactHistoryVendor")
 
   @@map("hojo_vendors")
 }
@@ -4883,52 +4998,52 @@ model HojoBbsStatus {
 // ============================================
 
 model HojoApplicationSupport {
-  id                    Int       @id @default(autoincrement())
-  lineFriendId          Int? // 旧LINE友達（助成金申請サポート）のID
-  wholesaleAccountId    Int?      @unique @map("wholesale_account_id") // セキュリティクラウド卸 顧客リストID
-  vendorId              Int? // 紹介元ベンダー
-  vendorIdManual        Boolean   @default(false) @map("vendor_id_manual") // true=手動設定、false=free1から自動設定
-  statusId              Int? // 自社ステータス
-  formToken             String?   @unique @map("form_token") @db.VarChar(64) // 情報回収フォームURL用トークン
-  formUpdateStatus      String    @default("未送信") @map("form_update_status") @db.VarChar(20)
-  pendingAnswers        Json?     @map("pending_answers")
-  pendingFileUrls       Json?     @map("pending_file_urls")
-  grantUsageApproved    String?   @map("grant_usage_approved") @db.VarChar(10)
-  grantUsagePending     String?   @map("grant_usage_pending") @db.VarChar(10)
+  id                          Int       @id @default(autoincrement())
+  lineFriendId                Int? // 旧LINE友達（助成金申請サポート）のID
+  wholesaleAccountId          Int?      @unique @map("wholesale_account_id") // セキュリティクラウド卸 顧客リストID
+  vendorId                    Int? // 紹介元ベンダー
+  vendorIdManual              Boolean   @default(false) @map("vendor_id_manual") // true=手動設定、false=free1から自動設定
+  statusId                    Int? // 自社ステータス
+  formToken                   String?   @unique @map("form_token") @db.VarChar(64) // 情報回収フォームURL用トークン
+  formUpdateStatus            String    @default("未送信") @map("form_update_status") @db.VarChar(20)
+  pendingAnswers              Json?     @map("pending_answers")
+  pendingFileUrls             Json?     @map("pending_file_urls")
+  grantUsageApproved          String?   @map("grant_usage_approved") @db.VarChar(10)
+  grantUsagePending           String?   @map("grant_usage_pending") @db.VarChar(10)
   grantUsageChangeRequestedAt DateTime? @map("grant_usage_change_requested_at")
-  applicantName         String?   @db.VarChar(200) // 申請者名
-  detailMemo            String?   @db.Text // 詳細メモ
-  formAnswerDate        DateTime? // フォーム回答日
-  formTranscriptDate    DateTime? // フォーム転記日
-  applicationFormDate   DateTime? // 申請フォーム入力日
-  documentStorageUrl    String?   @db.VarChar(2000) // 資料保管URL
-  subsidyDesiredDate    DateTime? @map("subsidy_desired_date") // 助成金着金希望日
-  subsidyAmount         Int?      @map("subsidy_amount") // 助成金額
-  paymentReceivedDate   DateTime? // 原資着金日
-  paymentReceivedAmount Int? // 原資金額
-  bbsTransferAmount     Int? // BBSへの振込額
-  bbsTransferDate       DateTime? // BBSへの振込日
-  subsidyReceivedDate   DateTime? // 助成金着金日
-  alkesMemo             String?   @map("alkes_memo") @db.Text // ALKES備考
-  bbsMemo               String?   @map("bbs_memo") @db.Text // BBS備考
-  bbsStatus             String?   @map("bbs_status") @db.VarChar(50) // BBSステータス（旧・文字列）
-  bbsStatusId           Int?      @map("bbs_status_id") // BBSステータス（新・FK）
-  vendorMemo            String?   @map("vendor_memo") @db.Text // ベンダー備考
+  applicantName               String?   @db.VarChar(200) // 申請者名
+  detailMemo                  String?   @db.Text // 詳細メモ
+  formAnswerDate              DateTime? // フォーム回答日
+  formTranscriptDate          DateTime? // フォーム転記日
+  applicationFormDate         DateTime? // 申請フォーム入力日
+  documentStorageUrl          String?   @db.VarChar(2000) // 資料保管URL
+  subsidyDesiredDate          DateTime? @map("subsidy_desired_date") // 助成金着金希望日
+  subsidyAmount               Int?      @map("subsidy_amount") // 助成金額
+  paymentReceivedDate         DateTime? // 原資着金日
+  paymentReceivedAmount       Int? // 原資金額
+  bbsTransferAmount           Int? // BBSへの振込額
+  bbsTransferDate             DateTime? // BBSへの振込日
+  subsidyReceivedDate         DateTime? // 助成金着金日
+  alkesMemo                   String?   @map("alkes_memo") @db.Text // ALKES備考
+  bbsMemo                     String?   @map("bbs_memo") @db.Text // BBS備考
+  bbsStatus                   String?   @map("bbs_status") @db.VarChar(50) // BBSステータス（旧・文字列）
+  bbsStatusId                 Int?      @map("bbs_status_id") // BBSステータス（新・FK）
+  vendorMemo                  String?   @map("vendor_memo") @db.Text // ベンダー備考
   // 資料PDF生成中フラグ（資料種別ごとに独立）。10分以上前は stale として無視。
   // 旧 pdfGenerationRunningAt / pdfGenerationRunningDocType は廃止（並列3件対応のため分離）。
   trainingReportRunningAt     DateTime? @map("training_report_running_at")
   supportApplicationRunningAt DateTime? @map("support_application_running_at")
   businessPlanRunningAt       DateTime? @map("business_plan_running_at")
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
-  deletedAt             DateTime?
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+  deletedAt                   DateTime?
 
-  lineFriend            HojoLineFriendJoseiSupport?       @relation(fields: [lineFriendId], references: [id], onDelete: Cascade)
-  wholesaleAccount      HojoWholesaleAccount?             @relation(fields: [wholesaleAccountId], references: [id], onDelete: SetNull)
-  vendor                HojoVendor?                       @relation(fields: [vendorId], references: [id], onDelete: SetNull)
-  status                HojoApplicationStatus?            @relation(fields: [statusId], references: [id], onDelete: SetNull)
-  bbsStatusRef          HojoBbsStatus?                    @relation(fields: [bbsStatusId], references: [id], onDelete: SetNull)
-  linkedFormSubmissions HojoFormSubmission[]              @relation("FormSubmissionLink")
+  lineFriend            HojoLineFriendJoseiSupport?      @relation(fields: [lineFriendId], references: [id], onDelete: Cascade)
+  wholesaleAccount      HojoWholesaleAccount?            @relation(fields: [wholesaleAccountId], references: [id], onDelete: SetNull)
+  vendor                HojoVendor?                      @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  status                HojoApplicationStatus?           @relation(fields: [statusId], references: [id], onDelete: SetNull)
+  bbsStatusRef          HojoBbsStatus?                   @relation(fields: [bbsStatusId], references: [id], onDelete: SetNull)
+  linkedFormSubmissions HojoFormSubmission[]             @relation("FormSubmissionLink")
   documents             HojoApplicationSupportDocument[]
 
   @@index([wholesaleAccountId])
@@ -4974,9 +5089,9 @@ model HojoApplicationSupportDocument {
   costUsd             Decimal? @map("cost_usd") @db.Decimal(10, 6)
 
   // 再生成直前の編集内容＆PDFファイルのバックアップ（1世代のみ保持）
-  previousEditedSections Json?    @map("previous_edited_sections")
-  previousFilePath       String?  @map("previous_file_path") @db.VarChar(500)
-  previousFileName       String?  @map("previous_file_name") @db.VarChar(255)
+  previousEditedSections Json?   @map("previous_edited_sections")
+  previousFilePath       String? @map("previous_file_path") @db.VarChar(500)
+  previousFileName       String? @map("previous_file_name") @db.VarChar(255)
 
   applicationSupport HojoApplicationSupport @relation(fields: [applicationSupportId], references: [id], onDelete: Cascade)
 
@@ -5062,28 +5177,28 @@ model HojoVendorAccount {
 // ============================================
 
 model HojoWholesaleAccount {
-  id                       Int       @id @default(autoincrement())
-  vendorId                 Int       @map("vendor_id")
-  applicantType            String?   @map("applicant_type") @db.VarChar(20) // 法人/個人事業主
-  companyName              String?   @map("company_name") @db.VarChar(200) // 会社名(補助事業社、納品先）
-  email                    String?   @db.VarChar(255) // メールアドレス(アカウント)
-  softwareSalesContractUrl String?   @map("software_sales_contract_url") @db.VarChar(500) // ソフトウェア販売契約書URL
-  loanUsage                String?   @map("loan_usage") @db.VarChar(10) // 貸金利用（有/無）
-  grantUsage               String?   @map("grant_usage") @db.VarChar(10) // 助成金利用（有/無）
-  subsidyTargetAmountTaxIncluded Int? @map("subsidy_target_amount_tax_included") // 補助金対象額（税込）
-  applicationAmount        Int?      @map("application_amount") // 申請額
-  recruitmentRound         Int?      @map("recruitment_round") // 募集回
-  adoptionDate             DateTime? @map("adoption_date") // 採択日
-  issueRequestDate         DateTime? @map("issue_request_date") // 発行依頼日
-  accountApprovalDate      DateTime? @map("account_approval_date") // アカウント承認日（弊社側のみ編集）
-  grantDate                DateTime? @map("grant_date") // 交付日
-  deletedByVendor          Boolean   @default(false) @map("deleted_by_vendor") // ベンダー側削除フラグ
-  createdAt                DateTime  @default(now()) @map("created_at")
-  updatedAt                DateTime  @updatedAt @map("updated_at")
-  deletedAt                DateTime? @map("deleted_at") // 正式削除（弊社側）
+  id                             Int       @id @default(autoincrement())
+  vendorId                       Int       @map("vendor_id")
+  applicantType                  String?   @map("applicant_type") @db.VarChar(20) // 法人/個人事業主
+  companyName                    String?   @map("company_name") @db.VarChar(200) // 会社名(補助事業社、納品先）
+  email                          String?   @db.VarChar(255) // メールアドレス(アカウント)
+  softwareSalesContractUrl       String?   @map("software_sales_contract_url") @db.VarChar(500) // ソフトウェア販売契約書URL
+  loanUsage                      String?   @map("loan_usage") @db.VarChar(10) // 貸金利用（有/無）
+  grantUsage                     String?   @map("grant_usage") @db.VarChar(10) // 助成金利用（有/無）
+  subsidyTargetAmountTaxIncluded Int?      @map("subsidy_target_amount_tax_included") // 補助金対象額（税込）
+  applicationAmount              Int?      @map("application_amount") // 申請額
+  recruitmentRound               Int?      @map("recruitment_round") // 募集回
+  adoptionDate                   DateTime? @map("adoption_date") // 採択日
+  issueRequestDate               DateTime? @map("issue_request_date") // 発行依頼日
+  accountApprovalDate            DateTime? @map("account_approval_date") // アカウント承認日（弊社側のみ編集）
+  grantDate                      DateTime? @map("grant_date") // 交付日
+  deletedByVendor                Boolean   @default(false) @map("deleted_by_vendor") // ベンダー側削除フラグ
+  createdAt                      DateTime  @default(now()) @map("created_at")
+  updatedAt                      DateTime  @updatedAt @map("updated_at")
+  deletedAt                      DateTime? @map("deleted_at") // 正式削除（弊社側）
 
-  vendor       HojoVendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  loanProgress HojoLoanProgress?
+  vendor             HojoVendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  loanProgress       HojoLoanProgress?
   applicationSupport HojoApplicationSupport?
 
   @@map("hojo_wholesale_accounts")
@@ -5760,13 +5875,13 @@ model HojoConsultingContract {
 // ============================================
 
 model HojoConsultingActivity {
-  id            Int      @id @default(autoincrement())
-  vendorId      Int      @map("vendor_id")
-  contractId    Int?     @map("contract_id")
-  activityDate  DateTime @map("activity_date")
-  contactMethod String?  @map("contact_method") @db.VarChar(100)
-  title         String?  @db.VarChar(200)
-  meetingMinutes String? @map("meeting_minutes") @db.Text
+  id             Int      @id @default(autoincrement())
+  vendorId       Int      @map("vendor_id")
+  contractId     Int?     @map("contract_id")
+  activityDate   DateTime @map("activity_date")
+  contactMethod  String?  @map("contact_method") @db.VarChar(100)
+  title          String?  @db.VarChar(200)
+  meetingMinutes String?  @map("meeting_minutes") @db.Text
 
   // ベンダー側が記入可能
   vendorIssue String? @map("vendor_issue") @db.Text
@@ -5804,9 +5919,9 @@ model HojoConsultingActivity {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  vendor   HojoVendor                   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  contract HojoConsultingContract?      @relation(fields: [contractId], references: [id], onDelete: SetNull)
-  tasks    HojoConsultingActivityTask[]
+  vendor           HojoVendor                    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  contract         HojoConsultingContract?       @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  tasks            HojoConsultingActivityTask[]
   staffAssignments HojoConsultingActivityStaff[]
 
   @@index([vendorId])
@@ -5852,7 +5967,6 @@ model HojoConsultingActivityTask {
   @@map("hojo_consulting_activity_tasks")
 }
 
-
 // ============================================
 // 貸金 顧客進捗管理 ステータスマスタ
 // ============================================
@@ -5875,16 +5989,16 @@ model HojoLoanProgressStatus {
 // ============================================
 
 model HojoLoanProgress {
-  id               Int @id @default(autoincrement())
-  formSubmissionId Int? @unique
-  wholesaleAccountId Int? @unique @map("wholesale_account_id")
-  vendorId         Int
-  formToken        String? @unique @map("form_token") @db.VarChar(64)
-  formUpdateStatus String  @default("未送信") @map("form_update_status") @db.VarChar(20)
-  pendingFormType  String? @map("pending_form_type") @db.VarChar(100)
-  pendingAnswers   Json?   @map("pending_answers")
-  loanUsageApproved String? @map("loan_usage_approved") @db.VarChar(10)
-  loanUsagePending  String? @map("loan_usage_pending") @db.VarChar(10)
+  id                         Int       @id @default(autoincrement())
+  formSubmissionId           Int?      @unique
+  wholesaleAccountId         Int?      @unique @map("wholesale_account_id")
+  vendorId                   Int
+  formToken                  String?   @unique @map("form_token") @db.VarChar(64)
+  formUpdateStatus           String    @default("未送信") @map("form_update_status") @db.VarChar(20)
+  pendingFormType            String?   @map("pending_form_type") @db.VarChar(100)
+  pendingAnswers             Json?     @map("pending_answers")
+  loanUsageApproved          String?   @map("loan_usage_approved") @db.VarChar(10)
+  loanUsagePending           String?   @map("loan_usage_pending") @db.VarChar(10)
   loanUsageChangeRequestedAt DateTime? @map("loan_usage_change_requested_at")
 
   // フォームから自動取得
@@ -5906,19 +6020,19 @@ model HojoLoanProgress {
   funds                      String?   @db.Text // 資金
   redemptionScheduleIssuedAt DateTime? @map("redemption_schedule_issued_at") // 償還表発行日
   repaymentDate              DateTime? // 返金日(着金日)
-  repaymentAmount  Decimal?  @db.Decimal(14, 0) // 返金額(着金額)
-  principalAmount  Decimal?  @db.Decimal(14, 0) // 元金分
-  interestAmount   Decimal?  @db.Decimal(14, 0) // 利息分
-  overshortAmount  Decimal?  @db.Decimal(14, 0) // 過不足
-  operationFee     Decimal?  @db.Decimal(14, 0) // 運用フィー
-  redemptionAmount Decimal?  @db.Decimal(14, 0) // 償還額
+  repaymentAmount            Decimal?  @db.Decimal(14, 0) // 返金額(着金額)
+  principalAmount            Decimal?  @db.Decimal(14, 0) // 元金分
+  interestAmount             Decimal?  @db.Decimal(14, 0) // 利息分
+  overshortAmount            Decimal?  @db.Decimal(14, 0) // 過不足
+  operationFee               Decimal?  @db.Decimal(14, 0) // 運用フィー
+  redemptionAmount           Decimal?  @db.Decimal(14, 0) // 償還額
   secondaryRepaymentDate     DateTime? @map("secondary_repayment_date") // 2次返金日
   secondaryRepaymentAmount   Decimal?  @map("secondary_repayment_amount") @db.Decimal(14, 0) // 2次返金額
   secondaryPrincipalAmount   Decimal?  @map("secondary_principal_amount") @db.Decimal(14, 0) // 2次返金元金分
   secondaryInterestAmount    Decimal?  @map("secondary_interest_amount") @db.Decimal(14, 0) // 2次利息分
   secondaryRedemptionAmount  Decimal?  @map("secondary_redemption_amount") @db.Decimal(14, 0) // 2次償還額
-  redemptionDate   DateTime? // 償還日
-  endMemo          String?   @db.Text // 返済備考
+  redemptionDate             DateTime? // 償還日
+  endMemo                    String?   @db.Text // 返済備考
 
   // 弊社スタッフ専用
   staffMemo String? @db.Text // 弊社備考
@@ -6033,8 +6147,8 @@ model SlpZoomSendLog {
   sentAt          DateTime @default(now()) @map("sent_at")
 
   // 商談セッション紐付け（Phase 1で追加 — nullable、段階移行）
-  sessionId   Int?    @map("session_id")
-  recipient   String? @db.VarChar(20) // "customer" | "referrer"
+  sessionId Int?    @map("session_id")
+  recipient String? @db.VarChar(20) // "customer" | "referrer"
 
   companyRecord SlpCompanyRecord?  @relation("SlpZoomSendLogsForCompany", fields: [companyRecordId], references: [id], onDelete: Cascade)
   session       SlpMeetingSession? @relation("SlpZoomSendLogSession", fields: [sessionId], references: [id])
@@ -6053,34 +6167,34 @@ model SlpZoomSendLog {
 // state: "予定" | "取得中" | "完了" | "失敗" — ユーザー視点のステータス。
 // ============================================
 model SlpZoomRecording {
-  id                          Int       @id @default(autoincrement())
-  contactHistoryId            Int       @map("contact_history_id") // 1:N — UNIQUE 削除済み
-  zoomMeetingId               BigInt    @map("zoom_meeting_id") // 固定URLでは同じ Meeting ID が複数開催回で再利用される
-  zoomMeetingUuid             String?   @map("zoom_meeting_uuid") @db.VarChar(200)
-  category                    String    @db.VarChar(30) // "briefing" | "consultation"
-  hostStaffId                 Int?      @map("host_staff_id")
+  id               Int     @id @default(autoincrement())
+  contactHistoryId Int     @map("contact_history_id") // 1:N — UNIQUE 削除済み
+  zoomMeetingId    BigInt  @map("zoom_meeting_id") // 固定URLでは同じ Meeting ID が複数開催回で再利用される
+  zoomMeetingUuid  String? @map("zoom_meeting_uuid") @db.VarChar(200)
+  category         String  @db.VarChar(30) // "briefing" | "consultation"
+  hostStaffId      Int?    @map("host_staff_id")
 
   // ============================================
   // Zoom URL情報（旧 SlpMeetingSessionZoom から吸収）
   // ============================================
-  joinUrl                     String    @default("") @map("join_url") @db.VarChar(1000)
-  startUrl                    String?   @map("start_url") @db.VarChar(2000)
-  password                    String?   @db.VarChar(100)
-  scheduledAt                 DateTime? @map("scheduled_at")
-  isPrimary                   Boolean   @default(true) @map("is_primary")
-  label                       String?   @db.VarChar(100) // "延長分", "再実施" 等
+  joinUrl     String    @default("") @map("join_url") @db.VarChar(1000)
+  startUrl    String?   @map("start_url") @db.VarChar(2000)
+  password    String?   @db.VarChar(100)
+  scheduledAt DateTime? @map("scheduled_at")
+  isPrimary   Boolean   @default(true) @map("is_primary")
+  label       String?   @db.VarChar(100) // "延長分", "再実施" 等
 
   // ユーザー視点のステータス: "予定" | "取得中" | "完了" | "失敗"
-  state                       String    @default("予定") @db.VarChar(20)
+  state String @default("予定") @db.VarChar(20)
 
   // 通知送信済みフラグ（旧 SlpMeetingSessionZoom から移行、isPrimary=true のプライマリZoomでのみ使用）
-  confirmSentAt               DateTime? @map("confirm_sent_at")
-  remindDaySentAt             DateTime? @map("remind_day_sent_at")
-  remindHourSentAt            DateTime? @map("remind_hour_sent_at")
+  confirmSentAt    DateTime? @map("confirm_sent_at")
+  remindDaySentAt  DateTime? @map("remind_day_sent_at")
+  remindHourSentAt DateTime? @map("remind_hour_sent_at")
 
   // Zoom API発行エラー（発行失敗時）
-  zoomApiError                String?   @map("zoom_api_error") @db.Text
-  zoomApiErrorAt              DateTime? @map("zoom_api_error_at")
+  zoomApiError   String?   @map("zoom_api_error") @db.Text
+  zoomApiErrorAt DateTime? @map("zoom_api_error_at")
 
   // ============================================
   // 録画・議事録データ（既存）
@@ -6109,13 +6223,13 @@ model SlpZoomRecording {
   zoomCloudDeletedAt          DateTime? @map("zoom_cloud_deleted_at")
 
   // 議事録を ContactHistory.meetingMinutes に追記済みかの判定用（二重追記防止）
-  minutesAppendedAt           DateTime? @map("minutes_appended_at")
+  minutesAppendedAt       DateTime? @map("minutes_appended_at")
   // Claude生成議事録を ContactHistory.meetingMinutes に反映済みかの判定用
-  claudeMinutesAppendedAt     DateTime? @map("claude_minutes_appended_at")
+  claudeMinutesAppendedAt DateTime? @map("claude_minutes_appended_at")
 
-  createdAt                   DateTime  @default(now()) @map("created_at")
-  updatedAt                   DateTime  @updatedAt @map("updated_at")
-  deletedAt                   DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
 
   contactHistory SlpContactHistory @relation(fields: [contactHistoryId], references: [id], onDelete: Cascade)
   hostStaff      MasterStaff?      @relation("SlpZoomRecordingHost", fields: [hostStaffId], references: [id])
@@ -6147,7 +6261,7 @@ model SlpMeetingSession {
   scheduledAt          DateTime? @map("scheduled_at") // 商談日時（status=未予約時はnull）
   assignedStaffId      Int?      @map("assigned_staff_id")
   prolineReservationId String?   @map("proline_reservation_id") @db.VarChar(100) // プロライン予約ID（webhook紐付け、manual時はnull）
-  prolineStaffName     String?   @map("proline_staff_name") @db.VarChar(200)      // プロラインWebhookから受信した担当者名（生テキスト）。マッピング未登録時の警告UI用
+  prolineStaffName     String?   @map("proline_staff_name") @db.VarChar(200) // プロラインWebhookから受信した担当者名（生テキスト）。マッピング未登録時の警告UI用
   /// この商談を予約した担当者（SlpCompanyContact.id）。プロライン経由で予約された場合に webhook の LINE UID から解決して記録。
   /// 手動セットの場合は null。この担当者は receivesSessionNotifications フラグに関わらず必ず通知を受ける。
   bookerContactId      Int?      @map("booker_contact_id")
@@ -6192,8 +6306,8 @@ model SlpMeetingSession {
 // キャンセル時・セッション削除時にクリア。
 // ============================================
 model SlpSessionNotifyContact {
-  sessionId Int @map("session_id")
-  contactId Int @map("contact_id")
+  sessionId Int      @map("session_id")
+  contactId Int      @map("contact_id")
   createdAt DateTime @default(now()) @map("created_at")
 
   session SlpMeetingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -6244,9 +6358,9 @@ model SlpNotificationTemplate {
   source    String? @db.VarChar(20) // "proline" | "manual"（referrerはnull）
   trigger   String  @db.VarChar(40) // "confirm" | "change" | "cancel" | "complete" | "remind_day_before" | "remind_hour_before" | "confirm_no_url" | "change_no_url" | "regenerated_manual_notice"
 
-  formId String  @map("form_id") @db.VarChar(20) // "form16" | "form17" | "form18" | "form11" | "form13"
-  label  String  @db.VarChar(200)
-  body   String  @db.Text
+  formId   String  @map("form_id") @db.VarChar(20) // "form16" | "form17" | "form18" | "form11" | "form13"
+  label    String  @db.VarChar(200)
+  body     String  @db.Text
   isActive Boolean @default(true) @map("is_active")
 
   updatedByStaffId Int?     @map("updated_by_staff_id")
@@ -6343,25 +6457,25 @@ model HojoContactHistoryFile {
 // SLP側のSlpZoomRecording構造を踏襲。category/通知フラグは廃止。
 // ============================================
 model HojoZoomRecording {
-  id                          Int       @id @default(autoincrement())
-  contactHistoryId            Int       @map("contact_history_id")
-  zoomMeetingId               BigInt    @map("zoom_meeting_id") // 固定URLでは同じ Meeting ID が複数開催回で再利用される
-  zoomMeetingUuid             String?   @map("zoom_meeting_uuid") @db.VarChar(200)
-  hostStaffId                 Int?      @map("host_staff_id")
+  id               Int     @id @default(autoincrement())
+  contactHistoryId Int     @map("contact_history_id")
+  zoomMeetingId    BigInt  @map("zoom_meeting_id") // 固定URLでは同じ Meeting ID が複数開催回で再利用される
+  zoomMeetingUuid  String? @map("zoom_meeting_uuid") @db.VarChar(200)
+  hostStaffId      Int?    @map("host_staff_id")
 
   // Zoom URL情報
-  joinUrl                     String    @default("") @map("join_url") @db.VarChar(1000)
-  startUrl                    String?   @map("start_url") @db.VarChar(2000)
-  password                    String?   @db.VarChar(100)
-  scheduledAt                 DateTime? @map("scheduled_at")
-  isPrimary                   Boolean   @default(true) @map("is_primary")
-  label                       String?   @db.VarChar(100)
+  joinUrl     String    @default("") @map("join_url") @db.VarChar(1000)
+  startUrl    String?   @map("start_url") @db.VarChar(2000)
+  password    String?   @db.VarChar(100)
+  scheduledAt DateTime? @map("scheduled_at")
+  isPrimary   Boolean   @default(true) @map("is_primary")
+  label       String?   @db.VarChar(100)
 
-  state                       String    @default("予定") @db.VarChar(20) // "予定" | "取得中" | "完了" | "失敗"
+  state String @default("予定") @db.VarChar(20) // "予定" | "取得中" | "完了" | "失敗"
 
   // Zoom API発行エラー
-  zoomApiError                String?   @map("zoom_api_error") @db.Text
-  zoomApiErrorAt              DateTime? @map("zoom_api_error_at")
+  zoomApiError   String?   @map("zoom_api_error") @db.Text
+  zoomApiErrorAt DateTime? @map("zoom_api_error_at")
 
   // 録画・議事録データ
   recordingStartAt            DateTime? @map("recording_start_at")
@@ -6388,8 +6502,8 @@ model HojoZoomRecording {
   zoomCloudDeletedAt          DateTime? @map("zoom_cloud_deleted_at")
 
   // 議事録追記済みフラグ（二重追記防止）
-  minutesAppendedAt           DateTime? @map("minutes_appended_at")
-  claudeMinutesAppendedAt     DateTime? @map("claude_minutes_appended_at")
+  minutesAppendedAt       DateTime? @map("minutes_appended_at")
+  claudeMinutesAppendedAt DateTime? @map("claude_minutes_appended_at")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -6483,12 +6597,12 @@ model BankStatementEntry {
   operatingCompanyBankAccountId Int // 非正規化
 
   transactionDate DateTime
-  description     String  @db.Text // 内容/摘要
+  description     String   @db.Text // 内容/摘要
   incomingAmount  Int? // 入金額（円）
   outgoingAmount  Int? // 出金額（円）
   balance         Int? // 残高（全銀は計算値）
-  csvMemo         String? @db.Text // CSV由来メモ
-  staffMemo       String? @db.Text // スタッフ手動編集メモ
+  csvMemo         String?  @db.Text // CSV由来メモ
+  staffMemo       String?  @db.Text // スタッフ手動編集メモ
 
   rowOrder  Int // CSV内の出現順（同日複数取引の表示順保持。dedupHashには含めない）
   dedupHash String @db.VarChar(64) // SHA-256
@@ -6503,10 +6617,10 @@ model BankStatementEntry {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  import           BankStatementImport         @relation(fields: [importId], references: [id], onDelete: Cascade)
-  operatingCompany OperatingCompany            @relation(fields: [operatingCompanyId], references: [id])
-  bankAccount      OperatingCompanyBankAccount @relation(fields: [operatingCompanyBankAccountId], references: [id])
-  excluder         MasterStaff?                @relation("BankStatementEntryExcluder", fields: [excludedBy], references: [id])
+  import           BankStatementImport           @relation(fields: [importId], references: [id], onDelete: Cascade)
+  operatingCompany OperatingCompany              @relation(fields: [operatingCompanyId], references: [id])
+  bankAccount      OperatingCompanyBankAccount   @relation(fields: [operatingCompanyBankAccountId], references: [id])
+  excluder         MasterStaff?                  @relation("BankStatementEntryExcluder", fields: [excludedBy], references: [id])
   groupLinks       BankStatementEntryGroupLink[]
 
   @@unique([operatingCompanyBankAccountId, dedupHash]) // 同一口座内で重複防止
@@ -6524,22 +6638,22 @@ model BankStatementEntry {
 // ============================================
 
 model BankStatementEntryGroupLink {
-  id                   Int @id @default(autoincrement())
+  id                   Int      @id @default(autoincrement())
   bankStatementEntryId Int
   invoiceGroupId       Int? // どちらか一方のみ
   paymentGroupId       Int?
   amount               Int // この紐付けで割り当てる金額（円）
-  linkType             String @default("settlement") @map("link_type") @db.VarChar(20) // "settlement" | "fee"
-  note                 String? @db.Text
+  linkType             String   @default("settlement") @map("link_type") @db.VarChar(20) // "settlement" | "fee"
+  note                 String?  @db.Text
   createdBy            Int // FK MasterStaff
   createdAt            DateTime @default(now())
 
-  bankStatementEntry BankStatementEntry @relation(fields: [bankStatementEntryId], references: [id], onDelete: Cascade)
-  invoiceGroup       InvoiceGroup?      @relation(fields: [invoiceGroupId], references: [id], onDelete: Cascade)
-  paymentGroup       PaymentGroup?      @relation(fields: [paymentGroupId], references: [id], onDelete: Cascade)
-  creator            MasterStaff        @relation("BankStatementEntryGroupLinkCreator", fields: [createdBy], references: [id])
-  invoiceReceipt     InvoiceGroupReceipt?  // リンク作成時に自動生成（1:1）
-  paymentRecord      PaymentGroupPayment?  // リンク作成時に自動生成（1:1）
+  bankStatementEntry BankStatementEntry   @relation(fields: [bankStatementEntryId], references: [id], onDelete: Cascade)
+  invoiceGroup       InvoiceGroup?        @relation(fields: [invoiceGroupId], references: [id], onDelete: Cascade)
+  paymentGroup       PaymentGroup?        @relation(fields: [paymentGroupId], references: [id], onDelete: Cascade)
+  creator            MasterStaff          @relation("BankStatementEntryGroupLinkCreator", fields: [createdBy], references: [id])
+  invoiceReceipt     InvoiceGroupReceipt? // リンク作成時に自動生成（1:1）
+  paymentRecord      PaymentGroupPayment? // リンク作成時に自動生成（1:1）
 
   @@index([bankStatementEntryId])
   @@index([invoiceGroupId])

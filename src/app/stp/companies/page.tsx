@@ -24,8 +24,11 @@ export default async function StpCompaniesPage() {
           nextTargetDate: true,
           forecast: true,
           plannedHires: true,
+          dealProbability: true,
+          nextContactDate: true,
           salesStaffId: true,
           adminStaffId: true,
+          asStaffId: true,
           agentId: true,
           leadSourceId: true,
           billingLocationId: true,
@@ -34,6 +37,7 @@ export default async function StpCompaniesPage() {
           hasDeal: true,
           proposedProductIds: true,
           pendingReason: true,
+          lostReasonOptionId: true,
           lostReason: true,
           createdAt: true,
           updatedAt: true,
@@ -42,6 +46,8 @@ export default async function StpCompaniesPage() {
           leadSource: { select: { id: true, name: true } },
           salesStaff: { select: { id: true, name: true } },
           adminStaff: { select: { id: true, name: true } },
+          asStaff: { select: { id: true, name: true } },
+          lostReasonOption: { select: { id: true, name: true } },
           agent: {
             select: {
               id: true,
@@ -345,8 +351,12 @@ export default async function StpCompaniesPage() {
     plannedHires: c.plannedHires,
     salesStaffId: c.salesStaffId,
     salesStaffName: c.salesStaff?.name,
+    dealProbability: c.dealProbability,
+    nextContactDate: c.nextContactDate?.toISOString(),
     adminStaffId: c.adminStaffId,
     adminStaffName: c.adminStaff?.name,
+    asStaffId: c.asStaffId,
+    asStaffName: c.asStaff?.name,
     agentId: c.agentId,
     agentCompanyId: c.agent?.companyId || null, // 代理店の全顧客マスタID（リンク用）
     agentCompanyCode: c.agent?.company?.companyCode || null,
@@ -378,6 +388,8 @@ export default async function StpCompaniesPage() {
     proposedProductIds: c.proposedProductIds,
     // 検討理由・失注理由
     pendingReason: c.pendingReason,
+    lostReasonOptionId: c.lostReasonOptionId,
+    lostReasonOptionName: c.lostReasonOption?.name ?? null,
     lostReason: c.lostReason,
     // 流入経路
     leadSourceId: c.leadSourceId,
@@ -462,6 +474,32 @@ export default async function StpCompaniesPage() {
   const staffOptions = staffOptionsByFieldResult.STP_COMPANY_SALES;
   const adminStaffOptions = staffOptionsByFieldResult.STP_COMPANY_ADMIN;
   const contractStaffOptions = staffOptionsByFieldResult.CONTRACT_ASSIGNED_TO;
+  const asStaff = await measurePerf(
+    "page.stpCompanies",
+    "as-staff-options",
+    () =>
+      prisma.masterStaff.findMany({
+        where: {
+          isActive: true,
+          isSystemUser: false,
+          roleAssignments: {
+            some: {
+              roleType: {
+                isActive: true,
+                OR: [{ code: "AS" }, { name: "AS" }],
+              },
+            },
+          },
+        },
+        orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+        select: { id: true, name: true },
+      }),
+    200
+  );
+  const asStaffOptions = asStaff.map((s) => ({
+    value: String(s.id),
+    label: s.name,
+  }));
 
   // 契約種別選択肢
   const contractTypeOptions = contractTypes.map((ct) => ({
@@ -546,6 +584,7 @@ export default async function StpCompaniesPage() {
             agentOptions={agentOptions}
             staffOptions={staffOptions}
             adminStaffOptions={adminStaffOptions}
+            asStaffOptions={asStaffOptions}
             contractStaffOptions={contractStaffOptions}
             contractTypeOptions={contractTypeOptions}
             leadSourceOptions={leadSourceOptions}

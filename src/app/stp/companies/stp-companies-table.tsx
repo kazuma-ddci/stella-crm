@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CrudTable, ColumnDef, CustomAction, CustomRenderers, DynamicOptionsMap, CustomFormFields, InlineEditConfig } from "@/components/crud-table";
 import { StageManagementModal } from "@/components/stage-management";
@@ -49,6 +49,7 @@ type Props = {
   agentOptions: { value: string; label: string }[];
   staffOptions: { value: string; label: string }[];
   adminStaffOptions: { value: string; label: string }[];
+  asStaffOptions: { value: string; label: string }[];
   contractStaffOptions: { value: string; label: string }[];
   leadSourceOptions: { value: string; label: string }[];
   billingAddressByCompany: Record<string, { value: string; label: string }[]>;
@@ -71,6 +72,7 @@ export function StpCompaniesTable({
   agentOptions,
   staffOptions,
   adminStaffOptions,
+  asStaffOptions,
   contractStaffOptions,
   leadSourceOptions,
   billingAddressByCompany,
@@ -86,6 +88,8 @@ export function StpCompaniesTable({
   contactCategories,
 }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [stageModalOpen, setStageModalOpen] = useState(false);
   const [contactHistoryModalOpen, setContactHistoryModalOpen] = useState(false);
 
@@ -94,6 +98,7 @@ export function StpCompaniesTable({
   const [changeLogModalOpen, setChangeLogModalOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<Record<string, unknown> | null>(null);
+  const [dismissedHighlightId, setDismissedHighlightId] = useState<number | null>(null);
 
   // 企業ID重複チェック用の状態
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
@@ -101,6 +106,27 @@ export function StpCompaniesTable({
 
   // 契約期間フィルタ（"all" = 全件、"active" = 契約中のみ、"expired" = 契約期間外のみ）
   const [contractFilter, setContractFilter] = useState<"all" | "active" | "expired">("all");
+
+  const highlightParam = searchParams.get("highlight");
+  const highlightId = highlightParam ? Number(highlightParam) : null;
+  const highlightedCompanyId =
+    highlightId && Number.isInteger(highlightId) && highlightId !== dismissedHighlightId
+      ? highlightId
+      : null;
+
+  useEffect(() => {
+    const id = highlightedCompanyId;
+    if (!id) return;
+    const timer = window.setTimeout(() => {
+      setDismissedHighlightId(id);
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("highlight");
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    }, 5000);
+
+    return () => window.clearTimeout(timer);
+  }, [highlightedCompanyId, pathname, router, searchParams]);
 
   // フィルタ適用後のデータ
   // - "all": 全企業・全契約履歴をそのまま表示
@@ -133,6 +159,10 @@ export function StpCompaniesTable({
     billingAddress: billingAddressByCompany,
     billingContactIds: billingContactByCompany,
   };
+  const dealProbabilityOptions = Array.from({ length: 11 }, (_, index) => ({
+    value: String(index * 10),
+    label: `${index * 10}%`,
+  }));
 
   // 企業ID選択のカスタムフォームフィールド（重複チェック付き）
   const customFormFields: CustomFormFields = {
@@ -262,12 +292,19 @@ export function StpCompaniesTable({
     { key: "nextTargetStageName", header: "ネクストパイプライン", editable: false },
     // ステージコミット（次回商談日コミットから名前変更）- セルクリックでステージモーダル
     { key: "nextTargetDate", header: "パイプラインコミット", type: "date", simpleMode: true, editableOnCreate: true, editableOnUpdate: false },
+    // 案件確度
+    { key: "dealProbability", header: "案件確度", type: "select", options: dealProbabilityOptions, inlineEditable: true },
+    // 次に連絡する日
+    { key: "nextContactDate", header: "次に連絡する日", type: "date", inlineEditable: true },
     // 担当営業（IDは非表示）- インライン編集可能
     { key: "salesStaffId", header: "担当営業（選択）", type: "select", options: staffOptions, searchable: true, hidden: true, inlineEditable: true },
     { key: "salesStaffName", header: "担当営業", editable: false },
     // 担当事務（IDは非表示）- インライン編集可能
     { key: "adminStaffId", header: "担当事務（選択）", type: "select", options: adminStaffOptions, searchable: true, hidden: true, inlineEditable: true },
     { key: "adminStaffName", header: "担当事務", editable: false },
+    // AS担当者（IDは非表示）- インライン編集可能
+    { key: "asStaffId", header: "AS担当者（選択）", type: "select", options: asStaffOptions, searchable: true, hidden: true, inlineEditable: true },
+    { key: "asStaffName", header: "AS担当者", editable: false },
     // 提案書（操作ボタン）
     { key: "proposal", header: "提案書", editable: false },
     // 採用予定人数 - インライン編集可能
@@ -362,6 +399,22 @@ export function StpCompaniesTable({
         </span>
       );
     },
+    dealProbability: (value) => {
+      return value == null || value === "" ? "-" : `${Number(value)}%`;
+    },
+    nextContactDate: (value) => {
+      if (!value) return "-";
+      const date = new Date(value as string);
+      const today = new Date();
+      date.setHours(0, 0, 0, 0);
+      today.setHours(0, 0, 0, 0);
+      const isPast = date.getTime() < today.getTime();
+      return (
+        <span className={`inline-flex rounded px-2 py-1 ${isPast ? "bg-red-100 font-medium text-red-700" : ""}`}>
+          {date.toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })}
+        </span>
+      );
+    },
     // 流入経路名：インライン編集対象のIDを使って表示、クリックで編集
     leadSourceName: (value, row) => {
       const leadSourceId = row.leadSourceId as number | null;
@@ -388,6 +441,17 @@ export function StpCompaniesTable({
     adminStaffName: (value, row) => {
       const adminStaffId = row.adminStaffId as number | null;
       const option = adminStaffOptions.find((opt) => opt.value === String(adminStaffId));
+      const displayValue = option?.label || (value ? String(value) : "-");
+      return (
+        <span className="cursor-pointer hover:bg-muted/50 px-1 -mx-1 rounded transition-colors">
+          {displayValue}
+        </span>
+      );
+    },
+    // AS担当者名：インライン編集対象のIDを使って表示
+    asStaffName: (value, row) => {
+      const asStaffId = row.asStaffId as number | null;
+      const option = asStaffOptions.find((opt) => opt.value === String(asStaffId));
       const displayValue = option?.label || (value ? String(value) : "-");
       return (
         <span className="cursor-pointer hover:bg-muted/50 px-1 -mx-1 rounded transition-colors">
@@ -497,28 +561,36 @@ export function StpCompaniesTable({
         />
       );
     },
-    // 失注理由：値がある場合はモーダル表示＋編集可、値なし＆該当外はグレー
+    // 失注理由：選択式理由＋自由記述を表示し、編集はパイプライン管理モーダルで行う
     lostReason: (value, row) => {
       const currentStageId = row.currentStageId as number | null;
       const isNotLost = currentStageId !== lostStageId;
+      const optionName = row.lostReasonOptionName as string | null;
+      const reasonText = value as string | null;
 
-      if (!value && isNotLost) {
+      if (!optionName && !reasonText && isNotLost) {
         return <span className="text-gray-300">(該当なし)</span>;
       }
 
       return (
-        <TextPreviewCell
-          text={value as string | null}
-          title="失注理由"
-          onEdit={async (newValue) => {
-            const r = await updateStpCompany(row.id as number, { lostReason: newValue });
-            if (!r.ok) {
-              alert(r.error);
-              return;
-            }
-            router.refresh();
+        <button
+          type="button"
+          className="min-w-[180px] max-w-[260px] rounded border border-transparent px-2 py-1 text-left hover:border-border hover:bg-muted/50"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedCompanyId(row.id as number);
+            setStageModalOpen(true);
           }}
-        />
+        >
+          {optionName && (
+            <span className="mb-1 inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">
+              {optionName}
+            </span>
+          )}
+          <span className="block whitespace-pre-wrap break-words text-sm">
+            {reasonText || (isNotLost ? "-" : "未入力")}
+          </span>
+        </button>
       );
     },
     // 請求先担当者：名前（メール）形式で縦並び表示
@@ -806,8 +878,11 @@ export function StpCompaniesTable({
     columns: [
       "leadSourceId",      // 流入経路
       "leadValidity",      // 有効性
+      "dealProbability",   // 案件確度
+      "nextContactDate",   // 次に連絡する日
       "salesStaffId",      // 担当営業
       "adminStaffId",      // 担当事務
+      "asStaffId",         // AS担当者
       "plannedHires",      // 採用予定人数
       "billingAddress",      // 請求先住所
       "billingContactIds",   // 請求先担当者
@@ -819,6 +894,7 @@ export function StpCompaniesTable({
       "leadSourceName": "leadSourceId",
       "salesStaffName": "salesStaffId",
       "adminStaffName": "adminStaffId",
+      "asStaffName": "asStaffId",
       "billingContacts": "billingContactIds",
     },
     // セルクリック時のカスタムハンドラ
@@ -839,11 +915,17 @@ export function StpCompaniesTable({
       if (columnKey === "leadValidity") {
         return [{ value: "有効", label: "有効" }, { value: "無効", label: "無効" }];
       }
+      if (columnKey === "dealProbability") {
+        return dealProbabilityOptions;
+      }
       if (columnKey === "salesStaffId") {
         return staffOptions;
       }
       if (columnKey === "adminStaffId") {
         return adminStaffOptions;
+      }
+      if (columnKey === "asStaffId") {
+        return asStaffOptions;
       }
       if (columnKey === "billingAddress") {
         const companyId = row.companyId as number;
@@ -913,6 +995,11 @@ export function StpCompaniesTable({
         dynamicOptions={dynamicOptions}
         enableInlineEdit={true}
         inlineEditConfig={inlineEditConfig}
+        rowClassName={(item) =>
+          Number(item.id) === highlightedCompanyId
+            ? "bg-red-100/80 transition-colors duration-300 group-hover/row:bg-red-100/80"
+            : undefined
+        }
         changeTrackedFields={[
           { key: "plannedHires", displayName: "採用予定人数" },
           { key: "billingContactIds", displayName: "請求先担当者" },

@@ -63,6 +63,7 @@ type CompanyData = {
   leadSourceName: string | null;
   forecast: string | null;
   pendingReason: string | null;
+  lostReasonOptionName: string | null;
   lostReason: string | null;
   billingCompanyName: string | null;
   billingAddress: string | null;

@@ -9,7 +9,9 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:specs": "vitest run src/__tests__/specs"
+    "test:specs": "vitest run src/__tests__/specs",
+    "verify:stp-dashboard": "ALLOW_STP_DASHBOARD_TEST_DATA=1 ts-node -r dotenv/config --compiler-options '{\"module\":\"CommonJS\"}' scripts/stp-dashboard-verification.ts verify",
+    "verify:stp-dashboard:cleanup": "ALLOW_STP_DASHBOARD_TEST_DATA=1 ts-node -r dotenv/config --compiler-options '{\"module\":\"CommonJS\"}' scripts/stp-dashboard-verification.ts cleanup"
   },
   "prisma": {
     "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
