@@ -1,14 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   BarChart3,
   Briefcase,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   CircleDollarSign,
   ClipboardList,
+  ExternalLink,
   FileWarning,
   Filter,
   Handshake,
@@ -16,6 +19,7 @@ import {
   Package,
   PieChart as PieChartIcon,
   Save,
+  Search,
   Target,
   TrendingUp,
   User,
@@ -67,6 +71,10 @@ import type {
   CurrentFunnelResult,
   DashboardMode,
   DashboardOption,
+  DealFocusCondition,
+  DealManagementData,
+  DealManagementRow,
+  DealPriority,
   FunnelMetric,
   FunnelRate,
   FunnelTargetMetricKey,
@@ -229,6 +237,16 @@ function formatCapturedAt(value: string | null) {
   });
 }
 
+function formatDate(value: string | null) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
 export function NewDashboardClient({ initialSearchParams, data }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -256,6 +274,8 @@ export function NewDashboardClient({ initialSearchParams, data }: Props) {
     staffParam === ALL_STAFF || data.staffOptions.some((option) => option.value === staffParam)
       ? staffParam || ALL_STAFF
       : data.selectedStaff;
+  const showPeriodFilter = activeTab !== "deals";
+  const filterColumnCount = (showPeriodFilter ? 1 : 0) + 1 + (activeTabConfig.showStaffFilter ? 1 : 0);
 
   const replaceParams = useCallback(
     (updates: Record<string, string>) => {
@@ -304,18 +324,20 @@ export function NewDashboardClient({ initialSearchParams, data }: Props) {
             <div
               className={cn(
                 "grid gap-3 lg:min-w-0",
-                activeTabConfig.showStaffFilter
+                filterColumnCount === 3
                   ? "min-w-[680px] grid-cols-3 lg:w-[720px]"
                   : "min-w-[460px] grid-cols-2 lg:w-[480px]"
               )}
             >
-              <FilterSelect
-                icon={CalendarDays}
-                label="期間"
-                value={selectedPeriod}
-                onValueChange={(value) => replaceParams({ period: value })}
-                options={data.periodOptions}
-              />
+              {showPeriodFilter && (
+                <FilterSelect
+                  icon={CalendarDays}
+                  label="期間"
+                  value={selectedPeriod}
+                  onValueChange={(value) => replaceParams({ period: value })}
+                  options={data.periodOptions}
+                />
+              )}
               <FilterSelect
                 icon={Package}
                 label="商材"
@@ -363,7 +385,10 @@ export function NewDashboardClient({ initialSearchParams, data }: Props) {
         <TabsContent value="channel" className="mt-3">
           <ChannelAnalysisDashboard data={data.channelAnalysis} />
         </TabsContent>
-        {DASHBOARD_TABS.filter((tab) => tab.value !== "funnel" && tab.value !== "channel").map((tab) => (
+        <TabsContent value="deals" className="mt-3">
+          <DealManagementDashboard data={data.dealManagement} />
+        </TabsContent>
+        {DASHBOARD_TABS.filter((tab) => tab.value !== "funnel" && tab.value !== "channel" && tab.value !== "deals").map((tab) => (
           <TabsContent key={tab.value} value={tab.value} className="mt-3">
             <PlaceholderDashboard tab={tab} />
           </TabsContent>
@@ -929,6 +954,253 @@ function ratingClass(rating: ChannelAnalysisRow["rating"]) {
       return "bg-amber-100 text-amber-700";
     case "D":
       return "bg-slate-100 text-slate-500";
+  }
+}
+
+function DealManagementDashboard({ data }: { data: DealManagementData }) {
+  const router = useRouter();
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [selectedCondition, setSelectedCondition] = useState<DealFocusCondition | null>(null);
+  const pageSize = 10;
+
+  const filteredRows = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return data.rows;
+    return data.rows.filter((row) => row.searchText.includes(query));
+  }, [data.rows, search]);
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageRows = filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const modalRows = selectedCondition
+    ? data.rows.filter((row) => selectedCondition.rowIds.includes(row.id))
+    : [];
+
+  const goToCompany = (id: number) => {
+    router.push(`/stp/companies?highlight=${id}`);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
+        <div className="flex items-start gap-3">
+          <div className="rounded-md border border-amber-200 bg-white/80 p-2 text-amber-700">
+            <Briefcase className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-slate-950">案件管理</h2>
+            <p className="text-sm text-slate-600">
+              担当営業: {data.staffLabel} / オープン案件と優先フォローをリアルタイムで確認します。
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        {data.summary.map((metric) => (
+          <Card key={metric.key} className="rounded-md border bg-white shadow-sm">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-bold text-slate-700">{metric.label}</p>
+                <span className={cn("h-2.5 w-2.5 rounded-full", dealToneClass(metric.tone))} />
+              </div>
+              <p className="mt-3 text-2xl font-bold text-blue-700 tabular-nums">
+                {new Intl.NumberFormat("ja-JP").format(metric.value)}件
+              </p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+        <Card className="rounded-md border bg-white shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">ステージ別件数</CardTitle>
+            <CardDescription>現在パイプラインの表示順</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {data.stageCounts.map((row) => (
+              <div key={row.stageId} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded border bg-slate-50 px-3 py-2 text-sm">
+                <span className="truncate font-medium text-slate-700">{row.stageName}</span>
+                <span className="font-bold text-blue-700 tabular-nums">{row.count}件</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-md border bg-white shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">優先フォロー条件</CardTitle>
+            <CardDescription>カードを押すと該当案件を表示します</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            {data.focusConditions.map((condition) => (
+              <button
+                key={condition.key}
+                type="button"
+                className="rounded-md border bg-white p-3 text-left shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+                onClick={() => setSelectedCondition(condition)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-bold text-slate-900">{condition.label}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-500">{condition.description}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-red-100 px-2 py-1 text-sm font-bold text-red-700 tabular-nums">
+                    {condition.count}件
+                  </span>
+                </div>
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="rounded-md border bg-white shadow-sm">
+        <CardHeader className="pb-2">
+          <div className="grid gap-3 lg:grid-cols-[1fr_320px] lg:items-center">
+            <div>
+              <CardTitle className="text-base">注力案件一覧</CardTitle>
+              <CardDescription>優先度 高・中・低の順 / 10行ずつ表示</CardDescription>
+            </div>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(1);
+                }}
+                placeholder="企業名・代理店・担当者で検索"
+                className="pl-9"
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <DealRowsTable rows={pageRows} onGoToCompany={goToCompany} />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-slate-500">
+              {filteredRows.length}件中 {filteredRows.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}
+              〜{Math.min(currentPage * pageSize, filteredRows.length)}件を表示
+            </p>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+                <ChevronLeft className="h-4 w-4" />
+                前へ
+              </Button>
+              <span className="text-sm font-semibold tabular-nums">{currentPage} / {totalPages}</span>
+              <Button type="button" variant="outline" size="sm" disabled={currentPage >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>
+                次へ
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={!!selectedCondition} onOpenChange={(open) => !open && setSelectedCondition(null)}>
+        <DialogContent size="fullwidth" className="max-h-[88dvh] overflow-hidden p-0">
+          <DialogHeader className="border-b px-5 py-4">
+            <DialogTitle>{selectedCondition?.label}</DialogTitle>
+            <DialogDescription>{selectedCondition?.description}</DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 overflow-auto p-5">
+            <DealRowsTable rows={modalRows} onGoToCompany={goToCompany} />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function DealRowsTable({ rows, onGoToCompany }: { rows: DealManagementRow[]; onGoToCompany: (id: number) => void }) {
+  const headers = ["優先度", "リード獲得日", "有効状態", "初回商談日", "AS担当者", "担当営業", "企業名", "代理店", "流入経路", "業種", "パイプライン", "案件確度", "次に連絡する日", "操作"];
+
+  return (
+    <div className="overflow-x-auto rounded-md border">
+      <table className="w-full min-w-[1420px] border-collapse text-sm">
+        <thead>
+          <tr className="bg-blue-900 text-white">
+            {headers.map((header) => (
+              <th key={header} className="border border-blue-800 px-3 py-2 text-left font-semibold">
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={headers.length} className="border px-3 py-8 text-center text-slate-400">
+                該当する案件がありません
+              </td>
+            </tr>
+          ) : (
+            rows.map((row) => (
+              <tr key={row.id} className="odd:bg-white even:bg-blue-50/40">
+                <td className="border px-3 py-2">
+                  <span className={cn("inline-flex min-w-8 justify-center rounded-full px-2 py-1 text-xs font-bold", priorityClass(row.priority))}>
+                    {row.priority}
+                  </span>
+                  {row.priorityReasons.length > 0 && (
+                    <p className="mt-1 max-w-[160px] text-[11px] leading-snug text-slate-500">
+                      {row.priorityReasons.join(" / ")}
+                    </p>
+                  )}
+                </td>
+                <td className="border px-3 py-2 tabular-nums">{formatDate(row.leadAcquiredDate)}</td>
+                <td className="border px-3 py-2">{row.leadValidity ?? "-"}</td>
+                <td className="border px-3 py-2 tabular-nums">{formatDate(row.firstMeetingDate)}</td>
+                <td className="border px-3 py-2">{row.asStaffName ?? "-"}</td>
+                <td className="border px-3 py-2">{row.salesStaffName ?? "-"}</td>
+                <td className="border px-3 py-2 font-semibold text-slate-900">{row.companyName}</td>
+                <td className="border px-3 py-2">{row.agentName ?? "-"}</td>
+                <td className="border px-3 py-2">{row.leadSourceName ?? "-"}</td>
+                <td className="border px-3 py-2">{row.industryLabel ?? "-"}</td>
+                <td className="border px-3 py-2">{row.stageName ?? "-"}</td>
+                <td className="border px-3 py-2 font-semibold tabular-nums">{row.dealProbability == null ? "-" : `${row.dealProbability}%`}</td>
+                <td className="border px-3 py-2 tabular-nums">{formatDate(row.nextContactDate)}</td>
+                <td className="border px-3 py-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => onGoToCompany(row.id)}>
+                    <ExternalLink className="h-4 w-4" />
+                    企業情報ページへ
+                  </Button>
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function priorityClass(priority: DealPriority) {
+  switch (priority) {
+    case "高":
+      return "bg-red-100 text-red-700";
+    case "中":
+      return "bg-amber-100 text-amber-700";
+    case "低":
+      return "bg-slate-100 text-slate-600";
+  }
+}
+
+function dealToneClass(tone: DealManagementData["summary"][number]["tone"]) {
+  switch (tone) {
+    case "blue":
+      return "bg-blue-600";
+    case "green":
+      return "bg-emerald-600";
+    case "orange":
+      return "bg-orange-500";
+    case "red":
+      return "bg-red-600";
+    case "purple":
+      return "bg-violet-600";
+    case "gray":
+      return "bg-slate-500";
   }
 }
 

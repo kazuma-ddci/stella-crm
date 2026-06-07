@@ -10,6 +10,10 @@ import {
   type CurrentFunnelResult,
   type CohortMonthResult,
   type DashboardOption,
+  type DealFocusCondition,
+  type DealManagementData,
+  type DealManagementRow,
+  type DealPriority,
   type DwellTimeRow,
   type FunnelRate,
   type FunnelTargetValues,
@@ -20,6 +24,8 @@ import {
 
 const STP_PROJECT_ID = 1;
 const MEETING_CATEGORY_NAME = "商談";
+const SCHEDULED_CONTRACT_STATUS = "scheduled";
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 const EMPTY_TARGET_VALUES: FunnelTargetValues = {
   lead: null,
@@ -56,11 +62,20 @@ type DateRange = {
 type StpCompanyRecord = {
   id: number;
   companyId: number;
+  company: { name: string; companyCode: string | null };
+  agent: { company: { name: string; companyCode: string | null } } | null;
   leadAcquiredDate: Date | null;
   leadValidity: string | null;
   leadSourceId: number | null;
+  leadSource: { name: string } | null;
+  industryType: string | null;
+  industry: string | null;
+  dealProbability: number | null;
+  nextContactDate: Date | null;
   currentStage: { id: number; name: string; stageType: string } | null;
   salesStaffId: number | null;
+  salesStaff: { name: string } | null;
+  asStaff: { name: string } | null;
 };
 
 type ContractValue = {
@@ -78,6 +93,7 @@ type StageInfo = {
 
 type EventMaps = {
   firstMeetingByCompanyId: Map<number, Date>;
+  latestContactByCompanyId: Map<number, Date>;
   firstContractByCompanyId: Map<number, Date>;
   firstContractValueByCompanyId: Map<number, ContractValue>;
   firstLostByStpCompanyId: Map<number, { recordedAt: Date; reasonName: string }>;
@@ -112,6 +128,38 @@ function compareMonth(a: string, b: string) {
 
 function isInRange(date: Date | null | undefined, range: DateRange) {
   return !!date && date >= range.start && date <= range.end;
+}
+
+function toJstDateKey(date: Date) {
+  return new Date(date.getTime() + JST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+function todayJstKey() {
+  return toJstDateKey(new Date());
+}
+
+function addDaysToDateKey(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T00:00:00.000+09:00`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return toJstDateKey(date);
+}
+
+function startOfWeekJstKey(dateKey: string) {
+  const date = new Date(`${dateKey}T00:00:00.000+09:00`);
+  const day = new Date(date.getTime() + JST_OFFSET_MS).getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  return addDaysToDateKey(dateKey, diff);
+}
+
+function daysFromDateKey(dateKey: string | null, todayKey: string) {
+  if (!dateKey) return null;
+  const from = new Date(`${dateKey}T00:00:00.000+09:00`).getTime();
+  const to = new Date(`${todayKey}T00:00:00.000+09:00`).getTime();
+  return Math.floor((to - from) / (1000 * 60 * 60 * 24));
+}
+
+function isoOrNull(date: Date | null | undefined) {
+  return date ? date.toISOString() : null;
 }
 
 function roundRate(numerator: number, denominator: number) {
@@ -264,7 +312,7 @@ function resolvePeriod(value: string | undefined, monthRange: MonthRange) {
 async function getEventMaps(companies: StpCompanyRecord[]): Promise<EventMaps> {
   const stpCompanyIds = companies.map((company) => company.id);
   const masterCompanyIds = companies.map((company) => company.companyId);
-  const [meetingHistories, contractHistories, lostHistories, stageHistories] = await Promise.all([
+  const [meetingHistories, contactHistories, contractHistories, lostHistories, stageHistories] = await Promise.all([
     prisma.contactHistory.findMany({
       where: {
         companyId: { in: masterCompanyIds },
@@ -281,6 +329,22 @@ async function getEventMaps(companies: StpCompanyRecord[]): Promise<EventMaps> {
       },
       select: { companyId: true, contactDate: true },
       orderBy: { contactDate: "asc" },
+    }),
+    prisma.contactHistory.findMany({
+      where: {
+        companyId: { in: masterCompanyIds },
+        deletedAt: null,
+        roles: {
+          some: {
+            customerType: {
+              projectId: STP_PROJECT_ID,
+              name: "企業",
+            },
+          },
+        },
+      },
+      select: { companyId: true, contactDate: true },
+      orderBy: { contactDate: "desc" },
     }),
     prisma.stpContractHistory.findMany({
       where: {
@@ -333,6 +397,13 @@ async function getEventMaps(companies: StpCompanyRecord[]): Promise<EventMaps> {
     }
   }
 
+  const latestContactByCompanyId = new Map<number, Date>();
+  for (const history of contactHistories) {
+    if (!latestContactByCompanyId.has(history.companyId)) {
+      latestContactByCompanyId.set(history.companyId, history.contactDate);
+    }
+  }
+
   const firstContractByCompanyId = new Map<number, Date>();
   const firstContractValueByCompanyId = new Map<number, ContractValue>();
   for (const history of contractHistories) {
@@ -371,6 +442,7 @@ async function getEventMaps(companies: StpCompanyRecord[]): Promise<EventMaps> {
 
   return {
     firstMeetingByCompanyId,
+    latestContactByCompanyId,
     firstContractByCompanyId,
     firstContractValueByCompanyId,
     firstLostByStpCompanyId,
@@ -727,6 +799,214 @@ function buildChannelAnalysis(params: {
   };
 }
 
+async function buildDealManagement(params: {
+  companies: StpCompanyRecord[];
+  stages: StageInfo[];
+  eventMaps: EventMaps;
+  staffScope: StaffScope;
+}): Promise<DealManagementData> {
+  const todayKey = todayJstKey();
+  const yesterdayKey = addDaysToDateKey(todayKey, -1);
+  const weekStartKey = startOfWeekJstKey(todayKey);
+  const weekEndKey = addDaysToDateKey(weekStartKey, 6);
+  const sevenDaysLaterKey = addDaysToDateKey(todayKey, 7);
+  const thirtyDaysLaterKey = addDaysToDateKey(todayKey, 30);
+  const sixtyDaysLaterKey = addDaysToDateKey(todayKey, 60);
+  const ninetyDaysLaterKey = addDaysToDateKey(todayKey, 90);
+  const companyIds = params.companies.map((company) => company.companyId);
+
+  const scheduledContracts = await prisma.stpContractHistory.findMany({
+    where: {
+      companyId: { in: companyIds },
+      deletedAt: null,
+      status: SCHEDULED_CONTRACT_STATUS,
+      contractDate: { not: null },
+    },
+    select: { id: true, companyId: true, contractDate: true },
+    orderBy: [{ contractDate: "asc" }, { id: "asc" }],
+  });
+
+  const firstScheduledContractByCompanyId = new Map<number, Date>();
+  for (const contract of scheduledContracts) {
+    if (contract.contractDate && !firstScheduledContractByCompanyId.has(contract.companyId)) {
+      firstScheduledContractByCompanyId.set(contract.companyId, contract.contractDate);
+    }
+  }
+
+  const isOpen = (company: StpCompanyRecord) =>
+    company.currentStage?.stageType !== "closed_lost" && company.currentStage?.stageType !== "completed";
+  const openCompanies = params.companies.filter(isOpen);
+  const isHighProbability = (company: StpCompanyRecord) => (company.dealProbability ?? 0) >= 70;
+  const isScheduledContractWithin = (company: StpCompanyRecord, endKey: string) => {
+    const scheduledDate = firstScheduledContractByCompanyId.get(company.companyId);
+    if (!scheduledDate) return false;
+    const key = toJstDateKey(scheduledDate);
+    return key >= todayKey && key <= endKey;
+  };
+  const hasNoActionForDays = (company: StpCompanyRecord, minDays: number) => {
+    const latestContact = params.eventMaps.latestContactByCompanyId.get(company.companyId);
+    if (!latestContact) return true;
+    const days = daysFromDateKey(toJstDateKey(latestContact), todayKey);
+    return days != null && days >= minDays;
+  };
+
+  const overdueContactCompanies = openCompanies.filter((company) => {
+    if (!company.nextContactDate) return false;
+    return toJstDateKey(company.nextContactDate) <= yesterdayKey;
+  });
+  const noAction30Companies = openCompanies.filter((company) => hasNoActionForDays(company, 30));
+  const pendingHighProbabilityCompanies = openCompanies.filter(
+    (company) => company.currentStage?.stageType === "pending" && isHighProbability(company)
+  );
+  const contractWithin30Companies = openCompanies.filter((company) => isScheduledContractWithin(company, thirtyDaysLaterKey));
+  const contractWithin90Companies = openCompanies.filter(
+    (company) => (company.dealProbability ?? 0) >= 50 && isScheduledContractWithin(company, ninetyDaysLaterKey)
+  );
+
+  const stageCounts = params.stages.map((stage) => ({
+    stageId: stage.id,
+    stageName: stage.name,
+    stageType: stage.stageType,
+    count: params.companies.filter((company) => company.currentStage?.id === stage.id).length,
+  }));
+
+  const focusConditions: DealFocusCondition[] = [
+    {
+      key: "overdueContact",
+      label: "次に連絡する日が過去日",
+      description: "次に連絡する日が昨日以前",
+      count: overdueContactCompanies.length,
+      rowIds: overdueContactCompanies.map((company) => company.id),
+    },
+    {
+      key: "noAction30Days",
+      label: "30日以上アクションなし",
+      description: "オープン案件で最終接触日から30日以上、または接触履歴なし",
+      count: noAction30Companies.length,
+      rowIds: noAction30Companies.map((company) => company.id),
+    },
+    {
+      key: "pendingHighProbability",
+      label: "検討中かつ高確度",
+      description: "パイプラインが検討中、かつ案件確度70%以上",
+      count: pendingHighProbabilityCompanies.length,
+      rowIds: pendingHighProbabilityCompanies.map((company) => company.id),
+    },
+    {
+      key: "contractWithin30Days",
+      label: "契約締結予定日が1ヶ月以内",
+      description: "契約予定の契約日が30日以内",
+      count: contractWithin30Companies.length,
+      rowIds: contractWithin30Companies.map((company) => company.id),
+    },
+  ];
+
+  const rows = openCompanies
+    .map((company): DealManagementRow => {
+      const nextContactKey = company.nextContactDate ? toJstDateKey(company.nextContactDate) : null;
+      const latestContact = params.eventMaps.latestContactByCompanyId.get(company.companyId) ?? null;
+      const latestContactKey = latestContact ? toJstDateKey(latestContact) : null;
+      const latestContactDays = daysFromDateKey(latestContactKey, todayKey);
+      const scheduledContractDate = firstScheduledContractByCompanyId.get(company.companyId) ?? null;
+      const scheduledContractKey = scheduledContractDate ? toJstDateKey(scheduledContractDate) : null;
+      const reasons: string[] = [];
+
+      if (nextContactKey && nextContactKey <= yesterdayKey) reasons.push("次回連絡が過去日");
+      if (!latestContact || (latestContactDays != null && latestContactDays >= 30)) reasons.push("30日以上アクションなし");
+      if (company.currentStage?.stageType === "pending" && isHighProbability(company)) reasons.push("検討中かつ高確度");
+      if (scheduledContractKey && scheduledContractKey >= todayKey && scheduledContractKey <= thirtyDaysLaterKey) {
+        reasons.push("契約予定日30日以内");
+      }
+
+      let priority: DealPriority = "低";
+      if (reasons.length > 0) {
+        priority = "高";
+      } else if (
+        (nextContactKey && nextContactKey >= todayKey && nextContactKey <= sevenDaysLaterKey) ||
+        (latestContactDays != null && latestContactDays >= 15 && latestContactDays < 30) ||
+        (isHighProbability(company) && scheduledContractKey && scheduledContractKey >= todayKey && scheduledContractKey <= sixtyDaysLaterKey)
+      ) {
+        priority = "中";
+      }
+
+      const industryLabel = company.industry || (company.industryType === "general" ? "一般" : company.industryType === "dispatch" ? "派遣" : company.industryType);
+      const displayCompanyName = company.company.companyCode
+        ? `${company.company.companyCode} - ${company.company.name}`
+        : company.company.name;
+      const searchText = [
+        company.company.name,
+        company.company.companyCode,
+        company.agent?.company.name,
+        company.leadSource?.name,
+        industryLabel,
+        company.currentStage?.name,
+        company.salesStaff?.name,
+        company.asStaff?.name,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return {
+        id: company.id,
+        priority,
+        priorityReasons: reasons,
+        leadAcquiredDate: isoOrNull(company.leadAcquiredDate),
+        leadValidity: company.leadValidity,
+        firstMeetingDate: isoOrNull(params.eventMaps.firstMeetingByCompanyId.get(company.companyId)),
+        asStaffName: company.asStaff?.name ?? null,
+        salesStaffName: company.salesStaff?.name ?? null,
+        companyName: displayCompanyName,
+        companyCode: company.company.companyCode,
+        agentName: company.agent?.company.companyCode
+          ? `${company.agent.company.companyCode} - ${company.agent.company.name}`
+          : company.agent?.company.name ?? null,
+        leadSourceName: company.leadSource?.name ?? null,
+        industryLabel,
+        stageName: company.currentStage?.name ?? null,
+        stageType: company.currentStage?.stageType ?? null,
+        dealProbability: company.dealProbability,
+        nextContactDate: isoOrNull(company.nextContactDate),
+        latestContactDate: isoOrNull(latestContact),
+        scheduledContractDate: isoOrNull(scheduledContractDate),
+        searchText,
+      };
+    })
+    .sort((a, b) => {
+      const priorityOrder: Record<DealPriority, number> = { 高: 0, 中: 1, 低: 2 };
+      const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
+      if (priorityDiff !== 0) return priorityDiff;
+      const aNext = a.nextContactDate ? toJstDateKey(new Date(a.nextContactDate)) : "9999-12-31";
+      const bNext = b.nextContactDate ? toJstDateKey(new Date(b.nextContactDate)) : "9999-12-31";
+      if (aNext !== bNext) return aNext.localeCompare(bNext);
+      return a.id - b.id;
+    });
+
+  return {
+    staffLabel: params.staffScope.name,
+    summary: [
+      { key: "openDeals", label: "オープン案件数", value: openCompanies.length, tone: "blue" },
+      { key: "pendingDeals", label: "検討中件数", value: openCompanies.filter((company) => company.currentStage?.stageType === "pending").length, tone: "orange" },
+      { key: "highProbability", label: "高確度案件", value: openCompanies.filter(isHighProbability).length, tone: "purple" },
+      {
+        key: "weeklyActions",
+        label: "今週アクション件数",
+        value: openCompanies.filter((company) => {
+          if (!company.nextContactDate) return false;
+          const key = toJstDateKey(company.nextContactDate);
+          return key >= weekStartKey && key <= weekEndKey;
+        }).length,
+        tone: "green",
+      },
+      { key: "longStagnant", label: "長期滞留案件", value: noAction30Companies.length, tone: "red" },
+      { key: "forecastContracts", label: "見込み契約件数", value: contractWithin90Companies.length, tone: "blue" },
+    ],
+    stageCounts,
+    focusConditions,
+    rows,
+  };
+}
+
 async function buildAllComputedData(params: {
   period?: string;
   product?: string;
@@ -751,10 +1031,19 @@ async function buildAllComputedData(params: {
       select: {
         id: true,
         companyId: true,
+        company: { select: { name: true, companyCode: true } },
+        agent: { select: { company: { select: { name: true, companyCode: true } } } },
         leadAcquiredDate: true,
         leadValidity: true,
         leadSourceId: true,
+        leadSource: { select: { name: true } },
+        industryType: true,
+        industry: true,
+        dealProbability: true,
+        nextContactDate: true,
         salesStaffId: true,
+        salesStaff: { select: { name: true } },
+        asStaff: { select: { name: true } },
         currentStage: { select: { id: true, name: true, stageType: true } },
       },
       orderBy: { id: "asc" },
@@ -763,10 +1052,19 @@ async function buildAllComputedData(params: {
       select: {
         id: true,
         companyId: true,
+        company: { select: { name: true, companyCode: true } },
+        agent: { select: { company: { select: { name: true, companyCode: true } } } },
         leadAcquiredDate: true,
         leadValidity: true,
         leadSourceId: true,
+        leadSource: { select: { name: true } },
+        industryType: true,
+        industry: true,
+        dealProbability: true,
+        nextContactDate: true,
         salesStaffId: true,
+        salesStaff: { select: { name: true } },
+        asStaff: { select: { name: true } },
         currentStage: { select: { id: true, name: true, stageType: true } },
       },
       orderBy: { id: "asc" },
@@ -803,6 +1101,12 @@ async function buildAllComputedData(params: {
     eventMaps: allEventMaps,
     range: period.range,
   });
+  const dealManagement = await buildDealManagement({
+    companies,
+    stages,
+    eventMaps,
+    staffScope,
+  });
 
   return {
     productOptions,
@@ -815,6 +1119,7 @@ async function buildAllComputedData(params: {
     current: currentWithPreviousRates,
     cohort,
     channelAnalysis,
+    dealManagement,
   };
 }
 
@@ -874,6 +1179,7 @@ export async function getNewDashboardData(params: {
       data: snapshotData,
     },
     channelAnalysis: computed.channelAnalysis,
+    dealManagement: computed.dealManagement,
   };
 }
 

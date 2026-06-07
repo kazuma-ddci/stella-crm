@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CrudTable, ColumnDef, CustomAction, CustomRenderers, DynamicOptionsMap, CustomFormFields, InlineEditConfig } from "@/components/crud-table";
 import { StageManagementModal } from "@/components/stage-management";
@@ -88,6 +88,8 @@ export function StpCompaniesTable({
   contactCategories,
 }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [stageModalOpen, setStageModalOpen] = useState(false);
   const [contactHistoryModalOpen, setContactHistoryModalOpen] = useState(false);
 
@@ -96,6 +98,7 @@ export function StpCompaniesTable({
   const [changeLogModalOpen, setChangeLogModalOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<Record<string, unknown> | null>(null);
+  const [dismissedHighlightId, setDismissedHighlightId] = useState<number | null>(null);
 
   // 企業ID重複チェック用の状態
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
@@ -103,6 +106,27 @@ export function StpCompaniesTable({
 
   // 契約期間フィルタ（"all" = 全件、"active" = 契約中のみ、"expired" = 契約期間外のみ）
   const [contractFilter, setContractFilter] = useState<"all" | "active" | "expired">("all");
+
+  const highlightParam = searchParams.get("highlight");
+  const highlightId = highlightParam ? Number(highlightParam) : null;
+  const highlightedCompanyId =
+    highlightId && Number.isInteger(highlightId) && highlightId !== dismissedHighlightId
+      ? highlightId
+      : null;
+
+  useEffect(() => {
+    const id = highlightedCompanyId;
+    if (!id) return;
+    const timer = window.setTimeout(() => {
+      setDismissedHighlightId(id);
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("highlight");
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    }, 5000);
+
+    return () => window.clearTimeout(timer);
+  }, [highlightedCompanyId, pathname, router, searchParams]);
 
   // フィルタ適用後のデータ
   // - "all": 全企業・全契約履歴をそのまま表示
@@ -971,6 +995,11 @@ export function StpCompaniesTable({
         dynamicOptions={dynamicOptions}
         enableInlineEdit={true}
         inlineEditConfig={inlineEditConfig}
+        rowClassName={(item) =>
+          Number(item.id) === highlightedCompanyId
+            ? "bg-red-100/80 transition-colors duration-300 group-hover/row:bg-red-100/80"
+            : undefined
+        }
         changeTrackedFields={[
           { key: "plannedHires", displayName: "採用予定人数" },
           { key: "billingContactIds", displayName: "請求先担当者" },

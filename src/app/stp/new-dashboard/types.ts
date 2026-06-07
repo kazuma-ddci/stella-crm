@@ -123,6 +123,67 @@ export type ChannelAnalysisData = {
   unassignedLeadCount: number;
 };
 
+export type DealPriority = "高" | "中" | "低";
+
+export type DealManagementSummaryMetric = {
+  key: string;
+  label: string;
+  value: number;
+  tone: "blue" | "green" | "orange" | "red" | "purple" | "gray";
+};
+
+export type DealStageCountRow = {
+  stageId: number;
+  stageName: string;
+  stageType: string;
+  count: number;
+};
+
+export type DealFocusConditionKey =
+  | "overdueContact"
+  | "noAction30Days"
+  | "pendingHighProbability"
+  | "contractWithin30Days";
+
+export type DealFocusCondition = {
+  key: DealFocusConditionKey;
+  label: string;
+  description: string;
+  count: number;
+  rowIds: number[];
+};
+
+export type DealManagementRow = {
+  id: number;
+  priority: DealPriority;
+  priorityReasons: string[];
+  leadAcquiredDate: string | null;
+  leadValidity: string | null;
+  firstMeetingDate: string | null;
+  asStaffName: string | null;
+  salesStaffName: string | null;
+  companyName: string;
+  companyCode: string | null;
+  agentName: string | null;
+  leadSourceName: string | null;
+  industryLabel: string | null;
+  stageName: string | null;
+  stageType: string | null;
+  dealProbability: number | null;
+  nextContactDate: string | null;
+  latestContactDate: string | null;
+  scheduledContractDate: string | null;
+  searchText: string;
+};
+
+export type DealManagementData = {
+  staffLabel: string;
+  summary: DealManagementSummaryMetric[];
+  stageCounts: DealStageCountRow[];
+  focusConditions: DealFocusCondition[];
+  rows: DealManagementRow[];
+};
+
 export type NewDashboardData = {
   periodOptions: DashboardOption[];
   productOptions: DashboardOption[];
@@ -139,4 +200,5 @@ export type NewDashboardData = {
   };
   snapshot: SnapshotResult;
   channelAnalysis: ChannelAnalysisData;
+  dealManagement: DealManagementData;
 };
