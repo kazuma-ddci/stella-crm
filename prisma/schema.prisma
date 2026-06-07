@@ -277,7 +277,7 @@ model StpProduct {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   dashboardMonthEndSnapshots StpDashboardMonthEndSnapshot[]
-  dashboardFunnelTargets      StpDashboardFunnelTarget[]
+  dashboardFunnelTargets     StpDashboardFunnelTarget[]
 
   @@map("stp_products")
 }
@@ -819,9 +819,9 @@ model MasterStaff {
   processedLeadSubmissions    StpLeadFormSubmission[]
 
   // 会計関連Relations
-  approvedRevenueRecords StpRevenueRecord[]  @relation("RevenueApprover")
-  closedMonths           StpMonthlyClose[]   @relation("MonthCloser")
-  reopenedMonths         StpMonthlyClose[]   @relation("MonthReopener")
+  approvedRevenueRecords StpRevenueRecord[]             @relation("RevenueApprover")
+  closedMonths           StpMonthlyClose[]              @relation("MonthCloser")
+  reopenedMonths         StpMonthlyClose[]              @relation("MonthReopener")
   stpDashboardSnapshots  StpDashboardMonthEndSnapshot[] @relation("StpDashboardMonthEndSnapshotStaff")
   stpDashboardTargets    StpDashboardFunnelTarget[]     @relation("StpDashboardFunnelTargetStaff")
   financeEditLogs        StpFinanceEditLog[]
@@ -2400,22 +2400,22 @@ model StpDashboardMonthEndSnapshot {
 // ============================================
 
 model StpDashboardFunnelTarget {
-  id                Int      @id @default(autoincrement())
-  targetMonth       String   @map("target_month") @db.VarChar(7) // "2026-03"
-  productKey        String   @map("product_key") @db.VarChar(50)
-  productName       String   @map("product_name") @db.VarChar(100)
-  productId         Int?     @map("product_id")
-  staffKey          String   @map("staff_key") @db.VarChar(50)
-  staffName         String   @map("staff_name") @db.VarChar(100)
-  salesStaffId      Int?     @map("sales_staff_id")
-  leadTarget        Int?     @map("lead_target")
-  validLeadTarget   Int?     @map("valid_lead_target")
-  meetingTarget     Int?     @map("meeting_target")
-  pendingTarget     Int?     @map("pending_target")
-  contractTarget    Int?     @map("contract_target")
-  lostTarget        Int?     @map("lost_target")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id              Int      @id @default(autoincrement())
+  targetMonth     String   @map("target_month") @db.VarChar(7) // "2026-03"
+  productKey      String   @map("product_key") @db.VarChar(50)
+  productName     String   @map("product_name") @db.VarChar(100)
+  productId       Int?     @map("product_id")
+  staffKey        String   @map("staff_key") @db.VarChar(50)
+  staffName       String   @map("staff_name") @db.VarChar(100)
+  salesStaffId    Int?     @map("sales_staff_id")
+  leadTarget      Int?     @map("lead_target")
+  validLeadTarget Int?     @map("valid_lead_target")
+  meetingTarget   Int?     @map("meeting_target")
+  pendingTarget   Int?     @map("pending_target")
+  contractTarget  Int?     @map("contract_target")
+  lostTarget      Int?     @map("lost_target")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   product    StpProduct?  @relation(fields: [productId], references: [id], onDelete: SetNull)
   salesStaff MasterStaff? @relation("StpDashboardFunnelTargetStaff", fields: [salesStaffId], references: [id], onDelete: SetNull)
@@ -2425,6 +2425,26 @@ model StpDashboardFunnelTarget {
   @@index([productId], map: "idx_stp_dashboard_funnel_targets_product_id")
   @@index([salesStaffId], map: "idx_stp_dashboard_funnel_targets_sales_staff_id")
   @@map("stp_dashboard_funnel_targets")
+}
+
+// ============================================
+// STP売却KPI 月次目標
+// ============================================
+
+model StpExitKpiTarget {
+  id                 Int      @id @default(autoincrement())
+  targetMonth        String   @unique @map("target_month") @db.VarChar(7) // "2026-03"
+  currentMrrTarget   Int?     @map("current_mrr_target")
+  arrRunRateTarget   Int?     @map("arr_run_rate_target")
+  nrrTarget          Decimal? @map("nrr_target") @db.Decimal(6, 1)
+  churnRateTarget    Decimal? @map("churn_rate_target") @db.Decimal(6, 1)
+  grossMarginTarget  Decimal? @map("gross_margin_target") @db.Decimal(6, 1)
+  ebitdaMarginTarget Decimal? @map("ebitda_margin_target") @db.Decimal(6, 1)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([targetMonth], map: "idx_stp_exit_kpi_targets_target_month")
+  @@map("stp_exit_kpi_targets")
 }
 
 // ============================================

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireEdit } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { ALL_STAFF, FALLBACK_PRODUCT, type FunnelTargetValues } from "./types";
+import { ALL_STAFF, FALLBACK_PRODUCT, type ExitKpiTargetValues, type FunnelTargetValues } from "./types";
 
 type SaveDashboardTargetParams = {
   targetMonth: string;
@@ -20,6 +20,22 @@ function sanitizeTargetValue(value: number | null | undefined) {
     throw new Error("目標値は0以上の整数で入力してください。");
   }
   return value;
+}
+
+function sanitizeCurrencyTargetValue(value: number | null | undefined) {
+  if (value == null) return null;
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error("金額目標は0以上の整数で入力してください。");
+  }
+  return value;
+}
+
+function sanitizeRateTargetValue(value: number | null | undefined) {
+  if (value == null) return null;
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error("率目標は0以上の数値で入力してください。");
+  }
+  return Math.round(value * 10) / 10;
 }
 
 function productKeyFromId(productId: number | null) {
@@ -112,6 +128,49 @@ export async function saveDashboardFunnelTargets(params: SaveDashboardTargetPara
       pendingTarget: values.pending,
       contractTarget: values.contract,
       lostTarget: values.lost,
+    },
+  });
+
+  revalidatePath("/stp/new-dashboard");
+}
+
+export async function saveExitKpiTargets(params: {
+  targetMonth: string;
+  values: ExitKpiTargetValues;
+}) {
+  await requireEdit("stp");
+
+  if (!/^\d{4}-\d{2}$/.test(params.targetMonth)) {
+    throw new Error("対象月が不正です。");
+  }
+
+  const values: ExitKpiTargetValues = {
+    currentMrr: sanitizeCurrencyTargetValue(params.values.currentMrr),
+    arrRunRate: sanitizeCurrencyTargetValue(params.values.arrRunRate),
+    nrr: sanitizeRateTargetValue(params.values.nrr),
+    monthlyChurnRate: sanitizeRateTargetValue(params.values.monthlyChurnRate),
+    grossMargin: sanitizeRateTargetValue(params.values.grossMargin),
+    ebitdaMargin: sanitizeRateTargetValue(params.values.ebitdaMargin),
+  };
+
+  await prisma.stpExitKpiTarget.upsert({
+    where: { targetMonth: params.targetMonth },
+    update: {
+      currentMrrTarget: values.currentMrr,
+      arrRunRateTarget: values.arrRunRate,
+      nrrTarget: values.nrr,
+      churnRateTarget: values.monthlyChurnRate,
+      grossMarginTarget: values.grossMargin,
+      ebitdaMarginTarget: values.ebitdaMargin,
+    },
+    create: {
+      targetMonth: params.targetMonth,
+      currentMrrTarget: values.currentMrr,
+      arrRunRateTarget: values.arrRunRate,
+      nrrTarget: values.nrr,
+      churnRateTarget: values.monthlyChurnRate,
+      grossMarginTarget: values.grossMargin,
+      ebitdaMarginTarget: values.ebitdaMargin,
     },
   });
 

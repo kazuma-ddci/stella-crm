@@ -184,6 +184,170 @@ export type DealManagementData = {
   rows: DealManagementRow[];
 };
 
+export type ExitKpiMetricKey =
+  | "currentMrr"
+  | "arrRunRate"
+  | "nrr"
+  | "monthlyChurnRate"
+  | "grossMargin"
+  | "ebitdaMargin";
+
+export type ExitKpiTargetValues = Record<ExitKpiMetricKey, number | null>;
+
+export type ExitKpiMetric = {
+  key: ExitKpiMetricKey;
+  label: string;
+  actual: number | null;
+  target: number | null;
+  achievementRate: number | null;
+  diff: number | null;
+  format: "currency" | "rate";
+  inverted: boolean;
+  comment: string;
+  status: "good" | "warning" | "danger" | "neutral";
+};
+
+export type ExitKpiDecisionRow = {
+  category: "growth" | "profitability" | "retention" | "efficiency";
+  categoryLabel: string;
+  mainMetrics: string;
+  goodCriteria: string;
+  currentValue: string;
+  evaluation: "good" | "warning" | "danger" | "neutral";
+};
+
+export type ExitKpiEvaluationRow = {
+  category: string;
+  metric: string;
+  actualLabel: string;
+  benchmark: string;
+  evaluation: "good" | "warning" | "danger" | "neutral";
+};
+
+export type ExitKpiAlert = {
+  key: string;
+  tone: "info" | "success" | "warning" | "danger";
+  title: string;
+  description: string;
+};
+
+export type ExitKpiData = {
+  targetMonth: string;
+  targetValues: ExitKpiTargetValues;
+  metrics: ExitKpiMetric[];
+  decisionSummary: ExitKpiDecisionRow[];
+  evaluationRows: ExitKpiEvaluationRow[];
+  alerts: ExitKpiAlert[];
+  details: {
+    monthStartMrr: number;
+    monthEndExistingMrr: number;
+    expansionMrr: number;
+    contractionMrr: number;
+    churnMrr: number;
+    newMrr: number;
+    previousMonthEndMrr: number;
+    revenue: number;
+    expense: number;
+    fixedCost: number;
+    grossProfit: number;
+    ebitdaLikeProfit: number;
+    mrrGrowthRate: number | null;
+    netNewMrrRate: number | null;
+    ruleOf40: number | null;
+    twelveMonthRetentionRate: number | null;
+  };
+};
+
+export type ManagementMetricKey =
+  | "revenue"
+  | "grossProfit"
+  | "grossMargin"
+  | "sellingGeneralAdministrativeExpense"
+  | "operatingProfit"
+  | "contractCount";
+
+export type ManagementMetric = {
+  key: ManagementMetricKey;
+  label: string;
+  actual: number | null;
+  target: number | null;
+  achievementRate: number | null;
+  diff: number | null;
+  format: "currency" | "rate" | "count" | "placeholder";
+  status: "good" | "warning" | "danger" | "neutral" | "pending";
+};
+
+export type ManagementProgressRow = {
+  key: ManagementMetricKey;
+  label: string;
+  actualLabel: string;
+  targetLabel: string;
+  achievementRateLabel: string;
+  forecastLabel: string;
+  status: ManagementMetric["status"];
+};
+
+export type ManagementFunnelRow = {
+  key: FunnelTargetMetricKey;
+  label: string;
+  actual: number;
+  target: number | null;
+  achievementRate: number | null;
+};
+
+export type ManagementRateRow = {
+  key: string;
+  label: string;
+  value: number | null;
+  numerator: number;
+  denominator: number;
+};
+
+export type ManagementRevenueStructureRow = {
+  key: "revenue" | "cost" | "grossProfit" | "sellingGeneralAdministrativeExpense" | "operatingProfit";
+  label: string;
+  amount: number | null;
+  percent: number | null;
+  status: "actual" | "pending";
+};
+
+export type ManagementChannelRow = {
+  leadSourceId: number | null;
+  leadSourceName: string;
+  leadCount: number;
+  meetingCount: number;
+  contractCount: number;
+  revenue: number;
+  grossMargin: number | null;
+};
+
+export type ManagementStaffRow = {
+  staffId: number | null;
+  staffName: string;
+  contractCount: number;
+  revenue: number;
+  achievementLabel: string;
+};
+
+export type ManagementDashboardData = {
+  scopeLabel: string;
+  productLabel: string;
+  metrics: ManagementMetric[];
+  progressRows: ManagementProgressRow[];
+  funnelRows: ManagementFunnelRow[];
+  rateRows: ManagementRateRow[];
+  revenueStructureRows: ManagementRevenueStructureRow[];
+  channelRows: ManagementChannelRow[];
+  staffRows: ManagementStaffRow[];
+  totals: {
+    revenue: number;
+    cost: number;
+    grossProfit: number;
+    grossMargin: number | null;
+    contractCount: number;
+  };
+};
+
 export type NewDashboardData = {
   periodOptions: DashboardOption[];
   productOptions: DashboardOption[];
@@ -201,4 +365,6 @@ export type NewDashboardData = {
   snapshot: SnapshotResult;
   channelAnalysis: ChannelAnalysisData;
   dealManagement: DealManagementData;
+  exitKpi: ExitKpiData;
+  management: ManagementDashboardData;
 };

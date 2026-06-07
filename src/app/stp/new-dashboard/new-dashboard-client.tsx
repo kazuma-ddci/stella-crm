@@ -3,19 +3,24 @@
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  AlertTriangle,
   BarChart3,
   Briefcase,
+  Building2,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
   CircleDollarSign,
   ClipboardList,
+  FileText,
   ExternalLink,
   FileWarning,
   Filter,
   Handshake,
   Hourglass,
+  Info,
+  LineChart,
   Package,
   PieChart as PieChartIcon,
   Save,
@@ -75,14 +80,24 @@ import type {
   DealManagementData,
   DealManagementRow,
   DealPriority,
+  ExitKpiAlert,
+  ExitKpiData,
+  ExitKpiDecisionRow,
+  ExitKpiEvaluationRow,
+  ExitKpiMetric,
+  ExitKpiMetricKey,
+  ExitKpiTargetValues,
   FunnelMetric,
   FunnelRate,
   FunnelTargetMetricKey,
   FunnelTargetValues,
+  ManagementDashboardData,
+  ManagementMetric,
+  ManagementMetricKey,
   NewDashboardData,
 } from "./types";
 import { ALL_STAFF } from "./types";
-import { saveDashboardFunnelTargets } from "./target-actions";
+import { saveDashboardFunnelTargets, saveExitKpiTargets } from "./target-actions";
 
 type SearchParams = {
   tab?: string;
@@ -275,7 +290,9 @@ export function NewDashboardClient({ initialSearchParams, data }: Props) {
       ? staffParam || ALL_STAFF
       : data.selectedStaff;
   const showPeriodFilter = activeTab !== "deals";
-  const filterColumnCount = (showPeriodFilter ? 1 : 0) + 1 + (activeTabConfig.showStaffFilter ? 1 : 0);
+  const showProductFilter = activeTab !== "exit-kpi";
+  const filterColumnCount =
+    (showPeriodFilter ? 1 : 0) + (showProductFilter ? 1 : 0) + (activeTabConfig.showStaffFilter ? 1 : 0);
 
   const replaceParams = useCallback(
     (updates: Record<string, string>) => {
@@ -326,7 +343,9 @@ export function NewDashboardClient({ initialSearchParams, data }: Props) {
                 "grid gap-3 lg:min-w-0",
                 filterColumnCount === 3
                   ? "min-w-[680px] grid-cols-3 lg:w-[720px]"
-                  : "min-w-[460px] grid-cols-2 lg:w-[480px]"
+                  : filterColumnCount === 2
+                    ? "min-w-[460px] grid-cols-2 lg:w-[480px]"
+                    : "min-w-[220px] grid-cols-1 lg:w-[240px]"
               )}
             >
               {showPeriodFilter && (
@@ -338,13 +357,15 @@ export function NewDashboardClient({ initialSearchParams, data }: Props) {
                   options={data.periodOptions}
                 />
               )}
-              <FilterSelect
-                icon={Package}
-                label="商材"
-                value={selectedProduct}
-                onValueChange={(value) => replaceParams({ product: value })}
-                options={data.productOptions}
-              />
+              {showProductFilter && (
+                <FilterSelect
+                  icon={Package}
+                  label="商材"
+                  value={selectedProduct}
+                  onValueChange={(value) => replaceParams({ product: value })}
+                  options={data.productOptions}
+                />
+              )}
               {activeTabConfig.showStaffFilter && (
                 <FilterSelect
                   icon={User}
@@ -388,7 +409,13 @@ export function NewDashboardClient({ initialSearchParams, data }: Props) {
         <TabsContent value="deals" className="mt-3">
           <DealManagementDashboard data={data.dealManagement} />
         </TabsContent>
-        {DASHBOARD_TABS.filter((tab) => tab.value !== "funnel" && tab.value !== "channel" && tab.value !== "deals").map((tab) => (
+        <TabsContent value="exit-kpi" className="mt-3">
+          <ExitKpiDashboard data={data.exitKpi} onTargetsSaved={() => router.refresh()} />
+        </TabsContent>
+        <TabsContent value="management" className="mt-3">
+          <ManagementDashboard data={data.management} />
+        </TabsContent>
+        {DASHBOARD_TABS.filter((tab) => !["funnel", "channel", "deals", "exit-kpi", "management"].includes(tab.value)).map((tab) => (
           <TabsContent key={tab.value} value={tab.value} className="mt-3">
             <PlaceholderDashboard tab={tab} />
           </TabsContent>
@@ -1202,6 +1229,688 @@ function dealToneClass(tone: DealManagementData["summary"][number]["tone"]) {
     case "gray":
       return "bg-slate-500";
   }
+}
+
+const MANAGEMENT_METRIC_ICONS: Record<ManagementMetricKey, React.ElementType> = {
+  revenue: CircleDollarSign,
+  grossProfit: PieChartIcon,
+  grossMargin: BarChart3,
+  sellingGeneralAdministrativeExpense: Building2,
+  operatingProfit: TrendingUp,
+  contractCount: FileText,
+};
+
+function formatManagementValue(value: number | null, format: ManagementMetric["format"]) {
+  if (format === "placeholder") return "準備中";
+  if (value == null) return "-";
+  if (format === "currency") return formatCurrency(value);
+  if (format === "rate") return formatRate(value);
+  return `${new Intl.NumberFormat("ja-JP").format(value)}件`;
+}
+
+function formatManagementDiff(metric: ManagementMetric) {
+  if (metric.format === "placeholder") return "準備中";
+  if (metric.diff == null) return "-";
+  if (metric.format === "currency") {
+    const prefix = metric.diff > 0 ? "+" : metric.diff < 0 ? "-" : "";
+    return `${prefix}${formatCurrency(Math.abs(metric.diff))}`;
+  }
+  if (metric.format === "rate") {
+    const prefix = metric.diff > 0 ? "+" : "";
+    return `${prefix}${metric.diff.toFixed(1)}pt`;
+  }
+  const prefix = metric.diff > 0 ? "+" : "";
+  return `${prefix}${new Intl.NumberFormat("ja-JP").format(metric.diff)}件`;
+}
+
+function managementStatusClass(status: ManagementMetric["status"]) {
+  switch (status) {
+    case "good":
+      return "text-emerald-700";
+    case "warning":
+      return "text-amber-700";
+    case "danger":
+      return "text-red-700";
+    case "pending":
+      return "text-slate-500";
+    case "neutral":
+      return "text-slate-700";
+  }
+}
+
+function ManagementDashboard({ data }: { data: ManagementDashboardData }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border border-violet-200 bg-violet-50 p-4">
+        <div className="flex items-start gap-3">
+          <div className="rounded-md border border-violet-200 bg-white/80 p-2 text-violet-700">
+            <CircleDollarSign className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-slate-950">経営ダッシュボード</h2>
+            <p className="text-sm text-slate-600">
+              {data.scopeLabel} / {data.productLabel} の売上・粗利・ファネル進捗を表示します。
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        {data.metrics.map((metric) => (
+          <ManagementMetricCard key={metric.key} metric={metric} />
+        ))}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <ManagementProgressSummary data={data} />
+        <ManagementFunnelSummary data={data} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <ManagementRevenueStructure data={data} />
+        <ManagementChannelPerformance data={data} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
+        <Card className="rounded-md border bg-white shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">商材別実績</CardTitle>
+            <CardDescription>商材が複数になった後に表示します</CardDescription>
+          </CardHeader>
+          <CardContent className="flex min-h-[220px] items-center justify-center text-sm font-semibold text-slate-500">
+            準備中
+          </CardContent>
+        </Card>
+        <ManagementStaffProgress data={data} />
+      </div>
+    </div>
+  );
+}
+
+function ManagementMetricCard({ metric }: { metric: ManagementMetric }) {
+  const Icon = MANAGEMENT_METRIC_ICONS[metric.key];
+  return (
+    <Card className="rounded-md border bg-white shadow-sm">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-3 border-b pb-3">
+          <div className="rounded-full bg-blue-100 p-2 text-blue-700">
+            <Icon className="h-5 w-5" />
+          </div>
+          <p className="min-w-0 text-sm font-bold text-slate-900">{metric.label}</p>
+        </div>
+        <div className="mt-3 space-y-2 text-sm">
+          <ManagementCardLine label="実績" value={formatManagementValue(metric.actual, metric.format)} valueClass="text-blue-700" />
+          <ManagementCardLine label="目標" value={metric.target == null ? (metric.format === "placeholder" ? "準備中" : "未設定") : formatManagementValue(metric.target, metric.format)} />
+          <ManagementCardLine
+            label="達成率"
+            value={metric.achievementRate == null ? (metric.status === "pending" ? "準備中" : "-") : `${metric.achievementRate.toFixed(1)}%`}
+            valueClass={managementStatusClass(metric.status)}
+          />
+          <ManagementCardLine label="差分" value={formatManagementDiff(metric)} valueClass={managementStatusClass(metric.status)} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ManagementCardLine({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-xs font-semibold text-slate-500">{label}</span>
+      <span className={cn("text-right font-bold tabular-nums text-slate-900", valueClass)}>{value}</span>
+    </div>
+  );
+}
+
+function ManagementProgressSummary({ data }: { data: ManagementDashboardData }) {
+  return (
+    <Card className="rounded-md border bg-white shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">目標進捗サマリー</CardTitle>
+        <CardDescription>着地見込みは準備中です</CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full min-w-[720px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-slate-100 text-slate-700">
+              {["指標", "実績 / 目標", "達成率", "着地見込み"].map((header) => (
+                <th key={header} className="border px-3 py-2 text-left font-semibold">{header}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.progressRows.map((row) => (
+              <tr key={row.key} className="odd:bg-white even:bg-slate-50">
+                <td className="border px-3 py-2 font-semibold">{row.label}</td>
+                <td className="border px-3 py-2 tabular-nums">{row.actualLabel} / {row.targetLabel}</td>
+                <td className={cn("border px-3 py-2 font-bold tabular-nums", managementStatusClass(row.status))}>{row.achievementRateLabel}</td>
+                <td className="border px-3 py-2 text-slate-500">{row.forecastLabel}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ManagementFunnelSummary({ data }: { data: ManagementDashboardData }) {
+  return (
+    <Card className="rounded-md border bg-white shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">営業ファネル</CardTitle>
+        <CardDescription>実績・目標・達成率</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-2 sm:grid-cols-5">
+          {data.funnelRows.map((row) => (
+            <div key={row.key} className="rounded-md border bg-slate-50 p-3">
+              <p className="text-xs font-semibold text-slate-500">{row.label}</p>
+              <p className="mt-2 text-xl font-bold text-blue-700 tabular-nums">{row.actual.toLocaleString("ja-JP")}</p>
+              <p className="mt-1 text-xs text-slate-500">目標 {row.target == null ? "未設定" : row.target.toLocaleString("ja-JP")}</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">
+                {row.achievementRate == null ? "-" : `${row.achievementRate.toFixed(1)}%`}
+              </p>
+            </div>
+          ))}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-4">
+          {data.rateRows.map((row) => (
+            <div key={row.key} className="rounded-md border bg-white p-3">
+              <p className="text-xs font-semibold text-slate-500">{row.label}</p>
+              <p className="mt-2 text-lg font-bold text-blue-700 tabular-nums">{formatRate(row.value)}</p>
+              <p className="mt-1 text-xs text-slate-500">{row.numerator.toLocaleString("ja-JP")} / {row.denominator.toLocaleString("ja-JP")}</p>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ManagementRevenueStructure({ data }: { data: ManagementDashboardData }) {
+  return (
+    <Card className="rounded-md border bg-white shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">収益構造</CardTitle>
+        <CardDescription>売上から粗利までの構造</CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full min-w-[560px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-slate-100 text-slate-700">
+              {["項目", "金額", "売上比", "状態"].map((header) => (
+                <th key={header} className="border px-3 py-2 text-left font-semibold">{header}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.revenueStructureRows.map((row) => (
+              <tr key={row.key} className="odd:bg-white even:bg-slate-50">
+                <td className="border px-3 py-2 font-semibold">{row.label}</td>
+                <td className="border px-3 py-2 font-bold tabular-nums">{row.status === "pending" ? "準備中" : formatCurrency(row.amount)}</td>
+                <td className="border px-3 py-2 tabular-nums">{row.status === "pending" ? "準備中" : formatRate(row.percent)}</td>
+                <td className="border px-3 py-2">
+                  <span className={cn("inline-flex rounded-full px-2 py-1 text-xs font-bold", row.status === "pending" ? "bg-slate-100 text-slate-500" : "bg-blue-100 text-blue-700")}>
+                    {row.status === "pending" ? "準備中" : "実績"}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ManagementChannelPerformance({ data }: { data: ManagementDashboardData }) {
+  return (
+    <Card className="rounded-md border bg-white shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">チャネル別実績</CardTitle>
+        <CardDescription>目標は表示しません</CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full min-w-[760px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-blue-900 text-white">
+              {["チャネル", "リード", "商談", "契約", "売上", "粗利率"].map((header) => (
+                <th key={header} className="border border-blue-800 px-3 py-2 text-left font-semibold">{header}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.channelRows.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="border px-3 py-8 text-center text-slate-500">該当データがありません</td>
+              </tr>
+            ) : (
+              data.channelRows.map((row) => (
+                <tr key={row.leadSourceId ?? "unassigned"} className="odd:bg-white even:bg-blue-50/40">
+                  <td className="border px-3 py-2 font-semibold">{row.leadSourceName}</td>
+                  <td className="border px-3 py-2 tabular-nums">{row.leadCount.toLocaleString("ja-JP")}件</td>
+                  <td className="border px-3 py-2 tabular-nums">{row.meetingCount.toLocaleString("ja-JP")}件</td>
+                  <td className="border px-3 py-2 tabular-nums">{row.contractCount.toLocaleString("ja-JP")}件</td>
+                  <td className="border px-3 py-2 font-semibold tabular-nums">{formatCurrency(row.revenue)}</td>
+                  <td className="border px-3 py-2 font-semibold text-blue-700 tabular-nums">{formatRate(row.grossMargin)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ManagementStaffProgress({ data }: { data: ManagementDashboardData }) {
+  return (
+    <Card className="rounded-md border bg-white shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">担当者別進捗</CardTitle>
+        <CardDescription>企業情報の担当営業で集計</CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full min-w-[620px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-slate-100 text-slate-700">
+              {["担当者", "契約数", "売上", "目標達成率"].map((header) => (
+                <th key={header} className="border px-3 py-2 text-left font-semibold">{header}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.staffRows.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="border px-3 py-8 text-center text-slate-500">該当データがありません</td>
+              </tr>
+            ) : (
+              data.staffRows.map((row) => (
+                <tr key={row.staffId ?? "unassigned"} className="odd:bg-white even:bg-slate-50">
+                  <td className="border px-3 py-2 font-semibold">{row.staffName}</td>
+                  <td className="border px-3 py-2 tabular-nums">{row.contractCount.toLocaleString("ja-JP")}件</td>
+                  <td className="border px-3 py-2 font-semibold tabular-nums">{formatCurrency(row.revenue)}</td>
+                  <td className="border px-3 py-2 text-slate-500">{row.achievementLabel}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+const EXIT_KPI_TARGET_FIELDS: { key: ExitKpiMetricKey; label: string; format: "currency" | "rate" }[] = [
+  { key: "currentMrr", label: "現在MRR", format: "currency" },
+  { key: "arrRunRate", label: "ARRランレート", format: "currency" },
+  { key: "nrr", label: "NRR", format: "rate" },
+  { key: "monthlyChurnRate", label: "月次チャーン率", format: "rate" },
+  { key: "grossMargin", label: "粗利率", format: "rate" },
+  { key: "ebitdaMargin", label: "EBITDA率", format: "rate" },
+];
+
+const EXIT_KPI_ICONS: Record<ExitKpiMetricKey, React.ElementType> = {
+  currentMrr: CircleDollarSign,
+  arrRunRate: CalendarDays,
+  nrr: TrendingUp,
+  monthlyChurnRate: Users,
+  grossMargin: PieChartIcon,
+  ebitdaMargin: BarChart3,
+};
+
+function formatExitActual(value: number | null, format: "currency" | "rate") {
+  if (value == null) return "-";
+  return format === "currency" ? formatCurrency(value) : formatRate(value);
+}
+
+function formatExitDiff(metric: ExitKpiMetric) {
+  if (metric.diff == null) return "-";
+  if (metric.format === "currency") {
+    const prefix = metric.diff > 0 ? "+" : metric.diff < 0 ? "-" : "";
+    return `${prefix}${formatCurrency(Math.abs(metric.diff))}`;
+  }
+  const prefix = metric.diff > 0 ? "+" : "";
+  return `${prefix}${metric.diff.toFixed(1)}pt`;
+}
+
+function exitStatusClass(status: ExitKpiMetric["status"], inverted = false, diff?: number | null) {
+  if (status === "good") return "text-emerald-700";
+  if (status === "warning") return "text-amber-700";
+  if (status === "danger") return "text-red-700";
+  if (diff == null) return "text-slate-400";
+  const goodDiff = inverted ? diff <= 0 : diff >= 0;
+  return goodDiff ? "text-emerald-700" : "text-red-700";
+}
+
+function evaluationBadgeClass(value: ExitKpiMetric["status"]) {
+  switch (value) {
+    case "good":
+      return "bg-emerald-100 text-emerald-700";
+    case "warning":
+      return "bg-amber-100 text-amber-700";
+    case "danger":
+      return "bg-red-100 text-red-700";
+    case "neutral":
+      return "bg-slate-100 text-slate-600";
+  }
+}
+
+function evaluationLabel(value: ExitKpiMetric["status"]) {
+  switch (value) {
+    case "good":
+      return "良好";
+    case "warning":
+      return "注意";
+    case "danger":
+      return "要改善";
+    case "neutral":
+      return "データ不足";
+  }
+}
+
+function alertClass(tone: ExitKpiAlert["tone"]) {
+  switch (tone) {
+    case "success":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "warning":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "danger":
+      return "border-red-200 bg-red-50 text-red-800";
+    case "info":
+      return "border-blue-200 bg-blue-50 text-blue-800";
+  }
+}
+
+function alertIcon(tone: ExitKpiAlert["tone"]) {
+  if (tone === "success") return CheckCircle2;
+  if (tone === "info") return Info;
+  return AlertTriangle;
+}
+
+function ExitKpiDashboard({ data, onTargetsSaved }: { data: ExitKpiData; onTargetsSaved: () => void }) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-md border border-emerald-200 bg-white/80 p-2 text-emerald-700">
+              <LineChart className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-950">売却KPIダッシュボード</h2>
+              <p className="text-sm text-slate-600">
+                STP全体 / {data.targetMonth} の売却判断に関わる事業指標を表示します。
+              </p>
+            </div>
+          </div>
+        </div>
+        <ExitKpiTargetDialog data={data} onSaved={onTargetsSaved} />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        {data.metrics.map((metric) => (
+          <ExitKpiMetricCard key={metric.key} metric={metric} />
+        ))}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <ExitKpiProgressSummary metrics={data.metrics} />
+        <ExitKpiDecisionSummary rows={data.decisionSummary} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        <ExitKpiEvaluationTable rows={data.evaluationRows} />
+        <ExitKpiAlerts alerts={data.alerts} />
+      </div>
+    </div>
+  );
+}
+
+function ExitKpiMetricCard({ metric }: { metric: ExitKpiMetric }) {
+  const Icon = EXIT_KPI_ICONS[metric.key];
+  return (
+    <Card className="rounded-md border bg-white shadow-sm">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-3 border-b pb-3">
+          <div className="rounded-full bg-blue-100 p-2 text-blue-700">
+            <Icon className="h-5 w-5" />
+          </div>
+          <p className="min-w-0 text-sm font-bold text-slate-900">{metric.label}</p>
+        </div>
+        <div className="mt-3 space-y-2 text-sm">
+          <ExitKpiCardLine label="実績" value={formatExitActual(metric.actual, metric.format)} valueClass="text-blue-700" />
+          <ExitKpiCardLine label="目標" value={metric.target == null ? "未設定" : formatExitActual(metric.target, metric.format)} />
+          <ExitKpiCardLine
+            label="達成率"
+            value={metric.achievementRate == null ? "-" : `${metric.achievementRate.toFixed(1)}%`}
+            valueClass={exitStatusClass(metric.status)}
+          />
+          <ExitKpiCardLine
+            label="差分"
+            value={formatExitDiff(metric)}
+            valueClass={exitStatusClass(metric.status, metric.inverted, metric.diff)}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExitKpiCardLine({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-xs font-semibold text-slate-500">{label}</span>
+      <span className={cn("text-right font-bold tabular-nums text-slate-900", valueClass)}>{value}</span>
+    </div>
+  );
+}
+
+function ExitKpiTargetDialog({ data, onSaved }: { data: ExitKpiData; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [values, setValues] = useState<ExitKpiTargetValues>(data.targetValues);
+  const [isPending, startTransition] = useTransition();
+
+  const openDialog = () => {
+    setValues(data.targetValues);
+    setOpen(true);
+  };
+
+  const updateValue = (key: ExitKpiMetricKey, value: string) => {
+    setValues((current) => ({
+      ...current,
+      [key]: value === "" ? null : Number(value),
+    }));
+  };
+
+  const handleSave = () => {
+    startTransition(async () => {
+      await saveExitKpiTargets({ targetMonth: data.targetMonth, values });
+      onSaved();
+      setOpen(false);
+    });
+  };
+
+  return (
+    <>
+      <Button type="button" variant="outline" size="sm" className="h-9 bg-white" onClick={openDialog}>
+        <Target className="h-4 w-4" />
+        売却KPI目標設定
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent size="form">
+          <DialogHeader>
+            <DialogTitle>売却KPI目標設定</DialogTitle>
+            <DialogDescription>{data.targetMonth} / STP全体</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {EXIT_KPI_TARGET_FIELDS.map((field) => (
+              <label key={field.key} className="space-y-1">
+                <span className="text-sm font-semibold text-slate-700">{field.label}</span>
+                <Input
+                  type="number"
+                  min={0}
+                  step={field.format === "currency" ? 1 : 0.1}
+                  inputMode="decimal"
+                  value={values[field.key] ?? ""}
+                  onChange={(event) => updateValue(field.key, event.target.value)}
+                  placeholder={field.format === "currency" ? "金額目標" : "率目標"}
+                />
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
+              キャンセル
+            </Button>
+            <Button type="button" onClick={handleSave} disabled={isPending}>
+              <Save className="h-4 w-4" />
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function ExitKpiProgressSummary({ metrics }: { metrics: ExitKpiMetric[] }) {
+  return (
+    <Card className="rounded-md border bg-white shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">目標進捗サマリー</CardTitle>
+        <CardDescription>売却KPI 6指標の目標達成状況</CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full min-w-[760px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-slate-100 text-slate-700">
+              {["指標", "実績 / 目標", "達成率", "差分", "評価コメント"].map((header) => (
+                <th key={header} className="border px-3 py-2 text-left font-semibold">{header}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {metrics.map((metric) => (
+              <tr key={metric.key} className="odd:bg-white even:bg-slate-50">
+                <td className="border px-3 py-2 font-semibold">{metric.label}</td>
+                <td className="border px-3 py-2 tabular-nums">
+                  {formatExitActual(metric.actual, metric.format)} / {metric.target == null ? "未設定" : formatExitActual(metric.target, metric.format)}
+                </td>
+                <td className={cn("border px-3 py-2 font-semibold tabular-nums", exitStatusClass(metric.status))}>
+                  {metric.achievementRate == null ? "-" : `${metric.achievementRate.toFixed(1)}%`}
+                </td>
+                <td className={cn("border px-3 py-2 font-semibold tabular-nums", exitStatusClass(metric.status, metric.inverted, metric.diff))}>
+                  {formatExitDiff(metric)}
+                </td>
+                <td className="border px-3 py-2">{metric.comment}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExitKpiDecisionSummary({ rows }: { rows: ExitKpiDecisionRow[] }) {
+  return (
+    <Card className="rounded-md border bg-white shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">売却判断サマリー</CardTitle>
+        <CardDescription>成長性・収益性・継続性・効率性の4観点</CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full min-w-[760px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-slate-100 text-slate-700">
+              {["観点", "主要指標", "良好水準", "現在値", "評価"].map((header) => (
+                <th key={header} className="border px-3 py-2 text-left font-semibold">{header}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.category} className="odd:bg-white even:bg-slate-50">
+                <td className="border px-3 py-2 font-semibold">{row.categoryLabel}</td>
+                <td className="border px-3 py-2">{row.mainMetrics}</td>
+                <td className="border px-3 py-2">{row.goodCriteria}</td>
+                <td className="border px-3 py-2">{row.currentValue}</td>
+                <td className="border px-3 py-2">
+                  <span className={cn("inline-flex rounded-full px-2 py-1 text-xs font-bold", evaluationBadgeClass(row.evaluation))}>
+                    {evaluationLabel(row.evaluation)}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExitKpiEvaluationTable({ rows }: { rows: ExitKpiEvaluationRow[] }) {
+  return (
+    <Card className="rounded-md border bg-white shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">売却評価のための主要指標</CardTitle>
+        <CardDescription>算出根拠が不足している指標はデータ不足として表示</CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full min-w-[760px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-slate-100 text-slate-700">
+              {["カテゴリ", "指標", "実績", "目安", "評価"].map((header) => (
+                <th key={header} className="border px-3 py-2 text-left font-semibold">{header}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${row.category}-${row.metric}`} className="odd:bg-white even:bg-slate-50">
+                <td className="border px-3 py-2 font-semibold">{row.category}</td>
+                <td className="border px-3 py-2">{row.metric}</td>
+                <td className="border px-3 py-2 font-semibold tabular-nums">{row.actualLabel}</td>
+                <td className="border px-3 py-2">{row.benchmark}</td>
+                <td className="border px-3 py-2">
+                  <span className={cn("inline-flex rounded-full px-2 py-1 text-xs font-bold", evaluationBadgeClass(row.evaluation))}>
+                    {evaluationLabel(row.evaluation)}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExitKpiAlerts({ alerts }: { alerts: ExitKpiAlert[] }) {
+  return (
+    <Card className="rounded-md border bg-white shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">経営アラート</CardTitle>
+        <CardDescription>目標未達・継続性・収益性の自動検知</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {alerts.map((alert) => {
+          const Icon = alertIcon(alert.tone);
+          return (
+            <div key={alert.key} className={cn("flex gap-3 rounded-md border p-3", alertClass(alert.tone))}>
+              <Icon className="mt-0.5 h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-bold">{alert.title}</p>
+                <p className="mt-1 text-sm leading-relaxed">{alert.description}</p>
+              </div>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
 }
 
 function EmptySnapshot({ targetMonth }: { targetMonth: string }) {

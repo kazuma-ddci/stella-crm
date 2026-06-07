@@ -2,6 +2,9 @@ import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireEdit } from "@/lib/auth";
+import { DEFAULT_FIXED_COST, KPI_KEYS } from "@/lib/kpi/constants";
+import { calculateProratedFee, getDaysInMonth } from "@/lib/business-days";
+import { buildCommissionConfig, calcByType, type ContractPlan } from "@/lib/finance/auto-generate";
 import {
   ALL_STAFF,
   FALLBACK_PRODUCT,
@@ -15,9 +18,21 @@ import {
   type DealManagementRow,
   type DealPriority,
   type DwellTimeRow,
+  type ExitKpiData,
+  type ExitKpiDecisionRow,
+  type ExitKpiEvaluationRow,
+  type ExitKpiMetric,
+  type ExitKpiMetricKey,
+  type ExitKpiTargetValues,
   type FunnelRate,
   type FunnelTargetValues,
   type LostReasonResult,
+  type ManagementDashboardData,
+  type ManagementFunnelRow,
+  type ManagementMetric,
+  type ManagementMetricKey,
+  type ManagementProgressRow,
+  type ManagementRateRow,
   type NewDashboardData,
   type StaffProgressRow,
 } from "./types";
@@ -26,6 +41,8 @@ const STP_PROJECT_ID = 1;
 const MEETING_CATEGORY_NAME = "商談";
 const SCHEDULED_CONTRACT_STATUS = "scheduled";
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const CONFIRMED_INVOICE_STATUSES = ["sent", "awaiting_accounting", "partially_paid", "paid"];
+const CONFIRMED_PAYMENT_STATUSES = ["confirmed", "paid"];
 
 const EMPTY_TARGET_VALUES: FunnelTargetValues = {
   lead: null,
@@ -34,6 +51,15 @@ const EMPTY_TARGET_VALUES: FunnelTargetValues = {
   pending: null,
   contract: null,
   lost: null,
+};
+
+const EMPTY_EXIT_KPI_TARGET_VALUES: ExitKpiTargetValues = {
+  currentMrr: null,
+  arrRunRate: null,
+  nrr: null,
+  monthlyChurnRate: null,
+  grossMargin: null,
+  ebitdaMargin: null,
 };
 
 type ProductScope = {
@@ -1007,6 +1033,991 @@ async function buildDealManagement(params: {
   };
 }
 
+function calcTotalWithTax(tx: { amount: number; taxAmount: number; taxType: string }) {
+  return tx.taxType === "tax_included" ? tx.amount : tx.amount + tx.taxAmount;
+}
+
+function ratePercent(numerator: number, denominator: number) {
+  if (denominator <= 0) return null;
+  return Math.round((numerator / denominator) * 1000) / 10;
+}
+
+function formatExitCurrency(value: number | null) {
+  if (value == null) return "データ不足";
+  return `¥${new Intl.NumberFormat("ja-JP").format(value)}`;
+}
+
+function formatExitRate(value: number | null) {
+  if (value == null) return "データ不足";
+  return `${value.toFixed(1)}%`;
+}
+
+function exitTargetValuesFromRecord(
+  target: {
+    currentMrrTarget: number | null;
+    arrRunRateTarget: number | null;
+    nrrTarget: Prisma.Decimal | number | null;
+    churnRateTarget: Prisma.Decimal | number | null;
+    grossMarginTarget: Prisma.Decimal | number | null;
+    ebitdaMarginTarget: Prisma.Decimal | number | null;
+  } | null
+): ExitKpiTargetValues {
+  if (!target) return { ...EMPTY_EXIT_KPI_TARGET_VALUES };
+  return {
+    currentMrr: target.currentMrrTarget,
+    arrRunRate: target.arrRunRateTarget,
+    nrr: target.nrrTarget == null ? null : Number(target.nrrTarget),
+    monthlyChurnRate: target.churnRateTarget == null ? null : Number(target.churnRateTarget),
+    grossMargin: target.grossMarginTarget == null ? null : Number(target.grossMarginTarget),
+    ebitdaMargin: target.ebitdaMarginTarget == null ? null : Number(target.ebitdaMarginTarget),
+  };
+}
+
+function buildExitMetric(params: {
+  key: ExitKpiMetricKey;
+  label: string;
+  actual: number | null;
+  target: number | null;
+  format: "currency" | "rate";
+  inverted?: boolean;
+}): ExitKpiMetric {
+  const inverted = params.inverted ?? false;
+  const actual = params.actual;
+  const target = params.target;
+  let achievementRate: number | null = null;
+  if (actual != null && target != null) {
+    if (inverted) {
+      if (actual === 0) {
+        achievementRate = target >= 0 ? 100 : null;
+      } else {
+        achievementRate = Math.round((target / actual) * 1000) / 10;
+      }
+    } else {
+      achievementRate = target > 0 ? Math.round((actual / target) * 1000) / 10 : actual === 0 ? 100 : null;
+    }
+  }
+
+  const diff = actual != null && target != null ? Math.round((actual - target) * 10) / 10 : null;
+  const status: ExitKpiMetric["status"] =
+    actual == null || target == null
+      ? "neutral"
+      : inverted
+        ? actual <= target
+          ? "good"
+          : actual <= target * 1.25
+            ? "warning"
+            : "danger"
+        : achievementRate == null
+          ? "neutral"
+          : achievementRate >= 100
+            ? "good"
+            : achievementRate >= 80
+              ? "warning"
+              : "danger";
+
+  const comment =
+    status === "neutral"
+      ? "目標未設定またはデータ不足"
+      : status === "good"
+        ? inverted
+          ? "目標以下で良好に推移"
+          : "目標を上回り順調"
+        : status === "warning"
+          ? "目標近辺で推移、継続確認"
+          : "改善が必要";
+
+  return {
+    key: params.key,
+    label: params.label,
+    actual,
+    target,
+    achievementRate,
+    diff,
+    format: params.format,
+    inverted,
+    comment,
+    status,
+  };
+}
+
+function sumActiveMrrAt(
+  contracts: { companyId: number; contractStartDate: Date; contractEndDate: Date | null; monthlyFee: number }[],
+  date: Date
+) {
+  const byCompany = new Map<number, number>();
+  for (const contract of contracts) {
+    if (contract.contractStartDate > date) continue;
+    if (contract.contractEndDate && contract.contractEndDate < date) continue;
+    byCompany.set(contract.companyId, (byCompany.get(contract.companyId) ?? 0) + contract.monthlyFee);
+  }
+  return byCompany;
+}
+
+async function buildExitKpiData(targetMonth: string): Promise<ExitKpiData> {
+  const { start: monthStart, end: monthEnd } = parseMonth(targetMonth);
+  const previousMonth = addMonths(targetMonth, -1);
+  const { end: previousMonthEnd } = parseMonth(previousMonth);
+  const twelveMonthsAgo = addMonths(targetMonth, -12);
+  const { start: twelveMonthsAgoStart } = parseMonth(twelveMonthsAgo);
+  const past = targetMonth < toYearMonth(new Date());
+
+  const [contracts, transactions, target, fixedCostTarget] = await Promise.all([
+    prisma.stpContractHistory.findMany({
+      where: {
+        deletedAt: null,
+        status: "active",
+        monthlyFee: { gt: 0 },
+        contractStartDate: { lte: monthEnd },
+        OR: [{ contractEndDate: null }, { contractEndDate: { gte: twelveMonthsAgoStart } }],
+      },
+      select: {
+        companyId: true,
+        contractStartDate: true,
+        contractEndDate: true,
+        monthlyFee: true,
+      },
+    }),
+    prisma.transaction.findMany({
+      where: {
+        deletedAt: null,
+        periodFrom: { gte: monthStart, lte: monthEnd },
+        type: { in: ["revenue", "expense"] },
+      },
+      select: {
+        type: true,
+        amount: true,
+        taxAmount: true,
+        taxType: true,
+        invoiceGroupId: true,
+        paymentGroupId: true,
+        invoiceGroup: { select: { status: true } },
+        paymentGroup: { select: { status: true } },
+      },
+    }),
+    prisma.stpExitKpiTarget.findUnique({ where: { targetMonth } }),
+    prisma.kpiMonthlyTarget.findUnique({
+      where: { yearMonth_kpiKey: { yearMonth: targetMonth, kpiKey: KPI_KEYS.FIXED_COST } },
+    }),
+  ]);
+
+  const monthStartMrrByCompany = sumActiveMrrAt(contracts, monthStart);
+  const monthEndMrrByCompany = sumActiveMrrAt(contracts, monthEnd);
+  const previousMonthEndMrrByCompany = sumActiveMrrAt(contracts, previousMonthEnd);
+  const twelveMonthsAgoMrrByCompany = sumActiveMrrAt(contracts, twelveMonthsAgoStart);
+
+  const monthStartMrr = [...monthStartMrrByCompany.values()].reduce((sum, value) => sum + value, 0);
+  const currentMrr = [...monthEndMrrByCompany.values()].reduce((sum, value) => sum + value, 0);
+  const previousMonthEndMrr = [...previousMonthEndMrrByCompany.values()].reduce((sum, value) => sum + value, 0);
+
+  let monthEndExistingMrr = 0;
+  let expansionMrr = 0;
+  let contractionMrr = 0;
+  let churnMrr = 0;
+  for (const [companyId, startMrr] of monthStartMrrByCompany.entries()) {
+    const endMrr = monthEndMrrByCompany.get(companyId) ?? 0;
+    monthEndExistingMrr += endMrr;
+    if (endMrr === 0) {
+      churnMrr += startMrr;
+    } else if (endMrr > startMrr) {
+      expansionMrr += endMrr - startMrr;
+    } else if (endMrr < startMrr) {
+      contractionMrr += startMrr - endMrr;
+    }
+  }
+  const newMrr = [...monthEndMrrByCompany.entries()].reduce(
+    (sum, [companyId, endMrr]) => sum + (monthStartMrrByCompany.has(companyId) ? 0 : endMrr),
+    0
+  );
+
+  const retainedTwelveMonthMrr = [...twelveMonthsAgoMrrByCompany.entries()].reduce(
+    (sum, [companyId, oldMrr]) => sum + Math.min(oldMrr, monthEndMrrByCompany.get(companyId) ?? 0),
+    0
+  );
+  const twelveMonthStartMrr = [...twelveMonthsAgoMrrByCompany.values()].reduce((sum, value) => sum + value, 0);
+
+  let revenue = 0;
+  let expense = 0;
+  for (const tx of transactions) {
+    if (tx.type === "revenue") {
+      if (past && tx.invoiceGroupId !== null) {
+        if (!tx.invoiceGroup || !CONFIRMED_INVOICE_STATUSES.includes(tx.invoiceGroup.status)) continue;
+      }
+      revenue += calcTotalWithTax(tx);
+    } else if (tx.type === "expense") {
+      if (past && tx.paymentGroupId !== null) {
+        if (!tx.paymentGroup || !CONFIRMED_PAYMENT_STATUSES.includes(tx.paymentGroup.status)) continue;
+      }
+      expense += calcTotalWithTax(tx);
+    }
+  }
+
+  const fixedCost = fixedCostTarget?.targetValue ?? DEFAULT_FIXED_COST;
+  const grossProfit = revenue - expense;
+  const ebitdaLikeProfit = grossProfit - fixedCost;
+  const nrr = ratePercent(monthStartMrr + expansionMrr - contractionMrr - churnMrr, monthStartMrr);
+  const monthlyChurnRate = ratePercent(churnMrr, monthStartMrr);
+  const grossMargin = ratePercent(grossProfit, revenue);
+  const ebitdaMargin = ratePercent(ebitdaLikeProfit, revenue);
+  const mrrGrowthRate = ratePercent(currentMrr - previousMonthEndMrr, previousMonthEndMrr);
+  const netNewMrrRate = ratePercent(newMrr + expansionMrr - contractionMrr - churnMrr, monthStartMrr);
+  const ruleOf40 = mrrGrowthRate != null && ebitdaMargin != null ? Math.round((mrrGrowthRate + ebitdaMargin) * 10) / 10 : null;
+  const twelveMonthRetentionRate = ratePercent(retainedTwelveMonthMrr, twelveMonthStartMrr);
+  const targetValues = exitTargetValuesFromRecord(target);
+
+  const metrics = [
+    buildExitMetric({ key: "currentMrr", label: "現在MRR", actual: currentMrr, target: targetValues.currentMrr, format: "currency" }),
+    buildExitMetric({ key: "arrRunRate", label: "ARRランレート", actual: currentMrr * 12, target: targetValues.arrRunRate, format: "currency" }),
+    buildExitMetric({ key: "nrr", label: "NRR", actual: nrr, target: targetValues.nrr, format: "rate" }),
+    buildExitMetric({ key: "monthlyChurnRate", label: "月次チャーン率", actual: monthlyChurnRate, target: targetValues.monthlyChurnRate, format: "rate", inverted: true }),
+    buildExitMetric({ key: "grossMargin", label: "粗利率", actual: grossMargin, target: targetValues.grossMargin, format: "rate" }),
+    buildExitMetric({ key: "ebitdaMargin", label: "EBITDA率", actual: ebitdaMargin, target: targetValues.ebitdaMargin, format: "rate" }),
+  ];
+
+  const metricByKey = new Map(metrics.map((metric) => [metric.key, metric]));
+  const statusOf = (keys: ExitKpiMetricKey[]): ExitKpiMetric["status"] => {
+    const statuses = keys.map((key) => metricByKey.get(key)?.status ?? "neutral");
+    if (statuses.includes("danger")) return "danger";
+    if (statuses.includes("warning")) return "warning";
+    if (statuses.includes("good")) return "good";
+    return "neutral";
+  };
+
+  const decisionSummary: ExitKpiDecisionRow[] = [
+    {
+      category: "growth",
+      categoryLabel: "成長性",
+      mainMetrics: "MRR成長率・ARRランレート",
+      goodCriteria: "MRR成長率 20%以上",
+      currentValue: `MRR成長率 ${formatExitRate(mrrGrowthRate)} / ARR ${formatExitCurrency(currentMrr * 12)}`,
+      evaluation: statusOf(["currentMrr", "arrRunRate"]),
+    },
+    {
+      category: "profitability",
+      categoryLabel: "収益性",
+      mainMetrics: "粗利率・EBITDA率",
+      goodCriteria: "粗利率 75%以上 / EBITDA率 25%以上",
+      currentValue: `粗利率 ${formatExitRate(grossMargin)} / EBITDA率 ${formatExitRate(ebitdaMargin)}`,
+      evaluation: statusOf(["grossMargin", "ebitdaMargin"]),
+    },
+    {
+      category: "retention",
+      categoryLabel: "継続性",
+      mainMetrics: "NRR・月次チャーン率",
+      goodCriteria: "NRR 110%以上 / チャーン率 1%未満",
+      currentValue: `NRR ${formatExitRate(nrr)} / チャーン率 ${formatExitRate(monthlyChurnRate)}`,
+      evaluation: statusOf(["nrr", "monthlyChurnRate"]),
+    },
+    {
+      category: "efficiency",
+      categoryLabel: "効率性",
+      mainMetrics: "CAC回収月数・LTV/CAC・Rule of 40",
+      goodCriteria: "Rule of 40: 40%以上",
+      currentValue: `Rule of 40 ${formatExitRate(ruleOf40)}`,
+      evaluation: ruleOf40 == null ? "neutral" : ruleOf40 >= 40 ? "good" : ruleOf40 >= 30 ? "warning" : "danger",
+    },
+  ];
+
+  const evaluationRows: ExitKpiEvaluationRow[] = [
+    { category: "成長性", metric: "MRR成長率 (MoM)", actualLabel: formatExitRate(mrrGrowthRate), benchmark: "20%以上", evaluation: mrrGrowthRate == null ? "neutral" : mrrGrowthRate >= 20 ? "good" : mrrGrowthRate >= 10 ? "warning" : "danger" },
+    { category: "成長性", metric: "Net New MRR比率", actualLabel: formatExitRate(netNewMrrRate), benchmark: "100%以上", evaluation: netNewMrrRate == null ? "neutral" : netNewMrrRate >= 100 ? "good" : netNewMrrRate >= 0 ? "warning" : "danger" },
+    { category: "収益性", metric: "粗利率", actualLabel: formatExitRate(grossMargin), benchmark: "75%以上", evaluation: grossMargin == null ? "neutral" : grossMargin >= 75 ? "good" : grossMargin >= 60 ? "warning" : "danger" },
+    { category: "収益性", metric: "EBITDA率", actualLabel: formatExitRate(ebitdaMargin), benchmark: "25%以上", evaluation: ebitdaMargin == null ? "neutral" : ebitdaMargin >= 25 ? "good" : ebitdaMargin >= 15 ? "warning" : "danger" },
+    { category: "継続性", metric: "NRR", actualLabel: formatExitRate(nrr), benchmark: "110%以上", evaluation: nrr == null ? "neutral" : nrr >= 110 ? "good" : nrr >= 100 ? "warning" : "danger" },
+    { category: "継続性", metric: "12ヶ月継続率", actualLabel: formatExitRate(twelveMonthRetentionRate), benchmark: "90%以上", evaluation: twelveMonthRetentionRate == null ? "neutral" : twelveMonthRetentionRate >= 90 ? "good" : twelveMonthRetentionRate >= 80 ? "warning" : "danger" },
+    { category: "効率性", metric: "CAC回収月数", actualLabel: "データ不足", benchmark: "12ヶ月以内", evaluation: "neutral" },
+    { category: "効率性", metric: "LTV/CAC", actualLabel: "データ不足", benchmark: "3.0倍以上", evaluation: "neutral" },
+    { category: "効率性", metric: "Rule of 40", actualLabel: formatExitRate(ruleOf40), benchmark: "40%以上", evaluation: ruleOf40 == null ? "neutral" : ruleOf40 >= 40 ? "good" : ruleOf40 >= 30 ? "warning" : "danger" },
+  ];
+
+  const alerts: ExitKpiData["alerts"] = [];
+  for (const metric of metrics) {
+    if (metric.status === "danger") {
+      alerts.push({
+        key: `danger-${metric.key}`,
+        tone: "danger",
+        title: `${metric.label}が目標を下回っています`,
+        description: `${metric.label}の実績は${metric.format === "currency" ? formatExitCurrency(metric.actual) : formatExitRate(metric.actual)}です。改善アクションを確認してください。`,
+      });
+    } else if (metric.status === "warning") {
+      alerts.push({
+        key: `warning-${metric.key}`,
+        tone: "warning",
+        title: `${metric.label}が目標近辺です`,
+        description: "月末までの変動と次月への影響を継続確認してください。",
+      });
+    }
+  }
+  if (alerts.length === 0) {
+    alerts.push({
+      key: "healthy",
+      tone: "success",
+      title: "主要KPIは良好に推移しています",
+      description: "現時点で重大な経営アラートはありません。",
+    });
+  }
+  if (evaluationRows.some((row) => row.actualLabel === "データ不足")) {
+    alerts.push({
+      key: "data-shortage",
+      tone: "info",
+      title: "一部の売却評価指標はデータ不足です",
+      description: "CAC回収月数とLTV/CACはコストデータの紐付け後に自動算出できます。",
+    });
+  }
+
+  return {
+    targetMonth,
+    targetValues,
+    metrics,
+    decisionSummary,
+    evaluationRows,
+    alerts,
+    details: {
+      monthStartMrr,
+      monthEndExistingMrr,
+      expansionMrr,
+      contractionMrr,
+      churnMrr,
+      newMrr,
+      previousMonthEndMrr,
+      revenue,
+      expense,
+      fixedCost,
+      grossProfit,
+      ebitdaLikeProfit,
+      mrrGrowthRate,
+      netNewMrrRate,
+      ruleOf40,
+      twelveMonthRetentionRate,
+    },
+  };
+}
+
+const MANAGEMENT_REVENUE_STATUSES = ["active", "cancelled", "dormant"];
+
+type ManagementMonthContext = DateRange & {
+  month: string;
+  year: number;
+  monthNumber: number;
+  daysInMonth: number;
+};
+
+type ManagementContract = {
+  id: number;
+  companyId: number;
+  industryType: string;
+  contractPlan: string;
+  jobMedia: string | null;
+  contractStartDate: Date;
+  contractEndDate: Date | null;
+  initialFee: number;
+  monthlyFee: number;
+  performanceFee: number;
+  status: string;
+  contractDate: Date | null;
+};
+
+type ManagementCandidate = {
+  id: number;
+  joinDate: Date | null;
+  industryType: string | null;
+  jobMedia: string | null;
+  stpCompany: { id: number; companyId: number; leadSourceId: number | null; salesStaffId: number | null; agentId: number | null } | null;
+};
+
+type ManagementStpCompany = {
+  id: number;
+  companyId: number;
+  leadSourceId: number | null;
+  leadSource: { name: string } | null;
+  salesStaffId: number | null;
+  salesStaff: { name: string } | null;
+  agentId: number | null;
+};
+
+type ManagementAgentContract = {
+  id: number;
+  agentId: number;
+  contractStartDate: Date;
+  contractEndDate: Date | null;
+  contractDate: Date | null;
+  initialFee: number | null;
+  monthlyFee: number | null;
+  defaultMpInitialType: string | null;
+  defaultMpInitialRate: unknown;
+  defaultMpInitialFixed: unknown;
+  defaultMpInitialDuration: unknown;
+  defaultMpMonthlyType: string | null;
+  defaultMpMonthlyRate: unknown;
+  defaultMpMonthlyFixed: unknown;
+  defaultMpMonthlyDuration: unknown;
+  defaultPpInitialType: string | null;
+  defaultPpInitialRate: unknown;
+  defaultPpInitialFixed: unknown;
+  defaultPpInitialDuration: unknown;
+  defaultPpPerfType: string | null;
+  defaultPpPerfRate: unknown;
+  defaultPpPerfFixed: unknown;
+  defaultPpPerfDuration: unknown;
+};
+
+type ManagementCommissionOverride = {
+  agentContractHistoryId: number;
+  stpCompanyId: number;
+  mpInitialType: string | null;
+  mpInitialRate: unknown;
+  mpInitialFixed: unknown;
+  mpInitialDuration: unknown;
+  mpMonthlyType: string | null;
+  mpMonthlyRate: unknown;
+  mpMonthlyFixed: unknown;
+  mpMonthlyDuration: unknown;
+  ppInitialType: string | null;
+  ppInitialRate: unknown;
+  ppInitialFixed: unknown;
+  ppInitialDuration: unknown;
+  ppPerfType: string | null;
+  ppPerfRate: unknown;
+  ppPerfFixed: unknown;
+  ppPerfDuration: unknown;
+};
+
+function enumerateMonthContexts(selectedPeriod: string, monthRange: MonthRange): ManagementMonthContext[] {
+  const months: string[] = [];
+  if (selectedPeriod === "all") {
+    let current = monthRange.startMonth;
+    while (compareMonth(current, monthRange.endMonth) <= 0) {
+      months.push(current);
+      current = addMonths(current, 1);
+    }
+  } else {
+    months.push(selectedPeriod);
+  }
+
+  return months.map((month) => {
+    const [year, monthNumber] = month.split("-").map(Number);
+    const range = parseMonth(month);
+    return {
+      month,
+      year,
+      monthNumber,
+      daysInMonth: getDaysInMonth(year, monthNumber),
+      label: monthLabel(month),
+      ...range,
+    };
+  });
+}
+
+function isDateInMonth(date: Date | null | undefined, month: ManagementMonthContext) {
+  return !!date && date >= month.start && date <= month.end;
+}
+
+function overlapsMonth(start: Date, end: Date | null, month: ManagementMonthContext) {
+  if (start > month.end) return false;
+  if (end && end < month.start) return false;
+  return true;
+}
+
+function proratedAmount(amount: number, start: Date, end: Date | null, month: ManagementMonthContext) {
+  const isStartMonth = toYearMonth(start) === month.month;
+  const isEndMonth = end ? toYearMonth(end) === month.month : false;
+  const startDay = isStartMonth ? start.getDate() : 1;
+  const endDay = isEndMonth && end ? end.getDate() : month.daysInMonth;
+  if (startDay <= 1 && endDay >= month.daysInMonth) return amount;
+  return calculateProratedFee(amount, startDay, month.daysInMonth, endDay);
+}
+
+function monthsDiff(from: string, to: string) {
+  const [fromYear, fromMonth] = from.split("-").map(Number);
+  const [toYear, toMonth] = to.split("-").map(Number);
+  return (toYear - fromYear) * 12 + (toMonth - fromMonth);
+}
+
+function addAmount(map: Map<number, number>, key: number | null | undefined, amount: number) {
+  if (key == null || amount === 0) return;
+  map.set(key, (map.get(key) ?? 0) + amount);
+}
+
+function addNullableAmount(map: Map<string, number>, key: string, amount: number) {
+  if (amount === 0) return;
+  map.set(key, (map.get(key) ?? 0) + amount);
+}
+
+function findAgentContract(
+  agentContracts: ManagementAgentContract[],
+  agentId: number,
+  effectiveDate: Date
+) {
+  return agentContracts.find(
+    (history) =>
+      history.agentId === agentId &&
+      history.contractStartDate <= effectiveDate &&
+      (history.contractEndDate == null || history.contractEndDate >= effectiveDate)
+  );
+}
+
+function findPerformanceContract(candidate: ManagementCandidate, contracts: ManagementContract[]) {
+  const joinDate = candidate.joinDate;
+  const stpCompany = candidate.stpCompany;
+  if (!joinDate || !stpCompany) return null;
+  const matches = contracts
+    .filter(
+      (contract) =>
+        contract.companyId === stpCompany.companyId &&
+        contract.status === "active" &&
+        contract.performanceFee > 0 &&
+        contract.contractStartDate <= joinDate &&
+        (contract.contractEndDate == null || contract.contractEndDate >= joinDate) &&
+        (!candidate.industryType || contract.industryType === candidate.industryType) &&
+        (!candidate.jobMedia || contract.jobMedia === candidate.jobMedia)
+    )
+    .sort((a, b) => b.contractStartDate.getTime() - a.contractStartDate.getTime() || b.id - a.id);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function targetMetric(params: {
+  key: ManagementMetricKey;
+  label: string;
+  actual: number | null;
+  target: number | null;
+  format: ManagementMetric["format"];
+}): ManagementMetric {
+  const achievementRate =
+    params.actual != null && params.target != null && params.target > 0
+      ? Math.round((params.actual / params.target) * 1000) / 10
+      : null;
+  const diff =
+    params.actual != null && params.target != null
+      ? Math.round((params.actual - params.target) * 10) / 10
+      : null;
+  const status: ManagementMetric["status"] =
+    params.format === "placeholder"
+      ? "pending"
+      : achievementRate == null
+        ? "neutral"
+        : achievementRate >= 100
+          ? "good"
+          : achievementRate >= 80
+            ? "warning"
+            : "danger";
+  return { ...params, achievementRate, diff, status };
+}
+
+function formatManagementValue(value: number | null, format: ManagementMetric["format"]) {
+  if (format === "placeholder") return "準備中";
+  if (value == null) return "-";
+  if (format === "currency") return `¥${new Intl.NumberFormat("ja-JP").format(value)}`;
+  if (format === "rate") return `${value.toFixed(1)}%`;
+  return `${new Intl.NumberFormat("ja-JP").format(value)}件`;
+}
+
+function progressRowFromMetric(metric: ManagementMetric): ManagementProgressRow {
+  return {
+    key: metric.key,
+    label: metric.label,
+    actualLabel: formatManagementValue(metric.actual, metric.format),
+    targetLabel: metric.target == null ? (metric.format === "placeholder" ? "準備中" : "未設定") : formatManagementValue(metric.target, metric.format),
+    achievementRateLabel: metric.achievementRate == null ? (metric.format === "placeholder" ? "準備中" : "-") : `${metric.achievementRate.toFixed(1)}%`,
+    forecastLabel: "準備中",
+    status: metric.status,
+  };
+}
+
+async function buildManagementDashboardData(params: {
+  companies: StpCompanyRecord[];
+  stages: StageInfo[];
+  leadSources: { id: number; name: string }[];
+  staffOptions: DashboardOption[];
+  eventMaps: EventMaps;
+  range: DateRange;
+  selectedPeriod: string;
+  monthRange: MonthRange;
+  productScope: ProductScope;
+}): Promise<ManagementDashboardData> {
+  const monthContexts = enumerateMonthContexts(params.selectedPeriod, params.monthRange);
+  const months = monthContexts.map((month) => month.month);
+  const rangeStart = monthContexts[0]?.start ?? params.range.start;
+  const rangeEnd = monthContexts[monthContexts.length - 1]?.end ?? params.range.end;
+
+  const [contracts, candidates, kpiTargets] = await Promise.all([
+    prisma.stpContractHistory.findMany({
+      where: {
+        deletedAt: null,
+        OR: [
+          { contractDate: { gte: rangeStart, lte: rangeEnd } },
+          {
+            contractStartDate: { lte: rangeEnd },
+            OR: [{ contractEndDate: null }, { contractEndDate: { gte: rangeStart } }],
+          },
+        ],
+      },
+      select: {
+        id: true,
+        companyId: true,
+        industryType: true,
+        contractPlan: true,
+        jobMedia: true,
+        contractStartDate: true,
+        contractEndDate: true,
+        initialFee: true,
+        monthlyFee: true,
+        performanceFee: true,
+        status: true,
+        contractDate: true,
+      },
+      orderBy: [{ contractStartDate: "asc" }, { id: "asc" }],
+    }),
+    prisma.stpCandidate.findMany({
+      where: { deletedAt: null, joinDate: { gte: rangeStart, lte: rangeEnd } },
+      select: {
+        id: true,
+        joinDate: true,
+        industryType: true,
+        jobMedia: true,
+        stpCompany: {
+          select: {
+            id: true,
+            companyId: true,
+            leadSourceId: true,
+            salesStaffId: true,
+            agentId: true,
+          },
+        },
+      },
+    }),
+    prisma.kpiMonthlyTarget.findMany({
+      where: {
+        yearMonth: { in: months },
+        kpiKey: { in: [KPI_KEYS.MONTHLY_REVENUE, KPI_KEYS.MONTHLY_GROSS_PROFIT, KPI_KEYS.NEW_CONTRACTS] },
+      },
+      select: { yearMonth: true, kpiKey: true, targetValue: true },
+    }),
+  ]);
+
+  const companyIds = [...new Set(contracts.map((contract) => contract.companyId))];
+  const stpCompanies = companyIds.length > 0
+    ? await prisma.stpCompany.findMany({
+        where: { companyId: { in: companyIds } },
+        select: {
+          id: true,
+          companyId: true,
+          leadSourceId: true,
+          leadSource: { select: { name: true } },
+          salesStaffId: true,
+          salesStaff: { select: { name: true } },
+          agentId: true,
+        },
+        orderBy: { id: "asc" },
+      })
+    : [];
+  const stpCompanyByCompanyId = new Map<number, ManagementStpCompany>();
+  for (const stpCompany of stpCompanies) {
+    if (!stpCompanyByCompanyId.has(stpCompany.companyId)) {
+      stpCompanyByCompanyId.set(stpCompany.companyId, stpCompany);
+    }
+  }
+
+  const agentContracts = await prisma.stpAgentContractHistory.findMany({
+    where: {
+      deletedAt: null,
+      OR: [
+        { contractDate: { gte: rangeStart, lte: rangeEnd } },
+        {
+          contractStartDate: { lte: rangeEnd },
+          OR: [{ contractEndDate: null }, { contractEndDate: { gte: rangeStart } }],
+        },
+      ],
+    },
+    select: {
+      id: true,
+      agentId: true,
+      contractStartDate: true,
+      contractEndDate: true,
+      contractDate: true,
+      initialFee: true,
+      monthlyFee: true,
+      defaultMpInitialType: true,
+      defaultMpInitialRate: true,
+      defaultMpInitialFixed: true,
+      defaultMpInitialDuration: true,
+      defaultMpMonthlyType: true,
+      defaultMpMonthlyRate: true,
+      defaultMpMonthlyFixed: true,
+      defaultMpMonthlyDuration: true,
+      defaultPpInitialType: true,
+      defaultPpInitialRate: true,
+      defaultPpInitialFixed: true,
+      defaultPpInitialDuration: true,
+      defaultPpPerfType: true,
+      defaultPpPerfRate: true,
+      defaultPpPerfFixed: true,
+      defaultPpPerfDuration: true,
+    },
+    orderBy: [{ contractStartDate: "desc" }, { id: "desc" }],
+  });
+  const overrides = agentContracts.length > 0 && stpCompanies.length > 0
+    ? await prisma.stpAgentCommissionOverride.findMany({
+        where: {
+          agentContractHistoryId: { in: agentContracts.map((history) => history.id) },
+          stpCompanyId: { in: stpCompanies.map((company) => company.id) },
+        },
+      })
+    : [];
+  const overrideByAgentContractAndCompany = new Map(
+    overrides.map((override) => [`${override.agentContractHistoryId}-${override.stpCompanyId}`, override as ManagementCommissionOverride])
+  );
+
+  let revenue = 0;
+  let commissionCost = 0;
+  let directAgentCost = 0;
+  let contractCount = 0;
+  const revenueByCompanyId = new Map<number, number>();
+  const commissionCostByCompanyId = new Map<number, number>();
+  const contractCountByCompanyId = new Map<number, number>();
+
+  const addRevenue = (companyId: number, amount: number) => {
+    revenue += amount;
+    addAmount(revenueByCompanyId, companyId, amount);
+  };
+  const addCommissionCost = (companyId: number, amount: number) => {
+    commissionCost += amount;
+    addAmount(commissionCostByCompanyId, companyId, amount);
+  };
+
+  for (const month of monthContexts) {
+    for (const contract of contracts as ManagementContract[]) {
+      if (!MANAGEMENT_REVENUE_STATUSES.includes(contract.status)) continue;
+      if (isDateInMonth(contract.contractDate, month)) {
+        if (contract.initialFee > 0) addRevenue(contract.companyId, contract.initialFee);
+        contractCount += 1;
+        addAmount(contractCountByCompanyId, contract.companyId, 1);
+      }
+      if (contract.monthlyFee > 0 && overlapsMonth(contract.contractStartDate, contract.contractEndDate, month)) {
+        addRevenue(contract.companyId, proratedAmount(contract.monthlyFee, contract.contractStartDate, contract.contractEndDate, month));
+      }
+    }
+
+    for (const candidate of candidates as ManagementCandidate[]) {
+      if (!isDateInMonth(candidate.joinDate, month)) continue;
+      const contract = findPerformanceContract(candidate, contracts as ManagementContract[]);
+      if (contract) addRevenue(contract.companyId, contract.performanceFee);
+    }
+
+    for (const contract of contracts as ManagementContract[]) {
+      if (contract.status !== "active") continue;
+      const stpCompany = stpCompanyByCompanyId.get(contract.companyId);
+      if (!stpCompany?.agentId) continue;
+      const agentContract = findAgentContract(agentContracts as ManagementAgentContract[], stpCompany.agentId, contract.contractStartDate);
+      if (!agentContract) continue;
+      const override = overrideByAgentContractAndCompany.get(`${agentContract.id}-${stpCompany.id}`) ?? null;
+      const commissionConfig = buildCommissionConfig(contract.contractPlan as ContractPlan, agentContract, override);
+
+      if (toYearMonth(contract.contractStartDate) === month.month && contract.initialFee > 0) {
+        const amount = calcByType(contract.initialFee, commissionConfig.initialType, commissionConfig.initialRate, commissionConfig.initialFixed);
+        if (amount > 0) addCommissionCost(contract.companyId, amount);
+      }
+      if (contract.monthlyFee > 0 && contract.contractPlan !== "performance") {
+        const diff = monthsDiff(toYearMonth(contract.contractStartDate), month.month);
+        const duration = commissionConfig.monthlyDuration ?? 12;
+        if (diff >= 0 && diff < duration) {
+          const amount = calcByType(contract.monthlyFee, commissionConfig.monthlyType, commissionConfig.monthlyRate, commissionConfig.monthlyFixed);
+          if (amount > 0) addCommissionCost(contract.companyId, amount);
+        }
+      }
+    }
+
+    for (const candidate of candidates as ManagementCandidate[]) {
+      if (!isDateInMonth(candidate.joinDate, month) || !candidate.stpCompany?.agentId) continue;
+      const contract = findPerformanceContract(candidate, contracts as ManagementContract[]);
+      if (!contract) continue;
+      const agentContract = findAgentContract(agentContracts as ManagementAgentContract[], candidate.stpCompany.agentId, candidate.joinDate!);
+      if (!agentContract) continue;
+      const override = overrideByAgentContractAndCompany.get(`${agentContract.id}-${candidate.stpCompany.id}`) ?? null;
+      const commissionConfig = buildCommissionConfig(contract.contractPlan as ContractPlan, agentContract, override);
+      const amount = calcByType(contract.performanceFee, commissionConfig.perfType, commissionConfig.perfRate, commissionConfig.perfFixed);
+      if (amount > 0) addCommissionCost(contract.companyId, amount);
+    }
+
+    for (const agentContract of agentContracts as ManagementAgentContract[]) {
+      const initialFeeDate = agentContract.contractDate ?? agentContract.contractStartDate;
+      if (isDateInMonth(initialFeeDate, month) && (agentContract.initialFee ?? 0) > 0) {
+        directAgentCost += agentContract.initialFee ?? 0;
+      }
+      if ((agentContract.monthlyFee ?? 0) > 0 && overlapsMonth(agentContract.contractStartDate, agentContract.contractEndDate, month)) {
+        directAgentCost += proratedAmount(agentContract.monthlyFee ?? 0, agentContract.contractStartDate, agentContract.contractEndDate, month);
+      }
+    }
+  }
+
+  const cost = commissionCost + directAgentCost;
+  const grossProfit = revenue - cost;
+  const grossMargin = ratePercent(grossProfit, revenue);
+
+  const targetMap = new Map<string, number>();
+  for (const target of kpiTargets) {
+    addNullableAmount(targetMap, target.kpiKey, target.targetValue);
+  }
+  const revenueTarget = targetMap.get(KPI_KEYS.MONTHLY_REVENUE) ?? null;
+  const grossProfitTarget = targetMap.get(KPI_KEYS.MONTHLY_GROSS_PROFIT) ?? null;
+  const contractTarget = targetMap.get(KPI_KEYS.NEW_CONTRACTS) ?? null;
+  const grossMarginTarget = revenueTarget && grossProfitTarget != null ? ratePercent(grossProfitTarget, revenueTarget) : null;
+
+  const metrics: ManagementMetric[] = [
+    targetMetric({ key: "revenue", label: "売上", actual: revenue, target: revenueTarget, format: "currency" }),
+    targetMetric({ key: "grossProfit", label: "粗利", actual: grossProfit, target: grossProfitTarget, format: "currency" }),
+    targetMetric({ key: "grossMargin", label: "粗利率", actual: grossMargin, target: grossMarginTarget, format: "rate" }),
+    targetMetric({ key: "sellingGeneralAdministrativeExpense", label: "販管費", actual: null, target: null, format: "placeholder" }),
+    targetMetric({ key: "operatingProfit", label: "営業利益", actual: null, target: null, format: "placeholder" }),
+    targetMetric({ key: "contractCount", label: "契約数", actual: contractCount, target: contractTarget, format: "count" }),
+  ];
+
+  const currentFunnel = buildCurrentResult({
+    companies: params.companies,
+    stages: params.stages,
+    eventMaps: params.eventMaps,
+    range: params.range,
+  });
+  const funnelTargets = await prisma.stpDashboardFunnelTarget.findMany({
+    where: {
+      targetMonth: { in: months },
+      productKey: params.productScope.key,
+      staffKey: ALL_STAFF,
+    },
+  });
+  const targetSum = (key: keyof Pick<typeof funnelTargets[number], "leadTarget" | "validLeadTarget" | "meetingTarget" | "contractTarget" | "lostTarget">) => {
+    let found = false;
+    const total = funnelTargets.reduce((sum, target) => {
+      const value = target[key];
+      if (value == null) return sum;
+      found = true;
+      return sum + value;
+    }, 0);
+    return found ? total : null;
+  };
+  const funnelTargetValues = {
+    lead: targetSum("leadTarget"),
+    validLead: targetSum("validLeadTarget"),
+    meeting: targetSum("meetingTarget"),
+    pending: null,
+    contract: targetSum("contractTarget"),
+    lost: targetSum("lostTarget"),
+  };
+  const funnelRows: ManagementFunnelRow[] = currentFunnel.metrics
+    .filter((metric) => metric.key !== "pending")
+    .map((metric) => {
+      const target = funnelTargetValues[metric.key];
+      return {
+        key: metric.key,
+        label: metric.key === "meeting" ? "商談" : metric.label,
+        actual: metric.value,
+        target,
+        achievementRate: target != null && target > 0 ? Math.round((metric.value / target) * 1000) / 10 : null,
+      };
+    });
+  const metricValue = (key: ManagementFunnelRow["key"]) => funnelRows.find((row) => row.key === key)?.actual ?? 0;
+  const rateRows: ManagementRateRow[] = [
+    { key: "validRate", label: "有効率", value: roundRate(metricValue("validLead"), metricValue("lead")), numerator: metricValue("validLead"), denominator: metricValue("lead") },
+    { key: "meetingRate", label: "商談化率", value: roundRate(metricValue("meeting"), metricValue("validLead")), numerator: metricValue("meeting"), denominator: metricValue("validLead") },
+    { key: "contractRate", label: "契約率", value: roundRate(metricValue("contract"), metricValue("meeting")), numerator: metricValue("contract"), denominator: metricValue("meeting") },
+    { key: "lostRate", label: "失注率", value: roundRate(metricValue("lost"), metricValue("meeting")), numerator: metricValue("lost"), denominator: metricValue("meeting") },
+  ];
+
+  const channelRevenue = new Map<string, number>();
+  const channelCost = new Map<string, number>();
+  for (const [companyId, amount] of revenueByCompanyId.entries()) {
+    const stpCompany = stpCompanyByCompanyId.get(companyId);
+    const key = stpCompany?.leadSourceId == null ? "__unassigned__" : String(stpCompany.leadSourceId);
+    addNullableAmount(channelRevenue, key, amount);
+  }
+  for (const [companyId, amount] of commissionCostByCompanyId.entries()) {
+    const stpCompany = stpCompanyByCompanyId.get(companyId);
+    const key = stpCompany?.leadSourceId == null ? "__unassigned__" : String(stpCompany.leadSourceId);
+    addNullableAmount(channelCost, key, amount);
+  }
+  const channelRows = [
+    ...params.leadSources.map((source) => {
+      const sourceCompanies = params.companies.filter((company) => company.leadSourceId === source.id && isInRange(company.leadAcquiredDate, params.range));
+      const meetingCount = sourceCompanies.filter((company) => params.eventMaps.firstMeetingByCompanyId.has(company.companyId)).length;
+      const sourceRevenue = channelRevenue.get(String(source.id)) ?? 0;
+      const sourceCost = channelCost.get(String(source.id)) ?? 0;
+      return {
+        leadSourceId: source.id,
+        leadSourceName: source.name,
+        leadCount: sourceCompanies.length,
+        meetingCount,
+        contractCount: sourceCompanies.reduce((sum, company) => sum + (contractCountByCompanyId.get(company.companyId) ?? 0), 0),
+        revenue: sourceRevenue,
+        grossMargin: ratePercent(sourceRevenue - sourceCost, sourceRevenue),
+      };
+    }),
+    {
+      leadSourceId: null,
+      leadSourceName: "流入経路未設定",
+      leadCount: params.companies.filter((company) => company.leadSourceId == null && isInRange(company.leadAcquiredDate, params.range)).length,
+      meetingCount: params.companies.filter((company) => company.leadSourceId == null && params.eventMaps.firstMeetingByCompanyId.has(company.companyId)).length,
+      contractCount: [...contractCountByCompanyId.entries()].reduce((sum, [companyId, count]) => {
+        const stpCompany = stpCompanyByCompanyId.get(companyId);
+        return stpCompany?.leadSourceId == null ? sum + count : sum;
+      }, 0),
+      revenue: channelRevenue.get("__unassigned__") ?? 0,
+      grossMargin: ratePercent((channelRevenue.get("__unassigned__") ?? 0) - (channelCost.get("__unassigned__") ?? 0), channelRevenue.get("__unassigned__") ?? 0),
+    },
+  ].filter((row) => row.leadCount > 0 || row.contractCount > 0 || row.revenue > 0);
+
+  const staffRevenue = new Map<string, number>();
+  const staffContracts = new Map<string, number>();
+  for (const [companyId, amount] of revenueByCompanyId.entries()) {
+    const stpCompany = stpCompanyByCompanyId.get(companyId);
+    addNullableAmount(staffRevenue, stpCompany?.salesStaffId == null ? "__unassigned__" : String(stpCompany.salesStaffId), amount);
+  }
+  for (const [companyId, count] of contractCountByCompanyId.entries()) {
+    const stpCompany = stpCompanyByCompanyId.get(companyId);
+    addNullableAmount(staffContracts, stpCompany?.salesStaffId == null ? "__unassigned__" : String(stpCompany.salesStaffId), count);
+  }
+  const staffRows = [
+    ...params.staffOptions.map((staff) => ({
+      staffId: Number(staff.value),
+      staffName: staff.label,
+      contractCount: staffContracts.get(staff.value) ?? 0,
+      revenue: staffRevenue.get(staff.value) ?? 0,
+      achievementLabel: "準備中",
+    })),
+    {
+      staffId: null,
+      staffName: "担当営業未設定",
+      contractCount: staffContracts.get("__unassigned__") ?? 0,
+      revenue: staffRevenue.get("__unassigned__") ?? 0,
+      achievementLabel: "準備中",
+    },
+  ].filter((row) => row.contractCount > 0 || row.revenue > 0);
+
+  return {
+    scopeLabel: params.range.label,
+    productLabel: "採用ブースト",
+    metrics,
+    progressRows: metrics.map(progressRowFromMetric).filter((row) =>
+      ["revenue", "grossProfit", "operatingProfit", "contractCount"].includes(row.key)
+    ),
+    funnelRows,
+    rateRows,
+    revenueStructureRows: [
+      { key: "revenue", label: "売上", amount: revenue, percent: 100, status: "actual" },
+      { key: "cost", label: "原価", amount: cost, percent: ratePercent(cost, revenue), status: "actual" },
+      { key: "grossProfit", label: "粗利", amount: grossProfit, percent: grossMargin, status: "actual" },
+      { key: "sellingGeneralAdministrativeExpense", label: "販管費", amount: null, percent: null, status: "pending" },
+      { key: "operatingProfit", label: "営業利益", amount: null, percent: null, status: "pending" },
+    ],
+    channelRows,
+    staffRows,
+    totals: {
+      revenue,
+      cost,
+      grossProfit,
+      grossMargin,
+      contractCount,
+    },
+  };
+}
+
 async function buildAllComputedData(params: {
   period?: string;
   product?: string;
@@ -1107,6 +2118,19 @@ async function buildAllComputedData(params: {
     eventMaps,
     staffScope,
   });
+  const exitKpi = await buildExitKpiData(period.targetMonth);
+  const productScope = normalizeProductScope(selectedProduct, productOptions);
+  const management = await buildManagementDashboardData({
+    companies: allCompanies,
+    stages,
+    leadSources,
+    staffOptions,
+    eventMaps: allEventMaps,
+    range: period.range,
+    selectedPeriod: period.selectedPeriod,
+    monthRange,
+    productScope,
+  });
 
   return {
     productOptions,
@@ -1120,6 +2144,8 @@ async function buildAllComputedData(params: {
     cohort,
     channelAnalysis,
     dealManagement,
+    exitKpi,
+    management,
   };
 }
 
@@ -1180,6 +2206,8 @@ export async function getNewDashboardData(params: {
     },
     channelAnalysis: computed.channelAnalysis,
     dealManagement: computed.dealManagement,
+    exitKpi: computed.exitKpi,
+    management: computed.management,
   };
 }
 
