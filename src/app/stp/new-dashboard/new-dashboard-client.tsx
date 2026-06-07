@@ -204,6 +204,10 @@ const TONE_CLASSES: Record<FunnelMetric["tone"], string> = {
 };
 
 const PIE_COLORS = ["#2563eb", "#f59e0b", "#ef4444", "#22c55e", "#8b5cf6", "#64748b"];
+const DASHBOARD_CARD_CLASS = "rounded-lg border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.08)]";
+const DASHBOARD_TABLE_CLASS = "w-full border-separate border-spacing-0 text-sm";
+const DASHBOARD_TH_CLASS = "border-b border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-xs font-bold text-slate-600";
+const DASHBOARD_TD_CLASS = "border-b border-slate-100 px-3 py-2.5 text-slate-700";
 
 function isValidMode(value: string | null): value is DashboardMode {
   return value === "current" || value === "cohort" || value === "snapshot";
@@ -325,15 +329,15 @@ export function NewDashboardClient({ initialSearchParams, data }: Props) {
   }, [activeMode, activeTab, pathname, router, searchParams, selectedPeriod, selectedProduct, selectedStaff]);
 
   return (
-    <div className="min-h-screen space-y-4 bg-slate-50 text-slate-950">
-      <div className="rounded-md border bg-white shadow-sm">
-        <div className="flex flex-col gap-3 p-3 lg:flex-row lg:items-end lg:justify-between">
+    <div className="min-h-screen space-y-5 bg-slate-50 text-slate-950">
+      <div className={cn(DASHBOARD_CARD_CLASS, "overflow-hidden")}>
+        <div className="flex flex-col gap-4 border-b border-slate-100 p-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <div className="rounded-md bg-blue-700 px-2 py-1 text-sm font-bold text-white">STP</div>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-700 text-sm font-bold text-white shadow-sm">STP</div>
               <div>
-                <h1 className="text-xl font-bold tracking-normal text-slate-950">STPダッシュボード</h1>
-                <p className="text-xs text-slate-500">STP OS / Sales & Operations</p>
+                <h1 className="text-2xl font-bold text-slate-950">STPダッシュボード</h1>
+                <p className="text-sm text-slate-500">STP OS / Sales & Operations</p>
               </div>
             </div>
           </div>
@@ -382,11 +386,15 @@ export function NewDashboardClient({ initialSearchParams, data }: Props) {
 
       <Tabs value={activeTab} onValueChange={(value) => replaceParams({ tab: value })} idBase="stp-new-dashboard">
         <div className="overflow-x-auto pb-1">
-          <TabsList className="h-auto min-w-full justify-start gap-1 rounded-md bg-white p-1 shadow-sm">
+          <TabsList className={cn("h-auto min-w-full justify-start gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm")}>
             {DASHBOARD_TABS.map((tab) => {
               const Icon = tab.icon;
               return (
-                <TabsTrigger key={tab.value} value={tab.value} className="min-h-9 gap-2 px-3 text-sm">
+                <TabsTrigger
+                  key={tab.value}
+                  value={tab.value}
+                  className="min-h-9 gap-2 rounded-md px-3 text-sm font-semibold text-slate-600 data-[state=active]:bg-blue-700 data-[state=active]:text-white data-[state=active]:shadow-sm"
+                >
                   <Icon className="h-4 w-4" />
                   {tab.label}
                 </TabsTrigger>
@@ -445,7 +453,7 @@ function FilterSelect({
         {label}
       </div>
       <Select value={value} onValueChange={onValueChange}>
-        <SelectTrigger className="h-9 w-full bg-white text-sm">
+        <SelectTrigger className="h-10 w-full rounded-md border-slate-200 bg-white text-sm shadow-sm">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -676,8 +684,9 @@ function RateCard({ rate }: { rate: FunnelRate }) {
 }
 
 function DwellTimeCard({ data }: { data: CurrentFunnelResult }) {
-  const chartData = data.dwellTimes.map((row) => ({
-    name: row.label,
+  const chartData = data.dwellTimes.map((row, index) => ({
+    name: `${row.label}-${index}`,
+    displayName: row.label,
     days: row.averageDays ?? 0,
     label: row.averageDays == null ? "-" : `${row.averageDays}日`,
   }));
@@ -694,15 +703,15 @@ function DwellTimeCard({ data }: { data: CurrentFunnelResult }) {
             <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 20, left: 96, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
               <XAxis type="number" tick={{ fontSize: 11 }} />
-              <YAxis type="category" dataKey="name" width={96} tick={{ fontSize: 11 }} />
+              <YAxis type="category" dataKey="name" width={96} tick={{ fontSize: 11 }} tickFormatter={(_, index) => chartData[index]?.displayName ?? ""} />
               <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}日`, "平均"]} />
               <Bar dataKey="days" fill="#2563eb" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
         <div className="mt-2 space-y-1 text-xs text-slate-500">
-          {data.dwellTimes.map((row) => (
-            <div key={row.label} className="flex justify-between gap-3">
+          {data.dwellTimes.map((row, index) => (
+            <div key={`${row.label}-${index}`} className="flex justify-between gap-3">
               <span className="truncate">{row.label}</span>
               <span className="shrink-0 tabular-nums">
                 {row.averageDays == null ? "-" : `${row.averageDays}日`} / {row.sampleCount}件
@@ -779,9 +788,9 @@ function CohortView({ data }: { data: NewDashboardData }) {
       <CardContent className="overflow-x-auto">
         <table className="w-full min-w-[820px] border-collapse text-sm">
           <thead>
-            <tr className="bg-blue-900 text-white">
+            <tr>
               {["リード発生月", "リード", "有効リード", "商談実施", "検討中", "契約", "失注", "有効化率", "商談化率", "契約率"].map((header) => (
-                <th key={header} className="border border-blue-800 px-3 py-2 text-left font-semibold">{header}</th>
+                <th key={header} className={DASHBOARD_TH_CLASS}>{header}</th>
               ))}
             </tr>
           </thead>
@@ -880,9 +889,9 @@ function ChannelAnalysisDashboard({ data }: { data: ChannelAnalysisData }) {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[980px] border-collapse text-sm">
               <thead>
-                <tr className="bg-blue-900 text-white">
+                <tr>
                   {["流入経路", "リード数", "有効率", "商談化率", "契約率", "契約数", "獲得MRR", "MRR構成比", "CAC", "評価"].map((header) => (
-                    <th key={header} className="border border-blue-800 px-3 py-2 text-left font-semibold">
+                    <th key={header} className={DASHBOARD_TH_CLASS}>
                       {header}
                     </th>
                   ))}
@@ -1148,9 +1157,9 @@ function DealRowsTable({ rows, onGoToCompany }: { rows: DealManagementRow[]; onG
     <div className="overflow-x-auto rounded-md border">
       <table className="w-full min-w-[1420px] border-collapse text-sm">
         <thead>
-          <tr className="bg-blue-900 text-white">
+          <tr>
             {headers.map((header) => (
-              <th key={header} className="border border-blue-800 px-3 py-2 text-left font-semibold">
+              <th key={header} className={DASHBOARD_TH_CLASS}>
                 {header}
               </th>
             ))}
@@ -1278,19 +1287,78 @@ function managementStatusClass(status: ManagementMetric["status"]) {
   }
 }
 
+function progressValue(label: string) {
+  const value = Number.parseFloat(label.replace("%", ""));
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+}
+
+function ManagementSectionHeader({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: React.ElementType;
+  title: string;
+  description: string;
+}) {
+  return (
+    <CardHeader className="border-b border-slate-100 px-4 py-3">
+      <div className="flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-700 ring-1 ring-blue-100">
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <CardTitle className="text-base font-bold text-slate-950">{title}</CardTitle>
+          <CardDescription className="mt-0.5 text-xs text-slate-500">{description}</CardDescription>
+        </div>
+      </div>
+    </CardHeader>
+  );
+}
+
+function ManagementProgressBar({ value, status }: { value: number; status: ManagementMetric["status"] }) {
+  const barClass =
+    status === "good"
+      ? "bg-emerald-500"
+      : status === "warning"
+        ? "bg-amber-500"
+        : status === "danger"
+          ? "bg-red-500"
+          : status === "pending"
+            ? "bg-slate-300"
+            : "bg-blue-600";
+
+  return (
+    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+      <div className={cn("h-full rounded-full", barClass)} style={{ width: `${value}%` }} />
+    </div>
+  );
+}
+
 function ManagementDashboard({ data }: { data: ManagementDashboardData }) {
   return (
-    <div className="space-y-4">
-      <div className="rounded-md border border-violet-200 bg-violet-50 p-4">
-        <div className="flex items-start gap-3">
-          <div className="rounded-md border border-violet-200 bg-white/80 p-2 text-violet-700">
-            <CircleDollarSign className="h-5 w-5" />
+    <div className="space-y-5">
+      <div className={cn(DASHBOARD_CARD_CLASS, "overflow-hidden border-blue-100")}>
+        <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-blue-700 text-white shadow-sm">
+              <CircleDollarSign className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-950">経営ダッシュボード</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                {data.scopeLabel} / {data.productLabel} の売上・粗利・ファネル進捗を表示します。
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-xl font-bold text-slate-950">経営ダッシュボード</h2>
-            <p className="text-sm text-slate-600">
-              {data.scopeLabel} / {data.productLabel} の売上・粗利・ファネル進捗を表示します。
-            </p>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline" className="border-blue-200 bg-blue-50 px-3 py-1 text-blue-700">
+              採用ブースト
+            </Badge>
+            <Badge variant="outline" className="border-slate-200 bg-white px-3 py-1 text-slate-600">
+              {data.scopeLabel}
+            </Badge>
           </div>
         </div>
       </div>
@@ -1301,26 +1369,17 @@ function ManagementDashboard({ data }: { data: ManagementDashboardData }) {
         ))}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+      <div className="grid items-start gap-4 xl:grid-cols-[1.1fr_1.25fr_0.95fr]">
         <ManagementProgressSummary data={data} />
         <ManagementFunnelSummary data={data} />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <ManagementRevenueStructure data={data} />
-        <ManagementChannelPerformance data={data} />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
-        <Card className="rounded-md border bg-white shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">商材別実績</CardTitle>
-            <CardDescription>商材が複数になった後に表示します</CardDescription>
-          </CardHeader>
-          <CardContent className="flex min-h-[220px] items-center justify-center text-sm font-semibold text-slate-500">
-            準備中
-          </CardContent>
-        </Card>
+      <div className="grid items-start gap-4 xl:grid-cols-[0.75fr_1.25fr]">
+        <div className="xl:col-span-2">
+          <ManagementChannelPerformance data={data} />
+        </div>
+        <ManagementProductPerformance />
         <ManagementStaffProgress data={data} />
       </div>
     </div>
@@ -1329,24 +1388,27 @@ function ManagementDashboard({ data }: { data: ManagementDashboardData }) {
 
 function ManagementMetricCard({ metric }: { metric: ManagementMetric }) {
   const Icon = MANAGEMENT_METRIC_ICONS[metric.key];
+  const achievementLabel =
+    metric.achievementRate == null ? (metric.status === "pending" ? "準備中" : "-") : `${metric.achievementRate.toFixed(1)}%`;
   return (
-    <Card className="rounded-md border bg-white shadow-sm">
-      <CardContent className="p-4">
-        <div className="flex items-center gap-3 border-b pb-3">
-          <div className="rounded-full bg-blue-100 p-2 text-blue-700">
-            <Icon className="h-5 w-5" />
+    <Card className={cn(DASHBOARD_CARD_CLASS, "overflow-hidden")}>
+      <CardContent className="flex h-full min-h-[178px] flex-col p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-700">{metric.label}</p>
+            <p className={cn("mt-3 whitespace-nowrap text-xl font-bold leading-tight tabular-nums", metric.status === "pending" ? "text-slate-500" : "text-blue-700")}>
+              {formatManagementValue(metric.actual, metric.format)}
+            </p>
           </div>
-          <p className="min-w-0 text-sm font-bold text-slate-900">{metric.label}</p>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-700 ring-1 ring-blue-100">
+            <Icon className="h-4 w-4" />
+          </div>
         </div>
-        <div className="mt-3 space-y-2 text-sm">
-          <ManagementCardLine label="実績" value={formatManagementValue(metric.actual, metric.format)} valueClass="text-blue-700" />
+        <div className="mt-auto space-y-2 pt-4 text-sm">
           <ManagementCardLine label="目標" value={metric.target == null ? (metric.format === "placeholder" ? "準備中" : "未設定") : formatManagementValue(metric.target, metric.format)} />
-          <ManagementCardLine
-            label="達成率"
-            value={metric.achievementRate == null ? (metric.status === "pending" ? "準備中" : "-") : `${metric.achievementRate.toFixed(1)}%`}
-            valueClass={managementStatusClass(metric.status)}
-          />
+          <ManagementCardLine label="達成率" value={achievementLabel} valueClass={managementStatusClass(metric.status)} />
           <ManagementCardLine label="差分" value={formatManagementDiff(metric)} valueClass={managementStatusClass(metric.status)} />
+          {metric.achievementRate != null && <ManagementProgressBar value={Math.min(100, Math.max(0, metric.achievementRate))} status={metric.status} />}
         </div>
       </CardContent>
     </Card>
@@ -1364,27 +1426,33 @@ function ManagementCardLine({ label, value, valueClass }: { label: string; value
 
 function ManagementProgressSummary({ data }: { data: ManagementDashboardData }) {
   return (
-    <Card className="rounded-md border bg-white shadow-sm">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">目標進捗サマリー</CardTitle>
-        <CardDescription>着地見込みは準備中です</CardDescription>
-      </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <table className="w-full min-w-[720px] border-collapse text-sm">
+    <Card className={cn(DASHBOARD_CARD_CLASS, "overflow-hidden")}>
+      <ManagementSectionHeader icon={Target} title="目標進捗サマリー" description="実績・目標・達成率を横断して確認します" />
+      <CardContent className="overflow-x-auto p-4">
+        <table className={cn(DASHBOARD_TABLE_CLASS, "min-w-[680px]")}>
           <thead>
-            <tr className="bg-slate-100 text-slate-700">
+            <tr>
               {["指標", "実績 / 目標", "達成率", "着地見込み"].map((header) => (
-                <th key={header} className="border px-3 py-2 text-left font-semibold">{header}</th>
+                <th key={header} className={DASHBOARD_TH_CLASS}>{header}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {data.progressRows.map((row) => (
-              <tr key={row.key} className="odd:bg-white even:bg-slate-50">
-                <td className="border px-3 py-2 font-semibold">{row.label}</td>
-                <td className="border px-3 py-2 tabular-nums">{row.actualLabel} / {row.targetLabel}</td>
-                <td className={cn("border px-3 py-2 font-bold tabular-nums", managementStatusClass(row.status))}>{row.achievementRateLabel}</td>
-                <td className="border px-3 py-2 text-slate-500">{row.forecastLabel}</td>
+              <tr key={row.key} className="bg-white">
+                <td className={cn(DASHBOARD_TD_CLASS, "font-semibold text-slate-900")}>{row.label}</td>
+                <td className={cn(DASHBOARD_TD_CLASS, "tabular-nums")}>{row.actualLabel} / {row.targetLabel}</td>
+                <td className={cn(DASHBOARD_TD_CLASS, "min-w-[170px]")}>
+                  <div className="flex items-center gap-3">
+                    <span className={cn("w-16 shrink-0 font-bold tabular-nums", managementStatusClass(row.status))}>{row.achievementRateLabel}</span>
+                    <div className="min-w-[80px] flex-1">
+                      <ManagementProgressBar value={progressValue(row.achievementRateLabel)} status={row.status} />
+                    </div>
+                  </div>
+                </td>
+                <td className={DASHBOARD_TD_CLASS}>
+                  <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-500">{row.forecastLabel}</span>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -1396,28 +1464,26 @@ function ManagementProgressSummary({ data }: { data: ManagementDashboardData }) 
 
 function ManagementFunnelSummary({ data }: { data: ManagementDashboardData }) {
   return (
-    <Card className="rounded-md border bg-white shadow-sm">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">営業ファネル</CardTitle>
-        <CardDescription>実績・目標・達成率</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <Card className={cn(DASHBOARD_CARD_CLASS, "overflow-hidden")}>
+      <ManagementSectionHeader icon={Filter} title="営業ファネル" description="リードから契約・失注までの実績と率" />
+      <CardContent className="space-y-4 p-4">
         <div className="grid gap-2 sm:grid-cols-5">
           {data.funnelRows.map((row) => (
-            <div key={row.key} className="rounded-md border bg-slate-50 p-3">
-              <p className="text-xs font-semibold text-slate-500">{row.label}</p>
-              <p className="mt-2 text-xl font-bold text-blue-700 tabular-nums">{row.actual.toLocaleString("ja-JP")}</p>
+            <div key={row.key} className="relative rounded-lg border border-slate-200 bg-slate-50 px-2 py-3 text-center">
+              <p className="min-h-8 text-xs font-bold leading-snug text-slate-600">{row.label}</p>
+              <p className="mt-2 text-2xl font-bold text-blue-700 tabular-nums">{row.actual.toLocaleString("ja-JP")}</p>
               <p className="mt-1 text-xs text-slate-500">目標 {row.target == null ? "未設定" : row.target.toLocaleString("ja-JP")}</p>
-              <p className="mt-1 text-sm font-bold text-slate-900">
-                {row.achievementRate == null ? "-" : `${row.achievementRate.toFixed(1)}%`}
-              </p>
+              <div className="mt-3">
+                <ManagementProgressBar value={row.achievementRate == null ? 0 : Math.min(100, Math.max(0, row.achievementRate))} status="neutral" />
+              </div>
+              <p className="mt-2 text-sm font-bold text-slate-900">{row.achievementRate == null ? "-" : `${row.achievementRate.toFixed(1)}%`}</p>
             </div>
           ))}
         </div>
         <div className="grid gap-2 sm:grid-cols-4">
           {data.rateRows.map((row) => (
-            <div key={row.key} className="rounded-md border bg-white p-3">
-              <p className="text-xs font-semibold text-slate-500">{row.label}</p>
+            <div key={row.key} className="rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-center">
+              <p className="min-h-8 text-xs font-bold leading-snug text-slate-600">{row.label}</p>
               <p className="mt-2 text-lg font-bold text-blue-700 tabular-nums">{formatRate(row.value)}</p>
               <p className="mt-1 text-xs text-slate-500">{row.numerator.toLocaleString("ja-JP")} / {row.denominator.toLocaleString("ja-JP")}</p>
             </div>
@@ -1430,35 +1496,33 @@ function ManagementFunnelSummary({ data }: { data: ManagementDashboardData }) {
 
 function ManagementRevenueStructure({ data }: { data: ManagementDashboardData }) {
   return (
-    <Card className="rounded-md border bg-white shadow-sm">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">収益構造</CardTitle>
-        <CardDescription>売上から粗利までの構造</CardDescription>
-      </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <table className="w-full min-w-[560px] border-collapse text-sm">
-          <thead>
-            <tr className="bg-slate-100 text-slate-700">
-              {["項目", "金額", "売上比", "状態"].map((header) => (
-                <th key={header} className="border px-3 py-2 text-left font-semibold">{header}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data.revenueStructureRows.map((row) => (
-              <tr key={row.key} className="odd:bg-white even:bg-slate-50">
-                <td className="border px-3 py-2 font-semibold">{row.label}</td>
-                <td className="border px-3 py-2 font-bold tabular-nums">{row.status === "pending" ? "準備中" : formatCurrency(row.amount)}</td>
-                <td className="border px-3 py-2 tabular-nums">{row.status === "pending" ? "準備中" : formatRate(row.percent)}</td>
-                <td className="border px-3 py-2">
-                  <span className={cn("inline-flex rounded-full px-2 py-1 text-xs font-bold", row.status === "pending" ? "bg-slate-100 text-slate-500" : "bg-blue-100 text-blue-700")}>
+    <Card className={cn(DASHBOARD_CARD_CLASS, "overflow-hidden")}>
+      <ManagementSectionHeader icon={PieChartIcon} title="収益構造" description="売上から原価・粗利までの構造" />
+      <CardContent className="space-y-2 p-4">
+        {data.revenueStructureRows.map((row) => {
+          const percent = row.status === "pending" ? 0 : Math.max(0, Math.min(100, row.percent ?? 0));
+          return (
+            <div key={row.key} className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-start">
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-slate-900">{row.label}</p>
+                  <p className="mt-1 text-xs text-slate-500">売上比 {row.status === "pending" ? "準備中" : formatRate(row.percent)}</p>
+                </div>
+                <div className="sm:text-right">
+                  <p className={cn("font-bold tabular-nums", row.status === "pending" ? "text-slate-500" : "text-blue-700")}>
+                    {row.status === "pending" ? "準備中" : formatCurrency(row.amount)}
+                  </p>
+                  <span className={cn("mt-1 inline-flex rounded-full px-2 py-1 text-xs font-bold ring-1", row.status === "pending" ? "bg-slate-100 text-slate-500 ring-slate-200" : "bg-blue-50 text-blue-700 ring-blue-200")}>
                     {row.status === "pending" ? "準備中" : "実績"}
                   </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+              </div>
+              <div className="mt-2">
+                <ManagementProgressBar value={percent} status={row.status === "pending" ? "pending" : "neutral"} />
+              </div>
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );
@@ -1466,34 +1530,35 @@ function ManagementRevenueStructure({ data }: { data: ManagementDashboardData })
 
 function ManagementChannelPerformance({ data }: { data: ManagementDashboardData }) {
   return (
-    <Card className="rounded-md border bg-white shadow-sm">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">チャネル別実績</CardTitle>
-        <CardDescription>目標は表示しません</CardDescription>
-      </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <table className="w-full min-w-[760px] border-collapse text-sm">
+    <Card className={cn(DASHBOARD_CARD_CLASS, "overflow-hidden")}>
+      <ManagementSectionHeader icon={BarChart3} title="チャネル別実績" description="目標なし / 流入経路別の成果を比較" />
+      <CardContent className="overflow-x-auto p-4">
+        <table className={cn(DASHBOARD_TABLE_CLASS, "min-w-[760px]")}>
           <thead>
-            <tr className="bg-blue-900 text-white">
+            <tr>
               {["チャネル", "リード", "商談", "契約", "売上", "粗利率"].map((header) => (
-                <th key={header} className="border border-blue-800 px-3 py-2 text-left font-semibold">{header}</th>
+                <th key={header} className={DASHBOARD_TH_CLASS}>{header}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {data.channelRows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="border px-3 py-8 text-center text-slate-500">該当データがありません</td>
+                <td colSpan={6} className={cn(DASHBOARD_TD_CLASS, "py-8 text-center text-slate-500")}>該当データがありません</td>
               </tr>
             ) : (
               data.channelRows.map((row) => (
-                <tr key={row.leadSourceId ?? "unassigned"} className="odd:bg-white even:bg-blue-50/40">
-                  <td className="border px-3 py-2 font-semibold">{row.leadSourceName}</td>
-                  <td className="border px-3 py-2 tabular-nums">{row.leadCount.toLocaleString("ja-JP")}件</td>
-                  <td className="border px-3 py-2 tabular-nums">{row.meetingCount.toLocaleString("ja-JP")}件</td>
-                  <td className="border px-3 py-2 tabular-nums">{row.contractCount.toLocaleString("ja-JP")}件</td>
-                  <td className="border px-3 py-2 font-semibold tabular-nums">{formatCurrency(row.revenue)}</td>
-                  <td className="border px-3 py-2 font-semibold text-blue-700 tabular-nums">{formatRate(row.grossMargin)}</td>
+                <tr key={row.leadSourceId ?? "unassigned"} className="bg-white hover:bg-blue-50/40">
+                  <td className={cn(DASHBOARD_TD_CLASS, "font-semibold text-slate-900")}>{row.leadSourceName}</td>
+                  <td className={cn(DASHBOARD_TD_CLASS, "tabular-nums")}>{row.leadCount.toLocaleString("ja-JP")}件</td>
+                  <td className={cn(DASHBOARD_TD_CLASS, "tabular-nums")}>{row.meetingCount.toLocaleString("ja-JP")}件</td>
+                  <td className={cn(DASHBOARD_TD_CLASS, "tabular-nums")}>{row.contractCount.toLocaleString("ja-JP")}件</td>
+                  <td className={cn(DASHBOARD_TD_CLASS, "font-bold tabular-nums text-slate-900")}>{formatCurrency(row.revenue)}</td>
+                  <td className={DASHBOARD_TD_CLASS}>
+                    <span className="inline-flex rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700 ring-1 ring-blue-200">
+                      {formatRate(row.grossMargin)}
+                    </span>
+                  </td>
                 </tr>
               ))
             )}
@@ -1504,34 +1569,49 @@ function ManagementChannelPerformance({ data }: { data: ManagementDashboardData 
   );
 }
 
+function ManagementProductPerformance() {
+  return (
+    <Card className={cn(DASHBOARD_CARD_CLASS, "overflow-hidden")}>
+      <ManagementSectionHeader icon={Package} title="商材別実績" description="商材が複数になった後に表示します" />
+      <CardContent className="flex min-h-[238px] items-center justify-center p-4">
+        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-5 py-6 text-center">
+          <p className="text-sm font-bold text-slate-600">準備中</p>
+          <p className="mt-1 text-xs text-slate-500">現在は採用ブースト固定です</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ManagementStaffProgress({ data }: { data: ManagementDashboardData }) {
   return (
-    <Card className="rounded-md border bg-white shadow-sm">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">担当者別進捗</CardTitle>
-        <CardDescription>企業情報の担当営業で集計</CardDescription>
-      </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <table className="w-full min-w-[620px] border-collapse text-sm">
+    <Card className={cn(DASHBOARD_CARD_CLASS, "overflow-hidden")}>
+      <ManagementSectionHeader icon={User} title="担当者別進捗" description="企業情報の担当営業で集計" />
+      <CardContent className="overflow-x-auto p-4">
+        <table className={cn(DASHBOARD_TABLE_CLASS, "min-w-[560px]")}>
           <thead>
-            <tr className="bg-slate-100 text-slate-700">
+            <tr>
               {["担当者", "契約数", "売上", "目標達成率"].map((header) => (
-                <th key={header} className="border px-3 py-2 text-left font-semibold">{header}</th>
+                <th key={header} className={DASHBOARD_TH_CLASS}>{header}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {data.staffRows.length === 0 ? (
               <tr>
-                <td colSpan={4} className="border px-3 py-8 text-center text-slate-500">該当データがありません</td>
+                <td colSpan={4} className={cn(DASHBOARD_TD_CLASS, "py-8 text-center text-slate-500")}>該当データがありません</td>
               </tr>
             ) : (
               data.staffRows.map((row) => (
-                <tr key={row.staffId ?? "unassigned"} className="odd:bg-white even:bg-slate-50">
-                  <td className="border px-3 py-2 font-semibold">{row.staffName}</td>
-                  <td className="border px-3 py-2 tabular-nums">{row.contractCount.toLocaleString("ja-JP")}件</td>
-                  <td className="border px-3 py-2 font-semibold tabular-nums">{formatCurrency(row.revenue)}</td>
-                  <td className="border px-3 py-2 text-slate-500">{row.achievementLabel}</td>
+                <tr key={row.staffId ?? "unassigned"} className="bg-white hover:bg-blue-50/40">
+                  <td className={cn(DASHBOARD_TD_CLASS, "font-semibold text-slate-900")}>{row.staffName}</td>
+                  <td className={cn(DASHBOARD_TD_CLASS, "tabular-nums")}>{row.contractCount.toLocaleString("ja-JP")}件</td>
+                  <td className={cn(DASHBOARD_TD_CLASS, "font-bold tabular-nums text-slate-900")}>{formatCurrency(row.revenue)}</td>
+                  <td className={DASHBOARD_TD_CLASS}>
+                    <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-500">
+                      {row.achievementLabel}
+                    </span>
+                  </td>
                 </tr>
               ))
             )}
