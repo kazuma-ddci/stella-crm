@@ -137,6 +137,8 @@ export async function submitForm13ConsultationThankYou(
  *   form3-3: 年間人件費（従業員様分） ← ユーザーが手動入力
  *   form3-4: 従業員数               ← ユーザーが手動入力
  *   form3-5: CRMトークン (hidden、CRMが事前送信)
+ *   form3-6: 業種/職種              ← ユーザーが手動入力
+ *   form3-7: 上場/未上場            ← ユーザーが手動入力
  */
 export async function submitForm3PreFillBriefingReservation(
   uid: string,
@@ -147,7 +149,12 @@ export async function submitForm3PreFillBriefingReservation(
   const body = {
     dataType: "json",
     "form3-1": companyName,
+    "form3-2": "",
+    "form3-3": "",
+    "form3-4": "",
     "form3-5": crmToken,
+    "form3-6": "",
+    "form3-7": "",
   };
 
   const response = await fetch(url, {
@@ -158,8 +165,9 @@ export async function submitForm3PreFillBriefingReservation(
   });
 
   if (!response.ok) {
+    const responseText = await response.text().catch(() => "");
     throw new Error(
-      `ProLine Form3 PreFill API error: ${response.status} ${response.statusText}`
+      `ProLine Form3 PreFill API error: ${response.status} ${response.statusText} ${responseText.slice(0, 500)}`
     );
   }
 
