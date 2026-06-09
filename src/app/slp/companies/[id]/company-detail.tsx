@@ -84,6 +84,12 @@ const PREFECTURES = [
 
 const UNSET = "__unset__";
 
+const LISTING_STATUS_OPTIONS = [
+  { value: "listed", label: "上場" },
+  { value: "unlisted", label: "未上場" },
+  { value: "unknown", label: "不明" },
+];
+
 // ----------------------------------------------------------------
 // 型
 // ----------------------------------------------------------------
@@ -124,6 +130,7 @@ export type CompanyDetailRecord = {
   pensionOfficerName: string | null;
   industryId: number | null;
   industryName: string | null;
+  listingStatus: string | null;
   flowSourceId: number | null;
   flowSourceName: string | null;
   salesStaffId: number | null;
@@ -140,6 +147,7 @@ export type CompanyDetailRecord = {
   annualLaborCostExecutiveFormAnswer: string | null;
   annualLaborCostEmployeeFormAnswer: string | null;
   employeeCountFormAnswer: string | null;
+  industryJobFormAnswer: string | null;
   // 事業形態・法人/個人事業主対応
   businessType: string | null;
   corporateNumber: string | null;
@@ -284,6 +292,7 @@ export function CompanyDetail({
   const [pensionOffice, setPensionOffice] = useState(record.pensionOffice ?? "");
   const [pensionOfficerName, setPensionOfficerName] = useState(record.pensionOfficerName ?? "");
   const [industryId, setIndustryId] = useState<number | null>(record.industryId);
+  const [listingStatus, setListingStatus] = useState(record.listingStatus ?? "");
   const [flowSourceId, setFlowSourceId] = useState<number | null>(record.flowSourceId);
   const [salesStaffId, setSalesStaffId] = useState<number | null>(record.salesStaffId);
   const [status1Id, setStatus1Id] = useState<number | null>(record.status1Id);
@@ -345,6 +354,7 @@ export function CompanyDetail({
         pensionOffice,
         pensionOfficerName,
         industryId,
+        listingStatus,
         flowSourceId,
         salesStaffId,
         status1Id,
@@ -379,7 +389,7 @@ export function CompanyDetail({
       }),
     [
       companyName, representativeName, employeeCount, prefecture, address, companyPhone,
-      pensionOffice, pensionOfficerName, industryId, flowSourceId,
+      pensionOffice, pensionOfficerName, industryId, listingStatus, flowSourceId,
       salesStaffId, status1Id, status2Id, lastContactDate,
       annualLaborCostExecutive, annualLaborCostEmployee, averageMonthlySalary,
       businessType, corporateNumber, companyEmail, representativePhone, representativeEmail, primaryContactId,
@@ -435,6 +445,7 @@ export function CompanyDetail({
           pensionOffice,
           pensionOfficerName,
           industryId,
+          listingStatus: listingStatus || null,
           flowSourceId,
           salesStaffId,
           status1Id,
@@ -921,14 +932,14 @@ export function CompanyDetail({
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <Label>業種</Label>
+                    <Label>業種/職種</Label>
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       className="h-6 px-2 text-xs"
                       onClick={() => openMasterModal("industry")}
-                      title="業種マスタを管理"
+                      title="業種/職種マスタを管理"
                     >
                       <Settings className="h-3.5 w-3.5 mr-1" />
                       管理
@@ -939,6 +950,33 @@ export function CompanyDetail({
                     value={industryId}
                     onChange={setIndustryId}
                   />
+                  {record.industryJobFormAnswer && (
+                    <div className="mt-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                      フォーム回答:{" "}
+                      <span className="font-semibold">
+                        {record.industryJobFormAnswer}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <Label>上場/未上場</Label>
+                  <Select
+                    value={listingStatus || UNSET}
+                    onValueChange={(v) => setListingStatus(v === UNSET ? "" : v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="選択してください" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={UNSET}>未設定</SelectItem>
+                      {LISTING_STATUS_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label>従業員数</Label>

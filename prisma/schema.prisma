@@ -4242,7 +4242,7 @@ model SlpCompanyRecord {
   companyPhone                       String?   @map("company_phone") @db.VarChar(50) // 企業電話番号
   pensionOffice                      String?   @map("pension_office") @db.VarChar(100) // 管轄の年金事務所
   pensionOfficerName                 String?   @map("pension_officer_name") @db.VarChar(100) // 年金事務所担当者名
-  industryId                         Int?      @map("industry_id") // 業種マスタID
+  industryId                         Int?      @map("industry_id") // 業種/職種マスタID
   flowSourceId                       Int?      @map("flow_source_id") // 流入経路マスタID
   salesStaffId                       Int?      @map("sales_staff_id") // 担当営業（スタッフID）
   status1Id                          Int?      @map("status1_id") // 企業ステータス①マスタID
@@ -4257,6 +4257,8 @@ model SlpCompanyRecord {
   annualLaborCostExecutiveFormAnswer String?   @map("annual_labor_cost_executive_form_answer") @db.VarChar(500) // 年間人件費(役員)フォーム回答
   annualLaborCostEmployeeFormAnswer  String?   @map("annual_labor_cost_employee_form_answer") @db.VarChar(500) // 年間人件費(従業員)フォーム回答
   employeeCountFormAnswer            String?   @map("employee_count_form_answer") @db.VarChar(500) // 従業員数フォーム回答
+  industryJobFormAnswer              String?   @map("industry_job_form_answer") @db.VarChar(500) // 業種/職種フォーム回答
+  listingStatus                      String?   @map("listing_status") @db.VarChar(20) // "listed" | "unlisted" | "unknown"
 
   // ============================================
   // 事業形態・法人/個人事業主対応
@@ -4529,13 +4531,13 @@ model SlpProlineStaffMapping {
 }
 
 // ============================================
-// SLP 業種マスタ (SLP Industry Master)
-// 企業名簿の「業種」プルダウン選択肢。スタッフが画面から自由に追加可能
+// SLP 業種/職種マスタ (SLP Industry Master)
+// 企業名簿の「業種/職種」プルダウン選択肢。スタッフが画面から自由に追加可能
 // ============================================
 
 model SlpIndustryMaster {
   id           Int      @id @default(autoincrement())
-  name         String   @unique @db.VarChar(100) // 業種名
+  name         String   @unique @db.VarChar(100) // 業種/職種名
   displayOrder Int      @default(0) @map("display_order")
   isActive     Boolean  @default(true) @map("is_active")
   createdAt    DateTime @default(now()) @map("created_at")

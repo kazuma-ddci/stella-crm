@@ -27,6 +27,8 @@ function verifySecret(request: Request): boolean {
  *   form3-3: 年間人件費（従業員様分）（ユーザー入力）
  *   form3-4: 従業員数（ユーザー入力）
  *   form3-5: CRMトークン（中継URL経由で事前送信されたもの）
+ *   form3-6: 業種/職種（ユーザー入力）
+ *   form3-7: 上場/未上場（ユーザー入力）
  *   secret: 認証用シークレット
  *
  * 動作:
@@ -48,12 +50,14 @@ export async function GET(request: Request) {
   const booked = searchParams.get("booked");
   const briefingDate = searchParams.get("briefingDate");
   const briefingStaff = searchParams.get("briefingStaff");
-  // フォーム回答（form3-1〜5）
+  // フォーム回答（form3-1〜7）
   const formCompanyName = searchParams.get("form3-1");
   const formAnnualLaborCostExecutive = searchParams.get("form3-2");
   const formAnnualLaborCostEmployee = searchParams.get("form3-3");
   const formEmployeeCount = searchParams.get("form3-4");
   const formCrmToken = searchParams.get("form3-5");
+  const formIndustryJob = searchParams.get("form3-6");
+  const formListingStatus = searchParams.get("form3-7");
 
   if (!uid) {
     return NextResponse.json({ error: "uid is required" }, { status: 400 });
@@ -173,6 +177,45 @@ export async function GET(request: Request) {
     const annualLaborCostEmployeeFormAnswer =
       formAnnualLaborCostEmployee?.trim() || null;
     const employeeCountFormAnswer = formEmployeeCount?.trim() || null;
+    const normalizeOptionalAnswer = (s: string | null): string | null => {
+      const trimmed = s?.trim();
+      if (!trimmed) return null;
+      if (
+        trimmed === "未選択" ||
+        trimmed === "選択してください" ||
+        trimmed === "-"
+      ) {
+        return null;
+      }
+      return trimmed;
+    };
+    const industryJobFormAnswer = normalizeOptionalAnswer(formIndustryJob);
+    const normalizeListingStatus = (s: string | null): string | null => {
+      const trimmed = normalizeOptionalAnswer(s);
+      if (!trimmed) return null;
+      if (trimmed === "上場") return "listed";
+      if (trimmed === "未上場") return "unlisted";
+      return "unknown";
+    };
+    const listingStatus = normalizeListingStatus(formListingStatus);
+
+    let matchedIndustryId: number | null = null;
+    if (industryJobFormAnswer) {
+      const maxIndustryOrder = await prisma.slpIndustryMaster.aggregate({
+        _max: { displayOrder: true },
+      });
+      const industry = await prisma.slpIndustryMaster.upsert({
+        where: { name: industryJobFormAnswer },
+        update: { isActive: true },
+        create: {
+          name: industryJobFormAnswer,
+          displayOrder: (maxIndustryOrder._max.displayOrder ?? 0) + 1,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      matchedIndustryId = industry.id;
+    }
 
     // ペンディング情報を検索（form3-5 のCRMトークンで一意特定）
     let pending: Awaited<
@@ -267,6 +310,9 @@ export async function GET(request: Request) {
             annualLaborCostEmployeeFormAnswer,
           }),
           ...(employeeCountFormAnswer !== null && { employeeCountFormAnswer }),
+          ...(industryJobFormAnswer !== null && { industryJobFormAnswer }),
+          ...(listingStatus !== null && { listingStatus }),
+          ...(matchedIndustryId !== null && { industryId: matchedIndustryId }),
           ...(annualLaborCostExecutive !== null && {
             annualLaborCostExecutive,
           }),
@@ -293,6 +339,9 @@ export async function GET(request: Request) {
           annualLaborCostExecutiveFormAnswer,
           annualLaborCostEmployeeFormAnswer,
           employeeCountFormAnswer,
+          industryJobFormAnswer,
+          listingStatus,
+          ...(matchedIndustryId !== null && { industryId: matchedIndustryId }),
           contacts: {
             create: {
               name: lineFriend?.snsname ?? null,
@@ -338,11 +387,15 @@ export async function GET(request: Request) {
     const formAnswersJson =
       annualLaborCostExecutiveFormAnswer ||
       annualLaborCostEmployeeFormAnswer ||
-      employeeCountFormAnswer
+      employeeCountFormAnswer ||
+      industryJobFormAnswer ||
+      listingStatus
         ? {
             annualLaborCostExecutive: annualLaborCostExecutiveFormAnswer,
             annualLaborCostEmployee: annualLaborCostEmployeeFormAnswer,
             employeeCount: employeeCountFormAnswer,
+            industryJob: industryJobFormAnswer,
+            listingStatus,
           }
         : undefined;
     if (createdOrUpdatedRecordIds.length > 0) {

@@ -221,6 +221,7 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
     pensionOfficerName: record.pensionOfficerName,
     industryId: record.industryId,
     industryName: record.industry?.name ?? null,
+    listingStatus: record.listingStatus,
     flowSourceId: record.flowSourceId,
     flowSourceName: record.flowSource?.name ?? null,
     salesStaffId: record.salesStaffId,
@@ -237,6 +238,7 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
     annualLaborCostExecutiveFormAnswer: record.annualLaborCostExecutiveFormAnswer,
     annualLaborCostEmployeeFormAnswer: record.annualLaborCostEmployeeFormAnswer,
     employeeCountFormAnswer: record.employeeCountFormAnswer,
+    industryJobFormAnswer: record.industryJobFormAnswer,
     // 事業形態・法人/個人事業主対応
     businessType: record.businessType,
     corporateNumber: record.corporateNumber,

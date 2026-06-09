@@ -57,7 +57,7 @@ type RenameContext = {
 };
 
 const TITLES: Record<MasterKind, string> = {
-  industry: "業種マスタ管理",
+  industry: "業種/職種マスタ管理",
   flow_source: "流入経路マスタ管理",
   status1: "ステータス①マスタ管理",
   status2: "ステータス②マスタ管理",

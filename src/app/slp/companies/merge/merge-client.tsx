@@ -32,6 +32,7 @@ type CompanyData = {
   pensionOffice: string | null;
   pensionOfficerName: string | null;
   industryId: number | null;
+  listingStatus: string | null;
   flowSourceId: number | null;
   salesStaffId: number | null;
   status1Id: number | null;
@@ -79,9 +80,15 @@ type Props = {
 type EditableField = {
   key: keyof CompanyData;
   label: string;
-  type: "text" | "decimal" | "date" | "select";
+  type: "text" | "decimal" | "date" | "select" | "listing_status";
   options?: MasterOption[] | StaffOption[];
 };
+
+const LISTING_STATUS_OPTIONS = [
+  { value: "listed", label: "上場" },
+  { value: "unlisted", label: "未上場" },
+  { value: "unknown", label: "不明" },
+];
 
 export function MergeClient({
   recordA,
@@ -134,6 +141,7 @@ export function MergeClient({
         pensionOffice: edited.pensionOffice,
         pensionOfficerName: edited.pensionOfficerName,
         industryId: edited.industryId,
+        listingStatus: edited.listingStatus,
         flowSourceId: edited.flowSourceId,
         salesStaffId: edited.salesStaffId,
         status1Id: edited.status1Id,
@@ -190,10 +198,11 @@ export function MergeClient({
       },
       {
         key: "industryId",
-        label: "業種",
+        label: "業種/職種",
         type: "select",
         options: industryOptions,
       },
+      { key: "listingStatus", label: "上場/未上場", type: "listing_status" },
       {
         key: "flowSourceId",
         label: "流入経路",
@@ -255,6 +264,9 @@ export function MergeClient({
     if (field.type === "select" && field.options) {
       const opt = field.options.find((o) => o.id === v);
       return opt?.name ?? "(未設定)";
+    }
+    if (field.type === "listing_status") {
+      return LISTING_STATUS_OPTIONS.find((o) => o.value === v)?.label ?? "(未設定)";
     }
     return String(v);
   };
@@ -424,6 +436,29 @@ export function MergeClient({
                       {field.options?.map((o) => (
                         <option key={o.id} value={o.id}>
                           {o.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : field.type === "listing_status" ? (
+                    <select
+                      className="w-full h-9 px-2 border rounded-md text-sm"
+                      value={
+                        edited[field.key] !== null &&
+                        edited[field.key] !== undefined
+                          ? String(edited[field.key])
+                          : ""
+                      }
+                      onChange={(e) =>
+                        handleFieldChange(
+                          field.key,
+                          (e.target.value || null) as CompanyData[typeof field.key]
+                        )
+                      }
+                    >
+                      <option value="">(未設定)</option>
+                      {LISTING_STATUS_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
                         </option>
                       ))}
                     </select>

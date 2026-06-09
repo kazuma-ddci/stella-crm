@@ -92,6 +92,7 @@ export type CompanyBasicInfoPatch = {
   pensionOffice?: string | null;
   pensionOfficerName?: string | null;
   industryId?: number | null;
+  listingStatus?: string | null;
   flowSourceId?: number | null;
   salesStaffId?: number | null;
   status1Id?: number | null;
@@ -146,6 +147,7 @@ export async function updateCompanyBasicInfo(
     "companyPhone",
     "pensionOffice",
     "pensionOfficerName",
+    "listingStatus",
     "corporateNumber",
     "companyEmail",
     "representativePhone",
@@ -267,7 +269,7 @@ export async function updateCompanyBasicInfo(
 }
 
 // ========================================
-// マスタ管理（業種・流入経路・ステータス①・ステータス②）
+// マスタ管理（業種/職種・流入経路・ステータス①・ステータス②）
 // 画面から「その場で新規追加」できるように
 // ========================================
 
@@ -281,7 +283,7 @@ export type MasterItem = {
 };
 
 const MASTER_LABELS: Record<MasterKind, string> = {
-  industry: "業種",
+  industry: "業種/職種",
   flow_source: "流入経路",
   status1: "ステータス①",
   status2: "ステータス②",
@@ -849,6 +851,7 @@ export type MergeCompanyData = {
   pensionOffice?: string | null;
   pensionOfficerName?: string | null;
   industryId?: number | null;
+  listingStatus?: string | null;
   flowSourceId?: number | null;
   salesStaffId?: number | null;
   status1Id?: number | null;
@@ -1005,6 +1008,8 @@ export async function mergeCompanyRecords(
   // FK
   if (mergedData.industryId !== undefined)
     updateData.industryId = mergedData.industryId;
+  if (mergedData.listingStatus !== undefined)
+    updateData.listingStatus = mergedData.listingStatus;
   if (mergedData.flowSourceId !== undefined)
     updateData.flowSourceId = mergedData.flowSourceId;
   if (mergedData.salesStaffId !== undefined)

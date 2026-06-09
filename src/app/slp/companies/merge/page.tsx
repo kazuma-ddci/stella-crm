@@ -103,6 +103,7 @@ export default async function SlpCompanyMergePage({ searchParams }: Props) {
     pensionOffice: r.pensionOffice,
     pensionOfficerName: r.pensionOfficerName,
     industryId: r.industryId,
+    listingStatus: r.listingStatus,
     flowSourceId: r.flowSourceId,
     salesStaffId: r.salesStaffId,
     status1Id: r.status1Id,
