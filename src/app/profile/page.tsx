@@ -37,14 +37,17 @@ export default async function ProfilePage() {
 
   // DBから取得したプロジェクト一覧をサイドバー設定に変換
   // 権限のあるプロジェクトのみ選択肢に表示
-  const availableProjects = dbProjects.filter((p) => {
-    if (isAdminUser || isFounder) return true;
-    return canView(permissions, p.code as ProjectCode);
-  }).map((p) => ({
-    key: p.code,
-    name: p.name,
-    hidden: hiddenItems.includes(p.code),
-  }));
+  const availableProjects = dbProjects
+    .filter((p) => p.code !== "stella")
+    .filter((p) => {
+      if (isAdminUser || isFounder) return true;
+      return canView(permissions, p.code as ProjectCode);
+    })
+    .map((p) => ({
+      key: p.code,
+      name: p.name,
+      hidden: hiddenItems.includes(p.code),
+    }));
 
   return (
     <div className="space-y-6">

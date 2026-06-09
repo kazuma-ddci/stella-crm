@@ -351,6 +351,20 @@ export function StpCompaniesTable({
 
   // カスタムレンダラー：企業HPをリンクとして表示、検討理由・失注理由をグレーアウト、契約履歴を縦並び表示、ステージセルクリック対応
   const customRenderers: CustomRenderers = {
+    // 提案中の商材：保存値はIDのカンマ区切りなので、テーブル表示では商材名に変換する
+    proposedProductIds: (value) => {
+      const productIds = Array.isArray(value)
+        ? value.map(String)
+        : typeof value === "string" && value
+          ? value.split(",").map((id) => id.trim()).filter(Boolean)
+          : [];
+
+      if (productIds.length === 0) return "-";
+
+      return productIds
+        .map((id) => productOptions.find((opt) => opt.value === id)?.label ?? id)
+        .join(", ");
+    },
     // 現在ステージ：クリックでステージ管理モーダルを開く
     currentStageName: (value, row) => {
       return (

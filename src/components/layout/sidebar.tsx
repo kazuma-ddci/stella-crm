@@ -140,16 +140,6 @@ const navigation: NavItem[] = [
   { name: "通知", href: "/notifications", icon: Bell },
   { name: "セットアップ状況", href: "/admin/setup-status", icon: ListChecks, adminOnly: true },
   {
-    name: "Stella",
-    icon: Building2,
-    requiredProject: "stella",
-    key: "stella",
-    collapsible: true,
-    children: [
-      { name: "ダッシュボード", href: "/", icon: Home },
-    ],
-  },
-  {
     name: "STP",
     icon: Briefcase,
     requiredProject: "stp",
