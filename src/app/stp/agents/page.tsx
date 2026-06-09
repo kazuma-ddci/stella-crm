@@ -117,6 +117,7 @@ export default async function StpAgentsPage() {
       include: {
         contactMethod: true,
         contactCategory: true,
+        files: true,
         roles: {
           include: {
             customerType: true,
@@ -287,6 +288,14 @@ export default async function StpAgentsPage() {
         meetingMinutes: h.meetingMinutes,
         note: h.note,
         customerTypeIds: h.roles.map((r) => r.customerTypeId),
+        files: h.files.map((f) => ({
+          id: f.id,
+          filePath: f.filePath,
+          fileName: f.fileName,
+          fileSize: f.fileSize,
+          mimeType: f.mimeType,
+          url: f.url,
+        })),
       };
     }),
     // MasterContract（契約書管理）

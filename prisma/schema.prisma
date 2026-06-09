@@ -4259,6 +4259,9 @@ model SlpCompanyRecord {
   employeeCountFormAnswer            String?   @map("employee_count_form_answer") @db.VarChar(500) // 従業員数フォーム回答
   industryJobFormAnswer              String?   @map("industry_job_form_answer") @db.VarChar(500) // 業種/職種フォーム回答
   listingStatus                      String?   @map("listing_status") @db.VarChar(20) // "listed" | "unlisted" | "unknown"
+  initialDocumentsCompletedAt        DateTime? @map("initial_documents_completed_at") // 初回提出書類の最終完了日時
+  initialDocumentsCompletedByUid     String?   @map("initial_documents_completed_by_uid") @db.VarChar(100) // 最終完了ボタンを押した SlpLineFriend.uid
+  initialDocumentsCompletedByName    String?   @map("initial_documents_completed_by_name") @db.VarChar(200) // 最終完了ボタン押下時の LINE 名スナップショット
 
   // ============================================
   // 事業形態・法人/個人事業主対応
@@ -4417,8 +4420,8 @@ model SlpReservationHistory {
 // ============================================
 // SLP 企業 提出書類
 // 企業の担当者（公式LINE友達）が公開フォームから提出する各種書類を管理する
-// 「初回提出書類」(category=initial) … 源泉徴収簿/算定基礎届/賃金台帳 × 5期分
-// 「追加提出書類」(category=additional) … 被保険者資格取得届/月額変更届/賞与支払届/標準報酬決定通知書（無制限）
+// 「初回提出書類」(category=initial) … 算定基礎届/源泉徴収簿/賃金台帳/賞与支払届 × 5期分
+// 「追加提出書類」(category=additional) … 被保険者資格取得届/月額変更届/標準報酬決定通知書（無制限）
 // 同じスロット (companyRecordId, category, documentType, fiscalPeriod) に
 // 上書きアップロードした場合は古いレコードも削除せず、isCurrent=false で履歴として保持する
 // ============================================
@@ -4427,7 +4430,7 @@ model SlpCompanyDocument {
   id              Int       @id @default(autoincrement())
   companyRecordId Int       @map("company_record_id")
   category        String    @db.VarChar(20) // "initial" | "additional"
-  documentType    String    @map("document_type") @db.VarChar(50) // "withholding_book" | "calculation_base" | "wage_ledger" | "qualification_acquisition" | "monthly_change" | "bonus_payment" | "standard_remuneration"
+  documentType    String    @map("document_type") @db.VarChar(50) // "calculation_base" | "withholding_book" | "wage_ledger" | "bonus_payment" | "qualification_acquisition" | "monthly_change" | "standard_remuneration"
   fiscalPeriod    Int?      @map("fiscal_period") // 0=直近期, 1=1期前, 2=2期前, 3=3期前, 4=4期前 (initial時のみ。additional時は null)
   fileName        String    @map("file_name") @db.VarChar(500) // 元のファイル名（表示用）
   filePath        String    @map("file_path") @db.VarChar(1000) // /uploads/slp/company-documents/... 形式の公開パス

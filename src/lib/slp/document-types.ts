@@ -2,14 +2,12 @@
  * SLP 公的提出書類の種別定義
  *
  * 「初回提出書類」(category=initial)
- *   - 源泉徴収簿 / 算定基礎届 / 賃金台帳
+ *   - 算定基礎届 / 源泉徴収簿 / 賃金台帳 / 賞与支払届
  *   - 各書類につき5期分（直近期 = period 0 〜 4期前 = period 4）
- *   - 全て任意提出
  *
  * 「追加提出書類」(category=additional)
- *   - 被保険者資格取得届 / 月額変更届 / 賞与支払届 / 標準報酬決定通知書
+ *   - 被保険者資格取得届 / 月額変更届 / 標準報酬決定通知書
  *   - 各書類につき複数ファイル可（無制限）
- *   - 全て任意提出
  *
  * `documentType` の値は DB の slp_company_documents.document_type に保存されるため、
  * 一度確定したら名称を変えない（マイグレーションが必要になる）。
@@ -18,14 +16,14 @@
 export type SlpDocumentCategory = "initial" | "additional";
 
 export type SlpInitialDocumentType =
-  | "withholding_book" // 源泉徴収簿
   | "calculation_base" // 算定基礎届
-  | "wage_ledger"; // 賃金台帳
+  | "withholding_book" // 源泉徴収簿
+  | "wage_ledger" // 賃金台帳
+  | "bonus_payment"; // 賞与支払届
 
 export type SlpAdditionalDocumentType =
   | "qualification_acquisition" // 被保険者資格取得届
   | "monthly_change" // 月額変更届
-  | "bonus_payment" // 賞与支払届
   | "standard_remuneration"; // 標準報酬決定通知書
 
 export type SlpDocumentType = SlpInitialDocumentType | SlpAdditionalDocumentType;
@@ -52,22 +50,25 @@ export type FiscalPeriod = (typeof FISCAL_PERIODS)[number]["value"];
 
 export const INITIAL_DOCUMENT_TYPES: readonly SlpDocumentTypeDef[] = [
   {
-    type: "withholding_book",
-    category: "initial",
-    label: "源泉徴収簿",
-    description: "5期分（直近期から4期前まで）。1期分は1ファイルにまとめてアップロードしてください。",
-  },
-  {
     type: "calculation_base",
     category: "initial",
     label: "算定基礎届",
-    description: "5期分（直近期から4期前まで）。1期分は1ファイルにまとめてアップロードしてください。",
+  },
+  {
+    type: "withholding_book",
+    category: "initial",
+    label: "源泉徴収簿",
   },
   {
     type: "wage_ledger",
     category: "initial",
     label: "賃金台帳",
-    description: "5期分（直近期から4期前まで）。1期分は1ファイルにまとめてアップロードしてください。",
+  },
+  {
+    type: "bonus_payment",
+    category: "initial",
+    label: "賞与支払届",
+    description: "賞与支払届がある場合は必ず提出してください。",
   },
 ] as const;
 
@@ -82,12 +83,6 @@ export const ADDITIONAL_DOCUMENT_TYPES: readonly SlpDocumentTypeDef[] = [
     type: "monthly_change",
     category: "additional",
     label: "月額変更届",
-    description: "ファイルは何件でもアップロードできます。",
-  },
-  {
-    type: "bonus_payment",
-    category: "additional",
-    label: "賞与支払届",
     description: "ファイルは何件でもアップロードできます。",
   },
   {

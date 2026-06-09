@@ -120,6 +120,8 @@ export default async function StpCompanyDetailPage({ params, searchParams }: Pro
         },
         include: {
           contactMethod: true,
+          contactCategory: true,
+          files: true,
           roles: { include: { customerType: true } },
         },
         orderBy: { contactDate: "desc" },
@@ -257,12 +259,22 @@ export default async function StpCompanyDetailPage({ params, searchParams }: Pro
       contactDate: h.contactDate.toISOString(),
       contactMethodId: h.contactMethodId,
       contactMethodName: h.contactMethod?.name || null,
+      contactCategoryId: h.contactCategoryId,
+      contactCategoryName: h.contactCategory?.name || null,
       assignedTo: h.assignedTo,
       assignedToNames,
       customerParticipants: h.customerParticipants,
       meetingMinutes: h.meetingMinutes,
       note: h.note,
       customerTypeIds: h.roles.map((r) => r.customerTypeId),
+      files: h.files.map((f) => ({
+        id: f.id,
+        filePath: f.filePath,
+        fileName: f.fileName,
+        fileSize: f.fileSize,
+        mimeType: f.mimeType,
+        url: f.url,
+      })),
     };
   });
 

@@ -239,6 +239,9 @@ export default async function SlpCompanyDetailPage({ params }: Props) {
     annualLaborCostEmployeeFormAnswer: record.annualLaborCostEmployeeFormAnswer,
     employeeCountFormAnswer: record.employeeCountFormAnswer,
     industryJobFormAnswer: record.industryJobFormAnswer,
+    initialDocumentsCompletedAt:
+      record.initialDocumentsCompletedAt?.toISOString() ?? null,
+    initialDocumentsCompletedByName: record.initialDocumentsCompletedByName,
     // 事業形態・法人/個人事業主対応
     businessType: record.businessType,
     corporateNumber: record.corporateNumber,

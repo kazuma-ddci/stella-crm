@@ -99,6 +99,8 @@ type StpCompanyRecord = {
   dealProbability: number | null;
   nextContactDate: Date | null;
   currentStage: { id: number; name: string; stageType: string } | null;
+  lostReasonOption: { name: string } | null;
+  lostReason: string | null;
   salesStaffId: number | null;
   salesStaff: { name: string } | null;
   asStaff: { name: string } | null;
@@ -122,7 +124,7 @@ type EventMaps = {
   latestContactByCompanyId: Map<number, Date>;
   firstContractByCompanyId: Map<number, Date>;
   firstContractValueByCompanyId: Map<number, ContractValue>;
-  firstLostByStpCompanyId: Map<number, { recordedAt: Date; reasonName: string }>;
+  firstLostByStpCompanyId: Map<number, { recordedAt: Date }>;
   firstStageEntryByCompanyId: Map<number, Map<number, Date>>;
 };
 
@@ -154,6 +156,18 @@ function compareMonth(a: string, b: string) {
 
 function isInRange(date: Date | null | undefined, range: DateRange) {
   return !!date && date >= range.start && date <= range.end;
+}
+
+function firstContractDate(company: StpCompanyRecord, eventMaps: EventMaps) {
+  return eventMaps.firstContractByCompanyId.get(company.companyId);
+}
+
+function isFirstContractInRange(company: StpCompanyRecord, eventMaps: EventMaps, range: DateRange) {
+  return isInRange(firstContractDate(company, eventMaps), range);
+}
+
+function firstContractValue(company: StpCompanyRecord, eventMaps: EventMaps) {
+  return eventMaps.firstContractValueByCompanyId.get(company.companyId);
 }
 
 function toJstDateKey(date: Date) {
@@ -397,7 +411,6 @@ async function getEventMaps(companies: StpCompanyRecord[]): Promise<EventMaps> {
       select: {
         stpCompanyId: true,
         recordedAt: true,
-        lostReasonOption: { select: { name: true } },
       },
       orderBy: { recordedAt: "asc" },
     }),
@@ -444,12 +457,11 @@ async function getEventMaps(companies: StpCompanyRecord[]): Promise<EventMaps> {
     }
   }
 
-  const firstLostByStpCompanyId = new Map<number, { recordedAt: Date; reasonName: string }>();
+  const firstLostByStpCompanyId = new Map<number, { recordedAt: Date }>();
   for (const history of lostHistories) {
     if (!firstLostByStpCompanyId.has(history.stpCompanyId)) {
       firstLostByStpCompanyId.set(history.stpCompanyId, {
         recordedAt: history.recordedAt,
-        reasonName: history.lostReasonOption?.name ?? "未選択",
       });
     }
   }
@@ -496,9 +508,8 @@ function buildCurrentResult({
     isInRange(eventMaps.firstMeetingByCompanyId.get(company.companyId), range)
   ).length;
   const pendingCount = scopeCompanies.filter((company) => company.currentStage?.stageType === "pending").length;
-  const contractCount = scopeCompanies.filter((company) =>
-    isInRange(eventMaps.firstContractByCompanyId.get(company.companyId), range)
-  ).length;
+  const contractCompanies = companies.filter((company) => isFirstContractInRange(company, eventMaps, range));
+  const validContractCount = contractCompanies.filter((company) => company.leadValidity === "有効").length;
   const lostCompanies = scopeCompanies.filter((company) =>
     isInRange(eventMaps.firstLostByStpCompanyId.get(company.id)?.recordedAt, range)
   );
@@ -510,7 +521,7 @@ function buildCurrentResult({
       { key: "validLead", label: "有効リード", value: validLeadCount, unit: "件", subLabel: "有効性=有効", tone: "blue", target: null, gap: null },
       { key: "meeting", label: "商談実施", value: meetingCount, unit: "件", subLabel: "初回商談日基準", tone: "blue", target: null, gap: null },
       { key: "pending", label: "検討中", value: pendingCount, unit: "件", subLabel: "現在パイプライン", tone: "orange", target: null, gap: null },
-      { key: "contract", label: "契約", value: contractCount, unit: "件", subLabel: "契約日基準", tone: "green", target: null, gap: null },
+      { key: "contract", label: "契約", value: contractCompanies.length, unit: "件", subLabel: "初回契約日基準", tone: "green", target: null, gap: null },
       { key: "lost", label: "失注", value: lostCompanies.length, unit: "件", subLabel: "失注変更日基準", tone: "red", target: null, gap: null },
     ],
     rates: [
@@ -535,26 +546,15 @@ function buildCurrentResult({
       {
         key: "validToContract",
         label: "有効リード→契約率",
-        value: roundRate(
-          scopeCompanies.filter(
-            (company) =>
-              company.leadValidity === "有効" &&
-              isInRange(eventMaps.firstContractByCompanyId.get(company.companyId), range)
-          ).length,
-          validLeadCount
-        ),
+        value: roundRate(validContractCount, validLeadCount),
         previousValue: null,
         previousDiffPt: null,
-        numerator: scopeCompanies.filter(
-          (company) =>
-            company.leadValidity === "有効" &&
-            isInRange(eventMaps.firstContractByCompanyId.get(company.companyId), range)
-        ).length,
+        numerator: validContractCount,
         denominator: validLeadCount,
       },
     ],
     dwellTimes: buildDwellTimes(scopeCompanies, stages, eventMaps),
-    lostReasons: buildLostReasons(lostCompanies, eventMaps),
+    lostReasons: buildLostReasons(lostCompanies),
   };
 }
 
@@ -571,10 +571,8 @@ function buildCohortMonthResult(
   ).length;
   const meeting = scopeCompanies.filter((company) => eventMaps.firstMeetingByCompanyId.has(company.companyId)).length;
   const pending = scopeCompanies.filter((company) => company.currentStage?.stageType === "pending").length;
-  const contract = scopeCompanies.filter((company) => eventMaps.firstContractByCompanyId.has(company.companyId)).length;
-  const validContract = scopeCompanies.filter(
-    (company) => company.leadValidity === "有効" && eventMaps.firstContractByCompanyId.has(company.companyId)
-  ).length;
+  const contractCompanies = companies.filter((company) => isFirstContractInRange(company, eventMaps, range));
+  const validContract = contractCompanies.filter((company) => company.leadValidity === "有効").length;
   const lost = scopeCompanies.filter((company) => company.currentStage?.stageType === "closed_lost").length;
 
   return {
@@ -583,7 +581,7 @@ function buildCohortMonthResult(
     validLead,
     meeting,
     pending,
-    contract,
+    contract: contractCompanies.length,
     lost,
     validRate: roundRate(validLead, validitySet),
     meetingRate: roundRate(meeting, scopeCompanies.length),
@@ -637,10 +635,10 @@ function buildDwellTimes(
   return rows;
 }
 
-function buildLostReasons(companies: StpCompanyRecord[], eventMaps: EventMaps): LostReasonResult[] {
+function buildLostReasons(companies: StpCompanyRecord[]): LostReasonResult[] {
   const counts = new Map<string, number>();
   for (const company of companies) {
-    const label = eventMaps.firstLostByStpCompanyId.get(company.id)?.reasonName ?? "未選択";
+    const label = company.lostReasonOption?.name || company.lostReason?.trim() || "未選択";
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
   const total = companies.length;
@@ -716,16 +714,15 @@ function buildChannelAnalysis(params: {
     (company) => company.leadValidity === "有効" || company.leadValidity === "無効"
   ).length;
   const meetingCount = scopeCompanies.filter((company) => params.eventMaps.firstMeetingByCompanyId.has(company.companyId)).length;
-  const validContractCompanies = scopeCompanies.filter(
-    (company) => company.leadValidity === "有効" && params.eventMaps.firstContractByCompanyId.has(company.companyId)
-  );
-  const acquiredMrr = validContractCompanies.reduce(
-    (sum, company) => sum + (params.eventMaps.firstContractValueByCompanyId.get(company.companyId)?.monthlyFee ?? 0),
+  const contractCompanies = params.companies.filter((company) => isFirstContractInRange(company, params.eventMaps, params.range));
+  const validContractCompanies = contractCompanies.filter((company) => company.leadValidity === "有効");
+  const acquiredMrr = contractCompanies.reduce(
+    (sum, company) => sum + (firstContractValue(company, params.eventMaps)?.monthlyFee ?? 0),
     0
   );
   const averageContractValue = averageCurrency(
-    validContractCompanies.map((company) => {
-      const contract = params.eventMaps.firstContractValueByCompanyId.get(company.companyId);
+    contractCompanies.map((company) => {
+      const contract = firstContractValue(company, params.eventMaps);
       if (!contract) return 0;
       return contract.initialFee + contract.monthlyFee + contract.performanceFee;
     })
@@ -740,11 +737,14 @@ function buildChannelAnalysis(params: {
     const sourceMeetingCount = sourceCompanies.filter((company) =>
       params.eventMaps.firstMeetingByCompanyId.has(company.companyId)
     ).length;
-    const sourceContractCompanies = sourceCompanies.filter(
-      (company) => company.leadValidity === "有効" && params.eventMaps.firstContractByCompanyId.has(company.companyId)
+    const sourceContractCompanies = params.companies.filter(
+      (company) =>
+        company.leadSourceId === source.id &&
+        isFirstContractInRange(company, params.eventMaps, params.range)
     );
+    const sourceValidContractCount = sourceContractCompanies.filter((company) => company.leadValidity === "有効").length;
     const sourceMrr = sourceContractCompanies.reduce(
-      (sum, company) => sum + (params.eventMaps.firstContractValueByCompanyId.get(company.companyId)?.monthlyFee ?? 0),
+      (sum, company) => sum + (firstContractValue(company, params.eventMaps)?.monthlyFee ?? 0),
       0
     );
 
@@ -755,7 +755,7 @@ function buildChannelAnalysis(params: {
       leadCount: sourceCompanies.length,
       validRate: roundRate(sourceValidLeadCount, sourceValiditySetCount),
       meetingRate: roundRate(sourceMeetingCount, sourceCompanies.length),
-      contractRate: roundRate(sourceContractCompanies.length, sourceValidLeadCount),
+      contractRate: roundRate(sourceValidContractCount, sourceValidLeadCount),
       contractCount: sourceContractCompanies.length,
       acquiredMrr: sourceMrr,
       mrrShare: null as number | null,
@@ -787,9 +787,11 @@ function buildChannelAnalysis(params: {
     const staffId = Number(staff.value);
     const staffCompanies = scopeCompanies.filter((company) => company.salesStaffId === staffId);
     const staffMeetingCount = staffCompanies.filter((company) => params.eventMaps.firstMeetingByCompanyId.has(company.companyId)).length;
-    const staffContractCompanies = staffCompanies.filter((company) => params.eventMaps.firstContractByCompanyId.has(company.companyId));
+    const staffContractCompanies = params.companies.filter(
+      (company) => company.salesStaffId === staffId && isFirstContractInRange(company, params.eventMaps, params.range)
+    );
     const staffMrr = staffContractCompanies.reduce(
-      (sum, company) => sum + (params.eventMaps.firstContractValueByCompanyId.get(company.companyId)?.monthlyFee ?? 0),
+      (sum, company) => sum + (firstContractValue(company, params.eventMaps)?.monthlyFee ?? 0),
       0
     );
     return {
@@ -1769,10 +1771,12 @@ async function buildManagementDashboardData(params: {
   let revenue = 0;
   let commissionCost = 0;
   let directAgentCost = 0;
-  let contractCount = 0;
   const revenueByCompanyId = new Map<number, number>();
   const commissionCostByCompanyId = new Map<number, number>();
-  const contractCountByCompanyId = new Map<number, number>();
+  const firstContractCompanies = params.companies.filter((company) =>
+    isFirstContractInRange(company, params.eventMaps, params.range)
+  );
+  const contractCount = firstContractCompanies.length;
 
   const addRevenue = (companyId: number, amount: number) => {
     revenue += amount;
@@ -1788,8 +1792,6 @@ async function buildManagementDashboardData(params: {
       if (!MANAGEMENT_REVENUE_STATUSES.includes(contract.status)) continue;
       if (isDateInMonth(contract.contractDate, month)) {
         if (contract.initialFee > 0) addRevenue(contract.companyId, contract.initialFee);
-        contractCount += 1;
-        addAmount(contractCountByCompanyId, contract.companyId, 1);
       }
       if (contract.monthlyFee > 0 && overlapsMonth(contract.contractStartDate, contract.contractEndDate, month)) {
         addRevenue(contract.companyId, proratedAmount(contract.monthlyFee, contract.contractStartDate, contract.contractEndDate, month));
@@ -1944,7 +1946,7 @@ async function buildManagementDashboardData(params: {
         leadSourceName: source.name,
         leadCount: sourceCompanies.length,
         meetingCount,
-        contractCount: sourceCompanies.reduce((sum, company) => sum + (contractCountByCompanyId.get(company.companyId) ?? 0), 0),
+        contractCount: firstContractCompanies.filter((company) => company.leadSourceId === source.id).length,
         revenue: sourceRevenue,
         grossMargin: ratePercent(sourceRevenue - sourceCost, sourceRevenue),
       };
@@ -1954,10 +1956,7 @@ async function buildManagementDashboardData(params: {
       leadSourceName: "流入経路未設定",
       leadCount: params.companies.filter((company) => company.leadSourceId == null && isInRange(company.leadAcquiredDate, params.range)).length,
       meetingCount: params.companies.filter((company) => company.leadSourceId == null && params.eventMaps.firstMeetingByCompanyId.has(company.companyId)).length,
-      contractCount: [...contractCountByCompanyId.entries()].reduce((sum, [companyId, count]) => {
-        const stpCompany = stpCompanyByCompanyId.get(companyId);
-        return stpCompany?.leadSourceId == null ? sum + count : sum;
-      }, 0),
+      contractCount: firstContractCompanies.filter((company) => company.leadSourceId == null).length,
       revenue: channelRevenue.get("__unassigned__") ?? 0,
       grossMargin: ratePercent((channelRevenue.get("__unassigned__") ?? 0) - (channelCost.get("__unassigned__") ?? 0), channelRevenue.get("__unassigned__") ?? 0),
     },
@@ -1969,9 +1968,8 @@ async function buildManagementDashboardData(params: {
     const stpCompany = stpCompanyByCompanyId.get(companyId);
     addNullableAmount(staffRevenue, stpCompany?.salesStaffId == null ? "__unassigned__" : String(stpCompany.salesStaffId), amount);
   }
-  for (const [companyId, count] of contractCountByCompanyId.entries()) {
-    const stpCompany = stpCompanyByCompanyId.get(companyId);
-    addNullableAmount(staffContracts, stpCompany?.salesStaffId == null ? "__unassigned__" : String(stpCompany.salesStaffId), count);
+  for (const company of firstContractCompanies) {
+    addNullableAmount(staffContracts, company.salesStaffId == null ? "__unassigned__" : String(company.salesStaffId), 1);
   }
   const staffRows = [
     ...params.staffOptions.map((staff) => ({
@@ -2056,6 +2054,8 @@ async function buildAllComputedData(params: {
         salesStaff: { select: { name: true } },
         asStaff: { select: { name: true } },
         currentStage: { select: { id: true, name: true, stageType: true } },
+        lostReasonOption: { select: { name: true } },
+        lostReason: true,
       },
       orderBy: { id: "asc" },
     }),
@@ -2077,6 +2077,8 @@ async function buildAllComputedData(params: {
         salesStaff: { select: { name: true } },
         asStaff: { select: { name: true } },
         currentStage: { select: { id: true, name: true, stageType: true } },
+        lostReasonOption: { select: { name: true } },
+        lostReason: true,
       },
       orderBy: { id: "asc" },
     }),

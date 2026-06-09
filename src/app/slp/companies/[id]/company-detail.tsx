@@ -174,6 +174,8 @@ export type CompanyDetailRecord = {
   confirmedAgentPayment: string | null;
   paymentReceivedDate: string | null;
   statusHistories: StatusHistoryEntry[];
+  initialDocumentsCompletedAt: string | null;
+  initialDocumentsCompletedByName: string | null;
   submittedDocuments: CompanyDocumentEntry[];
   reservationHistories: ReservationHistoryEntry[];
 };
@@ -1638,7 +1640,11 @@ export function CompanyDetail({
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <SlpCompanyDocumentsView documents={record.submittedDocuments} />
+              <SlpCompanyDocumentsView
+                documents={record.submittedDocuments}
+                initialDocumentsCompletedAt={record.initialDocumentsCompletedAt}
+                initialDocumentsCompletedByName={record.initialDocumentsCompletedByName}
+              />
               <p className="text-xs text-muted-foreground mt-3">
                 ※ 書類の削除（論理削除）は即座に反映されます（保存ボタン不要）
               </p>

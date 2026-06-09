@@ -197,6 +197,7 @@ export async function addStpCompany(data: Record<string, unknown>): Promise<Acti
     userId: user.id,
   });
   revalidatePath("/stp/companies", "layout");
+  revalidatePath("/stp/new-dashboard");
   return ok();
  } catch (e) {
   console.error("[addStpCompany] error:", e);
@@ -535,6 +536,7 @@ export async function updateStpCompany(id: number, data: Record<string, unknown>
     userId: user.id,
   });
   revalidatePath("/stp/companies", "layout");
+  revalidatePath("/stp/new-dashboard");
   return ok();
  } catch (e) {
   console.error("[updateStpCompany] error:", e);
@@ -557,6 +559,7 @@ export async function deleteStpCompany(id: number): Promise<ActionResult> {
     where: { id },
   });
   revalidatePath("/stp/companies", "layout");
+  revalidatePath("/stp/new-dashboard");
   return ok();
  } catch (e) {
   console.error("[deleteStpCompany] error:", e);
@@ -633,6 +636,7 @@ export async function updateMasterCompanyFromStp(
     }
 
     revalidatePath("/stp/companies", "layout");
+    revalidatePath("/stp/new-dashboard");
     revalidatePath(`/companies/${masterCompanyId}`);
     return ok();
   } catch (e) {

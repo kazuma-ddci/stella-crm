@@ -48,6 +48,7 @@ export default async function SlpCompaniesPage() {
       id: true,
       companyName: true,
       businessType: true,
+      initialDocumentsCompletedAt: true,
       salesStaff: { select: { id: true, name: true } },
       status1: { select: { id: true, name: true } },
       status2: { select: { id: true, name: true } },
@@ -195,6 +196,8 @@ export default async function SlpCompaniesPage() {
       companyNo: r.id,
       companyName: r.companyName,
       businessType: r.businessType,
+      initialDocumentsCompletedAt:
+        r.initialDocumentsCompletedAt?.toISOString() ?? null,
       primaryContactLineLabel,
       briefingStatus: activeBriefingSession?.status ?? null,
       briefingDate: toJstDisplay(activeBriefingSession?.scheduledAt ?? null),

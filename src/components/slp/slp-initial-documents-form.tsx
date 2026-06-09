@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Upload,
   FileText,
@@ -10,9 +10,7 @@ import {
   Loader2,
   ChevronDown,
   ChevronRight,
-  X,
   Send,
-  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -29,6 +27,8 @@ import {
 } from "@/components/kouteki";
 import type {
   SlpDocumentEntry,
+  SlpInitialDocumentsCompleteFn,
+  SlpInitialDocumentsCompletion,
   SlpDocumentUploadFn,
   SlpDocumentUrlFn,
 } from "./slp-document-form-types";
@@ -47,13 +47,6 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-/** 1スロット分の pending file（提出待ちファイル） */
-type PendingSlot = {
-  /** ローカルプレビュー用のObject URL */
-  objectUrl: string;
-  file: File;
-};
-
 /** スロットキー: documentType + fiscalPeriod */
 type SlotKey = string;
 function slotKey(type: SlpInitialDocumentType, period: number): SlotKey {
@@ -63,35 +56,29 @@ function slotKey(type: SlpInitialDocumentType, period: number): SlotKey {
 export type SlpInitialDocumentsFormProps = {
   documents: SlpDocumentEntry[];
   uploadFile: SlpDocumentUploadFn;
+  completeInitialDocuments: SlpInitialDocumentsCompleteFn;
   previewUrl: SlpDocumentUrlFn;
+  completion: SlpInitialDocumentsCompletion;
 };
 
 /**
  * 初回提出書類フォーム本体
  *
  * 動作:
- * - 各スロット (3書類×5期=15枠) でファイル選択 → ローカルに pending として保持（即送信しない）
+ * - 各スロットでファイル選択 → 即アップロードしてCRMへ保存
  * - 既存サーバー側ファイルがある場合は「提出済み」表示＋プレビュー可
- * - 既存ファイルがあるスロットに pending を入れると「差し替え予定」表示
- * - フォーム末尾の「提出する」ボタンで pending を順次サーバーへ送信
+ * - 既存ファイルがあるスロットに再アップロードすると差し替え履歴として保存
+ * - フォーム末尾のボタンで初回提出書類の最終完了日時を記録
  */
 export function SlpInitialDocumentsForm({
   documents,
   uploadFile,
+  completeInitialDocuments,
   previewUrl,
+  completion,
 }: SlpInitialDocumentsFormProps) {
-  const [pendings, setPendings] = useState<Map<SlotKey, PendingSlot>>(
-    new Map(),
-  );
-  const [submitting, setSubmitting] = useState(false);
-
-  // unmount 時に Object URL を解放
-  useEffect(() => {
-    return () => {
-      for (const p of pendings.values()) URL.revokeObjectURL(p.objectUrl);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const [uploadingSlots, setUploadingSlots] = useState<Set<SlotKey>>(new Set());
+  const [completing, setCompleting] = useState(false);
 
   // documentType x fiscalPeriod 別にグルーピング（既存サーバー側）
   const grouped = useMemo(() => {
@@ -109,75 +96,40 @@ export function SlpInitialDocumentsForm({
     return map;
   }, [documents]);
 
-  /** スロットへ pending file を設定 */
-  const setPending = (
+  /** スロットへファイルを即時アップロード */
+  const uploadSlot = async (
     type: SlpInitialDocumentType,
     period: number,
     file: File,
   ) => {
-    setPendings((prev) => {
-      const key = slotKey(type, period);
-      const next = new Map(prev);
-      const old = next.get(key);
-      if (old) URL.revokeObjectURL(old.objectUrl);
-      next.set(key, {
-        file,
-        objectUrl: URL.createObjectURL(file),
-      });
+    const key = slotKey(type, period);
+    setUploadingSlots((prev) => {
+      const next = new Set(prev);
+      next.add(key);
       return next;
     });
-  };
-
-  /** スロットから pending file をキャンセル */
-  const clearPending = (type: SlpInitialDocumentType, period: number) => {
-    setPendings((prev) => {
-      const key = slotKey(type, period);
-      const next = new Map(prev);
-      const old = next.get(key);
-      if (old) URL.revokeObjectURL(old.objectUrl);
+    const result = await uploadFile({ documentType: type, fiscalPeriod: period, file });
+    setUploadingSlots((prev) => {
+      const next = new Set(prev);
       next.delete(key);
       return next;
     });
+    if (result.success) {
+      toast.success("書類をアップロードしました");
+    } else {
+      toast.error(result.error ?? "アップロードに失敗しました");
+    }
   };
 
-  /** 提出ボタン押下: 全 pending を順次送信 */
-  const handleSubmit = async () => {
-    if (pendings.size === 0) {
-      toast.warning("提出するファイルが選択されていません");
-      return;
-    }
-    setSubmitting(true);
-    let success = 0;
-    let failed = 0;
-    const entries = Array.from(pendings.entries());
-    for (const [key, slot] of entries) {
-      const [type, periodStr] = key.split("#");
-      const period = Number(periodStr);
-      const result = await uploadFile({
-        documentType: type as SlpInitialDocumentType,
-        fiscalPeriod: period,
-        file: slot.file,
-      });
-      if (result.success) {
-        success++;
-        // 個別に削除
-        setPendings((prev) => {
-          const next = new Map(prev);
-          const old = next.get(key);
-          if (old) URL.revokeObjectURL(old.objectUrl);
-          next.delete(key);
-          return next;
-        });
-      } else {
-        failed++;
-        toast.error(`${slot.file.name}: ${result.error ?? "送信エラー"}`);
-      }
-    }
-    setSubmitting(false);
-    if (failed === 0 && success > 0) {
-      toast.success(`${success}件の書類を提出しました`);
-    } else if (success > 0) {
-      toast.success(`${success}件提出完了 / ${failed}件失敗`);
+  /** 最終完了ボタン押下: アップロード完了記録を保存 */
+  const handleComplete = async () => {
+    setCompleting(true);
+    const result = await completeInitialDocuments();
+    setCompleting(false);
+    if (result.success) {
+      toast.success("初回提出書類の提出完了を記録しました");
+    } else {
+      toast.error(result.error ?? "提出完了の記録に失敗しました");
     }
   };
 
@@ -188,68 +140,67 @@ export function SlpInitialDocumentsForm({
           key={typeDef.type}
           typeDef={typeDef}
           grouped={grouped}
-          pendings={pendings}
+          uploadingSlots={uploadingSlots}
           previewUrl={previewUrl}
-          onSelect={setPending}
-          onClear={clearPending}
-          submitting={submitting}
+          onSelect={uploadSlot}
         />
       ))}
 
-      {/* 提出ボタン */}
+      {/* 最終完了ボタン */}
       <SubmitFooter
-        pendingCount={pendings.size}
-        submitting={submitting}
-        onSubmit={handleSubmit}
+        completion={completion}
+        completing={completing}
+        disabled={uploadingSlots.size > 0}
+        onComplete={handleComplete}
       />
     </div>
   );
 }
 
-/** 提出ボタン領域（フォーム末尾に固定表示） */
+/** 最終完了ボタン領域（フォーム末尾に固定表示） */
 function SubmitFooter({
-  pendingCount,
-  submitting,
-  onSubmit,
+  completion,
+  completing,
+  disabled,
+  onComplete,
 }: {
-  pendingCount: number;
-  submitting: boolean;
-  onSubmit: () => void;
+  completion: SlpInitialDocumentsCompletion;
+  completing: boolean;
+  disabled: boolean;
+  onComplete: () => void;
 }) {
   return (
     <div className="sticky bottom-4 z-10 mt-8">
       <div className="rounded-2xl border border-blue-200 bg-white/95 px-5 py-4 shadow-[0_12px_36px_-18px_rgba(15,30,80,0.35)] backdrop-blur">
         <div className="flex flex-col items-center justify-between gap-3 sm:flex-row">
           <div className="text-xs text-slate-600">
-            {pendingCount > 0 ? (
-              <span className="inline-flex items-center gap-1.5">
-                <AlertCircle className="size-3.5 text-amber-500" />
-                <span className="font-semibold text-slate-900">
-                  {pendingCount}件
-                </span>
-                の書類が提出待ちです
+            {completion.completedAt ? (
+              <span className="text-blue-700">
+                提出完了済み
+                {completion.completedByName ? ` / ${completion.completedByName}` : ""}
+                {" ・ "}
+                {formatDate(completion.completedAt)}
               </span>
             ) : (
               <span className="text-slate-500">
-                ファイルを選択して「提出する」を押してください
+                必要な書類のアップロードが完了したら、このボタンを押してください。
               </span>
             )}
           </div>
           <KoutekiButton
             size="lg"
-            onClick={onSubmit}
-            disabled={submitting || pendingCount === 0}
+            onClick={onComplete}
+            disabled={completing || disabled}
           >
-            {submitting ? (
+            {completing ? (
               <>
                 <Loader2 className="size-4 animate-spin" />
-                送信中...
+                記録中...
               </>
             ) : (
               <>
                 <Send className="size-4" />
-                提出する
-                {pendingCount > 0 ? `（${pendingCount}件）` : ""}
+                全ての書類のアップロードを完了して提出する
               </>
             )}
           </KoutekiButton>
@@ -262,23 +213,19 @@ function SubmitFooter({
 function DocumentTypeBlock({
   typeDef,
   grouped,
-  pendings,
+  uploadingSlots,
   previewUrl,
   onSelect,
-  onClear,
-  submitting,
 }: {
   typeDef: (typeof INITIAL_DOCUMENT_TYPES)[number];
   grouped: Map<string, SlpDocumentEntry[]>;
-  pendings: Map<SlotKey, PendingSlot>;
+  uploadingSlots: Set<SlotKey>;
   previewUrl: SlpDocumentUrlFn;
   onSelect: (
     type: SlpInitialDocumentType,
     period: number,
     file: File,
-  ) => void;
-  onClear: (type: SlpInitialDocumentType, period: number) => void;
-  submitting: boolean;
+  ) => void | Promise<void>;
 }) {
   return (
     <KoutekiCard>
@@ -290,9 +237,6 @@ function DocumentTypeBlock({
           <div className="flex-1">
             <h3 className="text-base font-bold tracking-tight text-slate-900">
               {typeDef.label}
-              <span className="ml-2 inline-flex h-5 items-center rounded-md bg-slate-100 px-1.5 text-[10px] font-medium text-slate-600">
-                任意
-              </span>
             </h3>
             {typeDef.description && (
               <p className="mt-1 text-xs leading-relaxed text-slate-500">
@@ -309,7 +253,7 @@ function DocumentTypeBlock({
             const entries = grouped.get(key) ?? [];
             const current = entries.find((e) => e.isCurrent) ?? entries[0];
             const history = entries.filter((e) => e !== current);
-            const pending = pendings.get(
+            const isUploading = uploadingSlots.has(
               slotKey(typeDef.type as SlpInitialDocumentType, p.value),
             );
             return (
@@ -320,11 +264,9 @@ function DocumentTypeBlock({
                 fiscalLabel={p.label}
                 current={current}
                 history={history}
-                pending={pending}
+                isUploading={isUploading}
                 previewUrl={previewUrl}
                 onSelect={onSelect}
-                onClear={onClear}
-                submitting={submitting}
               />
             );
           })}
@@ -340,26 +282,22 @@ function FiscalPeriodSlot({
   fiscalLabel,
   current,
   history,
-  pending,
+  isUploading,
   previewUrl,
   onSelect,
-  onClear,
-  submitting,
 }: {
   documentType: SlpInitialDocumentType;
   fiscalPeriod: number;
   fiscalLabel: string;
   current: SlpDocumentEntry | undefined;
   history: SlpDocumentEntry[];
-  pending: PendingSlot | undefined;
+  isUploading: boolean;
   previewUrl: SlpDocumentUrlFn;
   onSelect: (
     type: SlpInitialDocumentType,
     period: number,
     file: File,
-  ) => void;
-  onClear: (type: SlpInitialDocumentType, period: number) => void;
-  submitting: boolean;
+  ) => void | Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -379,10 +317,8 @@ function FiscalPeriodSlot({
   };
 
   const isUploaded = !!current;
-  const hasPending = !!pending;
-
   // 状態別のスタイル
-  const containerClass = hasPending
+  const containerClass = isUploading
     ? "border-amber-300 bg-amber-50/40"
     : isUploaded
       ? "border-blue-200 bg-blue-50/30"
@@ -395,7 +331,7 @@ function FiscalPeriodSlot({
         <div className="flex min-w-0 items-center gap-3">
           <span
             className={`inline-flex h-7 items-center rounded-md px-2 text-xs font-bold ${
-              hasPending
+              isUploading
                 ? "bg-amber-500 text-white"
                 : isUploaded
                   ? "bg-blue-600 text-white"
@@ -404,15 +340,14 @@ function FiscalPeriodSlot({
           >
             {fiscalLabel}
           </span>
-          {hasPending ? (
+          {isUploading ? (
             <div className="min-w-0">
               <p className="flex items-center gap-1.5 truncate text-sm font-medium text-slate-900">
-                <AlertCircle className="size-3.5 shrink-0 text-amber-500" />
-                <span className="truncate">{pending!.file.name}</span>
+                <Loader2 className="size-3.5 shrink-0 animate-spin text-amber-500" />
+                <span className="truncate">アップロード中...</span>
               </p>
               <p className="mt-0.5 text-[11px] text-amber-700">
-                提出待ち ・ {formatBytes(pending!.file.size)}
-                {isUploaded ? " ・ 既存の書類を差し替え予定" : ""}
+                {isUploaded ? "既存の書類を差し替えています" : "書類を保存しています"}
               </p>
             </div>
           ) : isUploaded ? (
@@ -434,29 +369,7 @@ function FiscalPeriodSlot({
 
         {/* 右: アクションボタン */}
         <div className="flex items-center gap-2">
-          {hasPending && (
-            <>
-              <a
-                href={pending!.objectUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
-              >
-                <Eye className="size-3.5" />
-                プレビュー
-              </a>
-              <button
-                type="button"
-                onClick={() => onClear(documentType, fiscalPeriod)}
-                disabled={submitting}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-500 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <X className="size-3.5" />
-                取消
-              </button>
-            </>
-          )}
-          {!hasPending && isUploaded && (
+          {!isUploading && isUploaded && (
             <a
               href={previewUrl(current!.id)}
               target="_blank"
@@ -470,11 +383,15 @@ function FiscalPeriodSlot({
           <button
             type="button"
             onClick={handleSelect}
-            disabled={submitting}
+            disabled={isUploading}
             className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <Upload className="size-3.5" />
-            {hasPending ? "選び直す" : isUploaded ? "差し替え" : "ファイル選択"}
+            {isUploading ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Upload className="size-3.5" />
+            )}
+            {isUploaded ? "差し替え" : "ファイル選択"}
           </button>
         </div>
       </div>

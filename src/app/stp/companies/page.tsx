@@ -168,11 +168,23 @@ export default async function StpCompaniesPage() {
           companyId: true,
           contactDate: true,
           contactMethodId: true,
+          contactCategoryId: true,
           assignedTo: true,
           customerParticipants: true,
           meetingMinutes: true,
           note: true,
           contactMethod: { select: { id: true, name: true } },
+          contactCategory: { select: { id: true, name: true } },
+          files: {
+            select: {
+              id: true,
+              filePath: true,
+              fileName: true,
+              fileSize: true,
+              mimeType: true,
+              url: true,
+            },
+          },
           roles: {
             select: {
               customerTypeId: true,
@@ -412,12 +424,22 @@ export default async function StpCompaniesPage() {
         contactDate: h.contactDate.toISOString(),
         contactMethodId: h.contactMethodId,
         contactMethodName: h.contactMethod?.name || null,
+        contactCategoryId: h.contactCategoryId,
+        contactCategoryName: h.contactCategory?.name || null,
         assignedTo: h.assignedTo,
         assignedToNames,
         customerParticipants: h.customerParticipants,
         meetingMinutes: h.meetingMinutes,
         note: h.note,
         customerTypeIds: h.roles.map((r) => r.customerTypeId),
+        files: h.files.map((f) => ({
+          id: f.id,
+          filePath: f.filePath,
+          fileName: f.fileName,
+          fileSize: f.fileSize,
+          mimeType: f.mimeType,
+          url: f.url,
+        })),
       };
     }),
     // 契約履歴（全件、stateフラグ付き）- 契約関連データ用

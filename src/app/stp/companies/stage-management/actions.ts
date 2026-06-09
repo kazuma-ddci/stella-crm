@@ -321,6 +321,7 @@ export async function updateStageWithHistory(
     const newStageName = stageInfos.find(s => s.id === newStageId)?.name ?? String(newStageId);
     await logActivity({ model: "StpCompany", recordId: stpCompanyId, action: "update", summary: "ステージを変更", changes: { ステージ: { old: oldStageName, new: newStageName } }, userId: user.id });
     revalidatePath("/stp/companies", "layout");
+    revalidatePath("/stp/new-dashboard");
     return { success: true, events };
   } catch (error) {
     console.error("Failed to update stage:", error);
@@ -538,6 +539,7 @@ export async function updateReasonOnly(params: {
     });
 
     revalidatePath("/stp/companies", "layout");
+    revalidatePath("/stp/new-dashboard");
     return { success: true };
   } catch (error) {
     console.error("Failed to update reason:", error);

@@ -15,13 +15,14 @@ import {
   KoutekiPageShell,
   KoutekiCard,
   KoutekiCardContent,
-  KoutekiButton,
 } from "@/components/kouteki";
 import { SlpInitialDocumentsForm } from "@/components/slp/slp-initial-documents-form";
 import { SlpAdditionalDocumentsForm } from "@/components/slp/slp-additional-documents-form";
 import type {
   SlpDocumentEntry,
   SlpCompanyOption,
+  SlpInitialDocumentsCompletion,
+  SlpInitialDocumentsCompleteFn,
   SlpDocumentUploadFn,
   SlpDocumentUrlFn,
 } from "@/components/slp/slp-document-form-types";
@@ -32,6 +33,12 @@ import {
 import { getPublicUid } from "@/lib/slp/public-uid";
 
 type Category = "initial" | "additional";
+
+const emptyInitialDocumentsCompletion: SlpInitialDocumentsCompletion = {
+  completedAt: null,
+  completedByUid: null,
+  completedByName: null,
+};
 
 type Phase =
   | { phase: "loading" }
@@ -48,6 +55,7 @@ type Phase =
       snsname: string;
       company: SlpCompanyOption;
       documents: SlpDocumentEntry[];
+      initialDocumentsCompletion: SlpInitialDocumentsCompletion;
       /** 複数企業がある場合に「企業選択に戻る」を表示するため */
       companies: SlpCompanyOption[] | null;
     }
@@ -57,11 +65,12 @@ type Phase =
       snsname: string;
       company: SlpCompanyOption;
       documents: SlpDocumentEntry[];
+      initialDocumentsCompletion: SlpInitialDocumentsCompletion;
       category: Category;
       companies: SlpCompanyOption[] | null;
     };
 
-/** 初回書類の提出済みスロット数（最大15件）を計算 */
+/** 初回書類の提出済みスロット数を計算 */
 function countInitialSubmittedSlots(documents: SlpDocumentEntry[]): number {
   const slots = new Set<string>();
   for (const d of documents) {
@@ -153,6 +162,9 @@ export default function SlpDocumentsPage() {
             snsname: data2.snsname ?? "",
             company: companies[0],
             documents: (data2.documents ?? []) as SlpDocumentEntry[],
+            initialDocumentsCompletion:
+              data2.initialDocumentsCompletion ??
+              emptyInitialDocumentsCompletion,
             companies: null, // 1社しかないので「企業選び直す」ボタンは出さない
           });
           return;
@@ -195,6 +207,8 @@ export default function SlpDocumentsPage() {
           snsname: data.snsname ?? prevState.snsname,
           company,
           documents: (data.documents ?? []) as SlpDocumentEntry[],
+          initialDocumentsCompletion:
+            data.initialDocumentsCompletion ?? emptyInitialDocumentsCompletion,
           companies: prevState.companies,
         });
       } catch {
@@ -214,6 +228,7 @@ export default function SlpDocumentsPage() {
         snsname: state.snsname,
         company: state.company,
         documents: state.documents,
+        initialDocumentsCompletion: state.initialDocumentsCompletion,
         category,
         companies: state.companies,
       });
@@ -241,6 +256,8 @@ export default function SlpDocumentsPage() {
         snsname: state.snsname,
         company: state.company,
         documents: (data.documents ?? []) as SlpDocumentEntry[],
+        initialDocumentsCompletion:
+          data.initialDocumentsCompletion ?? emptyInitialDocumentsCompletion,
         companies: state.companies,
       });
     } catch {
@@ -268,6 +285,8 @@ export default function SlpDocumentsPage() {
       setState({
         ...state,
         documents: (data.documents ?? []) as SlpDocumentEntry[],
+        initialDocumentsCompletion:
+          data.initialDocumentsCompletion ?? state.initialDocumentsCompletion,
       });
     }
   }, [fetchInit, state]);
@@ -306,6 +325,45 @@ export default function SlpDocumentsPage() {
     [state, refresh],
   );
 
+  const completeInitialDocuments = useMemo<SlpInitialDocumentsCompleteFn>(
+    () => async () => {
+      if (state.phase !== "form") {
+        return { success: false, error: "未初期化" };
+      }
+      try {
+        const res = await fetch("/api/public/slp/company-documents/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            uid: state.uid,
+            companyRecordId: state.company.id,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          return {
+            success: false,
+            error: data.error ?? "提出完了の記録に失敗しました",
+          };
+        }
+        const completion: SlpInitialDocumentsCompletion = {
+          completedAt: data.initialDocumentsCompletedAt ?? null,
+          completedByUid: data.initialDocumentsCompletedByUid ?? null,
+          completedByName: data.initialDocumentsCompletedByName ?? null,
+        };
+        setState((prev) =>
+          prev.phase === "form"
+            ? { ...prev, initialDocumentsCompletion: completion }
+            : prev,
+        );
+        return { success: true, completion };
+      } catch {
+        return { success: false, error: "通信エラーが発生しました" };
+      }
+    },
+    [state],
+  );
+
   const previewUrl = useCallback<SlpDocumentUrlFn>(
     (documentId: number) => {
       if (state.phase !== "form") return "#";
@@ -333,8 +391,8 @@ export default function SlpDocumentsPage() {
   const formSubtitle =
     state.phase === "form"
       ? state.category === "initial"
-        ? "源泉徴収簿・算定基礎届・賃金台帳について、直近期から4期前まで5期分の書類を提出してください。"
-        : "被保険者資格取得届・月額変更届・賞与支払届・標準報酬決定通知書を提出してください。"
+        ? "算定基礎届・源泉徴収簿・賃金台帳・賞与支払届について、直近期から4期前まで5期分の書類を提出してください。"
+        : "被保険者資格取得届・月額変更届・標準報酬決定通知書を提出してください。"
       : "書類の提出が必要な企業を選択してください";
 
   return (
@@ -412,6 +470,7 @@ export default function SlpDocumentsPage() {
           company={state.company}
           snsname={state.snsname}
           documents={state.documents}
+          initialDocumentsCompletion={state.initialDocumentsCompletion}
           canGoBackToCompany={!!state.companies}
           onBackToCompany={handleBackToCompany}
           onSelectCategory={handleSelectCategory}
@@ -457,7 +516,9 @@ export default function SlpDocumentsPage() {
             <SlpInitialDocumentsForm
               documents={state.documents}
               uploadFile={uploadFile}
+              completeInitialDocuments={completeInitialDocuments}
               previewUrl={previewUrl}
+              completion={state.initialDocumentsCompletion}
             />
           ) : (
             <SlpAdditionalDocumentsForm
@@ -480,6 +541,7 @@ function CategorySelectView({
   company,
   snsname,
   documents,
+  initialDocumentsCompletion,
   canGoBackToCompany,
   onBackToCompany,
   onSelectCategory,
@@ -487,14 +549,15 @@ function CategorySelectView({
   company: SlpCompanyOption;
   snsname: string;
   documents: SlpDocumentEntry[];
+  initialDocumentsCompletion: SlpInitialDocumentsCompletion;
   canGoBackToCompany: boolean;
   onBackToCompany: () => void;
   onSelectCategory: (category: Category) => void;
 }) {
-  const totalSlots = INITIAL_DOCUMENT_TYPES.length * FISCAL_PERIODS.length; // 3 × 5 = 15
+  const totalSlots = INITIAL_DOCUMENT_TYPES.length * FISCAL_PERIODS.length;
   const initialSubmitted = countInitialSubmittedSlots(documents);
   const additionalCount = countAdditionalSubmitted(documents);
-  const initialComplete = initialSubmitted >= totalSlots;
+  const initialComplete = !!initialDocumentsCompletion.completedAt;
 
   return (
     <div className="space-y-5">
@@ -556,7 +619,7 @@ function CategorySelectView({
                   {initialComplete ? (
                     <span className="inline-flex h-5 items-center gap-1 rounded-md bg-blue-100 px-1.5 text-[10px] font-bold text-blue-700">
                       <CheckCircle2 className="size-3" />
-                      全件提出済み
+                      提出完了
                     </span>
                   ) : (
                     <span className="inline-flex h-5 items-center rounded-md bg-slate-100 px-1.5 text-[10px] font-medium text-slate-600">
@@ -565,7 +628,7 @@ function CategorySelectView({
                   )}
                 </div>
                 <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                  源泉徴収簿・算定基礎届・賃金台帳について、直近期から4期前まで5期分
+                  算定基礎届・源泉徴収簿・賃金台帳・賞与支払届について、直近期から4期前まで5期分
                 </p>
               </div>
               <ChevronRight className="size-5 text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-700" />
@@ -594,7 +657,7 @@ function CategorySelectView({
                   </span>
                 </div>
                 <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                  被保険者資格取得届・月額変更届・賞与支払届・標準報酬決定通知書
+                  被保険者資格取得届・月額変更届・標準報酬決定通知書
                 </p>
               </div>
               <ChevronRight className="size-5 text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-700" />

@@ -59,6 +59,8 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   company: { id: number; name: string };
   documents: CompanyDocumentEntry[];
+  initialDocumentsCompletedAt?: string | null;
+  initialDocumentsCompletedByName?: string | null;
 };
 
 function formatBytes(bytes: number | null | undefined) {
@@ -93,10 +95,14 @@ function downloadUrl(id: number) {
  */
 export function SlpCompanyDocumentsView({
   documents,
+  initialDocumentsCompletedAt,
+  initialDocumentsCompletedByName,
   className,
   tabsContentClassName,
 }: {
   documents: CompanyDocumentEntry[];
+  initialDocumentsCompletedAt?: string | null;
+  initialDocumentsCompletedByName?: string | null;
   className?: string;
   tabsContentClassName?: string;
 }) {
@@ -108,6 +114,8 @@ export function SlpCompanyDocumentsView({
     () => documents.filter((d) => d.category === "additional"),
     [documents],
   );
+  const initialSlotCount =
+    INITIAL_DOCUMENT_TYPES.length * FISCAL_PERIODS.length;
 
   return (
     <Tabs defaultValue="initial" className={className ?? "flex flex-col"}>
@@ -115,7 +123,7 @@ export function SlpCompanyDocumentsView({
         <TabsTrigger value="initial">
           初回提出書類
           <Badge variant="secondary" className="ml-2">
-            {initialDocs.filter((d) => d.isCurrent).length} / 15
+            {initialDocs.filter((d) => d.isCurrent).length} / {initialSlotCount}
           </Badge>
         </TabsTrigger>
         <TabsTrigger value="additional">
@@ -127,7 +135,11 @@ export function SlpCompanyDocumentsView({
       </TabsList>
 
       <TabsContent value="initial" className={tabsContentClassName ?? "mt-4"}>
-        <InitialDocumentsView documents={initialDocs} />
+        <InitialDocumentsView
+          documents={initialDocs}
+          completedAt={initialDocumentsCompletedAt}
+          completedByName={initialDocumentsCompletedByName}
+        />
       </TabsContent>
       <TabsContent value="additional" className={tabsContentClassName ?? "mt-4"}>
         <AdditionalDocumentsView documents={additionalDocs} />
@@ -147,6 +159,8 @@ export function SlpCompanyDocumentsModal({
   onOpenChange,
   company,
   documents,
+  initialDocumentsCompletedAt,
+  initialDocumentsCompletedByName,
 }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -163,6 +177,8 @@ export function SlpCompanyDocumentsModal({
 
         <SlpCompanyDocumentsView
           documents={documents}
+          initialDocumentsCompletedAt={initialDocumentsCompletedAt}
+          initialDocumentsCompletedByName={initialDocumentsCompletedByName}
           className="flex-1 overflow-hidden flex flex-col"
           tabsContentClassName="flex-1 overflow-y-auto mt-4 pr-2"
         />
@@ -176,8 +192,12 @@ export function SlpCompanyDocumentsModal({
 // ========================================
 function InitialDocumentsView({
   documents,
+  completedAt,
+  completedByName,
 }: {
   documents: CompanyDocumentEntry[];
+  completedAt?: string | null;
+  completedByName?: string | null;
 }) {
   // documentType x fiscalPeriod でグルーピング
   const grouped = useMemo(() => {
@@ -196,6 +216,22 @@ function InitialDocumentsView({
 
   return (
     <div className="space-y-4">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs">
+        {completedAt ? (
+          <div className="flex flex-wrap items-center gap-2 text-blue-700">
+            <Badge variant="default">初回書類完了</Badge>
+            <span>
+              {formatDate(completedAt)}
+              {completedByName ? ` / ${completedByName}` : ""}
+            </span>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2 text-slate-500">
+            <Badge variant="outline">初回書類未完了</Badge>
+            <span>お客様側の最終提出ボタンはまだ押されていません。</span>
+          </div>
+        )}
+      </div>
       {INITIAL_DOCUMENT_TYPES.map((typeDef) => (
         <div
           key={typeDef.type}

@@ -19,7 +19,8 @@ import { prisma } from "@/lib/prisma";
  *     uid: "...",
  *     snsname: "...",
  *     companies: [{ id, name }, ...],
- *     documents?: [...] (companyRecordId指定時のみ)
+ *     documents?: [...] (companyRecordId指定時のみ),
+ *     initialDocumentsCompletion?: {...} (companyRecordId指定時のみ)
  *   }
  *
  * レスポンス（失敗）:
@@ -105,10 +106,25 @@ export async function GET(request: NextRequest) {
     uploadedByUid: string | null;
     createdAt: string;
   }> | undefined;
+  let initialDocumentsCompletion:
+    | {
+        completedAt: string | null;
+        completedByUid: string | null;
+        completedByName: string | null;
+      }
+    | undefined;
 
   if (companyRecordIdParam) {
     const companyRecordId = Number(companyRecordIdParam);
     if (Number.isFinite(companyRecordId) && companies.some((c) => c.id === companyRecordId)) {
+      const companyRecord = await prisma.slpCompanyRecord.findFirst({
+        where: { id: companyRecordId, deletedAt: null },
+        select: {
+          initialDocumentsCompletedAt: true,
+          initialDocumentsCompletedByUid: true,
+          initialDocumentsCompletedByName: true,
+        },
+      });
       const docs = await prisma.slpCompanyDocument.findMany({
         where: {
           companyRecordId,
@@ -134,6 +150,12 @@ export async function GET(request: NextRequest) {
         uploadedByUid: d.uploadedByUid,
         createdAt: d.createdAt.toISOString(),
       }));
+      initialDocumentsCompletion = {
+        completedAt:
+          companyRecord?.initialDocumentsCompletedAt?.toISOString() ?? null,
+        completedByUid: companyRecord?.initialDocumentsCompletedByUid ?? null,
+        completedByName: companyRecord?.initialDocumentsCompletedByName ?? null,
+      };
     }
   }
 
@@ -148,5 +170,8 @@ export async function GET(request: NextRequest) {
     snsname: displayName,
     companies,
     ...(documents !== undefined ? { documents } : {}),
+    ...(initialDocumentsCompletion !== undefined
+      ? { initialDocumentsCompletion }
+      : {}),
   });
 }

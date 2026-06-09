@@ -26,12 +26,25 @@ export type SlpCompanyOption = {
   name: string;
 };
 
+export type SlpInitialDocumentsCompletion = {
+  completedAt: string | null;
+  completedByUid: string | null;
+  completedByName: string | null;
+};
+
 /** ファイルアップロード関数の共通シグネチャ */
 export type SlpDocumentUploadFn = (params: {
   documentType: SlpDocumentType;
   fiscalPeriod?: number | null;
   file: File;
 }) => Promise<{ success: boolean; error?: string }>;
+
+/** 初回提出書類の最終完了記録関数 */
+export type SlpInitialDocumentsCompleteFn = () => Promise<{
+  success: boolean;
+  error?: string;
+  completion?: SlpInitialDocumentsCompletion;
+}>;
 
 /** プレビュー/ダウンロードURL生成関数 */
 export type SlpDocumentUrlFn = (documentId: number) => string;

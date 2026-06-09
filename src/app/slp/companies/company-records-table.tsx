@@ -75,6 +75,7 @@ type RecordRow = {
   companyNo: number;
   companyName: string | null;
   businessType: string | null;
+  initialDocumentsCompletedAt: string | null;
   primaryContactLineLabel: string | null;
   briefingStatus: string | null;
   briefingDate: string | null;
@@ -436,7 +437,7 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
         </div>
       </div>
 
-      {/* テーブル本体（13列構成） */}
+      {/* テーブル本体（14列構成） */}
       <div className="border rounded-lg overflow-auto">
         <Table>
           <TableHeader>
@@ -448,6 +449,7 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
               <TableHead className="w-[140px]">担当営業</TableHead>
               <TableHead className="w-[120px]">概要案内</TableHead>
               <TableHead className="w-[160px]">概要案内日</TableHead>
+              <TableHead className="w-[140px]">初回書類</TableHead>
               <TableHead className="w-[120px]">導入希望商談</TableHead>
               <TableHead className="w-[160px]">導入希望商談日</TableHead>
               <TableHead className="min-w-[200px]">AS担当</TableHead>
@@ -461,7 +463,7 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
           <TableBody>
             {filteredData.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={14} className="text-center text-muted-foreground py-8">
                   {data.length === 0
                     ? "事業者名簿にレコードがありません"
                     : "条件に一致する事業者がありません"}
@@ -583,6 +585,20 @@ export function CompanyRecordsTable({ data, duplicateCandidates }: Props) {
                   </TableCell>
                   <TableCell className="text-sm whitespace-nowrap">
                     {row.briefingDate ?? <span className="text-muted-foreground">-</span>}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {row.initialDocumentsCompletedAt ? (
+                      <Badge
+                        variant="default"
+                        title={`初回書類完了: ${row.initialDocumentsCompletedAt}`}
+                      >
+                        完了
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-slate-500">
+                        未完了
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm">
                     {row.consultationStatus ? (

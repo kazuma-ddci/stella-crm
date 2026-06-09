@@ -105,6 +105,7 @@ export async function addContractHistory(companyId: number, data: ContractHistor
     });
 
     revalidatePath("/stp/companies", "layout");
+    revalidatePath("/stp/new-dashboard");
     revalidatePath("/companies");
     return { success: true };
   } catch (error) {
@@ -179,6 +180,7 @@ export async function updateContractHistory(
     const affectedFinanceCount = await markFinanceRecordsForContractChange(id);
 
     revalidatePath("/stp/companies", "layout");
+    revalidatePath("/stp/new-dashboard");
     revalidatePath("/companies");
     revalidatePath("/stp/finance/overview");
     revalidatePath("/stp/finance/transactions");
@@ -200,6 +202,7 @@ export async function deleteContractHistory(id: number): Promise<{ success: bool
     });
 
     revalidatePath("/stp/companies", "layout");
+    revalidatePath("/stp/new-dashboard");
     revalidatePath("/companies");
     return { success: true };
   } catch (error) {
@@ -221,6 +224,7 @@ export async function linkContractHistoryToContract(
       data: { masterContractId },
     });
     revalidatePath("/stp/companies", "layout");
+    revalidatePath("/stp/new-dashboard");
     revalidatePath("/companies");
     return { success: true };
   } catch (error) {
