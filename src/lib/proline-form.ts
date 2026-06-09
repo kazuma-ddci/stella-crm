@@ -151,6 +151,9 @@ export async function submitForm3PreFillBriefingReservation(
   const body = {
     dataType: "json",
     "form3-1": companyName,
+    "form3-2": "",
+    "form3-3": "",
+    "form3-4": "",
     "form3-5": crmToken,
     "form3-6": FORM3_INDUSTRY_JOB_DEFAULT,
     "form3-7": FORM3_LISTING_STATUS_DEFAULT,
@@ -164,8 +167,9 @@ export async function submitForm3PreFillBriefingReservation(
   });
 
   if (!response.ok) {
+    const responseText = await response.text().catch(() => "");
     throw new Error(
-      `ProLine Form3 PreFill API error: ${response.status} ${response.statusText}`
+      `ProLine Form3 PreFill API error: ${response.status} ${response.statusText} ${responseText.slice(0, 500)}`
     );
   }
 
