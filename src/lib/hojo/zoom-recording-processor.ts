@@ -176,7 +176,8 @@ export async function fetchAndSaveAiSummary(
 // ============================================
 export async function downloadAndSaveRecordingFiles(
   recordingRowId: number,
-  payload?: ZoomRecordingPayload
+  payload?: ZoomRecordingPayload,
+  options?: { downloadToken?: string | null }
 ): Promise<{
   ok: boolean;
   mp4: boolean;
@@ -192,20 +193,23 @@ export async function downloadAndSaveRecordingFiles(
   }
 
   let recordingPayload = payload;
+  let metadataError: string | null = null;
   if (!recordingPayload) {
     try {
       const fetched = await fetchRecordingMetadata({
         hostStaffId: rec.hostStaffId,
         meetingId: rec.zoomMeetingId,
+        occurrenceStartedAt: rec.scheduledAt,
       });
       recordingPayload = fetched ?? undefined;
     } catch (err) {
+      metadataError = err instanceof Error ? err.message : String(err);
       await logAutomationError({
         source: "hojo-zoom-recording-metadata",
         message: "録画メタデータ取得失敗",
         detail: {
           recordingId: recordingRowId,
-          error: err instanceof Error ? err.message : String(err),
+          error: metadataError,
         },
       });
     }
@@ -214,8 +218,10 @@ export async function downloadAndSaveRecordingFiles(
     await prisma.hojoZoomRecording.update({
       where: { id: recordingRowId },
       data: {
-        downloadStatus: "no_recording",
-        downloadError: "Zoom側に録画が存在しないか削除済みです",
+        downloadStatus: metadataError ? "failed" : "no_recording",
+        downloadError:
+          metadataError ??
+          "接触日時に近いZoom録画が見つかりません。Zoom側に録画が存在しない、削除済み、または固定URLの開催回を特定できない可能性があります。",
         chatFetchedAt: rec.chatFetchedAt ?? new Date(),
       },
     });
@@ -267,6 +273,7 @@ export async function downloadAndSaveRecordingFiles(
       skipMp4: !!rec.mp4Path,
       skipTranscript: !!rec.transcriptText,
       skipChat: !!rec.chatLogText,
+      downloadToken: options?.downloadToken,
     });
   } catch (err) {
     await prisma.hojoZoomRecording.update({
@@ -333,14 +340,29 @@ export async function downloadAndSaveRecordingFiles(
   const payloadHasMp4 = recordingPayload.recording_files.some(
     (f) => f.file_type === "MP4"
   );
+  const hasAnySaved =
+    mp4Saved ||
+    transcriptSaved ||
+    chatSaved ||
+    !!rec.mp4Path ||
+    !!rec.transcriptText ||
+    !!rec.chatLogText;
   let finalStatus: string;
-  if (payloadHasMp4) {
+  if (hasAnySaved) {
+    finalStatus = "completed";
+  } else if (
+    downloaded.transcriptFallbackStatus === "not_ready" ||
+    downloaded.transcriptFallbackStatus === "not_found"
+  ) {
+    finalStatus = "pending";
+  } else if (payloadHasMp4) {
     finalStatus = mp4Saved || rec.mp4Path ? "completed" : "failed";
   } else {
     finalStatus = "completed";
   }
   updates.downloadStatus = finalStatus;
-  updates.downloadError = null;
+  updates.downloadError =
+    downloaded.errors.length > 0 ? downloaded.errors.join("\n") : null;
 
   await prisma.hojoZoomRecording.update({
     where: { id: recordingRowId },
@@ -628,7 +650,8 @@ async function finalizeRecordingState(recordingRowId: number): Promise<"予定" 
 // Webhook エントリポイント1: recording.completed / recording.transcript_completed
 // ============================================
 export async function processHojoZoomRecordingCompleted(
-  payload: ZoomRecordingPayload
+  payload: ZoomRecordingPayload,
+  options?: { downloadToken?: string | null }
 ): Promise<void> {
   const meetingIdNum =
     typeof payload.id === "string" ? BigInt(payload.id) : BigInt(payload.id);
@@ -648,7 +671,9 @@ export async function processHojoZoomRecordingCompleted(
     });
   }
 
-  await downloadAndSaveRecordingFiles(ctx.recordingRowId, payload);
+  await downloadAndSaveRecordingFiles(ctx.recordingRowId, payload, {
+    downloadToken: options?.downloadToken,
+  });
   await fetchAndSaveParticipants(ctx.recordingRowId);
   await fetchAndSaveAiSummary(ctx.recordingRowId);
 

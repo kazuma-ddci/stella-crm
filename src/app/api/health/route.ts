@@ -38,6 +38,7 @@ const CRON_ENDPOINTS = [
   "/api/cron/sync-cloudsign-status",
   "/api/cron/fetch-usdt-rate",
   "/api/cron/sync-counterparties",
+  "/api/cron/zoom-recording-retry",
 ];
 
 async function runCheck(

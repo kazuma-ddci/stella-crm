@@ -44,9 +44,24 @@ type ZoomRow = {
   state: string;
   hostStaffName: string | null;
   zoomApiError: string | null;
+  downloadStatus: string;
+  downloadError: string | null;
   createdAt: string;
   hasRecording: boolean;
+  hasTranscript: boolean;
 };
+
+function transcriptStatusMessage(row: ZoomRow): string | null {
+  if (row.hasTranscript) return null;
+  if (row.downloadError?.includes("TRANSCRIPT:")) return row.downloadError;
+  if (row.downloadStatus === "pending" || row.state === "予定") {
+    return "文字起こし取得待ちです。Zoom側で生成後に自動再取得します。";
+  }
+  if (row.state === "完了") {
+    return "文字起こしは未取得です。詳細から未取得分を再取得できます。";
+  }
+  return null;
+}
 
 function StateBadge({ state }: { state: string }) {
   switch (state) {
@@ -210,6 +225,12 @@ export function ZoomRecordingSection({
                   <div className="flex items-start gap-1 text-[10px] text-red-700">
                     <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
                     <span className="break-all">{z.zoomApiError}</span>
+                  </div>
+                )}
+                {transcriptStatusMessage(z) && (
+                  <div className="flex items-start gap-1 text-[10px] text-amber-700">
+                    <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
+                    <span className="break-all">{transcriptStatusMessage(z)}</span>
                   </div>
                 )}
               </div>

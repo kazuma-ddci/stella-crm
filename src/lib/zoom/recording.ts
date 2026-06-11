@@ -27,6 +27,7 @@ export type ZoomRecordingPayload = {
   start_time?: string;
   duration?: number;
   recording_files: ZoomRecordingFile[];
+  download_access_token?: string;
 };
 
 const STORAGE_ROOT_REL = path.posix.join(
@@ -34,10 +35,6 @@ const STORAGE_ROOT_REL = path.posix.join(
   "slp",
   "zoom-recordings"
 );
-
-function getStorageRootAbs(): string {
-  return path.join(process.cwd(), "public", ...STORAGE_ROOT_REL.split("/"));
-}
 
 export type DownloadedRecording = {
   mp4RelPath: string | null;
@@ -49,13 +46,29 @@ export type DownloadedRecording = {
   chatRelPath: string | null;
   chatText: string | null;
   chatFileId: string | null;
+  errors: string[];
+  transcriptFallbackStatus: MeetingTranscriptResult["status"] | null;
 };
+
+const TRANSCRIPT_FINAL_FAILURE_PATTERNS = [
+  "TRANSCRIPT: Zoom側に文字起こしデータがありません",
+  "TRANSCRIPT: Zoom側の文字起こしは削除済みです",
+  "TRANSCRIPT: このZoom録画は文字起こしAPIに対応していません",
+  "接触日時に近いZoom録画が見つかりません",
+  "固定Zoom URLの録画候補が複数",
+];
+
+export function isFinalZoomTranscriptFailure(error: string | null | undefined): boolean {
+  if (!error) return false;
+  return TRANSCRIPT_FINAL_FAILURE_PATTERNS.some((pattern) =>
+    error.includes(pattern)
+  );
+}
 
 /**
  * Zoom 録画をダウンロードしてVPSに保存する。
- * download_token付きURLへは `access_token` を付与することでダウンロード可能。
- * recording.completed Webhookのpayloadには `download_token` が含まれることがあるが、
- * OAuthアクセストークン（有効期間内）でも同じURLからDL可能。
+ * recording.completed Webhook 由来の download_url は download_token を優先して使う。
+ * 後追い取得では Cloud Recording API の download_access_token を優先する。
  *
  * 取得対象:
  *  - MP4 (動画) — 1つだけ（shared_screen_with_speaker_view を優先）
@@ -72,8 +85,14 @@ export async function downloadZoomRecordingFiles(params: {
   skipMp4?: boolean;
   skipTranscript?: boolean;
   skipChat?: boolean;
+  /** Webhook payload 直下の download_token。24時間以内の録画DLで使う。 */
+  downloadToken?: string | null;
 }): Promise<DownloadedRecording> {
   const ctx = await requireStaffZoomContext(params.hostStaffId);
+  const downloadToken =
+    params.downloadToken ??
+    params.recording.download_access_token ??
+    ctx.accessToken;
 
   const now = new Date();
   const yyyyMm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -97,6 +116,8 @@ export async function downloadZoomRecordingFiles(params: {
   let chatRelPath: string | null = null;
   let chatText: string | null = null;
   let chatFileId: string | null = null;
+  const errors: string[] = [];
+  let transcriptFallbackStatus: MeetingTranscriptResult["status"] | null = null;
 
   for (const file of params.recording.recording_files) {
     if (file.status && file.status !== "completed") continue;
@@ -108,33 +129,45 @@ export async function downloadZoomRecordingFiles(params: {
     if (file.file_type === "MP4" && !mp4RelPath && !params.skipMp4) {
       const filename = `recording.${ext}`;
       const absPath = path.join(absDir, filename);
-      const buf = await downloadToBuffer(file.download_url, ctx.accessToken);
-      await fs.writeFile(absPath, buf);
-      mp4RelPath = path.posix.join("/", relDir, filename);
-      mp4Size = buf.byteLength;
-      mp4FileId = file.id ?? null;
+      try {
+        const buf = await downloadToBuffer(file.download_url, downloadToken);
+        await fs.writeFile(absPath, buf);
+        mp4RelPath = path.posix.join("/", relDir, filename);
+        mp4Size = buf.byteLength;
+        mp4FileId = file.id ?? null;
+      } catch (err) {
+        errors.push(formatFileDownloadError("MP4", err));
+      }
       continue;
     }
 
     if (file.file_type === "TRANSCRIPT" && !params.skipTranscript) {
       const filename = `transcript.${ext || "vtt"}`;
       const absPath = path.join(absDir, filename);
-      const buf = await downloadToBuffer(file.download_url, ctx.accessToken);
-      await fs.writeFile(absPath, buf);
-      transcriptRelPath = path.posix.join("/", relDir, filename);
-      transcriptText = vttToPlainText(buf.toString("utf8"));
-      transcriptFileId = file.id ?? null;
+      try {
+        const buf = await downloadToBuffer(file.download_url, downloadToken);
+        await fs.writeFile(absPath, buf);
+        transcriptRelPath = path.posix.join("/", relDir, filename);
+        transcriptText = vttToPlainText(buf.toString("utf8"));
+        transcriptFileId = file.id ?? null;
+      } catch (err) {
+        errors.push(formatFileDownloadError("TRANSCRIPT", err));
+      }
       continue;
     }
 
     if (file.file_type === "CHAT" && !params.skipChat) {
       const filename = `chat.${ext || "txt"}`;
       const absPath = path.join(absDir, filename);
-      const buf = await downloadToBuffer(file.download_url, ctx.accessToken);
-      await fs.writeFile(absPath, buf);
-      chatRelPath = path.posix.join("/", relDir, filename);
-      chatText = buf.toString("utf8");
-      chatFileId = file.id ?? null;
+      try {
+        const buf = await downloadToBuffer(file.download_url, downloadToken);
+        await fs.writeFile(absPath, buf);
+        chatRelPath = path.posix.join("/", relDir, filename);
+        chatText = buf.toString("utf8");
+        chatFileId = file.id ?? null;
+      } catch (err) {
+        errors.push(formatFileDownloadError("CHAT", err));
+      }
       continue;
     }
   }
@@ -154,6 +187,7 @@ export async function downloadZoomRecordingFiles(params: {
           hostStaffId: params.hostStaffId,
           meetingKey: key,
         });
+        transcriptFallbackStatus = r.status;
         if (r.status === "downloaded") {
           const filename = `transcript.vtt`;
           const absPath = path.join(absDir, filename);
@@ -161,6 +195,9 @@ export async function downloadZoomRecordingFiles(params: {
           transcriptRelPath = path.posix.join("/", relDir, filename);
           transcriptText = r.text;
           break;
+        }
+        if (r.status !== "not_found") {
+          errors.push(formatTranscriptFallbackStatus(r.status));
         }
         if (
           r.status === "no_data" ||
@@ -171,7 +208,8 @@ export async function downloadZoomRecordingFiles(params: {
           break;
         }
         // not_ready / not_found は次のキーで再試行
-      } catch {
+      } catch (err) {
+        errors.push(formatFileDownloadError("TRANSCRIPT API", err));
         // 個別キーの失敗は握りつぶして次のキーへ（片方のキーが壊れていても
         // もう片方で取れる可能性がある）
       }
@@ -188,6 +226,8 @@ export async function downloadZoomRecordingFiles(params: {
     chatRelPath,
     chatText,
     chatFileId,
+    errors,
+    transcriptFallbackStatus,
   };
 }
 
@@ -209,6 +249,8 @@ export async function downloadZoomRecordingFiles(params: {
 export async function fetchRecordingMetadata(input: {
   hostStaffId: number;
   meetingId: bigint | number | string;
+  /** 固定URL/PMIの後追い取得時に、どの開催回かを選ぶ基準時刻 */
+  occurrenceStartedAt?: Date | null;
 }): Promise<ZoomRecordingPayload | null> {
   const ctx = await requireStaffZoomContext(input.hostStaffId);
 
@@ -216,7 +258,7 @@ export async function fetchRecordingMetadata(input: {
     key: string
   ): Promise<ZoomRecordingPayload | null> => {
     const resp = await fetch(
-      `https://api.zoom.us/v2/meetings/${key}/recordings`,
+      `https://api.zoom.us/v2/meetings/${key}/recordings?include_fields=download_access_token`,
       {
         headers: { Authorization: `Bearer ${ctx.accessToken}` },
         signal: AbortSignal.timeout(30000),
@@ -224,7 +266,12 @@ export async function fetchRecordingMetadata(input: {
     );
     if (resp.status === 404) return null;
     if (!resp.ok) {
-      throw new Error(`Zoom recording metadata 取得失敗: ${resp.status}`);
+      const text = await resp.text().catch(() => "");
+      throw new Error(
+        `Zoom recording metadata 取得失敗: ${resp.status} ${withReconnectHint(
+          text
+        )}`
+      );
     }
     return (await resp.json()) as ZoomRecordingPayload;
   };
@@ -250,6 +297,19 @@ export async function fetchRecordingMetadata(input: {
       : input.meetingId.toString();
 
   try {
+    if (input.occurrenceStartedAt) {
+      const occurrence = await findRecordingOccurrenceByStartedAt({
+        accessToken: ctx.accessToken,
+        meetingId: input.meetingId,
+        occurrenceStartedAt: input.occurrenceStartedAt,
+      });
+      if (occurrence) {
+        const byOccurrenceUuid = await callByKey(encodeUuidForZoom(occurrence.uuid));
+        if (byOccurrenceUuid) return byOccurrenceUuid;
+      }
+      return null;
+    }
+
     const primary = await callByKey(primaryKey);
     if (!primary) return null;
 
@@ -299,6 +359,135 @@ export async function fetchRecordingMetadata(input: {
     if (err instanceof Error && err.message.includes("404")) return null;
     throw err;
   }
+}
+
+type RecordingListResponse = {
+  meetings?: ZoomRecordingPayload[];
+  next_page_token?: string;
+};
+
+async function findRecordingOccurrenceByStartedAt(input: {
+  accessToken: string;
+  meetingId: bigint | number | string;
+  occurrenceStartedAt: Date;
+}): Promise<ZoomRecordingPayload | null> {
+  const meetingId = input.meetingId.toString();
+  const from = formatZoomDate(addDays(input.occurrenceStartedAt, -2));
+  const to = formatZoomDate(addDays(input.occurrenceStartedAt, 2));
+  const candidates: ZoomRecordingPayload[] = [];
+  let nextPageToken: string | undefined;
+
+  do {
+    const url = new URL("https://api.zoom.us/v2/users/me/recordings");
+    url.searchParams.set("from", from);
+    url.searchParams.set("to", to);
+    url.searchParams.set("page_size", "300");
+    if (nextPageToken) url.searchParams.set("next_page_token", nextPageToken);
+
+    const resp = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${input.accessToken}` },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (resp.status === 404) return null;
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(
+        `Zoom recording list 取得失敗: ${resp.status} ${withReconnectHint(text)}`
+      );
+    }
+
+    const payload = (await resp.json()) as RecordingListResponse;
+    for (const meeting of payload.meetings ?? []) {
+      if (String(meeting.id) === meetingId) candidates.push(meeting);
+    }
+    nextPageToken = payload.next_page_token || undefined;
+  } while (nextPageToken);
+
+  if (candidates.length === 0) return null;
+
+  const ranked = candidates
+    .map((meeting) => ({
+      meeting,
+      diffMs: Math.abs(
+        getRecordingOccurrenceTime(meeting).getTime() -
+          input.occurrenceStartedAt.getTime()
+      ),
+    }))
+    .filter((r) => Number.isFinite(r.diffMs))
+    .sort((a, b) => a.diffMs - b.diffMs);
+
+  const best = ranked[0];
+  if (!best) return null;
+  const MAX_DIFF_MS = 18 * 60 * 60 * 1000;
+  if (best.diffMs > MAX_DIFF_MS) return null;
+
+  const second = ranked[1];
+  const AMBIGUOUS_DIFF_MS = 5 * 60 * 1000;
+  if (
+    second &&
+    Math.abs(second.diffMs - best.diffMs) <= AMBIGUOUS_DIFF_MS &&
+    second.meeting.uuid !== best.meeting.uuid
+  ) {
+    throw new Error(
+      "同じ固定Zoom URLの録画候補が複数あり、接触日時だけでは開催回を特定できません"
+    );
+  }
+
+  return best.meeting;
+}
+
+function getRecordingOccurrenceTime(recording: ZoomRecordingPayload): Date {
+  const times = [
+    recording.start_time,
+    ...recording.recording_files.flatMap((f) => [
+      f.recording_start,
+      f.recording_end,
+    ]),
+  ].filter((v): v is string => !!v);
+  for (const value of times) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  return new Date(Number.NaN);
+}
+
+function addDays(date: Date, days: number): Date {
+  const d = new Date(date);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+
+function formatZoomDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function formatFileDownloadError(fileType: string, err: unknown): string {
+  return `${fileType}: ${err instanceof Error ? err.message : String(err)}`;
+}
+
+function formatTranscriptFallbackStatus(
+  status: Exclude<MeetingTranscriptResult["status"], "downloaded">
+): string {
+  switch (status) {
+    case "not_ready":
+      return "TRANSCRIPT: 文字起こしはZoom側で生成中です。後続リトライで再取得します。";
+    case "no_data":
+      return "TRANSCRIPT: Zoom側に文字起こしデータがありません。Zoomの文字起こし設定を確認してください。";
+    case "deleted":
+      return "TRANSCRIPT: Zoom側の文字起こしは削除済みです。";
+    case "unsupported":
+      return "TRANSCRIPT: このZoom録画は文字起こしAPIに対応していません。";
+    case "not_found":
+      return "TRANSCRIPT: 指定したZoom開催回の文字起こしがまだ見つかりません。後続リトライで再取得します。";
+  }
+}
+
+function withReconnectHint(text: string): string {
+  const body = text.slice(0, 300);
+  if (/scope|permission|forbidden|unauthorized|401|403/i.test(body)) {
+    return `${body}（Zoom再連携が必要な可能性があります）`;
+  }
+  return body;
 }
 
 async function downloadToBuffer(

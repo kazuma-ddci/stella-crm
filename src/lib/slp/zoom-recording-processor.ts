@@ -191,7 +191,8 @@ export async function fetchAndSaveAiSummary(
 
 export async function downloadAndSaveRecordingFiles(
   recordingRowId: number,
-  payload?: ZoomRecordingPayload
+  payload?: ZoomRecordingPayload,
+  options?: { downloadToken?: string | null }
 ): Promise<{
   ok: boolean;
   mp4: boolean;
@@ -208,20 +209,23 @@ export async function downloadAndSaveRecordingFiles(
 
   // payload無ければZoom APIから取得
   let recordingPayload = payload;
+  let metadataError: string | null = null;
   if (!recordingPayload) {
     try {
       const fetched = await fetchRecordingMetadata({
         hostStaffId: rec.hostStaffId,
         meetingId: rec.zoomMeetingId,
+        occurrenceStartedAt: rec.scheduledAt,
       });
       recordingPayload = fetched ?? undefined;
     } catch (err) {
+      metadataError = err instanceof Error ? err.message : String(err);
       await logAutomationError({
         source: "slp-zoom-recording-metadata",
         message: "録画メタデータ取得失敗",
         detail: {
           recordingId: recordingRowId,
-          error: err instanceof Error ? err.message : String(err),
+          error: metadataError,
         },
       });
     }
@@ -231,8 +235,10 @@ export async function downloadAndSaveRecordingFiles(
     await prisma.slpZoomRecording.update({
       where: { id: recordingRowId },
       data: {
-        downloadStatus: "no_recording",
-        downloadError: "Zoom側に録画が存在しないか削除済みです",
+        downloadStatus: metadataError ? "failed" : "no_recording",
+        downloadError:
+          metadataError ??
+          "接触日時に近いZoom録画が見つかりません。Zoom側に録画が存在しない、削除済み、または固定URLの開催回を特定できない可能性があります。",
         chatFetchedAt: rec.chatFetchedAt ?? new Date(),
       },
     });
@@ -288,6 +294,7 @@ export async function downloadAndSaveRecordingFiles(
       skipMp4: !!rec.mp4Path,
       skipTranscript: !!rec.transcriptText,
       skipChat: !!rec.chatLogText,
+      downloadToken: options?.downloadToken,
     });
   } catch (err) {
     await prisma.slpZoomRecording.update({
@@ -354,19 +361,34 @@ export async function downloadAndSaveRecordingFiles(
     updates.recordingEndAt = new Date(Math.max(...ends));
   }
 
-  // payload に MP4 が含まれていれば（DL試行した）成功扱い、含まれない時は会議仕様（音声のみ等）として completed 扱い
+  // payload に MP4 が含まれていても、文字起こし等が取れた場合は部分成功として完了扱いにする
   const payloadHasMp4 = recordingPayload.recording_files.some(
     (f) => f.file_type === "MP4"
   );
+  const hasAnySaved =
+    mp4Saved ||
+    transcriptSaved ||
+    chatSaved ||
+    !!rec.mp4Path ||
+    !!rec.transcriptText ||
+    !!rec.chatLogText;
   let finalStatus: string;
-  if (payloadHasMp4) {
+  if (hasAnySaved) {
+    finalStatus = "completed";
+  } else if (
+    downloaded.transcriptFallbackStatus === "not_ready" ||
+    downloaded.transcriptFallbackStatus === "not_found"
+  ) {
+    finalStatus = "pending";
+  } else if (payloadHasMp4) {
     finalStatus = mp4Saved || rec.mp4Path ? "completed" : "failed";
   } else {
     // MP4 が無い会議（音声のみ等）→ DL試行は完了
     finalStatus = "completed";
   }
   updates.downloadStatus = finalStatus;
-  updates.downloadError = null;
+  updates.downloadError =
+    downloaded.errors.length > 0 ? downloaded.errors.join("\n") : null;
 
   await prisma.slpZoomRecording.update({
     where: { id: recordingRowId },
@@ -697,7 +719,8 @@ async function finalizeRecordingState(recordingRowId: number): Promise<"予定" 
 // ============================================
 
 export async function processZoomRecordingCompleted(
-  payload: ZoomRecordingPayload
+  payload: ZoomRecordingPayload,
+  options?: { downloadToken?: string | null }
 ): Promise<void> {
   const meetingIdNum =
     typeof payload.id === "string" ? BigInt(payload.id) : BigInt(payload.id);
@@ -722,7 +745,9 @@ export async function processZoomRecordingCompleted(
   }
 
   // recording.completed の payload には全ファイル情報があるので渡す
-  await downloadAndSaveRecordingFiles(ctx.recordingRowId, payload);
+  await downloadAndSaveRecordingFiles(ctx.recordingRowId, payload, {
+    downloadToken: options?.downloadToken,
+  });
   // 参加者情報取得
   await fetchAndSaveParticipants(ctx.recordingRowId);
   // AI 要約も取りに行く（既に取得済なら no-op）

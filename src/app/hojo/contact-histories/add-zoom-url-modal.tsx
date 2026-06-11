@@ -110,7 +110,7 @@ export function AddZoomUrlModal({
         <DialogHeader>
           <DialogTitle>Zoom 議事録連携を追加</DialogTitle>
           <DialogDescription>
-            Zoom URL を入力すると、議事録・録画・参加者情報を自動取得します。未実施のZoomも予定として登録できます。
+            弊社Zoom連携済みスタッフがホストのURLを登録すると、クラウド録画・文字起こし有効時に議事録・録画・参加者情報を自動取得します。先方発行URLはRTMSなしでは自動取得できません。
           </DialogDescription>
         </DialogHeader>
 
@@ -153,7 +153,7 @@ export function AddZoomUrlModal({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Zoom連携を完了しているスタッフのみ選択可能です
+              URL発行元の弊社Zoomアカウントと連携済みのスタッフを選択してください
             </p>
           </div>
 

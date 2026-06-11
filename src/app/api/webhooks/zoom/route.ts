@@ -112,9 +112,10 @@ export async function POST(request: Request) {
       const meetingIdForPayload =
         typeof payload.id === "string" ? BigInt(payload.id) : BigInt(payload.id);
       const scopes = await resolveRecordingScopes(meetingIdForPayload);
+      const downloadToken = body.download_token ?? null;
       for (const scope of scopes) {
         if (scope === "slp") {
-          processZoomRecordingCompleted(payload).catch(async (err) => {
+          processZoomRecordingCompleted(payload, { downloadToken }).catch(async (err) => {
             await logAutomationError({
               source: "zoom-webhook-recording-completed",
               message: `SLP録画処理失敗: ${err instanceof Error ? err.message : String(err)}`,
@@ -122,7 +123,7 @@ export async function POST(request: Request) {
             });
           });
         } else if (scope === "hojo") {
-          processHojoZoomRecordingCompleted(payload).catch(async (err) => {
+          processHojoZoomRecordingCompleted(payload, { downloadToken }).catch(async (err) => {
             await logAutomationError({
               source: "zoom-webhook-recording-completed",
               message: `HOJO録画処理失敗: ${err instanceof Error ? err.message : String(err)}`,

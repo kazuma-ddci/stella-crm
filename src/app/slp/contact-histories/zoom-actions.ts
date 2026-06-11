@@ -129,7 +129,7 @@ export async function addManualZoomToContactHistory(params: {
     // 接触履歴存在確認
     const ch = await prisma.slpContactHistory.findUnique({
       where: { id: params.contactHistoryId },
-      select: { id: true, deletedAt: true, companyRecordId: true },
+      select: { id: true, deletedAt: true, companyRecordId: true, contactDate: true },
     });
     if (!ch || ch.deletedAt) {
       return err("接触履歴が見つかりません");
@@ -198,6 +198,7 @@ export async function addManualZoomToContactHistory(params: {
         category,
         hostStaffId: params.hostStaffId ?? null,
         joinUrl: parsed.cleanUrl,
+        scheduledAt: ch.contactDate,
         isPrimary: !hasPrimary, // primary 未設定なら primary に、既にあれば 追加Zoom
         label: hasPrimary ? params.label ?? "追加Zoom" : params.label ?? null,
         state: "予定",
@@ -504,8 +505,11 @@ export async function getContactHistoryZoomRecordings(
       state: string;
       hostStaffName: string | null;
       zoomApiError: string | null;
+      downloadStatus: string;
+      downloadError: string | null;
       createdAt: string;
       hasRecording: boolean;
+      hasTranscript: boolean;
     }[]
   >
 > {
@@ -527,7 +531,10 @@ export async function getContactHistoryZoomRecordings(
         state: r.state,
         hostStaffName: r.hostStaff?.name ?? null,
         zoomApiError: r.zoomApiError,
+        downloadStatus: r.downloadStatus,
+        downloadError: r.downloadError,
         createdAt: r.createdAt.toISOString(),
+        hasTranscript: !!r.transcriptText,
         hasRecording:
           r.state === "完了" ||
           !!r.aiCompanionSummary ||

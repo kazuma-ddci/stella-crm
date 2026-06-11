@@ -127,7 +127,7 @@ export async function addManualZoomToHojoContactHistory(params: {
 
     const ch = await prisma.hojoContactHistory.findUnique({
       where: { id: params.contactHistoryId },
-      select: { id: true, deletedAt: true },
+      select: { id: true, deletedAt: true, contactDate: true },
     });
     if (!ch || ch.deletedAt) {
       return err("接触履歴が見つかりません");
@@ -182,6 +182,7 @@ export async function addManualZoomToHojoContactHistory(params: {
         zoomMeetingId: meetingIdBig,
         hostStaffId: params.hostStaffId ?? null,
         joinUrl: parsed.cleanUrl,
+        scheduledAt: ch.contactDate,
         isPrimary: !hasPrimary,
         label: hasPrimary ? params.label ?? "追加Zoom" : params.label ?? null,
         state: "予定",
@@ -641,8 +642,11 @@ export async function getHojoContactHistoryZoomRecordings(
       state: string;
       hostStaffName: string | null;
       zoomApiError: string | null;
+      downloadStatus: string;
+      downloadError: string | null;
       createdAt: string;
       hasRecording: boolean;
+      hasTranscript: boolean;
     }[]
   >
 > {
@@ -664,7 +668,10 @@ export async function getHojoContactHistoryZoomRecordings(
         state: r.state,
         hostStaffName: r.hostStaff?.name ?? null,
         zoomApiError: r.zoomApiError,
+        downloadStatus: r.downloadStatus,
+        downloadError: r.downloadError,
         createdAt: r.createdAt.toISOString(),
+        hasTranscript: !!r.transcriptText,
         hasRecording:
           r.state === "完了" ||
           !!r.aiCompanionSummary ||
